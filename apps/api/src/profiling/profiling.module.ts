@@ -18,6 +18,8 @@ import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
 import { FreeChatService } from "./free-chat/free-chat.service";
+import { FreeChatFoldLock } from "./free-chat/free-chat-fold.lock";
+import { FreeChatSummaryService } from "./free-chat/free-chat-summary.service";
 import { LlmTurnService } from "./llm-turn.service";
 import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
@@ -174,6 +176,13 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // `AiCostRecorder` come from `AiModule`, `ChatRepository` from `ChatModule` and `EventsService`
     // from `EventsModule`, all imported above: a provider, and no module edge.
     FreeChatService,
+    // ADR-0051 §8 (Release 2) — the rolling summary's fold and its per-session Redis lock. The fold
+    // is a trailing optional constructor dependency of the orchestrator like the three above, so
+    // omitting it would not fail boot — it would silently fold nothing. Its dependencies are
+    // `FreeChatService`'s plus the lock, which borrows the RESUME_RENDER_QUEUE connection
+    // registered above: two providers, and no module edge.
+    FreeChatFoldLock,
+    FreeChatSummaryService,
     ProfilingOrchestrator,
     ProfilingSessionService,
     ProfilingVoiceRepository,

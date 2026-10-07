@@ -7,7 +7,9 @@ import type { BufferedMessage } from "../../chat/chat-transcript.buffer";
 import {
   FreeChatService,
   freeChatWorkerContextOf,
+  recentTurnOf,
   recentTurnsOf,
+  summaryForModel,
   verdictOf,
   type FreeChatCallContext,
 } from "./free-chat.service";
@@ -271,6 +273,7 @@ describe("reply — G2 and the ledger", () => {
         text: "welding seekhni hai",
         messages: [],
         workerContext: { trade_label: "Ramesh Kumar welding", experience_bucket: null },
+        summary: null,
       },
       ctx,
     );
@@ -289,6 +292,7 @@ describe("reply — G2 and the ledger", () => {
         text: "Ramesh Kumar ko welding seekhni hai",
         messages,
         workerContext: { trade_label: "Welder", experience_bucket: "3-7" },
+        summary: null,
       },
       ctx,
     );
@@ -303,6 +307,65 @@ describe("reply — G2 and the ledger", () => {
     expect(JSON.stringify(sent)).not.toContain("Ramesh");
     expect(sent.worker_context).toEqual({ trade_label: "Welder", experience_bucket: "3-7" });
     expect(cost.record.mock.calls[0]![1]).toBe("profiling_free_reply");
+  });
+});
+
+describe("Release 2 — the rolling summary rides the REPLY only (R24)", () => {
+  const reply = (summary: string | null) => ({
+    category: "casual" as const,
+    text: "kaise ho",
+    messages: [],
+    workerContext: { trade_label: null, experience_bucket: null },
+    summary,
+  });
+
+  it("carries the stored summary into the reply input, the worker's own name redacted (G2)", async () => {
+    const { service, ai, ctx } = make();
+    await service.reply(reply("Ramesh likes cricket. Ramesh Kumar is from Patna."), ctx);
+    const sent = ai.freeChatReply.mock.calls[0]![0] as { summary: unknown };
+    expect(sent.summary).toBe("[NAME] likes cricket. [NAME] is from Patna.");
+  });
+
+  it("sends null when there is no summary, and when only whitespace is left", async () => {
+    const { service, ai, ctx } = make();
+    await service.reply(reply(null), ctx);
+    await service.reply(reply("   "), ctx);
+    expect(
+      ai.freeChatReply.mock.calls.map(([input]) => (input as { summary: unknown }).summary),
+    ).toEqual([null, null]);
+  });
+
+  it("an over-long stored summary is CLIPPED to the contract, never a lost reply", async () => {
+    const { service, ai, ctx } = make(null);
+    const out = await service.reply(reply("x".repeat(1_500)), ctx);
+    expect(out).not.toBeNull();
+    expect((ai.freeChatReply.mock.calls[0]![0] as { summary: string }).summary).toHaveLength(1_200);
+  });
+
+  it("the CLASSIFIER's input has no summary field at all", async () => {
+    const { service, ai, ctx } = make();
+    await service.classify(
+      { text: "kaise ho", mode: "free", pendingQuestion: null, messages: [] },
+      ctx,
+    );
+    expect("summary" in (ai.freeChatClassify.mock.calls[0]![0] as object)).toBe(false);
+  });
+});
+
+describe("summaryForModel / recentTurnOf", () => {
+  it("summaryForModel redacts, trims and clips; null for nothing", () => {
+    expect(summaryForModel(null, "Ramesh")).toBeNull();
+    expect(summaryForModel("  Ramesh is a welder.  ", "Ramesh")).toBe("[NAME] is a welder.");
+    expect(summaryForModel("a".repeat(1_201), null)).toHaveLength(1_200);
+  });
+
+  it("recentTurnOf drops an intake line and a blank one, and redacts the rest", () => {
+    expect(recentTurnOf(line("worker", "Sitaram", { intake: true }), null)).toBeNull();
+    expect(recentTurnOf(line("assistant", " {{worker_name}} "), null)).toBeNull();
+    expect(recentTurnOf(line("assistant", "Ramesh ji, theek?"), "Ramesh")).toEqual({
+      role: "bada_bhai",
+      text: "[NAME] ji, theek?",
+    });
   });
 });
 

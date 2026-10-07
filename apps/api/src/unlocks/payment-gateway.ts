@@ -5,8 +5,12 @@ import { areRealPaymentsEnabled } from "@badabhai/config";
 import { CREDIT_PACKS, type CreditPack, type PaymentOrder } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PricingService } from "../pricing/pricing.service";
+import { chargeQuote } from "../pricing/charge-price";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
 import { RazorpayClient } from "./razorpay.client";
+
+/** The credit-pack product code in the pricing catalog (D-6). */
+const CREDIT_PACK_PRODUCT = "contact_unlock";
 
 /**
  * The PaymentGateway / CreditService seam (ADR-0010 §D5 / Phase-0 F-6) — the single
@@ -143,14 +147,14 @@ export class PaymentGateway {
    */
   private async resolveLivePack(packCode: string): Promise<CreditPack | undefined> {
     const { catalog } = await this.pricing.getActiveCatalog();
-    const product = catalog.products.find(
-      (p) => p.kind === "credit_pack" && p.code === "contact_unlock",
-    );
-    if (!product || product.kind !== "credit_pack") return undefined;
-    const tier = product.tiers.find((t) => t.code === packCode);
-    // Map the catalog tier onto the CreditPack shape the purchase path consumes. `credits`
-    // comes from the LIVE tier too — the grant, not just the price, follows the catalog.
-    return tier ? { code: tier.code, priceInr: tier.priceInr, credits: tier.credits } : undefined;
+    // #2085: priced through `chargeQuote`, the ONE charge function the payer catalog also
+    // displays through, so the ₹ shown for a pack is the ₹ this charges (list price — see
+    // `chargeQuote` on why credit packs take no offer).
+    const result = chargeQuote(catalog, { productCode: CREDIT_PACK_PRODUCT, tierCode: packCode });
+    if (!result.ok || result.quote.grants.kind !== "credit_pack") return undefined;
+    // Map the quote onto the CreditPack shape the purchase path consumes. `credits` comes
+    // from the LIVE tier too — the grant, not just the price, follows the catalog.
+    return { code: packCode, priceInr: result.quote.finalInr, credits: result.quote.grants.credits };
   }
 
   /**

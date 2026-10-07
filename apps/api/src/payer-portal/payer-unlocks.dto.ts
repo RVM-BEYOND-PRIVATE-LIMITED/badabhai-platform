@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { expectedPriceInrSchema } from "../pricing/charge-price";
 
 /**
  * POST /payer/unlocks body — request a routed-contact unlock for a candidate.
@@ -23,6 +24,8 @@ export type PayerRequestUnlockDto = z.infer<typeof PayerRequestUnlockSchema>;
  */
 export const PayerBuyPackSchema = z.object({
   pack_code: z.string().min(1).max(64),
+  /** #2085 — the ₹ the payer confirmed; refused with 409 `price_mismatch` if it is not the charge. */
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type PayerBuyPackDto = z.infer<typeof PayerBuyPackSchema>;
 

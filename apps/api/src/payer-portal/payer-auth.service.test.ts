@@ -149,6 +149,11 @@ describe("PayerAuthService.testLogin (Phase 2.1 seam)", () => {
     // A synthetic session must never be indistinguishable from a real login on the spine.
     expect(names).not.toContain("payer.session_started");
     assertNoPiiInEvents(d.events);
+    // #2079: the test session carries the org claim exactly like a real login.
+    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
+      orgId: "org-1",
+      orgRole: "owner",
+    });
   });
 
   it("refuses an address OUTSIDE the reserved .invalid domain with the guard's neutral 404 — no account touched", async () => {
@@ -286,7 +291,11 @@ describe("PayerAuthService.verifyLogin", () => {
     const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     expect(d.otp.verify).toHaveBeenCalledWith(`hmac<${EMAIL}>`, "123456");
     // ADR-0022: the account role is carried onto the session so PayerRoleGuard gates without a DB hit.
-    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer");
+    // #2079: the CURRENT membership rides the session as the org_id/org_role claim.
+    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
+      orgId: "org-1",
+      orgRole: "owner",
+    });
     const evt = d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.session_started");
     expect(evt![0].payload).toEqual({ payer_id: PAYER_ID, method: "email_otp", is_new_payer: false });
     expect(res).toMatchObject({ access_token: "jwt-token", token_type: "Bearer", payer_id: PAYER_ID, role: "employer" });
@@ -315,8 +324,22 @@ describe("PayerAuthService.verifyLogin", () => {
     d.orgs.resolveOrgForPayer.mockResolvedValueOnce(null as never); // created before B5.2 shipped
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     expect(d.orgs.ensureSoloOrg).toHaveBeenCalledWith(PAYER_ID);
-    // Still mints the session normally.
-    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer");
+    // Still mints the session normally — carrying the freshly-ensured solo-org OWNER claim.
+    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
+      orgId: "org-1",
+      orgRole: "owner",
+    });
+  });
+
+  it("#2079: a RECRUITER member's session carries org_role 'recruiter' (decided server-side)", async () => {
+    const d = setup();
+    d.orgs.resolveOrgForPayer.mockResolvedValueOnce({ orgId: "org-9", orgRole: "recruiter" } as never);
+    await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
+    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
+      orgId: "org-9",
+      orgRole: "recruiter",
+    });
+    expect(d.orgs.ensureSoloOrg).not.toHaveBeenCalled();
   });
 });
 
@@ -324,8 +347,34 @@ describe("PayerAuthService.refresh + logout", () => {
   it("refresh mints a fresh token for the validated payer+session", async () => {
     const d = setup();
     const res = await d.svc.refresh(PAYER_ID, "sid-1");
-    expect(d.sessions.mint).toHaveBeenCalledWith(PAYER_ID, "sid-1");
+    // #2079: the org claim is RE-DECIDED from the current membership (not copied from the token).
+    expect(d.orgs.resolveOrgForPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(d.sessions.mint).toHaveBeenCalledWith(PAYER_ID, "sid-1", undefined, {
+      orgId: "org-1",
+      orgRole: "owner",
+    });
     expect(res).toMatchObject({ access_token: "fresh-jwt", token_type: "Bearer" });
+  });
+
+  it("#2079: refresh after a DEMOTION carries 'recruiter', not the old 'owner'", async () => {
+    const d = setup();
+    d.orgs.resolveOrgForPayer.mockResolvedValueOnce({ orgId: "org-1", orgRole: "recruiter" } as never);
+    await d.svc.refresh(PAYER_ID, "sid-1");
+    expect(d.sessions.mint).toHaveBeenCalledWith(PAYER_ID, "sid-1", undefined, {
+      orgId: "org-1",
+      orgRole: "recruiter",
+    });
+  });
+
+  it("#2079: refresh for a REMOVED member (no membership) or a resolve error omits the claim", async () => {
+    const d = setup();
+    d.orgs.resolveOrgForPayer.mockResolvedValueOnce(null as never);
+    await d.svc.refresh(PAYER_ID, "sid-1");
+    expect(d.sessions.mint).toHaveBeenLastCalledWith(PAYER_ID, "sid-1", undefined, undefined);
+
+    d.orgs.resolveOrgForPayer.mockRejectedValueOnce(new Error("pg blip"));
+    await expect(d.svc.refresh(PAYER_ID, "sid-1")).resolves.toMatchObject({ access_token: "fresh-jwt" });
+    expect(d.sessions.mint).toHaveBeenLastCalledWith(PAYER_ID, "sid-1", undefined, undefined);
   });
 
   it("logout revokes the current session", async () => {

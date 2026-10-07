@@ -3149,8 +3149,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 225 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced)", () => {
-    expect(EVENT_NAMES).toHaveLength(225);
+  it("exposes all 226 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold)", () => {
+    expect(EVENT_NAMES).toHaveLength(226);
     // ADR-0050 §9 — the agency twin sync's own event (a new name; no schema mutated).
     expect(isEventName("job_posting.twin_synced")).toBe(true);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
@@ -5625,5 +5625,48 @@ describe("job_posting.twin_synced (ADR-0050 §9, #1957)", () => {
     expect(ok({ ...valid, changed_fields: ["CNC Operator night shift"] })).toBe(false);
     expect(ok({ ...valid, operation: "deleted" })).toBe(false);
     expect(ok({ ...valid, refused_reason: "over_cap", operation: "refused", status: "paused" })).toBe(false);
+  });
+});
+
+describe("chat.free_chat_summary_updated (ADR-0051 Release 2, #2027)", () => {
+  const ok = (payload: Record<string, unknown>) =>
+    validateEvent({
+      event_id: UUID_A,
+      event_name: "chat.free_chat_summary_updated",
+      event_version: 1,
+      occurred_at: "2026-10-07T10:00:00.000Z",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "chat_session", subject_id: UUID_C },
+      source: "api",
+      correlation_id: UUID_C,
+      causation_id: null,
+      payload,
+      metadata: { environment: "test", service: "api" },
+    }).success;
+  const updated = {
+    worker_id: UUID_B,
+    session_id: UUID_C,
+    outcome: "updated",
+    folded_lines: 4,
+    summary_chars: 312,
+  };
+
+  it("is registered at v1 in the chat domain", () => {
+    expect(isEventName("chat.free_chat_summary_updated")).toBe(true);
+    expect(EVENT_REGISTRY["chat.free_chat_summary_updated"].version).toBe(1);
+    expect(EVENT_REGISTRY["chat.free_chat_summary_updated"].domain).toBe("chat");
+  });
+
+  it("carries the stored length only for an update", () => {
+    expect(ok(updated)).toBe(true);
+    expect(ok({ ...updated, outcome: "rejected", summary_chars: null })).toBe(true);
+    expect(ok({ ...updated, outcome: "unavailable", summary_chars: null })).toBe(true);
+    expect(ok({ ...updated, summary_chars: null })).toBe(false);
+    expect(ok({ ...updated, outcome: "rejected" })).toBe(false);
+  });
+
+  it("never carries the summary — `.strict()` refuses it", () => {
+    expect(ok({ ...updated, summary: "worker is a welder" })).toBe(false);
+    expect(ok({ ...updated, outcome: "stored" })).toBe(false);
   });
 });

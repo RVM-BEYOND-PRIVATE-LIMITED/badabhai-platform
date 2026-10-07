@@ -602,12 +602,19 @@ _PAY_BETWEEN_WINDOW = 24
 _PAY_ADDON_AFTER_WINDOW = 32
 
 
+def _range_end(match: re.Match[str]) -> int:
+    """Where a range match's second figure ends: its suffix's last character, else its digits'.
+    The range regex's trailing `\\s*` + optional suffix swallows the whitespace after a
+    suffix-less figure; that whitespace is not part of the figure."""
+    return match.end(4) if match.group(4) else match.end(3)
+
+
 def _addon_follows(match: re.Match[str]) -> bool:
     """An add-on word sits in the clause right after the pair's second figure. The window
     starts at the figure's last character, not at ``match.end()``: the range regex swallows
     the whitespace after a suffix-less figure, and the " and " boundary needs it ("25000 and
     PF" is the figure, a boundary, then a benefit — not an add-on figure)."""
-    figure_end = match.end(4) if match.group(4) else match.end(3)
+    figure_end = _range_end(match)
     window = match.string[figure_end : figure_end + _PAY_ADDON_AFTER_WINDOW]
     boundary = _PAY_CLAUSE_BOUNDARY_RE.search(window)
     if boundary is not None:
@@ -665,14 +672,16 @@ def _pay_figures(message: str) -> list[_PayFigure]:
         if _is_split_and_pair(match, low, high):
             split_pairs.append(match.span())
             continue  # two statements, not a range: its halves are screened one by one below
+        # A range ends at its second figure's last character (#2094): the whitespace a
+        # suffix-less "22000" swallows put the " and " boundary INSIDE the range, so "between
+        # 18000 and 22000 and PF" ran on into the PF clause and was dropped with it.
+        end = _range_end(match)
         if low is not None and high is not None:
-            figures.append(
-                _PayFigure(match.start(), match.end(), min(low, high), max(low, high), True)
-            )
+            figures.append(_PayFigure(match.start(), end, min(low, high), max(low, high), True))
         elif low is not None or high is not None:
             single = low if low is not None else high
             assert single is not None
-            figures.append(_PayFigure(match.start(), match.end(), single, None, True))
+            figures.append(_PayFigure(match.start(), end, single, None, True))
         else:
             continue  # neither half is pay: its digits stay for the amount scan
         blanked.append(match.span())

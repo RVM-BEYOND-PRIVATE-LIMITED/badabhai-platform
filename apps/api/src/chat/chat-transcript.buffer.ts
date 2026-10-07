@@ -97,6 +97,21 @@ export interface BufferedMessage {
    * predicate every buffer reader applies.
    */
   aside?: true;
+  /**
+   * ADR-0051 §8 (Release 2) — the line is one half of a FREE-MODE casual or career EXCHANGE: the
+   * worker's message and the MODEL-WRITTEN reply that answered it. Only these are folded into the
+   * rolling summary once they age out of the reply's recent-turn window (R21, R22). Set ONLY beside
+   * {@link aside} (a foldable line is always an aside) and ABSENT everywhere else, never `false` —
+   * so every buffer written without it serializes byte-identically.
+   *
+   * NARROWER THAN `aside` ON PURPOSE. `aside` also covers the greeting, the opener, every fixed
+   * line (jobs, off-limits, the fallback, a refusal, the strikes), the clarify and deflect leads and
+   * the distress line — none of which is conversation worth remembering, and trash or a distress
+   * message must never be summarised. Résumé mode and the identity intake never set it. It is read
+   * only off the LIVE buffer (the fold runs during the session), so nothing writes it to
+   * `chat_messages`.
+   */
+  foldable?: true;
 }
 
 /**
@@ -158,6 +173,7 @@ export const BUFFERED_MESSAGE_KEYS = {
   voiceNoteId: true,
   intake: true,
   aside: true,
+  foldable: true,
 } satisfies Record<keyof BufferedMessage, true>;
 
 /** The whole in-flight interview. Serialized to one Redis string per session. */
@@ -490,6 +506,9 @@ export class ChatTranscriptBuffer {
         // ADR-0051 — the same rule: a literal `true` only, otherwise ABSENT. A lost flag fails
         // toward "an ordinary line", which is how every line read before the free chat existed.
         ...(msg.aside === true ? { aside: true as const } : {}),
+        // ADR-0051 Release 2 — the same rule again. A lost flag fails toward "not foldable": the
+        // line is simply never summarised, which is how every line read before Release 2 behaves.
+        ...(msg.foldable === true ? { foldable: true as const } : {}),
       });
     }
 

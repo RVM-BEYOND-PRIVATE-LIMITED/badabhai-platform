@@ -37,6 +37,12 @@ const CLASSIFY_TURNS_MAX = 2;
 const REPLY_TURNS_MAX = 6;
 const REPLY_LINE_MAX = 300;
 const REPLY_CHIP_MAX = 60;
+// Release 2 — the rolling conversation summary. The API stores at most SUMMARY_MAX characters;
+// the model's output cap is looser so an over-long summary reaches the API's validator to be
+// judged (and rejected) rather than failing at the transport.
+const SUMMARY_MAX = 1200;
+const SUMMARY_OUTPUT_MAX = 2000;
+const SUMMARY_TURNS_MAX = 24;
 
 /**
  * The modes a message can be classified IN. `greeting` is never sent: the greeting's Haan /
@@ -83,6 +89,12 @@ export const FreeChatReplyInputSchema = z.object({
     trade_label: null,
     experience_bucket: null,
   }),
+  /**
+   * Release 2 — the worker's rolling free-chat summary (earlier sessions and the turns older than
+   * `recent_turns`), so a reply stays continuous across returns. Model-written context, validated
+   * by the API before it was stored; never shown to the worker. Additive and defaulted.
+   */
+  summary: z.string().min(1).max(SUMMARY_MAX).nullable().default(null),
 });
 export type FreeChatReplyInput = z.infer<typeof FreeChatReplyInputSchema>;
 
@@ -117,3 +129,27 @@ export const FreeChatReplyOutputSchema = z.discriminatedUnion("status", [
   FreeChatRefuseSchema,
 ]);
 export type FreeChatReplyOutput = z.infer<typeof FreeChatReplyOutputSchema>;
+
+// ── Release 2 — the rolling conversation summary (ADR-0051 §8) ──────────────────────────────
+
+/**
+ * Fold free-chat turns into the worker's summary: the previous summary (null on the first fold)
+ * plus the turns that have just aged out of the reply's recent-turn window. Free-chat talk only;
+ * interview answers live in the profile and are never sent here.
+ */
+export const FreeChatSummarizeInputSchema = z.object({
+  previous_summary: z.string().min(1).max(SUMMARY_MAX).nullable().default(null),
+  turns: z.array(CompanionRecentTurnSchema).min(1).max(SUMMARY_TURNS_MAX),
+});
+export type FreeChatSummarizeInput = z.infer<typeof FreeChatSummarizeInputSchema>;
+
+/**
+ * The updated summary, or null when the model produced nothing usable (the API then keeps the
+ * previous one). UNTRUSTED: the API re-validates it (identifiers, the worker's own name, length,
+ * template tokens) before storing it.
+ */
+export const FreeChatSummarizeOutputSchema = z.object({
+  summary: z.string().min(1).max(SUMMARY_OUTPUT_MAX).nullable().default(null),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type FreeChatSummarizeOutput = z.infer<typeof FreeChatSummarizeOutputSchema>;

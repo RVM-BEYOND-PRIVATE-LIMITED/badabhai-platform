@@ -29,14 +29,13 @@ refuse both; pinned as `KNOWN_RESIDUAL` in section 7 and tracked as risks-regist
 
 WHAT IT STILL DOES NOT READ, pinned as `KNOWN_RESIDUAL` (section 7): a SPACED dot ("Reg . No ."),
 a dot after "Num"/"Number", the separators "No: -", an en dash, "No #" and "No.=" (all
-pre-existing, named by the security review), and, separately, the salary guard has no résumé
-cues, so
-"Passport.No. M123456" still records 123456 as pay (split out by the owner on 2026-10-06 as
-#2043).
+pre-existing, named by the security review). The salary guard's missing résumé cues, split out
+by the owner on 2026-10-06 as #2043, are fixed there; section 7 pins it.
 
-PRE is each rule as #1933 shipped it, frozen in `scripts/measure_cued_id_dot.py`; section 1 pins
-that the shipped rules are PRE with exactly #1950's edits, so every "as on PRE" below isolates
-#1950. All inputs are fabricated. Stdlib, git and pytest only.
+PRE is each rule as #1933 shipped it, frozen in `scripts/measure_cued_id_dot.py`, plus the edits
+later issues made (#2043 on the salary guard); section 1 pins that the shipped rules are PRE with
+exactly #1950's edits, so every "as on PRE" below isolates #1950. All inputs are fabricated.
+Stdlib, git and pytest only.
 """
 
 from __future__ import annotations
@@ -79,8 +78,9 @@ def under_pre(fn: Callable[..., object], *args: object) -> object:
 @pytest.mark.parametrize("name", RULES)
 def test_the_shipped_rule_is_pre_with_exactly_the_1950_edits(name):
     shipped = measure.shipped_source(name)
-    assert measure.apply_1950(name, measure.PRE_1950[name]) == shipped
-    assert measure.PRE_1950[name] != shipped
+    # PRE carries the later issues' edits (#2043 on the salary guard), so the two differ by #1950.
+    assert measure.apply_later(name, measure.apply_1950(name, measure.PRE_1950[name])) == shipped
+    assert measure.pre_source(name) != shipped
     assert measure.pre(name).flags == measure.linear.shipped(name).flags
 
 
@@ -428,14 +428,15 @@ def test_KNOWN_RESIDUAL_a_spaced_dot_or_a_dot_after_num_is_not_read(text):
     assert signals.detect(text).current_salary == 123456
 
 
-def test_KNOWN_RESIDUAL_the_salary_guard_has_no_resume_cue():
-    """R56's adjacent finding, split out by the owner on 2026-10-06 as #2043: `credentialBefore`
-    holds the credential cues only, so a passport number G1/G2 refuses is still recorded as pay.
-    Unchanged by #1950, which reads the dot in the guard but adds no cue to it."""
-    text = "Passport.No. M123456"
-    assert contains_hard_identifier(text) == "credential_id"
-    assert signals.detect(text).current_salary == 123456
-    assert signals.detect("Passport No. M123456").current_salary == 123456
+def test_the_salary_guard_reads_the_resume_cues_since_2043():
+    """R56's adjacent finding, split out by the owner on 2026-10-06 as #2043 and pinned here as
+    `KNOWN_RESIDUAL` until then: `credentialBefore` held the credential cues only, so a passport
+    number G1/G2 refuses was still recorded as pay. #2043 gave the guard the identifier-only résumé
+    cues, so the guard now drops it, dotted or not, as G1/G2 refuses it. #1950's dot reads in the
+    guard as everywhere else."""
+    for text in ("Passport.No. M123456", "Passport No. M123456"):
+        assert contains_hard_identifier(text) == "credential_id"
+        assert signals.detect(text).current_salary is None
 
 
 @pytest.mark.parametrize(
@@ -512,4 +513,5 @@ def test_the_corpus_leaves_both_cued_id_test_files_out():
     listed = {path.name for paths in measure.linear.corpus_files().values() for path in paths}
     assert "test_pseudonymize_cued_id_dot.py" not in listed
     assert "test_pseudonymize_cued_id_linear.py" not in listed
+    assert "test_salary_guard_resume_cues.py" not in listed  # #2043's own fixtures
     assert "test_pseudonymize.py" in listed  # the rest of the service's tests are read

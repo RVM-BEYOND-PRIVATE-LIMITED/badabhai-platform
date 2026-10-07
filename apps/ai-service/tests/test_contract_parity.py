@@ -57,6 +57,8 @@ from app.contracts import (
     FreeChatReplyCategory,
     FreeChatReplyInput,
     FreeChatReplyOutput,
+    FreeChatSummarizeInput,
+    FreeChatSummarizeOutput,
     InterviewExtractInput,
     InterviewExtractOutput,
     JobDomainMatch,
@@ -767,6 +769,9 @@ _FREE_CHAT_MODELS = {
     # member's keys and the union test below pins the discriminant.
     "FreeChatAnswer": FreeChatAnswer,
     "FreeChatRefuse": FreeChatRefuse,
+    # Release 2 (§8): the rolling summary's fold.
+    "FreeChatSummarizeInput": FreeChatSummarizeInput,
+    "FreeChatSummarizeOutput": FreeChatSummarizeOutput,
 }
 
 
@@ -865,6 +870,40 @@ def test_free_chat_bounds_match_the_zod_source_at_the_boundary():
             FreeChatClassifyOutput(category="unclear", confidence=bad)
 
 
+def test_free_chat_summary_bounds_match_the_zod_source_at_the_boundary():
+    """Release 2 (§8). The input cap is the API's storage cap; the output cap is looser so an
+    over-long summary reaches the API's validator (outcome `rejected`) instead of failing here."""
+    summary_max = _free_chat_ts_int("SUMMARY_MAX")
+    output_max = _free_chat_ts_int("SUMMARY_OUTPUT_MAX")
+    turns_max = _free_chat_ts_int("SUMMARY_TURNS_MAX")
+    assert (summary_max, output_max, turns_max) == (1200, 2000, 24)  # non-vacuous
+    turn = {"role": "worker", "text": "kuch"}
+
+    FreeChatReplyInput(category="casual", text="x", summary="s" * summary_max)
+    FreeChatReplyInput(category="casual", text="x", summary=None)
+    for bad in ("", "s" * (summary_max + 1)):
+        with pytest.raises(ValidationError):
+            FreeChatReplyInput(category="casual", text="x", summary=bad)
+
+    FreeChatSummarizeInput(turns=[turn])
+    FreeChatSummarizeInput(turns=[turn] * turns_max, previous_summary="s" * summary_max)
+    with pytest.raises(ValidationError):
+        FreeChatSummarizeInput(turns=[])  # Zod .min(1): a fold of nothing is never sent
+    with pytest.raises(ValidationError):
+        FreeChatSummarizeInput(turns=[turn] * (turns_max + 1))
+    with pytest.raises(ValidationError):
+        FreeChatSummarizeInput()  # `turns` is required, with no default
+    for bad in ("", "s" * (summary_max + 1)):
+        with pytest.raises(ValidationError):
+            FreeChatSummarizeInput(turns=[turn], previous_summary=bad)
+
+    FreeChatSummarizeOutput(summary="s" * output_max)
+    FreeChatSummarizeOutput(summary="s" * (summary_max + 1))  # past storage, still on the wire
+    for bad in ("", "s" * (output_max + 1)):
+        with pytest.raises(ValidationError):
+            FreeChatSummarizeOutput(summary=bad)
+
+
 def test_free_chat_defaults_match_the_zod_source():
     """Each Zod `.default(...)` has the same Pydantic default, so a far side that omits the field
     parses to the same value on both sides."""
@@ -877,10 +916,15 @@ def test_free_chat_defaults_match_the_zod_source():
     reply = FreeChatReplyInput(category="casual", text="x")
     assert reply.recent_turns == []
     assert reply.worker_context.model_dump() == {"trade_label": None, "experience_bucket": None}
+    assert reply.summary is None  # Release 2: additive, so a Release 1 caller parses unchanged
     answer = FreeChatAnswer(status="answer", lines=["x"])
     assert answer.followup_chips == []
     assert answer.ai_metadata is None
     assert FreeChatRefuse(status="refuse", topic="news").ai_metadata is None
+    fold = FreeChatSummarizeInput(turns=[{"role": "worker", "text": "kuch"}])
+    assert fold.previous_summary is None
+    folded = FreeChatSummarizeOutput()
+    assert (folded.summary, folded.ai_metadata) == (None, None)
 
 
 def test_free_chat_reply_output_is_a_status_discriminated_union():
@@ -905,8 +949,16 @@ def test_the_free_chat_contracts_reuse_the_companion_shapes():
     turns = list[CompanionRecentTurn]
     assert FreeChatClassifyInput.model_fields["recent_turns"].annotation == turns
     assert FreeChatReplyInput.model_fields["recent_turns"].annotation == turns
+    assert FreeChatSummarizeInput.model_fields["turns"].annotation == turns
     context = FreeChatReplyInput.model_fields["worker_context"].annotation
     assert context is CompanionCareerWorkerContext
+
+
+def test_only_the_reply_reads_the_summary():
+    """R24: the casual/career reply gets the summary; the classifier never does. A `summary` on
+    the classify contract would be the first step to sending it there."""
+    assert "summary" in FreeChatReplyInput.model_fields
+    assert "summary" not in FreeChatClassifyInput.model_fields
 
 
 def test_the_free_chat_contracts_carry_no_identity_pii_field():

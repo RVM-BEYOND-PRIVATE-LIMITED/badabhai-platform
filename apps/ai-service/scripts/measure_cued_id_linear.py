@@ -87,8 +87,9 @@ RULES: dict[str, tuple[object, str, str, str]] = {
     "credential_before": (
         signals,
         "_CREDENTIAL_BEFORE_RE",
-        r"\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*",
-        r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?",
+        # The "id" word since #2043 ("Voter ID ABC1234567"), as in the résumé rule's connector.
+        r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*",
+        r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?",
     ),
 }
 #: Every cue of the three rules contains one of these, matched the same case-insensitive way, so a
@@ -218,9 +219,14 @@ CORPUS_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "question_packs": ("packages/db/data/question-packs", (".json", ".jsonl")),
     "job_domains": ("packages/db/data/job-domains", (".json", ".jsonl")),
 }
-#: The #1933 and #1950 test files, left out so neither fix is measured against its own fixtures.
+#: The #1933, #1950 and #2043 test files, left out so no fix is measured against its own fixtures.
+#: (#2043's holds "Passport.No. M123456", which #1950's dot reads by design.)
 EXCLUDED_FILES = frozenset(
-    {"test_pseudonymize_cued_id_linear.py", "test_pseudonymize_cued_id_dot.py"}
+    {
+        "test_pseudonymize_cued_id_linear.py",
+        "test_pseudonymize_cued_id_dot.py",
+        "test_salary_guard_resume_cues.py",
+    }
 )
 
 
