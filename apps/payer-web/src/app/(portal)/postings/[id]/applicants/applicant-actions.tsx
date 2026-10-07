@@ -491,9 +491,12 @@ export function ApplicantActions({
                           // neutral message for every cause; no retry button (not transient).
                           <p className="applicant__neutral">{row.contact.message}</p>
                         ) : (
+                          // A read-out of what the unlock already granted: the VIEW glyph (no
+                          // spend, no new tab, nothing to message or dial yet), as on the resume.
                           <Button
                             variant="secondary"
                             size="sm"
+                            iconLeft={ACTION_ICON.view}
                             disabled={row.contactBusy}
                             loading={row.contactBusy}
                             aria-busy={row.contactBusy}
@@ -523,6 +526,7 @@ export function ApplicantActions({
                           <Button
                             variant="secondary"
                             size="sm"
+                            iconLeft={ACTION_ICON.view}
                             disabled={row.resumeBusy}
                             loading={row.resumeBusy}
                             aria-busy={row.resumeBusy}

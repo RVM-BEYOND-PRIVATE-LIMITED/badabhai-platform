@@ -57,7 +57,13 @@ vi.mock("../../../components/retry-button", async () => {
 });
 vi.mock("../capacity/capacity-panel", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
-  return { CapacityPanel: () => React.createElement("div", { "data-stub": "capacity-panel" }) };
+  return {
+    CapacityPanel: (p: { currentAllowance?: number | null }) =>
+      React.createElement("div", {
+        "data-stub": "capacity-panel",
+        "data-allowance": String(p.currentAllowance),
+      }),
+  };
 });
 
 const { default: PlansPage, dynamic } = await import("./page");
@@ -256,5 +262,24 @@ describe("/plans — the page spine and the per-posting table", () => {
     // Applicants are reached through the posting's own "Applicants" action, never its title.
     expect(links(out).filter((l) => l.href.endsWith("/applicants"))).toEqual([]);
     expect(textOf(out)).not.toMatch(/phone|\bemail\b|\+?\d{7,}/i);
+  });
+});
+
+/**
+ * Review N2: a capacity tier at or below the current allowance grants nothing (`greatest()`), so the
+ * panel must know the allowance to show such a tier as included. The page already reads it (GET
+ * /payer/capacity) — it hands that same figure down; no second read. A failed read hands down null.
+ */
+describe("/plans — the capacity panel gets the allowance the page read", () => {
+  it("passes the live allowance from the capacity read", async () => {
+    getCapacity.mockResolvedValue(capacity({ activeVacancies: 2, activeVacancyAllowance: 15 }));
+    const out = await html();
+    expect(out).toContain('data-allowance="15"');
+    expect(getCapacity).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes null when the capacity read failed (the panel then cannot rule a tier out)", async () => {
+    getCapacity.mockRejectedValue(new Error("capacity down"));
+    expect(await html()).toContain('data-allowance="null"');
   });
 });

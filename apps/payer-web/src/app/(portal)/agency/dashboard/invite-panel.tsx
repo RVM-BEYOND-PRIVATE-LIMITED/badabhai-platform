@@ -130,8 +130,10 @@ export function AgencyInvitePanel() {
     }
   }
 
+  // `agency-invite` names THIS panel among the page's framed tools: on a phone, Referrals lifts it
+  // above the funnel by it (F19).
   return (
-    <section className="agency-section">
+    <section className="agency-section agency-invite">
       <h2 className="agency-section__title">Invite workers</h2>
       <Card variant="flat" className="agency-invite__note">
         <strong>Consent-first.</strong> Share this link with workers. They must self-onboard and
