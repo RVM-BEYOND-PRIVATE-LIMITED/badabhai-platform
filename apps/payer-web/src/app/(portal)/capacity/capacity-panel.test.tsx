@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { Button, Dialog } from "../../../components/ds";
+import { ConfirmSpendDialog } from "../../../components/unlock";
 import type { CapacityTier } from "./capacity-panel";
 
 /**
@@ -13,7 +14,9 @@ import type { CapacityTier } from "./capacity-panel";
  *  (b) a DIFFERENT tier, and a repeat of the same tier AFTER a success, mint FRESH keys.
  *
  * Same node-env manual harness as credits-panel.test.tsx (mocked hooks + stubbed randomUUID);
- * the confirm handler is driven through the DS Dialog's "Upgrade" footer button.
+ * the confirm handler is driven through the DS Dialog's "Upgrade" footer button. Refs persist by
+ * call order (slot 0 the purchase key, slot 1 where focus returns) and effects are collected per
+ * render, to be run by hand as React would after a commit.
  */
 
 let stateQueue: unknown[] = [];
@@ -37,8 +40,16 @@ function argsOf(setter: ReturnType<typeof vi.fn>): unknown[] {
   return setter.mock.calls.map((c) => c[0]);
 }
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
-let keyBox: { current: unknown };
-const useRef = vi.fn(() => keyBox);
+// One STABLE ref box per call order (created per test), so a mutation to `.current` persists
+// across renders exactly like the browser's ref semantics.
+let refs: Array<{ current: unknown }> = [];
+let refCursor = 0;
+const useRef = vi.fn((init: unknown) => {
+  const i = refCursor++;
+  refs[i] ??= { current: init };
+  return refs[i];
+});
+let effects: Array<() => void | (() => void)> = [];
 
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
@@ -46,7 +57,10 @@ vi.mock("react", async () => {
     ...actual,
     useState: (i: unknown) => useState(i),
     useTransition: () => useTransition(),
-    useRef: () => useRef(),
+    useRef: (init: unknown) => useRef(init),
+    useEffect: (fn: () => void | (() => void)) => {
+      effects.push(fn);
+    },
   };
 });
 
@@ -82,9 +96,11 @@ function textOf(node: ReactNode): string {
 }
 
 /** Render with the confirm Dialog ARMED for `tier` (useState order: pendingCode, pendingConfirm, …). */
-function render(tier: CapacityTier): ReactElement {
-  stateQueue = [null, tier, null, null];
+function render(tier: CapacityTier | null, pendingCode: string | null = null): ReactElement {
+  stateQueue = [pendingCode, tier, null, null];
   stateCursor = 0;
+  refCursor = 0;
+  effects = [];
   return CapacityPanel({ tiers: [TIER_A, TIER_B] }) as ReactElement;
 }
 
@@ -113,7 +129,7 @@ beforeEach(() => {
   stateSetters = [];
   upgradeCapacityAction.mockReset();
   routerRefresh.mockReset();
-  keyBox = { current: null };
+  refs = [];
   uuidCounter = 0;
   vi.stubGlobal("crypto", { randomUUID: () => `key-${++uuidCounter}` });
 });
@@ -187,5 +203,186 @@ describe("capacity panel — a 409 PENDING is honest + KEEPS the key (#1185)", (
     // …and NEITHER the success message NOR the error toast is ever set (only the reset-to-null).
     expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
     expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+  });
+});
+
+/**
+ * OWNER RULINGS 2026-10-07 — "one tap should have a price shown with confirmation" (F11) and "mock
+ * wording is not needing on plans and credit" (F35). Each tier's trigger carries its price; it opens
+ * the GENERIC DS Dialog (never a ConfirmSpendDialog — the app keeps exactly one, the unlock's), which
+ * says what is bought, the price and that it is charged now, with Cancel and a priced confirm. Only
+ * that confirm sends the upgrade. No "mock" copy anywhere. Who may buy is unchanged.
+ */
+describe("capacity panel — the price is on the trigger, and the confirm says what is charged", () => {
+  /** Every tier trigger's text / spinner / disabled, in order. */
+  const triggers = (tree: ReactElement) =>
+    findAll(tree, Button)
+      .filter((b) => (b.props as { block?: boolean }).block === true)
+      .map((b) => {
+        const p = b.props as { loading?: boolean; disabled?: boolean; id?: string };
+        return {
+          text: textOf(b).replace(/\s+/g, " ").trim(),
+          loading: p.loading === true,
+          disabled: p.disabled === true,
+          id: p.id,
+        };
+      });
+  const dialogOf = (tree: ReactElement) => {
+    const found = findAll(tree, Dialog);
+    expect(found).toHaveLength(1);
+    return found[0]!;
+  };
+  const footer = (dialog: ReactElement) =>
+    findAll((dialog.props as { footer?: ReactNode }).footer, Button).map((b) => ({
+      text: textOf(b).replace(/\s+/g, " ").trim(),
+      variant: (b.props as { variant?: string }).variant,
+      onClick: (b.props as { onClick: () => void }).onClick,
+    }));
+
+  /** Tap the tier button whose face carries `price`. */
+  const tapTier = (tree: ReactElement, price: string) =>
+    (
+      findAll(tree, Button).find((b) => textOf(b).includes(price))!.props as {
+        onClick: () => void;
+      }
+    ).onClick();
+
+  it("each tier's button reads plainly and carries its price (₹ in mono)", () => {
+    const tree = render(null);
+    expect(triggers(tree).map((t) => t.text)).toEqual(["Upgrade · ₹999", "Upgrade · ₹4,999"]);
+    const mono = findAll(tree, Button)
+      .flatMap((b) => findAll(b, "span"))
+      .filter((s) => (s.props as { className?: string }).className === "bb-mono")
+      .map((s) => textOf(s));
+    expect(mono).toEqual(["₹999", "₹4,999"]);
+  });
+
+  it("tapping a tier opens the confirm — nothing is sent", () => {
+    const tree = render(null);
+    tapTier(tree, "₹4,999");
+    expect(upgradeCapacityAction).not.toHaveBeenCalled();
+    expect(stateSetters[1]).toHaveBeenCalledWith(TIER_B);
+  });
+
+  it("the confirm is the generic Dialog: what is bought, the price, charged now — Cancel + a priced confirm", () => {
+    const tree = render(TIER_B);
+    expect(findAll(tree, ConfirmSpendDialog)).toEqual([]);
+    const dialog = dialogOf(tree);
+    const props = dialog.props as { open: boolean; title?: ReactNode; children?: ReactNode };
+    expect(props.open).toBe(true);
+    expect(textOf(props.title)).toBe("Upgrade capacity?");
+    const body = textOf(props.children).replace(/\s+/g, " ");
+    expect(body).toContain("10 -posting tier");
+    expect(body).toContain("₹4,999 is charged now");
+    expect(footer(dialog).map((b) => [b.text, b.variant])).toEqual([
+      ["Cancel", "ghost"],
+      ["Upgrade · ₹4,999", "primary"],
+    ]);
+  });
+
+  it("Cancel (and Esc / the scrim / the close button — onClose) closes it and sends nothing", () => {
+    const dialog = dialogOf(render(TIER_B));
+    footer(dialog)[0]!.onClick();
+    (dialog.props as { onClose: () => void }).onClose();
+    expect(argsOf(stateSetters[1]!)).toEqual([null, null]);
+    expect(stateSetters[0]).not.toHaveBeenCalled();
+    expect(upgradeCapacityAction).not.toHaveBeenCalled();
+  });
+
+  it("only the confirm sends — ONCE, the tier code and a purchase key, never a price", async () => {
+    upgradeCapacityAction.mockResolvedValue({ ok: true, resumedCount: 0, allowance: 10 });
+    await confirmUpgrade(TIER_B);
+    expect(upgradeCapacityAction).toHaveBeenCalledTimes(1);
+    expect(upgradeCapacityAction).toHaveBeenCalledWith({ tier: "growth", idempotencyKey: "key-1" });
+    expect(JSON.stringify(upgradeCapacityAction.mock.calls[0])).not.toMatch(/price|inr|4999/i);
+  });
+
+  it("while it runs, the busy state is on the confirmed tier's button only", () => {
+    const busy = triggers(render(null, TIER_B.code));
+    expect(busy.filter((t) => t.loading).map((t) => t.id)).toEqual([
+      `capacity-tier-${TIER_B.code}`,
+    ]);
+    expect(busy.every((t) => t.disabled)).toBe(true);
+  });
+
+  it("no 'mock' copy — on the buttons, in the confirm, or while it runs", () => {
+    for (const tree of [render(null), render(TIER_A), render(null, TIER_A.code)]) {
+      const footers = findAll(tree, Dialog).map((d) =>
+        textOf((d.props as { footer?: ReactNode }).footer),
+      );
+      const all = [textOf(tree), ...footers].join(" ");
+      expect(all).not.toMatch(/\bmock\b/i);
+      expect(all).not.toMatch(/staging preview/i);
+    }
+  });
+
+  /**
+   * FOCUS, ONLY WHEN IT WAS LOST (the team Remove pattern). The Dialog hands focus back to its
+   * trigger on close, but a confirmed upgrade disables every tier button while it runs, so that
+   * restore falls to the body. Once closed AND settled, focus goes back to the tier's button —
+   * only if it is still lost.
+   */
+  function stubDocument() {
+    const body = { tag: "body" };
+    const trigger = { focus: vi.fn() };
+    const doc = {
+      body,
+      activeElement: body as unknown,
+      getElementById: (id: string) => (id === `capacity-tier-${TIER_B.code}` ? trigger : null),
+    };
+    (globalThis as { document?: unknown }).document = doc;
+    return { doc, trigger };
+  }
+  function commit(confirming: CapacityTier | null, pendingCode: string | null) {
+    const tree = render(confirming, pendingCode);
+    effects.forEach((run) => run());
+    return tree;
+  }
+  async function askThenConfirm() {
+    upgradeCapacityAction.mockResolvedValue({
+      ok: false,
+      error: "Capacity upgrade failed. Please retry.",
+    });
+    const first = commit(null, null);
+    const b = findAll(first, Button).find((x) => textOf(x).includes("₹4,999"))!;
+    expect((b.props as { id?: string }).id).toBe(`capacity-tier-${TIER_B.code}`);
+    (b.props as { onClick: () => void }).onClick();
+    const open = commit(TIER_B, null);
+    footer(dialogOf(open))[1]!.onClick();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it("after a confirm: nothing moves focus while it runs; once settled it returns to the tier's button, once", async () => {
+    const { trigger } = stubDocument();
+    await askThenConfirm();
+    commit(null, TIER_B.code);
+    expect(trigger.focus).not.toHaveBeenCalled();
+    commit(null, null);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+    commit(null, null);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("after Cancel: the Dialog's own restore stands — focus is not moved again", () => {
+    const { doc, trigger } = stubDocument();
+    const first = commit(null, null);
+    tapTier(first, "₹4,999");
+    const open = commit(TIER_B, null);
+    footer(dialogOf(open))[0]!.onClick();
+    doc.activeElement = trigger; // the Dialog put it back on its trigger
+    commit(null, null);
+    doc.activeElement = doc.body;
+    commit(null, null);
+    expect(trigger.focus).not.toHaveBeenCalled();
+  });
+
+  it("a payer who moved on while it ran is left where they are", async () => {
+    const { doc, trigger } = stubDocument();
+    await askThenConfirm();
+    commit(null, TIER_B.code);
+    doc.activeElement = { id: "somewhere-else" };
+    commit(null, null);
+    commit(null, null);
+    expect(trigger.focus).not.toHaveBeenCalled();
   });
 });

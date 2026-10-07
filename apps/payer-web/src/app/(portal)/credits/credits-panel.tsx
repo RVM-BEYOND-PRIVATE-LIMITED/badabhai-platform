@@ -26,6 +26,10 @@ import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
  * payment says "failed", and an unconfirmed verification says "if money left your account
  * it will be credited automatically". Nothing in this file can render a success message
  * without a server-confirmed balance behind it.
+ *
+ * NO "MOCK" WORDING (owner ruling 2026-10-07, F35): a pack's button reads "Buy" in both modes
+ * and the confirm carries no mock disclaimer. Only the copy changed — the mode still decides
+ * the flow (and the busy label: "Opening…" for checkout, "Adding…" for the top-up).
  */
 export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; real?: boolean }) {
   const router = useRouter();
@@ -67,7 +71,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
   /**
    * MOCK mode — the buy opens a DS confirm Dialog (no native `window.confirm`). Clicking a
    * pack only ARMS the confirmation; {@link confirmMockTopUp}, wired to the dialog's Confirm
-   * button, runs the actual (mock) top-up. Behaviour is otherwise unchanged.
+   * button, runs the actual top-up. Behaviour is otherwise unchanged.
    */
   function onBuyMock(pack: CreditPack): void {
     resetBanners();
@@ -219,13 +223,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
                 loading={pendingCode === p.code}
                 onClick={() => onBuy(p)}
               >
-                {pendingCode === p.code
-                  ? real
-                    ? "Opening…"
-                    : "Adding…"
-                  : real
-                    ? "Buy"
-                    : "Buy (mock)"}
+                {pendingCode === p.code ? (real ? "Opening…" : "Adding…") : "Buy"}
               </Button>
             </Card>
           ))}
@@ -239,7 +237,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       </div>
 
       {/* Confirm-on-spend — the DS Dialog replaces the native `window.confirm`. Copy names the
-          pack + price (mock-money), and the post-confirm logic lives on the Confirm button. */}
+          pack + price, and the post-confirm logic lives on the Confirm button. */}
       <Dialog
         open={pendingConfirm !== null}
         onClose={() => setPendingConfirm(null)}
@@ -258,8 +256,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
         {pendingConfirm ? (
           <>
             Add <span className="bb-mono">{pendingConfirm.credits}</span> credits for{" "}
-            <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>? This is a mock
-            purchase — no real payment is taken.
+            <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>?
           </>
         ) : null}
       </Dialog>

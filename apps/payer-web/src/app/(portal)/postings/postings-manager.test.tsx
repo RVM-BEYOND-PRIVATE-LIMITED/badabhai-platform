@@ -2,7 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { PostingSummary } from "../../../lib/contracts";
-import { Badge, Button } from "../../../components/ds";
+import { Badge, Button, Dialog } from "../../../components/ds";
+import { ConfirmSpendDialog } from "../../../components/unlock";
 
 /**
  * POSTINGS-MANAGER tests — STATUS RENDERING + LIVE LIFECYCLE TRIO + CLOSE + A11Y (B8).
@@ -17,7 +18,9 @@ import { Badge, Button } from "../../../components/ds";
  *  - each row keeps an `aria-live="polite"` region (B8 — announces a row failure).
  *
  * Env is node (no DOM); React state is injected via the mocked `useState` (source order:
- * rows, state). DS Button/Badge are collected by `el.type === Button`/`Badge`.
+ * rows, state, the posting whose slot purchase awaits confirmation). Refs persist by call order
+ * (as React's do) and effects are collected to be run by hand. DS Button/Badge are collected by
+ * `el.type === Button`/`Badge`.
  */
 
 const pausePostingAction = vi.fn();
@@ -38,7 +41,7 @@ vi.mock("./actions", () => ({
   closePostingAction: (i: unknown) => closePostingAction(i),
 }));
 
-// Injected per-render state queue (source order: rows, state-record).
+// Injected per-render state queue (source order: rows, state-record, confirming posting id).
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 /** Each slot's setter from the LAST render, by source order (read to see what a click stores). */
@@ -50,12 +53,33 @@ const useState = vi.fn((initial: unknown) => {
   setters[i] = set;
   return [seeded, set] as [unknown, (v: unknown) => void];
 });
+// One ref object per call order that survives re-renders (as React's does); effects are
+// collected per render so a test can run them as React would after a commit.
+let refs: Array<{ current: unknown }> = [];
+let refCursor = 0;
+let effects: Array<() => void | (() => void)> = [];
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (initial: unknown) => useState(initial) };
+  return {
+    ...actual,
+    useState: (initial: unknown) => useState(initial),
+    useRef: (init: unknown) => {
+      const i = refCursor++;
+      refs[i] ??= { current: init };
+      return refs[i];
+    },
+    useEffect: (fn: () => void | (() => void)) => {
+      effects.push(fn);
+    },
+  };
 });
 
 const { PostingsManager } = await import("./postings-manager");
+
+/** The one slot top-up on offer — what the server page reads from the live catalog tier. */
+const OFFER = { priceInr: 1000, additionalViews: 10 };
+/** Its trigger's face: the slots AND the price (owner ruling 2026-10-07 — F11). */
+const TOP_UP = "Add 10 applicant slots · ₹1,000";
 
 const OPEN: PostingSummary = {
   id: "bbbb2222-0000-4000-8000-000000000001",
@@ -159,16 +183,53 @@ function render(
   postings: PostingSummary[],
   rowState: Record<string, unknown> = {},
   readOnly?: boolean,
+  opts: { confirming?: string | null; offer?: typeof OFFER | null } = {},
 ) {
-  // Seed the two useState slots for this render — source order in the component:
-  // (1) freshRows overlay (Record<id, PostingSummary>), (2) per-row action state.
+  // Seed the useState slots for this render — source order in the component:
+  // (1) freshRows overlay (Record<id, PostingSummary>), (2) per-row action state,
+  // (3) the posting whose slot purchase is awaiting confirmation (the dialog is open while set).
   // Rows themselves render FROM PROPS (the freshRows overlay only patches by id).
-  stateQueue = [{}, rowState];
+  stateQueue = [{}, rowState, opts.confirming ?? null];
   stateCursor = 0;
-  return PostingsManager({ postings, readOnly }) as ReactElement;
+  refCursor = 0;
+  effects = [];
+  const topUpOffer = opts.offer === undefined ? OFFER : opts.offer;
+  return PostingsManager({ postings, readOnly, topUpOffer }) as ReactElement;
+}
+
+/** The manager's one DS Dialog (the slot-purchase confirm). */
+function dialogOf(tree: ReactNode): ReactElement {
+  const found = ofType(tree, Dialog);
+  expect(found).toHaveLength(1);
+  return found[0]!;
+}
+/** The confirm's footer buttons, in order. */
+function footerButtons(dialog: ReactElement) {
+  return ofType((dialog.props as { footer?: ReactNode }).footer, Button).map((b) => {
+    const p = b.props as Record<string, unknown>;
+    return {
+      text: textOf(p.children as ReactNode).trim(),
+      variant: p.variant,
+      loading: p.loading === true,
+      onClick: p.onClick as () => void,
+    };
+  });
+}
+/** Every element of a component type, depth-first (props.children only). */
+function ofType(node: ReactNode, type: unknown, acc: ReactElement[] = []): ReactElement[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => ofType(c, type, acc));
+    return acc;
+  }
+  const el = node as ReactElement<{ children?: ReactNode }>;
+  if (el.type === type) acc.push(el);
+  if (el.props && "children" in el.props) ofType(el.props.children, type, acc);
+  return acc;
 }
 
 beforeEach(() => {
+  refs = [];
   pausePostingAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
   resumePostingAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
   topUpQuotaAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
@@ -205,7 +266,7 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
   it("an OPEN posting offers ENABLED Pause / Add applicant slots / Close posting; clicking Pause fires the action with ONLY the posting id", () => {
     const { buttons } = collect(render([OPEN]));
     const pause = buttons.find((b) => b.text === "Pause");
-    const topUp = buttons.find((b) => b.text === "Add applicant slots");
+    const topUp = buttons.find((b) => b.text === TOP_UP);
     const close = buttons.find((b) => b.text === "Close posting");
     expect(pause?.disabled).toBe(false);
     expect(topUp?.disabled).toBe(false);
@@ -245,7 +306,7 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
   it("only the PRESSED button shows the spinner; the others are just disabled (F39)", () => {
     for (const [busy, label] of [
       ["pause", "Pause"],
-      ["topUp", "Add applicant slots"],
+      ["topUp", TOP_UP],
       ["close", "Close posting"],
     ] as const) {
       const { buttons } = collect(
@@ -269,9 +330,10 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
   });
 
   it("pressing a button records WHICH action is running for that row (F39)", () => {
+    // (Add applicant slots is a PURCHASE: pressing it only asks — its confirm marks the row busy,
+    // pinned in the "asks first" block below.)
     for (const [label, busy] of [
       ["Pause", "pause"],
-      ["Add applicant slots", "topUp"],
       ["Close posting", "close"],
     ] as const) {
       const { buttons } = collect(render([OPEN]));
@@ -284,9 +346,12 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     }
   });
 
-  it("clicking Add applicant slots fires ITS action; a seeded row error renders in the row", () => {
+  it("Add applicant slots fires ITS action from the confirm; a seeded row error renders in the row", () => {
     const first = collect(render([OPEN]));
-    first.buttons.find((b) => b.text === "Add applicant slots")!.onClick!();
+    first.buttons.find((b) => b.text === TOP_UP)!.onClick!();
+    expect(topUpQuotaAction).not.toHaveBeenCalled(); // asks first (owner ruling 2026-10-07)
+    const open = render([OPEN], {}, false, { confirming: OPEN.id });
+    footerButtons(dialogOf(open))[1]!.onClick();
     expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
 
     const errored = render([OPEN], {
@@ -308,7 +373,7 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(close?.disabled).toBe(false);
     // Pause requires an OPEN posting — a draft does not draw it (a disabled Pause said nothing
     // about why — F27), never a fake action either.
-    expect(buttons.map((b) => b.text)).toEqual(["Add applicant slots", "Close posting"]);
+    expect(buttons.map((b) => b.text)).toEqual([TOP_UP, "Close posting"]);
     expect(buttons.every((b) => !b.disabled)).toBe(true);
     close!.onClick!();
     expect(closePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
@@ -316,9 +381,7 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
 
   it("a SUSPENDED posting draws no Pause it could never use; slots stay as they are today", () => {
     const { buttons } = collect(render([{ ...OPEN, status: "suspended" }]));
-    expect(buttons.map((b) => `${b.text}${b.disabled ? " [disabled]" : ""}`)).toEqual([
-      "Add applicant slots",
-    ]);
+    expect(buttons.map((b) => `${b.text}${b.disabled ? " [disabled]" : ""}`)).toEqual([TOP_UP]);
   });
 
   it("a seeded SUCCESS notice (the paid slots confirmation) renders in the aria-live row region", () => {
@@ -331,6 +394,168 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     });
     expect(textOf(tree)).toContain("Applicant slots added — 10 more applicant views.");
     expect(collect(tree).buttons.every((b) => !b.disabled && !b.loading)).toBe(true);
+  });
+});
+
+/**
+ * OWNER RULING 2026-10-07 (sweep F11): "one tap should have a price shown with confirmation".
+ * Add applicant slots used to commit a charge on one tap with no price anywhere. Now its trigger
+ * carries the slots AND the price, and it opens the GENERIC DS Dialog (never a second
+ * ConfirmSpendDialog — the app keeps exactly one, the unlock's); only that dialog's confirm buys.
+ * The price is the server page's live-catalog tier (the one the action charges by), never a literal.
+ * Who may buy is unchanged (no gate added or removed here).
+ */
+describe("PostingsManager — Add applicant slots shows its price and asks first", () => {
+  it("the trigger carries the slots and the price, the ₹ in mono", () => {
+    const tree = render([OPEN]);
+    const trigger = ofType(tree, Button).find(
+      (b) => textOf((b.props as { children?: ReactNode }).children).trim() === TOP_UP,
+    );
+    expect(trigger).toBeDefined();
+    const mono = byClass(trigger!, "bb-mono").map((m) => textOf(m));
+    expect(mono).toContain("₹1,000");
+  });
+
+  it("the price follows the offer it is given (an ops re-price shows on the button)", () => {
+    const tree = render([OPEN], {}, false, { offer: { priceInr: 1500, additionalViews: 25 } });
+    expect(collect(tree).buttons.map((b) => b.text)).toContain("Add 25 applicant slots · ₹1,500");
+  });
+
+  it("no priced offer (no top-up tier in the catalog) draws no purchase button at all", () => {
+    const tree = render([OPEN], {}, false, { offer: null });
+    expect(collect(tree).buttons.map((b) => b.text)).toEqual(["Pause", "Close posting"]);
+  });
+
+  it("tapping it opens the confirm — it buys NOTHING and marks no row busy", () => {
+    const { buttons } = collect(render([OPEN]));
+    buttons.find((b) => b.text === TOP_UP)!.onClick!();
+    expect(topUpQuotaAction).not.toHaveBeenCalled();
+    expect(setters[1]).not.toHaveBeenCalled();
+    // Slot 3 (source order) is the posting whose purchase awaits confirmation.
+    expect(setters[2]).toHaveBeenCalledWith(OPEN.id);
+  });
+
+  it("the confirm is the generic DS Dialog: what is bought, the price, charged now; Cancel + a priced confirm", () => {
+    const closed = render([OPEN]);
+    expect((dialogOf(closed).props as { open: boolean }).open).toBe(false);
+
+    const tree = render([OPEN], {}, false, { confirming: OPEN.id });
+    expect(ofType(tree, ConfirmSpendDialog)).toEqual([]);
+    const dialog = dialogOf(tree);
+    const props = dialog.props as { open: boolean; title?: ReactNode; children?: ReactNode };
+    expect(props.open).toBe(true);
+    expect(textOf(props.title)).toBe("Add applicant slots?");
+    const body = textOf(props.children);
+    expect(body).toContain("10 more applicant slots");
+    expect(body).toContain("CNC Machinist");
+    expect(body).toContain("₹1,000 is charged now");
+    expect(body).not.toMatch(/\bmock\b/i);
+    expect(footerButtons(dialog).map((b) => [b.text, b.variant])).toEqual([
+      ["Cancel", "ghost"],
+      ["Add slots · ₹1,000", "primary"],
+    ]);
+  });
+
+  it("Cancel (and Esc / the scrim / the close button — the Dialog's onClose) closes it and buys nothing", () => {
+    const dialog = dialogOf(render([OPEN], {}, false, { confirming: OPEN.id }));
+    footerButtons(dialog)[0]!.onClick();
+    (dialog.props as { onClose: () => void }).onClose();
+    expect(setters[2]!.mock.calls).toEqual([[null], [null]]);
+    expect(setters[1]).not.toHaveBeenCalled();
+    expect(topUpQuotaAction).not.toHaveBeenCalled();
+  });
+
+  it("only the dialog's confirm buys — ONCE, with only the posting id — and that row's slot button then spins", () => {
+    const dialog = dialogOf(render([OPEN], {}, false, { confirming: OPEN.id }));
+    footerButtons(dialog)[1]!.onClick();
+    expect(setters[2]).toHaveBeenCalledWith(null); // the dialog closes
+    expect(topUpQuotaAction).toHaveBeenCalledTimes(1);
+    expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
+    // XB-A: never a payer id, and never a price — the server re-resolves the charge.
+    expect(JSON.stringify(topUpQuotaAction.mock.calls[0])).not.toMatch(/payer|price|inr/i);
+    const update = setters[1]!.mock.calls[0]![0] as (
+      prev: Record<string, unknown>,
+    ) => Record<string, unknown>;
+    expect(update({})).toEqual({ [OPEN.id]: { busy: "topUp", error: null, notice: null } });
+    // While it runs, the busy state is on THAT row's slot button only (siblings just disabled).
+    const busy = collect(
+      render([OPEN], { [OPEN.id]: { busy: "topUp", error: null, notice: null } }),
+    );
+    expect(busy.buttons.filter((b) => b.loading).map((b) => b.text)).toEqual([TOP_UP]);
+  });
+
+  /**
+   * FOCUS, ONLY WHEN IT WAS LOST (the team Remove pattern). The Dialog hands focus back to its
+   * trigger on close — but a confirmed purchase disables the row's buttons while it runs, so that
+   * restore falls to the body. Once the dialog is closed and the purchase has settled, focus goes
+   * back to the row's slot button — only if it is still lost.
+   */
+  function stubDocument() {
+    const body = { tag: "body" };
+    const trigger = { focus: vi.fn() };
+    const doc = {
+      body,
+      activeElement: body as unknown,
+      getElementById: (id: string) => (id === `posting-topup-${OPEN.id}` ? trigger : null),
+    };
+    (globalThis as { document?: unknown }).document = doc;
+    return { doc, trigger };
+  }
+  /** Re-render with the given state and run the committed effects (as React would). */
+  function commit(rowState: Record<string, unknown>, confirming: string | null) {
+    const tree = render([OPEN], rowState, false, { confirming });
+    effects.forEach((run) => run());
+    return tree;
+  }
+  const BUSY = { [OPEN.id]: { busy: "topUp", error: null, notice: null } };
+  const DONE = { [OPEN.id]: { busy: null, error: null, notice: "Applicant slots added." } };
+  /** Ask about the row's slots, then confirm in the dialog. */
+  function askThenConfirm() {
+    const first = commit({}, null);
+    const trigger = ofType(first, Button).find(
+      (b) => textOf((b.props as { children?: ReactNode }).children).trim() === TOP_UP,
+    )!;
+    expect((trigger.props as { id?: string }).id).toBe(`posting-topup-${OPEN.id}`);
+    (trigger.props as { onClick: () => void }).onClick();
+    const open = commit({}, OPEN.id);
+    footerButtons(dialogOf(open))[1]!.onClick();
+  }
+
+  it("after a confirm: nothing moves focus while it runs; once settled it returns to the slot button, once", () => {
+    const { trigger } = stubDocument();
+    askThenConfirm();
+    commit(BUSY, null);
+    expect(trigger.focus).not.toHaveBeenCalled();
+    commit(DONE, null);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+    commit(DONE, null);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("after Cancel: the Dialog's own restore stands — focus is not moved again", () => {
+    const { doc, trigger } = stubDocument();
+    const first = commit({}, null);
+    const ask = ofType(first, Button).find(
+      (b) => textOf((b.props as { children?: ReactNode }).children).trim() === TOP_UP,
+    )!;
+    (ask.props as { onClick: () => void }).onClick();
+    const open = commit({}, OPEN.id);
+    footerButtons(dialogOf(open))[0]!.onClick();
+    doc.activeElement = trigger; // the Dialog put it back on its trigger
+    commit({}, null);
+    doc.activeElement = doc.body; // …and a later blur is none of this purchase's business
+    commit({}, null);
+    expect(trigger.focus).not.toHaveBeenCalled();
+  });
+
+  it("a payer who moved on while it ran is left where they are", () => {
+    const { doc, trigger } = stubDocument();
+    askThenConfirm();
+    commit(BUSY, null);
+    doc.activeElement = { id: "somewhere-else" };
+    commit(DONE, null);
+    commit(DONE, null);
+    expect(trigger.focus).not.toHaveBeenCalled();
   });
 });
 
@@ -463,11 +688,7 @@ describe("PostingsManager — READ-ONLY (an agent's older company postings)", ()
 
   it("the default (company) list still offers every control — read-only is opt-in", () => {
     const tree = render([OPEN]);
-    expect(collect(tree).buttons.map((b) => b.text)).toEqual([
-      "Pause",
-      "Add applicant slots",
-      "Close posting",
-    ]);
+    expect(collect(tree).buttons.map((b) => b.text)).toEqual(["Pause", TOP_UP, "Close posting"]);
     expect(hrefs(byClass(tree, "posting-card__links")[0]!)).toContain(`/postings/${OPEN.id}/edit`);
   });
 

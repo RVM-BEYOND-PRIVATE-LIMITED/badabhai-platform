@@ -42,8 +42,9 @@ function day(ts: string): string {
  * MOCK vs REAL is decided SERVER-SIDE by `payerServerConfig().paymentsEnableReal` and
  * passed down as one boolean. The client cannot choose its own mode, and the browser only
  * ever learns the PUBLIC `rzp_*` key id — which arrives on the order response, not from
- * this page and not from any `NEXT_PUBLIC_*` value. The copy below follows the flag, so
- * the page never claims "no real payment is taken" while a real charge is live.
+ * this page and not from any `NEXT_PUBLIC_*` value. Only REAL mode adds copy (the Razorpay
+ * lines). There is no "mock" / "staging preview" copy in either mode (owner ruling 2026-10-07,
+ * F35: "mock wording is not needing on plans and credit") and no replacement disclaimer.
  *
  * PII-free (ids/amounts only — never a worker name/phone). ORG-RBAC: billing/wallet is an
  * OWNER-only surface — `requireOwner()` gates it SERVER-SIDE (a Recruiter gets a neutral 404).
@@ -89,10 +90,10 @@ export default async function CreditsPage() {
     <>
       <PageHeader
         title="Credits"
-        description={`1 credit = 1 contact unlock${unit !== null ? ` (${formatInr(unit)} per unlock)` : ""} — ${
+        description={`1 credit = 1 contact unlock${unit !== null ? ` (${formatInr(unit)} per unlock)` : ""}${
           realPayments
-            ? "pay securely via Razorpay; credits are added as soon as the payment is confirmed."
-            : "mock purchases only; no real payment is taken in this staging preview."
+            ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed."
+            : "."
         }`}
       />
 
@@ -299,18 +300,7 @@ export default async function CreditsPage() {
             </p>
           </div>
         </div>
-      ) : (
-        <div className="alert alert--info">
-          <Icon name="info" className="alert__icon" />
-          <div className="alert__text">
-            <p className="alert__title">Mock payments only.</p>
-            <p className="alert__body">
-              No card details are collected and no money moves. Real checkout (Razorpay) is a
-              separate, human-gated rollout (ADR-0019 Decision D).
-            </p>
-          </div>
-        </div>
-      )}
+      ) : null}
     </>
   );
 }
