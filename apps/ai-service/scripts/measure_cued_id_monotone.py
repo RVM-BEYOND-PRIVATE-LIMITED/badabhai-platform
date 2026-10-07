@@ -87,7 +87,7 @@ def masked_offsets(text: str) -> tuple[set[int], bool]:
 EARLIER = ("_EMAIL_RE", "_PAN_RE", "_AADHAAR_RE")
 #: What an earlier rule's mask reads as here. A token's brackets are no value, digit, phone
 #: separator or word character, so to every rule the scan runs a token is a barrier; so is this.
-BARRIER = "■"
+BARRIER = "\u25a0"
 
 
 def scan_input(text: str) -> str:
@@ -157,10 +157,12 @@ def overmask() -> None:
 #: run on into the next cue ("/" and "-" are in the value's class).
 GLUES = [" ", " ", "/", "/", "-", ", ", ""]
 #: What may follow the last line: nothing, or a number a value can cut ("098765 43210"), short or
-#: phone-long, with the separators the phone rule reads.
+#: phone-long, with the separators the phone rule reads; or a non-ASCII digit run glued straight
+#: on (the value's class is ASCII, the phone rule's `\d` is not: the security review of #2049).
 NUMBER_TAILS = [
-    "", "", "", " 43210", " 4321", " 98765 43210", " 43210", ".43210", " 1234 5678",
-    " 56789012",
+    "", "", "", " 43210", " 4321", " 98765 43210", "\u00a043210", ".43210", " 1234 5678",
+    " 56789012", "\u0966\u0967\u0968\u0969\u096a\u096b\u096c\u096d 98765 4321 5678",
+    "\u0660\u0661\u0662 43210",
 ]  # fmt: skip
 
 
@@ -182,7 +184,8 @@ def chained(rng: random.Random) -> str:
 def judge(text: str) -> dict[str, bool]:
     """What one line shows: shipped masking less than OLD anywhere (`less`), shipped missing an
     oracle offset (`short`), OLD missing one (`old short`, the R62 shape), a block that became a
-    mask, and whether anything moved."""
+    mask, shipped masking an offset neither OLD nor the oracle covers (`beyond`, the cost of
+    growing through a run's tail), and whether anything moved."""
     with old_scan():
         old_masked, old_blocked = masked_offsets(text)
         old_text = gateway.pseudonymize(text).text
@@ -193,6 +196,7 @@ def judge(text: str) -> dict[str, bool]:
         "short": not new_blocked and not must <= new_masked,
         "old short": not old_blocked and not must <= old_masked,
         "block became a mask": old_blocked and not new_blocked,
+        "beyond": not new_masked <= old_masked | must,
         "moved": old_text != gateway.pseudonymize(text).text,
     }
 

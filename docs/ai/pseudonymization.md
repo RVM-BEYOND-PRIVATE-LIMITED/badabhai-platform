@@ -786,15 +786,22 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
     rest of its run of digits and phone separators, to the last digit, as one `[ID_n]` token:
     `"Licence [ID_1]"`. Growing only to that phone's end was not enough. The phone rule splits a
     run where it starts reading it, so `"reg no 123456 25000 43210"` left "43210" raw, where the
-    old scan's phone rule had masked "25000 43210". A run no value cuts is split exactly as
-    before.
+    old scan's phone rule had masked "25000 43210".
+  - A value that a digit follows straight on grows the same way. The value's class is ASCII, so
+    that digit is a non-ASCII one (Devanagari, Arabic-Indic), which the phone rule's `\d` reads.
+    Without this, `"Cert NAPS/2020/reg: 445566०१२३४५६७ 98765 4321 5678"` left "4321 5678" raw
+    where the old scan blocked the turn, and the one-cue form already did so on main (found by the
+    security review of #2049). A run that neither a cut phone nor a glued digit continues is split
+    exactly as before.
   - It stays linear (R54). A value that starts inside an earlier value ends where that value
     ends. So each cue start is tried with a probe, the rule with its value cut to the six
     characters it needs, and the full rule runs only for a value that starts past the last one.
 - **Decided consequences** (pinned as `DECIDED`):
   - A block can become a mask. `"Reg AB1234 56789012"` was blocked: the eight raw digits after the
     masked value tripped the residual net. Now they are masked inside the ID, as the phone rule
-    masks them when no cue is read. The digits never egress either way.
+    masks them when no cue is read. The digits never egress either way. The net still runs on the
+    final text; what goes away is the accidental block of whatever else the turn held, which the
+    module never counts on (the D-1 note).
   - The grown token is an ID, not a phone. `"Cert 2020/reg 445566 7890"` was `"… [PHONE_1]"` and
     is now `"… [ID_2]"`, just as `"reg 445566 7890"` alone gives `"reg [ID_1]"`.
   - A salary on the next line is masked with the ID it continues (owner ruling 2026-10-07):
@@ -802,25 +809,32 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
     `"NCVT roll number [ID_1] milta hai"`. The phone rule reads "123456\n25000" as one phone across
     the break, and without the cue the gateway already masked it that way. The salary detector
     reads the raw text and still records 25000.
+  - The growth takes the whole run, over any number of lines and through ", ":
+    `"Licence 098765 43210\n25000\n30000\n2 saal ka experience"` gives
+    `"Licence [ID_1] saal ka experience"`, and `"Licence 098765 43210, 18000 milta hai"` gives
+    `"Licence [ID_1] milta hai"`. Each of those numbers is masked by the old scan or by the phone
+    rule with no cue read. The fuzz counts the lines that mask an offset neither covers (below).
 - **Measured** (`scripts/measure_cued_id_monotone.py`, 2026-10-07). OLD is the scan as #1950 left
   it.
   - `overmask` (#1875's method): 38,809 distinct corpus strings, 2,690 cue-bearing, in #1950's four
     views. 1 string changes per view, the decided next-line salary. 0 of 4,891 certifier labels
     change outcome. G1/G2 and the salary detector never read the scan.
   - `fuzz`: 60,000 seeded lines of one to four cue lines, glued by a space, "/", "-", ", " or
-    nothing, some ending in a number a value can cut. No line masks an offset less than OLD, and
-    none leaves raw an offset inside a value the rule matches from any offset or inside a phone
-    run (a brute-force oracle). OLD fell short of that oracle on 1,070 lines; 1,187 moved, and 57
-    blocks became masks.
+    nothing, some ending in a number a value can cut or a non-ASCII digit run glued on. No line
+    masks an offset less than OLD, and none leaves raw an offset inside a value the rule matches
+    from any offset or inside a phone run (a brute-force oracle on the text the scan reads). OLD
+    fell short of that oracle on 1,156 lines; 1,393 moved, and 51 blocks became masks. 235 lines
+    (0.4%) mask an offset neither OLD nor the oracle covers: a run's tail after a cut phone or a
+    glued digit.
   - `timing 3` (minimum of 3, local, Python 3.14): at 20,000 characters, `pseudonymize` takes
     4–21 ms on every shape, against 1–21 ms under OLD. The most nested-cue shape, `"reg-1-" * 3333`,
     went from 1.2 to 4.2 ms.
 - **Pinned** by `tests/test_pseudonymize_cued_id_monotone.py`. The former `KNOWN_RESIDUAL` in
   `tests/test_pseudonymize_cued_id_dot.py` now asserts the fixed text.
-- **Still open** (`KNOWN_RESIDUAL`): a value glued by "/" to ANOTHER rule's cue takes that cue
-  into the ID. `"Cert ABC123/naam Ramesh"` gives `"Cert [ID_1] Ramesh"`, while `"ABC123/naam Ramesh"`
-  masks the name: the rules after the scan read its output. G1/G2 reads no names (ruled
-  2026-09-11). No such string is in the corpus.
+- **Still open** (`KNOWN_RESIDUAL`, already so on main and unchanged by #2049): a value glued by
+  "/" or "-" to a LATER rule's cue takes that cue into the ID. `"Cert ABC123/naam Ramesh"` gives
+  `"Cert [ID_1] Ramesh"`, while `"ABC123/naam Ramesh"` masks the name: the rules after the scan
+  read its output. G1/G2 reads no names (ruled 2026-09-11). No such string is in the corpus.
 
 ## Input policy switch (ADR-0047)
 
@@ -915,4 +929,4 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R49 — the two-view check accepted a partial overlap (#1890).** Pre-existing (#1738); extended by #1875 and #1892. A name hidden by an invisible character next to a masked employer span egressed unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. MITIGATED by #1890: a spaced-view region now counts as covered only when every offset of it the reader view kept is reader-masked, so those turns block. Text with no invisible character is byte-identical (it never reaches the check). See "The two-view check requires containment".
   - **R54 — the cued-ID rules stalled on a whitespace run. RESOLVED by #1933.** Pre-existing; found by the #1891 survey. `_CREDENTIAL_ID_RE` and `_RESUME_CUED_ID_RE` put three whitespace quantifiers in a row, so a cue followed by a whitespace run that failed to match cost O(k³): `pseudonymize("reg" + " " * 800 + "!")` took 1.7–4.0 s over three runs, whatever `AI_RAW_PII_ENABLED` says. Each quantifier is now folded into the optional token it follows, in both rules, the salary guard's lexicon copy and the API's TypeScript ports: 0.2 ms on that input, with 0 span differences over the corpus and the fuzz. See the section on the cued-ID connector. The `"Reg.No."` shape the connector never read stays a pinned residual, tracked as R56.
   - **R56 — the cued-ID rules never read a dot after the cue. MITIGATED by #1950.** Pre-existing; found by the #1933 parity work. No connector token started with "." and "regn" was no cue, so `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"`, `"Roll.No. …"`, `"Cert. No. …"`, `"Passport.No. …"` and `"Regn. No. …"` never reached their value: `pseudonymize()` left the ID raw, `contains_hard_identifier` (G1/G2) admitted it and the salary detector recorded its digits as pay. Unlike R30/R32, this was NOT moot while `AI_RAW_PII_ENABLED` is armed: the at-rest copies, the embedding input and the walls run `pseudonymize()` under both postures. #1950 reads `\.?` after the cue word, "regn" and `-?` after the separator, in all five copies. Every verdict only grows, and 0 of 2,646 cue-bearing corpus strings change, in four views. The masked text was not monotone across cues (R62, pre-existing on the undotted spelling; fixed by #2049). A spaced dot, four separator spellings and the salary guard's missing résumé cues (#2043) remain; see the section on the cued-ID connector and R56.
-  - **R62 — the cued-ID masking was not monotone across cues. MITIGATED by #2049.** Found by the #1950 security review; pre-existing. A cue's value ran to the end of its token under a non-overlapping `sub` ahead of the phone rule, so `"Cert NAPS/2020/reg: 445566"` left the later cue's ID raw and `"Licence 098765 43210"` left the phone's tail raw. G1/G2 and the certifiers refused both; the masked text (the prompt with the switch off, and the at-rest copies and the embedding input under both postures) was short. The gateway now masks every cue's value and grows a value through a run of digits a phone continues. Over 60,000 fuzz lines nothing masks less and nothing is short of an every-start oracle; one corpus string moves, a next-line salary the owner ruled masked. Still open: a value glued to another rule's cue (`"Cert ABC123/naam Ramesh"`). See "The gateway masks every cue's value".
+  - **R62 — the cued-ID masking was not monotone across cues. MITIGATED by #2049.** Found by the #1950 security review; pre-existing. A cue's value ran to the end of its token under a non-overlapping `sub` ahead of the phone rule, so `"Cert NAPS/2020/reg: 445566"` left the later cue's ID raw and `"Licence 098765 43210"` left the phone's tail raw. G1/G2 and the certifiers refused both; the masked text (the prompt with the switch off, and the at-rest copies and the embedding input under both postures) was short. The gateway now masks every cue's value and grows a value through a run of digits a phone continues. A digit glued straight onto a value (a non-ASCII one) grows it the same way. Over 60,000 fuzz lines nothing masks less and nothing is short of an every-start oracle; one corpus string moves, a next-line salary the owner ruled masked. Still open, as on main: a value glued to a later rule's cue (`"Cert ABC123/naam Ramesh"`). See "The gateway masks every cue's value".

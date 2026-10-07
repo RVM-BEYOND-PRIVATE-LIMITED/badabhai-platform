@@ -105,6 +105,51 @@ def test_the_run_is_masked_through_to_its_last_digit_not_to_the_cut_phones_end()
     assert pseudonymize(text).text == "reg no [ID_1]"
 
 
+#: Devanagari zero to seven: digits to `\d`, outside the value's ASCII class.
+_GLUED = "".join(chr(0x0966 + i) for i in range(8))
+
+
+@pytest.mark.parametrize(
+    ("text", "masked", "old", "old_blocked"),
+    [
+        (
+            f"Cert NAPS/2020/reg: 445566{_GLUED} 98765 4321 5678",
+            "Cert [ID_1]: [ID_2]",
+            f"Cert [ID_1]: 445566{_GLUED} [PHONE_1]",
+            True,
+        ),
+        (
+            f"Licence DL-0420-reg 445566{_GLUED} 98765 4321 5678",
+            "Licence [ID_1] [ID_2]",
+            f"Licence [ID_1] 445566{_GLUED} [PHONE_1]",
+            True,
+        ),
+        # One cue: already so on main, which left "4321 5678" raw.
+        (
+            f"reg 123456{_GLUED} 98765 4321 5678",
+            "reg [ID_1]",
+            "reg [ID_1][PHONE_1] 4321 5678",
+            False,
+        ),
+    ],
+)
+def test_a_non_ascii_digit_glued_onto_a_value_grows_it_like_a_cut_phone(
+    text, masked, old, old_blocked
+):
+    """Found by the security review of #2049. The value's class is ASCII and `_PHONE_RE`'s `\\d` is
+    not. On the scan's input the value's last ASCII digit stopped a phone from starting at the glued
+    digit, and a phone starting inside the value overran 13 digits, so nothing cut the value; once
+    the value was a token, the phone rule split the rest of the run anew and left "4321 5678" raw,
+    where the old two-cue scan had blocked the turn. A digit straight after a value now grows it
+    through the run, as a cut phone does."""
+    result = pseudonymize(text)
+    assert (result.text, result.blocked) == (masked, False)
+    before = under_old(text)
+    assert (before.text, before.blocked) == (old, old_blocked)
+    verdict = measure.judge(text)
+    assert not verdict["less"] and not verdict["short"], verdict
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -129,7 +174,9 @@ def test_DECIDED_a_value_that_cut_a_phone_masks_it_where_the_residual_net_used_t
     """The old scan masked "AB1234" and left "56789012", eight digits over the money range, so the
     residual net blocked the whole turn. Now the digits are masked inside the ID, which is what the
     phone rule does with them when no cue is read; nothing raw is left for the net to catch. Digits
-    never egress either way."""
+    never egress either way. The net still runs on the final text. What goes away is the
+    accidental block of whatever else the turn held, which this module never counts on (the D-1
+    note at `_MONEY_RUN_RE`)."""
     text = "Reg AB1234 56789012"
     assert under_old(text).blocked is True
     result = pseudonymize(text)
@@ -161,16 +208,31 @@ def test_DECIDED_a_salary_on_the_next_line_is_masked_with_the_id_it_continues():
     assert signals.detect(text).current_salary == 25000
 
 
+def test_DECIDED_the_growth_takes_the_whole_run_across_lines_and_commas():
+    """What the growth reaches, stated as it ships (the security review of #2049): the whole run of
+    digits and phone separators after a cut phone, over any number of lines and through ", ". Each
+    number in these runs is masked by the old scan or by the phone rule with no cue read, so the
+    union is masked; the profile detectors read the raw text. `measure.judge`'s `beyond` counts
+    what neither masked (section 3)."""
+    lines = "Licence 098765 43210\n25000\n30000\n2 saal ka experience"
+    assert under_old(lines).text == "Licence [ID_1] [PHONE_1]\n30000\n2 saal ka experience"
+    assert pseudonymize(lines).text == "Licence [ID_1] saal ka experience"
+    comma = "Licence 098765 43210, 18000 milta hai"
+    assert under_old(comma).text == "Licence [ID_1] [PHONE_1] milta hai"
+    assert pseudonymize(comma).text == "Licence [ID_1] milta hai"
+
+
 # --- 3. only more, never short: a seeded fuzz of glued cue lines ---------------------------------
 
 
 def test_property_only_more_than_the_old_scan_and_never_short_of_the_oracle():
     """20,000 lines of `measure.chained`: one to four of #1933's cue lines glued by a space, "/",
-    "-", ", " or nothing, some ending in a number a value can cut. No line masks an offset less than
-    the old scan, and none leaves raw an offset of a value the rule matches from ANY offset or of a
-    phone run (`measure.oracle`, brute force). The floors show the generator reaches the R62 shape:
-    measured 2026-10-07, 340 lines the old scan left short, 379 that moved, 19 blocks that became
-    masks."""
+    "-", ", " or nothing, some ending in a number a value can cut or a non-ASCII digit run glued
+    on. No line masks an offset less than the old scan, and none leaves raw an offset of a value the
+    rule matches from ANY offset or of a phone run (`measure.oracle`, brute force). The floors show
+    the generator reaches the R62 shape. Measured 2026-10-07: 364 lines the old scan left short,
+    453 that moved, 19 blocks that became masks, and 84 that mask an offset neither the old scan
+    nor the oracle covers (a run's tail); the ceiling keeps that cost small."""
     rng = random.Random(2049)
     seen: Counter[str] = Counter()
     for _ in range(20_000):
@@ -180,8 +242,9 @@ def test_property_only_more_than_the_old_scan_and_never_short_of_the_oracle():
         assert not verdict["short"], text
         seen.update(name for name, hit in verdict.items() if hit)
     assert seen["old short"] > 250, seen
-    assert seen["moved"] > 250, seen
+    assert seen["moved"] > 300, seen
     assert seen["block became a mask"] > 5, seen
+    assert seen["beyond"] < 200, seen
 
 
 # --- 4. the repo corpus and the certifiers (#1875's method) --------------------------------------
@@ -309,10 +372,19 @@ def test_the_corpus_leaves_this_file_out():
 # --- 7. what #2049 does not cover ----------------------------------------------------------------
 
 
-def test_KNOWN_RESIDUAL_a_value_can_swallow_another_rules_cue():
-    """#2049 makes the cued-ID scan and the phone rule monotone; the rules after them still read
-    the scan's output. A value glued by "/" to a NAME cue takes the cue word into the ID, so the
-    name after it is not masked, where without the credential cue the name rule masks it. G1/G2
-    reads no names (ruled 2026-09-11, ADR-0041 §3.3). No such string is in the corpus."""
-    assert pseudonymize("ABC123/naam Ramesh").text == "ABC123/naam [PERSON_1]"
-    assert pseudonymize("Cert ABC123/naam Ramesh").text == "Cert [ID_1] Ramesh"
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        ("Cert ABC123/naam Ramesh", "Cert [ID_1] Ramesh"),
+        ("Cert ABC123-naam Ramesh", "Cert [ID_1] Ramesh"),
+    ],
+)
+def test_KNOWN_RESIDUAL_a_value_can_swallow_a_later_rules_cue(text, masked):
+    """Already so on main and unchanged by #2049, which makes the cued-ID scan and the phone rule
+    monotone; the rules after them read the scan's output. A value glued by "/" or "-" to a later
+    rule's cue (the name cue "naam" here) takes the cue word into the ID, so what follows it is not
+    masked, where without the credential cue that rule masks it. G1/G2 reads no names (ruled
+    2026-09-11, ADR-0041 §3.3). No such string is in the corpus."""
+    assert pseudonymize(text).text == masked
+    assert under_old(text).text == masked
+    assert pseudonymize(text.removeprefix("Cert ")).text.endswith("naam [PERSON_1]")
