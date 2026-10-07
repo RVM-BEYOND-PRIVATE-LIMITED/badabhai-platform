@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { customerCell } from "../../../../test/customer-cell";
 
 /**
  * What the Postings list RENDERS (route `/jobs`): its names (owner ruling 2026-10-01 — the job
@@ -226,5 +227,50 @@ describe("the filter panel (AW-08)", () => {
     const out = await render({ status: "open", verificationStatus: "verified" });
     expect(out).toContain('data-open="true"');
     expect(out).toContain(">Filters (2)</button>");
+  });
+});
+
+/**
+ * THE CUSTOMER CELL (#2032, sweep AW-28). Every cell linked `/companies/<id>`, and an agency then
+ * cost a redirect hop. With `payer_role` served beside `payer_id` the cell goes straight to the
+ * customer's own section and names the persona; without it, it keeps the address that redirects.
+ */
+describe("the customer cell links the customer's own section", () => {
+  const withRole = (payer_role: unknown) => {
+    stub.page = { items: [{ ...POSTING, payer_role }], nextCursor: null };
+  };
+
+  it("an agency posting links /agencies/<id> directly, named Agency", async () => {
+    withRole("agent");
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
+    expect(out).not.toContain(`href="/companies/${PAYER}"`);
+  });
+
+  it("a company posting links /companies/<id>, named Company", async () => {
+    withRole("employer");
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Company", "</td>"));
+    expect(out).not.toContain(`href="/agencies/${PAYER}"`);
+  });
+
+  it("a null role (an orphaned id) falls back to /companies/<id>, claiming no persona", async () => {
+    withRole(null);
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, null, "</td>"));
+  });
+
+  it("an absent role (an older API) falls back the same way", async () => {
+    const out = await render();
+    expect(POSTING).not.toHaveProperty("payer_role");
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, null, "</td>"));
+  });
+
+  it("an ops-created posting still says so — there is no customer to link", async () => {
+    stub.page = { items: [{ ...POSTING, payer_id: null, payer_role: null }], nextCursor: null };
+    const out = await render();
+    expect(out).toContain('<span class="table__meta">ops-created</span>');
+    expect(out).not.toContain(`href="/companies/`);
+    expect(out).not.toContain(`href="/agencies/`);
   });
 });
