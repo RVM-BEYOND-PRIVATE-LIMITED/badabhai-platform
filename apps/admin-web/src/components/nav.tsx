@@ -56,7 +56,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                     <span className="sidebar__label">{item.label}</span>
                     {/* Pending while this link's navigation is under way (no loading boundary
                         shows it any more — components/nav-pending.tsx). */}
-                    <NavPendingCue label={item.label} />
+                    <NavPendingCue message={`Opening ${item.label}…`} />
                   </Link>
                 </li>
               );

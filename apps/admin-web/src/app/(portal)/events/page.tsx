@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { listEvents, type EventFilters } from "../../../lib/events";
-import { readRefusal } from "../../../lib/read-refusal";
+import {
+  isMalformedUuid,
+  isOverLength,
+  readRefusal,
+  type ReadRefusal,
+} from "../../../lib/read-refusal";
+import { EVENT_FILTER_MAX_LENGTH } from "../../../lib/list-filter-values";
 import { queryHref } from "../../../lib/query-href";
 import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
@@ -60,7 +66,13 @@ export default async function EventsPage({
 
   let page: Awaited<ReturnType<typeof listEvents>> | null = null;
   let failed = false;
-  let refused = false;
+  /** A filter in the address the server could have refused (a value it does not accept). */
+  const refusable =
+    isOverLength(filters.eventName, EVENT_FILTER_MAX_LENGTH.eventName) ||
+    isOverLength(filters.actorType, EVENT_FILTER_MAX_LENGTH.actorType) ||
+    isOverLength(filters.subjectType, EVENT_FILTER_MAX_LENGTH.subjectType) ||
+    isMalformedUuid(filters.correlationId);
+  let refusal: ReadRefusal = null;
   try {
     page = await listEvents(filters);
   } catch (err) {
@@ -70,9 +82,13 @@ export default async function EventsPage({
     failed = true;
     // A 400 is the operator's address only when the address holds something to refuse — a
     // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
-    // console's one rule, `readRefusal`.
-    refused = readRefusal(err, { filtered, cursor: filters.cursor }) !== null;
+    // console's one rule, `readRefusal` — and only a filter value the server does not accept
+    // counts as refusable: a valid one beside an over-long cursor leaves the CURSOR refused.
+    refusal = readRefusal(err, { filtered: refusable, cursor: filters.cursor });
   }
+  const refused = refusal !== null;
+  /** The filters were refused — not the page cursor beside them. */
+  const filtersRefused = refusal === "filters";
 
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/events", Object.fromEntries(active));
@@ -118,22 +134,22 @@ export default async function EventsPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? refused && filtered
+                ? filtersRefused
                   ? "That filter combination was rejected."
                   : "Nothing was fetched."
                 : `${page?.events.length ?? 0} event${page?.events.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {refused ? null : clearFilters}
+          {filtersRefused ? null : clearFilters}
         </div>
 
         {refused ? (
           <div className="state state--error">
             <h3 className="state__title">
-              {filtered ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+              {filtersRefused ? "The server rejected these filters" : CURSOR_REFUSAL.title}
             </h3>
             <p className="state__body">
-              {filtered
+              {filtersRefused
                 ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment. Correct the value above, or clear the filters and start again."
                 : CURSOR_REFUSAL.body}
             </p>
@@ -142,7 +158,7 @@ export default async function EventsPage({
                 to page one), so with a filter set the FILTER is what was refused — keeping it on
                 the first page would be refused again, and the way out is Clear filters. With no
                 filter, the cursor was refused: the first page. */}
-            {filtered ? (
+            {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (
               <FirstPageAction href={listHref} cursor={filters.cursor} />

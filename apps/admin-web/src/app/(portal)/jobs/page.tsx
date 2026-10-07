@@ -2,7 +2,13 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listJobPostings } from "../../../lib/entities";
-import { readRefusal } from "../../../lib/read-refusal";
+import {
+  isMalformedUuid,
+  isUnknownValue,
+  readRefusal,
+  type ReadRefusal,
+} from "../../../lib/read-refusal";
+import { JOB_POSTING_STATUSES, JOB_POSTING_VERIFICATION_STATUSES } from "@badabhai/types";
 import { queryHref } from "../../../lib/query-href";
 import { formatPayBand, formatRelative, formatTimestamp } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
@@ -51,7 +57,12 @@ export default async function JobsPage({
 
   let page: Awaited<ReturnType<typeof listJobPostings>> | null = null;
   let failed = false;
-  let refused = false;
+  /** A filter in the address the server could have refused (a value it does not accept). */
+  const refusable =
+    isUnknownValue(status, JOB_POSTING_STATUSES) ||
+    isUnknownValue(verificationStatus, JOB_POSTING_VERIFICATION_STATUSES) ||
+    isMalformedUuid(payerId);
+  let refusal: ReadRefusal = null;
   try {
     page = await listJobPostings({ status, verificationStatus, payerId, cursor });
   } catch (err) {
@@ -61,9 +72,13 @@ export default async function JobsPage({
     failed = true;
     // A 400 is the operator's address only when the address holds something to refuse — a
     // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
-    // console's one rule, `readRefusal`.
-    refused = readRefusal(err, { filtered, cursor }) !== null;
+    // console's one rule, `readRefusal` — and only a filter value the server does not accept
+    // counts as refusable: a valid one beside an over-long cursor leaves the CURSOR refused.
+    refusal = readRefusal(err, { filtered: refusable, cursor });
   }
+  const refused = refusal !== null;
+  /** The filters were refused — not the page cursor beside them. */
+  const filtersRefused = refusal === "filters";
 
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/jobs", { status, verificationStatus, payerId });
@@ -108,22 +123,22 @@ export default async function JobsPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? refused && filtered
+                ? filtersRefused
                   ? "That filter combination was rejected."
                   : "Nothing was fetched."
                 : `${page?.items.length ?? 0} posting${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {refused ? null : clearFilters}
+          {filtersRefused ? null : clearFilters}
         </div>
 
         {refused ? (
           <div className="state state--error">
             <h3 className="state__title">
-              {filtered ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+              {filtersRefused ? "The server rejected these filters" : CURSOR_REFUSAL.title}
             </h3>
             <p className="state__body">
-              {filtered
+              {filtersRefused
                 ? "Nothing was fetched. A customer id must be a full UUID — a short id copied from a table cell will not do. Correct the value above, or clear the filters and start again."
                 : CURSOR_REFUSAL.body}
             </p>
@@ -132,7 +147,7 @@ export default async function JobsPage({
                 to page one), so with a filter set the FILTER is what was refused — keeping it on
                 the first page would be refused again, and the way out is Clear filters. With no
                 filter, the cursor was refused: the first page. */}
-            {filtered ? (
+            {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (
               <FirstPageAction href={listHref} cursor={cursor} />

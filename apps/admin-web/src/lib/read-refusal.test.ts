@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdminRequestError } from "./admin-http";
-import { isUnknownValue, readRefusal } from "./read-refusal";
+import { isMalformedUuid, isOverLength, isUnknownValue, readRefusal } from "./read-refusal";
 
 /**
  * What a failed list read REFUSED — the console's one rule (docs/design/NAVIGATION.md, "A refused
@@ -57,5 +57,27 @@ describe("isUnknownValue", () => {
 
   it("an absent value is not a filter at all", () => {
     expect(isUnknownValue(undefined, REASONS)).toBe(false);
+  });
+});
+
+/** The other two shapes a list filter can take (delta review of #2095): an id, and free text. */
+describe("isMalformedUuid", () => {
+  it("a uuid is well-formed — the server cannot refuse it for its shape", () => {
+    expect(isMalformedUuid("6155050c-c91b-4c6e-96a7-8da023f1d2d2")).toBe(false);
+  });
+
+  it("anything else is malformed, and an absent id is no filter", () => {
+    expect(isMalformedUuid("nope")).toBe(true);
+    expect(isMalformedUuid("6155050c")).toBe(true);
+    expect(isMalformedUuid(undefined)).toBe(false);
+  });
+});
+
+describe("isOverLength", () => {
+  it("free text within the API's bound cannot be refused; past it, it can", () => {
+    expect(isOverLength("worker.registered", 128)).toBe(false);
+    expect(isOverLength("x".repeat(128), 128)).toBe(false);
+    expect(isOverLength("x".repeat(129), 128)).toBe(true);
+    expect(isOverLength(undefined, 64)).toBe(false);
   });
 });

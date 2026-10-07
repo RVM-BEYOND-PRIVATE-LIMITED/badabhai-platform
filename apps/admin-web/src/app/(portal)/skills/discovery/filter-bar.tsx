@@ -1,7 +1,7 @@
 "use client";
 
 import { useUrlState } from "../../../../components/use-url-state";
-import { useRouter } from "next/navigation";
+import { SubmitPendingCue, usePendingPush } from "../../../../components/nav-pending";
 import {
   SKILL_CANDIDATE_ACTIONS,
   SKILL_CANDIDATE_ACTION_LABELS,
@@ -108,7 +108,9 @@ export function SkillDiscoveryFilterBar({
   carry: Record<string, string | undefined>;
   initial: SkillDiscoveryFilterValues;
 }) {
-  const router = useRouter();
+  // Navigates in a transition, so Apply can show that the new list is on its way — the same
+  // signal a link gives, with no loading boundary (components/nav-pending.tsx).
+  const [pending, push] = usePendingPush();
   const [values, setValues] = useUrlState(initial);
 
   function set<K extends keyof SkillDiscoveryFilterValues>(key: K, value: string) {
@@ -117,7 +119,7 @@ export function SkillDiscoveryFilterBar({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    router.push(filterBarHref(basePath, carry, values));
+    push(filterBarHref(basePath, carry, values));
   }
 
   /**
@@ -128,7 +130,7 @@ export function SkillDiscoveryFilterBar({
    */
   function clearFields() {
     setValues(CLEARED);
-    router.push(filterBarHref(basePath, carry, null));
+    push(filterBarHref(basePath, carry, null));
   }
 
   return (
@@ -266,6 +268,7 @@ export function SkillDiscoveryFilterBar({
         <button className="btn btn--primary" type="submit">
           <Icon name={ACTION_ICON.filter} />
           Apply
+          <SubmitPendingCue pending={pending} message="Applying the filters…" />
         </button>
         {/* Not "Clear filters": that name goes to the bare route everywhere else in the
             portal, and this keeps the status, tier and view above. */}

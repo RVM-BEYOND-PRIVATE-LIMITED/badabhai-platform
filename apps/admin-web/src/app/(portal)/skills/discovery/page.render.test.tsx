@@ -997,3 +997,24 @@ describe("on a later page of the flat queue the selected chips link the first pa
     );
   });
 });
+
+/**
+ * The acknowledged Derived tier on a later page (delta review of #2095): the selected Derived
+ * chip linked `tierTabHref("derived")`, which drops `ack=1` — so its "page one" opened the
+ * Direct queue (an unacknowledged derived request reads direct). Every selected chip here must
+ * lead back to page one of the SAME queue: derived, acknowledged, no cursor.
+ */
+describe("on a later page of the acknowledged Derived queue the selected chips keep the acknowledgement", () => {
+  it("the Derived chip — and every other selected chip — links tier=derived with ack=1, no cursor", async () => {
+    const out = await render({ view: "flat", tier: "derived", ack: "1", cursor: "c2" });
+    const current = [...out.matchAll(/<a aria-current="true"[^>]*href="([^"]*)"[^>]*>(?:<i [^>]*><\/i>)?([^<]*)/g)].map(
+      (m) => ({ href: m[1]!.replaceAll("&amp;", "&"), label: m[2]! }),
+    );
+    expect(current.map((c) => c.label)).toContain("Derived");
+    for (const { href, label } of current) {
+      expect(href, label).toContain("tier=derived");
+      expect(href, label).toContain("ack=1");
+      expect(href, label).not.toContain("cursor=");
+    }
+  });
+});

@@ -1,3 +1,4 @@
+import { uuidSchema } from "@badabhai/validators";
 import { isAdminRequestError } from "./admin-http";
 
 /**
@@ -33,4 +34,21 @@ export function readRefusal(
  */
 export function isUnknownValue(value: string | undefined, known: readonly string[]): boolean {
   return value !== undefined && !known.includes(value);
+}
+
+/**
+ * An id filter the server could have refused: present and not a uuid (every id filter on the
+ * admin API is `.uuid()`). A well-formed id is never the refused part of a 400.
+ */
+export function isMalformedUuid(value: string | undefined): boolean {
+  return value !== undefined && !uuidSchema.safeParse(value).success;
+}
+
+/**
+ * A free-text filter the server could have refused: longer than the API's bound for it (the
+ * events filters: `eventName` 128, `actorType` / `subjectType` 64). Within the bound, any text is
+ * accepted — so it is never the refused part.
+ */
+export function isOverLength(value: string | undefined, max: number): boolean {
+  return value !== undefined && value.length > max;
 }

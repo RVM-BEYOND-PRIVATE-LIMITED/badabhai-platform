@@ -154,18 +154,26 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   The error boundary's button is "Retry" too.
 - **No Suspense or loading boundary anywhere in admin-web, until re-measured** (final re-sweep
   O-1, review of #2095). No route `loading.tsx`, no `<Suspense>`, no `React.lazy`, no
-  `next/dynamic` with `loading` — in any layout, page or component
+  `next/dynamic` (every call is a React.lazy, and `ssr: false` a Suspense boundary) — in any
+  layout, page or component
   (`app/no-loading-boundary-anywhere.test.ts`). A query-only navigation (a chip, a filter, a
   page cursor) re-renders the same page, so any boundary in it is already visible, and on a
   production build of next 15.5.25 such a navigation was held in a transition that never
   committed (the URL never moved: 1-2 of 6 clicks landed on /credits, /events and
   /transactions; 400/400 with no boundary). A navigation keeps the current page on screen until
   the next one has rendered. Re-measure before relaxing this after a Next or React upgrade.
-- **A navigation shows that it is under way** (review of #2095). The sidebar links (rail and
-  drawer) and the crumb's section link carry `components/nav-pending.tsx`: while Next's
-  `useLinkStatus` says the link's navigation is pending, a dot after its label, a bar along the
-  top of the viewport (the cue a phone sees, since the drawer closes as its link is followed)
-  and one polite status line, "Opening Workers…". All three end when the navigation commits.
+- **The navigation pending cue: sidebar, crumb, filter chips, Pager and filter-bar Apply**
+  (review of #2095). These carry `components/nav-pending.tsx` and read their navigation's own
+  pending state — Next's `useLinkStatus` for the sidebar links (rail and drawer), the crumb's
+  section link, every link filter chip (`FilterChip`) and the Pager's Next page; the transition a
+  filter bar's Apply (and Skill discovery's Clear these fields) navigates in (`usePendingPush`).
+  While pending: a dot (after a rail or crumb label, on the corner of a chip, the Pager or
+  Apply), a bar along the top of the viewport (the cue a phone sees, since the drawer closes as
+  its link is followed) and one polite status line — "Opening Workers…", "Loading Credit
+  grant…", "Loading the next page…", "Applying the filters…". Nothing shows for the first
+  180ms (`--nav-pending-delay`), so a prefetched navigation never flashes it, and all of it ends
+  when the navigation commits. NOT covered: other links — a back link, a table row's link, a
+  state's recovery link — which show nothing until the next page renders.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not
   also say "reload". A failure with no button (a secondary read on a detail page) says
   "Reload this page".

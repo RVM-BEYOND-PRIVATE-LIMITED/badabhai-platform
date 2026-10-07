@@ -8,11 +8,12 @@ import ts from "typescript";
  * NO SUSPENSE OR LOADING BOUNDARY ANYWHERE IN ADMIN-WEB — until it is re-measured (final
  * re-sweep O-1, review of #2095).
  *
- * THE RULE. No route `loading.tsx`, no `<Suspense>`, no `React.lazy`, and no `next/dynamic` with a
- * `loading` component — in any layout, page or component. A query-only navigation (a chip, a
- * filter, a page cursor) re-renders the SAME page, so any boundary in it is already on screen
- * when the navigation starts, and that is the case that stalled. Not only boundaries "above a
- * page": a boundary inside one is just as visible to the next query-only navigation of it.
+ * THE RULE. No route `loading.tsx`, no `<Suspense>`, no `React.lazy`, and no `next/dynamic` at all
+ * (every call is a React.lazy; `ssr: false` is a Suspense boundary) — in any layout, page or
+ * component. A query-only navigation (a chip, a filter, a page cursor) re-renders the SAME page,
+ * so any boundary in it is already on screen when the navigation starts, and that is the case
+ * that stalled. Not only boundaries "above a page": a boundary inside one is just as visible to
+ * the next query-only navigation of it.
  *
  * WHY. A link that changes only the query often did nothing at all. Measured on a PRODUCTION
  * build (next 15.5.25 and the React 19.2 canary it vendors), clicking only after the router's
@@ -47,27 +48,29 @@ function files(dir: string): string[] {
   });
 }
 
-/** Every boundary a file introduces: `Suspense` (named or a member), `React.lazy` / `lazy`, and a `next/dynamic` call with `loading`. */
+/**
+ * Every boundary a file introduces, read from the TypeScript AST (so comments and strings never
+ * count): `Suspense` (imported, a member, or destructured from React), `React.lazy` (the same
+ * three ways), and ANY `next/dynamic` — every `dynamic()` wraps its loader in React.lazy, and with
+ * `ssr: false` renders it inside a `<Suspense>` (next 15.5.25, shared/lib/lazy-dynamic/loadable.js),
+ * `loading` or not.
+ */
 function boundaryUses(code: string, file = "x.tsx"): string[] {
   const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const out: string[] = [];
 
-  // The local names the file gives React (default / namespace import) and next/dynamic.
+  // The local names the file gives React (default / namespace import).
   const reactNames = new Set(["React"]);
-  const dynamicNames = new Set<string>();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
     const clause = st.importClause;
-    const from = st.moduleSpecifier.text;
-    if (!clause) continue;
-    if (from === "react") {
-      if (clause.name) reactNames.add(clause.name.text);
-      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-        reactNames.add(clause.namedBindings.name.text);
-      }
+    if (st.moduleSpecifier.text !== "react" || !clause) continue;
+    if (clause.name) reactNames.add(clause.name.text);
+    if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+      reactNames.add(clause.namedBindings.name.text);
     }
-    if (from === "next/dynamic" && clause.name) dynamicNames.add(clause.name.text);
   }
+  const BANNED = new Set(["Suspense", "lazy"]);
   const importedFrom = (node: ts.Node, module: string) => {
     for (let n: ts.Node | undefined = node; n; n = n.parent) {
       if (ts.isImportDeclaration(n)) {
@@ -76,14 +79,23 @@ function boundaryUses(code: string, file = "x.tsx"): string[] {
     }
     return false;
   };
-  const hasLoadingOption = (call: ts.CallExpression) =>
-    call.arguments.some(
-      (a) =>
-        ts.isObjectLiteralExpression(a) &&
-        a.properties.some(
-          (p) => p.name !== undefined && ts.isIdentifier(p.name) && p.name.text === "loading",
-        ),
+  /** `require("m")` or `import("m")` (awaited or not). */
+  const loads = (e: ts.Expression | undefined, module: string): boolean => {
+    if (!e) return false;
+    if (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e))
+      return loads(e.expression, module);
+    return (
+      ts.isCallExpression(e) &&
+      (e.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(e.expression) && e.expression.text === "require")) &&
+      e.arguments.length > 0 &&
+      ts.isStringLiteral(e.arguments[0]!) &&
+      e.arguments[0].text === module
     );
+  };
+  /** `const { Suspense } = React`, `const { lazy: l } = require("react")`. */
+  const fromReact = (e: ts.Expression | undefined) =>
+    e !== undefined && ((ts.isIdentifier(e) && reactNames.has(e.text)) || loads(e, "react"));
 
   const visit = (node: ts.Node) => {
     const hit =
@@ -98,11 +110,17 @@ function boundaryUses(code: string, file = "x.tsx"): string[] {
         node.name.text === "lazy" &&
         ts.isIdentifier(node.expression) &&
         reactNames.has(node.expression.text)) ||
-      // next/dynamic with a loading component: a Suspense boundary with a visible fallback.
-      (ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        dynamicNames.has(node.expression.text) &&
-        hasLoadingOption(node));
+      // Either, destructured from React: `const { Suspense, lazy: l } = React`.
+      (ts.isBindingElement(node) &&
+        ts.isObjectBindingPattern(node.parent) &&
+        ts.isVariableDeclaration(node.parent.parent) &&
+        fromReact(node.parent.parent.initializer) &&
+        BANNED.has(((node.propertyName ?? node.name) as ts.Identifier).text)) ||
+      // next/dynamic, however it is loaded.
+      (ts.isImportDeclaration(node) &&
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === "next/dynamic") ||
+      (ts.isCallExpression(node) && loads(node, "next/dynamic"));
     if (hit) {
       const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
       out.push(`${file}:${line + 1}`);
@@ -133,31 +151,58 @@ describe("the detector", () => {
     ).toHaveLength(1);
   });
 
-  it("finds next/dynamic with a loading component, under any local name", () => {
+  it("finds ANY next/dynamic import — every call is a React.lazy, and ssr:false a Suspense boundary", () => {
+    // next 15.5.25: `dynamic()` wraps the loader in React.lazy, and `ssr: false` renders it
+    // inside a <Suspense> (shared/lib/lazy-dynamic/loadable.js) — with or without `loading`.
     expect(
-      boundaryUses(
-        'import dynamic from "next/dynamic";\nconst X = dynamic(() => import("./x"), { loading: () => null });',
-      ),
+      boundaryUses(`import dynamic from "next/dynamic";
+const X = dynamic(() => import("./x"), { loading: () => null });`),
     ).toHaveLength(1);
     expect(
-      boundaryUses(
-        'import load from "next/dynamic";\nconst X = load(() => import("./x"), { ssr: false, loading: Spinner });',
-      ),
+      boundaryUses(`import load from "next/dynamic";
+const X = load(() => import("./x"), { ssr: false });`),
     ).toHaveLength(1);
+    expect(boundaryUses('import dynamic from "next/dynamic";')).toHaveLength(1);
+    expect(boundaryUses('const { default: d } = await import("next/dynamic");')).toHaveLength(1);
+    expect(boundaryUses('const d = require("next/dynamic");')).toHaveLength(1);
   });
 
-  it("leaves other React imports, a non-React `lazy`, next/dynamic without loading and prose alone", () => {
+  it("finds Suspense and lazy destructured from React", () => {
+    expect(
+      boundaryUses(`import React from "react";
+const { Suspense } = React;`),
+    ).toHaveLength(1);
+    expect(boundaryUses("const { lazy: later } = React;")).toHaveLength(1);
+    expect(
+      boundaryUses(`import * as R from "react";
+const { Suspense, lazy } = R;`),
+    ).toHaveLength(2);
+    expect(boundaryUses('const { Suspense } = require("react");')).toHaveLength(1);
+  });
+
+  it("leaves other React imports, a non-React `lazy`, prose, comments and strings alone", () => {
     expect(boundaryUses('import { useState } from "react";')).toEqual([]);
     expect(boundaryUses("// a Suspense boundary held the transition")).toEqual([]);
-    expect(boundaryUses('import { lazy } from "./my-utils";\nconst y = cache.lazy;')).toEqual([]);
     expect(
-      boundaryUses(
-        'import dynamic from "next/dynamic";\nconst X = dynamic(() => import("./x"), { ssr: false });',
-      ),
+      boundaryUses(`import { lazy } from "./my-utils";
+const y = cache.lazy;`),
     ).toEqual([]);
-    expect(boundaryUses("const opts = { loading: true };\nfetchIt(opts, { loading: 1 });")).toEqual(
-      [],
-    );
+    expect(
+      boundaryUses(`const { lazy } = myUtils;
+const { Suspense } = layout;`),
+    ).toEqual([]);
+    expect(
+      boundaryUses(`const opts = { loading: true };
+fetchIt(opts, { loading: 1 });`),
+    ).toEqual([]);
+    expect(
+      boundaryUses(`// import dynamic from "next/dynamic"
+/* const { Suspense } = React; React.lazy(); require("next/dynamic") */
+const s = 'import dynamic from "next/dynamic"; const { Suspense } = React';`),
+    ).toEqual([]);
+    expect(
+      boundaryUses("const el = <p>Suspense, lazy and next/dynamic are banned here.</p>;"),
+    ).toEqual([]);
   });
 });
 
@@ -170,7 +215,7 @@ describe("no Suspense or loading boundary anywhere in admin-web", () => {
   });
 
   it(
-    "no layout, page or component renders a Suspense, React.lazy or next/dynamic loading boundary",
+    "no layout, page or component renders a Suspense, React.lazy or next/dynamic boundary",
     { timeout: 30_000 },
     () => {
       const sources = files(srcRoot).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));

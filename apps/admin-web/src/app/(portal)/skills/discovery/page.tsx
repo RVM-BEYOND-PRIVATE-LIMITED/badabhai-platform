@@ -355,7 +355,9 @@ export default async function SkillDiscoveryPage({
               Ambiguous
             </FilterChip>
             {activeTier === "derived" && derivedAck ? (
-              <FilterChip selected href={tierTabHref("derived")} cursor={cursor}>
+              /* The acknowledged queue's own address — `tierTabHref` drops `ack`, so on a later
+                 page this chip's "page one" opened the Direct queue (delta review of #2095). */
+              <FilterChip selected href={derivedViewAnywayHref} cursor={cursor}>
                 Derived
               </FilterChip>
             ) : (

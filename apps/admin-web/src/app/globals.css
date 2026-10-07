@@ -837,10 +837,16 @@ details[open] > summary > .disclosure__caret {
 
 /* ---- navigation pending cue (components/nav-pending.tsx, review of #2095) ---------
    No loading boundary shows a navigation any more (app/no-loading-boundary-anywhere.test.ts), so
-   the link that started one does: a dot after its label while Next's link status is pending, in
-   the link's own colour (Safety Yellow on the active rail row, the rail's text colour elsewhere),
-   and a bar along the top of the viewport — the cue a phone sees, since the drawer closes as its
-   link is followed. Both end the moment the navigation commits. */
+   what started one does: a dot while its navigation is pending — on a rail or crumb link after
+   its label, on a filter chip, the Pager or a filter bar's Apply at the control's corner — in the
+   control's own colour (Safety Yellow on the active rail row), and a bar along the top of the
+   viewport, the cue a phone sees once the drawer has closed. Nothing shows for the first
+   `--nav-pending-delay` (delta review): a prefetched navigation that lands at once never
+   flashes the dot, and the bar and the status line wait for the same delay in nav-pending.tsx.
+   Not a motion token: it is a wait, so it stays under prefers-reduced-motion. */
+:root {
+  --nav-pending-delay: 180ms;
+}
 .nav-pending {
   display: none;
 }
@@ -852,11 +858,25 @@ details[open] > summary > .disclosure__caret {
   margin-inline-start: var(--space-2);
   border-radius: var(--radius-round);
   background: currentColor;
-  animation: nav-pending-pulse var(--duration-slower) var(--ease-in-out) infinite alternate;
+  animation:
+    nav-pending-show 1ms linear var(--nav-pending-delay) both,
+    nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
+      alternate;
 }
 /* In a rail row the dot sits at the row's end, so the label never moves. */
 .sidebar__link > .nav-pending--on {
   margin-inline-start: auto;
+}
+/* On a button-styled control (a chip, the Pager, Apply) it sits on the corner: the control keeps
+   its size, so a chip row never reflows while a chip is pending. */
+.btn:has(> .nav-pending) {
+  position: relative;
+}
+.btn > .nav-pending--on {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--space-1));
+  inset-inline-end: calc(-1 * var(--space-1));
+  margin: 0;
 }
 .nav-progress {
   position: fixed;
@@ -875,6 +895,14 @@ details[open] > summary > .disclosure__caret {
   transform: scaleX(0.9);
   animation: nav-progress-grow calc(var(--duration-slower) * 5) var(--ease-out);
 }
+@keyframes nav-pending-show {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
 @keyframes nav-pending-pulse {
   to {
     opacity: 0.4;
@@ -886,7 +914,9 @@ details[open] > summary > .disclosure__caret {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nav-pending--on,
+  .nav-pending--on {
+    animation: nav-pending-show 1ms linear var(--nav-pending-delay) both;
+  }
   .nav-progress--on {
     animation: none;
   }

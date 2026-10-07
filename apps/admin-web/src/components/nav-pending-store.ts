@@ -1,16 +1,16 @@
 /**
- * Which nav link's navigation is under way, for the shell's one status line and page-wide bar
- * (`nav-pending.tsx`, review of #2095). A plain external store, read with `useSyncExternalStore`,
- * so the shell holds no state of its own for it.
+ * What the navigation under way says, for the shell's one status line and page-wide bar
+ * (`nav-pending.tsx`, review of #2095): "Opening Workers…", "Applying the filters…". A plain
+ * external store, read with `useSyncExternalStore`, so the shell holds no state of its own for it.
  *
- * Each pending link ANNOUNCES its label and gets a token back; it WITHDRAWS that token when its
+ * Each pending cue ANNOUNCES its message and gets a token back; it WITHDRAWS that token when its
  * navigation ends or it unmounts. A withdrawal clears the store only if its token is still the
- * current one, so the link clicked first can never clear the label of the one clicked after it.
+ * current one, so the cue clicked first can never clear the message of the one clicked after it.
  *
  * Written only from effects, so on the server it is always empty — which is also what the client
  * holds at hydration.
  */
-type Pending = { token: number; label: string };
+type Pending = { token: number; message: string };
 
 let current: Pending | null = null;
 let lastToken = 0;
@@ -20,10 +20,10 @@ const emit = () => {
   for (const listener of listeners) listener();
 };
 
-/** Mark `label`'s navigation pending; returns the token that withdraws it. */
-export function announceNavigation(label: string): number {
+/** Say `message` while a navigation is pending; returns the token that withdraws it. */
+export function announceNavigation(message: string): number {
   lastToken += 1;
-  current = { token: lastToken, label };
+  current = { token: lastToken, message };
   emit();
   return lastToken;
 }
@@ -35,9 +35,9 @@ export function withdrawNavigation(token: number): void {
   emit();
 }
 
-/** The label of the navigation under way, or null. */
+/** What the navigation under way says, or null. */
 export function pendingNavigation(): string | null {
-  return current?.label ?? null;
+  return current?.message ?? null;
 }
 
 export function subscribeNavigation(listener: () => void): () => void {

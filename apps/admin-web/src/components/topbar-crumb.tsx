@@ -57,7 +57,7 @@ export function TopbarCrumb({ sections }: { sections: NavSection[] }) {
               {linkable ? (
                 <Link className="crumb crumb__link" href={trail.section.href}>
                   {trail.section.label}
-                  <NavPendingCue label={trail.section.label} />
+                  <NavPendingCue message={`Opening ${trail.section.label}…`} />
                 </Link>
               ) : (
                 <span className="crumb">{trail.section.label}</span>

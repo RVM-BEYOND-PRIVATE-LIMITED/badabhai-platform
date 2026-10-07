@@ -663,13 +663,32 @@ describe("the navigation pending cue (review of #2095)", () => {
     expect(contrast(color("var(--text-heading)"), color("var(--surface-card)"))).toBeGreaterThanOrEqual(3);
   });
 
-  it("neither moves under prefers-reduced-motion", () => {
-    for (const sel of [".nav-pending--on", ".nav-progress--on"]) {
-      const still = ALL.find(
+  it("the dot waits before it shows — a prefetched navigation that lands at once never flashes it", () => {
+    // Delta review of #2095: ~150-200ms. The page-wide bar needs no rule of its own — it is drawn
+    // only once the status line has announced, which waits the same delay in nav-pending.tsx.
+    const delay = TOP.filter((r) => r.selector === ":root")
+      .map((r) => decl(r.body, "--nav-pending-delay"))
+      .filter((v): v is string => v !== null)
+      .pop();
+    expect(delay, "--nav-pending-delay on :root").toBeDefined();
+    expect(delay).toMatch(/^\d+ms$/);
+    expect(Number.parseInt(delay!, 10)).toBeGreaterThanOrEqual(150);
+    expect(Number.parseInt(delay!, 10)).toBeLessThanOrEqual(200);
+    const on = decl(body(".nav-pending--on"), "animation")!;
+    expect(on).toContain("nav-pending-show");
+    expect(on).toContain("var(--nav-pending-delay)");
+  });
+
+  it("nothing moves under prefers-reduced-motion — but the dot still waits its delay", () => {
+    const reduced = (sel: string) =>
+      ALL.find(
         (r) => r.atRules.join() === REDUCED && r.selector.split(",").some((p) => p.trim() === sel),
       );
-      expect(still, sel).toBeDefined();
-      expect(decl(still!.body, "animation"), sel).toBe("none");
-    }
+    const dot = reduced(".nav-pending--on");
+    expect(dot).toBeDefined();
+    expect(decl(dot!.body, "animation")).toBe("nav-pending-show 1ms linear var(--nav-pending-delay) both");
+    const bar = reduced(".nav-progress--on");
+    expect(bar).toBeDefined();
+    expect(decl(bar!.body, "animation")).toBe("none");
   });
 });

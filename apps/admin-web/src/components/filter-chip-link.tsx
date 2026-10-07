@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Children } from "react";
 import { filterChipClass } from "./filter-chip";
+import { NavPendingCue } from "./nav-pending";
 
 /**
  * A FILTER CHIP that navigates — one value of a filter in the address (a status scope, a tier, a
@@ -45,6 +47,17 @@ export function FilterChip({
   return (
     <Link aria-current={selected ? "true" : undefined} className={className} href={href}>
       {children}
+      {/* A chip re-renders the same page with a new query: it shows that it is under way, with
+          no boundary (components/nav-pending.tsx; a client child — this component has no hooks). */}
+      <NavPendingCue message={`Loading ${chipText(children)}…`} />
     </Link>
   );
+}
+
+/** A chip's visible words — its text children, any glyph left out ("7d", "Credit grant"). */
+function chipText(children: React.ReactNode): string {
+  return Children.toArray(children)
+    .filter((c): c is string | number => typeof c === "string" || typeof c === "number")
+    .join("")
+    .trim();
 }
