@@ -15,6 +15,9 @@ import {
   applicantFeedSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
+  candidateInboxQuerySchema,
+  candidateInboxSchema,
+  candidateInboxWireSchema,
   capacitySchema,
   creditLedgerWireSchema,
   creditOrderWireSchema,
@@ -32,6 +35,9 @@ import {
   maskedResumeResultSchema,
   maskedResumeWireSchema,
   quotaTopUpWireSchema,
+  inboxAgencyRowWireSchema,
+  inboxCompanyRowWireSchema,
+  inboxPostingRefWireSchema,
   payerCapacityWireSchema,
   payerMeWireSchema,
   postingSummarySchema,
@@ -54,6 +60,8 @@ import {
   type AgencyReferralsSummary,
   type AgencyWorker,
   type ApplicantFeed,
+  type CandidateInbox,
+  type CandidateInboxQuery,
   type Capacity,
   type CreatePostingInput,
   type CreditBalance,
@@ -62,6 +70,8 @@ import {
   type Dashboard,
   type VerifiedPayment,
   type FacelessApplicant,
+  type InboxAgencyRowWire,
+  type InboxCompanyRowWire,
   type JobPostingChatPublishResult,
   type JobPostingChatSessionSummary,
   type JobPostingChatTranscript,
@@ -282,6 +292,72 @@ export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | n
     // applicants page names its posting from the payer's own postings read.
     roleTitle: "Applicants",
     applicants,
+  });
+}
+
+/**
+ * TRANSPORT schema for the Candidates inbox — the contract's row union, but LENIENT (each row and
+ * its `posting` pass unknown keys through), for the reason the referred-worker list gives: a plain
+ * `z.object` STRIPS unknown keys, so a regressed payload carrying a worker name would be swallowed
+ * before {@link assertNoAgencyPII} could see it. The strict {@link candidateInboxWireSchema} is
+ * re-applied after the guard as the final projection.
+ */
+const candidateInboxTransportSchema = z
+  .object({
+    applicants: z.array(
+      z.union([
+        inboxAgencyRowWireSchema
+          .extend({ posting: inboxPostingRefWireSchema("agency_job").passthrough() })
+          .passthrough(),
+        inboxCompanyRowWireSchema
+          .extend({ posting: inboxPostingRefWireSchema("company_posting").passthrough() })
+          .passthrough(),
+      ]),
+    ),
+    nextCursor: z.string().nullable(),
+  })
+  .passthrough();
+
+/** The row's own kind decides its mapper — the kind and the shape are paired by the schema. */
+function isAgencyInboxRow(row: InboxAgencyRowWire | InboxCompanyRowWire): row is InboxAgencyRowWire {
+  return row.posting.kind === "agency_job";
+}
+
+/**
+ * GET /payer/reach/applicants — EVERY applicant to every posting the SESSION payer owns, newest
+ * application first (the "Candidates" tab). Both personas; payer-scoped by the Bearer (XB-A — the
+ * query has no slot for a payer id, and the server's `.strict()` query refuses one).
+ *
+ * Each row is the per-posting feed's row for that applicant, so it maps through the SAME two
+ * mappers {@link getApplicantFeed} uses — weighted on an agency job, Matching V1 on a company
+ * posting — plus its `posting` ref, untouched. `rank`/`hot` stay posting-relative.
+ *
+ *  - `postingId` narrows to one posting; an unknown or another payer's id is the SAME empty page
+ *    as an owned posting with no applicants (no 404, no existence oracle).
+ *  - `cursor` is the previous page's `nextCursor`, passed back verbatim (never built here).
+ *  - FACELESS, ENFORCED: the response crosses {@link assertNoAgencyPII} like every agency read —
+ *    through a lenient transport, so a forbidden key is SEEN (throws in dev/test, stripped in prod).
+ *  - SCRAPE BOUND: one page costs one unit of the per-payer hourly reach cap it shares with the
+ *    per-posting feed, so it can answer 429 (`isPayerRateLimited`). Any failure throws — the page
+ *    renders its own state; nothing here fabricates a row.
+ */
+export async function getCandidateInbox(query: CandidateInboxQuery = {}): Promise<CandidateInbox> {
+  const q = candidateInboxQuerySchema.parse(query);
+  const params = new URLSearchParams();
+  if (q.postingId !== undefined) params.set("postingId", q.postingId);
+  if (q.cursor !== undefined) params.set("cursor", q.cursor);
+  if (q.limit !== undefined) params.set("limit", String(q.limit));
+  const search = params.toString();
+  const wire = await payerFetch(`/payer/reach/applicants${search ? `?${search}` : ""}`, {
+    schema: candidateInboxTransportSchema,
+  });
+  const safe = candidateInboxWireSchema.parse(assertNoAgencyPII(wire, "payer/reach/applicants"));
+  return candidateInboxSchema.parse({
+    applicants: safe.applicants.map((row) => ({
+      ...(isAgencyInboxRow(row) ? toWeightedApplicant(row) : toMatchCandidate(row)),
+      posting: row.posting,
+    })),
+    nextCursor: safe.nextCursor,
   });
 }
 

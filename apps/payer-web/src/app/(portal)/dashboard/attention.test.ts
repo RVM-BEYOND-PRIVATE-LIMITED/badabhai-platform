@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as attention from "./attention";
-import { buildAttentionItems } from "./attention";
+import { buildAttentionItems, type AttentionAction } from "./attention";
 import { lowBalanceThreshold } from "../../../lib/pricing-config";
 import type { Dashboard } from "../../../lib/contracts";
 
@@ -57,10 +57,10 @@ describe("buildAttentionItems", () => {
     );
     expect(out[0]!.id).toBe("credits-empty");
     expect(out[0]!.tone).toBe("critical");
-    expect(out[0]!.actionHref).toBe("/credits");
+    expect(out[0]!.action?.href).toBe("/credits");
     // "Buy credits" with the ONE balance icon — never "Top up" (which also meant quota).
-    expect(out[0]!.actionLabel).toBe("Buy credits");
-    expect(out[0]!.actionIcon).toBe("wallet");
+    expect(out[0]!.action?.label).toBe("Buy credits");
+    expect(out[0]!.action?.icon).toBe("wallet");
   });
 
   it("warns BEFORE the wallet empties, not after", () => {
@@ -88,8 +88,8 @@ describe("buildAttentionItems", () => {
         EMPLOYER,
       )[0]!;
       expect(wallet.id, String(balance)).toMatch(/^credits-(empty|low)$/);
-      expect(wallet.actionHref, String(balance)).toBe("/credits");
-      expect(wallet.actionLabel, String(balance)).toBe("Buy credits");
+      expect(wallet.action?.href, String(balance)).toBe("/credits");
+      expect(wallet.action?.label, String(balance)).toBe("Buy credits");
       expect(wallet.body, String(balance)).not.toMatch(/owner/i);
     }
   });
@@ -117,9 +117,31 @@ describe("buildAttentionItems", () => {
     );
     const item = out.find((i) => i.id === "no-open-postings")!;
     expect(item.title).toBe("No open postings");
-    expect(item.actionHref).toBe("/postings/new");
-    expect(item.actionLabel).toBe("New posting");
-    expect(item.actionIcon).toBe("plus");
+    expect(item.action?.href).toBe("/postings/new");
+    expect(item.action?.label).toBe("New posting");
+    expect(item.action?.icon).toBe("plus");
+  });
+
+  it("each action names its DESTINATION for the pending cue — 'Credits', not 'Buy credits' (review of #2125)", () => {
+    const wallet = buildAttentionItems({ ...HEALTHY, credits: { payerId: "p", balance: 0 } }, EMPLOYER);
+    expect(wallet[0]!.action?.pendingLabel).toBe("Credits");
+    const closed = buildAttentionItems(
+      { ...HEALTHY, postings: [{ ...HEALTHY.postings[0]!, status: "closed" }] },
+      EMPLOYER,
+    );
+    expect(closed.find((i) => i.id === "no-open-postings")!.action?.pendingLabel).toBe(
+      "New posting",
+    );
+  });
+
+  it("an action is all-or-nothing: no door without words, a destination and a glyph (compile-time)", () => {
+    const rejected: AttentionAction[] = [
+      // @ts-expect-error — a door the pending cue cannot name
+      { href: "/credits", label: "Buy credits", icon: "wallet" },
+      // @ts-expect-error — a door with no words on it
+      { href: "/credits", pendingLabel: "Credits", icon: "wallet" },
+    ];
+    expect(rejected).toHaveLength(2);
   });
 
   it("says nothing for ZERO postings — the dashboard's panel already says 'No postings yet'", () => {
@@ -227,7 +249,7 @@ describe("buildAttentionItems — the low-balance threshold is the pricing confi
     buildAttentionItems({ ...HEALTHY, credits: { payerId: "p", balance } }, opts);
   const ids = (balance: number) => at(balance).map((i) => i.id);
   /** Every "Buy credits" the needs-you band offers at this balance. */
-  const buys = (balance: number) => at(balance).filter((i) => i.actionLabel === "Buy credits");
+  const buys = (balance: number) => at(balance).filter((i) => i.action?.label === "Buy credits");
 
   it("the dashboard keeps no number of its own", () => {
     expect("LOW_BALANCE_THRESHOLD" in attention).toBe(false);
@@ -242,7 +264,7 @@ describe("buildAttentionItems — the low-balance threshold is the pricing confi
     }
     expect(ids(4)).toEqual(["credits-low"]);
     expect(buys(4)).toHaveLength(1);
-    expect(buys(4)[0]!.actionHref).toBe("/credits");
+    expect(buys(4)[0]!.action?.href).toBe("/credits");
   });
 
   it("the config override moves the dashboard WITH /credits (8: 7 is low, 8 is not)", () => {

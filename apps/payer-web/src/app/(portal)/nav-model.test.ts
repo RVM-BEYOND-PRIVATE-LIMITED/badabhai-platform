@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ACTION_ICON } from "@badabhai/icons";
 import { isNavItemActive, navSections, navTrail, type NavItem, type NavSection } from "./nav-model";
 
 /**
@@ -61,6 +62,7 @@ describe("nav model — which paths light which item up", () => {
     ["/dashboard", "/dashboard"],
     ["/postings", "/postings"],
     ["/postings/new", "/postings/new"],
+    ["/candidates", "/candidates"],
     ["/plans", "/plans"],
     ["/credits", "/credits"],
     ["/team", "/team"],
@@ -87,7 +89,7 @@ describe("nav model — which paths light which item up", () => {
   });
 
   it("exactly one item is active on every ordinary route (no double highlight)", () => {
-    for (const p of ["/dashboard", "/postings", "/postings/new", "/plans", "/credits", "/team"]) {
+    for (const p of ["/dashboard", "/postings", "/postings/new", "/candidates", "/plans", "/credits", "/team"]) {
       expect(activeHrefs(p), p).toHaveLength(1);
     }
   });
@@ -113,6 +115,7 @@ describe("nav model — which paths light which item up", () => {
     it.each([
       ["/agency/jobs", "/agency/jobs"],
       ["/agency/jobs/new", "/agency/jobs/new"],
+      ["/candidates", "/candidates"],
       ["/agency/workers", "/agency/workers"],
       ["/agency/referrals", "/agency/referrals"],
       ["/agency/qr", "/agency/qr"],
@@ -177,6 +180,7 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
       "Dashboard",
       "New posting",
       "Postings",
+      "Candidates",
       "Plans & capacity",
       "Credits",
       "Team",
@@ -188,6 +192,7 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
       "Dashboard",
       "New posting",
       "Postings",
+      "Candidates",
       "Worker activity",
       "Referrals",
       "QR invite",
@@ -229,6 +234,7 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
       "Dashboard",
       "New posting",
       "Postings",
+      "Candidates",
       "Plans & capacity",
       "Credits",
     ]);
@@ -236,6 +242,7 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
       "Dashboard",
       "New posting",
       "Postings",
+      "Candidates",
       "Worker activity",
       "Referrals",
       "QR invite",
@@ -275,6 +282,7 @@ describe("nav model — the nav follows the page gate (agency-portal flag)", () 
   const FLAG_GATED = [
     "/agency/jobs/new",
     "/agency/jobs",
+    "/candidates",
     "/agency/workers",
     "/agency/referrals",
     "/agency/qr",
@@ -337,6 +345,7 @@ describe("navTrail — where a path sits (the header trail and the error boundar
     // too — it is not the destination's own route).
     ["/postings/ai", ["Hiring", "/postings/new", 1]],
     ["/postings/ai/new", ["Hiring", "/postings/new", 1]],
+    ["/candidates", ["Hiring", "/candidates", 0]],
     ["/dashboard", ["-", "/dashboard", 0]],
     ["/team/accept", ["Organisation", "/team", 1]],
   ] as const)("%s → %j", (path, expected) => {
@@ -346,8 +355,64 @@ describe("navTrail — where a path sits (the header trail and the error boundar
   it("the agency's postings, and paths no destination owns", () => {
     expect(at("/agency/jobs/2f8c", agency)).toEqual(["Demand", "/agency/jobs", 1]);
     expect(at("/agency/jobs/new", agency)).toEqual(["Demand", "/agency/jobs/new", 0]);
+    expect(at("/candidates", agency)).toEqual(["Demand", "/candidates", 0]);
     for (const path of ["/account", "/nowhere", "/postings-archive"]) expect(at(path), path).toBeNull();
     // A company's posting path is not an agency's (no agency destination owns it).
     expect(at("/postings/2f8c", agency)).toBeNull();
+  });
+});
+
+describe("nav model — Candidates: every applicant across your postings (owner request 2026-10-07)", () => {
+  const groupOf = (sections: NavSection[], href: string) =>
+    sections.find((s) => s.items.some((i) => i.href === href))?.title;
+
+  it("both personas get ONE Candidates item, in the group that holds Postings, right after it", () => {
+    for (const isAgency of [false, true]) {
+      for (const isOwner of [false, true]) {
+        const sections = navSections({ isAgency, isOwner, ...ON });
+        const items = allItems(sections);
+        const candidates = items.filter((i) => i.label === "Candidates");
+        expect(candidates, `agency ${isAgency} owner ${isOwner}`).toHaveLength(1);
+        expect(candidates[0]!.href).toBe("/candidates");
+        const postings = isAgency ? "/agency/jobs" : "/postings";
+        expect(groupOf(sections, "/candidates")).toBe(groupOf(sections, postings));
+        expect(groupOf(sections, "/candidates")).toBe(isAgency ? "Demand" : "Hiring");
+        const hrefs = items.map((i) => i.href);
+        expect(hrefs.indexOf("/candidates")).toBe(hrefs.indexOf(postings) + 1);
+      }
+    }
+  });
+
+  it("wears the product's one candidate glyph, never the Team (users) glyph", () => {
+    for (const isAgency of [false, true]) {
+      const item = allItems(navSections({ isAgency, isOwner: true, ...ON })).find(
+        (i) => i.href === "/candidates",
+      )!;
+      expect(item.icon).toBe(ACTION_ICON.candidate);
+      expect(item.icon).not.toBe(ACTION_ICON.users);
+    }
+  });
+
+  it("its own route only: a posting's per-posting Applicants page still lights Postings", () => {
+    for (const isAgency of [false, true]) {
+      const items = allItems(navSections({ isAgency, isOwner: true, ...ON }));
+      const lit = (p: string) => items.filter((i) => isNavItemActive(i.match, p)).map((i) => i.href);
+      expect(lit("/candidates")).toEqual(["/candidates"]);
+      expect(lit("/candidates-archive")).toEqual([]);
+      const applicants = isAgency ? "/agency/jobs/2f8c/applicants" : "/postings/2f8c/applicants";
+      expect(lit(applicants)).toEqual([isAgency ? "/agency/jobs" : "/postings"]);
+    }
+  });
+
+  it("an agency's Candidates follows the agency-portal flag, like the Postings beside it", () => {
+    const hrefs = (agencyPortalEnabled: boolean) =>
+      allItems(navSections({ isAgency: true, isOwner: true, agencyPortalEnabled })).map((i) => i.href);
+    expect(hrefs(true)).toContain("/candidates");
+    expect(hrefs(false)).not.toContain("/candidates");
+    // A company's rail never depends on the agency flag.
+    for (const agencyPortalEnabled of [false, true]) {
+      const company = allItems(navSections({ isAgency: false, isOwner: true, agencyPortalEnabled }));
+      expect(company.map((i) => i.href)).toContain("/candidates");
+    }
   });
 });

@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
-import { NavPendingCue } from "../../components/nav-pending";
+import { PortalLink } from "../../components/portal-link";
 import { isNavItemActive, type NavSection } from "./nav-model";
 
 /**
@@ -32,9 +31,11 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
               const active = isNavItemActive(item.match, pathname);
               return (
                 <li key={item.href}>
-                  <Link
+                  {/* The navigation this row starts shows the pending cue (components/portal-link.tsx). */}
+                  <PortalLink
                     className={`pnav__link${active ? " pnav__link--active" : ""}`}
                     href={item.href}
+                    pendingLabel={item.label}
                     aria-current={active ? "page" : undefined}
                     title={item.description ? `${item.label} — ${item.description}` : item.label}
                   >
@@ -43,9 +44,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                     {/* PARKED — reachable, but the page it opens explains rather than does.
                         Badged so the rail sets the right expectation before the click. */}
                     {item.parked ? <span className="pnav__soon">Soon</span> : null}
-                    {/* The navigation this row started is under way (components/nav-pending.tsx). */}
-                    <NavPendingCue label={item.label} />
-                  </Link>
+                  </PortalLink>
                 </li>
               );
             })}

@@ -82,3 +82,24 @@ export class PriceMismatchError extends Error {
     this.currentPriceInr = currentPriceInr;
   }
 }
+
+/**
+ * A 429 from the payer API: a per-payer hourly cap (the reach bucket, the disclosure bucket …)
+ * or the same cap failing closed while Redis is down — one status for both, and no reason in the
+ * body (the transport never surfaces one). Read from the transport's class-only message
+ * (`payer API <path> returned 429`), so a page can say "too many requests" instead of "failed".
+ */
+export function isPayerRateLimited(e: unknown): boolean {
+  return e instanceof Error && e.message.endsWith(" returned 429");
+}
+
+/**
+ * A 400 from the payer API — the server refused what the request carried. Both of the
+ * transport's 400 shapes count: a {@link PayerValidationError} (the pipe named the field) and a
+ * class-only `payer API <path> returned 400` (a body with no readable issues). Read from that
+ * shared message, as {@link isPayerRateLimited} reads a 429, so a page can tell a refusal apart
+ * from an outage: repeating a refused request cannot succeed, so it never offers Retry.
+ */
+export function isPayerBadRequest(e: unknown): boolean {
+  return e instanceof Error && e.message.endsWith(" returned 400");
+}

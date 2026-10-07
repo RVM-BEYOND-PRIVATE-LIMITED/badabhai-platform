@@ -299,9 +299,8 @@ describe("portal nav — the agency items follow the agency-portal flag", () => 
   });
 });
 
-describe("the brand link carries the navigation pending cue (components/nav-pending.tsx)", () => {
+describe("the brand link carries the navigation pending cue (components/portal-link.tsx)", () => {
   it("the rail's lockup link to the Dashboard is named for it", async () => {
-    const { NavPendingCue } = await import("../../components/nav-pending");
     const { linkCues } = await import("../../../test/link-cues");
     requirePayer.mockResolvedValue({
       payerId: "11111111-1111-4111-8111-111111111111",
@@ -314,6 +313,6 @@ describe("the brand link carries the navigation pending cue (components/nav-pend
     getOrgRole.mockReturnValue("recruiter");
     getCredits.mockResolvedValue({ payerId: "p", balance: 184 });
     const tree = (await PortalLayout({ children: null })) as ReactElement<{ brand: ReactNode }>;
-    expect(linkCues(tree.props.brand, NavPendingCue).get("/dashboard")).toEqual(["Dashboard"]);
+    expect(linkCues(tree.props.brand).get("/dashboard")).toEqual(["Dashboard"]);
   });
 });

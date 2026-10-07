@@ -664,7 +664,10 @@ body {
    THE DOT TAKES NO SPACE (review of #2115): it is absolutely positioned on its link's corner, and
    every link that carries one is positioned whether or not it is pending — so a click never
    widens a button, pushes a badge or reflows a header (measured: +24px on a header action, +16px
-   on a title, before). nav-pending.css.test.ts fences it. */
+   on a title, before). nav-pending.css.test.ts fences it.
+
+   EVERY in-app link carries one: each is a `PortalLink` (components/portal-link.tsx), the only
+   module that may render next/link's `Link` (app/every-link-shows-the-cue.test.ts). */
 .nav-pending {
   display: none;
 }
@@ -696,6 +699,17 @@ body {
 .pshell__brandlink > .nav-pending--on {
   inset-block-start: var(--space-1);
   inset-inline-end: var(--space-1);
+}
+/* A DS Card / StatTile whole-surface link (`.bb-stretched-link`, ds-components.css) is an empty,
+   TRANSPARENT overlay spanning its card — still absolutely positioned (its class outranks the
+   zero-specificity anchor above), so the card's layout and hover lift are untouched. Its dot can
+   take neither the link's colour (transparent) nor the corner just outside it (the card's own
+   rounded corner), so it sits inside the card's top-right corner, in the padding, in the
+   heading colour. */
+.bb-stretched-link > .nav-pending--on {
+  inset-block-start: var(--space-1);
+  inset-inline-end: var(--space-1);
+  background: var(--text-heading);
 }
 .nav-progress {
   position: fixed;
@@ -1499,6 +1513,12 @@ textarea.input {
   gap: var(--space-4);
   padding: var(--space-4);
   animation: account-menu-pop var(--duration-fast) var(--ease-out);
+}
+/* Closed, the panel stays MOUNTED and `hidden` (account-menu.tsx: its Account link must outlive
+   the click that closes it, or the navigation's pending cue goes with it). The `display: grid`
+   above would otherwise override the attribute and leave the closed panel on screen. */
+.account-menu__panel[hidden] {
+  display: none;
 }
 @keyframes account-menu-pop {
   from {
@@ -2423,6 +2443,96 @@ textarea.input {
     justify-content: center;
   }
 }
+
+/* ------------------------------------------------------------------
+ * CANDIDATES (/candidates) — every applicant across the payer's postings. The page renders the
+ * APPLICANT FEED card above (its wrapper is `.applicants-page.candidates-page`, so that block's
+ * card and touch rules apply unchanged); only what is its own lives here: the posting filter in
+ * the head's toolbar row, the line naming each card's posting, and the pager. Tokens only.
+ * ------------------------------------------------------------------ */
+.candidates-filter {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* The select takes the line and "Show" sits on its row (aligned to the control, under the
+   label); the button drops beneath only when the two cannot share a line. */
+.candidates-filter__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.candidates-filter__form .bb-field {
+  flex: 1 1 var(--stat-min);
+  min-width: 0;
+  max-inline-size: calc(var(--stat-min) * 2);
+}
+.candidates-filter__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+/* The posting this card's applicant applied to: a supporting line under the identity, its title
+   in the link colour (plain heading-weight text when this session has no page for it). A long
+   title wraps rather than widening the card. */
+.applicant__posting {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.applicant__posting-link {
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+}
+.applicant__posting-title {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+/* The applicant's rank on THAT posting ("· ranked #2") — posting-relative, so it reads on this
+   line rather than as a badge that looks like a place in the newest-first list. One unit: it
+   wraps as a whole after the title, never inside. */
+.applicant__posting-rank {
+  white-space: nowrap;
+}
+/* …a 44px target on a phone or a coarse pointer: the text-link HIT STRIP recipe (as
+   `.reveal-card__ext`) — an out-of-flow strip centred on the link, so the line does not grow and
+   the focus ring stays on the text. */
+@media (max-width: 600px), (pointer: coarse) {
+  .applicant__posting-link {
+    position: relative;
+    isolation: isolate;
+  }
+  .applicant__posting-link::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
+  }
+}
+/* Keyset paging under the list: First page · Next page, right-aligned; on a phone the two share
+   the row as equal thumb targets (each a md control — the 44px floor). */
+.candidates-pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--section-gap);
+}
+@media (max-width: 600px) {
+  .candidates-pager > .bb-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
 .reveal-card {
   width: 100%;
 }

@@ -433,3 +433,51 @@ describe("applicant feed — (g) after a granted reveal the row MOVES TO CONTACT
     expect(revealContactAction).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("applicant feed — a posting's own feed is unchanged by the inbox's per-row rules", () => {
+  /** The rank badges, in card order (`#1`, `#2` …) — the badge is the feed's own rank read-out. */
+  function rankBadges(): string[] {
+    const out: string[] = [];
+    (function walk(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node === "boolean") return;
+      if (typeof node === "string" || typeof node === "number") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      if (el.type === Badge) {
+        const t = textOf(el.props.children as ReactNode).trim();
+        if (/^#\d+$/.test(t)) out.push(t);
+      }
+      if (el.props && "children" in el.props) walk(el.props.children as ReactNode);
+    })(currentTree);
+    return out;
+  }
+
+  it("each card keeps its #rank badge — the list on screen IS the posting's ranking", () => {
+    mount([A, B, C]);
+    expect(rankBadges()).toEqual(["#1", "#2", "#3"]);
+    expect(deepText()).not.toContain("ranked #");
+  });
+
+  it("a failed unlock relabels to Retry, which re-runs on the posting with NO re-prompt", async () => {
+    unlockAction
+      .mockResolvedValueOnce({ ok: false, error: "Couldn’t unlock right now. Please retry." })
+      .mockResolvedValueOnce(GRANTED);
+    mount([A, B]);
+    await driveUnlock();
+    expect(find("Retry unlock (1 credit)")).toBeDefined();
+    expect(deepText()).toContain("Couldn’t unlock right now. Please retry.");
+    await find("Retry unlock (1 credit)")!.onClick!();
+    expect(cells[4]).toBeNull(); // the dialog never reopened
+    expect(unlockAction.mock.calls.map((c) => c[0])).toEqual([
+      { postingId: POSTING, workerId: A.workerId },
+      { postingId: POSTING, workerId: A.workerId },
+    ]);
+    // The other applicant was never confirmed: his Unlock still opens the dialog first.
+    find("Unlock contact (1 credit)")!.onClick!();
+    expect(cells[4]).toBe(B.workerId);
+    expect(unlockAction).toHaveBeenCalledTimes(2);
+  });
+});

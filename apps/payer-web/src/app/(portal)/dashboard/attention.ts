@@ -27,16 +27,30 @@ export interface AttentionInput {
 
 export type AttentionTone = "critical" | "warning" | "info";
 
+/**
+ * The one thing an item asks the payer to go and do: a link, and every part of it travels together
+ * — so an item cannot offer a door with no words on it, or one the pending cue cannot name.
+ */
+export interface AttentionAction {
+  href: string;
+  /** The button's own words ("Buy credits"). */
+  label: string;
+  /**
+   * The DESTINATION the navigation pending cue names while the page loads — "Opening Credits…",
+   * never "Opening Buy credits…" (components/portal-link.tsx).
+   */
+  pendingLabel: string;
+  /** Its glyph (from ACTION_ICON) — a key action is icon + text. */
+  icon: IconName;
+}
+
 export interface AttentionItem {
   id: string;
   tone: AttentionTone;
   title: string;
   body: string;
   /** Omitted when the item is information only — there is nothing on a page to go and do. */
-  actionHref?: string;
-  actionLabel?: string;
-  /** The action's glyph (from ACTION_ICON) — a key action is icon + text. */
-  actionIcon?: IconName;
+  action?: AttentionAction;
 }
 
 export function buildAttentionItems(
@@ -48,10 +62,11 @@ export function buildAttentionItems(
   // Every member can buy (owner ruling 2026-10-07), so the wallet items always carry the door —
   // there is no org-role input here at all. "Buy credits" — never "Top up", which also named
   // adding applicant slots to a posting.
-  const walletAction = {
-    actionHref: "/credits",
-    actionLabel: "Buy credits",
-    actionIcon: ACTION_ICON.credits,
+  const walletAction: AttentionAction = {
+    href: "/credits",
+    label: "Buy credits",
+    pendingLabel: "Credits",
+    icon: ACTION_ICON.credits,
   };
 
   // 1. The wallet — an empty one stops the core loop outright, so it outranks everything.
@@ -66,7 +81,7 @@ export function buildAttentionItems(
       tone: "critical",
       title: "You are out of unlock credits",
       body: "Applicants stay masked until you buy credits. Existing unlocks are unaffected.",
-      ...walletAction,
+      action: walletAction,
     });
   } else if (balance !== null && balance < lowBalanceThreshold()) {
     items.push({
@@ -74,7 +89,7 @@ export function buildAttentionItems(
       tone: "warning",
       title: `Only ${balance} unlock ${balance === 1 ? "credit" : "credits"} left`,
       body: "Buy credits before you run out so shortlisting is never interrupted.",
-      ...walletAction,
+      action: walletAction,
     });
   }
 
@@ -109,9 +124,12 @@ export function buildAttentionItems(
       tone: "warning",
       title: "No open postings",
       body: "Every posting is closed, so no new applicants can arrive.",
-      actionHref: "/postings/new",
-      actionLabel: "New posting",
-      actionIcon: ACTION_ICON.create,
+      action: {
+        href: "/postings/new",
+        label: "New posting",
+        pendingLabel: "New posting",
+        icon: ACTION_ICON.create,
+      },
     });
   }
 

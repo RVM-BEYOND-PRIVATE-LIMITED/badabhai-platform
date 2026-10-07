@@ -39,6 +39,9 @@ vi.mock("next/link", () => ({
     props: { href, children },
   }),
 }));
+// The walker calls every function component, and the pending cue (inside every PortalLink) runs
+// effects — a real hook outside a render. It draws nothing while idle, so it renders nothing here.
+vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }));
 vi.mock("./actions", () => ({
   startJobPostingChatAction: () => startJobPostingChatAction(),

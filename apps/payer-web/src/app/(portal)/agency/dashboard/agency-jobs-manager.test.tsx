@@ -3,7 +3,6 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { AgencyJob } from "../../../../lib/contracts";
 import { Button } from "../../../../components/ds";
-import { NavPendingCue } from "../../../../components/nav-pending";
 import { linkCues } from "../../../../../test/link-cues";
 
 /**
@@ -417,10 +416,13 @@ describe("AgencyJobsManager — review L2: no edit door while the row works", ()
   });
 });
 
-describe("the navigation pending cue on an agency posting row (components/nav-pending.tsx)", () => {
-  it("the title and the Applicants link each carry it, named for where they go", () => {
-    const cues = linkCues(render([JOB]), NavPendingCue);
+describe("the navigation pending cue on an agency posting row (components/portal-link.tsx)", () => {
+  it("the title, the Applicants link and Edit posting each carry it, named for where they go", () => {
+    const cues = linkCues(render([JOB]));
     expect(cues.get(`/agency/jobs/${JOB.id}`)).toEqual([JOB.title]);
     expect(cues.get(`/agency/jobs/${JOB.id}/applicants`)).toEqual(["Applicants"]);
+    expect(cues.get(`/agency/jobs/${JOB.id}/edit`)).toEqual(["Edit posting"]);
+    // …and no link on the row goes without one.
+    expect([...cues].filter(([, labels]) => labels.length === 0)).toEqual([]);
   });
 });
