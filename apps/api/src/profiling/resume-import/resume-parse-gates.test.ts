@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { ParsedField, ResumeEmployment, TargetField } from "@badabhai/ai-contracts";
 
 import {
+  CONTROL_CHARACTER_REFUSAL,
   HARD_IDENTIFIER_CLASSES,
   applyResumeParseGates,
   containsHardIdentifier,
@@ -113,8 +114,12 @@ describe("the hard-identifier wall agrees with the ai-service, case for case", (
   });
 
   it("every class the fixture expects is one this side declares", () => {
+    // `control_character` is a fail-closed REFUSAL, not a class (#2064, R59) — the far side
+    // keeps it out of `HARD_IDENTIFIER_CLASSES` too, so it is the one name exempted here.
     const expectedClasses = new Set(
-      cases.map((c) => c.expected).filter((value): value is string => value !== null),
+      cases
+        .map((c) => c.expected)
+        .filter((value): value is string => value !== null && value !== CONTROL_CHARACTER_REFUSAL),
     );
     for (const name of expectedClasses) {
       expect(HARD_IDENTIFIER_CLASSES).toContain(name);

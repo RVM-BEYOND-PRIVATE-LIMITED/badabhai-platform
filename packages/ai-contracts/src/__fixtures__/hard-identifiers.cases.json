@@ -20,7 +20,13 @@
     "case used a space, while the two implementations' separator sets diverged in BOTH",
     "directions — the TS side was missing `;`, `|` and the whole Unicode set, and had added",
     "`/` and backslash the far side does not have. The cross-language pin verified none of",
-    "the actual divergence. Found by the RI-3 security review."
+    "the actual divergence. Found by the RI-3 security review.",
+    "",
+    "THE CONTROL-CHARACTER CASES (#1984 on the far side, #2064 here; risks-register R59). A",
+    "Unicode Cc character other than TAB / LF / CR is REFUSED as `control_character` -- not a",
+    "class, a fail-closed refusal like `scanner_error` -- because no pattern sees through one.",
+    "TAB / LF / CR read as a space, so a phone split by them is still a phone. Cf (ZWJ / ZWNJ)",
+    "is untouched: a Devanagari conjunct with a ZWJ stays permitted."
   ],
   "cases": [
     {
@@ -231,6 +237,30 @@
     },
     {
       "text": "",
+      "expected": null
+    },
+    {
+      "text": "call 9876\u0000543210",
+      "expected": "control_character"
+    },
+    {
+      "text": "anil\u0000@example.com",
+      "expected": "control_character"
+    },
+    {
+      "text": "call 98765\t43210",
+      "expected": "phone"
+    },
+    {
+      "text": "call 98765\r\n43210",
+      "expected": "phone"
+    },
+    {
+      "text": "Line one\nLine two\tCNC Turner",
+      "expected": null
+    },
+    {
+      "text": "\u0915\u094d\u200d\u0937\u0947\u0924\u094d\u0930 \u0915\u093e\u092e",
       "expected": null
     }
   ]
