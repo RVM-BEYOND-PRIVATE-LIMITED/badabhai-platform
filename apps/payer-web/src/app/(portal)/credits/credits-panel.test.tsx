@@ -245,3 +245,70 @@ describe("credits panel — PR-D2 best-value container flag", () => {
     expect(best[0]!.key).toBe(PACK_A.code);
   });
 });
+
+/**
+ * Owner ruling 2026-10-07 (F35): "mock wording is not needing on plans and credit". No "mock" /
+ * "(mock)" / "staging preview" copy on a pack's button, in the armed confirm, or while a purchase
+ * runs — in EITHER payment mode — and no replacement disclaimer. The purchase itself is unchanged
+ * (the key-lifecycle blocks above still pin it).
+ */
+describe("credits panel — no mock wording, in either mode", () => {
+  const allCopy = (tree: ReactElement) =>
+    [
+      textOf(tree),
+      ...findAll(tree, Dialog).map((d) => textOf((d.props as { footer?: ReactNode }).footer)),
+      ...findAll(tree, Dialog).map((d) => textOf((d.props as { title?: ReactNode }).title)),
+    ].join(" ");
+  const packButtons = (tree: ReactElement) =>
+    findAll(tree, Button)
+      .filter((b) => (b.props as { block?: boolean }).block === true)
+      .map((b) => textOf(b).trim());
+
+  it("a pack's button reads 'Buy' in both modes", () => {
+    for (const real of [false, true]) {
+      stateQueue = [null, null, null, null, null];
+      stateCursor = 0;
+      const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real }) as ReactElement;
+      expect(packButtons(tree), `real=${real}`).toEqual(["Buy", "Buy"]);
+    }
+  });
+
+  it("the armed confirm and a running purchase carry no mock copy", () => {
+    for (const real of [false, true]) {
+      for (const queue of [
+        [null, PACK_A, null, null, null], // the confirm armed
+        [PACK_A.code, null, null, null, null], // a purchase running
+      ]) {
+        stateQueue = queue;
+        stateCursor = 0;
+        const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real }) as ReactElement;
+        const copy = allCopy(tree);
+        expect(copy, `real=${real}`).not.toMatch(/\bmock\b/i);
+        expect(copy, `real=${real}`).not.toMatch(/staging preview/i);
+      }
+    }
+    // …and the confirm still names what is bought and its price (the flow is unchanged).
+    stateQueue = [null, PACK_A, null, null, null];
+    stateCursor = 0;
+    const dialog = findAll(
+      CreditsPanel({ packs: [PACK_A, PACK_B], real: false }) as ReactElement,
+      Dialog,
+    )[0]!;
+    const body = textOf((dialog.props as { children?: ReactNode }).children).replace(/\s+/g, " ");
+    expect(body).toContain("50 credits");
+    expect(body).toContain("₹2,000");
+  });
+});
+
+describe("credits panel — fence: the purchase dialog never says it charges (review B1)", () => {
+  it("the armed confirm shows the price and claims no charge", () => {
+    stateQueue = [null, PACK_A, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real: false }) as ReactElement;
+    const dialog = findAll(tree, Dialog)[0]!;
+    const p = dialog.props as { title?: ReactNode; children?: ReactNode; footer?: ReactNode };
+    const copy = [textOf(p.title), textOf(p.children), textOf(p.footer)].join(" ");
+    expect(copy).toContain("₹2,000");
+    expect(copy).not.toMatch(/charg/i);
+  });
+});

@@ -42,6 +42,10 @@ const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
  * buttons were one link N times, and a section "Buy credits" beside the chip was two); a
  * recruiter's /credits is a 404, so they are told to ask their owner. ONE "New posting". A posting's role title opens the POSTING (F12): a title
  * always opens the details, and the details carry the "Applicants" action.
+ *
+ * No "mock" / "staging preview" copy anywhere on the page or its capacity panel (owner ruling
+ * 2026-10-07, F35: "mock wording is not needing on plans and credit") — and no replacement
+ * disclaimer. The purchase behaviour is unchanged.
  */
 export default async function PlansPage() {
   const session = await requirePayer();
@@ -148,8 +152,7 @@ export default async function PlansPage() {
             <h2 className="section__title">Hiring capacity</h2>
             <p className="section__sub">
               Increase how many concurrent postings you can run at once. Your active count above
-              is <strong>live from the enforcement engine</strong>. Prices are{" "}
-              <strong>mock</strong> — no real payment is taken.
+              is <strong>live from the enforcement engine</strong>.
             </p>
           </div>
         </div>
@@ -165,7 +168,13 @@ export default async function PlansPage() {
             </p>
           </div>
         ) : (
-          <CapacityPanel tiers={tiers} />
+          // The allowance this page already read: a tier at or below it would grant nothing
+          // (the larger allowance is kept), so the panel shows it as included. A failed read
+          // hands down null — nothing is ruled out.
+          <CapacityPanel
+            tiers={tiers}
+            currentAllowance={capacity?.activeVacancyAllowance ?? null}
+          />
         )}
         <div className="alert alert--info">
           <Icon name="info" className="alert__icon" />
@@ -173,8 +182,7 @@ export default async function PlansPage() {
             <p className="alert__title">Recorded only — nothing is blocked yet.</p>
             <p className="alert__body">
               Buying capacity is stored against your account; the concurrent-posting cap is not
-              yet enforced, so it does not pause or block any posting today. Mock payments only
-              — no money moves.
+              yet enforced, so it does not pause or block any posting today.
             </p>
           </div>
         </div>
@@ -344,17 +352,6 @@ export default async function PlansPage() {
           </div>
         )}
       </section>
-
-      {/* ── Mock payments disclaimer ── */}
-      <div className="alert alert--info">
-        <Icon name="info" className="alert__icon" />
-        <div className="alert__text">
-          <p className="alert__title">Mock payments</p>
-          <p className="alert__body">
-            No real money is taken. Prices shown are mock figures for the staging preview.
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

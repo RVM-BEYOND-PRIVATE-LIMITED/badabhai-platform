@@ -10,6 +10,14 @@
  * is `inert` and the page does not scroll under the scrim. Controlled via `open`.
  * Presentational only — the caller owns the open state + actions (e.g. confirm-on-spend lives in
  * the screen, not here). Prop contract mirrors docs/design/.../components/feedback/Dialog.d.ts.
+ *
+ * A JUST-OPENED DIALOG IGNORES A POINTER CLICK ON ITS ACTIONS (review N1). A fast double-click — or
+ * a phone tap that registers twice — on a trigger opens the dialog on the first click and lands the
+ * second wherever the dialog's confirm now sits, confirming what nobody read (a purchase, an
+ * unlock). For {@link DIALOG_ACTION_GUARD_MS} after open, a pointer click inside the footer (the
+ * actions slot) is stopped before it reaches the button. Keyboard activation — Enter / Space on a
+ * focused button, a click with `detail === 0` — is never held back. The body and head are not
+ * guarded, and no caller's copy changes.
  */
 import { useEffect, useId, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
@@ -17,6 +25,13 @@ import { ACTION_ICON, focusWithoutTooltip } from "@badabhai/icons";
 import { FOCUSABLE_SELECTOR } from "./focusable";
 import { IconButton } from "./icon-button";
 import { inertOutside, lockPageScroll } from "./page-isolation";
+
+/**
+ * How long after open a POINTER click on an action is ignored: the OS default double-click
+ * interval, so a double-click's second press (or a doubled tap) is caught — and far too short for
+ * anyone to have read the dialog and meant it.
+ */
+export const DIALOG_ACTION_GUARD_MS = 500;
 
 export interface DialogProps {
   /** Controls visibility. */
@@ -49,6 +64,26 @@ export function Dialog({
   // `aria-labelledby` target. Only wired when a title actually renders.
   const generatedId = useId();
   const titleId = title ? generatedId : undefined;
+  // When this dialog opened (`performance.now()` — the clock event time stamps share); null while
+  // closed or before the open effect has run, which the guard treats as "just opened".
+  const openedAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    openedAt.current = performance.now();
+    return () => {
+      openedAt.current = null;
+    };
+  }, [open]);
+
+  /** Stop a pointer click on an action that lands inside the guard window after open. */
+  function guardActions(e: MouseEvent<HTMLDivElement>) {
+    if (e.detail === 0) return; // keyboard (Enter / Space) or programmatic — never held back
+    const at = openedAt.current;
+    if (at !== null && e.timeStamp - at >= DIALOG_ACTION_GUARD_MS) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
   useEffect(() => {
     if (!open) return undefined;
@@ -160,7 +195,12 @@ export function Dialog({
           </div>
         )}
         {children && <div className="bb-dialog__body">{children}</div>}
-        {footer && <div className="bb-dialog__foot">{footer}</div>}
+        {footer && (
+          // Capture phase: the click is stopped here, before any action button's onClick runs.
+          <div className="bb-dialog__foot" onClickCapture={guardActions}>
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
