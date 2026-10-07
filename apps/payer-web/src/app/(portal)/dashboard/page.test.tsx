@@ -372,6 +372,25 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     });
   });
 
+  it("that one link names the list as the rail item and its H1 do: 'Postings'", async () => {
+    // One label per destination: a navigation link says where it goes in the destination's own
+    // name ("All postings" was a second name for the same page; the agency dashboard's says
+    // "Postings" too).
+    const toList: ReactElement[] = [];
+    (function walk(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const el = node as ReactElement<{ href?: unknown; children?: ReactNode }>;
+      if (el.props?.href === "/postings") toList.push(el);
+      if (el.props && "children" in el.props) walk(el.props.children);
+    })(await render());
+    expect(toList).toHaveLength(1);
+    expect(textOf(p(toList[0]!).children as ReactNode).trim()).toBe("Postings");
+  });
+
   it("each 'Your postings' card opens THAT POSTING; its 'Applicants' action opens the feed (F12)", async () => {
     // One rule on every surface: a posting's title opens its details; applicants are reached
     // through the "Applicants" action (the card used to open the feed here and the details on
@@ -721,7 +740,8 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
   }
 
   it("employer: head → needs-you → position → actions → postings → recent", async () => {
-    // balance 3 < LOW_BALANCE_THRESHOLD, so the needs-you band renders.
+    // balance 3 is below the pricing config's low-balance threshold (lowBalanceThreshold(),
+    // default 5), so the needs-you band renders.
     const tree = await render({ credits: { payerId: "p", balance: 3 } });
     expect(bands(tree)).toEqual(["head", "needs-you", "position", "actions", "postings", "recent"]);
   });
