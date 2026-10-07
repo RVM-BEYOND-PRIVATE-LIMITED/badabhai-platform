@@ -41,6 +41,7 @@ function row(id: string, payerKey: string, over: Partial<MatchFeedRow> = {}): Ma
     matchedSkillId: "mskill_vmc_operator",
     boosted: false,
     publishedAt: new Date("2026-07-30T10:00:00.000Z"),
+    publishedKey: "2026-07-30T10:00:00.000000Z",
     roleTitle: "VMC Operator",
     city: "Pune",
     area: null,

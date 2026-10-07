@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { isFeedPostingsUnionEnabled, isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
 import type { JobShift } from "@badabhai/db";
@@ -7,15 +13,31 @@ import { isTradeKey, matchSkillLabel, type TradeKey } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService, type EmitParams } from "../events/events.service";
-import { MatchFeedService, type MatchFeedItem } from "../match/match-feed.service";
+import {
+  MatchFeedService,
+  type MatchFeedItem,
+  type MatchFeedResume,
+} from "../match/match-feed.service";
 import { MatchApplyService, type RankSnapshot } from "../match/match-apply.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import {
   ApplicationsRepository,
   type FeedJob,
-  type FeedPostingRow,
+  type FeedPostingKeyedRow,
   type OpenJobsFilters,
 } from "./applications.repository";
+import {
+  encodeFeedCursor,
+  FEED_CURSOR_MAX_AHEAD,
+  FEED_CURSOR_VERSION,
+  type FeedCursor,
+  type FeedCursorMode,
+  type JobsFeedCursor,
+  type PostedKey,
+  type UnionFeedCursor,
+  type V1FeedCursor,
+} from "./feed-cursor";
+import type { PostedKeysetPosition } from "./feed-keyset.predicates";
 import type { ApplyJobDto, SkipJobDto } from "./applications.dto";
 import {
   mergeNewestFirst,
@@ -110,6 +132,22 @@ export interface FeedFilters {
 }
 
 /**
+ * The `GET /feed` response (#1961). `next_cursor` is ADDITIVE: the cursor for the page after
+ * this one, or `null` when the deck is exhausted. A client that ignores it gets the first page,
+ * exactly as before.
+ */
+export interface FeedPage {
+  jobs: FeedItem[] | MatchFeedItem[];
+  next_cursor: string | null;
+}
+
+/** One legacy-feed page before ranking, and the cursor for the page after it. */
+interface LegacyPage {
+  items: SourcedFeedItem[];
+  next: JobsFeedCursor | UnionFeedCursor | null;
+}
+
+/**
  * Alpha swipe-to-apply business logic + event emission (ADR-0009 Stream B).
  *
  * Pure CRUD + PII-free behavioural events — NO LLM, NO ranking (`score`/`hot`
@@ -142,13 +180,21 @@ export class ApplicationsService {
    * R-A resolved: bounded per-impression, NO dedupe — every fetch records the
    * impressions, so the emits are intentionally UNKEYED (always insert), batched
    * into a single DB round-trip via `emitMany`.
+   *
+   * PAGINATION (#1961, ADR-0052). `cursor` is the decoded `next_cursor` of the previous page,
+   * or absent for the first page — which is then read, ranked and emitted exactly as before.
+   * Each page is its own fetch: one `feed.shown`/`feed.shown_v2` per card SERVED ON THAT PAGE,
+   * with `rank` the card's position in the whole deck (the cursor carries the count already
+   * served), so page 2 starts at `limit + 1`. A cursor minted by a different path (the flags
+   * flipped mid-scroll) is a 400; the client drops it and refetches the first page.
    */
   async getFeed(
     workerId: string,
     limit: number,
     filters: FeedFilters,
     ctx: RequestContext,
-  ): Promise<{ jobs: FeedItem[] | MatchFeedItem[] }> {
+    cursor?: FeedCursor,
+  ): Promise<FeedPage> {
     // ── ADR-0036 MOMENT ④ ─────────────────────────────────────────────────────
     // The route, the guards, the `{ jobs: [...] }` envelope and the Flutter client are
     // UNCHANGED. Only the SOURCE moves: `job_reach ⋈ job_postings` instead of the
@@ -161,12 +207,7 @@ export class ApplicationsService {
     // slug through would be a second, weaker skill filter layered on top of the real
     // gate — and Part 3 is explicit that a filter must never narrow by default.
     if (isMatchV1Enabled(this.config)) {
-      return this.matchFeed.getFeed(
-        workerId,
-        limit,
-        { city: filters.city, shift: filters.shift, payMin: filters.payMin },
-        ctx,
-      );
+      return this.readV1Feed(workerId, limit, filters, ctx, cursorOfMode(cursor, "v1"));
     }
 
     // ── #1823 / ADR-0049 — THE INTERIM UNION (dark behind FEED_POSTINGS_UNION_ENABLED) ──
@@ -183,16 +224,83 @@ export class ApplicationsService {
       shift: filters.shift,
       payMin: filters.payMin,
     };
-    const sourced = isFeedPostingsUnionEnabled(this.config)
-      ? await this.readUnionFeed(workerId, limit, jobFilters)
-      : (await this.repo.findOpenJobs(workerId, limit, jobFilters)).map(toSourcedFromJob);
-    const ranked = rankFeed(sourced);
+    const page = isFeedPostingsUnionEnabled(this.config)
+      ? await this.readUnionFeed(workerId, limit, jobFilters, cursorOfMode(cursor, "union"))
+      : await this.readJobsFeed(workerId, limit, jobFilters, cursorOfMode(cursor, "jobs"));
+    const ranked = offsetRanks(rankFeed(page.items), cursor?.o ?? 0);
 
     if (ranked.length > 0) {
       await this.events.emitMany(ranked.map((card) => this.feedShown(workerId, card, ctx)));
     }
 
-    return { jobs: ranked.map((card) => card.item) };
+    return {
+      jobs: ranked.map((card) => card.item),
+      next_cursor: page.next === null ? null : encodeFeedCursor(page.next),
+    };
+  }
+
+  /**
+   * The V1 deck (ADR-0036 MOMENT ④), one page of it. The first page's call is the pre-cursor
+   * call, argument for argument; a follow-on page hands `MatchFeedService` the decoded resume
+   * point and the count already served. See `MatchFeedService.composeFrom` for the frontier and
+   * the ahead set.
+   */
+  private async readV1Feed(
+    workerId: string,
+    limit: number,
+    filters: FeedFilters,
+    ctx: RequestContext,
+    cursor: V1FeedCursor | undefined,
+  ): Promise<FeedPage> {
+    const v1Filters = { city: filters.city, shift: filters.shift, payMin: filters.payMin };
+    const out =
+      cursor === undefined
+        ? await this.matchFeed.getFeed(workerId, limit, v1Filters, ctx)
+        : await this.matchFeed.getFeed(workerId, limit, v1Filters, ctx, {
+            resume: {
+              after: {
+                boosted: cursor.k.b,
+                matchTier: cursor.k.r,
+                publishedKey: cursor.k.t,
+                id: cursor.k.id,
+              },
+              ahead: cursor.a,
+            },
+            rankOffset: cursor.o,
+          });
+    const served = (cursor?.o ?? 0) + out.jobs.length;
+    return {
+      jobs: out.jobs,
+      next_cursor: out.next === null ? null : encodeFeedCursor(toV1Cursor(out.next, served)),
+    };
+  }
+
+  /**
+   * The agency/seed `jobs` scan alone (union off) — today's read, plus the keyset when a cursor
+   * is present. A full page may have more behind it, so it gets a cursor; a short page is the
+   * end. (A deck of exactly `limit` therefore ends with one empty page whose cursor is null.)
+   */
+  private async readJobsFeed(
+    workerId: string,
+    limit: number,
+    filters: OpenJobsFilters,
+    cursor: JobsFeedCursor | undefined,
+  ): Promise<LegacyPage> {
+    const rows =
+      cursor === undefined
+        ? await this.repo.findOpenJobs(workerId, limit, filters)
+        : await this.repo.findOpenJobs(workerId, limit, filters, positionOf(cursor.j));
+    const last = rows.at(-1);
+    const next: JobsFeedCursor | null =
+      rows.length < limit || last === undefined
+        ? null
+        : {
+            v: FEED_CURSOR_VERSION,
+            m: "jobs",
+            o: (cursor?.o ?? 0) + rows.length,
+            j: { t: last.postedKey, id: last.id },
+          };
+    return { items: rows.map(toSourcedFromJob), next };
   }
 
   /**
@@ -204,28 +312,66 @@ export class ApplicationsService {
    * FAIL CLOSED: any rejection — either read, or the skill lookup — fails the whole `/feed`
    * before a single `feed.shown` is written. A half deck served as if whole would record
    * impressions of a feed the worker was never actually shown.
+   *
+   * PAGINATION (#1961, ADR-0052). The merge is untouched. A follow-on page reads EACH arm
+   * strictly after that arm's last served card (the same keyset predicate on both), then
+   * merges exactly as the first page does. Because the merge consumes each arm as a prefix,
+   * resuming every arm after its own last served card makes the pages concatenate to the
+   * single merged deck: no card twice, none skipped. An arm that served nothing on this page
+   * keeps its previous position. See `UnionFeedCursor` for why the key is per arm.
    */
   private async readUnionFeed(
     workerId: string,
     limit: number,
     filters: OpenJobsFilters,
-  ): Promise<SourcedFeedItem[]> {
+    cursor: UnionFeedCursor | undefined,
+  ): Promise<LegacyPage> {
+    const jobsAfter = cursor?.j == null ? undefined : positionOf(cursor.j);
+    const postingsAfter = cursor?.p == null ? undefined : positionOf(cursor.p);
+    const postingFilters = (wantedSkillIds: string[]) => ({
+      city: filters.city,
+      shift: filters.shift,
+      payMin: filters.payMin,
+      wantedSkillIds,
+    });
     const readPostings = (wantedSkillIds: string[]) =>
-      this.repo.findOpenPostingsForFeed(workerId, limit, {
-        city: filters.city,
-        shift: filters.shift,
-        payMin: filters.payMin,
-        wantedSkillIds,
-      });
+      postingsAfter === undefined
+        ? this.repo.findOpenPostingsForFeed(workerId, limit, postingFilters(wantedSkillIds))
+        : this.repo.findOpenPostingsForFeed(
+            workerId,
+            limit,
+            postingFilters(wantedSkillIds),
+            postingsAfter,
+          );
     const [jobRows, postingRows] = await Promise.all([
-      this.repo.findOpenJobs(workerId, limit, filters),
+      jobsAfter === undefined
+        ? this.repo.findOpenJobs(workerId, limit, filters)
+        : this.repo.findOpenJobs(workerId, limit, filters, jobsAfter),
       this.workerSkills.listWantedSkillIds(workerId).then(readPostings),
     ]);
-    return mergeNewestFirst(jobRows.map(toSourcedFromJob), this.toPostingArm(postingRows), limit);
+    const items = mergeNewestFirst(
+      jobRows.map(toSourcedFromJob),
+      this.toPostingArm(postingRows),
+      limit,
+    );
+    if (items.length < limit) return { items, next: null };
+
+    const jobKeys = new Map(jobRows.map((row) => [row.id, row.postedKey]));
+    const postingKeys = new Map(postingRows.map((row) => [row.id, row.postedKey]));
+    return {
+      items,
+      next: {
+        v: FEED_CURSOR_VERSION,
+        m: "union",
+        o: (cursor?.o ?? 0) + items.length,
+        j: lastServedKey(items, "job", jobKeys) ?? cursor?.j ?? null,
+        p: lastServedKey(items, "job_posting", postingKeys) ?? cursor?.p ?? null,
+      },
+    };
   }
 
   /** Map the posting rows; a row with no `published_at` is dropped and logged, never coerced. */
-  private toPostingArm(rows: readonly FeedPostingRow[]): SourcedFeedItem[] {
+  private toPostingArm(rows: readonly FeedPostingKeyedRow[]): SourcedFeedItem[] {
     const arm: SourcedFeedItem[] = [];
     for (const row of rows) {
       const sourced = toSourcedFromPosting(row);
@@ -639,4 +785,75 @@ export class ApplicationsService {
 
     return { ok: true as const, application_id: saved.applicationId, action: "skipped" as const };
   }
+}
+
+// ── #1961 / ADR-0052 — cursor plumbing (pure; the wire codec is feed-cursor.ts) ─────────────
+
+/**
+ * The cursor if it was minted by the path now serving, else a 400 in the pipe's own error shape.
+ * A mismatch means the flags flipped between two page fetches: the old position means nothing in
+ * the new order, and guessing would skip or repeat cards. The client restarts from page one.
+ */
+function cursorOfMode<M extends FeedCursorMode>(
+  cursor: FeedCursor | undefined,
+  mode: M,
+): Extract<FeedCursor, { m: M }> | undefined {
+  if (cursor === undefined) return undefined;
+  if (cursor.m !== mode) {
+    throw new BadRequestException({
+      message: "Validation failed",
+      issues: [
+        {
+          path: "cursor",
+          message: "cursor was issued for a different feed order; refetch without a cursor",
+        },
+      ],
+    });
+  }
+  return cursor as Extract<FeedCursor, { m: M }>;
+}
+
+/** `rank` is the position in the whole deck: a follow-on page continues the count. */
+function offsetRanks(ranked: RankedFeedItem[], offset: number): RankedFeedItem[] {
+  if (offset === 0) return ranked;
+  return ranked.map((card) => ({ ...card, item: { ...card.item, rank: card.item.rank + offset } }));
+}
+
+/** A cursor key as the repository's keyset position. */
+function positionOf(key: PostedKey): PostedKeysetPosition {
+  return { postedKey: key.t, id: key.id };
+}
+
+/** The keyset key of the last card this page served from one arm, or null if it served none. */
+function lastServedKey(
+  items: readonly SourcedFeedItem[],
+  source: FeedSource,
+  keys: ReadonlyMap<string, string>,
+): PostedKey | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i]!;
+    if (item.source !== source) continue;
+    const t = keys.get(item.card.job_id);
+    return t === undefined ? null : { t, id: item.card.job_id };
+  }
+  return null;
+}
+
+/**
+ * The V1 resume point on the wire. The ahead set is capped at the page size: dropping an id can
+ * only RE-SERVE that card later, never skip one (ADR-0052).
+ */
+function toV1Cursor(next: MatchFeedResume, served: number): V1FeedCursor {
+  return {
+    v: FEED_CURSOR_VERSION,
+    m: "v1",
+    o: served,
+    k: {
+      b: next.after.boosted,
+      r: next.after.matchTier,
+      t: next.after.publishedKey,
+      id: next.after.id,
+    },
+    a: next.ahead.slice(0, FEED_CURSOR_MAX_AHEAD),
+  };
 }
