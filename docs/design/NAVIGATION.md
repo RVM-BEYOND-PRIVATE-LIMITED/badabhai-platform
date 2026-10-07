@@ -384,7 +384,10 @@ segment under it, so it stayed mounted across every same-section navigation (`/p
 `/postings/<id>`, every `/agency/*` page). On a production build of next 15.5.25, clicks made
 within a few seconds of the page becoming interactive often never committed (the URL never
 moved): Agency postings → a posting 3/10, the rail's Worker activity 6/10, Postings → a posting
-7/10, against 30/30 into another section. With no boundary: 320/320. The trade-off: a
+7/10, against 30/30 into another section (three links, 10 clicks each). With no boundary:
+320/320 — the same eleven links × 10 clicks after hydration and in the sweep's timing, 20 more on
+each link that had stalled, and clicks 250ms / 1s after hydration — and 220/220 again (eleven
+links × 10, both timings) once the pending cue below landed. The trade-off: a
 navigation keeps the current page on screen until the next one has rendered — there is no
 skeleton. Same-section navigations never showed it anyway (React holds the visible page during a
 transition); a link into another section did (at ~0.1–0.25s on a slow backend) and now holds the
@@ -392,15 +395,21 @@ current page instead. The same fence forbids `React.lazy` and `next/dynamic` (ea
 a boundary). Re-measure before adding one back after a Next or React upgrade.
 
 **The pending cue** (`src/components/nav-pending.tsx`) answers the click instead: Next's
-`useLinkStatus` on the link that started the navigation — no boundary. A dot after the label of a
-rail / drawer row, the brand lockup, the trail's link, a `PageHeader` action or back link, a
-posting row's title and Applicants link (Postings, Agency postings) and a dashboard card's
-Applicants link; a thin bar along the top of the viewport (the cue a phone sees — the drawer closes
-as its link is followed); and one polite status line, "Opening Postings…", in the shell outside the
-region that goes inert behind the open drawer. Nothing shows for the first 180ms, so a prefetched
-navigation never flashes; reduced motion drops the pulse and the growing bar but keeps that delay.
-Only a cued link announces, so a link without one shows nothing until the page arrives: a dashboard
-card's whole-card link (the DS `Card` overlay — cueing it is a design-system change) is one.
+`useLinkStatus` on the link that started the navigation — no boundary. A dot on the corner of a
+rail / drawer row, the brand lockup, the header's balance chip (Credits), the trail's link, a
+`PageHeader` action or back link, a posting row's title and Applicants link (Postings, Agency
+postings) and a dashboard card's Applicants link; a thin bar along the top of the viewport (the cue
+a phone sees — the drawer closes as its link is followed); and one polite status line, "Opening
+Postings…", in the shell outside the region that goes inert behind the open drawer. Nothing shows
+for the first 180ms, so a prefetched navigation never flashes; reduced motion drops the pulse and
+the growing bar but keeps that delay. The dot TAKES NO SPACE: it is absolutely positioned on its
+link's corner (inside the corner on a rail row, which clips), and the link is positioned whether or
+not it is pending — so a click never widens a button or pushes a badge (review of #2115: +24px on a
+header action, +16px on a title link, before; 0px after, measured on a production build).
+Only a cued link announces, so a link without one shows nothing until the page arrives. Not yet
+cued: the "Edit posting" link / button on each row of Postings and Agency postings (the header's
+"Edit posting" is), and a dashboard card's whole-card link (the DS `Card` overlay — cueing it is a
+design-system change).
 
 ### Agency on the company surface
 

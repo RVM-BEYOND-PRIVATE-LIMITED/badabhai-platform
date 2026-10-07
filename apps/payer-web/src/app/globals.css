@@ -654,40 +654,49 @@ body {
 
 /* ---- navigation pending cue (components/nav-pending.tsx) ---------------------------------------
    No loading boundary shows a navigation (app/no-suspense-above-a-page.test.ts), so the link that
-   started one does: a dot after its label while Next's link status is pending, in the link's own
-   colour, and a bar along the top of the viewport — the cue a phone sees, since the drawer closes
-   as its link is followed. Nothing shows for the first --nav-pending-delay (= NAV_PENDING_DELAY_MS
-   in components/nav-pending-store.ts, which holds the bar and the status line back; the dot waits
+   started one does: a dot while Next's link status is pending, in the link's own colour, and a bar
+   along the top of the viewport — the cue a phone sees, since the drawer closes as its link is
+   followed. Nothing shows for the first --nav-pending-delay (= NAV_PENDING_DELAY_MS in
+   components/nav-pending-store.ts, which holds the bar and the status line back; the dot waits
    here), so a prefetched navigation never flashes. Both end the moment the navigation commits.
    The delay is NOT a motion token: those collapse to 0ms under reduced motion, which would bring
-   the flash back for exactly the users who asked for less movement. */
+   the flash back for exactly the users who asked for less movement.
+
+   THE DOT TAKES NO SPACE (review of #2115): it is absolutely positioned on its link's corner, and
+   every link that carries one is positioned whether or not it is pending — so a click never
+   widens a button, pushes a badge or reflows a header (measured: +24px on a header action, +16px
+   on a title, before). nav-pending.css.test.ts fences it. */
 .nav-pending {
   display: none;
 }
+/* The anchor, keyed on the cue's ALWAYS-present span (never on its pending state, so the link's
+   box is the same before and after the click); zero specificity, so a link's own position wins. */
+:where(a:has(> .nav-pending)) {
+  position: relative;
+}
 .nav-pending--on {
   --nav-pending-delay: 180ms;
-  display: inline-block;
-  flex: none;
-  vertical-align: middle;
+  display: block;
+  position: absolute;
+  inset-block-start: calc(-1 * var(--space-1));
+  inset-inline-end: calc(-1 * var(--space-1));
   inline-size: var(--space-2);
   block-size: var(--space-2);
-  margin-inline-start: var(--space-2);
   border-radius: var(--radius-round);
   background: currentColor;
+  pointer-events: none;
   visibility: hidden;
   animation:
     nav-pending-reveal 0s linear var(--nav-pending-delay) forwards,
     nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
       alternate;
 }
-/* A rail row and the brand lockup: at the end of the row (after a Soon badge), so the label
-   never moves. */
+/* A rail row clips its overflow (and the brand lockup shares the rail), so there the dot sits just
+   INSIDE the corner — on the full rail and the icon rail alike. */
 .pnav__link > .nav-pending--on,
 .pshell__brandlink > .nav-pending--on {
-  margin-inline-start: auto;
-}
-.pnav__soon + .nav-pending--on {
-  margin-inline-start: var(--space-2);
+  inset-block-start: var(--space-1);
+  inset-inline-end: var(--space-1);
 }
 .nav-progress {
   position: fixed;
@@ -728,34 +737,6 @@ body {
   }
   .nav-progress--on {
     animation: none;
-  }
-}
-/* The icon rail (collapsed from 1024px, and the 1024–1279px band) has no label to follow, so the
-   dot pins to the row's corner rather than pushing the centred icon aside. */
-@media (min-width: 1024px) {
-  .pshell--collapsed .pnav__link,
-  .pshell--collapsed .pshell__brandlink {
-    position: relative;
-  }
-  .pshell--collapsed .pnav__link > .nav-pending--on,
-  .pshell--collapsed .pshell__brandlink > .nav-pending--on {
-    position: absolute;
-    inset-block-start: var(--space-1);
-    inset-inline-end: var(--space-1);
-    margin: 0;
-  }
-}
-@media (max-width: 1279px) and (min-width: 1024px) {
-  .pnav__link,
-  .pshell__brandlink {
-    position: relative;
-  }
-  .pnav__link > .nav-pending--on,
-  .pshell__brandlink > .nav-pending--on {
-    position: absolute;
-    inset-block-start: var(--space-1);
-    inset-inline-end: var(--space-1);
-    margin: 0;
   }
 }
 

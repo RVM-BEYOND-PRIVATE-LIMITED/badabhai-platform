@@ -20,9 +20,11 @@ import {
  * exactly when the navigation commits.
  *
  *  - `NavPendingCue` sits INSIDE a `<Link>` (it must: `useLinkStatus` reads the nearest link): a dot
- *    after the label while that link's navigation is pending. Hidden from assistive tech, so the
- *    link's accessible name never changes. A client child, so a server component can place it
- *    without becoming a client component itself.
+ *    on the link's corner while that link's navigation is pending. It takes NO space — absolutely
+ *    positioned, the link anchored whether or not it is pending (globals.css), so a click never
+ *    resizes a button or pushes a badge. Hidden from assistive tech, so the link's accessible name
+ *    never changes. A client child, so a server component can place it without becoming a client
+ *    component itself.
  *  - `NavPendingStatus` is rendered ONCE by the shell, outside the region that goes `inert` behind
  *    the open drawer: a bar along the top of the viewport — the cue a phone sees, since the drawer
  *    closes as its link is followed — and one polite status line naming where the navigation goes.

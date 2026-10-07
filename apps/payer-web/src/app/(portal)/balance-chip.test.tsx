@@ -14,6 +14,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside the link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     default: ({ children, href, ...rest }: { children: ReactNode; href: string }) =>
       React.createElement("a", { href, ...rest }, children),
   };
@@ -32,7 +34,9 @@ const text = (markup: string) =>
 describe("BalanceChip", () => {
   it("the linked chip opens Credits and is named '<n> credits — open Credits'", () => {
     const out = html(1234, true);
-    expect(out).toMatch(/^<a href="\/credits" class="pshell__balance" aria-label="1234 credits — open Credits"/);
+    expect(out).toMatch(
+      /^<a href="\/credits" class="pshell__balance" aria-label="1234 credits — open Credits"/,
+    );
     expect(out).toContain('<i class="ph-fill ph-wallet" aria-hidden="true"></i>');
   });
 
@@ -62,6 +66,21 @@ describe("BalanceChip", () => {
 
   it("the number and the unit are two words in the text (not '1234credits')", () => {
     const out = html(1234, false);
-    expect(out).toContain('<span class="ui-num pshell__balancenum">1234</span> <span class="pshell__balancelabel">');
+    expect(out).toContain(
+      '<span class="ui-num pshell__balancenum">1234</span> <span class="pshell__balancelabel">',
+    );
+  });
+});
+
+describe("the linked chip carries the navigation pending cue (components/nav-pending.tsx)", () => {
+  it("the link ends in its cue — idle, hidden from assistive tech; the static chip has none", () => {
+    expect(html(1234, true)).toMatch(/<span class="nav-pending" aria-hidden="true"><\/span><\/a>$/);
+    expect(html(1234, false)).not.toContain("nav-pending");
+  });
+
+  it("the cue adds no words: the chip is still named and read as before", () => {
+    const out = html(1234, true);
+    expect(out).toContain('aria-label="1234 credits — open Credits"');
+    expect(text(out.slice(0, out.indexOf('<span class="bb-icon-tip')))).toBe("1234 credits");
   });
 });

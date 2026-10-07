@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
@@ -15,12 +15,13 @@ import ts from "typescript";
  *   - Postings -> a posting's title 7/10, Agency postings -> a posting's title 3/10, Agency
  *     postings -> the rail's "Worker activity" 6/10 committed; a same-route query change pushed
  *     through the router (`?reached=` dropped) 8/10;
- *   - a link into ANOTHER section (the rail's brand link / Postings item) 30/30 — a fresh
- *     boundary mounts;
+ *   - a link into ANOTHER section (the rail's brand link from Postings and from Agency postings,
+ *     the rail's Postings item) 30/30 — a fresh boundary mounts;
  *   - with no boundary above the page: 320/320 — the same eleven cases after hydration and in
  *     the sweep's own timing (networkidle + 4s), N=20 more on each link that had stalled, and
  *     clicks 250ms / 1s after hydration (the window where Agency postings -> a posting had
- *     committed 5/8 and 3/8).
+ *     committed 5/8 and 3/8). Re-run once the pending cue landed: 220/220 (the eleven cases
+ *     × 10, both timings).
  * Next keys the `(portal)` loading boundary by the FIRST segment under it (`postings`, `agency`),
  * so it stays mounted — already visible — across /postings -> /postings/<id> and across every
  * /agency/* page. The navigation transition suspended inside that visible boundary on an RSC
@@ -49,63 +50,100 @@ function files(dir: string): string[] {
   });
 }
 
-const BOUNDARY_MEMBERS = new Set(["Suspense", "lazy"]);
 const DYNAMIC = "next/dynamic";
+/** React's own boundary members: a lazy component suspends into the nearest `<Suspense>`. */
+const REACT_BOUNDARIES: ReadonlySet<string> = new Set(["Suspense", "lazy"]);
+
+/**
+ * For a module specifier, the names it exports that ARE React's `Suspense` / `lazy` — or null.
+ * "react" itself by default; the source scan adds every BARREL that re-exports them, under
+ * whatever name it gives them (`export { lazy as defer } from "react"`).
+ */
+type Boundaries = (specifier: string) => ReadonlySet<string> | null;
+const reactOnly: Boundaries = (m) => (m === "react" ? REACT_BOUNDARIES : null);
 
 const moduleName = (node: ts.Node | undefined): string | null =>
   node && ts.isStringLiteralLike(node) ? node.text : null;
 
-/** `require("<mod>")` or `import("<mod>")`. */
-function loads(node: ts.Node, mod: string): boolean {
-  if (!ts.isCallExpression(node) || node.arguments.length !== 1) return false;
+/** `e` without the parentheses, `await`, `as` / `satisfies` and `!` wrapped around it. */
+function unwrap(e: ts.Expression): ts.Expression {
+  while (
+    ts.isParenthesizedExpression(e) ||
+    ts.isAwaitExpression(e) ||
+    ts.isAsExpression(e) ||
+    ts.isSatisfiesExpression(e) ||
+    ts.isNonNullExpression(e)
+  ) {
+    e = e.expression;
+  }
+  return e;
+}
+
+/** The specifier `node` loads with `require("…")` or `import("…")`, or null. */
+function loaded(node: ts.Node): string | null {
+  if (!ts.isCallExpression(node) || node.arguments.length !== 1) return null;
   const callee = node.expression;
   const isLoader =
     callee.kind === ts.SyntaxKind.ImportKeyword ||
     (ts.isIdentifier(callee) && callee.text === "require");
-  return isLoader && moduleName(node.arguments[0]) === mod;
+  return isLoader ? moduleName(node.arguments[0]) : null;
 }
+
+const parse = (code: string, file: string) =>
+  ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
 /**
  * Where `code` can put a Suspense boundary above a page — read from the AST, so a comment or a
  * string never counts:
- *  - React's `Suspense`: a named import (renamed or not), a member (`<React.Suspense>`), or
- *    destructured;
- *  - React's `lazy`: a named import from "react", a member of a React binding (`React.lazy`,
- *    `R.lazy` after `import * as R` / `import R` / `require("react")`), or destructured from one;
+ *  - React's `Suspense`: a named import or re-export (renamed or not) from anywhere, a member
+ *    (`<React.Suspense>`), or destructured;
+ *  - React's `lazy` (or a barrel's name for it): a named import or re-export, a member of a binding
+ *    to React or the barrel (`React.lazy`, `R.lazy` after `import * as R` / `import R` /
+ *    `require("react")` / `await import("react")`), or destructured from one — `await`,
+ *    parentheses and type assertions unwrapped;
+ *  - `export * from "react"` (it re-exports both);
  *  - `next/dynamic` loaded in any way (import, re-export, `import()`, `require`): every call
  *    wraps `React.lazy`, and `ssr: false` or a `loading` option adds a `<Suspense>` too.
  * A `lazy` that is not React's (zod's `z.lazy`, a `lazyData` field) is left alone.
  */
-function boundaryUses(code: string, file = "x.tsx"): string[] {
-  const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+function boundaryUses(
+  code: string,
+  file = "x.tsx",
+  boundariesOf: Boundaries = reactOnly,
+): string[] {
+  const sf = parse(code, file);
   const out: string[] = [];
   const hit = (node: ts.Node) => {
     const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     out.push(`${file}:${line + 1}`);
   };
 
-  // Every local name bound to the "react" module (plus the global `React` namespace).
-  const react = new Set(["React"]);
+  // Every local name bound to React or a barrel (plus the global `React` namespace), with the
+  // boundary members reachable through it.
+  const bound = new Map<string, ReadonlySet<string>>([["React", REACT_BOUNDARIES]]);
+  const through = (e: ts.Expression): ReadonlySet<string> | null => {
+    const inner = unwrap(e);
+    if (ts.isIdentifier(inner)) return bound.get(inner.text) ?? null;
+    const spec = loaded(inner);
+    return spec === null ? null : boundariesOf(spec);
+  };
   const bind = (node: ts.Node) => {
-    if (ts.isImportDeclaration(node) && moduleName(node.moduleSpecifier) === "react") {
+    if (ts.isImportDeclaration(node)) {
+      const names = boundariesOf(moduleName(node.moduleSpecifier) ?? "");
       const clause = node.importClause;
-      if (clause?.name) react.add(clause.name.text);
+      if (names && clause?.name) bound.set(clause.name.text, names);
       const named = clause?.namedBindings;
-      if (named && ts.isNamespaceImport(named)) react.add(named.name.text);
+      if (names && named && ts.isNamespaceImport(named)) bound.set(named.name.text, names);
     }
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer &&
-      loads(node.initializer, "react")
-    ) {
-      react.add(node.name.text);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const names = through(node.initializer);
+      if (names) bound.set(node.name.text, names);
     }
     ts.forEachChild(node, bind);
   };
   bind(sf);
-  const isReact = (e: ts.Expression) =>
-    (ts.isIdentifier(e) && react.has(e.text)) || loads(e, "react");
+  const isBoundary = (name: string | null, names: ReadonlySet<string> | null) =>
+    name === "Suspense" || (name !== null && names !== null && names.has(name));
 
   const visit = (node: ts.Node) => {
     // next/dynamic, however it is loaded.
@@ -114,37 +152,107 @@ function boundaryUses(code: string, file = "x.tsx"): string[] {
       moduleName(node.moduleSpecifier) === DYNAMIC
     ) {
       hit(node);
-    } else if (loads(node, DYNAMIC)) {
+    } else if (loaded(node) === DYNAMIC) {
       hit(node);
     }
-    // Named imports: Suspense from anywhere; lazy from "react".
+    // Named imports.
     if (ts.isImportSpecifier(node)) {
-      const name = (node.propertyName ?? node.name).text;
-      const from = moduleName(node.parent.parent.parent.moduleSpecifier);
-      if (name === "Suspense" || (name === "lazy" && from === "react")) hit(node);
+      const from = moduleName(node.parent.parent.parent.moduleSpecifier) ?? "";
+      if (isBoundary((node.propertyName ?? node.name).text, boundariesOf(from))) hit(node);
     }
-    // Members: `X.Suspense`; `React.lazy` / `React["lazy"]` on a React binding.
+    // Re-exports: a barrel. `export *` (or `* as X`) from React re-exports both.
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      const names = boundariesOf(moduleName(node.moduleSpecifier) ?? "");
+      const clause = node.exportClause;
+      if (names && (!clause || ts.isNamespaceExport(clause))) hit(node);
+      if (clause && ts.isNamedExports(clause)) {
+        for (const el of clause.elements) {
+          if (isBoundary((el.propertyName ?? el.name).text, names)) hit(el);
+        }
+      }
+    }
+    // Members: `X.Suspense`; `React.lazy` / `React["lazy"]` / `(await import("react")).lazy`.
     if (ts.isPropertyAccessExpression(node)) {
-      const name = node.name.text;
-      if (name === "Suspense" || (name === "lazy" && isReact(node.expression))) hit(node);
+      if (isBoundary(node.name.text, through(node.expression))) hit(node);
     }
-    if (ts.isElementAccessExpression(node) && isReact(node.expression)) {
-      const name = moduleName(node.argumentExpression);
-      if (name !== null && BOUNDARY_MEMBERS.has(name)) hit(node);
+    if (ts.isElementAccessExpression(node)) {
+      const names = through(node.expression);
+      if (names !== null && isBoundary(moduleName(node.argumentExpression), names)) hit(node);
     }
-    // Destructured: `const { Suspense, lazy } = React` (or = require("react")).
+    // Destructured: `const { Suspense, lazy } = React` (= require("react"), = await import(…)).
     if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name)) {
-      const fromReact = node.initializer !== undefined && isReact(node.initializer);
+      const names = node.initializer ? through(node.initializer) : null;
       for (const el of node.name.elements) {
         const key = el.propertyName ?? el.name;
-        const name = ts.isIdentifier(key) ? key.text : null;
-        if (name === "Suspense" || (name === "lazy" && fromReact)) hit(el);
+        if (isBoundary(ts.isIdentifier(key) ? key.text : null, names)) hit(el);
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sf);
   return out;
+}
+
+/** The names `code` re-exports that are boundary members (per `boundariesOf`) — a barrel's. */
+function boundaryExports(code: string, boundariesOf: Boundaries): Set<string> {
+  const out = new Set<string>();
+  for (const st of parse(code, "x.tsx").statements) {
+    if (!ts.isExportDeclaration(st) || !st.moduleSpecifier) continue;
+    const names = boundariesOf(moduleName(st.moduleSpecifier) ?? "");
+    if (!names) continue;
+    if (!st.exportClause) names.forEach((n) => out.add(n));
+    else if (ts.isNamedExports(st.exportClause)) {
+      for (const el of st.exportClause.elements) {
+        if (names.has((el.propertyName ?? el.name).text)) out.add(el.name.text);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Every boundary use across `sources` (path -> code), each named relative to `root` (also the
+ * `@/` alias root). A local module that re-exports React's `lazy` / `Suspense` is a BARREL: it is
+ * flagged itself, and a consumer importing those names from it is flagged too — to a fixed point,
+ * so a barrel of a barrel counts.
+ */
+function scanSources(sources: Map<string, string>, root: string): string[] {
+  const slash = (p: string) => p.replace(/\\/g, "/");
+  const base = slash(root);
+  const files = new Map([...sources].map(([f, code]) => [slash(f), code] as const));
+  const resolve = (from: string, spec: string): string | null => {
+    const target = spec.startsWith("@/")
+      ? posix.join(base, spec.slice(2))
+      : spec.startsWith(".")
+        ? posix.join(posix.dirname(from), spec)
+        : null;
+    if (target === null) return null;
+    for (const ext of ["", ".ts", ".tsx", "/index.ts", "/index.tsx"]) {
+      if (files.has(target + ext)) return target + ext;
+    }
+    return null;
+  };
+  const barrels = new Map<string, Set<string>>();
+  const boundariesFor =
+    (from: string): Boundaries =>
+    (spec) => {
+      if (spec === "react") return REACT_BOUNDARIES;
+      const target = resolve(from, spec);
+      return target === null ? null : (barrels.get(target) ?? null);
+    };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [f, code] of files) {
+      const names = boundaryExports(code, boundariesFor(f));
+      if (names.size > (barrels.get(f)?.size ?? 0)) {
+        barrels.set(f, names);
+        changed = true;
+      }
+    }
+  }
+  return [...files].flatMap(([f, code]) =>
+    boundaryUses(code, posix.relative(base, f), boundariesFor(f)),
+  );
 }
 
 describe("the detector", () => {
@@ -203,6 +311,71 @@ describe("the detector", () => {
   });
 });
 
+describe("the detector — re-exports, barrels and an awaited import (review of #2115)", () => {
+  it("finds a re-export of React's lazy or Suspense, however it is named — a barrel", () => {
+    expect(boundaryUses('export { lazy } from "react";')).toHaveLength(1);
+    expect(boundaryUses('export { Suspense as Boundary } from "react";')).toHaveLength(1);
+    expect(boundaryUses('export { lazy, Suspense } from "react";')).toHaveLength(2);
+    expect(boundaryUses('export * from "react";')).toHaveLength(1);
+    expect(boundaryUses('export * as R from "react";')).toHaveLength(1);
+  });
+
+  it("leaves a re-export that is not React's lazy or Suspense alone", () => {
+    expect(boundaryUses('export { useState } from "react";')).toEqual([]);
+    expect(boundaryUses('export { lazy } from "zod";')).toEqual([]);
+    expect(boundaryUses('export * from "./format";')).toEqual([]);
+  });
+
+  it("treats a module the caller names as React (a barrel) as React for its consumers", () => {
+    const barrel = (m: string) =>
+      m === "react" || m === "./ui" ? new Set(["lazy", "Suspense"]) : null;
+    expect(boundaryUses('import { lazy } from "./ui";', "x.tsx", barrel)).toHaveLength(1);
+    expect(boundaryUses('import * as UI from "./ui"; UI.lazy(f);', "x.tsx", barrel)).toHaveLength(
+      1,
+    );
+    expect(
+      boundaryUses('import UI from "./ui"; const { lazy } = UI;', "x.tsx", barrel),
+    ).toHaveLength(1);
+    expect(boundaryUses('import { lazy } from "./ui";')).toEqual([]);
+  });
+
+  it("unwraps await and parentheses: React loaded with import() and used in place", () => {
+    // Inside an async function, as in a module: in a bare script `await (x)` is a call to `await`.
+    const inAsync = (body: string) => boundaryUses(`async function load() { ${body} }`);
+    expect(inAsync('const { lazy } = await import("react");')).toHaveLength(1);
+    expect(inAsync('const { Suspense: S } = (await import("react"));')).toHaveLength(1);
+    expect(inAsync('(await import("react")).lazy(() => x);')).toHaveLength(1);
+    expect(inAsync('const R = await import("react"); R.lazy(f);')).toHaveLength(1);
+    expect(inAsync('const R = (await (import("react"))); const { lazy } = R;')).toHaveLength(1);
+    expect(inAsync('const R = (await import("react")) as typeof X; R.lazy(f);')).toHaveLength(1);
+    expect(inAsync('const z = await import("zod"); z.lazy(f);')).toEqual([]);
+  });
+
+  it("the scan follows a barrel across files: the barrel AND each consumer of it", () => {
+    const sources = new Map([
+      // The barrel of a barrel comes FIRST, so one pass would miss it: the scan runs to a fixed point.
+      ["/s/components/kit/index.ts", 'export { lazy as defer } from "../ui";'],
+      ["/s/components/ui.ts", 'export { lazy, Suspense } from "react";'],
+      ["/s/app/page.tsx", 'import { lazy } from "../components/ui";\nexport const P = lazy(f);'],
+      ["/s/app/deep.tsx", 'import { defer } from "@/components/kit";'],
+      ["/s/app/ns.tsx", 'import * as UI from "../components/ui";\nUI.lazy(f);'],
+      [
+        "/s/app/clean.tsx",
+        'import { useState } from "react";\nimport { format } from "../lib/format";',
+      ],
+      ["/s/lib/format.ts", "export const format = (n: number) => String(n);"],
+    ]);
+    expect(scanSources(sources, "/s").sort()).toEqual([
+      "app/deep.tsx:1",
+      "app/ns.tsx:2",
+      "app/page.tsx:1",
+      "components/kit/index.ts:1",
+      "components/ui.ts:1",
+      "components/ui.ts:1",
+    ]);
+  });
+});
+
 describe("no Suspense boundary above a page in the portal", () => {
   it("no route segment ships a loading.tsx — Next would wrap every page below it in one", () => {
     const loading = files(join(srcRoot, "app")).filter((f) =>
@@ -217,7 +390,7 @@ describe("no Suspense boundary above a page in the portal", () => {
     () => {
       const sources = files(srcRoot).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
       expect(sources.length).toBeGreaterThan(50);
-      const uses = sources.flatMap((f) => boundaryUses(readFileSync(f, "utf8"), rel(f)));
+      const uses = scanSources(new Map(sources.map((f) => [f, readFileSync(f, "utf8")])), srcRoot);
       expect(uses).toEqual([]);
     },
   );
