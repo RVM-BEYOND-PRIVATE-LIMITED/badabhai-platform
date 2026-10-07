@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
-import { PgDialect } from "drizzle-orm/pg-core";
+import { PgDialect, QueryBuilder } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
@@ -239,19 +239,31 @@ describe("findLatestProfileSignals — reads the LATEST profile, by the backfill
     await repo.findLatestProfileSignals(WORKER);
     // Identity, not a copy: `db:backfill:worker-skills` selects the same constant.
     expect(captured.selection!.sourceSession).toBe(PROFILE_SOURCE_SESSION_ANSWERS);
-    const sql = text(PROFILE_SOURCE_SESSION_ANSWERS);
+    // Render the REPOSITORY'S OWN selection the way Drizzle renders it in production: inside a
+    // single-table `worker_profiles` select. Compiling the fragment standalone qualifies columns
+    // that the real query does NOT, which is how an unqualified, mis-correlated subquery
+    // (`"worker_id" = "worker_id"`) once passed this test and failed in Postgres.
+    const sql = new QueryBuilder()
+      .select(captured.selection as Record<string, SQL>)
+      .from(workerProfiles)
+      .orderBy(...CURRENT_PROFILE_ORDER)
+      .limit(1)
+      .toSQL().sql;
     // The chain: the profile's own extraction job → the session it names → that session's
-    // state, scoped to the profile's own worker.
-    expect(sql).toContain('"ai_jobs"."id" = "worker_profiles"."ai_job_id"');
-    expect(sql).toContain('"ai_jobs"."job_type" = \'profile_extraction\'');
-    expect(sql).toContain('"chat_sessions"."worker_id" = "worker_profiles"."worker_id"');
+    // state, scoped to the profile's own worker, every column qualified.
+    expect(sql).toContain('from "ai_jobs" as "src_aj"');
+    expect(sql).toContain('inner join "chat_sessions" as "src_cs"');
+    expect(sql).toContain('"src_aj"."id" = "worker_profiles"."ai_job_id"');
+    expect(sql).toContain(`"src_aj"."job_type" = 'profile_extraction'`);
+    expect(sql).toContain('"src_cs"."worker_id" = "worker_profiles"."worker_id"');
     // TEXT comparison: a malformed `input_ref.session_id` matches nothing, never a cast error.
-    expect(sql).toContain(`"chat_sessions"."id"::text = "ai_jobs"."input_ref" ->> 'session_id'`);
+    expect(sql).toContain(`"src_cs"."id"::text = "src_aj"."input_ref" ->> 'session_id'`);
     // Four keys, never the whole envelope.
     for (const key of ["pack_id", "answer_map", "llm_led_turns", "llm_draft_settled"]) {
-      expect(sql).toContain(`'${key}', "chat_sessions"."conversation_state" -> '${key}'`);
+      expect(sql).toContain(`'${key}', "src_cs"."conversation_state" -> '${key}'`);
     }
     expect(sql.match(/conversation_state/g)).toHaveLength(4);
+    expect(sql).not.toMatch(/"worker_id" = "worker_id"|"id" = "ai_job_id"/);
   });
 
   it("returns undefined when the worker has no profile (not an empty signal object)", async () => {

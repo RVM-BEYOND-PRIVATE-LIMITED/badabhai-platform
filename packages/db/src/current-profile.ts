@@ -1,4 +1,5 @@
-import { sql, type SQL } from "drizzle-orm";
+import { getTableName, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import { aiJobs, chatSessions, workerProfiles } from "./schema";
 
@@ -86,18 +87,30 @@ export const CURRENT_PROFILE_ORDER: readonly SQL[] = [
  * `db:backfill:worker-skills`), like {@link CURRENT_PROFILE_ORDER}, so they cannot read different
  * evidence. Reads no name or phone: pack ids, answer values and two integers/booleans.
  */
-export const PROFILE_SOURCE_SESSION_ANSWERS: SQL<unknown> = sql<unknown>`(
+export const PROFILE_SOURCE_SESSION_ANSWERS: SQL<unknown> = (() => {
+  // EVERY COLUMN IS QUALIFIED BY HAND. Drizzle renders a column object interpolated into a
+  // select-list `sql` fragment UNQUALIFIED when the outer query reads a single table, which turned
+  // the correlation into `"worker_id" = "worker_id"` and `"id" = "ai_job_id"` (ambiguous / wrongly
+  // correlated). So the subquery's tables get aliases, and the OUTER row is named by its table.
+  const aj = sql.identifier("src_aj");
+  const cs = sql.identifier("src_cs");
+  const outer = sql.identifier(getTableName(workerProfiles));
+  const col = (alias: ReturnType<typeof sql.identifier>, column: AnyPgColumn): SQL =>
+    sql`${alias}.${sql.identifier(column.name)}`;
+  const state = col(cs, chatSessions.conversationState);
+  return sql<unknown>`(
   select jsonb_build_object(
-    'pack_id', ${chatSessions.conversationState} -> 'pack_id',
-    'answer_map', ${chatSessions.conversationState} -> 'answer_map',
-    'llm_led_turns', ${chatSessions.conversationState} -> 'llm_led_turns',
-    'llm_draft_settled', ${chatSessions.conversationState} -> 'llm_draft_settled'
+    'pack_id', ${state} -> 'pack_id',
+    'answer_map', ${state} -> 'answer_map',
+    'llm_led_turns', ${state} -> 'llm_led_turns',
+    'llm_draft_settled', ${state} -> 'llm_draft_settled'
   )
-  from ${aiJobs}
-  inner join ${chatSessions}
-    on ${chatSessions.workerId} = ${workerProfiles.workerId}
-   and ${chatSessions.id}::text = ${aiJobs.inputRef} ->> 'session_id'
-  where ${aiJobs.id} = ${workerProfiles.aiJobId}
-    and ${aiJobs.jobType} = 'profile_extraction'
+  from ${sql.identifier(getTableName(aiJobs))} as ${aj}
+  inner join ${sql.identifier(getTableName(chatSessions))} as ${cs}
+    on ${col(cs, chatSessions.workerId)} = ${col(outer, workerProfiles.workerId)}
+   and ${col(cs, chatSessions.id)}::text = ${col(aj, aiJobs.inputRef)} ->> 'session_id'
+  where ${col(aj, aiJobs.id)} = ${col(outer, workerProfiles.aiJobId)}
+    and ${col(aj, aiJobs.jobType)} = 'profile_extraction'
   limit 1
 )`;
+})();
