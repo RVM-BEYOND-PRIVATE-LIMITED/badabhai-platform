@@ -20,6 +20,7 @@ import {
   RetryActions,
 } from "../../../components/retry-actions";
 import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
+import { ORDER_STATUSES } from "../../../lib/list-filter-values";
 import { uuidSchema } from "@badabhai/validators";
 import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -27,7 +28,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Payment orders" };
 
-const STATUSES = ["created", "paid", "failed"] as const;
+const STATUSES = ORDER_STATUSES;
 
 /**
  * Payment orders — credit-pack checkouts.

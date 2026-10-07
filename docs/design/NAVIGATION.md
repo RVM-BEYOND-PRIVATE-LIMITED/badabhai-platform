@@ -127,17 +127,20 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   `lib/read-refusal.ts` (Workers, Postings, Events, Companies, Agencies, AI calls, Feedback,
   the credit ledger, Payment orders and Admin users; Skill discovery keeps its grouped-view
   exception below). A refusal never offers Retry — the request would only be refused again —
-  and says what was refused. Where a page's chips list every value a filter can take (the
-  ledger's reasons, order statuses, admin roles and statuses), only a value they do not offer
-  — or a customer id that is not a uuid — counts as a refusable filter (`isUnknownValue`): a
-  valid reason beside an over-long cursor is the cursor's refusal, not the reason's.
-  - **a filter is set** → the filters. The API refuses a page cursor only when it is longer
-    than any it issues (a malformed one falls back to page one), so with a filter set the
-    filter is at fault and its first page would be refused too: the state's action is "Clear
-    filters", the screen's one (the credit ledger's is "Clear the reason filter", which keeps
-    the window).
-  - **no filter, a page cursor** → the cursor: "Back to the first page" (`FirstPageAction`;
-    Skill discovery's flat view lays out the bare `FirstPageLink`, keeping `view=flat`).
+  and says what was refused. Only a filter VALUE the API does not accept counts as a refusable
+  filter — an unknown enum value (`isUnknownValue`), an id that is not a uuid
+  (`isMalformedUuid`), free text past the API's bound (`isOverLength`) — so a valid filter
+  beside an over-long cursor is the cursor's refusal, not the filter's. The accepted values come
+  from `@badabhai/types` where it exports them (worker, posting and verification statuses, the
+  feedback tags); the rest are copies in `lib/list-filter-values.ts` and `AI_TASK_TYPES`, pinned
+  to the API's DTO source by `lib/list-filter-values.test.ts`.
+  - **a filter value the API does not accept is set** → the filters: that value is at fault,
+    and its first page would be refused too. The state's action is "Clear filters", the
+    screen's one (the credit ledger's is "Clear the reason filter", which keeps the window).
+  - **no such value, a page cursor** → the cursor (the API refuses one only when it is longer
+    than any it issues; a malformed one falls back to page one): "Back to the first page",
+    every filter kept (`FirstPageAction`; Skill discovery's flat view lays out the bare
+    `FirstPageLink`, keeping `view=flat`).
   - **nothing in the address** → it cannot be the operator's: an outage, with Retry —
     Skill discovery's flat view included (it blamed filters that were not set, NEW-07). The
     one exception is Skill discovery's GROUPED view, whose route refuses a result too large
@@ -166,12 +169,14 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   (review of #2095). These carry `components/nav-pending.tsx` and read their navigation's own
   pending state — Next's `useLinkStatus` for the sidebar links (rail and drawer), the crumb's
   section link, every link filter chip (`FilterChip`) and the Pager's Next page; the transition a
-  filter bar's Apply (and Skill discovery's Clear these fields) navigates in (`usePendingPush`).
+  filter bar's Apply navigates in (`usePendingPush`) — and Skill discovery's Clear these fields,
+  in its own transition with its own words.
   While pending: a dot (after a rail or crumb label, on the corner of a chip, the Pager or
   Apply), a bar along the top of the viewport (the cue a phone sees, since the drawer closes as
   its link is followed) and one polite status line — "Opening Workers…", "Loading Credit
-  grant…", "Loading the next page…", "Applying the filters…". Nothing shows for the first
-  180ms (`--nav-pending-delay`), so a prefetched navigation never flashes it, and all of it ends
+  grant…", "Loading the next page…", "Applying the filters…", "Clearing the fields…". Nothing
+  shows for the first 180ms (`--nav-pending-delay`, equal to `PENDING_ANNOUNCE_DELAY_MS` — a
+  test ties them), so a prefetched navigation never flashes it, and all of it ends
   when the navigation commits. NOT covered: other links — a back link, a table row's link, a
   state's recovery link — which show nothing until the next page renders.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not

@@ -153,11 +153,11 @@ export default async function EventsPage({
                 ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment. Correct the value above, or clear the filters and start again."
                 : CURSOR_REFUSAL.body}
             </p>
-            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
-                page cursor only when it is longer than any it issues (a malformed one falls back
-                to page one), so with a filter set the FILTER is what was refused — keeping it on
-                the first page would be refused again, and the way out is Clear filters. With no
-                filter, the cursor was refused: the first page. */}
+            {/* Repeating a refused request cannot succeed, so there is no Retry. With a filter
+                value the server does not accept in the address, that value is what was refused —
+                keeping it on the first page would be refused again, and the way out is Clear
+                filters. Otherwise the page cursor was refused (the API refuses one only when it
+                is longer than any it issues): the first page, filters kept. */}
             {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (

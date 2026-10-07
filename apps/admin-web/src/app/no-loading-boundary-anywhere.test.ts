@@ -59,43 +59,59 @@ function boundaryUses(code: string, file = "x.tsx"): string[] {
   const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const out: string[] = [];
 
-  // The local names the file gives React (default / namespace import).
+  const isReact = (spec: string) => spec === "react";
+  /** `next/dynamic`, and its file path (`next/dynamic.js`) — every spelling resolves to it. */
+  const isDynamic = (spec: string) => /^next\/dynamic(?:\.[cm]?js)?$/.test(spec);
+  /** A module specifier written as a string or a substitution-free template literal. */
+  const specifier = (e: ts.Node | undefined): string | null =>
+    e && (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) ? e.text : null;
+  /** `require(m)` or `import(m)`, awaited or parenthesised or not, of a module `test` accepts. */
+  const loads = (e: ts.Expression | undefined, test: (spec: string) => boolean): boolean => {
+    if (!e) return false;
+    if (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e))
+      return loads(e.expression, test);
+    if (!ts.isCallExpression(e)) return false;
+    const callee = e.expression;
+    const isLoader =
+      callee.kind === ts.SyntaxKind.ImportKeyword ||
+      (ts.isIdentifier(callee) && callee.text === "require");
+    const spec = specifier(e.arguments[0]);
+    return isLoader && spec !== null && test(spec);
+  };
+
+  // The local names the file gives React: a default or namespace import, or a name bound to
+  // `require("react")` / `await import("react")`.
   const reactNames = new Set(["React"]);
-  for (const st of sf.statements) {
-    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
-    const clause = st.importClause;
-    if (st.moduleSpecifier.text !== "react" || !clause) continue;
-    if (clause.name) reactNames.add(clause.name.text);
-    if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-      reactNames.add(clause.namedBindings.name.text);
-    }
-  }
-  const BANNED = new Set(["Suspense", "lazy"]);
-  const importedFrom = (node: ts.Node, module: string) => {
-    for (let n: ts.Node | undefined = node; n; n = n.parent) {
-      if (ts.isImportDeclaration(n)) {
-        return ts.isStringLiteral(n.moduleSpecifier) && n.moduleSpecifier.text === module;
+  const collect = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node) && isReact(specifier(node.moduleSpecifier) ?? "")) {
+      const clause = node.importClause;
+      if (clause?.name) reactNames.add(clause.name.text);
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        reactNames.add(clause.namedBindings.name.text);
       }
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      loads(node.initializer, isReact)
+    ) {
+      reactNames.add(node.name.text);
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(sf);
+
+  const BANNED = new Set(["Suspense", "lazy"]);
+  const isReactName = (e: ts.Expression) => ts.isIdentifier(e) && reactNames.has(e.text);
+  const importedFrom = (node: ts.Node, test: (spec: string) => boolean) => {
+    for (let n: ts.Node | undefined = node; n; n = n.parent) {
+      if (ts.isImportDeclaration(n)) return test(specifier(n.moduleSpecifier) ?? "");
     }
     return false;
   };
-  /** `require("m")` or `import("m")` (awaited or not). */
-  const loads = (e: ts.Expression | undefined, module: string): boolean => {
-    if (!e) return false;
-    if (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e))
-      return loads(e.expression, module);
-    return (
-      ts.isCallExpression(e) &&
-      (e.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(e.expression) && e.expression.text === "require")) &&
-      e.arguments.length > 0 &&
-      ts.isStringLiteral(e.arguments[0]!) &&
-      e.arguments[0].text === module
-    );
-  };
   /** `const { Suspense } = React`, `const { lazy: l } = require("react")`. */
   const fromReact = (e: ts.Expression | undefined) =>
-    e !== undefined && ((ts.isIdentifier(e) && reactNames.has(e.text)) || loads(e, "react"));
+    e !== undefined && (isReactName(e) || loads(e, isReact));
 
   const visit = (node: ts.Node) => {
     const hit =
@@ -105,22 +121,24 @@ function boundaryUses(code: string, file = "x.tsx"): string[] {
       // React.lazy: suspends until its chunk loads, into the nearest boundary.
       (ts.isImportSpecifier(node) &&
         (node.propertyName ?? node.name).text === "lazy" &&
-        importedFrom(node, "react")) ||
+        importedFrom(node, isReact)) ||
       (ts.isPropertyAccessExpression(node) &&
         node.name.text === "lazy" &&
-        ts.isIdentifier(node.expression) &&
-        reactNames.has(node.expression.text)) ||
+        isReactName(node.expression)) ||
+      // Either as a bracketed member of React: `React["lazy"]`.
+      (ts.isElementAccessExpression(node) &&
+        isReactName(node.expression) &&
+        BANNED.has(specifier(node.argumentExpression) ?? "")) ||
       // Either, destructured from React: `const { Suspense, lazy: l } = React`.
       (ts.isBindingElement(node) &&
         ts.isObjectBindingPattern(node.parent) &&
         ts.isVariableDeclaration(node.parent.parent) &&
         fromReact(node.parent.parent.initializer) &&
         BANNED.has(((node.propertyName ?? node.name) as ts.Identifier).text)) ||
-      // next/dynamic, however it is loaded.
-      (ts.isImportDeclaration(node) &&
-        ts.isStringLiteral(node.moduleSpecifier) &&
-        node.moduleSpecifier.text === "next/dynamic") ||
-      (ts.isCallExpression(node) && loads(node, "next/dynamic"));
+      // next/dynamic, however it is loaded or re-exported.
+      ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        isDynamic(specifier(node.moduleSpecifier) ?? "")) ||
+      (ts.isCallExpression(node) && loads(node, isDynamic));
     if (hit) {
       const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
       out.push(`${file}:${line + 1}`);
@@ -165,6 +183,33 @@ const X = load(() => import("./x"), { ssr: false });`),
     expect(boundaryUses('import dynamic from "next/dynamic";')).toHaveLength(1);
     expect(boundaryUses('const { default: d } = await import("next/dynamic");')).toHaveLength(1);
     expect(boundaryUses('const d = require("next/dynamic");')).toHaveLength(1);
+  });
+
+  it("finds every other spelling of next/dynamic: a template import(), a re-export, the .js path", () => {
+    expect(boundaryUses("const d = await import(`next/dynamic`);")).toHaveLength(1);
+    expect(boundaryUses('export { default } from "next/dynamic";')).toHaveLength(1);
+    expect(boundaryUses('export { default as load } from "next/dynamic";')).toHaveLength(1);
+    expect(boundaryUses('export * from "next/dynamic";')).toHaveLength(1);
+    expect(boundaryUses('import dynamic from "next/dynamic.js";')).toHaveLength(1);
+    expect(boundaryUses('const d = require("next/dynamic.js");')).toHaveLength(1);
+  });
+
+  it("finds React bound by require() or import(), and a bracketed member", () => {
+    expect(boundaryUses('const R = require("react");\nconst X = R.lazy(load);')).toHaveLength(1);
+    expect(boundaryUses('const R = require("react");\nconst { Suspense } = R;')).toHaveLength(1);
+    expect(boundaryUses('const R = await import("react");\nconst X = R.lazy(load);')).toHaveLength(
+      1,
+    );
+    expect(boundaryUses('import React from "react";\nconst X = React["lazy"](load);')).toHaveLength(
+      1,
+    );
+    expect(boundaryUses('const R = require("react");\nconst S = R["Suspense"];')).toHaveLength(1);
+  });
+
+  it("leaves look-alikes alone: another module, another object, a string", () => {
+    expect(boundaryUses('export { x } from "./next-dynamic";')).toEqual([]);
+    expect(boundaryUses('const R = require("./react-utils");\nconst y = R.lazy;')).toEqual([]);
+    expect(boundaryUses('const y = cache["lazy"];\nconst s = "next/dynamic.js";')).toEqual([]);
   });
 
   it("finds Suspense and lazy destructured from React", () => {

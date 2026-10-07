@@ -272,10 +272,11 @@ export default async function FeedbackPage({
               cannot be hand-edited — one of them, as it stands in the address bar, is not
               something this list accepts.
             </p>
-            {/* No Retry: the server has refused this request and would refuse it again. The API
-                refuses a page cursor only when it is longer than any it issues, so with a filter
-                set it is the FILTER that was refused — keeping it on the first page would be
-                refused again, and the way out is Clear filters. With no filter, the first page. */}
+            {/* No Retry: the server has refused this request and would refuse it again. With a
+                filter value the server does not accept in the address, that value is what was
+                refused — keeping it on the first page would be refused again, and the way out is
+                Clear filters. Otherwise the page cursor was refused: the first page, filters
+                kept. */}
             {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (

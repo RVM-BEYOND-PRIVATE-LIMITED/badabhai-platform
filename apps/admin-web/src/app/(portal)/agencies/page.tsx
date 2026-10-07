@@ -150,11 +150,11 @@ export default async function AgenciesPage({
                 ? "That is not a customer status this portal recognises, so nothing was fetched. Pick a status from the list above, or clear the filter and start again."
                 : CURSOR_REFUSAL.body}
             </p>
-            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
-                page cursor only when it is longer than any it issues (a malformed one falls back
-                to page one), so with a filter set the FILTER is what was refused — keeping it on
-                the first page would be refused again, and the way out is Clear filters. With no
-                filter, the cursor was refused: the first page. */}
+            {/* Repeating a refused request cannot succeed, so there is no Retry. With a filter
+                value the server does not accept in the address, that value is what was refused —
+                keeping it on the first page would be refused again, and the way out is Clear
+                filters. Otherwise the page cursor was refused (the API refuses one only when it
+                is longer than any it issues): the first page, filters kept. */}
             {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (

@@ -23,6 +23,7 @@ import {
   RetryActions,
 } from "../../../components/retry-actions";
 import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
+import { LEDGER_REASONS } from "../../../lib/list-filter-values";
 import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -30,8 +31,6 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Credits" };
 
 const WINDOWS = [7, 30, 90];
-/** The ledger's reasons, one chip each — and the only reasons the API accepts. */
-const REASONS = ["pack_purchase", "grant", "unlock_debit", "refund"] as const;
 
 /**
  * Credits — the platform's credit position and the movements behind it.
@@ -88,7 +87,7 @@ export default async function CreditsPage({
    */
   const ledgerRefusal =
     ledgerRes.status === "rejected"
-      ? readRefusal(ledgerRes.reason, { filtered: isUnknownValue(reason, REASONS), cursor })
+      ? readRefusal(ledgerRes.reason, { filtered: isUnknownValue(reason, LEDGER_REASONS), cursor })
       : null;
 
   // The posture comes from whichever response arrived. If NEITHER did, nothing below renders
@@ -327,7 +326,7 @@ export default async function CreditsPage({
         </div>
 
         <div className="filters filters--inline">
-          {REASONS.map((r) => (
+          {LEDGER_REASONS.map((r) => (
             <FilterChip key={r} selected={r === reason} href={`/credits?windowDays=${windowDays}&reason=${r}`} cursor={cursor}>
               {creditReasonLabel(r)}
             </FilterChip>

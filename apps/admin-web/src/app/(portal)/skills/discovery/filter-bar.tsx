@@ -109,8 +109,10 @@ export function SkillDiscoveryFilterBar({
   initial: SkillDiscoveryFilterValues;
 }) {
   // Navigates in a transition, so Apply can show that the new list is on its way — the same
-  // signal a link gives, with no loading boundary (components/nav-pending.tsx).
+  // signal a link gives, with no loading boundary (components/nav-pending.tsx). Clear these
+  // fields navigates in its OWN, so its button — not Apply's — shows it, in its own words.
   const [pending, push] = usePendingPush();
+  const [clearing, pushClear] = usePendingPush();
   const [values, setValues] = useUrlState(initial);
 
   function set<K extends keyof SkillDiscoveryFilterValues>(key: K, value: string) {
@@ -130,7 +132,7 @@ export function SkillDiscoveryFilterBar({
    */
   function clearFields() {
     setValues(CLEARED);
-    push(filterBarHref(basePath, carry, null));
+    pushClear(filterBarHref(basePath, carry, null));
   }
 
   return (
@@ -275,6 +277,7 @@ export function SkillDiscoveryFilterBar({
         <button className="btn btn--ghost" type="button" onClick={clearFields}>
           <Icon name={ACTION_ICON.clearFilters} />
           Clear these fields
+          <SubmitPendingCue pending={clearing} message="Clearing the fields…" />
         </button>
       </div>
     </form>

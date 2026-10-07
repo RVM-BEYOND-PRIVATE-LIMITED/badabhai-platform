@@ -498,6 +498,9 @@ export const TASK_TYPE_LABELS = {
   companion_classify: "Companion classification",
   companion_edit_parse: "Companion edit parse",
   companion_career_answer: "Companion career answer",
+  profiling_free_classify: "Free chat classification",
+  profiling_free_reply: "Free chat reply",
+  profiling_free_summary: "Free chat summary",
   stt_transcription: "Speech-to-text",
   tts_synthesis: "Text-to-speech",
   skill_embedding: "Skill embedding",
@@ -506,6 +509,13 @@ export const TASK_TYPE_LABELS = {
 
 /** A task type this build has a name for. */
 export type KnownAiTaskType = keyof typeof TASK_TYPE_LABELS;
+
+/**
+ * Every task type the API accepts — the keys of {@link TASK_TYPE_LABELS}, which
+ * list-filter-values.test.ts pins to `aiTaskType` in @badabhai/event-schema (the enum
+ * `AdminAiTracesQuerySchema.taskType` takes), so a type added there fails until it is named here.
+ */
+export const AI_TASK_TYPES = Object.keys(TASK_TYPE_LABELS) as readonly KnownAiTaskType[];
 
 /**
  * The task type's name — or, for one this build has not been taught, its RAW id, verbatim. The
