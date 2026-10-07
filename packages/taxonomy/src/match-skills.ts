@@ -55,10 +55,10 @@ export interface MatchSkillSeed {
  * APPEND ONLY. Ordering is authoritative for nothing except readability, but the
  * ids are permanent, so entries are never removed and never re-spelled.
  *
- * `status` is `"active"` on all eighteen, deliberately. The corpus marks the
+ * `status` is `"active"` on every entry, deliberately. The corpus marks the
  * trade-widening skills `provisional`, but that flag is about CANONICALIZATION
  * confidence — how safely a free-text phrase resolves to the id. This is a different
- * question: "can a company post this vacancy today?", and for all eighteen the answer
+ * question: "can a company post this vacancy today?", and for every entry the answer
  * is yes. Nothing reads `skill.status` on the match path today, so the risk runs one
  * way: a future `WHERE status = 'active'` would silently hide a postable trade.
  *
@@ -254,6 +254,101 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+
+  // ---- Trades with a role form and, until #2022, no match skill ----
+  // OWNER RULING (Prakash, 2026-10-06, #2022): mint one postable skill per trade form that
+  // derived nothing. APPENDED, so every earlier id keeps its position.
+  //
+  // PACK-ONLY TODAY. None of these has a `role_*` or a corpus `skill_*` that bridges to it, so the
+  // only path that derives one is the worker's own pack answers (`PACK_ANSWER_SKILLS`, which may
+  // name these ids directly for exactly that reason — see the rules there). A free-text chat
+  // worker does not reach them yet; that needs a role or an attribute bridge (a separate change).
+  //
+  // DOMAINS ARE BORROWED, NOT MINTED. `domain_id` is the legacy 11-slug metadata (ADR-0030). A
+  // match skill carries no aliases, so the domain-scoped ANN never reads it for these rows. A new
+  // slug ("electrical", "coating") would be a cross-package change — the 11-slug scope is part of
+  // the `ai-contracts` skill-search body — for no retrieval effect. Each row takes the nearest
+  // honest bench, stated where it is not obvious.
+  {
+    // A manual lathe / mill / drill / shaper hand. Kept SEPARATE from CNC Turner and VMC Operator
+    // so a shop posting for manual work can target him without also reaching every CNC hand. The
+    // corpus's occupation-anchor domain, the one the generic CNC operator uses.
+    skillId: "mskill_conventional_machinist",
+    labelEn: "Conventional Machinist",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // Press tools, dies, jigs and gauges, built on the tool room's grinders, EDM and mills.
+    skillId: "mskill_tool_die_maker",
+    labelEn: "Tool & Die Maker",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    skillId: "mskill_sheet_metal_worker",
+    labelEn: "Sheet Metal Worker",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // Metal forming only (owner ruling R4-a, 2026-09-24): moulding is not a press operator's.
+    skillId: "mskill_press_operator",
+    labelEn: "Press Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // Powder and liquid spray coating. `fabrication` is the bench the coated parts come off.
+    skillId: "mskill_painter_coater",
+    labelEn: "Painter / Powder Coater",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    skillId: "mskill_maintenance_technician",
+    labelEn: "Maintenance Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // Plant electrical: panels, motors, drives, cabling. On a factory floor that work sits in the
+    // maintenance department, which is the bench this borrows.
+    skillId: "mskill_industrial_electrician",
+    labelEn: "Industrial Electrician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    skillId: "mskill_assembly_line_worker",
+    labelEn: "Assembly Line Worker",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fitting-assembly",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];
@@ -324,22 +419,45 @@ export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
   ["mskill_cnc_grinding_operator", "mskill_cnc_operator_general"],
   ["mskill_cnc_grinding_operator", "mskill_cnc_turner"],
   ["mskill_cnc_operator_general", "mskill_cnc_turner"],
+  // #2022. The generic CNC operator names no machine family, and the shops that post it ask for
+  // "ITI Machinist or Turner", which is the manual machinist's own training. A manual-work
+  // posting would also seriously consider a CNC operator who came up on a manual lathe. NOT
+  // paired with CNC Turner or VMC Operator: a manual lathe or mill claim already derives those as
+  // EXACT skills (#2022 point 1), so such a pair would add nothing in that direction and would
+  // put every CNC hand on every manual-only posting.
+  ["mskill_cnc_operator_general", "mskill_conventional_machinist"],
   ["mskill_cnc_operator_general", "mskill_hmc_operator"],
   ["mskill_cnc_programmer", "mskill_cnc_setter_operator"],
   ["mskill_cnc_setter_operator", "mskill_cnc_turner"],
   ["mskill_cnc_setter_operator", "mskill_hmc_operator"],
   ["mskill_cnc_setter_operator", "mskill_vmc_operator"],
   ["mskill_cnc_turner", "mskill_vmc_operator"],
+  // #2022. A tool & die maker's shop work IS conventional machining (surface grinder, mill and
+  // lathe in the tool room; the ITI trade teaches all three), and a tool room hiring would
+  // seriously consider a skilled manual machinist. Both directions hold.
+  ["mskill_conventional_machinist", "mskill_tool_die_maker"],
   // Design family.
   ["mskill_designer", "mskill_interior_designer"],
   // Fitting / quality / plumbing. A plumber IS a pipe fitter in the Indian trade
   // vocabulary, which is why the fitter relation is real and not a stretch.
+  // #2022. A maintenance fitter (the fitter form's own `maintenance_fitting` chip) and a
+  // mechanical maintenance technician do the same breakdown, bearing and gearbox work; plants
+  // post the two titles for the same chair.
+  ["mskill_fitter", "mskill_maintenance_technician"],
   ["mskill_fitter", "mskill_plumber"],
   ["mskill_fitter", "mskill_quality_inspector"],
   // The spec's reference job: VMC Operator -> HMC · CNC Setter-Operator · CNC Turner.
   // Those three edges are (hmc,vmc) here, (setter,vmc) and (turner,vmc) above.
   ["mskill_hmc_operator", "mskill_vmc_operator"],
   ["mskill_mig_welder", "mskill_tig_welder"],
+  // #2022. Both trades form sheet and strip on the same floor: the press brake is in both forms,
+  // and a sheet-metal shop runs its own power presses. Each would seriously consider the other.
+  ["mskill_press_operator", "mskill_sheet_metal_worker"],
+  // DELIBERATELY UNPAIRED (#2022): `mskill_painter_coater` (a finishing trade nobody else does),
+  // `mskill_industrial_electrician` (licensed electrical work; neither a fitter nor a mechanical
+  // maintenance hand would be considered for it, so no pair is symmetric), and
+  // `mskill_assembly_line_worker` (a fitter shop would not post for a line station operator, so
+  // the fitter pair would hold one way only).
 ];
 
 /**
@@ -409,9 +527,7 @@ export const ROLE_TO_MATCH_SKILL: Record<RoleId, MatchSkillId> = {
   role_interior_designer: "mskill_interior_designer",
 };
 
-const _ROLE_TO_MATCH_SKILL = new Map<string, MatchSkillId>(
-  Object.entries(ROLE_TO_MATCH_SKILL),
-);
+const _ROLE_TO_MATCH_SKILL = new Map<string, MatchSkillId>(Object.entries(ROLE_TO_MATCH_SKILL));
 
 /** The match skill implied by a canonical role id. `undefined` if the role is unknown. */
 export function matchSkillForRole(roleId: string): MatchSkillId | undefined {
@@ -672,9 +788,7 @@ export const TRADE_TO_MATCH_SKILL: Record<TradeKey, MatchSkillId> = {
   fitter: "mskill_fitter",
 };
 
-const _TRADE_TO_MATCH_SKILL = new Map<string, MatchSkillId>(
-  Object.entries(TRADE_TO_MATCH_SKILL),
-);
+const _TRADE_TO_MATCH_SKILL = new Map<string, MatchSkillId>(Object.entries(TRADE_TO_MATCH_SKILL));
 
 /** The match skill a seeded job's `tradeKey` converts to. `undefined` if unknown. */
 export function matchSkillForTrade(tradeKey: string): MatchSkillId | undefined {

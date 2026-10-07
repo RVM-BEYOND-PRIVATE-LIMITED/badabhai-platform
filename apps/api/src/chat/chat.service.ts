@@ -18,6 +18,7 @@ import {
   skillsGateOnScreen,
   toConversationStatePatch,
   toGeneralRoadStatePatch,
+  toLlmProvenanceStatePatch,
   toResumeHistoryStatePatch,
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
@@ -897,6 +898,8 @@ export class ChatService {
             // ADR-0045 — same reasoning: a skills-lane checkpoint (the gate) must carry the
             // worker's certified skills, or this REPLACING write would drop them.
             ...toGeneralRoadStatePatch(buffered.profiling),
+            // #2021 — same reasoning: the model-provenance stamp must survive a REPLACING write.
+            ...toLlmProvenanceStatePatch(buffered.profiling),
           },
           now,
         );
@@ -1154,6 +1157,12 @@ export class ChatService {
       // confirmed at the gate, which the general form, the profile build and the résumé read
       // after this buffer is gone. ABSENT for every session not on the skills lane.
       ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
+      // #2021 — whether the model led any turn or settled any answer in this interview, SAME
+      // REASONING AS `form_kind` ABOVE (engine bookkeeping outside the frozen contract, durable
+      // only here). The extraction processor derives generic-pack match skills from the answer map
+      // only when both say "no" (owner ruling 2026-10-07, worker-only). ABSENT for a session with
+      // no envelope, which the processor reads as "not worker-only" — fail closed.
+      ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -1527,8 +1536,7 @@ export class ChatService {
           buffer.profiling?.generalRoad?.handedOver === true
             ? "general_form_handoff"
             : "resume_update_settled"
-        } ` +
-          `session=${sessionId} idle=${idleMinutes}m outcome=${outcome}`,
+        } ` + `session=${sessionId} idle=${idleMinutes}m outcome=${outcome}`,
       );
       const closed = outcome === "won";
       return {
@@ -1556,6 +1564,8 @@ export class ChatService {
             : { import_applied_id: null, resume_update: null }),
           // ADR-0045 — an abandoned skills-lane session keeps what the worker confirmed.
           ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
+          // #2021 — see `flushInterview`.
+          ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
       : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding

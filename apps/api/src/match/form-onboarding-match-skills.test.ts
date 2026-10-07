@@ -102,7 +102,12 @@ describe.each(TRADE_FORM_CASES)(
 );
 
 describe("no nearest-skill proxy — a trade with no match skill derives NOTHING (owner ruling)", () => {
-  it.each(PACKS_WITHOUT_MATCH_SKILL)(
+  it("is vacuous today: #2022 minted a skill for every trade form that had none", () => {
+    // The guard below stays armed for the next form that ships without a skill.
+    expect(PACKS_WITHOUT_MATCH_SKILL).toEqual([]);
+  });
+
+  it.skipIf(PACKS_WITHOUT_MATCH_SKILL.length === 0).each([...PACKS_WITHOUT_MATCH_SKILL])(
     "%s: every chip of every question reaches no skill",
     (packId) => {
       const pack = latestPack(packId);
@@ -126,10 +131,16 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
    * any trade's reach has to be written here too — on purpose, in review.
    */
   const REACHABLE: Readonly<Record<string, readonly string[]>> = {
-    qp_cnc_turning: ["mskill_cam_programmer", "mskill_cnc_programmer", "mskill_cnc_turner"],
+    qp_cnc_turning: [
+      "mskill_cam_programmer",
+      "mskill_cnc_programmer",
+      "mskill_cnc_turner",
+      "mskill_conventional_machinist",
+    ],
     qp_vmc_milling: [
       "mskill_cam_programmer",
       "mskill_cnc_programmer",
+      "mskill_conventional_machinist",
       "mskill_hmc_operator",
       "mskill_vmc_operator",
     ],
@@ -139,6 +150,20 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_welding_trade: ["mskill_arc_welder", "mskill_mig_welder", "mskill_tig_welder"],
     qp_fitter: ["mskill_fitter"],
     qp_quality_inspection: ["mskill_quality_inspector"],
+    // #2022 — each minted trade reaches its own skill; the manual machinist's lathe and mill
+    // chips also reach the CNC skills (owner ruling, point 1).
+    qp_conventional_machining: [
+      "mskill_cnc_turner",
+      "mskill_conventional_machinist",
+      "mskill_vmc_operator",
+    ],
+    qp_tool_die_making: ["mskill_tool_die_maker"],
+    qp_sheet_metal_fab: ["mskill_sheet_metal_worker"],
+    qp_press_operation: ["mskill_press_operator"],
+    qp_powder_coating: ["mskill_painter_coater"],
+    qp_maintenance_tech: ["mskill_maintenance_technician"],
+    qp_industrial_electrician: ["mskill_industrial_electrician"],
+    qp_assembly_line: ["mskill_assembly_line_worker"],
   };
 
   it("pins every mapped pack", () => {
@@ -167,6 +192,28 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     expect(
       derive("qp_welding_trade", attributesFor(pack, { welding_process: ["gas_cutting", "spot"] })),
     ).toEqual([]);
+  });
+
+  it("a manual lathe derives the SAME set on the turning form and the manual form (#2022)", () => {
+    const turning = latestPack("qp_cnc_turning");
+    const manual = latestPack("qp_conventional_machining");
+    const viaTurning = derive(
+      "qp_cnc_turning",
+      attributesFor(turning, { turning_machine: ["conventional_lathe"] }),
+    );
+    expect(viaTurning).toEqual(["mskill_cnc_turner", "mskill_conventional_machinist"]);
+    const viaManual = derive(
+      "qp_conventional_machining",
+      attributesFor(manual, { machining_machine: ["centre_lathe"] }),
+    );
+    expect(viaManual).toEqual(viaTurning);
+  });
+
+  it("a manual grinder reaches CNC Grinding Operator (#2022 point 1)", () => {
+    const pack = latestPack("qp_cnc_grinding");
+    expect(
+      derive("qp_cnc_grinding", attributesFor(pack, { grinding_type: ["conventional"] })),
+    ).toEqual(["mskill_cnc_grinding_operator"]);
   });
 
   it("an HMC hand reaches the HMC skill through the ROLE bridge", () => {

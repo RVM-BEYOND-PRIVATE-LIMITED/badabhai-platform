@@ -212,18 +212,52 @@ describe("workerSkillDeriveInput — the ONE assembly both writers of worker_ski
     expect(input!.totalYears).toBe(4);
   });
 
-  it("a trade with no match skill derives nothing even with a full answer bag", () => {
+  it("a pack-only trade (#2022) derives its OWN skill and no nearest-skill proxy", () => {
+    // An electrician is not a fitter: before #2022 this bag derived nothing; now it derives the
+    // minted Industrial Electrician skill and nothing else, for a form-only worker too.
+    const packAnswers = [
+      {
+        packId: "qp_industrial_electrician",
+        attributeKey: "electrical_work_type",
+        optionKeys: ["panel_wiring", "motor_drive", "cable_laying"],
+      },
+    ];
+    for (const profile of [null, { canonicalRoleId: null, profileSkills: [], totalYears: 6 }]) {
+      const input = workerSkillDeriveInput({ profile, secondaryRoleIds: [], packAnswers });
+      expect(input).not.toBeNull();
+      expect(input!.matchSkillIds).toEqual(["mskill_industrial_electrician"]);
+      expect(deriveWorkerSkills(input!).map((r) => r.skillId)).toEqual([
+        "mskill_industrial_electrician",
+      ]);
+    }
+  });
+
+  it("a manual lathe claim derives CNC Turner AND the manual machinist (#2022 point 1)", () => {
     const input = workerSkillDeriveInput({
-      profile: { canonicalRoleId: null, profileSkills: [], totalYears: 6 },
+      profile: null,
       secondaryRoleIds: [],
       packAnswers: [
         {
-          packId: "qp_industrial_electrician",
-          attributeKey: "electrical_work_type",
-          optionKeys: ["panel_wiring", "motor_drive", "cable_laying"],
+          packId: "qp_conventional_machining",
+          attributeKey: "machining_machine",
+          optionKeys: ["centre_lathe"],
         },
       ],
     });
-    expect(deriveWorkerSkills(input!)).toEqual([]);
+    expect(deriveWorkerSkills(input!).map((r) => r.skillId)).toEqual([
+      "mskill_cnc_turner",
+      "mskill_conventional_machinist",
+    ]);
+  });
+});
+
+describe("deriveWorkerSkills — pack-only match skills (#2022)", () => {
+  it("adds a closed-set mskill_ id and drops anything outside the vocabulary", () => {
+    const rows = deriveWorkerSkills({
+      matchSkillIds: ["mskill_press_operator", "mskill_not_real", "skill_turning", "role_welder"],
+      totalYears: 2,
+    });
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_press_operator"]);
+    expect(rows[0]!.industryId).toBe("ind_industrial_manufacturing");
   });
 });
