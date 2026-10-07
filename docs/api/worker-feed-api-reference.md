@@ -38,7 +38,8 @@ GET /feed?limit=50&cursor=<next_cursor> // next page; keep the SAME filters for 
   (TD73). On the V1 path, a card whose paid boost expired between pages can appear a second time. Deduplicate
   by `job_id` client-side if needed.
 - Errors (`400`, body `{ message: "Validation failed", issues: [{ path: "cursor", message }] }`):
-  - `cursor is malformed`: not a value the server minted (bad encoding, forged, wrong version, too long).
+  - `cursor is malformed`: not a value the server minted (bad encoding, forged, wrong version, too long,
+    or a timestamp that is not a real instant such as 30 February or year 0000 — a `500` before 2026-10-07).
   - `cursor was issued for a different feed order; refetch without a cursor`: the feed source flag changed
     mid-scroll.
 

@@ -147,7 +147,7 @@ Stack traces are never leaked; `requestId` is for support correlation.
 | --- | --- | --- |
 | Per-IP / hour (public auth) | `PAYER_AUTH_MAX_PER_IP_PER_HOUR` ≈ 20 | signup, login/request, login/verify |
 | Per-payer disclosure / hour | `PAYER_DISCLOSURE_MAX_PER_HOUR` (default 30) | `POST /payer/unlocks` + reveal (shared cap) |
-| Per-payer reach / hour | `PAYER_REACH_MAX_PER_HOUR` (default 60) | applicant feed reads |
+| Per-payer reach / hour | `PAYER_REACH_MAX_PER_HOUR` (default 60) | applicant feed reads + `GET /payer/reach/applicants` pages (one shared bucket) |
 | Per-payer invite-mint / hour | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60) | agency invite mint |
 | Global OTP sends / day | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends |
 
@@ -444,6 +444,37 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   - Faceless: opaque `workerId` + banded chips only — **never** display/expect names/phones/employers.
   - Neutral `404` for unknown-or-not-owned job. `429` on reach cap. `5xx` → retry with backoff.
   - Safe to cache client-side briefly (≤1h, information-only), but ranks/scores may shift — don't serve stale long.
+
+#### `GET /payer/reach/applicants` — every applicant across the payer's own postings (Candidates tab)
+- **Auth:** `PayerAuthGuard` (Bearer), either role. The **same** per-payer hourly reach bucket as the per-posting list (`payer_reach`, `PAYER_REACH_MAX_PER_HOUR`, default 60): **one unit per page**, checked before any read, shared with `GET /payer/reach/jobs/:jobId/applicants` (not a second budget). Fails closed: Redis down → the same `429`.
+- **Scope:** every worker who **applied** to a posting the **session** payer owns — agency `jobs` rows (`jobs.payer_id`) and company `job_postings` (`job_postings.payer_id`), the same two ownership rules the per-posting list resolves an id with, all statuses. `payer_id` comes from the session only; the query has no slot for one.
+- **Query** (all optional; any other key, including `payer_id` and `stage`, is a `400`):
+  - `postingId` (UUID) — only that posting's applicants; matches an agency job id or a company posting id. **Neutral result:** an unknown id and another payer's id return `200 { applicants: [], nextCursor: null }` — byte-identical to an owned posting nobody has applied to (no existence oracle, one read in every case).
+  - `limit` — integer `1..50`, default `20`.
+  - `cursor` — the previous response's `nextCursor`, passed back untouched (≤256 chars). Empty = first page. Anything the server did not mint is a `400`, including a cursor whose timestamp is not a real instant (e.g. 30 February, year 0000). Opaque is not secret: it decodes to the last row's application `created_at` and id.
+  - **No `stage` filter.** The per-posting feed exposes no stage: payer-web's New / Shortlist / Passed board is client-local and nothing persists a stage, so there is nothing to filter on server-side.
+- **Order:** newest application first — `applications.created_at DESC`, then `applications.id DESC` as the tiebreak (a total order, so pages never skip or repeat a row). Keyset pagination; the cursor is opaque base64url of `{ v: 1, t: <created_at, microsecond UTC>, id: <application id> }`.
+- **Response:**
+  ```
+  { applicants: [ <row> ], nextCursor: string | null }   // null = last page
+  ```
+  Each `<row>` is **exactly** the row `GET /payer/reach/jobs/:jobId/applicants` returns for that applicant (same code builds both, same values), **plus** `posting`:
+  ```
+  // agency job applicant — the legacy weighted row
+  { workerId, rank, score, hot, pushEligible, components, experienceBand, tradeLabel, cityLabel,
+    posting: { id, title, kind: 'agency_job' } }
+  // company posting applicant — the V1 candidate row
+  { workerId, applicationId, rank, matchTier, effectiveTier, skillMonths, industryMonths,
+    lastWorkedAt, matchedSkillLabel, engineVersion,
+    posting: { id, title, kind: 'company_posting' } }
+  ```
+  - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
+  - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows.
+- **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.
+- **Faceless:** the rows carry exactly the per-posting projection — opaque ids, banded chips and rank inputs; no name, phone, employer or contact. Identity is still bought through `/payer/unlocks`.
+- **Events:** the per-posting posture, row for row: each **agency** row on the page emits the same `feed.shown` the per-job list emits for it (actor `payer`, payload `worker_id`/`job_id`/`rank`/`score`/`hot`, one all-or-nothing batch); **company** rows emit nothing. A company-only page is therefore rate-limited but not durably audited (the per-posting list's existing residual).
+- **Errors:** `400` bad query / cursor; `429` reach cap (or Redis down); a DB failure is a `5xx`. No `404` — a filter that matches nothing is an empty page.
+- **Mobile/web gotchas:** FREE (no credit debit). Pass `nextCursor` back verbatim; never build one. New applications arriving mid-scroll appear on the next first page, not mid-list. An agent account's older company postings are included, as on the per-posting route.
 
 ### 4.6 Agency (role `agent` only)
 

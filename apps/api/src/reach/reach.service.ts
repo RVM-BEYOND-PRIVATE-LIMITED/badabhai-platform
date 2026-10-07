@@ -9,7 +9,7 @@ import {
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
-import { ReachRepository } from "./reach.repository";
+import { ReachRepository, type JobSignalRow } from "./reach.repository";
 import {
   workerProfileRowToSignals,
   workerProfileRowToBands,
@@ -136,39 +136,104 @@ export class ReachService {
   ): Promise<ApplicantListResponseDto | undefined> {
     const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, payerId);
     if (!ownedRow) return undefined;
-    const jobSpec = jobSignalRowToJobSpec(ownedRow);
 
     // #1898: ONLY the workers who applied to this job — read by the job id the ownership read
     // returned, never the route value. Signal columns only, as the pool read.
-    const rows = await this.repo.listApplicantSignalRowsForJob(jobSpec.jobId);
-    const now = new Date();
-    const signals: WorkerSignals[] = rows.map((r) => workerProfileRowToSignals(r, now));
-    const bandsByWorker = ReachService.bandsByWorker(rows);
-
-    const ranked: RankedWorker[] = rankWorkersForJob(jobSpec, signals);
-
-    const applicants = ReachService.toApplicantRows(ranked, bandsByWorker);
+    const rows = await this.repo.listApplicantSignalRowsForJob(ownedRow.jobId);
+    const applicants = ReachService.rankAppliers(ownedRow, rows, new Date());
 
     // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
     // verified session payer — never the route/body). payer_id stays opaque in the event.
     // emitMany([]) is a no-op, so a job with no appliers writes nothing.
+    await this.emitPayerFeedShown(
+      applicants.map((row) => ({ jobId: ownedRow.jobId, row })),
+      payerId,
+      ctx,
+    );
+
+    return { jobId: ownedRow.jobId, applicants };
+  }
+
+  /**
+   * The payer's cross-posting inbox (`GET /payer/reach/applicants`): the ranked applier rows of
+   * several legacy `jobs` rows the session payer OWNS, keyed by job id — each list exactly what
+   * {@link tryApplicantsForOwnedJob} renders for that job (same membership, same
+   * {@link rankAppliers}), in TWO reads whatever the number of jobs.
+   *
+   * EMITS NOTHING. The inbox shows only some of these rows on a page, so it decides which
+   * impressions happened and records them through {@link emitPayerFeedShown}. A job id the payer
+   * does not own (or that does not exist) is absent from the map — the batched ownership read's
+   * no-oracle answer — and its appliers are never read.
+   */
+  async appliersForOwnedJobs(
+    jobIds: readonly string[],
+    payerId: string,
+  ): Promise<Map<string, ApplicantRowDto[]>> {
+    if (jobIds.length === 0) return new Map();
+    const owned = await this.repo.findOwnedJobSignalRowsByIds(jobIds, payerId);
+    if (owned.length === 0) return new Map();
+
+    const appliers = await this.repo.listApplicantSignalRowsForJobs(owned.map((j) => j.jobId));
+    const rowsByJob = new Map<string, WorkerProfileSignalRow[]>();
+    for (const { jobId, row } of appliers) {
+      const list = rowsByJob.get(jobId);
+      if (list) list.push(row);
+      else rowsByJob.set(jobId, [row]);
+    }
+
+    const now = new Date();
+    return new Map(
+      owned.map((job) => [
+        job.jobId,
+        ReachService.rankAppliers(job, rowsByJob.get(job.jobId) ?? [], now),
+      ]),
+    );
+  }
+
+  /**
+   * One `feed.shown` per payer-visible applier row, UNKEYED (D7), as ONE all-or-nothing batch,
+   * with the verified SESSION payer as the actor (`actor_id`, an opaque uuid — never the
+   * payload). The payload is the row's own `rank`/`score`/`hot` plus the worker and job ids:
+   * the unchanged v1 `FeedShownPayload`. Used by the per-job list and by the inbox, so the two
+   * surfaces write the identical impression for the identical row.
+   */
+  async emitPayerFeedShown(
+    shown: ReadonlyArray<{ jobId: string; row: ApplicantRowDto }>,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
     await this.events.emitMany(
-      ranked.map((r) =>
+      shown.map(({ jobId, row }) =>
         this.feedShownParams(
           {
-            worker_id: r.workerId,
-            job_id: jobSpec.jobId,
-            rank: r.rank,
-            score: r.score,
-            hot: r.hot,
+            worker_id: row.workerId,
+            job_id: jobId,
+            rank: row.rank,
+            score: row.score,
+            hot: row.hot,
           },
           ctx,
           { actor_type: "payer", actor_id: payerId },
         ),
       ),
     );
+  }
 
-    return { jobId: jobSpec.jobId, applicants };
+  /**
+   * The payer-visible applier list for ONE legacy job — pure. The RANK core orders the appliers
+   * (never filters them: count in == count out), then the faceless rows are grafted with their
+   * bands. Shared by the per-job list and the inbox so a row means the same thing on both:
+   * `rank` and `hot` are positions/fractions WITHIN this job's appliers, which is why the inbox
+   * ranks a job's whole applier set even when one of its rows is on the page.
+   */
+  static rankAppliers(
+    job: JobSignalRow,
+    rows: WorkerProfileSignalRow[],
+    now: Date,
+  ): ApplicantRowDto[] {
+    const signals: WorkerSignals[] = rows.map((r) => workerProfileRowToSignals(r, now));
+    const ranked: RankedWorker[] = rankWorkersForJob(jobSignalRowToJobSpec(job), signals);
+    return ReachService.toApplicantRows(ranked, ReachService.bandsByWorker(rows));
   }
 
   /**

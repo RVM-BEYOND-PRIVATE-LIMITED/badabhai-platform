@@ -47,11 +47,25 @@ const UUID = z
  * A `timestamptz` at Postgres's full MICROSECOND precision, in UTC. A JS `Date` cannot be the
  * keyset value: it truncates to milliseconds, and two rows inside one millisecond would then be
  * skipped or repeated at a page boundary. The repository projects this text with `to_char`.
+ *
+ * A REAL INSTANT, NOT MERELY A PARSEABLE ONE (L1, security review of PR #2116). `Date.parse` is
+ * not a calendar check: it rolls `2026-02-30` over to 2 March and accepts year `0000`, and
+ * Postgres refuses both at the bind (22008) — a forged cursor came back as a 500 from the read.
+ * So the text must ROUND-TRIP: re-serialised, the parsed instant reproduces the input to the
+ * second (the six fractional digits are the keyset's own and are not compared), and the year is
+ * at least 1. Anything else is a 400 at the DTO, before any read.
  */
 const PG_TIMESTAMP_UTC = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/, "not a microsecond UTC timestamp")
-  .refine((s) => !Number.isNaN(Date.parse(s)), "not a valid timestamp");
+  .refine(isRealUtcInstant, "not a valid timestamp");
+
+/** True when `s` (already the pattern above) names an instant that exists, in year 1 or later. */
+function isRealUtcInstant(s: string): boolean {
+  const ms = Date.parse(s);
+  if (Number.isNaN(ms) || Number(s.slice(0, 4)) < 1) return false;
+  return new Date(ms).toISOString().slice(0, 19) === s.slice(0, 19);
+}
 
 const OFFSET = z.number().int().min(0).max(FEED_CURSOR_MAX_OFFSET);
 
@@ -154,3 +168,14 @@ export function decodeFeedCursor(raw: string): FeedCursor | null {
   const parsed = FeedCursorSchema.safeParse(json);
   return parsed.success ? parsed.data : null;
 }
+
+/**
+ * The cursor primitives, shared with the payer inbox cursor
+ * (`payer-portal/payer-applicant-inbox.cursor.ts`) so "a keyset timestamp" and "a served id" are
+ * one definition, not two that can drift.
+ */
+export {
+  UUID as LOWERCASE_UUID_SCHEMA,
+  PG_TIMESTAMP_UTC as PG_TIMESTAMP_UTC_SCHEMA,
+  BASE64URL as BASE64URL_PATTERN,
+};
