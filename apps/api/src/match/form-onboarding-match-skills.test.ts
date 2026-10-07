@@ -8,7 +8,12 @@ import {
 
 import type { ProjectedAttribute } from "../profiling/answer-map-projector";
 import { descriptorForKind, TRADE_FORM_KINDS } from "../profiling/roles/role-registry";
-import { attributesFor, latestPack, TRADE_FORM_CASES } from "./form-onboarding.test-support";
+import {
+  answerRecordsFor,
+  attributesFor,
+  latestPack,
+  TRADE_FORM_CASES,
+} from "./form-onboarding.test-support";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -29,7 +34,7 @@ import { attributesFor, latestPack, TRADE_FORM_CASES } from "./form-onboarding.t
 function derive(
   packId: string,
   attributes: readonly ProjectedAttribute[],
-  profile: { totalYears: number | null } | null = null,
+  profile: { totalYears: number | null; sourceSession?: unknown } | null = null,
 ): string[] {
   const answers = attributes.flatMap((attribute) => {
     const answer = packAnswerFromStoredRow({
@@ -47,7 +52,12 @@ function derive(
     profile:
       profile === null
         ? null
-        : { canonicalRoleId: null, profileSkills: [], totalYears: profile.totalYears },
+        : {
+            canonicalRoleId: null,
+            profileSkills: [],
+            totalYears: profile.totalYears,
+            sourceSession: profile.sourceSession ?? null,
+          },
     secondaryRoleIds: [],
     packAnswers: answers,
   });
@@ -244,4 +254,55 @@ describe("the table is written against what the packs actually store", () => {
       }
     },
   );
+});
+
+describe("a generic qp_electrical chat agrees with the industrial-electrician form (#2075)", () => {
+  const generic = latestPack("qp_electrical");
+  const form = latestPack("qp_industrial_electrician");
+
+  /**
+   * A generic-pack chat worker: a profile row whose source session's persisted `conversation_state`
+   * carries the answer map the capture wrote (the real record shape) and the worker-only stamps.
+   * The generic chat writes no `worker_attributes` row for a `target_field: skills` question.
+   */
+  function deriveChat(
+    optionKeys: readonly string[],
+    stamp: Record<string, unknown> = { llm_led_turns: 0, llm_draft_settled: false },
+  ): string[] {
+    const answerMap = answerRecordsFor(generic, { electrical_scope: optionKeys });
+    return derive("qp_electrical", [], {
+      totalYears: 4,
+      sourceSession: { pack_id: "qp_electrical", answer_map: answerMap, ...stamp },
+    });
+  }
+
+  it("`industrial` or `panel` derives exactly what the form's `panel_wiring` derives", () => {
+    const viaForm = derive(
+      form.pack_id,
+      attributesFor(form, { electrical_work_type: ["panel_wiring"] }),
+    );
+    expect(viaForm).toEqual(["mskill_industrial_electrician"]);
+    expect(deriveChat(["industrial"])).toEqual(viaForm);
+    expect(deriveChat(["panel"])).toEqual(viaForm);
+  });
+
+  it("pins the reachable set: every chip, exhaustively, reaches only the industrial electrician", () => {
+    const item = generic.items.find((i) => i.question_key === "electrical_scope")!;
+    const byChip = Object.fromEntries(
+      (item.options ?? []).map((o) => [o.option_key, deriveChat([o.option_key])]),
+    );
+    expect(byChip).toEqual({
+      house_wiring: [],
+      industrial: ["mskill_industrial_electrician"],
+      panel: ["mskill_industrial_electrician"],
+      motor: [],
+    });
+  });
+
+  it("an LLM-led or legacy session derives nothing from the same answers (worker-only)", () => {
+    expect(
+      deriveChat(["industrial", "panel"], { llm_led_turns: 2, llm_draft_settled: true }),
+    ).toEqual([]);
+    expect(deriveChat(["industrial", "panel"], {})).toEqual([]);
+  });
 });

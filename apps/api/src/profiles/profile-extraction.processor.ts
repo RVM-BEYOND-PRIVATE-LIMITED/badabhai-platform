@@ -40,8 +40,8 @@ import {
 import type { ChatSession, NewWorkerProfile } from "@badabhai/db";
 import {
   canonicalGenericPackSkills,
+  genericPackSkillAnswers,
   SKILL_TAXONOMY_VERSION,
-  type GenericPackAnswer,
 } from "@badabhai/taxonomy";
 import type { ProfileSource } from "@badabhai/types";
 import { EventsService } from "../events/events.service";
@@ -2354,33 +2354,6 @@ export interface ExtractionContext {
 }
 
 /**
- * #2021 — the answer map's deterministic `skills` values, per question, as the generic-pack
- * canonicalizer reads them. ANSWER MAP ONLY: never `skill_labels`, never the parse overlay, never
- * Phase C. Only `answered` records count, exactly as `projectProfile`'s `liveValues` reads them.
- *
- * NOT TAP-ONLY ON ITS OWN: an `answered` record may come from Phase A `settleFromLlmDraft`, which
- * records an LLM-draft option that `matchOptions` matched against the pack's closed options. The
- * records carry no per-record provenance (that would be a change to the shared ai-contracts
- * `AnswerRecordSchema`, deferred), so the worker-only rule is enforced per SESSION by
- * {@link genericPackSkillsOf}, never here.
- */
-function answerMapSkillAnswers(answerMap: readonly AnswerRecord[]): GenericPackAnswer[] {
-  const answers: GenericPackAnswer[] = [];
-  for (const record of answerMap) {
-    if (record.status !== "answered") continue;
-    if ((record.target_field ?? record.question_key) !== "skills") continue;
-    const value = record.value_normalized;
-    const values = Array.isArray(value)
-      ? value
-      : value === null || value === undefined
-        ? []
-        : [value];
-    answers.push({ questionKey: record.question_key, values });
-  }
-  return answers;
-}
-
-/**
  * #2021 — the generic-pack `skill_*` ids for the canonical `skills` column.
  *
  * WORKER-ONLY (owner ruling 2026-10-07). A session the LLM led, or whose answer map it settled
@@ -2395,7 +2368,9 @@ function genericPackSkillsOf({
   workerOnlyAnswerMap,
 }: Pick<ExtractionContext, "packId" | "answerMap" | "workerOnlyAnswerMap">): string[] {
   if (!workerOnlyAnswerMap) return [];
-  return canonicalGenericPackSkills(packId, answerMapSkillAnswers(answerMap));
+  // `genericPackSkillAnswers` (@badabhai/taxonomy) is the ONE reading of the answer map's `skills`
+  // values: the rebuild reads the same records through it for the #2075 pack-only match skills.
+  return canonicalGenericPackSkills(packId, genericPackSkillAnswers(answerMap));
 }
 
 /**

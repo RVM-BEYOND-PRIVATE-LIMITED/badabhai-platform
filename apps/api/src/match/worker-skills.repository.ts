@@ -5,6 +5,7 @@ import {
   type Database,
   jobPostings,
   materializeJobReachWithin,
+  PROFILE_SOURCE_SESSION_ANSWERS,
   workerAttributes,
   workerIndustryTenure,
   workerOccupations,
@@ -21,6 +22,12 @@ export interface WorkerProfileSignals {
   profileSkills: string[];
   /** `experience.total_years`, or null when the extraction never resolved one. */
   totalYears: number | null;
+  /**
+   * #2075 — the profile's source chat session's `pack_id` / `answer_map` / provenance stamps
+   * (`PROFILE_SOURCE_SESSION_ANSWERS`), or null. Untrusted JSON, passed through UNREAD: the
+   * worker-only gate and the closed lookup live in `workerSkillDeriveInput`, shared with the backfill.
+   */
+  sourceSession: unknown;
 }
 
 /** One `worker_skill` row to upsert. `wants`/dates are set by the writer, not here. */
@@ -54,7 +61,8 @@ export type Tx = Database;
  * a tier, a month count, or a rank.
  *
  * PRIVACY: reads only faceless signal columns (opaque worker id, `canonical_role_id`,
- * the `skills` id array, `experience.total_years`). It never touches phone/name, and
+ * the `skills` id array, `experience.total_years`, and the source session's answer map, whose
+ * values are matched only against closed option keys). It never touches phone/name, and
  * every value it writes is an id, an enum or an integer.
  */
 @Injectable()
@@ -76,6 +84,7 @@ export class WorkerSkillsRepository {
         canonicalRoleId: workerProfiles.canonicalRoleId,
         skills: workerProfiles.skills,
         experience: workerProfiles.experience,
+        sourceSession: PROFILE_SOURCE_SESSION_ANSWERS,
       })
       .from(workerProfiles)
       .where(eq(workerProfiles.workerId, workerId))
@@ -96,6 +105,7 @@ export class WorkerSkillsRepository {
       canonicalRoleId: row.canonicalRoleId,
       profileSkills: Array.isArray(row.skills) ? row.skills.filter(isString) : [],
       totalYears,
+      sourceSession: row.sourceSession ?? null,
     };
   }
 

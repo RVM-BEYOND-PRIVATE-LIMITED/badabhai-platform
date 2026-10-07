@@ -153,8 +153,57 @@ function setup(opts: {
 }
 
 function signals(over: Partial<WorkerProfileSignals> = {}): WorkerProfileSignals {
-  return { canonicalRoleId: null, profileSkills: [], totalYears: null, ...over };
+  return {
+    canonicalRoleId: null,
+    profileSkills: [],
+    totalYears: null,
+    sourceSession: null,
+    ...over,
+  };
 }
+
+describe("WorkerSkillsService — a worker-only generic qp_electrical chat (#2075)", () => {
+  /** What `PROFILE_SOURCE_SESSION_ANSWERS` selects off the profile's source session. */
+  const electricalSession = (
+    values: readonly string[],
+    stamp: Record<string, unknown> = { llm_led_turns: 0, llm_draft_settled: false },
+  ) => ({
+    pack_id: "qp_electrical",
+    answer_map: [
+      {
+        question_key: "electrical_scope",
+        target_field: "skills",
+        status: "answered",
+        value_normalized: values,
+      },
+    ],
+    ...stamp,
+  });
+
+  it("derives the industrial electrician from `panel`, with the profile's skills column empty", async () => {
+    const h = setup({
+      signals: signals({ totalYears: 2, sourceSession: electricalSession(["panel"]) }),
+    });
+    await h.svc.rebuildForWorker(WORKER);
+    expect(h.writtenSkills()).toEqual([
+      { skillId: "mskill_industrial_electrician", industryId: MFG, monthsBucketed: 24 },
+    ]);
+  });
+
+  it("derives nothing from the same answer in an LLM-led session", async () => {
+    const h = setup({
+      signals: signals({
+        totalYears: 2,
+        sourceSession: electricalSession(["industrial", "panel"], {
+          llm_led_turns: 1,
+          llm_draft_settled: true,
+        }),
+      }),
+    });
+    await h.svc.rebuildForWorker(WORKER);
+    expect(h.writtenSkills()).toEqual([]);
+  });
+});
 
 describe("WorkerSkillsService — the match-skill SET is role bridge ∪ attribute bridge", () => {
   it("derives the role's match skill", async () => {

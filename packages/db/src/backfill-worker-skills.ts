@@ -12,6 +12,9 @@
  *             attribute bridge : ATTRIBUTE_TO_MATCH_SKILLS[each id in worker_profiles.skills]
  *             pack-answer bridge: PACK_ANSWER_SKILLS[pack][key][option] over `worker_attributes`
  *                                 → corpus ids (attribute bridge) + role ids (role bridge)
+ *                                 + pack-only mskill ids (#2022)
+ *             generic-pack chat : GENERIC_PACK_MATCH_SKILLS over the profile's source session's
+ *                                 worker-only answer map → pack-only mskill ids (#2075)
  *
  * WHO IS DERIVED — the SAME guard as the live rebuild (`WorkerSkillsService.rebuildForWorker`):
  *   a worker with NO profile row, NO pack evidence and NO declared occupation is skipped (his
@@ -43,8 +46,9 @@
  * DRY-RUN IS THE DEFAULT; `--apply` writes.
  *
  * PRIVACY: reads ONLY faceless signal columns (worker id, canonical_role_id, skills jsonb,
- * experience jsonb, the closed `worker_occupation` role ids, and `worker_attributes` pack id /
- * key / text values, which are matched only against closed option keys). It never reads
+ * experience jsonb, the closed `worker_occupation` role ids, `worker_attributes` pack id /
+ * key / text values, and the profile's source session's pack id / answer map / provenance stamps;
+ * answer values are matched only against closed option keys). It never reads
  * phone/name and never logs anything but ids + counts.
  *
  *   pnpm db:backfill:worker-skills                      # dry run
@@ -62,7 +66,7 @@ import {
 import { packAnswerFromStoredRow, type PackAnswer } from "@badabhai/taxonomy";
 
 import { createDbClient, type Database } from "./client";
-import { CURRENT_PROFILE_ORDER } from "./current-profile";
+import { CURRENT_PROFILE_ORDER, PROFILE_SOURCE_SESSION_ANSWERS } from "./current-profile";
 import {
   matchConfig,
   workerAttributes,
@@ -204,6 +208,8 @@ async function main(): Promise<void> {
             canonicalRoleId: workerProfiles.canonicalRoleId,
             skills: workerProfiles.skills,
             experience: workerProfiles.experience,
+            // #2075 — the SAME source-session read as `WorkerSkillsRepository`: one SQL definition.
+            sourceSession: PROFILE_SOURCE_SESSION_ANSWERS,
           })
           .from(workerProfiles)
           .where(eq(workerProfiles.workerId, w.id))
@@ -235,6 +241,7 @@ async function main(): Promise<void> {
                 canonicalRoleId: profile.canonicalRoleId,
                 profileSkills: asStringArray(profile.skills),
                 totalYears,
+                sourceSession: profile.sourceSession ?? null,
               }
             : null,
           secondaryRoleIds,

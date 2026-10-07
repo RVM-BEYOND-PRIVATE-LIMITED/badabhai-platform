@@ -16,6 +16,7 @@
  * level skill gets `[]` — no reach. We never fabricate a skill to give a man a feed.
  */
 import {
+  genericPackChatMatchSkills,
   isMatchSkillId,
   matchSkillForRole,
   matchSkillIndustry,
@@ -43,7 +44,8 @@ export interface DeriveWorkerSkillsInput {
   profileSkills?: readonly string[];
   /**
    * PACK-ONLY match skills his own pack answers name directly (#2022) — the trades with no role and
-   * no corpus id to bridge through. Closed-set: anything that is not a `MatchSkillId` is dropped.
+   * no corpus id to bridge through — and those his worker-only generic-pack chat claims (#2075).
+   * Closed-set: anything that is not a `MatchSkillId` is dropped.
    */
   matchSkillIds?: readonly string[];
   /** The worker's estimated TOTAL experience, in years. `null` when unknown. */
@@ -56,7 +58,8 @@ export interface DeriveWorkerSkillsInput {
  * SET   = `ROLE_TO_MATCH_SKILL[canonicalRoleId]` (if any)
  *       ∪ `ROLE_TO_MATCH_SKILL[r]` for every declared secondary role id `r` (Layer A (f))
  *       ∪ `ATTRIBUTE_TO_MATCH_SKILLS[s]` for every corpus attribute `s`
- *       ∪ every pack-only `mskill_*` his pack answers name (#2022), closed-set checked
+ *       ∪ every pack-only `mskill_*` his pack answers name (#2022) or his worker-only
+ *         generic-pack chat claims (#2075), closed-set checked
  * MONTHS= `bucketMonths(totalYears)` — identically on every row (the coarse rule)
  * WANTS = `true` — the launch default; a worker who says otherwise flips the row
  * DATES = `null` — we do not know the stints yet, so we do not claim them
@@ -116,6 +119,15 @@ export interface WorkerSkillEvidence {
     canonicalRoleId: string | null;
     profileSkills: readonly string[];
     totalYears: number | null;
+    /**
+     * #2075 — the persisted `conversation_state` (its `pack_id` / `answer_map` / `llm_led_turns` /
+     * `llm_draft_settled` subset) of the chat session that PRODUCED this profile row, read through
+     * `worker_profiles.ai_job_id` → `ai_jobs.input_ref.session_id` → `chat_sessions`
+     * (`PROFILE_SOURCE_SESSION_ANSWERS`, @badabhai/db). `null` when the profile has no such
+     * session (a résumé or legacy profile). Untrusted JSON: `genericPackChatMatchSkills` narrows
+     * it and applies the worker-only gate. REQUIRED so neither writer can forget to load it.
+     */
+    sourceSession: unknown;
   } | null;
   /** Declared secondary `role_*` ids (migration 0114), in the worker's own order. */
   secondaryRoleIds: readonly string[];
@@ -127,7 +139,7 @@ export interface WorkerSkillEvidence {
  * ONE ASSEMBLY OF THE DERIVATION INPUT, for BOTH writers of `worker_skill`.
  *
  * The live rebuild (`WorkerSkillsService.rebuildForWorker`) and the batch repair
- * (`db:backfill:worker-skills`) each load the same three sources and must derive the same set.
+ * (`db:backfill:worker-skills`) each load the same sources and must derive the same set.
  * They used to assemble the input separately, and they disagreed: the batch skipped every worker
  * with no profile row and never read pack answers, so for a form-onboarded worker the nightly
  * repair either did nothing or PRUNED the rows the live path wrote. Assembling it here makes
@@ -143,6 +155,10 @@ export function workerSkillDeriveInput(
   evidence: WorkerSkillEvidence,
 ): DeriveWorkerSkillsInput | null {
   const pack = packAnswerEvidence(evidence.packAnswers);
+  // #2075 — the profile's own source session. It hangs off the profile row, so a worker with no
+  // profile has none and the guard below is unchanged.
+  const genericChat =
+    evidence.profile === null ? [] : genericPackChatMatchSkills(evidence.profile.sourceSession);
   if (
     evidence.profile === null &&
     pack.corpusSkillIds.length === 0 &&
@@ -162,8 +178,9 @@ export function workerSkillDeriveInput(
     profileSkills: [
       ...new Set([...(evidence.profile?.profileSkills ?? []), ...pack.corpusSkillIds]),
     ].sort(),
-    // Pack-only skills (#2022) have no other source, so there is nothing to union with.
-    matchSkillIds: pack.matchSkillIds,
+    // Pack-only skills: named by a role pack's stored answers (#2022) or claimed by a worker-only
+    // generic-pack chat (#2075). Neither has a bridge, so these are their only sources. UNION.
+    matchSkillIds: [...new Set([...pack.matchSkillIds, ...genericChat])].sort(),
     totalYears: evidence.profile?.totalYears ?? null,
   };
 }
