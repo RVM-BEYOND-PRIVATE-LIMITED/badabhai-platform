@@ -164,6 +164,10 @@ Also note: **role is self-elected at signup.** `PayerSignupSchema` (`payer-auth.
 
 ### SPEND — must be Owner (org wallet / org commercial commitment)
 
+> **Superseded for rows 1–3 by the owner ruling 2026-10-07:** any authenticated payer may buy credits
+> (ADR-0027 D3), so `POST /payer/credits`, `/credits/order` and `/credits/verify` carry no
+> Owner gate by decision. The other rows are unchanged by that ruling.
+
 | # | Route | File:line | Today's guards | Why Owner |
 |---|---|---|---|---|
 | 1 | `POST /payer/credits` | `payer-unlocks.controller.ts:129-139` | `PayerAuthGuard` | Mints credits onto the wallet. The frontend already claims this is Owner-only (`credits/actions.ts:31`) |

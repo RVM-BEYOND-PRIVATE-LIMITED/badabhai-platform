@@ -167,7 +167,7 @@ partial-migration hazard in `GAP_REGISTER.md` §Open questions 1.
 | **3.1** Red test first | e2e: payer A invites B; B must see A's postings + credits. Land it **failing** — it is the definition of done |
 | **3.2** Migration | `org_id uuid REFERENCES payer_orgs(id)` on the 19 business tables + backfill from `root_payer_id` + `(org_id, created_at DESC)` per table |
 | **3.3** Predicate rewrite | Every owner-scoped WHERE from `payer_id = $session` → `org_id = $sessionOrg` |
-| **3.4** Backend Owner gates | `@OrgRoles("owner")` on `/payer/credits/*` and the spend paths — **in this same change** (`GAP-AUTHZ-01`). Without it the frontend gate is cosmetic and org tenancy makes it exploitable |
+| **3.4** Backend Owner gates | `@OrgRoles("owner")` on `/payer/credits/*` and the spend paths — **in this same change** (`GAP-AUTHZ-01`). Without it the frontend gate is cosmetic and org tenancy makes it exploitable. **Superseded for `/payer/credits/*` by the owner ruling 2026-10-07**: credit purchase is open to any authenticated payer (ADR-0027 D3) — do not owner-gate it |
 | **3.5** Org role on the session | Then remove the `getOrgRole` stub and open `/credits` + `/team` |
 
 **Complexity: Large / Critical.** Multi-PR. **Do not start before Phase 0.1 lands** — owner

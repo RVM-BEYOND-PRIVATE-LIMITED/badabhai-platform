@@ -49,7 +49,7 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 |---|---|---|
 | `POST /payer/{signup,login/request,login/verify}` | — | public, IP-capped |
 | `/payer/me`, `/payer/refresh`, `/payer/logout` | `P` | any active payer |
-| `/payer/credits/*`, `/payer/unlocks/*` | `P` | any active payer — **no Owner gate** ⚠️ |
+| `/payer/credits/*`, `/payer/unlocks/*` | `P` | any active payer — **no Owner gate, by decision** (owner ruling 2026-10-07: any authenticated payer may buy credits, recruiter or no org membership included; ADR-0027 D3) |
 | `/payer/job-postings/*` | `P`,`R` | writes `@PayerRoles("employer")`; reads any active payer (`GAP-FE-06` resolved, #1885) |
 | `/payer/capacity`, `/payer/pricing/catalog`, `/payer/reach/*`, `/payer/match/*` | `P` | any active payer |
 | `/payer/job-posting-chat/*` | `P`,`R` | any active payer; `publish` employer-only (#1885) |
@@ -60,6 +60,13 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 | `/ops/agency-kyc/*` | `I` | internal service token |
 
 ### The Owner gap on money
+
+> **CLOSED for credits — owner ruling 2026-10-07.** Credit purchase is open to ANY authenticated payer,
+> whatever their `org_role` and with or without an active org membership (ADR-0027 D3: buy
+> credits — owner ✅ recruiter ✅). #2098 had put `PayerOrgRoleGuard` + `@OrgRoles("owner")` on
+> `POST /payer/credits`, `/credits/order` and `/credits/verify`; both were removed. Team
+> management stays owner-only. payer-web's `requireOwner()` gate on `/credits` now contradicts
+> the ruling (Frontend follow-up). The finding below is the original 2026-08-11 text.
 
 > **`GAP-AUTHZ-01` (P1 — pending dimension 9).** `@OrgRoles("owner")` is applied **only** to
 > `/payer/org/members`. The frontend's own model says billing/wallet is Owner-only
