@@ -14,6 +14,7 @@ import { MatchCandidatesService } from "../match/match-candidates.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
 import { PayerApplicantInboxRepository } from "./payer-applicant-inbox.repository";
 import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
+import { stagesOff } from "./payer-applicant-stages.test-support";
 import { decodeInboxCursor } from "./payer-applicant-inbox.cursor";
 import type { InboxApplicantRowDto } from "./payer-applicant-inbox.dto";
 
@@ -278,11 +279,13 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
         return rows[0];
       },
     };
-    perPosting = new PayerApplicantsService(reach, jobPostings as never, candidates);
+    // Flag OFF (the default) — the flag-ON walk is payer-applicant-stages.db.test.ts.
+    perPosting = new PayerApplicantsService(reach, jobPostings as never, candidates, stagesOff());
     inbox = new PayerApplicantInboxService(
       new PayerApplicantInboxRepository(client.db),
       reach,
       candidates,
+      { PAYER_APPLICANT_STAGES_ENABLED: false },
     );
     await seed(client);
   }, 60_000);

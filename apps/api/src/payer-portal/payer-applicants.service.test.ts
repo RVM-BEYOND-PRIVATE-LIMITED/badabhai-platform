@@ -10,6 +10,8 @@ import type { ApplicantListResponseDto } from "../reach/reach.dto";
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import type { MatchCandidateListDto } from "../match/match-candidates.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
+import { memoryStagesRepo, stagesOff } from "./payer-applicant-stages.test-support";
+import { PayerApplicantStagesService } from "./payer-applicant-stages.service";
 
 /**
  * #1823 PR-5 — the payer applicant list's source selection (owner decision O8), and #1898 —
@@ -101,7 +103,7 @@ const FLAG_STATES = [
   { MATCH_V1_ENABLED: true, label: "on" },
 ] as const;
 
-function make() {
+function make(opts: { stages?: PayerApplicantStagesService } = {}) {
   // jobs: id → owner. Mirrors `findOwnedJobSignalRowById`'s `id = $1 AND payer_id = $2`.
   const jobsTable = new Map<string, string>([
     [JOB_A, PAYER_A],
@@ -161,7 +163,13 @@ function make() {
     listForPosting: vi.fn(async (postingId: string) => candidates(postingId)),
   };
 
-  const svc = new PayerApplicantsService(reach, jobPostings, matchCandidates as never);
+  // Flag OFF (the default): every case below doubles as proof that no stage table is read.
+  const svc = new PayerApplicantsService(
+    reach,
+    jobPostings,
+    matchCandidates as never,
+    opts.stages ?? stagesOff(),
+  );
   const feedShown = (): Record<string, unknown>[] =>
     (emitMany.mock.calls as unknown as Record<string, unknown>[][][]).flatMap((c) => c[0]!);
   return {
@@ -281,7 +289,9 @@ describe("PayerApplicantsService — an owned agency job lists ONLY its appliers
 describe("PayerApplicantsService — the result does not depend on MATCH_V1_ENABLED (#1898)", () => {
   it("takes no server config: there is no flag for the list to branch on", () => {
     // Constructor arity is the structural pin — the flag read was the id-space flip (#1898).
-    expect(PayerApplicantsService.length).toBe(3);
+    // The 4th dependency (2026-10-07) is the pipeline-board service, which reads only
+    // PAYER_APPLICANT_STAGES_ENABLED — never MATCH_V1_ENABLED; it is not a config object.
+    expect(PayerApplicantsService.length).toBe(4);
   });
 
   it.each(FLAG_STATES)(
@@ -428,5 +438,119 @@ describe("PayerApplicantsService — fail closed: a DB error is a 500, never a 4
     expect(err).toBe(boom);
     expect(httpOutcome(err).status).toBe(500);
     expect(d.emitMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026-10-07)", () => {
+  /** The board with the flag ON over an in-memory table: A owns JOB_A (agency), POSTING_A. */
+  function stagesOn() {
+    const repo = memoryStagesRepo({
+      postings: new Map([
+        [JOB_A, { owner: PAYER_A, kind: "agency_job" as const }],
+        [POSTING_A, { owner: PAYER_A, kind: "company_posting" as const }],
+        [TWIN, { owner: PAYER_A, kind: "agency_job" as const }],
+      ]),
+      isMember: () => true,
+    });
+    const svc = new PayerApplicantStagesService(repo as never, { emit: vi.fn() } as never, {
+      PAYER_APPLICANT_STAGES_ENABLED: true,
+    });
+    return { repo, svc, list: vi.spyOn(repo, "listOwnedPostingStages") };
+  }
+
+  it("agency job: every applier carries his stage from the AGENCY board (`new` if none)", async () => {
+    const s = stagesOn();
+    await s.svc.setStage(PAYER_A, JOB_A, APPLIER.workerId, "shortlist", CTX);
+    // A company-posting row for the same worker must not leak onto the agency list.
+    s.repo.rows.set(`company_posting|${JOB_A}|${APPLIER.workerId}`, {
+      postingKind: "company_posting",
+      postingId: JOB_A,
+      workerId: APPLIER.workerId,
+      stage: "passed",
+      updatedByPayerId: PAYER_A,
+      updatedAt: new Date(),
+    });
+    const d = make({ stages: s.svc });
+    const out = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX)) as ApplicantListResponseDto & {
+      applicants: { stage: string }[];
+    };
+    expect(out.applicants).toHaveLength(1);
+    expect(out.applicants[0]!.stage).toBe("shortlist");
+    expect(out.applicants[0]).toHaveProperty("score"); // still the agency row
+  });
+
+  it("company posting: each applicant carries his stage; nobody-moved reads `new`", async () => {
+    const s = stagesOn();
+    const d = make({ stages: s.svc });
+    const before = (await d.svc.listForOwned(POSTING_A, PAYER_A, CTX)) as unknown as {
+      applicants: { stage: string }[];
+    };
+    expect(before.applicants.map((a) => a.stage)).toEqual(["new"]);
+    await s.svc.setStage(PAYER_A, POSTING_A, worker(9).workerId, "passed", CTX);
+    const after = (await d.svc.listForOwned(POSTING_A, PAYER_A, CTX)) as unknown as {
+      applicants: { stage: string }[];
+    };
+    expect(after.applicants.map((a) => a.stage)).toEqual(["passed"]);
+    // A PASSED applicant is still listed — the board labels, it never filters or reorders.
+    expect(after.applicants).toHaveLength(before.applicants.length);
+  });
+
+  it("the row is the base row + `stage`, appended — every other key and value unchanged", async () => {
+    const s = stagesOn();
+    const on = (await make({ stages: s.svc }).svc.listForOwned(
+      POSTING_A,
+      PAYER_A,
+      CTX,
+    )) as unknown as {
+      jobId: string;
+      applicants: Record<string, unknown>[];
+    };
+    const off = (await make().svc.listForOwned(POSTING_A, PAYER_A, CTX)) as unknown as {
+      jobId: string;
+      applicants: Record<string, unknown>[];
+    };
+    expect(on.jobId).toBe(off.jobId);
+    expect(on.applicants.map(({ stage: _s, ...rest }) => rest)).toStrictEqual(off.applicants);
+    expect(Object.keys(on.applicants[0]!).at(-1)).toBe("stage");
+  });
+
+  it("the board is read BEFORE the list (so nothing fallible runs after the agency feed.shown)", async () => {
+    const s = stagesOn();
+    const d = make({ stages: s.svc });
+    await d.svc.listForOwned(JOB_A, PAYER_A, CTX);
+    expect(s.list.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.reachRepo.findOwnedJobSignalRowById.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("a failed board read is a 500 and NO feed.shown is written", async () => {
+    const s = stagesOn();
+    s.list.mockRejectedValueOnce(new Error('relation "payer_applicant_stages" does not exist'));
+    const d = make({ stages: s.svc });
+    const err = await rejection(d.svc.listForOwned(JOB_A, PAYER_A, CTX));
+    expect(httpOutcome(err).status).toBe(500);
+    expect(d.emitMany).not.toHaveBeenCalled();
+  });
+
+  it("a foreign or unknown id is still the identical neutral 404 with the board on", async () => {
+    const s = stagesOn();
+    const d = make({ stages: s.svc });
+    const foreign = await rejection(d.svc.listForOwned(POSTING_A, PAYER_B, CTX));
+    const unknown = await rejection(d.svc.listForOwned(UNKNOWN, PAYER_A, CTX));
+    expect(httpOutcome(foreign)).toEqual(httpOutcome(unknown));
+    expect(httpOutcome(unknown).status).toBe(404);
+    // …and B never reads A's board: the owner-scoped read came back empty for B.
+    expect(await s.list.mock.results[0]!.value).toEqual([]);
+  });
+
+  it("flag OFF (the default): no `stage` key on any row, and the board is never read", async () => {
+    const d = make(); // stagesOff(): its repository throws if anything touches the table
+    for (const id of [JOB_A, POSTING_A]) {
+      const out = (await d.svc.listForOwned(id, PAYER_A, CTX)) as unknown as {
+        applicants: Record<string, unknown>[];
+      };
+      expect(out.applicants.length).toBeGreaterThan(0);
+      for (const row of out.applicants) expect(row).not.toHaveProperty("stage");
+    }
   });
 });

@@ -1,27 +1,40 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import type { ApplicantStage } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { ReachService } from "../reach/reach.service";
-import type { ApplicantListResponseDto } from "../reach/reach.dto";
+import type { ApplicantListResponseDto, ApplicantRowDto } from "../reach/reach.dto";
 import {
   MatchCandidatesService,
   type MatchCandidateListDto,
+  type MatchCandidateRowDto,
 } from "../match/match-candidates.service";
 import { JobPostingsService } from "../job-postings/job-postings.service";
+import { PayerApplicantStagesService, withStages } from "./payer-applicant-stages.service";
+import { APPLICANT_NOT_FOUND } from "./payer-applicant-stage.dto";
+
+/** A feed row with its pipeline stage — only while `PAYER_APPLICANT_STAGES_ENABLED` is on. */
+export type StagedRow<R> = R & { stage: ApplicantStage };
 
 /**
- * The two list shapes `GET /payer/reach/jobs/:jobId/applicants` can return. payer-web
- * already parses both (`apps/payer-web/src/lib/contracts.ts`): the weighted list of the
- * workers who applied to an agency `jobs` row (#1898), the actual-applicant list for a company
- * posting.
+ * The list shapes `GET /payer/reach/jobs/:jobId/applicants` can return. payer-web already parses
+ * the two base shapes (`apps/payer-web/src/lib/contracts.ts`): the weighted list of the workers
+ * who applied to an agency `jobs` row (#1898), the actual-applicant list for a company posting.
+ * With `PAYER_APPLICANT_STAGES_ENABLED` on, every row additionally carries `stage` (owner ruling
+ * 2026-10-07) — appended, nothing else in the row changes; with it off the shapes are exactly
+ * the base ones.
  */
-export type PayerApplicantListDto = ApplicantListResponseDto | MatchCandidateListDto;
+export type PayerApplicantListDto =
+  | ApplicantListResponseDto
+  | MatchCandidateListDto
+  | { jobId: string; applicants: StagedRow<ApplicantRowDto>[] }
+  | { jobId: string; applicants: StagedRow<MatchCandidateRowDto>[] };
 
 /**
  * The ONE message every not-listable id gets — unknown, another payer's job, another payer's
  * posting. It is the message `ReachService.applicantsForOwnedJob` throws, so the error object
- * the client receives is identical for all three (F-3 no-oracle).
+ * the client receives is identical for all three (F-3 no-oracle). Shared with the stage route.
  */
-const NOT_FOUND = "Job not found";
+const NOT_FOUND = APPLICANT_NOT_FOUND;
 
 /**
  * The payer's applicant list for an id they OWN (ADR-0019 R22; ADR-0036 moment ⑥; #1823).
@@ -58,6 +71,12 @@ const NOT_FOUND = "Job not found";
  * ADR-0031 (b): a worker pending deletion is never listed on either source —
  * `ReachRepository.listApplicantSignalRowsForJob` and `MatchFeedRepository.listCandidates` both
  * exclude him in the SQL.
+ *
+ * STAGES (owner ruling 2026-10-07): with `PAYER_APPLICANT_STAGES_ENABLED` on, each row also
+ * carries its `stage` on the payer's saved New / Shortlist / Passed board (`new` when nobody has
+ * moved him), read from `payer_applicant_stages` for the resolved posting kind. The board never
+ * filters or reorders the list — a passed applicant is still listed, labelled `passed`; what to
+ * show under which tab is the client's call. Off, the rows are exactly the base shapes.
  */
 @Injectable()
 export class PayerApplicantsService {
@@ -66,6 +85,8 @@ export class PayerApplicantsService {
     private readonly jobPostings: JobPostingsService,
     // ADR-0036 moment ⑥ — the actual-applicant source.
     private readonly matchCandidates: MatchCandidatesService,
+    // Owner ruling 2026-10-07 — the saved pipeline board (null reads while the flag is off).
+    private readonly stages: PayerApplicantStagesService,
   ) {}
 
   async listForOwned(
@@ -73,11 +94,25 @@ export class PayerApplicantsService {
     payerId: string,
     ctx: RequestContext,
   ): Promise<PayerApplicantListDto> {
+    // THE BOARD IS READ FIRST, and only while PAYER_APPLICANT_STAGES_ENABLED is on (`null`, no
+    // query, while off). The agency list below emits `feed.shown` as its last step, so reading
+    // the stages before it keeps "a failed request emitted nothing" true: nothing fallible runs
+    // after the emit. The read is owner-scoped in its SQL, so for an unknown or foreign id it
+    // is empty, and the 404 below is unchanged.
+    const stages = await this.stages.stagesForOwnedPosting(jobId, payerId);
     // ONE ownership read decides the source, whatever MATCH_V1_ENABLED says (#1898): an owned
     // `jobs` row lists its appliers; a miss (unknown or another payer's job) falls through to
     // the posting seam.
     const jobList = await this.reach.tryApplicantsForOwnedJob(jobId, payerId, ctx);
-    return jobList ?? this.listForOwnedPosting(jobId, payerId);
+    if (jobList) {
+      return stages
+        ? { ...jobList, applicants: withStages(jobList.applicants, stages.agency_job) }
+        : jobList;
+    }
+    const postingList = await this.listForOwnedPosting(jobId, payerId);
+    return stages
+      ? { ...postingList, applicants: withStages(postingList.applicants, stages.company_posting) }
+      : postingList;
   }
 
   private async listForOwnedPosting(

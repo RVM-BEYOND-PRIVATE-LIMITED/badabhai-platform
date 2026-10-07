@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql as dsql, type SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
+import type { ApplicantStage } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 import type { InboxCursor } from "./payer-applicant-inbox.cursor";
 import type { InboxPostingKind } from "./payer-applicant-inbox.dto";
@@ -15,6 +16,12 @@ export interface InboxPageRow {
   postingId: string;
   /** The payer's own title for the posting (`jobs.title` / `job_postings.role_title`). */
   postingTitle: string;
+  /**
+   * The applicant's stored board stage, `new` when none — RAW text (the CHECK keeps it inside
+   * `APPLICANT_STAGES`; narrowing is the service's). Present only when the query asked for
+   * `stages`; absent otherwise.
+   */
+  stage?: string;
 }
 
 export interface InboxPageQuery {
@@ -23,6 +30,13 @@ export interface InboxPageQuery {
   /** Strictly after this position in the inbox order; absent = from the top. */
   after?: InboxCursor;
   limit: number;
+  /**
+   * The saved pipeline board (owner ruling 2026-10-07) — pass it ONLY while
+   * `PAYER_APPLICANT_STAGES_ENABLED` is on. Present: each row carries its `stage`, and `only`
+   * keeps the rows in that stage. Absent: the statement never names `payer_applicant_stages`
+   * (migration 0134 need not exist) and is the pre-stage statement exactly.
+   */
+  stages?: { only?: ApplicantStage };
 }
 
 /**
@@ -61,6 +75,14 @@ export interface InboxPageQuery {
  * top-N sorts the payer's applied applications. Cost grows with ONE payer's application count,
  * never the table's. No index serves `ORDER BY created_at` across a payer's postings without a
  * `payer_id` on `applications` — the change to make if one payer's applications reach ~10^5.
+ *
+ * STAGES (owner ruling 2026-10-07; only when `query.stages` is passed, i.e. the flag is on): each
+ * arm LEFT JOINs `payer_applicant_stages` on its full primary key — its own posting kind literal,
+ * its posting id, the applicant — and projects `COALESCE(s.stage, 'new')` (no row = `new`). The
+ * optional filter is a predicate on that same value in EACH arm, below the union and the LIMIT,
+ * so a filtered page is still the first N rows of the same total order and the keyset holds
+ * unchanged. One PK probe per candidate application; no new index is needed (the plan is driven
+ * from the payer's own postings, as above). Without `query.stages` none of this is emitted.
  */
 export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL {
   const posting = (column: SQL) =>
@@ -69,10 +91,21 @@ export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL 
     query.after === undefined
       ? dsql``
       : dsql`AND (a.created_at, a.id) < (${query.after.appliedKey}::timestamptz, ${query.after.applicationId}::uuid)`;
+  const stages = query.stages;
+  // Each arm's posting kind is a LITERAL, so the probe is an equality on the whole primary key.
+  const stageJoin = (kind: "agency_job" | "company_posting", postingColumn: SQL) =>
+    stages === undefined
+      ? dsql``
+      : dsql`LEFT JOIN payer_applicant_stages s
+          ON s.posting_kind = ${dsql.raw(`'${kind}'`)} AND s.posting_id = ${postingColumn} AND s.worker_id = a.worker_id`;
+  const stageColumn = stages === undefined ? dsql`` : dsql`, COALESCE(s.stage, 'new') AS stage`;
+  const stageFilter =
+    stages?.only === undefined ? dsql`` : dsql`AND COALESCE(s.stage, 'new') = ${stages.only}`;
+  const outerStage = stages === undefined ? dsql`` : dsql`, p.stage`;
 
   return dsql`
     SELECT p.application_id, p.worker_id, p.applied_key, p.posting_kind, p.posting_id,
-           p.posting_title
+           p.posting_title${outerStage}
     FROM (
       SELECT a.id                AS application_id,
              a.worker_id         AS worker_id,
@@ -81,16 +114,18 @@ export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL 
                      'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS applied_key,
              'agency_job'::text  AS posting_kind,
              j.id                AS posting_id,
-             j.title             AS posting_title
+             j.title             AS posting_title${stageColumn}
       FROM jobs j
       INNER JOIN applications a ON a.job_id = j.id
       INNER JOIN workers w ON w.id = a.worker_id
+      ${stageJoin("agency_job", dsql`j.id`)}
       WHERE j.payer_id = ${payerId}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
         AND EXISTS (SELECT 1 FROM worker_profiles wp WHERE wp.worker_id = a.worker_id)
         ${posting(dsql`j.id`)}
         ${keyset}
+        ${stageFilter}
       UNION ALL
       SELECT a.id                AS application_id,
              a.worker_id         AS worker_id,
@@ -99,10 +134,11 @@ export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL 
                      'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS applied_key,
              'company_posting'::text AS posting_kind,
              jp.id               AS posting_id,
-             jp.role_title       AS posting_title
+             jp.role_title       AS posting_title${stageColumn}
       FROM job_postings jp
       INNER JOIN applications a ON a.job_posting_id = jp.id
       INNER JOIN workers w ON w.id = a.worker_id
+      ${stageJoin("company_posting", dsql`jp.id`)}
       WHERE jp.payer_id = ${payerId}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
@@ -111,6 +147,7 @@ export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL 
         )
         ${posting(dsql`jp.id`)}
         ${keyset}
+        ${stageFilter}
     ) p
     ORDER BY p.created_at DESC, p.application_id DESC
     LIMIT ${query.limit}
@@ -124,6 +161,8 @@ type InboxPageSqlRow = {
   posting_kind: string;
   posting_id: string;
   posting_title: string;
+  /** Only projected when the query asked for `stages`. */
+  stage?: string;
 };
 
 /**
@@ -145,6 +184,7 @@ export class PayerApplicantInboxRepository {
       postingKind: toPostingKind(r.posting_kind),
       postingId: r.posting_id,
       postingTitle: r.posting_title,
+      ...(r.stage === undefined ? {} : { stage: r.stage }),
     }));
   }
 }
