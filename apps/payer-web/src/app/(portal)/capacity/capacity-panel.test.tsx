@@ -96,12 +96,16 @@ function textOf(node: ReactNode): string {
 }
 
 /** Render with the confirm Dialog ARMED for `tier` (useState order: pendingCode, pendingConfirm, …). */
-function render(tier: CapacityTier | null, pendingCode: string | null = null): ReactElement {
+function render(
+  tier: CapacityTier | null,
+  pendingCode: string | null = null,
+  currentAllowance: number | null = null,
+): ReactElement {
   stateQueue = [pendingCode, tier, null, null];
   stateCursor = 0;
   refCursor = 0;
   effects = [];
-  return CapacityPanel({ tiers: [TIER_A, TIER_B] }) as ReactElement;
+  return CapacityPanel({ tiers: [TIER_A, TIER_B], currentAllowance }) as ReactElement;
 }
 
 /** Arm `tier`, click the Dialog's "Upgrade" (the commit), and flush the transition. */
@@ -271,13 +275,24 @@ describe("capacity panel — the price is on the trigger, and the confirm says w
     const props = dialog.props as { open: boolean; title?: ReactNode; children?: ReactNode };
     expect(props.open).toBe(true);
     expect(textOf(props.title)).toBe("Upgrade capacity?");
-    const body = textOf(props.children).replace(/\s+/g, " ");
-    expect(body).toContain("10 -posting tier");
-    expect(body).toContain("₹4,999 is charged now");
+    // A neutral priced question, like the credits confirm (review B1): no claim that money moves.
+    const body = textOf(props.children)
+      .replace(/\s+/g, " ")
+      .replace(/ ([?.,-])/g, "$1")
+      .trim();
+    expect(body).toBe("Upgrade to the 10-posting tier for ₹4,999?");
     expect(footer(dialog).map((b) => [b.text, b.variant])).toEqual([
       ["Cancel", "ghost"],
       ["Upgrade · ₹4,999", "primary"],
     ]);
+  });
+
+  it("fence: the purchase dialog never says it charges (review B1)", () => {
+    const dialog = dialogOf(render(TIER_B));
+    const p = dialog.props as { title?: ReactNode; children?: ReactNode; footer?: ReactNode };
+    const copy = [textOf(p.title), textOf(p.children), textOf(p.footer)].join(" ");
+    expect(copy).toContain("₹4,999"); // the price is shown…
+    expect(copy).not.toMatch(/charg/i); // …but no charge is claimed
   });
 
   it("Cancel (and Esc / the scrim / the close button — onClose) closes it and sends nothing", () => {
@@ -330,7 +345,7 @@ describe("capacity panel — the price is on the trigger, and the confirm says w
       activeElement: body as unknown,
       getElementById: (id: string) => (id === `capacity-tier-${TIER_B.code}` ? trigger : null),
     };
-    (globalThis as { document?: unknown }).document = doc;
+    vi.stubGlobal("document", doc);
     return { doc, trigger };
   }
   function commit(confirming: CapacityTier | null, pendingCode: string | null) {
@@ -384,5 +399,47 @@ describe("capacity panel — the price is on the trigger, and the confirm says w
     commit(null, null);
     commit(null, null);
     expect(trigger.focus).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Review N2: the backend keeps the LARGER allowance (`greatest()` in the capacity upsert), so a tier
+ * at or below the payer's current allowance would be paid for and grant nothing. When the page
+ * knows the allowance (it already reads GET /payer/capacity), such a tier is shown as included,
+ * never offered. When it does not (that read failed), every tier stays on sale, as before.
+ */
+describe("capacity panel — a tier the plan already covers reads as included, not for sale", () => {
+  const forSale = (tree: ReactElement) =>
+    findAll(tree, Button)
+      .filter((b) => (b.props as { block?: boolean }).block === true)
+      .map((b) => textOf(b).replace(/\s+/g, " ").trim());
+  const copy = (tree: ReactElement) => textOf(tree).replace(/\s+/g, " ");
+
+  it("a tier AT the current allowance is included — only the larger tier is for sale", () => {
+    const tree = render(null, null, 5); // TIER_A grants 5, TIER_B grants 10
+    expect(forSale(tree)).toEqual(["Upgrade · ₹4,999"]);
+    expect(copy(tree)).toContain("Your plan already allows 5 live postings");
+  });
+
+  it("a tier BELOW the current allowance is included too", () => {
+    const tree = render(null, null, 7);
+    expect(forSale(tree)).toEqual(["Upgrade · ₹4,999"]);
+    expect(copy(tree)).toContain("Your plan already allows 7 live postings");
+  });
+
+  it("above every tier: nothing is for sale, and each tier says it is included", () => {
+    const tree = render(null, null, 12);
+    expect(forSale(tree)).toEqual([]);
+    expect(copy(tree).split("Your plan already allows 12 live postings")).toHaveLength(3);
+  });
+
+  it("allowance unknown (the capacity read failed): every tier stays on sale, as before", () => {
+    const tree = render(null, null, null);
+    expect(forSale(tree)).toEqual(["Upgrade · ₹999", "Upgrade · ₹4,999"]);
+    expect(copy(tree)).not.toContain("already allows");
+  });
+
+  it("below every tier: every tier is for sale", () => {
+    expect(forSale(render(null, null, 1))).toEqual(["Upgrade · ₹999", "Upgrade · ₹4,999"]);
   });
 });

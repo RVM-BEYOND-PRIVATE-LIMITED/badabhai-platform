@@ -122,12 +122,19 @@ function rowActions(status: PostingSummary["status"], canBuySlots: boolean): Row
   return out;
 }
 
-/** Each action's button face (Add applicant slots also names its slots and price — below). */
-const ACTION_FACE: Record<RowAction, { label: string; icon: IconName }> = {
-  pause: { label: "Pause", icon: "pause" },
-  resume: { label: "Resume", icon: "play" },
-  topUp: { label: "Add applicant slots", icon: ACTION_ICON.topUpQuota },
-  close: { label: "Close posting", icon: ACTION_ICON.reject },
+/** Each action's icon. */
+const ACTION_ICON_OF: Record<RowAction, IconName> = {
+  pause: "pause",
+  resume: "play",
+  topUp: ACTION_ICON.topUpQuota,
+  close: ACTION_ICON.reject,
+};
+
+/** The fixed labels. Add applicant slots has none: its face names its slots and price (below). */
+const ACTION_LABEL: Record<Exclude<RowAction, "topUp">, string> = {
+  pause: "Pause",
+  resume: "Resume",
+  close: "Close posting",
 };
 
 /** A ₹ amount in mono tabular (brand rule), for button faces and dialog copy. */
@@ -232,6 +239,13 @@ export function PostingsManager({
 
   const confirming =
     confirmingTopUp === null ? null : (rows.find((p) => p.id === confirmingTopUp) ?? null);
+  // The slot button's face: what it buys and the price. No offer ⇒ no slot button is drawn at all.
+  const topUpFace =
+    topUpOffer === null ? null : (
+      <>
+        Add {topUpOffer.additionalViews} applicant slots · {inr(topUpOffer.priceInr)}
+      </>
+    );
 
   return (
     <>
@@ -315,19 +329,12 @@ export function PostingsManager({
                         id={a === "topUp" ? topUpButtonId(p.id) : undefined}
                         variant="secondary"
                         size="sm"
-                        iconLeft={ACTION_FACE[a].icon}
+                        iconLeft={ACTION_ICON_OF[a]}
                         loading={rs.busy === a}
                         disabled={rs.busy !== null}
                         onClick={() => (a === "topUp" ? askTopUp(p.id) : void run(p.id, a))}
                       >
-                        {a === "topUp" && topUpOffer !== null ? (
-                          <>
-                            Add {topUpOffer.additionalViews} applicant slots ·{" "}
-                            {inr(topUpOffer.priceInr)}
-                          </>
-                        ) : (
-                          ACTION_FACE[a].label
-                        )}
+                        {a === "topUp" ? topUpFace : ACTION_LABEL[a]}
                       </Button>
                     ))}
                   </div>
@@ -339,7 +346,8 @@ export function PostingsManager({
       </div>
 
       {/* The slot purchase asks first — the generic DS Dialog (never the credit-spend confirm). It
-          says what is bought, the price, and that it is charged now; its confirm carries the price. */}
+          asks a neutral priced question (what is bought, for how much — like the credits confirm;
+          it claims no charge) and its confirm carries the price. */}
       {topUpOffer !== null ? (
         <Dialog
           open={confirmingTopUp !== null}
@@ -356,10 +364,9 @@ export function PostingsManager({
             </>
           }
         >
-          You&rsquo;re buying <span className="bb-mono">{topUpOffer.additionalViews}</span> more
-          applicant slots for{" "}
-          {confirming !== null ? <>&ldquo;{confirming.roleTitle}&rdquo;</> : "this posting"}.{" "}
-          {inr(topUpOffer.priceInr)} is charged now.
+          Add <span className="bb-mono">{topUpOffer.additionalViews}</span> applicant slots to{" "}
+          {confirming !== null ? <>&ldquo;{confirming.roleTitle}&rdquo;</> : "this posting"} for{" "}
+          {inr(topUpOffer.priceInr)}?
         </Dialog>
       ) : null}
     </>

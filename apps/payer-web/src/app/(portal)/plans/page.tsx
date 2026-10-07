@@ -168,7 +168,13 @@ export default async function PlansPage() {
             </p>
           </div>
         ) : (
-          <CapacityPanel tiers={tiers} />
+          // The allowance this page already read: a tier at or below it would grant nothing
+          // (the larger allowance is kept), so the panel shows it as included. A failed read
+          // hands down null — nothing is ruled out.
+          <CapacityPanel
+            tiers={tiers}
+            currentAllowance={capacity?.activeVacancyAllowance ?? null}
+          />
         )}
         <div className="alert alert--info">
           <Icon name="info" className="alert__icon" />

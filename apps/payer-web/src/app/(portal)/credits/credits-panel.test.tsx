@@ -299,3 +299,16 @@ describe("credits panel — no mock wording, in either mode", () => {
     expect(body).toContain("₹2,000");
   });
 });
+
+describe("credits panel — fence: the purchase dialog never says it charges (review B1)", () => {
+  it("the armed confirm shows the price and claims no charge", () => {
+    stateQueue = [null, PACK_A, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real: false }) as ReactElement;
+    const dialog = findAll(tree, Dialog)[0]!;
+    const p = dialog.props as { title?: ReactNode; children?: ReactNode; footer?: ReactNode };
+    const copy = [textOf(p.title), textOf(p.children), textOf(p.footer)].join(" ");
+    expect(copy).toContain("₹2,000");
+    expect(copy).not.toMatch(/charg/i);
+  });
+});

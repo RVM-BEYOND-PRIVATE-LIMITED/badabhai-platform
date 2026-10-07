@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { PostingSummary } from "../../../lib/contracts";
@@ -228,6 +228,10 @@ function ofType(node: ReactNode, type: unknown, acc: ReactElement[] = []): React
   return acc;
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 beforeEach(() => {
   refs = [];
   pausePostingAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
@@ -445,15 +449,23 @@ describe("PostingsManager — Add applicant slots shows its price and asks first
     const props = dialog.props as { open: boolean; title?: ReactNode; children?: ReactNode };
     expect(props.open).toBe(true);
     expect(textOf(props.title)).toBe("Add applicant slots?");
+    // A neutral priced question, like the credits confirm (review B1): what is bought and its
+    // price — no claim that money moves (these purchases only record a payment today).
     const body = textOf(props.children);
-    expect(body).toContain("10 more applicant slots");
-    expect(body).toContain("CNC Machinist");
-    expect(body).toContain("₹1,000 is charged now");
+    expect(body).toBe("Add 10 applicant slots to “CNC Machinist” for ₹1,000?");
     expect(body).not.toMatch(/\bmock\b/i);
     expect(footerButtons(dialog).map((b) => [b.text, b.variant])).toEqual([
       ["Cancel", "ghost"],
       ["Add slots · ₹1,000", "primary"],
     ]);
+  });
+
+  it("fence: the purchase dialog never says it charges (review B1)", () => {
+    const dialog = dialogOf(render([OPEN], {}, false, { confirming: OPEN.id }));
+    const p = dialog.props as { title?: ReactNode; children?: ReactNode; footer?: ReactNode };
+    const copy = [textOf(p.title), textOf(p.children), textOf(p.footer)].join(" ");
+    expect(copy).toContain("₹1,000"); // the price is shown…
+    expect(copy).not.toMatch(/charg/i); // …but no charge is claimed
   });
 
   it("Cancel (and Esc / the scrim / the close button — the Dialog's onClose) closes it and buys nothing", () => {
@@ -498,7 +510,7 @@ describe("PostingsManager — Add applicant slots shows its price and asks first
       activeElement: body as unknown,
       getElementById: (id: string) => (id === `posting-topup-${OPEN.id}` ? trigger : null),
     };
-    (globalThis as { document?: unknown }).document = doc;
+    vi.stubGlobal("document", doc);
     return { doc, trigger };
   }
   /** Re-render with the given state and run the committed effects (as React would). */
