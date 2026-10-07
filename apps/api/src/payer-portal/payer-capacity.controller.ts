@@ -1,16 +1,8 @@
-import {
-  Body,
-  ConflictException,
-  Controller,
-  Get,
-  HttpCode,
-  Post,
-  Req,
-  UseGuards,
-} from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
+import { inFlightConflict } from "../common/idempotency/in-flight-conflict";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PostingPlansService, type CapacityView } from "../posting-plans/posting-plans.service";
@@ -110,8 +102,10 @@ export class PayerCapacityController {
       // reason. A capacity buy cannot invent an allowance, an expiry, or a resumed-plan list it
       // has not computed; a guessed number would have the app render a state that never
       // existed. The caller's correct response is to re-read `GET /payer/capacity`.
+      // `reason: "in_flight"` (#2111) — the same machine-readable reason every purchase route's
+      // in-flight 409 carries; the message is unchanged.
       inFlight: (): never => {
-        throw new ConflictException(
+        throw inFlightConflict(
           "This capacity purchase is already being processed; check your capacity before trying again",
         );
       },

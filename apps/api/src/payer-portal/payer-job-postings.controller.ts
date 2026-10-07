@@ -1,6 +1,5 @@
 import {
   Body,
-  ConflictException,
   Controller,
   Get,
   HttpCode,
@@ -15,6 +14,7 @@ import {
 import type { Request } from "express";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
+import { inFlightConflict } from "../common/idempotency/in-flight-conflict";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerRoleGuard, PayerRoles } from "../payers/payer-role.guard";
@@ -258,7 +258,8 @@ export class PayerJobPostingsController {
    * inside {@link PostingPlansService.topUpQuotaForPayer} is itself payer-scoped, so a payer
    * can only top up their own plan. The `payer_id` is the SESSION payer (XB-A) — never a body
    * value. Priced through the pricing engine + mock-paid. 201 on top-up; 409 if the posting has
-   * no active plan to top up.
+   * no active plan to top up. Each 409 carries a machine-readable `reason` (#2111):
+   * `no_active_plan`, `in_flight` (a duplicate under the same key, below) or `price_mismatch`.
    *
    * IDEMPOTENT UNDER `Idempotency-Key` (#2085), the same seam and the same semantics as
    * `POST /payer/capacity` (#1148). A top-up writes no per-purchase artifact a natural key could
@@ -314,9 +315,11 @@ export class PayerJobPostingsController {
       logLabel: "payer",
       idempotencyKey: req.header("idempotency-key"),
       // 409, as on capacity: a duplicate cannot invent a plan/boost/quota it has not computed.
-      // The client re-reads `GET /payer/job-postings/:id`.
+      // The client re-reads `GET /payer/job-postings/:id`. `reason: "in_flight"` (#2111) tells
+      // it apart from the route's business 409s (`no_active_plan`, `price_mismatch`) without
+      // matching the message, which stays unchanged.
       inFlight: (): never => {
-        throw new ConflictException(inFlightMessage);
+        throw inFlightConflict(inFlightMessage);
       },
       work,
     });

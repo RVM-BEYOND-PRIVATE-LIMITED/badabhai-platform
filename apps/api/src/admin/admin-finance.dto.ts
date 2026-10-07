@@ -106,6 +106,14 @@ export interface AdminReasonBucket {
 
 export interface AdminBalanceRow {
   payer_id: string;
+  /**
+   * The role of the payer behind `payer_id` (`payers.role`), so the admin UI can link a top
+   * balance straight to the Companies (`employer`) or Agencies (`agent`) page (#2106 — the same
+   * field the ledger and order rows carry since #2032). Additive. `null` when `payer_id`
+   * resolves to no `payers` row — `payer_credits.payer_id` carries no FK (faceless rails), so a
+   * legacy opaque id can be orphaned.
+   */
+  payer_role: PayerRole | null;
   balance: number;
 }
 
@@ -129,9 +137,9 @@ export interface AdminLedgerRow {
   id: string;
   payer_id: string;
   /**
-   * The role of the payer behind \`payer_id\` (\`payers.role\`), so the admin UI can link straight
-   * to the Companies (\`employer\`) or Agencies (\`agent\`) page (#2032). Additive. \`null\` when
-   * \`payer_id\` resolves to no \`payers\` row — the column carries no FK (faceless rails), so a
+   * The role of the payer behind `payer_id` (`payers.role`), so the admin UI can link straight
+   * to the Companies (`employer`) or Agencies (`agent`) page (#2032). Additive. `null` when
+   * `payer_id` resolves to no `payers` row — the column carries no FK (faceless rails), so a
    * legacy opaque id can be orphaned.
    */
   payer_role: PayerRole | null;
@@ -148,9 +156,9 @@ export interface AdminOrderRow {
   id: string;
   payer_id: string;
   /**
-   * The role of the payer behind \`payer_id\` (\`payers.role\`), so the admin UI can link straight
-   * to the Companies (\`employer\`) or Agencies (\`agent\`) page (#2032). Additive. \`null\` when
-   * \`payer_id\` resolves to no \`payers\` row — the column carries no FK (faceless rails), so a
+   * The role of the payer behind `payer_id` (`payers.role`), so the admin UI can link straight
+   * to the Companies (`employer`) or Agencies (`agent`) page (#2032). Additive. `null` when
+   * `payer_id` resolves to no `payers` row — the column carries no FK (faceless rails), so a
    * legacy opaque id can be orphaned.
    */
   payer_role: PayerRole | null;

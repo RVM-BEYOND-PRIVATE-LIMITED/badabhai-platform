@@ -118,6 +118,29 @@ describe("summary aggregation", () => {
     expect(s.paid_orders.amount_inr).not.toBe(8000);
   });
 
+  it("top balances reach the response with the payer's role intact (#2106)", async () => {
+    // The role is what lets admin-web link a balance straight to the Company or the Agency.
+    // The summary must hand the repository rows through whole — a re-projection here that kept
+    // only `payer_id` + `balance` would silently put every agency back on the redirect hop.
+    const top = [
+      {
+        payer_id: "00000000-0000-4000-8000-000000000001",
+        payer_role: "agent" as const,
+        balance: 900,
+      },
+      {
+        payer_id: "00000000-0000-4000-8000-000000000002",
+        payer_role: "employer" as const,
+        balance: 400,
+      },
+      { payer_id: "00000000-0000-4000-8000-000000000003", payer_role: null, balance: 100 },
+    ];
+    const topBalances = vi.fn(async () => top);
+    const s = await svc(repoStub({ topBalances } as never)).summary({ windowDays: 30 } as never);
+    expect(topBalances).toHaveBeenCalledWith(10);
+    expect(s.top_balances).toStrictEqual(top);
+  });
+
   it("a status absent from the window reports 0, not undefined", async () => {
     const s = await svc().summary({ windowDays: 30 } as never);
     expect(s.paid_orders).toEqual({ count: 0, credits: 0, amount_inr: 0 });

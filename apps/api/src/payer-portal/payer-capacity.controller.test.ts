@@ -286,6 +286,30 @@ describe("#1148 — one tap is one capacity purchase", () => {
     await inflight;
   });
 
+  it("#2111: the mid-flight 409 says reason in_flight, with the message unchanged", async () => {
+    const { ctrl, buyCapacity } = ctrlWithRealSeam();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    buyCapacity.mockImplementationOnce(async () => {
+      await gate;
+      return { payer_id: PAYER_A.id, resumed_plan_ids: [] } as never;
+    });
+    const inflight = ctrl.buyCapacity(CAP_5, PAYER_A, withKey("tap-if"), CTX);
+    const dup = await caught(ctrl.buyCapacity(CAP_5, PAYER_A, withKey("tap-if"), CTX));
+    release();
+    await inflight;
+    expect(renderedError(dup)).toStrictEqual({
+      statusCode: 409,
+      error: "Conflict",
+      message:
+        "This capacity purchase is already being processed; check your capacity before trying again",
+      reason: "in_flight",
+    });
+    expect(buyCapacity).toHaveBeenCalledTimes(1);
+  });
+
   it("a SAME-TICK dead heat still purchases once", async () => {
     const { ctrl, buyCapacity } = ctrlWithRealSeam();
     const results = await Promise.allSettled([

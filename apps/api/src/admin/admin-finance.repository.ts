@@ -70,11 +70,23 @@ export class AdminFinanceRepository {
   /** The largest balances. Bounded — a summary, never an export. */
   async topBalances(limit = ADMIN_TOP_BALANCES): Promise<AdminBalanceRow[]> {
     const rows = await this.db
-      .select({ payerId: payerCredits.payerId, balance: payerCredits.balance })
+      .select({
+        payerId: payerCredits.payerId,
+        // #2106 — role via LEFT JOIN on the `payers` PK, as the ledger and order rows (#2032):
+        // no N+1, and an orphaned opaque id still lists (role null). Role only — no other
+        // payers column is read.
+        payerRole: payers.role,
+        balance: payerCredits.balance,
+      })
       .from(payerCredits)
+      .leftJoin(payers, eq(payers.id, payerCredits.payerId))
       .orderBy(desc(payerCredits.balance), desc(payerCredits.payerId))
       .limit(limit);
-    return rows.map((r) => ({ payer_id: r.payerId, balance: r.balance }));
+    return rows.map((r) => ({
+      payer_id: r.payerId,
+      payer_role: r.payerRole,
+      balance: r.balance,
+    }));
   }
 
   // ---- ledger -------------------------------------------------------------

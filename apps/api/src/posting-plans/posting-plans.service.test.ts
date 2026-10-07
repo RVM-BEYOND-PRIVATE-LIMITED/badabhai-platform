@@ -533,6 +533,23 @@ describe("PostingPlansService.topUpQuotaForPayer (B2 — pricing-engine refill o
     expect(names()).not.toContain("posting_plan.quota_topped");
   });
 
+  it.each([
+    ["no plan at the read", { activeTopupPlan: null }],
+    ["the plan raced to expiry before the increment", { topupRaced: true }],
+  ] as const)("#2111: %s → 409 reason no_active_plan, message unchanged", async (_label, opts) => {
+    const { service } = make(opts);
+    const err = await service
+      .topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toStrictEqual({
+      statusCode: 409,
+      error: "Conflict",
+      message: "no active plan to top up for this posting",
+      reason: "no_active_plan",
+    });
+  });
+
   it("rejects an unknown top-up tier fail-closed (unavailable → 400)", async () => {
     const { service } = make();
     await expect(
