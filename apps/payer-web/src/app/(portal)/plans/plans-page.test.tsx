@@ -58,10 +58,11 @@ vi.mock("../../../components/retry-button", async () => {
 vi.mock("../capacity/capacity-panel", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
-    CapacityPanel: (p: { currentAllowance?: number | null }) =>
+    CapacityPanel: (p: { currentAllowance?: number | null; tiers?: unknown }) =>
       React.createElement("div", {
         "data-stub": "capacity-panel",
         "data-allowance": String(p.currentAllowance),
+        "data-tiers": JSON.stringify(p.tiers),
       }),
   };
 });
@@ -281,5 +282,70 @@ describe("/plans — the capacity panel gets the allowance the page read", () =>
   it("passes null when the capacity read failed (the panel then cannot rule a tier out)", async () => {
     getCapacity.mockRejectedValue(new Error("capacity down"));
     expect(await html()).toContain('data-allowance="null"');
+  });
+});
+
+/**
+ * #2085 — every price on Plans & capacity is the price the tier is CHARGED (`prices[]`), so a tile
+ * and the purchase it leads to cannot disagree. An active offer strikes the list price on the tile;
+ * the capacity panel is handed the charged price (it shows and sends that one number). With no
+ * `prices[]` (an older API) the catalog prices show, nothing struck. (The API applies no offer to a
+ * credit pack today — charge-price.ts — so the pack offer below pins the rendering, not a rule.)
+ */
+describe("/plans — #2085: the tiles and the capacity panel carry the charged price", () => {
+  type Row = {
+    productCode: string;
+    tierCode: string;
+    basePriceInr: number;
+    priceInr: number;
+    discountInr: number;
+    offer: { code: string; endsAt: string } | null;
+  };
+  /** Every DEFAULT_CATALOG tier at list, with `offers` (tier code → charged price) applied. */
+  const prices = (offers: Record<string, number>): Row[] =>
+    DEFAULT_CATALOG.products.flatMap((p) =>
+      p.tiers.map((t) => {
+        const price = offers[t.code] ?? t.priceInr;
+        return {
+          productCode: p.code,
+          tierCode: t.code,
+          basePriceInr: t.priceInr,
+          priceInr: price,
+          discountInr: t.priceInr - price,
+          offer: price < t.priceInr ? { code: "DIWALI", endsAt: "2026-11-01T00:00:00.000Z" } : null,
+        };
+      }),
+    );
+  const panelTiers = (markup: string) => {
+    const m = markup.match(/data-tiers="([^"]*)"/);
+    expect(m).not.toBeNull();
+    return JSON.parse(m![1]!.replace(/&quot;/g, '"')) as Array<Record<string, unknown>>;
+  };
+
+  it("under offers: the credit tile strikes the list price; the panel gets the offer price + the list price", async () => {
+    getLiveCatalog.mockResolvedValue({
+      products: DEFAULT_CATALOG.products,
+      prices: prices({ pack_200: 6000, cap_15: 9000 }),
+      live: true,
+    });
+    const out = await html();
+    expect(out).toContain('<s class="price-was">₹8,000</s>');
+    expect(textOf(out)).toContain("₹6,000");
+    expect(out.match(/class="price-was"/g)).toHaveLength(1); // only the offered pack
+    expect(panelTiers(out)).toEqual([
+      { code: "cap_5", priceInr: 5000, maxActiveVacancies: expect.any(Number) },
+      { code: "cap_15", priceInr: 9000, listPriceInr: 12000, maxActiveVacancies: expect.any(Number) },
+    ]);
+  });
+
+  it("no prices[] (an older API): the catalog prices, nothing struck", async () => {
+    getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices: null, live: true });
+    const out = await html();
+    expect(out).not.toContain("price-was");
+    expect(textOf(out)).toContain("₹8,000");
+    expect(panelTiers(out)).toEqual([
+      { code: "cap_5", priceInr: 5000, maxActiveVacancies: expect.any(Number) },
+      { code: "cap_15", priceInr: 12000, maxActiveVacancies: expect.any(Number) },
+    ]);
   });
 });

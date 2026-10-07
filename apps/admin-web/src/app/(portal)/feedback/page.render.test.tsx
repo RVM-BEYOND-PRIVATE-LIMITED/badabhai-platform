@@ -331,16 +331,22 @@ describe("what this screen refuses to offer", () => {
 });
 
 describe("the category chips", () => {
+  /** Each tag's chip label — how a chip is found, since the selected one may have no href. */
+  const LABEL = { suggestion: "Suggestions", problem: "Problems", other: "Other" } as const;
   /**
-   * One chip's opening tag, whatever order React chose to emit its attributes in.
-   *
-   * A literal regex for the anchors, then a plain substring match for the one we want — not
-   * a `new RegExp` built from `category`, which is the non-literal-regexp pattern semgrep
-   * blocks (and which would need `category` escaped to be correct anyway).
+   * One chip's opening tag (`<a …` or `<span …`, up to its `>`), found by its visible label in
+   * the chip row. Not by href: on the first page the SELECTED chip is text with no href (final
+   * re-sweep O-2). A literal regex for the tags, then a plain string match for the label — never
+   * a `new RegExp` built from a value.
    */
-  const chip = (html: string, category: string) =>
-    (html.match(/<a[^>]*>/g) ?? []).find((tag) => tag.includes(`/feedback?category=${category}`)) ??
-    "";
+  const chip = (html: string, category: keyof typeof LABEL) => {
+    const row = html.slice(html.indexOf('<div class="filters filters--inline">'));
+    return (
+      (row.match(/<(?:a|span)[^>]*>[^<]*/g) ?? [])
+        .find((run) => run.endsWith(`>${LABEL[category]}`))
+        ?.split(">")[0] ?? ""
+    );
+  };
 
   it("renders one link per tag, none of them selected on the unfiltered page", async () => {
     const out = await render();
@@ -360,12 +366,34 @@ describe("the category chips", () => {
     expect(chip(out, "other")).not.toContain("aria-current");
   });
 
+  it("the active chip is text, not a link to the page it is on (final re-sweep O-2)", async () => {
+    const out = await render({ category: "problem" });
+    expect(chip(out, "problem")).toMatch(/^<span /);
+    expect(chip(out, "problem")).not.toContain("href");
+    expect(chip(out, "other")).toMatch(/^<a /);
+    expect(chip(out, "other")).toContain('href="/feedback?category=other"');
+  });
+
+  it("on a later page the active chip links the first page of its tag, still marked current (review of #2095)", async () => {
+    // The Pager only goes forward: as text, the selected chip took the one-click way back.
+    stub.page = { items: [TAGGED], nextCursor: "bmV4dA" };
+    const out = await render({ category: "problem", cursor: "Y3Vyc29y" });
+    expect(chip(out, "problem")).toBe(
+      '<a aria-current="true" class="btn btn--sm btn--selected" href="/feedback?category=problem"',
+    );
+  });
+
   it("a chip never carries the current cursor — changing the filter restarts at page one", async () => {
     // Page three's cursor applied to a different query returns an arbitrary slice of it,
     // which looks like data rather than like an error.
     stub.page = { items: [TAGGED], nextCursor: "bmV4dA" };
     const out = await render({ category: "problem", cursor: "Y3Vyc29y" });
-    for (const category of ["suggestion", "problem", "other"]) {
+    for (const category of ["suggestion", "problem", "other"] as const) {
+      // On a later page every chip is a link (the selected one back to its first page), so each
+      // must have a real target — an empty or missing href would pass "no cursor" vacuously.
+      expect(/href="([^"]+)"/.exec(chip(out, category))?.[1], `the ${category} chip's href`).toMatch(
+        /^\/feedback\?category=/,
+      );
       expect(chip(out, category), `the ${category} chip must not carry a cursor`).not.toContain(
         "cursor",
       );
@@ -581,7 +609,9 @@ describe("the two failures, which are also different claims", () => {
     // The API refuses a page cursor only when it is longer than any it issues, so with a filter
     // set it is the FILTER that was refused: a first page that kept it would be refused again.
     stub.failure = new stub.RequestError(400);
-    const out = await render({ category: "problem", workerId: WORKER_ID, cursor: "c2" });
+    // A tag the API refuses beside a real worker id — valid filters alone beside a cursor would
+    // leave the CURSOR refused.
+    const out = await render({ category: "nonsense", workerId: WORKER_ID, cursor: "c2" });
     const state = out.slice(out.indexOf('class="state state--error"'));
     expect(state).toContain(
       'href="/feedback"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>',
@@ -784,5 +814,23 @@ describe("page height: the messages before the explanation (AW-08)", () => {
   it("is still there when nothing was fetched — it describes the screen, not the rows", async () => {
     const out = await render();
     expect(out).toContain("A worker&#x27;s own words");
+  });
+});
+
+/** A tag the chips offer and a real worker id are never the refused part (delta review of #2095). */
+describe("valid filters with a refused cursor get the cursor's way out", () => {
+  it("beside an over-long cursor the way out is the first page, filters kept — not Clear filters", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({
+      category: "problem",
+      workerId: "6155050c-c91b-4c6e-96a7-8da023f1d2d2",
+      cursor: "x".repeat(300),
+    });
+    expect(out).toContain("The server rejected this request");
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(state)?.[1] ?? "";
+    expect(first).toContain("category=problem");
+    expect(first).not.toContain("cursor=");
+    expect(state).not.toContain(">Clear filters<");
   });
 });

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { NAV, type NavSection } from "./nav-model";
+import { NavPendingCue } from "./nav-pending";
 
 /**
  * The topbar's section context: where this page sits, never what it is called.
@@ -56,6 +57,7 @@ export function TopbarCrumb({ sections }: { sections: NavSection[] }) {
               {linkable ? (
                 <Link className="crumb crumb__link" href={trail.section.href}>
                   {trail.section.label}
+                  <NavPendingCue message={`Opening ${trail.section.label}…`} />
                 </Link>
               ) : (
                 <span className="crumb">{trail.section.label}</span>

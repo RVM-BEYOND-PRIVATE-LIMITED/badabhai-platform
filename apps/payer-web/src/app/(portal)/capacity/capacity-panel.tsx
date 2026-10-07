@@ -5,14 +5,24 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
+import type { ChargedPrice } from "../../../lib/pricing-config";
+import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
+import { priceFigure } from "../../../components/price-figure";
 import { upgradeCapacityAction } from "./actions";
 
 /**
  * Client capacity-tier picker (the QUOTA-PAUSE "Stream A" upgrade leg) — DS2.3 re-skin
  * onto the BadaBhai Design System (VISUAL layer only). Tiers come from CONFIG (passed in
- * as props from the server page) — never hardcoded here. Price + the vacancy allowance are
- * DISPLAY-only; selecting sends ONLY the tier CODE to the Server Action (XT5: the client
- * NEVER sends a price/amount/quota). There is no payment form and no card field here.
+ * as props from the server page) — never hardcoded here. Selecting sends the tier CODE and
+ * the price the payer confirmed (#2085 — `expected_price_inr`, a guard the API refuses a
+ * changed price with; never an amount it charges, XT5). There is no payment form and no card
+ * field here.
+ *
+ * SHOWN == CHARGED (#2085). A tier's `priceInr` is the price it is charged (the catalog's
+ * `prices[]`); its tile strikes the list price through when an offer lowers it, and its button
+ * and confirm show the one number the upgrade sends back. A refused price says so in the
+ * neutral notice, refreshes the page so the new price shows, and retires the purchase key — the
+ * next confirm is a new purchase. Nothing retries on its own.
  *
  * Each tier renders as a DS Card with the ₹ price + concurrent-vacancy allowance in mono
  * tabular and a DS Button wired to the EXISTING live POST /payer/capacity action.
@@ -36,7 +46,7 @@ import { upgradeCapacityAction } from "./actions";
  * postings" instead of a button. `null` (that read failed) rules nothing out — every tier stays on
  * sale, as before. This is an affordance: the server still decides what a purchase grants.
  */
-export type CapacityTier = { code: string; priceInr: number; maxActiveVacancies: number };
+export type CapacityTier = { code: string; maxActiveVacancies: number } & ChargedPrice;
 
 /** A tier's button — where focus returns once its confirmed upgrade has settled. */
 const tierButtonId = (code: string) => `capacity-tier-${code}`;
@@ -64,7 +74,8 @@ export function CapacityPanel({
   // (`greatest()`). Minted on the confirm below, held across every retry of the SAME tier so a
   // re-tap dedupes into a replay, and reset on success / a genuinely new tier. A ref (survives
   // re-renders, no render on reuse). PII-free (`crypto.randomUUID()`), no payer id (XB-A).
-  const purchaseKeyRef = useRef<{ key: string; tier: string } | null>(null);
+  // It also remembers the price it was first confirmed at (#2085 L2 — see confirmUpgrade).
+  const purchaseKeyRef = useRef<{ key: string; tier: string; priceInr: number } | null>(null);
   // The tier whose button opened the confirm: focus goes back there once the dialog is closed and
   // the upgrade has settled — only if focus was lost meanwhile.
   const focusBack = useRef<string | null>(null);
@@ -80,9 +91,9 @@ export function CapacityPanel({
   }, [pendingConfirm, pendingCode]);
 
   /** Reuse the pending key for a retry of the SAME tier; mint a fresh one otherwise. */
-  function idempotencyKeyFor(tier: string): string {
-    if (purchaseKeyRef.current === null || purchaseKeyRef.current.tier !== tier) {
-      purchaseKeyRef.current = { key: crypto.randomUUID(), tier };
+  function idempotencyKeyFor(tier: CapacityTier): string {
+    if (purchaseKeyRef.current === null || purchaseKeyRef.current.tier !== tier.code) {
+      purchaseKeyRef.current = { key: crypto.randomUUID(), tier: tier.code, priceInr: tier.priceInr };
     }
     return purchaseKeyRef.current.key;
   }
@@ -111,12 +122,30 @@ export function CapacityPanel({
     setError(null);
     setMessage(null);
     setNotice(null);
+    // ONE KEY, ONE CONFIRMED PRICE (#2085 L2). A key still held for this tier belongs to an earlier
+    // attempt whose outcome is unknown (still processing, a failure, a dropped connection). Reusing
+    // it is what stops a retry buying twice — the API replays the FIRST attempt — so it is never
+    // swapped for a fresh key while held. But that replay is the first attempt's purchase, at the
+    // first attempt's price: sent after the payer confirmed a DIFFERENT price, the panel would
+    // announce a purchase this dialog never described. So that confirm is not sent; the payer is
+    // told an earlier purchase may still be processing. Deliberate: a hold (until the page is
+    // reloaded and the earlier attempt's effect shows) over a second charge or a mislabelled one.
+    const held = purchaseKeyRef.current;
+    if (held !== null && held.tier === tier.code && held.priceInr !== tier.priceInr) {
+      setNotice(earlierPurchaseMessage(held.priceInr));
+      return;
+    }
     setPendingCode(tier.code);
     // One key per purchase, reused across a retry of THIS tier (safe re-tap after a timeout).
-    const idempotencyKey = idempotencyKeyFor(tier.code);
+    const idempotencyKey = idempotencyKeyFor(tier);
     startTransition(async () => {
-      // Send ONLY the tier CODE (XT5 / XB-A) — never the displayed price/allowance.
-      const res = await upgradeCapacityAction({ tier: tier.code, idempotencyKey });
+      // The tier CODE (XT5 / XB-A) and the price this dialog showed (#2085) — never an amount
+      // to charge, never the allowance.
+      const res = await upgradeCapacityAction({
+        tier: tier.code,
+        idempotencyKey,
+        expectedPriceInr: tier.priceInr,
+      });
       setPendingCode(null);
       if (res.ok) {
         // TERMINAL success — the purchase is DONE. Drop the key so a genuine next buy mints a fresh one.
@@ -134,6 +163,12 @@ export function CapacityPanel({
             ? `Purchase is still processing. Your allowance shows ${res.allowance} concurrent postings for now — check again in a moment.`
             : "Purchase is still processing — check your allowance in a moment.",
         );
+        router.refresh();
+      } else if ("priceChanged" in res) {
+        // #2085 — nothing was bought. A new confirm at the new price is a NEW purchase, so the
+        // key is retired (reusing it would replay this refusal); the page re-reads the price.
+        purchaseKeyRef.current = null;
+        setNotice(priceChangedMessage(res.currentPriceInr));
         router.refresh();
       } else {
         // KEEP the key: the next tap of this SAME tier replays it and the server dedupes.
@@ -167,7 +202,7 @@ export function CapacityPanel({
                   </Badge>
                 ) : null}
               </div>
-              <div className="capacity-tier__price bb-mono">{formatInr(t.priceInr)}</div>
+              <div className="capacity-tier__price bb-mono">{priceFigure(t)}</div>
               <p className="capacity-tier__allowance">
                 <span className="bb-mono">{t.maxActiveVacancies}</span> concurrent postings
               </p>

@@ -20,6 +20,12 @@
 export type PayerRole = "employer" | "agent";
 
 /**
+ * ORG-member role — mirrors the backend `OrgRole` (`payer_members.org_role`, ADR-0027). A SECOND
+ * dimension on top of {@link PayerRole}: what this member may do INSIDE their org (org-roles.ts).
+ */
+export type OrgRole = "owner" | "recruiter";
+
+/**
  * A logged-in payer principal, as the seam exposes it to the app.
  *
  * Every field here is the payer's OWN data (their org label, their own contact, their
@@ -41,6 +47,14 @@ export interface PayerSession {
   readonly phoneLast4?: string | null;
   /** The payer's OWN account status — drives the identity badge, not an authz decision. */
   readonly status: "pending" | "active" | "suspended";
+  /**
+   * #2079 — the member's CURRENT org role, from `GET /payer/me` `orgRole` on THIS request (the
+   * backend reads `payer_members` per call, never the token). `null`/absent = no active
+   * membership, an older API without the field, or a verify-step session — all least privilege.
+   * Never branch on this directly: go through `getOrgRole()` / `requireOwner()` (org-roles.ts),
+   * which fail closed on anything but an explicit `"owner"`.
+   */
+  readonly orgRole?: OrgRole | null;
 }
 
 /** Result of a login attempt. NO-ORACLE on failure (XB-H): a single neutral error. */

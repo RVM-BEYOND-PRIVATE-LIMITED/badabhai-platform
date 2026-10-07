@@ -32,7 +32,7 @@ export interface AttentionItem {
   tone: AttentionTone;
   title: string;
   body: string;
-  /** Omitted when the payer has no route to act — e.g. a Recruiter cannot reach /credits. */
+  /** Omitted when the item is information only — there is nothing on a page to go and do. */
   actionHref?: string;
   actionLabel?: string;
   /** The action's glyph (from ACTION_ICON) — a key action is icon + text. */
@@ -41,15 +41,18 @@ export interface AttentionItem {
 
 export function buildAttentionItems(
   data: AttentionInput,
-  opts: { isAgency: boolean; isOwner: boolean },
+  opts: { isAgency: boolean },
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
 
-  // Billing is Owner-only, so a Recruiter is pointed at the fact, not at a door that 404s.
-  // "Buy credits" — never "Top up", which also named adding applicant slots to a posting.
-  const walletAction = opts.isOwner
-    ? { actionHref: "/credits", actionLabel: "Buy credits", actionIcon: ACTION_ICON.credits }
-    : {};
+  // Every member can buy (owner ruling 2026-10-07), so the wallet items always carry the door —
+  // there is no org-role input here at all. "Buy credits" — never "Top up", which also named
+  // adding applicant slots to a posting.
+  const walletAction = {
+    actionHref: "/credits",
+    actionLabel: "Buy credits",
+    actionIcon: ACTION_ICON.credits,
+  };
 
   // 1. The wallet — an empty one stops the core loop outright, so it outranks everything.
   //    (An unread balance says nothing: the shell's chip hides on the same failure.)
@@ -62,9 +65,7 @@ export function buildAttentionItems(
       id: "credits-empty",
       tone: "critical",
       title: "You are out of unlock credits",
-      body: opts.isOwner
-        ? "Applicants stay masked until you buy credits. Existing unlocks are unaffected."
-        : "Ask your account owner to buy credits — applicants stay masked until then.",
+      body: "Applicants stay masked until you buy credits. Existing unlocks are unaffected.",
       ...walletAction,
     });
   } else if (balance !== null && balance < lowBalanceThreshold()) {
@@ -72,9 +73,7 @@ export function buildAttentionItems(
       id: "credits-low",
       tone: "warning",
       title: `Only ${balance} unlock ${balance === 1 ? "credit" : "credits"} left`,
-      body: opts.isOwner
-        ? "Buy credits before you run out so shortlisting is never interrupted."
-        : "Ask your account owner to buy credits before you run out.",
+      body: "Buy credits before you run out so shortlisting is never interrupted.",
       ...walletAction,
     });
   }

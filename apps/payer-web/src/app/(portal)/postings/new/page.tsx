@@ -38,9 +38,10 @@ export default async function NewPostingPage() {
   // Company-only surface: an agency posts AGENCY jobs (owner ruling 2026-10-01) → its own form.
   if ((await requirePayer()).role === "agent") redirect(agentPostingRedirect("create"));
   const free = postingIsFreeThroughLaunch();
-  const { products, live } = await getLiveCatalog();
-  const paidTiers = postingPaidTiers(products);
-  const quotaStep = applicantQuotaStep(products);
+  const catalog = await getLiveCatalog();
+  const { live } = catalog;
+  const paidTiers = postingPaidTiers(catalog);
+  const quotaStep = applicantQuotaStep(catalog.products);
 
   let atCapacity = false;
   try {

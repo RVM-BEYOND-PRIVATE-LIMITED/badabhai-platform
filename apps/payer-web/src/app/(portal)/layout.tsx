@@ -22,15 +22,17 @@ export const dynamic = "force-dynamic";
  * the one that was here before, and is still ROLE-AWARE on two dimensions:
  *  - ACCOUNT role (`session.role` employer|agent) → product LABELING (Company vs Agency)
  *    and which route group is offered;
- *  - ORG role (`getOrgRole` owner|recruiter) → which Owner-only nav AFFORDANCES show.
+ *  - ORG role (`getOrgRole` owner|recruiter, from `GET /payer/me` — #2079) → whether the
+ *    Owner-only nav AFFORDANCE (Team) shows. Credits is offered to every member (owner ruling
+ *    2026-10-07).
  *
  * `requirePayer()` resolves the SERVER-HELD signed session (or redirects to /login), so
  * every page here is guaranteed a payer principal — and every data call binds to THAT
  * payer's id (XB-A).
  *
  * AUTHORIZATION IS THE SERVER GATE, NEVER THE NAV. The rail only hides links a member
- * cannot use, as an affordance — a Recruiter who navigates straight to /credits or /team
- * still hits `requireOwner()` and gets a NEUTRAL 404. Agency-only authz is `requireAgent()`
+ * cannot use, as an affordance — a Recruiter who navigates straight to /team still hits
+ * `requireOwner()` and gets a NEUTRAL 404. Agency-only authz is `requireAgent()`
  * inside that route group, not the missing link. The opaque payer is rendered only as
  * coarse role badges.
  *
@@ -44,8 +46,7 @@ export const dynamic = "force-dynamic";
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
-  // Org-role is for AFFORDANCES only (which links to show). The gate is the decision
-  // (requireOwner). See nav-model.ts for why this is false in staging/production today.
+  // Org-role is for AFFORDANCES only (the Team link). The gate is the decision (requireOwner).
   const isOwner = getOrgRole(session) === "owner";
 
   const sections = navSections({
@@ -88,11 +89,11 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           <div className="pshell__headeractions">
             {balance != null ? (
               /* The balance is the number a payer checks most often and the one that blocks
-                 the core loop when it hits zero, so for an owner it is a LINK to Credits rather
-                 than a decorative chip. Recruiters have no /credits route, so it stays
-                 display-only for them. Below ~540px its unit word is hidden visually; the chip
-                 keeps an accessible name and a tooltip (balance-chip.tsx). */
-              <BalanceChip balance={balance} linkToCredits={isOwner} />
+                 the core loop when it hits zero, so it is a LINK to Credits rather than a
+                 decorative chip — for every member, since any member can buy (owner ruling
+                 2026-10-07). Below ~540px its unit word is hidden visually; the chip keeps an
+                 accessible name and a tooltip (balance-chip.tsx). */
+              <BalanceChip balance={balance} linkToCredits />
             ) : null}
             {/* Light/dark theme — a per-user display preference, role-agnostic. */}
             <ThemeToggle />

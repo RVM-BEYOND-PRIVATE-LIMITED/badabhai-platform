@@ -614,3 +614,81 @@ describe("narrow-screen crumbs and chips (AW-29)", () => {
     expect(decl(crumb!.body, "margin")).toBe("0");
   });
 });
+
+describe("the Engine view's switched-off skill reads at AA (final re-sweep NEW-03)", () => {
+  /** The skills panel's own fill — the skill rows have none of their own. */
+  const PANEL = "var(--color-brand-surface)";
+
+  it("the fence reproduces the shipped failure: the 60% step on the Ivory panel is under 4.5:1", () => {
+    // Measured in Chrome before the fix: 4.46:1 on the off skill's label, switch and meta.
+    expect(contrast(color("var(--color-brand-primary-60)"), color(PANEL))).toBeLessThan(4.5);
+  });
+
+  it("its text — label, switch and meta all inherit it — clears 4.5:1 on the panel, through a token", () => {
+    expect(decl(body(".engine__panel"), "background")).toBe(PANEL);
+    const fg = decl(body(".engine__skill--off"), "color")!;
+    expect(fg).toMatch(/^var\(--[\w-]+\)$/);
+    expect(contrast(color(fg), color(PANEL))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe("the current value of a link chip row is text, not a control (final re-sweep O-2)", () => {
+  it("draws no pointer over it", () => {
+    expect(lastTopLevel("span.btn", "cursor")).toBe("default");
+  });
+
+  it("changes nothing on hover — the selected hover tint is for links and buttons only", () => {
+    expect(rule(CSS, ".btn--selected:hover:not(:disabled)")).toBeNull();
+    const hover = body(".btn--selected:is(a, button):hover:not(:disabled)");
+    expect(decl(hover, "background")).toBe("var(--brand-tint-2)");
+  });
+});
+
+describe("the navigation pending cue (review of #2095)", () => {
+  const REDUCED = "@media (prefers-reduced-motion: reduce)";
+
+  it("the dot is drawn in its link's own colour and only while pending", () => {
+    expect(lastTopLevel(".nav-pending", "display")).toBe("none");
+    const on = body(".nav-pending--on");
+    expect(decl(on, "display")).toBe("inline-block");
+    expect(decl(on, "background")).toBe("currentColor");
+  });
+
+  it("the page-wide bar is the structural-navigation colour, above the sticky topbar, never a target", () => {
+    const bar = body(".nav-progress");
+    expect(decl(bar, "position")).toBe("fixed");
+    expect(decl(bar, "background")).toBe("var(--text-heading)");
+    expect(decl(bar, "z-index")).toBe("var(--z-toast)");
+    expect(decl(bar, "pointer-events")).toBe("none");
+    expect(contrast(color("var(--text-heading)"), color("var(--surface-card)"))).toBeGreaterThanOrEqual(3);
+  });
+
+  it("the dot waits before it shows — a prefetched navigation that lands at once never flashes it", () => {
+    // Delta review of #2095: ~150-200ms. The page-wide bar needs no rule of its own — it is drawn
+    // only once the status line has announced, which waits the same delay in nav-pending.tsx.
+    const delay = TOP.filter((r) => r.selector === ":root")
+      .map((r) => decl(r.body, "--nav-pending-delay"))
+      .filter((v): v is string => v !== null)
+      .pop();
+    expect(delay, "--nav-pending-delay on :root").toBeDefined();
+    expect(delay).toMatch(/^\d+ms$/);
+    expect(Number.parseInt(delay!, 10)).toBeGreaterThanOrEqual(150);
+    expect(Number.parseInt(delay!, 10)).toBeLessThanOrEqual(200);
+    const on = decl(body(".nav-pending--on"), "animation")!;
+    expect(on).toContain("nav-pending-show");
+    expect(on).toContain("var(--nav-pending-delay)");
+  });
+
+  it("nothing moves under prefers-reduced-motion — but the dot still waits its delay", () => {
+    const reduced = (sel: string) =>
+      ALL.find(
+        (r) => r.atRules.join() === REDUCED && r.selector.split(",").some((p) => p.trim() === sel),
+      );
+    const dot = reduced(".nav-pending--on");
+    expect(dot).toBeDefined();
+    expect(decl(dot!.body, "animation")).toBe("nav-pending-show 1ms linear var(--nav-pending-delay) both");
+    const bar = reduced(".nav-progress--on");
+    expect(bar).toBeDefined();
+    expect(decl(bar!.body, "animation")).toBe("none");
+  });
+});

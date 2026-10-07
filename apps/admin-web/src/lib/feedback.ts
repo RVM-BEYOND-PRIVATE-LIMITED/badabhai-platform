@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { WORKER_FEEDBACK_CATEGORIES } from "@badabhai/types";
 import { adminFetch } from "./admin-http";
 import { qs } from "./entities";
 
@@ -25,19 +26,16 @@ import { qs } from "./entities";
  */
 
 /**
- * The worker's optional tag on their own message.
- *
- * Mirrors `WORKER_FEEDBACK_CATEGORIES` in `@badabhai/types` — restated rather than imported,
- * exactly as `ADMIN_TIMELINE_SUBJECT_TYPES` mirrors its server counterpart above: the portal
- * takes no workspace dependency on the API's packages, so every server vocabulary it pins is
- * pinned by hand and says so.
+ * The worker's optional tag on their own message: `WORKER_FEEDBACK_CATEGORIES` from
+ * `@badabhai/types` itself (a package admin-web depends on), not a copy of it — the console and
+ * the API read one list (approval review of #2095).
  *
  * A closed enum, not a free string. An unknown tag must surface as an honest error state
  * rather than render as an unstyled word in a pill — the same ruling `payerListItemSchema`
  * makes about an unknown role. Three tokens are frozen in a SHIPPED app; a fourth arriving
  * is a server change nobody told the portal about, which is worth failing over.
  */
-export const FEEDBACK_CATEGORIES = ["suggestion", "problem", "other"] as const;
+export const FEEDBACK_CATEGORIES = WORKER_FEEDBACK_CATEGORIES;
 export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
 
 export const feedbackItemSchema = z.object({
