@@ -143,6 +143,9 @@ export const OPS_ROUTES = [
   ["POST", `/ops/agency-kyc/${ABSENT_ID}/verify`, {}],
   ["POST", `/ops/agency-kyc/${ABSENT_ID}/reject`, {}],
 
+  // ── agency job match skills (ADR-0050 §6.1 step 2, #1983): decides which workers a job reaches ──
+  ["PUT", `/ops/agency-jobs/${ABSENT_ID}/match-skills`, {}],
+
   // ── referral bonus ledger + outbound messaging ──
   ["GET", "/referrals/bonus/summary"],
   ["POST", "/referrals/bonus/evaluate", {}],

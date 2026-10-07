@@ -183,6 +183,18 @@ export class MatchSkillsService {
   }
 
   /**
+   * Validate a match-skill SELECTION with no reach resolution: the closed `mskill_*` set and
+   * the runtime `match_config.max_skills_per_posting` cap — the SAME rule the posting form
+   * enforces, from the same private check, so the agency job form (ADR-0050 C4, #1983) can
+   * never drift from it. Returns the de-duplicated ids in first-seen order. 400 on an unknown
+   * id, an empty list or an over-cap list; never truncates.
+   */
+  async validateSelection(matchSkillIds: readonly string[]): Promise<MatchSkillId[]> {
+    const cfg = await this.config.get();
+    return this.assertPostableSkills(matchSkillIds, cfg.maxSkillsPerPosting);
+  }
+
+  /**
    * Closed-set + cap check. REJECTS an oversized list rather than truncating it:
    * `packages/match-engine` deliberately leaves the cap to the API (`// integration:`
    * in `reach.ts`) precisely so the refusal is an explicit 400 a payer can see, not a

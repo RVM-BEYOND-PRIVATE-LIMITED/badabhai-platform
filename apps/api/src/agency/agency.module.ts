@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PayersModule } from "../payers/payers.module";
+import { AdminModule } from "../admin/admin.module";
 import { ConsentModule } from "../consent/consent.module";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { AgencyService } from "./agency.service";
@@ -16,6 +17,7 @@ import { AgencyPayoutService } from "./agency-payout.service";
 import { AgencyPayoutsController } from "./agency-payouts.controller";
 import { AgencyPayoutsEnabledGuard } from "./agency-payouts-enabled.guard";
 import { AgencyKycOpsController } from "./agency-kyc-ops.controller";
+import { AgencyJobsOpsController } from "./agency-jobs-ops.controller";
 import { AgencyWorkersController } from "./agency-workers.controller";
 import { AgencyWorkersRepository } from "./agency-workers.repository";
 import { AgencyWorkersService } from "./agency-workers.service";
@@ -44,6 +46,11 @@ import { AgencyWorkersService } from "./agency-workers.service";
   imports: [
     PayersModule,
     ConsentModule,
+    // ADR-0050 (#1983) — ONLY so `AgencyJobsOpsController` can mount `AdminAuthGuard` (the
+    // module exports the guard + `AdminSessionService`), the JobPostingsModule precedent.
+    // One-directional: AdminModule does not import AgencyModule, so no `forwardRef`.
+    // `MatchSkillsService` needs no import: MatchModule is @Global.
+    AdminModule,
     // Reuse BullMQ's Redis connection (client only) for the per-payer invite-mint cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
@@ -52,6 +59,8 @@ import { AgencyWorkersService } from "./agency-workers.service";
     AgencyInvitesController,
     AgencyPayoutsController,
     AgencyKycOpsController,
+    // ADR-0050 §6.1 step 2 — ops sets match skills on any agency job (InternalService + admin).
+    AgencyJobsOpsController,
     // B5 — the referred-worker ENGAGEMENT view. Consent-gated in SQL, tenant-scoped
     // on `agency_invites.inviter_payer_id`, per-agency pseudonymized ids.
     AgencyWorkersController,

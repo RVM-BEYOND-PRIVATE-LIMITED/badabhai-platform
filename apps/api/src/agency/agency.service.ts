@@ -30,6 +30,7 @@ import type {
 } from "./agency.dto";
 import { clearedSet } from "../common/clearable-fields";
 import { isUniqueViolation } from "../common/db-error";
+import { MatchSkillsService } from "../match/match-skills.service";
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
 export interface AgencyJobView {
@@ -66,6 +67,11 @@ export interface AgencyJobView {
    * matching classifier, and this is never a match input (ADR-0036 addendum 2026-09-29).
    */
   roleKind: TradeFormKindName | null;
+  /**
+   * ADR-0050 C4 (#1983) — the explicit `mskill_*` pick, `[]` = "not chosen yet".
+   * Owner view only, so the agency's edit screen can show what it picked. Never inferred.
+   */
+  matchSkillIds: string[];
   applicantsReceived: number;
   createdAt: Date;
   updatedAt: Date;
@@ -138,6 +144,24 @@ function sameStringList(a: string[], b: string[] | null): boolean {
 }
 
 /**
+ * ORDER-FREE equality for `match_skill_ids` (ADR-0050): a match pick is a SET — re-sending the
+ * same skills in another order is not a change and must not emit `match_skills`. The posting
+ * service compares its own `match_skill_ids` the same way.
+ */
+function sameSkillSet(a: readonly string[], b: readonly string[]): boolean {
+  const left = [...new Set(a)].sort();
+  const right = [...new Set(b)].sort();
+  return left.length === right.length && left.every((v, i) => v === right[i]);
+}
+
+/** The ops match-skill write's result (ADR-0050 §6.1 step 2). `changed:false` = no-op, no event. */
+export interface OpsAgencyJobMatchSkillsResult {
+  job_id: string;
+  match_skill_ids: string[];
+  changed: boolean;
+}
+
+/**
  * Agency Supply Portal demand slice (ADR-0022, ACCEPTED) — backend business logic +
  * event emission. Repo/service split: data access lives in the two repositories; this
  * service owns the rules, the tenant chokepoint calls (`readOwnedById`/`assertOwnedRows`
@@ -171,6 +195,9 @@ export class AgencyService {
     private readonly invitesRepo: AgencyInvitesRepository,
     private readonly consent: ConsentRepository,
     private readonly events: EventsService,
+    // ADR-0050 C4 (#1983) — the posting form's closed-vocabulary + cap check, reused so the
+    // agency job form can never accept a pick the posting form would refuse. @Global.
+    private readonly matchSkills: MatchSkillsService,
   ) {}
 
   // ───────────────────────────── Demand CRUD on jobs ─────────────────────────────
@@ -181,6 +208,12 @@ export class AgencyService {
     dto: CreateAgencyJobDto,
     ctx: RequestContext,
   ): Promise<AgencyJobView> {
+    // ADR-0050 C4 — validated BEFORE the insert, so a bad id is a 400 and never a stored row.
+    // Omitted means `[]` ("not chosen yet"), so a shipped client that never sends it is unchanged.
+    const matchSkillIds =
+      dto.match_skill_ids !== undefined
+        ? await this.matchSkills.validateSelection(dto.match_skill_ids)
+        : [];
     const row = await this.jobsRepo.create(
       {
         payerId,
@@ -203,6 +236,9 @@ export class AgencyService {
         payType: dto.pay_type ?? null,
         // Migration 0131 — the display role, or NULL. Never a match input; `trade_key` is.
         roleKind: dto.role_kind ?? null,
+        // ADR-0050 C4 — the explicit match pick (validated above), never derived from
+        // `trade_key`. `job.created` v1 does not carry it (no schema change, ADR-0050 §9).
+        matchSkillIds,
       },
       "open",
     );
@@ -355,6 +391,24 @@ export class AgencyService {
     ) {
       patch.requirements = dto.requirements;
       changedFields.push("requirements");
+    }
+
+    // ADR-0050 C4 (#1983) — the explicit match pick. A SET, compared order-free; clearing
+    // stores `[]` (the column is NOT NULL, `[]` = "not chosen yet"). A supplied pick is
+    // validated against the closed vocabulary and the cap BEFORE anything is written — only
+    // when it would actually change, so re-saving an untouched form never 400s on a pick
+    // that was valid when it was stored. The event carries the KEY `match_skills`, never ids.
+    if (cleared.has("match_skill_ids")) {
+      if (current.matchSkillIds.length > 0) {
+        patch.matchSkillIds = [];
+        changedFields.push("match_skills");
+      }
+    } else if (
+      dto.match_skill_ids !== undefined &&
+      !sameSkillSet(dto.match_skill_ids, current.matchSkillIds)
+    ) {
+      patch.matchSkillIds = await this.matchSkills.validateSelection(dto.match_skill_ids);
+      changedFields.push("match_skills");
     }
 
     if (changedFields.length === 0) {
@@ -878,6 +932,64 @@ export class AgencyService {
     };
   }
 
+  // ─────────────────── Ops: match skills on any agency job (#1983) ───────────────────
+
+  /**
+   * ADR-0050 §6.1 step 2 — ops sets `match_skill_ids` on ANY agency job (rollout step (c):
+   * "ops sets match_skill_ids on the live agency jobs" before the flip). The body is the full
+   * desired SET; `[]` resets it to "not chosen yet".
+   *
+   *  - Scope: AGENCY rows only (owning payer `role = 'agent'`). An unknown id, a seed/ops row
+   *    or an employer-owned legacy row is the identical neutral 404.
+   *  - `closed` is terminal for edits, exactly as on the agency's own PATCH (400).
+   *  - Validation: the SAME closed-vocabulary + `max_skills_per_posting` check as the agency
+   *    form and the posting form ({@link MatchSkillsService.validateSelection}).
+   *  - Idempotent: an unchanged set (order-free) is `changed:false` with no write and no event.
+   *  - Evented: exactly one `job.updated` v1 with `changed_fields: ["match_skills"]` (KEY only),
+   *    actor `ops` = the AUTHENTICATED admin id from the session (never a body field), and
+   *    `payer_id` = the job's owning agency (the payload's existing meaning). It is the event
+   *    the ADR-0050 sync consumes, so an ops pick reaches the twin like an agency edit does.
+   */
+  async opsSetMatchSkills(
+    jobId: string,
+    matchSkillIds: readonly string[],
+    opsActorId: string,
+    ctx: RequestContext,
+  ): Promise<OpsAgencyJobMatchSkillsResult> {
+    const current = await this.jobsRepo.findAgencyJobById(jobId);
+    if (!current?.payerId) throw new NotFoundException("Job not found");
+    if (current.status === "closed") {
+      throw new BadRequestException("Job is closed and cannot be edited");
+    }
+
+    if (sameSkillSet(matchSkillIds, current.matchSkillIds)) {
+      return { job_id: current.id, match_skill_ids: current.matchSkillIds, changed: false };
+    }
+    const next =
+      matchSkillIds.length === 0 ? [] : await this.matchSkills.validateSelection(matchSkillIds);
+
+    const updated = await this.jobsRepo.setMatchSkillIdsIfNotClosed(jobId, next, new Date());
+    // A close raced this edit between the read and the write: same answer as reading it closed.
+    if (!updated) throw new BadRequestException("Job is closed and cannot be edited");
+
+    const payload: PayloadInputOf<"job.updated"> = {
+      job_id: updated.id,
+      payer_id: current.payerId,
+      status: updated.status,
+      changed_fields: ["match_skills"],
+    };
+    await this.events.emit({
+      event_name: "job.updated",
+      actor: { actor_type: "ops", actor_id: opsActorId },
+      subject: { subject_type: "job", subject_id: updated.id },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return { job_id: updated.id, match_skill_ids: updated.matchSkillIds, changed: true };
+  }
+
   // ──────────────────────────────── helpers ────────────────────────────────
 
   /**
@@ -935,6 +1047,8 @@ export class AgencyService {
       payType: row.payType,
       // Migration 0131 — the display role; NULL stays NULL (never inferred from trade_key).
       roleKind: row.roleKind,
+      // ADR-0050 C4 — the explicit match pick; `[]` stays `[]` (never inferred).
+      matchSkillIds: row.matchSkillIds,
       applicantsReceived: row.applicantsReceived,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

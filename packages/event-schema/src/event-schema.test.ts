@@ -1577,6 +1577,27 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     );
     expect(okRole.success).toBe(true);
 
+    // ADR-0050 §9 — `match_skills` is another ADDITIVE key-enum member (no version bump).
+    const okSkills = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["match_skills"],
+      }),
+    );
+    expect(okSkills.success).toBe(true);
+    // The KEY only: the column name is not a changed-field key, so a caller cannot smuggle it.
+    const columnAsKey = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["match_skill_ids"],
+      }),
+    );
+    expect(columnAsKey.success).toBe(false);
+
     const bad = validateEvent(
       jobEvent("job.updated", {
         job_id: UUID_A,
