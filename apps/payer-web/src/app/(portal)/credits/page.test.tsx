@@ -177,7 +177,7 @@ describe("credits page — open to every payer member (owner ruling 2026-10-07)"
   it("a RECRUITER renders Credits, packs included — the owner gate is never consulted", async () => {
     const { panelPacks, flat } = await render({ balance: 50 });
     expect(requireOwner).not.toHaveBeenCalled();
-    expect(panelPacks).toEqual(offeredCreditPacks(DEFAULT_CATALOG.products));
+    expect(panelPacks).toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products }));
     expect(flat).toMatch(/50/);
   });
 
@@ -286,10 +286,10 @@ describe("credits page — (e) packs + unit price resolve from the live catalog 
   it("passes the catalog packs to the panel and shows the config unit price", async () => {
     const { joined, panelPacks } = await render({ balance: 50 });
     // The rendered packs are EXACTLY the catalog-derived set — not a hardcoded 50/200/1000 list.
-    expect(panelPacks).toEqual(offeredCreditPacks(DEFAULT_CATALOG.products));
+    expect(panelPacks).toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products }));
     expect((panelPacks as unknown[]).length).toBeGreaterThan(0);
     // Unit price is the config-derived per-unlock price (₹40 from the catalog), not a literal.
-    const unit = unlockUnitPriceInr(DEFAULT_CATALOG.products);
+    const unit = unlockUnitPriceInr({ products: DEFAULT_CATALOG.products });
     expect(unit).not.toBeNull();
     expect(joined).toContain(`₹${unit} per unlock`);
   });
@@ -302,7 +302,7 @@ describe("credits page — (e) packs + unit price resolve from the live catalog 
     expect(joined).not.toMatch(/no money moves/i);
     // The description still says what a credit buys and its config price — and stops there.
     expect(joined).toContain(
-      `1 credit = 1 contact unlock (₹${unlockUnitPriceInr(DEFAULT_CATALOG.products)} per unlock).`,
+      `1 credit = 1 contact unlock (₹${unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })} per unlock).`,
     );
   });
 });
@@ -367,9 +367,9 @@ describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback
   it("renders the ops-edited LIVE prices (no rebuild): packs + unit price change with the wire", async () => {
     getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
     const { joined, panelPacks } = await render({ balance: 50 });
-    expect(panelPacks).toEqual(offeredCreditPacks(EDITED));
-    expect(panelPacks).not.toEqual(offeredCreditPacks(DEFAULT_CATALOG.products));
-    expect(joined).toContain(`₹${unlockUnitPriceInr(EDITED)} per unlock`);
+    expect(panelPacks).toEqual(offeredCreditPacks({ products: EDITED }));
+    expect(panelPacks).not.toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products }));
+    expect(joined).toContain(`₹${unlockUnitPriceInr({ products: EDITED })} per unlock`);
     // And the live render carries NO cached-pricing note.
     expect(joined).not.toMatch(/cached pricing/i);
   });
@@ -379,8 +379,8 @@ describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback
     getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, live: false });
     const { joined, panelPacks } = await render({ balance: 50 });
     expect(joined).toMatch(/cached pricing/i); // the subtle disclosure
-    expect(panelPacks).toEqual(offeredCreditPacks(DEFAULT_CATALOG.products)); // defaults, not blank
-    expect(joined).toContain(`₹${unlockUnitPriceInr(DEFAULT_CATALOG.products)} per unlock`);
+    expect(panelPacks).toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products })); // defaults, not blank
+    expect(joined).toContain(`₹${unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })} per unlock`);
   });
 });
 
@@ -520,5 +520,50 @@ describe("credits page — (h) PR-D2 wallet hero + scrollable ledgers", () => {
     setData({ balance: 50 });
     const tree = (await CreditsPage()) as ReactElement;
     expect(byClass(tree, "tablewrap")).toHaveLength(0);
+  });
+});
+
+/**
+ * #2085 — the packs handed to the panel carry the price each is CHARGED (`prices[]`): that is what
+ * the tile and the confirm show and what the purchase sends back. With no `prices[]` (an older API)
+ * the catalog price stands. (The API applies no offer to a pack today — charge-price.ts — so this
+ * pins the wiring, not a pricing rule.)
+ */
+describe("credits page — #2085: the panel's packs are priced from prices[]", () => {
+  const packRow = (tierCode: string, base: number, price: number) => ({
+    productCode: "contact_unlock",
+    tierCode,
+    basePriceInr: base,
+    priceInr: price,
+    discountInr: base - price,
+    offer: price < base ? { code: "DIWALI", endsAt: "2026-11-01T00:00:00.000Z" } : null,
+  });
+
+  it("each pack carries its charged price (and the list price only under an offer)", async () => {
+    getLiveCatalog.mockResolvedValue({
+      products: DEFAULT_CATALOG.products,
+      prices: [
+        packRow("pack_50", 2000, 2000),
+        packRow("pack_200", 8000, 6000),
+        packRow("pack_1000", 32000, 32000),
+      ],
+      live: true,
+    });
+    const { panelPacks } = await render({ balance: 50 });
+    expect(panelPacks).toEqual([
+      { code: "pack_50", priceInr: 2000, credits: 50 },
+      { code: "pack_200", priceInr: 6000, listPriceInr: 8000, credits: 200 },
+      { code: "pack_1000", priceInr: 32000, credits: 1000 },
+    ]);
+  });
+
+  it("no prices[] (an older API): the catalog prices", async () => {
+    getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices: null, live: true });
+    const { panelPacks } = await render({ balance: 50 });
+    expect(panelPacks).toEqual([
+      { code: "pack_50", priceInr: 2000, credits: 50 },
+      { code: "pack_200", priceInr: 8000, credits: 200 },
+      { code: "pack_1000", priceInr: 32000, credits: 1000 },
+    ]);
   });
 });

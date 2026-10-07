@@ -6,6 +6,12 @@ import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { buyCapacity, getCapacity, PurchaseConflictError } from "../../../lib/payer-api";
 import { hiringCapacityTiers } from "../../../lib/pricing-config";
+import { PriceMismatchError } from "../../../lib/payer-errors";
+import {
+  PRICE_UNREADABLE_MESSAGE,
+  readExpectedPrice,
+  type PriceChangedResult,
+} from "../../../lib/price-confirmation";
 
 /**
  * MOCK hiring-capacity upgrade Server Action (ADR-0016 — MOCK payment only).
@@ -15,10 +21,11 @@ import { hiringCapacityTiers } from "../../../lib/pricing-config";
  * The action runs ONLY for an authenticated payer; server-side ownership stays the gate
  * (XB-A) — the tier-code check below is a value guard, NOT authz.
  *
- * INPUT is `{ tier }` ONLY (XT5 / XB-A): the client sends a tier CODE — NEVER a payer_id,
- * NEVER a price/amount/quota. The CODE is validated against the config'd capacity tiers
- * (an arbitrary string is rejected with a NEUTRAL error — never trusted). The seam prices
- * it server-side and binds it to the session payer.
+ * INPUT is the tier CODE (XT5 / XB-A) — NEVER a payer_id, NEVER an amount to charge or a
+ * quota — plus the price the payer confirmed (#2085), which the API only compares against the
+ * charge (a changed price is refused, nothing bought). The CODE is validated against the
+ * config'd capacity tiers (an arbitrary string is rejected with a NEUTRAL error — never
+ * trusted). The seam prices it server-side and binds it to the session payer.
  *
  * NO real payments: the backend mock-purchases (real_call:false); there is NO Razorpay.
  * A real-payment path is a HARD human gate (ADR-0019 Decision D / §7) — STOP.
@@ -30,6 +37,8 @@ export type UpgradeCapacityActionResult =
   // THROW. So a 409 is "still processing, outcome UNKNOWN", NOT a completed purchase. Non-terminal:
   // `allowance` (when present) is the CURRENT figure, re-read for display only — never final.
   | { ok: false; pending: true; allowance?: number }
+  // A 409 `price_mismatch` (#2085): the confirmed price is not the price now — nothing bought.
+  | PriceChangedResult
   | { ok: false; error: string };
 
 /**
@@ -43,6 +52,8 @@ const idempotencyKeySchema = z.string().uuid();
 export async function upgradeCapacityAction(input: {
   tier: string;
   idempotencyKey?: string;
+  /** The ₹ the payer confirmed in the dialog (#2085) — sent as `expected_price_inr`. */
+  expectedPriceInr?: number;
 }): Promise<UpgradeCapacityActionResult> {
   // GATE FIRST — same session gate as the capacity page; any failure path stays neutral.
   await requirePayer();
@@ -51,11 +62,14 @@ export async function upgradeCapacityAction(input: {
   // the LIVE catalog (D-6; fetch failure falls open to the compile-time defaults, which
   // is fine: the backend re-resolves + rejects an unknown tier server-side anyway). An
   // unknown/arbitrary string is rejected neutrally — never forwarded to the seam.
-  const { products } = await getLiveCatalog();
-  const isKnownTier = hiringCapacityTiers(products).some((t) => t.code === input.tier);
+  const isKnownTier = hiringCapacityTiers(await getLiveCatalog()).some(
+    (t) => t.code === input.tier,
+  );
   if (!isKnownTier) {
     return { ok: false, error: "Choose a capacity tier to upgrade." };
   }
+  const confirmed = readExpectedPrice(input.expectedPriceInr);
+  if (!confirmed.ok) return { ok: false, error: PRICE_UNREADABLE_MESSAGE };
 
   const idempotencyKey =
     input.idempotencyKey && idempotencyKeySchema.safeParse(input.idempotencyKey).success
@@ -63,7 +77,11 @@ export async function upgradeCapacityAction(input: {
       : undefined;
 
   try {
-    const res = await buyCapacity({ tier: input.tier, idempotencyKey });
+    const res = await buyCapacity({
+      tier: input.tier,
+      idempotencyKey,
+      expectedPriceInr: confirmed.value,
+    });
     if (!res.ok) {
       return { ok: false, error: res.error };
     }
@@ -72,6 +90,11 @@ export async function upgradeCapacityAction(input: {
     revalidatePath("/plans");
     return { ok: true, resumedCount: res.resumedPlanIds.length, allowance: res.allowance };
   } catch (e) {
+    // #2085 — the price changed since the payer confirmed it. Nothing was bought; the panel
+    // says so and refreshes the price. Never retried here at the new price.
+    if (e instanceof PriceMismatchError) {
+      return { ok: false, priceChanged: true, currentPriceInr: e.currentPriceInr };
+    }
     // 409 DUPLICATE-IN-FLIGHT (#1185): the backend 409s ONLY while the FIRST attempt's in-flight
     // sentinel still stands — it has NOT committed and may still throw. This is "still processing,
     // outcome UNKNOWN", NOT "already granted" (the earlier #1148 branch read this inverted and
