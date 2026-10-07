@@ -351,6 +351,10 @@ const REAL_PLACES = [
   "Pune (Chakan)",
   "Ahmedabad – Vatva",
   "Co-operative Industrial Estate",
+  // #1970: the dotted co-operative estates the #1848 measurement found refused
+  "Gokul Shirgaon Co. Op. Industrial Estate",
+  "Gokul Shirgaon Co.op Industrial Estate",
+  "Vasai Co. Operative Industrial Estate",
   "G.T. Road",
   "St. Thomas Mount",
   "N.H. 48",

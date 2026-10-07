@@ -306,6 +306,15 @@ const ORG_SUFFIX_STRONG = new RegExp(
 // "Cosmos Co.op. Bank", "Shanti Co. Operative Housing Society". The measured
 // corpus held no "co." compound but "co.ordinator", so the wider list would have
 // lost those firms and gained nothing.
+// ONE EXCEPTION, a co-operative INDUSTRIAL ESTATE (#1970). On the "Co." form only,
+// "Co. Op." / "Co.op" / "Co. Operative" followed by "Estate(s)" — optionally after
+// "Industrial", "Indl." or "Ind." — is a locality, never an employer: "Gokul Shirgaon
+// Co. Op. Industrial Estate", "Vasai Co. Operative Industrial Estate", "Co.op Indl.
+// Estate". Found refused as a city/area by the #1848 measurement. Owner ruling
+// 2026-10-06: estates only. Every other co-operative tail stays a firm — "Co.op.
+// Bank", "Co. Op. Credit Society", "Co. Operative Housing Society", "Co. Op. Dairy" —
+// and so does an estate named WITH a suffix, which the other tiers read ("Co. Op.
+// Industrial Estate Ltd"). The "& Co" / "and Co" form takes no such exception.
 // Horizontal whitespace only (never \r or \n) between "co" and the listed word —
 // note `[^\S\r\n]` still admits VT, FF, U+2028 and U+2029, no wider than a plain
 // space already is: "Sharma & Co",
@@ -315,7 +324,7 @@ const ORG_SUFFIX_STRONG = new RegExp(
 // "Sharma & Co Operative Store", "Sharma & Co op"), reads as a compound and slips
 // this tier.
 const ORG_CO_FORM =
-  /(?:&|\band)\s+co\b(?![-\u2010-\u2015\u2212\uFE63\uFF0D]|[^\S\r\n]*(?:ordinat|operat(?:ion|ive|e)\b|op\b|worker|curricular|2[^\S\r\n]*(?:weld(?:ing)?|gas)\b)|\.[^\S\r\n]*ordinat)|\bco\.(?![^\S\r\n]*ordinat)/i;
+  /(?:&|\band)\s+co\b(?![-\u2010-\u2015\u2212\uFE63\uFF0D]|[^\S\r\n]*(?:ordinat|operat(?:ion|ive|e)\b|op\b|worker|curricular|2[^\S\r\n]*(?:weld(?:ing)?|gas)\b)|\.[^\S\r\n]*ordinat)|\bco\.(?![^\S\r\n]*ordinat|[^\S\r\n]*(?:op\b\.?|operative\b)[^\S\r\n]*(?:ind(?:ustrial|l)?\b\.?[^\S\r\n]*)?estates?\b)/i;
 
 // Bare "Ltd"/"Limited" WITHOUT a pvt/private prefix. The two words are not equally
 // ambiguous — "Ltd" is almost always a firm's suffix, "limited" is an ordinary word
@@ -499,7 +508,11 @@ const ORG_LIMITED_ONE_TOKEN = new RegExp(
  *    "& co-workers", "and co operative", "co.ordinator" pass, while "Sharma & Co",
  *    "Sharma and Co.", "Sharma & Co, Pune", "Sharma Co.-Pune" and the co-op
  *    names "Cosmos Co.op. Bank" / "Shanti Co. Operative Housing Society" are
- *    still flagged. The price: a "& Co" / "and Co" firm glued to any dash
+ *    still flagged. A dotted co-operative industrial ESTATE is a locality, not a
+ *    firm (#1970): "Gokul Shirgaon Co. Op. Industrial Estate", "Co.op Indl.
+ *    Estate" pass; every other co-op tail (Bank, Society, Dairy, Store) and an
+ *    estate written with a suffix ("… Estate Ltd") still flag. The price: a
+ *    "& Co" / "and Co" firm glued to any dash
  *    ("Sharma & Co-Pune", "Sharma & Co—Pune", "Sharma & Co-") or followed across
  *    a space by a listed compound word — worker(s), operation / operative /
  *    operate, op, curricular, ordinat…, "2 weld(ing)" / "2 gas" ("Sharma & Co workers

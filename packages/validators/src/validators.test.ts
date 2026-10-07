@@ -414,8 +414,36 @@ describe("looksLikeOrgName", () => {
     "XYZ CO.OP. BANK",
     "Sharma & Co. Operative",
     "and co.operation",
+    // #1970 exempts a co-operative industrial ESTATE only (owner ruling 2026-10-06):
+    // every other co-op tail is an employer, and so is an estate written with a suffix
+    "Shanti Co. Op. Housing Society",
+    "Shree Co.op. Credit Society",
+    "Warna Co. Operative Dairy",
+    "Cosmos Co.op. Bank Estate Branch",
+    "Gokul Co. Op. Industrial Estate Ltd",
+    "Gokul Co. Op. Industries",
+    "Vasai Co. Op. Industrial Area", // only "Estate" is exempted
+    "Sharma & Co. Op. Industrial Estate", // the "& Co" form takes no exception
+    "Gokul Co. Op.\nIndustrial Estate", // a line break is never the gap
   ])("still flags the firm form %j", (s) => {
     expect(looksLikeOrgName(s)).toBe(true);
+  });
+
+  // #1970: a dotted co-operative industrial ESTATE is a locality, not a firm.
+  it.each([
+    "Gokul Shirgaon Co. Op. Industrial Estate",
+    "Gokul Shirgaon Co.op Industrial Estate",
+    "Vasai Co. Operative Industrial Estate",
+    "Gokul Shirgaon Co.op. Industrial Estate",
+    "Kolhapur Co.Op.Industrial Estate",
+    "GOKUL SHIRGAON CO. OP. INDUSTRIAL ESTATE",
+    "Shirgaon Co. Op. Indl. Estate",
+    "Shirgaon Co.op Ind. Estate",
+    "Shirgaon Co. Op. Estate",
+    "Shirgaon Co. Operative Industrial Estates",
+    "Plot 12, Gokul Shirgaon Co. Op. Industrial Estate, Kolhapur",
+  ])("does not flag the co-operative estate %j", (s) => {
+    expect(looksLikeOrgName(s)).toBe(false);
   });
 
   // …but not a "co" that opens a compound.
