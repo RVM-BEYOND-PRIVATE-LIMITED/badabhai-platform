@@ -185,8 +185,8 @@ export function baselineActiveVacancyAllowance(products: readonly Product[]): nu
  * BELOW this threshold (credits). It lives HERE (the config module), env-overridable via
  * `PAYER_LOW_BALANCE_THRESHOLD`, exactly like {@link postingIsFreeThroughLaunch} — the page
  * never hardcodes a magic number. The default below is the config default, not a page literal.
- * It is the ONE low-balance number: the dashboard's "Only N credits left" item (and an owner's
- * "Buy credits" on it) reads it too, so the two pages never disagree about "low" (N7).
+ * It is the ONE low-balance number: the dashboard's "Only N credits left" item (and its "Buy
+ * credits") reads it too, so the two pages never disagree about "low" (N7).
  */
 const DEFAULT_LOW_BALANCE_THRESHOLD = 5;
 

@@ -362,6 +362,8 @@ export async function topUp(input: {
     // body carries NO renderable balance (asserted server-side), so this is NOT a failure to
     // retry: the caller must RE-READ the real balance. Distinct typed error (never re-post).
     if (e instanceof Error && /returned 409/.test(e.message)) throw new PurchaseConflictError();
+    // A 403 is the API refusing this account (see PurchaseForbiddenError) — typed, never retried.
+    if (e instanceof Error && /returned 403/.test(e.message)) throw new PurchaseForbiddenError();
     // Anything else propagates.
     throw e;
   }
@@ -400,6 +402,8 @@ export async function createCreditOrder(input: { packCode: string }): Promise<Cr
     });
   } catch (e) {
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    // The API refused this account: no order was created, so no money moved.
+    if (e instanceof Error && /returned 403/.test(e.message)) throw new PurchaseForbiddenError();
     throw e;
   }
 }
@@ -432,6 +436,9 @@ export async function verifyCreditPayment(input: {
     });
   } catch (e) {
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    // The API refused the CONFIRM call — the checkout may still have charged; the webhook
+    // settles independently of this route.
+    if (e instanceof Error && /returned 403/.test(e.message)) throw new PurchaseForbiddenError();
     throw e;
   }
 }
@@ -598,6 +605,22 @@ export class PurchaseConflictError extends Error {
   constructor() {
     super("duplicate purchase in flight");
     this.name = "PurchaseConflictError";
+  }
+}
+
+/**
+ * A 403 on a credit PURCHASE route (`POST /payer/credits`, `/payer/credits/order`,
+ * `/payer/credits/verify`): the API refused THIS account. #2098 (#2079) put an owner-only
+ * `PayerOrgRoleGuard` on these routes; the 2026-10-07 owner ruling opens buying to every member
+ * and the backend is lifting that guard, but until it deploys a Recruiter this app admits gets a
+ * 403 here. Typed so the action can answer it neutrally and WITHOUT inviting a retry (a retry is
+ * the same 403); it is neither a transport blip nor the 404 → null "unknown pack / payments off"
+ * path. Carries no deny reason from the body (no-oracle).
+ */
+export class PurchaseForbiddenError extends Error {
+  constructor() {
+    super("purchase refused for this account");
+    this.name = "PurchaseForbiddenError";
   }
 }
 

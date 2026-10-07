@@ -15,8 +15,8 @@ import type { Capacity } from "../../lib/contracts";
  *     W3-B CSS block is scoped to these wrappers — see w3b-page-polish.css.test.ts);
  *   · the per-posting table on /plans is a focusable scroll region NAMED BY its panel heading
  *     (aria-labelledby → the heading's id, not a copied aria-label string);
- *   · /plans: credits are bought on /credits, which an owner reaches from the rail (Billing) and
- *     the header chip — so the page adds no door of its own (F15; per-pack buttons were one door
+ *   · /plans: credits are bought on /credits, which every member reaches from the rail (Billing)
+ *     and the header chip — so the page adds no door of its own (F15; per-pack buttons were one door
  *     N times, and a section "Buy credits" beside the chip was two); its copy names the Credits
  *     page (never the chip, which hides when its read fails); the pack cards carry no action;
  *   · /postings for an AGENT: redirected to their own Postings, unless they own older company
@@ -289,18 +289,20 @@ describe("W3-B · /plans — credits are bought on /credits; the page adds no do
     }
     expect(hrefs(tree).filter((h) => h === "/credits")).toEqual([]);
     expect(byClass(tree, "bb-btn").filter((b) => props(b).href === "/credits")).toEqual([]);
-    // …and the section names where buying happens — the Credits page, which an owner's rail
-    // always lists under Billing. Never the header chip: it hides when its own read fails.
+    // …and the section names where buying happens — the Credits page, which every member's rail
+    // lists under Billing. Never the header chip: it hides when its own read fails.
     expect(textOf(tree)).toContain("Buy credits on the Credits page, under Billing");
     expect(textOf(tree)).not.toMatch(/balance at the top/);
   });
 
-  it("RECRUITER: no link to /credits anywhere (it is Owner-only — a 404 for them)", async () => {
+  it("RECRUITER: the same page an owner gets — any member can buy (owner ruling 2026-10-07)", async () => {
     getOrgRole.mockReturnValue("recruiter");
     const tree = (await plans.default()) as ReactElement;
     expect(creditPacks(tree).length).toBeGreaterThan(0);
+    // Still no in-page door (F15) — the copy names the Credits page, as it does for an owner.
     expect(hrefs(tree)).not.toContain("/credits");
-    expect(textOf(tree)).toContain("Ask your account owner to buy credits");
+    expect(textOf(tree)).toContain("Buy credits on the Credits page, under Billing");
+    expect(textOf(tree)).not.toMatch(/account owner/i);
   });
 });
 
@@ -397,5 +399,18 @@ describe("/team — a failed members read stays on the page (F30)", () => {
         typeof c === "object" && c !== null && "members" in (c as ReactElement<object>).props,
     )!;
     expect(props(manager).members).toEqual([{ memberId: "m1" }]);
+  });
+});
+
+describe("/team — the head describes what a recruiter can do (owner ruling 2026-10-07)", () => {
+  it("names buying credits as a recruiter power and never says billing stays with owners", async () => {
+    listOrgMembers.mockResolvedValue([]);
+    const root = (await team.default()) as ReactElement;
+    const head = (props(root).children as ReactNode[]).find(
+      (c): c is ReactElement => typeof c === "object" && c !== null && "title" in (c as ReactElement<object>).props,
+    )!;
+    const description = String(props(head).description);
+    expect(description).toMatch(/buy credits/i);
+    expect(description).not.toMatch(/billing|credits stay/i);
   });
 });

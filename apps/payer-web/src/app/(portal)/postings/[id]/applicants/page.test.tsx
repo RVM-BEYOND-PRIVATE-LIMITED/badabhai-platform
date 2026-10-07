@@ -18,7 +18,8 @@ import type { ApplicantFeed, FacelessApplicant } from "../../../../../lib/contra
  *  - BALANCE IS AN AFFORDANCE: a failed balance read leaves Unlock ENABLED (only a real 0
  *    disables it) — the no-oracle server makes the spend decision. The balance is printed ONCE,
  *    by the shell header's credits chip — never again on this page.
- *  - CREDITS IS OWNER-ONLY: a zero balance links to /credits only for an owner.
+ *  - CREDITS IS FOR EVERY MEMBER (owner ruling 2026-10-07): a zero balance links to /credits for
+ *    an owner and a recruiter alike.
  *  - HEADER: the back link goes to the posting this feed belongs to, BY ITS NAME (from the
  *    postings read the page already makes); the New / Shortlist tabs sit in the head's toolbar
  *    row; there is no second (section) head under it.
@@ -267,17 +268,17 @@ describe("applicants page — the head names its posting; the tabs are its toolb
   });
 });
 
-describe("applicants page — CREDITS is linked for an owner only", () => {
-  it("a recruiter at a zero balance gets no link to /credits (it would 404 for them)", async () => {
+describe("applicants page — CREDITS is linked for every member (owner ruling 2026-10-07)", () => {
+  it("a recruiter at a zero balance gets the link to /credits, like an owner", async () => {
     getOrgRole.mockReturnValue("recruiter");
     getDashboard.mockResolvedValueOnce(dash(0));
     const out = await html();
-    expect(out).not.toContain('href="/credits"');
-    expect(textOf(out)).toContain("Ask your account owner to buy credits");
+    expect(out).toContain('href="/credits"');
+    expect(textOf(out)).not.toMatch(/account owner/i);
     for (const t of unlockButtonTags(out)) expect(t).toMatch(/\bdisabled\b/);
   });
 
-  it("an owner at a zero balance does get it", async () => {
+  it("an owner at a zero balance gets it too", async () => {
     getDashboard.mockResolvedValueOnce(dash(0));
     expect(await html()).toContain('href="/credits"');
   });

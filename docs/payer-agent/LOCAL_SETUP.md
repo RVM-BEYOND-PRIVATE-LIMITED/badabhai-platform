@@ -154,10 +154,12 @@ the asserts bite outside dev/test.
 | `PAYER_API_URL` (payer-web) | `http://localhost:3001` | **server-only**, deliberately not `NEXT_PUBLIC_*` |
 | `PAYMENTS_ENABLE_REAL` | `false` | keep OFF for alpha |
 | `AGENCY_PAYOUTS_ENABLED` | `false` | keep OFF for alpha |
-| `PAYER_DEV_ORG_ROLE` | unset | **dev-only** Owner-UI preview; ignored outside dev — the only way to see `/credits` and `/team` today |
+| `PAYER_DEV_ORG_ROLE` | unset | **dev-only** org-role preview (`owner`/`recruiter`) that wins over the real role; ignored outside dev |
 
-`PAYER_DEV_ORG_ROLE=owner` is how you view the Owner surfaces locally. It is gated by
-`isDevEnv()` reading raw `NODE_ENV` and **cannot** unlock Owner in staging or production.
+Without the override the org role is the real one: `GET /payer/me` `orgRole` (#2079), so a
+self-signed-up payer (the owner of their solo org) sees `/team`. `PAYER_DEV_ORG_ROLE` lets you
+preview the other role locally. It is gated by `isDevEnv()` reading raw `NODE_ENV` and **cannot**
+unlock Owner in staging or production.
 
 ### Documented-but-dead variables
 
@@ -206,7 +208,8 @@ Based on the audit, on a clean machine today you should expect:
 | Reach `/login` | should work |
 | **Complete a payer login** | works with Mailpit — `EMAIL_PROVIDER=smtp` → `127.0.0.1:1025` (verified 2026-09-25, #1724) |
 | Post a job, view postings | should work once logged in |
-| `/credits`, `/team` | **404** unless `PAYER_DEV_ORG_ROLE=owner` in dev |
+| `/credits` | open to every signed-in member (owner ruling 2026-10-07) |
+| `/team` | owners only (`GET /payer/me` `orgRole`); a recruiter gets a neutral **404** |
 | Applicants / unlock / reveal | needs seeded workers **and** an applied application |
 | Agency KYC / earnings / payouts | **404 by design** (alpha flags off) |
 | `/agency/revenue`, `/agency/bulk-upload` | parked / deliberately dead |

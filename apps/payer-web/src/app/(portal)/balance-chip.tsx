@@ -14,8 +14,9 @@ import {
  * The shell header's credit balance — the ONE place the shell shows it, in "credits" (the unit
  * every billing surface uses) with the wallet icon.
  *
- * For an OWNER it is a link to Credits; for anyone else it is static (a recruiter's /credits is
- * a 404). Below ~540px the unit word is hidden VISUALLY (globals.css), so the chip carries:
+ * The shell renders it as a LINK to Credits for every member (any member can buy — owner ruling
+ * 2026-10-07); `linkToCredits={false}` keeps a static variant for a context with no Credits
+ * door. Below ~540px the unit word is hidden VISUALLY (globals.css), so the chip carries:
  *   - an explicit accessible name — "1234 credits — open Credits" on the link (the visible
  *     number leads it, so the name contains the visible label); the static chip's text already
  *     reads "1234 credits";
