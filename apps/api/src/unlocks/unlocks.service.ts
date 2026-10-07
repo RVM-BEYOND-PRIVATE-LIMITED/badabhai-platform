@@ -33,6 +33,7 @@ import {
 } from "./unlocks.repository";
 import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
 import { verifyCheckoutSignature } from "./razorpay-signature";
+import { assertExpectedPrice } from "../pricing/charge-price";
 import {
   RAZORPAY_CAPTURE_EVENTS,
   RAZORPAY_FAILURE_EVENTS,
@@ -622,11 +623,15 @@ export class UnlockService {
     payerId: string,
     packCode: string,
     ctx: RequestContext,
+    expectedPriceInr?: number,
   ): Promise<{ payer_id: string; balance: number; credits: number; pack_code: string } | null> {
     // D-6: resolved from the LIVE catalog (legacy constants as the fallback) so the price +
     // credits CHARGED are the same ones the portal DISPLAYED. Async since D-6.
     const pack = await this.payments.resolvePack(packCode);
     if (!pack) return null; // unknown pack → 404 (this is NOT the unlock no-oracle path)
+    // #2085: the ₹ the payer confirmed must be the ₹ charged — refused (409) BEFORE the
+    // ledger write, so a mismatch grants and records nothing.
+    assertExpectedPrice(expectedPriceInr, pack.priceInr);
 
     const result = await this.payments.purchasePackMock(payerId, pack);
     // Mock purchase audit: authorized + captured, real_call:false (mock honesty, F-6).
@@ -672,9 +677,12 @@ export class UnlockService {
     payerId: string,
     packCode: string,
     ctx: RequestContext,
+    expectedPriceInr?: number,
   ): Promise<RealOrderHandoff | null> {
     const pack = await this.payments.resolvePack(packCode);
     if (!pack) return null;
+    // #2085: refused BEFORE the provider order and the payment_orders row exist.
+    assertExpectedPrice(expectedPriceInr, pack.priceInr);
 
     const order = await this.payments.createRealOrder(payerId, pack);
 

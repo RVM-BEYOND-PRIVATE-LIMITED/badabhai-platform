@@ -343,7 +343,7 @@
   ],
 
   "credentialBefore": {
-    "source": "(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license|ncvt|scvt|nsqf|nsdc){WE}\\.?(?:\\s+(?:ka|ki|ke|mera|meri))?\\s*(?:(?:no\\.?|number|num|#)\\s*)?(?:[:-]-?\\s*)?[A-Za-z0-9/-]{0,20}$",
+    "source": "{WB}(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license|ncvt|scvt|nsqf|nsdc|passport|voter|gstin|uan|provident\\s+fund|ifsc|dob|date\\s+of\\s+birth){WE}\\.?(?:\\s+(?:ka|ki|ke|mera|meri))?\\s*(?:(?:no\\.?|number|num|id|#)\\s*)?(?:[:-]-?\\s*)?[A-Za-z0-9/-]{0,20}$",
     "flags": "i"
   },
   "$comment_credentialBefore": [
@@ -386,6 +386,23 @@
     "straight after the cue word, 'regn' among the cues, and '-?' after the separator. The '-'",
     "outside a class is a plain literal in both engines, u-mode included. The dot is",
     "TRANSPARENT, so a number written straight after 'certificate.' is dropped exactly as one",
-    "after 'certificate' always was; over the lexicon parity corpus no verdict moves."
+    "after 'certificate' always was; over the lexicon parity corpus no verdict moves.",
+    "",
+    "THE IDENTIFIER-ONLY RESUME CUES, AND A LEADING WORD BOUNDARY (issue #2043, split from",
+    "#1950 / R56). The guard knew only the credential cues, so an identifier the G1/G2 floor",
+    "refuses on its resume cue was still recorded as pay: 'Passport No. M123456' -> 123456,",
+    "'Voter ID ABC1234567' -> 1234567, 'Provident Fund no MH/BAN/12345/678' -> 12345,",
+    "'GSTIN 27ABCDE1234F1Z5' and 'IFSC SBIN0001234' -> 1234, and 'dob 1995, salary 18000' ->",
+    "1995 (the birth year as pay). It now takes passport, voter, gstin, uan, provident fund,",
+    "ifsc, dob and date of birth, and the connector reads the 'id' word ('Voter ID ABC1234567'),",
+    "as the G1/G2 resume rule's connector already does. The 'id' word sits in the folded",
+    "'no'-word slot, so the connector stays linear (#1933) and the dot stays transparent (#1950).",
+    "Two resume cues are left out ON MEASUREMENT (scripts/measure_salary_guard_resume_cues.py):",
+    "'account' / 'a/c' sit right before real wages ('salary account 25000 aata hai', 'a/c: 18000",
+    "credit hota hai'), and 'esic' before one ('ESIC 15000 milta hai'). None of the three",
+    "protects anything: a full account, ESIC or UAN number is too long to be read as pay.",
+    "'{WB}' in front of the group stops a cue matching inside a word: 'payroll' ends in 'roll',",
+    "so 'Company payroll. 18000 milta hai' and 'payroll: 18000' dropped a real wage. Over the",
+    "lexicon parity corpus and the repo's tracked text no other verdict moves."
   ]
 }

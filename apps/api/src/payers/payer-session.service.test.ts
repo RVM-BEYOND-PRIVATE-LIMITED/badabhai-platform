@@ -144,6 +144,73 @@ describe("PayerSessionService — role (ADR-0022)", () => {
   });
 });
 
+/** Decode the test JWT double's claims (see {@link makeJwt}). */
+function claimsOf(token: string): Record<string, unknown> {
+  const [, b64] = token.split(".");
+  return JSON.parse(Buffer.from(b64!, "base64").toString()) as Record<string, unknown>;
+}
+
+/**
+ * #2079 — the member's `org_id` / `org_role` on the signed session. A HINT for session readers
+ * (the server authority is PayerOrgRoleGuard's per-request DB read); absent = least privilege.
+ */
+describe("PayerSessionService — org claim (#2079)", () => {
+  const ORG = "11111111-1111-4111-8111-111111111111";
+
+  it("create(..., {owner}) signs org_id + org_role and validates them back", async () => {
+    const { svc } = setup();
+    const { token } = await svc.create("payer-1", "employer", { orgId: ORG, orgRole: "owner" });
+    expect(claimsOf(token)).toMatchObject({ org_id: ORG, org_role: "owner" });
+    const validated = await svc.validateAndTouch(token);
+    expect(validated!.org).toEqual({ orgId: ORG, orgRole: "owner" });
+  });
+
+  it("create(..., {recruiter}) signs org_role:'recruiter'", async () => {
+    const { svc } = setup();
+    const { token } = await svc.create("payer-1", "employer", { orgId: ORG, orgRole: "recruiter" });
+    expect(claimsOf(token)).toMatchObject({ org_id: ORG, org_role: "recruiter" });
+    expect((await svc.validateAndTouch(token))!.org).toEqual({ orgId: ORG, orgRole: "recruiter" });
+  });
+
+  it("the org claim is NOT written into the Redis blob (the blob shape is unchanged)", async () => {
+    const { svc, redis } = setup();
+    await svc.create("payer-1", "employer", { orgId: ORG, orgRole: "owner" });
+    const [, raw] = [...redis.store.entries()][0]!;
+    expect(JSON.parse(raw)).toEqual({ payer_id: "payer-1", role: "employer" });
+  });
+
+  it("BACKWARD-COMPAT: a legacy token without the claim still validates, org:null (least privilege)", async () => {
+    const { svc } = setup();
+    const { token } = await svc.create("payer-1", "employer");
+    const claims = claimsOf(token);
+    expect(claims).not.toHaveProperty("org_id");
+    expect(claims).not.toHaveProperty("org_role");
+    const validated = await svc.validateAndTouch(token);
+    expect(validated).not.toBeNull();
+    expect(validated!.payerId).toBe("payer-1");
+    expect(validated!.org).toBeNull();
+  });
+
+  it("a malformed org_role on the token is ignored (org:null), never read as owner", async () => {
+    const { svc, redis } = setup();
+    await svc.create("payer-1", "employer");
+    const [key] = [...redis.store.keys()];
+    const sid = key!.replace("payer_session:", "");
+    const forged = `t.${Buffer.from(
+      JSON.stringify({ sub: "payer-1", sid, typ: "payer", org_id: ORG, org_role: "admin" }),
+    ).toString("base64")}`;
+    expect((await svc.validateAndTouch(forged))!.org).toBeNull();
+  });
+
+  it("mint(..., org) carries the freshly-resolved claim; mint without org omits it", async () => {
+    const { svc } = setup();
+    const withOrg = await svc.mint("payer-1", "sid-1", "employer", { orgId: ORG, orgRole: "owner" });
+    expect(claimsOf(withOrg.token)).toMatchObject({ org_id: ORG, org_role: "owner" });
+    const without = await svc.mint("payer-1", "sid-1", "employer");
+    expect(claimsOf(without.token)).not.toHaveProperty("org_role");
+  });
+});
+
 /**
  * ADR-0037 — revoking EVERY live session for a payer.
  *
