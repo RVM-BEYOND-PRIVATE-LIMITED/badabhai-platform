@@ -4076,3 +4076,43 @@ def test_a_range_figure_span_holds_no_trailing_whitespace(text: str, figure: str
     (found,) = answers._pay_figures(text)
     assert found.from_range
     assert text[found.start : found.end] == figure
+
+
+# --- #2100: a single amount ends at its last character -----------------------------------
+# `_AMOUNT_RE` swallows the whitespace after a suffix-less amount ("25000\n"), so a following
+# boundary sat INSIDE the amount and its clause ran on into the next one: "salary 25000\nbonus"
+# was dropped with the bonus and no pay was recorded, while "salary 25k\nbonus" read 25,000.
+_SINGLE_SPAN_CASES: list[tuple[str, dict | None]] = [
+    ("salary 25000\nbonus", _pay(25000)),
+    ("25000 and PF", _pay(25000)),
+    ("25000\naur PF", _pay(25000)),
+    ("25000 aur PF", _pay(25000)),
+    ("25,000 \n and bonus 2k", _pay(25000)),
+    ("rs 25000 ; food free", _pay(25000)),
+    # Unchanged: a suffixed amount already ended at its suffix ...
+    ("salary 25k\nbonus", _pay(25000)),
+    # ... and an add-on in the amount's OWN clause still drops it.
+    ("25000 bonus", None),
+    ("25000 incentive\nand PF", None),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _SINGLE_SPAN_CASES)
+def test_a_single_amount_ends_at_its_last_character(text: str, pay: dict | None) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"salary {text}", None).get("pay_range") == pay
+
+
+@pytest.mark.parametrize(
+    ("text", "figure"),
+    [
+        ("25000\nbonus", "25000"),
+        ("25,000   and PF", "25,000"),
+        ("1.5 lakh \n aur PF", "1.5 lakh"),
+        ("25 k\nbonus", "25 k"),
+    ],
+)
+def test_a_single_amount_span_holds_no_trailing_whitespace(text: str, figure: str) -> None:
+    (found,) = answers._pay_figures(text)
+    assert not found.from_range
+    assert text[found.start : found.end] == figure
