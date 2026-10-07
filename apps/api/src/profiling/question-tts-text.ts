@@ -7,6 +7,11 @@ import {
 } from "./next-question";
 import { normalizeReplyText } from "./reply-closure";
 import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
+import {
+  FREE_CHAT_LEAD_LINES,
+  FREE_CHAT_REPLIES,
+  FREE_CHAT_TTS_ENTRIES,
+} from "./free-chat/free-chat.copy";
 
 /**
  * THE DEVANAGARI SIDECAR (#896) — the native-script twin of every string the interview can say.
@@ -128,6 +133,12 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
   // identity-intake.copy.ts — the handoff onto the interview's opener.
   "Shukriya. Aap kaun sa kaam karte hain, aur kitna tajurba hai?":
     "शुक्रिया। आप कौन सा काम करते हैं, और कितना तजुर्बा है?",
+
+  // free-chat.copy.ts (ADR-0051) — the free chat's fixed lines. SPREAD FROM THE PAIRS, the one
+  // exception to this table's literal-key rule, and for the rule's own reason: there each line's
+  // roman and Devanagari halves are authored side by side in ONE object (the ADR's approved copy),
+  // so an edit to one half cannot leave the other behind the way an imported constant would here.
+  ...Object.fromEntries(FREE_CHAT_TTS_ENTRIES),
 };
 
 /**
@@ -1199,7 +1210,42 @@ function composeClarify(normalized: string): string | undefined {
 export function ttsTextFor(reply: string | null | undefined): string | undefined {
   if (!reply) return undefined;
   const normalized = normalizeReplyText(reply);
-  return TTS_TEXT_BY_REPLY.get(normalized) ?? composeClarify(normalized);
+  return (
+    TTS_TEXT_BY_REPLY.get(normalized) ??
+    composeClarify(normalized) ??
+    composeFreeChatLead(normalized)
+  );
+}
+
+/**
+ * The free chat's lead lines, normalized, beside their twins — see {@link composeFreeChatLead}. The
+ * de-escalation line leads a re-ask too (a classifier-only trash verdict in résumé mode), and its
+ * twin is the one this table already holds.
+ */
+const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string]> = [
+  ...FREE_CHAT_LEAD_LINES.map((line) => [normalizeReplyText(line.latin), line.dev] as const),
+  ...[normalizeReplyText(DE_ESCALATION_REPLY_TEXT)].flatMap((roman) => {
+    const devanagari = TTS_TEXT_BY_REPLY.get(roman);
+    return devanagari === undefined ? [] : [[roman, devanagari] as const];
+  }),
+];
+
+/**
+ * A free-chat résumé-mode aside's twin (ADR-0051): "Pehle resume…" or "Samajh nahi aaya…" followed
+ * by the pending question, in one bubble — composed as `lead + " " + question` exactly as
+ * {@link composeClarify} composes a clarify, and for its reason: the products of two tables are
+ * never hand-authored. Absent unless BOTH halves are authored (the question may itself be a
+ * clarify, which composes).
+ */
+function composeFreeChatLead(normalized: string): string | undefined {
+  for (const [lead, leadDevanagari] of FREE_CHAT_LEADS) {
+    const prefix = `${lead} `;
+    if (!normalized.startsWith(prefix)) continue;
+    const rest = normalized.slice(prefix.length);
+    const question = TTS_TEXT_BY_REPLY.get(rest) ?? composeClarify(rest);
+    if (question !== undefined) return `${leadDevanagari} ${question}`;
+  }
+  return undefined;
 }
 
 /**
@@ -1236,6 +1282,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   DISAMBIGUATION_PROMPT_TEXT,
   CHAT_OPENING_TEXT,
   ...IDENTITY_INTAKE_REPLIES,
+  ...FREE_CHAT_REPLIES,
 ];
 
 export { DEVANAGARI_RE };

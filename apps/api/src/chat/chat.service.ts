@@ -8,7 +8,11 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { type KnownNameSource, knownNameOnce } from "../common/redact-known-name";
 import { ProfilesService } from "../profiles/profiles.service";
-import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
+import {
+  ProfilingOrchestrator,
+  type FreeChatTurnInput,
+  type TurnResult,
+} from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
 import {
@@ -24,6 +28,11 @@ import {
 } from "../profiling/conversation-state";
 import { generalFormOfferFor, type GeneralFormOffer } from "../profiling/skills-gate";
 import { identityGapsOf } from "../profiling/identity-intake/identity-intake";
+import {
+  carriesFreeChatLock,
+  storedFreeChatLock,
+  toFreeChatStatePatch,
+} from "../profiling/free-chat/free-chat.state";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -35,6 +44,7 @@ import { resolveResumeMenu } from "./resume-menu";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
+  FREE_CHAT_METADATA,
   IDENTITY_INTAKE_METADATA,
   type BufferedMessage,
   type TranscriptBuffer,
@@ -49,6 +59,15 @@ import {
 } from "./chat.dto";
 
 const DEFAULT_ROLE_FAMILY = "cnc_vmc";
+
+/**
+ * ADR-0051 §3.6 — how often a free-chat session's `last_message_at` is touched. The abandonment
+ * sweep closes a session idle by `coalesce(last_message_at, started_at)` (6 h by default), and a
+ * free chat spends no ask, so it never reaches the every-fifth-ask checkpoint that moves the clock
+ * for the interview. One UPDATE at most per this window keeps a live free chat off the sweep's list
+ * without a write per message.
+ */
+export const FREE_CHAT_TOUCH_EVERY_MS = 15 * 60_000;
 
 /**
  * A pack option → the three fields the client is allowed to see (#695).
@@ -214,7 +233,7 @@ export class ChatService {
   async startSession(
     workerId: string,
     ctx: RequestContext,
-    opts: { confirmFirst?: boolean; redo?: boolean } = {},
+    opts: { confirmFirst?: boolean; redo?: boolean; mint?: boolean } = {},
   ) {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
@@ -241,7 +260,12 @@ export class ChatService {
     // (an early finish): a redo must not run inside it, see `supersedeConfirmedLeftover`. Only
     // the client's `redo` flag says so. Without it this POST is indistinguishable from the resume
     // fallback above, which must keep reattaching whatever the session's history.
-    const found = await this.chat.findActiveSessionByWorker(workerId);
+    //
+    // ADR-0051 — `mint` SKIPS THE REATTACH ENTIRELY. Only the voice form passes it, and only when
+    // it has already judged the live session not continuable (a free chat in greeting or free mode,
+    // an armed general road): reattaching here would hand it back that same session.
+    const found =
+      opts.mint === true ? undefined : await this.chat.findActiveSessionByWorker(workerId);
     const live =
       found && opts.redo === true && (await this.supersedeConfirmedLeftover(found, workerId, ctx))
         ? undefined
@@ -309,6 +333,19 @@ export class ChatService {
       ctx,
     );
     if (opened !== null) return { ...base, ...opened };
+
+    // ADR-0051 (#2027) — THE FREE CHAT'S GREETING OPENS THE SESSION ("Shuru karein?" Haan | Baad
+    // mein), for a worker who is not locked into résumé mode and a client that renders a served
+    // opening — gated on `confirm_first` exactly as the intake and the résumé confirm are. AFTER
+    // both, deliberately: the intake asks the worker's name first and serves the greeting as its
+    // own handoff, and a résumé-import opening IS résumé mode (the lock). Off under the kill switch.
+    const greeting = await this.tryOpenFreeChatGreeting(
+      opts.confirmFirst === true,
+      session.id,
+      workerId,
+      ctx,
+    );
+    if (greeting !== null) return this.checkedStartResponse({ ...base, ...greeting });
 
     // One-shot composite opener (CHAT_ONE_SHOT_OPENER_ENABLED, default OFF).
     //
@@ -455,6 +492,9 @@ export class ChatService {
         workerId,
         now: new Date(),
         ctx,
+        // ADR-0051 (c) — a chat session that opens on a résumé-import turn enters résumé mode.
+        // Never under the kill switch, which stamps nothing.
+        freeChat: this.config.CHAT_FREE_CHAT_DISABLED !== true,
       });
     } catch (error) {
       // DEGRADES, NEVER FAILS — the identical posture `autoTriggerExtraction` takes on the
@@ -474,6 +514,101 @@ export class ChatService {
         option_key: option.option_key,
         label_text: option.label_text,
       })),
+    };
+  }
+
+  /**
+   * ADR-0051 — open a NEW session on the free chat's greeting, or `null`.
+   *
+   * THE GATES, each deliberate:
+   *   - `confirmFirst` — the client renders a server-served first bubble (the intake's gate). A
+   *     build that does not send it keeps today's opening byte for byte.
+   *   - the KILL SWITCH (`CHAT_FREE_CHAT_DISABLED`) — on, this reads nothing and writes nothing.
+   *   - the LOCK — a worker whose newest deciding session is a résumé session nobody finished is
+   *     locked (R5): no greeting, and the lock is merge-written onto this new session so its first
+   *     turn is stamped `resume` (`locked_at_open`) and the lock survives it.
+   *
+   * DEGRADES, NEVER FAILS — the posture `tryOpenIdentityIntake` takes: a throw (an unreadable lock,
+   * an orchestrator without the greeting) or a `null` falls through to today's opening. An
+   * unreadable lock serves no greeting, which is today's interview: the safe side.
+   */
+  private async tryOpenFreeChatGreeting(
+    confirmFirst: boolean,
+    sessionId: string,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<Pick<
+    StartSessionResponse,
+    "opening_text" | "opening_tts_text" | "opening_options"
+  > | null> {
+    if (!confirmFirst || this.config.CHAT_FREE_CHAT_DISABLED === true) return null;
+    const now = new Date();
+    try {
+      if (await this.workerFreeChatLocked(workerId)) {
+        await this.chat.mergeFreeChatLock(sessionId, workerId, now.toISOString());
+        this.logger.log(`free-chat greeting withheld session=${sessionId}: the worker is locked`);
+        return null;
+      }
+      const opened = await this.orchestrator.openFreeChatGreeting({
+        sessionId,
+        workerId,
+        now,
+        ctx,
+      });
+      if (opened === null) return null;
+      const tts = ttsTextFor(opened.reply);
+      return {
+        opening_text: opened.reply,
+        ...(tts === undefined ? {} : { opening_tts_text: tts }),
+        opening_options: opened.options.map((option) => ({
+          option_key: option.option_key,
+          label_text: option.label_text,
+        })),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `free-chat greeting open failed session=${sessionId} (non-fatal, the session opens as it ` +
+          `does without one): ${logSafeReason(error, "free-chat greeting open")}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * ADR-0051 — is this worker LOCKED into résumé mode (`findFreeChatLockDecider`): their newest
+   * session that is ended or carries the lock is NOT ended. Throws on a read failure; each caller
+   * decides its own safe side (both choose "no greeting").
+   */
+  private async workerFreeChatLocked(workerId: string): Promise<boolean> {
+    const decider = await this.chat.findFreeChatLockDecider(workerId);
+    return decider !== undefined && decider.status !== "ended";
+  }
+
+  /**
+   * ADR-0051 — the free chat's inputs for one CHAT turn. The lock read is a memoised THUNK: only the
+   * identity intake's handoff asks it, so an ordinary turn costs no query. It fails toward LOCKED —
+   * today's interview, the safe side — and logs ids only.
+   */
+  private freeChatTurnInput(
+    session: { readonly conversationState: unknown },
+    sessionId: string,
+    workerId: string,
+  ): FreeChatTurnInput {
+    const sessionLocked = carriesFreeChatLock(session.conversationState);
+    let pending: Promise<boolean> | null = null;
+    return {
+      enabled: this.config.CHAT_FREE_CHAT_DISABLED !== true,
+      sessionLocked,
+      locked: () =>
+        (pending ??= sessionLocked
+          ? Promise.resolve(true)
+          : this.workerFreeChatLocked(workerId).catch((error: unknown) => {
+              this.logger.warn(
+                `free-chat lock unreadable session=${sessionId}; treated as locked: ` +
+                  `${logSafeReason(error, "free-chat lock read")}`,
+              );
+              return true;
+            })),
     };
   }
 
@@ -536,7 +671,8 @@ export class ChatService {
       // ordinary text. If that route ever grows a clip id, this is the line that must change.
       null,
       // ADR-0045: the chat is the ONE surface that may arm a new session for the general road.
-      { armGeneralRoad: true, knownName },
+      // ADR-0051: and the ONE surface the profiling-stage free chat runs on.
+      { armGeneralRoad: true, knownName, freeChat: true },
     );
     switch (outcome.kind) {
       case "session_over":
@@ -602,8 +738,9 @@ export class ChatService {
             session_id: dto.session_id,
             reply: outcome.turn.reply,
             // FROM THE REPLAYED TURN too — a resubmit over a bad link must read aloud exactly as
-            // the response it claims to repeat.
-            ...this.ttsField(outcome.turn.reply, null),
+            // the response it claims to repeat. ADR-0051: a replayed MODEL reply carries
+            // `read_aloud: false` and no twin, as the response it repeats did.
+            ...readAloudFields(outcome.turn, () => this.ttsField(outcome.turn.reply, null)),
             blocked: false,
             is_mock: false,
             // FROM THE REPLAYED TURN, not empty (#695). The orchestrator caches the chips
@@ -703,7 +840,15 @@ export class ChatService {
      * (`postMessage` reuses it for the vocative). ABSENT IS STILL REDACTED: this method then builds
      * its own, so a caller that omits it — the voice form — costs a read, never the redaction.
      */
-    opts?: { readonly armGeneralRoad?: boolean; readonly knownName?: KnownNameSource },
+    opts?: {
+      readonly armGeneralRoad?: boolean;
+      readonly knownName?: KnownNameSource;
+      /**
+       * ADR-0051 — the profiling-stage free chat. Set by `postMessage` alone; ABSENT for the voice
+       * form, whose turns never meet it (the `armGeneralRoad` rule).
+       */
+      readonly freeChat?: boolean;
+    },
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
     const session = await this.chat.findSession(dto.session_id);
@@ -768,7 +913,13 @@ export class ChatService {
     //     LATER turn happens to complete again — which, for an interview the client
     //     believes is finished, is never.
     if (buffer.completedAt) {
-      const reflushed = await this.finalizeInterview(workerId, dto.session_id, buffer, ctx);
+      const reflushed = await this.finalizeInterview(
+        workerId,
+        dto.session_id,
+        buffer,
+        ctx,
+        session.conversationState,
+      );
       this.logger.warn(
         `session ${dto.session_id} had a completed-but-unflushed buffer; ` +
           `re-flush ${reflushed ? "succeeded" : "FAILED again"}`,
@@ -802,6 +953,9 @@ export class ChatService {
       submissionId,
       voiceNoteId,
       ...(opts?.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
+      ...(opts?.freeChat === true
+        ? { freeChat: this.freeChatTurnInput(session, dto.session_id, workerId) }
+        : {}),
       // Read only if this turn calls a model — see `TurnInput.knownName`.
       knownName: opts?.knownName ?? knownNameOnce(() => this.workerFullName(workerId)),
       ctx,
@@ -852,7 +1006,7 @@ export class ChatService {
     //    end; `flushed` says the transcript is durable. They differ exactly when the flush
     //    transaction rolled back, and conflating them loses the whole interview.
     const flush = turn.complete
-      ? await this.flushInterview(workerId, dto.session_id, buffered, ctx)
+      ? await this.flushInterview(workerId, dto.session_id, buffered, ctx, session.conversationState)
       : null;
     const flushed = flush !== null && flush !== "failed";
     const terminal = turn.complete && flushed;
@@ -898,6 +1052,11 @@ export class ChatService {
             // ADR-0045 — same reasoning: a skills-lane checkpoint (the gate) must carry the
             // worker's certified skills, or this REPLACING write would drop them.
             ...toGeneralRoadStatePatch(buffered.profiling),
+            // ADR-0051 — same reasoning: this REPLACING write must carry the résumé lock the
+            // jsonb merge wrote, or the worker would be let out of the lock by a checkpoint. The
+            // row's own lock first, the envelope's second: a rebuilt envelope never erases it.
+            ...storedFreeChatLock(session.conversationState),
+            ...toFreeChatStatePatch(buffered.profiling),
             // #2021 — same reasoning: the model-provenance stamp must survive a REPLACING write.
             ...toLlmProvenanceStatePatch(buffered.profiling),
           },
@@ -908,6 +1067,20 @@ export class ChatService {
           `mid-interview checkpoint failed session=${dto.session_id} ` +
             `asks=${buffered.profiling.engineAsks}; the interview continues on the Redis buffer ` +
             `and the next checkpoint will retry (${logSafeReason(err, "mid-interview checkpoint")})`,
+        );
+      }
+    }
+
+    // 6c. ADR-0051 §3.6 — A LIVE FREE CHAT IS NOT IDLE. An aside spends no ask, so it never
+    //     reaches the checkpoint above; a throttled touch keeps the abandonment sweep (which reads
+    //     `coalesce(last_message_at, started_at)`) from closing a conversation the worker is having.
+    if (servedAnAside(buffered) && touchDue(session.lastMessageAt, now)) {
+      try {
+        await this.chat.touchSession(dto.session_id, now);
+      } catch (err) {
+        this.logger.warn(
+          `free-chat touch failed session=${dto.session_id}; the next aside retries ` +
+            `(${logSafeReason(err, "free-chat touch")})`,
         );
       }
     }
@@ -967,7 +1140,9 @@ export class ChatService {
       // `turn.reply` PRE-interpolation (the sidecar is keyed by the engine string, and a lookup
       // on the rendered text would key on the worker's real name), then rendered through the
       // identical `renderPackText` so both strings carry the name the same way.
-      ...this.ttsField(replyText, workerFullName),
+      // ADR-0051 §3.8 — a MODEL-WRITTEN reply (the free chat's casual or career answer) is never
+      // read aloud: `read_aloud: false` and no `tts_text`. Every other turn is byte-identical.
+      ...readAloudFields(turn, () => this.ttsField(replyText, workerFullName)),
       blocked: false,
       // PERMANENTLY FALSE, and deliberately not repurposed. The field meant "this reply
       // came from a mock LLM instead of a real one"; there is no LLM in this path at all,
@@ -1090,8 +1265,9 @@ export class ChatService {
     sessionId: string,
     buffer: TranscriptBuffer,
     ctx: RequestContext,
+    storedState: unknown,
   ): Promise<boolean> {
-    return (await this.flushInterview(workerId, sessionId, buffer, ctx)) !== "failed";
+    return (await this.flushInterview(workerId, sessionId, buffer, ctx, storedState)) !== "failed";
   }
 
   /**
@@ -1111,6 +1287,11 @@ export class ChatService {
     sessionId: string,
     buffer: TranscriptBuffer,
     ctx: RequestContext,
+    /**
+     * The row's `conversation_state` as the caller read it — the source of a résumé lock (ADR-0051)
+     * the buffer's envelope may no longer carry. REQUIRED, so no call site can forget it.
+     */
+    storedState: unknown,
   ): Promise<"won" | "already_final" | "failed"> {
     const at = new Date();
     // The state snapshot that lands in `chat_sessions.conversation_state`. Built
@@ -1157,6 +1338,11 @@ export class ChatService {
       // confirmed at the gate, which the general form, the profile build and the résumé read
       // after this buffer is gone. ABSENT for every session not on the skills lane.
       ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
+      // ADR-0051 — the résumé lock, carried for the record: the row's own first, the envelope's
+      // second. Harmless on a FINISHED session — the lock decider reads an ended row as
+      // "released" whatever it carries. ABSENT outside résumé mode.
+      ...storedFreeChatLock(storedState),
+      ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
       // #2021 — whether the model led any turn or settled any answer in this interview, SAME
       // REASONING AS `form_kind` ABOVE (engine bookkeeping outside the frozen contract, durable
       // only here). The extraction processor derives generic-pack match skills from the answer map
@@ -1481,7 +1667,13 @@ export class ChatService {
         completedAt: settledAt,
         completionReason: pendingOffer.completionReason ?? "complete",
       };
-      const outcome = await this.flushInterview(workerId, sessionId, declined, ctx);
+      const outcome = await this.flushInterview(
+        workerId,
+        sessionId,
+        declined,
+        ctx,
+        session.conversationState,
+      );
       // RECORDED ONLY IF THIS FLUSH BECAME THE RECORD. A worker who came back and answered in the
       // same instant may have closed the session first — with a "Haan" that is now the stored
       // answer — and a "no" written here would contradict the one record of their consent.
@@ -1530,7 +1722,13 @@ export class ChatService {
       (buffer.profiling?.resumeUpdateOffer?.state === "settled" ||
         buffer.profiling?.generalRoad?.handedOver === true)
     ) {
-      const outcome = await this.flushInterview(workerId, sessionId, buffer, ctx);
+      const outcome = await this.flushInterview(
+        workerId,
+        sessionId,
+        buffer,
+        ctx,
+        session.conversationState,
+      );
       this.logger.log(
         `completed-but-unflushed session re-driven reason=${
           buffer.profiling?.generalRoad?.handedOver === true
@@ -1564,6 +1762,11 @@ export class ChatService {
             : { import_applied_id: null, resume_update: null }),
           // ADR-0045 — an abandoned skills-lane session keeps what the worker confirmed.
           ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
+          // ADR-0051 — AND ITS RÉSUMÉ LOCK, which is the whole point of an abandoned résumé
+          // session: the worker who returns later is still locked (R5). This replace must carry it
+          // — the row's own lock first, the envelope's second, so a rebuilt envelope never erases it.
+          ...storedFreeChatLock(session.conversationState),
+          ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
           // #2021 — see `flushInterview`.
           ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
@@ -1713,7 +1916,9 @@ export class ChatService {
       // rows and its pin. A flush that fails again keeps today's reattach.
       const buffered = await this.buffer.load(live.id);
       if (buffered !== null && buffered.workerId === workerId && buffered.completedAt) {
-        if (!(await this.finalizeInterview(workerId, live.id, buffered, ctx))) return false;
+        if (!(await this.finalizeInterview(workerId, live.id, buffered, ctx, live.conversationState))) {
+          return false;
+        }
         this.logger.log(
           `re-flushed a completed confirmed leftover worker=${workerId} session=${live.id}`,
         );
@@ -1855,7 +2060,12 @@ export class ChatService {
       // ADR-0048 (D10) — an identity-intake line is stored verbatim for the worker's own redraw
       // and flagged, so the extraction and the résumé's quote/veto reader leave it out. SPREAD,
       // so every other row is inserted exactly as before and takes the column's `{}` default.
-      ...(m.intake === true ? { metadata: IDENTITY_INTAKE_METADATA } : {}),
+      // ADR-0051 §3.5 — a free-chat line likewise, with its own closed flag.
+      ...(m.intake === true
+        ? { metadata: IDENTITY_INTAKE_METADATA }
+        : m.aside === true
+          ? { metadata: FREE_CHAT_METADATA }
+          : {}),
       // `created_at` is EXPLICIT: these rows are written at flush but happened over the
       // preceding minutes, and defaulting would stamp a thirty-turn interview as thirty
       // simultaneous messages, destroying the order `listMessages` and the extraction
@@ -2420,4 +2630,36 @@ function durableGeneralFormOffer(conversationState: unknown): GeneralFormOffer |
       ? (conversationState as Record<string, unknown>).completion_reason
       : undefined;
   return reason === "general_form_handoff" ? generalFormOfferFor(0) : null;
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0051 — the profiling-stage free chat on the wire
+// ---------------------------------------------------------------------------
+
+/**
+ * A turn's read-aloud fields: `read_aloud: false` with NO `tts_text` on a model-written turn (R17 —
+ * only fixed lines are read aloud), else the turn's Devanagari twin exactly as before. The key is
+ * ABSENT, never true, on every turn a model did not write — so every existing body is unchanged.
+ */
+function readAloudFields(
+  turn: Pick<TurnResult, "readAloud">,
+  tts: () => { tts_text?: string },
+): { read_aloud?: false; tts_text?: string } {
+  return turn.readAloud === false ? { read_aloud: false } : tts();
+}
+
+/**
+ * Did the turn that just landed serve a free-chat ASIDE? Its WORKER line is flagged on every aside
+ * (the reply may not be — a résumé turn served on "Haan" is stored as that turn's own line).
+ */
+function servedAnAside(buffer: TranscriptBuffer): boolean {
+  const worker = buffer.messages[buffer.messages.length - 2];
+  return worker?.role === "worker" && worker.aside === true;
+}
+
+/** Has the session's activity clock gone stale enough to be touched again? */
+function touchDue(lastMessageAt: Date | null, now: Date): boolean {
+  return (
+    lastMessageAt === null || now.getTime() - lastMessageAt.getTime() >= FREE_CHAT_TOUCH_EVERY_MS
+  );
 }

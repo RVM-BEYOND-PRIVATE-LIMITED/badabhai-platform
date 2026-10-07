@@ -13,6 +13,8 @@ import {
   CompanionClassifyOutputSchema,
   CompanionCareerOutputSchema,
   CompanionEditParseOutputSchema,
+  FreeChatClassifyOutputSchema,
+  FreeChatReplyOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
   ResumeParseOutputSchema,
@@ -46,6 +48,10 @@ import {
   type CompanionCareerOutput,
   type CompanionEditParseInput,
   type CompanionEditParseOutput,
+  type FreeChatClassifyInput,
+  type FreeChatClassifyOutput,
+  type FreeChatReplyInput,
+  type FreeChatReplyOutput,
   type SkillCanonicalizationInput,
   type SkillCanonicalization,
   type ProfileExtractionInput,
@@ -426,6 +432,42 @@ export class AiService {
     ctx?: AiRequestContext,
   ): Promise<CompanionCareerOutput | null> {
     return this.post("/companion/career", input, CompanionCareerOutputSchema, 10_000, ctx);
+  }
+
+  /**
+   * ADR-0051 — classify one profiling-chat message into the free chat's closed category set.
+   *
+   * 2.5 SECONDS, and the budget is about the WORKER: in résumé mode this call sits in front of a
+   * typed interview answer the skip list did not settle, and a worker mid-interview must not wait
+   * on a router. The ADR's measured p95 for the companion's sibling classifier is 1.6–2.4 s. Null
+   * on every failure — unreachable, non-OK, a schema miss, the abort — and `FreeChatService` folds
+   * null, `blocked`, a mock and a failed call into ONE "unavailable", which résumé mode passes to
+   * today's interview and free mode answers with the clarify line.
+   *
+   * The far side applies the masking policy in force (ADR-0047) before any model call; the caller
+   * has already redacted the worker's own name (G2).
+   */
+  async freeChatClassify(
+    input: FreeChatClassifyInput,
+    ctx?: AiRequestContext,
+  ): Promise<FreeChatClassifyOutput | null> {
+    return this.post("/free-chat/classify", input, FreeChatClassifyOutputSchema, 2500, ctx);
+  }
+
+  /**
+   * ADR-0051 — one casual or career message to 1-4 short Hinglish lines, or a closed refusal.
+   *
+   * TEN SECONDS, the companion career answer's budget and for its reason: this is the one free-chat
+   * call whose failure costs the worker an ANSWER (every other category is fixed copy), and the
+   * default career model's first token can arrive late. Null on every failure; the caller serves the
+   * fallback line. NOTHING in the answer is trusted — the API re-validates every line
+   * (`screenFreeChatAnswer`) before a worker reads it.
+   */
+  async freeChatReply(
+    input: FreeChatReplyInput,
+    ctx?: AiRequestContext,
+  ): Promise<FreeChatReplyOutput | null> {
+    return this.post("/free-chat/reply", input, FreeChatReplyOutputSchema, 10000, ctx);
   }
 
   async extractProfile(

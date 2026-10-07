@@ -196,6 +196,9 @@ def test_the_career_prompt_refuses_the_closed_topics_and_allows_ranges() -> None
         assert f'"{topic}"' in prompt, topic
     folded = _folded(prompt)
     assert "typical pay only in general terms, as a range" in folded
+    # A dashed range ("₹15,000-25,000") reads as a split phone number to the API's G1 wall.
+    rule = 'write a ₹ range as "₹x se ₹y", never with a dash or hyphen between the numbers'
+    assert rule in folded
     assert "you may name companies or industries as examples" in folded
     assert "never promise a job, a salary or an interview" in folded
     assert "never compare the worker with other people" in folded

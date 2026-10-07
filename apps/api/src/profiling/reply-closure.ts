@@ -45,6 +45,8 @@ import { CHAT_OPENING_TEXT, CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies"
 // The intake's copy from its import-free module, not from the state machine: this file must stay
 // readable by a renderer that boots nothing.
 import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
+// The free chat's copy from its import-free module, for the same reason.
+import { FREE_CHAT_REPLIES } from "./free-chat/free-chat.copy";
 
 /** Which code path can put this text in front of a worker. */
 export type ReplyProducer = "prompt" | "retry" | "clarify" | "why" | "constant";
@@ -130,6 +132,11 @@ export const CONSTANT_REPLIES: readonly string[] = [
   // copy that belongs to no pack, served on the chat's first turns — and name-free by ruling (D4),
   // which is the property `assertNoInterpolation` now checks for them too.
   ...IDENTITY_INTAKE_REPLIES,
+  // ADR-0051 — the profiling-stage free chat's fixed lines (the greeting, the opener, the
+  // deflections, the per-category lines, the distress helpline). Engine copy that belongs to no
+  // pack and is read aloud, name-free like the intake's. A model-written reply is NEVER here: it
+  // is not a constant, and it is never read aloud.
+  ...FREE_CHAT_REPLIES,
 ];
 
 /** Thrown by the guards below. Names the offending text so the corpus row is findable. */

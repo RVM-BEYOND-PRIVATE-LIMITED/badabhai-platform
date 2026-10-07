@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 
 import { IdentifyService } from "./identify.service";
 import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
+import { FreeChatService } from "./free-chat/free-chat.service";
 import { WorkersModule } from "../workers/workers.module";
 import { WorkersService } from "../workers/workers.service";
 import { LlmTurnService } from "./llm-turn.service";
@@ -110,6 +111,10 @@ describe("ProfilingModule wiring", () => {
       // ADR-0048. Trailing and optional on the orchestrator for the same reason: omitting it would
       // not fail boot, it would silently open no identity intake. Pinned here for that reason.
       IdentityIntakeService,
+      // ADR-0051. Trailing and optional on the orchestrator for the same reason again: omitting it
+      // would not fail boot, it would silently serve no greeting and classify nothing while the
+      // feature reads as live (it has no default-off flag). Pinned here for that reason.
+      FreeChatService,
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,
