@@ -18,6 +18,11 @@ import type { TradeKey } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
 import { feedPayFloorPredicate, feedShiftPredicate } from "./feed-filter.predicates";
+import {
+  postedKeyText,
+  postedKeysetAfter,
+  type PostedKeysetPosition,
+} from "./feed-keyset.predicates";
 
 /**
  * The legacy `/feed` filters {@link ApplicationsRepository.findOpenJobs} applies. Every one is
@@ -64,6 +69,12 @@ export interface FeedJob {
   benefits: string[] | null;
   requirements: string[] | null;
   neededBy: Job["neededBy"];
+  /**
+   * The job's display role (migration 0131), RAW off the column — the mapper gates it to the
+   * closed set or null (`toWorkerRoleKind`). Shown as card art (owner ruling 2026-10-05);
+   * never a filter or order input.
+   */
+  roleKind: string | null;
   /** #1649 — when the job was posted. NOT NULL on the column; also the feed's sort key. */
   createdAt: Date;
 }
@@ -76,9 +87,12 @@ export interface FeedJob {
  *
  * WHAT IS ABSENT IS THE CONTRACT (ADR-0024 HIDDEN). No `org_label`, `payer_id`,
  * `created_by`, `location_label` (poster free text that may name the site or employer),
- * `verification_status`, `role_kind`, `boosted_until`, `state`, `vacancy_band`, skill arrays
- * or `source_job_id`: none of them is a card field, and every one is a leak or a claim the
+ * `verification_status`, `boosted_until`, `state`, `vacancy_band`, skill arrays or
+ * `source_job_id`: none of them is a card field, and every one is a leak or a claim the
  * worker card must not make. `city`/`area` are the coarse buckets, never back-filled.
+ *
+ * `role_kind` IS projected since the owner ruling of 2026-10-05 (ADR-0024 addendum): a closed,
+ * PII-free enum the worker card draws as art. Projection only — still never a predicate.
  */
 export interface FeedPostingRow {
   id: string;
@@ -95,8 +109,23 @@ export interface FeedPostingRow {
   benefits: string[] | null;
   requirements: string[] | null;
   neededBy: JobPosting["neededBy"];
+  /** Display role (migration 0131), RAW — gated to the closed set or null by the mapper. */
+  roleKind: string | null;
   /** The sort key and the card's `posted_at`. The query requires it non-null. */
   publishedAt: Date | null;
+}
+
+/**
+ * A {@link FeedJob} plus its keyset position (#1961): `created_at` as microsecond UTC text, the
+ * value a `next_cursor` carries. Never on the card — `posted_at` stays the ISO millisecond form.
+ */
+export interface FeedJobRow extends FeedJob {
+  postedKey: string;
+}
+
+/** A {@link FeedPostingRow} plus its keyset position: `published_at` as microsecond UTC text. */
+export interface FeedPostingKeyedRow extends FeedPostingRow {
+  postedKey: string;
 }
 
 /** An application row joined with its (coarse, PII-free) job fields. */
@@ -135,7 +164,28 @@ export interface UpsertApplicationInput {
   reason: SkipReason | null;
   sourceSurface: SourceSurface;
   rank: number | null;
+  /**
+   * ADR-0050 §4.5 — the V1 rank snapshot of an apply made on an agency TWIN, stored on the
+   * SOURCE-keyed row. Omitted on every legacy decision, which then writes exactly what it always
+   * did. When present it is frozen like the V1 upsert's (E16): written on insert and on a
+   * skip→apply flip only, never on a repeat of a decision already recorded.
+   */
+  snapshot?: DecisionSnapshot | null;
 }
+
+/** The frozen V1 rank inputs (the shape `MatchApplyService.RankSnapshot` produces). */
+export interface DecisionSnapshot {
+  matchTier: 1 | 2;
+  skillMonths: number;
+  industryMonths: number;
+  lastWorkedAt: string | null;
+  engineVersion: string;
+}
+
+/** `excluded.<col>` on a skip→apply flip, else the stored value (E16 — the snapshot is frozen). */
+const frozenOnFlip = (column: SQL, excludedColumn: string): SQL =>
+  sql`CASE WHEN ${applications.action} <> 'applied' AND excluded.action = 'applied'
+           THEN excluded.${sql.raw(excludedColumn)} ELSE ${column} END`;
 
 /**
  * EXACTLY what {@link ApplicationsRepository.upsertDecision} projects — no more.
@@ -185,7 +235,8 @@ export class ApplicationsRepository {
     workerId: string,
     limit: number,
     filters: OpenJobsFilters = {},
-  ): Promise<FeedJob[]> {
+    after?: PostedKeysetPosition,
+  ): Promise<FeedJobRow[]> {
     const conditions: (SQL | undefined)[] = [
       eq(jobs.status, "open"),
       sql`NOT EXISTS (
@@ -203,6 +254,9 @@ export class ApplicationsRepository {
     conditions.push(
       feedShiftPredicate(jobs.shift, filters.shift),
       feedPayFloorPredicate(jobs.payMax, filters.payMin),
+      // #1961 — the next page: strictly after the last served (created_at, id). Absent on the
+      // first page, so its WHERE is unchanged.
+      postedKeysetAfter(jobs.createdAt, jobs.id, after),
     );
 
     return this.db
@@ -222,9 +276,13 @@ export class ApplicationsRepository {
         benefits: jobs.benefits,
         requirements: jobs.requirements,
         neededBy: jobs.neededBy,
+        // Card art only (owner ruling 2026-10-05) — selected, never filtered or ordered on.
+        roleKind: jobs.roleKind,
         // #1649 — the posting date the feed never carried. Projected so the card can
         // badge a fresh job and the Jobs-tab header can count today's honestly.
         createdAt: jobs.createdAt,
+        // #1961 — the keyset position at full precision, for `next_cursor`. Not a card field.
+        postedKey: postedKeyText(jobs.createdAt),
       })
       .from(jobs)
       // TD73: exclude applied jobs server-side.
@@ -249,6 +307,24 @@ export class ApplicationsRepository {
   }
 
   /** A single OPEN job by id, or undefined (used to 404 unknown/closed jobs — no oracle). */
+  /**
+   * ADR-0050 §4.5 — when `jobPostingId` is a system-owned agency TWIN, its SOURCE job id and that
+   * job's status; otherwise undefined (a native posting, a D4 conversion, or no such posting).
+   * One PK probe joined to one PK probe. The V1 apply/skip resolves a twin id here BEFORE it
+   * chooses a code path, so the twin's own id never becomes an application key (C5).
+   */
+  async findAgencyTwinSource(
+    jobPostingId: string,
+  ): Promise<{ sourceJobId: string; sourceStatus: Job["status"] } | undefined> {
+    const rows = await this.db
+      .select({ sourceJobId: jobs.id, sourceStatus: jobs.status })
+      .from(jobPostings)
+      .innerJoin(jobs, eq(jobs.id, jobPostings.sourceJobId))
+      .where(and(eq(jobPostings.id, jobPostingId), isNotNull(jobPostings.syncSource)))
+      .limit(1);
+    return rows[0];
+  }
+
   async findJobById(id: string): Promise<Job | undefined> {
     const rows = await this.db
       .select()
@@ -286,7 +362,7 @@ export class ApplicationsRepository {
    *       Each only when the worker supplied it.
    *
    * NOT HERE, ON PURPOSE: `trade_key` (V1 has no trade dimension, and `role_kind` is barred
-   * as a visibility input).
+   * as a visibility input — it is PROJECTED for the card's art, never a WHERE).
    *
    * The projection is explicit — see {@link FeedPostingRow} for what must never be in it.
    */
@@ -299,7 +375,8 @@ export class ApplicationsRepository {
       payMin?: number;
       wantedSkillIds: readonly string[];
     },
-  ): Promise<FeedPostingRow[]> {
+    after?: PostedKeysetPosition,
+  ): Promise<FeedPostingKeyedRow[]> {
     const conditions: (SQL | undefined)[] = [
       eq(jobPostings.status, "open"), // (1)
       isNotNull(jobPostings.publishedAt), // (2)
@@ -338,6 +415,9 @@ export class ApplicationsRepository {
     conditions.push(
       feedShiftPredicate(jobPostings.shift, filters.shift), // (7)
       feedPayFloorPredicate(jobPostings.payMax, filters.payMin), // (7)
+      // (8) #1961 — the next page: strictly after this ARM's last served (published_at, id),
+      // the same keyset predicate as the jobs arm. Absent on the first page.
+      postedKeysetAfter(jobPostings.publishedAt, jobPostings.id, after),
     );
 
     // ORDER BY rides `job_postings_feed_idx (status, published_at DESC)`, and it is the same
@@ -359,7 +439,12 @@ export class ApplicationsRepository {
         benefits: jobPostings.benefits,
         requirements: jobPostings.requirements,
         neededBy: jobPostings.neededBy,
+        // Card art only (owner ruling 2026-10-05) — selected, never a predicate (see (5)).
+        roleKind: jobPostings.roleKind,
         publishedAt: jobPostings.publishedAt,
+        // #1961 — the keyset position at full precision. `published_at` is NOT NULL here by
+        // (2), so this is never null. Not a card field.
+        postedKey: postedKeyText(jobPostings.publishedAt),
       })
       .from(jobPostings)
       .where(and(...conditions))
@@ -397,6 +482,7 @@ export class ApplicationsRepository {
    * without a separate read (race-safe, single round-trip). PII-free: a boolean.
    */
   async upsertDecision(input: UpsertApplicationInput): Promise<UpsertedApplication> {
+    const s = input.snapshot ?? null;
     const rows = await this.db
       .insert(applications)
       .values({
@@ -406,6 +492,16 @@ export class ApplicationsRepository {
         reason: input.reason,
         sourceSurface: input.sourceSurface,
         rank: input.rank,
+        // ADR-0050 §4.5 — only a twin apply carries a snapshot; a legacy row's columns stay NULL.
+        ...(s !== null
+          ? {
+              matchTier: s.matchTier,
+              skillMonths: s.skillMonths,
+              industryMonths: s.industryMonths,
+              lastWorkedAt: s.lastWorkedAt,
+              engineVersion: s.engineVersion,
+            }
+          : {}),
       })
       .onConflictDoUpdate({
         target: [applications.workerId, applications.jobId],
@@ -415,6 +511,16 @@ export class ApplicationsRepository {
           sourceSurface: input.sourceSurface,
           rank: input.rank,
           updatedAt: sql`now()`,
+          // E16, on the job path too: the snapshot moves ONLY on a skip→apply flip.
+          ...(s !== null
+            ? {
+                matchTier: frozenOnFlip(sql`${applications.matchTier}`, "match_tier"),
+                skillMonths: frozenOnFlip(sql`${applications.skillMonths}`, "skill_months"),
+                industryMonths: frozenOnFlip(sql`${applications.industryMonths}`, "industry_months"),
+                lastWorkedAt: frozenOnFlip(sql`${applications.lastWorkedAt}`, "last_worked_at"),
+                engineVersion: frozenOnFlip(sql`${applications.engineVersion}`, "engine_version"),
+              }
+            : {}),
         },
       })
       .returning({

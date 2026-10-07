@@ -179,15 +179,16 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
     expect(decl(rail, "flex-direction")).toBe("column");
   });
 
-  it("an agency editor's rail leaves room for its host card's padding (it starts one padding low)", () => {
-    const agency = g(".agency-job--editing .posting-preview", DESKTOP);
-    expect(decl(agency, "max-height")).toBe(
-      "calc(100dvh - var(--posting-rail-top) - var(--space-4) - var(--space-5))",
+  it("ONE rail rule for every posting form: no host re-caps it (the inline agency editor is gone)", () => {
+    // The agency row editor sat in a padded card and needed a shorter rail; its edit is a page
+    // now (final sweep F02), headed like the company forms, so no selector special-cases the rail.
+    const overrides = G.filter(
+      (r) =>
+        r.selector !== ".posting-preview" &&
+        r.selector.endsWith(".posting-preview") &&
+        decl(r, "max-height") !== null,
     );
-    // …and the host lands on the sticky line when the editor opens (revealEditor).
-    expect(decl(g(".agency-job--editing"), "scroll-margin-top")).toBe(
-      "var(--posting-rail-top)",
-    );
+    expect(overrides.map((r) => r.selector)).toEqual([]);
   });
 
   it("the card + facts scroll inside the rail only when they must; the actions are a pinned footer", () => {
@@ -308,7 +309,7 @@ describe("phones: no rail above the form — a sticky dock and a sheet", () => {
     ]);
   });
 
-  it("the dock is ONE unwrapped row whose primary shrinks and wraps its label (no sideways scroll)", () => {
+  it("from 17rem the dock is ONE unwrapped row whose primary shrinks and wraps its label (narrower, it stacks — below)", () => {
     expect(decl(g(".posting-dock"), "flex-direction")).toBe("column");
     expect(decl(g(".posting-dock__row"), "flex-wrap")).toBe("nowrap");
     expect(decl(g(".posting-dock__summary"), "flex")).toBe("1 1 0");
@@ -321,6 +322,16 @@ describe("phones: no rail above the form — a sticky dock and a sheet", () => {
     expect(decl(label, "height")).toBe("auto");
     // In the dock the zero-reach detail is visually hidden (it stays in the accessible name).
     expect(decl(g(".posting-dock .posting-cta__detail"), "clip")).toBe("rect(0, 0, 0, 0)");
+  });
+
+  it("while a save is pending the summary reads as inert: no pointer, no link underline, a 60% step", () => {
+    expect(decl(g(".posting-dock__summary"), "cursor")).toBe("pointer");
+    const off = g(".posting-dock__summary:disabled");
+    expect(decl(off, "cursor")).toBe("not-allowed");
+    expect(decl(off, "opacity")).toBe("0.6"); // a step of the brand's 80 / 60 / 40 ladder
+    // The cue is underlined at rest (it reads as a link); disabled, it is plain text.
+    expect(decl(g(".posting-dock__cue"), "text-decoration")).toBe("underline");
+    expect(decl(g(".posting-dock__summary:disabled .posting-dock__cue"), "text-decoration")).toBe("none");
   });
 
   it("a detail page's card still leads on a phone (only the EDITOR's rail is replaced)", () => {
@@ -343,8 +354,6 @@ describe("nothing between the rail and the page turns the sticky off", () => {
       ".posting-layout--editor",
       ".agency-job-form",
       ".agency-job",
-      ".agency-job--editing",
-      ".agency-job__lead",
     ];
     for (const r of G) {
       if (!wrappers.includes(r.selector)) continue;
@@ -354,11 +363,6 @@ describe("nothing between the rail and the page turns the sticky off", () => {
       expect(decl(r, "transform"), `${r.selector} transform`).toBeNull();
       expect(decl(r, "contain"), `${r.selector} contain`).toBeNull();
     }
-  });
-
-  it("an agency vacancy being edited IS the editor: block row, header leading the form column", () => {
-    expect(decl(g(".agency-job--editing"), "display")).toBe("block");
-    expect(decl(g(".agency-job__lead"), "display")).toBe("flex");
   });
 
   it("a long unbroken chip wraps inside its pill (it widened the page by up to 698px)", () => {
@@ -431,7 +435,15 @@ describe("CR-L1 — a removable chip's remove is a real, sized, named button", (
     // width is its content's, capped (the shared tip is `nowrap` — this one may wrap).
     expect(decl(tip, "white-space")).toBe("normal");
     expect(decl(tip, "width")).toBe("max-content");
-    expect(decl(tip, "max-width")).toBe("min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)))");
+    // Every engine keeps the 20rem / page cap …
+    expect(decl(tip, "max-width")).toBe("min(20rem, calc(100vw - 2 * var(--space-4)))");
+    // … and the ROW cap is added only where container units exist: a var() keeps the declaration
+    // past parse time, so an engine without `cqi` computes it to `max-width: none` — no cap.
+    const rowCapped = d(".bb-chip__remove > .bb-icon-tip", "@supports (width: 1cqi)");
+    expect(decl(rowCapped, "max-width")).toBe("min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)))");
+    // No container unit anywhere outside that guard (the fallback must stay unit-free).
+    const unguarded = D.filter((r) => !r.at.includes("1cqi") && /\d(cqi|cqw|cqb|cqh|cqmin|cqmax)\b/.test(r.body));
+    expect(unguarded.map((r) => r.selector)).toEqual([]);
     // …and it slides right by the overrun chip-tip.ts measures (0 until measured).
     expect(decl(tip, "translate")).toBe("calc(var(--bb-tip-shift, 0) * 1px) 0");
     // The row is the container its `100cqi` reads.
@@ -455,12 +467,14 @@ describe("L4/L5 — focusing the sticky dock never scrolls the page", () => {
   });
 });
 
-describe("an agency row's header keeps a readable measure while it leads the editor", () => {
-  it("the header text has a 24rem basis in the lead, so the buttons wrap under it (not crush it)", () => {
-    expect(decl(g(".agency-job__lead"), "flex-wrap")).toBe("wrap");
-    expect(decl(g(".agency-job__lead > .agency-job__main"), "flex")).toBe("1 1 24rem");
-    // The plain row keeps its zero-basis text (full-width row: the buttons always fit beside it).
-    expect(decl(g(".agency-job__main"), "flex")).toBe("1");
+describe("an agency row's header keeps a readable measure", () => {
+  it("the plain (unedited) row's text has an 18rem basis too, so its actions wrap under it", () => {
+    // A zero basis (`flex: 1`) kept the actions beside the text from 430 to 520px and crushed it
+    // (6px wide at 440, the Edit button over the title). The row wraps; beside the actions the
+    // text never shrinks below 18rem.
+    expect(decl(g(".agency-job"), "flex-wrap")).toBe("wrap");
+    expect(decl(g(".agency-job__main"), "flex")).toBe("1 1 18rem");
+    expect(decl(g(".agency-job__main"), "min-width")).toBe("0");
   });
 });
 
@@ -498,5 +512,36 @@ describe("a NARROW phone dock stacks its summary over its button", () => {
     // company dock from 375 (309) keeps its one row.
     expect(px("17rem")).toBeGreaterThan(254);
     expect(px("17rem")).toBeLessThan(309);
+  });
+});
+
+/**
+ * F03 (final sweep) — a company posting's DETAIL page put its head above the layout, so when the
+ * head's actions wrapped (1280 and 1366) the card started a row lower and ended at y=749 on a
+ * 720px screen. The head now leads the FIRST column and the rail spans both rows: on a laptop the
+ * card starts at the top of the page whatever the head measures.
+ */
+describe("a posting's detail page: the card rail starts at the top of the page", () => {
+  const detail = (child: string, at = "") => g(`.posting-layout--detail > ${child}`, at);
+
+  it("desktop: the head and the details share the first column; the rail spans both rows", () => {
+    expect(decl(g(".posting-layout--detail", DESKTOP), "grid-template-rows")).toBe("auto 1fr");
+    expect(decl(detail(".posting-layout__head", DESKTOP), "grid-column")).toBe("1");
+    expect(decl(detail(".posting-layout__head", DESKTOP), "grid-row")).toBe("1");
+    expect(decl(detail(".panel", DESKTOP), "grid-column")).toBe("1");
+    expect(decl(detail(".panel", DESKTOP), "grid-row")).toBe("2");
+    expect(decl(detail(".posting-preview", DESKTOP), "grid-column")).toBe("2");
+    expect(decl(detail(".posting-preview", DESKTOP), "grid-row")).toBe("1 / span 2");
+  });
+
+  it("phone: the head still comes first, then the card, then the details", () => {
+    const head = Number(decl(detail(".posting-layout__head"), "order"));
+    const card = Number(decl(g(".posting-preview"), "order"));
+    expect(head).toBeLessThan(card);
+    expect(card).toBeLessThan(0);
+  });
+
+  it("the head's last block adds no margin: the grid's row gap is the one gap under it", () => {
+    expect(decl(detail(".posting-layout__head > :last-child"), "margin-bottom")).toBe("0");
   });
 });

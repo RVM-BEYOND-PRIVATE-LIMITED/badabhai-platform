@@ -3,6 +3,7 @@ import { requireCapability } from "../lib/auth";
 import { getPayer, listJobPostings } from "../lib/entities";
 import { isAdminRequestError } from "../lib/admin-http";
 import { PayerDetailView } from "./payer-detail";
+import { CUSTOMER_SECTION_HREF, type CustomerKind } from "../lib/customer";
 
 /**
  * The shared Companies/Agencies detail route body — extracted on its second use, per the
@@ -18,12 +19,12 @@ export async function PayerDetailRoute({
   kind,
 }: {
   id: string;
-  kind: "Company" | "Agency";
+  kind: CustomerKind;
 }) {
   const session = await requireCapability("read_entities");
 
   const expectedRole = kind === "Company" ? "employer" : "agent";
-  const basePath = kind === "Company" ? "/companies" : "/agencies";
+  const basePath = CUSTOMER_SECTION_HREF[kind];
 
   let payer: Awaited<ReturnType<typeof getPayer>>;
   try {

@@ -1,5 +1,7 @@
 "use client";
 
+import { Icon } from "@badabhai/icons";
+
 /**
  * ROOT client error boundary for the payer portal (ADR-0019 Phase 1).
  *
@@ -21,7 +23,7 @@ export default function RootError({ reset }: { error: Error; reset: () => void }
   return (
     <div className="state state--error" role="alert">
       <span className="state__icon">
-        <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+        <Icon name="warning-circle" />
       </span>
       <h1 className="state__title">Something went wrong</h1>
       <p className="state__body">

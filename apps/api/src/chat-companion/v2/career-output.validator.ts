@@ -241,12 +241,37 @@ export type CareerScreenResult =
 export const CHIP_DROP_REASON = "chip_too_long" satisfies CareerAnswerFailure;
 
 /**
+ * WHICH OF THE TWO SURFACE-SPECIFIC WALLS A CALLER KEEPS (ADR-0051 §3.4).
+ *
+ * Every other check below is a property of what ANY model line may say to a worker — shape, Latin
+ * script, no "!", no emoji, no format or control characters, persona tokens, promises, sensitive
+ * advice, rating, PII — and is always on. These two are policies of the companion's career answer
+ * (O10): no salary figure, no named employer. The profiling-stage free chat turns BOTH off by owner
+ * ruling (R11: typical ₹ ranges and company names are allowed), and reuses everything else.
+ *
+ * THE COMPANION KEEPS EVERY WALL ({@link CAREER_WALLS}), so its order and results are unchanged —
+ * pinned by `career-output.validator.test.ts` and `career-talk.handler.test.ts`, untouched.
+ */
+export interface ContentWalls {
+  /** O10's money rule: a money word and a figure in one sentence. */
+  readonly money: boolean;
+  /** O10's employer rule: the legal-entity heuristic (`looksLikeOrgName`). */
+  readonly namedEmployer: boolean;
+}
+
+/** The companion career answer's walls: all of them. */
+export const CAREER_WALLS: ContentWalls = { money: true, namedEmployer: true };
+
+/**
  * The checks on what a LINE or a CHIP SAYS — identical for both (the phase says the chips get "the
  * same checks", and they are served to the worker just like a line is). The word bound is NOT here:
  * the two artefacts answer it differently (a long line rejects, a long chip is dropped), and keeping
  * it out is what lets every chip run this whole list before any chip is dropped.
+ *
+ * A wall that is off is SKIPPED in place, so the order — and therefore the reported reason — of
+ * every remaining check is exactly the companion's.
  */
-function contentFailure(text: string): CareerAnswerFailure | null {
+export function contentFailureWith(text: string, walls: ContentWalls): CareerAnswerFailure | null {
   if (text.trim().length === 0) return "empty_line";
   // µ and Ω are stripped for the script check only; every other check below reads the raw text.
   if (NON_LATIN.test(text.replace(UNIT_SYMBOLS, ""))) return "non_latin";
@@ -256,19 +281,19 @@ function contentFailure(text: string): CareerAnswerFailure | null {
   if (FORMAT_CHAR.test(text)) return "format_char";
   if (CONTROL_CHAR.test(text)) return "control_char";
   if (checkPersonaTokens(scan).length > 0) return "persona";
-  if (statesMoney(scan)) return "money";
+  if (walls.money && statesMoney(scan)) return "money";
   if (PROMISE.test(scan)) return "promise";
   if (SENSITIVE.test(scan)) return "sensitive_advice";
   if (RATING.test(scan)) return "worker_rating";
-  if (looksLikeOrgName(scan)) return "named_employer";
+  if (walls.namedEmployer && looksLikeOrgName(scan)) return "named_employer";
   if (looksLikePii(scan)) return "pii";
   return null;
 }
 
 /** A line: over the word bound rejects; an empty line counts no words, so it reports `empty_line`. */
-function lineFailure(line: string): CareerAnswerFailure | null {
+function lineFailureWith(line: string, walls: ContentWalls): CareerAnswerFailure | null {
   if (words(line) > LINE_WORDS_MAX) return "line_too_long";
-  return contentFailure(line);
+  return contentFailureWith(line, walls);
 }
 
 /** The answer's shape, on what the MODEL returned — extra chips are rejected, never trimmed. */
@@ -311,12 +336,26 @@ const chipFits = (chip: string): boolean => words(chip) <= CHIP_WORDS_MAX;
  *
  * ORDER IS REPORTING ORDER, NOT SECURITY ORDER — every check is a rejection, so the order only
  * decides which reason an operator sees when several apply.
+ *
+ * The companion's career turn; every wall on. See {@link screenAnswerWith} for the same gate with a
+ * caller's walls (the profiling-stage free chat, ADR-0051).
  */
 export function screenCareerAnswer(answer: CareerAnswerText): CareerScreenResult {
+  return screenAnswerWith(answer, CAREER_WALLS);
+}
+
+/**
+ * {@link screenCareerAnswer}'s gate with the caller's {@link ContentWalls} — the same five steps in
+ * the same order, the same chip drop, the same question bound; only a wall that is off is skipped.
+ */
+export function screenAnswerWith(
+  answer: CareerAnswerText,
+  walls: ContentWalls,
+): CareerScreenResult {
   const failure =
     shapeFailure(answer) ??
-    firstFailure(answer.lines, lineFailure) ??
-    firstFailure(answer.followup_chips, contentFailure);
+    firstFailure(answer.lines, (line) => lineFailureWith(line, walls)) ??
+    firstFailure(answer.followup_chips, (chip) => contentFailureWith(chip, walls));
   if (failure !== null) return { kind: "reject", failure };
 
   const served: CareerAnswerText = {

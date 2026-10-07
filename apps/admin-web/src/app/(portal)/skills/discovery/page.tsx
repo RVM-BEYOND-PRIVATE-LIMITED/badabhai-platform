@@ -28,8 +28,13 @@ import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
-import { RetryActions } from "../../../../components/retry-actions";
+import {
+  CURSOR_REFUSAL,
+  FirstPageLink,
+  RetryActions,
+} from "../../../../components/retry-actions";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
+import { filterChipClass } from "../../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -256,6 +261,31 @@ export default async function SkillDiscoveryPage({
     listHref({ tier, ack: undefined, cursor: undefined });
   const derivedViewAnywayHref = listHref({ tier: "derived", ack: "1", cursor: undefined });
 
+  /**
+   * The fields folded into More filters that the current URL sets (AW-02). The disclosure opens
+   * whenever this is above zero, so a filter that is narrowing the queue is never hidden. Sort
+   * and batch order count only in the view they order — the other view does not show them.
+   */
+  const moreFiltersSet = [
+    band,
+    proposedAction,
+    tradeFamily,
+    sourceType,
+    runId,
+    clusterKey,
+    phrase,
+    createdFrom,
+    createdTo,
+    view === "flat" && sort !== "newest" ? sort : undefined,
+    view === "grouped" && groupSort !== "candidates" ? groupSort : undefined,
+  ].filter(Boolean).length;
+
+  // THE QUEUE COMES FIRST (final sweep AW-02, owner requirement 21). The first batch sat 2325px
+  // below the top of <main> at 375 and 1153px at 1280 — nine metric tiles, the panel's sub-line,
+  // three chip rows, the tier caption and a ten-field form came before it (measured). Now the
+  // queue panel leads; inside it only the status scope and the tier tabs stay out (tier
+  // sequencing must be VISIBLE, AC#11), every other narrowing control is one disclosure, the
+  // standing explanations are the foot notes after the results, and the metrics follow the panel.
   return (
     <div className="page">
       <PageHeader
@@ -263,24 +293,15 @@ export default async function SkillDiscoveryPage({
         description="AI-surfaced claims that the skill taxonomy may be missing something — each a claim, never a skill: an approval only records a decision, and the corpus write stays in the offline, gated chain."
       />
 
-      <MetricsTiles metrics={metrics} />
-
       <section className="panel" aria-labelledby="sd-queue" aria-live="polite">
         <div className="panel__head panel__head--row">
-          <div>
-            <h2 className="panel__title" id="sd-queue">
-              Review queue
-            </h2>
-            <p className="panel__sub">
-              {view === "grouped"
-                ? "Real review batches over the full filtered population, exhaustive and server-computed — a lens, not a merge. Every member still gets its own decision."
-                : "One row per candidate, newest or oldest first within the selected tier and band — there is no computed priority order."}
-            </p>
-          </div>
+          <h2 className="panel__title" id="sd-queue">
+            Review queue
+          </h2>
           <div className="page__actions">
             <Link
               aria-current={view === "grouped" ? "true" : undefined}
-              className={`btn btn--sm ${view === "grouped" ? "btn--primary" : "btn--ghost"}`}
+              className={filterChipClass(view === "grouped")}
               href={listHref({ view: undefined, cursor: undefined })}
             >
               <Icon name="rows" />
@@ -288,7 +309,7 @@ export default async function SkillDiscoveryPage({
             </Link>
             <Link
               aria-current={view === "flat" ? "true" : undefined}
-              className={`btn btn--sm ${view === "flat" ? "btn--primary" : "btn--ghost"}`}
+              className={filterChipClass(view === "flat")}
               href={listHref({ view: "flat", cursor: undefined })}
             >
               <Icon name="list-bullets" />
@@ -305,7 +326,7 @@ export default async function SkillDiscoveryPage({
               <Link
                 key={s}
                 aria-current={statusScope === s ? "true" : undefined}
-                className={`btn btn--sm ${statusScope === s ? "btn--primary" : "btn--ghost"}`}
+                className={filterChipClass(statusScope === s)}
                 href={listHref({ statusScope: s, cursor: undefined })}
               >
                 {STATUS_SCOPE_LABELS[s]}
@@ -314,84 +335,95 @@ export default async function SkillDiscoveryPage({
           </div>
 
           {/* ── tier tabs — sequencing is VISIBLE, never a silent default filter ──────────
-              The caption explains the tabs, so it sits with them rather than at the stack gap. */}
-          <div className="queue-controls__group">
-            <div className="filters--inline" role="group" aria-label="Review tier">
-              <Link
-                aria-current={activeTier === "all" ? "true" : undefined}
-                className={`btn btn--sm ${activeTier === "all" ? "btn--primary" : "btn--ghost"}`}
-                href={tierTabHref("all")}
-              >
-                All tiers
+              The Derived tab says it is sequenced behind Direct in its own label; the full reason
+              is a standing note, in the foot notes after the results. */}
+          <div className="filters--inline" role="group" aria-label="Review tier">
+            <Link
+              aria-current={activeTier === "all" ? "true" : undefined}
+              className={filterChipClass(activeTier === "all")}
+              href={tierTabHref("all")}
+            >
+              All tiers
+            </Link>
+            <Link
+              aria-current={activeTier === "direct" ? "true" : undefined}
+              className={filterChipClass(activeTier === "direct")}
+              href={tierTabHref("direct")}
+            >
+              Direct (default)
+            </Link>
+            <Link
+              aria-current={activeTier === "ambiguous" ? "true" : undefined}
+              className={filterChipClass(activeTier === "ambiguous")}
+              href={tierTabHref("ambiguous")}
+            >
+              Ambiguous
+            </Link>
+            {activeTier === "derived" && derivedAck ? (
+              <Link aria-current="true" className={filterChipClass(true)} href={tierTabHref("derived")}>
+                Derived
               </Link>
-              <Link
-                aria-current={activeTier === "direct" ? "true" : undefined}
-                className={`btn btn--sm ${activeTier === "direct" ? "btn--primary" : "btn--ghost"}`}
-                href={tierTabHref("direct")}
-              >
-                Direct (default)
+            ) : (
+              <Link className={filterChipClass(false)} href={derivedViewAnywayHref}>
+                Derived (sequenced behind Direct) — view anyway
               </Link>
-              <Link
-                aria-current={activeTier === "ambiguous" ? "true" : undefined}
-                className={`btn btn--sm ${activeTier === "ambiguous" ? "btn--primary" : "btn--ghost"}`}
-                href={tierTabHref("ambiguous")}
-              >
-                Ambiguous
-              </Link>
-              {activeTier === "derived" && derivedAck ? (
-                <Link aria-current="true" className="btn btn--sm btn--primary" href={tierTabHref("derived")}>
-                  Derived
-                </Link>
-              ) : (
-                <Link className="btn btn--sm btn--ghost" href={derivedViewAnywayHref}>
-                  Derived (sequenced behind Direct) — view anyway
-                </Link>
-              )}
-            </div>
-            <p className="field__help">{DERIVED_TIER_SEQUENCING_REASON}</p>
+            )}
           </div>
 
-          {/* ── group sort — an explicit, labelled client re-order, never a silent one ────
-              The server's real order (`candidates` descending) is the default; `undecided`-first
-              is offered because the issue's own rationale argued for it, but that argument is not
-              settled — see the page header. Only meaningful in the grouped view. */}
-          {view === "grouped" && (
-            <div className="filters--inline" role="group" aria-label="Batch order">
-              <Link
-                aria-current={groupSort === "candidates" ? "true" : undefined}
-                className={`btn btn--sm ${groupSort === "candidates" ? "btn--primary" : "btn--ghost"}`}
-                href={listHref({ groupSort: undefined })}
-              >
-                Biggest batch first (server order)
-              </Link>
-              <Link
-                aria-current={groupSort === "undecided" ? "true" : undefined}
-                className={`btn btn--sm ${groupSort === "undecided" ? "btn--primary" : "btn--ghost"}`}
-                href={listHref({ groupSort: "undecided" })}
-              >
-                Most work remaining first
-              </Link>
-            </div>
-          )}
+          {/* ── More filters — everything else that narrows or orders the queue (AW-02) ───
+              A native disclosure, no client JS; open whenever one of its fields is set. */}
+          <details className="disclosure queue-filters" open={moreFiltersSet > 0}>
+            <summary>
+              <Icon name={ACTION_ICON.disclosure} className="disclosure__caret" />
+              {moreFiltersSet > 0 ? `More filters (${moreFiltersSet})` : "More filters"}
+            </summary>
+            <div className="queue-filters__body">
+              {/* ── group sort — an explicit, labelled client re-order, never a silent one ──
+                  The server's real order (`candidates` descending) is the default;
+                  `undecided`-first is offered because the issue's own rationale argued for it,
+                  but that argument is not settled — see the page header. Only meaningful in the
+                  grouped view. */}
+              {view === "grouped" && (
+                <div className="filters--inline" role="group" aria-label="Batch order">
+                  <Link
+                    aria-current={groupSort === "candidates" ? "true" : undefined}
+                    className={filterChipClass(groupSort === "candidates")}
+                    href={listHref({ groupSort: undefined })}
+                  >
+                    Biggest batch first (server order)
+                  </Link>
+                  <Link
+                    aria-current={groupSort === "undecided" ? "true" : undefined}
+                    className={filterChipClass(groupSort === "undecided")}
+                    href={listHref({ groupSort: "undecided" })}
+                  >
+                    Most work remaining first
+                  </Link>
+                </div>
+              )}
 
-          <SkillDiscoveryFilterBar
-            basePath="/skills/discovery"
-            /* ONLY the controls above the bar. The full `carry` holds the bar's own fields too,
-               and passing it made an emptied field come back on Apply and "Clear" a no-op. */
-            carry={barCarry}
-            initial={{
-              band: band ?? "",
-              proposedAction: proposedAction ?? "",
-              tradeFamily: tradeFamily ?? "",
-              sourceType: sourceType ?? "",
-              runId: runId ?? "",
-              clusterKey: clusterKey ?? "",
-              phrase: phrase ?? "",
-              createdFrom: createdFrom ?? "",
-              createdTo: createdTo ?? "",
-              sort,
-            }}
-          />
+              <SkillDiscoveryFilterBar
+                basePath="/skills/discovery"
+                view={view}
+                /* ONLY the controls above the bar. The full `carry` holds the bar's own fields
+                   too, and passing it made an emptied field come back on Apply and "Clear" a
+                   no-op. */
+                carry={barCarry}
+                initial={{
+                  band: band ?? "",
+                  proposedAction: proposedAction ?? "",
+                  tradeFamily: tradeFamily ?? "",
+                  sourceType: sourceType ?? "",
+                  runId: runId ?? "",
+                  clusterKey: clusterKey ?? "",
+                  phrase: phrase ?? "",
+                  createdFrom: createdFrom ?? "",
+                  createdTo: createdTo ?? "",
+                  sort,
+                }}
+              />
+            </div>
+          </details>
         </div>
 
         {badRequest ? (
@@ -400,13 +432,25 @@ export default async function SkillDiscoveryPage({
             <p className="state__body">
               {view === "grouped" && badRequestMessage
                 ? badRequestMessage
-                : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
+                : view === "flat" && cursor && !filtered
+                  ? CURSOR_REFUSAL.body
+                  : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
             </p>
+            {/* ONE way out, and never a Retry of a refused request. A refused page cursor on an
+                unfiltered flat view goes back to the first page with `view=flat` kept — the bare
+                queue "Clear filters" goes to would drop it, a first-page action wearing the
+                clear-filters name. Anything else is the filters: the API refuses a cursor only
+                when it is longer than any it issues, so keeping the filters on the first page
+                would be refused again. */}
             <div className="state__actions">
-              <Link className="btn btn--ghost" href="/skills/discovery">
-                <Icon name={ACTION_ICON.clearFilters} />
-                Clear filters
-              </Link>
+              {view === "flat" && cursor && !filtered ? (
+                <FirstPageLink href={listHref({})} />
+              ) : (
+                <Link className="btn btn--ghost" href="/skills/discovery">
+                  <Icon name={ACTION_ICON.clearFilters} />
+                  Clear filters
+                </Link>
+              )}
             </div>
           </div>
         ) : primaryFailed ? (
@@ -440,23 +484,37 @@ export default async function SkillDiscoveryPage({
           />
         )}
 
-        {view === "grouped" && groupsResult && (
-          <div className="queue-notes queue-notes--foot">
-            <p className="field__help">
-              {formatCount(groupsResult.total_groups)} batches over {formatCount(groupsResult.total_candidates)}{" "}
-              candidates, {formatCount(groupsResult.total_undecided)} still undecided — exhaustive for
-              these filters, no cursor, nothing more is hiding off-screen.
-            </p>
-            {/*
-             * `grouping_basis`, RENDERED rather than merely parsed (#1280, correction 3). The
-             * response has always carried it and the mirror has always typed it; nothing showed
-             * it, which left the console holding a disclaimer the reviewer never sees on a screen
-             * that otherwise looks like a list of records.
-             */}
-            <p className="field__help">{basisMarkerLabel(groupsResult.grouping_basis)}</p>
-          </div>
-        )}
+        {/* The queue's standing notes, after its results: the exhaustive totals and the grouping
+            marker (grouped only), what this view is, and why Derived is sequenced behind Direct —
+            explanations that stood between the header and the first batch (AW-02). */}
+        <div className="queue-notes queue-notes--foot">
+          {view === "grouped" && groupsResult && (
+            <>
+              <p className="field__help">
+                {formatCount(groupsResult.total_groups)} batches over {formatCount(groupsResult.total_candidates)}{" "}
+                candidates, {formatCount(groupsResult.total_undecided)} still undecided — exhaustive for
+                these filters, no cursor, nothing more is hiding off-screen.
+              </p>
+              {/*
+               * `grouping_basis`, RENDERED rather than merely parsed (#1280, correction 3). The
+               * response has always carried it and the mirror has always typed it; nothing showed
+               * it, which left the console holding a disclaimer the reviewer never sees on a screen
+               * that otherwise looks like a list of records.
+               */}
+              <p className="field__help">{basisMarkerLabel(groupsResult.grouping_basis)}</p>
+            </>
+          )}
+          <p className="field__help">
+            {view === "grouped"
+              ? "Real review batches over the full filtered population, exhaustive and server-computed — a lens, not a merge. Every member still gets its own decision."
+              : "One row per candidate, newest or oldest first within the selected tier and band — there is no computed priority order."}
+          </p>
+          <p className="field__help">{DERIVED_TIER_SEQUENCING_REASON}</p>
+        </div>
       </section>
+
+      {/* The queue's metrics, after the queue they describe (AW-02). */}
+      <MetricsTiles metrics={metrics} />
     </div>
   );
 }
@@ -516,7 +574,7 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
         <div className="state state--error">
           <h3 className="state__title">Queue metrics are unavailable</h3>
           <p className="state__body">
-            The metrics read failed. The queue below is a separate read and may still work.
+            The metrics read failed. The queue above is a separate read and may still work.
           </p>
         </div>
       ) : (
@@ -684,9 +742,14 @@ function GroupedQueue({
               {/* The brand caret replaces the browser's own triangle (hidden in CSS); it turns
                   to point down when the group is open. */}
               <Icon name={ACTION_ICON.disclosure} className="disclosure__caret" />
-              <strong>{g.label}</strong> · {formatCount(g.candidates)}{" "}
-              {g.candidates === 1 ? "candidate" : "candidates"} · {formatCount(g.undecided)} undecided
-              {g.trade_family && <> · {g.trade_family}</>}
+              {/* One inline run, so the label and its counts wrap together as a sentence — and a
+                  corpus-typed label with no space in it wraps inside the row (AW-01). */}
+              <span className="reviewgroup__title">
+                <strong>{g.label}</strong> · {formatCount(g.candidates)}{" "}
+                {g.candidates === 1 ? "candidate" : "candidates"} · {formatCount(g.undecided)}{" "}
+                undecided
+                {g.trade_family && <> · {g.trade_family}</>}
+              </span>
             </summary>
             <p className="field__help">
               {formatCount(g.source_rows)} source row{g.source_rows === 1 ? "" : "s"} across{" "}

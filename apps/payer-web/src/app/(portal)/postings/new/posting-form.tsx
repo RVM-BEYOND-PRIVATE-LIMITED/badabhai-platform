@@ -36,6 +36,7 @@ import { Badge, Button, Input, Select, Textarea } from "../../../../components/d
 import { ChipEditor } from "../../../../components/chip-editor";
 import { PostingActions, PostingPreviewRail, zeroReachLabel } from "../../../../components/posting-preview-rail";
 import { createPostingAction } from "./actions";
+import { withPublishedReach } from "../../../../lib/published-reach";
 import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
 
 /**
@@ -262,7 +263,7 @@ export function PostingForm({
       });
       if (res.ok) {
         setNavigating(true);
-        router.push(`/postings/${res.postingId}/applicants`);
+        router.push(withPublishedReach(`/postings/${res.postingId}/applicants`, res.reached));
         router.refresh();
       } else {
         // #1912 — the server refused a field (it re-runs the PII screen); show its
@@ -568,7 +569,7 @@ export function PostingForm({
               value={fields.description}
               error={errorOf("description", fieldErrors.description)}
               aria-invalid={errorOf("description", fieldErrors.description) ? true : undefined}
-              hint="Workers read this when they open the job. Never include a phone number or email — share contact only after you unlock an applicant."
+              hint="Workers read this when they open the posting. Never include a phone number or email — share contact only after you unlock an applicant."
               onChange={(e) => set("description", e.target.value)}
             />
           </div>

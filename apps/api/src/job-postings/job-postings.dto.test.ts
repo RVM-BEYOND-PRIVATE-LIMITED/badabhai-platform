@@ -119,6 +119,36 @@ describe("#1823 B3 — every posting write route screens role_title and descript
   });
 });
 
+/**
+ * #1942 — every posting write route inherits the screen's fold: a suffix, a phone number or a
+ * link in fullwidth forms or split by an invisible character is the same 400 as its plain
+ * spelling, on role_title and on description.
+ */
+describe("#1942 — every posting write route screens fullwidth and invisibly split text", () => {
+  const HIDDEN = [
+    {
+      label: "a fullwidth suffix",
+      value: "Tata Steel \u{FF2C}\u{FF54}\u{FF44} mein apply kariye",
+      tail: "company",
+    },
+    { label: "a zero-width-split suffix", value: "Tata Steel L\u{200B}td mein", tail: "company" },
+    { label: "a control-split suffix", value: "Tata Steel L\u{1}td mein", tail: "company" },
+    { label: "a zero-width-split phone", value: "Call 98765\u{200B}43210", tail: "contact" },
+    { label: "a fullwidth host", value: "Details at acme\u{FF0E}in", tail: "link" },
+  ] as const;
+
+  for (const route of ROUTES) {
+    for (const field of ["role_title", "description"] as const) {
+      for (const h of HIDDEN) {
+        it(`${route.name}: ${field} × ${h.label} → 400 naming the field`, () => {
+          const body = { ...route.base, [field]: h.value };
+          expect(issuesFor(route.schema, body, field)).toEqual([AGENCY_MESSAGES[field][h.tail]]);
+        });
+      }
+    }
+  }
+});
+
 describe("#1823 B3 — the posting messages ARE the agency messages", () => {
   const agencyBase = { trade_key: "cnc_operator", title: "CNC Operator", city: "Pune" } as const;
 
@@ -321,6 +351,10 @@ const REAL_PLACES = [
   "Pune (Chakan)",
   "Ahmedabad – Vatva",
   "Co-operative Industrial Estate",
+  // #1970: the dotted co-operative estates the #1848 measurement found refused
+  "Gokul Shirgaon Co. Op. Industrial Estate",
+  "Gokul Shirgaon Co.op Industrial Estate",
+  "Vasai Co. Operative Industrial Estate",
   "G.T. Road",
   "St. Thomas Mount",
   "N.H. 48",

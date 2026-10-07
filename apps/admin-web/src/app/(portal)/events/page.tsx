@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { listEvents, type EventFilters } from "../../../lib/events";
+import { isAdminRequestError } from "../../../lib/admin-http";
+import { queryHref } from "../../../lib/query-href";
 import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { EventFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import { RetryActions } from "../../../components/retry-actions";
+import {
+  CURSOR_REFUSAL,
+  FirstPageAction,
+  RetryActions,
+} from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Events" };
@@ -43,22 +50,42 @@ export default async function EventsPage({
     limit: 50,
   };
 
-  let page: Awaited<ReturnType<typeof listEvents>> | null = null;
-  let failed = false;
-  try {
-    page = await listEvents(filters);
-  } catch {
-    // A bad filter value (e.g. a malformed correlation uuid) 400s. That is a user error,
-    // not a broken portal, so it renders inline instead of tripping the error boundary.
-    failed = true;
-  }
-
   const active = Object.entries({
     eventName: filters.eventName,
     actorType: filters.actorType,
     subjectType: filters.subjectType,
     correlationId: filters.correlationId,
   }).filter(([, v]) => Boolean(v));
+  const filtered = active.length > 0;
+
+  let page: Awaited<ReturnType<typeof listEvents>> | null = null;
+  let failed = false;
+  let refused = false;
+  try {
+    page = await listEvents(filters);
+  } catch (err) {
+    // Rendered inline either way, instead of tripping the error boundary. A bad filter value
+    // (e.g. a malformed correlation uuid) 400s — the operator's to correct. Anything else is
+    // our fault, and "correct the value above" over an outage blames a filter that is fine.
+    failed = true;
+    // A 400 is the operator's address only when the address holds something to refuse — a
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
+    refused = isAdminRequestError(err) && err.status === 400 && Boolean(filtered || filters.cursor);
+  }
+
+  /** The current query without the cursor — what the recoveries below repeat. */
+  const listHref = queryHref("/events", Object.fromEntries(active));
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/events">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   // The cursor is deliberately dropped when building the "next" link's base, so paging
   // never stacks cursors and a filter change always restarts at page one. `Pager` is the
@@ -70,17 +97,15 @@ export default async function EventsPage({
         title="Events"
         description="The audit spine: every important state change on the platform is recorded here."
         filters={
-          <section className="panel" aria-labelledby="filters-heading">
-            <h2 className="sr-only" id="filters-heading">
-              Filter events
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel headingId="filters-heading" heading="Filter events" filters={Object.fromEntries(active)}>
             <EventFilterBar
               eventName={filters.eventName ?? ""}
               actorType={filters.actorType ?? ""}
               subjectType={filters.subjectType ?? ""}
               correlationId={filters.correlationId ?? ""}
             />
-          </section>
+          </FilterPanel>
         }
       />
 
@@ -92,31 +117,47 @@ export default async function EventsPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? "That filter combination was rejected."
+                ? refused && filtered
+                  ? "That filter combination was rejected."
+                  : "Nothing was fetched."
                 : `${page?.events.length ?? 0} event${page?.events.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {active.length > 0 && (
-            <Link className="btn btn--ghost" href="/events">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refused ? null : clearFilters}
         </div>
 
-        {failed ? (
+        {refused ? (
           <div className="state state--error">
-            <h3 className="state__title">The server rejected these filters</h3>
+            <h3 className="state__title">
+              {filtered ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+            </h3>
             <p className="state__body">
-              Nothing was fetched. A correlation id must be a full UUID — the short id shown
-              in the table is only the first segment. Correct the value above, or clear the
-              filters and start again.
+              {filtered
+                ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment. Correct the value above, or clear the filters and start again."
+                : CURSOR_REFUSAL.body}
             </p>
-            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
-                set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {active.length > 0 ? null : (
-              <RetryActions href="/events" cursor={filters.cursor} />
+            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
+                page cursor only when it is longer than any it issues (a malformed one falls back
+                to page one), so with a filter set the FILTER is what was refused — keeping it on
+                the first page would be refused again, and the way out is Clear filters. With no
+                filter, the cursor was refused: the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref} cursor={filters.cursor} />
             )}
+          </div>
+        ) : failed ? (
+          <div className="state state--error">
+            <h3 className="state__title">Events are unavailable</h3>
+            <p className="state__body">
+              The audit spine did not answer, and that is a fault on our side rather than
+              anything in the filters. Nothing has been lost: events are recorded as they
+              happen and will all be here once the read succeeds.
+            </p>
+            {/* The SAME query — filters and cursor kept — and, past page one, the first page of
+                it. Neither is "Clear filters", which the results head already offers. */}
+            <RetryActions href={listHref} cursor={filters.cursor} />
           </div>
         ) : (
           <EventTable

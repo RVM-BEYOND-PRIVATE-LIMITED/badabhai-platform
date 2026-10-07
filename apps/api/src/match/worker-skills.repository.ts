@@ -4,12 +4,14 @@ import {
   CURRENT_PROFILE_ORDER,
   type Database,
   jobPostings,
+  materializeJobReachWithin,
   workerAttributes,
   workerIndustryTenure,
   workerOccupations,
   workerProfiles,
   workerSkills,
 } from "@badabhai/db";
+import { packAnswerFromStoredRow, type PackAnswer } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 
 /** The faceless signal columns the coarse derivation reads off the latest profile. */
@@ -141,9 +143,7 @@ export class WorkerSkillsRepository {
    * PRIVACY: option keys are closed-set enum values authored in the pack JSON. No free text, and
    * nothing a worker typed, ever reaches this path.
    */
-  async findPackAttributeOptions(
-    workerId: string,
-  ): Promise<{ packId: string | null; attributeKey: string; optionKeys: string[] }[]> {
+  async findPackAttributeOptions(workerId: string): Promise<PackAnswer[]> {
     const rows = await this.db
       .select({
         attributeKey: workerAttributes.attributeKey,
@@ -154,22 +154,10 @@ export class WorkerSkillsRepository {
       .from(workerAttributes)
       .where(eq(workerAttributes.workerId, workerId));
 
-    const answers: { packId: string | null; attributeKey: string; optionKeys: string[] }[] = [];
-    for (const row of rows) {
-      const values = Array.isArray(row.valueTextList)
-        ? row.valueTextList.filter(isString)
-        : isString(row.valueText)
-          ? [row.valueText]
-          : [];
-      if (values.length > 0) {
-        answers.push({
-          packId: row.packId,
-          attributeKey: row.attributeKey,
-          optionKeys: values,
-        });
-      }
-    }
-    return answers;
+    return rows.flatMap((row) => {
+      const answer = packAnswerFromStoredRow(row);
+      return answer === null ? [] : [answer];
+    });
   }
 
   /**
@@ -500,43 +488,12 @@ export class WorkerSkillsRepository {
     postedSkillIds: readonly string[],
     reachSkillIds: readonly string[],
   ): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      if (reachSkillIds.length === 0) {
-        // No skills → reaches nobody. Still clear stale rows so a posting that LOST its
-        // skills stops serving workers it no longer matches.
-        await tx.execute(dsql`DELETE FROM job_reach WHERE job_posting_id = ${jobPostingId}::uuid`);
-        return;
-      }
-      const posted = dsql.param([...postedSkillIds]);
-      const reach = dsql.param([...reachSkillIds]);
-
-      await tx.execute(dsql`
-        INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
-        SELECT ${jobPostingId}::uuid,
-               ws.worker_id,
-               MIN(CASE WHEN ws.skill_id = ANY(${posted}::text[]) THEN 1 ELSE 2 END),
-               (ARRAY_AGG(ws.skill_id ORDER BY (ws.skill_id = ANY(${posted}::text[])) DESC,
-                                               ws.months_bucketed DESC))[1]
-        FROM worker_skill ws
-        WHERE ws.skill_id = ANY(${reach}::text[]) AND ws.wants
-        GROUP BY ws.worker_id
-        ON CONFLICT (job_posting_id, worker_id) DO UPDATE
-          SET match_tier       = EXCLUDED.match_tier,
-              matched_skill_id = EXCLUDED.matched_skill_id,
-              computed_at      = now()
-      `);
-
-      await tx.execute(dsql`
-        DELETE FROM job_reach jr
-        WHERE jr.job_posting_id = ${jobPostingId}::uuid
-          AND NOT EXISTS (
-            SELECT 1 FROM worker_skill ws
-            WHERE ws.worker_id = jr.worker_id
-              AND ws.skill_id = ANY(${reach}::text[])
-              AND ws.wants
-          )
-      `);
-    });
+    // THE STATEMENT LIVES IN `@badabhai/db` (`materializeJobReachWithin`) since ADR-0050: the
+    // agency-twin sync must run the SAME materialization inside ITS transaction, and one SQL text
+    // cannot drift from itself. This method keeps its own transaction, exactly as before.
+    await this.db.transaction(async (tx) =>
+      materializeJobReachWithin(tx as unknown as Tx, jobPostingId, postedSkillIds, reachSkillIds),
+    );
   }
 
   /** Persist a posting's resolved reach set (match ∪ related ⊖ honoured unticks). */

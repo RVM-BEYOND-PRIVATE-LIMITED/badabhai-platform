@@ -1577,6 +1577,27 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     );
     expect(okRole.success).toBe(true);
 
+    // ADR-0050 §9 — `match_skills` is another ADDITIVE key-enum member (no version bump).
+    const okSkills = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["match_skills"],
+      }),
+    );
+    expect(okSkills.success).toBe(true);
+    // The KEY only: the column name is not a changed-field key, so a caller cannot smuggle it.
+    const columnAsKey = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["match_skill_ids"],
+      }),
+    );
+    expect(columnAsKey.success).toBe(false);
+
     const bad = validateEvent(
       jobEvent("job.updated", {
         job_id: UUID_A,
@@ -3128,8 +3149,10 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 222 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions)", () => {
-    expect(EVENT_NAMES).toHaveLength(222);
+  it("exposes all 225 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced)", () => {
+    expect(EVENT_NAMES).toHaveLength(225);
+    // ADR-0050 §9 — the agency twin sync's own event (a new name; no schema mutated).
+    expect(isEventName("job_posting.twin_synced")).toBe(true);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -5461,5 +5484,146 @@ describe("profile.identity_intake_answered (ADR-0048, #1858)", () => {
     expect(ok({ ...answeredCity, outcome: "declined" })).toBe(false);
     const { session_id: _dropped, ...withoutSession } = answeredCity;
     expect(ok(withoutSession)).toBe(false);
+  });
+});
+
+describe("chat.free_chat_turn_served / chat.free_chat_mode_changed (ADR-0051, #2027)", () => {
+  const envelope = (eventName: string, payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: eventName,
+    event_version: 1,
+    occurred_at: "2026-10-06T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_B },
+    subject: { subject_type: "chat_session", subject_id: UUID_C },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+  const served = (payload: Record<string, unknown>) =>
+    validateEvent(envelope("chat.free_chat_turn_served", payload)).success;
+  const changed = (payload: Record<string, unknown>) =>
+    validateEvent(envelope("chat.free_chat_mode_changed", payload)).success;
+  const answered = {
+    worker_id: UUID_B,
+    session_id: UUID_C,
+    mode: "free",
+    category: "casual",
+    decided_by: "classifier",
+    confidence_bucket: "70_90",
+    outcome: "answered",
+    refusal_topic: null,
+    strike_count: null,
+    cooldown_started: false,
+    nudge: true,
+    submission_id: UUID_A,
+  };
+
+  it("both are registered at v1 in the chat domain", () => {
+    for (const name of ["chat.free_chat_turn_served", "chat.free_chat_mode_changed"] as const) {
+      expect(isEventName(name)).toBe(true);
+      expect(EVENT_REGISTRY[name].version).toBe(1);
+      expect(EVENT_REGISTRY[name].domain).toBe("chat");
+    }
+  });
+
+  it("accepts the shapes the free chat serves", () => {
+    expect(served(answered)).toBe(true);
+    expect(served({ ...answered, submission_id: null })).toBe(true);
+    // The greeting: decided by the flow, no category, no confidence.
+    expect(
+      served({ ...answered, mode: "greeting", category: null, decided_by: "flow", confidence_bucket: null, outcome: "greeting", nudge: false }),
+    ).toBe(true);
+    // A refusal carries its topic.
+    expect(served({ ...answered, category: "career", outcome: "refused", refusal_topic: "news", nudge: false })).toBe(true);
+    // The strike that starts the cool-down.
+    expect(
+      served({ ...answered, category: "trash", decided_by: "lexicon", confidence_bucket: null, outcome: "cooldown", strike_count: 3, cooldown_started: true, nudge: false }),
+    ).toBe(true);
+    // A résumé-mode deflection.
+    expect(served({ ...answered, mode: "resume", category: "jobs", outcome: "deflected", nudge: false })).toBe(true);
+    // An unavailable classifier in free mode → clarify, decided by the fallback.
+    expect(
+      served({ ...answered, category: null, decided_by: "fallback", confidence_bucket: null, outcome: "clarify", nudge: false }),
+    ).toBe(true);
+  });
+
+  it("ties refusal_topic to a refusal, confidence to the classifier, a cool-down to a strike", () => {
+    expect(served({ ...answered, refusal_topic: "news" })).toBe(false);
+    expect(served({ ...answered, outcome: "refused" })).toBe(false);
+    expect(served({ ...answered, decided_by: "lexicon" })).toBe(false);
+    expect(served({ ...answered, outcome: "cooldown", cooldown_started: true })).toBe(false);
+  });
+
+  it("carries no words — `.strict()` refuses the message or the reply riding along", () => {
+    expect(served({ ...answered, text: "aaj mann nahi lag raha" })).toBe(false);
+    expect(served({ ...answered, reply: "Koi baat nahi." })).toBe(false);
+  });
+
+  it("refuses values outside the closed sets", () => {
+    expect(served({ ...answered, category: "faltu" })).toBe(false);
+    expect(served({ ...answered, mode: "companion" })).toBe(false);
+    expect(served({ ...answered, outcome: "served" })).toBe(false);
+    expect(served({ ...answered, decided_by: "llm" })).toBe(false);
+  });
+
+  it("records a mode change, from null on a first stamp, and never a no-op change", () => {
+    const toResume = { worker_id: UUID_B, session_id: UUID_C, from: "greeting", to: "resume", trigger: "chip" };
+    expect(changed(toResume)).toBe(true);
+    expect(changed({ ...toResume, from: null, trigger: "resume_import" })).toBe(true);
+    expect(changed({ ...toResume, from: "free", trigger: "classifier" })).toBe(true);
+    expect(changed({ ...toResume, from: "resume" })).toBe(false);
+    expect(changed({ ...toResume, trigger: "typed" })).toBe(false);
+    expect(changed({ ...toResume, text: "resume banana hai" })).toBe(false);
+  });
+});
+
+describe("job_posting.twin_synced (ADR-0050 §9, #1957)", () => {
+  const TWIN = "11111111-1111-4111-8111-111111111111";
+  const SOURCE = "22222222-2222-4222-8222-222222222222";
+  const base = {
+    event_id: "33333333-3333-4333-8333-333333333333",
+    event_name: "job_posting.twin_synced",
+    event_version: 1,
+    occurred_at: "2026-10-06T00:00:00.000Z",
+    actor: { actor_type: "system", actor_id: null },
+    subject: { subject_type: "job_posting", subject_id: TWIN },
+    source: "api",
+    correlation_id: "44444444-4444-4444-8444-444444444444",
+    causation_id: null,
+    metadata: { environment: "test", service: "api", request_id: null },
+  };
+  const valid = {
+    job_posting_id: TWIN,
+    source_job_id: SOURCE,
+    operation: "created",
+    status: "draft",
+    changed_fields: ["role_title", "match_skills", "status"],
+    refused_reason: null,
+  };
+  const ok = (payload: Record<string, unknown>) => validateEvent({ ...base, payload }).success;
+
+  it("validates a create, an update, a status change and each refusal", () => {
+    expect(ok(valid)).toBe(true);
+    expect(ok({ ...valid, operation: "updated", status: "open", changed_fields: ["pay_band"] })).toBe(true);
+    expect(ok({ ...valid, operation: "status_changed", status: "closed", changed_fields: ["status"] })).toBe(true);
+    for (const reason of ["no_match_skills", "unknown_match_skill", "text_screen_failed", "kill_switch"]) {
+      expect(ok({ ...valid, operation: "refused", status: "paused", refused_reason: reason }), reason).toBe(true);
+    }
+  });
+
+  it("ties refused_reason to a refused, paused twin", () => {
+    expect(ok({ ...valid, refused_reason: "no_match_skills" })).toBe(false);
+    expect(ok({ ...valid, operation: "refused", status: "paused", refused_reason: null })).toBe(false);
+    expect(ok({ ...valid, operation: "refused", status: "open", refused_reason: "kill_switch" })).toBe(false);
+  });
+
+  it("is ids and enums only — strict, closed keys, no free text", () => {
+    expect(ok({ ...valid, org_label: "Agency vacancy" })).toBe(false);
+    expect(ok({ ...valid, payer_id: SOURCE })).toBe(false);
+    expect(ok({ ...valid, changed_fields: ["CNC Operator night shift"] })).toBe(false);
+    expect(ok({ ...valid, operation: "deleted" })).toBe(false);
+    expect(ok({ ...valid, refused_reason: "over_cap", operation: "refused", status: "paused" })).toBe(false);
   });
 });

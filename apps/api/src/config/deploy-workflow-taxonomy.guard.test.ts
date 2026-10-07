@@ -174,6 +174,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_IDENTITY_INTAKE_ENABLED:\s*\$\{\{\s*secrets\.CHAT_IDENTITY_INTAKE_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_IDENTITY_INTAKE_ENABLED\b/,
     ],
+    // ADR-0051 (#2027) — the free chat's KILL SWITCH. The feature is live on merge; the
+    // environment secret is the ONLY way to turn it off in production, so the bridge is the lever.
+    [
+      "CHAT_FREE_CHAT_DISABLED",
+      /CHAT_FREE_CHAT_DISABLED:\s*\$\{\{\s*secrets\.CHAT_FREE_CHAT_DISABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_FREE_CHAT_DISABLED\b/,
+    ],
     // #1801 — résumé skins. A plain boolean flag, turned on in production ONLY by the
     // environment secret, after migration 0128 is applied — so the bridge is the switch.
     [
@@ -246,6 +253,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /FEED_POSTINGS_UNION_ENABLED:\s*\$\{\{\s*secrets\.FEED_POSTINGS_UNION_ENABLED\s*\}\}/,
       /envs:[^\n]*\bFEED_POSTINGS_UNION_ENABLED\b/,
     ],
+    // ADR-0050 (#1957) — the agency twin sync's kill switch. A plain boolean on the api only;
+    // the environment secret is its one arming path, so absent it holds the sync disarmed.
+    [
+      "AGENCY_TWIN_SYNC_ENABLED",
+      /AGENCY_TWIN_SYNC_ENABLED:\s*\$\{\{\s*secrets\.AGENCY_TWIN_SYNC_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bAGENCY_TWIN_SYNC_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -281,6 +295,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
+    // ADR-0051 — the kill switch's absent value is false, which keeps the free chat ON.
+    ["CHAT_FREE_CHAT_DISABLED", "false"],
     ["RESUME_SKINS_ENABLED", "false"],
     ["RESUME_QR_SCAN_ENABLED", "false"],
     // ADR-0046 — the companion v2 phase gates, all five off by default; TD146 (WP6) adds the
@@ -298,6 +314,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["MATCH_V1_ENABLED", "false"],
     // #1823 / ADR-0049 — off is today's legacy feed and apply/skip, byte for byte.
     ["FEED_POSTINGS_UNION_ENABLED", "false"],
+    // ADR-0050 — off is the kill switch (twins paused); none exist until it is armed.
+    ["AGENCY_TWIN_SYNC_ENABLED", "false"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],

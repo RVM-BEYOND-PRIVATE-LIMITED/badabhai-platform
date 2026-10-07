@@ -19,11 +19,12 @@ the stylesheet once, first, in `src/app/globals.css`:
 @import "@badabhai/design-tokens/tokens.css";
 ```
 
-`icons.css` imports `@phosphor-icons/web/fill` and declares the icon size tokens and the shared
-icon-button tooltip (`.bb-icon-tip`). The Phosphor
-`@font-face` uses relative URLs, so `next build` emits the font under `/_next/static/media` and
-the browser fetches it from the app's origin. Nothing is loaded from a CDN. The face is only
-downloaded by a page that paints a glyph, and only the woff2 is requested.
+`icons.css` imports the generated `phosphor-fill.subset.css` (see "The subset sheet" below) and
+declares the icon size tokens and the shared icon-button tooltip (`.bb-icon-tip`). The subset's
+`@font-face` points at the woff2 through the installed `@phosphor-icons/web` package, so
+`next build` emits that one file under `/_next/static/media` and the browser fetches it from the
+app's origin. Nothing is loaded from a CDN. The face is only downloaded by a page that paints a
+glyph.
 
 Why first:
 
@@ -40,15 +41,28 @@ the installed version differs from the pin. To upgrade:
 
 1. Bump the pin.
 2. `pnpm install`.
-3. `pnpm --filter @badabhai/icons test` (every `IconName` must still exist in the new sheet).
+3. `pnpm --filter @badabhai/icons generate:subset`, then
+   `pnpm --filter @badabhai/icons test` (every `IconName` must still exist in the new sheet).
 4. `pnpm audit --audit-level high`.
 5. Check a few screens in both apps.
 
-**Known cost, tracked** (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking on
-every page (+12.3 KB gzipped on the public `/i/<code>` page, which paints no glyph), and the
-bundler emits the sheet's three unused font formats (svg 2.77 MB, ttf and woff about 449 KB each)
-into each app's image. The planned fix is a generated subset (the `IconName` union only, woff2
-only) with a staleness test.
+### The subset sheet (#1893)
+
+`icons.css` does not import the full `@phosphor-icons/web` fill sheet (~1,530 glyphs, four font
+formats). It imports `phosphor-fill.subset.css`, which is **generated, never hand-edited**: only
+the glyphs in the `IconName` union, copied from the installed sheet, and a woff2-only
+`@font-face`. Each app build therefore emits one font file (woff2, ~132 KB) instead of four
+(~3.8 MB), and the glyph CSS is ≤1.7 KB gzipped (standalone; ~1.3 KB inside the merged chunk) instead of ~11.8 KB.
+
+After adding a glyph to `src/names.ts` or bumping the pin:
+
+```sh
+pnpm --filter @badabhai/icons generate:subset
+```
+
+`names.test.ts` regenerates the sheet in memory and fails when the checked-in file differs, so a
+stale or hand-edited subset cannot merge. The generator (`scripts/generate-subset.mts`, logic in
+`src/subset.ts`) refuses a name the installed sheet lacks rather than emit a partial sheet.
 
 ```tsx
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -84,6 +98,10 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
    - Escape dismisses the tooltip whether it was opened by focus (keydown on the button) or by
      hover (a keydown listener on the document, added on pointer enter and removed on pointer
      leave and on unmount). Escape is never swallowed: a drawer or dialog still gets it.
+   - Focus the APP moves (a dialog's first control on open, the menu button a closing drawer
+     returns to) goes through `focusWithoutTooltip` (`@badabhai/icons`): the tooltip stays quiet
+     for that keyboard focus until the user moves focus, while a mouse hovering the control still
+     sees it (pointer enter re-arms it).
    - `tooltipPlacement`: `top` (default), `bottom`, `start`, `end`, or an edge-aligned
      `top-start` / `top-end` / `bottom-start` / `bottom-end` for a control near a viewport edge
      (`bottom-end` for a dialog ✕ in the top-right corner).
@@ -96,6 +114,11 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
    A natively `disabled` icon button cannot show its tooltip: browsers neither hover nor focus a
    disabled button. If the reason a control is unavailable must stay discoverable, it needs an
    `aria-disabled` variant, which is not built yet.
+
+   A control that must keep its own markup around the tooltip (payer-web's theme switch draws a
+   track and a thumb, not one glyph) renders the `.bb-icon-tip` as its direct child and spreads
+   `useIconTipHandlers()` from `@badabhai/icons/button` onto itself: the same Escape / re-arm
+   wiring `IconButtonBase` is built on. Never copy the handlers.
 
 3. **No glyph or emoji characters as icons.** Don't use `←`, `→`, `✓`, `✕`, `☰`, `•`, a `/`
    separator, the browser's `<summary>` triangle, or any emoji as an icon. Use the matching

@@ -51,6 +51,8 @@ function setup(
       openJobs.has(id) ? { id, status: "open" } : undefined,
     ),
     findOpenPostingRef: vi.fn(async (id: string) => (openPostings.has(id) ? { id } : undefined)),
+    // ADR-0050 — no posting in this file is an agency twin.
+    findAgencyTwinSource: vi.fn(async () => undefined),
     findDecision: vi.fn(async () => undefined),
     upsertDecision: vi.fn(async (input: Record<string, unknown>) => ({
       id: "legacy-app",
@@ -67,7 +69,7 @@ function setup(
     emit: vi.fn(async (p: Record<string, unknown>) => p),
     emitMany: vi.fn(async (l: unknown[]) => l),
   };
-  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [] })) };
+  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [], next: null })) };
   const matchApply = {
     buildSnapshot: vi.fn(async () => SNAPSHOT),
     trySnapshot: vi.fn(async () => ("snapshot" in opts ? opts.snapshot : null)),

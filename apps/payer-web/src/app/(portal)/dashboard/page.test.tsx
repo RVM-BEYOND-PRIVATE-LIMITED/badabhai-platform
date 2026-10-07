@@ -1,25 +1,34 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
-import { MaskedCandidate, StatTile } from "../../../components/ds";
+import { Icon } from "@badabhai/icons";
+import { Badge, MaskedCandidate, StatTile } from "../../../components/ds";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 
 /**
  * DASHBOARD (DS1.2) — server component rendered to an element tree in the node env and
  * walked. Asserts: three StatTiles whose counts come from the LIVE read, the ₹ price in
- * mono tabular, the recent-unlock teasers rendered via the MaskedCandidate primitive and
- * kept FACELESS (no worker name/phone/opaque id in the DOM or props), and the DS Card
- * empty/error states. requirePayer + getDashboard are mocked.
+ * mono tabular, the recent-unlock rows (posting · dates · Unlocked/Expired status) kept
+ * FACELESS (no worker name/phone/opaque id in the DOM or props), and the DS Card
+ * empty/error states. requirePayer + the three reads (credits, unlocks, postings) are mocked —
+ * each on its own, because the page reads them independently (F29: one failed read must not
+ * blank the page).
  */
 const requirePayer = vi.fn();
-const getDashboard = vi.fn();
+const getCredits = vi.fn();
+const getUnlocks = vi.fn();
+const getPostings = vi.fn();
 const getOrgRole = vi.fn();
 const getLiveCatalog = vi.fn();
 const flags = { agencyPortalEnabled: true };
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgRole(s) }));
 vi.mock("../../../lib/config", () => ({ agencyFlags: () => flags }));
-vi.mock("../../../lib/payer-api", () => ({ getDashboard: (o: unknown) => getDashboard(o) }));
+vi.mock("../../../lib/payer-api", () => ({
+  getCredits: () => getCredits(),
+  getUnlocks: () => getUnlocks(),
+  getPostings: () => getPostings(),
+}));
 // The per-unlock price is the LIVE catalog's (the same source as Credits).
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("next/link", () => ({
@@ -46,6 +55,8 @@ const DATA = {
       status: "granted",
       createdAt: "2026-06-20T00:00:00.000Z",
       expiresAt: "2026-12-20T00:00:00.000Z",
+      // As getUnlocks maps the wire: the current grant's time, and no job/posting context.
+      grantedAt: "2026-06-20T00:00:00.000Z" as string | null,
     },
     {
       unlockId: "u2",
@@ -53,6 +64,7 @@ const DATA = {
       status: "expired",
       createdAt: "2026-05-01T00:00:00.000Z",
       expiresAt: "2026-06-01T00:00:00.000Z",
+      grantedAt: "2026-05-01T00:00:00.000Z" as string | null,
     },
   ],
   postings: [
@@ -112,21 +124,38 @@ function findByClass(node: ReactNode, cls: string, acc: ReactElement[] = []): Re
 
 const p = (el: ReactElement): Record<string, unknown> => el.props as Record<string, unknown>;
 
+type Read = "credits" | "unlocks" | "postings";
+
 async function render(
-  over?: Partial<typeof DATA> | { throws: true },
+  over?: Partial<typeof DATA> | { throws: true } | { fail: Read[] },
   role: "employer" | "agent" = "employer",
   orgRole: "owner" | "recruiter" = "owner",
 ): Promise<ReactElement> {
   requirePayer.mockResolvedValue({ payerId: "p", displayLabel: "Acme", role });
   getOrgRole.mockReturnValue(orgRole);
-  if (over && "throws" in over) getDashboard.mockRejectedValue(new Error("boom"));
-  else getDashboard.mockResolvedValue({ ...DATA, ...over });
+  // `throws` fails every read; `fail` fails just the named ones (F29).
+  const failing: Read[] =
+    over && "throws" in over
+      ? ["credits", "unlocks", "postings"]
+      : over && "fail" in over
+        ? over.fail
+        : [];
+  const data = { ...DATA, ...(over && !("throws" in over) && !("fail" in over) ? over : {}) };
+  const read =
+    <T,>(name: Read, value: T) =>
+    () =>
+      failing.includes(name) ? Promise.reject(new Error(`${name} 500`)) : Promise.resolve(value);
+  getCredits.mockImplementation(read("credits", data.credits));
+  getUnlocks.mockImplementation(read("unlocks", data.unlocks));
+  getPostings.mockImplementation(read("postings", data.postings));
   return (await DashboardPage()) as ReactElement;
 }
 
 beforeEach(() => {
   requirePayer.mockReset();
-  getDashboard.mockReset();
+  getCredits.mockReset();
+  getUnlocks.mockReset();
+  getPostings.mockReset();
   getOrgRole.mockReset();
   getLiveCatalog.mockReset().mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
   flags.agencyPortalEnabled = true;
@@ -197,10 +226,11 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
 
   it("an agency session never asks for the company postings list", async () => {
     await render(undefined, "agent");
-    expect(getDashboard).toHaveBeenCalledWith({ withPostings: false });
-    getDashboard.mockClear();
+    expect(getPostings).not.toHaveBeenCalled();
+    expect(getCredits).toHaveBeenCalledTimes(1);
+    expect(getUnlocks).toHaveBeenCalledTimes(1);
     await render();
-    expect(getDashboard).toHaveBeenCalledWith({ withPostings: true });
+    expect(getPostings).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -218,37 +248,69 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     }
   });
 
-  it("a RECRUITER is never linked to /credits (Owner-only — it 404s for them)", async () => {
-    const tree = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "recruiter");
-    expect(hrefsOf(tree)).not.toContain("/credits");
-    // …while an owner on the same data gets ONE door to it: the Buy credits card.
-    const owner = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "owner");
-    expect(hrefsOf(owner).filter((h) => h === "/credits")).toHaveLength(1);
+  /** The page's own links to Credits, and the ones that sit in a needs-you item's action. */
+  const creditsDoors = (tree: ReactElement) => ({
+    all: hrefsOf(tree).filter((h) => h === "/credits"),
+    inAction: findByClass(tree, "attention__action").filter((a) => p(a).href === "/credits"),
+  });
+  // Only the granted unlock, so the wallet is the one needs-you item.
+  const granted = { unlocks: [DATA.unlocks[0]!] };
+
+  it("an OWNER at an empty or low balance gets exactly ONE 'Buy credits', in the needs-you item", async () => {
+    // The page has no standing Credits door (no Buy credits card — F15), so the item's own
+    // contextual action is the labelled way to buy when it matters.
+    for (const balance of [0, 3]) {
+      const tree = await render(
+        { ...granted, credits: { payerId: "p", balance } },
+        "employer",
+        "owner",
+      );
+      const doors = creditsDoors(tree);
+      expect(doors.all, `balance ${balance}`).toEqual(["/credits"]);
+      expect(doors.inAction, `balance ${balance}`).toHaveLength(1);
+      expect(textOf(doors.inAction[0]!).trim(), `balance ${balance}`).toBe("Buy credits");
+    }
+    // An agency owner the same.
+    const agency = await render(
+      { ...granted, credits: { payerId: "p", balance: 0 } },
+      "agent",
+      "owner",
+    );
+    expect(creditsDoors(agency).inAction).toHaveLength(1);
   });
 
-  it("a needs-you item adds no button when the page already offers that destination", async () => {
-    // An owner at a low balance: the item still SAYS it; the Buy credits card is the door.
-    // (Only the granted unlock, so the low balance is the one item.)
-    const healthy = { unlocks: [DATA.unlocks[0]!] };
+  it("an OWNER with a healthy balance gets NO in-page door to Credits (the header chip is it)", async () => {
     const tree = await render(
-      { ...healthy, credits: { payerId: "p", balance: 3 } },
+      { ...granted, credits: { payerId: "p", balance: 247 } },
       "employer",
       "owner",
     );
-    const items = findByClass(tree, "attention__item");
-    expect(items.map((i) => textOf(i))).toEqual([expect.stringContaining("unlock credits left")]);
-    expect(findByClass(tree, "attention__action")).toEqual([]);
-    expect(hrefsOf(tree).filter((h) => h === "/credits")).toHaveLength(1);
-    // A recruiter is told who can fix it, in words — and gets no button either.
-    const recruiter = await render(
-      { ...healthy, credits: { payerId: "p", balance: 3 } },
+    expect(findByClass(tree, "attention")).toEqual([]);
+    expect(creditsDoors(tree).all).toEqual([]);
+  });
+
+  it("a RECRUITER is never sent to Credits or told to buy (Owner-only — it 404s for them)", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      for (const balance of [0, 3, 247]) {
+        const tree = await render(
+          { ...granted, credits: { payerId: "p", balance } },
+          role,
+          "recruiter",
+        );
+        expect(hrefsOf(tree), `${role} ${balance}`).not.toContain("/credits");
+        expect(findByClass(tree, "attention__action"), `${role} ${balance}`).toEqual([]);
+        expect(textOf(tree), `${role} ${balance}`).not.toMatch(/Buy credits/);
+      }
+    }
+    // A recruiter is told who can fix it, in words.
+    const low = await render(
+      { ...granted, credits: { payerId: "p", balance: 3 } },
       "employer",
       "recruiter",
     );
-    expect(textOf(findByClass(recruiter, "attention__item")[0]!)).toContain(
+    expect(textOf(findByClass(low, "attention__item")[0]!)).toContain(
       "Ask your account owner to buy credits",
     );
-    expect(findByClass(recruiter, "attention__action")).toEqual([]);
   });
 
   it("all postings closed: the needs-you item says so, and the head's New posting is the door", async () => {
@@ -273,15 +335,15 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
       findByClass(await render(undefined, role, orgRole), "quick__card").map((c) =>
         textOf(c).trim(),
       );
-    // Credits is Owner-only; Plans & capacity is a COMPANY page; no "Invite workers" door (the
-    // agency's invite tools are their own section).
-    expect((await labels("employer", "owner")).join(" | ")).toMatch(/^Buy credits.*\| Plans & capacity/);
-    expect(await labels("employer", "owner")).toHaveLength(2);
-    expect((await labels("employer", "recruiter")).join(" ")).toMatch(/^Plans & capacity/);
-    expect(await labels("employer", "recruiter")).toHaveLength(1);
-    expect((await labels("agent", "owner")).join(" ")).toMatch(/^Buy credits/);
-    expect(await labels("agent", "owner")).toHaveLength(1);
-    expect(await labels("agent", "recruiter")).toEqual([]);
+    // Plans & capacity is a COMPANY page; no "Buy credits" card (the shell's balance chip is an
+    // owner's door to Credits — F15); no "Invite workers" door (the agency's invite tools are
+    // their own section).
+    for (const orgRole of ["owner", "recruiter"] as const) {
+      const company = await labels("employer", orgRole);
+      expect(company, orgRole).toHaveLength(1);
+      expect(company[0], orgRole).toMatch(/^Plans & capacity/);
+      expect(await labels("agent", orgRole), orgRole).toEqual([]);
+    }
     for (const role of ["employer", "agent"] as const) {
       expect(textOf(await render(undefined, role, "owner"))).not.toMatch(/Invite workers/);
     }
@@ -307,28 +369,57 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     });
   });
 
-  it("each 'Your postings' card links to THAT posting's applicants (real opaque id)", async () => {
+  it("each 'Your postings' card opens THAT POSTING; its 'Applicants' action opens the feed (F12)", async () => {
+    // One rule on every surface: a posting's title opens its details; applicants are reached
+    // through the "Applicants" action (the card used to open the feed here and the details on
+    // the agency dashboard).
     const tree = await render();
     const cards = findByClass(tree, "dash-posting");
     expect(cards.length).toBe(2);
-    const hrefs = cards.map((c) => p(c).href as string);
-    expect(hrefs).toContain("/postings/j1/applicants");
-    expect(hrefs).toContain("/postings/j2/applicants");
-    // accessible name present, no leftover inner "View" link (the stretched link is the target)
-    expect(cards.every((c) => String(p(c).ariaLabel ?? "").includes("view applicants"))).toBe(true);
+    expect(cards.map((c) => p(c).href)).toEqual(["/postings/j1", "/postings/j2"]);
+    expect(cards.map((c) => p(c).ariaLabel)).toEqual([
+      "CNC Operator — view posting",
+      "VMC Setter — view posting",
+    ]);
+    // Each card's "Applicants": the feed, icon + label, named for its posting (F13).
+    const applicants = findByClass(tree, "dash-posting__applicants");
+    expect(applicants.map((a) => p(a).href)).toEqual([
+      "/postings/j1/applicants",
+      "/postings/j2/applicants",
+    ]);
+    expect(applicants.map((a) => p(a)["aria-label"])).toEqual([
+      "CNC Operator — Applicants",
+      "VMC Setter — Applicants",
+    ]);
+    for (const a of applicants) {
+      expect(textOf(a).trim()).toBe("Applicants");
+      expect(findAll(a, Icon).map((i) => p(i).name)).toEqual(["users-three"]);
+    }
+    expect(textOf(tree)).not.toMatch(/view applicants/i);
   });
 
-  it("each Recent-unlock row is a faceless row, NOT a link to a list that shows no unlocks", async () => {
-    const tree = await render();
-    const rows = findByClass(tree, "dash-unlock-link");
-    expect(rows.length).toBe(2);
-    expect(rows.every((l) => p(l).href === undefined && p(l).ariaLabel === undefined)).toBe(true);
+  it("a Recent-unlock row is NOT a link and names no posting — for a company AND an agency", async () => {
+    // A company unlock is stored without its posting (#1903; the context arrives with #2033), and
+    // the page does not read an agency's job titles — so no row can name or open a posting. Both
+    // personas have postings/jobs the row could have been wrongly tied to.
+    for (const role of ["employer", "agent"] as const) {
+      const tree = await render(undefined, role);
+      const rows = findByClass(tree, "dash-unlock");
+      expect(rows.length, role).toBe(2);
+      for (const r of rows) {
+        expect(p(r).href, role).toBeUndefined();
+        expect(p(r).ariaLabel, role).toBeUndefined();
+        expect(textOf(r)).toContain("Unlocked contact");
+        expect(textOf(r)).not.toMatch(/CNC Operator|VMC Setter|View applicants/);
+      }
+    }
   });
 
   it("NO worker PII (uuid / phone-shaped / +91) appears in ANY generated href", async () => {
     const tree = await render();
     const cards = findByClass(tree, "dash-posting");
-    const unlockLinks = findByClass(tree, "dash-unlock-link");
+    const unlockLinks = findByClass(tree, "dash-unlock");
+    expect(unlockLinks).toHaveLength(2);
     const tileHrefs = findAll(tree, StatTile).map((t) => p(t).href as string | undefined);
     const cardHrefs = cards.map((c) => p(c).href as string | undefined);
     const unlockHrefs = unlockLinks.map((l) => p(l).href as string | undefined);
@@ -339,26 +430,95 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
       expect(h).not.toContain("worker-uuid");
       expect(h).not.toMatch(/\b\d{10}\b/); // 10-digit phone run
       expect(h).not.toMatch(/\+91/);
-      // a full uuid only ever appears as a posting id under /postings/<id>/applicants
+      // a full uuid only ever appears as a posting id: /postings/<id> or its /applicants
       const uuid = h.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-      if (uuid) expect(h).toMatch(/^\/postings\/[^/]+\/applicants$/);
+      if (uuid) expect(h).toMatch(/^\/postings\/[^/]+(\/applicants)?$/);
     }
   });
 });
 
-describe("DS1.2 · recent-unlock teasers are faceless MaskedCandidate rows", () => {
-  it("renders one MaskedCandidate per recent unlock, all unmasked, with NO PII", async () => {
+describe("DS1.2 · recent-unlock rows are faceless", () => {
+  it("renders one faceless row per recent unlock, with NO PII (and no decoy-name candidate row)", async () => {
     const tree = await render();
-    const cands = findAll(tree, MaskedCandidate);
-    expect(cands.length).toBe(2);
-    expect(cands.every((c) => p(c).masked === false)).toBe(true);
-    expect(cands.every((c) => p(c).name === "Unlocked contact")).toBe(true);
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows.length).toBe(2);
+    // The rows are not the MaskedCandidate primitive any more: it drew a person (initials, a
+    // name line, a green "Unlocked") for what is an access RECORD, so three rows read as three
+    // identical "UC · Unlocked contact" people and an expired one still said "Unlocked".
+    expect(findAll(tree, MaskedCandidate)).toHaveLength(0);
+    for (const r of rows) expect(textOf(r)).toContain("Unlocked contact");
 
-    // no opaque worker id or any phone-like run reaches the DOM or the component props
-    const serialized = textOf(tree) + JSON.stringify(cands.map((c) => p(c)));
+    // no opaque worker id or any phone-like run reaches the DOM or the row props
+    const serialized =
+      textOf(tree) +
+      JSON.stringify(rows.map((r) => ({ href: p(r).href, ariaLabel: p(r).ariaLabel })));
     expect(serialized).not.toContain("worker-uuid");
     expect(serialized).not.toMatch(/\b\d{10}\b/);
     expect(serialized).not.toMatch(/\+91/);
+  });
+});
+
+describe("F37 · a recent-unlock row says what, when, and whether access is still open", () => {
+  const day = (offsetDays: number) => new Date(Date.now() + offsetDays * 864e5).toISOString();
+  const badgesOf = (row: ReactElement) =>
+    findAll(row, Badge).map((b) => ({
+      tone: p(b).tone,
+      text: textOf(p(b).children as ReactNode).trim(),
+    }));
+
+  it("an ENDED window is a neutral 'Expired' — never a green 'Unlocked' beside it", async () => {
+    const tree = await render({
+      unlocks: [
+        { ...DATA.unlocks[0]!, unlockId: "live", status: "granted", expiresAt: day(7) },
+        { ...DATA.unlocks[0]!, unlockId: "stored-expired", status: "expired", expiresAt: day(-30) },
+        // The store never moves a lapsed grant to `expired`; its window end says it ended.
+        { ...DATA.unlocks[0]!, unlockId: "lapsed", status: "granted", expiresAt: day(-1) },
+      ],
+    });
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows.map(badgesOf)).toEqual([
+      [{ tone: "success", text: "Unlocked" }],
+      [{ tone: "neutral", text: "Expired" }],
+      [{ tone: "neutral", text: "Expired" }],
+    ]);
+  });
+
+  it("each row carries its unlock day (the GRANT day) and its window end, as mono figures", async () => {
+    const tree = await render({
+      unlocks: [
+        {
+          ...DATA.unlocks[0]!,
+          // A re-grant: the record is older than the grant it now holds.
+          createdAt: "2026-05-01T00:00:00.000Z",
+          expiresAt: day(7),
+          grantedAt: "2026-10-01T10:00:00.000Z",
+        },
+        { ...DATA.unlocks[1]!, expiresAt: "2026-06-01T00:00:00.000Z" },
+      ],
+    });
+    const [live, ended] = findByClass(tree, "dash-unlock");
+    const t1 = textOf(live!).replace(/\s+/g, " ");
+    expect(t1).toContain("Unlocked contact");
+    expect(t1).toContain(`Unlocked 2026-10-01 · until ${day(7).slice(0, 10)}`);
+    const t2 = textOf(ended!).replace(/\s+/g, " ");
+    expect(t2).toContain("Unlocked 2026-05-01 · ended 2026-06-01");
+    // The dates are mono figures, like every other date in the portal.
+    const mono = findByClass(live!, "bb-mono").map((m) => textOf(m));
+    expect(mono).toEqual(["2026-10-01", day(7).slice(0, 10)]);
+  });
+
+  it("rows run newest first BY THE DAY THEY PRINT, not by the API's record-creation order", async () => {
+    // The API lists newest-created first; a re-grant moves granted_at, not created_at.
+    const tree = await render({
+      unlocks: [
+        { ...DATA.unlocks[0]!, unlockId: "fresh", createdAt: "2026-09-20T09:00:00.000Z", grantedAt: "2026-09-20T09:00:00.000Z" },
+        { ...DATA.unlocks[0]!, unlockId: "regrant", createdAt: "2026-07-01T09:00:00.000Z", grantedAt: "2026-10-05T09:00:00.000Z" },
+      ],
+    });
+    const printed = findByClass(tree, "dash-unlock").map(
+      (r) => findByClass(r, "bb-mono").map((m) => textOf(m))[0],
+    );
+    expect(printed).toEqual(["2026-10-05", "2026-09-20"]);
   });
 });
 
@@ -368,7 +528,7 @@ describe("UI-1 · empty + error states", () => {
   // the STATE blocks rather than counting Cards — same intent, at the layer that now owns it.
   it("renders an empty state per section (no teasers, no posting rows) when there is no data", async () => {
     const tree = await render({ unlocks: [], postings: [] });
-    expect(findAll(tree, MaskedCandidate).length).toBe(0);
+    expect(findByClass(tree, "dash-unlock").length).toBe(0);
     expect(findByClass(tree, "dash-posting").length).toBe(0);
     // One for "Your postings", one for "Recent unlocks".
     expect(findByClass(tree, "state").length).toBeGreaterThanOrEqual(2);
@@ -380,14 +540,26 @@ describe("UI-1 · empty + error states", () => {
     expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
   });
 
-  it("renders a neutral error state (no raw backend detail) when the read fails", async () => {
+  it("every read failing: the head + New posting stay, and EACH panel says its own error (F29)", async () => {
     const tree = await render({ throws: true });
-    expect(textOf(tree)).toContain("We could not load your account");
-    expect(findByClass(tree, "state--error").length).toBe(1);
+    // Never a blank page: the head and its one primary survive.
+    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
+    expect(textOf(tree)).not.toContain("We could not load your account");
+    const errors = findByClass(tree, "state--error");
+    expect(errors.map((e) => textOf(findByClass(e, "state__title")[0]!))).toEqual([
+      "We couldn’t load your postings",
+      "We couldn’t load your recent unlocks",
+    ]);
     // The recovery action is part of the contract — an error with no way forward is a wall.
-    expect(findByClass(tree, "state__actions").length).toBe(1);
-    // no candidate/posting data leaks on the error path
-    expect(findAll(tree, MaskedCandidate).length).toBe(0);
+    for (const e of errors) expect(findByClass(e, "state__actions")).toHaveLength(1);
+    // Every count is neutral — never a 0 that was not read.
+    expect(findAll(tree, StatTile).map((t) => p(t).value)).toEqual(["—", "—", "—"]);
+    // no candidate/posting data leaks on the error path, and no "No postings yet" claim
+    expect(findByClass(tree, "dash-unlock").length).toBe(0);
+    expect(textOf(tree)).not.toContain("No postings yet");
+    expect(textOf(tree)).not.toContain("No contacts unlocked yet");
+    // …and nothing is claimed about the unread account.
+    expect(findByClass(tree, "attention")).toEqual([]);
   });
 });
 
@@ -414,11 +586,13 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     // agents (the agency Demand summary + manager in AgentSections are the source of truth),
     // so they can never contradict.
     const tiles = findAll(tree, StatTile);
-    expect(tiles.length).toBe(3); // Credit balance + Revenue (agent-only) + Contacts unlocked
+    expect(tiles.length).toBe(2); // Credit balance + Contacts unlocked
     const labels = tiles.map((t) => p(t).label);
-    expect(labels).toContain("Revenue"); // agent-only tile, no posting-derived data
-    // The ONE way to Revenue on the dashboard (AgentSections no longer repeats it).
-    expect(hrefsOf(tree).filter((h) => h === "/agency/revenue")).toHaveLength(1);
+    expect(labels).toEqual(["Credit balance", "Contacts unlocked"]);
+    // No "Revenue — Coming soon" placeholder in the KPI row (F21): the parked page is reached
+    // from the rail's "Coming soon" group, not from a tile with no figure.
+    expect(labels).not.toContain("Revenue");
+    expect(hrefsOf(tree)).not.toContain("/agency/revenue");
     expect(labels).not.toContain("Open postings");
     expect(labels).not.toContain("Open vacancies");
     // the employer-postings list does NOT render for an agent (no contradictory second list)
@@ -431,8 +605,8 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     const byLabel = (l: string) => tiles.find((t) => p(t).label === l);
     expect(p(byLabel("Credit balance")!).value).toBe(247);
     expect(p(byLabel("Contacts unlocked")!).value).toBe(2);
-    // recent-unlock teasers are coherent (same unlocks read) and stay faceless
-    expect(findAll(tree, MaskedCandidate).length).toBe(2);
+    // recent-unlock rows are coherent (same unlocks read) and stay faceless
+    expect(findByClass(tree, "dash-unlock").length).toBe(2);
   });
 });
 
@@ -485,8 +659,10 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
   });
 
   it("agent: the same spine minus the employer postings band, agency modules last", async () => {
+    // (No quick actions for an agency — Credits' door is the shell's balance chip, F15 — so no
+    // empty actions band either.)
     const tree = await render({ credits: { payerId: "p", balance: 3 } }, "agent");
-    expect(bands(tree)).toEqual(["head", "needs-you", "position", "actions", "recent", "agency"]);
+    expect(bands(tree)).toEqual(["head", "needs-you", "position", "recent", "agency"]);
   });
 
   it("needs-you is ABSENT (not an empty band) when nothing needs the payer", async () => {
@@ -528,8 +704,96 @@ describe("AGENCY posting entry point — the agency form, never the company one"
     expect(findAll(tree, StatTile).map((t) => p(t).label)).not.toContain("Revenue");
   });
 
+  it("the KPI row holds only counts that were read — no placeholder tile (F21)", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      const tiles = findAll(await render(undefined, role), StatTile);
+      for (const t of tiles) {
+        // Every read succeeded here, so every tile carries a real figure and no door.
+        expect(p(t).value, `${role} ${String(p(t).label)}`).not.toBe("—");
+        expect(textOf(p(t).caption as ReactNode), `${role} ${String(p(t).label)}`).not.toMatch(
+          /coming soon/i,
+        );
+        expect(p(t).href, `${role} ${String(p(t).label)}`).toBeUndefined();
+      }
+    }
+  });
+
   it("a company dashboard never shows agency vocabulary", async () => {
     expect(textOf(await render())).not.toMatch(/vacanc/i);
     expect(textOf(await render(undefined, "agent"))).not.toMatch(/vacanc/i);
+  });
+});
+
+/**
+ * F29 (final sweep) — ONE failed read used to replace the whole dashboard with "We could not load
+ * your account": the postings, the needs-you band AND the head's "New posting" were gone when only
+ * the balance read failed. Each part is now read on its own; a failed part shows its own state.
+ */
+describe("F29 · one failed read never blanks the dashboard", () => {
+  const tile = (tree: ReactElement, label: string) =>
+    findAll(tree, StatTile).find((t) => p(t).label === label)!;
+  const errorTitles = (tree: ReactElement) =>
+    findByClass(tree, "state--error").map((e) => textOf(findByClass(e, "state__title")[0]!));
+
+  it("BALANCE read fails: only the balance tile goes neutral; everything else renders", async () => {
+    const tree = await render({ fail: ["credits"], credits: { payerId: "p", balance: 0 } });
+    expect(p(headOf(tree)).primaryAction).toMatchObject({
+      href: "/postings/new",
+      label: "New posting",
+    });
+    expect(p(tile(tree, "Credit balance")).value).toBe("—");
+    expect(textOf(p(tile(tree, "Credit balance")).caption as ReactNode)).toBe(
+      "Not available right now",
+    );
+    expect(p(tile(tree, "Open postings")).value).toBe(1);
+    expect(p(tile(tree, "Contacts unlocked")).value).toBe(2);
+    expect(findByClass(tree, "dash-posting")).toHaveLength(2);
+    expect(findByClass(tree, "dash-unlock")).toHaveLength(2);
+    expect(errorTitles(tree)).toEqual([]);
+    // The fixture's empty wallet was never READ, so nothing is said about it.
+    expect(textOf(tree)).not.toMatch(/out of unlock credits|credits left/);
+    // The expired unlock (a part that WAS read) is still said.
+    expect(textOf(findByClass(tree, "attention")[0]!)).toContain("expired");
+  });
+
+  it("UNLOCKS read fails: the Recent unlocks panel says so (with Retry); the rest renders", async () => {
+    const tree = await render({ fail: ["unlocks"] });
+    expect(errorTitles(tree)).toEqual(["We couldn’t load your recent unlocks"]);
+    expect(p(tile(tree, "Contacts unlocked")).value).toBe("—");
+    expect(p(tile(tree, "Credit balance")).value).toBe(247);
+    expect(findByClass(tree, "dash-posting")).toHaveLength(2);
+    expect(findByClass(tree, "dash-unlock")).toHaveLength(0);
+    expect(textOf(tree)).not.toContain("No contacts unlocked yet");
+    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
+  });
+
+  it("POSTINGS read fails: the Your postings panel says so (with Retry); the rest renders", async () => {
+    const tree = await render({
+      fail: ["postings"],
+      postings: DATA.postings.map((x) => ({ ...x, status: "closed" })),
+    });
+    expect(errorTitles(tree)).toEqual(["We couldn’t load your postings"]);
+    expect(p(tile(tree, "Open postings")).value).toBe("—");
+    expect(findByClass(tree, "dash-posting")).toHaveLength(0);
+    expect(textOf(tree)).not.toContain("No postings yet");
+    // Unread postings are not "all closed".
+    expect(textOf(tree)).not.toContain("No open postings");
+    // The panel keeps its one link to the Postings list, and the head its New posting.
+    expect(hrefsOf(tree).filter((h) => h === "/postings")).toHaveLength(1);
+    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
+    expect(findByClass(tree, "dash-unlock")).toHaveLength(2);
+  });
+
+  it("an AGENCY dashboard survives a failed balance read too (agency modules still mount)", async () => {
+    const tree = await render({ fail: ["credits"] }, "agent");
+    expect(p(headOf(tree)).primaryAction).toMatchObject({ href: "/agency/jobs/new" });
+    expect(p(tile(tree, "Credit balance")).value).toBe("—");
+    expect(findAll(tree, AgentSectionsStub)).toHaveLength(1);
+    expect(errorTitles(tree)).toEqual([]);
+  });
+
+  it("an error state names nothing it could not read (no raw backend detail)", async () => {
+    const tree = await render({ throws: true });
+    expect(textOf(tree)).not.toMatch(/500|credits 500|unlocks 500|postings 500/);
   });
 });

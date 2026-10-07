@@ -13,9 +13,11 @@ import '../otp/sms_otp_autofill.dart';
 import '../referral/pending_referral_store.dart';
 import '../auth/account_deleted_signal.dart';
 import '../auth/reauth_signal.dart';
+import '../nav/job_feed_invalidation.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
+import '../session/chat_turn_resume_store.dart';
 import '../session/known_worker_facts_store.dart';
 import '../session/session_repository.dart';
 import '../push/push_token_service.dart';
@@ -230,6 +232,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // mounted, so a tab root's create:/initState runs once and never again — this
   // is the signal that lets each tab refetch when it comes back into view.
   locator.registerLazySingleton<TabFocus>(() => TabFocus());
+  // Fired by the match-input writers (occupations, match-skill toggles) so the
+  // Jobs feed refetches after a trade/skill edit.
+  locator.registerLazySingleton<JobFeedInvalidation>(
+    () => JobFeedInvalidation(),
+  );
 
   // ONE ApiClient app-wide: MOCK vs REAL via the createApiClient factory
   // (kUseMocks), with the x-session-token rolling refresh wired to the session.
@@ -331,7 +338,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // E4 (#1828) — stateless (caches nothing), so no logout teardown needed.
   locator.registerLazySingleton<MatchSkillsRepository>(
     () => MatchSkillsRepositoryImpl(
-        locator<ApiClient>(), locator<SessionRepository>()),
+          locator<ApiClient>(),
+          locator<SessionRepository>(),
+          feedInvalidation: locator<JobFeedInvalidation>(),
+        ),
   );
   // ADR-0032 profile photo: mint/confirm/read/delete ride the ApiClient (so the
   // MockApiClient covers them in mock mode); ONLY the raw byte-PUT to the signed
@@ -357,7 +367,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // Layer A profile surfaces (ADR-0042 D9, issue #1545).
   locator.registerLazySingleton<ProfileEditRepository>(
     () => ProfileEditRepositoryImpl(
-        locator<ApiClient>(), locator<SessionRepository>()),
+          locator<ApiClient>(),
+          locator<SessionRepository>(),
+          feedInvalidation: locator<JobFeedInvalidation>(),
+        ),
   );
   // Extracted-profile review + correction surface (issue #1595, §8.4).
   locator.registerLazySingleton<ExtractedReviewRepository>(
@@ -681,6 +694,7 @@ Future<void> initAuthLocator({
   PendingReferralStore? pendingReferral,
   TradeFormMarkerStore? tradeFormMarkerStore,
   KnownWorkerFactsStore? knownWorkerFactsStore,
+  ChatTurnResumeStore? chatTurnResumeStore,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
   if (locator.isRegistered<AuthApi>()) return;
@@ -747,6 +761,16 @@ Future<void> initAuthLocator({
   if (!locator.isRegistered<KnownWorkerFactsStore>()) {
     locator.registerSingleton<KnownWorkerFactsStore>(
       knownWorkerFactsStore ?? const SharedPrefsKnownWorkerFactsStore(),
+    );
+  }
+
+  // #2030 ask 3 — the last served chat turn's chips, so a cold start redraws
+  // the greeting WITH its Haan / Baad mein rather than text alone. Same lazy
+  // prefs registration; absent, the chat behaves exactly as before. Session-
+  // scoped and cleared on logout.
+  if (!locator.isRegistered<ChatTurnResumeStore>()) {
+    locator.registerSingleton<ChatTurnResumeStore>(
+      chatTurnResumeStore ?? const SharedPrefsChatTurnResumeStore(),
     );
   }
 
@@ -837,6 +861,12 @@ void _clearSessionScopedCaches() {
   // phone must be asked their own city, cities, salary and shift.
   if (locator.isRegistered<KnownWorkerFactsStore>()) {
     unawaited(locator<KnownWorkerFactsStore>().clearAll());
+  }
+  // And the chat chips the previous worker was looking at: their session is
+  // gone, so restoring its options onto the next worker's chat would draw
+  // chips for a conversation that is not theirs.
+  if (locator.isRegistered<ChatTurnResumeStore>()) {
+    unawaited(locator<ChatTurnResumeStore>().clearAll());
   }
   // Evict the previous worker's DECODED photos from Flutter's global image cache,
   // so a re-login can never repaint them from memory even before a fresh fetch.

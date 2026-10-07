@@ -1202,6 +1202,22 @@ export const serverEnvSchema = z.object({
   // `admin-ai-traces.controller.ts`). Arming it is one `${ADMIN_AI_TRACE_READ_ENABLED:-false}`
   // line in `docker-compose.staging.yml`'s `api.environment:` — `:-`, never a bare `-`.
   ADMIN_AI_TRACE_READ_ENABLED: booleanFromString,
+  // Engine view (admin `/admin/match/engine/*`, investor demo) — owner ruling 2026-10-06: the
+  // per-worker read serves DEMO WORKERS ONLY, fail-closed. A demo worker is one whose phone is in
+  // the reserved demo block `+910000026xxx` (the S1 demo seed's personas) OR in this list — the
+  // owner's demo handset. Comma-separated E.164 (`+91` + 10 digits), default EMPTY (block only).
+  // Not a secret: it widens nothing beyond named demo handsets, and each must still match a
+  // worker's peppered `phone_hash`. A malformed entry FAILS BOOT rather than being dropped.
+  ADMIN_ENGINE_VIEW_ALLOW_PHONES: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0),
+    )
+    .pipe(z.array(z.string().regex(/^\+91\d{10}$/, "must be +91 followed by 10 digits")).max(20)),
   // Per-ADMIN trace-decrypt caps, over the same FIXED UTC hour + UTC day windows as the two caps
   // above and on their OWN `admin_ai_trace:*` Redis namespace — a THIRD budget, not a share of
   // either existing one. The reveal budget bounds phone disclosures on an incident route; the
@@ -1551,6 +1567,16 @@ export const serverEnvSchema = z.object({
   // with `/name` still routed asks only what `/name` left blank; off with `/name` gone captures
   // nobody's name at all. booleanFromString so a falsey string stays OFF.
   CHAT_IDENTITY_INTAKE_ENABLED: booleanFromString,
+  // ADR-0051 (#2027) — THE PROFILING-STAGE FREE CHAT'S KILL SWITCH. The free chat is LIVE ON
+  // MERGE (owner ruling 2026-10-06): a profiling session opens on a greeting ("Shuru karein?"),
+  // résumé mode is today's interview (locked until the résumé is done) and free mode classifies
+  // and answers every message per category. There is no default-off gate; this is the one lever.
+  //
+  // DEFAULT OFF = THE FEATURE IS ON. True (the GitHub `production` environment secret plus a
+  // redeploy) sends every session straight to today's interview with no greeting and no
+  // classifier call — the byte-for-byte pre-ADR-0051 chat. booleanFromString so a falsey string
+  // keeps the feature on and anything outside the grammar fails the boot, never a silent flip.
+  CHAT_FREE_CHAT_DISABLED: booleanFromString,
 
   // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
   // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout
@@ -1632,6 +1658,15 @@ export const serverEnvSchema = z.object({
   // `city` reach the most-viewed worker surface), and the payer-applicant and unlock legs of
   // tests/e2e/feed-postings-union.e2e.test.ts passing.
   FEED_POSTINGS_UNION_ENABLED: booleanFromString,
+  // ── ADR-0050 — the agency-job V1 twin sync (#1957). THE KILL SWITCH. ──────────────────
+  // A DEPLOY SWITCH, not match tuning (it sits beside MATCH_V1_ENABLED for that reason). Armed,
+  // the sync derives one system-owned `job_postings` twin per agency `jobs` row (event poll +
+  // periodic sweep). Disarmed, the sync does ONE thing only: it drives every non-closed twin to
+  // `paused` in a bounded UPDATE and copies no field, so disarming removes agency inventory from
+  // the V1 deck and a buggy sync stops writing content. Default OFF; booleanFromString so a
+  // falsey string stays OFF, and scripts/deploy/staging-deploy.sh refuses any other value
+  // before a container moves. Read ONLY through `isAgencyTwinSyncEnabled`.
+  AGENCY_TWIN_SYNC_ENABLED: booleanFromString,
 
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
@@ -2204,6 +2239,16 @@ export function isMatchV1Enabled(config: ServerConfig): boolean {
  */
 export function isFeedPostingsUnionEnabled(c: ServerConfig): boolean {
   return !c.MATCH_V1_ENABLED && c.FEED_POSTINGS_UNION_ENABLED;
+}
+
+/**
+ * ADR-0050 §7 — the agency-twin sync's kill switch. The ONLY reader of
+ * AGENCY_TWIN_SYNC_ENABLED. Independent of MATCH_V1_ENABLED: while V1 is off an armed sync
+ * pre-stages every twin as `draft` (unserved), so arming before the flip changes nothing a
+ * worker sees.
+ */
+export function isAgencyTwinSyncEnabled(c: ServerConfig): boolean {
+  return c.AGENCY_TWIN_SYNC_ENABLED;
 }
 
 /**

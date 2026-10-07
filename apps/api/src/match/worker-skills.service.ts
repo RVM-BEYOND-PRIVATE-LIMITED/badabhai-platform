@@ -3,6 +3,7 @@ import {
   computeIndustryTenure,
   deriveWorkerSkills,
   wantedSkillIds,
+  workerSkillDeriveInput,
   type WorkerSkillRow,
 } from "@badabhai/match-engine";
 import { isMatchSkillId, matchSkillLabel, type MatchSkillId } from "@badabhai/taxonomy";
@@ -10,7 +11,6 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { MatchConfigService } from "./match-config.service";
-import { corpusSkillsForPackAttributes } from "./pack-attribute-skills";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 
 /** What a rebuild actually changed — PII-free counts, safe to log and to event. */
@@ -80,8 +80,8 @@ export class WorkerSkillsService {
    * Rebuild everything Matching V1 knows about one worker's supply, then reconcile his
    * reach. Idempotent: running it twice on an unchanged profile writes the same rows.
    *
-   * Returns `null` only when the worker has NEITHER a profile row NOR any pack answers —
-   * i.e. nothing to derive from at all. That is a legitimate state, not a failure. A worker
+   * Returns `null` only when the worker has no profile row, no pack evidence and no declared
+   * occupation — i.e. nothing to derive from at all. That is a legitimate state, not a failure. A worker
    * with pack answers and no profile row (every trade-form completion) is NOT that case.
    */
   async rebuildForWorker(workerId: string, ctx?: RequestContext): Promise<RebuildResult | null> {
@@ -90,59 +90,41 @@ export class WorkerSkillsService {
 
     // ⓪ B0b — the role pack's answers join the profile's own attribute ids.
     //
-    // The pack's fourteen answers live in `worker_attributes` and used to reach nothing, so the
-    // most completely-profiled worker on the platform derived zero skills. `corpusSkillsForPack-
-    // Attributes` is a closed-set lookup over option keys the worker TAPPED — no inference, so
-    // invariant #4 is untouched and the engine below is still the only thing deciding reach.
-    //
-    // UNION, never replace: a worker can have both an extracted profile and a completed pack, and
-    // whichever arrived second must not silently delete the other's evidence.
-    const [packSkills, secondaryRoleIds] = await Promise.all([
-      this.repo.findPackAttributeOptions(workerId).then(corpusSkillsForPackAttributes),
+    // A trade form (and a structured-answer chat on a role pack) leaves its evidence in
+    // `worker_attributes`, keyed by pack. `PACK_ANSWER_SKILLS` (@badabhai/taxonomy) is a
+    // closed-set lookup over option keys the worker TAPPED — no inference, so invariant #4 is
+    // untouched and the engine below is still the only thing deciding reach. Most chips imply a
+    // corpus `skill_*` id (attribute bridge); a chip naming an occupation with no corpus id
+    // (`hmc`) implies a `role_*` id and rides the role bridge like a declared occupation does.
+    const [packAnswers, secondaryRoleIds] = await Promise.all([
+      this.repo.findPackAttributeOptions(workerId),
       // Layer A (f) — the worker's DECLARED extra occupations (migration 0114). Read here, on
       // every rebuild, so the live path and the batch path see the same rows; each id rides the
       // existing role bridge in `deriveWorkerSkills` below. Closed ids only, no free text.
       this.repo.findSecondaryRoleIds(workerId),
     ]);
 
-    // THE GUARD MOVED BELOW THE PACK READ, AND THE CONDITION CHANGED WITH IT (M1).
+    // ONE ASSEMBLY, SHARED WITH `db:backfill:worker-skills` — see `workerSkillDeriveInput`. It
+    // unions the three sources and owns the guard below; the batch runner calls the same function,
+    // so the nightly repair can no longer prune what this path writes.
     //
-    // It used to be `if (!signals) return null` ABOVE this read, which made the whole
-    // pack-attribute bridge unreachable for exactly the workers it was written for. A trade form
-    // writes `worker_attributes` and never writes `worker_profiles` — deliberately; the handover
-    // switches extraction off on purpose (trade-form.service.ts:169-177), and re-enabling it
-    // re-blanks the trade sheet's capability zone. So a worker could tap every question in the
-    // form, land eighteen rows in `worker_attributes`, and derive ZERO skills because a row in a
-    // different table did not exist.
-    //
-    // WHAT THE GUARD WAS ACTUALLY PROTECTING, and why it is still here in a narrower form: the
-    // rebuild below is delete-then-insert. Running it for a worker with NOTHING to derive from
-    // does not merely write nothing — it DELETES whatever `worker_skill` rows he already had.
-    // That is load-bearing for the interview path, where a worker can sit between "extraction
-    // started" and "profile row written". `!signals` was a proxy for "no evidence"; with a second
-    // evidence source it is the wrong proxy. Declared secondary occupations are evidence too
-    // (Layer A (f)): a worker who only ever opened that page must still derive their bridge rows
-    // rather than have the rebuild delete the ones he has.
-    if (!signals && packSkills.length === 0 && secondaryRoleIds.length === 0) return null;
+    // THE GUARD (M1): `null` = no profile row, no pack evidence, no declared occupation. The
+    // rebuild is delete-then-insert, so running it on NOTHING would DELETE the rows a worker
+    // mid-extraction already has. A form worker has no profile row by design (the handover
+    // switches extraction off, trade-form.service.ts) — his pack answers ARE the evidence.
+    const input = workerSkillDeriveInput({
+      profile: signals ?? null,
+      secondaryRoleIds,
+      packAnswers,
+    });
+    if (input === null) return null;
 
-    const profileSkills = [...new Set([...(signals?.profileSkills ?? []), ...packSkills])].sort();
-
-    // ① The set: role bridge ∪ secondary-role bridge ∪ attribute bridge. EMPTY is a legitimate
-    //    answer — a worker whose roles and attributes imply no postable skill reaches nothing,
-    //    and we never fabricate a skill to give a man a feed.
-    const derived: WorkerSkillRow[] = deriveWorkerSkills(
-      {
-        // `signals` is undefined for a form-only worker: no profile row, so no role and no
-        // total-years. `deriveWorkerSkills` already handles both (derive.ts:57, :69) — a null
-        // role contributes no role-bridge skill and a null tenure buckets to zero — so the
-        // pack bridge stands on its own rather than needing a synthesised profile.
-        canonicalRoleId: signals?.canonicalRoleId ?? null,
-        additionalRoleIds: secondaryRoleIds,
-        profileSkills,
-        totalYears: signals?.totalYears ?? null,
-      },
-      cfg,
-    );
+    // ① The set: role bridge ∪ secondary-role bridge ∪ attribute bridge (profile skills ∪ pack
+    //    answers). EMPTY is a legitimate answer — a worker whose roles and attributes imply no
+    //    postable skill reaches nothing, and we never fabricate a skill to give a man a feed.
+    //    A form-only worker has no role and no total-years; `deriveWorkerSkills` handles both
+    //    (a null role contributes nothing, a null tenure buckets to zero).
+    const derived: WorkerSkillRow[] = deriveWorkerSkills(input, cfg);
 
     // ② Tenure, per industry, from the SAME rows the engine just produced (so the E8
     //    clamp compares a skill against tenure in that skill's OWN industry — E7).

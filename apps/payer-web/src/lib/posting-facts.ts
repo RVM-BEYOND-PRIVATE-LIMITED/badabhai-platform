@@ -10,7 +10,7 @@ import { jobRoleLabel } from "./job-roles";
  * Labels only — a role kind or a skill id is never echoed raw (an unknown one is "Not set").
  */
 
-/** One line of "Also in your posting — not on the worker's card". */
+/** One line of "Also in your posting — not written on the worker's card". */
 export interface PostingFact {
   label: string;
   /** The value, or null when the payer has not set it (drawn as a muted "Not set"). */
@@ -19,7 +19,9 @@ export interface PostingFact {
   note?: string;
 }
 
-const DESCRIPTION_NOTE = "Workers read this when they open the job.";
+// One line in the 24rem rail ("…when they open the posting." wrapped and pushed the agency
+// editor's Save below a 900px fold), and the entity is a posting, never a job (F36).
+const DESCRIPTION_NOTE = "Workers read this in the full posting.";
 
 /** The match skills' labels, in the picked order; an id missing from the vocabulary is skipped. */
 function skillLabels(ids: readonly string[], vocabulary: readonly MatchSkillWire[]): string | null {

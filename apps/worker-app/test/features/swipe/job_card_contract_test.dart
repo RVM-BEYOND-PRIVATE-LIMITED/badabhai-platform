@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/util/pay_format.dart';
+import 'package:badabhai_worker_app/core/widgets/role_art/role_art.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/swipe_jobs_screen.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/widgets/design1_job_card.dart';
 
@@ -90,4 +91,107 @@ void main() {
       }
     });
   }
+
+  // role_kind on the feed card → the role illustration heading the card. The
+  // SAME cases the payer-web preview is held to (job-card-contract.test.tsx).
+  final List<Map<String, dynamic>> artCases =
+      ((fixture['role_art'] as Map<String, dynamic>)['cases'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+
+  test('the role_art cases cover every illustrated kind', () {
+    final Set<Object?> kinds = artCases
+        .map(
+          (Map<String, dynamic> c) =>
+              (c['input'] as Map<String, dynamic>)['role_kind'],
+        )
+        .toSet();
+    for (final String kind in kRoleArtKinds) {
+      if (kind == kRoleArtFallback) continue;
+      expect(kinds, contains(kind));
+    }
+  });
+
+  for (int i = 0; i < artCases.length; i++) {
+    final Map<String, dynamic> c = artCases[i];
+    testWidgets('card contract · role art · ${c['name']}', (
+      WidgetTester tester,
+    ) async {
+      final FeedItem item = FeedItem.fromJson(<String, dynamic>{
+        'title': 'Any job',
+        'city': 'Pune',
+        ...(c['input'] as Map<String, dynamic>),
+        'job_id': 'art-$i',
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Design1JobCard(
+                data: feedItemCardData(item),
+                payFull: null,
+                showDock: false,
+                showTeaser: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      final String art = c['art'] as String;
+      expect(find.byKey(ValueKey<String>('roleArt:$art')), findsOneWidget);
+      // The art heads the card: above the title.
+      expect(
+        tester.getTopLeft(find.byType(RoleArtBanner)).dy,
+        lessThan(tester.getTopLeft(find.text('Any job')).dy),
+      );
+
+      // ART, NEVER TEXT (#2009). The fixture's own rule: a case carrying
+      // `role_kind` draws exactly the slots the same input WITHOUT it draws —
+      // the illustration adds no text slot. Asserted by pumping the same card
+      // twice and comparing every string it painted, which needs no label table
+      // to stay true when the kinds or their wording change.
+      final List<String> withKind = _drawnText(tester);
+
+      final Map<String, dynamic> bare =
+          Map<String, dynamic>.from(c['input'] as Map<String, dynamic>)
+            ..remove('role_kind');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Design1JobCard(
+                data: feedItemCardData(
+                  FeedItem.fromJson(<String, dynamic>{
+                    'title': 'Any job',
+                    'city': 'Pune',
+                    ...bare,
+                    'job_id': 'bare-$i',
+                  }),
+                ),
+                payFull: null,
+                showDock: false,
+                showTeaser: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(withKind, _drawnText(tester));
+
+      // And the slug itself is never painted — not as a row, not inside one.
+      // `role_kind` is a raw id; a worker must never be shown one.
+      final Object? kind = (c['input'] as Map<String, dynamic>)['role_kind'];
+      if (kind is String && kind.isNotEmpty) {
+        for (final String drawn in withKind) {
+          expect(drawn.toLowerCase(), isNot(contains(kind.toLowerCase())));
+        }
+      }
+    });
+  }
 }
+
+/// Every string the pumped card is currently painting, in paint order.
+List<String> _drawnText(WidgetTester tester) => tester
+    .widgetList<Text>(find.byType(Text))
+    .map((Text t) => t.data ?? t.textSpan?.toPlainText() ?? '')
+    .where((String s) => s.isNotEmpty)
+    .toList(growable: false);

@@ -41,6 +41,7 @@ function row(id: string, payerKey: string, over: Partial<MatchFeedRow> = {}): Ma
     matchedSkillId: "mskill_vmc_operator",
     boosted: false,
     publishedAt: new Date("2026-07-30T10:00:00.000Z"),
+    publishedKey: "2026-07-30T10:00:00.000000Z",
     roleTitle: "VMC Operator",
     city: "Pune",
     area: null,
@@ -54,6 +55,7 @@ function row(id: string, payerKey: string, over: Partial<MatchFeedRow> = {}): Ma
     payType: null,
     shift: "day",
     neededBy: null,
+    roleKind: null,
     ...over,
   };
 }
@@ -178,7 +180,7 @@ describe("MatchFeedService — E14: max-2-per-company is a PERMUTATION, not a fi
   it("preserves each company's INTERNAL order (a stable permutation, not a shuffle)", async () => {
     const { svc } = setup(CLUSTERED);
     const out = await svc.getFeed(WORKER, 6, {}, CTX);
-    // Within one company the SQL's boost/recency order is the only order there is —
+    // Within one company the SQL's boost/tier/recency order is the only order there is —
     // the interleave may move a card later, never above its own company's earlier card.
     const aOrder = out.jobs.map((j) => j.job_id).filter((id) => id.startsWith("a"));
     expect(aOrder).toEqual(["a1", "a2", "a3"]);
@@ -191,6 +193,78 @@ describe("MatchFeedService — E14: max-2-per-company is a PERMUTATION, not a fi
     // The rule cannot conjure a second employer; padding or truncating here would be
     // the feed lying about supply.
     expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "a2", "a3"]);
+  });
+});
+
+describe("MatchFeedService — the interleave over a MIXED-TIER page (direct before related, 2026-10-05)", () => {
+  // Rows arrive in the repository's order: boost, then tier ASC, then recency, then id.
+  // The interleave runs AFTER that fetch; these pin that it is a stable permutation of
+  // that order — it moves a related card above a direct card ONLY when the max-N rule
+  // forces it, and never otherwise.
+
+  it("is the IDENTITY when no company run needs breaking — tier order survives untouched", async () => {
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1, boosted: true }),
+      row("b1", PAYER_B, { matchTier: 2, boosted: true }),
+      row("c1", PAYER_C, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("b2", PAYER_B, { matchTier: 2 }),
+      row("c2", PAYER_C, { matchTier: 2 }),
+    ];
+    const { svc } = setup(rows);
+    const out = await svc.getFeed(WORKER, 6, {}, CTX);
+    expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "b1", "c1", "a2", "b2", "c2"]);
+    expect(out.jobs.map((j) => j.via_related)).toEqual([false, true, false, false, true, true]);
+  });
+
+  it("lifts a related card above a direct one ONLY where the max-2 rule forces it", async () => {
+    // Three direct cards from A lead; the third would be A's third in a row. The
+    // earliest card that does not extend the run is b1 (related), so it is pulled
+    // up exactly one slot — and a3 follows immediately, ahead of c1.
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("a3", PAYER_A, { matchTier: 1 }),
+      row("b1", PAYER_B, { matchTier: 2 }),
+      row("c1", PAYER_C, { matchTier: 2 }),
+    ];
+    const { svc } = setup(rows);
+    const out = await svc.getFeed(WORKER, 5, {}, CTX);
+    expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "a2", "b1", "a3", "c1"]);
+    // Within each tier, the relative order is the fetch order.
+    const direct = out.jobs.filter((j) => !j.via_related).map((j) => j.job_id);
+    const related = out.jobs.filter((j) => j.via_related).map((j) => j.job_id);
+    expect(direct).toEqual(["a1", "a2", "a3"]);
+    expect(related).toEqual(["b1", "c1"]);
+  });
+
+  it("overfetch still feeds the rule: a related card past the page edge fills the forced slot", async () => {
+    // limit 3 → reads 9. b1 sits at position 4, OUTSIDE the page; only the overfetch
+    // lets the rule reach it. Without it the page would be a1,a2,a3 (a run of 3).
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("a3", PAYER_A, { matchTier: 1 }),
+      row("b1", PAYER_B, { matchTier: 2 }),
+    ];
+    const { svc, repo } = setup(rows);
+    const out = await svc.getFeed(WORKER, 3, {}, CTX);
+    expect(repo.listFeed).toHaveBeenCalledWith(WORKER, 9, {});
+    expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "a2", "b1"]);
+    expect(out.jobs.map((j) => j.rank)).toEqual([1, 2, 3]);
+  });
+
+  it("is deterministic — the same fetch yields the same page and the same ranks", async () => {
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("a3", PAYER_A, { matchTier: 1 }),
+      row("b1", PAYER_B, { matchTier: 2 }),
+      row("a4", PAYER_A, { matchTier: 2 }),
+    ];
+    const first = await setup(rows).svc.getFeed(WORKER, 5, {}, CTX);
+    const second = await setup(rows).svc.getFeed(WORKER, 5, {}, CTX);
+    expect(second.jobs).toEqual(first.jobs);
   });
 });
 
@@ -217,9 +291,7 @@ describe("MatchFeedService — ranks and the feed.shown_v2 audit line up", () =>
 
     expect(out.jobs).toHaveLength(4);
     expect(allEvents()).toHaveLength(4);
-    expect(allEvents().map((e) => e.payload.job_posting_id)).toEqual(
-      out.jobs.map((j) => j.job_id),
-    );
+    expect(allEvents().map((e) => e.payload.job_posting_id)).toEqual(out.jobs.map((j) => j.job_id));
   });
 
   it("stamps each event with the card's OWN rank and posting id (post-interleave)", async () => {
@@ -333,22 +405,46 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
         "requirements",
         "shift",
         "title",
+        // Owner ruling 2026-10-05 — the card's role illustration. ADDITIVE, nullable.
+        "role_kind",
         "trade_key",
         "via_related",
       ].sort(),
     );
   });
 
-  it("a row that somehow carried role_kind still yields a card WITHOUT it (0131, #1823)", async () => {
-    // The mapper is field-by-field, so an extra column on the row cannot ride onto the card.
-    // The exact-keys test above pins the shape; this pins the specific key the ruling names.
-    const { svc } = setup([
-      { ...row("a1", PAYER_A), roleKind: "welder" } as unknown as MatchFeedRow,
-    ]);
-    const out = await svc.getFeed(WORKER, 5, {}, CTX);
-    expect(out.jobs[0]).not.toHaveProperty("role_kind");
-    expect(out.jobs[0]).not.toHaveProperty("roleKind");
-    expect(JSON.stringify(out)).not.toContain("welder");
+  describe("role_kind — card art, gated to the closed set (owner ruling 2026-10-05)", () => {
+    it("passes a declared kind through", async () => {
+      const { svc } = setup([row("a1", PAYER_A, { roleKind: "welder" })]);
+      const out = await svc.getFeed(WORKER, 5, {}, CTX);
+      expect(out.jobs[0]!.role_kind).toBe("welder");
+    });
+
+    it("is null when the posting has no role picked", async () => {
+      const { svc } = setup([row("a1", PAYER_A)]);
+      const out = await svc.getFeed(WORKER, 5, {}, CTX);
+      expect(out.jobs[0]!.role_kind).toBeNull();
+    });
+
+    it.each(["Welder", "cnc_operator", "welder ", "", "<script>"])(
+      "fails closed to null on an undeclared value (%j)",
+      async (value) => {
+        const { svc } = setup([row("a1", PAYER_A, { roleKind: value })]);
+        const out = await svc.getFeed(WORKER, 5, {}, CTX);
+        expect(out.jobs[0]!.role_kind).toBeNull();
+      },
+    );
+
+    it("never rides feed.shown_v2 (no event schema change)", async () => {
+      const { svc, allEvents } = setup([row("a1", PAYER_A, { roleKind: "welder" })]);
+      await svc.getFeed(WORKER, 5, {}, CTX);
+      const events = allEvents();
+      expect(events.length).toBeGreaterThan(0);
+      for (const e of events) {
+        expect(e.payload).not.toHaveProperty("role_kind");
+        expect(JSON.stringify(e)).not.toContain("welder");
+      }
+    });
   });
 
   it("renders a missing city as the empty string and passes card content through honestly", async () => {
@@ -393,5 +489,26 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
     expect(card.benefits).toBeNull();
     expect(card.requirements).toBeNull();
     expect(card.needed_by).toBeNull();
+  });
+});
+
+describe("MatchFeedService.composePage — the feed's order with no impression emitted", () => {
+  it("returns exactly the rows getFeed serves, in the same order, and emits nothing itself", async () => {
+    const rows = [
+      row("p1", PAYER_A),
+      row("p2", PAYER_A),
+      row("p3", PAYER_A),
+      row("p4", PAYER_B),
+      row("p5", PAYER_C),
+    ];
+    const { svc, events } = setup(rows);
+
+    const page = await svc.composePage(WORKER, 4, {});
+    expect(events.emitMany).not.toHaveBeenCalled();
+
+    const { jobs } = await svc.getFeed(WORKER, 4, {}, CTX);
+    expect(page.map((r) => r.jobPostingId)).toEqual(jobs.map((j) => j.job_id));
+    // The E14 interleave is applied (not just the repository order).
+    expect(longestRun(page.map((r) => r.payerKey))).toBeLessThanOrEqual(2);
   });
 });

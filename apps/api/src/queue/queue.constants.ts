@@ -268,3 +268,22 @@ export interface ReferralBonusJobData {
   invitedWorkerId: string;
   trigger: "profile_confirmed" | "unlock_granted";
 }
+
+/**
+ * ADR-0050 (#1957) — the agency-job V1 twin sync. Two repeatable ticks on one queue, each
+ * carrying NO payload: the `events` window (poll) and the agency `jobs` themselves (sweep) are
+ * the authoritative work lists, and the sync is idempotent, so a lost or duplicated Redis job is
+ * harmless. Registered whatever AGENCY_TWIN_SYNC_ENABLED says: disarmed, the sweep tick is how the
+ * kill switch pauses twins.
+ */
+export const AGENCY_TWIN_SYNC_QUEUE = "agency-twin-sync";
+
+/** The event-poll tick's scheduler id + job name (fast: a few seconds behind an agency write). */
+export const AGENCY_TWIN_POLL_SCHEDULER_ID = "agency-twin-sync-poll";
+export const AGENCY_TWIN_POLL_JOB = "poll";
+export const AGENCY_TWIN_POLL_EVERY_MS = 30_000;
+
+/** The convergence sweep's scheduler id + job name (the backstop and the kill switch's clock). */
+export const AGENCY_TWIN_SWEEP_SCHEDULER_ID = "agency-twin-sync-sweep";
+export const AGENCY_TWIN_SWEEP_JOB = "sweep";
+export const AGENCY_TWIN_SWEEP_EVERY_MS = 10 * 60_000;

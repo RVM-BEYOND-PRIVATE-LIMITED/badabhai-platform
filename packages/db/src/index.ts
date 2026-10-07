@@ -160,3 +160,29 @@ export {
 } from "./lifecycle-writer-scan";
 export type { SpineTable, SpineWriterRoot, WriterScan } from "./lifecycle-writer-scan";
 export type { ClassifierRule, PhraseClass } from "./skill-discovery-classify";
+
+// The Matching V1 demo's "who is a demo worker" definition (owner ruling 2026-10-06): the reserved
+// demo phone block plus an owner allow-list file. Exported so every demo surface (the demo seed's
+// `--reset-live-worker`, the engine view) gates on the SAME rule. Pure, dependency-free.
+export {
+  DEMO_PHONE_PATTERN,
+  DEMO_PHONE_PREFIX,
+  E164_PATTERN,
+  RESERVED_TEST_PHONE_PATTERN,
+  isDemoWorkerPhone,
+  parseAllowPhones,
+} from "./demo-phones";
+
+// ADR-0050 — the agency-job V1 twin's shared core (#1957). Exported because the api's sync queue
+// and its `db:sync:agency-twins` CLI (apps/api) must run the SAME plan, diff and write, and the
+// api's posting publish runs the same `job_reach` materialization statement.
+export * from "./agency-twin";
+// The ops TARGET guard (DATABASE_URL decides, not NODE_ENV). Exported so a runner that lives in
+// `apps/api` — ADR-0050's `sync-agency-twins` CLI — is held to the SAME production-write rule as
+// every `db:*` runner here, rather than restating it. Pure; no IO.
+export {
+  enforceOpsGuard,
+  PRODUCTION_WRITE_ENV,
+  PRODUCTION_WRITE_FLAG,
+  type EnforcedOpsGuard,
+} from "./ops-guard";

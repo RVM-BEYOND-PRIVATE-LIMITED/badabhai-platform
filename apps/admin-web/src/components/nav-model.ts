@@ -82,7 +82,9 @@ export const NAV: NavSection[] = [
     ],
   },
   {
-    title: "Skills",
+    // "Matching", not "Skills" (owner ruling, #1900): the single-item Skills group is folded
+    // into Matching — the skill vocabulary reviewed here is what the match engine consumes.
+    title: "Matching",
     items: [
       // `read_entities`, mirroring the three READS on `AdminSkillDiscoveryController` — the
       // queue, the detail read and the metrics tiles all sit on the read floor. The write
@@ -93,6 +95,14 @@ export const NAV: NavSection[] = [
         href: "/skills/discovery",
         label: "Skill discovery",
         icon: "list-magnifying-glass",
+        capability: "read_entities",
+      },
+      // The live Matching V1 view (owner-approved investor demo): what one worker's feed holds,
+      // and why. `read_entities`, mirroring all three reads on `AdminMatchEngineController`.
+      {
+        href: "/matching/engine",
+        label: "Engine view",
+        icon: "path",
         capability: "read_entities",
       },
     ],

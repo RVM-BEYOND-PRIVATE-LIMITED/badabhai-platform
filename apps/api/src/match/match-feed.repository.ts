@@ -12,6 +12,12 @@ export interface MatchFeedRow {
   matchedSkillId: string;
   boosted: boolean;
   publishedAt: Date | null;
+  /**
+   * #1961 — `published_at` as microsecond UTC text (`2099-01-05T00:00:00.000000Z`), or null.
+   * The keyset value a `next_cursor` carries; `publishedAt` (a millisecond `Date`) cannot be
+   * one. Never on the card.
+   */
+  publishedKey: string | null;
   roleTitle: string;
   city: string | null;
   // Worker-visible card content (#1561, migration 0116). All nullable — a posting created
@@ -28,6 +34,12 @@ export interface MatchFeedRow {
   payType: string | null;
   shift: string | null;
   neededBy: string | null;
+  /**
+   * The posting's display role (migration 0131), RAW off the column — the service gates it to
+   * the closed set or null on the way out (`toWorkerRoleKind`). Display only: it is selected,
+   * never filtered or ordered on (ADR-0036 addendum 2026-09-29).
+   */
+  roleKind: string | null;
 }
 
 /**
@@ -60,6 +72,20 @@ export interface MatchFeedFilters {
   shift?: string;
   /** Minimum monthly pay the worker will consider. OFF unless he sets it. */
   payMin?: number;
+}
+
+/**
+ * #1961 — one row's position in {@link MatchFeedRepository.listFeed}'s ORDER BY:
+ * `(boosted_until > now()) DESC, match_tier ASC, published_at DESC NULLS LAST, id ASC`.
+ * `boosted` is the bucket the row was SERVED in; the read after it compares against the boost
+ * state at ITS `now()` (see `keysetAfter`).
+ */
+export interface MatchFeedKey {
+  boosted: boolean;
+  matchTier: 1 | 2;
+  /** Microsecond UTC text, or null for an unpublished row (sorts last in its tier). */
+  publishedKey: string | null;
+  id: string;
 }
 
 /** One applicant row for the payer's candidate list, in rank order. */
@@ -110,9 +136,22 @@ export class MatchFeedRepository {
    *   job_reach ⋈ job_postings WHERE worker_id = :me AND status = 'open'
    *     AND NOT EXISTS (applied/skipped on job_posting_id)
    *     AND <his filters>
-   *   ORDER BY (boosted_until > now()) DESC, published_at DESC, id ASC
+   *   ORDER BY (boosted_until > now()) DESC, jr.match_tier ASC,
+   *            jp.published_at DESC NULLS LAST, jp.id ASC
    *
-   * NO SCORE, NO RANKING — the order is boost, then recency, then a stable id tiebreak.
+   * NO SCORE, NO WEIGHTS — the order is boost, then match tier, then recency, then a
+   * stable id tiebreak: a lexicographic tuple of one boolean (boost live?) and plain
+   * columns, with no formula over them.
+   *
+   * DIRECT BEFORE RELATED (owner ruling, Prakash, 2026-10-05). Within each boost band, a
+   * job the worker reaches through the POSTED skill (`match_tier` 1) ranks above one he
+   * reaches only through a RELATED skill (tier 2). `match_tier` is a two-value tier
+   * fixed at publish (best tier wins, moment ③), not a score, so this is a lexicographic
+   * key like recency — not ranking-by-model. Boost stays FIRST: a paid placement lifts a
+   * card above every unboosted card whatever its tier (ADR-0036 §7 — boost still never
+   * adds a card that failed the skill gate). Before this ruling the order was boost,
+   * recency, id ("NO SCORE, NO RANKING").
+   *
    * The `id ASC` tail makes it a TOTAL order: a feed that reorders between page loads is
    * a bug (E11/Policy 7), and without it two postings published in the same transaction
    * would swap on every fetch.
@@ -132,6 +171,7 @@ export class MatchFeedRepository {
     workerId: string,
     limit: number,
     filters: MatchFeedFilters,
+    after?: MatchFeedKey,
   ): Promise<MatchFeedRow[]> {
     const rows = await this.db.execute<{
       job_posting_id: string;
@@ -140,6 +180,7 @@ export class MatchFeedRepository {
       matched_skill_id: string;
       boosted: boolean;
       published_at: Date | null;
+      published_key: string | null;
       role_title: string;
       city: string | null;
       area: string | null;
@@ -153,13 +194,19 @@ export class MatchFeedRepository {
       pay_type: string | null;
       shift: string | null;
       needed_by: string | null;
+      role_kind: string | null;
     }>(dsql`
       SELECT jp.id                                        AS job_posting_id,
-             COALESCE(jp.payer_id, jp.created_by)::text   AS payer_key,
+             -- ADR-0050 Q1: an agency twin's "company" is its SOURCE job's agency (opaque, never
+             -- projected). Twins share the system created_by, so without this every agency
+             -- would sit in ONE interleave bucket and be throttled as a single company.
+             COALESCE(jp.payer_id, src.payer_id, jp.created_by)::text AS payer_key,
              jr.match_tier                                AS match_tier,
              jr.matched_skill_id                          AS matched_skill_id,
              (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) AS boosted,
              jp.published_at                              AS published_at,
+             to_char(jp.published_at AT TIME ZONE 'UTC',
+                     'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')     AS published_key,
              jp.role_title                                AS role_title,
              jp.city                                      AS city,
              jp.area                                      AS area,
@@ -172,15 +219,37 @@ export class MatchFeedRepository {
              jp.pay_max                                   AS pay_max,
              jp.pay_type                                  AS pay_type,
              jp.shift                                     AS shift,
-             jp.needed_by                                 AS needed_by
+             jp.needed_by                                 AS needed_by,
+             jp.role_kind                                 AS role_kind
       FROM job_reach jr
       JOIN job_postings jp ON jp.id = jr.job_posting_id
+      -- ADR-0050 §4.4 — an agency TWIN's source job, one PK probe. Joined only for a twin
+      -- (sync_source set), so a native posting — and a D4 conversion, whose closed source is not
+      -- the truth — is untouched by it.
+      LEFT JOIN jobs src
+        ON jp.sync_source IS NOT NULL
+       AND src.id = jp.source_job_id
       WHERE jr.worker_id = ${workerId}::uuid
         AND jp.status = 'open'
+        -- ADR-0050 §4.4 — a twin is served only while its SOURCE is open: defence in depth
+        -- against a twin that went stale while the sync was down. Source status always wins.
+        AND (jp.sync_source IS NULL OR src.status = 'open')
         AND NOT EXISTS (
           SELECT 1 FROM applications a
           WHERE a.worker_id = ${workerId}::uuid
             AND a.job_posting_id = jp.id
+        )
+        -- ADR-0050 §4.4 / C5 — a twin's decisions live on its SOURCE id (applications.job_id).
+        -- A worker who applied to (or skipped) the agency job — on the legacy feed before the
+        -- flip, or on this twin after it — is not re-served the twin. Union predicate 3b's
+        -- shape, extended to skips because a V1 skip of a twin is recorded on the source too.
+        AND NOT (
+          jp.sync_source IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM applications a2
+            WHERE a2.worker_id = ${workerId}::uuid
+              AND a2.job_id = jp.source_job_id
+          )
         )
         -- Worker filters. Each is INERT unless he supplied it, and a NULL column on the
         -- posting never excludes it: a job with no city/shift/pay band matches every
@@ -193,7 +262,9 @@ export class MatchFeedRepository {
         -- still see an 18000-25000 job — it can pay him what he asked.
         AND (${filters.payMin ?? null}::int IS NULL OR jp.pay_max IS NULL
              OR jp.pay_max >= ${filters.payMin ?? null}::int)
+        ${after === undefined ? dsql`` : dsql`AND ${keysetAfter(after)}`}
       ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC,
+               jr.match_tier ASC,
                jp.published_at DESC NULLS LAST,
                jp.id ASC
       LIMIT ${limit}
@@ -206,6 +277,7 @@ export class MatchFeedRepository {
       matched_skill_id: string;
       boosted: boolean;
       published_at: Date | string | null;
+      published_key: string | null;
       role_title: string;
       city: string | null;
       area: string | null;
@@ -219,6 +291,7 @@ export class MatchFeedRepository {
       pay_type: string | null;
       shift: string | null;
       needed_by: string | null;
+      role_kind: string | null;
     }[];
 
     return list.map((r) => ({
@@ -228,6 +301,7 @@ export class MatchFeedRepository {
       matchedSkillId: r.matched_skill_id,
       boosted: Boolean(r.boosted),
       publishedAt: r.published_at === null ? null : new Date(r.published_at),
+      publishedKey: r.published_key,
       roleTitle: r.role_title,
       city: r.city,
       area: r.area,
@@ -241,6 +315,7 @@ export class MatchFeedRepository {
       payType: r.pay_type,
       shift: r.shift,
       neededBy: r.needed_by,
+      roleKind: r.role_kind,
     }));
   }
 
@@ -355,4 +430,32 @@ export class MatchFeedRepository {
       matchedSkillId: r.matched_skill_id,
     }));
   }
+}
+
+/**
+ * #1961 — "strictly after `after`" in the feed's ORDER BY, one clause per key, most significant
+ * first. The boost bucket is the LIVE expression, so a row whose boost changed between two page
+ * reads is placed by its state now: one that LOST its boost after being served lands after the
+ * cursor and is RE-SERVED; one that GAINED a boost while the cursor sits in the unboosted bucket
+ * lands before it and is not reached on this scroll (it heads the next first page). ADR-0052.
+ *
+ *   boosted bucket      unboosted rows come after a boosted cursor
+ *   match_tier ASC      a higher tier comes after
+ *   published_at DESC   NULLS LAST: an older or unpublished row comes after
+ *   id ASC              the total-order tail
+ */
+function keysetAfter(after: MatchFeedKey) {
+  const boosted = dsql`(jp.boosted_until IS NOT NULL AND jp.boosted_until > now())`;
+  const id = dsql`${after.id}::uuid`;
+  const t = after.publishedKey === null ? null : dsql`${after.publishedKey}::timestamptz`;
+  const sameTierAfter =
+    t === null
+      ? dsql`(jp.published_at IS NULL AND jp.id > ${id})`
+      : dsql`(jp.published_at IS NULL OR jp.published_at < ${t}
+              OR (jp.published_at = ${t} AND jp.id > ${id}))`;
+  const sameBucketAfter = dsql`(jr.match_tier > ${after.matchTier}::int
+              OR (jr.match_tier = ${after.matchTier}::int AND ${sameTierAfter}))`;
+  return after.boosted
+    ? dsql`(NOT ${boosted} OR ${sameBucketAfter})`
+    : dsql`(NOT ${boosted} AND ${sameBucketAfter})`;
 }

@@ -297,21 +297,25 @@ describe("PostingPlansRepository.setPlanStatus — flip a plan's lifecycle statu
   });
 });
 
-describe("PostingPlansRepository.postingExists — existence-only, no PII read", () => {
-  it("projects ONLY id, scoped by id, limited to one", async () => {
-    const { db, captured } = makeDb({ rows: [{ id: POSTING_ID }] });
-    const out = await new PostingPlansRepository(db).postingExists(POSTING_ID);
+describe("PostingPlansRepository.findPostingSyncSource — existence + the ADR-0050 marker, no PII read", () => {
+  it("projects ONLY sync_source, scoped by id, limited to one", async () => {
+    const { db, captured } = makeDb({ rows: [{ syncSource: null }] });
+    const out = await new PostingPlansRepository(db).findPostingSyncSource(POSTING_ID);
     expect(captured.selectTable).toBe(jobPostings);
-    expect(Object.keys(captured.selection!)).toEqual(["id"]);
+    expect(Object.keys(captured.selection!)).toEqual(["syncSource"]);
     expect(text(captured.where)).toBe('"job_postings"."id" = $1');
     expect(params(captured.where)).toEqual([POSTING_ID]);
     expect(captured.limit).toBe(1);
-    expect(out).toBe(true);
+    expect(out).toBeNull();
   });
 
-  it("is false when no posting matches", async () => {
+  it("is the marker for an agency twin, and undefined when no posting matches", async () => {
+    const twin = makeDb({ rows: [{ syncSource: "agency_job" }] });
+    expect(await new PostingPlansRepository(twin.db).findPostingSyncSource(POSTING_ID)).toBe(
+      "agency_job",
+    );
     const { db } = makeDb({ rows: [] });
-    expect(await new PostingPlansRepository(db).postingExists(POSTING_ID)).toBe(false);
+    expect(await new PostingPlansRepository(db).findPostingSyncSource(POSTING_ID)).toBeUndefined();
   });
 });
 

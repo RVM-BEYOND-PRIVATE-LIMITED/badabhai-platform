@@ -34,7 +34,7 @@ export default function PortalError({ reset }: { error: Error; reset: () => void
   return (
     <div className="state state--error" role="alert">
       <span className="state__icon">
-        <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+        <Icon name="warning-circle" />
       </span>
       <h1 className="state__title">Something went wrong</h1>
       <p className="state__body">

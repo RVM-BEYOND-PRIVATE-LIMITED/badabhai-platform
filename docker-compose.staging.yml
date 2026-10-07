@@ -303,7 +303,9 @@ services:
       # README "Prerequisites"), and REAL model calls need the box to widen the ai-service's
       # `AI_REAL_CALL_TASKS` allowlist (below) to name `companion_classify,companion_edit_parse`
       # (P1) and `companion_career_answer` (P3) — an env action on the box, never a code change
-      # (see the allowlist's note on why this file's default does not reach production).
+      # (see the allowlist's note on why this file's default does not reach production). The
+      # profiling-stage free chat (ADR-0051) is armed the same way, by appending
+      # `profiling_free_classify,profiling_free_reply`; unarmed, both answer from their mocks.
       # `:-false` because these bools reject "".
       #
       # THE KNOBS (confidence floor, max rows, proposal TTL, strikes, memory) ARE NOT BRIDGED:
@@ -354,6 +356,12 @@ services:
       # routes /name is safe — the chat asks only what /name left blank; OFF after the app unroutes
       # /name is not — nobody's name would be captured. `:-false` so an unset or empty secret is off.
       CHAT_IDENTITY_INTAKE_ENABLED: ${CHAT_IDENTITY_INTAKE_ENABLED:-false}
+
+      # ---- THE PROFILING-STAGE FREE CHAT'S KILL SWITCH (ADR-0051, #2027).
+      #
+      # The free chat is LIVE ON MERGE: false (unset, empty) keeps it ON. true sends every
+      # profiling session straight to today's interview — no greeting, no classifier call.
+      CHAT_FREE_CHAT_DISABLED: ${CHAT_FREE_CHAT_DISABLED:-false}
 
       # TIERED PROFILING (Easy/Medium/Hard on the Chat path). Off is today's full form and
       # résumé, and nothing reads migration 0126's table or column. Turn on only after 0126 is
@@ -567,11 +575,17 @@ services:
       AGENCY_PAYOUTS_ENABLED: ${AGENCY_PAYOUTS_ENABLED:-false}
       # MEMBER_INVITES_ENABLE_REAL: deliberately NOT declared — see the #872 note above.
       MATCH_V1_ENABLED: ${MATCH_V1_ENABLED:-false}
+      # Engine view demo-worker allow-list (owner ruling 2026-10-06): extra E.164 handsets beyond
+      # the reserved demo block +910000026xxx. `:-` so unset means "demo block only".
+      ADMIN_ENGINE_VIEW_ALLOW_PHONES: ${ADMIN_ENGINE_VIEW_ALLOW_PHONES:-}
       # #1823 / ADR-0049 — company postings on the LEGACY feed beside agency/seed jobs (the
       # interim union). Ignored while MATCH_V1_ENABLED is on. OFF is today's feed and
       # apply/skip; `:-false` so an unset or empty secret is off. Arm only after the ADR-0049
       # pre-arm checklist (probe, inventory hygiene, free-text screen parity).
       FEED_POSTINGS_UNION_ENABLED: ${FEED_POSTINGS_UNION_ENABLED:-false}
+      # ADR-0050 (#1957) — the agency-job V1 twin sync. OFF is the kill switch (every twin is
+      # paused, no field copied); `:-false` so an unset or empty secret is off.
+      AGENCY_TWIN_SYNC_ENABLED: ${AGENCY_TWIN_SYNC_ENABLED:-false}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}

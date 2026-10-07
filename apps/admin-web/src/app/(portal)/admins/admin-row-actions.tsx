@@ -3,7 +3,10 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "../../../components/admin-action-button";
-import { AdminActionResultBanner } from "../../../components/admin-action-result-banner";
+import {
+  ALL_ADMIN_ACTIONS_LINK,
+  AdminActionResultBanner,
+} from "../../../components/admin-action-result-banner";
 import { changeAdminRoleAction, resetAdminMfaAction, suspendAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
@@ -47,14 +50,11 @@ export function AdminRowActions({
   // Every other entity now has a per-entity timeline route; admins deliberately do NOT.
   // `admin_session` is absent from ADMIN_TIMELINE_SUBJECT_TYPES (mirrored verbatim from the
   // server in `lib/events.ts`), so /admin/entities/admin_session/:id/timeline would be a
-  // server-side 400. The honest destination is therefore the subject-type-wide stream: the
-  // action's own `admin.action_performed` lands there (subject_type `admin_session`, newest
-  // first), just not filtered to this row. Carrying a `subjectId` here would be worse than
-  // useless — `EventFilters` has no such field, so it would promise a per-admin slice and
-  // silently render every admin's events. So it is the global log, and is called that.
-  const eventsLink = mayReadEvents
-    ? { href: "/events?subjectType=admin_session", label: "View events" }
-    : null;
+  // server-side 400. Carrying a `subjectId` would be worse than useless — `EventFilters` has no
+  // such field, so it would promise a per-admin slice and silently render every admin's events.
+  // So the result links to where the action just taken landed, the `admin.action_performed`
+  // stream, by the same name the page header and the invite result give that link.
+  const eventsLink = mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null;
 
   // Every row's controls share their visible names, so each one also names its row for
   // assistive tech ("Suspend admin aaaaaaaa…"). The id is the handle the row shows.

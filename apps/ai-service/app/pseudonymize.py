@@ -1451,11 +1451,34 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # and the salary guard's copy (`tests/test_pseudonymize_cued_id_linear.py`,
 # `scripts/measure_cued_id_linear.py`). No possessive quantifier, so the TypeScript ports in
 # `apps/api` and the lexicon's `credentialBefore` carry the same text.
+#
+# A DOT AFTER THE CUE AND A ":-" SEPARATOR ARE READ (issue #1950, risks-register R56). The
+# connector had no token that starts with ".", the separator was one character, and "regn" was no
+# cue, so the common certificate spellings "Reg.No.:- <id>", "Regn. No. <id>" and "Roll.No-<id>"
+# never reached their value: the ID stayed raw, G1/G2 admitted it under both postures, and the
+# salary guard let its digits through as pay. "reg no:- <id>" missed for the separator alone.
+# Three additive tokens, all outside the whitespace structure above: `\.?` straight after the cue
+# word (the abbreviation dot, so "Reg." reads exactly as "Reg"), "regn" among the cues, and `-?`
+# after the separator (":-" and "--" read as ":" and "-"). None of them is whitespace and each is
+# followed by a different class, so a run still has one reading and the rule stays linear. The
+# accepted language is a superset, so every VERDICT only grows: a G1/G2 refusal, a certifier
+# refusal or a salary-guard drop is never lost. The masked TEXT grows per cue, but not across
+# cues: `sub` is non-overlapping and this rule runs before the phone rule, so a newly read dotted
+# cue's value can swallow a later cue glued on by "/" or "-" ("Cert. NAPS/2020/reg: 445566" leaves
+# 445566 raw) or the first group of a spaced phone ("Licence. 098765 43210"). The same happens on
+# the undotted spelling, on PRE and here alike; the walls still refuse both. Risks-register R62.
+# Over the repo corpus (#1875's method, `scripts/measure_cued_id_dot.py`) no string changes; the
+# dot is transparent by construction, so a number written straight after "cert." masks or is
+# dropped as pay exactly as it was after "cert". The test file
+# `tests/test_pseudonymize_cued_id_dot.py` pins the shapes, the near misses and the measurement.
+# "Reg . No" (a SPACED dot), "Num.", "No: -", an en dash, "No #" and "No.=" are still not read;
+# see the doc.
 _CREDENTIAL_ID_LOOKAHEAD_MAX = 64
 _CREDENTIAL_ID_RE = re.compile(
-    r"(?i:\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b"
+    r"(?i:\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)"
+    r"\b\.?"
     r"(?:\s+(?:ka|ki|ke|mera|meri))?"
-    r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]\s*)?)"
+    r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?)"
     r"(?=[A-Za-z0-9/\-]{0," + str(_CREDENTIAL_ID_LOOKAHEAD_MAX) + r"}\d)"
     r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
 )
@@ -2262,12 +2285,60 @@ def _is_closed_vocabulary(rest: str) -> bool:
     return _is_known_trade_vocabulary(remaining)
 
 
+# ---------------------------------------------------------------------------
+# CONTROL CHARACTERS — the output walls WITHHOLD them (issue #1984, R59)
+# ---------------------------------------------------------------------------
+
+#: Every Unicode CONTROL character (category Cc): C0 ``\x00-\x1f``, DEL ``\x7f`` and C1
+#: ``\x80-\x9f``. Cc is a closed, stable category of exactly these 65 code points, which
+#: `tests/test_output_walls_control_chars.py` checks against `unicodedata` over all of Unicode.
+#:
+#: WHY THE WALLS WITHHOLD RATHER THAN READ THROUGH ONE. No rule in this module sees through a
+#: control character, so one inside an identifier split it past every wall: measured on main,
+#: `contains_hard_identifier("call 9876\x00543210")` and `("anil\x00@example.com")` were None,
+#: and `certified_clean_skill_labels` KEPT both, plus "W\x01elding, Anil Kumar" and
+#: "W\x85elding, Anil Kumar" (the leading-word name rule never saw "Welding,"). Deleting the
+#: character before matching was the alternative and is rejected: it would certify a value
+#: that differs from the one stored, and a C1 such as NEL renders as a line break, so the
+#: matched text is not what a reader sees. No clean label carries a control character, so
+#: withholding costs nothing honest.
+#:
+#: NOT category Cf (ZWJ / ZWNJ and the other format characters). The gateway already reads
+#: through those (`_normalised_view`), and a ZWJ / ZWNJ after a Devanagari letter shapes a
+#: conjunct, so withholding Cf would drop real Hindi labels. That is a separate decision.
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+#: The same set minus TAB, LF and CR — the layout whitespace a FREE-TEXT value legitimately
+#: carries (a multi-line résumé summary, a quoted résumé line, a chat reply). The G1 floor
+#: reads those three as a plain space (`_LAYOUT_WHITESPACE_RE`), which every pattern here
+#: already treats as a separator, so they can split nothing a typed space could not. Same
+#: carve-out as the TypeScript companion walls (R57).
+_NON_LAYOUT_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_LAYOUT_WHITESPACE_RE = re.compile(r"[\t\n\r]")
+
+#: What `contains_hard_identifier` returns for a value carrying a non-layout control
+#: character. NOT one of `HARD_IDENTIFIER_CLASSES` (the shared TypeScript fixture pins that
+#: set): like "scanner_error", it is a fail-closed refusal of its own.
+CONTROL_CHARACTER_REFUSAL = "control_character"
+
+
+def has_control_character(text: str) -> bool:
+    """True when ``text`` carries any Unicode Cc character, layout whitespace included.
+
+    The CERTIFIER's test: a label or scalar is one line, so even a tab or newline in one is
+    not clean (`certified_clean_skill_labels`, `is_certified_clean`, `certify_value`)."""
+    return _CONTROL_CHAR_RE.search(text) is not None
+
+
 def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:
     """`is_certified_clean` over an already-computed ``result = pseudonymize(label)``.
 
     Split out only so `certified_clean_skill_labels` can reuse the one gateway pass it also
     needs for the EMPLOYER rescue; every clean-or-withhold decision still goes through here.
+    A label carrying a control character never certifies (#1984; `_CONTROL_CHAR_RE`).
     """
+    if has_control_character(label):
+        return False
     if result.blocked or result.replaced_entities != 0 or result.text != label:
         return False
     rest = _rest_after_a_released_leading_word(label)
@@ -2355,24 +2426,43 @@ def certified_clean_skill_labels(labels: list[str]) -> list[str]:
 
     So a label ALSO passes when BOTH hold: the gateway's only placeholders were
     ``[EMPLOYER_n]`` (`_is_employer_only_mask`) AND every token of the label is
-    curated trade/education vocabulary (`_is_known_trade_vocabulary`). Both halves are
+    curated trade/education vocabulary (`_is_employer_rescue_vocabulary`: the curated set
+    plus the rescue-only words of issue #2003). Both halves are
     load-bearing — a company name always carries a token no trade table contains (a
     proper noun, or a legal form like Industries / Pvt / Ltd / Works / Enterprises),
     so "Ramesh Steel Industries" and "Jyoti CNC Industries" still drop. `pseudonymize`
     itself is UNCHANGED: on general free text those strings mask exactly as before.
     The ORIGINAL label is returned, never the masked text.
+
+    A LABEL CARRYING A CONTROL CHARACTER (Unicode Cc: C0, DEL, C1, layout whitespace
+    included) IS DROPPED before either path, the rescue included (#1984; `_CONTROL_CHAR_RE`).
     """
     kept: list[str] = []
     for label in labels:
+        if has_control_character(label):
+            continue
         result = pseudonymize(label)
         if result.blocked:
             continue
         if _certifies_clean(label, result):
             kept.append(label)
             continue
-        if _is_employer_only_mask(result) and _is_known_trade_vocabulary(label):
+        if _is_employer_only_mask(result) and _is_employer_rescue_vocabulary(label):
             kept.append(label)
     return kept
+
+
+def _is_employer_rescue_vocabulary(label: str) -> bool:
+    """The FIX-5 rescue's whole-label vocabulary test: `_is_known_trade_vocabulary` plus the
+    rescue-only words (`signals.EMPLOYER_RESCUE_ONLY_WORDS`, issue #2003). Read by
+    `certified_clean_skill_labels` alone. Deferred import and fail-closed for the same reasons
+    as `_is_known_trade_vocabulary`: any failure drops the label."""
+    try:
+        from .profiling.signals import is_employer_rescue_vocabulary_label
+
+        return is_employer_rescue_vocabulary_label(label)
+    except Exception:  # defensive; degrade to dropping the label (fail closed)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -2467,10 +2557,12 @@ _INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 #: there). Main's `\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*` was O(k^3) on a whitespace run:
 #: `contains_hard_identifier("passport" + " " * 800 + "!")` took 3.5-9.1 s. Same spans on every
 #: input.
+#: THE DOT AFTER THE CUE AND THE ":-" SEPARATOR ARE READ, as in `_CREDENTIAL_ID_RE` (issue #1950,
+#: R56; the note there): "Passport.No: K1234567" and "A/c. No. 12345678" were admitted.
 _RESUME_CUED_ID_RE = re.compile(
     r"\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|"
-    r"a/c|account|dob|date\s+of\s+birth)\b"
-    r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]\s*)?"
+    r"a/c|account|dob|date\s+of\s+birth)\b\.?"
+    r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]-?\s*)?"
     r"(?=[A-Za-z0-9/\-]{0,24}\d)"
     r"[A-Za-z0-9][A-Za-z0-9/\-]{4,}",
     re.IGNORECASE,
@@ -2520,8 +2612,17 @@ def contains_hard_identifier(text: str) -> str | None:
     Order is cheapest-first and the classes do overlap (a 12-digit Aadhaar also matches
     the phone net); the first match names it, and which label wins never changes the
     decision, only the counter it lands in.
+
+    A CONTROL CHARACTER FAILS CLOSED FIRST (#1984, R59). Any Cc character other than tab, LF
+    and CR returns `CONTROL_CHARACTER_REFUSAL`, so every caller drops the value: no pattern
+    below sees through one ("9876\\x00543210" read as no phone). Tab, LF and CR are read as a
+    space, which every pattern already treats as a separator. Cf is untouched (see
+    `_CONTROL_CHAR_RE`).
     """
     try:
+        if _NON_LAYOUT_CONTROL_CHAR_RE.search(text):
+            return CONTROL_CHARACTER_REFUSAL
+        text = _LAYOUT_WHITESPACE_RE.sub(" ", text)
         text = _INVISIBLE_RE.sub("", text)
         if _PAN_RE.search(text):
             return "pan"

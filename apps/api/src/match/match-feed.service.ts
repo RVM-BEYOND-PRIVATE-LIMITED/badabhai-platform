@@ -2,10 +2,39 @@ import { Injectable } from "@nestjs/common";
 import { interleaveMaxPerCompany } from "@badabhai/match-engine";
 import { matchSkillLabel } from "@badabhai/taxonomy";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { TradeFormKindName } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
+import { toWorkerRoleKind } from "../common/worker-role-kind";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { MatchConfigService } from "./match-config.service";
-import { MatchFeedRepository, type MatchFeedFilters } from "./match-feed.repository";
+import {
+  MatchFeedRepository,
+  type MatchFeedFilters,
+  type MatchFeedKey,
+  type MatchFeedRow,
+} from "./match-feed.repository";
+
+/**
+ * #1961 — where the next V1 page resumes (ADR-0052). `after` is the FRONTIER: every row up to
+ * and including it in the repository's order has been served. `ahead` holds the ids served
+ * BEYOND the frontier, because the E14 interleave pulled them forward over a row it deferred.
+ */
+export interface MatchFeedResume {
+  after: MatchFeedKey;
+  ahead: readonly string[];
+}
+
+/** One composed V1 page and where the next one resumes (`null` = the deck is exhausted). */
+export interface MatchFeedPage {
+  rows: MatchFeedRow[];
+  next: MatchFeedResume | null;
+}
+
+/** A follow-on page request: where to resume, and how many cards this scroll already served. */
+export interface MatchFeedContinuation {
+  resume: MatchFeedResume;
+  rankOffset: number;
+}
 
 /**
  * One V1 feed card.
@@ -65,6 +94,13 @@ export interface MatchFeedItem {
   via_related: boolean;
   /** E18 — the skill that earned the match, for the badge. */
   matched_skill_label: string | null;
+  /**
+   * THE POSTING'S ROLE, FOR THE CARD'S ILLUSTRATION (owner ruling 2026-10-05, ADR-0024 addendum).
+   * One of the 21 declared kinds or NULL ("no role picked" — every pre-0131 and chat-published
+   * posting). ADDITIVE: a client that ignores it renders what it rendered before. Drawn as art,
+   * never as text, and never a match/rank input. Not on `feed.shown_v2`.
+   */
+  role_kind: TradeFormKindName | null;
 }
 
 /**
@@ -105,17 +141,16 @@ export class MatchFeedService {
     limit: number,
     filters: MatchFeedFilters,
     ctx: RequestContext,
-  ): Promise<{ jobs: MatchFeedItem[] }> {
-    const cfg = await this.config.get();
-
-    const overfetch = Math.min(limit * OVERFETCH_MULTIPLIER, OVERFETCH_CAP);
-    const candidates = await this.repo.listFeed(workerId, overfetch, filters);
-
-    // E14 — at most `max_consecutive_same_company` cards in a row from one company.
-    // Keyed on `payer_id`, falling back to `created_by` for ops-created postings, so an
-    // ops actor bulk-loading a register does not flood one worker's feed either.
-    const interleaved = interleaveMaxPerCompany(candidates, cfg.maxConsecutiveSameCompany);
-    const page = interleaved.slice(0, limit);
+    continuation?: MatchFeedContinuation,
+  ): Promise<{ jobs: MatchFeedItem[]; next: MatchFeedResume | null }> {
+    const { rows: page, next } = await this.composeFrom(
+      workerId,
+      limit,
+      filters,
+      continuation?.resume,
+    );
+    // #1961: `rank` is the position in the DECK, so a follow-on page continues the count.
+    const rankOffset = continuation?.rankOffset ?? 0;
 
     const items: MatchFeedItem[] = page.map((row, index) => ({
       job_id: row.jobPostingId,
@@ -143,12 +178,14 @@ export class MatchFeedService {
       benefits: row.benefits,
       requirements: row.requirements,
       needed_by: row.neededBy,
-      // Already the SECOND sort key of this feed (boost, then recency, then id) — it was
+      // Already a sort key of this feed (boost, then tier, then recency, then id) — it was
       // simply never projected, so the client could not see the order it was being served.
       posted_at: row.publishedAt === null ? null : row.publishedAt.toISOString(),
-      rank: index + 1,
+      rank: rankOffset + index + 1,
       via_related: row.matchTier === 2,
       matched_skill_label: matchSkillLabel(row.matchedSkillId) ?? null,
+      // Fail closed: only a declared kind or null leaves the API.
+      role_kind: toWorkerRoleKind(row.roleKind),
     }));
 
     if (page.length > 0) {
@@ -157,7 +194,7 @@ export class MatchFeedService {
           const payload: PayloadInputOf<"feed.shown_v2"> = {
             worker_id: workerId,
             job_posting_id: row.jobPostingId,
-            rank: index + 1,
+            rank: rankOffset + index + 1,
             match_tier: row.matchTier,
             boosted: row.boosted,
             matched_skill_id: row.matchedSkillId,
@@ -174,8 +211,116 @@ export class MatchFeedService {
       );
     }
 
-    return { jobs: items };
+    return { jobs: items, next };
   }
+
+  /**
+   * THE FEED'S ORDER, AND NOTHING ELSE — the rows {@link getFeed} serves, in the order it
+   * serves them, with no event emitted.
+   *
+   * It is the single place the page is composed (the repository's ORDER BY, the overfetch,
+   * the E14 interleave, the truncation), so a read-only consumer — the admin Engine view
+   * (`AdminMatchEngineService`) — shows exactly what the worker is shown without copying
+   * any of it. `getFeed` is this plus `feed.shown_v2`; an admin LOOKING at a worker's feed
+   * is not the worker being shown it, so the admin path must not emit that event.
+   */
+  async composePage(
+    workerId: string,
+    limit: number,
+    filters: MatchFeedFilters,
+  ): Promise<MatchFeedRow[]> {
+    return (await this.composeFrom(workerId, limit, filters)).rows;
+  }
+
+  /**
+   * {@link composePage} from a resume point, plus where the page after it resumes (#1961,
+   * ADR-0052). With no `resume` this is the first page, composed exactly as before: the same
+   * read (no keyset clause), the same overfetch, the same interleave, the same truncation.
+   *
+   * WHY A FRONTIER AND AN AHEAD SET, NOT "THE LAST CARD". The E14 interleave permutes the
+   * overfetched batch, so the served page is not a prefix of the SQL order: a row can be
+   * DEFERRED (held back to break a company run) while a later row is PULLED FORWARD. Resuming
+   * after the last served card would skip the deferred row; resuming after the last card of the
+   * served PREFIX would repeat the pulled-forward one. So the resume point is both:
+   *
+   *   - `after`  the last row of the longest fully-served prefix of the batch (the frontier);
+   *   - `ahead`  every id served beyond that frontier. The next read starts after the frontier
+   *              and drops these, so they count as served but are never shown twice.
+   *
+   * An `ahead` id the next batch does not contain stays carried (it lies beyond that batch, or
+   * has left the deck). One the batch places at or before the new frontier is dropped.
+   *
+   * THE INTERLEAVE RESTARTS AT EACH PAGE. `interleaveMaxPerCompany` starts every call with no
+   * open run, so the max-N rule holds WITHIN a page; across a page boundary up to 2N cards from
+   * one company can sit back to back. Carrying the run across would put the company key in a
+   * client-held cursor, which ADR-0036 keeps server-side.
+   */
+  async composeFrom(
+    workerId: string,
+    limit: number,
+    filters: MatchFeedFilters,
+    resume?: MatchFeedResume,
+  ): Promise<MatchFeedPage> {
+    const cfg = await this.config.get();
+
+    const overfetch = Math.min(limit * OVERFETCH_MULTIPLIER, OVERFETCH_CAP);
+    // The first page's read is the pre-cursor call, argument for argument.
+    const batch =
+      resume === undefined
+        ? await this.repo.listFeed(workerId, overfetch, filters)
+        : await this.repo.listFeed(workerId, overfetch, filters, resume.after);
+    const carried = new Set(resume?.ahead ?? []);
+    const candidates = batch.filter((row) => !carried.has(row.jobPostingId));
+
+    // E14 — at most `max_consecutive_same_company` cards in a row from one company.
+    // Keyed on `payer_id`, falling back to `created_by` for ops-created postings, so an
+    // ops actor bulk-loading a register does not flood one worker's feed either.
+    const interleaved = interleaveMaxPerCompany(candidates, cfg.maxConsecutiveSameCompany);
+    const rows = interleaved.slice(0, limit);
+
+    // The deck is exhausted when nothing in this batch is left unserved AND the batch was not
+    // cut short by the overfetch (a full batch may have more rows behind it).
+    const unservedInBatch = interleaved.length > rows.length;
+    if (!unservedInBatch && batch.length < overfetch) return { rows, next: null };
+    return { rows, next: nextResume(batch, rows, carried, resume?.after) };
+  }
+}
+
+/** The frontier and ahead set after serving `rows` out of `batch` (see `composeFrom`). */
+function nextResume(
+  batch: readonly MatchFeedRow[],
+  rows: readonly MatchFeedRow[],
+  carried: ReadonlySet<string>,
+  previous: MatchFeedKey | undefined,
+): MatchFeedResume | null {
+  const served = new Set<string>(carried);
+  for (const row of rows) served.add(row.jobPostingId);
+
+  let prefix = 0;
+  while (prefix < batch.length && served.has(batch[prefix]!.jobPostingId)) prefix += 1;
+
+  const frontierRow = prefix > 0 ? batch[prefix - 1] : undefined;
+  const after = frontierRow === undefined ? previous : keyOf(frontierRow);
+  // Nothing served and no earlier frontier: there is no position to resume from.
+  if (after === undefined) return null;
+
+  const inBatch = new Set(batch.map((row) => row.jobPostingId));
+  const aheadInBatch = batch
+    .slice(prefix)
+    .map((row) => row.jobPostingId)
+    .filter((id) => served.has(id));
+  const aheadBeyondBatch = [...carried].filter((id) => !inBatch.has(id));
+  return { after, ahead: [...aheadInBatch, ...aheadBeyondBatch] };
+}
+
+/** A served row's position in the repository's ORDER BY. */
+function keyOf(row: MatchFeedRow): MatchFeedKey {
+  return {
+    boosted: row.boosted,
+    matchTier: row.matchTier,
+    publishedKey: row.publishedKey,
+    id: row.jobPostingId,
+  };
 }
 
 /**

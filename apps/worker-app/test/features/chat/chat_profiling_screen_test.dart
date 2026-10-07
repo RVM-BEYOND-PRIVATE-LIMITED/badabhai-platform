@@ -21,12 +21,17 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_free_chat_keys.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/widgets/flying_name.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/router.dart';
 import 'package:badabhai_worker_app/core/util/devanagari_guard.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
+
+class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
 
 void main() {
   late MockChatRepository repo;
@@ -80,6 +85,152 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  // ── #2030 ask 2 — THE CTA IN FREE CHAT ────────────────────────────────────
+  group('free chat replaces the build-my-profile CTA', () {
+    testWidgets('tapping "Baad mein" swaps the interview CTA for the exit',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Theek hai, baatein karte hain.',
+                suggestedOptions: <ChatOption>[
+                  ChatOption(
+                    optionKey: kFreeChatResumeKey,
+                    labelText: kFreeChatResumeLabel,
+                  ),
+                ],
+              ));
+
+      await pumpScreen(tester);
+      // The interview CTA stands before the mode changes.
+      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+
+      // TYPING the words is not tapping the chip: only the chip carries the
+      // `option_key`, and the mode is keyed on that, never on the text. A
+      // worker who types "baad mein" stays in the interview.
+      await tester.enterText(find.byType(TextField), 'Baad mein');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.byKey(kFreeChatResumeCtaKey), findsNothing);
+    });
+
+    testWidgets(
+        'the exit CTA is drawn instead of the interview CTA, and posts the '
+        'resume chip', (WidgetTester tester) async {
+      // Drive the mode with the greeting chip the server serves.
+      when(() => repo.ensureSession()).thenAnswer((_) async => ChatSessionOpening(
+            text: 'Namaste, main Bada Bhai hoon. Shuru karein?',
+            options: const <ChatOption>[
+              ChatOption(
+                optionKey: kFreeChatLaterKey,
+                labelText: 'Baad mein',
+              ),
+            ],
+          ));
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'Baatein karte hain.'));
+
+      await pumpScreen(tester);
+      await tester.tap(find.text('Baad mein').first);
+      await tester.pumpAndSettle();
+
+      // The interview CTA is GONE — its early-finish path would extract an
+      // empty transcript, because free-chat lines are excluded from extraction.
+      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text(kChatDoneReadyLabel), findsNothing);
+
+      // REPLACED, not hidden: a visible full-width exit remains.
+      expect(find.byKey(kFreeChatResumeCtaKey), findsOneWidget);
+
+      await tester.tap(find.byKey(kFreeChatResumeCtaKey));
+      await tester.pumpAndSettle();
+      // It posts the server's own label, which `isResumeChip` reads either way.
+      verify(() => repo.sendMessage(kFreeChatResumeLabel,
+          submissionId: any(named: 'submissionId'))).called(1);
+    });
+
+    testWidgets(
+        'a DISTRESS turn — no resume chip served — still leaves a way out',
+        (WidgetTester tester) async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => ChatSessionOpening(
+            text: 'Namaste, main Bada Bhai hoon. Shuru karein?',
+            options: const <ChatOption>[
+              ChatOption(optionKey: kFreeChatLaterKey, labelText: 'Baad mein'),
+            ],
+          ));
+      // ADR-0051 R9: the distress line carries NO chips at all. This is exactly
+      // why the CTA is replaced rather than hidden — hiding it would strand the
+      // worker on the one turn where that is least acceptable.
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap akele nahi hain. Tele-MANAS 14416 par abhi baat '
+                    'kijiye, yeh muft hai.',
+                suggestedOptions: <ChatOption>[],
+              ));
+
+      await pumpScreen(tester);
+      await tester.tap(find.text('Baad mein').first);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Tele-MANAS 14416'), findsOneWidget);
+      // The turn served no chips, so the ONLY "Resume banayein" on screen is
+      // the CTA — which is the whole point: the route onward survives a turn
+      // that carries no chip of its own.
+      expect(find.byKey(kFreeChatResumeCtaKey), findsOneWidget);
+      expect(find.text(kFreeChatResumeLabel), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(kFreeChatResumeCtaKey),
+          matching: find.text(kFreeChatResumeLabel),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // ── #2030 — the trash cool-down locks the PROFILING composer too ──────────
+  testWidgets(
+      'a cool-down on the interview path replaces the composer and leaves the '
+      'chips tappable', (WidgetTester tester) async {
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => ChatTurn(
+              reply: 'Thoda ruk jaayein.',
+              // No `companion: true` — this is the ordinary interview/free-chat
+              // path, which carried no cool-down gate at all before #2030.
+              cooldownUntil: DateTime.now().add(const Duration(minutes: 2)),
+              suggestedOptions: const <ChatOption>[
+                ChatOption(
+                  optionKey: 'free_chat_resume',
+                  labelText: 'Resume banayein',
+                ),
+              ],
+            ));
+
+    await pumpScreen(tester);
+    await tester.enterText(find.byType(TextField), 'faltu');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    // Free text is gone, and the bar says HOW LONG rather than just "later".
+    expect(find.byType(TextField), findsNothing);
+    expect(
+      find.textContaining('minute baad aap dobara likh sakte hain'),
+      findsOneWidget,
+    );
+
+    // THE CHIPS STILL WORK. The cool-down must never strand a worker: the way
+    // out of free chat is a chip, so locking those would trap them.
+    expect(find.text('Resume banayein'), findsOneWidget);
+    await tester.tap(find.text('Resume banayein'));
+    await tester.pumpAndSettle();
+    verify(() => repo.sendMessage('Resume banayein',
+        submissionId: any(named: 'submissionId'))).called(1);
+  });
 
   testWidgets('own message always snaps the list to the bottom', (
     WidgetTester tester,
@@ -1236,8 +1387,9 @@ void main() {
               const ChatTurn(reply: 'Shukriya.', askedQuestionId: null));
 
       await pumpScreen(tester);
-      expect(find.text('Feedback'), findsOneWidget,
-          reason: 'the action is Feedback until a name is entered');
+      // The action is no longer the Feedback button (owner request): it shows
+      // the worker's name and nothing else, so it is EMPTY until one is entered.
+      expect(find.text('Feedback'), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'ramesh kumar');
       await tester.testTextInput.receiveAction(TextInputAction.send);
@@ -1259,6 +1411,28 @@ void main() {
       expect(find.text('Feedback'), findsNothing);
       // The bubble remains — the name was copied to the header, not moved out.
       expect(find.text('ramesh kumar'), findsOneWidget);
+    });
+
+    // OWNER REQUEST (2026-10-05): the BadaBhai tab runs no identity intake, so
+    // the header reads the worker's own name from the profile instead.
+    testWidgets('with no captured name, the header reads the profile name',
+        (WidgetTester tester) async {
+      final MockResumeEditRepository resumeRepo = MockResumeEditRepository();
+      when(() => resumeRepo.load()).thenAnswer(
+        (_) async => const ResumeSafeFields(
+          displayName: 'Ramesh Kumar',
+          showPhoto: true,
+          nightShiftReady: false,
+        ),
+      );
+      locator.registerSingleton<ResumeEditRepository>(resumeRepo);
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ramesh Kumar'), findsOneWidget,
+          reason: 'the header shows the profile name on the tab');
+      expect(find.text('Feedback'), findsNothing);
     });
 
     testWidgets('a later surname flies the COMPLETE name, not just the surname',
@@ -1283,13 +1457,13 @@ void main() {
       await pumpScreen(tester);
 
       // First name: the server still wants the surname, so NO flight fires and
-      // the action stays 'Feedback' — one animation, after BOTH names.
+      // the action stays empty — one animation, after BOTH names.
       await tester.enterText(find.byType(TextField), 'rishi');
       await tester.testTextInput.receiveAction(TextInputAction.send);
       await tester.pump();
       await tester.pumpAndSettle();
       expect(find.byType(FlyingName), findsNothing);
-      expect(find.text('Feedback'), findsOneWidget);
+      expect(find.text('Feedback'), findsNothing);
 
       // Surname — the WHOLE name lifts off, not just the freshly-typed word.
       await tester.enterText(find.byType(TextField), 'ojha');

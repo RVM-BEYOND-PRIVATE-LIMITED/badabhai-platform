@@ -124,6 +124,13 @@ vi.mock("./postings/[id]/edit/edit-posting-form", () => ({
 vi.mock("./postings/new/posting-form", () => ({
   PostingForm: ({ lead }: { lead?: ReactNode }) => lead ?? null,
 }));
+// The agency forms too: New posting and Edit posting hand their head to the form column (F01/F02).
+vi.mock("./agency/jobs/new/new-agency-posting", () => ({
+  NewAgencyPosting: ({ lead }: { lead?: ReactNode }) => lead ?? null,
+}));
+vi.mock("./agency/jobs/[jobId]/edit/edit-agency-posting", () => ({
+  EditAgencyPosting: ({ lead }: { lead?: ReactNode }) => lead ?? null,
+}));
 
 const { default: PortalLayout } = await import("./layout");
 
@@ -254,6 +261,7 @@ const PAGE = {
   agencyJobs: (await import("./agency/jobs/page")) as PageModule,
   agencyJobsNew: (await import("./agency/jobs/new/page")) as PageModule,
   agencyJob: (await import("./agency/jobs/[jobId]/page")) as PageModule,
+  agencyJobEdit: (await import("./agency/jobs/[jobId]/edit/page")) as PageModule,
   agencyJobApplicants: (await import("./agency/jobs/[jobId]/applicants/page")) as PageModule,
   agencyWorkers: (await import("./agency/workers/page")) as PageModule,
   agencyReferrals: (await import("./agency/referrals/page")) as PageModule,
@@ -282,6 +290,7 @@ const ROUTES: Route[] = [
   { persona: "agency", path: "/agency/jobs", file: "agency/jobs/page.tsx", mod: PAGE.agencyJobs },
   { persona: "agency", path: "/agency/jobs/new", file: "agency/jobs/new/page.tsx", mod: PAGE.agencyJobsNew },
   { persona: "agency", path: `/agency/jobs/${JOB}`, file: "agency/jobs/[jobId]/page.tsx", mod: PAGE.agencyJob, props: params({ jobId: JOB }) },
+  { persona: "agency", path: `/agency/jobs/${JOB}/edit`, file: "agency/jobs/[jobId]/edit/page.tsx", mod: PAGE.agencyJobEdit, props: params({ jobId: JOB }) },
   { persona: "agency", path: `/agency/jobs/${JOB}/applicants`, file: "agency/jobs/[jobId]/applicants/page.tsx", mod: PAGE.agencyJobApplicants, props: params({ jobId: JOB }) },
   { persona: "agency", path: "/agency/workers", file: "agency/workers/page.tsx", mod: PAGE.agencyWorkers },
   { persona: "agency", path: "/agency/referrals", file: "agency/referrals/page.tsx", mod: PAGE.agencyReferrals },
@@ -357,14 +366,13 @@ describe("the shell's trail and the page's back link never open the same page (e
     const both = withBack.filter((r) => r.crumbLinks.length > 0);
     expect(withBack.map((r) => `${r.route.persona} ${r.route.path}`).sort()).toEqual(
       [
-        `agency /agency/bulk-upload`,
         `agency /agency/jobs/${JOB}`,
+        `agency /agency/jobs/${JOB}/edit`,
         `agency /agency/jobs/${JOB}/applicants`,
         `agency /postings/${POSTING}`,
         `company /postings/${POSTING}`,
         `company /postings/${POSTING}/applicants`,
         `company /postings/${POSTING}/edit`,
-        `company /postings/ai/new`,
       ].sort(),
     );
     // A deeper page keeps BOTH doors, to DIFFERENT pages: the trail → Postings, the back link →
@@ -372,20 +380,31 @@ describe("the shell's trail and the page's back link never open the same page (e
     expect(both.map((r) => [r.route.path, r.crumbLinks, r.back])).toEqual([
       [`/postings/${POSTING}/edit`, ["/postings"], `/postings/${POSTING}`],
       [`/postings/${POSTING}/applicants`, ["/postings"], `/postings/${POSTING}`],
+      [`/agency/jobs/${JOB}/edit`, ["/agency/jobs"], `/agency/jobs/${JOB}`],
       [`/agency/jobs/${JOB}/applicants`, ["/agency/jobs"], `/agency/jobs/${JOB}`],
     ]);
     expect(withCrumbLink.length).toBeGreaterThanOrEqual(both.length);
   });
 
-  it("one level below a destination, the trail names it as text (the back link is the way up)", async () => {
+  it("one level below a destination, the trail is text only (the back link is the way up)", async () => {
     for (const route of ROUTES.filter((r) =>
-      [`/postings/${POSTING}`, `/agency/jobs/${JOB}`, "/postings/ai/new"].includes(r.path),
+      [`/postings/${POSTING}`, `/agency/jobs/${JOB}`].includes(r.path),
     )) {
       const r = await renderRoute(route);
       expect(r.crumbLinks, route.path).toEqual([]);
       expect(r.crumbIsLandmark, route.path).toBe(false);
       expect(r.back, route.path).not.toBeNull();
     }
+  });
+
+  it("Post with AI (a mode of New posting) has no back link and no trail link (F15)", async () => {
+    // Its one way to the form is the chat's own "Use the manual form instead".
+    const route = ROUTES.find((r) => r.path === "/postings/ai/new")!;
+    const r = await renderRoute(route);
+    expect(r.back).toBeNull();
+    expect(r.crumbLinks).toEqual([]);
+    expect(r.crumbIsLandmark).toBe(false);
+    expect(r.html).toContain('<a href="/postings/new" class="ai-chat-intro__alt">');
   });
 });
 

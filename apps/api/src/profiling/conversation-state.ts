@@ -80,6 +80,8 @@ import { COMPLETION_REASONS, type CompletionReason, type EngineState } from "./n
 // One-directional, like `trade-form-router` above: neither module imports this file.
 import { MAX_SKILLS } from "./skill-certifier";
 import { narrowGeneralFormOffer, type GeneralFormOffer } from "./skills-gate";
+// One-directional: the free chat's state module imports nothing from this file.
+import { narrowFreeChat, type FreeChatState } from "./free-chat/free-chat.state";
 
 /**
  * The reply-cache entry — Layer A of the double-submit defence.
@@ -239,6 +241,13 @@ export interface LastTurn {
    * said about the dropped chips too, and this cache promises the response it claims to repeat.
    */
   readonly inputMode: InputMode;
+  /**
+   * `false` when that reply was WRITTEN BY A MODEL (the free chat's casual or career answer,
+   * ADR-0051 §3.8) — the chat wire's `read_aloud: false`, so a replayed model turn is not read
+   * aloud either. ABSENT on every other stamp, never `true`: only fixed lines are read aloud, and
+   * every stamp written before this field existed described one.
+   */
+  readonly readAloud?: false;
   /**
    * How many times THIS stamped reply has already been served as a replay. 0 on a fresh stamp.
    *
@@ -631,6 +640,21 @@ export interface ProfilingEnvelope {
    */
   readonly llmLedTurns: number;
   /**
+   * #2021 — `settleFromLlmDraft` recorded at least one answer in this session. STICKY: once true,
+   * true for the rest of the interview.
+   *
+   * WHY IT EXISTS. An LLM-draft-settled record is an `answered` record like a worker's tap, but
+   * its value came from the model's free-text draft (matched to a closed option by
+   * `matchOptions`). Closed-set is a text-safety property, not a decision right. The owner ruled
+   * (2026-10-07) that only worker-originated answers may derive generic-pack match skills, so the
+   * extraction processor needs to know whether the model wrote into this session's answer map.
+   * `llmLedTurns` alone does not say so: the trade-form handover settles the draft unguarded.
+   *
+   * WRITTEN ONLY BY {@link withLlmDraftSettlement}, at every `settleFromLlmDraft` call site.
+   * Persisted at flush as `conversation_state.llm_draft_settled`.
+   */
+  readonly llmDraftSettled: boolean;
+  /**
    * The model went away and the deterministic engine took over. STICKY for the rest of the
    * interview rather than per-turn: an interview that flips between an LLM voice and an
    * authored one every few turns reads as two different people talking to the worker, and the
@@ -841,6 +865,20 @@ export interface ProfilingEnvelope {
    * `WorkersService.setFullName` once the name steps finish. See {@link IdentityIntakeState}.
    */
   readonly identityIntake: IdentityIntakeState | null;
+
+  /**
+   * The profiling-stage free chat (ADR-0051, #2027) — the greeting / free / résumé mode, the trash
+   * strikes and cool-down, the casual-reply and aside counters, and the question a résumé-mode
+   * aside re-asks. `null` for every session the free chat has not touched: one opened before it
+   * shipped, one under an older client, and every voice-form session. See {@link FreeChatState}.
+   *
+   * HERE AND NOT IN THE COMPANION'S `FaltuStore`, so a strike rides the same CAS as the turn that
+   * earned it: a lost write re-runs the decision, and a replayed submit never counts twice.
+   *
+   * ITS ONE DURABLE FACT — the résumé lock — reaches `conversation_state` as the sibling
+   * `free_chat_lock` key (`toFreeChatStatePatch`); nothing else here is persisted.
+   */
+  readonly freeChat: FreeChatState | null;
 }
 
 /**
@@ -1035,6 +1073,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmDraft: true,
   llmAsks: true,
   llmLedTurns: true,
+  llmDraftSettled: true,
   llmFallback: true,
   llmGateOpen: true,
   llmGateAsked: true,
@@ -1049,6 +1088,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   importAppliedId: true,
   generalRoad: true,
   identityIntake: true,
+  freeChat: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -1084,6 +1124,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
     llmAsks: 0,
     llmLedTurns: 0,
+    llmDraftSettled: false,
     llmFallback: false,
     llmGateOpen: false,
     llmGateAsked: false,
@@ -1098,6 +1139,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     importAppliedId: null,
     generalRoad: emptyGeneralRoad(),
     identityIntake: null,
+    freeChat: null,
   };
 }
 
@@ -1283,6 +1325,9 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     // ABSENT NARROWS TO `text`, the same "degrade to today's behaviour" rule `kind` follows: an
     // entry written before this field existed described a turn on which typing was allowed.
     inputMode: v.inputMode === "options_only" ? "options_only" : "text",
+    // ONLY A LITERAL `false` SURVIVES (ADR-0051), and the key is otherwise ABSENT, so every stamp
+    // that did not serve a model reply round-trips exactly as it did before the field existed.
+    ...(v.readAloud === false ? { readAloud: false as const } : {}),
     // ABSENT NARROWS TO 0, matching a stamp written before this field existed: nothing has replayed
     // it yet as far as this record can say, so it gets the same one-through-`MAX_REPLAYS_PER_TURN`
     // budget a freshly-stamped turn would. Clamped rather than trusted verbatim for the same reason
@@ -1405,6 +1450,11 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // did. The other default would delete a worker's authored questions on the strength of a
     // field nothing ever wrote.
     llmLedTurns: nonNegativeInt(v.llmLedTurns),
+    // #2021. FALSE ON ANYTHING BUT A LITERAL `true`, the same default every envelope written before
+    // this field existed gets. That is safe for the one reader that matters: the extraction
+    // processor derives generic-pack skills only when the flush ALSO stamped `llm_led_turns: 0`,
+    // and the only unguarded settlement (the trade-form handover) withholds extraction entirely.
+    llmDraftSettled: v.llmDraftSettled === true,
     llmFallback: v.llmFallback === true,
     // FALSE ON ANYTHING BUT A LITERAL `true`, which is what makes a lost or corrupted envelope
     // resume with the gate CLOSED. The alternative failure — resuming with it open — leaves the
@@ -1473,6 +1523,11 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // flight across the deploy that adds this field. See `narrowIdentityIntake` for why an
     // unreadable value also reads as null rather than being repaired.
     identityIntake: narrowIdentityIntake(v.identityIntake),
+    // ABSENT READS AS null — "the free chat never touched this session", which is true of every
+    // envelope in flight across the deploy that adds this field. The chat stamps such a session
+    // `resume` on its next turn (today's interview); see `narrowFreeChat` for why an unreadable
+    // value also reads as null rather than being repaired.
+    freeChat: narrowFreeChat(v.freeChat),
   };
 }
 
@@ -1862,6 +1917,57 @@ export function answersOf(envelope: ProfilingEnvelope): AnswerMap {
 /** Write a keyed answer map back, in the contract's stable array order. */
 export function withAnswers(envelope: ProfilingEnvelope, answers: AnswerMap): ProfilingEnvelope {
   return { ...envelope, answerMap: toAnswerArray(answers) };
+}
+
+/**
+ * #2021 — {@link withAnswers} for the output of `settleFromLlmDraft`, which also stamps
+ * {@link ProfilingEnvelope.llmDraftSettled} when the settlement recorded anything.
+ *
+ * "Recorded anything" = some record in `after` is not the very object it was in `before`. Every
+ * write in `answer-map.ts` returns a NEW record object, so this is true exactly when the settlement
+ * wrote, and errs towards true (fail closed) on any rewrite. Sticky: never clears a prior `true`.
+ */
+export function withLlmDraftSettlement(
+  envelope: ProfilingEnvelope,
+  before: AnswerMap,
+  after: AnswerMap,
+): ProfilingEnvelope {
+  const wrote = Object.keys(after).some((key) => after[key] !== before[key]);
+  return {
+    ...withAnswers(envelope, after),
+    llmDraftSettled: envelope.llmDraftSettled || wrote,
+  };
+}
+
+/**
+ * #2021 — the durable stamp the flush writes beside `form_kind` / `prefilled_keys`, OUTSIDE the
+ * frozen `ConversationState` contract (same reasoning: engine bookkeeping the ai-service never
+ * reads or writes). The extraction processor reads it, after the envelope is gone, through
+ * {@link readWorkerOnlyAnswerMap}.
+ */
+export function toLlmProvenanceStatePatch(envelope: ProfilingEnvelope): {
+  llm_led_turns: number;
+  llm_draft_settled: boolean;
+} {
+  return {
+    llm_led_turns: envelope.llmLedTurns,
+    llm_draft_settled: envelope.llmDraftSettled,
+  };
+}
+
+/**
+ * #2021 — did the model write NOTHING into this finished session's answer map?
+ *
+ * TRUE ONLY when `conversation_state` carries BOTH stamps, well-formed, with `llm_led_turns === 0`
+ * and `llm_draft_settled === false`. Anything else — a session finalized before the stamps
+ * existed, a malformed value, a session the model led or settled — is false. FAIL CLOSED (owner
+ * ruling 2026-10-07, "worker-only"): a legacy session derives no generic-pack skill, which is no
+ * regression, because before #2021 every session derived none.
+ */
+export function readWorkerOnlyAnswerMap(conversationState: unknown): boolean {
+  if (typeof conversationState !== "object" || conversationState === null) return false;
+  const state = conversationState as Record<string, unknown>;
+  return state.llm_led_turns === 0 && state.llm_draft_settled === false;
 }
 
 /**

@@ -258,6 +258,93 @@ export const GENERAL_FORM_BRIEF_MAX_CHARS = 160;
 export const CHAT_GATE_KINDS = ["skills"] as const;
 export type ChatGateKind = (typeof CHAT_GATE_KINDS)[number];
 
+// ---- The profiling-stage free chat (ADR-0051, #2027) ----
+// Before the profile is confirmed, the onboarding chat opens on a greeting ("Shuru karein?") and
+// then runs in one of two modes: the résumé interview (locked until the résumé is done) or free
+// chat, where every message is classified and answered per category. Shared by the API (which
+// decides), the AI-service contract mirror (which classifies) and the event spine (which
+// records). IDS AND CLOSED SETS, NEVER TEXT: nothing here carries a word the worker typed.
+//
+// WHICH MODE a profiling session is in. `greeting` the "Shuru karein?" offer is on screen;
+// `free` free chat; `resume` today's interview (the lock).
+export const FREE_CHAT_MODES = ["greeting", "free", "resume"] as const;
+export type FreeChatMode = (typeof FREE_CHAT_MODES)[number];
+// THE CATEGORIES a message is classified into. `resume` in résumé mode means "an answer to the
+// interview"; in free mode it means "start my résumé". `unclear` is the classifier's own
+// low-certainty answer (an unavailable classifier is recorded as `decided_by: fallback`).
+export const FREE_CHAT_CATEGORIES = [
+  "resume",
+  "career",
+  "jobs",
+  "casual",
+  "trash",
+  "off_limits",
+  "distress",
+  "unclear",
+] as const;
+export type FreeChatCategory = (typeof FREE_CHAT_CATEGORIES)[number];
+// THE CATEGORIES THE MODEL WRITES A REPLY FOR. Every other category is answered with reviewed,
+// fixed copy (ADR-0051 §3).
+export const FREE_CHAT_REPLY_CATEGORIES = ["casual", "career"] as const;
+export type FreeChatReplyCategory = (typeof FREE_CHAT_REPLY_CATEGORIES)[number];
+// WHY THE REPLY MODEL MAY REFUSE. A closed set so the refusal COPY is reviewed text, never the
+// model's wording: the AI contract carries one topic, the API maps it to its fixed line.
+export const FREE_CHAT_REFUSAL_TOPICS = [
+  "legal_medical_financial",
+  "news",
+  "off_limits",
+  "distress",
+  "unsafe_other",
+] as const;
+export type FreeChatRefusalTopic = (typeof FREE_CHAT_REFUSAL_TOPICS)[number];
+// WHAT DECIDED a served free-chat turn. `flow` the flow itself (the greeting); `chip` a chip
+// label/key or a typed yes/no read deterministically; `lexicon` the abuse or distress word list;
+// `classifier` the model's verdict; `fallback` the classifier was unavailable (mock, timeout,
+// blocked, error); `guard` a deterministic pre-emption (the cool-down, the per-session cap).
+export const FREE_CHAT_DECIDED_BY = [
+  "flow",
+  "chip",
+  "lexicon",
+  "classifier",
+  "fallback",
+  "guard",
+] as const;
+export type FreeChatDecidedBy = (typeof FREE_CHAT_DECIDED_BY)[number];
+// WHAT A SERVED TURN DELIVERED. `greeting` the "Shuru karein?" offer; `opener` the first résumé
+// question after entering résumé mode; `answered` a model reply that passed validation;
+// `refused` a model refusal served as its topic's fixed line; `fallback` the fail-closed line;
+// `fixed_line` a category answered with reviewed copy (jobs, off-limits, distress, "Baad mein");
+// `clarify` the clarify line; `deflected` "Pehle resume…" in résumé mode; `strike` a trash
+// warning; `cooldown` the cool-down line; `aside_cap` the per-session free-chat cap line.
+export const FREE_CHAT_OUTCOMES = [
+  "greeting",
+  "opener",
+  "answered",
+  "refused",
+  "fallback",
+  "fixed_line",
+  "clarify",
+  "deflected",
+  "strike",
+  "cooldown",
+  "aside_cap",
+] as const;
+export type FreeChatOutcome = (typeof FREE_CHAT_OUTCOMES)[number];
+// WHY A SESSION CHANGED MODE. `chip` a tapped/typed chip (Haan, Baad mein, Resume banayein);
+// `classifier` a message classified `resume`; `resume_import` the session opened on a résumé
+// import turn; `locked_at_open` a worker already locked from an earlier session;
+// `kill_switch` CHAT_FREE_CHAT_DISABLED sent the session straight to the interview;
+// `first_turn` a session with no mode yet (an older client, an in-flight session) was stamped.
+export const FREE_CHAT_MODE_TRIGGERS = [
+  "chip",
+  "classifier",
+  "resume_import",
+  "locked_at_open",
+  "kill_switch",
+  "first_turn",
+] as const;
+export type FreeChatModeTrigger = (typeof FREE_CHAT_MODE_TRIGGERS)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",

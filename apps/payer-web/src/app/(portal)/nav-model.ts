@@ -32,8 +32,8 @@
  *     tile on the agency dashboard — navigate away and the browser's back button was the only
  *     route back. It is now addressable from the nav. This exposes no new capability: the
  *     route keeps `requireAgent()` + its flag gate. (`/agency/bulk-upload` is NOT in the nav:
- *     it explains a module that will never be built, and the dashboard's Invite tools card is
- *     its one way in.)
+ *     it explains a module that will never be built. Nothing in the portal links to it — the
+ *     dashboard tile that did was a dead end (final sweep F17); an old link still lands on it.)
  *
  *  3. DUPLICATES PRESENTED AS PEERS. `/profile` used to render the very same `AccountForm`
  *     as `/account`, so the nav offered two doors onto one screen. `/account` is the
@@ -92,11 +92,12 @@ export interface NavItem {
    */
   match: NavMatch;
   /**
-   * The pages ONE level below this destination carry a back link to it (a posting's details →
-   * Postings; Post with AI → New posting). The header trail then names this destination as
-   * plain text on those pages — the back link is the way up, and one page offers one door per
+   * The pages ONE level below this destination lead back to it from the page itself: a back link
+   * that names it (a posting's details → Postings) or, for Post with AI — a mode of New posting —
+   * the chat's own "Use the manual form instead". The header trail then shows only the GROUP on
+   * those pages: the page already offers (and names) the way up, and one page offers one door per
    * destination. Deeper pages (a posting's applicants) keep it as a link. Leave unset for a
-   * destination whose children have no back link to it (/team/accept is an invite landing).
+   * destination whose children have no way back to it (/team/accept is an invite landing).
    */
   childrenLinkBack?: boolean;
   /**

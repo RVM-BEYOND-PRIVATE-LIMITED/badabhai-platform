@@ -13,10 +13,13 @@ import {
   PROFILING_ENVELOPE_KEYS,
   readGeneralFormCompletedAt,
   readGeneralRoadStamp,
+  readWorkerOnlyAnswerMap,
   toGeneralRoadStatePatch,
   toConversationStatePatch,
   toEngineState,
+  toLlmProvenanceStatePatch,
   withAnswers,
+  withLlmDraftSettlement,
   type ProfilingEnvelope,
 } from "./conversation-state";
 import { recordAnswer } from "./answer-map";
@@ -128,6 +131,9 @@ const FULL: ProfilingEnvelope = {
     // NON-DEFAULT for the same reason as everything else here: 0 is what a `narrow` that dropped
     // the field would default to (see `MAX_REPLAYS_PER_TURN`'s narrowing).
     replays: 1,
+    // NON-DEFAULT (ADR-0051): absent is what a `narrow` that dropped it would rebuild, and a
+    // replayed model reply that lost it would be read aloud.
+    readAloud: false,
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
@@ -153,6 +159,7 @@ const FULL: ProfilingEnvelope = {
   // decides on, so a narrower that dropped it would silently re-interrogate every worker whose
   // envelope had round-tripped through Redis once.
   llmLedTurns: 6,
+  llmDraftSettled: true,
   llmFallback: true,
   llmGateOpen: true,
   llmGateAsked: true,
@@ -206,6 +213,39 @@ const FULL: ProfilingEnvelope = {
     asks: { first_name: 2, last_name: 1 },
     firstNameEnc: "v1:sealed-first-name",
     heldState: "Maharashtra",
+  },
+  // NON-DEFAULT in every sub-field (ADR-0051): null is what a narrower that dropped the field would
+  // rebuild — and a lost lock time, strike tally or held question is a worker let out of the lock,
+  // let off a strike, or re-asked the wrong question after a deflection.
+  freeChat: {
+    mode: "resume",
+    trigger: "chip",
+    lockedAt: "2026-10-06T10:00:00.000Z",
+    strikes: { day: "2026-10-06", count: 2 },
+    cooldownUntil: "2026-10-06T10:30:00.000Z",
+    casualReplies: 4,
+    asides: 7,
+    held: {
+      reply: "Aap kis sheher mein rehte hain?",
+      kind: "ask",
+      questionKey: "q_city",
+      options: [
+        {
+          option_key: "pune",
+          label_text: "Pune",
+          value: null,
+          implies_skill_id: null,
+          is_none_of_above: false,
+        },
+      ],
+      answerType: "single_select",
+      whyText: "Isse hum aapke sheher ke kaam dikha payenge.",
+      inputMode: "text",
+    },
+    clarifiedFor: "key:q_city",
+    deflected: { key: "key:q_city", count: 2 },
+    deescalated: { key: "key:q_city", count: 1 },
+    chipNoOps: { key: "key:q_city", count: 2 },
   },
 };
 
@@ -700,5 +740,75 @@ describe("readGeneralFormCompletedAt — the general form's completion mark (ADR
     expect(
       readGeneralFormCompletedAt({ general_road: { general_form_completed_at: AT } }),
     ).toBeNull();
+  });
+});
+
+// #2021 — the session-level provenance stamp the generic-pack derivation is gated on (owner ruling
+// 2026-10-07, worker-only).
+describe("#2021 — LLM provenance stamp", () => {
+  const MIG = {
+    questionKey: "welding_process",
+    targetField: "skills",
+    valueRaw: "MIG welding",
+    valueNormalized: ["mig"],
+    evidence: null,
+  };
+
+  it("withLlmDraftSettlement stamps true when the settlement wrote a record", () => {
+    const before = {};
+    const after = recordAnswer(before, MIG, 3);
+    const next = withLlmDraftSettlement(emptyProfilingEnvelope(), before, after);
+    expect(next.llmDraftSettled).toBe(true);
+    expect(answersOf(next).welding_process?.value_normalized).toEqual(["mig"]);
+  });
+
+  it("withLlmDraftSettlement leaves it false when the settlement wrote nothing", () => {
+    const answers = recordAnswer({}, MIG, 1);
+    const next = withLlmDraftSettlement(emptyProfilingEnvelope(), answers, answers);
+    expect(next.llmDraftSettled).toBe(false);
+  });
+
+  it("is sticky: a later no-op settlement never clears it", () => {
+    const answers = recordAnswer({}, MIG, 1);
+    const stamped = { ...emptyProfilingEnvelope(), llmDraftSettled: true };
+    expect(withLlmDraftSettlement(stamped, answers, answers).llmDraftSettled).toBe(true);
+  });
+
+  it("toLlmProvenanceStatePatch writes both stamps off the envelope", () => {
+    expect(toLlmProvenanceStatePatch(emptyProfilingEnvelope())).toEqual({
+      llm_led_turns: 0,
+      llm_draft_settled: false,
+    });
+    expect(toLlmProvenanceStatePatch(FULL)).toEqual({
+      llm_led_turns: 6,
+      llm_draft_settled: true,
+    });
+  });
+
+  it("readWorkerOnlyAnswerMap is true ONLY for a clean, well-formed, model-free stamp", () => {
+    expect(readWorkerOnlyAnswerMap({ llm_led_turns: 0, llm_draft_settled: false })).toBe(true);
+    for (const state of [
+      { llm_led_turns: 1, llm_draft_settled: false },
+      { llm_led_turns: 0, llm_draft_settled: true },
+      { llm_led_turns: 0 },
+      { llm_draft_settled: false },
+      {},
+      { llm_led_turns: "0", llm_draft_settled: false },
+      { llm_led_turns: 0, llm_draft_settled: "false" },
+      { llm_led_turns: null, llm_draft_settled: null },
+      null,
+      undefined,
+      "state",
+    ]) {
+      expect(readWorkerOnlyAnswerMap(state), JSON.stringify(state)).toBe(false);
+    }
+  });
+
+  it("a stamp round-trips the envelope narrower, and a legacy envelope reads false", () => {
+    expect(narrowProfilingEnvelope({ rev: 1, llmDraftSettled: true })?.llmDraftSettled).toBe(true);
+    expect(narrowProfilingEnvelope({ rev: 1 })?.llmDraftSettled).toBe(false);
+    expect(narrowProfilingEnvelope({ rev: 1, llmDraftSettled: "yes" })?.llmDraftSettled).toBe(
+      false,
+    );
   });
 });

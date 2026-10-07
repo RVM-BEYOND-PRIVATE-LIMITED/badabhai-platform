@@ -18,6 +18,7 @@ import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import { MatchSkillsService } from "../match/match-skills.service";
 import { clearedSet } from "../common/clearable-fields";
+import { assertNotAgencyTwin } from "../common/agency-twin-fence";
 import {
   JobPostingsRepository,
   type JobPostingApi,
@@ -261,6 +262,8 @@ export class JobPostingsService {
 
   async update(id: string, dto: UpdateJobPostingDto, ctx: RequestContext): Promise<JobPostingApi> {
     const current = await this.getOne(id);
+    // ADR-0050 §4.3 — a twin is written by its sync alone; every edit goes through the agency job.
+    assertNotAgencyTwin(current.sync_source);
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
       // The posting's OWN canonical domain when it has one (null for every row today —
@@ -293,6 +296,7 @@ export class JobPostingsService {
 
   async close(id: string, ctx: RequestContext): Promise<JobPostingApi> {
     const current = await this.getOne(id);
+    assertNotAgencyTwin(current.sync_source); // ADR-0050 §4.3
     const previousStatus = assertCloseable(current);
 
     const closed = await this.repo.close(id, previousStatus, new Date());
@@ -330,6 +334,7 @@ export class JobPostingsService {
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
     const current = await this.getOne(id); // 404 if missing
+    assertNotAgencyTwin(current.sync_source); // ADR-0050 §4.3 — before the idempotent no-op
     const previous = current.verification_status;
     if (previous === next) return current; // idempotent — nothing changed
 
@@ -595,12 +600,15 @@ export class JobPostingsService {
    * POLICY 27 — the audited ops widen. Appends to `reach_skill_ids`, re-materializes,
    * and emits `job_posting.reach_widened`. Never narrows (the DTO cannot express it).
    */
-  opsWidenReach(
+  async opsWidenReach(
     id: string,
     addSkillIds: readonly string[],
     opsActorId: string,
     ctx: RequestContext,
   ) {
+    // ADR-0050 §4.3 — a twin reaches exactly `match ∪ related(match)` of the agency's pick (Q2);
+    // ops changes an agency vacancy's reach through its match skills, never by widening the twin.
+    assertNotAgencyTwin((await this.getOne(id)).sync_source);
     return this.publishReach.opsWiden(id, addSkillIds, opsActorId, ctx);
   }
 
@@ -656,7 +664,28 @@ export class JobPostingsService {
     };
   }
 
-  /** Insert a posting (always status=draft) and emit the created event for the actor. */
+  /**
+   * Insert a posting (always status=draft) and emit the created event for the actor, as ONE
+   * transaction (#1928).
+   *
+   * WHY ONE TRANSACTION. The row used to commit on its own, and the emit ran after it with no
+   * transaction. When the emit threw (`createEvent` rejecting the payload, or a failed `events`
+   * insert), the posting stayed committed with no `job_posting.created` on the spine, which
+   * breaks invariant #1. The chat publish then saw the throw and released its claim. The release
+   * is guarded on "no posting bound", and the bind never ran, so the session went live again and
+   * a retry created a second posting. Now the event row is written on the posting's transaction
+   * (`EmitParams.tx`): either both commit or neither does. A throw here means nothing was
+   * created, and every caller's retry is safe. That covers the ops create, the payer form, and
+   * the chat publish. The one exception is an in-doubt COMMIT, where the connection drops after
+   * Postgres committed; no transaction can close that, and the row then has its event.
+   *
+   * WHAT STAYS OUT OF THE TRANSACTION. Skill canonicalization (an ai-service round trip per
+   * phrase, plus a cost record each) and the `match_skill_ids` closed-set check run in the
+   * callers, BEFORE this method. They are evaluated as its arguments, so no transaction is held
+   * open across a network call. Nothing follows the emit: a create makes a DRAFT, so it has no
+   * reach to materialize and nothing to enqueue. A post-commit side effect added later belongs
+   * after `withTransaction` resolves, never inside it, or a rollback would leave it behind.
+   */
   private async insertAndEmit(
     input: {
       createdBy: string;
@@ -673,21 +702,26 @@ export class JobPostingsService {
     actor: JobPostingActor,
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
-    // status is ALWAYS draft on create — any client-supplied status is ignored.
-    const row = await this.repo.create({ ...input, status: "draft" });
+    return this.repo.withTransaction(async (tx) => {
+      // status is ALWAYS draft on create — any client-supplied status is ignored.
+      const row = await this.repo.create({ ...input, status: "draft" }, tx);
 
-    const payload: PayloadInputOf<"job_posting.created"> = {
-      job_posting_id: row.id,
-      vacancy_band: row.vacancy_band,
-      status: "draft",
-      created_by: row.created_by,
-      has_location: row.location_label != null,
-      has_description: row.description != null,
-      // Migration 0131 — a closed 21-slug enum (or null), PII-free like `vacancy_band`.
-      role_kind: row.role_kind,
-    };
-    await this.events.emit(this.emitParams("job_posting.created", row.id, actor, payload, ctx));
-    return row;
+      const payload: PayloadInputOf<"job_posting.created"> = {
+        job_posting_id: row.id,
+        vacancy_band: row.vacancy_band,
+        status: "draft",
+        created_by: row.created_by,
+        has_location: row.location_label != null,
+        has_description: row.description != null,
+        // Migration 0131 — a closed 21-slug enum (or null), PII-free like `vacancy_band`.
+        role_kind: row.role_kind,
+      };
+      await this.events.emit({
+        ...this.emitParams("job_posting.created", row.id, actor, payload, ctx),
+        tx,
+      });
+      return row;
+    });
   }
 
   /**

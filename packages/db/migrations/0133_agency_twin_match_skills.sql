@@ -1,0 +1,75 @@
+-- ===========================================================================
+-- 0133 - jobs.match_skill_ids + job_postings.sync_source (ADR-0050 §4.1, #1957 step 1)
+--
+-- RENUMBERED 0132 -> 0133 (slot collision with 0132_unlocks_job_posting_id, #2059). The
+-- statements below are byte-identical to the ones the owner applied to production by hand
+-- (2026-10-06); only this header and the file name changed.
+--
+-- PURELY ADDITIVE. Two columns and three CHECKs. Nothing existing is altered, dropped or
+-- rewritten, and nothing is backfilled beyond the column default.
+--
+-- WHAT IT IS.
+--   * `jobs.match_skill_ids jsonb NOT NULL DEFAULT '[]'` + `jobs_match_skill_ids_array_chk`
+--     (`jsonb_typeof = 'array'`): the agency job's EXPLICIT match input (ADR-0050 C4). An agent
+--     picks it on the agency job form or ops sets it; `[]` = "not chosen yet", which every
+--     existing row reads. Ids are validated in the API against the closed `mskill_*` vocabulary
+--     and capped by `match_config.max_skills_per_posting`. NOT a rank input: it feeds only the
+--     agency twin's `job_postings.match_skill_ids`. Never inferred from `trade_key`.
+--   * `job_postings.sync_source text NULL` + `job_postings_sync_source_chk` (NULL or
+--     'agency_job'): marks a row as a DERIVED agency-job twin. NULL on every native posting and
+--     every D4 conversion (both readable without a backfill).
+--   * `job_postings_twin_owner_chk` (`sync_source IS NULL OR (source_job_id IS NOT NULL AND
+--     payer_id IS NULL)`): C2 in the database - a twin is never payer-owned, never unlinked.
+--     The link is the EXISTING `source_job_id` + `job_postings_source_job_id_uq` (one twin per
+--     job). No new index (ADR-0050 §4.1).
+--
+-- WHAT IT IS NOT. Nothing writes either column in this change: no twin exists until the sync
+-- lands behind AGENCY_TWIN_SYNC_ENABLED (default off), and the agency API only gains the field
+-- in the next change. No worker read selects either column.
+--
+-- PRIVACY: closed-set skill ids and a closed provenance enum. No employer or worker identity.
+--
+-- APPLY-BEFORE-DEPLOY. Drizzle's bare `select()` / `.returning()` name EVERY model column, and
+-- both tables are read that way on live paths:
+--   * JobPostingsRepository (create / findById / list / update / close / findByIdAndPayer /
+--     listByPayer / updateOwned / closeOwned / transitionOwned) - every ops and payer posting
+--     read and write, including the chat publish's create;
+--   * AgencyJobsRepository (create / findOwnedById / listOwned / updateOwned /
+--     closeOwnedIfLive / pauseOwnedIfOpen / resumeOwnedIfPaused) - every agency job route;
+--   * ApplicationsRepository.findJobById - the existence check on the WORKER's legacy
+--     apply/skip path (`jobs`, when MATCH_V1_ENABLED is off).
+-- A build carrying this change against a database without the columns 500s all of them
+-- ("column match_skill_ids / sync_source does not exist"). An OLD build on a migrated database
+-- is fine (a superset; the jobs default fills every INSERT that does not name the column).
+-- Registered as `0133-jobs-match-skill-ids` and `0133-job-postings-sync-source` in
+-- `schema-contract.ts`; run `pnpm --filter @badabhai/db db:audit:schema-contract` first.
+--
+-- LOCKS. Postgres 11+ stores a constant `ADD COLUMN ... DEFAULT` in the catalog (no table
+-- rewrite); the nullable `sync_source` is catalog-only. Each validated `ADD CONSTRAINT ... CHECK`
+-- takes ACCESS EXCLUSIVE and scans its table under it; every predicate is trivially true on the
+-- just-added columns and both tables are small, so the scans are milliseconds. The real risk is
+-- QUEUEING behind a long transaction on hot read paths (`job_postings`: every worker feed and
+-- search; `jobs`: the agency portal and the legacy feed). Applied by hand: wrap all five
+-- statements in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; ... COMMIT;` and retry on 55P03 (the
+-- 0077/0080/0109/0116/0131 precedent). `db:migrate` applies every pending file in one
+-- transaction, so set a session `lock_timeout` there too.
+--
+-- ROLLBACK. A CODE rollback needs no schema change: an older build never names these columns,
+-- and they are inert without it - prefer leaving them (CLAUDE.md §10, ADR-0050 §4.1 "Reversal").
+-- The three CHECKs can be dropped without data loss at any time:
+--   ALTER TABLE "job_postings" DROP CONSTRAINT "job_postings_twin_owner_chk";
+--   ALTER TABLE "job_postings" DROP CONSTRAINT "job_postings_sync_source_chk";
+--   ALTER TABLE "jobs" DROP CONSTRAINT "jobs_match_skill_ids_array_chk";
+-- A COLUMN rollback destroys every stored agency match-skill pick and every twin marker (the
+-- only copies), so only on a database where
+--   SELECT (SELECT count(*) FROM "jobs" WHERE "match_skill_ids" <> '[]'::jsonb)
+--        + (SELECT count(*) FROM "job_postings" WHERE "sync_source" IS NOT NULL);   -- expect 0
+-- and only AFTER the code that names the columns is rolled back (or the reads above 500):
+--   ALTER TABLE "jobs" DROP COLUMN "match_skill_ids";
+--   ALTER TABLE "job_postings" DROP COLUMN "sync_source";
+-- ===========================================================================
+ALTER TABLE "job_postings" ADD COLUMN "sync_source" text;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN "match_skill_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "job_postings" ADD CONSTRAINT "job_postings_sync_source_chk" CHECK ("job_postings"."sync_source" IS NULL OR "job_postings"."sync_source" = 'agency_job');--> statement-breakpoint
+ALTER TABLE "job_postings" ADD CONSTRAINT "job_postings_twin_owner_chk" CHECK ("job_postings"."sync_source" IS NULL OR ("job_postings"."source_job_id" IS NOT NULL AND "job_postings"."payer_id" IS NULL));--> statement-breakpoint
+ALTER TABLE "jobs" ADD CONSTRAINT "jobs_match_skill_ids_array_chk" CHECK (jsonb_typeof("jobs"."match_skill_ids") = 'array');

@@ -619,6 +619,20 @@ describe("forceClosePosting", () => {
     });
   });
 
+  it("ADR-0050 §4.3 — an agency TWIN → the fence's 409, NO SoR write, NO event", async () => {
+    // A twin is closed by its SOURCE (the agency job) through the sync, never by an admin.
+    m.actions.findPostingStatus.mockResolvedValue({
+      id: POSTING_ID,
+      status: "open",
+      syncSource: "agency_job",
+    });
+    await expect(m.service.forceClosePosting(ADMIN_ID, POSTING_ID, CTX)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(m.actions.forceClosePosting).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
   it("already-closed posting → idempotent no-op success, NO SoR write, NO event", async () => {
     m.actions.findPostingStatus.mockResolvedValue({ id: POSTING_ID, status: "closed" });
     const res = await m.service.forceClosePosting(ADMIN_ID, POSTING_ID, CTX);

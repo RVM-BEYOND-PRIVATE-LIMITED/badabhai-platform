@@ -139,17 +139,15 @@ function make(
     // session with no OIE state, which must take the legacy transcript re-parse.
     findSession: opts.sessionThrows
       ? vi.fn().mockRejectedValue(new Error("db down"))
-      : vi
-          .fn()
-          .mockResolvedValue(
-            "conversationState" in opts
-              ? {
-                  id: JOB.sessionId,
-                  workerId: JOB.workerId,
-                  conversationState: opts.conversationState,
-                }
-              : { id: JOB.sessionId, workerId: JOB.workerId, conversationState: null },
-          ),
+      : vi.fn().mockResolvedValue(
+          "conversationState" in opts
+            ? {
+                id: JOB.sessionId,
+                workerId: JOB.workerId,
+                conversationState: opts.conversationState,
+              }
+            : { id: JOB.sessionId, workerId: JOB.workerId, conversationState: null },
+        ),
   };
   // The in-flight transcript, for the early-finish path. `undefined` = no buffer (the
   // normal post-flush case, where Postgres is authoritative).
@@ -1274,7 +1272,12 @@ describe("ProfileExtractionProcessor — transcript source", () => {
         bodyText: "Aap kis sheher mein rehte hain?",
         metadata: { identity_intake: true },
       },
-      { id: "m2", direction: "inbound", bodyText: "Sitamarhi", metadata: { identity_intake: true } },
+      {
+        id: "m2",
+        direction: "inbound",
+        bodyText: "Sitamarhi",
+        metadata: { identity_intake: true },
+      },
       { id: "m3", direction: "inbound", bodyText: "VMC operator, 5 saal", metadata: {} },
     ]);
     await proc.process(makeJob());
@@ -1292,7 +1295,12 @@ describe("ProfileExtractionProcessor — transcript source", () => {
       messages: [],
       buffered: {
         messages: [
-          { role: "assistant", text: "Aapka pehla naam kya hai?", at: "2026-09-30T00:00:00.000Z", intake: true },
+          {
+            role: "assistant",
+            text: "Aapka pehla naam kya hai?",
+            at: "2026-09-30T00:00:00.000Z",
+            intake: true,
+          },
           { role: "worker", text: "Sitaram", at: "2026-09-30T00:00:01.000Z", intake: true },
           { role: "worker", text: "VMC chalata hun", at: "2026-09-30T00:00:02.000Z" },
         ] as never,
@@ -1302,6 +1310,60 @@ describe("ProfileExtractionProcessor — transcript source", () => {
     const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
     expect(sent.transcript).toBe("Worker: VMC chalata hun");
     expect(JSON.stringify(sent)).not.toContain("Sitaram");
+  });
+
+  // ADR-0051 §3.5 — the free chat's lines (the greeting, casual and career talk, the résumé-mode
+  // deflections) are kept for the worker's thread and left out of the extraction, on the same two
+  // markers' free-chat twins. Casual talk never reaches a profile.
+  it("drops the free chat's FLUSHED rows (metadata.free_chat)", async () => {
+    const { proc, chat, ai } = make();
+    chat.listMessages.mockResolvedValue([
+      {
+        id: "m1",
+        direction: "outbound",
+        bodyText: "Namaste, main Bada Bhai hoon.",
+        metadata: { free_chat: true },
+      },
+      {
+        id: "m2",
+        direction: "inbound",
+        bodyText: "mera beta cricket khelta hai",
+        metadata: { free_chat: true },
+      },
+      { id: "m3", direction: "inbound", bodyText: "VMC operator, 5 saal", metadata: {} },
+    ]);
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("Worker: VMC operator, 5 saal");
+    expect(JSON.stringify(sent)).not.toContain("cricket");
+  });
+
+
+  it("drops the free chat's BUFFERED lines (`aside: true`) on the early-finish path", async () => {
+    const { proc, ai } = make({
+      messages: [],
+      buffered: {
+        messages: [
+          {
+            role: "assistant",
+            text: "Theek hai. Jab mann ho, resume bana lenge.",
+            at: "2026-10-06T00:00:00.000Z",
+            aside: true,
+          },
+          {
+            role: "worker",
+            text: "aaj cricket match hai",
+            at: "2026-10-06T00:00:01.000Z",
+            aside: true,
+          },
+          { role: "worker", text: "VMC chalata hun", at: "2026-10-06T00:00:02.000Z" },
+        ] as never,
+      },
+    });
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("Worker: VMC chalata hun");
+    expect(JSON.stringify(sent)).not.toContain("cricket");
   });
 });
 
@@ -1354,6 +1416,124 @@ const withMap = (over: Record<string, unknown> = {}) => ({
     occupation: PIN,
     ...over,
   },
+});
+
+// #2021 — a structured chat on a GENERIC family pack keeps its trade answer in the draft's
+// `skills` (target_field: skills), not in `worker_attributes`. The canonical `skills` column now
+// carries the closed `skill_*` ids those answer-map values claim, pack-scoped.
+describe("#2021 — generic-pack answer-map skills become closed skill ids", () => {
+  /** The flush's provenance stamp for a chat the model neither led nor settled. */
+  const WORKER_ONLY = { llm_led_turns: 0, llm_draft_settled: false };
+  const genericChat = (
+    packId: string,
+    questionKey: string,
+    values: string[],
+    stamp: Record<string, unknown> = WORKER_ONLY,
+  ) => ({
+    conversationState: {
+      answer_map: [
+        record(),
+        record({ question_key: questionKey, target_field: "skills", value_normalized: values }),
+      ],
+      occupation: { ...PIN, pack_id: packId },
+      pack_id: packId,
+      pack_version: 1,
+      ...stamp,
+    },
+  });
+  const storedSkills = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
+    (profiles.create.mock.calls[0]![0] as { skills: string[] }).skills;
+
+  it("welding: mig + arc → skill_mig_welding + skill_arc_welding on the canonical column", async () => {
+    const { proc, profiles } = make(genericChat("qp_welding", "welding_process", ["mig", "arc"]));
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual(["skill_arc_welding", "skill_mig_welding"]);
+  });
+
+  it("plumbing: drainage → skill_drainage_systems", async () => {
+    const { proc, profiles } = make(genericChat("qp_plumbing", "plumbing_scope", ["drainage"]));
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual(["skill_drainage_systems"]);
+  });
+
+  it("is pack-scoped: `furniture` under qp_painting derives nothing", async () => {
+    const { proc, profiles } = make(genericChat("qp_painting", "painting_scope", ["furniture"]));
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual([]);
+  });
+
+  it("a trade with no match skill derives nothing", async () => {
+    const { proc, profiles } = make(
+      genericChat("qp_electrical", "electrical_scope", ["house_wiring", "panel"]),
+    );
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual([]);
+  });
+
+  // WORKER-ONLY (owner ruling 2026-10-07). The answer-map record below is byte-identical to the
+  // one the first test derives from; only the session's provenance stamp differs. An LLM-settled
+  // record (`settleFromLlmDraft` + `matchOptions`) cannot be told apart from a tap per record, so
+  // the session decides, and anything but a clean, well-formed "the model wrote nothing" fails
+  // closed.
+  describe("worker-only: a session the model led or settled derives nothing", () => {
+    const welding = (stamp: Record<string, unknown>) =>
+      genericChat("qp_welding", "welding_process", ["mig"], stamp);
+
+    it("zero LLM turns, nothing settled, captured welding_process → skill_mig_welding", async () => {
+      const { proc, profiles } = make(welding(WORKER_ONLY));
+      await proc.process(makeJob());
+      expect(storedSkills(profiles)).toEqual(["skill_mig_welding"]);
+    });
+
+    it.each([
+      ["an LLM-led session whose draft was settled", { llm_led_turns: 4, llm_draft_settled: true }],
+      ["an LLM-led session with nothing settled", { llm_led_turns: 2, llm_draft_settled: false }],
+      [
+        "a settled draft with zero led turns (the handover settlement)",
+        { llm_led_turns: 0, llm_draft_settled: true },
+      ],
+      ["a legacy session with neither stamp", {}],
+      ["only llm_led_turns present", { llm_led_turns: 0 }],
+      ["only llm_draft_settled present", { llm_draft_settled: false }],
+      ["a malformed count", { llm_led_turns: "0", llm_draft_settled: false }],
+      ["a malformed flag", { llm_led_turns: 0, llm_draft_settled: "false" }],
+      ["a null count", { llm_led_turns: null, llm_draft_settled: false }],
+    ])("%s → []", async (_label, stamp) => {
+      // `genericChat` spreads the stamp over a state that has none, so `{}` is a true legacy row.
+      const { proc, profiles } = make(welding(stamp));
+      await proc.process(makeJob());
+      expect(storedSkills(profiles)).toEqual([]);
+    });
+  });
+
+  it("never canonicalizes the model: parse-overlay and Phase C skills do not reach the column", async () => {
+    // No answer-map skills record at all. The overlay offers "mig", cited from the worker's own
+    // words, and would canonicalize if it were read. It must not be.
+    const { proc, profiles } = make({
+      conversationState: {
+        answer_map: [record()],
+        occupation: { ...PIN, pack_id: "qp_welding" },
+        pack_id: "qp_welding",
+        pack_version: 1,
+      },
+      messages: [{ direction: "inbound", bodyText: "main mig welding karta hoon" }],
+      parsed: {
+        fields: {
+          skills: {
+            value: ["mig"],
+            evidence: { message_index: 0, quote: "mig welding" },
+            source: "transcript",
+            normalization: "verbatim",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual([]);
+  });
 });
 
 describe("the 77% reaches worker_attributes", () => {
@@ -1979,6 +2159,74 @@ describe("the answer map is the profile, and the LLM is an overlay on it", () =>
     ).not.toContain("profile.parse_gates_rejected");
   });
 
+  // #2004 — the parse overlay is model-written. Its free text passes gates 1-5 here and a
+  // pass-through gate 6, never the #1788 certifier, so it must not be stored.
+  describe("#2004 — the stored draft keeps no uncertified model-written free text", () => {
+    const WORKER_LINE =
+      "lathe aur Ramesh Engineering Works ka VMC chalata hoon, ITI Suresh sir se kiya, " +
+      "10th pass, mechanical, pachees hazaar chahiye";
+    const cited = (value: unknown, quote: string) => ({
+      value,
+      evidence: { message_index: 0, quote },
+      source: "transcript",
+      normalization: "verbatim",
+      confidence: 0.9,
+    });
+    const overlay = () => ({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: WORKER_LINE }],
+      parsed: {
+        fields: {
+          skills: cited(["Ramesh Engineering Works"], "Ramesh Engineering Works"),
+          tools_equipment: cited(["lathe", "Ramesh Engineering Works ka VMC"], "lathe aur Ramesh"),
+          certifications: cited(["ITI Suresh sir"], "ITI Suresh sir se kiya"),
+          education_level: cited("10th pass", "10th pass"),
+          education_field: cited("mechanical", "mechanical"),
+          salary_expected: cited(25000, "pachees hazaar chahiye"),
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+
+    it("withholds every model-written free-text field from rich_profile_draft", async () => {
+      const { proc, profiles } = make(overlay());
+      await proc.process(makeJob());
+      const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      const rich = row.richProfileDraft as Record<string, unknown>;
+      expect(rich.skills).toEqual([]);
+      expect(rich.machines).toEqual([]);
+      expect(rich.controllers).toEqual([]);
+      expect(rich.certifications).toEqual([]);
+      expect(rich.education_level).toBeNull();
+      expect(rich.education_field).toBeNull();
+      const stored = JSON.stringify(rich);
+      expect(stored).not.toContain("Ramesh");
+      expect(stored).not.toContain("Suresh");
+    });
+
+    it("and from the profile columns built from the same draft", async () => {
+      const { proc, profiles } = make(overlay());
+      await proc.process(makeJob());
+      const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      expect(row.machines).toEqual([]);
+      const raw = JSON.stringify(row.rawProfile ?? row);
+      expect(raw).not.toContain("Ramesh");
+      expect(raw).not.toContain("Suresh");
+    });
+
+    it("still stores the gate-3-closed number the same overlay carried", async () => {
+      const { proc, profiles } = make(overlay());
+      await proc.process(makeJob());
+      const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      const rich = row.richProfileDraft as Record<string, unknown>;
+      expect(rich.expected_salary).toBe(25000);
+      // The answer map's own values are untouched; its trade is the pinned catalogue label.
+      expect(rich.primary_role).toBe("darzi");
+      expect(rich.current_city).toBe("Pune");
+    });
+  });
+
   it("does not emit a disagreement when the model and the map agree", async () => {
     const { proc, events } = make(withMap());
     await proc.process(makeJob());
@@ -2099,10 +2347,13 @@ describe("ProfileExtractionProcessor — G2 on the parse call's answer map", () 
     });
     await proc.process(makeJob());
 
-    // The deterministic value stands — captured from the worker, not written by the model.
+    // The model's echo never reaches the profile: gate 4 discards it. The answer-map trade it
+    // contradicted is not stored either (#2004): it is not the pinned catalogue label, and a
+    // trade record cannot say whether the worker or the Phase A model wrote it.
     const rich = (profiles.create.mock.calls[0]![0] as Record<string, unknown>)
       .richProfileDraft as Record<string, unknown>;
-    expect(rich.primary_role).toBe("Suresh CNC operator");
+    expect(rich.primary_role).toBeNull();
+    expect(JSON.stringify(rich)).not.toContain("[NAME]");
     const disagreement = events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
       .find((e) => e.event_name === "profile.parse_disagreement");

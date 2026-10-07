@@ -20,6 +20,25 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// A versionCode that always MOVES FORWARD, in seconds since 2026-01-01T00:00:00Z.
+//
+// `flutter.versionCode` comes from pubspec's `version: 0.1.0+1`, and `git log -L`
+// on that line shows it has not changed since the app was scaffolded. So every
+// APK ever built carried versionCode 1, and installing one from a file manager
+// over a copy already on the phone was a same-version overwrite rather than an
+// upgrade — the path OEM installers (ColorOS / MIUI / Funtouch) refuse with a
+// bare "App was not installed". Cable install never hit it: `adb install -r`
+// passes replace-existing, and a phone without the app installed is a fresh
+// install, which is why one device took the very same file and another did not.
+//
+// Seconds since a 2026 epoch rather than a `yyMMddHHmm` stamp: that reads nicely
+// but 2610021159 overflows Android's 2_100_000_000 ceiling. This is ~23.7M today
+// and gains 31.5M a year, so it stays under the ceiling past 2090 while still
+// giving every single build its own number — rebuilding twice in one hour must
+// not hand out the same code or the overwrite is back.
+def versionCodeEpochMillis = 1767225600000L  // 2026-01-01T00:00:00Z
+def buildVersionCode = (long) ((System.currentTimeMillis() - versionCodeEpochMillis) / 1000L)
+
 android {
     namespace = "com.badabhai.workerapp"
     compileSdk = flutter.compileSdkVersion
@@ -45,7 +64,10 @@ android {
         // Bumped to 24 on Flutter 3.35 (its default min; also ≥ Firebase's 23 floor).
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
+        // NEVER below the stamp, so no pubspec or `--build-number` value can put
+        // the frozen-versionCode bug back. A deliberately pinned code (a Play
+        // upload, #1073) therefore has to be greater than the stamp to win.
+        versionCode = (int) Math.max((long) flutter.versionCode, buildVersionCode)
         versionName = flutter.versionName
     }
 

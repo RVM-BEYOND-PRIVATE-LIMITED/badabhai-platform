@@ -153,10 +153,7 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  * narrated here: a source-text matcher must not be coupled to a variable name, and an entry on
  * this list is a claim about TODAY that has to be re-derived, not inherited.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
-  "domain_match",
-  "tts_synthesis",
-];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
@@ -181,6 +178,11 @@ describe("every task type that can spend is either emitted or named as unledgere
       "profile_extraction",
       "profile_parse",
       "profiling_chat_turn",
+      // ADR-0051 (#2027) — the profiling-stage free chat's two calls, both wired in
+      // `FreeChatService` (`classify` and `reply`) in the change that calls them. PR 0 named them
+      // here as a one-PR gap; this is the PR that closed it.
+      "profiling_free_classify",
+      "profiling_free_reply",
       "resume_generation",
       // RI-autofill's option mapping (owner override B). Emitter wired in
       // `ResumeOptionMapService.map`, in the SAME change that routed the task.

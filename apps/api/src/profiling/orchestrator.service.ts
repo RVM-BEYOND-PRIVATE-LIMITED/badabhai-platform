@@ -31,6 +31,12 @@ import {
 import { generalFormOfferFor, SKILLS_GATE_OPTIONS, type GeneralFormOffer } from "./skills-gate";
 import type {
   ChatGateKind,
+  FreeChatCategory,
+  FreeChatDecidedBy,
+  FreeChatMode,
+  FreeChatModeTrigger,
+  FreeChatOutcome,
+  FreeChatReplyCategory,
   ProfilingLane,
   ProfilingLaneReason,
   SkillsGateReply,
@@ -45,9 +51,14 @@ import type {
   QuestionPackItem,
   QuestionPackOption,
   TranscriptLine,
+  FreeChatReplyOutput,
 } from "@badabhai/ai-contracts";
 
-import { ChatTranscriptBuffer, type TranscriptBuffer } from "../chat/chat-transcript.buffer";
+import {
+  ChatTranscriptBuffer,
+  isMeaningExcluded,
+  type TranscriptBuffer,
+} from "../chat/chat-transcript.buffer";
 import { ChatRepository } from "../chat/chat.repository";
 // FROM THE IMPORT-FREE MODULE, NOT THROUGH `chat.service`. `chat.service` imports this file, so
 // reading the constant through its re-export closes a cycle — and under CommonJS the binding
@@ -67,7 +78,7 @@ import {
   DISAMBIGUATION_ESCAPE_LABEL,
   ESCAPE_CHIP_ALIASES,
 } from "@badabhai/config";
-import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
+import { classifyUtterance, normalizeOccupationText } from "@badabhai/profiling-lexicon";
 
 import {
   DISAMBIGUATION_PROMPT,
@@ -94,7 +105,10 @@ import {
   RESUME_IDENTITY_OPTIONS,
   type IdentitySummary,
 } from "./resume-import/resume-identity";
-import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
+import {
+  ResumeSuggestionReader,
+  type ResumeSuggestion,
+} from "./resume-import/resume-suggestion-reader";
 import { ResumeAutofillService } from "./form/resume-autofill.service";
 import {
   readResumeUpdateOfferReply,
@@ -133,6 +147,55 @@ import { WorkersRepository } from "../workers/workers.repository";
 import type { KnownNameSource } from "../common/redact-known-name";
 import { seedFromWorkerRecord } from "./worker-record-seed";
 import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
+// ADR-0051 — the profiling-stage free chat. `FreeChatService` is a VALUE import: it is a
+// constructor parameter below, and Nest resolves it from the emitted `design:paramtypes`.
+import {
+  FreeChatService,
+  freeChatWorkerContextOf,
+  type FreeChatCallContext,
+  type FreeChatEventRef,
+  type FreeChatModeChange,
+  type FreeChatServed,
+} from "./free-chat/free-chat.service";
+import {
+  FREE_CHAT_COPY,
+  FREE_CHAT_COPY_ENTRIES,
+  FREE_CHAT_LATER_KEY,
+  FREE_CHAT_LATER_LABEL,
+  FREE_CHAT_REFUSAL_LINES,
+  FREE_CHAT_RESUME_KEY,
+  FREE_CHAT_RESUME_LABEL,
+  FREE_CHAT_START_KEY,
+  FREE_CHAT_START_LABEL,
+  type FreeChatLine,
+} from "./free-chat/free-chat.copy";
+import {
+  enterMode,
+  FREE_CHAT_ASIDE_CAP,
+  FREE_CHAT_MAX_CHIP_NO_OPS,
+  FREE_CHAT_MAX_DEESCALATIONS,
+  FREE_CHAT_MAX_DEFLECTS,
+  FREE_CHAT_NUDGE_EVERY,
+  greetingState,
+  pendingKeyOf,
+  registerStrike,
+  type FreeChatHeldTurn,
+  type FreeChatState,
+} from "./free-chat/free-chat.state";
+import {
+  confidenceBucketOf,
+  isFreeChatChip,
+  isResumeChip,
+  matchesDistress,
+  matchesOfferedOption,
+  postClassifyFree,
+  postClassifyResume,
+  preClassifyFree,
+  preClassifyResume,
+  type FreeChatVerdict,
+  type ResumeSkipFacts,
+} from "./free-chat/free-chat.router";
+import { screenFreeChatAnswer } from "./free-chat/free-chat-output.validator";
 import {
   answerSetHash,
   forgetAnswer,
@@ -163,6 +226,7 @@ import {
   TURN_KINDS,
   toEngineState,
   withAnswers,
+  withLlmDraftSettlement,
   type LastTurn,
   type ProfilingEnvelope,
   type TurnKind,
@@ -256,6 +320,29 @@ export const MAX_CAS_ATTEMPTS = 2;
  */
 interface CitySeedRef {
   promise: Promise<string | null> | null;
+}
+
+/**
+ * The free chat's two model calls, memoised per `takeTurn` CALL (ADR-0051 §3.3) — the
+ * {@link CitySeedRef} shape, for its reason: declared OUTSIDE the CAS loop and filled with `??=`
+ * inside `decide`, so a lost CAS that re-runs the decision reuses the call it already paid for.
+ * The spend is recorded inside the call itself, so it is recorded once too.
+ */
+interface FreeChatRefs {
+  /**
+   * KEYED BY ITS INPUTS (the mode and the pending question): a lost CAS whose reload lands on a
+   * winner in another mode, or with another question on screen, must classify again rather than
+   * reuse a verdict made for a different question.
+   */
+  classify: { readonly key: string; readonly verdict: Promise<FreeChatVerdict> } | null;
+  reply: Promise<FreeChatReplyOutput | null> | null;
+  /**
+   * The two résumé-import reads (the staged identity line, the pending batch import). They depend
+   * only on the worker, so a free-mode turn — which may look for an import at the greeting and
+   * again on "Haan" — reads each once, and a lost CAS reads neither again.
+   */
+  identity: Promise<IdentitySummary | null> | null;
+  pendingImport: ReturnType<ResumeSuggestionReader["pendingForChat"]> | null;
 }
 
 /**
@@ -397,6 +484,34 @@ export interface TurnResult {
    * The chat wire carries it as `general_form_offer`, ABSENT (never null) when unset.
    */
   readonly generalFormOffer?: GeneralFormOffer | null;
+  /**
+   * `false` on a turn whose reply a MODEL wrote — the free chat's casual or career answer
+   * (ADR-0051 §3.8). The chat wire carries it as `read_aloud: false` with no `tts_text`: only fixed
+   * lines are read aloud (R17). ABSENT on every other turn, never `true`, so every existing body is
+   * byte-identical.
+   */
+  readonly readAloud?: false;
+}
+
+/**
+ * The profiling-stage free chat's per-turn inputs (ADR-0051) — built by `ChatService.runTurn` for a
+ * CHAT turn only.
+ */
+export interface FreeChatTurnInput {
+  /**
+   * `!CHAT_FREE_CHAT_DISABLED`. False is the kill switch: no greeting, no classifier call, and a
+   * session still in greeting or free mode treats any message as the greeting's "Haan" — every body
+   * is what it was before the free chat.
+   */
+  readonly enabled: boolean;
+  /** This session's row already carries the durable lock (merge-written when it opened locked). */
+  readonly sessionLocked: boolean;
+  /**
+   * Is the WORKER locked into résumé mode by an earlier session (`findFreeChatLockDecider`)? A
+   * memoised THUNK, read only where it decides something — the identity intake's handoff — so an
+   * ordinary turn costs no query. Fails toward `true` (today's interview) when it cannot be read.
+   */
+  readonly locked: () => Promise<boolean>;
 }
 
 export interface TurnInput {
@@ -442,6 +557,14 @@ export interface TurnInput {
    * `ProfilingSessionService` never passes it, and every test construction compiles unchanged.
    */
   readonly armGeneralRoad?: boolean;
+  /**
+   * ADR-0051 — the profiling-stage free chat. Set by `ChatService.postMessage` alone.
+   *
+   * OPTIONAL, AND ABSENT MEANS UNTOUCHED — {@link armGeneralRoad}'s exception, for its reason: the
+   * omission's failure mode is today's interview. That is what keeps the voice form out of the free
+   * chat (it never passes this), and what lets every test construction compile unchanged.
+   */
+  readonly freeChat?: FreeChatTurnInput;
   /**
    * The worker's own name, for the interview models' egress to redact out of what they read
    * (`redactedTurnText`, R32 / ADR-0047 G2). A THUNK, read only by a turn that actually calls a
@@ -494,6 +617,12 @@ export interface OpenTurnInput {
   readonly workerId: string;
   readonly now: Date;
   readonly ctx: RequestContext;
+  /**
+   * ADR-0051 — true only from the chat's session start (`ChatService.tryOpenResumeConfirm`): a
+   * session that opens on a résumé-import turn enters résumé mode (the lock) as it opens. ABSENT on
+   * the voice form's `start`, whose sessions never meet the free chat.
+   */
+  readonly freeChat?: boolean;
 }
 
 /**
@@ -526,6 +655,44 @@ interface Decided {
   readonly buffer: TranscriptBuffer;
   readonly result: TurnResult;
   readonly intake?: IntakeEffects;
+  /**
+   * ADR-0051 — the facts `chat.free_chat_turn_served` records, on a turn the free chat SERVED (an
+   * aside). Carried out of `decide` like {@link intake}, because the event follows the CAS. Absent
+   * on every turn that passed through to the interview: those emit nothing here.
+   */
+  readonly freeChat?: FreeChatServed;
+}
+
+/** One free-chat turn's working set — what `decide` already resolved, handed to the free chat. */
+interface FreeChatTurn {
+  readonly buffer: TranscriptBuffer;
+  readonly envelope: ProfilingEnvelope;
+  readonly input: TurnInput;
+  readonly fc: FreeChatTurnInput;
+  readonly service: FreeChatService;
+  readonly packs: ResolvedPacks;
+  readonly items: readonly QuestionPackItem[];
+  readonly progressItems: readonly QuestionPackItem[];
+  readonly askedItem: QuestionPackItem | null;
+  readonly capped: boolean;
+  readonly refs: FreeChatRefs;
+}
+
+/**
+ * What the free chat made of a message: SERVED it (an aside — the decision is final) or PASSED it
+ * to today's interview, with the envelope it may have updated (a mode stamped, a held turn
+ * cleared). A pass is today's interview exactly: nothing the classifier said changes how it reads
+ * the message.
+ */
+type FreeChatRouted =
+  | { readonly kind: "serve"; readonly decided: Decided }
+  | { readonly kind: "pass"; readonly envelope: ProfilingEnvelope };
+
+/** The event facts a classifier verdict contributes — see `verdictFacts`. */
+interface VerdictFacts {
+  readonly decidedBy: FreeChatDecidedBy;
+  readonly category: FreeChatCategory | null;
+  readonly confidenceBucket: FreeChatServed["confidenceBucket"];
 }
 
 /**
@@ -628,6 +795,10 @@ export class ProfilingOrchestrator {
     // the same reason again: without one `openIdentityIntake` opens nothing, so no session can
     // carry a pending intake, and every existing construction is today's interview exactly.
     private readonly identityIntake?: IdentityIntakeService,
+    // ADR-0051 — the profiling-stage free chat's model calls, events and durable lock. Trailing
+    // and optional for the same reason again: without one no greeting opens and no message is
+    // classified, so every existing construction is today's interview exactly.
+    private readonly freeChat?: FreeChatService,
   ) {}
 
   /**
@@ -651,6 +822,14 @@ export class ProfilingOrchestrator {
     // time, and a retry that loads a winner's (no-longer-fresh) envelope must not read at all —
     // `fresh` below gates that. See `seedFromWorkerRecord`'s docblock.
     const citySeed: CitySeedRef = { promise: null };
+    // ADR-0051 — the free chat's classify and reply calls, memoised for the same reason: a lost
+    // CAS re-runs `decide`, and must not pay (or record) a model call twice.
+    const freeRefs: FreeChatRefs = {
+      classify: null,
+      reply: null,
+      identity: null,
+      pendingImport: null,
+    };
 
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
@@ -776,7 +955,7 @@ export class ProfilingOrchestrator {
         continue;
       }
 
-      const decided = await this.decide(buffer, envelope, input, fresh, citySeed);
+      const decided = await this.decide(buffer, envelope, input, fresh, citySeed, freeRefs);
       if (!decided) return unavailable();
 
       // ADR-0048 — THE INTAKE'S RECORD WRITE LANDS BEFORE THE CAS, AND FAILS CLOSED. After the
@@ -815,6 +994,9 @@ export class ProfilingOrchestrator {
         if (decided.intake && decided.intake.settled.length > 0) {
           await this.identityIntake?.record(decided.intake.settled, intakeRefOf(input));
         }
+        // ADR-0051 — the free chat's mode change, durable lock and served-turn event, only for
+        // the decision that landed (the same after-the-CAS rule). Never throws.
+        await this.recordFreeChatEffects(envelope, measured.profiling, decided.freeChat, input);
         return decided.result;
       }
 
@@ -920,7 +1102,13 @@ export class ProfilingOrchestrator {
       // An intake that has run is a conversation, even at `turnCount` 0 (its turns spend none):
       // the résumé OPENINGS below must not be served beneath it — the intake's own handoff turn
       // already served whichever of them applied, and the turn path owns every later offer.
-      const opening = buffer.turnCount === 0 && intake === null;
+      // ADR-0051 — a free chat still in greeting or free mode (its intake, if any, settled: a pending
+      // one returned above) may still open a résumé-import turn; see `openResumeConfirm`.
+      // ONLY ON THE CHAT'S FLAG: a free chat's screen is opened from the chat's start path alone,
+      // whatever the intake did — the voice form never opens a résumé turn under a greeting.
+      const opening =
+        buffer.turnCount === 0 &&
+        (isFreeChatOpen(envelope) ? input.freeChat === true : intake === null);
 
       // ── THE RÉSUMÉ-UPDATE OFFER, RE-SERVED (ADR-0043) ──────────────────────────────────
       //
@@ -1006,6 +1194,8 @@ export class ProfilingOrchestrator {
               // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
               servedQuestionKey: null,
               clarifyCount: 0,
+              // ADR-0051 (c) — a session that OPENS on a résumé-import turn is in résumé mode.
+              ...this.resumeImportEntry(input, envelope.freeChat),
             },
             packs.engine.universal,
           );
@@ -1022,6 +1212,7 @@ export class ProfilingOrchestrator {
           };
           if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
             await this.persistPin(envelope, next, input);
+            await this.recordFreeChatOpenEntry(envelope, next, input);
             return this.identityTurnFields(line, items, answers, progressItems, false);
           }
           this.logger.log(
@@ -1054,6 +1245,8 @@ export class ProfilingOrchestrator {
               // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
               servedQuestionKey: null,
               clarifyCount: 0,
+              // ADR-0051 (c) — the same résumé-mode entry as the identity open above.
+              ...this.resumeImportEntry(input, envelope.freeChat),
             },
             packs.engine.universal,
           );
@@ -1070,6 +1263,7 @@ export class ProfilingOrchestrator {
           };
           if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
             await this.persistPin(envelope, next, input);
+            await this.recordFreeChatOpenEntry(envelope, next, input);
             return this.confirmTurnFields(pending.facts, items, answers, progressItems, false);
           }
           this.logger.log(
@@ -1080,6 +1274,17 @@ export class ProfilingOrchestrator {
         }
         // NOTHING SERVABLE (every fact already settled) — fall through to the ordinary
         // opening path below, which serves the first pack question exactly as it always has.
+      }
+
+      // ADR-0051 — A FREE CHAT'S SCREEN IS THE FREE CHAT'S. A session in greeting or free mode with
+      // no résumé-import turn to open serves nothing from here and WRITES NOTHING: the ordinary
+      // opening below would put pack question one (and its `servedQuestionKey`) under a greeting.
+      if (isFreeChatOpen(envelope)) {
+        this.logger.log(
+          `openTurn on a free-chat session in ${envelope.freeChat?.mode} mode ` +
+            `session=${input.sessionId}; nothing opened, nothing written`,
+        );
+        return unavailable();
       }
 
       // CHIPS ON SCREEN OUTRANK THE PACK QUESTION, before the re-serve below can find a stale key.
@@ -1436,7 +1641,14 @@ export class ProfilingOrchestrator {
     // is on screen and the thread redraw shows it; settled, its handoff turn served whichever
     // résumé turn applied. Either way no opening may appear beneath it — even though the intake's
     // turns leave `turnCount` at 0, which is the only reason the gate above does not catch it.
-    if (envelope?.identityIntake != null) return null;
+    // ADR-0051 — A FREE CHAT STILL IN GREETING OR FREE MODE MAY OPEN AN IMPORT: an uploaded
+    // résumé is résumé intent, so the import's turn is served (and résumé mode entered,
+    // `resume_import`) rather than hidden behind "Haan" — on the chat's start path only, and never
+    // under the kill switch. Its intake, if one ran, is settled: the turn path owns a pending one.
+    const freeChatOpen = isFreeChatOpen(envelope) && input.freeChat === true;
+    if (envelope?.identityIntake != null && !freeChatOpen) return null;
+    // A session already in résumé mode is a conversation: the turn path owns every later offer.
+    if (envelope?.freeChat != null && !freeChatOpen) return null;
 
     // THE IDENTITY GATE NAMES AN IMPORT (fix 2026-09-21). A `pending` marker means the bubble
     // is already on screen and history redraws it — the start path must never duplicate it.
@@ -1483,6 +1695,7 @@ export class ProfilingOrchestrator {
     input: TurnInput,
     fresh: boolean,
     citySeed: CitySeedRef,
+    freeRefs: FreeChatRefs,
   ): Promise<Decided | null> {
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
@@ -1581,6 +1794,41 @@ export class ProfilingOrchestrator {
         return null;
       }
       return this.decideIntake(buffer, envelope, input, packs, items, progressItems);
+    }
+
+    // --- The profiling-stage free chat (ADR-0051) ----------------------------
+    //
+    // ONE BRANCH, AND ITS POSITION IS THE DESIGN. After the intake, so a pending name or city
+    // question answers first. Before everything below, so the greeting's Haan / Baad mein, a
+    // free-mode message and a résumé-mode off-topic message are read BEFORE capture, cross-question
+    // fill or identify can mistake them for an answer — and before the résumé-update offer, whose
+    // pending state is on the résumé-mode skip list anyway.
+    //
+    // It SERVES the turn (an aside: no turn, no ask, no model state spent) or PASSES it to the
+    // interview below, unchanged except for an updated envelope. A model verdict never feeds the
+    // interview's own counters: abuse only the classifier saw is answered as an aside, uncounted.
+    //
+    // CHAT ONLY: the voice form passes no `freeChat`, and an orchestrator built without the
+    // service never routes — both are today's interview exactly. THE KILL SWITCH ROUTES NOTHING
+    // AND WRITES NOTHING: no mode stamp, no lock, no event — a session keeps whatever mode and lock
+    // it was given while the switch was off, and its messages reach today's interview.
+    const fc = this.freeChatInputOf(input);
+    if (fc !== null && fc.enabled && this.freeChat !== undefined) {
+      const routed = await this.routeFreeChat({
+        buffer,
+        envelope,
+        input,
+        fc,
+        service: this.freeChat,
+        packs,
+        items,
+        progressItems,
+        askedItem,
+        capped,
+        refs: freeRefs,
+      });
+      if (routed.kind === "serve") return routed.decided;
+      envelope = routed.envelope;
     }
 
     // --- The résumé-update offer, answered (ADR-0043, ruling R3) -------------
@@ -2300,6 +2548,7 @@ export class ProfilingOrchestrator {
         // that Phase A never got to test — filling in an answer for an interview that never
         // happened. Zero led turns means zero settlement, and the pack asks the questions.
         if (next.llmLedTurns > 0) {
+          const beforeSettle = answers;
           answers = settleFromLlmDraft(
             answers,
             next.llmDraft,
@@ -2307,7 +2556,7 @@ export class ProfilingOrchestrator {
             items,
             turn,
           );
-          next = withAnswers(next, answers);
+          next = withLlmDraftSettlement(next, beforeSettle, answers);
           // COUNTS ONLY — no draft text, no transcript, no worker identity beyond the session
           // (§3 Privacy First). This is the line that separates "the model was never there" from
           // "the model left mid-interview", which is the distinction the fallback EVENT cannot
@@ -2417,6 +2666,7 @@ export class ProfilingOrchestrator {
           // `done` and fallback branches do anyway. Doing it BEFORE the pause is what keeps
           // a decline from walking back into a re-ask of the trade the conversation just
           // named; the accept path settles again idempotently.
+          const beforeSettle = answers;
           answers = settleFromLlmDraft(
             answers,
             next.llmDraft,
@@ -2424,7 +2674,7 @@ export class ProfilingOrchestrator {
             items,
             turn,
           );
-          next = withAnswers(next, answers);
+          next = withLlmDraftSettlement(next, beforeSettle, answers);
           next = {
             ...next,
             formOfferPrompt: { kind: formKind, state: "pending" },
@@ -2497,6 +2747,7 @@ export class ProfilingOrchestrator {
         // `done` — Phase A is over. What the model gathered becomes ANSWERS before the engine is
         // consulted, or the template tail opens by asking a worker their trade immediately after
         // a conversation that was largely about it.
+        const beforeSettle = answers;
         answers = settleFromLlmDraft(
           answers,
           next.llmDraft,
@@ -2504,7 +2755,7 @@ export class ProfilingOrchestrator {
           items,
           turn,
         );
-        next = withAnswers(next, answers);
+        next = withLlmDraftSettlement(next, beforeSettle, answers);
         // FALL THROUGH so the engine serves the template pack's first question on THIS turn:
         // returning the model's closing words here would cost the worker a round trip to see a
         // bubble with no question in it.
@@ -3351,14 +3602,7 @@ export class ProfilingOrchestrator {
     items: readonly QuestionPackItem[],
     answers: AnswerMap,
   ): Promise<{ importId: string; facts: ResumeConfirmFact[] } | null> {
-    const offer = await this.resumeSuggestions.pendingForChat(workerId);
-    if (!offer) return null;
-    // `chatServableItems(items)` — the same shared filter the accept path runs through
-    // (#1505 F3), so a résumé's `education`/`salary_expected`/`preferred_locations` suggestions
-    // are never offered for confirmation in the chat; only trade/experience/city/availability
-    // shrink the batch-confirm bubble.
-    const facts = confirmableFacts(offer.suggestions, chatServableItems(items), answers);
-    return { importId: offer.importId, facts };
+    return confirmOf(await this.resumeSuggestions.pendingForChat(workerId), items, answers);
   }
 
   /**
@@ -3567,7 +3811,8 @@ export class ProfilingOrchestrator {
       items,
       turn,
     );
-    let next = withAnswers(envelope, settled);
+    // #2021 — stamps `llmDraftSettled`; this settlement is unguarded by `llmLedTurns`.
+    let next = withLlmDraftSettlement(envelope, answers, settled);
     next = {
       ...next,
       formKind,
@@ -3670,7 +3915,7 @@ export class ProfilingOrchestrator {
         essentialsOf(items, answers),
         false,
       );
-      return { ...this.intakeTurn(buffer, next, input, asked, true), intake: effects };
+      return { ...this.intakeTurn(buffer, next, input, asked, "intake"), intake: effects };
     }
     return {
       ...(await this.intakeHandoff(buffer, next, input, items, progressItems)),
@@ -3697,20 +3942,26 @@ export class ProfilingOrchestrator {
     input: TurnInput,
     items: readonly QuestionPackItem[],
     progressItems: readonly QuestionPackItem[],
-  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult; freeChat?: FreeChatServed }> {
     const answers = answersOf(envelope);
+    const fc = this.freeChatInputOf(input);
+    // ADR-0051 (c) — a résumé-import handoff enters résumé mode, as a résumé-import opening does.
+    // Never under the kill switch, which stamps nothing.
+    const resumeImport =
+      fc === null || !fc.enabled ? {} : { freeChat: this.resumeEntry("resume_import", input) };
 
     const line = await this.resolveResumeIdentity(input.workerId);
     if (line !== null && envelope.resumeIdentity?.importId !== line.importId) {
       const next: ProfilingEnvelope = {
         ...envelope,
+        ...resumeImport,
         resumeIdentity: { importId: line.importId, state: "pending" },
         engineAsks: envelope.engineAsks + 1,
         servedQuestionKey: null,
         clarifyCount: 0,
       };
       const fields = this.identityTurnFields(line, items, answers, progressItems, false);
-      return this.intakeTurn(buffer, next, input, fields, false);
+      return this.intakeTurn(buffer, next, input, fields, null);
     }
 
     if (envelope.resumeConfirm === null) {
@@ -3718,14 +3969,36 @@ export class ProfilingOrchestrator {
       if (pending && pending.facts.length > 0) {
         const next: ProfilingEnvelope = {
           ...envelope,
+          ...resumeImport,
           resumeConfirm: { importId: pending.importId, state: "pending" },
           engineAsks: envelope.engineAsks + 1,
           servedQuestionKey: null,
           clarifyCount: 0,
         };
         const fields = this.confirmTurnFields(pending.facts, items, answers, progressItems, false);
-        return this.intakeTurn(buffer, next, input, fields, false);
+        return this.intakeTurn(buffer, next, input, fields, null);
       }
+    }
+
+    // ADR-0051 (a) — THE GREETING IS THE HANDOFF, for a worker the free chat may greet: not locked
+    // by an earlier session, and the kill switch off. The general-road stamp is DEFERRED to the
+    // moment résumé mode is entered (the worker's "Haan"), which is where today's first message
+    // would have armed it. A locked worker gets today's opener, byte for byte, in résumé mode.
+    if (fc !== null && fc.enabled) {
+      if (!(await fc.locked())) {
+        const greeting: ProfilingEnvelope = { ...envelope, freeChat: greetingState() };
+        return {
+          ...this.intakeTurn(
+            buffer,
+            greeting,
+            input,
+            greetingTurn(progressOf(progressItems, answers), essentialsOf(items, answers)),
+            "aside",
+          ),
+          freeChat: GREETING_SERVED,
+        };
+      }
+      envelope = { ...envelope, freeChat: this.resumeEntry("locked_at_open", input) };
     }
 
     return this.intakeTurn(
@@ -3751,7 +4024,7 @@ export class ProfilingOrchestrator {
         unavailable: false,
         checkpointDue: false,
       },
-      true,
+      "intake",
     );
   }
 
@@ -3807,7 +4080,7 @@ export class ProfilingOrchestrator {
     envelope: ProfilingEnvelope,
     input: TurnInput,
     result: TurnResult,
-    replyIsIntake: boolean,
+    replyFlag: "intake" | "aside" | null,
   ): { buffer: TranscriptBuffer; result: TurnResult } {
     const at = input.now.toISOString();
     return {
@@ -3827,7 +4100,858 @@ export class ProfilingOrchestrator {
             text: result.reply,
             at,
             voiceNoteId: null,
-            ...(replyIsIntake ? { intake: true as const } : {}),
+            // ADR-0051 — the free chat's greeting served as the handoff is the FREE CHAT'S line,
+            // not the intake's: flagged `aside`, kept out of the same readers.
+            ...(replyFlag === "intake" ? { intake: true as const } : {}),
+            ...(replyFlag === "aside" ? { aside: true as const } : {}),
+          },
+        ],
+        profiling: stampLastTurn(envelope, input, result),
+      },
+      result,
+    };
+  }
+
+  // ===========================================================================
+  // THE PROFILING-STAGE FREE CHAT (ADR-0051)
+  // ===========================================================================
+
+  /**
+   * OPEN a NEW chat session on the free chat's greeting ("Shuru karein?" Haan | Baad mein) — or
+   * report `null`.
+   *
+   * {@link openIdentityIntake}'s OPENING-WRITE PATTERN, for its reasons: resolve the packs, seed the
+   * city (this write makes the first real turn no longer fresh, so the seed runs now), write the
+   * envelope and ONLY the assistant line under the CAS, and bump no turn and no ask. The greeting
+   * line is flagged `aside`, so no reader of the conversation's meaning ever sees it. The general
+   * road stays UNARMED: it is armed when résumé mode is entered, which is where today's first
+   * message would have armed it (ADR-0051 §3.6).
+   *
+   * DEGRADES, NEVER FAILS. Null — no service wired, no pack, a session that is not new, a lost CAS —
+   * hands the caller back to today's opening. The caller decides the kill switch and the lock; this
+   * method trusts that it was asked.
+   */
+  async openFreeChatGreeting(input: OpenTurnInput): Promise<TurnResult | null> {
+    const service = this.freeChat;
+    if (service === undefined) return null;
+    // See `takeTurn`'s identical declaration for why this lives outside the loop.
+    const citySeed: CitySeedRef = { promise: null };
+
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      const loaded = await this.buffer.load(input.sessionId);
+      // A NEW SESSION ONLY — an envelope here means a conversation already began.
+      if (loaded?.profiling != null) return null;
+      const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
+      const fresh = emptyProfilingEnvelope();
+
+      const packs = await this.resolvePacks(fresh, input.now.getTime());
+      if (!packs) {
+        this.logger.error(
+          `no question pack resolved opening the free-chat greeting for session ${input.sessionId}; ` +
+            `the session opens as it does without one`,
+        );
+        return null;
+      }
+      const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+      const seeded = await this.seedCity(fresh, citySeed, items, input);
+      const next: ProfilingEnvelope = stampUniversalPointer(
+        {
+          ...seeded,
+          packId: packs.packId,
+          packVersion: packs.packVersion,
+          servedQuestionKey: null,
+          freeChat: greetingState(),
+        },
+        packs.engine.universal,
+      );
+      const answers = answersOf(next);
+      const result = greetingTurn(
+        progressOf(progressItemsOf(next, packs.engine), answers),
+        essentialsOf(items, answers),
+      );
+      const opening: TranscriptBuffer = {
+        ...buffer,
+        messages: [
+          ...buffer.messages,
+          {
+            role: "assistant" as const,
+            text: result.reply,
+            at: input.now.toISOString(),
+            voiceNoteId: null,
+            aside: true,
+          },
+        ],
+        profiling: next,
+      };
+      if (await this.buffer.saveWithCas(input.sessionId, opening, fresh.rev)) {
+        this.logger.log(`free-chat greeting opened session=${input.sessionId}`);
+        await service.recordServed(GREETING_SERVED, openRefOf(input));
+        return result;
+      }
+      this.logger.log(
+        `CAS lost opening the free-chat greeting session=${input.sessionId} ` +
+          `attempt=${attempt + 1}; reloading`,
+      );
+    }
+    return null;
+  }
+
+  /** The free chat's inputs for this turn, or null where it does not apply (voice, unwired). */
+  private freeChatInputOf(input: TurnInput): FreeChatTurnInput | null {
+    return input.freeChat !== undefined && this.freeChat !== undefined ? input.freeChat : null;
+  }
+
+  /** A session with no mode yet, entering résumé mode — the lock — for `trigger`. */
+  private resumeEntry(trigger: FreeChatModeTrigger, at: { readonly now: Date }): FreeChatState {
+    return enterMode(null, "resume", trigger, at.now);
+  }
+
+  /**
+   * A résumé-import opening on the CHAT's start path enters résumé mode (ADR-0051 §3.1, (c)); the
+   * voice form's `start` passes no flag and stamps nothing.
+   */
+  private resumeImportEntry(
+    input: OpenTurnInput,
+    current: FreeChatState | null,
+  ): { freeChat?: FreeChatState } {
+    return input.freeChat === true && this.freeChat !== undefined
+      ? { freeChat: enterMode(current, "resume", "resume_import", input.now) }
+      : {};
+  }
+
+  /** After an opening write landed: its mode change and the durable lock. Never throws. */
+  private async recordFreeChatOpenEntry(
+    before: ProfilingEnvelope,
+    next: ProfilingEnvelope,
+    input: OpenTurnInput,
+  ): Promise<void> {
+    if (input.freeChat !== true) return;
+    await this.applyFreeChatModeChange(before.freeChat, next.freeChat, openRefOf(input), false);
+  }
+
+  /**
+   * After a turn's CAS landed (ADR-0051 §3.7): the mode change it made, the durable lock when it
+   * entered résumé mode, and the served-turn event when the free chat served it. Derived from the
+   * envelope that WAS written, so a decision that lost its CAS records nothing. Never throws.
+   */
+  private async recordFreeChatEffects(
+    before: ProfilingEnvelope,
+    after: ProfilingEnvelope | undefined,
+    served: FreeChatServed | undefined,
+    input: TurnInput,
+  ): Promise<void> {
+    const fc = this.freeChatInputOf(input);
+    if (fc === null || !fc.enabled || this.freeChat === undefined) return;
+    const ref: FreeChatEventRef = {
+      workerId: input.workerId,
+      sessionId: input.sessionId,
+      submissionId: input.submissionId,
+      // THE REV THIS DECISION WAS MADE AT — unique per landed write, since an aside spends no turn.
+      turnRef: `rev${before.rev}`,
+      ctx: input.ctx,
+    };
+    await this.applyFreeChatModeChange(
+      before.freeChat ?? null,
+      after?.freeChat ?? null,
+      ref,
+      fc.sessionLocked,
+    );
+    if (served !== undefined) await this.freeChat.recordServed(served, ref);
+  }
+
+  /** One mode transition's event, and — entering résumé mode — the durable lock. */
+  private async applyFreeChatModeChange(
+    before: FreeChatState | null,
+    after: FreeChatState | null,
+    ref: FreeChatEventRef,
+    sessionLocked: boolean,
+  ): Promise<void> {
+    const service = this.freeChat;
+    const change = modeChangeOf(before, after);
+    if (service === undefined || change === null) return;
+    await service.recordModeChanged(change, ref);
+    // A row that already carries the lock (it opened locked) needs no second write.
+    if (change.to === "resume" && after?.lockedAt != null && !sessionLocked) {
+      await service.persistLock(ref.sessionId, ref.workerId, after.lockedAt);
+    }
+  }
+
+  /**
+   * The free chat's ONE ENTRY from `decide` (ADR-0051 §3.2): serve the message as an aside, or
+   * pass it to today's interview.
+   *
+   *   - NO MODE YET (an older client, a session in flight at deploy): stamped `resume` — today's
+   *     interview — and routed as résumé mode;
+   *   - RÉSUMÉ MODE: the lock; the skip list, then the classifier, and an outage is today's turn;
+   *   - GREETING / FREE: the deterministic rules, then the classifier, then a per-category handler.
+   *
+   * Never reached under the kill switch (see `decide`), which routes and writes nothing.
+   */
+  private async routeFreeChat(t: FreeChatTurn): Promise<FreeChatRouted> {
+    const state = t.envelope.freeChat ?? null;
+    if (state === null) {
+      const trigger: FreeChatModeTrigger = t.fc.sessionLocked ? "locked_at_open" : "first_turn";
+      const stamped = this.resumeEntry(trigger, t.input);
+      return this.routeResumeMode(
+        { ...t, envelope: { ...t.envelope, freeChat: stamped } },
+        stamped,
+      );
+    }
+    if (state.mode === "resume") return this.routeResumeMode(t, state);
+    return this.routeFreeMode(t, state);
+  }
+
+  /**
+   * RÉSUMÉ MODE — today's interview, with an off-topic message deflected (ADR-0051 §3.2, the résumé
+   * table). Distress first; then every message today's interview already reads deterministically
+   * passes with no model call (the skip list); then the classifier, whose UNAVAILABLE answer also
+   * passes — an AI outage never degrades the interview.
+   */
+  private async routeResumeMode(t: FreeChatTurn, state: FreeChatState): Promise<FreeChatRouted> {
+    const pass = (): FreeChatRouted => ({
+      kind: "pass",
+      // A pass is an interview turn: the question it answers is no longer held for a re-ask.
+      envelope:
+        state.held === null ? t.envelope : { ...t.envelope, freeChat: { ...state, held: null } },
+    });
+    const pending = this.pendingQuestion(t, state);
+    const skip = this.resumeSkipFacts(t, state, pending);
+    const pre = preClassifyResume(t.input.text, skip);
+    if (pre.kind === "distress")
+      return this.serveResumeDistress(t, state, pending, LEXICON_DISTRESS);
+    // A DOUBLE-TAPPED FREE-CHAT CHIP ("Haan, shuru karein" sent twice, a stale "Resume banayein"):
+    // a no-op that re-serves the pending question as it stands — never captured, never classified.
+    // ONLY where nothing else owns the words: a pending offer, an open gate, the turn cap or an
+    // option on screen reads them first (a typed "baad mein" is a real answer to "Resume update
+    // kar doon?"). At most twice per pending question; a third passes to the interview.
+    if (
+      pending !== null &&
+      isFreeChatChip(t.input.text) &&
+      !skip.capped &&
+      !skip.pendingOffer &&
+      !skip.gateOpen &&
+      !skip.offeredOption
+    ) {
+      const key = pendingKeyOf(pending);
+      const count = state.chipNoOps?.key === key ? state.chipNoOps.count : 0;
+      if (count >= FREE_CHAT_MAX_CHIP_NO_OPS) return pass();
+      return this.serveNoOp(t, { ...state, chipNoOps: { key, count: count + 1 } }, pending);
+    }
+    if (pre.kind === "pass" || pending === null) return pass();
+
+    const verdict = await this.classifyMemo(t, "resume", pending);
+    const facts = verdictFacts(verdict);
+    const action = postClassifyResume(verdict);
+    switch (action.kind) {
+      case "pass":
+        return pass();
+      case "de_escalate": {
+        // CLASSIFIER-ONLY ABUSE (the lexicon flagged nothing): today's de-escalation line and the
+        // question again, NEVER counted toward `MAX_ABUSIVE_TURNS` — a model verdict alone must not
+        // close profiling (CLAUDE.md §3). Capped like a deflection: a third trash verdict for the
+        // same question passes to the interview, which reads the words deterministically.
+        const key = pendingKeyOf(pending);
+        const count = state.deescalated?.key === key ? state.deescalated.count : 0;
+        if (count >= FREE_CHAT_MAX_DEESCALATIONS) return pass();
+        return this.serveReAsk(
+          t,
+          { ...state, deescalated: { key, count: count + 1 } },
+          DE_ESCALATION_REPLY,
+          pending,
+          facts,
+          "fixed_line",
+        );
+      }
+      case "distress":
+        return this.serveResumeDistress(t, state, pending, facts);
+      case "deflect": {
+        // THE STUCK-LOOP GUARD: at most twice per pending question. A worker retyping a real answer
+        // the classifier keeps misreading reaches today's interview on the third try.
+        const key = pendingKeyOf(pending);
+        const count = state.deflected?.key === key ? state.deflected.count : 0;
+        if (count >= FREE_CHAT_MAX_DEFLECTS) return pass();
+        return this.serveReAsk(
+          t,
+          { ...state, deflected: { key, count: count + 1 } },
+          FREE_CHAT_COPY.LOCK_DEFLECT.latin,
+          pending,
+          facts,
+          "deflected",
+        );
+      }
+      case "clarify":
+        // THE CLARIFY CAP: at most once per pending question. A second unsure verdict for the same
+        // question is today's interview — the deterministic path — never a clarify loop.
+        if (state.clarifiedFor === pendingKeyOf(pending)) return pass();
+        return this.serveReAsk(
+          t,
+          { ...state, clarifiedFor: pendingKeyOf(pending) },
+          FREE_CHAT_COPY.LOCK_CLARIFY.latin,
+          pending,
+          facts,
+          "clarify",
+        );
+    }
+  }
+
+  /**
+   * GREETING AND FREE MODE (ADR-0051 §3.2, the free table). A greeting the worker typed past is
+   * answered as free chat, and becomes free mode once a classifier verdict is acted on.
+   */
+  private async routeFreeMode(t: FreeChatTurn, state: FreeChatState): Promise<FreeChatRouted> {
+    const { text, now } = t.input;
+    // AN UPLOADED RÉSUMÉ IS RÉSUMÉ INTENT. A pending import (an unanswered "is this you?" line, or a
+    // batch-confirm with facts to confirm) enters résumé mode and is served now, rather than hidden
+    // behind "Haan" — after distress, which outranks everything.
+    if (!matchesDistress(text)) {
+      const imported = await this.serveImportOpening(
+        t,
+        { ...t.envelope, freeChat: enterMode(state, "resume", "resume_import", now) },
+        servedFacts("resume", FLOW_RESUME_FACTS, "opener"),
+      );
+      if (imported !== null) return imported;
+    }
+    const pre = preClassifyFree({
+      mode: state.mode === "greeting" ? "greeting" : "free",
+      text,
+      state,
+      now,
+    });
+    switch (pre.kind) {
+      case "start":
+        return this.serveStart(t, CHIP_FACTS, "chip");
+      case "later":
+        return this.serveFreeLine(
+          t,
+          enterMode(state, "free", "chip", now),
+          FREE_CHAT_COPY.LATER_ACK,
+          RESUME_CHIPS,
+          { decidedBy: "chip", category: null, confidenceBucket: null },
+          "fixed_line",
+        );
+      case "distress":
+        return this.serveFreeLine(
+          t,
+          state,
+          FREE_CHAT_COPY.DISTRESS,
+          [],
+          LEXICON_DISTRESS,
+          "fixed_line",
+        );
+      case "cooldown":
+        return this.serveFreeLine(
+          t,
+          state,
+          FREE_CHAT_COPY.TRASH_COOLDOWN,
+          RESUME_CHIPS,
+          GUARD_FACTS,
+          "cooldown",
+        );
+      case "aside_cap":
+        return this.serveFreeLine(
+          t,
+          state,
+          FREE_CHAT_COPY.ASIDE_CAP,
+          RESUME_CHIPS,
+          GUARD_FACTS,
+          "aside_cap",
+        );
+      case "strike":
+        return this.serveStrike(t, state, {
+          decidedBy: "lexicon",
+          category: "trash",
+          confidenceBucket: null,
+        });
+      case "classify":
+        break;
+    }
+
+    const verdict = await this.classifyMemo(t, "free", null);
+    const facts = verdictFacts(verdict);
+    const action = postClassifyFree(verdict, text);
+    const acted = action.kind !== "clarify" && action.kind !== "start";
+    const current =
+      state.mode === "greeting" && acted ? enterMode(state, "free", "classifier", now) : state;
+    switch (action.kind) {
+      case "clarify":
+        return this.serveFreeLine(
+          t,
+          current,
+          FREE_CHAT_COPY.FREE_CLARIFY,
+          RESUME_CHIPS,
+          facts,
+          "clarify",
+        );
+      case "start":
+        // A message that already describes the work is the interview's first answer; a bare
+        // intent ("resume banana hai") gets the opener.
+        return action.firstTurn ? this.passAsFirstTurn(t) : this.serveStart(t, facts, "classifier");
+      case "reply":
+        return this.serveReply(t, current, action.category, facts);
+      case "fixed":
+        return this.serveFreeLine(
+          t,
+          current,
+          FREE_CHAT_COPY[action.line],
+          action.line === "DISTRESS" ? [] : RESUME_CHIPS,
+          facts,
+          "fixed_line",
+        );
+      case "strike":
+        return this.serveStrike(t, current, facts);
+    }
+  }
+
+  /** The facts that decide whether résumé mode classifies a message at all. */
+  private resumeSkipFacts(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    pending: FreeChatHeldTurn | null,
+  ): ResumeSkipFacts {
+    const env = t.envelope;
+    return {
+      capped: t.capped,
+      pendingOffer:
+        env.resumeUpdateOffer?.state === "pending" ||
+        env.resumeIdentity?.state === "pending" ||
+        env.resumeConfirm?.state === "pending" ||
+        env.formOfferPrompt?.state === "pending",
+      // THE SKILLS GATE BY ITS STATE, not by what `lastTurn` cached: a distress line served over an
+      // open gate replaces it on screen, and the worker's next words are still the gate's answer.
+      gateOpen: env.llmGateOpen || env.generalRoad.gateOpen,
+      offeredOption: matchesOfferedOption(t.input.text, env.lastTurn?.options ?? []),
+      lexiconClass: classifyUtterance(t.input.text).cls,
+      typedAnswer: isTypedAnswer(t.input.text, t.askedItem),
+      hasPendingQuestion: pending !== null,
+      asideCapReached: state.asides >= FREE_CHAT_ASIDE_CAP,
+    };
+  }
+
+  /**
+   * The interview question a résumé-mode aside re-asks: what the envelope's own state names (it
+   * cannot go stale), else the turn held by an earlier aside, else what `lastTurn` shows.
+   */
+  private pendingQuestion(t: FreeChatTurn, state: FreeChatState): FreeChatHeldTurn | null {
+    return (
+      structuredQuestion(t.envelope, t.progressItems, t.buffer.turnCount) ??
+      state.held ??
+      lastServedQuestion(t.envelope, this.llm.leads(t.envelope))
+    );
+  }
+
+  /** Enter résumé mode and serve the session's next opening (the worker's "Haan"). */
+  private serveStart(
+    t: FreeChatTurn,
+    facts: VerdictFacts,
+    trigger: FreeChatModeTrigger,
+  ): Promise<FreeChatRouted> {
+    const entered: ProfilingEnvelope = {
+      ...t.envelope,
+      freeChat: enterMode(t.envelope.freeChat ?? null, "resume", trigger, t.input.now),
+    };
+    return this.serveOpening(t, entered, servedFacts("resume", facts, "opener"));
+  }
+
+  /**
+   * The session's NEXT OPENING once résumé mode is entered — {@link intakeHandoff}'s order, through
+   * the same resolvers and builders: the résumé "is this you?" turn, else the batch-confirm, else the
+   * OPENER. The two résumé turns are their own lines (stored unflagged, an ask spent, the general
+   * road left unarmed — a session that opens on a résumé turn keeps today's interview); the opener
+   * is an aside that ARMS the general road exactly as today's first message would (ADR-0045 D7).
+   */
+  private async serveOpening(
+    t: FreeChatTurn,
+    entered: ProfilingEnvelope,
+    served: FreeChatServed,
+  ): Promise<FreeChatRouted> {
+    const imported = await this.serveImportOpening(t, entered, served);
+    if (imported !== null) return imported;
+    const answers = answersOf(entered);
+    const opener = openerTurn(progressOf(t.progressItems, answers), essentialsOf(t.items, answers));
+    const state = entered.freeChat;
+    const held =
+      state === null ? entered : { ...entered, freeChat: { ...state, held: heldOf(opener) } };
+    return this.serveAside(t, this.stampGeneralRoad(held, t.input), opener, served, true);
+  }
+
+  /**
+   * The résumé-import half of {@link serveOpening}: the "is this you?" turn, else the batch-confirm
+   * with something to confirm — or null when no import is pending. Shared by "Haan" and by a
+   * pending import found while the session is still in greeting or free mode.
+   */
+  private async serveImportOpening(
+    t: FreeChatTurn,
+    entered: ProfilingEnvelope,
+    served: FreeChatServed,
+  ): Promise<FreeChatRouted | null> {
+    const answers = answersOf(entered);
+    t.refs.identity ??= this.resolveResumeIdentity(t.input.workerId);
+    const line = await t.refs.identity;
+    if (line !== null && entered.resumeIdentity?.importId !== line.importId) {
+      const next: ProfilingEnvelope = {
+        ...entered,
+        resumeIdentity: { importId: line.importId, state: "pending" },
+        engineAsks: entered.engineAsks + 1,
+        servedQuestionKey: null,
+        clarifyCount: 0,
+      };
+      const fields = this.identityTurnFields(line, t.items, answers, t.progressItems, false);
+      return this.serveAside(t, next, fields, served, false);
+    }
+    if (entered.resumeConfirm === null) {
+      t.refs.pendingImport ??= this.resumeSuggestions.pendingForChat(t.input.workerId);
+      const pending = confirmOf(await t.refs.pendingImport, t.items, answers);
+      if (pending && pending.facts.length > 0) {
+        const next: ProfilingEnvelope = {
+          ...entered,
+          resumeConfirm: { importId: pending.importId, state: "pending" },
+          engineAsks: entered.engineAsks + 1,
+          servedQuestionKey: null,
+          clarifyCount: 0,
+        };
+        const fields = this.confirmTurnFields(
+          pending.facts,
+          t.items,
+          answers,
+          t.progressItems,
+          false,
+        );
+        return this.serveAside(t, next, fields, served, false);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A free-mode message classified `resume` that already describes the work: résumé mode is
+   * entered and the SAME message passes to today's interview as its first answer — not an aside,
+   * and armed for the general road exactly as today's first message is.
+   */
+  private passAsFirstTurn(t: FreeChatTurn): FreeChatRouted {
+    const entered: ProfilingEnvelope = {
+      ...t.envelope,
+      freeChat: enterMode(t.envelope.freeChat ?? null, "resume", "classifier", t.input.now),
+    };
+    return { kind: "pass", envelope: this.stampGeneralRoad(entered, t.input) };
+  }
+
+  /** A counted trash strike (R13): the warning, or — the third today — the cool-down. */
+  private serveStrike(t: FreeChatTurn, state: FreeChatState, facts: VerdictFacts): FreeChatRouted {
+    const strike = registerStrike(state, t.input.now);
+    return this.serveFreeLine(
+      t,
+      strike.state,
+      strike.cooldownStarted ? FREE_CHAT_COPY.TRASH_COOLDOWN : FREE_CHAT_COPY.TRASH_WARN,
+      RESUME_CHIPS,
+      { ...facts, category: "trash" },
+      strike.cooldownStarted ? "cooldown" : "strike",
+      { strikeCount: strike.count, cooldownStarted: strike.cooldownStarted },
+    );
+  }
+
+  /**
+   * A casual or career message (ADR-0051 §3.2, rules 6-7): the model's reply through the
+   * deterministic gate, its refusal as reviewed copy, or the fallback line. The "Resume banayein"
+   * chip is always attached, and every third casual reply carries the nudge (R9).
+   */
+  private async serveReply(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    category: FreeChatReplyCategory,
+    facts: VerdictFacts,
+  ): Promise<FreeChatRouted> {
+    const out = await this.replyMemo(t, category);
+    if (out === null) {
+      return this.serveFreeLine(
+        t,
+        state,
+        FREE_CHAT_COPY.REPLY_FALLBACK,
+        RESUME_CHIPS,
+        facts,
+        "fallback",
+      );
+    }
+    if (out.status === "refuse") {
+      return this.serveFreeLine(
+        t,
+        state,
+        FREE_CHAT_REFUSAL_LINES[out.topic],
+        out.topic === "distress" ? [] : RESUME_CHIPS,
+        facts,
+        "refused",
+        { refusalTopic: out.topic },
+      );
+    }
+    const screened = screenFreeChatAnswer(out);
+    if (screened.kind === "reject") {
+      // The CLOSED reason only — never a line of the answer, which is model text.
+      this.logger.warn(
+        `free-chat reply rejected session=${t.input.sessionId} category=${category} ` +
+          `(${screened.failure}); the fallback line is served`,
+      );
+      return this.serveFreeLine(
+        t,
+        state,
+        FREE_CHAT_COPY.REPLY_FALLBACK,
+        RESUME_CHIPS,
+        facts,
+        "fallback",
+      );
+    }
+    const casualReplies = state.casualReplies + (category === "casual" ? 1 : 0);
+    const nudge = category === "casual" && casualReplies % FREE_CHAT_NUDGE_EVERY === 0;
+    const lines = nudge
+      ? [...screened.answer.lines, FREE_CHAT_COPY.CASUAL_NUDGE.latin]
+      : [...screened.answer.lines];
+    const answers = answersOf(t.envelope);
+    const result: TurnResult = {
+      ...freeTurnResult(
+        lines.join("\n"),
+        followupOptions(screened.answer.followup_chips),
+        progressOf(t.progressItems, answers),
+        essentialsOf(t.items, answers),
+      ),
+      // MODEL-WRITTEN: never read aloud, and no Devanagari twin exists for it (R17).
+      readAloud: false,
+    };
+    return this.serveAside(
+      t,
+      { ...t.envelope, freeChat: { ...state, casualReplies } },
+      result,
+      servedFacts(state.mode, facts, "answered", { nudge }),
+    );
+  }
+
+  /** One fixed line (plus its chips) as an aside, in the state the turn leaves behind. */
+  private serveFreeLine(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    line: FreeChatLine,
+    chips: readonly QuestionPackOption[],
+    facts: VerdictFacts,
+    outcome: FreeChatOutcome,
+    extra: ServedExtra = {},
+  ): FreeChatRouted {
+    const answers = answersOf(t.envelope);
+    const result = freeTurnResult(
+      line.latin,
+      chips,
+      progressOf(t.progressItems, answers),
+      essentialsOf(t.items, answers),
+    );
+    return this.serveAside(
+      t,
+      { ...t.envelope, freeChat: state },
+      result,
+      servedFacts(state.mode, facts, outcome, extra),
+    );
+  }
+
+  /**
+   * A résumé-mode deflection, clarify or de-escalation: the lead line + the pending question again,
+   * in ONE bubble,
+   * with the question's own chips and shape — so `lastTurn` describes the question still on screen
+   * and every reader of it (the option match, the escape tap, a reopen) keeps working. No turn, no
+   * ask, no model state is spent; `servedQuestionKey` is untouched, so the next answer is captured
+   * against the same question.
+   */
+  private serveReAsk(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    lead: string,
+    pending: FreeChatHeldTurn,
+    facts: VerdictFacts,
+    outcome: FreeChatOutcome,
+  ): FreeChatRouted {
+    const answers = answersOf(t.envelope);
+    const result: TurnResult = {
+      reply: `${lead} ${pending.reply}`,
+      kind: pending.kind,
+      questionKey: pending.questionKey,
+      options: [...pending.options],
+      whyText: pending.whyText,
+      answerType: pending.answerType,
+      inputMode: pending.inputMode,
+      progress: progressOf(t.progressItems, answers),
+      unansweredEssentials: essentialsOf(t.items, answers),
+      complete: false,
+      completionReason: null,
+      replayed: false,
+      excludeFromParse: true,
+      unavailable: false,
+      checkpointDue: false,
+    };
+    return this.serveAside(
+      t,
+      { ...t.envelope, freeChat: { ...state, held: pending } },
+      result,
+      servedFacts("resume", facts, outcome),
+    );
+  }
+
+  /**
+   * The distress line in résumé mode (R10): served ALONE — no question is pressed on a worker who
+   * has just said this — and the pending question stays held, so the interview resumes on the next
+   * message exactly where it paused.
+   */
+  private serveResumeDistress(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    pending: FreeChatHeldTurn | null,
+    facts: VerdictFacts,
+  ): FreeChatRouted {
+    const answers = answersOf(t.envelope);
+    const result = freeTurnResult(
+      FREE_CHAT_COPY.DISTRESS.latin,
+      [],
+      progressOf(t.progressItems, answers),
+      essentialsOf(t.items, answers),
+    );
+    return this.serveAside(
+      t,
+      { ...t.envelope, freeChat: { ...state, held: pending } },
+      result,
+      servedFacts("resume", facts, "fixed_line"),
+    );
+  }
+
+  /**
+   * A double-tapped free-chat chip in résumé mode: the pending question re-served as it stands. An
+   * aside that counts only toward its own cap (`chipNoOps` — not the aside cap, not a deflect,
+   * clarify or de-escalation count) and records no served-turn event — nothing was decided.
+   */
+  private serveNoOp(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    pending: FreeChatHeldTurn,
+  ): FreeChatRouted {
+    const answers = answersOf(t.envelope);
+    const result: TurnResult = {
+      reply: pending.reply,
+      kind: pending.kind,
+      questionKey: pending.questionKey,
+      options: [...pending.options],
+      whyText: pending.whyText,
+      answerType: pending.answerType,
+      inputMode: pending.inputMode,
+      progress: progressOf(t.progressItems, answers),
+      unansweredEssentials: essentialsOf(t.items, answers),
+      complete: false,
+      completionReason: null,
+      replayed: false,
+      excludeFromParse: true,
+      unavailable: false,
+      checkpointDue: false,
+    };
+    return this.serveAside(
+      t,
+      { ...t.envelope, freeChat: { ...state, held: pending } },
+      result,
+      null,
+      true,
+      false,
+    );
+  }
+
+  /** Count the aside, stamp the pack pointer, and append the two flagged lines. */
+  private serveAside(
+    t: FreeChatTurn,
+    next: ProfilingEnvelope,
+    result: TurnResult,
+    served: FreeChatServed | null,
+    replyIsAside = true,
+    counts = true,
+  ): FreeChatRouted {
+    const state = next.freeChat ?? null;
+    const counted =
+      state === null || !counts
+        ? next
+        : { ...next, freeChat: { ...state, asides: state.asides + 1 } };
+    const pinned = stampUniversalPointer(
+      { ...counted, packId: t.packs.packId, packVersion: t.packs.packVersion },
+      t.packs.engine.universal,
+    );
+    const turned = this.asideTurn(t.buffer, pinned, t.input, result, replyIsAside);
+    return { kind: "serve", decided: served === null ? turned : { ...turned, freeChat: served } };
+  }
+
+  /** The classifier call, memoised per `takeTurn` (see {@link FreeChatRefs}). */
+  private classifyMemo(
+    t: FreeChatTurn,
+    mode: "free" | "resume",
+    pending: FreeChatHeldTurn | null,
+  ): Promise<FreeChatVerdict> {
+    const key = `${mode}|${pending === null ? "" : pendingKeyOf(pending)}`;
+    if (t.refs.classify === null || t.refs.classify.key !== key) {
+      t.refs.classify = {
+        key,
+        verdict: t.service.classify(
+          {
+            text: t.input.text,
+            mode,
+            pendingQuestion: pending?.reply ?? null,
+            messages: t.buffer.messages,
+          },
+          callCtxOf(t.input),
+        ),
+      };
+    }
+    return t.refs.classify.verdict;
+  }
+
+  /** The reply call, memoised per `takeTurn` (see {@link FreeChatRefs}). */
+  private replyMemo(
+    t: FreeChatTurn,
+    category: FreeChatReplyCategory,
+  ): Promise<FreeChatReplyOutput | null> {
+    t.refs.reply ??= t.service.reply(
+      {
+        category,
+        text: t.input.text,
+        messages: t.buffer.messages,
+        workerContext: freeChatWorkerContextOf(t.envelope),
+      },
+      callCtxOf(t.input),
+    );
+    return t.refs.reply;
+  }
+
+  /**
+   * {@link intakeTurn}'s sibling for a free-chat ASIDE, and the same three properties:
+   *
+   *   - `turnCount` IS NOT BUMPED — an aside spends none of the interview's turns, asks or model
+   *     state, so `min_turn` windows and `MAX_ENGINE_TURNS` are exactly what they are without one;
+   *   - BOTH LINES ARE KEPT VERBATIM for the worker's thread and flagged `aside`, which keeps them
+   *     out of every reader of the conversation's meaning — except a résumé turn served on "Haan",
+   *     which is that turn's own line and is stored as it always was;
+   *   - `lastTurn` IS STAMPED THE SAME WAY, so a duplicate submit replays the reply unchanged.
+   */
+  private asideTurn(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    result: TurnResult,
+    replyIsAside: boolean,
+  ): { buffer: TranscriptBuffer; result: TurnResult } {
+    const at = input.now.toISOString();
+    return {
+      buffer: {
+        ...buffer,
+        messages: [
+          ...buffer.messages,
+          {
+            role: "worker" as const,
+            text: input.text,
+            at,
+            voiceNoteId: input.voiceNoteId,
+            aside: true,
+          },
+          {
+            role: "assistant" as const,
+            text: result.reply,
+            at,
+            voiceNoteId: null,
+            ...(replyIsAside ? { aside: true as const } : {}),
           },
         ],
         profiling: stampLastTurn(envelope, input, result),
@@ -4050,16 +5174,20 @@ export class ProfilingOrchestrator {
     outcome: SkillsStageOutcome,
     excludeFromParse: boolean,
   ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
-    const settled = forgetExperienceYears(
-      settleFromLlmDraft(
-        answers,
-        { ...envelope.llmDraft, skills: [], experiences: [] },
-        envelope.occupation?.label ?? null,
-        items,
-        turn,
-      ),
+    const settledRaw = settleFromLlmDraft(
+      answers,
+      { ...envelope.llmDraft, skills: [], experiences: [] },
+      envelope.occupation?.label ?? null,
+      items,
+      turn,
     );
-    let next = withAnswers(envelope, settled);
+    const settled = forgetExperienceYears(settledRaw);
+    // #2021 — `llmDraftSettled` is read off the settlement's own output, before the years are
+    // forgotten, so a write the forget step then reshapes still counts.
+    let next = {
+      ...withAnswers(envelope, settled),
+      llmDraftSettled: withLlmDraftSettlement(envelope, answers, settledRaw).llmDraftSettled,
+    };
     next = {
       ...next,
       generalRoad: { ...next.generalRoad, gateOpen: false, outcome, handedOver: true },
@@ -4575,6 +5703,8 @@ function stampLastTurn(
       // render, on exactly the flaky link that caused the retry.
       lookahead: result.lookahead ?? null,
       inputMode: result.inputMode ?? "text",
+      // ADR-0051 — a model-written reply is not read aloud on its replay either. ABSENT otherwise.
+      ...(result.readAloud === false ? { readAloud: false as const } : {}),
       // A FRESH STAMP. This reply has not been served as a replay yet, so it gets the whole
       // budget — see `LastTurn.replays`.
       replays: 0,
@@ -4675,6 +5805,9 @@ function replayResultOf(last: LastTurn): TurnResult {
     // null `gate_kind` / `general_form_offer` (see `chat-general-road.wire.test.ts`).
     ...(last.gateKind != null ? { gateKind: last.gateKind } : {}),
     ...(last.generalFormOffer != null ? { generalFormOffer: last.generalFormOffer } : {}),
+    // ADR-0051 — FROM THE CACHE, ABSENT rather than true when unset: a replayed model reply carries
+    // `read_aloud: false` exactly as the response it repeats did.
+    ...(last.readAloud === false ? { readAloud: false as const } : {}),
     unansweredEssentials: [],
     complete: false,
     completionReason: null,
@@ -5351,8 +6484,12 @@ function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
   // or a town typed in answer to a form question tells Phase A and the skills stage nothing about
   // the worker's work. Dropped BEFORE numbering, so `i` counts the same conversation the
   // extraction's `/profile/parse` input does — that reader drops the same lines.
+  //
+  // ADR-0051 §3.5 — NOR THE FREE CHAT'S: the greeting, casual and career talk and the résumé-mode
+  // deflections are not the worker's account of his work, and Phase A must never read them as one.
+  // One predicate (`intake || aside`), shared with the extraction's buffer reader.
   return buffer.messages
-    .filter((message) => message.intake !== true)
+    .filter((message) => !isMeaningExcluded(message))
     .map((message, i) => ({ i, role: message.role, text: message.text }));
 }
 
@@ -5600,9 +6737,374 @@ function progressItemsOf(envelope: ProfilingEnvelope, engine: EnginePacks): Ques
   return [...(selectable.occupation?.items ?? []), ...selectable.universal.items];
 }
 
+/**
+ * A pending import, resolved against the pack and the current answers — the body of
+ * `resolveResumeConfirm`, shared with the free chat's memoised read. `chatServableItems(items)` is
+ * the same shared filter the accept path runs through (#1505 F3), so a résumé's `education` /
+ * `salary_expected` / `preferred_locations` suggestions are never offered for confirmation in the
+ * chat; only trade/experience/city/availability shrink the batch-confirm bubble.
+ */
+function confirmOf(
+  offer: { importId: string; suggestions: ReadonlyMap<string, ResumeSuggestion> } | null,
+  items: readonly QuestionPackItem[],
+  answers: AnswerMap,
+): { importId: string; facts: ResumeConfirmFact[] } | null {
+  if (!offer) return null;
+  const facts = confirmableFacts(offer.suggestions, chatServableItems(items), answers);
+  return { importId: offer.importId, facts };
+}
+
 /** The attribution one intake turn's writes and events carry. */
 function intakeRefOf(input: TurnInput): IntakeRef {
   return { workerId: input.workerId, sessionId: input.sessionId, ctx: input.ctx };
+}
+
+// ---------------------------------------------------------------------------
+// THE PROFILING-STAGE FREE CHAT (ADR-0051) — the pure halves of its turns
+// ---------------------------------------------------------------------------
+
+/** A free-chat chip in the shape the client already renders — the label IS what it posts back. */
+function chipOption(key: string, label: string): QuestionPackOption {
+  return {
+    option_key: key,
+    label_text: label,
+    value: label,
+    implies_skill_id: null,
+    is_none_of_above: false,
+  };
+}
+
+const START_OPTION = chipOption(FREE_CHAT_START_KEY, FREE_CHAT_START_LABEL);
+const LATER_OPTION = chipOption(FREE_CHAT_LATER_KEY, FREE_CHAT_LATER_LABEL);
+const RESUME_OPTION = chipOption(FREE_CHAT_RESUME_KEY, FREE_CHAT_RESUME_LABEL);
+/** "Resume banayein" — attached to every free-mode line but the opener and distress (R9). */
+const RESUME_CHIPS: readonly QuestionPackOption[] = [RESUME_OPTION];
+/** The persona's chip ceiling: the model's follow-ups plus "Resume banayein". */
+const FREE_CHAT_MAX_CHIPS = 4;
+
+/**
+ * The model's follow-up chips, then "Resume banayein". KEYED `fcq_a`, `fcq_b`… through
+ * {@link slugIndexKey}: digit-free slugs, so `narrowLastTurn` keeps them on a replay, never `llm_*`
+ * (the interview's model chips) and never an app-reserved key. A model chip that IS the résumé
+ * chip is dropped rather than shown twice.
+ */
+function followupOptions(chips: readonly string[]): QuestionPackOption[] {
+  const kept = chips.filter((chip) => !isResumeChip(chip)).slice(0, FREE_CHAT_MAX_CHIPS - 1);
+  return [...kept.map((chip, i) => chipOption(slugIndexKey("fcq", i), chip)), RESUME_OPTION];
+}
+
+/** The extras one served turn may carry beyond its verdict facts. */
+type ServedExtra = Partial<
+  Pick<FreeChatServed, "refusalTopic" | "strikeCount" | "cooldownStarted" | "nudge">
+>;
+
+/** One served turn's event facts — every field the payload's refines read, defaulted honestly. */
+function servedFacts(
+  mode: FreeChatMode,
+  facts: VerdictFacts,
+  outcome: FreeChatOutcome,
+  extra: ServedExtra = {},
+): FreeChatServed {
+  return {
+    mode,
+    ...facts,
+    outcome,
+    refusalTopic: null,
+    strikeCount: null,
+    cooldownStarted: false,
+    nudge: false,
+    ...extra,
+  };
+}
+
+/** The greeting, as opened — decided by the flow itself, with no category. */
+const GREETING_SERVED: FreeChatServed = servedFacts(
+  "greeting",
+  { decidedBy: "flow", category: null, confidenceBucket: null },
+  "greeting",
+);
+/** A chip (or a typed Haan) decided it — the start chip's category is `resume`. */
+const CHIP_FACTS: VerdictFacts = { decidedBy: "chip", category: "resume", confidenceBucket: null };
+/** A deterministic pre-emption decided it (the cool-down, the cap). */
+const GUARD_FACTS: VerdictFacts = { decidedBy: "guard", category: null, confidenceBucket: null };
+/** The flow itself decided it: a pending résumé import found at the greeting or in free mode. */
+const FLOW_RESUME_FACTS: VerdictFacts = {
+  decidedBy: "flow",
+  category: "resume",
+  confidenceBucket: null,
+};
+
+/** A free chat still in greeting or free mode — before résumé mode, the lock. */
+function isFreeChatOpen(envelope: ProfilingEnvelope | null | undefined): boolean {
+  const mode = envelope?.freeChat?.mode;
+  return mode === "greeting" || mode === "free";
+}
+/** The distress word list decided it. */
+const LEXICON_DISTRESS: VerdictFacts = {
+  decidedBy: "lexicon",
+  category: "distress",
+  confidenceBucket: null,
+};
+
+/**
+ * What a classifier answer contributes to the event: a REAL verdict is `classifier` with its
+ * category and bucket (recorded even below the floor); an unavailable one is `fallback` with
+ * neither — the payload's refine allows a bucket only when the classifier decided.
+ */
+function verdictFacts(verdict: FreeChatVerdict): VerdictFacts {
+  return verdict.kind === "unavailable"
+    ? { decidedBy: "fallback", category: null, confidenceBucket: null }
+    : {
+        decidedBy: "classifier",
+        category: verdict.category,
+        confidenceBucket: confidenceBucketOf(verdict.confidence),
+      };
+}
+
+/**
+ * A free-chat line as a turn. `ask` with no question key (the line belongs to no pack), the chips
+ * as a single-select when there are any, and typing always open — the worker may always type.
+ */
+function freeTurnResult(
+  reply: string,
+  options: readonly QuestionPackOption[],
+  progress: { readonly answered: number; readonly total: number },
+  unansweredEssentials: readonly string[],
+): TurnResult {
+  return {
+    reply,
+    kind: "ask",
+    questionKey: null,
+    options: [...options],
+    whyText: null,
+    answerType: options.length > 0 ? "single_select" : "text",
+    inputMode: "text",
+    progress,
+    unansweredEssentials: [...unansweredEssentials],
+    complete: false,
+    completionReason: null,
+    replayed: false,
+    excludeFromParse: true,
+    unavailable: false,
+    checkpointDue: false,
+  };
+}
+
+/** The greeting with its two chips (ADR-0051 §5.1). */
+function greetingTurn(
+  progress: { readonly answered: number; readonly total: number },
+  unansweredEssentials: readonly string[],
+): TurnResult {
+  return freeTurnResult(
+    FREE_CHAT_COPY.GREETING.latin,
+    [START_OPTION, LATER_OPTION],
+    progress,
+    unansweredEssentials,
+  );
+}
+
+/** The first résumé question after "Haan" — the composite opener, as an aside. */
+function openerTurn(
+  progress: { readonly answered: number; readonly total: number },
+  unansweredEssentials: readonly string[],
+): TurnResult {
+  return freeTurnResult(FREE_CHAT_COPY.OPENER.latin, [], progress, unansweredEssentials);
+}
+
+/** A served turn, held for a later re-ask. */
+function heldOf(result: TurnResult): FreeChatHeldTurn {
+  return {
+    reply: result.reply,
+    kind: result.kind === "disambiguate" ? "disambiguate" : "ask",
+    questionKey: result.questionKey,
+    options: [...result.options],
+    answerType: result.answerType,
+    whyText: result.whyText,
+    inputMode: result.inputMode ?? "text",
+  };
+}
+
+/**
+ * Replies that put NO question on screen — re-serving one as "the pending question" would answer a
+ * deflection with a de-escalation or a closing line. A pending question resolved to one of these is
+ * no pending question at all, and the message passes to the interview.
+ */
+const NON_QUESTION_REPLIES: ReadonlySet<string> = new Set([
+  DE_ESCALATION_REPLY,
+  ...HARDSHIP_REPLIES,
+  CLOSING_REPLY,
+  UNAVAILABLE_REPLY,
+  // ADR-0051 — every free-chat fixed line but the OPENER (a real interview question): the
+  // helpline, the cap, the strikes, the per-category lines, the clarify and deflect leads.
+  ...FREE_CHAT_COPY_ENTRIES.filter(([key]) => key !== "OPENER").map(([, line]) => line.latin),
+]);
+
+/**
+ * The leads a résumé-mode re-ask puts in front of the question. A cached reply that STARTS with
+ * one is a re-ask bubble, not a question — re-serving it would stack a lead on a lead.
+ */
+const RE_ASK_LEADS: readonly string[] = [
+  FREE_CHAT_COPY.LOCK_DEFLECT.latin,
+  FREE_CHAT_COPY.LOCK_CLARIFY.latin,
+  DE_ESCALATION_REPLY,
+].map((lead) => `${lead} `);
+
+function isReAskable(reply: string): boolean {
+  return (
+    reply.trim().length > 0 &&
+    !NON_QUESTION_REPLIES.has(reply) &&
+    !RE_ASK_LEADS.some((lead) => reply.startsWith(lead))
+  );
+}
+
+/**
+ * THE INTERVIEW QUESTION ON SCREEN THAT THE ENVELOPE'S OWN STATE NAMES — the disambiguation offer,
+ * the type-your-trade prompt, the pack question (narrowed to what the engine still selects): the
+ * precedence {@link openTurn} re-serves a reopened session under, so a deflection re-asks exactly
+ * what a reopen would redraw. Read FIRST, before any held turn, because it cannot go stale: a held
+ * turn is a copy, while this is the state the next answer will be captured against.
+ */
+function structuredQuestion(
+  envelope: ProfilingEnvelope,
+  progressItems: readonly QuestionPackItem[],
+  turnCount: number,
+): FreeChatHeldTurn | null {
+  const offer = outstandingOffer(envelope);
+  if (offer) {
+    return {
+      reply: offer.prompt,
+      kind: "disambiguate",
+      questionKey: null,
+      options: offer.options,
+      answerType: "single_select",
+      whyText: null,
+      inputMode: "text",
+    };
+  }
+  const typePrompt = outstandingTypeRequest(envelope);
+  if (typePrompt) {
+    return {
+      reply: typePrompt.prompt,
+      kind: "ask",
+      questionKey: null,
+      options: [],
+      answerType: typePrompt.answerType,
+      whyText: null,
+      inputMode: "text",
+    };
+  }
+  const served = progressItems.find((item) => item.question_key === envelope.servedQuestionKey);
+  if (served) {
+    return {
+      reply: servedText(served, askCount(toEngineState(envelope, turnCount), served.question_key)),
+      kind: "ask",
+      questionKey: served.question_key,
+      options: [...served.options],
+      answerType: served.answer_type,
+      whyText: served.why_text ?? null,
+      inputMode: "text",
+    };
+  }
+  return null;
+}
+
+/**
+ * THE QUESTION ON SCREEN THAT ONLY `lastTurn` KNOWS — the model's question (it belongs to no pack)
+ * or the bare line the intake's handoff served. Read only when no held turn exists: an aside
+ * re-stamps `lastTurn`, which is why the first aside holds this copy for the ones after it. Null
+ * when nothing is on screen (a session's first message) or what is on screen is not a question
+ * (a de-escalation, a hardship line) — and then no aside is served: the interview answers it.
+ */
+function lastServedQuestion(envelope: ProfilingEnvelope, leads: boolean): FreeChatHeldTurn | null {
+  const asked = outstandingLlmAsk(envelope, leads);
+  if (asked) {
+    return isReAskable(asked.prompt)
+      ? {
+          reply: asked.prompt,
+          kind: "ask",
+          questionKey: null,
+          options: [...asked.options],
+          answerType: asked.answerType,
+          whyText: null,
+          inputMode: "text",
+        }
+      : null;
+  }
+  const last = envelope.lastTurn;
+  if (
+    last !== null &&
+    last.kind !== "close" &&
+    last.questionKey === null &&
+    isReAskable(last.reply)
+  ) {
+    return {
+      reply: last.reply,
+      kind: last.kind === "disambiguate" ? "disambiguate" : "ask",
+      questionKey: null,
+      options: [...last.options],
+      answerType: last.answerType,
+      whyText: last.whyText,
+      inputMode: "text",
+    };
+  }
+  return null;
+}
+
+/**
+ * A TYPED answer to the question on screen — a number, a yes/no, a field with a real parser, or a
+ * select whose option the words match. Today's capture reads these deterministically, so résumé
+ * mode never sends them to the classifier. A free-text question is never "typed": its capture would
+ * take any sentence, off-topic included, which is exactly what the classifier is for.
+ */
+function isTypedAnswer(text: string, item: QuestionPackItem | null): boolean {
+  if (item === null) return false;
+  if (
+    (item.answer_type === "single_select" || item.answer_type === "multi_select") &&
+    matchOptions(item, text).length > 0
+  ) {
+    return true;
+  }
+  const typed =
+    hasFieldNormalizer(item.target_field) ||
+    item.answer_type === "number" ||
+    item.answer_type === "boolean";
+  return typed && captureAnswer(text, item).values.length > 0;
+}
+
+/**
+ * The mode transition between two states, or null. The greeting is opened by the flow (no
+ * trigger) and is not a recorded change; every other entry carries the trigger that caused it.
+ */
+function modeChangeOf(
+  before: FreeChatState | null,
+  after: FreeChatState | null,
+): FreeChatModeChange | null {
+  if (after === null || after.trigger === null || after.mode === "greeting") return null;
+  const from = before?.mode ?? null;
+  if (from === after.mode) return null;
+  return { from, to: after.mode, trigger: after.trigger };
+}
+
+/** The attribution an opening's free-chat events carry — no submission behind an opening. */
+function openRefOf(input: OpenTurnInput): FreeChatEventRef {
+  return {
+    workerId: input.workerId,
+    sessionId: input.sessionId,
+    submissionId: null,
+    turnRef: "open",
+    ctx: input.ctx,
+  };
+}
+
+/** What a free-chat model call carries — the session's ids and the worker's name, for G2. */
+function callCtxOf(input: TurnInput): FreeChatCallContext {
+  return {
+    workerId: input.workerId,
+    sessionId: input.sessionId,
+    correlationId: input.ctx.correlationId,
+    requestId: input.ctx.requestId,
+    knownName: input.knownName,
+  };
 }
 
 function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {

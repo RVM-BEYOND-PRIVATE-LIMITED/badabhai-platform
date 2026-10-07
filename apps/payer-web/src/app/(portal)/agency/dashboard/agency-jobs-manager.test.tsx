@@ -1,35 +1,41 @@
-import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { AgencyJob } from "../../../../lib/contracts";
+import { Button } from "../../../../components/ds";
 
 /**
- * AGENCY-JOBS-MANAGER tests — A11Y-OF-FAILURE (B8) + guardrails (faceless / no-oracle).
+ * AGENCY-JOBS-MANAGER tests — A11Y-OF-FAILURE (B8) + guardrails (faceless / no-oracle) + the row's
+ * doors and lifecycle buttons.
  *
- * DS3.1 re-skin: each vacancy now renders as a DS `Card` with a status `Badge` and DS
- * `Button`s (post/edit/pause/close — the SAME live actions). The walk records only the
- * `aria-live="polite"` regions (native) + text via `children` (DS Card/Badge/Button are
- * hookless function components whose label children stay reachable), so these assertions
- * are UNCHANGED by the re-skin.
+ * DS3.1 re-skin: each posting renders as a DS `Card` with a status `Badge` and DS `Button`s. The
+ * walk records only the `aria-live="polite"` regions (native) + text via `children` (DS
+ * Card/Badge/Button are hookless function components whose label children stay reachable).
  *
- * B8: each per-row error region is wrapped in `aria-live="polite"`, so an assistive
- * technology announces a row lifecycle failure (pause/close).
- * Guardrails: the rendered manager carries only coarse/faceless cells (opaque id, bands,
- * counts) — no worker name/phone/email/employer, and no role-named "forbidden" oracle string.
+ * B8: each per-row error region is wrapped in `aria-live="polite"`, so an assistive technology
+ * announces a row lifecycle failure (pause/resume/close).
+ * Guardrails: the rendered manager carries only coarse/faceless cells (opaque id, bands, counts) —
+ * no worker name/phone/email/employer, and no role-named "forbidden" oracle string.
  *
- * Env is node (no DOM); React state is injected via a mocked `useState` (source order:
- * rows, editingId, busyId, errorById — the inline `creating` toggle left with the inline create
- * form, which is now its own page). `useTransition` → [false, run-immediately].
+ * FINAL SWEEP (F02/F28): the inline row editor is RETIRED — a row's "Edit" is a link to the
+ * posting's own edit page (`/agency/jobs/<id>/edit`), whose tests carry the editor's save
+ * assertions (edit mode, the posting as the clear-diff `initial`, the page head as the form's
+ * lead). The editor's focus hand-back tests (toggle ↔ rebuilt header) and its "a save closes only
+ * ITS editor" test went with it: there is no toggle, no header rebuild and one form per page.
+ * F39: a lifecycle press shows loading on THAT button only; the row's other buttons are disabled.
+ *
+ * Env is node (no DOM); React state is injected via a mocked `useState` (source order: rows,
+ * busyById, errorById — `editingId` left with the inline editor, so the busy slot and `errorById`
+ * moved up one position; the busy slot is now `Record<jobId, action>` — PER ROW, so two rows
+ * working at once never overwrite each other (review L3)). `useTransition` → [false, run-now].
  */
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("./jobs-actions", () => ({
-  updateAgencyJobAction: vi.fn(),
-  pauseAgencyJobAction: vi.fn(),
-  closeAgencyJobAction: vi.fn(),
+  pauseAgencyJobAction: vi.fn(async () => ({ ok: false, error: "x" })),
+  resumeAgencyJobAction: vi.fn(async () => ({ ok: false, error: "x" })),
+  closeAgencyJobAction: vi.fn(async () => ({ ok: false, error: "x" })),
 }));
-// The inline form is unit-tested separately; stub it to an inert marker.
-vi.mock("./agency-job-form", () => ({ AgencyJobForm: () => null }));
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
@@ -49,7 +55,7 @@ vi.mock("react", async () => {
 });
 
 const { AgencyJobsManager } = await import("./agency-jobs-manager");
-const { AgencyJobForm: AgencyJobFormMock } = await import("./agency-job-form");
+const actions = await import("./jobs-actions");
 
 const JOB: AgencyJob = {
   id: "00000001-0000-4000-8000-000000000001",
@@ -67,6 +73,7 @@ const JOB: AgencyJob = {
   createdAt: "2026-06-22T00:00:00.000Z",
   updatedAt: "2026-06-22T00:00:00.000Z",
 };
+const JOB2: AgencyJob = { ...JOB, id: "00000001-0000-4000-8000-000000000002" };
 
 interface Collected {
   ariaLiveCount: number;
@@ -83,11 +90,9 @@ function walk(node: ReactNode, acc: Collected): void {
     for (const c of node) walk(c, acc);
     return;
   }
-  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; lead?: ReactNode }>;
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
   if ("children" in el.props) walk(el.props.children, acc);
-  // An editing row's header leads the (stubbed) form column — walk it too.
-  if ("lead" in el.props) walk(el.props.lead, acc);
 }
 
 function collect(tree: ReactNode): Collected {
@@ -96,13 +101,11 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
-function render(
-  jobs: AgencyJob[],
-  errorById: Record<string, string | null> = {},
-  editingId: string | null = null,
-) {
-  // useState order: rows, editingId, busyId, errorById.
-  stateQueue = [jobs, editingId, null, errorById];
+type Busy = Record<string, "pause" | "resume" | "close">;
+
+function render(jobs: AgencyJob[], errorById: Record<string, string | null> = {}, busy: Busy = {}) {
+  // useState order: rows, busyById, errorById.
+  stateQueue = [jobs, busy, errorById];
   stateCursor = 0;
   return AgencyJobsManager({ jobs }) as ReactElement;
 }
@@ -116,8 +119,7 @@ describe("AgencyJobsManager — A11Y-OF-FAILURE: per-row error region is aria-li
   it("renders one aria-live='polite' error region per active row", () => {
     const { ariaLiveCount } = collect(render([JOB]));
     expect(ariaLiveCount).toBe(1);
-    const second = { ...JOB, id: "00000001-0000-4000-8000-000000000002" };
-    expect(collect(render([JOB, second])).ariaLiveCount).toBe(2);
+    expect(collect(render([JOB, JOB2])).ariaLiveCount).toBe(2);
   });
 });
 
@@ -143,13 +145,12 @@ describe("AgencyJobsManager — Posting naming, one create entry point", () => {
     expect(joined).not.toMatch(/Post a vacancy|Post vacancy|Close form|New posting/);
   });
 
-  it("the terminal action says what it ends, and the edit toggle cancels rather than 'closes'", () => {
+  it("the terminal action says what it ends; Edit opens a page, so no row reads 'Cancel'", () => {
     const idle = collect(render([JOB])).text.join(" ");
     expect(idle).toContain("Close posting");
     expect(idle).toContain("Edit");
-    const editing = collect(render([JOB], {}, JOB.id)).text.join(" ");
-    expect(editing).toContain("Cancel");
-    expect(editing).not.toContain("Close edit");
+    expect(idle).not.toContain("Cancel");
+    expect(idle).not.toContain("Close edit");
   });
 
   it("an empty list points at New posting in words (no vacancy vocabulary)", () => {
@@ -180,17 +181,19 @@ const classOf = (e: ReactElement) => String((e.props as { className?: unknown })
 describe("AgencyJobsManager — aligned with the company list (2026-10-01)", () => {
   it("the TITLE opens the posting's details, and the row also links its REAL applicants (#1956)", () => {
     const tree = render([JOB]);
-    const title = elementsOf(tree).find((e) => classOf(e).split(/\s+/).includes("agency-job__title"))!;
+    const title = elementsOf(tree).find((e) =>
+      classOf(e).split(/\s+/).includes("agency-job__title"),
+    )!;
     expect((title.props as { href?: string }).href).toBe(`/agency/jobs/${JOB.id}`);
     expect(hrefsOf(tree)).toContain(`/agency/jobs/${JOB.id}/applicants`);
     expect(collect(tree).text.join(" ")).not.toMatch(/\bDetails\b/);
   });
 
   it("links each agency posting's REAL applicants (#1956 — the feed serves them since #1955)", () => {
-    const tree = render([JOB, { ...JOB, id: "00000001-0000-4000-8000-000000000002" }]);
+    const tree = render([JOB, JOB2]);
     expect(hrefsOf(tree).filter((h) => h.includes("applicants"))).toEqual([
       `/agency/jobs/${JOB.id}/applicants`,
-      "/agency/jobs/00000001-0000-4000-8000-000000000002/applicants",
+      `/agency/jobs/${JOB2.id}/applicants`,
     ]);
   });
 
@@ -206,129 +209,189 @@ describe("AgencyJobsManager — aligned with the company list (2026-10-01)", () 
   });
 });
 
-/** Elements (host or component) matching `pred`, walking children AND the `lead` prop. */
-function find(node: ReactNode, pred: (el: ReactElement<Record<string, unknown>>) => boolean) {
-  const out: Array<ReactElement<Record<string, unknown>>> = [];
-  (function visit(n: ReactNode): void {
-    if (n === null || n === undefined || typeof n !== "object") return;
-    if (Array.isArray(n)) return n.forEach(visit);
-    const el = n as ReactElement<Record<string, unknown> & { children?: ReactNode; lead?: ReactNode }>;
-    if (pred(el)) out.push(el);
-    if ("children" in el.props) visit(el.props.children);
-    if ("lead" in el.props) visit(el.props.lead);
-  })(node);
-  return out;
-}
-
-describe("AgencyJobsManager — the inline editor starts level with its host (M1)", () => {
-  it("EDIT: the row IS the editor — its header (title, actions, the aria-live error) leads the form column", () => {
-    const tree = render([JOB], { [JOB.id]: "That vacancy could not be found." }, JOB.id);
-    const [row] = find(tree, (el) => el.props.id === `agency-job-${JOB.id}`);
-    expect(row!.props.className).toBe("agency-job agency-job--editing");
-    const [form] = find(row!, (el) => el.type === AgencyJobFormMock);
-    expect(form!.props.mode).toBe("edit");
-    const lead = form!.props.lead as ReactNode;
-    expect(find(lead, (el) => el.props.className === "agency-job__lead")).toHaveLength(1);
-    expect(find(lead, (el) => el.props["aria-live"] === "polite")).toHaveLength(1);
-    expect(collect(lead).text.join(" ")).toContain("That vacancy could not be found.");
+describe("AgencyJobsManager — Edit opens the posting's own page (F02/F28: the inline editor is retired)", () => {
+  it("an open or a paused row links its edit page", () => {
+    const paused = { ...JOB2, status: "paused" as const };
+    expect(hrefsOf(render([JOB, paused])).filter((h) => h.endsWith("/edit"))).toEqual([
+      `/agency/jobs/${JOB.id}/edit`,
+      `/agency/jobs/${JOB2.id}/edit`,
+    ]);
   });
 
-  it("not editing: the row is the plain row (no editor, no editing class)", () => {
-    const tree = render([JOB]);
-    const [row] = find(tree, (el) => el.props.id === `agency-job-${JOB.id}`);
-    expect(row!.props.className).toBe("agency-job");
-    expect(find(row!, (el) => el.type === AgencyJobFormMock)).toHaveLength(0);
+  it("a closed or suspended row has no edit door (the same rule as its details header)", () => {
+    for (const status of ["closed", "suspended"] as const) {
+      expect(
+        hrefsOf(render([{ ...JOB, status }])).filter((h) => h.endsWith("/edit")),
+        status,
+      ).toEqual([]);
+    }
+  });
+
+  it("the row never hosts a form, and no row is ever an 'editing' row", () => {
+    const els = elementsOf(render([JOB, JOB2]));
+    expect(els.some((e) => e.type === "form")).toBe(false);
+    expect(els.some((e) => /editing|__lead/.test(classOf(e)))).toBe(false);
+    expect(els.some((e) => (e.props as { lead?: unknown }).lead !== undefined)).toBe(false);
   });
 });
 
-describe("AgencyJobsManager — Edit / Cancel (toggle or form) keep focus on the row's toggle", () => {
-  /**
-   * The row's header moves between the Card and the editor's lead, so React REBUILDS the toggle
-   * the payer pressed and its focus falls to <body> (measured: Enter on Edit → BODY, next Tab →
-   * "Details"). The manager refocuses the rebuilt toggle by its stable id. The DOM is faked: rAF
-   * queues frames the test runs; `getElementById` hands back the toggle where the LAST commit put
-   * it — inside the editor's lead while editing.
-   */
-  const TOGGLE = `agency-job-edit-${JOB.id}`;
-  const HOST = `agency-job-${JOB.id}`;
-  let frames: Array<() => void> = [];
-  let log: string[] = [];
-  let toggleInLead = false;
-  const runFrame = () => {
-    const now = frames;
-    frames = [];
-    for (const f of now) f();
-  };
-  beforeEach(() => {
-    frames = [];
-    log = [];
-    vi.stubGlobal("window", {
-      requestAnimationFrame: (cb: () => void) => {
-        frames.push(cb);
-        return frames.length;
-      },
+/** The DS lifecycle Buttons of the tree, by their idle label. */
+function lifecycleButtons(tree: ReactNode) {
+  return elementsOf(tree)
+    .filter((e) => e.type === Button)
+    .map(
+      (e) =>
+        e.props as {
+          children: ReactNode;
+          loading?: boolean;
+          disabled?: boolean;
+          onClick: () => void;
+        },
+    );
+}
+const labelOf = (b: { children: ReactNode }) => collect(b.children).text.join("");
+
+describe("AgencyJobsManager — F39: loading shows on the pressed button only", () => {
+  it("idle: no button is loading or disabled", () => {
+    for (const b of lifecycleButtons(render([JOB]))) {
+      expect(b.loading, labelOf(b)).toBeFalsy();
+      expect(b.disabled, labelOf(b)).toBeFalsy();
+    }
+  });
+
+  it("pausing: ONLY Pause spins (and says so); Close posting is disabled, not loading", () => {
+    const [pause, close] = lifecycleButtons(render([JOB], {}, { [JOB.id]: "pause" }));
+    expect(labelOf(pause!)).toBe("Pausing…");
+    expect(pause!.loading).toBe(true);
+    expect(labelOf(close!)).toBe("Close posting");
+    expect(close!.loading).toBe(false);
+    expect(close!.disabled).toBe(true);
+  });
+
+  it("closing: ONLY Close posting spins; Pause keeps its label and is disabled", () => {
+    const [pause, close] = lifecycleButtons(render([JOB], {}, { [JOB.id]: "close" }));
+    expect(labelOf(close!)).toBe("Closing…");
+    expect(close!.loading).toBe(true);
+    expect(labelOf(pause!)).toBe("Pause");
+    expect(pause!.loading).toBe(false);
+    expect(pause!.disabled).toBe(true);
+  });
+
+  it("resuming a paused row: ONLY Resume spins", () => {
+    const paused = { ...JOB, status: "paused" as const };
+    const [resume, close] = lifecycleButtons(render([paused], {}, { [JOB.id]: "resume" }));
+    expect(labelOf(resume!)).toBe("Resuming…");
+    expect(resume!.loading).toBe(true);
+    expect(close!.loading).toBe(false);
+    expect(close!.disabled).toBe(true);
+  });
+
+  it("another row's buttons stay live while one row works", () => {
+    const buttons = lifecycleButtons(render([JOB, JOB2], {}, { [JOB.id]: "pause" }));
+    const [, , pause2, close2] = buttons;
+    for (const b of [pause2!, close2!]) {
+      expect(b.loading).toBe(false);
+      expect(b.disabled).toBe(false);
+    }
+    expect(labelOf(pause2!)).toBe("Pause");
+  });
+
+  /** The busy-slot setter of the render that starts at `first` (useState order: rows, busyById, …). */
+  const busySetter = (first: number) =>
+    useState.mock.results[first + 1]!.value[1] as ReturnType<typeof vi.fn>;
+  /** Apply every functional update the setter received, in order, to `start`. */
+  const applyUpdates = (setter: ReturnType<typeof vi.fn>, start: Busy): Busy =>
+    setter.mock.calls.reduce((acc: Busy, [u]) => (typeof u === "function" ? u(acc) : u), start);
+
+  it("pressing a button records WHICH action is running on THAT row, then calls that action", () => {
+    const first = useState.mock.results.length;
+    const tree = render([JOB]);
+    const setBusy = busySetter(first);
+    const [pause] = lifecycleButtons(tree);
+    pause!.onClick();
+    expect(applyUpdates(setBusy, {})).toEqual({ [JOB.id]: "pause" });
+    expect(vi.mocked(actions.pauseAgencyJobAction)).toHaveBeenCalledWith({ jobId: JOB.id });
+    const [, close] = lifecycleButtons(render([JOB]));
+    close!.onClick();
+    expect(vi.mocked(actions.closeAgencyJobAction)).toHaveBeenCalledWith({ jobId: JOB.id });
+  });
+});
+
+describe("AgencyJobsManager — review L3: the busy state is PER ROW", () => {
+  const busySetter = (first: number) =>
+    useState.mock.results[first + 1]!.value[1] as ReturnType<typeof vi.fn>;
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("two rows working at once each show THEIR own action", () => {
+    const [pause1, close1, pause2, close2] = lifecycleButtons(
+      render([JOB, JOB2], {}, { [JOB.id]: "pause", [JOB2.id]: "close" }),
+    );
+    expect(labelOf(pause1!)).toBe("Pausing…");
+    expect(pause1!.loading).toBe(true);
+    expect(close1!.loading).toBe(false);
+    expect(close1!.disabled).toBe(true);
+    expect(labelOf(close2!)).toBe("Closing…");
+    expect(close2!.loading).toBe(true);
+    expect(pause2!.loading).toBe(false);
+    expect(pause2!.disabled).toBe(true);
+  });
+
+  it("a press marks its row and leaves another row's running action in place", () => {
+    const first = useState.mock.results.length;
+    const tree = render([JOB, JOB2], {}, { [JOB2.id]: "close" });
+    const setBusy = busySetter(first);
+    const [pause1] = lifecycleButtons(tree);
+    pause1!.onClick();
+    const update = setBusy.mock.calls[0]![0] as (b: Busy) => Busy;
+    expect(typeof update).toBe("function");
+    expect(update({ [JOB2.id]: "close" })).toEqual({ [JOB2.id]: "close", [JOB.id]: "pause" });
+  });
+
+  it("a finished action clears ONLY its own row — the other row keeps spinning", async () => {
+    const first = useState.mock.results.length;
+    const tree = render([JOB, JOB2], {}, { [JOB2.id]: "close" });
+    const setBusy = busySetter(first);
+    const [pause1] = lifecycleButtons(tree);
+    pause1!.onClick();
+    await flush();
+    const updates = setBusy.mock.calls.map(([u]) => u as (b: Busy) => Busy);
+    expect(updates).toHaveLength(2);
+    expect(updates[1]!({ [JOB.id]: "pause", [JOB2.id]: "close" })).toEqual({ [JOB2.id]: "close" });
+  });
+});
+
+describe("AgencyJobsManager — review L2: no edit door while the row works", () => {
+  /** The row's Edit control: [element type, href, aria-disabled]. */
+  function editOf(tree: ReactNode, jobId: string) {
+    const rows = elementsOf(tree).filter((e) => classOf(e).split(/\s+/).includes("agency-job"));
+    const row = rows.find((r) =>
+      elementsOf(r).some((e) => (e.props as { href?: string }).href === `/agency/jobs/${jobId}`),
+    )!;
+    const edit = elementsOf(row).find(
+      (e) =>
+        collect((e.props as { children?: ReactNode }).children)
+          .text.join("")
+          .trim() === "Edit" && classOf(e).includes("bb-btn"),
+    )!;
+    const p = edit.props as { href?: string; "aria-disabled"?: string };
+    return { href: p.href, ariaDisabled: p["aria-disabled"] };
+  }
+
+  it("idle: Edit is a link to the posting's edit page", () => {
+    expect(editOf(render([JOB]), JOB.id)).toEqual({
+      href: `/agency/jobs/${JOB.id}/edit`,
+      ariaDisabled: undefined,
     });
-    vi.stubGlobal("document", {
-      getElementById: (id: string) => {
-        if (id === HOST) return { scrollIntoView: () => log.push("scroll host") };
-        if (id !== TOGGLE) return null;
-        return {
-          closest: (sel: string) => (sel === ".agency-job__lead" && toggleInLead ? {} : null),
-          focus: (o: { preventScroll?: boolean }) =>
-            log.push(`focus toggle (${toggleInLead ? "in lead" : "in card"}, preventScroll=${o.preventScroll})`),
-        };
-      },
-    });
-  });
-  afterEach(() => {
-    vi.unstubAllGlobals();
   });
 
-  const toggleOf = (tree: ReactNode) => {
-    const [t] = find(tree, (el) => el.props.id === TOGGLE);
-    expect(t, "the row's toggle carries a stable id").toBeDefined();
-    return t as ReactElement<{ onClick: () => void; children: ReactNode }>;
-  };
-
-  it("the toggle has the SAME id whether the row is editing or not (so focus can find it again)", () => {
-    expect(toggleOf(render([JOB])).props.children).toBe("Edit");
-    expect(toggleOf(render([JOB], {}, JOB.id)).props.children).toBe("Cancel");
-  });
-
-  it("Edit: focus lands on the REBUILT toggle (in the editor's lead), after the scroll, without its own", () => {
-    toggleInLead = false; // the commit has not happened yet in the first frame
-    toggleOf(render([JOB])).props.onClick();
-    runFrame(); // revealEditor scrolls; the old toggle (still in the card) is not the one → wait
-    expect(log).toEqual(["scroll host"]);
-    toggleInLead = true; // React committed: the header now leads the form
-    runFrame();
-    expect(log).toEqual(["scroll host", "focus toggle (in lead, preventScroll=true)"]);
-  });
-
-  it("Cancel (the toggle): focus lands on the rebuilt toggle back in the card, scrolled into view", () => {
-    toggleInLead = true;
-    toggleOf(render([JOB], {}, JOB.id)).props.onClick();
-    runFrame();
-    expect(log).toEqual([]);
-    toggleInLead = false;
-    runFrame();
-    expect(log).toEqual(["focus toggle (in card, preventScroll=false)"]);
-  });
-
-  it("the form's Cancel hands focus back to the toggle too", () => {
-    toggleInLead = false; // already committed by the frame
-    const tree = render([JOB], {}, JOB.id);
-    const [form] = find(tree, (el) => el.type === AgencyJobFormMock);
-    (form!.props.onCancel as () => void)();
-    runFrame();
-    expect(log).toEqual(["focus toggle (in card, preventScroll=false)"]);
-  });
-
-  it("gives up after a bounded number of frames if the toggle never comes back", () => {
-    toggleInLead = true; // never rebuilt into the card
-    toggleOf(render([JOB], {}, JOB.id)).props.onClick();
-    for (let i = 0; i < 20; i++) runFrame();
-    expect(log).toEqual([]);
-    expect(frames).toEqual([]);
+  it("while Close (or any action) runs, Edit is NOT a link — it is shown disabled", () => {
+    // Close, then Edit, landed on an edit page whose save can never succeed (closed is terminal).
+    for (const action of ["close", "pause"] as const) {
+      const tree = render([JOB, JOB2], {}, { [JOB.id]: action });
+      expect(editOf(tree, JOB.id), action).toEqual({ href: undefined, ariaDisabled: "true" });
+      expect(hrefsOf(tree)).not.toContain(`/agency/jobs/${JOB.id}/edit`);
+      // …the other row keeps its door.
+      expect(editOf(tree, JOB2.id).href).toBe(`/agency/jobs/${JOB2.id}/edit`);
+    }
   });
 });

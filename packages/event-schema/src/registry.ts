@@ -1370,6 +1370,33 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileIdentityIntakeAnsweredPayload,
   },
+
+  // ── ADR-0051 (#2027) — appended at the tail, per the append-only protocol ────────────────
+  //
+  // The profiling-stage free chat. One served free-chat turn (greeting, opener, a free-mode
+  // reply, a résumé-mode deflection or clarify) — what decided it and what it delivered — and one
+  // mode change (greeting → free / résumé; résumé is the lock). Ids + closed enums + counts only;
+  // never the worker's words or the model's. v1 each.
+  "chat.free_chat_turn_served": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatTurnServedPayload,
+  },
+  "chat.free_chat_mode_changed": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatModeChangedPayload,
+  },
+
+  // ADR-0050 §9 (#1957) — the agency-job V1 twin sync wrote a twin, or refused to serve one.
+  // A NEW event rather than a reuse of `job_posting.created/updated/closed/paused`: those are
+  // company-posting lifecycle to their consumers, and `job_posting.closed` cannot express a twin
+  // closing from paused/suspended. Actor "system". Appended at the tail per protocol. v1.
+  "job_posting.twin_synced": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingTwinSyncedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

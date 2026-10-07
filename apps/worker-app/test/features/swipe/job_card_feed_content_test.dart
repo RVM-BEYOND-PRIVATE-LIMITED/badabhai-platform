@@ -278,9 +278,16 @@ void main() {
 
     // CENTRED on the card, and BELOW every chip — the two things the owner
     // asked for. `Canteen` is the last benefit chip the fixture carries.
+    // The content box CLIPS (the deck card has no scroll — "the clip IS the
+    // contract"), so with the role illustration heading the card the last
+    // chips may sit past its edge; what must hold is that the clipped box
+    // itself ends above the lockup, so no card text can ever be drawn on it.
     final Rect pill = tester.getRect(find.byType(JobCardBrandFooter));
-    final Rect lastChip = tester.getRect(find.text('Canteen'));
-    expect(lastChip.bottom, lessThanOrEqualTo(pill.top),
+    final Rect content = tester.getRect(find.descendant(
+      of: find.byType(Design1JobCard),
+      matching: find.byType(ConstraintsTransformBox),
+    ));
+    expect(content.bottom, lessThanOrEqualTo(pill.top),
         reason: 'card content must never overlap the lockup');
     final double cardCentre = tester.getRect(find.byType(Design1JobCard)).center.dx;
     expect((pill.center.dx - cardCentre).abs(), lessThan(1.0));

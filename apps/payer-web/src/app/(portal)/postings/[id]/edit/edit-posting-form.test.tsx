@@ -218,6 +218,18 @@ describe("EditPostingForm — outcomes", () => {
     await submit(render({}));
     expect(setters[5]).toHaveBeenCalledWith("No changes to save.");
   });
+
+  it("a publish that reports its reach lands on the detail with ?reached=N (Reached N workers)", async () => {
+    updatePostingAction.mockResolvedValue({ ok: true, posting: {}, reached: 42 });
+    await submit(render({}));
+    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}?reached=42`);
+  });
+
+  it("no reach count (save, or a failed reach read) → the plain detail URL, no number", async () => {
+    updatePostingAction.mockResolvedValue({ ok: true, posting: {}, reached: null });
+    await submit(render({}));
+    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
+  });
 });
 
 describe("EditPostingForm — what is saved is what the preview showed (readCardForm)", () => {
@@ -475,5 +487,14 @@ describe("EditPostingForm — the navigating latch (I2: no double save during th
     const actionButtons = buttons.filter((b) => /Save|Publish/.test(textOf(hosts(b.props.children as ReactNode))));
     expect(actionButtons.length).toBeGreaterThan(0);
     expect(actionButtons.every((b) => b.props.disabled === true)).toBe(true);
+  });
+});
+
+describe("EditPostingForm — owner naming ruling: the entity is a 'posting' (F36)", () => {
+  it("the description hint says 'open the posting', never 'job'", () => {
+    const hint = hosts(render({})).find((e) => e.props.id === "description-msg");
+    expect(hint).toBeDefined();
+    expect(deepText(hint!)).toContain("Workers read this when they open the posting.");
+    expect(deepText(hint!)).not.toMatch(/\bjob\b/i);
   });
 });

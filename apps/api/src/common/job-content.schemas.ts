@@ -24,7 +24,9 @@ import {
  * the posting `role_title` / `description`. A phone number or a "Pvt Ltd"-style name typed
  * into any of those is rejected with a clear 400 and never stored. Every message names the
  * FIELD, never the offending content: an error body that echoed the text back would be the
- * leak the refusal just prevented.
+ * leak the refusal just prevented. Each heuristic reads the text as typed AND a fold of it
+ * (`foldForScreening`, #1942), so a fullwidth or invisibly split suffix, phone number or link
+ * is refused like its plain spelling; what parses, and is stored, is still what was typed.
  *
  * THE PLACE FIELDS RUN IT TOO (#1848): `area` (below) and each DTO's `city`, through
  * {@link screenWorkerVisiblePlace}. Same three heuristics, same messages, one narrow waiver:
@@ -87,7 +89,7 @@ export const payTypeSchema = z.enum(["in_hand", "gross", "ctc"]);
  * (`TRADE_FORM_KINDS_ALL`). Closed and PII-free, so it needs no heuristic screen.
  *
  * DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29): never a match or rank input,
- * never mapped to a skill or a `job_domain_id`, and on no worker read this phase. No default
+ * never mapped to a skill or a `job_domain_id`. On the worker card as art only (2026-10-05). No default
  * and no inference — omitted stores NULL ("no role picked"). A `null` in a body is a 400 like
  * every other field here; unsetting goes through `clear: ["role_kind"]` (#1652).
  *
@@ -203,8 +205,9 @@ function pincodeExplainsContactRefusal(s: string): boolean {
 /**
  * THE PLACE-FIELD SCREEN (#1848): {@link workerVisibleTextScreens}, except that a
  * contact-details refusal a pincode alone explains is waived. The company-name and link
- * screens are unchanged, so "Co. Op. Industrial Estate" is still refused as a company name
- * (an accepted false positive; the hyphenated "Co-op" and "Co-operative" forms pass).
+ * screens are unchanged here. A dotted co-operative industrial estate ("Co. Op. Industrial
+ * Estate") passes because `looksLikeOrgName` reads it as a locality (#1970), as it reads the
+ * hyphenated "Co-op" / "Co-operative" forms; a dotted housing society or bank is still refused.
  */
 export function workerVisiblePlaceScreens(s: string): WorkerVisibleScreen[] {
   const screens = workerVisibleTextScreens(s);

@@ -5,8 +5,14 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../../../../lib/auth/roles";
 import { getOrgRole } from "../../../../../../lib/auth/org-roles";
 import { agencyFlags } from "../../../../../../lib/config";
-import { getAgencyJob, getApplicantFeed, getCredits } from "../../../../../../lib/payer-api";
-import type { ApplicantFeed } from "../../../../../../lib/contracts";
+import {
+  getAgencyJob,
+  getApplicantFeed,
+  getCredits,
+  getUnlocks,
+} from "../../../../../../lib/payer-api";
+import type { ApplicantFeed, UnlockHistoryItem } from "../../../../../../lib/contracts";
+import { liveUnlocksFor } from "../../../../../../lib/unlock-history";
 import { Card } from "../../../../../../components/ds";
 import { PageHeader } from "../../../../../../components/page-header";
 import { RetryButton } from "../../../../../../components/retry-button";
@@ -30,6 +36,12 @@ export const dynamic = "force-dynamic";
  * Reuses the SAME `ApplicantActions` pipeline the company posting feed uses. That read chain is
  * shape-driven (`score`/`components` legacy vs `applicationId` V1), so an agency row renders
  * here exactly as it does on a company posting — never branched on the id.
+ *
+ * ALREADY UNLOCKED: the agency's own unlock history (`GET /payer/unlocks`) is read beside the
+ * balance; its LIVE grants for THIS feed's workers start those rows unlocked, so a reload never
+ * offers a fresh spend on a worker the agency already holds. An unlock is one grant per payer and
+ * worker (ADR-0010 sign-off 1), so the worker id alone matches the row. A failed history read
+ * starts every row locked — never an error state, never "unlocked".
  */
 export default async function AgencyJobApplicantsPage({
   params,
@@ -48,8 +60,8 @@ export default async function AgencyJobApplicantsPage({
   const job = await getAgencyJob(jobId);
   if (!job) notFound();
 
-  // The feed is the page's primary content; a balance-read failure must not blank it (each has
-  // its own try/catch, same shape as the company applicants page).
+  // The feed is the page's primary content; a balance- or history-read failure must not blank it
+  // (each read has its own try/catch, same shape as the company applicants page).
   let feed: ApplicantFeed | null = null;
   let feedError = false;
   let jobNotFound = false;
@@ -60,13 +72,8 @@ export default async function AgencyJobApplicantsPage({
     feedError = true;
   }
 
-  let balance: number | null = null;
-  try {
-    balance = (await getCredits()).balance;
-  } catch {
-    // Balance unavailable → the feed renders with Unlock enabled; never blank it.
-    balance = null;
-  }
+  // Two affordance reads, independent of each other, made side by side.
+  const [balance, unlocks] = await Promise.all([readBalance(), readUnlocks()]);
 
   const header = {
     back: { href: `/agency/jobs/${jobId}`, label: job.title },
@@ -85,6 +92,13 @@ export default async function AgencyJobApplicantsPage({
           // Balance is an affordance hint only — a failed read keeps Unlock enabled.
           balance={balance ?? 1}
           canBuyCredits={getOrgRole(session) === "owner"}
+          // Only this feed's workers, only live grants — the client gets no unlock id it has no
+          // row for. Request time: this page is force-dynamic.
+          unlocked={liveUnlocksFor(
+            unlocks,
+            feed.applicants.map((a) => a.workerId),
+            Date.now(),
+          )}
         />
       </div>
     );
@@ -142,4 +156,25 @@ export default async function AgencyJobApplicantsPage({
       )}
     </div>
   );
+}
+
+/** The caller's OWN balance. An affordance only: unread (null) keeps Unlock enabled. */
+async function readBalance(): Promise<number | null> {
+  try {
+    return (await getCredits()).balance;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The caller's OWN unlock history. Unread is NO grants: every row starts locked (the server still
+ * decides any Unlock pressed there, and never debits twice for a live grant — F-6).
+ */
+async function readUnlocks(): Promise<UnlockHistoryItem[]> {
+  try {
+    return await getUnlocks();
+  } catch {
+    return [];
+  }
 }

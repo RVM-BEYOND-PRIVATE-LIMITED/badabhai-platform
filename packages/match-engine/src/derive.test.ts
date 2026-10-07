@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MATCH_CONFIG, parseMatchConfig } from "./config";
-import { deriveWorkerSkills } from "./derive";
+import { deriveWorkerSkills, workerSkillDeriveInput } from "./derive";
 
 const cfg = DEFAULT_MATCH_CONFIG;
 
@@ -155,5 +155,109 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
       cfg,
     );
     expect(rows.map((r) => r.skillId)).toEqual(["mskill_designer"]);
+  });
+});
+
+describe("workerSkillDeriveInput — the ONE assembly both writers of worker_skill call", () => {
+  const welderForm = [
+    { packId: "qp_welding_trade", attributeKey: "welding_process", optionKeys: ["mig_mag", "tig"] },
+  ];
+
+  it("returns null when there is nothing to derive from (the rebuild must not prune)", () => {
+    expect(
+      workerSkillDeriveInput({ profile: null, secondaryRoleIds: [], packAnswers: [] }),
+    ).toBeNull();
+    // Answers that imply nothing are not evidence either — e.g. only the universal tail.
+    expect(
+      workerSkillDeriveInput({
+        profile: null,
+        secondaryRoleIds: [],
+        packAnswers: [
+          { packId: "qp_universal", attributeKey: "shift_preference", optionKeys: ["day"] },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("derives a FORM-ONLY worker (no profile row) from his pack answers alone", () => {
+    const input = workerSkillDeriveInput({
+      profile: null,
+      secondaryRoleIds: [],
+      packAnswers: welderForm,
+    });
+    expect(input).not.toBeNull();
+    expect(deriveWorkerSkills(input!).map((r) => r.skillId)).toEqual([
+      "mskill_mig_welder",
+      "mskill_tig_welder",
+    ]);
+  });
+
+  it("UNIONS profile skills, declared occupations and pack answers — never replaces", () => {
+    const input = workerSkillDeriveInput({
+      profile: { canonicalRoleId: "role_plumber", profileSkills: ["skill_cmm"], totalYears: 4 },
+      secondaryRoleIds: ["role_carpenter"],
+      packAnswers: [
+        ...welderForm,
+        { packId: "qp_vmc_milling", attributeKey: "milling_machine", optionKeys: ["hmc"] },
+      ],
+    });
+    expect(deriveWorkerSkills(input!).map((r) => r.skillId)).toEqual([
+      "mskill_carpenter",
+      "mskill_hmc_operator",
+      "mskill_mig_welder",
+      "mskill_plumber",
+      "mskill_quality_inspector",
+      "mskill_tig_welder",
+    ]);
+    expect(input!.totalYears).toBe(4);
+  });
+
+  it("a pack-only trade (#2022) derives its OWN skill and no nearest-skill proxy", () => {
+    // An electrician is not a fitter: before #2022 this bag derived nothing; now it derives the
+    // minted Industrial Electrician skill and nothing else, for a form-only worker too.
+    const packAnswers = [
+      {
+        packId: "qp_industrial_electrician",
+        attributeKey: "electrical_work_type",
+        optionKeys: ["panel_wiring", "motor_drive", "cable_laying"],
+      },
+    ];
+    for (const profile of [null, { canonicalRoleId: null, profileSkills: [], totalYears: 6 }]) {
+      const input = workerSkillDeriveInput({ profile, secondaryRoleIds: [], packAnswers });
+      expect(input).not.toBeNull();
+      expect(input!.matchSkillIds).toEqual(["mskill_industrial_electrician"]);
+      expect(deriveWorkerSkills(input!).map((r) => r.skillId)).toEqual([
+        "mskill_industrial_electrician",
+      ]);
+    }
+  });
+
+  it("a manual lathe claim derives CNC Turner AND the manual machinist (#2022 point 1)", () => {
+    const input = workerSkillDeriveInput({
+      profile: null,
+      secondaryRoleIds: [],
+      packAnswers: [
+        {
+          packId: "qp_conventional_machining",
+          attributeKey: "machining_machine",
+          optionKeys: ["centre_lathe"],
+        },
+      ],
+    });
+    expect(deriveWorkerSkills(input!).map((r) => r.skillId)).toEqual([
+      "mskill_cnc_turner",
+      "mskill_conventional_machinist",
+    ]);
+  });
+});
+
+describe("deriveWorkerSkills — pack-only match skills (#2022)", () => {
+  it("adds a closed-set mskill_ id and drops anything outside the vocabulary", () => {
+    const rows = deriveWorkerSkills({
+      matchSkillIds: ["mskill_press_operator", "mskill_not_real", "skill_turning", "role_welder"],
+      totalYears: 2,
+    });
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_press_operator"]);
+    expect(rows[0]!.industryId).toBe("ind_industrial_manufacturing");
   });
 });

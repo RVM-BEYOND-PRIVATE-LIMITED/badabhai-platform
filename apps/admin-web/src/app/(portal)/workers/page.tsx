@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listWorkers } from "../../../lib/entities";
+import { isAdminRequestError } from "../../../lib/admin-http";
+import { queryHref } from "../../../lib/query-href";
 import { identityPosture } from "../../../lib/identity";
 import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
@@ -10,8 +12,13 @@ import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { WorkerFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import { RetryActions } from "../../../components/retry-actions";
+import {
+  CURSOR_REFUSAL,
+  FirstPageAction,
+  RetryActions,
+} from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Workers" };
@@ -52,17 +59,40 @@ export default async function WorkersPage({
   const pendingDeletion = one(sp.pendingDeletion) === "true";
   const cursor = one(sp.cursor);
 
+  const filtered = Boolean(status) || pendingDeletion;
+
   let page: Awaited<ReturnType<typeof listWorkers>> | null = null;
   let failed = false;
+  let refused = false;
   try {
     page = await listWorkers({ status, pendingDeletion: pendingDeletion || undefined, cursor });
-  } catch {
-    // A rejected filter is a user error, not a broken portal — render it inline rather
-    // than tripping the error boundary and losing the whole screen.
+  } catch (err) {
+    // Rendered inline either way, rather than tripping the error boundary and losing the whole
+    // screen. But a REFUSED request (a 400: something in the address bar) and an UNAVAILABLE one
+    // (anything else: our fault) are different screens — "check your filters" over an outage
+    // sends the operator to fix filters that are not broken, or not even set.
     failed = true;
+    // A 400 is the operator's address only when the address holds something to refuse — a
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
+    refused = isAdminRequestError(err) && err.status === 400 && Boolean(filtered || cursor);
   }
 
-  const filtered = Boolean(status) || pendingDeletion;
+  /** The current query without the cursor — what the recoveries below repeat. */
+  const listHref = queryHref("/workers", {
+    status,
+    pendingDeletion: pendingDeletion ? "true" : undefined,
+  });
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/workers">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
   const mayReadEvents = can(session.capabilities, "read_events");
 
   const posture = identityPosture(
@@ -77,20 +107,26 @@ export default async function WorkersPage({
         title="Workers"
         description={
           <>
+            {/* THREE-VALUED, like the detail page's panel subs: "names are shown" directly
+                above the notice saying they are withheld would contradict it. */}
             {posture === "faceless"
               ? "Workers are identified by id here — your role does not include name access"
-              : "Names are shown to your role, and each name read is capped and audited"}
+              : posture === "capped"
+                ? "Workers are identified by id while names are withheld (see below)"
+                : "Names are shown to your role, and each name read is capped and audited"}
             ; contact details are never listed, and revealing one worker&apos;s contact is a
             separate, reason-gated action.
           </>
         }
         filters={
-          <section className="panel" aria-labelledby="wf-heading">
-            <h2 className="sr-only" id="wf-heading">
-              Filter workers
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel
+            headingId="wf-heading"
+            heading="Filter workers"
+            filters={{ status, pendingDeletion }}
+          >
             <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
-          </section>
+          </FilterPanel>
         }
       />
 
@@ -109,29 +145,46 @@ export default async function WorkersPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? "That filter combination was rejected."
+                ? refused && filtered
+                  ? "That filter combination was rejected."
+                  : "Nothing was fetched."
                 : `${page?.items.length ?? 0} worker${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/workers">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refused ? null : clearFilters}
         </div>
 
-        {failed ? (
+        {refused ? (
           <div className="state state--error">
-            <h3 className="state__title">The server rejected these filters</h3>
+            <h3 className="state__title">
+              {filtered ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+            </h3>
             <p className="state__body">
-              One of the values is not a worker status this portal recognises, so nothing was
-              fetched. Check the values in the filter bar above, or clear them and start
-              again.
+              {filtered
+                ? "One of the values is not a worker status this portal recognises, so nothing was fetched. Check the values in the filter bar above, or clear them and start again."
+                : CURSOR_REFUSAL.body}
             </p>
-            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
-                set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {filtered ? null : <RetryActions href="/workers" cursor={cursor} />}
+            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
+                page cursor only when it is longer than any it issues (a malformed one falls back
+                to page one), so with a filter set the FILTER is what was refused — keeping it on
+                the first page would be refused again, and the way out is Clear filters. With no
+                filter, the cursor was refused: the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref} cursor={cursor} />
+            )}
+          </div>
+        ) : failed ? (
+          <div className="state state--error">
+            <h3 className="state__title">Workers are unavailable</h3>
+            <p className="state__body">
+              The roster did not load, and that is a fault on our side rather than anything in
+              the filters.
+            </p>
+            {/* The SAME query — filters and cursor kept — and, past page one, the first page of
+                it. Neither is "Clear filters", which the results head already offers. */}
+            <RetryActions href={listHref} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">

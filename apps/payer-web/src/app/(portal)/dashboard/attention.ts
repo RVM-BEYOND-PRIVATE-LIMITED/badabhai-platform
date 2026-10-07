@@ -1,5 +1,5 @@
 import { ACTION_ICON, type IconName } from "@badabhai/icons";
-import type { Dashboard } from "../../../lib/contracts";
+import type { CreditBalance, PostingSummary, UnlockHistoryItem } from "../../../lib/contracts";
 
 /**
  * "What needs me right now?" — derived from the payer's OWN dashboard read.
@@ -12,7 +12,17 @@ import type { Dashboard } from "../../../lib/contracts";
  * The bar for adding an item: it must be (a) derivable from real data, (b) something the
  * payer can act on, and (c) worth interrupting them for. A dashboard that cries wolf gets
  * ignored, so an empty list is a perfectly good outcome and the section does not render.
+ *
+ * Each part is read on its own (F29), so a part whose read FAILED arrives as `null` — and says
+ * nothing: an unknown balance is not an empty wallet, unread postings are not "all closed".
  */
+
+/** What the dashboard read; `null` = that read failed (never a guess). */
+export interface AttentionInput {
+  credits: CreditBalance | null;
+  unlocks: readonly UnlockHistoryItem[] | null;
+  postings: readonly PostingSummary[] | null;
+}
 
 export type AttentionTone = "critical" | "warning" | "info";
 
@@ -35,7 +45,7 @@ export interface AttentionItem {
 export const LOW_BALANCE_THRESHOLD = 10;
 
 export function buildAttentionItems(
-  data: Dashboard,
+  data: AttentionInput,
   opts: { isAgency: boolean; isOwner: boolean },
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -47,7 +57,9 @@ export function buildAttentionItems(
     : {};
 
   // 1. The wallet — an empty one stops the core loop outright, so it outranks everything.
-  if (data.credits.balance <= 0) {
+  //    (An unread balance says nothing: the shell's chip hides on the same failure.)
+  const balance = data.credits?.balance ?? null;
+  if (balance !== null && balance <= 0) {
     items.push({
       id: "credits-empty",
       tone: "critical",
@@ -57,11 +69,11 @@ export function buildAttentionItems(
         : "Ask your account owner to buy credits — applicants stay masked until then.",
       ...walletAction,
     });
-  } else if (data.credits.balance < LOW_BALANCE_THRESHOLD) {
+  } else if (balance !== null && balance < LOW_BALANCE_THRESHOLD) {
     items.push({
       id: "credits-low",
       tone: "warning",
-      title: `Only ${data.credits.balance} unlock ${data.credits.balance === 1 ? "credit" : "credits"} left`,
+      title: `Only ${balance} unlock ${balance === 1 ? "credit" : "credits"} left`,
       body: opts.isOwner
         ? "Buy credits before you run out so shortlisting is never interrupted."
         : "Ask your account owner to buy credits before you run out.",
@@ -71,7 +83,7 @@ export function buildAttentionItems(
 
   // 2. Access that has lapsed. `granted` is the live state; anything else is spent access the
   //    payer may not realise they no longer have.
-  const expired = data.unlocks.filter((u) => u.status !== "granted").length;
+  const expired = (data.unlocks ?? []).filter((u) => u.status !== "granted").length;
   if (expired > 0) {
     items.push({
       id: "unlocks-expired",
@@ -88,10 +100,12 @@ export function buildAttentionItems(
   //    Agents are excluded: their postings live in a different entity (agency `jobs`) that this
   //    payload does not describe (see the dashboard page's data-coherence note), so a count of 0
   //    here would be a statement about the wrong data set.
+  const postings = data.postings;
   if (
     !opts.isAgency &&
-    data.postings.length > 0 &&
-    data.postings.every((p) => p.status !== "open")
+    postings !== null &&
+    postings.length > 0 &&
+    postings.every((p) => p.status !== "open")
   ) {
     items.push({
       id: "no-open-postings",

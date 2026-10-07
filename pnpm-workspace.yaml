@@ -27,6 +27,16 @@ blockExoticSubdeps: true
 # (pnpm >= 10.16.0)
 minimumReleaseAge: 10080
 
+# DEP-9 (2026-10-06). ONE exact version let through early, and why it is not a policy change:
+# source-map-js@1.2.2 is the only fix for GHSA-68fv-2mgg-jv7q (HIGH), the advisory that turned
+# the BLOCKING deps-audit gate red on every lockfile PR. It was published 2026-09-30T14:08Z and
+# clears the window on its own at 2026-10-07T14:08Z. Pinned to the EXACT version, like
+# `trustPolicyExclude` below: any other source-map-js version, and every other package, still
+# waits 7 days. It still passes `trustPolicy` (no provenance downgrade). DELETE THIS LINE on
+# the next lockfile change after 2026-10-07 — it is inert from then on.
+minimumReleaseAgeExclude:
+  - source-map-js@1.2.2
+
 # Refuse a version whose publish-trust evidence is WEAKER than that of any
 # earlier-published version of the same package — the signature of an account
 # takeover, where the attacker can publish but cannot reproduce the maintainer's
@@ -92,7 +102,11 @@ overrides:
   # 2.3.0. Reached through `@nestjs/platform-express`, which is the request path — apps/api
   # parses no multipart body today (uploads go straight to Supabase Storage through a signed
   # URL), but the parser is mounted and a floor is cheaper than that argument staying true.
-  multer: ">=2.3.0"
+  #
+  # DEP-9 (2026-10-06): SUPERSEDES ">=2.3.0" — GHSA-3pph-fpjx-jg34 (moderate, DoS via orphaned
+  # disk writes on aborted uploads) is patched at 2.4.0; ">=2.3.0" is satisfied by 2.3.0 itself,
+  # so the tree never moved. Now `^`-pinned to the 2.x line per the DEP-3 rule below.
+  multer: "^2.4.0"
   # DEP-2 (2026-07-17). Both are TRANSITIVE and build/dev-time only; their parents pin
   # the vulnerable lines, so a range-keyed override is the only lever short of bumping
   # the parents (deferred: drizzle-kit rides the drizzle-orm bump, TD49).
@@ -184,8 +198,42 @@ overrides:
   # out as "the one with a plausible live path" because `next/image` optimization decodes
   # images and worker photos are served from Supabase — so this is an image decoder on a
   # request path, not build tooling, and it had been uncovered since the floor was written.
-  sharp@<0.35.4: "^0.35.4"
-  shell-quote@<1.8.5: "^1.8.5"
+  # DEP-10 (2026-10-06). SUPERSEDES both floors on these two lines (was `sharp@<0.35.4:
+  # ^0.35.4` and `shell-quote@<1.8.5: ^1.8.5`) — the version-keyed-snapshot failure the js-yaml
+  # note above describes, instances five and six: each floor is satisfied by the version the
+  # tree already sat on, so pnpm never moved past a NEWER advisory.
+  #   sharp        GHSA-wq5f-xc86-pv6w (HIGH, librsvg in the bundled libvips) patched at 0.35.5.
+  #                Same live path as DEP-6: `next/image` decodes images on a request path.
+  #   shell-quote  GHSA-pqg4-j6r4-53mv (CRITICAL, `quote()` command injection via a line
+  #                terminator after a `{ comment }` token) on >=1.8.4 <1.11.0, patched at 1.11.0.
+  #                Reached via drizzle-orm > gel; nothing in this repo calls `quote()`.
+  # Surfaced by #2071 (a ci.yml change re-runs deps-audit); main's tree carries both.
+  sharp@<0.35.5: "^0.35.5"
+  shell-quote@<1.11.0: "^1.11.0"
+  # ---------------------------------------------------------------------------
+  # DEP-9 (2026-10-06). Ten advisories published at once (3 critical, 1 high, 5 moderate,
+  # 1 low) turned deps-audit red on every lockfile PR. All transitive, no parent has shipped
+  # a bump, so the DEP-3 lever again: range-keyed, each `^`-pinned to its own major line.
+  #
+  # REQUEST PATH (apps/api, via @nestjs/platform-express > express 5):
+  #   proxy-addr  GHSA-jqcg-44mw-7w3h (CRITICAL, IP spoofing via IPv4-mapped IPv6 in a trust
+  #               subnet). Decides req.ip under `trust proxy` — the rate-limit key.
+  #   qs          GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g (moderate, array-limit bypass / DoS).
+  #   body-parser GHSA-v422-hmwv-36x6 (low, DoS on an invalid `limit`). 2.x line only.
+  proxy-addr@<2.0.8: "^2.0.8"
+  qs@<6.16.0: "^6.16.0"
+  body-parser@>=2.0.0 <2.3.0: "^2.3.0"
+  # BUILD / TEST ONLY:
+  #   source-map-js  GHSA-68fv-2mgg-jv7q (HIGH, event-loop DoS on an indexed source map), via
+  #                  vite > postcss and @vitest/coverage-v8 > magicast.
+  #   tinypool       GHSA-85c8-ppgw-ccpr, GHSA-5gmw-xhrv-c9v3 (CRITICAL, prototype-pollution
+  #                  gadget to RCE in worker options). vitest 3.2 asks for `^1.1.1` and the 1.x
+  #                  line has no fix, so this is the one override that CROSSES a major: 2.x
+  #                  only drops Node 18 (engines ^20 || >=22, same as ours) and keeps the
+  #                  Tinypool API vitest 3 calls. Proven by the full vitest suites, not assumed.
+  #                  Delete when vitest moves to 4.x (which also clears GHSA-82fw-gwwq-j7x9).
+  source-map-js@>=1.0.0 <1.2.2: "^1.2.2"
+  tinypool@<2.1.2: "^2.1.2"
 # Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on

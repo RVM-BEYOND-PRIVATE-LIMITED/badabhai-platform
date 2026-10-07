@@ -38,6 +38,8 @@ import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/selection_cards.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../router.dart';
+import '../../resume/domain/resume_edit_repository.dart';
+import '../../resume/domain/resume_safe_fields.dart';
 import '../../trade_form/domain/trade_form_args.dart';
 import '../../trade_form/presentation/open_trade_form.dart';
 import '../../voice/domain/speech_reader.dart';
@@ -52,6 +54,7 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
+import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
 import 'widgets/chat_location_card.dart';
 import 'widgets/flying_name.dart';
@@ -468,6 +471,15 @@ class _ChatViewState extends State<_ChatView>
     // ADR-0048 — a mount that already has the captured name (a rebuild, a
     // returning route) shows it at once; only the null → non-null edge flies.
     _headerName = context.read<ChatBloc>().state.workerName;
+    // OWNER REQUEST (2026-10-05): the BadaBhai tab runs no identity intake, so
+    // the header would never learn the worker's name. Read the SAME
+    // `GET /workers/me/resume-fields` the Profile tab reads, so the header shows
+    // the worker's own name here too. Fail-silent, and the chat's own capture
+    // still wins if it lands first.
+    if (_headerName == null) {
+      // ignore: discarded_futures — fire-and-forget; state updates on done.
+      _loadHeaderName();
+    }
     // Starts SETTLED (value 1 = scale 1.0) so the action is not enlarged on
     // mount; a landing rewinds it to 0 and plays the pop.
     _namePop = AnimationController(vsync: this, duration: AppMotion.slower)
@@ -1120,6 +1132,20 @@ class _ChatViewState extends State<_ChatView>
   /// more", and routes through [_confirmEarlyFinish] instead of straight to the
   /// preview. Nothing here can leave the worker stuck.
   Widget _doneCta(ChatState state) {
+    // #2030 ask 2 — IN FREE CHAT THIS BUTTON IS THE WAY BACK, not the way out.
+    //
+    // The interview CTA must not stand here: its not-ready path
+    // ([_confirmEarlyFinish]) would finish a profile from a transcript the
+    // server excluded from extraction, so it would extract NOTHING and hand the
+    // worker an empty profile.
+    //
+    // REPLACED, not hidden (the issue allows either). Hiding it leaves a
+    // distress turn with no route onward at all: that is the one free-mode turn
+    // the server attaches no "Resume banayein" chip to (R9), so the chip cannot
+    // be relied on as the only exit. This keeps a visible, full-width exit on
+    // every single free-mode turn and posts the server's OWN label, which its
+    // `isResumeChip` reads by label or by key.
+    if (state.freeChat) return _freeChatResumeCta(sending: state.sending);
     final bool ready = state.extractionReady;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -1146,6 +1172,42 @@ class _ChatViewState extends State<_ChatView>
         ),
       ),
     );
+  }
+
+  /// #2030 ask 2 — the free-chat exit, drawn in [_doneCta]'s slot while the
+  /// worker is in free chat.
+  ///
+  /// Sends the résumé chip the way a chip is always sent: the LABEL as the
+  /// message text, with the stable `option_key` carried for the mode machine.
+  /// So this is byte-identical to the worker tapping "Resume banayein"
+  /// themselves, and it ends free mode through the same path.
+  Widget _freeChatResumeCta({required bool sending}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        0,
+        AppSpacing.s4,
+        AppSpacing.s3,
+      ),
+      child: _capped(
+        PrimaryActionButton(
+          buttonKey: kFreeChatResumeCtaKey,
+          label: kFreeChatResumeLabel,
+          onPressed: sending ? null : _sendFreeChatResume,
+        ),
+      ),
+    );
+  }
+
+  /// Leaves free chat for the interview (#2030 ask 2).
+  void _sendFreeChatResume() {
+    context.read<ChatBloc>().add(
+          const ChatMessageSent(
+            kFreeChatResumeLabel,
+            optionKey: kFreeChatResumeKey,
+            servedOption: true,
+          ),
+        );
   }
 
   /// The handover card (#1339/#1340) — drawn INSTEAD OF [_doneCta] on the one
@@ -1473,10 +1535,13 @@ class _ChatViewState extends State<_ChatView>
           ),
           ),
         ),
-        // Feedback lives HERE instead of the app-wide floating button on this
-        // screen (both the onboarding chat and the Bada Bhai tab reuse it) —
-        // see the exclusion in feedback_fab.dart. Same action, same icon,
-        // only the position differs.
+        // OWNER REQUEST (2026-10-05): this slot used to be the Feedback action
+        // (the app-wide floating Feedback button is excluded on this screen —
+        // see feedback_fab.dart). The click is gone and the 'Feedback' word with
+        // it: the slot now shows the worker's OWN NAME, the way the onboarding
+        // chat already does once the identity intake captures it (ADR-0048). On
+        // the Bada Bhai tab there is no intake, so the name is read from the
+        // profile ([_loadHeaderName]).
         actions: <Widget>[
           Padding(
             padding: EdgeInsets.only(right: headerActionGutter),
@@ -1487,37 +1552,35 @@ class _ChatViewState extends State<_ChatView>
               // subtree — and the label's cross-fade — alive across the pop.
               child: ScaleTransition(
                 scale: _namePopScale,
-                child: TextButton(
-                  // ADR-0048 — the destination the captured name flies to.
+                // A plain, NON-CLICKABLE label — no Feedback navigation. The key
+                // stays so a captured name still flies here (ADR-0048).
+                child: Container(
                   key: _headerNameActionKey,
-                  style: TextButton.styleFrom(
-                    foregroundColor: OnboardingColors.textOnBlue,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        OnboardingRadii.feedbackButton,
-                      ),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.25),
-                      ),
-                    ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
                   ),
-                  onPressed: () => context.pushOnce(
-                    Routes.feedback,
-                    extra: GoRouterState.of(context).uri.path,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(
+                      OnboardingRadii.feedbackButton,
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.25),
+                    ),
                   ),
                   child: BbAnimatedSwitcher(
                     child: ConstrainedBox(
                       // The switcher animates on the DIRECT child's key, so the
                       // key rides the ConstrainedBox (the label rides inside).
-                      key: ValueKey<String>(_headerName ?? 'Feedback'),
+                      key: ValueKey<String>(_headerName ?? ''),
                       // A long name must never blow the header's layout: cap it
                       // and ellipsize rather than shove the title off screen.
                       constraints: BoxConstraints(
                         maxWidth: MediaQuery.sizeOf(context).width * 0.34,
                       ),
                       child: Text(
-                        _headerName ?? 'Feedback',
+                        // The worker's own name; empty until it is known.
+                        _headerName ?? '',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
@@ -1879,7 +1942,12 @@ class _ChatViewState extends State<_ChatView>
   ///
   /// Only rendered while the v2 lever is on (the whole Phase 1 UI ships dark).
   Widget _companionVoiceButton() {
-    return Padding(
+    // OWNER REQUEST (2026-10-05): the "Awaaz note record karein" pill is
+    // PERMANENTLY hidden for now. Wrapped in [Visibility] (not deleted) so the
+    // button can be restored by flipping `visible` back to `true`.
+    return Visibility(
+      visible: false,
+      child: Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
         AppSpacing.s3,
@@ -1908,6 +1976,7 @@ class _ChatViewState extends State<_ChatView>
           showArrow: false,
           onPressed: _openCompanionVoiceNote,
         ),
+      ),
       ),
     );
   }
@@ -2752,6 +2821,20 @@ class _ChatViewState extends State<_ChatView>
   /// chips plus two more, and in the scroller the later ones sit off-screen where
   /// a worker — and a test — cannot reach them. Routing is untouched: the tap
   /// still goes to [_sendChoice], which decides on the KEY.
+  /// TEMPORARY (owner request, 2026-10-05): hide the post-completion MENU chips
+  /// at the bottom of the BadaBhai chat — "Resume badlo" / "Naya resume" /
+  /// "Career ki baat" / "Naye jobs dekhein" — WITHOUT deleting any of them. Each
+  /// is wrapped in [Visibility] so the worker can still type a reply; flip
+  /// [_kShowCompanionMenuChips] back to `true` to restore the menu.
+  ///
+  /// Deliberately NOT hidden: the individual job chips (`companion_job:`), the
+  /// Jobs-tab chip and the Applied chip — the ask named only the menu.
+  static const bool _kShowCompanionMenuChips = false;
+
+  bool _hidesCompanionMenuChip(String optionKey) =>
+      !_kShowCompanionMenuChips &&
+      (isCompanionV2OnlyKey(optionKey) || optionKey == kCompanionNewJobsKey);
+
   Widget _companionActionChips(List<ChatOption> options) {
     // THE LEVER GATES THE DOOR TOO (ADR-0046 F4). v2-only chips are dropped on a
     // build whose lever is off — see [isCompanionV2OnlyKey] for why offering one
@@ -2765,6 +2848,11 @@ class _ChatViewState extends State<_ChatView>
     // Every chip on the turn was v2-only: draw NOTHING rather than an empty
     // padded column, so a lever-off build is byte-identical to v1.
     if (shown.isEmpty) return const SizedBox.shrink();
+    // Every remaining chip is a hidden MENU chip (owner request): draw nothing,
+    // so hiding the menu leaves no empty padded column behind.
+    if (shown.every((ChatOption o) => _hidesCompanionMenuChip(o.optionKey))) {
+      return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -2777,7 +2865,12 @@ class _ChatViewState extends State<_ChatView>
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           for (final ChatOption o in shown)
-            Padding(
+            // TEMPORARY (owner request): the menu chips are hidden via
+            // Visibility, not deleted — flip `_kShowCompanionMenuChips` to
+            // restore them. Job / Jobs-tab / Applied chips stay visible.
+            Visibility(
+              visible: !_hidesCompanionMenuChip(o.optionKey),
+              child: Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.s2),
               child: Semantics(
                 container: true,
@@ -2821,6 +2914,7 @@ class _ChatViewState extends State<_ChatView>
                   ),
                 ),
               ),
+            ),
             ),
         ],
       ),
@@ -2922,6 +3016,24 @@ class _ChatViewState extends State<_ChatView>
     );
   }
 
+  /// Read the worker's own name for the header (owner request, 2026-10-05) —
+  /// the same `GET /workers/me/resume-fields` the Profile tab reads. Fail-silent:
+  /// a missing name or a read error just leaves the header without a label, and
+  /// a name the chat itself captured meanwhile is never overwritten.
+  Future<void> _loadHeaderName() async {
+    if (!locator.isRegistered<ResumeEditRepository>()) return;
+    try {
+      final ResumeSafeFields fields =
+          await locator<ResumeEditRepository>().load();
+      if (!mounted || _headerName != null) return;
+      final String name = fields.displayName.trim();
+      if (name.isEmpty) return;
+      setState(() => _headerName = name);
+    } catch (_) {
+      // Enhancement only — never the screen.
+    }
+  }
+
   /// ADR-0046 §5.1 — the edit card: one row per proposed change, all ticked,
   /// with Haan / Nahi under them. Haan sends the TICKED rows' server-minted
   /// `row_id`s to the confirm route; Nahi cancels. The card disables itself
@@ -2939,15 +3051,24 @@ class _ChatViewState extends State<_ChatView>
     );
   }
 
-  /// #1821 F1 — is the companion still cooling down, right now?
+  /// #1821 F1 / #2030 — is the chat still cooling down, right now?
   ///
-  /// Gated by the v2 lever like every other v2 surface, so a lever-off build
-  /// never locks its composer on a field it would not otherwise render.
-  bool _cooldownActive(ChatState state) =>
-      state.companion &&
-      BbRemoteConfig.instance.chatCompanionV2Enabled &&
-      state.cooldownUntil != null &&
-      state.cooldownUntil!.isAfter(DateTime.now());
+  /// TWO SURFACES, TWO GATES. The companion's cool-down is a v2 surface, so it
+  /// keeps the v2 lever: a lever-off build must never lock its composer on a
+  /// field it would not otherwise render. The profiling chat's is ADR-0051 free
+  /// chat, which is live on merge and behind no lever, so there is nothing to
+  /// gate it on beyond the server having sent an instant that is still ahead.
+  ///
+  /// Either way this locks FREE TEXT ONLY — the chips sit above the composer
+  /// segment and stay tappable, which is what lets a cooled-down worker still
+  /// reach their résumé and the jobs.
+  bool _cooldownActive(ChatState state) {
+    final DateTime? until = state.cooldownUntil;
+    if (until == null || !until.isAfter(DateTime.now())) return false;
+    return state.companion
+        ? BbRemoteConfig.instance.chatCompanionV2Enabled
+        : true;
+  }
 
   /// #1821 F1 — the composer, replaced by a live countdown until [until].
   ///
@@ -3563,6 +3684,10 @@ String kCooldownComposerText(DateTime until) {
 /// three mics and only this one is gated by the v2 lever.
 const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
 
+/// #2030 ask 2 — the free-chat exit CTA, keyed so a test can assert that the
+/// interview's "build my profile" button is NOT what stands in free mode.
+const Key kFreeChatResumeCtaKey = ValueKey<String>('free-chat-resume-cta');
+
 /// What the two VISIBLE voice controls say, and why they must never say the
 /// same thing.
 ///
@@ -3619,9 +3744,8 @@ class _EditProposalCard extends StatefulWidget {
 }
 
 class _EditProposalCardState extends State<_EditProposalCard> {
-  /// The rows the worker UNTICKED. Everything starts ticked, so an empty set
-  /// needs no initialisation pass — and the card cannot be built before the
-  /// proposal it belongs to exists.
+  /// The rows the worker UNTICKED. Non-destructive rows (`add` / `edit`) start
+  /// TICKED (phase-1 F1), so only the destructive ones are seeded here.
   final Set<String> _unticked = <String>{};
 
   /// Rebuilds once a second so Haan / Nahi disable the moment `expires_at`
@@ -3631,6 +3755,14 @@ class _EditProposalCardState extends State<_EditProposalCard> {
   @override
   void initState() {
     super.initState();
+    // TD151(2) — a DESTRUCTIVE row (`op: "delete"`) starts UNTICKED: removing a
+    // skill / language / trade / saved place must take a DELIBERATE tick, never
+    // a Haan tapped without reading. Non-destructive rows (`add` / `edit`) keep
+    // the all-ticked default. `op` is the authoritative signal (§5.1); the
+    // confirm route still receives only the ticked rows' ids.
+    for (final EditProposalRow row in widget.proposal.rows) {
+      if (row.op == 'delete') _unticked.add(row.rowId);
+    }
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -3856,10 +3988,10 @@ class _EditProposalCardState extends State<_EditProposalCard> {
         return _opLine(kEditOpAdd, after ?? '');
       case 'delete':
         // THE ONE ROW THAT DESTROYS SOMETHING. A strikethrough alone carries
-        // that meaning only to a reader who already knows the convention, and
-        // every row arrives pre-ticked — so a worker who taps Haan without
-        // decoding it loses a skill, a language or a qualification off their own
-        // résumé. The word says so, in the same red the app uses for removal.
+        // that meaning only to a reader who already knows the convention, so the
+        // row now starts UNTICKED (TD151(2)) AND the word says so, in the same
+        // red the app uses for removal — a worker can never lose a skill, a
+        // language or a qualification by tapping Haan without reading.
         return _opLine(
           kEditOpDelete,
           before ?? '',

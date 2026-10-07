@@ -86,14 +86,19 @@ describe("the trail on a top-level page — the group only (the H1 names the pag
   });
 });
 
-describe("one level below a destination whose pages link back to it — the section as TEXT", () => {
+describe("one level below a destination whose pages link back to it — the GROUP only", () => {
+  // F16 (final sweep): the trail printed the destination ("Hiring › Postings") right above a back
+  // link naming it again ("← Postings"). The back link is the way up AND names the parent, so the
+  // trail keeps only the group. Post with AI is a mode of New posting (its own way back is the
+  // in-card "Use the manual form instead"), so it reads like New posting itself: the group.
   it.each([
-    [`/postings/${ID}`, "Hiring Postings", COMPANY],
-    ["/postings/ai/new", "Hiring New posting", COMPANY],
-    [`/agency/jobs/${ID}`, "Demand Postings", AGENCY],
-  ] as const)("%s → '%s', no link (the back link is the way up), no landmark", (path, text, s) => {
+    [`/postings/${ID}`, "Hiring", "Postings", COMPANY],
+    ["/postings/ai/new", "Hiring", "New posting", COMPANY],
+    [`/agency/jobs/${ID}`, "Demand", "Postings", AGENCY],
+  ] as const)("%s → '%s' (never '%s' again), no link, no landmark", (path, group, parent, s) => {
     const out = crumb(path, s);
-    expect(words(out)).toBe(text);
+    expect(words(out)).toBe(group);
+    expect(words(out)).not.toContain(parent);
     expect(links(out)).toEqual([]);
     expect(isLandmark(out)).toBe(false);
     expect(out).not.toContain("aria-current");

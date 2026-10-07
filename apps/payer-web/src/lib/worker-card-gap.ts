@@ -9,16 +9,20 @@
  *   * the experience window (`min/max_experience_years`),
  *   * the shift, and the needed-by chip,
  *   * the requirement + benefit chip rows.
- * The DESCRIPTION is not on that card — the worker reads it when they open the job (the detail
+ * The DESCRIPTION is not on that card — the worker reads it when they open the posting (the detail
  * screen). It is still required: a worker who opens a job with no description has nothing to go on.
  *
  * An unstated field is a HOLE, not a tidy omission. So the forms insist on all of them — the
  * company create/publish, the agency create — through this ONE ordered list, because two copies
  * of the rule (one for the first gap, one for all of them) would drift the moment a row changed.
  *
- * WEB EXTENSION: `roleKind` is checked FIRST. It is not on the worker's card (no worker read
- * carries it, ADR-0024 addendum #1823); it files the posting under the right role, and the form
- * asks for it first, so "Pick the role" is named first. The rest is the Dart order.
+ * WEB EXTENSION: `roleKind` is checked FIRST. It files the posting under the right role, and the
+ * form asks for it first, so "Pick the role" is named first. The rest is the Dart order.
+ *
+ * It IS on the worker's card now — as the role ILLUSTRATION, keyed by `role_kind`, which both
+ * `GET /feed` and `GET /jobs/:jobId` carry since the owner ruling of 2026-10-05 (ADR-0024
+ * addendum, #2009). Never as words. The older note here said no worker read carried it, which
+ * stopped being true when the art shipped.
  *
  * OWNER RULING: this rule is enforced on CREATE + PUBLISH only — editing a LIVE posting saves
  * with the gaps highlighted, never blocked. The API stays permissive (publish never refuses a
@@ -126,7 +130,7 @@ const CHECKS: readonly GapCheck[] = [
     field: () => "description",
     title: "Add the description",
     message:
-      "Workers read it when they open the job — it is not on the swipe card. Say what the work is.",
+      "Workers read it when they open the posting — it is not on the swipe card. Say what the work is.",
     missing: (i) => i.description.trim() === "",
   },
   {

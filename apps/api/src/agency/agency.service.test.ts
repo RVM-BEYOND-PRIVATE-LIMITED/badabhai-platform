@@ -5,6 +5,9 @@ import type { JobPayType, JobStatus } from "@badabhai/db";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import { AgencyService } from "./agency.service";
 import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "./agency.dto";
+import { MatchSkillsService } from "../match/match-skills.service";
+import type { MatchConfigService } from "../match/match-config.service";
+import type { WorkerSkillsRepository } from "../match/worker-skills.repository";
 
 const PAYER_A = "11111111-1111-4111-8111-111111111111";
 const PAYER_B = "22222222-2222-4222-8222-222222222222";
@@ -38,6 +41,8 @@ type JobRow = {
   payType: JobPayType | null;
   // Migration 0131 — the display role. NULL for every job nobody picked one for.
   roleKind: string | null;
+  // ADR-0050 C4 — the explicit match pick. `[]` = "not chosen yet".
+  matchSkillIds: string[];
   // #1202 — mirrors the real `JobStatus` union rather than a narrowed copy of it. A local
   // narrowing is how a test file stops being able to express the states production can hold.
   status: JobStatus;
@@ -66,6 +71,7 @@ function jobRow(overrides: Partial<JobRow> = {}): JobRow {
     // #1648 — what the ₹ band MEANS. NULL is the default state for every existing row.
     payType: null,
     roleKind: null,
+    matchSkillIds: [],
     status: "open",
     applicantsReceived: 0,
     createdAt: new Date(),
@@ -81,6 +87,10 @@ function make(opts?: {
     | undefined;
   consent?: { revokedAt: Date | null } | undefined;
   stageCounts?: { created: number; clicked: number; accepted: number };
+  /** The ops route's agency-scoped read (ADR-0050). Undefined = not an agency job. */
+  agencyJob?: JobRow | undefined;
+  /** `match_config.max_skills_per_posting` for the REAL MatchSkillsService below. */
+  maxSkillsPerPosting?: number;
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
 
@@ -115,6 +125,13 @@ function make(opts?: {
       .mockImplementation((id: string) =>
         Promise.resolve(jobRow({ ...opts?.ownedJob, id, status: "open" })),
       ),
+    // ADR-0050 (#1983) — the ops match-skill route's two repository calls.
+    findAgencyJobById: vi.fn().mockResolvedValue(opts?.agencyJob),
+    setMatchSkillIdsIfNotClosed: vi
+      .fn()
+      .mockImplementation((id: string, matchSkillIds: string[]) =>
+        Promise.resolve(jobRow({ ...opts?.agencyJob, id, matchSkillIds })),
+      ),
   };
 
   const invitesRepo = {
@@ -135,11 +152,19 @@ function make(opts?: {
     findLatestByWorker: vi.fn().mockResolvedValue(opts?.consent),
   };
 
+  // The REAL MatchSkillsService (the posting form's own check), over a stubbed config: the
+  // agency path must refuse exactly what the posting form refuses, so it is not stubbed here.
+  const matchConfig = {
+    get: async () => ({ maxSkillsPerPosting: opts?.maxSkillsPerPosting ?? 3 }),
+  } as unknown as MatchConfigService;
+  const matchSkills = new MatchSkillsService(matchConfig, {} as WorkerSkillsRepository);
+
   const svc = new AgencyService(
     jobsRepo as never,
     invitesRepo as never,
     consent as never,
     { emit } as never,
+    matchSkills,
   );
   return { svc, emit, jobsRepo, invitesRepo, consent };
 }
@@ -948,5 +973,231 @@ describe("migration 0131 — the role_kind CONTRACT on the agency DTOs", () => {
   it("does not make trade_key optional — the matching classifier is still required on create", () => {
     const { trade_key: _omit, ...noTrade } = BASE;
     expect(CreateAgencyJobSchema.safeParse({ ...noTrade, role_kind: "welder" }).success).toBe(false);
+  });
+});
+
+// ─────────────────── ADR-0050 §6.1 step 2 (#1983) — match_skill_ids ───────────────────
+
+const TURNER = "mskill_cnc_turner";
+const VMC = "mskill_vmc_operator";
+const HMC = "mskill_hmc_operator";
+const MIG = "mskill_mig_welder";
+const ADMIN_ID = "77777777-7777-4777-8777-777777777777";
+
+describe("#1983 — match_skill_ids on agency job CREATE", () => {
+  const BASE = { trade_key: "cnc_operator", title: TITLE, city: CITY };
+
+  it("omitted stores [] — a shipped client that never sends it is unchanged", async () => {
+    const { svc, jobsRepo } = make();
+    const view = await svc.createJob(PAYER_A, CreateAgencyJobSchema.parse(BASE), CTX);
+    expect(jobsRepo.create.mock.calls[0]![0].matchSkillIds).toEqual([]);
+    expect(view.matchSkillIds).toEqual([]);
+  });
+
+  it("stores a valid pick (de-duplicated) and returns it on the view", async () => {
+    const { svc, jobsRepo } = make();
+    const dto = CreateAgencyJobSchema.parse({ ...BASE, match_skill_ids: [TURNER, VMC, TURNER] });
+    const view = await svc.createJob(PAYER_A, dto, CTX);
+    expect(jobsRepo.create.mock.calls[0]![0].matchSkillIds).toEqual([TURNER, VMC]);
+    expect(view.matchSkillIds).toEqual([TURNER, VMC]);
+  });
+
+  it("does not put the ids on job.created (v1 schema unchanged)", async () => {
+    const { svc, emit } = make();
+    await svc.createJob(
+      PAYER_A,
+      CreateAgencyJobSchema.parse({ ...BASE, match_skill_ids: [TURNER] }),
+      CTX,
+    );
+    expect(JSON.stringify(firstEmit(emit).payload)).not.toContain(TURNER);
+  });
+
+  it("refuses an id outside the closed vocabulary — 400, nothing written, no event", async () => {
+    const { svc, jobsRepo, emit } = make();
+    const dto = CreateAgencyJobSchema.parse({ ...BASE, match_skill_ids: ["mskill_not_a_skill"] });
+    await expect(svc.createJob(PAYER_A, dto, CTX)).rejects.toBeInstanceOf(BadRequestException);
+    expect(jobsRepo.create).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("refuses more than match_config.max_skills_per_posting — the CONFIG value, not a literal", async () => {
+    const dto = CreateAgencyJobSchema.parse({ ...BASE, match_skill_ids: [TURNER, VMC, HMC] });
+    const capped = make({ maxSkillsPerPosting: 2 });
+    await expect(capped.svc.createJob(PAYER_A, dto, CTX)).rejects.toThrow(/at most 2/);
+    expect(capped.jobsRepo.create).not.toHaveBeenCalled();
+    // The same three are fine under a cap of 3.
+    const roomy = make({ maxSkillsPerPosting: 3 });
+    await expect(roomy.svc.createJob(PAYER_A, dto, CTX)).resolves.toBeDefined();
+  });
+});
+
+describe("#1983 — match_skill_ids on agency job EDIT", () => {
+  it("omitted leaves the stored pick unchanged (not in the patch)", async () => {
+    const { svc, jobsRepo } = make({ ownedJob: jobRow({ matchSkillIds: [TURNER] }) });
+    await svc.updateJob(PAYER_A, JOB_ID, UpdateAgencyJobSchema.parse({ title: "New title" }), CTX);
+    expect("matchSkillIds" in jobsRepo.updateOwned.mock.calls[0]![2]).toBe(false);
+  });
+
+  it('a changed pick is written and reported as the KEY "match_skills" — never the ids', async () => {
+    const { svc, jobsRepo, emit } = make({ ownedJob: jobRow({ matchSkillIds: [TURNER] }) });
+    const view = await svc.updateJob(
+      PAYER_A,
+      JOB_ID,
+      UpdateAgencyJobSchema.parse({ match_skill_ids: [VMC, HMC] }),
+      CTX,
+    );
+    expect(jobsRepo.updateOwned.mock.calls[0]![2].matchSkillIds).toEqual([VMC, HMC]);
+    expect(view.matchSkillIds).toEqual([VMC, HMC]);
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("job.updated");
+    expect(evt.payload.changed_fields).toEqual(["match_skills"]);
+    expect(JSON.stringify(evt.payload)).not.toContain("mskill_");
+  });
+
+  it("the same SET in another order is no change — 400, no write, no event", async () => {
+    const { svc, jobsRepo, emit } = make({ ownedJob: jobRow({ matchSkillIds: [TURNER, VMC] }) });
+    await expect(
+      svc.updateJob(
+        PAYER_A,
+        JOB_ID,
+        UpdateAgencyJobSchema.parse({ match_skill_ids: [VMC, TURNER] }),
+        CTX,
+      ),
+    ).rejects.toThrow("no effective changes to apply");
+    expect(jobsRepo.updateOwned).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("an unknown id or an over-cap pick is a 400 before any write", async () => {
+    const { svc, jobsRepo } = make({ ownedJob: jobRow(), maxSkillsPerPosting: 1 });
+    for (const ids of [["mskill_nope"], [TURNER, VMC]]) {
+      await expect(
+        svc.updateJob(PAYER_A, JOB_ID, UpdateAgencyJobSchema.parse({ match_skill_ids: ids }), CTX),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    }
+    expect(jobsRepo.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it('clear: ["match_skill_ids"] resets to [] (never NULL) and reports the key', async () => {
+    const { svc, jobsRepo, emit } = make({ ownedJob: jobRow({ matchSkillIds: [TURNER] }) });
+    await svc.updateJob(
+      PAYER_A,
+      JOB_ID,
+      UpdateAgencyJobSchema.parse({ clear: ["match_skill_ids"] }),
+      CTX,
+    );
+    expect(jobsRepo.updateOwned.mock.calls[0]![2].matchSkillIds).toEqual([]);
+    expect(firstEmit(emit).payload.changed_fields).toEqual(["match_skills"]);
+  });
+
+  it("clearing an already-empty pick is not a change", async () => {
+    const { svc, emit } = make({ ownedJob: jobRow({ matchSkillIds: [] }) });
+    await expect(
+      svc.updateJob(
+        PAYER_A,
+        JOB_ID,
+        UpdateAgencyJobSchema.parse({ clear: ["match_skill_ids"] }),
+        CTX,
+      ),
+    ).rejects.toThrow("no effective changes to apply");
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("#1983 — the match_skill_ids CONTRACT on the agency DTOs", () => {
+  const BASE = { trade_key: "cnc_operator", title: TITLE, city: CITY };
+
+  it("is optional on create and on edit", () => {
+    expect(CreateAgencyJobSchema.safeParse(BASE).success).toBe(true);
+    expect(UpdateAgencyJobSchema.safeParse({ title: "x" }).success).toBe(true);
+  });
+
+  it("rejects a non-mskill shape, an empty list and an explicit null", () => {
+    for (const bad of [["skill_cnc"], ["CNC turner"], [], null]) {
+      expect(CreateAgencyJobSchema.safeParse({ ...BASE, match_skill_ids: bad }).success).toBe(
+        false,
+      );
+      expect(UpdateAgencyJobSchema.safeParse({ match_skill_ids: bad }).success).toBe(false);
+    }
+  });
+
+  it("is clearable, and set + clear of it in one body is rejected", () => {
+    expect(UpdateAgencyJobSchema.safeParse({ clear: ["match_skill_ids"] }).success).toBe(true);
+    expect(
+      UpdateAgencyJobSchema.safeParse({ match_skill_ids: [TURNER], clear: ["match_skill_ids"] })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("#1983 — AgencyService.opsSetMatchSkills (ops, any agency job)", () => {
+  it("sets the pick, returns changed:true and emits ONE job.updated with an OPS actor", async () => {
+    const { svc, emit, jobsRepo } = make({ agencyJob: jobRow({ payerId: PAYER_B }) });
+    const res = await svc.opsSetMatchSkills(JOB_ID, [MIG, MIG], ADMIN_ID, CTX);
+    expect(res).toEqual({ job_id: JOB_ID, match_skill_ids: [MIG], changed: true });
+    expect(jobsRepo.setMatchSkillIdsIfNotClosed).toHaveBeenCalledWith(
+      JOB_ID,
+      [MIG],
+      expect.any(Date),
+    );
+    expect(emit).toHaveBeenCalledTimes(1);
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("job.updated");
+    expect(evt.actor).toEqual({ actor_type: "ops", actor_id: ADMIN_ID });
+    expect(evt.subject).toEqual({ subject_type: "job", subject_id: JOB_ID });
+    // payer_id keeps its meaning: the job's OWNING agency, not the admin.
+    expect(evt.payload).toEqual({
+      job_id: JOB_ID,
+      payer_id: PAYER_B,
+      status: "open",
+      changed_fields: ["match_skills"],
+    });
+  });
+
+  it("[] resets the pick to 'not chosen yet'", async () => {
+    const { svc, jobsRepo } = make({ agencyJob: jobRow({ matchSkillIds: [TURNER] }) });
+    const res = await svc.opsSetMatchSkills(JOB_ID, [], ADMIN_ID, CTX);
+    expect(res.changed).toBe(true);
+    expect(jobsRepo.setMatchSkillIdsIfNotClosed).toHaveBeenCalledWith(JOB_ID, [], expect.any(Date));
+  });
+
+  it("an unchanged set (any order) is idempotent — changed:false, no write, no event", async () => {
+    const { svc, emit, jobsRepo } = make({ agencyJob: jobRow({ matchSkillIds: [TURNER, VMC] }) });
+    const res = await svc.opsSetMatchSkills(JOB_ID, [VMC, TURNER], ADMIN_ID, CTX);
+    expect(res).toEqual({ job_id: JOB_ID, match_skill_ids: [TURNER, VMC], changed: false });
+    expect(jobsRepo.setMatchSkillIdsIfNotClosed).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("a non-agency or unknown job is the neutral 404", async () => {
+    const { svc, emit } = make({ agencyJob: undefined });
+    await expect(svc.opsSetMatchSkills(JOB_ID, [TURNER], ADMIN_ID, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("a closed job cannot be edited, and a close that races the write is refused the same way", async () => {
+    const closed = make({ agencyJob: jobRow({ status: "closed" }) });
+    await expect(
+      closed.svc.opsSetMatchSkills(JOB_ID, [TURNER], ADMIN_ID, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    const raced = make({ agencyJob: jobRow() });
+    raced.jobsRepo.setMatchSkillIdsIfNotClosed.mockResolvedValueOnce(undefined);
+    await expect(
+      raced.svc.opsSetMatchSkills(JOB_ID, [TURNER], ADMIN_ID, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(raced.emit).not.toHaveBeenCalled();
+  });
+
+  it("applies the SAME vocabulary + cap check as the agency form and the posting form", async () => {
+    const { svc, jobsRepo } = make({ agencyJob: jobRow(), maxSkillsPerPosting: 1 });
+    await expect(svc.opsSetMatchSkills(JOB_ID, ["mskill_nope"], ADMIN_ID, CTX)).rejects.toThrow(
+      /unknown match skill/,
+    );
+    await expect(svc.opsSetMatchSkills(JOB_ID, [TURNER, VMC], ADMIN_ID, CTX)).rejects.toThrow(
+      /at most 1/,
+    );
+    expect(jobsRepo.setMatchSkillIdsIfNotClosed).not.toHaveBeenCalled();
   });
 });

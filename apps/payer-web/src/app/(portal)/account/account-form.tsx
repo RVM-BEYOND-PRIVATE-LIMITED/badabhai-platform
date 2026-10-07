@@ -3,16 +3,11 @@
 import { useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { e164PhoneSchema } from "@badabhai/validators";
-import { Badge, Button, Input, Toast } from "../../../components/ds";
+import { Button, Input, Toast } from "../../../components/ds";
 import { updateAccountAction } from "./actions";
-import {
-  ACCOUNT_SAVE_ERROR,
-  EMAIL_SUPPORT_HELPER,
-  ORG_NAME_ERROR,
-  PHONE_ERROR,
-  SAVED_CONFIRMATION,
-} from "./messages";
+import { ACCOUNT_SAVE_ERROR, ORG_NAME_ERROR, PHONE_ERROR, SAVED_CONFIRMATION } from "./messages";
 
 /**
  * Account edit form (PROF-4) — a payer changes their OWN org name + contact phone.
@@ -26,8 +21,11 @@ import {
  * SEPARATE, blank input for a NEW full number. Blank = no phone change; a non-empty value is
  * validated with `e164PhoneSchema` (parity with the backend) and sent as the new `phone`.
  *
- * EMAIL is the login identity — READ-ONLY (mono), with a "contact support" helper. There is
- * NO email input. Role/status are read-only DS Badges (display only, never an authz decision).
+ * EMAIL is the login identity — READ-ONLY, so it is NOT here: there is no email input, and the
+ * page's "Signed in as" panel shows it (mono) with the "contact support" helper, beside the
+ * read-only role/status. The form holds ONLY what can be edited, so Save follows the fields
+ * directly (F22 — a read-only block between the fields and Save put it at y=1,046 on an 800px
+ * screen).
  *
  * NO-ORACLE / PRIVACY: the body is built from CHANGED fields only (Save is disabled while
  * pristine, so an empty body is never sent); any failure shows ONE neutral Toast — no
@@ -35,34 +33,15 @@ import {
  *
  * UI-1: the form is the shared `form` spine (form__section / form__legend / form-actions /
  * form-status) and no longer carries its own card surface — the PAGE wraps it in a `panel`,
- * so /account and /profile stay one visual system. The read-only values (current phone,
- * email, role, status) are `kv` rows rather than five bespoke label/value classes.
+ * so /account and /profile stay one visual system. The current phone is a read-only `kv` row
+ * beside the field that changes it.
  */
-
-type Role = "employer" | "agent";
-type Status = "pending" | "active" | "suspended";
-
-const ROLE_LABEL: Record<Role, string> = { employer: "Company", agent: "Agency" };
-const STATUS_TONE: Record<Status, "success" | "warning" | "danger"> = {
-  active: "success",
-  pending: "warning",
-  suspended: "danger",
-};
-const STATUS_LABEL: Record<Status, string> = {
-  active: "Active",
-  pending: "Pending",
-  suspended: "Suspended",
-};
 
 export interface AccountFormProps {
   /** The payer's current org name (pre-fills the editable org field). */
   orgName: string;
-  /** The payer's login email — READ-ONLY (shown in mono; no input). */
-  email: string;
   /** Last 4 of the current phone, or null if none on file. */
   phoneLast4: string | null;
-  role: Role;
-  status: Status;
 }
 
 interface FieldErrors {
@@ -76,7 +55,7 @@ function orgNameValid(value: string): boolean {
   return len >= 2 && len <= 120;
 }
 
-export function AccountForm({ orgName, email, phoneLast4, role, status }: AccountFormProps) {
+export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
   const router = useRouter();
   // useState order (mirrored by account-form.test.tsx): orgValue, phoneValue, fieldErrors,
   // error, saved.
@@ -188,29 +167,6 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
         />
       </div>
 
-      <div className="form__section">
-        <p className="form__legend">Account</p>
-        {/* Read-only display only. Role/status are shown back to the payer; they are NEVER an
-            authorization decision (the server gates every write). */}
-        <dl className="kv">
-          <dt className="kv__k">Account email</dt>
-          <dd className="kv__v bb-mono">{email}</dd>
-          <dt className="kv__k">Role</dt>
-          <dd className="kv__v">
-            <Badge tone="brand" upper>
-              {ROLE_LABEL[role]}
-            </Badge>
-          </dd>
-          <dt className="kv__k">Status</dt>
-          <dd className="kv__v">
-            <Badge tone={STATUS_TONE[status]} upper>
-              {STATUS_LABEL[status]}
-            </Badge>
-          </dd>
-        </dl>
-        <p className="form__hint">{EMAIL_SUPPORT_HELPER}</p>
-      </div>
-
       <div className="form-actions">
         <Button type="submit" iconLeft="floppy-disk" disabled={saveDisabled} loading={pending}>
           {pending ? "Saving…" : "Save changes"}
@@ -220,7 +176,7 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
       <div aria-live="polite" className="form-status">
         {saved ? (
           <div className="alert alert--success">
-            <i className="ph-fill ph-check-circle alert__icon" aria-hidden="true" />
+            <Icon name="check-circle" className="alert__icon" />
             <div className="alert__text">
               <p className="alert__body">{SAVED_CONFIRMATION}</p>
             </div>

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requirePayer } from "../../../../../lib/auth";
-import { agentPostingRedirect, COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
+import { agentPostingRedirect } from "../../../../../lib/posting-routes";
 import { PageHeader } from "../../../../../components/page-header";
 import { getJobPostingChatSessions } from "../../../../../lib/payer-api";
 import type { JobPostingChatSessionSummary } from "../../../../../lib/contracts";
@@ -43,9 +43,10 @@ export default async function AiPostingChatPage() {
 
   return (
     <>
-      {/* A child of New posting (the same destination, by conversation): back to the form. */}
+      {/* A MODE of New posting (the same destination, by conversation) — not a page below it, so
+          no back link: the chat's own "Use the manual form instead" is the one way to the form
+          (F15), and the rail keeps New posting lit. */}
       <PageHeader
-        back={{ href: COMPANY_POSTING_ROUTES.create, label: "New posting" }}
         title="Post with AI"
         description="Have a short conversation instead of filling a form — applicants stay faceless until you unlock them."
       />

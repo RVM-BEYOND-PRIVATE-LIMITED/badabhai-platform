@@ -29,6 +29,7 @@ import {
   conversationFormKind,
   narrowAnswerRecords,
   readGeneralRoadStamp,
+  readWorkerOnlyAnswerMap,
   type GeneralRoadStamp,
 } from "../profiling/conversation-state";
 import {
@@ -37,7 +38,11 @@ import {
   type ProjectionResult,
 } from "../profiling/answer-map-projector";
 import type { ChatSession, NewWorkerProfile } from "@badabhai/db";
-import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
+import {
+  canonicalGenericPackSkills,
+  SKILL_TAXONOMY_VERSION,
+  type GenericPackAnswer,
+} from "@badabhai/taxonomy";
 import type { ProfileSource } from "@badabhai/types";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
@@ -46,7 +51,11 @@ import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { ChatRepository } from "../chat/chat.repository";
-import { ChatTranscriptBuffer, isIdentityIntakeMetadata } from "../chat/chat-transcript.buffer";
+import {
+  ChatTranscriptBuffer,
+  isMeaningExcluded,
+  isMeaningExcludedMetadata,
+} from "../chat/chat-transcript.buffer";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import {
@@ -66,6 +75,7 @@ import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
 import { buildGeneralRoadExtraction } from "./general-road-profile";
+import { certifyInterviewDraft } from "./interview-draft-certification";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
   AI_SPEND_CAP_REASONS,
@@ -211,6 +221,9 @@ type PersistedConversationState = {
   readonly prefilled_keys: unknown;
   // ADR-0045. Never narrowed here: `readGeneralRoadStamp` (strict, versioned) is its only reader.
   readonly general_road: unknown;
+  // #2021. Never narrowed here: `readWorkerOnlyAnswerMap` (fail closed) is their only reader.
+  readonly llm_led_turns: unknown;
+  readonly llm_draft_settled: unknown;
 };
 
 /**
@@ -1388,8 +1401,15 @@ export class ProfileExtractionProcessor extends WorkerHost {
       `profile projected for job ${job.aiJobId} status=${projection.parseStatus} ` +
         `fields=${Object.keys(projection.draft).length} overlay=${projection.overlayFields.length}`,
     );
+    const extraction = toExtractionOutput(projection, interview, {
+      pinnedOccupationLabel: occupation?.label ?? null,
+      packId: packPinOf(state).packId,
+      answerMap,
+      workerOnlyAnswerMap: readWorkerOnlyAnswerMap(state),
+    });
+    this.logWithheldDraftFields(job.aiJobId, extraction.withheldDraftFields);
     return {
-      result: toExtractionOutput(projection, interview),
+      result: extraction.output,
       pin: occupation,
       // THE LINE THAT WAS MISSING. `projectProfile` has computed this array on every interview
       // since V2 shipped; `toExtractionOutput` reads `projection.draft` and nothing else, so the
@@ -1500,8 +1520,18 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }> {
     const projection = projectProfile(answerMap, {}, { split: splitToolsEquipment });
     const employments = await this.employments.loadForResume(job.workerId);
+    const pin = readOccupationPin(state?.occupation);
+    // `packId: null` — ADR-0045 R7 keeps the general road's skills off every matching input, so
+    // the #2021 canonicalization does not run here and the canonical `skills` column stays `[]`.
+    const deterministic = toExtractionOutput(projection, null, {
+      pinnedOccupationLabel: pin?.label ?? null,
+      packId: null,
+      answerMap,
+      workerOnlyAnswerMap: false,
+    });
+    this.logWithheldDraftFields(job.aiJobId, deterministic.withheldDraftFields);
     const result = buildGeneralRoadExtraction({
-      deterministic: toExtractionOutput(projection, null),
+      deterministic: deterministic.output,
       stamp,
       employments,
       // The job's processing time: what closes a current job's span in the total.
@@ -1518,10 +1548,22 @@ export class ProfileExtractionProcessor extends WorkerHost {
     );
     return {
       result,
-      pin: readOccupationPin(state?.occupation),
+      pin,
       attributes: projection.attributes,
       pack: packPinOf(state),
     };
+  }
+
+  /**
+   * #2004 — say which draft fields `certifyInterviewDraft` withheld. FIELD IDS ONLY: a withheld
+   * value is by definition not certified, so it is never logged.
+   */
+  private logWithheldDraftFields(aiJobId: string, withheld: readonly string[]): void {
+    if (withheld.length === 0) return;
+    this.logger.log(
+      `rich draft for job ${aiJobId}: withheld ${withheld.length} uncertified model-written ` +
+        `field(s) [${withheld.join(",")}]`,
+    );
   }
 
   /**
@@ -2089,7 +2131,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
           // are kept for the worker's thread and left out of the extraction input: none of them is
           // about his work, and a surname or a town read as part of his account of it is noise the
           // model would try to use. Filtered in BOTH branches, on the one marker each branch has.
-          .filter((m) => m.bodyText && !isIdentityIntakeMetadata(m.metadata))
+          // ADR-0051 §3.5 — the free chat's lines (the greeting, casual and career talk, the
+          // résumé-mode deflections) are left out the same way: casual talk never reaches a profile.
+          .filter((m) => m.bodyText && !isMeaningExcludedMetadata(m.metadata))
           .map((m) => ({
             role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
             text: m.bodyText as string,
@@ -2103,7 +2147,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // the empty one (exactly today's behaviour) beats failing the job.
     try {
       const buffered = await this.buffer.load(sessionId);
-      const lines = (buffered?.messages ?? []).filter((m) => m.intake !== true);
+      const lines = (buffered?.messages ?? []).filter((m) => !isMeaningExcluded(m));
       if (lines.length > 0) {
         this.logger.log(
           `session ${sessionId} not yet flushed; extracting from the ` +
@@ -2283,13 +2327,94 @@ function availabilityOf(
   return mapped ?? { status: deterministic, notice_period_days: null };
 }
 
-function toExtractionOutput(
+/** `toExtractionOutput`'s result: the output, plus the draft fields #2004 withheld (ids only). */
+export interface InterviewExtraction {
+  readonly output: ProfileExtractionOutput;
+  readonly withheldDraftFields: readonly string[];
+}
+
+/**
+ * What `toExtractionOutput` reads besides the projection and the Phase C overlay.
+ *
+ * `answerMap`, `packId` and `workerOnlyAnswerMap` feed #2021's generic-pack canonicalization;
+ * `pinnedOccupationLabel` feeds #2004's draft certification. A caller that must not canonicalize
+ * (the general road, ADR-0045 R7) passes `packId: null`.
+ */
+export interface ExtractionContext {
+  readonly pinnedOccupationLabel: string | null;
+  readonly packId: string | null;
+  readonly answerMap: readonly AnswerRecord[];
+  /**
+   * #2021 — the model wrote NOTHING into this session's answer map: `readWorkerOnlyAnswerMap` over
+   * the persisted `conversation_state` (`llm_led_turns === 0` and `llm_draft_settled === false`,
+   * both present). FALSE derives no generic-pack skill at all (owner ruling 2026-10-07,
+   * worker-only; legacy sessions without the stamps fail closed).
+   */
+  readonly workerOnlyAnswerMap: boolean;
+}
+
+/**
+ * #2021 — the answer map's deterministic `skills` values, per question, as the generic-pack
+ * canonicalizer reads them. ANSWER MAP ONLY: never `skill_labels`, never the parse overlay, never
+ * Phase C. Only `answered` records count, exactly as `projectProfile`'s `liveValues` reads them.
+ *
+ * NOT TAP-ONLY ON ITS OWN: an `answered` record may come from Phase A `settleFromLlmDraft`, which
+ * records an LLM-draft option that `matchOptions` matched against the pack's closed options. The
+ * records carry no per-record provenance (that would be a change to the shared ai-contracts
+ * `AnswerRecordSchema`, deferred), so the worker-only rule is enforced per SESSION by
+ * {@link genericPackSkillsOf}, never here.
+ */
+function answerMapSkillAnswers(answerMap: readonly AnswerRecord[]): GenericPackAnswer[] {
+  const answers: GenericPackAnswer[] = [];
+  for (const record of answerMap) {
+    if (record.status !== "answered") continue;
+    if ((record.target_field ?? record.question_key) !== "skills") continue;
+    const value = record.value_normalized;
+    const values = Array.isArray(value)
+      ? value
+      : value === null || value === undefined
+        ? []
+        : [value];
+    answers.push({ questionKey: record.question_key, values });
+  }
+  return answers;
+}
+
+/**
+ * #2021 — the generic-pack `skill_*` ids for the canonical `skills` column.
+ *
+ * WORKER-ONLY (owner ruling 2026-10-07). A session the LLM led, or whose answer map it settled
+ * (`settleFromLlmDraft`, matched by `matchOptions`), derives NOTHING: closed-set option values make
+ * the model's text safe to store, they do not give the model the right to decide which match
+ * skills a worker holds. A session with no provenance stamp (finalized before #2021) is treated
+ * the same way — fail closed.
+ */
+function genericPackSkillsOf({
+  packId,
+  answerMap,
+  workerOnlyAnswerMap,
+}: Pick<ExtractionContext, "packId" | "answerMap" | "workerOnlyAnswerMap">): string[] {
+  if (!workerOnlyAnswerMap) return [];
+  return canonicalGenericPackSkills(packId, answerMapSkillAnswers(answerMap));
+}
+
+/**
+ * EXPORTED FOR THE #2021 DB GATE (`generic-pack-chat-reach.db.test.ts`), which runs this exact seam
+ * against Postgres. Not a public API: the processor is its only production caller.
+ */
+export function toExtractionOutput(
   projection: ProjectionResult,
-  interview: InterviewExtractOutput | null = null,
-): ProfileExtractionOutput {
-  const at = <T>(field: string): T | undefined => projection.draft[field]?.value as T | undefined;
+  interview: InterviewExtractOutput | null,
+  { pinnedOccupationLabel, packId, answerMap, workerOnlyAnswerMap }: ExtractionContext,
+): InterviewExtraction {
+  // #2004 — FIRST, so nothing below can read a value the certification withheld. The rich draft
+  // and every profile field built from it (`machines`, `certifications`, `education_*`, the
+  // `skill_labels` fallback, the location fallback) see only closed-set values and the worker's
+  // own answers. See `certifyInterviewDraft` for the field-by-field rule.
+  const certified = certifyInterviewDraft(projection.draft, pinnedOccupationLabel);
+  const at = <T>(field: string): T | undefined => certified.draft[field]?.value as T | undefined;
   const arr = (field: string): string[] => {
-    const value = projection.draft[field]?.value;
+    const value = certified.draft[field]?.value;
     if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
     return typeof value === "string" && value.length > 0 ? [value] : [];
   };
@@ -2312,12 +2437,17 @@ function toExtractionOutput(
   });
 
   const profile = DraftProfileSchema.parse({
-    // CANONICAL IDS ARE NOT INVENTED HERE. Skill/role canonicalization is the taxonomy's job
-    // and runs on its own path; writing a guess into these columns would put an unvalidated id
-    // in the one place the match engine trusts absolutely.
+    // CANONICAL IDS ARE NOT INVENTED HERE. Writing a guess into these columns would put an
+    // unvalidated id in the one place the match engine trusts absolutely. So the role stays null,
+    // and `skills` holds only what the taxonomy's closed lookup returns for a GENERIC family
+    // pack's answer-map values (#2021): closed option values, pack-scoped, and ONLY in a session
+    // the model wrote nothing into (`workerOnlyAnswerMap`) — never the model's `skill_labels`.
+    // `rebuildForWorker` carries them through the attribute bridge. A pack with no entry (every
+    // role pack, every trade with no match skill) or a session that fails the gate yields `[]`,
+    // as before #2021.
     canonical_trade_id: null,
     canonical_role_id: null,
-    skills: [],
+    skills: genericPackSkillsOf({ packId, answerMap, workerOnlyAnswerMap }),
     // THE MODEL'S LIST WHEN IT PRODUCED ONE. Was a union with the answer map's skills, which
     // made this a superset in a different order and never the traced array. See `preferModelList`.
     skill_labels: preferModelList(interview?.skills, draft.skills),
@@ -2413,7 +2543,7 @@ function toExtractionOutput(
       : null,
   });
 
-  return ProfileExtractionOutputSchema.parse({
+  const output = ProfileExtractionOutputSchema.parse({
     profile,
     blocked: false,
     is_mock: false,
@@ -2427,4 +2557,5 @@ function toExtractionOutput(
     // from. See `resolvePinnedDomain`.
     job_domain_match: null,
   });
+  return { output, withheldDraftFields: certified.withheld };
 }

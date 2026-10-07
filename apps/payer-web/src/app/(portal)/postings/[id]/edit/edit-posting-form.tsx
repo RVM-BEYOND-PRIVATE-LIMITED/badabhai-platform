@@ -37,6 +37,7 @@ import { workerCardGap, workerCardGaps } from "../../../../../lib/worker-card-ga
 import type { PostingEditInitial } from "../../../../../lib/payer-api";
 import { MatchSkillPicker, type MatchSelection } from "../../new/match-skill-picker";
 import { updatePostingAction } from "./actions";
+import { withPublishedReach } from "../../../../../lib/published-reach";
 
 /**
  * Edit a posting (EMPLOYER self-serve; LIVE `PATCH /payer/job-postings/:id`). Every card field +
@@ -275,7 +276,7 @@ export function EditPostingForm({
         setNavigating(true);
         // Refresh as well as navigate: the router cache must not hand a later Back the pre-save
         // edit page (and its pre-save `initial`, which drives the clear diff).
-        router.push(`/postings/${postingId}`);
+        router.push(withPublishedReach(`/postings/${postingId}`, res.reached));
         router.refresh();
       } else {
         // #1912 — a server validation 400 names the refused field; show it inline at its control.
@@ -562,7 +563,7 @@ export function EditPostingForm({
               value={fields.description}
               error={errorOf("description")}
               aria-invalid={errorOf("description") ? true : undefined}
-              hint="Workers read this when they open the job. No phone number or email."
+              hint="Workers read this when they open the posting. No phone number or email."
               onChange={(e) => set("description", e.target.value)}
               rows={4}
             />

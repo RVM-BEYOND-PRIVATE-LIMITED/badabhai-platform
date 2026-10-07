@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   corpusSkillsForPackAttributes,
   PACK_ATTRIBUTE_SKILLS,
+  packAnswerEvidence,
 } from "../match/pack-attribute-skills";
 import { buildFresherRows } from "./resume-fresher-rows";
 import { descriptorForPack } from "../profiling/roles/role-registry";
@@ -186,7 +187,10 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
       attributeKey,
       optionKeys,
     }));
-    const skills = corpusSkillsForPackAttributes(answers);
+    // Every id the pack table emits, whichever route it rides: a corpus attribute, a role, or (for
+    // the trades minted in #2022, which have neither) a pack-only match skill named directly.
+    const evidence = packAnswerEvidence(answers);
+    const skills = [...evidence.corpusSkillIds, ...evidence.roleIds, ...evidence.matchSkillIds];
     if (Object.keys(PACK_ATTRIBUTE_SKILLS).includes(packId)) {
       expect(skills.length, `${packId} owns a skill map but derived nothing`).toBeGreaterThan(0);
     } else {
@@ -195,7 +199,7 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
   });
 
   it.each(["qp_machining", "qp_vmc_milling"])(
-    "a REAL pack that reuses every turner key — %s — still reaches nothing",
+    "a REAL pack that reuses every turner key — %s — gets nothing through the turner's tables",
     (foreignPackId) => {
       // THE PROBE THE CORPUS COULD NOT PROVIDE, AND ITS ABSENCE WAS A REAL HOLE.
       //
@@ -277,18 +281,33 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
           `a turner's fresher vocabulary labelled "${slug}" for a ${foreignPackId} worker`,
         ).not.toContain(turnerMachines[slug]!);
       }
+      // THE REACH ROW HAS MOVED TOO, for the reason the note above predicted. `qp_vmc_milling`
+      // now authors its own reach map (#2018), and two of the keys it
+      // shares with the turner — `programming_level: write_program | cam` — are claims it is
+      // entitled to act on. So the property is no longer "nothing", it is "only what the FOREIGN
+      // pack's own table says for these exact answers": not one id may arrive via the turner's.
+      const turnerBag = Object.entries(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning ?? {}).map(
+        ([attributeKey, opts]) => ({
+          packId: foreignPackId,
+          attributeKey,
+          optionKeys: Object.keys(opts),
+        }),
+      );
+      const foreignOwn = new Set<string>();
+      for (const { attributeKey, optionKeys } of turnerBag) {
+        for (const option of optionKeys) {
+          for (const id of PACK_ATTRIBUTE_SKILLS[foreignPackId]?.[attributeKey]?.[option] ?? []) {
+            if (id.startsWith("skill_")) foreignOwn.add(id);
+          }
+        }
+      }
+      const reached = corpusSkillsForPackAttributes(turnerBag);
       expect(
-        corpusSkillsForPackAttributes(
-          Object.entries(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning ?? {}).map(
-            ([attributeKey, opts]) => ({
-              packId: foreignPackId,
-              attributeKey,
-              optionKeys: Object.keys(opts),
-            }),
-          ),
-        ),
+        reached,
         "a turner's reach map gave skills to a worker who never answered the turner pack",
-      ).toEqual([]);
+      ).toEqual([...foreignOwn].sort());
+      // Non-vacuous: the turner's own lathe claim must NOT be among them.
+      expect(reached).not.toContain("skill_turning");
     },
   );
 

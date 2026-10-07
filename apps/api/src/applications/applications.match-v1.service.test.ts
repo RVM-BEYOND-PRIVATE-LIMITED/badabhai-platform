@@ -44,16 +44,30 @@ const SNAPSHOT: RankSnapshot = {
   engineVersion: "v1.0",
 };
 
-function setup(opts: { existing?: { id: string; action: string } | undefined } = {}) {
+function setup(
+  opts: {
+    existing?: { id: string; action: string } | undefined;
+    /** ADR-0050 — the posting is an agency TWIN of this source job. */
+    twin?: { sourceJobId: string; sourceStatus: string };
+    /** The legacy decision already on the SOURCE row (TD73 on the twin path). */
+    existingSourceDecision?: { id: string; action: string };
+  } = {},
+) {
   // The legacy collaborators. NOTHING on the V1 path may call these — the legacy
   // `jobs` table is not the served entity any more, and touching it would 404 a valid
   // posting (or, worse, bump a counter on an unrelated row in another id space).
   const repo = {
     findJobById: vi.fn(async () => undefined),
     findOpenJobs: vi.fn(async () => []),
-    findDecision: vi.fn(async () => undefined),
-    upsertDecision: vi.fn(),
-    incrementApplicantsReceived: vi.fn(),
+    findDecision: vi.fn(async () => opts.existingSourceDecision),
+    upsertDecision: vi.fn(async (input: Record<string, unknown>) => ({
+      id: "source-app",
+      ...input,
+      inserted: true,
+    })),
+    incrementApplicantsReceived: vi.fn(async () => 1),
+    // ADR-0050 §4.5 — undefined = a native posting (every pre-existing test here).
+    findAgencyTwinSource: vi.fn(async () => opts.twin),
     findApplicantsByJob: vi.fn(async () => []),
     findApplicationsByWorker: vi.fn(async () => []),
   };
@@ -61,7 +75,7 @@ function setup(opts: { existing?: { id: string; action: string } | undefined } =
     emit: vi.fn(async (p: Record<string, unknown>) => p),
     emitMany: vi.fn(async (l: unknown[]) => l),
   };
-  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [] })) };
+  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [], next: null })) };
   const matchApply = {
     buildSnapshot: vi.fn(async () => SNAPSHOT),
     findDecision: vi.fn(async () => opts.existing),
@@ -296,4 +310,68 @@ describe("skip on the V1 path — same gate, no snapshot, no downgrade", () => {
     });
     expectLegacyUntouched(repo);
   });
+});
+
+// ─────────────────── ADR-0050 §4.5 (C5) — a V1 decision on an agency TWIN ───────────────────
+
+describe("ADR-0050 — apply/skip on an agency twin resolve to the SOURCE job's id space", () => {
+  const SOURCE = "44444444-4444-4444-8444-444444444444";
+  const twin = { sourceJobId: SOURCE, sourceStatus: "open" };
+
+  it("apply runs the JOB path on the source: job_id row, counter, subject job, legacy key", async () => {
+    const { svc, repo, events, matchApply } = setup({ twin });
+    const out = await svc.apply(WORKER, POSTING, { source_surface: "feed", rank: 2 } as never, CTX);
+
+    // The gate and the snapshot are the TWIN's (the reach row the worker was served)...
+    expect(matchApply.buildSnapshot).toHaveBeenCalledWith(WORKER, POSTING);
+    // ...stored on the SOURCE-keyed row. The twin id never becomes an application key.
+    expect(repo.upsertDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ workerId: WORKER, jobId: SOURCE, action: "applied", snapshot: SNAPSHOT }),
+    );
+    expect(matchApply.upsertDecision).not.toHaveBeenCalled();
+    expect(repo.incrementApplicantsReceived).toHaveBeenCalledWith(SOURCE);
+
+    const emitted = events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitted.event_name).toBe("application.submitted");
+    expect(emitted.subject).toEqual({ subject_type: "job", subject_id: SOURCE });
+    expect((emitted.payload as Record<string, unknown>).job_id).toBe(SOURCE);
+    // Byte-identical to a legacy agency apply, so applies before and after the flip dedupe.
+    expect(emitted.idempotencyKey).toBe(`application.submitted:${WORKER}:${SOURCE}`);
+    expect(out).toEqual({ ok: true, application_id: "source-app", action: "applied" });
+  });
+
+  it("skip runs the job path on the source, and TD73 still refuses applied → skipped", async () => {
+    const skip = setup({ twin });
+    await skip.svc.skip(WORKER, POSTING, { reason: "too_far" } as never, CTX);
+    expect(skip.repo.upsertDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: SOURCE, action: "skipped" }),
+    );
+    const emitted = skip.events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitted.event_name).toBe("application.skipped");
+    expect(emitted.subject).toEqual({ subject_type: "job", subject_id: SOURCE });
+
+    const applied = setup({ twin, existingSourceDecision: { id: "a-1", action: "applied" } });
+    const res = await applied.svc.skip(WORKER, POSTING, { reason: "too_far" } as never, CTX);
+    expect(res).toEqual({ ok: true, application_id: "a-1", action: "applied" });
+    expect(applied.repo.upsertDecision).not.toHaveBeenCalled();
+    expect(applied.events.emit).not.toHaveBeenCalled();
+  });
+
+  it.each(["closed", "paused", "suspended"])(
+    "a twin whose source is %s is the neutral 404 — no gate read, no write, no event",
+    async (sourceStatus) => {
+      for (const act of ["apply", "skip"] as const) {
+        const { svc, repo, events, matchApply } = setup({ twin: { sourceJobId: SOURCE, sourceStatus } });
+        const call =
+          act === "apply"
+            ? svc.apply(WORKER, POSTING, { source_surface: "feed", rank: 1 } as never, CTX)
+            : svc.skip(WORKER, POSTING, { reason: "too_far" } as never, CTX);
+        await expect(call, act).rejects.toThrow("Job not found");
+        expect(matchApply.buildSnapshot).not.toHaveBeenCalled();
+        expect(repo.upsertDecision).not.toHaveBeenCalled();
+        expect(matchApply.upsertDecision).not.toHaveBeenCalled();
+        expect(events.emit).not.toHaveBeenCalled();
+      }
+    },
+  );
 });

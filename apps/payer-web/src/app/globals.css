@@ -7,10 +7,15 @@
  * then merges the token and component layers into one stylesheet again — imported between them,
  * the sheet split the CSS into five requests on every page, measured on /i/<code>. Its size
  * tokens are var() aliases of the token layer, which resolve whatever the import order.
- * KNOWN COST, TRACKED (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking here
- * too — +12.3 KB gzipped on /i/<code>, which paints no glyph — and the build emits three unused
- * font formats; the planned fix is a generated subset. Details at the import in icons.css. */
+ * SUBSET (#1893): the glyph sheet is generated for the IconName union only (≤1.7 KB gzipped, not
+ * the full ~11.8 KB) with a woff2-only @font-face, so the build emits one font file instead of
+ * four and this import no longer gets a CSS chunk of its own. It stays here, root-level, on
+ * purpose: /i/<code> paints no glyph (so never downloads the font), and moving the sheet into
+ * per-segment layouts would invert the cascade order above and add a render-blocking request
+ * to every other page. Details at the import in icons.css. */
 @import "@badabhai/icons/icons.css";
+/* The job-card role illustrations: their keyframes + the reduce-motion hold (@badabhai/role-art). */
+@import "@badabhai/role-art/role-art.css";
 
 /* BadaBhai brand token layer — the foundation (colors / type / spacing / radii /
  * elevation / motion / base). Imported before every rule below so each resolves from tokens.
@@ -56,9 +61,11 @@
   --warn-soft: var(--warning-tint);
 }
 
-/* FOCUS IN FORCED COLORS. The base `:focus-visible` in tokens.css is `outline: none` + a
-   box-shadow ring, and Windows forced-colors mode DROPS box-shadows — a keyboard user in High
-   Contrast had no focus indicator anywhere in the portal. So this rule also spends the
+/* FOCUS IN FORCED COLORS. Windows forced-colors mode DROPS box-shadows, and the base
+   `:focus-visible` in tokens.css is a box-shadow ring: while its outline was `none`, a keyboard
+   user in High Contrast had no focus indicator anywhere in the portal. tokens.css now draws a
+   TRANSPARENT `--border-bold` outline under the ring (#1856), which forced colours repaint in
+   their own system colour; this rule overrides that outline with payer-web's: it spends the
    `--focus-outline` / `--focus-outline-offset` custom properties (declared at the top of
    ds-components.css): `--focus-outline` is a TRANSPARENT outline in normal mode (the look is
    unchanged) and the token itself switches to the system `Highlight` colour under
@@ -333,6 +340,18 @@ body {
   font-size: var(--text-md);
   line-height: 1;
 }
+/* RAIL TARGETS on touch and below the full rail. The dense 36px rows (--control-sm) are a mouse
+   rail's; the drawer (<1024px), the icon rail (1024–1279px, where a tablet in landscape lands) and
+   any coarse pointer take the md control height, 44px, as a DRAWN minimum. Not the out-of-flow
+   strip the small buttons use: the rows sit 2px apart, so two strips would overlap, and a row
+   clips its own overflow (the label truncates), which would clip a pseudo strip too. The ≥1280px
+   fine-pointer rail keeps its density. */
+@media (max-width: 1279px), (pointer: coarse) {
+  .pnav__link,
+  .pshell__collapse {
+    min-height: var(--control-md);
+  }
+}
 
 /* ---- main column ---- */
 .pshell__main {
@@ -358,16 +377,18 @@ body {
   box-shadow: var(--shadow-sticky);
 }
 /* In-page link targets — the element a URL fragment names (`/plans#hiring-capacity`, the
-   `/agency/referrals#batch-invites` tile, the legacy `#agency-vacancies` deep link). The browser
-   (and the router, on an in-app link) scrolls that element to the top of the viewport — UNDER
-   the sticky header above, which hid its title (measured: "Hiring capacity" at y=0-22px behind
-   the 61px header at 375/768/1280). This margin lands it below the header, a block gap clear.
+   `/agency/referrals#batch-invites` batch-links panel, the legacy `#agency-vacancies` deep link).
+   The browser (and the router, on an in-app link) scrolls that element to the top of the
+   viewport — UNDER the sticky header above, which hid its title (measured: "Hiring capacity" at
+   y=0-22px behind the 61px header at 375/768/1280). This margin lands it below the header, a
+   block gap clear.
    Opt-in per target: on every [id] it would also offset an option a listbox scrolls into view
    inside its own menu. */
 .anchor-target {
   scroll-margin-top: calc(var(--shell-header-h) + var(--space-4));
 }
 .pshell__menu {
+  position: relative; /* anchors the shared tooltip (.bb-icon-tip) */
   display: none;
   align-items: center;
   justify-content: center;
@@ -591,10 +612,20 @@ body {
        made every nav tap close the drawer instead of navigating. */
     z-index: var(--z-modal);
     transform: translateX(-100%);
-    transition: transform var(--duration-base) var(--ease-out);
+    /* CLOSED IS HIDDEN, not just off-screen: an off-screen rail kept its links in the Tab order
+       (and the accessibility tree) — measured at 375 and 900px, they were the first seven Tab
+       stops of every page, ahead of the menu button that opens them. `visibility` waits out the
+       slide before it hides the closing drawer (the delay is the slide's duration) and comes back
+       at once when it opens. Focus in/out of the open drawer: app-shell.tsx + drawer-focus.ts. */
+    visibility: hidden;
+    transition:
+      transform var(--duration-base) var(--ease-out),
+      visibility 0s linear var(--duration-base);
   }
   .pshell--drawer-open .pshell__rail {
     transform: translateX(0);
+    visibility: visible;
+    transition: transform var(--duration-base) var(--ease-out);
   }
   .pshell--drawer-open .pshell__scrim {
     display: block;
@@ -719,8 +750,11 @@ body {
   }
 }
 
+/* No slide under reduced motion — the open drawer's rule included: it is more specific than the
+   bare rail's, so it escaped a `.pshell__rail`-only reset and kept its transform transition. */
 @media (prefers-reduced-motion: reduce) {
-  .pshell__rail {
+  .pshell__rail,
+  .pshell--drawer-open .pshell__rail {
     transition: none;
   }
   .pshell__content {
@@ -1767,13 +1801,42 @@ textarea.input {
 .dash-posting:hover .dash-view__arrow {
   color: var(--text-accent);
 }
-/* The wrapper Card around a Recent-unlock MaskedCandidate: its own surface is zeroed (no double
-   border/shadow/pad) so only the inner .bb-candidate row shows. The row is NOT a link (the list
-   it used to open shows no unlocks), so it has no hover lift — a lift says "you can click this". */
-.dash-unlock-link {
-  border: none;
-  background: none;
-  box-shadow: none;
+/* A Recent-unlocks row (a DS Card): when the contact was unlocked and whether access is still
+   open. It is not a link (no posting context is reachable yet — see the dashboard), so it has NO
+   hover rule here: a lift says "you can click this". */
+.dash-unlock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+/* 12rem is an optical basis (a title + its date line), not a spacing: below it the status
+   wraps under the text instead of squeezing it. */
+.dash-unlock__main {
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+.dash-unlock__title {
+  font-size: var(--ui-body-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.dash-unlock__meta {
+  margin-top: var(--space-1);
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-muted);
+}
+/* A date wraps as a whole, never at its hyphens ("2026-08-" / "15" at 375px). */
+.dash-unlock__meta .bb-mono {
+  white-space: nowrap;
+}
+.dash-unlock__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
 }
 .dash-empty,
 .dash-state {
@@ -2130,28 +2193,21 @@ textarea.input {
   padding: 0;
   list-style: none;
 }
-/* One toolbar: triage (Keep / Pass) beside the gated contact pair (Call / WhatsApp); the
-   contact pair wraps under the triage pair when the card is too narrow for both. */
+/* One toolbar: triage (Keep / Pass, then "Mark as contacted" once a routed handle exists). The
+   Call / WhatsApp group it used to sit beside is gone until the routed channel opens. */
 .applicant__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--space-3) var(--space-6);
 }
-.applicant__pipeline,
-.applicant__reach {
+.applicant__pipeline {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
   min-width: 0;
-}
-.applicant__pipeline {
   flex: 0 1 auto;
-}
-/* 16rem is an optical basis (two small buttons + the start of the hint), not a spacing. */
-.applicant__reach {
-  flex: 1 1 16rem;
 }
 .applicant__hint {
   flex-basis: 100%;
@@ -2220,14 +2276,6 @@ textarea.input {
    takes the light end of the ramp, as `.req` and `.state--error` already do. */
 [data-theme="ink"] .applicant__error {
   color: var(--red-300);
-}
-/* Wide cards: a hairline separates the two toolbar groups. Only from 768px, where both groups
-   always fit one row (so the rule never lands on a wrapped, left-edge group). */
-@media (min-width: 768px) {
-  .applicant__reach {
-    padding-left: var(--space-5);
-    border-left: var(--border-hairline) solid var(--border-subtle);
-  }
 }
 /* Phones: identity keeps the width, relevance drops under it, the pipeline control spans the
    row, and the spend + reveal actions go full-width thumb targets. The relevance cluster takes
@@ -2446,6 +2494,36 @@ textarea.input {
   gap: var(--space-4);
   min-width: 0;
 }
+/* A posting's DETAIL page (F03): its head — and a draft's note — lead the details column, so the
+   card rail beside them starts at the top of the page. With the head ABOVE the layout, a head
+   whose actions wrapped (1280 / 1366) pushed the card a row down and its brand plate below a
+   720px fold. On a phone the head still comes first, then the card, then the details. The head's
+   last block drops its margin: the grid's row gap (= the section gap) is the one gap under it. */
+.posting-layout--detail > .posting-layout__head {
+  order: -2;
+  min-width: 0;
+}
+.posting-layout--detail > .posting-layout__head > :last-child {
+  margin-bottom: 0;
+}
+@media (min-width: 1024px) {
+  /* `1fr` for the details row: the rail's height is taken by that row, never by the head's. */
+  .posting-layout--detail {
+    grid-template-rows: auto 1fr;
+  }
+  .posting-layout--detail > .posting-layout__head {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .posting-layout--detail > .panel {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .posting-layout--detail > .posting-preview {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
 /* The "More below" cue: zero height (it never shifts the content), pinned to the bottom of the
    region while content remains below (`data-more`, written by rail-scroll.ts). */
 .posting-preview__more {
@@ -2511,8 +2589,9 @@ textarea.input {
   line-clamp: 2;
   overflow: hidden;
 }
-/* ONE row, never wrapped: the summary takes what the primary leaves, and a long primary label
-   ("Publish anyway — reaches nobody yet") wraps INSIDE its button instead of widening the page. */
+/* ONE unwrapped row while the dock is at least 17rem wide (narrower, it stacks — the @container
+   rule below): the summary takes what the primary leaves, and a long primary label ("Publish
+   anyway — reaches nobody yet") wraps INSIDE its button instead of widening the page. */
 .posting-dock__row {
   display: flex;
   flex-wrap: nowrap;
@@ -2535,6 +2614,17 @@ textarea.input {
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+/* While a save is pending the summary is disabled (posting-preview-rail.tsx `busy`) and must not
+   read as a control: no pointer, its "Preview the card" cue loses the link underline, and the
+   whole summary steps down to 60% (the brand's 80 / 60 / 40 ladder — the step that keeps the
+   card's title and pay readable while the save runs). */
+.posting-dock__summary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.posting-dock__summary:disabled .posting-dock__cue {
+  text-decoration: none;
 }
 .posting-dock__title,
 .posting-dock__meta {
@@ -2635,12 +2725,6 @@ textarea.input {
     flex-direction: column;
     gap: var(--space-3);
   }
-  /* An agency editor sits in a padded card: when the form opens, its host lands on the sticky
-     line and the rail starts one card-padding lower — still wholly on screen, actions included. */
-  .agency-job--editing .posting-preview {
-    max-height: calc(100vh - var(--posting-rail-top) - var(--space-4) - var(--space-5));
-    max-height: calc(100dvh - var(--posting-rail-top) - var(--space-4) - var(--space-5));
-  }
   /* The phone card at 1.125× — title 19px, place 15px, band 22.5px, chips 13.5px: readable on a
      laptop, still within 1.2× of the phone, and the wrap points stay the phone's. */
   .posting-preview .jcp {
@@ -2719,7 +2803,7 @@ textarea.input {
   gap: var(--space-4);
 }
 
-/* "Also in your posting — not on the worker's card": a divided list, not another card. */
+/* "Also in your posting — not written on the worker's card": a divided list, not another card. */
 .posting-facts {
   display: grid;
   gap: var(--space-2);
@@ -2826,30 +2910,6 @@ textarea.input {
 .panel:has(.posting-layout) {
   overflow: clip;
   display: flow-root;
-}
-/* Editing: the row IS the editor — its header (title, status, actions) leads the form column,
-   so the preview rail starts level with the header, not below it. The row lands on the rail's
-   sticky line when the editor opens (agency-jobs-manager.tsx `revealEditor`); create is its own
-   page, so this row is the only inline editor host. */
-.agency-job--editing {
-  display: block;
-  scroll-margin-top: var(--posting-rail-top);
-}
-.agency-job__lead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3) var(--space-5);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-5);
-}
-/* In the form column the header's text keeps a readable measure: unless the column holds 24rem of
-   it BESIDE the 315px buttons, the buttons wrap UNDER it (every measured editor column, 403–686px,
-   stacks). With the row's `flex: 1` — a zero basis — the buttons stayed beside it and crushed it
-   (68px wide at 1024: 16 lines of meta); an 18rem basis still left long data 6–7 lines at 768 and
-   at 1600+, where the column fits 18rem beside the buttons but not much more. */
-.agency-job__lead > .agency-job__main {
-  flex: 1 1 24rem;
 }
 /* The chip editor's refused-publish reason sits under its row (so Add stays level with the box),
    and a long unbroken chip wraps inside its pill instead of widening the page. */
@@ -3212,11 +3272,15 @@ textarea.input {
   gap: var(--space-5);
   flex-wrap: wrap;
 }
+/* The header text keeps an 18rem basis: unless the row holds 18rem of it BESIDE the actions, the
+   actions wrap UNDER it. With `flex: 1` — a zero basis — the actions stayed beside it from 430 to
+   520px and crushed it (6px wide at 440, the Edit button over the title); 18rem keeps the 768+
+   rows as they were (the text already had 334px+ there). In the editor's lead it is 24rem (above). */
 .agency-job__main {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  flex: 1;
+  flex: 1 1 18rem;
 }
 .agency-job__head {
   display: flex;
@@ -3408,49 +3472,72 @@ textarea.input {
   line-height: var(--leading-normal);
 }
 
-/* COMPACT-1 — the parked "Not in this release" section as an accessible native <details>
-   disclosure. Open by default (nothing hidden on first paint); the <summary> is the
-   keyboard-operable toggle. Layout/disclosure only — no copy/data change. */
+/* AGENCY DISCLOSURES — one native <details> pattern for the agency surfaces: "Not in this
+   release" on /dashboard, and on /agency/referrals the invite link's Options and the batch-links
+   panel (final sweep F19/F21). The whole summary row is the toggle (≥44px); the default triangle is
+   replaced by the brand caret on the right, which turns when THIS disclosure opens (child
+   combinators, so a disclosure inside another never turns the outer caret). */
 .agency-parked-disclosure {
   margin: 0 0 var(--section-gap);
 }
-.agency-parked-disclosure__summary {
+.agency-disclosure__summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  /* ≥44px target row; the whole summary is the toggle. The default disclosure triangle is
-     removed in favour of the brand caret on the right. */
   min-height: var(--control-md);
   padding: var(--space-1) 0;
   cursor: pointer;
   list-style: none;
   border-radius: var(--radius-sm);
 }
-.agency-parked-disclosure__summary::-webkit-details-marker {
+.agency-disclosure__summary::-webkit-details-marker {
   display: none;
 }
-.agency-parked-disclosure__summary:focus-visible {
+.agency-disclosure__summary:focus-visible {
   outline: var(--focus-outline);
   outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
-.agency-parked-disclosure__summary .agency-section__title {
+.agency-disclosure__summary .agency-section__title {
   margin: 0;
 }
-.agency-parked-disclosure__caret {
+/* The label + its one-line hint ("Campaign tag, link type, role, city — all optional"). */
+.agency-disclosure__text {
+  min-width: 0;
+}
+.agency-disclosure__label {
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+.agency-disclosure__hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.agency-disclosure__caret {
   flex: none;
   color: var(--text-muted);
   font-size: var(--text-lg);
   transition: transform var(--duration-fast) var(--ease-out);
 }
-.agency-parked-disclosure[open] .agency-parked-disclosure__caret {
+.agency-disclosure[open] > .agency-disclosure__summary > .agency-disclosure__caret {
   transform: rotate(180deg);
 }
 @media (prefers-reduced-motion: reduce) {
-  .agency-parked-disclosure__caret {
+  .agency-disclosure__caret {
     transition: none;
   }
+}
+/* Inside the disclosures on /agency/referrals: the invite link's four optional fields, and the
+   batch-links panel's body, each one step below its summary. */
+.agency-invite__option-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+}
+.agency-disclosure > .agency-batch {
+  margin-top: var(--space-3);
 }
 
 /* Agency SUPPLY money — earnings / KYC / payout (ADR-0022 Amendment 2). Tokens only. The
@@ -3825,6 +3912,61 @@ textarea.input {
    sits beside the message instead of ~900px from it. */
 .team-accept-page .alert {
   max-width: var(--reading-max);
+}
+/* /team on a phone (F38): the members table is one CARD per member — the email across the top,
+   role + status under it, and Manage (Remove) at the card's end beside both lines. As a table it
+   scrolled sideways inside its region and Remove sat off screen (x≈471 at 375px). The column
+   heads leave the layout but stay for assistive tech; the markup states every table role, since
+   a re-displayed table can lose its semantics. Remove is always drawn here (no hover on a phone
+   card). Wider than a phone it is the ordinary table. */
+@media (max-width: 600px) {
+  .team-page .table,
+  .team-page .table tbody {
+    display: block;
+  }
+  .team-page .table thead {
+    position: absolute;
+    inline-size: var(--border-hairline);
+    block-size: var(--border-hairline);
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .team-page .table tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "member member manage"
+      "role status manage";
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: var(--border-hairline) solid var(--border-subtle);
+  }
+  .team-page .table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .team-page .table td {
+    display: block;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .team-page .table td:nth-child(1) {
+    grid-area: member;
+    overflow-wrap: anywhere;
+  }
+  .team-page .table td:nth-child(2) {
+    grid-area: role;
+  }
+  .team-page .table td:nth-child(3) {
+    grid-area: status;
+  }
+  .team-page .table td.rowactions {
+    grid-area: manage;
+  }
+  .team-page .table .rowactions > * {
+    opacity: 1;
+  }
 }
 @media (max-width: 600px) {
   /* The page's single action is a full-width thumb target. */
@@ -4916,6 +5058,7 @@ img.agency-qr__code,
   gap: var(--space-2);
 }
 .theme-toggle__switch {
+  position: relative; /* anchors the shared tooltip (.bb-icon-tip) */
   display: inline-flex;
   align-items: center;
   padding: var(--space-1);
@@ -4930,7 +5073,11 @@ img.agency-qr__code,
   outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
-/* The track: a pill that fills brand-tinted when "on" (dark). */
+/* The track: a pill that fills brand-tinted when "on" (dark). Its BOUNDARY is what shows a switch
+   is there (SC 1.4.11: 3:1 against the header). The fills are tints (1.18:1 / 1.29:1), and the
+   old hairline was --border-default (1.35:1 on the paper header) / --brand-border (2.65:1 on the
+   ink one). Off, it takes the control line, --border-control (4.97:1 on the paper card, 5.62:1 on
+   the ink card); on (which is the ink theme), the solid accent. */
 .theme-toggle__track {
   display: inline-flex;
   align-items: center;
@@ -4939,14 +5086,14 @@ img.agency-qr__code,
   padding: var(--space-1);
   border-radius: var(--radius-pill);
   background: var(--surface-sunken);
-  border: var(--border-hairline) solid var(--border-default);
+  border: var(--border-hairline) solid var(--border-control);
   transition:
     background-color var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out);
 }
 .theme-toggle__switch[aria-checked="true"] .theme-toggle__track {
   background: var(--brand-tint);
-  border-color: var(--brand-border);
+  border-color: var(--brand);
 }
 /* The thumb slides right when "on"; carries the sun/moon glyph. */
 .theme-toggle__thumb {
@@ -5216,15 +5363,23 @@ img.agency-qr__code,
   gap: var(--space-3);
   width: 100%;
 }
+/* ONE row layout (F18): the meta takes the row and the Continue its own end column, so a long
+   meta wraps INSIDE its column instead of pushing that row's button under it (a flex wrap put one
+   Continue under its meta and the next beside it). A phone stacks every row the same way. */
 .ai-chat-resume__item {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+}
+@media (max-width: 600px) {
+  .ai-chat-resume__item {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
 }
 .ai-chat-resume__meta {
   display: flex;
@@ -5247,6 +5402,23 @@ img.agency-qr__code,
 }
 .ai-chat-intro__alt {
   font-size: var(--text-sm);
+}
+/* …and on a phone or a coarse pointer it is a 44px target: the text-link HIT STRIP (the
+   `.reveal-card__ext` / `.postings-link` recipe), an out-of-flow pseudo centred on the link, so the
+   actions row does not grow and the focus ring stays on the text. It reaches only up and down (the
+   link is wider than 44px), never into the Start button beside it. Measured 190x21px. */
+@media (max-width: 600px), (pointer: coarse) {
+  .ai-chat-intro__alt {
+    position: relative;
+    isolation: isolate;
+  }
+  .ai-chat-intro__alt::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
+  }
 }
 
 /* --- Conversation + live draft (two columns on wide viewports) --- */
@@ -5325,6 +5497,11 @@ img.agency-qr__code,
   display: grid;
   gap: var(--space-3);
 }
+/* The role illustration above the draft (@badabhai/role-art) — a header strip, rounded like the card. */
+.ai-draft__art {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
 .ai-draft__head {
   display: flex;
   align-items: center;
@@ -5386,6 +5563,10 @@ img.agency-qr__code,
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+/* The chat screen's way to the manual form — the choose screen's link, under the publish CTA. */
+.ai-chat__alt {
+  font-size: var(--text-sm);
 }
 
 /* ------------------------------------------------------------------
@@ -5631,23 +5812,26 @@ body:has(.invite-landing) .chrome-footer {
   .stat-row--kpi > * {
     flex-basis: 100%;
   }
-  /* W3-A — the label/caption pair sits between two equal `1fr` spacer rows, so it is centred on
-     the tile exactly like the icon and the figure beside it. With only the two content rows, a
-     tile WITHOUT a caption (the referral funnel, the earnings tiles) left its label at the
-     bottom of row 1 — above the centre line the figure sits on. An absent caption's row now
-     collapses to 0 and the label alone is centred. The spacer cells are EMPTY grid cells, which
-     auto-placement fills — so every child the tile can render has a named area of its own
-     (incl. the trend `delta`, under the caption; an absent one's row is 0 too). */
+  /* W3-A — the text block sits between two equal `1fr` spacer rows, so it is centred on the tile
+     like the icon beside it. With only the two content rows, a tile WITHOUT a caption (the
+     referral funnel, the earnings tiles) left its label at the bottom of row 1. An absent
+     caption's row collapses to 0. The spacer cells are EMPTY grid cells, which auto-placement
+     fills, so every child the tile can render has a named area of its own (incl. the trend
+     `delta`, under the caption; an absent one's row is 0 too).
+     The FIGURE reads with its LABEL ("Credit balance … 5"), so it sits on the label's row and the
+     two share one centre line. Spanning all five rows, it centred on the TILE instead, and a
+     caption under the label left the label one caption line (9.5px) or two (18px) above the
+     figure's centre (measured at 375px on /dashboard and /plans). */
   .stat-row--kpi .bb-stat {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-rows: 1fr auto auto auto 1fr;
     grid-template-areas:
-      "icon . value"
+      "icon . ."
       "icon label value"
-      "icon caption value"
-      "icon delta value"
-      "icon . value";
+      "icon caption ."
+      "icon delta ."
+      "icon . .";
     align-items: center;
     column-gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
@@ -6268,6 +6452,10 @@ body:has(.invite-landing) .chrome-footer {
 .dash-posting__applicants {
   position: relative;
   z-index: calc(var(--z-base) + 2);
+  /* Icon + label where the row carries its glyph (the company rows — F13). */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
   font-size: var(--ui-body-sm-size);
   font-weight: var(--weight-semibold);
   color: var(--text-link);
@@ -6279,6 +6467,23 @@ body:has(.invite-landing) .chrome-footer {
 @media (max-width: 560px) {
   .dash-posting__applicants {
     display: none;
+  }
+}
+/* …and where it shows on touch (a 768/1024px tablet) it is a 44px target: the text-link HIT
+   STRIP, centred on the link, reaching 12px up and down into the card's own padding. The link is
+   already positioned with its own z-index (a stacking context above the card's stretched link),
+   so the strip sits behind its text and above the card: a tap in the strip opens the applicants,
+   anywhere else on the card still opens the posting. No `display` here: ≤560px hides the link. */
+@media (max-width: 600px), (pointer: coarse) {
+  .dash-posting__applicants {
+    isolation: isolate;
+  }
+  .dash-posting__applicants::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
   }
 }
 .dash-posting__title {

@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { Icon } from "@badabhai/icons";
+import { IconButtonBase } from "@badabhai/icons/button";
 import { SidebarNav } from "./sidebar-nav";
 import { NavSectionsProvider } from "./nav-context";
+import { openDrawer } from "./drawer-focus";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -22,8 +26,20 @@ import type { NavSection } from "./nav-model";
  *                the title tooltip) — at this width labels + content cannot both breathe.
  *   <1024px  rail becomes an overlay drawer, closed by default.
  *
- * This component is a client boundary ONLY for the collapse/drawer state and the Escape
- * handler. Everything it renders — the nav sections, the identity block, the header slots —
+ * THE TWO RAIL TOGGLES are disclosures of the same rail (`aria-controls` → the rail's id): the
+ * header's menu button opens the drawer below 1024px, the rail's collapse button shows or hides the
+ * labels from 1280px. Each is a Tab stop exactly where it is drawn — the CSS `display: none` that
+ * hides it elsewhere already takes it out of the tab order, so neither carries a tabindex.
+ *
+ * THE DRAWER is MODAL while open (./drawer-focus.ts): closed, it is out of the Tab order
+ * (globals.css hides it, not just slides it off-screen); open, it is a labelled `role="dialog"`
+ * with `aria-modal`, the page behind it is `inert`, focus moves in and Tab stays inside it. Escape,
+ * the scrim, a link in it, a route change or widening past the drawer breakpoint close it, and
+ * focus returns to the menu button. (The menu button itself sits in the inert page while the drawer
+ * is open, so it cannot close it.)
+ *
+ * This component is a client boundary ONLY for the collapse/drawer state and the drawer's
+ * keyboard model. Everything it renders — the nav sections, the identity block, the header slots —
  * is computed on the server and passed in, so no session or role data is resolved here.
  */
 export function AppShell({
@@ -42,24 +58,43 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const railId = useId();
+  const menuId = useId();
+  const railRef = useRef<HTMLElement>(null);
+  const scrimRef = useRef<HTMLButtonElement>(null);
+  // The collapse toggle's name says what activating it does, so it changes with the state — and
+  // the state is therefore `aria-expanded` (are the rail's labels shown?), never `aria-pressed`:
+  // a pressed toggle keeps ONE name ("Expand navigation, pressed" contradicts itself).
+  const collapseLabel = collapsed ? "Expand navigation" : "Collapse navigation";
 
-  // Escape closes the drawer. Without it the scrim is the only way out, which a keyboard
-  // user cannot reach.
+  // The open drawer's keyboard model: focus in, Tab contained, Escape / a link / leaving drawer
+  // mode close it, focus back to the menu button on close. Whether the rail is a drawer right now
+  // is read from the scrim (drawn only for the open drawer below 1024px), so the breakpoint stays
+  // in the stylesheet.
   useEffect(() => {
-    if (!drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [drawerOpen]);
+    if (!drawerOpen) return undefined;
+    const rail = railRef.current;
+    if (!rail) return undefined;
+    return openDrawer({
+      doc: document,
+      view: window,
+      rail,
+      scrim: scrimRef.current,
+      menu: () => document.getElementById(menuId),
+      isModal: () =>
+        scrimRef.current !== null && getComputedStyle(scrimRef.current).display !== "none",
+      close: () => setDrawerOpen(false),
+    });
+  }, [drawerOpen, menuId]);
 
   // A route change should not leave the drawer hanging open over the page the user just
-  // navigated to. `children` changes identity on navigation, which is the signal we have
-  // without wiring a router listener into this presentational shell.
+  // navigated to. Keyed on the PATH: this shell lives in a persistent layout, whose `children`
+  // keeps its identity across navigations — keyed on that, the drawer stayed open over the new
+  // page (measured: /dashboard → a drawer link → /postings/new, still open), and with the drawer's
+  // Tab containment the keyboard would have stayed trapped in it there.
+  const pathname = usePathname();
   useEffect(() => {
     setDrawerOpen(false);
-  }, [children]);
+  }, [pathname]);
 
   const shellClass = [
     "pshell",
@@ -71,7 +106,17 @@ export function AppShell({
 
   return (
     <div className={shellClass}>
-      <aside className="pshell__rail" id={railId}>
+      {/* Open, the rail is a drawer — the only way it opens is the menu button, drawn below 1024px,
+          and leaving drawer mode closes it — so it is a labelled modal dialog then; otherwise it
+          is the plain rail landmark. */}
+      <aside
+        className="pshell__rail"
+        id={railId}
+        ref={railRef}
+        role={drawerOpen ? "dialog" : undefined}
+        aria-modal={drawerOpen ? true : undefined}
+        aria-label={drawerOpen ? "Navigation" : undefined}
+      >
         <div className="pshell__brand">{brand}</div>
 
         <SidebarNav sections={sections} />
@@ -82,43 +127,50 @@ export function AppShell({
             className="pshell__collapse"
             type="button"
             onClick={() => setCollapsed((v) => !v)}
-            aria-pressed={collapsed}
-            /* The control is only meaningful where the rail is permanent; below 1024px it
-               is hidden by CSS, and a hidden control must not stay in the tab order. */
-            tabIndex={-1}
+            aria-expanded={!collapsed}
+            aria-controls={railId}
+            aria-label={collapseLabel}
+            /* Collapsed, the button is icon-only. Its tooltip is the rail's own — the title bubble
+               every rail link shows for its hidden label — because the rail scrolls
+               (overflow-y), which would clip the shared `.bb-icon-tip` on the narrow icon rail. */
+            title={collapseLabel}
           >
-            <i
-              className={`ph-fill ph-caret-${collapsed ? "right" : "left"}`}
-              aria-hidden="true"
-            />
+            <Icon name={collapsed ? "caret-right" : "caret-left"} />
             <span className="pnav__label">Collapse</span>
           </button>
         </div>
       </aside>
 
-      {/* Scrim: interactive only while the drawer is open, and inert to assistive tech the
-          rest of the time so it never shows up as a stray button in the reading order. */}
+      {/* Scrim: a POINTER target while the drawer is open, hidden from assistive tech the rest of
+          the time so it never shows up as a stray button in the reading order. Never a Tab stop:
+          it covers the viewport, so its focus ring would be drawn off-screen; the open drawer
+          keeps Tab inside itself, and Escape closes it from the keyboard. */}
       <button
+        ref={scrimRef}
         className="pshell__scrim"
         type="button"
-        tabIndex={drawerOpen ? 0 : -1}
+        tabIndex={-1}
         aria-hidden={!drawerOpen}
         aria-label="Close navigation"
         onClick={() => setDrawerOpen(false)}
       />
 
-      <div className="pshell__main">
+      {/* Behind the open drawer the page is `inert`: no Tab stop, no pointer target, nothing a
+          screen reader can wander into — the modal half of the drawer. */}
+      <div className="pshell__main" inert={drawerOpen}>
         <header className="pshell__header">
-          <button
-            className="pshell__menu"
-            type="button"
+          {/* The shared icon-only control: "Navigation" is its name AND its visible tooltip (on
+              hover and keyboard focus, Escape-dismissable), opening inward from the top-left. */}
+          <IconButtonBase
+            id={menuId}
+            classBase="pshell__menu"
+            icon="list"
+            label="Navigation"
+            tooltipPlacement="bottom-start"
             onClick={() => setDrawerOpen((v) => !v)}
             aria-expanded={drawerOpen}
             aria-controls={railId}
-          >
-            <i className="ph-fill ph-list" aria-hidden="true" />
-            <span className="sr-only">Navigation</span>
-          </button>
+          />
           {header}
         </header>
 

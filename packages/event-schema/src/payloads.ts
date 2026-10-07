@@ -39,6 +39,12 @@ import {
   WORK_HISTORY_STATES,
   GENERAL_FORM_BRIEF_MIN_CHARS,
   GENERAL_FORM_BRIEF_MAX_CHARS,
+  FREE_CHAT_MODES,
+  FREE_CHAT_CATEGORIES,
+  FREE_CHAT_REFUSAL_TOPICS,
+  FREE_CHAT_DECIDED_BY,
+  FREE_CHAT_OUTCOMES,
+  FREE_CHAT_MODE_TRIGGERS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -1196,6 +1202,13 @@ const aiTaskType = z.enum([
   // (`companion_career_answer`, Claude primary) and charged per answer, so it is nameable
   // here in the SAME change that routes it — the lesson the entries above record.
   "companion_career_answer",
+  // ADR-0051 (#2027) — THE PROFILING-STAGE FREE CHAT. Both routed in
+  // `model_config._ROUTE_SHAPES` and charged per call: `profiling_free_classify` once per
+  // free-text message the deterministic checks did not settle (free mode and résumé mode),
+  // `profiling_free_reply` once per casual or career answer. Added in the SAME change that
+  // routes them, per the lesson the entries above record.
+  "profiling_free_classify",
+  "profiling_free_reply",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -2434,6 +2447,10 @@ export const JOB_CHANGED_FIELDS = [
   // declared kinds) was set, changed or cleared. KEY only. Not `trade_key`: that key above is
   // still the one that says the job's matching classifier moved.
   "role_kind",
+  // ADR-0050 §9 (the §4.1 migration) — ADDITIVE, same precedent. The agency job's explicit
+  // `match_skill_ids` were set, changed or cleared (by the agency or by ops). KEY only, never
+  // the ids — the same key `job_posting.updated` already carries for a posting.
+  "match_skills",
 ] as const;
 
 /**
@@ -5172,3 +5189,123 @@ export const ProfileIdentityIntakeAnsweredPayload = z
 export type ProfileIdentityIntakeAnsweredPayload = z.infer<
   typeof ProfileIdentityIntakeAnsweredPayload
 >;
+
+// ── ADR-0051 (#2027) — the profiling-stage free chat ─────────────────────────────────────────
+
+/**
+ * ONE FREE-CHAT TURN WAS SERVED in the profiling chat — what decided it and what it delivered.
+ *
+ * Emitted only for the turns the free chat answers itself: the greeting, the opener after
+ * entering résumé mode, a free-mode reply, a résumé-mode deflection or clarify. A résumé-mode
+ * message that passes through to the interview emits nothing here (the interview's own events
+ * cover it).
+ *
+ * `mode` is the mode the turn was SERVED in (after any change on this turn). `category` is the
+ * routed category (null for the greeting, the cool-down and an unavailable classifier).
+ * `confidence_bucket` is set only when the classifier decided. `refusal_topic` only for
+ * `refused`. `strike_count` only for a trash strike or the strike that started a cool-down.
+ * `nudge` is true when the every-third-casual-reply résumé nudge line was added.
+ *
+ * NEVER THE WORKER'S WORDS OR THE MODEL'S. Ids, counts and closed enums only; `.strict()` keeps
+ * it that way.
+ */
+export const ChatFreeChatTurnServedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    mode: z.enum(FREE_CHAT_MODES),
+    category: z.enum(FREE_CHAT_CATEGORIES).nullable(),
+    decided_by: z.enum(FREE_CHAT_DECIDED_BY),
+    confidence_bucket: z.enum(COMPANION_V2_CONFIDENCE_BUCKETS).nullable(),
+    outcome: z.enum(FREE_CHAT_OUTCOMES),
+    refusal_topic: z.enum(FREE_CHAT_REFUSAL_TOPICS).nullable(),
+    strike_count: z.number().int().positive().nullable(),
+    cooldown_started: z.boolean(),
+    nudge: z.boolean(),
+    submission_id: uuidSchema.nullable(),
+  })
+  .strict()
+  .refine((v) => (v.refusal_topic !== null) === (v.outcome === "refused"), {
+    message: "refusal_topic is set iff outcome is 'refused'",
+  })
+  .refine((v) => v.confidence_bucket === null || v.decided_by === "classifier", {
+    message: "confidence_bucket is set only when the classifier decided",
+  })
+  .refine((v) => !v.cooldown_started || v.strike_count !== null, {
+    message: "a cool-down is started only by a counted strike",
+  });
+export type ChatFreeChatTurnServedPayload = z.infer<typeof ChatFreeChatTurnServedPayload>;
+
+/**
+ * A PROFILING SESSION CHANGED FREE-CHAT MODE (ADR-0051). `from` is null when a session with no
+ * mode yet is stamped (an older client, a session in flight at deploy, a résumé-import opening).
+ * Entering `resume` is the lock; it is released only when the session ends.
+ */
+export const ChatFreeChatModeChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    from: z.enum(FREE_CHAT_MODES).nullable(),
+    to: z.enum(FREE_CHAT_MODES),
+    trigger: z.enum(FREE_CHAT_MODE_TRIGGERS),
+  })
+  .strict()
+  .refine((v) => v.from !== v.to, { message: "a mode change changes the mode" });
+export type ChatFreeChatModeChangedPayload = z.infer<typeof ChatFreeChatModeChangedPayload>;
+
+// ---------------------------------------------------------------------------
+// ADR-0050 §9 — the agency-job V1 twin sync (#1957). NEW EVENT, v1. No existing schema is
+// mutated: `job_posting.created` / `.updated` / `.closed` / `.paused` are deliberately NOT
+// reused for twins — consumers read them as COMPANY-posting lifecycle (admin dashboard, posting
+// counts), and `JobPostingClosedPayload.previous_status` admits only draft | open, so a twin
+// closing from `paused` or `suspended` would not validate.
+// ---------------------------------------------------------------------------
+
+/** What one sync did to a twin. `refused` = the twin was driven to `paused` and cannot serve. */
+export const AGENCY_TWIN_SYNC_OPERATIONS = [
+  "created",
+  "updated",
+  "status_changed",
+  "refused",
+] as const;
+
+/**
+ * Why a twin may not serve (ADR-0050 §4.2 step 5, §7). `kill_switch` is the disarmed sync's one
+ * action (AGENCY_TWIN_SYNC_ENABLED off). The other three fail closed on the source row.
+ */
+export const AGENCY_TWIN_REFUSED_REASONS = [
+  "no_match_skills",
+  "unknown_match_skill",
+  "text_screen_failed",
+  "kill_switch",
+] as const;
+
+/**
+ * A system-owned agency-job TWIN changed, or was refused (ADR-0050 §9). Emitted once per sync
+ * that WRITES a twin — an unchanged source writes nothing and emits nothing — inside the same
+ * transaction as the write. `actor_type: system`, `subject_type: job_posting`, subject = twin id.
+ *
+ * IDS AND ENUMS ONLY (ADR-0050 §8): no free text, no `org_label`, no agency id — the agency's
+ * `payer_id` is read by the V1 feed as an opaque interleave key and never enters a payload.
+ * `changed_fields` reuses the posting's closed KEY enum, so it can never carry a value.
+ * `refused_reason` is non-null exactly when `operation` is `refused`.
+ */
+export const JobPostingTwinSyncedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    source_job_id: uuidSchema,
+    operation: z.enum(AGENCY_TWIN_SYNC_OPERATIONS),
+    status: jobPostingStatus,
+    changed_fields: z
+      .array(z.enum(JOB_POSTING_CHANGED_FIELDS))
+      .max(JOB_POSTING_CHANGED_FIELDS.length),
+    refused_reason: z.enum(AGENCY_TWIN_REFUSED_REASONS).nullable(),
+  })
+  .strict()
+  .refine((v) => (v.operation === "refused") === (v.refused_reason !== null), {
+    message: "refused_reason is set exactly when operation is 'refused'",
+  })
+  .refine((v) => v.operation !== "refused" || v.status === "paused", {
+    message: "a refused twin is paused",
+  });
+export type JobPostingTwinSyncedPayload = z.infer<typeof JobPostingTwinSyncedPayload>;

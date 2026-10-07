@@ -3,6 +3,7 @@ import {
   day,
   experienceBandLabel,
   isActiveJob,
+  isEditableJob,
   isPausedJob,
   kAnonCount,
   neededByLabel,
@@ -91,5 +92,11 @@ describe("isActiveJob / isPausedJob — the 4-state lifecycle (open|paused|suspe
     expect(isPausedJob(base)).toBe(false);
     expect(isPausedJob({ ...base, status: "suspended" })).toBe(false);
     expect(isPausedJob({ ...base, status: "closed" })).toBe(false);
+  });
+  it("only an open or paused job offers an edit door (closed is terminal, suspended is SYSTEM-owned)", () => {
+    expect(isEditableJob(base)).toBe(true);
+    expect(isEditableJob({ ...base, status: "paused" })).toBe(true);
+    expect(isEditableJob({ ...base, status: "closed" })).toBe(false);
+    expect(isEditableJob({ ...base, status: "suspended" })).toBe(false);
   });
 });

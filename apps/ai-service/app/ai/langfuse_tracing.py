@@ -139,6 +139,12 @@ _TASK_TRACE: dict[str, tuple[str, str]] = {
     "companion_classify": ("classify-companion-message", "companion"),
     "companion_edit_parse": ("parse-companion-edit", "companion"),
     "companion_career_answer": ("answer-companion-career", "companion"),
+    # ADR-0051 - the profiling-stage free chat. Its own feature tag rather than "profiling" or
+    # "companion": it runs before the profile is confirmed (so it is not the companion) and most
+    # of it is not building a profile (so it is not profiling), and the question its views answer
+    # is "what does the free chat cost and how often does it serve a model line".
+    "profiling_free_classify": ("classify-free-chat-message", "free_chat"),
+    "profiling_free_reply": ("answer-free-chat-message", "free_chat"),
 }
 
 #: Workflow names — the ROOT trace names. Business operations, not AI tasks: a workflow is

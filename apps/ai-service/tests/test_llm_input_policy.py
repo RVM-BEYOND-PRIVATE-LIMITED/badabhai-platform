@@ -401,6 +401,53 @@ ROUTE_CASES: list[tuple[str, str, dict[str, Any], tuple[str, ...]]] = [
         },
         RAW_PIECES,
     ),
+    # ADR-0051 — the profiling-stage free chat: every model input of both routes.
+    ("free-chat-classify", "/free-chat/classify", {"text": PROBE, "mode": "free"}, RAW_PIECES),
+    (
+        "free-chat-classify-question",
+        "/free-chat/classify",
+        {"text": "5 saal", "mode": "resume", "pending_question": PROBE},
+        RAW_PIECES,
+    ),
+    (
+        "free-chat-classify-memory",
+        "/free-chat/classify",
+        {
+            "text": "aur yeh bhi",
+            "mode": "free",
+            "recent_turns": [{"role": "worker", "text": PROBE}],
+        },
+        RAW_PIECES,
+    ),
+    (
+        "free-chat-reply-career",
+        "/free-chat/reply",
+        {
+            "category": "career",
+            "text": PROBE,
+            "recent_turns": [{"role": "worker", "text": PROBE}],
+            "worker_context": _CAREER_CONTEXT,
+        },
+        RAW_PIECES,
+    ),
+    (
+        "free-chat-reply-casual",
+        "/free-chat/reply",
+        {"category": "casual", "text": PROBE},
+        RAW_PIECES,
+    ),
+    (
+        # The trade label is gated here (the companion trusts it): in the profiling stage it is
+        # whatever the interview captured so far. 64 characters at most, hence a shorter carrier.
+        "free-chat-reply-trade-label",
+        "/free-chat/reply",
+        {
+            "category": "casual",
+            "text": "namaste",
+            "worker_context": {"trade_label": "Welder at Tata Motors, phone 9876543210"},
+        },
+        ("Tata Motors", "9876543210"),
+    ),
     (
         # `shift` is a free-text field the résumé boundary does not certify, so the payload
         # gate is its only mask — the honest carrier (see test_egress_gates.py).
@@ -985,6 +1032,7 @@ ROUTER_CALLERS = frozenset(
         "routers/profiling.py",
         "routers/profile.py",
         "routers/companion.py",
+        "routers/free_chat.py",
         "routers/resume.py",
         "resume_import/resume_parse.py",
         "resume_import/resume_summary.py",
@@ -1607,6 +1655,7 @@ FLAG_READERS = frozenset(
         "routers/profiling.py",
         "routers/profile.py",
         "routers/companion.py",
+        "routers/free_chat.py",
         "routers/voice.py",
         "routers/resume.py",
         "ai/langfuse_tracing.py",  # the tracer's constructor picks the SDK hook

@@ -36,6 +36,7 @@ import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
 import { PayersModule } from "./payers/payers.module";
 import { PayerPortalModule } from "./payer-portal/payer-portal.module";
 import { AgencyModule } from "./agency/agency.module";
+import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { EmailNotificationModule } from "./notifications/email-notification.module";
@@ -121,6 +122,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,
+    // ADR-0050 (#1957) — the agency-job V1 twin sync (event poll + sweep). A leaf; behind
+    // AGENCY_TWIN_SYNC_ENABLED (off = the kill switch pauses every twin).
+    AgencyTwinModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature

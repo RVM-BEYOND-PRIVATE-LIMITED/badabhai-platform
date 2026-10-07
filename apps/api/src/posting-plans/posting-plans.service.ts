@@ -17,6 +17,7 @@ import { PricingService } from "../pricing/pricing.service";
 import { MatchConfigService } from "../match/match-config.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { PostingPlansRepository } from "./posting-plans.repository";
+import { assertNotAgencyTwin } from "../common/agency-twin-fence";
 import type {
   BuyPlanDto,
   BuyBoostDto,
@@ -175,9 +176,12 @@ export class PostingPlansService {
   }
 
   async buyPlan(jobPostingId: string, dto: BuyPlanDto, ctx: RequestContext): Promise<BuyPlanResult> {
-    if (!(await this.repo.postingExists(jobPostingId))) {
+    const syncSource = await this.repo.findPostingSyncSource(jobPostingId);
+    if (syncSource === undefined) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
     }
+    // ADR-0050 §4.3 — no plan is ever sold against a system-owned agency twin.
+    assertNotAgencyTwin(syncSource);
     const quote = await this.resolve("job_posting", dto.tier, dto.coupon, dto.payer_id);
     if (quote.grants.kind !== "posting") {
       throw new BadRequestException("resolved product is not a posting plan");
@@ -279,9 +283,12 @@ export class PostingPlansService {
   }
 
   async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<{ boost: PostingBoost; quote: Quote }> {
-    if (!(await this.repo.postingExists(jobPostingId))) {
+    const syncSource = await this.repo.findPostingSyncSource(jobPostingId);
+    if (syncSource === undefined) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
     }
+    // ADR-0050 §4.3 — no boost is ever sold against a system-owned agency twin.
+    assertNotAgencyTwin(syncSource);
     const now = new Date();
     // B-R3: no overlapping active boost.
     if (await this.repo.findActiveBoost(jobPostingId, now)) {

@@ -1,8 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, inArray, desc, eq } from "drizzle-orm";
+import { and, inArray, desc, eq, ne } from "drizzle-orm";
 import {
   type Database,
   jobs,
+  payers,
   type Job,
   type NewJob,
   type JobStatus,
@@ -41,6 +42,9 @@ export type AgencyJobUpdate = Partial<
     | "payType"
     // Migration 0131 — the display role (one of the 21 declared kinds). Closed, non-PII.
     | "roleKind"
+    // ADR-0050 C4 — the explicit `mskill_*` pick, already validated against
+    // the closed vocabulary and the cap by the service. `[]` = "not chosen yet".
+    | "matchSkillIds"
     | "status"
   >
 > & { updatedAt: Date };
@@ -67,6 +71,8 @@ export interface CreateAgencyJobInput {
   payType: JobPayType | null;
   /** Migration 0131 — the display role, or NULL ("no role picked"). Never a match input. */
   roleKind: TradeFormKindName | null;
+  /** ADR-0050 C4 — validated `mskill_*` ids, or `[]` ("not chosen yet"). */
+  matchSkillIds: string[];
 }
 
 /**
@@ -101,6 +107,7 @@ export class AgencyJobsRepository {
         requirements: input.requirements,
         payType: input.payType,
         roleKind: input.roleKind,
+        matchSkillIds: input.matchSkillIds,
         status,
       })
       .returning();
@@ -204,6 +211,43 @@ export class AgencyJobsRepository {
       .update(jobs)
       .set({ status: "open", updatedAt: now })
       .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId), eq(jobs.status, "paused")))
+      .returning();
+    return row;
+  }
+
+  // ───────────────────── Ops (ADR-0050 §6.1 step 2, #1983) ─────────────────────
+
+  /**
+   * Fetch an AGENCY job by id for the ops match-skill route — NOT owner-scoped (ops acts on
+   * any agency's job), but scoped to AGENCY rows: the owning payer must exist with
+   * `role = 'agent'`. A seed/ops row (`payer_id` NULL) or an employer-owned legacy row returns
+   * undefined, so the route can never write match input onto a row ADR-0050 does not twin.
+   * One PK probe joined to one PK probe.
+   */
+  async findAgencyJobById(jobId: string): Promise<Job | undefined> {
+    const [row] = await this.db
+      .select({ job: jobs })
+      .from(jobs)
+      .innerJoin(payers, eq(payers.id, jobs.payerId))
+      .where(and(eq(jobs.id, jobId), eq(payers.role, "agent")))
+      .limit(1);
+    return row?.job;
+  }
+
+  /**
+   * Set `match_skill_ids` on a NON-CLOSED job (ops). `closed` is terminal for edits exactly as
+   * on the agency's own PATCH, and the guard sits in the WHERE so an edit racing a close
+   * updates nothing and returns undefined.
+   */
+  async setMatchSkillIdsIfNotClosed(
+    jobId: string,
+    matchSkillIds: string[],
+    now: Date,
+  ): Promise<Job | undefined> {
+    const [row] = await this.db
+      .update(jobs)
+      .set({ matchSkillIds, updatedAt: now })
+      .where(and(eq(jobs.id, jobId), ne(jobs.status, "closed")))
       .returning();
     return row;
   }

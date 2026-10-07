@@ -5,8 +5,8 @@ import type { AdminActionOutcome } from "../lib/admin-action-result";
 export interface ResultEventsLink {
   href: string;
   /**
-   * "View event timeline" for ONE record's timeline; "View events" for the global log (an
-   * admin-directory action has no per-admin timeline, so it lands on a filtered /events).
+   * "View event timeline" for ONE record's timeline; "View all admin actions" for the admin
+   * directory, whose actions have no per-admin timeline and land on the filtered /events.
    */
   label: string;
 }
@@ -15,6 +15,18 @@ export interface ResultEventsLink {
 export function timelineLink(href: string | null): ResultEventsLink | null {
   return href ? { href, label: "View event timeline" } : null;
 }
+
+/**
+ * Every governed admin action on the audit spine — the ONE way the admin directory links into
+ * the log, under one name: the page header, the invite result and every row action's result.
+ * Each of those emits an `admin.action_performed`; there is no per-admin slice to offer instead
+ * (`admin_session` has no timeline route, and `/events?subjectType=admin_session` is every
+ * admin's sessions, not the action just taken).
+ */
+export const ALL_ADMIN_ACTIONS_LINK: ResultEventsLink = {
+  href: "/events?eventName=admin.action_performed",
+  label: "View all admin actions",
+};
 
 /**
  * The post-action result banner (Step 3 of the admin write-action plan).
