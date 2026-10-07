@@ -4,6 +4,9 @@
 **Method:** evidence-based static analysis; every claim carries a `file:line` citation.
 **Findings feed** `GAP_REGISTER.md`. Coverage caveats: `AUDIT_STATUS.md`.
 
+> **UPDATE 2026-10-07.** The `getOrgRole()` stub named in the summary is gone, and credit purchase
+> is open to every member by owner ruling — see the update note at the top of §4.
+
 ---
 
 # Authentication, Authorization & Security — payer + agency surface
@@ -144,6 +147,26 @@ Also note: **role is self-elected at signup.** `PayerSignupSchema` (`payer-auth.
 
 # 4. Org RBAC — the headline finding (audit question #4)
 
+> **UPDATE 2026-10-07 (main @ `98771cd6`).** §4.1–§4.2 are the 2026-08-11 snapshot, kept as
+> written. Since then, verified against code:
+>
+> - **The Owner gate runs against real principals (§4.2 resolved — `PAY-SEC-02`).** #2098 put
+>   `orgId`/`orgRole` on `GET /payer/me`, read from `payer_members` on every call; #2110 made
+>   payer-web's `getOrgRole()` read it (`lib/auth/org-roles.ts:60`). Only an explicit `"owner"`
+>   is Owner; null, absent or unknown is recruiter.
+> - **Billing is no longer an Owner power.** Owner ruling 2026-10-07, verbatim: *"Any user for
+>   now can buy it for now without any limitations."* #2109 removed `PayerOrgRoleGuard` +
+>   `@OrgRoles("owner")` from `POST /payer/credits`, `/credits/order` and `/credits/verify`
+>   (`payer-unlocks.controller.ts` now carries only the class-level `PayerAuthGuard`); #2110 moved
+>   payer-web's `/credits` page and `topUpAction` / `createOrderAction` / `verifyPaymentAction`
+>   from `requireOwner()` to `requirePayer()`. Purchases send `expected_price_inr`; a changed
+>   price is a `409 price_mismatch` and nothing is bought (#2101, #2112).
+> - **Team stays owner-only on both sides:** `@OrgRoles("owner")` on `POST /payer/org/members` and
+>   `DELETE /payer/org/members/:id`; `requireOwner()` on `/team` and its two write actions.
+> - The §4.1 observation still holds: credits land on the caller's own `payer_credits` row
+>   (`purchaseCredits(payer.id, …)`), because `PAY-DB-01` (org tenancy) is still OPEN — it is now
+>   being planned.
+
 ## 4.1 What exists today
 
 - `@OrgRoles` + `PayerOrgRoleGuard` are applied to **exactly one controller**: `PayerOrgMembersController` (`payer-org-members.controller.ts:34,46,59`).
@@ -166,7 +189,9 @@ Also note: **role is self-elected at signup.** `PayerSignupSchema` (`payer-auth.
 
 > **Superseded for rows 1–3 by the owner ruling 2026-10-07:** any authenticated payer may buy credits
 > (ADR-0027 D3), so `POST /payer/credits`, `/credits/order` and `/credits/verify` carry no
-> Owner gate by decision. The other rows are unchanged by that ruling.
+> Owner gate by decision. The other rows are unchanged by that ruling. Row 11's history is likewise
+> shown to every member: payer-web's `/credits` page (open to any member since #2110) reads
+> `GET /payer/credits/ledger` for its transaction history.
 
 | # | Route | File:line | Today's guards | Why Owner |
 |---|---|---|---|---|
