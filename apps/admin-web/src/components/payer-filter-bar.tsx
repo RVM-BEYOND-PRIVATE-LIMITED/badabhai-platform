@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useUrlState } from "./use-url-state";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
@@ -13,7 +13,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
  */
 export function PayerFilterBar({ basePath, status }: { basePath: string; status: string }) {
   const router = useRouter();
-  const [value, setValue] = useState(status);
+  const [value, setValue] = useUrlState(status);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();

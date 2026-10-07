@@ -22,6 +22,7 @@ import {
   skillsGateOnScreen,
   toConversationStatePatch,
   toGeneralRoadStatePatch,
+  toLlmProvenanceStatePatch,
   toResumeHistoryStatePatch,
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
@@ -1056,6 +1057,8 @@ export class ChatService {
             // row's own lock first, the envelope's second: a rebuilt envelope never erases it.
             ...storedFreeChatLock(session.conversationState),
             ...toFreeChatStatePatch(buffered.profiling),
+            // #2021 — same reasoning: the model-provenance stamp must survive a REPLACING write.
+            ...toLlmProvenanceStatePatch(buffered.profiling),
           },
           now,
         );
@@ -1340,6 +1343,12 @@ export class ChatService {
       // "released" whatever it carries. ABSENT outside résumé mode.
       ...storedFreeChatLock(storedState),
       ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
+      // #2021 — whether the model led any turn or settled any answer in this interview, SAME
+      // REASONING AS `form_kind` ABOVE (engine bookkeeping outside the frozen contract, durable
+      // only here). The extraction processor derives generic-pack match skills from the answer map
+      // only when both say "no" (owner ruling 2026-10-07, worker-only). ABSENT for a session with
+      // no envelope, which the processor reads as "not worker-only" — fail closed.
+      ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -1725,8 +1734,7 @@ export class ChatService {
           buffer.profiling?.generalRoad?.handedOver === true
             ? "general_form_handoff"
             : "resume_update_settled"
-        } ` +
-          `session=${sessionId} idle=${idleMinutes}m outcome=${outcome}`,
+        } ` + `session=${sessionId} idle=${idleMinutes}m outcome=${outcome}`,
       );
       const closed = outcome === "won";
       return {
@@ -1759,6 +1767,8 @@ export class ChatService {
           // — the row's own lock first, the envelope's second, so a rebuilt envelope never erases it.
           ...storedFreeChatLock(session.conversationState),
           ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
+          // #2021 — see `flushInterview`.
+          ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
       : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding

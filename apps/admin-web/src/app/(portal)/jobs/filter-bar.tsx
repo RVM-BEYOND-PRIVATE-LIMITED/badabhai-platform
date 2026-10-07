@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useUrlState } from "../../../components/use-url-state";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
@@ -22,7 +22,7 @@ export function JobFilterBar({
   payerId: string;
 }) {
   const router = useRouter();
-  const [values, setValues] = useState({ status, verificationStatus, payerId });
+  const [values, setValues] = useUrlState({ status, verificationStatus, payerId });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();

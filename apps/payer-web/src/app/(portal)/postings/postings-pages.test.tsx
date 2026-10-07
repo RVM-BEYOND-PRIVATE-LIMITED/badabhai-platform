@@ -227,8 +227,10 @@ describe("New posting + Post with AI are COMPANY pages — an agent goes to its 
     });
   }
 
-  it("Post with AI goes back to New posting; New posting (a rail destination) has no back link", async () => {
-    expect(head(await ai.default()).back).toEqual({ href: "/postings/new", label: "New posting" });
+  it("Post with AI (a mode of New posting) and New posting (a rail destination) have no back link", async () => {
+    // F15: the chat's own "Use the manual form instead" is its one way to the form; a back link
+    // to the same page beside it was a second door.
+    expect(head(await ai.default()).back).toBeUndefined();
     expect(head(await create.default()).back).toBeUndefined();
   });
 });
@@ -278,7 +280,11 @@ describe("/postings/<id> — Posting details", () => {
   it("company, live posting: Applicants (primary) + Edit posting, back to Postings", async () => {
     const h = head(await detail.default(params(ID)));
     expect(h.back).toEqual({ href: "/postings", label: "Postings" });
-    expect(h.primaryAction).toMatchObject({ href: `/postings/${ID}/applicants`, label: "View applicants" });
+    expect(h.primaryAction).toEqual({
+      href: `/postings/${ID}/applicants`,
+      label: "Applicants",
+      icon: "users-three",
+    });
     expect(h.secondaryActions).toEqual([
       expect.objectContaining({ href: `/postings/${ID}/edit`, label: "Edit posting" }),
     ]);

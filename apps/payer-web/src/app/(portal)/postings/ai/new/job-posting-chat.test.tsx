@@ -127,11 +127,13 @@ const CONVO: Convo = {
 /* ── walker ─────────────────────────────────────────────────────────────────────── */
 
 interface Collected {
-  buttons: Array<{ text: string; disabled: boolean; onClick?: () => void }>;
+  buttons: Array<{ text: string; disabled: boolean; className: string; onClick?: () => void }>;
   texts: string[];
   /** Every native form host rendered (id + tag), to prove which fields exist at all. */
   fields: Array<{ tag: string; id?: string }>;
   ariaLiveCount: number;
+  /** Every anchor rendered (the mocked next/link renders a native `a`). */
+  links: Array<{ href: string; text: string }>;
 }
 
 function textOf(node: ReactNode): string {
@@ -166,12 +168,16 @@ function walk(node: ReactNode, acc: Collected): void {
     acc.buttons.push({
       text: textOf(el.props.children).trim(),
       disabled: el.props.disabled === true,
+      className: typeof el.props.className === "string" ? el.props.className : "",
       onClick:
         typeof el.props.onClick === "function" ? (el.props.onClick as () => void) : undefined,
     });
   }
   if (el.type === "input" || el.type === "textarea" || el.type === "select") {
     acc.fields.push({ tag: el.type, id: el.props.id as string | undefined });
+  }
+  if (el.type === "a") {
+    acc.links.push({ href: String(el.props.href), text: textOf(el.props.children).trim() });
   }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount += 1;
   walk(el.props.children, acc);
@@ -192,7 +198,7 @@ function render(seed: {
     resumable: seed.resumable ?? [],
     loadFailed: seed.loadFailed ?? false,
   }) as ReactElement;
-  const acc: Collected = { buttons: [], texts: [], fields: [], ariaLiveCount: 0 };
+  const acc: Collected = { buttons: [], texts: [], fields: [], ariaLiveCount: 0, links: [] };
   walk(tree, acc);
   return acc;
 }
@@ -253,6 +259,86 @@ describe("choose screen — continue where you left off (cross-device)", () => {
     button(acc, "Start chat")?.onClick?.();
     await flush();
     expect(startJobPostingChatAction).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ── 1b. ONE primary on the choose screen (F18) ───────────────────────────────────── */
+
+describe("choose screen — ONE primary action (F18)", () => {
+  // The sweep counted three Safety-Yellow buttons here: a Continue per session + Start a new chat.
+  const READY_OLDER: JobPostingChatSessionSummary = {
+    ...RESUMABLE,
+    sessionId: "aaaa1111-0000-4000-8000-000000000002",
+    status: "draft_ready",
+    draftReady: true,
+    lastMessageAt: "2026-07-25T09:00:00.000Z",
+  };
+  const READY_NEWEST: JobPostingChatSessionSummary = {
+    ...RESUMABLE,
+    sessionId: "aaaa1111-0000-4000-8000-000000000003",
+    status: "draft_ready",
+    draftReady: true,
+    lastMessageAt: null,
+    startedAt: "2026-07-27T09:00:00.000Z",
+  };
+  const variant = (b: { className: string }) =>
+    /\bbb-btn--(primary|secondary)\b/.exec(b.className)?.[1];
+  const primaries = (acc: Collected) => acc.buttons.filter((b) => variant(b) === "primary");
+
+  it("Continue on the MOST RECENT ready-to-publish session is the one primary", async () => {
+    resumeJobPostingChatAction.mockResolvedValue({ ok: false, error: "x" });
+    // The newest conversation overall (RESUMABLE, 07-26) is still in progress: readiness wins.
+    const acc = render({ resumable: [RESUMABLE, READY_OLDER, READY_NEWEST] });
+    expect(primaries(acc)).toHaveLength(1);
+    expect(primaries(acc)[0]!.text).toBe("Continue");
+    primaries(acc)[0]!.onClick?.();
+    await flush();
+    expect(resumeJobPostingChatAction).toHaveBeenCalledWith({ sessionId: READY_NEWEST.sessionId });
+  });
+
+  it("every other Continue and Start a new chat are secondary", () => {
+    const acc = render({ resumable: [RESUMABLE, READY_OLDER, READY_NEWEST] });
+    const continues = acc.buttons.filter((b) => b.text === "Continue");
+    expect(continues.map(variant).sort()).toEqual(["primary", "secondary", "secondary"]);
+    expect(variant(button(acc, "Start a new chat")!)).toBe("secondary");
+  });
+
+  it("nothing ready to publish: the most recent conversation's Continue is the primary", async () => {
+    resumeJobPostingChatAction.mockResolvedValue({ ok: false, error: "x" });
+    const older = {
+      ...RESUMABLE,
+      sessionId: READY_OLDER.sessionId,
+      lastMessageAt: "2026-07-01T00:00:00.000Z",
+    };
+    const acc = render({ resumable: [older, RESUMABLE] });
+    expect(primaries(acc)).toHaveLength(1);
+    primaries(acc)[0]!.onClick?.();
+    await flush();
+    expect(resumeJobPostingChatAction).toHaveBeenCalledWith({ sessionId: SESSION_ID });
+  });
+
+  it("nothing to resume: Start chat is the page's one primary", () => {
+    const acc = render({ resumable: [] });
+    expect(primaries(acc).map((b) => b.text)).toEqual(["Start chat"]);
+  });
+});
+
+/* ── 1c. The way to the manual form, on BOTH screens ─────────────────────────────── */
+
+describe("the manual form stays one link away on both screens (review of #2037)", () => {
+  // Post with AI is a MODE of New posting with no back link (F15), so its own "Use the manual
+  // form instead" is the only way to the form in the page — once a chat starts too.
+  const manual = (acc: Collected) => acc.links.filter((l) => l.href === "/postings/new");
+  const ONE = [{ href: "/postings/new", text: "Use the manual form instead" }];
+
+  it("the choose screen offers it", () => {
+    expect(manual(render({ resumable: [RESUMABLE] }))).toEqual(ONE);
+    expect(manual(render({ resumable: [] }))).toEqual(ONE);
+  });
+
+  it("the chat screen keeps it — mid-conversation and once the draft is ready", () => {
+    expect(manual(render({ convo: CONVO }))).toEqual(ONE);
+    expect(manual(render({ convo: { ...CONVO, draftReady: true } }))).toEqual(ONE);
   });
 });
 

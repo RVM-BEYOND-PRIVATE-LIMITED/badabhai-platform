@@ -33,6 +33,11 @@ import {
 
 const DOCS = join(__dirname, "..", "..", "..", "docs", "registers", "taxonomy-decisions");
 
+// The audit-era vocabulary is the first 18 entries. #2022 (owner ruling 2026-10-06) APPENDED eight
+// skills for trade forms that derived nothing; it touched no TRADE_KEYS route.
+const AUDIT_ERA_MATCH_SKILLS = 18;
+const MINTED_FOR_2022 = 8;
+
 describe("the demand surface is closed, and that is the whole argument", () => {
   it("TRADE_TO_MATCH_SKILL is TOTAL over TRADE_KEYS — no job is unroutable", () => {
     for (const t of TRADE_KEYS) {
@@ -42,11 +47,14 @@ describe("the demand surface is closed, and that is the whole argument", () => {
   });
 
   it("15 trades reach 7 match skills, leaving 11 no job can ever require", () => {
+    // Through TRADE_TO_MATCH_SKILL (the one-time seed-job conversion). The eight #2022 skills are
+    // postable directly by an employer, but no TRADE_KEY routes to one, so they join the
+    // unreachable set from this bridge's point of view: 11 at audit time, + 8.
     const reachable = demandReachableMatchSkills();
     expect(TRADE_KEYS).toHaveLength(15);
     expect(reachable.size).toBe(7);
-    expect(MATCH_SKILLS).toHaveLength(18);
-    expect(unreachableMatchSkills()).toHaveLength(11);
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022);
+    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022);
   });
 
   it("the unreachable eleven include the whole welding and plumbing vocabulary", () => {
@@ -165,12 +173,14 @@ describe("the measured answer", () => {
 
 describe("nothing was invented", () => {
   it("MATCH_SKILLS is still 18 and no mskill_* was added", () => {
-    expect(MATCH_SKILLS).toHaveLength(18);
-    expect(art.match_skills_defined).toBe(18);
+    // By THIS audit. The artifact is the dated record and still says 18; #2022 appended eight
+    // afterwards by owner ruling, which is the only reason the live count moved.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022);
+    expect(art.match_skills_defined).toBe(AUDIT_ERA_MATCH_SKILLS);
   });
 
   it("every family's attribute-side mapping comes from the existing 18", () => {
-    const known = new Set(MATCH_SKILLS.map((m) => m.skillId));
+    const known = new Set(MATCH_SKILLS.slice(0, AUDIT_ERA_MATCH_SKILLS).map((m) => m.skillId));
     for (const f of art.families) {
       for (const m of f.attributeSideMatchSkills) expect(known, `${f.family} -> ${m}`).toContain(m);
       for (const m of f.demandSideMatchSkills) expect(known, `${f.family} -> ${m}`).toContain(m);

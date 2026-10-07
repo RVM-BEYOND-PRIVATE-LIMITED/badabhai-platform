@@ -41,10 +41,14 @@ vi.mock("./actions", () => ({
 // Injected per-render state queue (source order: rows, state-record).
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
+/** Each slot's setter from the LAST render, by source order (read to see what a click stores). */
+const setters: Array<ReturnType<typeof vi.fn>> = [];
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
+  const set = vi.fn();
+  setters[i] = set;
+  return [seeded, set] as [unknown, (v: unknown) => void];
 });
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
@@ -67,6 +71,7 @@ const OPEN: PostingSummary = {
 interface CollectedButton {
   text: string;
   disabled: boolean;
+  loading: boolean;
   onClick?: () => void;
 }
 interface CollectedBadge {
@@ -128,6 +133,7 @@ function walk(node: ReactNode, acc: Collected): void {
     acc.buttons.push({
       text: textOf(el.props.children).trim(),
       disabled: el.props.disabled === true,
+      loading: el.props.loading === true,
       onClick: typeof el.props.onClick === "function" ? (el.props.onClick as () => void) : undefined,
     });
     return;
@@ -220,16 +226,62 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(resumePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
   });
 
-  it("a CLOSED posting disables Pause + Add applicant slots and offers no Close posting (terminal)", () => {
-    const { buttons } = collect(render([{ ...OPEN, status: "closed" }]));
-    expect(buttons.find((b) => b.text === "Pause")?.disabled).toBe(true);
-    expect(buttons.find((b) => b.text === "Add applicant slots")?.disabled).toBe(true);
-    expect(buttons.find((b) => b.text === "Close posting")).toBeUndefined();
+  it("a CLOSED posting offers NO lifecycle button and no empty action bar (terminal — F27)", () => {
+    // A disabled button can't show its reason (no hover on a disabled control), so an action
+    // that does not apply is not drawn at all.
+    const tree = render([{ ...OPEN, status: "closed" }]);
+    expect(collect(tree).buttons).toEqual([]);
+    expect(byClass(tree, "posting-card__actions")).toEqual([]);
   });
 
   it("a busy row disables its buttons (no double-fire while an action is pending)", () => {
-    const { buttons } = collect(render([OPEN], { [OPEN.id]: { busy: true, error: null } }));
+    const { buttons } = collect(
+      render([OPEN], { [OPEN.id]: { busy: "pause", error: null, notice: null } }),
+    );
+    expect(buttons).toHaveLength(3);
     expect(buttons.every((b) => b.disabled)).toBe(true);
+  });
+
+  it("only the PRESSED button shows the spinner; the others are just disabled (F39)", () => {
+    for (const [busy, label] of [
+      ["pause", "Pause"],
+      ["topUp", "Add applicant slots"],
+      ["close", "Close posting"],
+    ] as const) {
+      const { buttons } = collect(
+        render([OPEN], { [OPEN.id]: { busy, error: null, notice: null } }),
+      );
+      expect(
+        buttons.filter((b) => b.loading).map((b) => b.text),
+        busy,
+      ).toEqual([label]);
+      expect(
+        buttons.every((b) => b.disabled),
+        busy,
+      ).toBe(true);
+    }
+    const resuming = collect(
+      render([{ ...OPEN, status: "paused" }], {
+        [OPEN.id]: { busy: "resume", error: null, notice: null },
+      }),
+    );
+    expect(resuming.buttons.filter((b) => b.loading).map((b) => b.text)).toEqual(["Resume"]);
+  });
+
+  it("pressing a button records WHICH action is running for that row (F39)", () => {
+    for (const [label, busy] of [
+      ["Pause", "pause"],
+      ["Add applicant slots", "topUp"],
+      ["Close posting", "close"],
+    ] as const) {
+      const { buttons } = collect(render([OPEN]));
+      buttons.find((b) => b.text === label)!.onClick!();
+      // Slot 2 (source order) is the per-row action state; its first write marks the row busy.
+      const update = setters[1]!.mock.calls[0]![0] as (
+        prev: Record<string, unknown>,
+      ) => Record<string, unknown>;
+      expect(update({}), label).toEqual({ [OPEN.id]: { busy, error: null, notice: null } });
+    }
   });
 
   it("clicking Add applicant slots fires ITS action; a seeded row error renders in the row", () => {
@@ -238,26 +290,47 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
 
     const errored = render([OPEN], {
-      [OPEN.id]: { busy: false, error: "This posting has no active plan yet — buy a plan first.", notice: null },
+      [OPEN.id]: {
+        busy: null,
+        error: "This posting has no active plan yet — buy a plan first.",
+        notice: null,
+      },
     });
     expect(textOf(errored)).toContain("no active plan");
+    // A row that has reported is IDLE again: every action is pressable, nothing spins.
+    const idle = collect(errored).buttons;
+    expect(idle.every((b) => !b.disabled && !b.loading)).toBe(true);
   });
 
-  it("a DRAFT posting offers ENABLED Close posting (Pause disabled); clicking it fires ITS action", () => {
+  it("a DRAFT posting offers ENABLED Close posting and NO Pause; clicking Close fires ITS action", () => {
     const { buttons } = collect(render([{ ...OPEN, status: "draft" }]));
     const close = buttons.find((b) => b.text === "Close posting");
     expect(close?.disabled).toBe(false);
-    // Pause requires an OPEN posting — a draft renders it disabled, never a fake action.
-    expect(buttons.find((b) => b.text === "Pause")?.disabled).toBe(true);
+    // Pause requires an OPEN posting — a draft does not draw it (a disabled Pause said nothing
+    // about why — F27), never a fake action either.
+    expect(buttons.map((b) => b.text)).toEqual(["Add applicant slots", "Close posting"]);
+    expect(buttons.every((b) => !b.disabled)).toBe(true);
     close!.onClick!();
     expect(closePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
   });
 
+  it("a SUSPENDED posting draws no Pause it could never use; slots stay as they are today", () => {
+    const { buttons } = collect(render([{ ...OPEN, status: "suspended" }]));
+    expect(buttons.map((b) => `${b.text}${b.disabled ? " [disabled]" : ""}`)).toEqual([
+      "Add applicant slots",
+    ]);
+  });
+
   it("a seeded SUCCESS notice (the paid slots confirmation) renders in the aria-live row region", () => {
     const tree = render([OPEN], {
-      [OPEN.id]: { busy: false, error: null, notice: "Applicant slots added — 10 more applicant views." },
+      [OPEN.id]: {
+        busy: null,
+        error: null,
+        notice: "Applicant slots added — 10 more applicant views.",
+      },
     });
     expect(textOf(tree)).toContain("Applicant slots added — 10 more applicant views.");
+    expect(collect(tree).buttons.every((b) => !b.disabled && !b.loading)).toBe(true);
   });
 });
 
@@ -319,7 +392,8 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
       `/postings/${OPEN.id}/applicants`,
       `/postings/${OPEN.id}/edit`,
     ]);
-    expect(textOf(links[0]!).replace(/\s+/g, " ").trim()).toBe("Applicants Edit");
+    // One name per destination on every company surface (F13): "Applicants", "Edit posting".
+    expect(textOf(links[0]!).replace(/\s+/g, " ").trim()).toBe("Applicants Edit posting");
     // The facts: the headcount is "openings" (the entity is a posting; "vacancies" named both).
     expect(textOf(meta[0]!)).toBe("Pune, MH6-20 openings2 / 10 applicantsPosted 2026-06-22");
   });
@@ -358,7 +432,7 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
     expect(liveOf(render([OPEN])).children.every((c) => c === false || c == null)).toBe(true);
     // With a result, the SAME region (still in the a11y tree all along) holds the band.
     const errored = liveOf(
-      render([OPEN], { [OPEN.id]: { busy: false, error: "That failed.", notice: null } }),
+      render([OPEN], { [OPEN.id]: { busy: null, error: "That failed.", notice: null } }),
     );
     expect(errored.children.some((c) => typeof c === "object" && c !== null)).toBe(true);
   });

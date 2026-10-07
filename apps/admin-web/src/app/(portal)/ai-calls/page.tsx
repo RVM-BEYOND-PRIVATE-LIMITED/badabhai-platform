@@ -161,7 +161,7 @@ export default async function AiCallsPage({
           <FilterPanel
             headingId="ac-filters"
             heading="Filter AI calls"
-            activeCount={[taskType, success, workerId].filter(Boolean).length}
+            filters={{ taskType, success, workerId }}
           >
             <AiCallFilterBar
               taskType={taskType ?? ""}

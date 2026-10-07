@@ -632,6 +632,12 @@ describe("PostingForm — owner naming ruling (labels)", () => {
     expect(hint).toContain("share contact only after you unlock an applicant.");
     expect(hint).not.toContain("candidate");
   });
+
+  it("the description hint names the entity 'posting', never 'job' (F36)", () => {
+    const hint = textOf(byId(render({ fields: FULL_FIELDS, fieldErrors: {} }), "description-msg"));
+    expect(hint).toContain("Workers read this when they open the posting.");
+    expect(hint).not.toMatch(/\bjob\b/i);
+  });
 });
 
 describe("PostingForm — typing in a pay box stands its order error down again (reward early)", () => {

@@ -82,6 +82,24 @@ function day(ts: string): string {
   return Number.isNaN(d.getTime()) ? ts : d.toISOString().slice(0, 10);
 }
 
+/**
+ * The conversation the choose screen leads with — its Continue is the screen's ONE primary (F18):
+ * the most recent one that is ready to publish, else the most recent one. Recency is the last
+ * message, else the start. Every other Continue, and "Start a new chat", is secondary.
+ */
+export function leadSessionId(sessions: readonly JobPostingChatSessionSummary[]): string | null {
+  const when = (s: JobPostingChatSessionSummary) => {
+    const t = Date.parse(s.lastMessageAt ?? s.startedAt);
+    return Number.isNaN(t) ? 0 : t;
+  };
+  const ready = sessions.filter((s) => s.draftReady);
+  let lead: JobPostingChatSessionSummary | null = null;
+  for (const s of ready.length > 0 ? ready : sessions) {
+    if (lead === null || when(s) > when(lead)) lead = s;
+  }
+  return lead?.sessionId ?? null;
+}
+
 export interface JobPostingChatProps {
   /** In-progress sessions from `GET /payer/job-posting-chat/sessions` (cross-device pickup). */
   resumable: JobPostingChatSessionSummary[];
@@ -201,6 +219,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
 
   /* ── 1. CHOOSE: continue where you left off, or start fresh ─────────────────── */
   if (convo === null) {
+    const lead = leadSessionId(resumable);
     return (
       <div className="ai-chat-start">
         {resumable.length > 0 ? (
@@ -230,7 +249,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
                     </span>
                   </div>
                   <Button
-                    variant="primary"
+                    variant={s.sessionId === lead ? "primary" : "secondary"}
                     size="md"
                     iconRight="arrow-right"
                     loading={busy}
@@ -259,7 +278,9 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
             </p>
           ) : null}
           <div className="ai-chat-intro__actions">
+            {/* The screen's one primary is a Continue while there is anything to continue. */}
             <Button
+              variant={resumable.length > 0 ? "secondary" : "primary"}
               size="lg"
               iconRight="chat-circle-dots"
               loading={busy}
@@ -354,6 +375,11 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               Keep answering — publish unlocks once the posting has everything it needs.
             </p>
           ) : null}
+          {/* The page has no back link (a MODE of New posting — F15), so the way to the manual
+              form stays here once a conversation is open, as on the choose screen. */}
+          <Link className="ai-chat__alt" href="/postings/new">
+            Use the manual form instead
+          </Link>
         </div>
       </aside>
     </div>

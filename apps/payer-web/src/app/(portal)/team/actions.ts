@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireOwner } from "../../../lib/auth/org-roles";
 import { requirePayer } from "../../../lib/auth";
@@ -41,7 +42,11 @@ export async function removeMemberAction(input: { memberId: string }): Promise<T
     return { ok: false, message: "Invalid member." };
   }
   const res = await removeOrgMember({ memberId: id.data });
-  return res.ok ? { ok: true, message: res.message } : { ok: false, message: res.error };
+  if (!res.ok) return { ok: false, message: res.error };
+  // The Team list is a server read: refresh it so the removed member leaves the page (the API
+  // lists no removed member). It used to stay on screen until a reload.
+  revalidatePath("/team");
+  return { ok: true, message: res.message };
 }
 
 export async function acceptInviteAction(input: { token: string }): Promise<TeamActionResult> {

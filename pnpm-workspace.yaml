@@ -198,8 +198,18 @@ overrides:
   # out as "the one with a plausible live path" because `next/image` optimization decodes
   # images and worker photos are served from Supabase — so this is an image decoder on a
   # request path, not build tooling, and it had been uncovered since the floor was written.
-  sharp@<0.35.4: "^0.35.4"
-  shell-quote@<1.8.5: "^1.8.5"
+  # DEP-10 (2026-10-06). SUPERSEDES both floors on these two lines (was `sharp@<0.35.4:
+  # ^0.35.4` and `shell-quote@<1.8.5: ^1.8.5`) — the version-keyed-snapshot failure the js-yaml
+  # note above describes, instances five and six: each floor is satisfied by the version the
+  # tree already sat on, so pnpm never moved past a NEWER advisory.
+  #   sharp        GHSA-wq5f-xc86-pv6w (HIGH, librsvg in the bundled libvips) patched at 0.35.5.
+  #                Same live path as DEP-6: `next/image` decodes images on a request path.
+  #   shell-quote  GHSA-pqg4-j6r4-53mv (CRITICAL, `quote()` command injection via a line
+  #                terminator after a `{ comment }` token) on >=1.8.4 <1.11.0, patched at 1.11.0.
+  #                Reached via drizzle-orm > gel; nothing in this repo calls `quote()`.
+  # Surfaced by #2071 (a ci.yml change re-runs deps-audit); main's tree carries both.
+  sharp@<0.35.5: "^0.35.5"
+  shell-quote@<1.11.0: "^1.11.0"
   # ---------------------------------------------------------------------------
   # DEP-9 (2026-10-06). Ten advisories published at once (3 critical, 1 high, 5 moderate,
   # 1 low) turned deps-audit red on every lockfile PR. All transitive, no parent has shipped

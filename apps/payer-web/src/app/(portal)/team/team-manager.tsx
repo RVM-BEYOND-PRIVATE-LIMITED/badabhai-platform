@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { OrgMemberView, OrgMemberStatus } from "../../../lib/org-members";
 import type { OrgRole } from "../../../lib/auth/org-roles";
-import { Badge, Button, Input } from "../../../components/ds";
+import { Badge, Button, Dialog, Input } from "../../../components/ds";
+import { RetryButton } from "../../../components/retry-button";
 import { inviteMemberAction, removeMemberAction } from "./actions";
 
 /**
@@ -23,20 +24,57 @@ import { inviteMemberAction, removeMemberAction } from "./actions";
  * next. The action result is a TONED `alert` band — success (green ✓) or danger (red ⚠) driven by
  * the action's `ok` flag, mirroring accept-invite. The message string is already PII-safe (it
  * never echoes an email), so tone conveys outcome without becoming an enumeration oracle.
+ *
+ * `members === null` means the list read FAILED (F30): the directory shows the standard in-place
+ * error with a Retry, and the invite form stays. On a phone the table is re-laid as one card per
+ * member so Remove is on screen without scrolling it sideways (F38, globals.css); because CSS
+ * re-display can drop a table's semantics in some engines, every part states its role.
+ *
+ * REMOVE ASKS FIRST: a row's Remove opens the generic DS Dialog ("Remove <masked email> from your
+ * team?" — Cancel / Remove); only its Remove calls the action (and only then is the last result
+ * message cleared — asking or cancelling leaves it). A successful removal revalidates /team, so the
+ * row leaves the list.
+ *
+ * FOCUS, ONLY WHEN IT WAS LOST. The Dialog hands focus back to its trigger on close — but a
+ * confirmed removal disables every Remove while it runs, so that restore falls to the body. Once
+ * the dialog is closed and the removal has settled (and, after a SUCCESS, once the refreshed list
+ * has dropped the row), focus goes back to the row's Remove — or to the Members heading when the
+ * row is gone. It is put back only when it is still LOST (on the body): a payer who moved on in the
+ * meantime — typing in the invite field — is left where they are.
  */
 const ROLE_TONE: Record<OrgRole, "brand" | "neutral"> = { owner: "brand", recruiter: "neutral" };
 /** The directory's heading — also the NAME of its scroll region (aria-labelledby). */
 const MEMBERS_HEADING_ID = "team-members-title";
+/** A row's Remove — where focus returns after its confirm. The member id is the org's own. */
+const removeButtonId = (memberId: string) => `team-remove-${memberId}`;
 const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = {
   active: "success",
   invited: "warning",
   removed: "neutral",
 };
 
-export function TeamManager({ members }: { members: OrgMemberView[] }) {
+export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // The member a Remove is waiting to be confirmed for — the confirm dialog is open while set.
+  const [confirming, setConfirming] = useState<OrgMemberView | null>(null);
   const [pending, startTransition] = useTransition();
+  // Where focus goes back once the confirm has closed and any removal has settled: the trigger's
+  // id, and — after a successful removal — the member whose row must leave the list first.
+  const focusBack = useRef<{ id: string; untilGone: string | null } | null>(null);
+
+  useEffect(() => {
+    const back = focusBack.current;
+    if (back === null || confirming !== null || pending) return;
+    // Removed, but the refreshed list still draws the row: wait for it (never focus the Remove
+    // of a member who is already gone).
+    if (back.untilGone !== null && members?.some((m) => m.memberId === back.untilGone)) return;
+    focusBack.current = null;
+    // Only when focus was LOST: the payer may have moved on while it ran — leave them there.
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) return;
+    (document.getElementById(back.id) ?? document.getElementById(MEMBERS_HEADING_ID))?.focus();
+  }, [confirming, pending, members]);
 
   function onInvite(e: FormEvent) {
     e.preventDefault();
@@ -48,11 +86,23 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
     });
   }
 
-  function onRemove(memberId: string) {
+  function askRemove(member: OrgMemberView) {
+    focusBack.current = { id: removeButtonId(member.memberId), untilGone: null };
+    setConfirming(member);
+  }
+
+  function confirmRemove() {
+    const member = confirming;
+    if (member === null) return;
     setMessage(null);
+    setConfirming(null);
     startTransition(async () => {
-      const res = await removeMemberAction({ memberId });
+      const res = await removeMemberAction({ memberId: member.memberId });
       setMessage({ ok: res.ok, text: res.message });
+      // The action revalidated /team: focus waits for the refreshed list to drop the row.
+      if (res.ok && focusBack.current !== null) {
+        focusBack.current = { ...focusBack.current, untilGone: member.memberId };
+      }
     });
   }
 
@@ -103,7 +153,8 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
       <section className="panel panel--table">
         <div className="panel__head">
           <div className="panel__text">
-            <h2 className="panel__title" id={MEMBERS_HEADING_ID}>
+            {/* tabIndex -1: focus can be PUT here (after a removed row is gone), never Tabbed to. */}
+            <h2 className="panel__title" id={MEMBERS_HEADING_ID} tabIndex={-1}>
               Members
             </h2>
             <p className="panel__sub">
@@ -112,7 +163,21 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
           </div>
         </div>
         <div className="panel__body">
-          {members.length === 0 ? (
+          {members === null ? (
+            <div className="state state--error">
+              <span className="state__icon">
+                <Icon name="warning-circle" />
+              </span>
+              <h3 className="state__title">We couldn&rsquo;t load your team</h3>
+              <p className="state__body">
+                Nothing has changed — everyone still has the access they had. You can still invite a
+                recruiter above; retry to see the list.
+              </p>
+              <div className="state__actions">
+                <RetryButton />
+              </div>
+            </div>
+          ) : members.length === 0 ? (
             <div className="state">
               <span className="state__icon">
                 <Icon name={ACTION_ICON.users} />
@@ -135,19 +200,27 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
               role="region"
               aria-labelledby={MEMBERS_HEADING_ID}
             >
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th scope="col">Member</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Manage</th>
+              <table className="table" role="table">
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th scope="col" role="columnheader">
+                      Member
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Role
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Status
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Manage
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody role="rowgroup">
                   {members.map((m) => (
-                    <tr key={m.memberId}>
-                      <td className="mono">
+                    <tr key={m.memberId} role="row">
+                      <td className="mono" role="cell">
                         {m.emailMasked}
                         {m.isSelf ? (
                           <>
@@ -156,23 +229,24 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
                           </>
                         ) : null}
                       </td>
-                      <td>
+                      <td role="cell">
                         <Badge tone={ROLE_TONE[m.orgRole]}>{m.orgRole}</Badge>
                       </td>
-                      <td>
+                      <td role="cell">
                         <Badge tone={STATUS_TONE[m.status]}>{m.status}</Badge>
                       </td>
-                      <td className="rowactions">
+                      <td className="rowactions" role="cell">
                         {m.isSelf || m.orgRole === "owner" ? (
                           // Decorative placeholder: this row has no remove affordance (own row
                           // or an owner). Hidden from AT so the cell reads as empty, not as "—".
                           <span aria-hidden="true">—</span>
                         ) : (
                           <Button
+                            id={removeButtonId(m.memberId)}
                             variant="secondary"
                             size="sm"
                             disabled={pending}
-                            onClick={() => onRemove(m.memberId)}
+                            onClick={() => askRemove(m)}
                           >
                             Remove
                           </Button>
@@ -186,6 +260,25 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
           )}
         </div>
       </section>
+
+      {/* Remove asks first — the generic DS Dialog (never the credit-spend confirm). */}
+      <Dialog
+        open={confirming !== null}
+        onClose={() => setConfirming(null)}
+        title={confirming ? `Remove ${confirming.emailMasked} from your team?` : undefined}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirming(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmRemove}>
+              Remove
+            </Button>
+          </>
+        }
+      >
+        They will lose access to this hiring desk.
+      </Dialog>
     </>
   );
 }

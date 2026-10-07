@@ -373,7 +373,6 @@ describe("the shell's trail and the page's back link never open the same page (e
         `company /postings/${POSTING}`,
         `company /postings/${POSTING}/applicants`,
         `company /postings/${POSTING}/edit`,
-        `company /postings/ai/new`,
       ].sort(),
     );
     // A deeper page keeps BOTH doors, to DIFFERENT pages: the trail → Postings, the back link →
@@ -387,15 +386,25 @@ describe("the shell's trail and the page's back link never open the same page (e
     expect(withCrumbLink.length).toBeGreaterThanOrEqual(both.length);
   });
 
-  it("one level below a destination, the trail names it as text (the back link is the way up)", async () => {
+  it("one level below a destination, the trail is text only (the back link is the way up)", async () => {
     for (const route of ROUTES.filter((r) =>
-      [`/postings/${POSTING}`, `/agency/jobs/${JOB}`, "/postings/ai/new"].includes(r.path),
+      [`/postings/${POSTING}`, `/agency/jobs/${JOB}`].includes(r.path),
     )) {
       const r = await renderRoute(route);
       expect(r.crumbLinks, route.path).toEqual([]);
       expect(r.crumbIsLandmark, route.path).toBe(false);
       expect(r.back, route.path).not.toBeNull();
     }
+  });
+
+  it("Post with AI (a mode of New posting) has no back link and no trail link (F15)", async () => {
+    // Its one way to the form is the chat's own "Use the manual form instead".
+    const route = ROUTES.find((r) => r.path === "/postings/ai/new")!;
+    const r = await renderRoute(route);
+    expect(r.back).toBeNull();
+    expect(r.crumbLinks).toEqual([]);
+    expect(r.crumbIsLandmark).toBe(false);
+    expect(r.html).toContain('<a href="/postings/new" class="ai-chat-intro__alt">');
   });
 });
 

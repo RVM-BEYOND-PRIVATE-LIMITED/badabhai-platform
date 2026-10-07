@@ -179,3 +179,99 @@ describe("what the open drawer renders", () => {
     expect(el.props.className).toBe("shell shell--drawer-open");
   });
 });
+
+/**
+ * REVIEW L1 — the drawer closed only when the PATHNAME changed, so following the drawer's link for
+ * the page you are already on (or one that only changes the query) left it open over the page,
+ * with that page still inert. Any link activated inside the drawer closes it now; the pathname
+ * effect stays for navigations that start elsewhere.
+ */
+describe("a link activated inside the drawer closes it (review L1)", () => {
+  /** The <aside> the shell renders, from the function form (no DOM). */
+  const aside = () => {
+    hooks.open = true;
+    const root = Shell(props) as ReactElement<{ children: ReactElement[] }>;
+    const el = [root.props.children]
+      .flat()
+      .find(
+        (c): c is ReactElement<{ id?: string; onClick?: (e: unknown) => void }> =>
+          Boolean(c) && (c as ReactElement<{ id?: string }>).props?.id === "portal-sidebar",
+      );
+    expect(el, "the sidebar <aside>").toBeDefined();
+    return el!;
+  };
+  /** A plain primary click (as a tap or Enter on a link fires it) whose target sits inside (or is) a link, or not. */
+  const clickOn = (inLink: boolean, extra: Record<string, unknown> = {}) => ({
+    button: 0,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...extra,
+    target: {
+      closest: (selector: string) =>
+        inLink && selector === "a[href]" ? { href: "/workers" } : null,
+    },
+  });
+
+  it("a click on a drawer link — the current page's included — closes the drawer", () => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(clickOn(true));
+    expect(hooks.setOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("a click elsewhere in the drawer (a group title, the identity block) leaves it open", () => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(clickOn(false));
+    expect(hooks.setOpen).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * REVIEW Nit-2 — a modified click on a drawer link opens it ELSEWHERE (Ctrl/Cmd: a new tab, Shift:
+ * a new window, Alt: a download, the middle button: a new tab): this page does not navigate, so the
+ * drawer must stay open. Guarded on the click itself, not on `defaultPrevented` — Next's Link
+ * calls preventDefault on every plain click it routes.
+ */
+describe("a modified click on a drawer link leaves the drawer open (review Nit-2)", () => {
+  const aside = () => {
+    hooks.open = true;
+    const root = Shell(props) as ReactElement<{ children: ReactElement[] }>;
+    return [root.props.children]
+      .flat()
+      .find(
+        (c): c is ReactElement<{ id?: string; onClick?: (e: unknown) => void }> =>
+          Boolean(c) && (c as ReactElement<{ id?: string }>).props?.id === "portal-sidebar",
+      )!;
+  };
+  const linkClick = (extra: Record<string, unknown>) => ({
+    button: 0,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    defaultPrevented: true, // Next's Link prevents the default of every click it handles
+    ...extra,
+    target: {
+      closest: (selector: string) => (selector === "a[href]" ? { href: "/events" } : null),
+    },
+  });
+
+  it.each([
+    ["Ctrl-click (a new tab)", { ctrlKey: true }],
+    ["Cmd-click (a new tab)", { metaKey: true }],
+    ["Shift-click (a new window)", { shiftKey: true }],
+    ["Alt-click (a download)", { altKey: true }],
+    ["a middle-button click (a new tab)", { button: 1 }],
+  ])("%s", (_what, extra) => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(linkClick(extra));
+    expect(hooks.setOpen).not.toHaveBeenCalled();
+  });
+
+  it("a plain click still closes it, even though Link has prevented its default", () => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(linkClick({}));
+    expect(hooks.setOpen).toHaveBeenCalledWith(false);
+  });
+});

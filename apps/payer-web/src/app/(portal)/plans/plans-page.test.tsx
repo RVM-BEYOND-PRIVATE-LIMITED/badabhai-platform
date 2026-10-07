@@ -232,7 +232,7 @@ describe("/plans — the page spine and the per-posting table", () => {
     ]);
   });
 
-  it("each row's role opens that posting's applicants; the table stays faceless", async () => {
+  it("each row's role opens that POSTING (a title always opens the details — F12); faceless", async () => {
     getCapacity.mockResolvedValue(
       capacity({
         activeVacancies: 1,
@@ -250,9 +250,11 @@ describe("/plans — the page spine and the per-posting table", () => {
     );
     const out = await html();
     expect(links(out)).toContainEqual({
-      href: "/postings/bbbb2222-0000-4000-8000-000000000001/applicants",
+      href: "/postings/bbbb2222-0000-4000-8000-000000000001",
       text: "CNC Machinist",
     });
+    // Applicants are reached through the posting's own "Applicants" action, never its title.
+    expect(links(out).filter((l) => l.href.endsWith("/applicants"))).toEqual([]);
     expect(textOf(out)).not.toMatch(/phone|\bemail\b|\+?\d{7,}/i);
   });
 });

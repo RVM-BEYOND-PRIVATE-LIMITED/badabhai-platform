@@ -61,9 +61,11 @@
   --warn-soft: var(--warning-tint);
 }
 
-/* FOCUS IN FORCED COLORS. The base `:focus-visible` in tokens.css is `outline: none` + a
-   box-shadow ring, and Windows forced-colors mode DROPS box-shadows — a keyboard user in High
-   Contrast had no focus indicator anywhere in the portal. So this rule also spends the
+/* FOCUS IN FORCED COLORS. Windows forced-colors mode DROPS box-shadows, and the base
+   `:focus-visible` in tokens.css is a box-shadow ring: while its outline was `none`, a keyboard
+   user in High Contrast had no focus indicator anywhere in the portal. tokens.css now draws a
+   TRANSPARENT `--border-bold` outline under the ring (#1856), which forced colours repaint in
+   their own system colour; this rule overrides that outline with payer-web's: it spends the
    `--focus-outline` / `--focus-outline-offset` custom properties (declared at the top of
    ds-components.css): `--focus-outline` is a TRANSPARENT outline in normal mode (the look is
    unchanged) and the token itself switches to the system `Highlight` colour under
@@ -2461,6 +2463,36 @@ textarea.input {
   gap: var(--space-4);
   min-width: 0;
 }
+/* A posting's DETAIL page (F03): its head — and a draft's note — lead the details column, so the
+   card rail beside them starts at the top of the page. With the head ABOVE the layout, a head
+   whose actions wrapped (1280 / 1366) pushed the card a row down and its brand plate below a
+   720px fold. On a phone the head still comes first, then the card, then the details. The head's
+   last block drops its margin: the grid's row gap (= the section gap) is the one gap under it. */
+.posting-layout--detail > .posting-layout__head {
+  order: -2;
+  min-width: 0;
+}
+.posting-layout--detail > .posting-layout__head > :last-child {
+  margin-bottom: 0;
+}
+@media (min-width: 1024px) {
+  /* `1fr` for the details row: the rail's height is taken by that row, never by the head's. */
+  .posting-layout--detail {
+    grid-template-rows: auto 1fr;
+  }
+  .posting-layout--detail > .posting-layout__head {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .posting-layout--detail > .panel {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .posting-layout--detail > .posting-preview {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
 /* The "More below" cue: zero height (it never shifts the content), pinned to the bottom of the
    region while content remains below (`data-more`, written by rail-scroll.ts). */
 .posting-preview__more {
@@ -3812,6 +3844,61 @@ textarea.input {
    sits beside the message instead of ~900px from it. */
 .team-accept-page .alert {
   max-width: var(--reading-max);
+}
+/* /team on a phone (F38): the members table is one CARD per member — the email across the top,
+   role + status under it, and Manage (Remove) at the card's end beside both lines. As a table it
+   scrolled sideways inside its region and Remove sat off screen (x≈471 at 375px). The column
+   heads leave the layout but stay for assistive tech; the markup states every table role, since
+   a re-displayed table can lose its semantics. Remove is always drawn here (no hover on a phone
+   card). Wider than a phone it is the ordinary table. */
+@media (max-width: 600px) {
+  .team-page .table,
+  .team-page .table tbody {
+    display: block;
+  }
+  .team-page .table thead {
+    position: absolute;
+    inline-size: var(--border-hairline);
+    block-size: var(--border-hairline);
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .team-page .table tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "member member manage"
+      "role status manage";
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: var(--border-hairline) solid var(--border-subtle);
+  }
+  .team-page .table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .team-page .table td {
+    display: block;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .team-page .table td:nth-child(1) {
+    grid-area: member;
+    overflow-wrap: anywhere;
+  }
+  .team-page .table td:nth-child(2) {
+    grid-area: role;
+  }
+  .team-page .table td:nth-child(3) {
+    grid-area: status;
+  }
+  .team-page .table td.rowactions {
+    grid-area: manage;
+  }
+  .team-page .table .rowactions > * {
+    opacity: 1;
+  }
 }
 @media (max-width: 600px) {
   /* The page's single action is a full-width thumb target. */
@@ -5191,15 +5278,23 @@ img.agency-qr__code,
   gap: var(--space-3);
   width: 100%;
 }
+/* ONE row layout (F18): the meta takes the row and the Continue its own end column, so a long
+   meta wraps INSIDE its column instead of pushing that row's button under it (a flex wrap put one
+   Continue under its meta and the next beside it). A phone stacks every row the same way. */
 .ai-chat-resume__item {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+}
+@media (max-width: 600px) {
+  .ai-chat-resume__item {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
 }
 .ai-chat-resume__meta {
   display: flex;
@@ -5383,6 +5478,10 @@ img.agency-qr__code,
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+/* The chat screen's way to the manual form — the choose screen's link, under the publish CTA. */
+.ai-chat__alt {
+  font-size: var(--text-sm);
 }
 
 /* ------------------------------------------------------------------
@@ -6268,6 +6367,10 @@ body:has(.invite-landing) .chrome-footer {
 .dash-posting__applicants {
   position: relative;
   z-index: calc(var(--z-base) + 2);
+  /* Icon + label where the row carries its glyph (the company rows — F13). */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
   font-size: var(--ui-body-sm-size);
   font-weight: var(--weight-semibold);
   color: var(--text-link);

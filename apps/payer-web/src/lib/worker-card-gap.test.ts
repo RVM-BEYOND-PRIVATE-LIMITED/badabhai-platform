@@ -42,7 +42,9 @@ describe("workerCardGap — order + copy", () => {
     const gap = workerCardGap({ ...FULL, description: "" });
     expect(gap!.title).toBe("Add the description");
     expect(gap!.message).not.toMatch(/card shows your description/i);
-    expect(gap!.message).toContain("Workers read it when they open the job");
+    // The entity is a "posting" (owner ruling 2026-10-01; F36) — never "the job".
+    expect(gap!.message).toContain("Workers read it when they open the posting");
+    expect(gap!.message).not.toMatch(/\bjob\b/);
     expect(gap!.message).toContain("not on the swipe card");
   });
 

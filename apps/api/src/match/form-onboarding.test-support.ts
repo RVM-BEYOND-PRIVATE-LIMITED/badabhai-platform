@@ -50,7 +50,8 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   {
     kind: "conventional_machinist",
     answers: { machining_experience: ["over_seven"], machining_machine: ["centre_lathe"] },
-    expected: [],
+    // #2022: a manual lathe reaches CNC Turner (point 1) and the manual machinist's own skill.
+    expected: ["mskill_cnc_turner", "mskill_conventional_machinist"],
   },
   {
     kind: "tool_die_maker",
@@ -59,7 +60,8 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
       tooling_made: ["press_tool", "progressive_die"],
       toolroom_machine: ["surface_grinder", "milling", "lathe"],
     },
-    expected: [],
+    // The machines he runs do not make him a CNC hand; the tooling he builds is the claim.
+    expected: ["mskill_tool_die_maker"],
   },
   {
     kind: "cam_programmer",
@@ -87,17 +89,18 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
       sheet_metal_machine: ["cnc_press_brake", "fibre_laser"],
       sheet_operation: ["bending", "spot_welding"],
     },
-    expected: [],
+    // Spot welding does not make him a welder.
+    expected: ["mskill_sheet_metal_worker"],
   },
   {
     kind: "press_operator",
     answers: { press_experience: ["one_to_three"], press_machine: ["mechanical_power_press"] },
-    expected: [],
+    expected: ["mskill_press_operator"],
   },
   {
     kind: "painter_coating",
     answers: { coating_experience: ["one_to_three"], coating_process: ["powder_coating"] },
-    expected: [],
+    expected: ["mskill_painter_coater"],
   },
   {
     kind: "fitter",
@@ -110,7 +113,7 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
       maintenance_experience: ["three_to_seven"],
       maintenance_discipline: ["mechanical", "hydraulic"],
     },
-    expected: [],
+    expected: ["mskill_maintenance_technician"],
   },
   {
     kind: "industrial_electrician",
@@ -118,12 +121,13 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
       electrical_experience: ["three_to_seven"],
       electrical_work_type: ["panel_wiring", "motor_drive"],
     },
-    expected: [],
+    // His own skill — never the fitter proxy.
+    expected: ["mskill_industrial_electrician"],
   },
   {
     kind: "assembly_line_worker",
     answers: { assembly_experience: ["one_to_three"], assembly_stage: ["sub_assembly"] },
-    expected: [],
+    expected: ["mskill_assembly_line_worker"],
   },
   {
     kind: "quality_inspector",
@@ -157,7 +161,18 @@ export function attributesFor(
   pack: PackRecord,
   answers: Readonly<Record<string, readonly string[]>>,
 ): readonly ProjectedAttribute[] {
-  const records: AnswerRecord[] = Object.entries(answers).map(([questionKey, optionKeys]) => {
+  return projectProfile(answerRecordsFor(pack, answers)).attributes;
+}
+
+/**
+ * Chip answers → the answer-map records the interview's capture writes for them: each option's
+ * stored VALUE, a list for a multi-select, one value for a single-select. Unknown keys throw.
+ */
+export function answerRecordsFor(
+  pack: PackRecord,
+  answers: Readonly<Record<string, readonly string[]>>,
+): AnswerRecord[] {
+  return Object.entries(answers).map(([questionKey, optionKeys]) => {
     const item = pack.items.find((candidate) => candidate.question_key === questionKey);
     if (!item) throw new Error(`${pack.pack_id} has no question ${questionKey}`);
     const values = optionKeys.map((key) => {
@@ -178,5 +193,42 @@ export function attributesFor(
       status: "answered",
     };
   });
-  return projectProfile(records).attributes;
 }
+
+/** One structured chat on a GENERIC family pack (#2021), and the match skills it must derive. */
+export interface GenericPackChatCase {
+  readonly packId: string;
+  /** Chip answers by `question_key` → `option_key`s, as in {@link TradeFormCase}. */
+  readonly answers: Readonly<Record<string, readonly string[]>>;
+  /** Exactly the `mskill_*` set this chat must derive. `[]` = the trade has none. */
+  readonly expected: readonly MatchSkillId[];
+}
+
+/**
+ * Generic-pack chats: welding and plumbing must reach their match skills; a trade with no match
+ * skill must derive nothing; and `furniture` under painting must not borrow carpentry's meaning.
+ * Each bag carries an attribute-kind answer too, so "derives exactly X" is tested against a
+ * realistic chat and not a single chip.
+ */
+export const GENERIC_PACK_CHAT_CASES: readonly GenericPackChatCase[] = [
+  {
+    packId: "qp_welding",
+    answers: { welding_process: ["mig", "arc"], welding_position: ["yes"] },
+    expected: ["mskill_arc_welder", "mskill_mig_welder"],
+  },
+  {
+    packId: "qp_plumbing",
+    answers: { plumbing_scope: ["household", "drainage"], pipe_material: ["pvc"] },
+    expected: ["mskill_plumber"],
+  },
+  {
+    packId: "qp_electrical",
+    answers: { electrical_scope: ["house_wiring", "panel", "motor"] },
+    expected: [],
+  },
+  {
+    packId: "qp_painting",
+    answers: { painting_scope: ["furniture", "building"] },
+    expected: [],
+  },
+];
