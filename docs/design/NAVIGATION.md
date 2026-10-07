@@ -210,7 +210,7 @@ gone); the route stays so an old link lands on its explanation, which points at 
 
 **Agency dashboard doors** (final sweep F15/F21 — a glance, not a second rail). The head's primary
 is New posting (`/agency/jobs/new`). "Your postings" shows three rows — each card opens that
-posting's details, and its "Applicants" link its feed — and "All postings" opens `/agency/jobs`. The
+posting's details, and its "Applicants" link its feed — and "Postings" opens `/agency/jobs`. The
 Account tile opens `/account`. The Referral funnel panel's "Invite workers" is the dashboard's one
 door to `/agency/referrals`, where the invite form and the batch links live. "Not in this release"
 starts closed; Payout details (KYC) and Payouts read "Available on Referrals — payouts are
@@ -223,7 +223,10 @@ destination; the agency sections link it nowhere.
 **Referrals** (`/agency/referrals`, final sweep F19) reads: the funnel, then "Invite workers" — its
 one primary, "Create invite link", directly under the consent note, with the four optional settings
 in an "Options" disclosure (closed while empty, open whenever one is set) — then the batch links in
-a closed disclosure with a secondary "Create links", then earnings / payouts.
+a closed disclosure with a secondary "Create links", then earnings / payouts. On a phone (≤600px)
+the invite panel comes first and the funnel second, so "Create invite link" is on the first screen
+(final re-sweep: it sat under 355px of funnel tiles at 375x812); the DOM order, and every wider
+screen, keep the funnel first.
 
 **Plans & capacity is a Company page** (2026-10-01, a consequence of ruling 2): everything it sells
 is an entitlement on company postings (`job_postings`) — concurrent capacity, per-posting applicant
@@ -263,10 +266,10 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | `/postings`, `/postings/new` | "Hiring" (text)                  | —                         |
 | `/postings/<id>`             | "Hiring › Postings" (text)       | Postings                  |
 | `/postings/ai/new`           | "Hiring › New posting" (text)    | New posting               |
-| `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | Posting details           |
+| `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | the posting, by its title |
 | `/postings/<id>/applicants`  | "Hiring › **Postings**" (link)   | the posting, by its title |
 | `/agency/jobs/<id>`          | "Demand › Postings" (text)       | Postings                  |
-| `/agency/jobs/<id>/edit`     | "Demand › **Postings**" (link)   | Posting details           |
+| `/agency/jobs/<id>/edit`     | "Demand › **Postings**" (link)   | the posting, by its title |
 | `/agency/jobs/<id>/applicants` | "Demand › **Postings**" (link)   | the posting, by its title |
 | `/team/accept` (owner)       | "Organisation › **Team**" (link) | —                         |
 | `/dashboard`, `/account`     | none                             | —                         |
@@ -285,10 +288,10 @@ toolbar. Top-level pages (rail or account menu) have no back link.
 | ------- | --------------------------- | ------------------ | ------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------- |
 | Company | `/postings/ai/new`          | Post with AI       | New posting                                             | —                                                                  | P; agent → `/agency/jobs/new` |
 | Company | `/postings/<id>`            | the role title     | Postings                                                | status · View applicants · Edit posting (draft: Edit posting only) | P (owned posting)             |
-| Company | `/postings/<id>/edit`       | Edit posting       | Posting details                                         | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`   |
+| Company | `/postings/<id>/edit`       | Edit posting       | the posting, by its title                               | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`   |
 | Company | `/postings/<id>/applicants` | Applicants         | the posting, by its title ("Posting details" if unread) | toolbar: New / Shortlist tabs                                      | P; agent → `/postings/<id>`   |
 | Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status · Applicants · Edit posting (closed / suspended: Applicants) | A + F                         |
-| Agency  | `/agency/jobs/<id>/edit`    | Edit posting       | Posting details                                         | — (Save changes / Cancel in the form)                              | A + F; closed / suspended → `/agency/jobs/<id>` |
+| Agency  | `/agency/jobs/<id>/edit`    | Edit posting       | the posting, by its title                               | — (Save changes / Cancel in the form)                              | A + F; closed / suspended → `/agency/jobs/<id>` |
 | Agency  | `/agency/jobs/<id>/applicants` | Applicants         | the posting, by its title                               | —                                                                  | A + F                         |
 
 **An agency posting's applicants** are its own feed (`/agency/jobs/<id>/applicants`, #1956): since

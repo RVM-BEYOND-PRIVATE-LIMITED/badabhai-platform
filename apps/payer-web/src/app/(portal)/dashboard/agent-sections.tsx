@@ -62,7 +62,7 @@ import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
  * invite upload" tile is gone (its explanation page stays, by URL); "Your postings" glances at
  * three rows; and "Not in this release" starts closed.
  */
-/** How many of the agency's postings the dashboard glances at; "All postings" opens the rest. */
+/** How many of the agency's postings the dashboard glances at; "Postings" opens the rest. */
 const GLANCE_ROWS = 3;
 
 export async function AgentSections() {
@@ -193,7 +193,7 @@ export async function AgentSections() {
           </div>
         </div>
         <div className="stat-row">
-          {/* A count, not a door: "All postings" on the panel below is this screen's one link
+          {/* A count, not a door: "Postings" on the panel below is this screen's one link
               to the Postings page. */}
           <Card className="agency-stat">
             <div className="agency-stat__head">
@@ -249,8 +249,9 @@ export async function AgentSections() {
             <p className="panel__sub">The roles your agency has published, newest first.</p>
           </div>
           <div className="panel__actions">
+            {/* Named as the rail item and the list's H1 name it: one label per destination. */}
             <Link className="bb-btn bb-btn--secondary bb-btn--sm" href={AGENCY_POSTING_ROUTES.list}>
-              <span>All postings</span>
+              <span>Postings</span>
               <Icon name={ACTION_ICON.next} />
             </Link>
           </div>

@@ -202,7 +202,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                       {rowBusy ? (
                         <span className="bb-btn bb-btn--secondary bb-btn--sm" aria-disabled="true">
                           <Icon name={ACTION_ICON.edit} />
-                          <span>Edit</span>
+                          <span>Edit posting</span>
                         </span>
                       ) : (
                         <Link
@@ -210,7 +210,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                           href={`/agency/jobs/${j.id}/edit`}
                         >
                           <Icon name={ACTION_ICON.edit} />
-                          <span>Edit</span>
+                          <span>Edit posting</span>
                         </Link>
                       )}
                       {active

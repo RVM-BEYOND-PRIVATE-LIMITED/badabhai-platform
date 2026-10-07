@@ -37,7 +37,10 @@ export interface PageHeaderAction {
 
 export interface PageHeaderBack {
   href: string;
-  /** The parent page's own name ("Postings", "Posting details"). */
+  /**
+   * The parent page's own name — what its H1 says: "Postings", or a posting's title for a page
+   * below that posting (one label per destination, wherever the link to it appears).
+   */
   label: string;
 }
 

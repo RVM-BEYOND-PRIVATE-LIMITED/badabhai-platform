@@ -49,10 +49,12 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
   const { summary, card, description } = detail;
 
   // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
+  // Back to the posting by its own name — its details page's H1, and the applicants page's back
+  // label: one label per destination.
   const lead = (
     <>
       <PageHeader
-        back={{ href: `/postings/${id}`, label: "Posting details" }}
+        back={{ href: `/postings/${id}`, label: summary.roleTitle }}
         title="Edit posting"
         description={`Change the role, location, pay, timing, chips or description for ${summary.roleTitle} — the card preview updates as you edit.`}
         status={

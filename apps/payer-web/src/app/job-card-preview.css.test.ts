@@ -545,3 +545,32 @@ describe("a posting's detail page: the card rail starts at the top of the page",
     expect(decl(detail(".posting-layout__head > :last-child"), "margin-bottom")).toBe("0");
   });
 });
+
+/**
+ * N1 (final re-sweep) — "N chips cut off on a typical phone" (the fold control under the card)
+ * measured 332x34 / 374x34 on touch: a real control below the 44px floor on posting detail, the
+ * company edit page and both agency pages. It takes the DS small button's hit strip — the area
+ * grows, the drawn line does not (the card's fit is unchanged on a laptop).
+ */
+describe("N1 — the fold control is a 44px target on a phone or a coarse pointer", () => {
+  const TOUCH = "max-width: 600px), (pointer: coarse";
+
+  it("its host is positioned and isolated, under the phone/touch query only", () => {
+    const host = d(".jcp__fold-summary", TOUCH);
+    expect(decl(host, "position")).toBe("relative");
+    expect(decl(host, "isolation")).toBe("isolate");
+    // The mouse rule keeps the drawn control as it was: no strip, no drawn height.
+    expect(decl(d(".jcp__fold-summary"), "position")).toBeNull();
+    expect(decl(d(".jcp__fold-summary"), "min-height")).toBeNull();
+  });
+
+  it("its strip is the DS small-button recipe, declaration for declaration", () => {
+    const strip = d(".jcp__fold-summary::before", TOUCH);
+    const recipe = d(".bb-btn--sm::before, .bb-chip::before", TOUCH);
+    for (const p of ["content", "position", "z-index", "inset-block", "inset-inline"]) {
+      expect(decl(strip, p), p).toBe(decl(recipe, p));
+    }
+    expect(decl(strip, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+    expect(px("var(--control-md)")).toBeGreaterThanOrEqual(44);
+  });
+});

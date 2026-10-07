@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Matching V1 payer-seam transport tests (ADR-0036). Exercises the REAL `payerFetch`
@@ -70,6 +70,15 @@ const POSTING_WIRE = {
   updated_at: "2026-07-31T00:00:00.000Z",
   closed_at: null,
 };
+
+// The FIRST `import("./payer-api")` pays the cold load of its whole module graph: ~0.4 s alone,
+// ~2.85 s under a parallel run — and it used to land inside this file's first test, which then
+// timed out at vitest's 5 s default (final re-sweep N6; a CI risk too). It is paid ONCE here, on
+// an explicit budget (the same as the other whole-graph loads: #2023, #2026, #2051), and every
+// test's own `await import("./payer-api")` is then a cache hit. No assertion depends on it.
+beforeAll(async () => {
+  await import("./payer-api");
+}, 30_000);
 
 beforeEach(() => {
   process.env.PAYER_API_URL = "http://api.test";
