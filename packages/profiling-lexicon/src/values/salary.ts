@@ -47,12 +47,22 @@ interface SalaryFile {
   readonly subMonthlyCues: readonly PatternSpec[];
   readonly moneyCues: readonly PatternSpec[];
   readonly credentialBefore: PatternSpec;
+  readonly phoneChain: PatternSpec;
+  readonly phoneChainMinDigits: number;
+  readonly payRangeMaxRatio: number;
+  readonly payRangeRoundTo: number;
 }
 
 const SALARY = loadLexicon<SalaryFile>("salary");
 
 const MATCHER = compilePattern(SALARY.matcher);
 const CREDENTIAL_BEFORE = compilePattern(SALARY.credentialBefore);
+// A figure inside a PHONE-SHAPED run is not money either (issue #2050). `signals._phone_chains`.
+const PHONE_CHAIN = compilePattern(SALARY.phoneChain);
+/** The figures of a run: the only digits `phoneChain` admits. */
+const RUN_FIGURE = /[0-9०-९]+/g;
+/** A longer figure is over the plausible band, so it is no range. `_RANGE_FIGURE_MAX_DIGITS`. */
+const RANGE_FIGURE_MAX_DIGITS = String(SALARY.maxPlausibleInr).length;
 
 // Arrow, not a bare `specs.map(compilePattern)`: `map` passes the INDEX as the second argument,
 // which `compilePattern` now reads as its fragments map. Caught by the typechecker.
@@ -422,6 +432,42 @@ function cueAfterThePeriodPhrase(
   return false;
 }
 
+/**
+ * Two figures that read as a pay range, not a phone: rising, both round, at most
+ * `payRangeMaxRatio` times apart, both in the plausible band. `signals._is_pay_range`.
+ */
+function isPayRange(figures: readonly string[]): boolean {
+  if (figures.length !== 2) return false;
+  if (figures.some((figure) => figure.length > RANGE_FIGURE_MAX_DIGITS)) return false;
+  const [low, high] = figures.map((figure) => Number(toAscii(figure))) as [number, number];
+  return (
+    SALARY.minAmountInr <= low &&
+    low < high &&
+    high <= SALARY.maxPlausibleInr &&
+    high <= low * SALARY.payRangeMaxRatio &&
+    low % SALARY.payRangeRoundTo === 0 &&
+    high % SALARY.payRangeRoundTo === 0
+  );
+}
+
+/**
+ * The spans of `text`'s phone-shaped runs, left to right (#2050): a run of digits joined only by
+ * spaces or dashes, at least `phoneChainMinDigits` long, that is no pay range.
+ * `signals._phone_chains`.
+ */
+function phoneChains(text: string): [number, number][] {
+  const chains: [number, number][] = [];
+  // Built per call, like `matcher()`: a global RegExp carries `lastIndex`.
+  const runs = new RegExp(PHONE_CHAIN.source, `${PHONE_CHAIN.flags}g`);
+  for (const run of text.matchAll(runs)) {
+    const figures = run[0].match(RUN_FIGURE) ?? [];
+    const digits = figures.reduce((sum, figure) => sum + figure.length, 0);
+    if (digits < SALARY.phoneChainMinDigits || isPayRange(figures)) continue;
+    chains.push([run.index, run.index + run[0].length]);
+  }
+  return chains;
+}
+
 export function detectSalaries(text: string): SalaryReading {
   const message = text || "";
   const lower = message.toLowerCase();
@@ -440,6 +486,11 @@ export function detectSalaries(text: string): SalaryReading {
     if (digitSpan !== undefined) numbers.push([digitSpan[0], m.index + m[0].length]);
   }
 
+  // Phone-shaped runs (#2050), in order. The matches below come in order too, so one cursor
+  // walks both lists and the check stays linear however many runs the text holds.
+  const chains = phoneChains(message);
+  let chainAt = 0;
+
   for (const m of message.matchAll(matcher())) {
     const indices = m.indices;
     const digitSpan = indices?.[1];
@@ -448,6 +499,9 @@ export function detectSalaries(text: string): SalaryReading {
     const unit = m[2] ?? null;
 
     if (!unit && num.replace(/,/g, "").length < SALARY.minDigitsWithoutUnit) continue;
+
+    while (chainAt < chains.length && chains[chainAt]![1] <= digitSpan[0]) chainAt += 1;
+    if (chainAt < chains.length && chains[chainAt]![0] <= digitSpan[0]) continue; // a phone group
 
     // Every cue window is clamped to the LINE the number sits on. A cue on a neighbouring line is
     // a different utterance and says nothing about this number. Without the clamp two salary
