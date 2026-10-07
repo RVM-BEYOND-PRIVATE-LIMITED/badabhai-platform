@@ -1,6 +1,6 @@
 import { TRADE_FORM_KINDS } from "../profiling/trade-form-router";
 import { z } from "zod";
-import { CHAT_GATE_KINDS, MESSAGE_DIRECTIONS } from "@badabhai/types";
+import { CHAT_GATE_KINDS, FREE_CHAT_MODES, MESSAGE_DIRECTIONS } from "@badabhai/types";
 import { ANSWER_TYPES } from "@badabhai/ai-contracts";
 import { uuidSchema, nonEmptyMessageSchema, safeTextSchema } from "@badabhai/validators";
 
@@ -342,6 +342,17 @@ export const PostMessageResponseSchema = z.object({
    * chat-engine phase MUST pin it on the replay and reopen paths with a test, not the compiler.
    */
   general_form_offer: GeneralFormOfferWireSchema.optional(),
+  /**
+   * ADR-0051 (#2030) — the profiling-stage free chat's mode AFTER this turn: `greeting` (the "Shuru
+   * karein?" chips are on screen), `free` (the worker chose "Baad mein" and is chatting) or `resume`
+   * (résumé creation, the lock). The app hides its "build my profile" CTA outside `resume`.
+   *
+   * ADDITIVE AND ABSENT, never null: under the kill switch (`CHAT_FREE_CHAT_DISABLED`, so every body
+   * stays byte-identical), on a session whose envelope carries no mode (the voice form, a session
+   * from before the free chat) and on every turn that has no live envelope (a finished session, a
+   * vanished buffer). Set on a turn, its replay and an unavailable turn alike.
+   */
+  free_chat_mode: z.enum(FREE_CHAT_MODES).optional(),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 
@@ -399,6 +410,14 @@ export const StartSessionResponseSchema = z.object({
   opening_question_key: z.string().optional(),
   /** ADR-0048 — how that opening question is answered (`text` for the intake). ABSENT otherwise. */
   opening_answer_type: z.enum(ANSWER_TYPES).optional(),
+  /**
+   * ADR-0051 (#2030) — the session's free-chat mode as it opens or is reattached: `greeting` on the
+   * free chat's greeting, `resume` on a résumé-import opening, and whatever the live envelope says
+   * on a reattach. ABSENT, never null, under the kill switch and whenever the envelope carries no
+   * mode — the identity intake's opening, a locked worker's first turn not yet taken, the one-shot
+   * opener. The same closed set `PostMessageResponseSchema.free_chat_mode` carries.
+   */
+  free_chat_mode: z.enum(FREE_CHAT_MODES).optional(),
 });
 export type StartSessionResponse = z.infer<typeof StartSessionResponseSchema>;
 
