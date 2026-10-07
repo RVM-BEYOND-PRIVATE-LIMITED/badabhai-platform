@@ -184,3 +184,82 @@ describe("Engine view page", () => {
     expect(html).toContain("after 24 months");
   });
 });
+
+const POSTING = {
+  job_posting_id: P1,
+  role_title: "CNC Turner",
+  role_kind: null,
+  status: "open",
+  city: "Pune",
+  posted_skills: [{ skill_id: "mskill_cnc_turning", label: "CNC Turning" }],
+  related_skills: [],
+  reach: { total: 1, tier1: 1, tier2: 0 },
+  candidates: [
+    {
+      rank: 1,
+      worker_id: "5eeded00-0001-4a00-8000-000000000002",
+      short_ref: "5eeded01",
+      application_id: "ap-1",
+      match_tier: 1,
+      effective_tier: 1,
+      skill_months: 30,
+      industry_months: null,
+      last_worked_at: null,
+      matched_skill_label: "CNC Turning",
+    },
+  ],
+  tier_floor_months: 24,
+  generated_at: "2026-10-05T10:00:03.000Z",
+};
+
+/** Every `<a … href="…">` on the page, as `{ href, tag }`. */
+const anchors = (html: string) =>
+  [...html.matchAll(/<a [^>]*>/g)].map((m) => ({
+    tag: m[0],
+    href: (/href="([^"]*)"/.exec(m[0])?.[1] ?? "").replaceAll("&amp;", "&"),
+  }));
+
+describe("one link per target on the stage (final re-sweep NEW-05)", () => {
+  it("the selected worker is shown in the picker, not linked to the page it is already on", async () => {
+    const html = await render({ worker: WORKER_ID });
+    // The Worker tab is the one link to this address; the picker marks the selection instead.
+    const self = anchors(html).filter((a) => a.href === `/matching/engine?worker=${WORKER_ID}`);
+    expect(self.map((a) => a.tag)).toHaveLength(1);
+    expect(self[0]!.tag).toContain("engine__tab");
+    const pick =
+      /<(\w+)[^>]*class="engine__pick"[^>]*aria-current="true"[^>]*>|<(\w+)[^>]*aria-current="true"[^>]*class="engine__pick"[^>]*>/.exec(
+        html,
+      );
+    expect(pick, "the selected pill is still marked for assistive tech").not.toBeNull();
+    expect(pick![1] ?? pick![2]).not.toBe("a");
+  });
+
+  it("an unselected worker in the picker is still a link", async () => {
+    const html = await render({});
+    expect(
+      anchors(html).some((a) => a.tag.includes("engine__pick") && a.href.includes("worker=")),
+    ).toBe(true);
+  });
+
+  it("the posting tab has no 'Back to the worker' — the Worker tab is the way back", async () => {
+    stub.posting = POSTING;
+    const html = await render({ worker: WORKER_ID, tab: "posting", posting: P1 });
+    expect(html).not.toContain("Back to the worker");
+    const back = anchors(html).filter((a) => a.href === `/matching/engine?worker=${WORKER_ID}`);
+    expect(back.map((a) => a.tag)).toHaveLength(1);
+    expect(back[0]!.tag).toContain("engine__tab");
+  });
+});
+
+describe("touch targets on the stage (final re-sweep NEW-04)", () => {
+  it("an applicant's worker link takes the console's table-link class, so it is 44px on touch", async () => {
+    // A bare `<a class="mono">` was 90x22 on a touch screen: the coarse-pointer table-link rule
+    // (`.table :is(td, th) > .link`, a11y-foundations.css.test.ts) reaches `.link` only.
+    stub.posting = POSTING;
+    const html = await render({ tab: "posting", posting: P1 });
+    const rows = html.slice(html.indexOf("<tbody>"), html.indexOf("</tbody>"));
+    const links = [...rows.matchAll(/<a [^>]*>/g)].map((m) => m[0]);
+    expect(links).toHaveLength(1);
+    for (const tag of links) expect(/class="([^"]*)"/.exec(tag)?.[1]?.split(" ")).toContain("link");
+  });
+});

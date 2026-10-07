@@ -127,7 +127,7 @@ function EngineBody({
   if (posting === "missing" || posting === null) {
     return <p className="engine__state">That posting is not available.</p>;
   }
-  return <EngineLive worker={null} posting={posting} workerId={selectedWorker} />;
+  return <EngineLive worker={null} posting={posting} />;
 }
 
 function WorkerPicker({
@@ -149,19 +149,30 @@ function WorkerPicker({
   }
   return (
     <ul className="engine__picker" aria-label="Recent workers">
-      {recent.workers.map((w) => (
-        <li key={w.worker_id}>
-          <Link
-            className="engine__pick"
-            aria-current={w.worker_id === selected ? "true" : undefined}
-            href={engineHref({ worker: w.worker_id })}
-          >
+      {recent.workers.map((w) => {
+        const parts = (
+          <>
             <span className="engine__pick-ref mono">{w.short_ref}</span>
             <span className="engine__pick-trade">{w.trade_label ?? "No trade yet"}</span>
             <span className="engine__pick-date">{dateOnly(w.created_at)}</span>
-          </Link>
-        </li>
-      ))}
+          </>
+        );
+        return (
+          <li key={w.worker_id}>
+            {/* The selected worker is a STATE, not a way anywhere: it would link the page it is
+                on, beside the Worker tab that already does (final re-sweep NEW-05). */}
+            {w.worker_id === selected ? (
+              <span className="engine__pick" aria-current="true">
+                {parts}
+              </span>
+            ) : (
+              <Link className="engine__pick" href={engineHref({ worker: w.worker_id })}>
+                {parts}
+              </Link>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -107,3 +107,65 @@ describe("no selected chip anywhere in the console is drawn as a primary action"
     expect(offenders).toEqual([]);
   });
 });
+
+// ---- a selected chip is not a link to the page you are on (final re-sweep O-2) ------------
+
+/**
+ * `<Link>` elements whose className is a filter chip's (`filterChipClass(…)`) — chips built by
+ * hand rather than through `<FilterChip>`. By hand, the SELECTED chip was a link too, and it
+ * linked the page it is on: beside a Retry (/credits '30d', a journey's 'All') or another
+ * selected chip (/skills/discovery 'Awaiting decision' and 'Biggest batch first') that made two
+ * links to one address, and a click on it only reloaded the screen. `<FilterChip>` renders the
+ * selected value as text carrying `aria-current`; the decision panel's chips are `<button
+ * aria-pressed>` toggles, not links, and are not counted.
+ */
+function handBuiltChipLinks(code: string, file = "x.tsx"): string[] {
+  const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const out: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      node.tagName.getText(sf) === "Link"
+    ) {
+      const cls = node.attributes.properties
+        .filter(ts.isJsxAttribute)
+        .find((a) => a.name.getText(sf) === "className");
+      if (cls?.initializer && cls.initializer.getText(sf).includes("filterChipClass(")) {
+        const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+        out.push(`${file}:${line + 1}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+describe("the hand-built chip detector", () => {
+  it("catches a Link drawn as a chip, selected or not", () => {
+    expect(
+      handBuiltChipLinks('<Link aria-current="true" className={filterChipClass(true)} href="/" />'),
+    ).toHaveLength(1);
+    expect(
+      handBuiltChipLinks('<Link className={filterChipClass(on, "md")} href="/">x</Link>'),
+    ).toHaveLength(1);
+  });
+
+  it("leaves the chip component, a toggle button and an ordinary link alone", () => {
+    expect(handBuiltChipLinks('<FilterChip selected={on} href="/">x</FilterChip>')).toEqual([]);
+    expect(
+      handBuiltChipLinks("<button aria-pressed={on} className={filterChipClass(on)}>x</button>"),
+    ).toEqual([]);
+    expect(handBuiltChipLinks('<Link className="btn btn--ghost" href="/">x</Link>')).toEqual([]);
+  });
+});
+
+describe("every link chip in the console goes through <FilterChip>", () => {
+  it("walks every component", { timeout: 30_000 }, () => {
+    const rel = (f: string) => relative(srcRoot, f).replace(/\\/g, "/");
+    const files = sources(srcRoot).filter((f) => rel(f) !== "components/filter-chip-link.tsx");
+    expect(files.length).toBeGreaterThan(50);
+    const offenders = files.flatMap((f) => handBuiltChipLinks(readFileSync(f, "utf8"), rel(f)));
+    expect(offenders).toEqual([]);
+  });
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { SubmitPendingCue, usePendingPush } from "../../../components/nav-pending";
 import { useUrlState } from "../../../components/use-url-state";
 import { AI_TRACE_TASK_TYPES } from "../../../lib/ai-trace-view";
 import { taskTypeLabel } from "../../../lib/ai-cost";
@@ -36,7 +36,9 @@ export function AiCallFilterBar({
   success: string;
   workerId: string;
 }) {
-  const router = useRouter();
+  // Navigates in a transition, so Apply can show that the new list is on its way — the same
+  // signal a link gives, with no loading boundary (components/nav-pending.tsx).
+  const [pending, push] = usePendingPush();
   const [values, setValues] = useUrlState({ taskType, success, workerId });
 
   function submit(e: React.FormEvent) {
@@ -49,7 +51,7 @@ export function AiCallFilterBar({
     const qs = q.toString();
     // The cursor is NOT carried. Page three's cursor applied to a different query returns an
     // arbitrary slice of it, which looks like data rather than like an error.
-    router.push(qs ? `/ai-calls?${qs}` : "/ai-calls");
+    push(qs ? `/ai-calls?${qs}` : "/ai-calls");
   }
 
   return (
@@ -101,6 +103,7 @@ export function AiCallFilterBar({
         <button className="btn btn--primary" type="submit">
           <Icon name={ACTION_ICON.filter} />
           Apply
+          <SubmitPendingCue pending={pending} message="Applying the filters…" />
         </button>
       </div>
     </form>

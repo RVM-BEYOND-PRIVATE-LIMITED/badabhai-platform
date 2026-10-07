@@ -48,6 +48,7 @@ vi.mock("../../../lib/entities", () => ({
 }));
 
 const { default: CreditsPage } = await import("./page");
+const { AdminRequestError } = await import("../../../lib/admin-http");
 
 const MOCK = { mode: "mock", blocked_reason: "PAYMENTS_ENABLE_REAL=false" } as const;
 const REAL = { mode: "real", blocked_reason: null } as const;
@@ -175,9 +176,20 @@ describe("the window and reason chips keep each other", () => {
 
   it("marks the active chip in each row for assistive tech", async () => {
     const out = await renderWith({ windowDays: "7", reason: "grant" });
-    expect(out).toMatch(/aria-current="true"[^>]*href="\/credits\?windowDays=7&amp;reason=grant"/);
-    const current = out.match(/aria-current="true"/g) ?? [];
-    expect(current.length).toBe(2);
+    const current = out.match(/<[a-z]+ aria-current="true"[^>]*>(<i [^>]*><\/i>)?[^<]*/g) ?? [];
+    expect(current.map((tag) => tag.replace(/<i [^>]*><\/i>/, "").split(">").pop())).toEqual([
+      "7d",
+      "Credit grant",
+    ]);
+  });
+
+  it("the active chips are text, never a link to the page they are on (final re-sweep O-2)", async () => {
+    const out = await renderWith({ windowDays: "7", reason: "grant" });
+    // The address this page is on: a selected chip used to link it, beside the other row's.
+    expect(out).not.toContain('href="/credits?windowDays=7&amp;reason=grant"');
+    const current = out.match(/<[a-z]+ aria-current="true"[^>]*>/g) ?? [];
+    expect(current).toHaveLength(2);
+    for (const tag of current) expect(tag).toMatch(/^<span /);
   });
 
   it("clearing the reason keeps the window, and says it clears that one filter", async () => {
@@ -283,5 +295,135 @@ describe("credits — a customer cell links the customer's own section", () => {
     const out = await render();
     expect(ledger(MOCK).items[0]).not.toHaveProperty("payer_role");
     expect(count(out, BALANCE)).toBe(2);
+  });
+});
+
+/** The href of the link whose visible label (after any glyph) is exactly `label`. */
+const hrefOf = (out: string, label: string) =>
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+
+/**
+ * A failed ledger read, by the console's one rule (final re-sweep O-3). The ledger is the paged
+ * list here, and its reason is the one filter that reaches it (the reporting window is the
+ * position's, and only 7/30/90 are ever sent). A refused reason is cleared — keeping the window —
+ * and a refused cursor goes back to the first page; neither offers a Retry of a refused read.
+ */
+describe("a failed ledger read: refused or unavailable (final re-sweep O-3)", () => {
+  const renderWith = async (sp: Record<string, string>) =>
+    renderToStaticMarkup(await CreditsPage({ searchParams: Promise.resolve(sp) }));
+  const count = (out: string, s: string) => out.split(s).length - 1;
+  const ledgerPanel = (out: string) => out.slice(out.indexOf('id="cr-ledger"'));
+
+  it("a 400 with a reason set: the reason was refused — its clear, in the state, keeps the window", async () => {
+    stub.ledger = new AdminRequestError(400, "Invalid enum value");
+    const out = await renderWith({ windowDays: "7", reason: "bogus" });
+    expect(out).toContain("The server rejected the reason filter");
+    expect(out).not.toContain("The ledger is unavailable");
+    expect(out).not.toContain(">Retry<");
+    expect(count(out, ">Clear the reason filter<")).toBe(1);
+    expect(ledgerPanel(out).indexOf(">Clear the reason filter<")).toBeGreaterThan(
+      ledgerPanel(out).indexOf("The server rejected the reason filter"),
+    );
+    expect(hrefOf(out, "Clear the reason filter")).toBe("/credits?windowDays=7");
+  });
+
+  it("a 400 with only a page cursor: the cursor was refused — Back to the first page, no Retry", async () => {
+    stub.ledger = new AdminRequestError(400, "cursor too long");
+    const out = await renderWith({ windowDays: "7", cursor: "c2" });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain(">Retry<");
+    expect(hrefOf(out, "Back to the first page")).toBe("/credits?windowDays=7");
+  });
+
+  it("a 400 with nothing in the address is an outage — Retry", async () => {
+    stub.ledger = new AdminRequestError(400, "Invalid filter value.");
+    const out = await renderWith({});
+    expect(out).toContain("The ledger is unavailable");
+    expect(out).not.toContain("rejected");
+    expect(hrefOf(out, "Retry")).toBe("/credits?windowDays=30");
+  });
+
+  it("a refused ledger offers no Retry, so a failed position keeps its own", async () => {
+    stub.ledger = new AdminRequestError(400, "Invalid enum value");
+    stub.summary = new Error("summary read failed");
+    const out = await renderWith({ windowDays: "7", reason: "bogus" });
+    expect(count(out, ">Retry<")).toBe(1);
+    expect(out.indexOf(">Retry<")).toBeLessThan(out.indexOf('id="cr-ledger"'));
+    expect(out).not.toContain("its Retry reads both again");
+  });
+});
+
+/**
+ * ONE LINK PER TARGET (final re-sweep O-2): a quiet window's state offered "Widen to 90 days",
+ * the same address as the 90d chip above it — and it dropped the ledger's reason doing so.
+ */
+describe("a quiet reporting window points at the window chips, not a second link to one", () => {
+  it("no second link to the 90-day window", async () => {
+    stub.summary = { ...summary(MOCK), by_reason: [] };
+    const out = renderToStaticMarkup(
+      await CreditsPage({ searchParams: Promise.resolve({ windowDays: "30" }) }),
+    );
+    expect(out).toContain("No credit movement in this window");
+    expect(out.split('href="/credits?windowDays=90"')).toHaveLength(2);
+    expect(out).not.toContain("Widen to 90 days");
+  });
+});
+
+/**
+ * On a later page the selected chips are the way back to page one (review of #2095). Chips drop
+ * the cursor, so their target is the first page of the same window and reason — not this address
+ * — and the Pager only goes forward. They stay links there, still marked current.
+ */
+describe("on a later ledger page the selected chips link the first page", () => {
+  it("both rows' selected chips go to page one of the same window and reason", async () => {
+    const out = renderToStaticMarkup(
+      await CreditsPage({
+        searchParams: Promise.resolve({ windowDays: "7", reason: "grant", cursor: "c2" }),
+      }),
+    );
+    expect(out.match(/<[a-z]+ aria-current="true"[^>]*>/g)).toEqual([
+      '<a aria-current="true" class="btn btn--selected" href="/credits?windowDays=7&amp;reason=grant">',
+      '<a aria-current="true" class="btn btn--sm btn--selected" href="/credits?windowDays=7&amp;reason=grant">',
+    ]);
+  });
+});
+
+/**
+ * A reason the chips offer is never the refused part (review of #2095). With a valid reason and
+ * an over-long cursor (the API's bound is 256 characters), the 400 is the CURSOR's — the reason
+ * copy ("not one the ledger records") was false there.
+ */
+describe("a valid reason with a refused cursor gets the cursor's copy", () => {
+  it("a chip's reason plus an over-long cursor: the page was refused, not the reason", async () => {
+    stub.ledger = new AdminRequestError(400, "cursor too long");
+    const out = renderToStaticMarkup(
+      await CreditsPage({
+        searchParams: Promise.resolve({ windowDays: "7", reason: "grant", cursor: "x".repeat(300) }),
+      }),
+    );
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected the reason filter");
+    expect(out).not.toContain("not one the ledger records");
+    expect(out).not.toContain(">Retry<");
+    expect(hrefOf(out, "Back to the first page")).toBe("/credits?windowDays=7&amp;reason=grant");
+  });
+
+  it("a reason the chips do not offer is still the refused part, cursor or not", async () => {
+    stub.ledger = new AdminRequestError(400, "Invalid enum value");
+    const out = renderToStaticMarkup(
+      await CreditsPage({
+        searchParams: Promise.resolve({ windowDays: "7", reason: "bogus", cursor: "x".repeat(300) }),
+      }),
+    );
+    expect(out).toContain("The server rejected the reason filter");
+  });
+
+  it("a chip's reason with no cursor cannot have been refused: the 400 is ours — an outage", async () => {
+    stub.ledger = new AdminRequestError(400, "Invalid filter value.");
+    const out = renderToStaticMarkup(
+      await CreditsPage({ searchParams: Promise.resolve({ windowDays: "7", reason: "grant" }) }),
+    );
+    expect(out).toContain("The ledger is unavailable");
+    expect(out).not.toContain("rejected");
   });
 });

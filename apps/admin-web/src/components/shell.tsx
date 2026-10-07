@@ -7,6 +7,7 @@ import { holdFocusInDrawer } from "./drawer-focus";
 import { IconButton } from "./icon-button";
 import { SidebarNav } from "./nav";
 import { TopbarCrumb } from "./topbar-crumb";
+import { NavPendingStatus } from "./nav-pending";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -149,6 +150,12 @@ export function Shell({
         aria-label="Close navigation"
         onClick={() => setDrawerOpen(false)}
       />
+
+      {/* Where a navigation is going, while it is under way: a bar along the top of the viewport
+          and one polite status line (components/nav-pending.tsx). Outside the page, which is
+          `inert` behind an open drawer, and outside the drawer, which closes as a link is
+          followed. */}
+      <NavPendingStatus />
 
       {/* Behind an open drawer the page is `inert`: no Tab stop, no pointer target, nothing a
           screen reader can wander into — the modal half of the drawer's focus handling. */}

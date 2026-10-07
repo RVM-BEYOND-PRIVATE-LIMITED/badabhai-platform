@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { ADMIN_ROLES, ROLE_LABELS, can } from "../../../lib/auth/capabilities";
-import { listAdmins } from "../../../lib/entities";
+import { adminRowSchema, listAdmins } from "../../../lib/entities";
 import { identityPosture } from "../../../lib/identity";
+import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
@@ -12,7 +13,7 @@ import { InviteAdminForm } from "./invite-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
 import { PageHeader } from "../../../components/page-header";
 import { ALL_ADMIN_ACTIONS_LINK } from "../../../components/admin-action-result-banner";
-import { filterChipClass } from "../../../components/filter-chip";
+import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -89,13 +90,35 @@ export default async function AdminsPage({
   const selfQuery = selfParams.toString();
   const selfHref = selfQuery ? `/admins?${selfQuery}` : "/admins";
 
+  const filtered = Boolean(role || status);
   let directory: Awaited<ReturnType<typeof listAdmins>> | null = null;
   let failed = false;
+  /**
+   * A refused read is not an outage (final re-sweep O-3). The directory is unpaginated, so the
+   * only thing in the address to refuse is a role or a status — and only one the directory does
+   * not have (the role chips, the account statuses); with known values, a 400 is ours.
+   */
+  let refused = false;
   try {
     directory = await listAdmins({ role, status });
-  } catch {
+  } catch (err) {
     failed = true;
+    const refusable =
+      isUnknownValue(role, ADMIN_ROLES) ||
+      isUnknownValue(status, adminRowSchema.shape.status.options);
+    refused = readRefusal(err, { filtered: refusable }) === "filters";
   }
+
+  /**
+   * The ONE "Clear filters" on this screen: in the list head while a filter is set, and inside the
+   * refusal state instead when the server refused the filters — there it is the way out.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/admins">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   const admins = directory?.admins ?? [];
   const noMfa = admins.filter((a) => a.status === "active" && !a.mfa_enrolled).length;
@@ -114,10 +137,14 @@ export default async function AdminsPage({
     <div className="page">
       <PageHeader
         title="Admin users"
+        /* THREE-VALUED, like Workers, Companies and Agencies: in the capped posture "names are
+           shown to your role" sat directly above the notice saying they are withheld. */
         description={
           posture === "faceless"
             ? "Who holds access to this portal, by id — the handle on every audit event; names are not served to your role, and emails stay encrypted and are served to no role at all."
-            : "Who holds access to this portal — names are shown to your role and every read of one is audited, emails stay encrypted and are served to no role at all, and the id is the handle on every audit event."
+            : posture === "capped"
+              ? "Who holds access to this portal, by id while names are withheld (see below) — the handle on every audit event; emails stay encrypted and are served to no role at all."
+              : "Who holds access to this portal — names are shown to your role and every read of one is audited, emails stay encrypted and are served to no role at all, and the id is the handle on every audit event."
         }
         /* The page's own action, first, as on every other page. The form itself stays at the
            foot of the page, under the directory it adds to; this is the way to it. */
@@ -198,29 +225,36 @@ export default async function AdminsPage({
               there is nothing to page through.
             </p>
           </div>
-          {(role || status) && (
-            <Link className="btn btn--ghost" href="/admins">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refused ? null : clearFilters}
         </div>
 
         <div className="filters filters--inline">
           {ADMIN_ROLES.map((r) => (
-            <Link
-              aria-current={r === role ? "true" : undefined}
-              className={filterChipClass(r === role)}
+            <FilterChip
+              /* The directory is unpaginated: there is never a cursor to drop. */
+              cursor={undefined}
+              key={r}
+              selected={r === role}
               /* Keeps a status narrowing (`?status=`); a chip used to drop it. */
               href={`/admins?role=${r}${status ? `&status=${encodeURIComponent(status)}` : ""}`}
-              key={r}
             >
               {ROLE_LABELS[r]}
-            </Link>
+            </FilterChip>
           ))}
         </div>
 
-        {failed ? (
+        {refused ? (
+          <div className="state state--error">
+            <h3 className="state__title">The server rejected these filters</h3>
+            <p className="state__body">
+              Nothing was fetched. The role or status in the address is not one the directory
+              accepts — so the counters above read zero because of it, not because nobody holds
+              access. Clear the filters to see every account.
+            </p>
+            {/* No Retry: the request was refused and would be refused again. */}
+            <div className="state__actions">{clearFilters}</div>
+          </div>
+        ) : failed ? (
           <div className="state state--error">
             <h3 className="state__title">The admin directory could not be loaded</h3>
             <p className="state__body">
@@ -238,10 +272,10 @@ export default async function AdminsPage({
         ) : admins.length === 0 ? (
           <div className="state">
             <h3 className="state__title">
-              {role || status ? "No admins match these filters" : "No admin accounts exist"}
+              {filtered ? "No admins match these filters" : "No admin accounts exist"}
             </h3>
             <p className="state__body">
-              {role || status
+              {filtered
                 ? "The directory loaded, but nobody holds this combination of role and status. Clear the filters to see everyone."
                 : "The directory loaded and it is genuinely empty. On a running platform that is not a normal state — you are signed in, so at least your own account should be here."}
             </p>
