@@ -7,6 +7,7 @@ import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
 import { recentUnlockRows } from "../../../lib/unlock-history";
 import { Badge, Card, StatTile } from "../../../components/ds";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { formatInr } from "../../../lib/format";
@@ -279,6 +280,7 @@ export default async function DashboardPage() {
                       >
                         <Icon name={ACTION_ICON.users} />
                         <span>Applicants</span>
+                        <NavPendingCue label="Applicants" />
                       </Link>
                       <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
                         {post.status}

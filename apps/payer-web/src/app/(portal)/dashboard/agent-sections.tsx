@@ -19,6 +19,7 @@ import type {
   AgencyReferralsSummary,
 } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { RetryButton } from "../../../components/retry-button";
 import { ReferralFunnel } from "../agency/dashboard/referral-funnel";
 import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
@@ -309,6 +310,7 @@ export async function AgentSections() {
                       href={`${AGENCY_POSTING_ROUTES.list}/${j.id}/applicants`}
                     >
                       Applicants
+                      <NavPendingCue label="Applicants" />
                     </Link>
                     <Badge tone={j.status === "open" ? "success" : "neutral"} upper>
                       {j.status}

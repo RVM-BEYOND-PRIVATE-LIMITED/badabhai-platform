@@ -52,6 +52,8 @@ vi.mock("./actions", () => ({
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     // `className` is forwarded so a link styled as a DS button (the W3-A Top up) is assertable.
     default: ({
       children,

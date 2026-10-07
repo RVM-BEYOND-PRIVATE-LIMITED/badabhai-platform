@@ -47,6 +47,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     default: ({
       children,
       href,

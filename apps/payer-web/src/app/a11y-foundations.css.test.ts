@@ -683,12 +683,11 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
     // The arrow is the typed icon, never the `←` glyph.
     expect(inner).toContain("<Icon name={ACTION_ICON.back} />");
     expect(inner).not.toContain("←");
-    // No page hand-writes a back link (or a page head) any more… (the route-level loading
-    // skeleton draws the head's SHAPE as placeholder blocks — no title, no link — by design)
-    const SKELETON = "(portal)/loading.tsx";
+    // No page hand-writes a back link (or a page head) any more… (no exception: the portal has
+    // no route loading skeleton — app/no-suspense-above-a-page.test.ts)
     const handWritten = tsxUnder(here)
       .map(([file, src]) => [file.split("\\").join("/"), src] as const)
-      .filter(([file, src]) => file !== SKELETON && /className="page-(back|head)[" ]/.test(src))
+      .filter(([, src]) => /className="page-(back|head)[" ]/.test(src))
       .map(([file]) => file);
     expect(handWritten).toEqual([]);
     // …and exactly the pages BELOW a nav destination pass one to PageHeader (the scan is not

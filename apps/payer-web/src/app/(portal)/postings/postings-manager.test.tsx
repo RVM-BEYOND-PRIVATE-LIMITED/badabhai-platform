@@ -4,6 +4,8 @@ import type * as ReactModule from "react";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Dialog } from "../../../components/ds";
 import { ConfirmSpendDialog } from "../../../components/unlock";
+import { NavPendingCue } from "../../../components/nav-pending";
+import { linkCues } from "../../../../test/link-cues";
 
 /**
  * POSTINGS-MANAGER tests — STATUS RENDERING + LIVE LIFECYCLE TRIO + CLOSE + A11Y (B8).
@@ -158,7 +160,8 @@ function walk(node: ReactNode, acc: Collected): void {
       text: textOf(el.props.children).trim(),
       disabled: el.props.disabled === true,
       loading: el.props.loading === true,
-      onClick: typeof el.props.onClick === "function" ? (el.props.onClick as () => void) : undefined,
+      onClick:
+        typeof el.props.onClick === "function" ? (el.props.onClick as () => void) : undefined,
     });
     return;
   }
@@ -433,7 +436,9 @@ describe("PostingsManager — Add applicant slots shows its price and asks first
   });
 
   it("the price follows the offer it is given (an ops re-price shows on the button)", () => {
-    const tree = render([OPEN], {}, false, { offer: { code: "topup_25", priceInr: 1500, additionalViews: 25 } });
+    const tree = render([OPEN], {}, false, {
+      offer: { code: "topup_25", priceInr: 1500, additionalViews: 25 },
+    });
     expect(collect(tree).buttons.map((b) => b.text)).toContain("Add 25 applicant slots · ₹1,500");
   });
 
@@ -702,15 +707,26 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
     expect((title.props as { href: string }).href).toBe(`/postings/${OPEN.id}`);
     // Each of the row's three pages is linked exactly once.
     const all = hrefs(tree);
-    for (const h of [`/postings/${OPEN.id}`, `/postings/${OPEN.id}/applicants`, `/postings/${OPEN.id}/edit`]) {
-      expect(all.filter((x) => x === h), h).toHaveLength(1);
+    for (const h of [
+      `/postings/${OPEN.id}`,
+      `/postings/${OPEN.id}/applicants`,
+      `/postings/${OPEN.id}/edit`,
+    ]) {
+      expect(
+        all.filter((x) => x === h),
+        h,
+      ).toHaveLength(1);
     }
   });
 });
 
 describe("PostingsManager — READ-ONLY (an agent's older company postings)", () => {
   it("shows each posting (its title opens the view-only details) — no button, no Applicants, no Edit", () => {
-    const paused = { ...OPEN, id: "bbbb2222-0000-4000-8000-000000000002", status: "paused" as const };
+    const paused = {
+      ...OPEN,
+      id: "bbbb2222-0000-4000-8000-000000000002",
+      status: "paused" as const,
+    };
     const tree = render([OPEN, paused], {}, true);
     expect(collect(tree).buttons).toEqual([]);
     expect(byClass(tree, "posting-card__actions")).toEqual([]);
@@ -729,6 +745,14 @@ describe("PostingsManager — READ-ONLY (an agent's older company postings)", ()
   it("a read-only empty list offers no create action", () => {
     const tree = render([], {}, true);
     expect(hrefs(tree)).not.toContain("/postings/new");
+  });
+});
+
+describe("the navigation pending cue on a posting row (components/nav-pending.tsx)", () => {
+  it("the title and the Applicants link each carry it, named for where they go", () => {
+    const cues = linkCues(render([OPEN]), NavPendingCue);
+    expect(cues.get(`/postings/${OPEN.id}`)).toEqual([OPEN.roleTitle]);
+    expect(cues.get(`/postings/${OPEN.id}/applicants`)).toEqual(["Applicants"]);
   });
 });
 
@@ -800,7 +824,14 @@ describe("PostingsManager — #2085: the price shown is the price sent, under on
     await confirmOn(OPEN.id);
     await confirmOn(SECOND.id);
     expect(keys()).toEqual(["key-1", "key-1", "key-2", "key-1", "key-3", "key-2"]);
-    expect(sent().map((s) => s.postingId)).toEqual([OPEN.id, OPEN.id, SECOND.id, OPEN.id, OPEN.id, SECOND.id]);
+    expect(sent().map((s) => s.postingId)).toEqual([
+      OPEN.id,
+      OPEN.id,
+      SECOND.id,
+      OPEN.id,
+      OPEN.id,
+      SECOND.id,
+    ]);
   });
 
   it("a rejected action (connection dropped) keeps the key — the retry is the same purchase", async () => {
@@ -812,7 +843,11 @@ describe("PostingsManager — #2085: the price shown is the price sent, under on
   });
 
   it("a refused price: a NEUTRAL row note with the new price, ONE call, no retry — and the key is retired", async () => {
-    topUpQuotaAction.mockResolvedValueOnce({ ok: false, priceChanged: true, currentPriceInr: 1200 });
+    topUpQuotaAction.mockResolvedValueOnce({
+      ok: false,
+      priceChanged: true,
+      currentPriceInr: 1200,
+    });
     const row = await confirmOn(OPEN.id);
     expect(row).toEqual({
       busy: null,
@@ -822,7 +857,11 @@ describe("PostingsManager — #2085: the price shown is the price sent, under on
     });
     expect(topUpQuotaAction).toHaveBeenCalledTimes(1);
     // The payer re-reads the new price and confirms again: a NEW purchase, a fresh key.
-    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    topUpQuotaAction.mockResolvedValueOnce({
+      ok: true,
+      posting: OPEN,
+      notice: "Applicant slots added.",
+    });
     await confirmOn(OPEN.id);
     expect(keys()).toEqual(["key-1", "key-2"]);
   });
@@ -833,7 +872,11 @@ describe("PostingsManager — #2085: the price shown is the price sent, under on
     expect(row.error).toBeNull();
     expect(row.notice).toBeNull();
     expect(row.info).toMatch(/still processing/);
-    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    topUpQuotaAction.mockResolvedValueOnce({
+      ok: true,
+      posting: OPEN,
+      notice: "Applicant slots added.",
+    });
     await confirmOn(OPEN.id);
     expect(keys()).toEqual(["key-1", "key-1"]);
   });
@@ -919,7 +962,11 @@ describe("PostingsManager — #2085 L1/L2: the confirmed tier, and one key per c
     );
 
   it("L1: the confirm sends the tier its dialog described — code and slots", async () => {
-    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    topUpQuotaAction.mockResolvedValueOnce({
+      ok: true,
+      posting: OPEN,
+      notice: "Applicant slots added.",
+    });
     await confirmOn(OPEN.id, { code: "topup_30", priceInr: 2500, additionalViews: 30 });
     expect(sent()[0]!.tier).toStrictEqual({ code: "topup_30", additionalViews: 30 });
   });
@@ -933,7 +980,11 @@ describe("PostingsManager — #2085 L1/L2: the confirmed tier, and one key per c
       notice: null,
       info: "This option changed — review and confirm again.",
     });
-    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    topUpQuotaAction.mockResolvedValueOnce({
+      ok: true,
+      posting: OPEN,
+      notice: "Applicant slots added.",
+    });
     await confirmOn(OPEN.id, { code: "topup_10", priceInr: 1000, additionalViews: 5 });
     expect(sent().map((s) => s.idempotencyKey)).toEqual(["key-1", "key-2"]);
   });
@@ -945,7 +996,11 @@ describe("PostingsManager — #2085 L1/L2: the confirmed tier, and one key per c
     expect(row).toEqual({ busy: null, error: null, notice: null, info: HELD });
     expect(topUpQuotaAction).toHaveBeenCalledTimes(1);
 
-    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    topUpQuotaAction.mockResolvedValueOnce({
+      ok: true,
+      posting: OPEN,
+      notice: "Applicant slots added.",
+    });
     await confirmOn(OPEN.id, OFFER);
     expect(sent().map((s) => s.idempotencyKey)).toEqual(["key-1", "key-1"]);
   });

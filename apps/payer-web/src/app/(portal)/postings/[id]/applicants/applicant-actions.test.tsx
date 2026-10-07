@@ -27,11 +27,17 @@ const revealContactAction = vi.fn();
 const maskedResumeAction = vi.fn();
 
 vi.mock("next/link", () => ({
+  // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+  useLinkStatus: () => ({ pending: false }),
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
     props: { href, children },
   }),
 }));
+// The head's links carry the navigation pending cue, a client component with an effect, which
+// this walk (it calls components outside a renderer) cannot run; its own behaviour is
+// components/nav-pending.render.test.tsx.
+vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),

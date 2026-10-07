@@ -24,6 +24,8 @@ vi.mock("../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgR
 vi.mock("../../lib/payer-api", () => ({ getCredits: () => getCredits() }));
 vi.mock("../../lib/config", () => ({ agencyFlags: () => flags }));
 vi.mock("next/link", () => ({
+  // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+  useLinkStatus: () => ({ pending: false }),
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
     props: { href, children },
@@ -95,6 +97,13 @@ vi.mock("./account-menu", () => ({
       children: orgName,
     },
   }),
+}));
+
+// The navigation pending cue is a client component (an effect); its own behaviour is
+// components/nav-pending.render.test.tsx. The stand-in keeps its LABEL, so the walk can see which
+// link carries one.
+vi.mock("../../components/nav-pending", () => ({
+  NavPendingCue: ({ label }: { label: string }) => ({ type: "nav-pending-cue", props: { label } }),
 }));
 
 // The balance chip is a client component (hooks: its tooltip's Escape listener); its own markup
@@ -287,5 +296,24 @@ describe("portal nav — the agency items follow the agency-portal flag", () => 
         expect(hrefs, `flag ${on} ${orgRole}`).not.toContain("/plans");
       }
     }
+  });
+});
+
+describe("the brand link carries the navigation pending cue (components/nav-pending.tsx)", () => {
+  it("the rail's lockup link to the Dashboard is named for it", async () => {
+    const { NavPendingCue } = await import("../../components/nav-pending");
+    const { linkCues } = await import("../../../test/link-cues");
+    requirePayer.mockResolvedValue({
+      payerId: "11111111-1111-4111-8111-111111111111",
+      displayLabel: "Acme",
+      role: "employer",
+      email: "ops@acme.example",
+      phoneLast4: null,
+      status: "active",
+    });
+    getOrgRole.mockReturnValue("recruiter");
+    getCredits.mockResolvedValue({ payerId: "p", balance: 184 });
+    const tree = (await PortalLayout({ children: null })) as ReactElement<{ brand: ReactNode }>;
+    expect(linkCues(tree.props.brand, NavPendingCue).get("/dashboard")).toEqual(["Dashboard"]);
   });
 });

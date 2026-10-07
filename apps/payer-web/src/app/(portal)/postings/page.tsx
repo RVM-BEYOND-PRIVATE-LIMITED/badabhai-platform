@@ -133,7 +133,8 @@ export default async function PostingsPage() {
       {error || !postings ? (
         // B7: the seam either threw (→ `error`) OR returned no postings array (the future
         // real-fetch failure path). BOTH degrade to the SAME neutral fallback + in-page
-        // Retry — never a blank-content path. Loading is handled separately by loading.tsx.
+        // Retry — never a blank-content path. (No route loading state: the previous page stays on
+        // screen until this one renders — app/no-suspense-above-a-page.test.ts.)
         // NO-LEAK: the caught `error` string is never rendered; the copy stays neutral.
         <Card>
           <div className="state state--error">

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { IconButtonBase } from "@badabhai/icons/button";
+import { NavPendingStatus } from "../../components/nav-pending";
 import { SidebarNav } from "./sidebar-nav";
 import { NavSectionsProvider } from "./nav-context";
 import { openDrawer } from "./drawer-focus";
@@ -106,6 +107,11 @@ export function AppShell({
 
   return (
     <div className={shellClass}>
+      {/* The navigation under way: the page-wide bar and the one status line. Here, OUTSIDE
+          `.pshell__main` — which goes inert behind the open drawer — and out of the grid flow
+          (fixed bar, sr-only line). components/nav-pending.tsx. */}
+      <NavPendingStatus />
+
       {/* Open, the rail is a drawer — the only way it opens is the menu button, drawn below 1024px,
           and leaving drawer mode closes it — so it is a labelled modal dialog then; otherwise it
           is the plain rail landmark. */}

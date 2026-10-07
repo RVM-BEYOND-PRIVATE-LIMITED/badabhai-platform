@@ -9,6 +9,7 @@ import {
   restoreTooltip,
   watchEscapeWhileHovered,
 } from "@badabhai/icons";
+import { NavPendingCue } from "../../components/nav-pending";
 
 /**
  * The shell header's credit balance — the ONE place the shell shows it, in "credits" (the unit
@@ -69,6 +70,9 @@ export function BalanceChip({ balance, linkToCredits }: { balance: number; linkT
         onPointerLeave={onPointerLeave}
       >
         {body}
+        {/* The navigation to Credits is under way (components/nav-pending.tsx) — pinned to the
+            chip's corner, so the header never reflows. */}
+        <NavPendingCue label="Credits" />
       </Link>
     );
   }

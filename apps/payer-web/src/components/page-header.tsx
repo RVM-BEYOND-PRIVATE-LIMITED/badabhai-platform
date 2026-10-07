@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
+import { NavPendingCue } from "./nav-pending";
 
 /**
  * PageHeader — the ONE header structure every portal page renders (owner ruling 2026-10-01).
@@ -26,7 +27,8 @@ import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
  *  - `status` (open / paused / draft …) sits before the actions, as on a posting's detail page.
  *
  * Server-safe: no hooks, no handlers. Authorization is never here — every page keeps its own
- * server gate before it renders this.
+ * server gate before it renders this. Each link carries the navigation pending cue as a CLIENT
+ * child (components/nav-pending.tsx), so this stays a server component.
  */
 
 export interface PageHeaderAction {
@@ -69,6 +71,7 @@ function ActionLink({
     <Link className={`bb-btn bb-btn--${variant}`} href={action.href}>
       <Icon name={action.icon} />
       <span>{action.label}</span>
+      <NavPendingCue label={action.label} />
     </Link>
   );
 }
@@ -112,6 +115,7 @@ export function PageHeader({
           <Link href={back.href}>
             <Icon name={ACTION_ICON.back} />
             <span>{back.label}</span>
+            <NavPendingCue label={back.label} />
           </Link>
         </p>
       ) : null}

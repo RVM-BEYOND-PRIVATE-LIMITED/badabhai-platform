@@ -16,6 +16,8 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("next/link", () => ({
+  // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+  useLinkStatus: () => ({ pending: false }),
   default: ({ children }: { children: ReactNode }) => children,
 }));
 

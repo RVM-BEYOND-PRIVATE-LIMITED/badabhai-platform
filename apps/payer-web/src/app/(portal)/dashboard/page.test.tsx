@@ -4,6 +4,8 @@ import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { Icon } from "@badabhai/icons";
 import { Badge, MaskedCandidate, StatTile } from "../../../components/ds";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
+import { NavPendingCue } from "../../../components/nav-pending";
+import { linkCues } from "../../../../test/link-cues";
 
 /**
  * DASHBOARD (DS1.2) — server component rendered to an element tree in the node env and
@@ -884,5 +886,13 @@ describe("F29 · one failed read never blanks the dashboard", () => {
   it("an error state names nothing it could not read (no raw backend detail)", async () => {
     const tree = await render({ throws: true });
     expect(textOf(tree)).not.toMatch(/500|credits 500|unlocks 500|postings 500/);
+  });
+});
+
+describe("the navigation pending cue on a posting card (components/nav-pending.tsx)", () => {
+  it("each card's Applicants link carries it", async () => {
+    const cues = linkCues(await render(), NavPendingCue);
+    expect(cues.get("/postings/j1/applicants")).toEqual(["Applicants"]);
+    expect(cues.get("/postings/j2/applicants")).toEqual(["Applicants"]);
   });
 });
