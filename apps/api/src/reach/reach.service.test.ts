@@ -468,3 +468,88 @@ describe("ReachService — View B (job feed for a worker)", () => {
     }
   });
 });
+
+describe("ReachService — appliersForOwnedJobs + emitPayerFeedShown (the payer inbox)", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
+  const signal = (jobId: string): JobSignalRow => ({
+    jobId,
+    tradeKey: "cnc_milling",
+    city: "pune",
+    payMin: 18000,
+    payMax: 30000,
+    minExperienceYears: 1,
+    maxExperienceYears: 8,
+    neededBy: "immediate",
+  });
+
+  /** A ReachService over ONE fake table set, answering both the per-job and the batched reads. */
+  function batched(owned: string[], appliers: Record<string, WorkerProfileSignalRow[]>) {
+    const isOwned = (id: string, payerId: string) => payerId === PAYER && owned.includes(id);
+    const repo = {
+      findOwnedJobSignalRowById: vi.fn(async (id: string, payerId: string) =>
+        isOwned(id, payerId) ? signal(id) : undefined,
+      ),
+      listApplicantSignalRowsForJob: vi.fn(async (id: string) => appliers[id] ?? []),
+      findOwnedJobSignalRowsByIds: vi.fn(async (ids: readonly string[], payerId: string) =>
+        ids.filter((id) => isOwned(id, payerId)).map(signal),
+      ),
+      listApplicantSignalRowsForJobs: vi.fn(async (ids: readonly string[]) =>
+        ids.flatMap((jobId) => (appliers[jobId] ?? []).map((row) => ({ jobId, row }))),
+      ),
+    };
+    const emitMany = vi.fn().mockResolvedValue([]);
+    const svc = new ReachService(repo as never, { emit: vi.fn(), emitMany } as never, {} as never);
+    const emitted = (): Record<string, unknown>[] =>
+      emitMany.mock.calls.flatMap((c) => c[0] as Record<string, unknown>[]);
+    return { svc, repo, emitMany, emitted };
+  }
+
+  it("each owned job's list is exactly the per-job list, from TWO reads for all jobs, emitting nothing", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-01T00:00:00.000Z"));
+    try {
+      const appliers = { [JOB_A]: [row(1), offTradeRow(2), blankRow(3)], [JOB_B]: [row(4)] };
+      const d = batched([JOB_A, JOB_B], appliers);
+      const byJob = await d.svc.appliersForOwnedJobs([JOB_A, JOB_B], PAYER);
+      expect(d.repo.findOwnedJobSignalRowsByIds).toHaveBeenCalledOnce();
+      expect(d.repo.listApplicantSignalRowsForJobs).toHaveBeenCalledOnce();
+      expect(d.emitMany).not.toHaveBeenCalled();
+      for (const jobId of [JOB_A, JOB_B]) {
+        const perJob = await d.svc.tryApplicantsForOwnedJob(jobId, PAYER, CTX as never);
+        expect(byJob.get(jobId)).toStrictEqual(perJob!.applicants);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a job the payer does not own is absent and its appliers are never read", async () => {
+    const d = batched([JOB_A], { [JOB_A]: [row(1)], [JOB_C]: [row(2)] });
+    const byJob = await d.svc.appliersForOwnedJobs([JOB_A, JOB_C], PAYER);
+    expect([...byJob.keys()]).toEqual([JOB_A]);
+    expect(d.repo.listApplicantSignalRowsForJobs).toHaveBeenCalledWith([JOB_A]);
+  });
+
+  it("nothing owned → no applier read; no ids → no read at all", async () => {
+    const d = batched([], {});
+    expect((await d.svc.appliersForOwnedJobs([JOB_A], PAYER)).size).toBe(0);
+    expect(d.repo.listApplicantSignalRowsForJobs).not.toHaveBeenCalled();
+    expect((await d.svc.appliersForOwnedJobs([], PAYER)).size).toBe(0);
+    expect(d.repo.findOwnedJobSignalRowsByIds).toHaveBeenCalledOnce();
+  });
+
+  it("emitPayerFeedShown writes the per-job impression for each given row — one batch, payer actor", async () => {
+    const d = batched([JOB_A], { [JOB_A]: [row(1), row(2)] });
+    const perJob = await d.svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+    const fromList = d.emitted();
+    d.emitMany.mockClear();
+    await d.svc.emitPayerFeedShown(
+      perJob!.applicants.map((r) => ({ jobId: JOB_A, row: r })),
+      PAYER,
+      CTX as never,
+    );
+    expect(d.emitMany).toHaveBeenCalledOnce();
+    expect(d.emitted()).toStrictEqual(fromList);
+    for (const e of d.emitted()) assertFeedShownEmit(e);
+  });
+});

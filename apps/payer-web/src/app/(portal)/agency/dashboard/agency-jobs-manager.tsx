@@ -16,6 +16,7 @@ import {
 } from "../../../../lib/agency-view";
 import { bandLabel } from "../../../../lib/masking";
 import { Badge, Button, Card } from "../../../../components/ds";
+import { NavPendingCue } from "../../../../components/nav-pending";
 import {
   closeAgencyJobAction,
   pauseAgencyJobAction,
@@ -158,6 +159,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                   <div className="agency-job__head">
                     <Link className="agency-job__title" href={`/agency/jobs/${j.id}`}>
                       {j.title}
+                      <NavPendingCue label={j.title} />
                     </Link>
                     <Badge tone={statusTone(j.status)} upper>
                       {j.status}
@@ -192,6 +194,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                   >
                     <Icon name={ACTION_ICON.users} />
                     <span>Applicants</span>
+                    <NavPendingCue label="Applicants" />
                   </Link>
                   {isEditableJob(j) ? (
                     <div className="agency-job__btns">

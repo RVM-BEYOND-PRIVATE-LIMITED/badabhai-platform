@@ -71,6 +71,18 @@ NestJS boot assertion).
   `docs/otp-throttles-runbook.md`.
 - **Payer auth** — `PAYER_LOGIN_METHOD`, `EMAIL_PROVIDER`/`ZEPTOMAIL_*`/`SMTP_*` (real-only email
   OTP), `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY`.
+  `PAYER_LOGIN_METHOD` (`email_otp` | `whatsapp` | `supabase`) is env-driven in both compose
+  files and never a literal (#2122): `${PAYER_LOGIN_METHOD:-email_otp}` on `api` in
+  `docker-compose.yml` and `docker-compose.staging.yml`. `whatsapp` is the ADR-0020 **mock**
+  channel and delivers nothing, so it is never a default. On the box it is bridged from the
+  GitHub `production` environment secret of the same name (`ci.yml` `env:` + `envs:`); **absent =
+  `email_otp`**. `email_otp` with `EMAIL_PROVIDER` unset or `zeptomail` requires the
+  `production` secrets `ZEPTOMAIL_API_URL`, `ZEPTOMAIL_API_TOKEN`, `ZEPTOMAIL_MAIL_AGENT` and
+  `EMAIL_FROM_ADDRESS` (all bridged): `assertPayerAuthConfig` fails the api closed at boot
+  without the last three, and no send leaves the box without the URL. `scripts/deploy/staging-deploy.sh`
+  refuses, before a container moves, both an unknown method and `email_otp` with any of the four
+  empty (names only in the error). Locally, the base compose `api` carries dummy ZeptoMail values
+  so it boots; with no `ZEPTOMAIL_API_URL` it sends nothing (use `mailpit` for a readable code).
 - **PIN unlock** — `PIN_PEPPER` (ADR-0026 Phase 3).
 - **Admin auth** — `ADMIN_JWT_SECRET` (ADR-0025, must differ from `JWT_SECRET`).
 - **AI routing** — `GEMINI_FLASH_API_KEY`, `AI_ENABLE_REAL_CALLS` (master kill-switch, default
@@ -143,8 +155,9 @@ NestJS boot assertion).
   `AI_REAL_CALL_TASKS` allowlist to name `companion_classify` and `companion_edit_parse` (P1)
   and `companion_career_answer` (P3). The production box sets its own list, which replaces
   the compose default (#1843), so widening means appending to that list on the box. The
-  profiling-stage free chat's two tasks (`profiling_free_classify`, `profiling_free_reply`,
-  ADR-0051) are appended the same way; see its kill-switch entry below.
+  profiling-stage free chat's three tasks (`profiling_free_classify`, `profiling_free_reply`,
+  ADR-0051, and Release 2's rolling summary `profiling_free_summary`, §8) are appended the same
+  way; see its kill-switch entry below.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
@@ -166,7 +179,8 @@ NestJS boot assertion).
   `true` sends every session straight to today's interview with no greeting and no classifier
   call, byte for byte the pre-ADR-0051 chat. Bridged through the GitHub `production` environment
   secret of the same name (compose `${CHAT_FREE_CHAT_DISABLED:-false}`, `ci.yml` `env:` + `envs:`).
-  The two model tasks it calls (`profiling_free_classify`, `profiling_free_reply`) are armed
+  The three model tasks it calls (`profiling_free_classify`, `profiling_free_reply`, and
+  Release 2's `profiling_free_summary`, whose unarmed mock stores no summary) are armed
   separately, by appending them to the box's `AI_REAL_CALL_TASKS`. No migration.
 - **Matching V1 cutover gate (ADR-0036 §8, #1904)** — `MATCH_V1_ENABLED`, api only
   (`booleanFromString`, default off). Off is the legacy source for the worker feed, apply and the

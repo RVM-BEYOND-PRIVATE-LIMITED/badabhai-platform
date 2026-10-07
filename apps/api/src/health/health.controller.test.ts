@@ -329,6 +329,49 @@ describe("HealthController.check — readiness probes", () => {
     }
   });
 
+  it("follows a wrapped driver error's cause to its code (Drizzle wraps as a plain Error)", async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { controller } = setup({
+        dbExecute: async () => {
+          const driver = new Error(
+            "password authentication failed for user secret_user",
+          ) as Error & {
+            code?: string;
+          };
+          driver.code = "28P01";
+          throw new Error("Failed query: select 1\nparams: ", { cause: driver });
+        },
+      });
+      await controller.check(fakeRes());
+
+      const logged = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toMatch(/database=down \(reason: 28P01\)/);
+      expect(logged).not.toMatch(/secret_user|Failed query/);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("falls back to the most specific error name when no layer carries a code", async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const inner = new Error("boom");
+      inner.name = "PostgresError";
+      const { controller } = setup({
+        dbExecute: async () => {
+          throw new Error("Failed query", { cause: inner });
+        },
+      });
+      await controller.check(fakeRes());
+
+      const logged = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toMatch(/database=down \(reason: PostgresError\)/);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   // ---- TD81: the ai-service signal — /health must stop reporting mocked AI as healthy ----
 
   it("ai-service reachable + real calls ON → ai_service up, ai_posture real", async () => {

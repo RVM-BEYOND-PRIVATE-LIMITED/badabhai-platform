@@ -39,18 +39,21 @@ const HEALTHY: Dashboard = {
   ],
 } as Dashboard;
 
-const EMPLOYER_OWNER = { isAgency: false, isOwner: true };
-const EMPLOYER_RECRUITER = { isAgency: false, isOwner: false };
+/**
+ * The rules take NO org role: buying credits is open to every member (owner ruling 2026-10-07),
+ * so an Owner and a Recruiter get the same band. The account role still matters (posting items).
+ */
+const EMPLOYER = { isAgency: false };
 
 describe("buildAttentionItems", () => {
   it("says NOTHING for a healthy employer account", () => {
-    expect(buildAttentionItems(HEALTHY, EMPLOYER_OWNER)).toEqual([]);
+    expect(buildAttentionItems(HEALTHY, EMPLOYER)).toEqual([]);
   });
 
   it("raises CRITICAL when the wallet is empty — it stops the core loop outright", () => {
     const out = buildAttentionItems(
       { ...HEALTHY, credits: { payerId: "p", balance: 0 } },
-      EMPLOYER_OWNER,
+      EMPLOYER,
     );
     expect(out[0]!.id).toBe("credits-empty");
     expect(out[0]!.tone).toBe("critical");
@@ -63,7 +66,7 @@ describe("buildAttentionItems", () => {
   it("warns BEFORE the wallet empties, not after", () => {
     const out = buildAttentionItems(
       { ...HEALTHY, credits: { payerId: "p", balance: lowBalanceThreshold() - 1 } },
-      EMPLOYER_OWNER,
+      EMPLOYER,
     );
     expect(out.map((i) => i.id)).toContain("credits-low");
     expect(out.find((i) => i.id === "credits-low")!.tone).toBe("warning");
@@ -72,22 +75,23 @@ describe("buildAttentionItems", () => {
   it("is silent about the wallet exactly AT the threshold", () => {
     const out = buildAttentionItems(
       { ...HEALTHY, credits: { payerId: "p", balance: lowBalanceThreshold() } },
-      EMPLOYER_OWNER,
+      EMPLOYER,
     );
     expect(out.map((i) => i.id)).not.toContain("credits-low");
     expect(out.map((i) => i.id)).not.toContain("credits-empty");
   });
 
-  it("does NOT offer a Recruiter a top-up link they would only get a 404 from", () => {
-    // Billing is Owner-only and /credits 404s a Recruiter. Pointing them at it would be
-    // sending a user to a dead end to explain a problem they cannot fix themselves.
-    const out = buildAttentionItems(
-      { ...HEALTHY, credits: { payerId: "p", balance: 0 } },
-      EMPLOYER_RECRUITER,
-    );
-    const wallet = out.find((i) => i.id === "credits-empty")!;
-    expect(wallet.actionHref).toBeUndefined();
-    expect(wallet.body).toContain("account owner");
+  it("offers EVERY member the Buy credits door — nobody is sent to ask an owner (ruling 2026-10-07)", () => {
+    for (const balance of [0, lowBalanceThreshold() - 1]) {
+      const wallet = buildAttentionItems(
+        { ...HEALTHY, credits: { payerId: "p", balance } },
+        EMPLOYER,
+      )[0]!;
+      expect(wallet.id, String(balance)).toMatch(/^credits-(empty|low)$/);
+      expect(wallet.actionHref, String(balance)).toBe("/credits");
+      expect(wallet.actionLabel, String(balance)).toBe("Buy credits");
+      expect(wallet.body, String(balance)).not.toMatch(/owner/i);
+    }
   });
 
   it("counts expired unlocks — spent access the payer may not realise they lost", () => {
@@ -100,7 +104,7 @@ describe("buildAttentionItems", () => {
           { ...HEALTHY.unlocks[0]!, unlockId: "c", status: "granted" },
         ],
       },
-      EMPLOYER_OWNER,
+      EMPLOYER,
     );
     const item = out.find((i) => i.id === "unlocks-expired")!;
     expect(item.title).toContain("2 unlocked contacts have expired");
@@ -109,7 +113,7 @@ describe("buildAttentionItems", () => {
   it("flags an employer with no OPEN posting — the quietest possible failure", () => {
     const out = buildAttentionItems(
       { ...HEALTHY, postings: [{ ...HEALTHY.postings[0]!, status: "closed" }] },
-      EMPLOYER_OWNER,
+      EMPLOYER,
     );
     const item = out.find((i) => i.id === "no-open-postings")!;
     expect(item.title).toBe("No open postings");
@@ -120,35 +124,21 @@ describe("buildAttentionItems", () => {
 
   it("says nothing for ZERO postings — the dashboard's panel already says 'No postings yet'", () => {
     // One page says it once: the "Your postings" panel's empty state carries it.
-    const out = buildAttentionItems({ ...HEALTHY, postings: [] }, EMPLOYER_OWNER);
+    const out = buildAttentionItems({ ...HEALTHY, postings: [] }, EMPLOYER);
     expect(out.map((i) => i.id)).not.toContain("no-open-postings");
     expect(out).toEqual([]);
   });
 
-  it("a recruiter is told to ASK the owner (no button — Credits is Owner-only)", () => {
-    const empty = buildAttentionItems(
-      { ...HEALTHY, credits: { payerId: "p", balance: 0 } },
-      EMPLOYER_RECRUITER,
-    )[0]!;
-    expect(empty.body).toContain("Ask your account owner to buy credits");
-    expect(empty.actionHref).toBeUndefined();
-    const low = buildAttentionItems(
-      { ...HEALTHY, credits: { payerId: "p", balance: lowBalanceThreshold() - 1 } },
-      EMPLOYER_RECRUITER,
-    )[0]!;
-    expect(low.body).toContain("Ask your account owner to buy credits");
-    expect(low.actionHref).toBeUndefined();
-  });
 
   it("never makes a posting claim to an AGENT — their vacancies live in another entity", () => {
     // DATA-COHERENCE: an agent's job-postings read is empty by design; counting it would be
     // a statement about the wrong data set, contradicting their own agency demand summary.
     // All-closed postings would raise the item for a company (see above); never for an agent.
     const closed = { ...HEALTHY, postings: [{ ...HEALTHY.postings[0]!, status: "closed" as const }] };
-    expect(buildAttentionItems(closed, EMPLOYER_OWNER).map((i) => i.id)).toContain(
+    expect(buildAttentionItems(closed, EMPLOYER).map((i) => i.id)).toContain(
       "no-open-postings",
     );
-    const out = buildAttentionItems(closed, { isAgency: true, isOwner: true });
+    const out = buildAttentionItems(closed, { isAgency: true });
     expect(out.map((i) => i.id)).not.toContain("no-open-postings");
   });
 
@@ -159,7 +149,7 @@ describe("buildAttentionItems", () => {
         unlocks: [{ ...HEALTHY.unlocks[0]!, status: "expired" }],
         postings: [{ ...HEALTHY.postings[0]!, status: "closed" }],
       } as Dashboard,
-      EMPLOYER_OWNER,
+      EMPLOYER,
     );
     expect(out.map((i) => i.id)).toEqual([
       "credits-empty",
@@ -171,7 +161,7 @@ describe("buildAttentionItems", () => {
   it("an agent gets only the wallet item (no posting item, whatever the job-postings read says)", () => {
     const out = buildAttentionItems(
       { ...HEALTHY, credits: { payerId: "p", balance: 0 } },
-      { isAgency: true, isOwner: true },
+      { isAgency: true },
     );
     expect(out).toHaveLength(1);
     expect(out[0]!.id).toBe("credits-empty");
@@ -189,36 +179,36 @@ describe("buildAttentionItems — a part that could not be read says nothing", (
   const ALL_CLOSED = [{ ...HEALTHY.postings[0]!, status: "closed" as const }];
 
   it("an unread balance raises no wallet item (never a guessed 'out of credits')", () => {
-    const out = buildAttentionItems({ ...HEALTHY, credits: null }, EMPLOYER_OWNER);
+    const out = buildAttentionItems({ ...HEALTHY, credits: null }, EMPLOYER);
     expect(out).toEqual([]);
     // …while the same account with the balance read still says it.
     expect(
-      buildAttentionItems({ ...HEALTHY, credits: EMPTY_WALLET }, EMPLOYER_OWNER).map((i) => i.id),
+      buildAttentionItems({ ...HEALTHY, credits: EMPTY_WALLET }, EMPLOYER).map((i) => i.id),
     ).toEqual(["credits-empty"]);
   });
 
   it("unread unlocks raise no expired item; the other parts still speak", () => {
     const out = buildAttentionItems(
       { credits: EMPTY_WALLET, unlocks: null, postings: ALL_CLOSED },
-      EMPLOYER_OWNER,
+      EMPLOYER,
     );
     expect(out.map((i) => i.id)).toEqual(["credits-empty", "no-open-postings"]);
     expect(
-      buildAttentionItems({ ...HEALTHY, unlocks: EXPIRED }, EMPLOYER_OWNER).map((i) => i.id),
+      buildAttentionItems({ ...HEALTHY, unlocks: EXPIRED }, EMPLOYER).map((i) => i.id),
     ).toEqual(["unlocks-expired"]);
   });
 
   it("unread postings raise no 'No open postings' item", () => {
-    const out = buildAttentionItems({ ...HEALTHY, postings: null }, EMPLOYER_OWNER);
+    const out = buildAttentionItems({ ...HEALTHY, postings: null }, EMPLOYER);
     expect(out).toEqual([]);
     expect(
-      buildAttentionItems({ ...HEALTHY, postings: ALL_CLOSED }, EMPLOYER_OWNER).map((i) => i.id),
+      buildAttentionItems({ ...HEALTHY, postings: ALL_CLOSED }, EMPLOYER).map((i) => i.id),
     ).toEqual(["no-open-postings"]);
   });
 
   it("nothing read at all → nothing claimed", () => {
     expect(
-      buildAttentionItems({ credits: null, unlocks: null, postings: null }, EMPLOYER_OWNER),
+      buildAttentionItems({ credits: null, unlocks: null, postings: null }, EMPLOYER),
     ).toEqual([]);
   });
 });
@@ -233,10 +223,10 @@ describe("buildAttentionItems — the low-balance threshold is the pricing confi
   afterEach(() => {
     vi.unstubAllEnvs();
   });
-  const at = (balance: number, opts = EMPLOYER_OWNER) =>
+  const at = (balance: number, opts = EMPLOYER) =>
     buildAttentionItems({ ...HEALTHY, credits: { payerId: "p", balance } }, opts);
   const ids = (balance: number) => at(balance).map((i) => i.id);
-  /** Every "Buy credits" the owner's needs-you band offers at this balance. */
+  /** Every "Buy credits" the needs-you band offers at this balance. */
   const buys = (balance: number) => at(balance).filter((i) => i.actionLabel === "Buy credits");
 
   it("the dashboard keeps no number of its own", () => {
@@ -253,10 +243,6 @@ describe("buildAttentionItems — the low-balance threshold is the pricing confi
     expect(ids(4)).toEqual(["credits-low"]);
     expect(buys(4)).toHaveLength(1);
     expect(buys(4)[0]!.actionHref).toBe("/credits");
-    // A recruiter is told, never linked (Credits is Owner-only) — at the same number.
-    expect(at(4, EMPLOYER_RECRUITER).map((i) => i.id)).toEqual(["credits-low"]);
-    expect(at(4, EMPLOYER_RECRUITER)[0]!.actionHref).toBeUndefined();
-    expect(at(5, EMPLOYER_RECRUITER)).toEqual([]);
   });
 
   it("the config override moves the dashboard WITH /credits (8: 7 is low, 8 is not)", () => {

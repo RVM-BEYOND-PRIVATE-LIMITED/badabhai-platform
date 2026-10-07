@@ -47,6 +47,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     default: ({
       children,
       href,
@@ -227,6 +229,25 @@ beforeEach(() => {
     listAgencyJobs: async () => [AGENCY_JOB],
     getAgencyJob: async (id: unknown) => (id === JOB ? AGENCY_JOB : null),
     getAgencyKyc: async () => null,
+    getUnlocks: async () => [],
+    // The Candidates inbox: one row on the persona's own kind of posting, so the list renders.
+    getCandidateInbox: async () => ({
+      applicants: [
+        {
+          workerId: "a1b2c3d4-0000-4000-8000-000000000001",
+          rank: 1,
+          score: 0.9,
+          hot: false,
+          signals: [],
+          tradeLabel: "CNC Turner",
+          posting:
+            session.role === "agent"
+              ? { id: JOB, title: "CNC Operator", kind: "agency_job" }
+              : { id: POSTING, title: "CNC Turner", kind: "company_posting" },
+        },
+      ],
+      nextCursor: null,
+    }),
   });
 });
 
@@ -268,6 +289,7 @@ const PAGE = {
   agencyQr: (await import("./agency/qr/page")) as PageModule,
   agencyRevenue: (await import("./agency/revenue/page")) as PageModule,
   agencyBulk: (await import("./agency/bulk-upload/page")) as PageModule,
+  candidates: (await import("./candidates/page")) as PageModule,
 };
 
 /** Every portal page, for each persona that can open it. */
@@ -280,6 +302,7 @@ const ROUTES: Route[] = [
   { persona: "company", path: `/postings/${POSTING}`, file: "postings/[id]/page.tsx", mod: PAGE.posting, props: params({ id: POSTING }) },
   { persona: "company", path: `/postings/${POSTING}/edit`, file: "postings/[id]/edit/page.tsx", mod: PAGE.postingEdit, props: params({ id: POSTING }) },
   { persona: "company", path: `/postings/${POSTING}/applicants`, file: "postings/[id]/applicants/page.tsx", mod: PAGE.applicants, props: params({ id: POSTING }) },
+  { persona: "company", path: "/candidates", file: "candidates/page.tsx", mod: PAGE.candidates },
   { persona: "company", path: "/plans", file: "plans/page.tsx", mod: PAGE.plans },
   { persona: "company", path: "/credits", file: "credits/page.tsx", mod: PAGE.credits },
   { persona: "company", path: "/account", file: "account/page.tsx", mod: PAGE.account },
@@ -292,6 +315,7 @@ const ROUTES: Route[] = [
   { persona: "agency", path: `/agency/jobs/${JOB}`, file: "agency/jobs/[jobId]/page.tsx", mod: PAGE.agencyJob, props: params({ jobId: JOB }) },
   { persona: "agency", path: `/agency/jobs/${JOB}/edit`, file: "agency/jobs/[jobId]/edit/page.tsx", mod: PAGE.agencyJobEdit, props: params({ jobId: JOB }) },
   { persona: "agency", path: `/agency/jobs/${JOB}/applicants`, file: "agency/jobs/[jobId]/applicants/page.tsx", mod: PAGE.agencyJobApplicants, props: params({ jobId: JOB }) },
+  { persona: "agency", path: "/candidates", file: "candidates/page.tsx", mod: PAGE.candidates },
   { persona: "agency", path: "/agency/workers", file: "agency/workers/page.tsx", mod: PAGE.agencyWorkers },
   { persona: "agency", path: "/agency/referrals", file: "agency/referrals/page.tsx", mod: PAGE.agencyReferrals },
   { persona: "agency", path: "/agency/qr", file: "agency/qr/page.tsx", mod: PAGE.agencyQr },

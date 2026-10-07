@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PriceMismatchError, PurchaseOptionChangedError } from "../../../lib/payer-errors";
+import { PRICE_UNREADABLE_MESSAGE } from "../../../lib/price-confirmation";
 import type { PostingSummary } from "../../../lib/contracts";
 
 /**
@@ -19,6 +21,8 @@ const closePosting = vi.fn();
 const revalidatePath = vi.fn();
 
 class QuotaTopUpNoPlanError extends Error {}
+/** The seam's typed in-flight 409 (#2085) — exported from the mock so `instanceof` holds. */
+class PurchaseConflictError extends Error {}
 
 vi.mock("../../../lib/payer-api", () => ({
   pausePosting: (i: unknown) => pausePosting(i),
@@ -26,6 +30,7 @@ vi.mock("../../../lib/payer-api", () => ({
   topUpPostingQuota: (i: unknown) => topUpPostingQuota(i),
   closePosting: (i: unknown) => closePosting(i),
   QuotaTopUpNoPlanError,
+  PurchaseConflictError,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
 
@@ -33,6 +38,8 @@ const { pausePostingAction, resumePostingAction, topUpQuotaAction, closePostingA
   await import("./actions");
 
 const ID = "bbbb2222-0000-4000-8000-000000000001";
+/** The tier the payer confirmed in the dialog (#2085 L1): its code and the slots it adds. */
+const TIER = { code: "topup_10", additionalViews: 10 };
 const POSTING: PostingSummary = {
   id: ID,
   roleTitle: "CNC Machinist",
@@ -92,7 +99,7 @@ describe("pause/resume/close actions — neutral gates + revalidate", () => {
 describe("topUpQuotaAction — the paid action's honesty contracts", () => {
   it("success with a fresh row → ok + the 'added N views' notice", async () => {
     topUpPostingQuota.mockResolvedValue({ posting: POSTING, addedViews: 10 });
-    const res = await topUpQuotaAction({ postingId: ID });
+    const res = await topUpQuotaAction({ postingId: ID, tier: TIER });
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.posting).toEqual(POSTING);
@@ -103,7 +110,7 @@ describe("topUpQuotaAction — the paid action's honesty contracts", () => {
 
   it("a committed charge with a failed re-read is STILL ok (never 'please retry')", async () => {
     topUpPostingQuota.mockResolvedValue({ posting: null, addedViews: 10 });
-    const res = await topUpQuotaAction({ postingId: ID });
+    const res = await topUpQuotaAction({ postingId: ID, tier: TIER });
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.posting).toBeNull();
@@ -114,7 +121,7 @@ describe("topUpQuotaAction — the paid action's honesty contracts", () => {
 
   it("QuotaTopUpNoPlanError → the actionable 'buy a plan first' copy", async () => {
     topUpPostingQuota.mockRejectedValue(new QuotaTopUpNoPlanError("no active plan"));
-    const res = await topUpQuotaAction({ postingId: ID });
+    const res = await topUpQuotaAction({ postingId: ID, tier: TIER });
     expect(res).toEqual({
       ok: false,
       error: "This posting has no active plan yet — buy a plan first.",
@@ -123,14 +130,103 @@ describe("topUpQuotaAction — the paid action's honesty contracts", () => {
 
   it("a null outcome (neutral 404 — the POST itself) maps to not-found, and a transport throw to retry copy", async () => {
     topUpPostingQuota.mockResolvedValue(null);
-    expect(await topUpQuotaAction({ postingId: ID })).toEqual({
+    expect(await topUpQuotaAction({ postingId: ID, tier: TIER })).toEqual({
       ok: false,
       error: "That posting could not be found.",
     });
     topUpPostingQuota.mockRejectedValue(new Error("network"));
-    expect(await topUpQuotaAction({ postingId: ID })).toEqual({
+    expect(await topUpQuotaAction({ postingId: ID, tier: TIER })).toEqual({
       ok: false,
       error: "Could not add applicant slots right now. Please retry.",
     });
+  });
+});
+
+/**
+ * #2085 — the top-up is a confirmed, idempotent purchase. The action forwards the price the payer
+ * confirmed and the purchase's key (a malformed key is dropped, as on capacity/credits; a malformed
+ * price is refused — never silently dropped). A refused price is `priceChanged` and re-renders the
+ * page so the new price shows; the in-flight duplicate is a non-terminal `pending` — neither is
+ * ever `ok`, neither is retried.
+ */
+describe("#2085 — topUpQuotaAction: confirmed price + idempotency key; 'price changed' and 'pending'", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f";
+
+  it("forwards the confirmed price and a well-formed key to the seam", async () => {
+    topUpPostingQuota.mockResolvedValue({ posting: POSTING, addedViews: 10 });
+    await topUpQuotaAction({ postingId: ID, tier: TIER, expectedPriceInr: 1000, idempotencyKey: KEY });
+    expect(topUpPostingQuota).toHaveBeenCalledWith({
+      postingId: ID,
+      tier: TIER,
+      expectedPriceInr: 1000,
+      idempotencyKey: KEY,
+    });
+  });
+
+  it("DROPS a malformed key (degrades to no-key) rather than forwarding junk", async () => {
+    topUpPostingQuota.mockResolvedValue({ posting: POSTING, addedViews: 10 });
+    await topUpQuotaAction({ postingId: ID, tier: TIER, expectedPriceInr: 1000, idempotencyKey: "not-a-uuid" });
+    expect(topUpPostingQuota).toHaveBeenCalledWith({
+      postingId: ID,
+      tier: TIER,
+      expectedPriceInr: 1000,
+      idempotencyKey: undefined,
+    });
+  });
+
+  it("a refused price is { priceChanged, currentPriceInr } and re-renders /postings with the new price", async () => {
+    topUpPostingQuota.mockRejectedValue(new PriceMismatchError("/payer/job-postings/x/quota-topup", 750));
+    const res = await topUpQuotaAction({ postingId: ID, tier: TIER, expectedPriceInr: 1000, idempotencyKey: KEY });
+    expect(res).toEqual({ ok: false, priceChanged: true, currentPriceInr: 750 });
+    expect(topUpPostingQuota).toHaveBeenCalledTimes(1);
+    expect(revalidatePath).toHaveBeenCalledWith("/postings");
+  });
+
+  it("the in-flight duplicate is a non-terminal PENDING — never ok, never 'buy a plan first'", async () => {
+    topUpPostingQuota.mockRejectedValue(new PurchaseConflictError());
+    const res = await topUpQuotaAction({ postingId: ID, tier: TIER, expectedPriceInr: 1000, idempotencyKey: KEY });
+    expect(res).toEqual({ ok: false, pending: true });
+    expect(topUpPostingQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it("a malformed confirmed price is refused before the seam", async () => {
+    for (const bad of [-1, 999.5, "1000"]) {
+      const res = await topUpQuotaAction({ postingId: ID, tier: TIER, expectedPriceInr: bad as number });
+      expect(res, String(bad)).toEqual({ ok: false, error: PRICE_UNREADABLE_MESSAGE });
+    }
+    expect(topUpPostingQuota).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #2085 L1 — the action threads the tier the payer confirmed. A missing or malformed tier is never
+ * sent and never guessed (the seam no longer picks one); the seam's refusal of a changed tier is a
+ * non-terminal `optionChanged` that re-renders the page so the current option shows.
+ */
+describe("#2085 L1 — topUpQuotaAction: the confirmed tier, or 'this option changed'", () => {
+  it("a missing or malformed confirmed tier is refused before the seam", async () => {
+    for (const bad of [
+      undefined,
+      { code: "", additionalViews: 10 },
+      { code: "topup_10", additionalViews: 0 },
+      { code: "topup_10", additionalViews: 2.5 },
+      { code: "topup_10" },
+    ]) {
+      const res = await topUpQuotaAction({
+        postingId: ID,
+        tier: bad as unknown as typeof TIER,
+        expectedPriceInr: 1000,
+      });
+      expect(res, JSON.stringify(bad)).toEqual({ ok: false, optionChanged: true });
+    }
+    expect(topUpPostingQuota).not.toHaveBeenCalled();
+  });
+
+  it("the seam's PurchaseOptionChangedError is { optionChanged } and re-renders /postings — never ok, never retried", async () => {
+    topUpPostingQuota.mockRejectedValue(new PurchaseOptionChangedError());
+    const res = await topUpQuotaAction({ postingId: ID, tier: TIER, expectedPriceInr: 1000 });
+    expect(res).toEqual({ ok: false, optionChanged: true });
+    expect(topUpPostingQuota).toHaveBeenCalledTimes(1);
+    expect(revalidatePath).toHaveBeenCalledWith("/postings");
   });
 });

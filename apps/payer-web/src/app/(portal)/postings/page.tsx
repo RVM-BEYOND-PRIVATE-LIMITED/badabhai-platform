@@ -5,7 +5,6 @@ import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { quotaTopUpTier } from "../../../lib/pricing-config";
-import { formatInr } from "../../../lib/format";
 import {
   agentPostingRedirect,
   COMPANY_POSTING_ROUTES,
@@ -14,9 +13,10 @@ import {
 import type { PostingSummary } from "../../../lib/contracts";
 import { Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
+import { priceFigure } from "../../../components/price-figure";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
-import { PostingsManager } from "./postings-manager";
+import { PostingsManager, type TopUpOffer } from "./postings-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +30,9 @@ export const dynamic = "force-dynamic";
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}` routes (#178/#180),
  * wired in the manager with per-row busy state + inline retryable errors. ADD APPLICANT SLOTS is
  * a purchase: its button shows its slots and ₹ and asks first (owner ruling 2026-10-07, F11). That
- * offer is `quotaTopUpTier()` of the LIVE catalog — the very tier `topUpQuotaAction` charges by —
- * so the button, the dialog and the quota note below all name what is actually bought (D-6; fetch
+ * offer is `quotaTopUpTier()` of the LIVE catalog, and the confirm sends that tier back — the
+ * seam buys exactly it or nothing (#2085 L1) — so the button, the dialog and the quota note below
+ * all name what is actually bought (D-6; fetch
  * failure ⇒ compile-time defaults + the cached-pricing note). Never a hardcoded price or quota.
  *
  * AN AGENT (owner ruling 2026-10-01): agencies post AGENCY jobs only, so this company surface
@@ -46,11 +47,11 @@ export default async function PostingsPage() {
   const isAgency = session.role === "agent";
   // An agent's own postings page — null when the agency surface is off (it would 404).
   const agencyPostings = isAgency ? postingRoutes(true) : null;
-  const { products, live } = await getLiveCatalog();
-  // The slot top-up on offer: the SAME tier the action charges by (display only — XT5).
-  const tier = quotaTopUpTier(products);
-  const topUpOffer =
-    tier !== null ? { priceInr: tier.priceInr, additionalViews: tier.additionalViews } : null;
+  const catalog = await getLiveCatalog();
+  const { live } = catalog;
+  // The slot top-up on offer, at the price it is charged (#2085): its code, slots and price are
+  // what the row's confirm shows AND sends back — the seam buys exactly this tier or nothing.
+  const topUpOffer: TopUpOffer | null = quotaTopUpTier(catalog);
 
   let postings: PostingSummary[] | null = null;
   let error: string | null = null;
@@ -116,7 +117,7 @@ export default async function PostingsPage() {
                 <>
                   Each &ldquo;Add applicant slots&rdquo; adds{" "}
                   <span className="bb-mono">{topUpOffer.additionalViews}</span> more applicant slots
-                  for <span className="bb-mono">{formatInr(topUpOffer.priceInr)}</span> (from the
+                  for <span className="bb-mono">{priceFigure(topUpOffer)}</span> (from the
                   pricing config).
                 </>
               ) : (
@@ -132,7 +133,8 @@ export default async function PostingsPage() {
       {error || !postings ? (
         // B7: the seam either threw (→ `error`) OR returned no postings array (the future
         // real-fetch failure path). BOTH degrade to the SAME neutral fallback + in-page
-        // Retry — never a blank-content path. Loading is handled separately by loading.tsx.
+        // Retry — never a blank-content path. (No route loading state: the previous page stays on
+        // screen until this one renders — app/no-suspense-above-a-page.test.ts.)
         // NO-LEAK: the caught `error` string is never rendered; the copy stays neutral.
         <Card>
           <div className="state state--error">

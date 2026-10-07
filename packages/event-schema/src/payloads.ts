@@ -45,6 +45,7 @@ import {
   FREE_CHAT_DECIDED_BY,
   FREE_CHAT_OUTCOMES,
   FREE_CHAT_MODE_TRIGGERS,
+  FREE_CHAT_SUMMARY_OUTCOMES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -1209,6 +1210,10 @@ const aiTaskType = z.enum([
   // routes them, per the lesson the entries above record.
   "profiling_free_classify",
   "profiling_free_reply",
+  // ADR-0051 RELEASE 2 — the rolling free-chat summary, routed in `model_config._ROUTE_SHAPES`
+  // and charged once per fold (turns aging out of the reply's window). Added in the SAME change
+  // that routes it.
+  "profiling_free_summary",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -5309,3 +5314,26 @@ export const JobPostingTwinSyncedPayload = z
     message: "a refused twin is paused",
   });
 export type JobPostingTwinSyncedPayload = z.infer<typeof JobPostingTwinSyncedPayload>;
+
+/**
+ * ADR-0051 RELEASE 2 — ONE ROLLING-SUMMARY FOLD ENDED. Free-chat turns aged out of the reply's
+ * recent-turn window were sent to the summarizer; `outcome` says whether a new summary was stored
+ * (`updated`), the model's was refused by the API's validation (`rejected`, previous kept) or the
+ * call produced none (`unavailable`, previous kept). `folded_lines` is how many transcript lines
+ * the fold covered; `summary_chars` the stored summary's length, set only for `updated`.
+ *
+ * NEVER THE SUMMARY OR ANY TURN. Counts and a closed enum only; `.strict()` keeps it that way.
+ */
+export const ChatFreeChatSummaryUpdatedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    outcome: z.enum(FREE_CHAT_SUMMARY_OUTCOMES),
+    folded_lines: z.number().int().nonnegative(),
+    summary_chars: z.number().int().positive().nullable(),
+  })
+  .strict()
+  .refine((v) => (v.summary_chars !== null) === (v.outcome === "updated"), {
+    message: "summary_chars is set iff outcome is 'updated'",
+  });
+export type ChatFreeChatSummaryUpdatedPayload = z.infer<typeof ChatFreeChatSummaryUpdatedPayload>;

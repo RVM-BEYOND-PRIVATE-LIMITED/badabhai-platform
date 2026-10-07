@@ -38,11 +38,17 @@ const revealContactAction = vi.fn();
 const maskedResumeAction = vi.fn();
 
 vi.mock("next/link", () => ({
+  // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+  useLinkStatus: () => ({ pending: false }),
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
     props: { href, children },
   }),
 }));
+// The head's links carry the navigation pending cue, a client component with an effect, which
+// this walk (it calls components outside a renderer) cannot run; its own behaviour is
+// components/nav-pending.render.test.tsx.
+vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),
@@ -425,5 +431,53 @@ describe("applicant feed — (g) after a granted reveal the row MOVES TO CONTACT
     expect(deepText()).toContain("Contacted");
     expect(unlockAction).toHaveBeenCalledTimes(1);
     expect(revealContactAction).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("applicant feed — a posting's own feed is unchanged by the inbox's per-row rules", () => {
+  /** The rank badges, in card order (`#1`, `#2` …) — the badge is the feed's own rank read-out. */
+  function rankBadges(): string[] {
+    const out: string[] = [];
+    (function walk(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node === "boolean") return;
+      if (typeof node === "string" || typeof node === "number") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      if (el.type === Badge) {
+        const t = textOf(el.props.children as ReactNode).trim();
+        if (/^#\d+$/.test(t)) out.push(t);
+      }
+      if (el.props && "children" in el.props) walk(el.props.children as ReactNode);
+    })(currentTree);
+    return out;
+  }
+
+  it("each card keeps its #rank badge — the list on screen IS the posting's ranking", () => {
+    mount([A, B, C]);
+    expect(rankBadges()).toEqual(["#1", "#2", "#3"]);
+    expect(deepText()).not.toContain("ranked #");
+  });
+
+  it("a failed unlock relabels to Retry, which re-runs on the posting with NO re-prompt", async () => {
+    unlockAction
+      .mockResolvedValueOnce({ ok: false, error: "Couldn’t unlock right now. Please retry." })
+      .mockResolvedValueOnce(GRANTED);
+    mount([A, B]);
+    await driveUnlock();
+    expect(find("Retry unlock (1 credit)")).toBeDefined();
+    expect(deepText()).toContain("Couldn’t unlock right now. Please retry.");
+    await find("Retry unlock (1 credit)")!.onClick!();
+    expect(cells[4]).toBeNull(); // the dialog never reopened
+    expect(unlockAction.mock.calls.map((c) => c[0])).toEqual([
+      { postingId: POSTING, workerId: A.workerId },
+      { postingId: POSTING, workerId: A.workerId },
+    ]);
+    // The other applicant was never confirmed: his Unlock still opens the dialog first.
+    find("Unlock contact (1 credit)")!.onClick!();
+    expect(cells[4]).toBe(B.workerId);
+    expect(unlockAction).toHaveBeenCalledTimes(2);
   });
 });

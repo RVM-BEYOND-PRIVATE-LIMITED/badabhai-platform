@@ -30,7 +30,8 @@ gate (`requireCapability` / `requireSession`) whatever the sidebar shows.
 | Operations     | Companies              | `buildings`               | `/companies`        | `(portal)/companies/page.tsx`        | Company accounts (`payers.role = employer`)                 | `read_entities`                                       |
 | Operations     | Agencies               | `handshake`               | `/agencies`         | `(portal)/agencies/page.tsx`         | Agency accounts (`payers.role = agent`)                     | `read_entities`                                       |
 | Operations     | Postings               | `briefcase`               | `/jobs`             | `(portal)/jobs/page.tsx`             | Every posting, with the poster's own text                   | `read_entities`                                       |
-| Skills         | Skill discovery        | `list-magnifying-glass`   | `/skills/discovery` | `(portal)/skills/discovery/page.tsx` | The skill-candidate review queue                            | `read_entities` (deciding: `review_skill_candidates`) |
+| Matching       | Skill discovery        | `list-magnifying-glass`   | `/skills/discovery` | `(portal)/skills/discovery/page.tsx` | The skill-candidate review queue                            | `read_entities` (deciding: `review_skill_candidates`) |
+| Matching       | Engine view            | `path`                    | `/matching/engine`  | `(portal)/matching/engine/page.tsx`  | How Matching V1 decides one demo worker's feed, live        | `read_entities`                                       |
 | Finance        | Credits                | `wallet`                  | `/credits`          | `(portal)/credits/page.tsx`          | Credit position and the credit ledger                       | `read_entities`                                       |
 | Finance        | Payment orders         | `receipt`                 | `/transactions`     | `(portal)/transactions/page.tsx`     | Credit-pack checkouts (payment orders)                      | `read_entities`                                       |
 | Administration | Admin users            | `user-gear`               | `/admins`           | `(portal)/admins/page.tsx`           | Admin directory, invites, role / MFA / suspend actions      | `manage_admins`                                       |
@@ -90,7 +91,14 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
    below it, the item is the current section (`aria-current="true"`). Chip filters mark the
    active chip `aria-current="true"` and give it the selected tint (`filterChipClass` →
-   `.btn--selected`) — never the primary fill, which marks a screen's one action.
+   `.btn--selected`) — never the primary fill, which marks a screen's one action. Every link
+   chip renders `components/filter-chip-link.tsx` (a fence in `filter-chip.test.ts`). A chip
+   keeps the other filters and drops the page cursor, so the active chip is TEXT only where its
+   target is the address on screen — the first page (final re-sweep O-2: as a link it sat
+   beside a Retry or another selected chip with the same address). On a later page it stays a
+   link, still `aria-current`, to the first page of the same selection: the Pager only goes
+   forward (review of #2095). The Engine view's picker shows the selected worker as text, and
+   its Worker tab is the way back from a posting.
 7. **Tab title.** `metadata.title` names the page. The root template adds " · BadaBhai Admin",
    so a page never includes it itself.
 
@@ -115,26 +123,62 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   `components/retry-actions.tsx` (Workers, Postings, Events, Companies, Agencies, the event
   timelines, Payment orders, the credit ledger, Skill discovery's flat view, AI calls,
   Feedback, a worker's interview sessions); a test fails if one does not pass its cursor.
-- **A refused read is not an outage.** A list that tells a 400 apart (Workers, Postings,
-  Events, Companies, Agencies, AI calls, Feedback, Skill discovery) never offers Retry in its
-  refusal — the request would only be refused again — and says what was refused:
-  - **a filter is set** → the filters. The API refuses a page cursor only when it is longer
-    than any it issues (a malformed one falls back to page one), so with a filter set the
-    filter is at fault and its first page would be refused too: the state's action is "Clear
-    filters", the screen's one.
-  - **no filter, a page cursor** → the cursor: "Back to the first page" (`FirstPageAction`;
-    Skill discovery's flat view lays out the bare `FirstPageLink`, keeping `view=flat`).
-  - **nothing in the address** → it cannot be the operator's. Workers, Postings, Events,
-    Companies, Agencies, AI calls and Feedback read it as an outage; Skill discovery shows the
-    server's own reason (its grouped view refuses a result too large to group) with "Clear
-    filters".
+- **A refused read is not an outage.** Every list tells a 400 apart by one rule,
+  `lib/read-refusal.ts` (Workers, Postings, Events, Companies, Agencies, AI calls, Feedback,
+  the credit ledger, Payment orders and Admin users; Skill discovery keeps its grouped-view
+  exception below). A refusal never offers Retry — the request would only be refused again —
+  and says what was refused. Only a filter VALUE the API does not accept counts as a refusable
+  filter — an unknown enum value (`isUnknownValue`), an id that is not a uuid
+  (`isMalformedUuid`), free text past the API's bound (`isOverLength`) — so a valid filter
+  beside an over-long cursor is the cursor's refusal, not the filter's. The accepted values come
+  from `@badabhai/types` where it exports them (worker, posting and verification statuses, the
+  feedback tags); the rest are copies in `lib/list-filter-values.ts` and `AI_TASK_TYPES`, pinned
+  to the API's DTO source by `lib/list-filter-values.test.ts`.
+  - **a filter value the API does not accept is set** → the filters: that value is at fault,
+    and its first page would be refused too. The state's action is "Clear filters", the
+    screen's one (the credit ledger's is "Clear the reason filter", which keeps the window).
+  - **no such value, a page cursor** → the cursor (the API refuses one only when it is longer
+    than any it issues; a malformed one falls back to page one): "Back to the first page",
+    every filter kept (`FirstPageAction`; Skill discovery's flat view lays out the bare
+    `FirstPageLink`, keeping `view=flat`).
+  - **nothing in the address** → it cannot be the operator's: an outage, with Retry —
+    Skill discovery's flat view included (it blamed filters that were not set, NEW-07). The
+    one exception is Skill discovery's GROUPED view, whose route refuses a result too large
+    to group even with nothing set: it shows the server's own reason and points at the Flat
+    view (linked once, by its chip) — there is no filter to clear.
 
   Anything else is an outage ("Workers are unavailable", "Feedback is unavailable" — a fault
   on our side, not the filters) and offers both recoveries.
 
 - **One recovery of each kind per screen.** Two states on one page that would each offer the
-  same link (the credit position and the ledger both failed, or both empty) show it once.
+  same link (the credit position and the ledger both failed, or both empty) show it once. A
+  state does not repeat a control already on screen: a quiet credit window points at the
+  window chips rather than offering a second link to the 90-day one.
   The error boundary's button is "Retry" too.
+- **No Suspense or loading boundary anywhere in admin-web, until re-measured** (final re-sweep
+  O-1, review of #2095). No route `loading.tsx`, no `<Suspense>`, no `React.lazy`, no
+  `next/dynamic` (every call is a React.lazy, and `ssr: false` a Suspense boundary) — in any
+  layout, page or component
+  (`app/no-loading-boundary-anywhere.test.ts`). A query-only navigation (a chip, a filter, a
+  page cursor) re-renders the same page, so any boundary in it is already visible, and on a
+  production build of next 15.5.25 such a navigation was held in a transition that never
+  committed (the URL never moved: 1-2 of 6 clicks landed on /credits, /events and
+  /transactions; 400/400 with no boundary). A navigation keeps the current page on screen until
+  the next one has rendered. Re-measure before relaxing this after a Next or React upgrade.
+- **The navigation pending cue: sidebar, crumb, filter chips, Pager and filter-bar Apply**
+  (review of #2095). These carry `components/nav-pending.tsx` and read their navigation's own
+  pending state — Next's `useLinkStatus` for the sidebar links (rail and drawer), the crumb's
+  section link, every link filter chip (`FilterChip`) and the Pager's Next page; the transition a
+  filter bar's Apply navigates in (`usePendingPush`) — and Skill discovery's Clear these fields,
+  in its own transition with its own words.
+  While pending: a dot (after a rail or crumb label, on the corner of a chip, the Pager or
+  Apply), a bar along the top of the viewport (the cue a phone sees, since the drawer closes as
+  its link is followed) and one polite status line — "Opening Workers…", "Loading Credit
+  grant…", "Loading the next page…", "Applying the filters…", "Clearing the fields…". Nothing
+  shows for the first 180ms (`--nav-pending-delay`, equal to `PENDING_ANNOUNCE_DELAY_MS` — a
+  test ties them), so a prefetched navigation never flashes it, and all of it ends
+  when the navigation commits. NOT covered: other links — a back link, a table row's link, a
+  state's recovery link — which show nothing until the next page renders.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not
   also say "reload". A failure with no button (a secondary read on a detail page) says
   "Reload this page".
@@ -191,9 +235,14 @@ labels are pinned by `nav-model.test.ts`.
 | nav-O | item shown only when `getOrgRole(session) === "owner"`               | item hidden          |
 | nav-F | item shown only when F is on (the same flag the page checks)         | item hidden          |
 
-`getOrgRole()` is a stub that returns `recruiter` for every session outside dev/test
-(GAP-FE-01, `docs/payer-agent/GAP_REGISTER.md`), so O routes and nav-O items are absent for real
-users today. No link to an O route is rendered for a non-owner.
+`getOrgRole()` reads the member's CURRENT org role from `GET /payer/me` `orgRole` (#2079) — the
+API reads `payer_members` on every call, and `requirePayer()` already makes that read on every
+request, so a demoted owner loses O on their next request. Anything but an explicit `owner`
+(`null`, missing, unknown) is `recruiter`. The payer JWT's `org_role` claim is not read (payer-web
+cannot verify it). No link to an O route is rendered for a non-owner.
+
+Since the owner ruling of 2026-10-07 the ONLY O route is Team: buying credits is open to every
+member, so Credits is P (with the nav item and the chip link for everyone).
 
 ### Rail (desktop ≥1024px; the same list is the drawer below 1024px)
 
@@ -202,13 +251,15 @@ users today. No link to an O route is rendered for a non-owner.
 | Both    | —            | Dashboard        | `/dashboard`        | `dashboard/page.tsx`        | What needs you, position, quick actions, recent work       | P                                              |
 | Company | Hiring       | New posting      | `/postings/new`     | `postings/new/page.tsx`     | Create a company posting (`job_postings`)                  | P; agent → redirected to `/agency/jobs/new`    |
 | Company | Hiring       | Postings         | `/postings`         | `postings/page.tsx`         | List + pause / resume / add applicant slots / close        | P; agent → see "Agency on the company surface" |
+| Company | Hiring       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting; unlock | P                                  |
 | Agency  | Demand       | New posting      | `/agency/jobs/new`  | `agency/jobs/new/page.tsx`  | Create an agency posting (`jobs`, the worker feed's table) | A + F; nav-F                                   |
 | Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + pause / resume / close; links details, applicants, edit | A + F; nav-F                               |
+| Agency  | Demand       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting; unlock | P + F (agent); nav-F               |
 | Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
 | Company | Billing      | Plans & capacity | `/plans`            | `plans/page.tsx`            | Usage, Hiring capacity, applicant quota, credits, plans    | P; agent → redirected to `/dashboard`          |
-| Both    | Billing      | Credits          | `/credits`          | `credits/page.tsx`          | Credit balance, buy credits, history, expiry               | O; nav-O                                       |
+| Both    | Billing      | Credits          | `/credits`          | `credits/page.tsx`          | Credit balance, buy credits, history, expiry               | P (every member — ruling 2026-10-07)           |
 | Both    | Organisation | Team             | `/team`             | `team/page.tsx`             | Members, invite a recruiter                                | O; nav-O                                       |
 | Agency  | Coming soon  | Revenue (Soon)   | `/agency/revenue`   | `agency/revenue/page.tsx`   | Parked explainer (no data)                                 | A + F; nav-F                                   |
 
@@ -216,6 +267,30 @@ Not in the rail, on purpose: **Bulk invite upload** (`/agency/bulk-upload`). It 
 violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Nothing in
 the portal links to it (final sweep F17: the dashboard's "not available" tile was a dead end, and is
 gone); the route stays so an old link lands on its explanation, which points at batch invite links.
+
+**Candidates** (`/candidates`, owner request 2026-10-07) is ONE list of every applicant to every
+posting the payer owns, newest application first (`GET /payer/reach/applicants`) — the same faceless
+card and unlock as a posting's Applicants page (which keeps its name), with one confirm-on-spend
+dialog for the list and the balance as an affordance. Both personas, one route: a company's sits in
+Hiring, an agency's in Demand beside Postings, behind F like the rest of Demand (the page checks it
+for an agent). Its head is H1 "Candidates" + one sentence, no back link and no primary action; the
+toolbar row is the posting filter — a plain GET form (`?postingId=`, "Show") over the payer's OWN
+postings (company postings, or an agency's jobs). There is no stage (New / Shortlist) filter:
+stages are a posting page's local state and nothing persists them. Paging is keyset — "Next page"
+carries the API's cursor and keeps the filter; a later page offers "First page". Each card names its
+posting ("Applied to …"): a company posting links `/postings/<id>`, an agency's job
+`/agency/jobs/<id>`; the applicant's rank on that posting reads on the same line ("· ranked #2") —
+the inbox is newest first, so its cards carry no rank badge. The unlock and the masked-resume
+disclosure name that row's posting, and confirm-on-spend is per row: a worker who applied to two
+postings is two cards, and the second always confirms for its own posting (a Retry is only ever the
+card that confirmed). A filter that matches nothing (unknown, another payer's, not an id) is one
+state with the empty posting's ("No applicants for this posting" → All postings); an uppercase id
+is the same posting. A read failure is an in-place card with Retry under the kept head; a 429 (the
+hourly reach cap it shares with the per-posting feed) is a neutral "Too many requests". A page
+cursor the API refuses (a 400 — one it never issued, e.g. hand-edited) is not an outage, by the
+admin rule "A refused read is not an outage": a calm "This page link isn't valid" whose one action
+is "First page" (filter kept) — never Retry, which could only be refused again (`inboxRefusal` in
+`lib/candidate-inbox.ts`). The trail is the group, as text; the page has no children.
 
 **Agency dashboard doors** (final sweep F15/F21 — a glance, not a second rail). The head's primary
 is New posting (`/agency/jobs/new`). "Your postings" shows three rows — each card opens that
@@ -241,8 +316,8 @@ screen, keep the funnel first.
 is an entitlement on company postings (`job_postings`) — concurrent capacity, per-posting applicant
 quota, posting plans — and an agency posts agency jobs only. The agency rail and dashboard do not
 offer it, and an agent who opens `/plans` or `/capacity` is redirected to `/dashboard` before any
-read. Credits stays for both personas (Owner-only). An agency recruiter therefore has no Billing
-group at all.
+read. Credits stays for both personas and every member, so every agency rail keeps its Billing
+group (Credits); only Organisation (Team) is owner-only.
 
 ### Header (every portal page)
 
@@ -250,7 +325,7 @@ group at all.
 | ------------ | ----------------------------------------- | -------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Brand lockup | "BadaBhai for Companies" / "for Agencies" | `/dashboard`   | Home                                                                       | P                                                         |
 | Breadcrumb   | group, then the section                   | the section    | Section context only: never the page itself (its H1 names it), never an id | derived from the rail                                     |
-| Credits chip | wallet icon + "{n} credits"               | `/credits`     | The balance — shown once per screen                                        | link for O only; static otherwise; hidden on a read error |
+| Credits chip | wallet icon + "{n} credits"               | `/credits`     | The balance — shown once per screen                                        | link for every member (P); hidden on a read error         |
 | Account menu | "Account"                                 | `/account`     | The payer's own settings page                                              | P                                                         |
 | Account menu | "Sign out"                                | server action  | Sign out                                                                   | P                                                         |
 
@@ -273,6 +348,7 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | Route                        | Trail                            | Back link                 |
 | ---------------------------- | -------------------------------- | ------------------------- |
 | `/postings`, `/postings/new` | "Hiring" (text)                  | —                         |
+| `/candidates`                | "Hiring" / "Demand" (text)       | —                         |
 | `/postings/<id>`             | "Hiring › Postings" (text)       | Postings                  |
 | `/postings/ai/new`           | "Hiring › New posting" (text)    | New posting               |
 | `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | the posting, by its title |
@@ -284,7 +360,7 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | `/dashboard`, `/account`     | none                             | —                         |
 
 The credits chip below 540px shows the number only: the unit word is visually hidden but stays in
-its accessible name ("1234 credits — open Credits" for an owner's link), and the shared icon
+its accessible name ("1234 credits — open Credits"), and the shared icon
 tooltip shows "1234 credits" on hover and keyboard focus.
 
 ### Pages below a nav destination (back link = the real parent)
@@ -327,6 +403,43 @@ Fragment targets (`#hiring-capacity`, `#batch-invites`, the legacy `#agency-vaca
 `.anchor-target`, which keeps them below the sticky header when a link lands on them; a test fails
 if an in-app link to another page's fragment targets an element without it.
 
+### No loading boundary above a page
+
+There is no route `loading.tsx` and no `<Suspense>` in the portal
+(`src/app/no-suspense-above-a-page.test.ts`). Next keys the `(portal)` boundary by the first
+segment under it, so it stayed mounted across every same-section navigation (`/postings` →
+`/postings/<id>`, every `/agency/*` page). On a production build of next 15.5.25, clicks made
+within a few seconds of the page becoming interactive often never committed (the URL never
+moved): Agency postings → a posting 3/10, the rail's Worker activity 6/10, Postings → a posting
+7/10, against 30/30 into another section (three links, 10 clicks each). With no boundary:
+320/320 — the same eleven links × 10 clicks after hydration and in the sweep's timing, 20 more on
+each link that had stalled, and clicks 250ms / 1s after hydration — and 220/220 again (eleven
+links × 10, both timings) once the pending cue below landed. The trade-off: a
+navigation keeps the current page on screen until the next one has rendered — there is no
+skeleton. Same-section navigations never showed it anyway (React holds the visible page during a
+transition); a link into another section did (at ~0.1–0.25s on a slow backend) and now holds the
+current page instead. The same fence forbids `React.lazy` and `next/dynamic` (each suspends into
+a boundary). Re-measure before adding one back after a Next or React upgrade.
+
+**The pending cue** (`src/components/nav-pending.tsx`) answers the click instead: Next's
+`useLinkStatus` on the link that started the navigation — no boundary. A dot on the corner of a
+rail / drawer row, the brand lockup, the header's balance chip (Credits), the trail's link, a
+`PageHeader` action or back link, a posting row's title and Applicants link (Postings, Agency
+postings), a dashboard card's Applicants link, and on Candidates every link that changes only the
+query (the pager's First page / Next page, a state's First page, "All postings") and each card's
+"Applied to" posting link; a thin bar along the top of the viewport (the cue
+a phone sees — the drawer closes as its link is followed); and one polite status line, "Opening
+Postings…", in the shell outside the region that goes inert behind the open drawer. Nothing shows
+for the first 180ms, so a prefetched navigation never flashes; reduced motion drops the pulse and
+the growing bar but keeps that delay. The dot TAKES NO SPACE: it is absolutely positioned on its
+link's corner (inside the corner on a rail row, which clips), and the link is positioned whether or
+not it is pending — so a click never widens a button or pushes a badge (review of #2115: +24px on a
+header action, +16px on a title link, before; 0px after, measured on a production build).
+Only a cued link announces, so a link without one shows nothing until the page arrives. Not yet
+cued: the "Edit posting" link / button on each row of Postings and Agency postings (the header's
+"Edit posting" is), and a dashboard card's whole-card link (the DS `Card` overlay — cueing it is a
+design-system change).
+
 ### Agency on the company surface
 
 Agencies post agency jobs only. The company posting surface is never linked for an agent:
@@ -340,6 +453,9 @@ Agencies post agency jobs only. The company posting surface is never linked for 
 - `/postings/<id>` → read-only: no action at all (no View applicants, no Edit posting).
 - `/postings/<id>/edit` and `/postings/<id>/applicants` → redirect to `/postings/<id>` before any
   read (the feed unlocks contacts; a read-only posting offers no such action).
+- `/candidates` → the API lists applicants to these older postings too; each such card is VIEW-ONLY:
+  its posting title is plain text (no link) and it offers no Unlock. The rule is the posting's own
+  page's, per row (`lib/candidate-inbox.ts` `candidatePosting`); the server still decides every spend.
 - `/plans`, `/capacity` → redirect to `/dashboard` (a company page — see the rail).
 - The backend role gate for this surface is issue #1885.
 
@@ -350,6 +466,7 @@ Agencies post agency jobs only. The company posting surface is never linked for 
 | The job entity (both personas) | Posting: New posting · Postings · Posting details · Edit posting · Publish posting |
 | Headcount on a posting         | Openings                                                                           |
 | Person in a posting's feed     | Applicant                                                                          |
+| Every applicant, all postings  | Candidates (the tab; a posting's own feed stays "Applicants")                      |
 | Person an agency referred      | Worker                                                                             |
 | The balance                    | Credits (wallet icon everywhere)                                                   |
 | Buying the balance             | Buy credits                                                                        |

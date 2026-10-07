@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { resolvePrice, type Quote } from "@badabhai/pricing";
+import type { Quote } from "@badabhai/pricing";
 import { areRealPaymentsEnabled, isCapacityEnforcementEnabled, type ServerConfig } from "@badabhai/config";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { PostingPlan, PostingBoost, PostingPlanTier } from "@badabhai/db";
@@ -14,6 +14,7 @@ import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { PricingService } from "../pricing/pricing.service";
+import { assertExpectedPrice, chargeQuote } from "../pricing/charge-price";
 import { MatchConfigService } from "../match/match-config.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { PostingPlansRepository } from "./posting-plans.repository";
@@ -182,7 +183,7 @@ export class PostingPlansService {
     }
     // ADR-0050 §4.3 — no plan is ever sold against a system-owned agency twin.
     assertNotAgencyTwin(syncSource);
-    const quote = await this.resolve("job_posting", dto.tier, dto.coupon, dto.payer_id);
+    const quote = await this.resolve("job_posting", dto.tier, dto.coupon, dto.payer_id, dto.expected_price_inr);
     if (quote.grants.kind !== "posting") {
       throw new BadRequestException("resolved product is not a posting plan");
     }
@@ -266,7 +267,7 @@ export class PostingPlansService {
     dto: PayerBuyPlanDto,
     ctx: RequestContext,
   ): Promise<BuyPlanResult> {
-    return this.buyPlan(jobPostingId, { payer_id: payerId, tier: dto.tier, coupon: dto.coupon }, ctx);
+    return this.buyPlan(jobPostingId, { ...dto, payer_id: payerId }, ctx);
   }
 
   /**
@@ -279,7 +280,7 @@ export class PostingPlansService {
     dto: PayerBuyBoostDto,
     ctx: RequestContext,
   ): Promise<{ boost: PostingBoost; quote: Quote }> {
-    return this.buyBoost(jobPostingId, { payer_id: payerId, tier: dto.tier, coupon: dto.coupon }, ctx);
+    return this.buyBoost(jobPostingId, { ...dto, payer_id: payerId }, ctx);
   }
 
   async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<{ boost: PostingBoost; quote: Quote }> {
@@ -294,7 +295,7 @@ export class PostingPlansService {
     if (await this.repo.findActiveBoost(jobPostingId, now)) {
       throw new ConflictException("an active boost already exists for this posting");
     }
-    const quote = await this.resolve("job_boost", dto.tier, dto.coupon, dto.payer_id);
+    const quote = await this.resolve("job_boost", dto.tier, dto.coupon, dto.payer_id, dto.expected_price_inr);
     if (quote.grants.kind !== "boost") {
       throw new BadRequestException("resolved product is not a boost");
     }
@@ -375,7 +376,7 @@ export class PostingPlansService {
     dto: PayerTopUpQuotaDto,
     ctx: RequestContext,
   ): Promise<{ plan: PostingPlan; quote: Quote }> {
-    const quote = await this.resolve(QUOTA_TOPUP_PRODUCT, dto.tier, dto.coupon, payerId);
+    const quote = await this.resolve(QUOTA_TOPUP_PRODUCT, dto.tier, dto.coupon, payerId, dto.expected_price_inr);
     if (quote.grants.kind !== "quota_topup") {
       throw new BadRequestException("resolved product is not a quota top-up");
     }
@@ -437,7 +438,7 @@ export class PostingPlansService {
    * upsert is keyed on payer_id with a GREATEST guard (a replay never lowers the grant).
    */
   async buyCapacity(payerId: string, dto: BuyCapacityDto, ctx: RequestContext): Promise<BuyCapacityResult> {
-    const quote = await this.resolve(CAPACITY_PRODUCT, dto.tier, dto.coupon, payerId);
+    const quote = await this.resolve(CAPACITY_PRODUCT, dto.tier, dto.coupon, payerId, dto.expected_price_inr);
     if (quote.grants.kind !== "capacity") {
       throw new BadRequestException("resolved product is not a capacity grant");
     }
@@ -591,12 +592,26 @@ export class PostingPlansService {
     );
   }
 
-  /** Resolve a price through the one engine, failing closed to an "unavailable" 400. */
-  private async resolve(product: string, tier: string, coupon: string | undefined, payerId: string): Promise<Quote> {
+  /**
+   * Resolve a price through the one charge function ({@link chargeQuote} — the same one the
+   * payer catalog displays through), failing closed to an "unavailable" 400.
+   *
+   * #2085: when the payer sent the ₹ they confirmed, a different charge price is a 409
+   * `price_mismatch`. Every caller resolves BEFORE its first write or payment event, so a
+   * refusal charges nothing and leaves no ledger/receipt row behind.
+   */
+  private async resolve(
+    product: string,
+    tier: string,
+    coupon: string | undefined,
+    payerId: string,
+    expectedPriceInr?: number,
+  ): Promise<Quote> {
     const { catalog } = await this.pricing.getActiveCatalog();
     const usage = coupon ? await this.repo.couponUsage(coupon, payerId) : undefined;
-    const result = resolvePrice(catalog, { productCode: product, tierCode: tier, couponCode: coupon, couponUsage: usage });
+    const result = chargeQuote(catalog, { productCode: product, tierCode: tier, couponCode: coupon, couponUsage: usage });
     if (!result.ok) throw new BadRequestException(`${product}/${tier} is not available`);
+    assertExpectedPrice(expectedPriceInr, result.quote.finalInr);
     return result.quote;
   }
 

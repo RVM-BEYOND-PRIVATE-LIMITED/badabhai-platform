@@ -127,6 +127,7 @@ unavailable.
 |---|---|---|---|---|
 | `profiling_free_classify` | `POST /free-chat/classify` | cheap tier (`gemini-2.5-flash-lite`), fallback Haiku | 0.0 / 48 | ~2.5 s |
 | `profiling_free_reply` | `POST /free-chat/reply` | `default_career_model` (Haiku), fallback `gemini-2.5-flash` | 0.5 / 512 | 10 s |
+| `profiling_free_summary` (Release 2, §8) | `POST /free-chat/summarize` | cheap tier (`gemini-2.5-flash-lite`), fallback Haiku | 0.0 / 400 | ~8 s, off the request path |
 
 - **The reply has two prompts on one task**, chosen by `category`. Both prompts:
   - write Latin Hinglish
@@ -193,7 +194,12 @@ unavailable.
 
 ### 3.8 Wire
 
-- **One additive field:** `read_aloud: false`, only on model-written turns.
+- **Additive fields:**
+  - `read_aloud: false`, only on model-written turns.
+  - Release 2, #2030: `free_chat_mode` (`greeting` | `free` | `resume`) on `POST /chat/message` replies, the
+    `POST /chat/session` start response and replays. It carries the mode after the turn, and is ABSENT (never null)
+    under the kill switch, with no mode, on the voice form and on an ended session. The app hides its "build my
+    profile" CTA while it is `greeting` or `free`.
 - The greeting uses the existing `opening_text` / `opening_options` fields, or the reply's `suggested_options`.
 - **The app needs no release for release 1.** It draws server chips and posts the tapped label back as text.
 - **App follow-ups** (frontend issue):
@@ -291,7 +297,59 @@ Any widening of this list follows the same review as the copy.
 7. **Rollback:** set the `production` environment secret `CHAT_FREE_CHAT_DISABLED=true` and redeploy.
    The switch writes nothing; sessions started while it was on keep their mode and lock.
 
+## 8. Release 2 — the rolling conversation summary (owner rulings 2026-10-07)
+
+Release 1 went live on 2026-10-07 (deploy run 37577845893; a read-only probe showed `real_call=true` for both
+tasks). Release 2 adds the cross-session summary deferred by R19.
+
+| # | Ruling |
+|---|---|
+| **R21** | **Rolling.** When free-chat lines age out of the reply's recent-turn window, they are folded into the summary. |
+| **R22** | **Free-chat talk only.** Only free-mode casual and career exchanges are summarised. Interview answers already live in the profile and are never sent. |
+| **R23** | **Kept indefinitely** until account erasure. It is read only by this chat; after confirmation the companion never reads it. |
+| **R24** | **Reply only.** The casual/career reply prompt gets the summary. The classifier never does. |
+
+**How it works:**
+- **Model task.** `profiling_free_summary` (`POST /free-chat/summarize`) runs on the cheap tier, temperature 0.
+  - **Input:** the previous summary plus the aged-out turns (1–24, own name redacted).
+  - **Output:** the new summary or null. Its mock returns null, so an unarmed task stores nothing.
+  - The summary is model-facing context in compact English notes and is never shown to the worker.
+- **When it runs.** The fold runs **after** the reply is served (never on the worker's critical path), at most one
+  per session at a time (a Redis NX lock). Turns carrying a G1 hard identifier are dropped before the call. If the
+  worker's own name cannot be looked up, the fold is skipped (it retries on the next casual reply).
+- **Validation.** The API validates the summary before storing it. Each of these rejects it:
+  - empty
+  - G1 `containsHardIdentifier` (a scanner error also rejects)
+  - `{{` / `}}`
+  - any line not shaped `- …`, or more than 10 lines
+  - the abuse lexicon on any line
+  - an injection cue: the prompt's own labels, "ignore/disregard/forget … rules/instructions/prompt", "system
+    prompt", "you are now", "role-play"/"jailbreak"
+  - more than 1200 characters after the worker's own name is redacted
+- **Only real calls count.** A summary is stored only when `ai_metadata.real_call === true` and `success !== false`.
+  - A REAL call that returns no summary, or whose summary is rejected, still CONSUMES its batch: `folded_lines`
+    advances and the previous text is kept, so the same batch is never retried forever.
+  - A transport failure (no metadata, a mock, `success: false`, a merge that did not write) leaves the count alone
+    and retries.
+- **Storage.** It is stored as a `free_chat_summary {v:1, text (nullable), updated_at, session_id, folded_lines}`
+  sibling key in `chat_sessions.conversation_state`, by jsonb merge, with no migration. `text` is null while only
+  the watermark exists.
+  - The whole-column writers (checkpoint, flush, abandon) keep the LIVE row's key in SQL, so a fold that lands
+    between a request's read and its write is never reverted.
+  - At session open the latest non-null text is read from the worker's sessions. `folded_lines` counts only the
+    current session's lines.
+- **Event.** `chat.free_chat_summary_updated` v1 (updated / rejected / unavailable, `folded_lines`,
+  `summary_chars`); never the text.
+- **Kill switch.** It stops folding as well.
+- **Erasure.** The summary lives on `chat_sessions`, which account erasure already removes (`ON DELETE cascade`). The
+  worker-facing privacy notice should disclose that chat notes are kept (owner action).
+- **Arming.** Append `profiling_free_summary` to the box's `AI_REAL_CALL_TASKS`. Until then the mock folds nothing,
+  so merging first is safe.
+- **Known limit.** Lines still inside the window at session end (up to 6, plus up to 3 pending ones, plus any fold
+  skipped while the lock was held) are not folded, so the next session does not see them.
+
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.
 Signed (Divyanshu): Divyanshu          Date: 2026-10-06
+Release 2 rulings R21–R24 taken 2026-10-07 (§8).
 ```

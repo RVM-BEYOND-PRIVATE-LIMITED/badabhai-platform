@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
+import { NavPendingCue } from "../../components/nav-pending";
 import { navTrail, type NavSection } from "./nav-model";
 
 /**
@@ -57,6 +58,7 @@ export function PortalBreadcrumb({ sections }: { sections: NavSection[] }) {
               the link's own phone hit strip (globals.css). */}
           <Link className="pcrumb__link" href={owner.item.href}>
             <span className="pcrumb__label">{owner.item.label}</span>
+            <NavPendingCue label={owner.item.label} />
           </Link>
         </span>
       ) : null}

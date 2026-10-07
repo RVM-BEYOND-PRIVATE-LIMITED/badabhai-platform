@@ -309,12 +309,14 @@ describe("/postings — the slot top-up on offer comes from the live catalog tie
   it("hands the manager the live tier's price and slots — an ops re-price shows without a rebuild", async () => {
     getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
     const tree = await list.default();
-    const tier = quotaTopUpTier(EDITED)!;
+    const tier = quotaTopUpTier({ products: EDITED })!;
+    // …and its CODE, which the confirm sends back so exactly this tier is bought (#2085 L1).
     expect(managerProps(tree).topUpOffer).toEqual({
+      code: tier.code,
       priceInr: tier.priceInr,
       additionalViews: tier.additionalViews,
     });
-    expect(tier.priceInr).not.toBe(quotaTopUpTier(DEFAULT_CATALOG.products)!.priceInr);
+    expect(tier.priceInr).not.toBe(quotaTopUpTier({ products: DEFAULT_CATALOG.products })!.priceInr);
     // The page's quota note names the SAME slots and price as the button.
     const note = text(tree).replace(/\s+/g, " ");
     expect(note).toContain(`adds ${tier.additionalViews} more applicant slots`);
@@ -403,5 +405,79 @@ describe("/postings/<id>/edit — Edit posting", () => {
     expect(h.back).toEqual({ href: `/postings/${ID}`, label: "CNC Turner" });
     expect((h.back as { label: string }).label).toBe(head(await detail.default(params(ID))).title);
     expect(h.title).toBe("Edit posting");
+  });
+});
+
+/**
+ * #2085 — the slot offer the page hands the manager is the price the top-up is CHARGED: under an
+ * active offer, the offer price (what the row's button and confirm show and send) plus the list
+ * price, which the page's quota note strikes. With no `prices[]` (an older API) it is the catalog
+ * price and nothing is struck.
+ */
+describe("/postings — #2085: the slot offer is the charged price", () => {
+  const offerOf = (tree: unknown) => {
+    const found: ReactElement[] = [];
+    (function walk(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const el = node as ReactElement<{ children?: ReactNode }>;
+      if (el.type === PostingsManager) found.push(el);
+      if (el.props && "children" in el.props) walk(el.props.children);
+    })(tree as ReactNode);
+    expect(found).toHaveLength(1);
+    return (found[0]!.props as { topUpOffer: unknown }).topUpOffer;
+  };
+  const struck = (tree: unknown) => {
+    const out: string[] = [];
+    (function walk(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const el = node as ReactElement<{ children?: ReactNode }>;
+      if (el.type === "s") out.push(text(el));
+      if (el.props && "children" in el.props) walk(el.props.children);
+    })(tree as ReactNode);
+    return out;
+  };
+  const topUpPrices = (topup10: number) =>
+    [
+      ["topup_10", 1000, topup10],
+      ["topup_30", 2500, 2500],
+    ].map(([tierCode, base, price]) => ({
+      productCode: "quota_topup",
+      tierCode: tierCode as string,
+      basePriceInr: base as number,
+      priceInr: price as number,
+      discountInr: (base as number) - (price as number),
+      offer: (price as number) < (base as number) ? { code: "DIWALI", endsAt: "2026-11-01T00:00:00.000Z" } : null,
+    }));
+
+  it("under an offer: the manager gets the offer price and the list price; the note strikes the list price", async () => {
+    getLiveCatalog.mockResolvedValue({
+      products: DEFAULT_CATALOG.products,
+      prices: topUpPrices(750),
+      live: true,
+    });
+    const tree = await list.default();
+    expect(offerOf(tree)).toEqual({
+      code: "topup_10",
+      priceInr: 750,
+      listPriceInr: 1000,
+      additionalViews: 10,
+    });
+    expect(struck(tree)).toEqual(["₹1,000"]);
+    expect(text(tree)).toContain("₹750");
+  });
+
+  it("no prices[] (an older API): the catalog price, nothing struck", async () => {
+    getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices: null, live: true });
+    const tree = await list.default();
+    expect(offerOf(tree)).toEqual({ code: "topup_10", priceInr: 1000, additionalViews: 10 });
+    expect(struck(tree)).toEqual([]);
   });
 });

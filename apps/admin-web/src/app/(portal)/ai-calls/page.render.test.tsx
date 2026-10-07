@@ -500,7 +500,9 @@ describe("the two failures, which are different claims", () => {
     // The API refuses a page cursor only when it is longer than any it issues, so with filters
     // set it is the FILTERS that were refused: a first page that kept them would be refused again.
     stub.failure = new stub.RequestError(400);
-    const out = await render({ taskType: "profile_parse", success: "false", cursor: "c2" });
+    // A task the API refuses beside a valid outcome — valid filters alone beside a cursor would
+    // leave the CURSOR refused.
+    const out = await render({ taskType: "not_a_task", success: "false", cursor: "c2" });
     const state = out.slice(out.indexOf('class="state state--error"'));
     expect(state).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters<\/a>/);
     // ONE Clear filters on the screen — the results head does not repeat it.
@@ -559,5 +561,24 @@ describe("page height: the calls before their explanations (AW-08)", () => {
     const filtered = await render({ success: "false", workerId: WORKER_ID });
     expect(filtered).toContain('data-open="true"');
     expect(filtered).toContain(">Filters (2)</button>");
+  });
+});
+
+/** A task the console knows, an outcome and a real worker id are never the refused part (delta review of #2095). */
+describe("valid filters with a refused cursor get the cursor's way out", () => {
+  it("beside an over-long cursor the way out is the first page, filters kept — not Clear filters", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({
+      taskType: "profile_extraction",
+      success: "false",
+      workerId: "6155050c-c91b-4c6e-96a7-8da023f1d2d2",
+      cursor: "x".repeat(300),
+    });
+    expect(out).toContain("The server rejected this request");
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(state)?.[1] ?? "";
+    expect(first).toContain("taskType=profile_extraction");
+    expect(first).not.toContain("cursor=");
+    expect(state).not.toContain(">Clear filters<");
   });
 });

@@ -219,13 +219,15 @@ CORPUS_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "question_packs": ("packages/db/data/question-packs", (".json", ".jsonl")),
     "job_domains": ("packages/db/data/job-domains", (".json", ".jsonl")),
 }
-#: The #1933, #1950 and #2043 test files, left out so no fix is measured against its own fixtures.
-#: (#2043's holds "Passport.No. M123456", which #1950's dot reads by design.)
+#: The #1933, #1950, #2043 and #2049 test files, left out so no fix is measured against its own
+#: fixtures. (#2043's holds "Passport.No. M123456" and #2049's "Licence. 098765 43210", which
+#: #1950's dot reads by design.)
 EXCLUDED_FILES = frozenset(
     {
         "test_pseudonymize_cued_id_linear.py",
         "test_pseudonymize_cued_id_dot.py",
         "test_salary_guard_resume_cues.py",
+        "test_pseudonymize_cued_id_monotone.py",
     }
 )
 

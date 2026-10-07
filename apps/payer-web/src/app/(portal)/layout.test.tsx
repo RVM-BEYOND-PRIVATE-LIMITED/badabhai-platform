@@ -6,9 +6,10 @@ import type { PayerSession } from "../../lib/auth/types";
  * PORTAL SHELL (IA-1) — the chrome is now a levelled left rail, but the
  * AUTHORIZATION model is unchanged and SERVER-DRIVEN:
  *  - product LABELING (Companies vs Agencies) comes from `session.role`, not a client flag;
- *  - Owner-only affordances (Credits/Team) are driven by `getOrgRole` but are NOT the authz —
- *    the SERVER gate `requireOwner` is what 404s a Recruiter (proven in org-roles.test.ts);
- *  - the shared recruiter surfaces (Dashboard / Post / Manage / Capacity) show for everyone;
+ *  - the Owner-only affordance (Team) is driven by `getOrgRole` but is NOT the authz — the
+ *    SERVER gate `requireOwner` is what 404s a Recruiter (proven in org-roles.test.ts);
+ *  - the shared member surfaces (Dashboard / Post / Manage / Capacity / Credits) show for
+ *    everyone — buying credits is open to every member (owner ruling 2026-10-07);
  *  - the balance chip is a fail-soft courtesy read (hidden, never fatal, on a credits error);
  *  - the agency items follow the agency-portal flag their pages check.
  */
@@ -23,6 +24,8 @@ vi.mock("../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgR
 vi.mock("../../lib/payer-api", () => ({ getCredits: () => getCredits() }));
 vi.mock("../../lib/config", () => ({ agencyFlags: () => flags }));
 vi.mock("next/link", () => ({
+  // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+  useLinkStatus: () => ({ pending: false }),
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
     props: { href, children },
@@ -94,6 +97,13 @@ vi.mock("./account-menu", () => ({
       children: orgName,
     },
   }),
+}));
+
+// The navigation pending cue is a client component (an effect); its own behaviour is
+// components/nav-pending.render.test.tsx. The stand-in keeps its LABEL, so the walk can see which
+// link carries one.
+vi.mock("../../components/nav-pending", () => ({
+  NavPendingCue: ({ label }: { label: string }) => ({ type: "nav-pending-cue", props: { label } }),
 }));
 
 // The balance chip is a client component (hooks: its tooltip's Escape listener); its own markup
@@ -173,17 +183,19 @@ beforeEach(() => {
   chipCalls.length = 0;
 });
 
-describe("portal nav — Owner-only links by getOrgRole (affordance, NOT authz)", () => {
+describe("portal nav — the Owner-only link (Team) by getOrgRole (affordance, NOT authz)", () => {
   it("(c) an Owner session shows Credits + Team links", async () => {
     const { hrefs } = await render({ orgRole: "owner" });
     expect(hrefs).toContain("/credits");
     expect(hrefs).toContain("/team");
   });
 
-  it("(d) a Recruiter session HIDES Credits + Team (the gate, not the nav, is the decision)", async () => {
-    const { hrefs } = await render({ orgRole: "recruiter" });
-    expect(hrefs).not.toContain("/credits");
-    expect(hrefs).not.toContain("/team");
+  it("(d) a Recruiter session shows Credits but HIDES Team (the gate, not the nav, is the decision)", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      const { hrefs } = await render({ role, orgRole: "recruiter" });
+      expect(hrefs, role).toContain("/credits");
+      expect(hrefs, role).not.toContain("/team");
+    }
   });
 
   it("both roles keep the shared recruiter surfaces (post / manage / plans+capacity)", async () => {
@@ -260,10 +272,10 @@ describe("portal balance chip — fail-soft courtesy read", () => {
     expect(text).not.toContain("chip:");
   });
 
-  it("the chip links to Credits for an OWNER only (a recruiter's /credits is a 404)", async () => {
+  it("the chip links to Credits for EVERY member — owner and recruiter alike", async () => {
     await render({ orgRole: "owner", balance: 5 });
     await render({ orgRole: "recruiter", balance: 5 });
-    expect(chipCalls.map((c) => c.linkToCredits)).toEqual([true, false]);
+    expect(chipCalls.map((c) => c.linkToCredits)).toEqual([true, true]);
   });
 });
 
@@ -284,5 +296,24 @@ describe("portal nav — the agency items follow the agency-portal flag", () => 
         expect(hrefs, `flag ${on} ${orgRole}`).not.toContain("/plans");
       }
     }
+  });
+});
+
+describe("the brand link carries the navigation pending cue (components/nav-pending.tsx)", () => {
+  it("the rail's lockup link to the Dashboard is named for it", async () => {
+    const { NavPendingCue } = await import("../../components/nav-pending");
+    const { linkCues } = await import("../../../test/link-cues");
+    requirePayer.mockResolvedValue({
+      payerId: "11111111-1111-4111-8111-111111111111",
+      displayLabel: "Acme",
+      role: "employer",
+      email: "ops@acme.example",
+      phoneLast4: null,
+      status: "active",
+    });
+    getOrgRole.mockReturnValue("recruiter");
+    getCredits.mockResolvedValue({ payerId: "p", balance: 184 });
+    const tree = (await PortalLayout({ children: null })) as ReactElement<{ brand: ReactNode }>;
+    expect(linkCues(tree.props.brand, NavPendingCue).get("/dashboard")).toEqual(["Dashboard"]);
   });
 });

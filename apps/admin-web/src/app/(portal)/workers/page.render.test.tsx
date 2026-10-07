@@ -360,7 +360,8 @@ describe("a failed read is told apart by its cause", () => {
 
   it("a 400 with a filter past page one: Clear filters — not a first page that keeps the refused filter", async () => {
     stub.failure = new stub.RequestError(400);
-    const out = await render({ status: "active", cursor: "c2" });
+    // A status the API refuses — a valid one beside a cursor leaves the CURSOR refused.
+    const out = await render({ status: "nonsense", cursor: "c2" });
     expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain(">Retry<");
     expect(out.split(">Clear filters<").length - 1).toBe(1);
@@ -391,5 +392,21 @@ describe("the filter panel (AW-08)", () => {
     const out = await render({ status: "active", pendingDeletion: "true" });
     expect(out).toContain('data-open="true"');
     expect(out).toContain(">Filters (2)</button>");
+  });
+});
+
+/** A worker status the filter offers is never the refused part (delta review of #2095). */
+describe("a valid filter with a refused cursor gets the cursor's copy", () => {
+  it("a real status and the deletion flag beside an over-long cursor: the page was refused", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ status: "active", pendingDeletion: "true", cursor: "x".repeat(300) });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected these filters");
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(state)?.[1] ?? "";
+    expect(first).toContain("status=active");
+    expect(first).toContain("pendingDeletion=true");
+    expect(first).not.toContain("cursor=");
+    expect(state).not.toContain(">Clear filters<");
   });
 });

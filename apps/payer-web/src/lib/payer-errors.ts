@@ -35,3 +35,71 @@ export class PayerValidationError extends Error {
 export function isPayerValidationError(e: unknown): e is PayerValidationError {
   return e instanceof PayerValidationError;
 }
+
+/**
+ * A 409 the API refused with, other than a price mismatch. The message keeps the transport's
+ * historic `payer API <path> returned 409` shape, so every existing `/returned 409/` handler
+ * still matches. `detail` is the API's own message, kept so a seam can tell two 409s on one
+ * route apart (the quota top-up's in-flight duplicate vs no active plan). It is never rendered.
+ */
+export class PayerConflictError extends Error {
+  readonly detail: string | null;
+
+  constructor(path: string, detail: string | null) {
+    super(`payer API ${path} returned 409`);
+    this.name = "PayerConflictError";
+    this.detail = detail;
+  }
+}
+
+/**
+ * The catalog option the payer confirmed is gone, or no longer what the dialog described (e.g.
+ * ops re-sized or removed the quota top-up tier between the confirm and the submit). Raised
+ * BEFORE any purchase request, so nothing was bought. The seam never substitutes another option.
+ */
+export class PurchaseOptionChangedError extends Error {
+  constructor() {
+    super("the confirmed purchase option changed");
+    this.name = "PurchaseOptionChangedError";
+  }
+}
+
+/**
+ * A 409 `price_mismatch` (#2085): the `expected_price_inr` the payer confirmed is not the price
+ * the purchase would be charged, so the API refused BEFORE any write or event. Nothing was bought.
+ *
+ * Its message is deliberately NOT `returned 409`: the purchase seams already read a bare 409 as
+ * "a duplicate is still in flight" or "no active plan", and a price change must never be mistaken
+ * for either. `currentPriceInr` is the API's current price, or null when the body did not carry
+ * a usable one.
+ */
+export class PriceMismatchError extends Error {
+  readonly currentPriceInr: number | null;
+
+  constructor(path: string, currentPriceInr: number | null) {
+    super(`payer API ${path} refused the confirmed price (price_mismatch)`);
+    this.name = "PriceMismatchError";
+    this.currentPriceInr = currentPriceInr;
+  }
+}
+
+/**
+ * A 429 from the payer API: a per-payer hourly cap (the reach bucket, the disclosure bucket …)
+ * or the same cap failing closed while Redis is down — one status for both, and no reason in the
+ * body (the transport never surfaces one). Read from the transport's class-only message
+ * (`payer API <path> returned 429`), so a page can say "too many requests" instead of "failed".
+ */
+export function isPayerRateLimited(e: unknown): boolean {
+  return e instanceof Error && e.message.endsWith(" returned 429");
+}
+
+/**
+ * A 400 from the payer API — the server refused what the request carried. Both of the
+ * transport's 400 shapes count: a {@link PayerValidationError} (the pipe named the field) and a
+ * class-only `payer API <path> returned 400` (a body with no readable issues). Read from that
+ * shared message, as {@link isPayerRateLimited} reads a 429, so a page can tell a refusal apart
+ * from an outage: repeating a refused request cannot succeed, so it never offers Retry.
+ */
+export function isPayerBadRequest(e: unknown): boolean {
+  return e instanceof Error && e.message.endsWith(" returned 400");
+}

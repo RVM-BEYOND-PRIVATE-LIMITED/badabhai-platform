@@ -4,7 +4,11 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import type { SQL } from "drizzle-orm";
 import { CURRENT_PROFILE_ORDER, workerProfiles, workers, type Database } from "@badabhai/db";
-import { ReachRepository, applicantSignalRowsStatement } from "./reach.repository";
+import {
+  ReachRepository,
+  applicantSignalRowsStatement,
+  applicantSignalRowsForJobsStatement,
+} from "./reach.repository";
 
 /**
  * STRUCTURAL tests for the worker-pool read (ADR-0011 D8 + ADR-0031 ruling (b)).
@@ -276,3 +280,122 @@ describe("applicantSignalRowsStatement — #1898 the agency list is the workers 
 function drizzleSelectedColumns(sql: string): string {
   return sql.slice(0, sql.indexOf(" from "));
 }
+
+describe("ReachRepository.findOwnedJobSignalRowsByIds — the inbox's batched ownership read (XB-A)", () => {
+  const JOB_1 = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const JOB_2 = "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e";
+  const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
+
+  function capture(rows: unknown[] = []) {
+    const seen: { selection?: Record<string, unknown>; where?: unknown } = {};
+    const db = {
+      select: (selection: Record<string, unknown>) => {
+        seen.selection = selection;
+        return {
+          from: () => ({ where: (cond: unknown) => ((seen.where = cond), Promise.resolve(rows)) }),
+        };
+      },
+    } as unknown as Database;
+    return { repo: new ReachRepository(db), seen };
+  }
+
+  it("reads jobs by id list AND the session payer, binding exactly those values", async () => {
+    const { repo, seen } = capture();
+    await repo.findOwnedJobSignalRowsByIds([JOB_1, JOB_2], PAYER);
+    const q = dialect.sqlToQuery(seen.where as SQL);
+    expect(q.sql).toBe('("jobs"."id" in ($1, $2) and "jobs"."payer_id" = $3)');
+    expect(q.params).toEqual([JOB_1, JOB_2, PAYER]);
+  });
+
+  it("projects the faceless signal columns — never payer_id or title", async () => {
+    const { repo, seen } = capture();
+    await repo.findOwnedJobSignalRowsByIds([JOB_1], PAYER);
+    expect(seen.selection).not.toHaveProperty("payerId");
+    expect(seen.selection).not.toHaveProperty("title");
+    expect(Object.keys(seen.selection!).sort()).toEqual([
+      "city",
+      "jobId",
+      "maxExperienceYears",
+      "minExperienceYears",
+      "neededBy",
+      "payMax",
+      "payMin",
+      "tradeKey",
+    ]);
+  });
+
+  it("an empty id list reads nothing", async () => {
+    const { repo, seen } = capture();
+    await expect(repo.findOwnedJobSignalRowsByIds([], PAYER)).resolves.toEqual([]);
+    expect(seen.where).toBeUndefined();
+  });
+});
+
+describe("applicantSignalRowsForJobsStatement — the per-job applier read, batched for the inbox", () => {
+  const mockDb = drizzle.mock() as unknown as Database;
+  const JOB_1 = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const JOB_2 = "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e";
+  const compiled = applicantSignalRowsForJobsStatement(mockDb, [JOB_1, JOB_2]).toSQL();
+  const single = applicantSignalRowsStatement(mockDb, JOB_1).toSQL();
+
+  it("membership per job is the per-job statement's: an `applied` decision on that job", () => {
+    expect(compiled.sql).toContain('"applications"."job_id" in ($1, $2)');
+    expect(compiled.sql).toContain('"applications"."action" = $3');
+    expect(compiled.params.slice(0, 3)).toEqual([JOB_1, JOB_2, "applied"]);
+  });
+
+  it("keeps the ADR-0031 (b) exclusion and reads FROM the profile row like the per-job read", () => {
+    expect(compiled.sql).toContain(
+      'inner join "worker_profiles" on "worker_profiles"."worker_id" = "applications"."worker_id"',
+    );
+    expect(compiled.sql).toContain(
+      'inner join "workers" on "workers"."id" = "applications"."worker_id"',
+    );
+    expect(compiled.sql).toContain('"workers"."deletion_scheduled_at" is null');
+  });
+
+  it("one row per (job, worker), picked by the SAME current-profile order as the per-job read", () => {
+    expect(compiled.sql).toMatch(
+      /^select distinct on \("applications"\."job_id", "worker_profiles"\."worker_id"\)/,
+    );
+    // The tail after the dedup keys is the per-job statement's tail, verbatim.
+    const tail = (sql: string, lead: string) => sql.slice(sql.indexOf(lead) + lead.length);
+    expect(
+      tail(compiled.sql, 'order by "applications"."job_id", "worker_profiles"."worker_id"'),
+    ).toBe(tail(single.sql, 'order by "worker_profiles"."worker_id"'));
+  });
+
+  it("projects the job id plus EXACTLY the per-job read's signal columns — never PII", () => {
+    const columns = (sql: string) =>
+      drizzleSelectedColumns(sql).replace(/^select distinct on \([^)]*\) /, "");
+    const selected = columns(compiled.sql);
+    expect(selected.startsWith('"applications"."job_id", ')).toBe(true);
+    expect(selected.replace('"applications"."job_id", ', "")).toBe(columns(single.sql));
+    expect(selected).not.toMatch(
+      /embedding|raw_profile|phone|full_name|rich_profile_draft|payer_id/,
+    );
+  });
+
+  it("the repository method splits the job id off each row and reads nothing for no jobs", async () => {
+    const rows = [{ appliedJobId: JOB_2, ...signalRow(1) }];
+    let called = 0;
+    const db = {
+      selectDistinctOn: () => {
+        called += 1;
+        return {
+          from: () => ({
+            innerJoin: () => ({
+              innerJoin: () => ({ where: () => ({ orderBy: () => Promise.resolve(rows) }) }),
+            }),
+          }),
+        };
+      },
+    } as unknown as Database;
+    const repo = new ReachRepository(db);
+    await expect(repo.listApplicantSignalRowsForJobs([JOB_2])).resolves.toEqual([
+      { jobId: JOB_2, row: signalRow(1) },
+    ]);
+    await expect(repo.listApplicantSignalRowsForJobs([])).resolves.toEqual([]);
+    expect(called).toBe(1);
+  });
+});

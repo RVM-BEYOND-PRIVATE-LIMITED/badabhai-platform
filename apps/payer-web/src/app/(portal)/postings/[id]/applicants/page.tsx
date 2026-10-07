@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../../../lib/auth";
-import { getOrgRole } from "../../../../../lib/auth/org-roles";
 import { getApplicantFeed, getDashboard } from "../../../../../lib/payer-api";
 import type { ApplicantFeed, UnlockHistoryItem } from "../../../../../lib/contracts";
 import { COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
@@ -35,8 +34,8 @@ export const dynamic = "force-dynamic";
  *
  * BALANCE (shown ONCE): the shell header's credits chip is the balance. This page still reads it,
  * independently, as an AFFORDANCE for the unlock band (a real zero disables Unlock; an unread
- * balance never does) — it does not print it a second time. The org role only decides whether a
- * zero balance may LINK to the Owner-only Credits page.
+ * balance never does) — it does not print it a second time. A zero balance always links to
+ * Credits: every member can buy (owner ruling 2026-10-07), so the feed takes no org role.
  *
  * ALREADY UNLOCKED: the same dashboard read carries the payer's own unlock history; its LIVE
  * grants for this feed's workers start those rows unlocked (an unlock is one grant per payer and
@@ -114,7 +113,6 @@ export default async function ApplicantsPage({
           // ENABLED — the no-oracle server still makes the real decision; we never block on a
           // UI-side balance we couldn't read.
           balance={balance ?? 1}
-          canBuyCredits={getOrgRole(session) === "owner"}
           // Only this feed's workers, only live grants — the client gets no unlock id it has no
           // row for. Request time: this page is force-dynamic.
           unlocked={liveUnlocksFor(

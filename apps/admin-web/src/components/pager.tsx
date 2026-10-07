@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@badabhai/icons";
+import { NavPendingCue } from "./nav-pending";
 
 /**
  * Keyset "next page" control, shared by every entity list.
@@ -36,6 +37,9 @@ export function Pager({
       <Link className="btn btn--ghost" href={`${basePath}?${q.toString()}`}>
         Next page
         <Icon name="caret-right" />
+        {/* The next page is the same page with a new cursor: it shows that it is under way, with
+            no boundary (components/nav-pending.tsx). */}
+        <NavPendingCue message="Loading the next page…" />
       </Link>
       <p className="field__help">{note}</p>
     </div>

@@ -137,8 +137,7 @@ body {
      a rail-coloured separation band, then the accent (legible on navy). */
   --focus-ring: var(--brand);
   --ring-focus:
-    0 0 0 var(--border-bold) var(--surface-ink),
-    0 0 0 calc(2 * var(--border-bold)) var(--brand);
+    0 0 0 var(--border-bold) var(--surface-ink), 0 0 0 calc(2 * var(--border-bold)) var(--brand);
   --ring-focus-tight: var(--ring-focus);
 }
 
@@ -649,6 +648,94 @@ body {
   }
   .pshell__header {
     padding-inline: var(--gutter);
+  }
+}
+
+/* ---- navigation pending cue (components/nav-pending.tsx) ---------------------------------------
+   No loading boundary shows a navigation (app/no-suspense-above-a-page.test.ts), so the link that
+   started one does: a dot while Next's link status is pending, in the link's own colour, and a bar
+   along the top of the viewport — the cue a phone sees, since the drawer closes as its link is
+   followed. Nothing shows for the first --nav-pending-delay (= NAV_PENDING_DELAY_MS in
+   components/nav-pending-store.ts, which holds the bar and the status line back; the dot waits
+   here), so a prefetched navigation never flashes. Both end the moment the navigation commits.
+   The delay is NOT a motion token: those collapse to 0ms under reduced motion, which would bring
+   the flash back for exactly the users who asked for less movement.
+
+   THE DOT TAKES NO SPACE (review of #2115): it is absolutely positioned on its link's corner, and
+   every link that carries one is positioned whether or not it is pending — so a click never
+   widens a button, pushes a badge or reflows a header (measured: +24px on a header action, +16px
+   on a title, before). nav-pending.css.test.ts fences it. */
+.nav-pending {
+  display: none;
+}
+/* The anchor, keyed on the cue's ALWAYS-present span (never on its pending state, so the link's
+   box is the same before and after the click); zero specificity, so a link's own position wins. */
+:where(a:has(> .nav-pending)) {
+  position: relative;
+}
+.nav-pending--on {
+  --nav-pending-delay: 180ms;
+  display: block;
+  position: absolute;
+  inset-block-start: calc(-1 * var(--space-1));
+  inset-inline-end: calc(-1 * var(--space-1));
+  inline-size: var(--space-2);
+  block-size: var(--space-2);
+  border-radius: var(--radius-round);
+  background: currentColor;
+  pointer-events: none;
+  visibility: hidden;
+  animation:
+    nav-pending-reveal 0s linear var(--nav-pending-delay) forwards,
+    nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
+      alternate;
+}
+/* A rail row clips its overflow (and the brand lockup shares the rail), so there the dot sits just
+   INSIDE the corner — on the full rail and the icon rail alike. */
+.pnav__link > .nav-pending--on,
+.pshell__brandlink > .nav-pending--on {
+  inset-block-start: var(--space-1);
+  inset-inline-end: var(--space-1);
+}
+.nav-progress {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--space-1);
+  z-index: var(--z-toast);
+  background: var(--text-heading);
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-progress--on {
+  opacity: 1;
+  transform: scaleX(0.9);
+  animation: nav-progress-grow calc(var(--duration-slower) * 5) var(--ease-out);
+}
+@keyframes nav-pending-reveal {
+  to {
+    visibility: visible;
+  }
+}
+@keyframes nav-pending-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+@keyframes nav-progress-grow {
+  from {
+    transform: scaleX(0.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No pulse, no growing bar — but the dot still waits out the delay. */
+  .nav-pending--on {
+    animation: nav-pending-reveal 0s linear var(--nav-pending-delay) forwards;
+  }
+  .nav-progress--on {
+    animation: none;
   }
 }
 
@@ -2336,6 +2423,96 @@ textarea.input {
     justify-content: center;
   }
 }
+
+/* ------------------------------------------------------------------
+ * CANDIDATES (/candidates) — every applicant across the payer's postings. The page renders the
+ * APPLICANT FEED card above (its wrapper is `.applicants-page.candidates-page`, so that block's
+ * card and touch rules apply unchanged); only what is its own lives here: the posting filter in
+ * the head's toolbar row, the line naming each card's posting, and the pager. Tokens only.
+ * ------------------------------------------------------------------ */
+.candidates-filter {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* The select takes the line and "Show" sits on its row (aligned to the control, under the
+   label); the button drops beneath only when the two cannot share a line. */
+.candidates-filter__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.candidates-filter__form .bb-field {
+  flex: 1 1 var(--stat-min);
+  min-width: 0;
+  max-inline-size: calc(var(--stat-min) * 2);
+}
+.candidates-filter__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+/* The posting this card's applicant applied to: a supporting line under the identity, its title
+   in the link colour (plain heading-weight text when this session has no page for it). A long
+   title wraps rather than widening the card. */
+.applicant__posting {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.applicant__posting-link {
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+}
+.applicant__posting-title {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+/* The applicant's rank on THAT posting ("· ranked #2") — posting-relative, so it reads on this
+   line rather than as a badge that looks like a place in the newest-first list. One unit: it
+   wraps as a whole after the title, never inside. */
+.applicant__posting-rank {
+  white-space: nowrap;
+}
+/* …a 44px target on a phone or a coarse pointer: the text-link HIT STRIP recipe (as
+   `.reveal-card__ext`) — an out-of-flow strip centred on the link, so the line does not grow and
+   the focus ring stays on the text. */
+@media (max-width: 600px), (pointer: coarse) {
+  .applicant__posting-link {
+    position: relative;
+    isolation: isolate;
+  }
+  .applicant__posting-link::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
+  }
+}
+/* Keyset paging under the list: First page · Next page, right-aligned; on a phone the two share
+   the row as equal thumb targets (each a md control — the 44px floor). */
+.candidates-pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--section-gap);
+}
+@media (max-width: 600px) {
+  .candidates-pager > .bb-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
 .reveal-card {
   width: 100%;
 }
@@ -4700,33 +4877,19 @@ img.agency-qr__code,
   border: 0;
 }
 
-/* Neutral loading skeleton (route-level loading.tsx). No data, no PII. Token-driven so it
-   flips under [data-theme="ink"]: the base is the sunken surface; the shimmer is a soft
-   raised-surface sweep (both resolve from semantic tokens, no hardcoded light value). */
-.skeleton {
-  background: var(--surface-sunken);
-  border-radius: var(--radius-sm);
-  position: relative;
-  overflow: hidden;
+/* #2085 — a list price an active offer lowers, struck before the price that is charged
+   (`priceFigure`). Muted and lighter so the charged figure stays the one to read; on a tile
+   it steps down to a sub-figure size. Tokens only. */
+.price-was {
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+  text-decoration: line-through;
+  margin-inline-end: var(--space-1);
 }
-.skeleton::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, var(--surface-raised), transparent);
-  opacity: 0.6;
-  animation: skeleton-shimmer 1.3s infinite;
-}
-@keyframes skeleton-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .skeleton::after {
-    animation: none;
-  }
+.credit-pack__price .price-was,
+.capacity-tier__price .price-was,
+.plan-card__price .price-was {
+  font-size: var(--text-lg);
 }
 
 /* ------------------------------------------------------------------
@@ -6129,44 +6292,6 @@ body:has(.invite-landing) .chrome-footer {
   flex-wrap: wrap;
   justify-content: center;
   margin-top: var(--space-1);
-}
-
-/* ---- skeletons: a shape-of-the-answer placeholder, never a blank screen ---- */
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--surface-sunken) 25%,
-    var(--surface-inset) 37%,
-    var(--surface-sunken) 63%
-  );
-  background-size: 400% 100%;
-  border-radius: var(--radius-sm);
-  animation: skeleton-sheen 1.4s ease-in-out infinite;
-}
-.skeleton--title {
-  height: 1.25rem;
-  width: 40%;
-  margin-bottom: var(--space-3);
-}
-.skeleton--row {
-  height: var(--row-h-compact);
-  margin-bottom: var(--space-2);
-}
-.skeleton--tile {
-  height: 7rem;
-}
-@keyframes skeleton-sheen {
-  from {
-    background-position: 100% 50%;
-  }
-  to {
-    background-position: 0 50%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .skeleton {
-    animation: none;
-  }
 }
 
 /* ==================================================================

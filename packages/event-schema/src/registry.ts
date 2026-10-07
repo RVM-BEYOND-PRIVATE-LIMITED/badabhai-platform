@@ -1397,6 +1397,14 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingTwinSyncedPayload,
   },
+
+  // ADR-0051 RELEASE 2 (#2027) — one rolling free-chat summary fold: updated / rejected /
+  // unavailable, how many lines it covered and the stored length. Never the summary. v1.
+  "chat.free_chat_summary_updated": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatSummaryUpdatedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

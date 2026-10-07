@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
 import { roleKindInputSchema } from "./job-roles";
+import type { OrgRole } from "./auth/types";
 
 /**
  * Typed contracts (Zod) for every payer-portal data boundary (invariant #7 / §HARD
@@ -623,7 +624,10 @@ export const maskedResumeWireSchema = z.union([
 /** A credit pack offered for purchase — sourced from config, never hardcoded here. */
 export const creditPackSchema = z.object({
   code: z.string(),
+  /** What buying the pack is charged (#2085) — shown on the tile and confirm, sent back as confirmed. */
   priceInr: z.number().int().positive(),
+  /** The catalog list price, only when an active offer lowers `priceInr` below it. */
+  listPriceInr: z.number().int().positive().optional(),
   credits: z.number().int().positive(),
 });
 export type CreditPack = z.infer<typeof creditPackSchema>;
@@ -743,10 +747,23 @@ export type Capacity = z.infer<typeof capacitySchema>;
  */
 
 /**
+ * ORG-member role on the wire — mirrors the backend `OrgRole` enum (`payer_members.org_role`,
+ * ADR-0027) EXACTLY. Shared by `GET /payer/me` `orgRole` and the org-member directory
+ * (`org-members.ts`), so the two readings of one enum can never drift.
+ */
+export const orgRoleWireSchema = z.enum(["owner", "recruiter"]) satisfies z.ZodType<OrgRole>;
+
+/**
  * GET /payer/me — the payer's OWN account (their own org label + email + masked phone;
  * their own data, never eventized). Mirrors the backend `PayerMeSchema` (PROF-1). `email`
  * and `phoneLast4` are `.optional()` here so the consumer stays backward-compatible during
  * rollout (an older response without them still parses); the live backend always sends them.
+ *
+ * `orgId` / `orgRole` (#2079) are the caller's CURRENT org membership, read from the DB on every
+ * call. `.optional()` so an API from before #2079 still parses (→ least privilege). `.catch(null)`
+ * so a value outside the mirrored enum (or a malformed id) degrades to `null` = least privilege
+ * INSTEAD of failing the whole read — this read IS the session (`currentSession()`), and an
+ * unrecognised role must cost Owner rights, never sign the payer out.
  */
 export const payerMeWireSchema = z.object({
   id: z.string().uuid(),
@@ -755,6 +772,8 @@ export const payerMeWireSchema = z.object({
   orgName: z.string(),
   email: z.string().email().optional(),
   phoneLast4: z.string().length(4).nullable().optional(),
+  orgId: z.string().uuid().nullable().optional().catch(null),
+  orgRole: orgRoleWireSchema.nullable().optional().catch(null),
 });
 export type PayerMeWire = z.infer<typeof payerMeWireSchema>;
 
@@ -978,6 +997,78 @@ export const reachApplicantListWireSchema = z.object({
 });
 export type MatchCandidateWire = z.infer<typeof matchCandidateWireSchema>;
 export type ReachApplicantWire = z.infer<typeof reachApplicantWireSchema>;
+
+/* ── Candidates inbox — GET /payer/reach/applicants ───────────────────────────── */
+
+/** Which table a Candidates row's posting lives in — the two sources the per-posting route serves. */
+export const inboxPostingKindSchema = z.enum(["agency_job", "company_posting"]);
+export type InboxPostingKind = z.infer<typeof inboxPostingKindSchema>;
+
+/**
+ * The posting an inbox row belongs to — the backend `InboxPostingRefDto` exactly. `id` is the id
+ * the per-posting route and the unlock's `job_id` context take; `title` is the payer's OWN title
+ * for it (`jobs.title` / `job_postings.role_title`), never worker data.
+ */
+export function inboxPostingRefWireSchema<K extends InboxPostingKind>(kind: K) {
+  return z.object({ id: z.string().uuid(), title: z.string(), kind: z.literal(kind) });
+}
+
+/**
+ * ONE inbox row = EXACTLY the per-posting feed row for that applicant + `posting`
+ * (`InboxApplicantRowDto`): the legacy weighted row on an agency job, the Matching V1 row on a
+ * company posting — so the per-posting schemas are reused as-is. The kind and the row shape are
+ * PAIRED: an `agency_job` row without a score, or a `company_posting` row without an application
+ * id, matches neither member and fails the parse, as does a kind this client does not know.
+ * `rank` (and `hot`) are the applicant's place on HIS posting's list, not in the inbox.
+ */
+export const inboxAgencyRowWireSchema = reachApplicantWireSchema.extend({
+  posting: inboxPostingRefWireSchema("agency_job"),
+});
+export const inboxCompanyRowWireSchema = matchCandidateWireSchema.extend({
+  posting: inboxPostingRefWireSchema("company_posting"),
+});
+export type InboxAgencyRowWire = z.infer<typeof inboxAgencyRowWireSchema>;
+export type InboxCompanyRowWire = z.infer<typeof inboxCompanyRowWireSchema>;
+
+/** `PayerApplicantInboxDto`: newest application first; `nextCursor` null on the last page. */
+export const candidateInboxWireSchema = z.object({
+  applicants: z.array(z.union([inboxAgencyRowWireSchema, inboxCompanyRowWireSchema])),
+  nextCursor: z.string().nullable(),
+});
+
+/**
+ * The inbox query the seam sends — the backend `PayerApplicantInboxQuerySchema` minus what the
+ * server owns: NO payer id (the session is the payer, XB-A) and NO stage (nothing persists one).
+ * The cursor is the previous page's `nextCursor`, passed back untouched (≤256 chars).
+ */
+export const candidateInboxQuerySchema = z
+  .object({
+    postingId: z.string().uuid().optional(),
+    cursor: z.string().min(1).max(256).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+export type CandidateInboxQuery = z.infer<typeof candidateInboxQuerySchema>;
+
+/** The posting a mapped row names: the wire ref, unchanged. */
+export const inboxPostingRefSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  kind: inboxPostingKindSchema,
+});
+export type InboxPostingRef = z.infer<typeof inboxPostingRefSchema>;
+
+/** A Candidates row as the UI takes it: the same faceless applicant the feed renders + its posting. */
+export const candidateInboxRowSchema = facelessApplicantSchema.extend({
+  posting: inboxPostingRefSchema,
+});
+export type CandidateInboxRow = z.infer<typeof candidateInboxRowSchema>;
+
+export const candidateInboxSchema = z.object({
+  applicants: z.array(candidateInboxRowSchema),
+  nextCursor: z.string().nullable(),
+});
+export type CandidateInbox = z.infer<typeof candidateInboxSchema>;
 
 /**
  * GET/POST/PATCH /payer/job-postings(/:id) — the EMPLOYER self-serve posting row, exactly

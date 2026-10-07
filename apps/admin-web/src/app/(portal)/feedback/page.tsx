@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import {
+  isMalformedUuid,
+  isUnknownValue,
+  readRefusal,
+  type ReadRefusal,
+} from "../../../lib/read-refusal";
 import {
   FEEDBACK_CATEGORIES,
   listFeedback,
@@ -13,7 +18,7 @@ import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
-import { filterChipClass } from "../../../components/filter-chip";
+import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -109,7 +114,11 @@ export default async function FeedbackPage({
   const mayReadEvents = can(session.capabilities, "read_events");
 
   let page: FeedbackPage | null = null;
-  let rejected = false;
+  /** A filter in the address the server could have refused (a value it does not accept). */
+  const refusable =
+    isUnknownValue(category, FEEDBACK_CATEGORIES) ||
+    isMalformedUuid(workerId);
+  let refusal: ReadRefusal = null;
   try {
     page = await listFeedback({ category, workerId, cursor, limit: PAGE_SIZE });
   } catch (err) {
@@ -123,11 +132,17 @@ export default async function FeedbackPage({
      *
      * And only when the address HOLDS something to refuse — a filter or a page cursor. With
      * neither, a 400 cannot be the operator's, so it is an outage like any other: unavailable,
-     * with Retry (the rule the five entity lists follow).
+     * with Retry (the console's one rule, `readRefusal`).
      */
-    rejected =
-      isAdminRequestError(err) && err.status === 400 && Boolean(category || workerId || cursor);
+    refusal = readRefusal(err, { filtered: refusable, cursor });
   }
+  const rejected = refusal !== null;
+  /**
+   * The filters were refused — not the page cursor beside them. Only a value the server does not
+   * accept counts: a valid one beside an over-long cursor leaves the CURSOR refused, and its way
+   * out is the first page with the filters kept (delta review of #2095).
+   */
+  const filtersRefused = refusal === "filters";
 
   const failed = page === null;
   const filtered = Boolean(category || workerId);
@@ -195,21 +210,21 @@ export default async function FeedbackPage({
                 : `${page?.items.length ?? 0} message${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {rejected ? null : clearFilters}
+          {filtersRefused ? null : clearFilters}
         </div>
 
         <div className="filters filters--inline">
           {FEEDBACK_CATEGORIES.map((c) => (
-            <Link
-              aria-current={c === category ? "true" : undefined}
-              className={filterChipClass(c === category)}
+            <FilterChip
+              cursor={cursor}
+              key={c}
+              selected={c === category}
               /* KEEPS an active worker narrowing and DROPS the cursor. Picking a tag while
                  looking at one worker means "this worker's problems", not "everyone's". */
               href={listHref({ category: c })}
-              key={c}
             >
               {CATEGORY[c].chip}
-            </Link>
+            </FilterChip>
           ))}
         </div>
 
@@ -257,11 +272,12 @@ export default async function FeedbackPage({
               cannot be hand-edited — one of them, as it stands in the address bar, is not
               something this list accepts.
             </p>
-            {/* No Retry: the server has refused this request and would refuse it again. The API
-                refuses a page cursor only when it is longer than any it issues, so with a filter
-                set it is the FILTER that was refused — keeping it on the first page would be
-                refused again, and the way out is Clear filters. With no filter, the first page. */}
-            {filtered ? (
+            {/* No Retry: the server has refused this request and would refuse it again. With a
+                filter value the server does not accept in the address, that value is what was
+                refused — keeping it on the first page would be refused again, and the way out is
+                Clear filters. Otherwise the page cursor was refused: the first page, filters
+                kept. */}
+            {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (
               <FirstPageAction href={listHref()} cursor={cursor} />

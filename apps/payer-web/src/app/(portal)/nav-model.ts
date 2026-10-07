@@ -49,6 +49,12 @@
  * user: "Bulk invite upload" is dead by design (ADR-0022 Amendment 3) and is never framed as
  * coming.) `parked` stays: a reachable page that explains what is not built yet.
  *
+ * CANDIDATES (owner request 2026-10-07): "Candidates" is every applicant across every posting the
+ * payer owns, newest first (`/candidates`, the cross-posting inbox), for BOTH personas, in the group
+ * that holds Postings — Hiring for a company, Demand for an agency (so, for an agency, behind the
+ * same flag as the Postings beside it, which its page checks too). A posting's own feed stays
+ * "Applicants", reached from that posting; it still lights Postings, never Candidates.
+ *
  * NAMING (owner ruling 2026-10-01): the job entity is a "Posting" for BOTH personas — "New
  * posting" creates one, "Postings" lists them. An agency posts AGENCY jobs only (the `jobs`
  * table the worker feed reads), so its Demand items open `/agency/jobs*`; the company posting
@@ -119,14 +125,10 @@ export interface NavModelInput {
   /** ACCOUNT role: `session.role === "agent"`. Decides product labelling AND the agency group. */
   isAgency: boolean;
   /**
-   * ORG role: `getOrgRole(session) === "owner"`. Owner-only affordances (billing + team).
-   *
-   * NOTE FOR WHOEVER READS THIS NEXT: `getOrgRole()` is currently a stub that returns
-   * "recruiter" for every session outside dev/test, so `isOwner` is false in staging and
-   * production and these two items never render — while the API's own org-role guard would
-   * happily let a real owner through. That is a pre-existing authorization gap, NOT
-   * something this navigation introduced or should paper over. The model passes the flag
-   * through exactly as the old nav did; fixing the stub is a separate, deliberate change.
+   * ORG role: `getOrgRole(session) === "owner"` — the member's CURRENT role from `GET /payer/me`
+   * (#2079), least privilege on anything but an explicit "owner". It decides ONE affordance:
+   * the Organisation group (Team), whose page is `requireOwner()`-gated. Credits is offered to
+   * every member — buying is open to Owners and Recruiters alike (owner ruling 2026-10-07).
    */
   isOwner: boolean;
   /**
@@ -218,7 +220,22 @@ const PLANS_MATCH: NavMatch = { prefix: ["/plans"] };
 
 const DASHBOARD_MATCH: NavMatch = { exact: ["/dashboard"] };
 
-/** Owner-only billing entry — identical for both account types. */
+/**
+ * Candidates — the cross-posting applicant inbox, one route for both personas. A posting's own
+ * Applicants page lives under its posting (`/postings/<id>/applicants`, `/agency/jobs/<id>/…`) and
+ * keeps lighting Postings.
+ */
+function candidatesItem(): NavItem {
+  return {
+    href: "/candidates",
+    label: "Candidates",
+    icon: ACTION_ICON.candidate,
+    description: "Everyone who applied to your postings, newest first.",
+    match: { prefix: ["/candidates"] },
+  };
+}
+
+/** Billing entry — identical for both account types, offered to EVERY member (ruling 2026-10-07). */
 function creditsItem(): NavItem {
   return {
     href: "/credits",
@@ -288,11 +305,12 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           match: POSTINGS_LIST_MATCH,
           childrenLinkBack: true,
         },
+        candidatesItem(),
       ],
     },
     {
       title: "Billing",
-      items: [plansItem(), ...(isOwner ? [creditsItem()] : [])],
+      items: [plansItem(), creditsItem()],
     },
     ...(isOwner ? [organisationSection()] : []),
   ];
@@ -302,12 +320,12 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
  * Level 1 + 2 + 3 + 4 for an AGENCY (agent) account.
  *
  * Every agency-only destination (Demand, Supply, Revenue) is behind the agency-portal flag on
- * its page, so it is behind the same flag here. With the flag off an agency keeps Dashboard and
- * (owner) Credits + Team — the shared surfaces whose pages do not check it.
+ * its page, so it is behind the same flag here. With the flag off an agency keeps Dashboard,
+ * Credits and (owner) Team — the shared surfaces whose pages do not check it.
  *
  * NO "Plans & capacity" (2026-10-01, a consequence of ruling 2): that page sells entitlements on
  * COMPANY postings, and an agency posts agency jobs only — an agent who opens /plans or /capacity
- * is sent to the dashboard. Billing for an agency is Credits, which only an owner can open.
+ * is sent to the dashboard. Billing for an agency is Credits, open to every member.
  */
 function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSection[] {
   const agencyOnly = (sections: NavSection[]) => (agencyPortalEnabled ? sections : []);
@@ -342,6 +360,7 @@ function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSec
             match: AGENCY_POSTINGS_MATCH,
             childrenLinkBack: true,
           },
+          candidatesItem(),
         ],
       },
       {
@@ -371,7 +390,8 @@ function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSec
         ],
       },
     ]),
-    ...(isOwner ? [{ title: "Billing", items: [creditsItem()] }, organisationSection()] : []),
+    { title: "Billing", items: [creditsItem()] },
+    ...(isOwner ? [organisationSection()] : []),
     ...agencyOnly([
       {
         // LEVEL 4 — a real route whose page explains what is not built yet.

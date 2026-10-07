@@ -4,6 +4,7 @@ import {
   resolvePrice,
   DEFAULT_CATALOG,
   type Catalog,
+  type Product,
   type ResolveResult,
 } from "@badabhai/pricing";
 import type { PayloadInputOf } from "@badabhai/event-schema";
@@ -11,6 +12,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PricingRepository } from "./pricing.repository";
 import type { UpdateCatalogDto, QuoteQueryDto } from "./pricing.dto";
+import { chargeQuote } from "./charge-price";
 
 /** The active catalog + provenance (fail-closed: falls back to the typed default). */
 export interface ActiveCatalog {
@@ -18,6 +20,38 @@ export interface ActiveCatalog {
   readonly revision: number;
   /** "db" = a valid stored catalog; "default" = no row OR an invalid row (fail-closed). */
   readonly source: "db" | "default";
+}
+
+/**
+ * The price one catalog tier would be CHARGED at `priced_at` (#2085), without a coupon.
+ * Computed by {@link chargeQuote} — the function every purchase route charges through — so
+ * `price_inr` here is the number a purchase of this tier takes at that instant.
+ */
+export interface PayerTierPrice {
+  readonly product_code: string;
+  readonly tier_code: string;
+  /** The catalog list price. */
+  readonly base_price_inr: number;
+  /** What a purchase of this tier is charged now (after the active offer, if any). */
+  readonly price_inr: number;
+  /** base − price (≥ 0). */
+  readonly discount_inr: number;
+  /** The automatic offer the charge applies right now, or null. Never a coupon. */
+  readonly offer: { readonly code: string; readonly ends_at: string } | null;
+}
+
+/**
+ * The payer-facing catalog projection (D-6 + #2085). `products` is unchanged (the catalog's
+ * priced products). `prices` + `priced_at` are ADDITIVE: the effective per-tier charge price
+ * and the active offer behind it. Coupons, coupon caps and `floorPriceInr` never ship.
+ */
+export interface PayerCatalogView {
+  readonly revision: number;
+  readonly source: "db" | "default";
+  readonly products: readonly Product[];
+  readonly prices: readonly PayerTierPrice[];
+  /** The instant `prices` were resolved at (ISO-8601). An offer window can close after it. */
+  readonly priced_at: string;
 }
 
 /**
@@ -52,6 +86,36 @@ export class PricingService {
       return { catalog: DEFAULT_CATALOG, revision: row.revision, source: "default" };
     }
     return { catalog: parsed.catalog, revision: row.revision, source: "db" };
+  }
+
+  /**
+   * The payer catalog read (`GET /payer/pricing/catalog`): the active catalog's products plus
+   * each tier's effective charge price at `now` (#2085). Every tier is priced through
+   * {@link chargeQuote}, the charge paths' own function — so shown == charged by construction.
+   * Read-only, emits no event.
+   */
+  async getPayerCatalog(now: Date = new Date()): Promise<PayerCatalogView> {
+    const { catalog, revision, source } = await this.getActiveCatalog();
+    const prices: PayerTierPrice[] = [];
+    for (const product of catalog.products) {
+      for (const tier of product.tiers) {
+        const result = chargeQuote(catalog, { productCode: product.code, tierCode: tier.code, now });
+        if (!result.ok) continue; // unreachable for a catalog tier; never invent a price
+        const { quote } = result;
+        const offer = quote.offerApplied
+          ? catalog.offers.find((o) => o.code === quote.offerApplied)
+          : undefined;
+        prices.push({
+          product_code: product.code,
+          tier_code: tier.code,
+          base_price_inr: quote.basePriceInr,
+          price_inr: quote.finalInr,
+          discount_inr: quote.discountInr,
+          offer: offer ? { code: offer.code, ends_at: new Date(offer.until).toISOString() } : null,
+        });
+      }
+    }
+    return { revision, source, products: catalog.products, prices, priced_at: now.toISOString() };
   }
 
   /**

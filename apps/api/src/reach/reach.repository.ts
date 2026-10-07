@@ -64,6 +64,40 @@ export function applicantSignalRowsStatement(db: Database, jobId: string) {
     .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
 }
 
+/** One applier's signal row on one legacy `jobs` row (the batched read below). */
+export interface JobApplicantSignalRow {
+  jobId: string;
+  row: WorkerProfileSignalRow;
+}
+
+/**
+ * The batched twin of {@link applicantSignalRowsStatement}: the appliers of SEVERAL jobs in one
+ * statement, for the payer's cross-posting inbox. Same membership per job (an `applied`
+ * decision on that job, not pending deletion, a `worker_profiles` row), same projection, same
+ * current-profile pick — `DISTINCT ON (job_id, worker_id)` ordered by `CURRENT_PROFILE_ORDER`
+ * keeps, for each (job, worker), the row the per-job statement keeps for that worker. A worker
+ * who applied to two of the jobs is one row per job. `applications_worker_job_uq` caps it at one
+ * decision per (worker, job).
+ */
+export function applicantSignalRowsForJobsStatement(db: Database, jobIds: readonly string[]) {
+  return db
+    .selectDistinctOn([applications.jobId, workerProfiles.workerId], {
+      appliedJobId: applications.jobId,
+      ...ReachRepository.SIGNAL_COLUMNS,
+    })
+    .from(applications)
+    .innerJoin(workerProfiles, eq(workerProfiles.workerId, applications.workerId))
+    .innerJoin(workers, eq(workers.id, applications.workerId))
+    .where(
+      and(
+        inArray(applications.jobId, [...jobIds]),
+        eq(applications.action, "applied"),
+        isNull(workers.deletionScheduledAt),
+      ),
+    )
+    .orderBy(applications.jobId, workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
+}
+
 @Injectable()
 export class ReachRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -135,6 +169,24 @@ export class ReachRepository {
    */
   async listApplicantSignalRowsForJob(jobId: string): Promise<WorkerProfileSignalRow[]> {
     return applicantSignalRowsStatement(this.db, jobId);
+  }
+
+  /**
+   * {@link listApplicantSignalRowsForJob} for several jobs in ONE statement (the payer inbox;
+   * see {@link applicantSignalRowsForJobsStatement}). An empty id list reads nothing.
+   */
+  async listApplicantSignalRowsForJobs(
+    jobIds: readonly string[],
+  ): Promise<JobApplicantSignalRow[]> {
+    if (jobIds.length === 0) return [];
+    const rows = await applicantSignalRowsForJobsStatement(this.db, jobIds);
+    const out: JobApplicantSignalRow[] = [];
+    for (const { appliedJobId, ...row } of rows) {
+      // The WHERE binds `job_id IN (…)`, so a NULL job reference cannot come back; the guard
+      // only narrows the column's nullable type.
+      if (appliedJobId !== null) out.push({ jobId: appliedJobId, row });
+    }
+    return out;
   }
 
   /**
@@ -227,5 +279,22 @@ export class ReachRepository {
       .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId)))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * {@link findOwnedJobSignalRowById} for several ids at once (the payer inbox): the faceless
+   * signal rows of exactly those `jobIds` the session payer owns. An unknown id and another
+   * payer's id are both simply absent — the same no-oracle answer, and the same discipline:
+   * `payer_id` is consumed only in the WHERE, never projected. An empty id list reads nothing.
+   */
+  async findOwnedJobSignalRowsByIds(
+    jobIds: readonly string[],
+    payerId: string,
+  ): Promise<JobSignalRow[]> {
+    if (jobIds.length === 0) return [];
+    return this.db
+      .select(ReachRepository.JOB_SIGNAL_COLUMNS)
+      .from(jobs)
+      .where(and(inArray(jobs.id, [...jobIds]), eq(jobs.payerId, payerId)));
   }
 }

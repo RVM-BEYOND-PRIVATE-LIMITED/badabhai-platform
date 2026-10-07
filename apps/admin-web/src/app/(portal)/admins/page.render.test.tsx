@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type * as EntitiesModule from "../../../lib/entities";
 
 /**
  * The admin directory under the name ruling — the surface where the dash is the ORDINARY case.
@@ -29,7 +30,10 @@ vi.mock("../../../lib/auth", () => ({
   }),
 }));
 
-vi.mock("../../../lib/entities", () => ({
+// The real module with its read stubbed: the page also reads the directory's own status values
+// (`adminRowSchema`) to tell a refused filter from an outage.
+vi.mock("../../../lib/entities", async (importOriginal) => ({
+  ...(await importOriginal<typeof EntitiesModule>()),
   listAdmins: async () => {
     if (stub.failure) throw stub.failure;
     return stub.directory;
@@ -41,6 +45,7 @@ vi.mock("./invite-admin-form", () => ({ InviteAdminForm: () => null }));
 vi.mock("./admin-row-actions", () => ({ AdminRowActions: () => null }));
 
 const { default: AdminsPage } = await import("./page");
+const { AdminRequestError } = await import("../../../lib/admin-http");
 
 const ADMIN_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 
@@ -145,6 +150,17 @@ describe("the capped posture on the one unpaginated route", () => {
     expect(out).toContain("more than the 50 accounts a single response may name");
   });
 
+  it("the description does not say names are shown directly above the notice withholding them", async () => {
+    // Final re-sweep NEW-06: the description was two-valued, so the capped posture fell into the
+    // "names are shown to your role" branch right above "Names are withheld on this page". Three
+    // values now, as on Workers, Companies and Agencies.
+    const out = await render();
+    const description = out.slice(out.indexOf('class="page__sub"'), out.indexOf("Names are withheld"));
+    expect(description).not.toContain("names are shown");
+    expect(description).toContain("by id while names are withheld (see below)");
+    expect(description).toContain("emails stay encrypted and are served to no role at all");
+  });
+
   it("hides the Name column rather than dashing it", async () => {
     const out = await render();
     expect(out).not.toContain('<th scope="col">Name</th>');
@@ -216,9 +232,70 @@ describe("the role chips keep a status narrowing (owner brief 2026-10-01)", () =
     expect(out).toContain('href="/admins?role=super_admin&amp;status=active"');
   });
 
-  it("marks the active role chip, and only it", async () => {
+  it("marks the active role chip, and only it — as text, not a link to this page (final re-sweep O-2)", async () => {
     const out = await render({ role: "analyst" });
-    expect(out).toMatch(/aria-current="true"[^>]*href="\/admins\?role=analyst"/);
+    expect(out).toMatch(/<span aria-current="true" class="btn btn--sm btn--selected">Analyst<\/span>/);
     expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
+    expect(out).not.toContain('href="/admins?role=analyst"');
+  });
+});
+
+/** The href of the link whose visible label (after any glyph) is exactly `label`. */
+const hrefOf = (out: string, label: string) =>
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+
+/**
+ * A failed directory read, by the console's one rule (final re-sweep O-3). The directory is
+ * unpaginated, so there is no cursor to refuse: a 400 with a role or status in the address
+ * refused those, and a 400 with nothing — or anything else — is an outage with Retry.
+ */
+describe("a failed directory read: refused or unavailable (final re-sweep O-3)", () => {
+  const count = (out: string, s: string) => out.split(s).length - 1;
+
+  it("a 400 with a filter set: the filters were refused — Clear filters in the state, no Retry", async () => {
+    stub.failure = new AdminRequestError(400, "Invalid enum value");
+    const out = await render({ status: "bogus" });
+    expect(out).toContain("The server rejected these filters");
+    expect(out).not.toContain("The admin directory could not be loaded");
+    expect(out).not.toContain(">Retry<");
+    expect(count(out, ">Clear filters<")).toBe(1);
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toContain(">Clear filters<");
+    expect(hrefOf(out, "Clear filters")).toBe("/admins");
+  });
+
+  it("a 400 with nothing in the address is an outage — Retry", async () => {
+    stub.failure = new AdminRequestError(400, "Invalid filter value.");
+    const out = await render();
+    expect(out).toContain("The admin directory could not be loaded");
+    expect(out).not.toContain("rejected");
+    expect(hrefOf(out, "Retry")).toBe("/admins");
+  });
+
+  it("a 5xx with filters is an outage: Retry keeps them, and the head keeps Clear filters", async () => {
+    stub.failure = new AdminRequestError(500, "boom");
+    const out = await render({ role: "analyst" });
+    expect(out).toContain("The admin directory could not be loaded");
+    expect(hrefOf(out, "Retry")).toBe("/admins?role=analyst");
+    expect(count(out, ">Clear filters<")).toBe(1);
+  });
+});
+
+/**
+ * A role the chips offer, or a status the directory has, is never the refused part (review of
+ * #2095). The directory has no cursor, so with only known values in the address a 400 is ours.
+ */
+describe("known role and status values are never the refused part", () => {
+  it("a chip's role and a real status: the 400 is an outage, with Retry", async () => {
+    stub.failure = new AdminRequestError(400, "Invalid filter value.");
+    const out = await render({ role: "analyst", status: "active" });
+    expect(out).toContain("The admin directory could not be loaded");
+    expect(out).not.toContain("rejected");
+    expect(hrefOf(out, "Retry")).toBe("/admins?role=analyst&amp;status=active");
+  });
+
+  it("a role the chips do not offer is still the refused part", async () => {
+    stub.failure = new AdminRequestError(400, "Invalid enum value");
+    expect(await render({ role: "root" })).toContain("The server rejected these filters");
   });
 });

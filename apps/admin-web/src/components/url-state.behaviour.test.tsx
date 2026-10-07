@@ -28,6 +28,9 @@ vi.mock("react", async (importOriginal) => {
     ...actual,
     useState: (initial: unknown) => harness().useState(initial),
     useId: () => harness().useId(),
+    // The bars push inside a transition (components/nav-pending.tsx, usePendingPush): here it
+    // runs the push at once and is never pending — this file is about the fields, not the cue.
+    useTransition: () => [false, (fn: () => void) => fn()],
   };
 });
 vi.mock("next/navigation", () => ({

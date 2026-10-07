@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../../lib/auth/types";
 import { Card } from "../../../components/ds";
+import { NavPendingCue } from "../../../components/nav-pending";
+import { linkCues } from "../../../../test/link-cues";
 
 /**
  * AGENT SECTIONS render tests (MERGE-1 — the agency demand modules of the unified /dashboard).
@@ -457,5 +459,12 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
       expect(h).not.toMatch(/\b\d{10}\b/);
       expect(h).not.toMatch(/\+91/);
     }
+  });
+});
+
+describe("the navigation pending cue on an agency posting card (components/nav-pending.tsx)", () => {
+  it("the card's Applicants link carries it", async () => {
+    const cues = linkCues(await AgentSections(), NavPendingCue);
+    expect(cues.get(`/agency/jobs/${JOB.id}/applicants`)).toEqual(["Applicants"]);
   });
 });

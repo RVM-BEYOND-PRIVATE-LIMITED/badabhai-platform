@@ -3,6 +3,8 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { AgencyJob } from "../../../../lib/contracts";
 import { Button } from "../../../../components/ds";
+import { NavPendingCue } from "../../../../components/nav-pending";
+import { linkCues } from "../../../../../test/link-cues";
 
 /**
  * AGENCY-JOBS-MANAGER tests — A11Y-OF-FAILURE (B8) + guardrails (faceless / no-oracle) + the row's
@@ -412,5 +414,13 @@ describe("AgencyJobsManager — review L2: no edit door while the row works", ()
       // …the other row keeps its door.
       expect(editOf(tree, JOB2.id).href).toBe(`/agency/jobs/${JOB2.id}/edit`);
     }
+  });
+});
+
+describe("the navigation pending cue on an agency posting row (components/nav-pending.tsx)", () => {
+  it("the title and the Applicants link each carry it, named for where they go", () => {
+    const cues = linkCues(render([JOB]), NavPendingCue);
+    expect(cues.get(`/agency/jobs/${JOB.id}`)).toEqual([JOB.title]);
+    expect(cues.get(`/agency/jobs/${JOB.id}/applicants`)).toEqual(["Applicants"]);
   });
 });

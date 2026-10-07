@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { expectedPriceInrSchema } from "../pricing/charge-price";
 
 /**
  * Zod DTOs for the Razorpay webhook boundary (invariant #7 — runtime validation at every
@@ -76,9 +77,12 @@ export function toPaymentEvent(body: RazorpayWebhookBody): RazorpayPaymentEvent 
  * XB-A: the payer is the AUTHENTICATED session payer (`req.payer.id`), so there is no
  * `payer_id` here. XT5: there is no `amount`, no `credits`, and no `currency` either — the
  * price is resolved server-side from the pricing catalog. A client cannot name its price.
+ * `expected_price_inr` (#2085) does not change that: it is never charged, it only lets the
+ * server REFUSE (409 `price_mismatch`) when the confirmed ₹ is not the resolved one.
  */
 export const CreateCreditOrderSchema = z.object({
   pack_code: z.string().min(1).max(64),
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type CreateCreditOrderDto = z.infer<typeof CreateCreditOrderSchema>;
 

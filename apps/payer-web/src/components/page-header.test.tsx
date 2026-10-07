@@ -19,6 +19,8 @@ import { PageHeader, type PageHeaderProps } from "./page-header";
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     default: ({
       children,
       href,
@@ -47,11 +49,12 @@ describe("PageHeader — markup", () => {
     );
   });
 
+  // Each link ends in its navigation pending cue — idle here (components/nav-pending.tsx).
   it("a child page: the back link comes FIRST — an arrow-left icon + the parent's name", () => {
     const out = html({ title: "Applicants", back: { href: "/postings/p1", label: "Posting details" } });
     expect(out.startsWith('<p class="page-back"><a href="/postings/p1">')).toBe(true);
     expect(out).toContain(
-      '<a href="/postings/p1"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Posting details</span></a>',
+      '<a href="/postings/p1"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Posting details</span><span class="nav-pending" aria-hidden="true"></span></a>',
     );
     // No glyph arrow anywhere (icons only).
     expect(out).not.toMatch(/[←→]/);
@@ -70,10 +73,10 @@ describe("PageHeader — markup", () => {
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(actions).toContain(
-      '<a href="/a" class="bb-btn bb-btn--primary"><i class="ph-fill ph-users-three" aria-hidden="true"></i><span>View applicants</span></a>',
+      '<a href="/a" class="bb-btn bb-btn--primary"><i class="ph-fill ph-users-three" aria-hidden="true"></i><span>View applicants</span><span class="nav-pending" aria-hidden="true"></span></a>',
     );
     expect(actions).toContain(
-      '<a href="/b" class="bb-btn bb-btn--secondary"><i class="ph-fill ph-pencil-simple" aria-hidden="true"></i><span>Edit posting</span></a>',
+      '<a href="/b" class="bb-btn bb-btn--secondary"><i class="ph-fill ph-pencil-simple" aria-hidden="true"></i><span>Edit posting</span><span class="nav-pending" aria-hidden="true"></span></a>',
     );
     // The head's actions are md controls (44px): a primary at sm is below the DS tap floor.
     expect(actions).not.toContain("bb-btn--sm");

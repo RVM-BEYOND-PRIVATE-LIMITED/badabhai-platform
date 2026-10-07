@@ -49,6 +49,8 @@ vi.mock("./drawer-focus", () => ({ openDrawer: (p: unknown) => openDrawer(p) }))
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     default: ({ children, href, ...rest }: { children: ReactNode; href: string }) =>
       React.createElement("a", { href, ...rest }, children),
   };
@@ -205,7 +207,11 @@ describe("the open drawer arms its keyboard model (review of final sweep C)", ()
     const view = { el: "window" };
     vi.stubGlobal("document", doc);
     vi.stubGlobal("window", view);
-    const armed = effects.filter((e) => e.deps?.length === 2 && e.deps[0] === drawerOpen);
+    // The drawer effect by its own dependencies, [drawerOpen, menuId] — a rail link's pending cue
+    // also records a two-dependency effect, [pending, label].
+    const armed = effects.filter(
+      (e) => e.deps?.length === 2 && e.deps[0] === drawerOpen && e.deps[1] === menuId,
+    );
     expect(armed).toHaveLength(1);
     return { doc, view, menuId, cleanup: armed[0]!.effect() };
   }
@@ -277,5 +283,27 @@ describe("the open drawer is a MODAL for assistive tech (review of final sweep C
       expect(attr(scrim, "tabindex"), `open=${drawerOpen}`).toBe("-1");
       expect(attr(scrim, "aria-hidden")).toBe(String(!drawerOpen));
     }
+  });
+});
+
+describe("the navigation pending cue (components/nav-pending.tsx)", () => {
+  it("each rail row ends in its own pending cue (idle: no `--on`, hidden from assistive tech)", () => {
+    const row = element(render(), "a", "pnav__link pnav__link--active").whole;
+    expect(row.endsWith('<span class="nav-pending" aria-hidden="true"></span></a>')).toBe(true);
+  });
+
+  it("the bar and the one status line sit in the shell, OUTSIDE the page that goes inert behind the drawer", () => {
+    seeds.drawerOpen = true;
+    const html = render();
+    const main = element(html, "div", "pshell__main");
+    expect(attr(main.open, "inert")).toBe("");
+    const status = html.indexOf('<p class="sr-only" role="status" aria-live="polite">');
+    const bar = html.indexOf('<div class="nav-progress" aria-hidden="true">');
+    expect(status).toBeGreaterThan(-1);
+    expect(bar).toBeGreaterThan(-1);
+    expect(main.whole).not.toContain('role="status"');
+    expect(main.whole).not.toContain("nav-progress");
+    // Exactly one status line in the whole shell.
+    expect(html.match(/role="status"/g)).toHaveLength(1);
   });
 });

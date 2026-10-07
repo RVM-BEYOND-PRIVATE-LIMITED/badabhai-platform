@@ -180,8 +180,14 @@ h3 {
   color: var(--text-accent);
   border-color: var(--text-accent);
 }
-.btn--selected:hover:not(:disabled) {
+.btn--selected:is(a, button):hover:not(:disabled) {
   background: var(--brand-tint-2);
+}
+/* …and the CURRENT value of a link chip row is text, not a control (`<FilterChip>`, final
+   re-sweep O-2): it no longer links the page it is on, so it draws no pointer and its hover
+   (above) changes nothing that would promise an action. */
+span.btn {
+  cursor: default;
 }
 .btn--block {
   width: 100%;
@@ -829,30 +835,90 @@ details[open] > summary > .disclosure__caret {
   align-items: center;
 }
 
-/* Loading placeholder. Shape-matched to the content it replaces so the page does not
-   jump when real data arrives. */
-.skeleton {
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
-  animation: pulse var(--duration-slower) var(--ease-in-out) infinite;
+/* ---- navigation pending cue (components/nav-pending.tsx, review of #2095) ---------
+   No loading boundary shows a navigation any more (app/no-loading-boundary-anywhere.test.ts), so
+   what started one does: a dot while its navigation is pending — on a rail or crumb link after
+   its label, on a filter chip, the Pager or a filter bar's Apply at the control's corner — in the
+   control's own colour (Safety Yellow on the active rail row), and a bar along the top of the
+   viewport, the cue a phone sees once the drawer has closed. Nothing shows for the first
+   `--nav-pending-delay` (delta review): a prefetched navigation that lands at once never
+   flashes the dot, and the bar and the status line wait for the same delay in nav-pending.tsx.
+   Not a motion token: it is a wait, so it stays under prefers-reduced-motion. */
+:root {
+  --nav-pending-delay: 180ms;
 }
-.skeleton--title {
-  height: var(--space-7);
-  width: 12rem;
+.nav-pending {
+  display: none;
 }
-.skeleton--row {
-  height: var(--space-8);
-  width: 100%;
-  margin-top: var(--space-3);
+.nav-pending--on {
+  display: inline-block;
+  flex: none;
+  inline-size: var(--space-2);
+  block-size: var(--space-2);
+  margin-inline-start: var(--space-2);
+  border-radius: var(--radius-round);
+  background: currentColor;
+  animation:
+    nav-pending-show 1ms linear var(--nav-pending-delay) both,
+    nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
+      alternate;
 }
-/* A tile-shaped placeholder, for a loading screen that is about to show a stat row. */
-.skeleton--tile {
-  height: var(--space-12);
-  width: 100%;
+/* In a rail row the dot sits at the row's end, so the label never moves. */
+.sidebar__link > .nav-pending--on {
+  margin-inline-start: auto;
 }
-@keyframes pulse {
-  50% {
-    opacity: 0.55;
+/* On a button-styled control (a chip, the Pager, Apply) it sits on the corner: the control keeps
+   its size, so a chip row never reflows while a chip is pending. */
+.btn:has(> .nav-pending) {
+  position: relative;
+}
+.btn > .nav-pending--on {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--space-1));
+  inset-inline-end: calc(-1 * var(--space-1));
+  margin: 0;
+}
+.nav-progress {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--space-1);
+  z-index: var(--z-toast);
+  background: var(--text-heading);
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-progress--on {
+  opacity: 1;
+  transform: scaleX(0.9);
+  animation: nav-progress-grow calc(var(--duration-slower) * 5) var(--ease-out);
+}
+@keyframes nav-pending-show {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
+@keyframes nav-pending-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+@keyframes nav-progress-grow {
+  from {
+    transform: scaleX(0.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-pending--on {
+    animation: nav-pending-show 1ms linear var(--nav-pending-delay) both;
+  }
+  .nav-progress--on {
+    animation: none;
   }
 }
 
@@ -2785,6 +2851,10 @@ textarea.field__input {
   border-radius: var(--radius-2xl);
   padding: var(--space-7);
   display: grid;
+  /* ONE column that never grows past the stage (final re-sweep NEW-01/02). The implicit track was
+     `auto`, sized by its content's min-content: one 95-character token made the page 1209px wide
+     at 375, and a picker pill that could not shrink made it 342px wide at 320 with normal data. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-6);
 }
 .engine :where(a, button, input):focus-visible {
@@ -2851,6 +2921,21 @@ textarea.field__input {
   background: var(--color-brand-accent);
   border-color: var(--color-brand-accent);
   color: var(--text-on-brand);
+}
+/* A pill shrinks to its row and wraps its own parts (NEW-01/02): the list item may go below its
+   content width, the pill stops at the row, and the trade label (a customer's or a corpus's
+   words) breaks only a token that cannot fit; on a narrow phone the date drops under the ref.
+   `break-word` with a zero minimum, never `anywhere`, so an ordinary word is never split. */
+.engine__picker > li {
+  min-width: 0;
+}
+.engine__pick {
+  max-inline-size: 100%;
+  flex-wrap: wrap;
+}
+.engine__pick-trade {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 .engine__pick-date {
   white-space: nowrap;
@@ -2927,6 +3012,7 @@ textarea.field__input {
   border-radius: var(--radius-2xl);
   padding: var(--space-6);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   min-width: 0;
 }
@@ -2935,12 +3021,14 @@ textarea.field__input {
   border: var(--border-hairline) solid var(--color-brand-accent-40);
   color: var(--text-on-ink);
 }
+/* The posting tab's title is the posting's role title — typed by a customer. */
 .engine__panel-title {
   font-family: var(--font-display);
   font-size: var(--text-xl);
   text-transform: uppercase;
   margin: 0;
   color: inherit;
+  overflow-wrap: break-word;
 }
 /* A short ref is an id: it keeps its case even inside an uppercase title. */
 .engine__panel-title .mono {
@@ -2968,20 +3056,26 @@ textarea.field__input {
   margin: 0;
   padding: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
 }
 .engine__skill {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
   padding-block: var(--space-2);
   border-block-end: var(--border-hairline) solid var(--color-brand-primary-40);
 }
+/* A switched-off skill steps down to the 80% primary: 8.61:1 on the Ivory panel. The 60% step
+   read 4.46:1 on its label, switch and meta (final re-sweep NEW-03) — it is for secondary icons
+   and hairlines, never text. The "Off" switch says the state in words, so it is not colour alone. */
 .engine__skill--off {
-  color: var(--color-brand-primary-60);
+  color: var(--color-brand-primary-80);
 }
 .engine__skill-label {
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
+  overflow-wrap: break-word;
 }
 .engine__skill-meta {
   display: flex;
@@ -3154,11 +3248,6 @@ textarea.field__input {
     grid-column: 1 / -1;
   }
 }
-.engine__back {
-  min-height: var(--control-md);
-  justify-self: start;
-  color: var(--color-brand-primary);
-}
 .engine__table a {
   color: var(--color-brand-primary);
 }
@@ -3202,6 +3291,11 @@ textarea.field__input {
   .engine {
     padding: var(--space-4);
     border-radius: var(--radius-xl);
+  }
+  /* The panels step down with the stage: bounded at 320, a feed card's title had 118px, under the
+     127px an ordinary word like "Maintenance" needs at its size, and split it mid-word. */
+  .engine__panel {
+    padding: var(--space-4);
   }
   .engine__title {
     font-size: var(--text-2xl);

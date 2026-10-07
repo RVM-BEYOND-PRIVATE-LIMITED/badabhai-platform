@@ -2362,6 +2362,50 @@ def _period_months(near_before: str, near_after: str) -> int | None:
 _CREDENTIAL_BEFORE_RE = lexicon.compile_pattern(_SALARY["credentialBefore"])
 
 
+# A figure inside a PHONE-SHAPED run is not money either (issue #2050): the matcher reads digits
+# split by a space or a dash as separate numbers, so "mera number 98765 43210 hai" recorded 98765,
+# and with a want cue near it as the EXPECTED salary. The run, the pay-range exemption ("15000-
+# 20000" is pay; #1731's rule) and the measurements live in data/salary.json.
+_PHONE_CHAIN_RE = lexicon.compile_pattern(_SALARY["phoneChain"])
+_PHONE_CHAIN_MIN_DIGITS: int = _SALARY["phoneChainMinDigits"]
+_PAY_RANGE_MAX_RATIO: int = _SALARY["payRangeMaxRatio"]
+_PAY_RANGE_ROUND_TO: int = _SALARY["payRangeRoundTo"]
+# The figures of a run. `\d` reads Devanagari digits as `int()` does; a run holds no others.
+_RUN_FIGURE_RE = re.compile(r"\d+")
+# A longer figure is over the plausible band, so it is no range. Checked BEFORE `int()`, which
+# refuses a string past 4,300 digits (Python 3.11+): "1"*5000 + " 1" raised out of `detect` and
+# `/profile/extract` returned 500 (the security review of #2050).
+_RANGE_FIGURE_MAX_DIGITS = len(str(_SALARY["maxPlausibleInr"]))
+
+
+def _is_pay_range(figures: list[str]) -> bool:
+    """Two figures that read as a pay range, not a phone: rising, both round, at most
+    `_PAY_RANGE_MAX_RATIO` times apart, both in the plausible band."""
+    if len(figures) != 2 or any(len(figure) > _RANGE_FIGURE_MAX_DIGITS for figure in figures):
+        return False
+    low, high = (int(figure) for figure in figures)
+    return (
+        _MIN_AMOUNT_INR <= low < high <= _SALARY["maxPlausibleInr"]
+        and high <= low * _PAY_RANGE_MAX_RATIO
+        and low % _PAY_RANGE_ROUND_TO == 0
+        and high % _PAY_RANGE_ROUND_TO == 0
+    )
+
+
+def _phone_chains(text: str) -> list[tuple[int, int]]:
+    """The spans of ``text``'s phone-shaped runs, left to right (#2050): a run of digits joined
+    only by spaces or dashes, at least `_PHONE_CHAIN_MIN_DIGITS` long, that is no pay range."""
+    chains = []
+    for run in _PHONE_CHAIN_RE.finditer(text):
+        figures = _RUN_FIGURE_RE.findall(run.group())
+        if sum(len(figure) for figure in figures) < _PHONE_CHAIN_MIN_DIGITS:
+            continue
+        if _is_pay_range(figures):
+            continue
+        chains.append(run.span())
+    return chains
+
+
 # A clause boundary. Guard (b): an expectation cue on the OTHER side of one belongs to the
 # other clause. Includes the Devanagari danda, which is a sentence end and not a word
 # character — the lexicon carries the pattern so both engines terminate on the same set.
@@ -2575,10 +2619,18 @@ def _iter_salaries(text: str, lower: str) -> Iterator[SalaryHit]:
     # for that question a number this pass declines to RECORD is still a number in the way —
     # "25000 mahina 30 chahiye" has its cue claimed by the 30, which never becomes a salary.
     numbers = [(m.start(1), m.end()) for m in _SALARY_RE.finditer(text)]
+    # Phone-shaped runs (#2050), in order. The matches below come in order too, so one cursor
+    # walks both lists and the check stays linear however many runs the text holds.
+    chains = _phone_chains(text)
+    chain_at = 0
     for m in _SALARY_RE.finditer(text):
         num, unit = m.group(1), m.group(2)
         if not unit and len(num.replace(",", "")) < _MIN_DIGITS_WITHOUT_UNIT:
             continue  # bare 1-2 digit number with no unit -> likely years, skip
+        while chain_at < len(chains) and chains[chain_at][1] <= m.start(1):
+            chain_at += 1
+        if chain_at < len(chains) and chains[chain_at][0] <= m.start(1):
+            continue  # a group of a phone number, not a wage
         # Every cue window is clamped to the LINE the number sits on. A cue on a
         # neighbouring line is a different utterance and says nothing about this
         # number. Without the clamp, two salary answers on adjacent lines poison

@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import type { Request } from "express";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
+import { caught, renderedError } from "../common/idempotency/replay-fidelity.test-support";
+import { assertExpectedPrice } from "../pricing/charge-price";
 import { PayerCapacityController } from "./payer-capacity.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
@@ -353,6 +355,28 @@ describe("#1148 — one tap is one capacity purchase", () => {
       .catch((e: Error) => e);
     expect(second).toMatchObject({ status: 400 });
     expect(buyCapacity).toHaveBeenCalledTimes(1);
+    // #2103 — and the SAME error body the client saw the first time, not a re-rendering.
+    expect(renderedError(second)).toStrictEqual(renderedError(first));
+  });
+
+  it("#2103: a replayed price_mismatch 409 carries the IDENTICAL structured body", async () => {
+    const { ctrl, buyCapacity } = ctrlWithRealSeam();
+    // The REAL price guard, so the body under test is exactly what production throws.
+    buyCapacity.mockImplementationOnce(async () => {
+      assertExpectedPrice(1, 5000);
+      throw new Error("unreachable");
+    });
+    const dto: BuyCapacityDto = { tier: "cap_5", expected_price_inr: 1 };
+    const first = await caught(ctrl.buyCapacity(dto, PAYER_A, withKey("tap-pm"), CTX));
+    const replay = await caught(ctrl.buyCapacity(dto, PAYER_A, withKey("tap-pm"), CTX));
+    expect(buyCapacity).toHaveBeenCalledTimes(1);
+    expect(replay).toMatchObject({ status: 409 });
+    expect(renderedError(replay)).toStrictEqual(renderedError(first));
+    expect(renderedError(replay)).toMatchObject({
+      reason: "price_mismatch",
+      expected_price_inr: 1,
+      current_price_inr: 5000,
+    });
   });
 
   it("the RAW header never appears in a Redis key, and the scope is capacity's own", async () => {
