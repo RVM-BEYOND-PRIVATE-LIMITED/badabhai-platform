@@ -140,6 +140,15 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   "Reload this page".
 - **Per-row controls** that share a visible name ("Suspend", "View") add the row's subject for
   assistive tech, after the visible label.
+- **A customer cell links the customer's own section** (#2032, sweep AW-28). The customer of a
+  posting (Postings, a posting's page), a ledger movement (Credits) and a payment order (Payment
+  orders) links `/companies/<id>` for a Company and `/agencies/<id>` for an Agency, read from the
+  `payer_role` the API serves beside `payer_id`, and names the persona beside the short id. With
+  no role — an older API, an orphaned id, or a top balance (the summary serves none) — it links
+  `/companies/<id>`, whose route redirects an agency to its own section, and names no persona.
+  Every cell renders `components/customer-link.tsx`, which builds the address with
+  `customerHref` (`lib/customer.ts`); a fence in `lib/customer.test.ts` fails any shipped file
+  that builds `/companies/…` or `/agencies/…` by hand.
 - **Touch targets.** On a phone or any coarse pointer, every small text link reaches 44px:
   table links through a row-high hit strip; stacked cell links, record-row links (a posting's
   owner, an AI call's worker, session and correlation id), id chips, the back link and the

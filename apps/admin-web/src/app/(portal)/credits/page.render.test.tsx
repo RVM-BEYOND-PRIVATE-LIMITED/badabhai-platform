@@ -7,6 +7,7 @@ import {
   isRupeeTile,
   statTiles,
 } from "../../../../test/stat-tiles";
+import { customerCell } from "../../../../test/customer-cell";
 
 /**
  * The credits page's simulated-money marking, asserted on the PAGE (#1856). `Stat` itself is
@@ -238,5 +239,49 @@ describe("credits — each recovery once on the screen", () => {
     const out = await renderWith();
     expect(count(out, '<th scope="col">Customer</th>')).toBe(2);
     expect(out).not.toContain('<th scope="col">Account</th>');
+  });
+});
+
+/**
+ * THE CUSTOMER CELLS (#2032, sweep AW-28). A ledger movement carries `payer_role`, so its cell
+ * goes straight to the customer's own section and names the persona. A top balance does not —
+ * the summary never served a role — so it keeps the address that redirects an agency on.
+ */
+describe("credits — a customer cell links the customer's own section", () => {
+  const withLedgerRole = (payer_role: unknown) => {
+    const page = ledger(MOCK);
+    stub.ledger = { ...page, items: page.items.map((row) => ({ ...row, payer_role })) };
+  };
+  const count = (out: string, s: string) => out.split(s).length - 1;
+  /** The top balance's cell: never a role, so always the fallback, never a persona. */
+  const BALANCE = customerCell(PAYER, `/companies/${PAYER}`, null, "</td>");
+
+  it("an agency's movement links /agencies/<id> directly, named Agency", async () => {
+    withLedgerRole("agent");
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
+    // …and the only /companies/ link left is the top balance's.
+    expect(count(out, `href="/companies/${PAYER}"`)).toBe(1);
+    expect(out).toContain(BALANCE);
+  });
+
+  it("a company's movement links /companies/<id>, named Company", async () => {
+    withLedgerRole("employer");
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Company", "</td>"));
+    expect(out).not.toContain(`href="/agencies/${PAYER}"`);
+  });
+
+  it("a null role (an orphaned id) falls back to /companies/<id>, claiming no persona", async () => {
+    withLedgerRole(null);
+    const out = await render();
+    // The movement AND the top balance: both the fallback, neither naming a persona.
+    expect(count(out, BALANCE)).toBe(2);
+  });
+
+  it("an absent role (an older API) falls back the same way", async () => {
+    const out = await render();
+    expect(ledger(MOCK).items[0]).not.toHaveProperty("payer_role");
+    expect(count(out, BALANCE)).toBe(2);
   });
 });

@@ -49,9 +49,13 @@ export type CreditBalance = z.infer<typeof creditBalanceSchema>;
  *
  * An unlock is ONE grant per (payer, worker) — ADR-0010 sign-off resolution 1 ("per candidate
  * profile, not per (worker, job)"), held by the `unlocks_payer_worker_uq` index — so `workerId`
- * alone says which applicant it opens. The wire's `job_id` is not carried: a company unlock is
- * stored without its posting (#1903/#1899), so it could not name one; the posting context comes
- * with #2033. `grantedAt` is optional so callers and fixtures that predate it still type.
+ * alone says which applicant it opens. Neither context id ever picks a row.
+ *
+ * CONTEXT: `jobPostingId` is the wire's `job_posting_id` (#2033) — the company posting the unlock
+ * was made from. It is only a CLAIM until a reader finds it in this payer's own postings list; a
+ * screen names or links a posting only then (see unlock-history.ts). The wire's `job_id` (an
+ * agency `jobs` id) is not carried: no screen that renders this history reads the agency's jobs.
+ * `grantedAt` and `jobPostingId` are optional so callers and fixtures that predate them still type.
  */
 export const unlockHistoryItemSchema = z.object({
   unlockId: z.string().uuid(),
@@ -61,6 +65,8 @@ export const unlockHistoryItemSchema = z.object({
   expiresAt: z.string(),
   /** When the current grant was made (a re-grant after a lapse moves it; `createdAt` does not). */
   grantedAt: z.string().nullable().optional(),
+  /** The company posting the unlock was made from (#2033); null/absent = none recorded. */
+  jobPostingId: z.string().uuid().nullable().optional(),
 });
 export type UnlockHistoryItem = z.infer<typeof unlockHistoryItemSchema>;
 
@@ -770,7 +776,14 @@ export const creditsWireSchema = z.object({
   balance: z.number().int().nonnegative(),
 });
 
-/** GET /payer/unlocks — `{ unlocks: UnlockProjection[] }` (PII-free projection). */
+/**
+ * GET /payer/unlocks — `{ unlocks: UnlockProjection[] }` (PII-free projection).
+ *
+ * STATUS (#2033): the payer route lists payer-visible rows only, and `status` is exactly the
+ * backend's `PAYER_UNLOCK_STATUSES` (apps/api `payer-unlock-view.ts`). The server DERIVES
+ * `expired` for a granted/revealed row whose `expires_at` has passed at its read; `revoked` is
+ * in that contract though nothing emits it today.
+ */
 export const unlockProjectionWireSchema = z.object({
   unlock_id: z.string().uuid(),
   payer_id: z.string().uuid(),
@@ -778,7 +791,14 @@ export const unlockProjectionWireSchema = z.object({
   // join — a non-nullable uuid here made the WHOLE unlock history fail parse after any
   // deletion. Null rows are skipped in getUnlocks (the candidate no longer exists).
   worker_id: z.string().uuid().nullable(),
+  /** An agency `jobs` id (the agency context); null for a company unlock. */
   job_id: z.string().uuid().nullable(),
+  /**
+   * #2033 — the company `job_postings` id the unlock was made from (an FK, SET NULL when the
+   * posting is deleted). OPTIONAL as well as nullable: an API build that predates #2033 (and its
+   * apply-before-deploy migration 0132) sends no such key — the history must still parse.
+   */
+  job_posting_id: z.string().uuid().nullable().optional(),
   status: z.enum(["granted", "revealed", "expired", "revoked"]),
   reveal_count: z.number().int().nonnegative(),
   granted_at: z.string().nullable(),

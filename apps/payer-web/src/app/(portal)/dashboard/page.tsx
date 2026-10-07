@@ -34,7 +34,8 @@ export const dynamic = "force-dynamic";
  *
  * UNCHANGED: the authz path (requirePayer → XB-A binds every read to the server-held payer
  * id), the role branching, and the FACELESS invariant — no worker name, phone or opaque id
- * ever reaches the DOM; a recent-unlock row carries its dates and status only.
+ * ever reaches the DOM; a recent-unlock row carries its dates and status, plus its posting's
+ * title when the unlock was made from one of the payer's own company postings.
  *
  * MERGE-1 (agent branch): when `session.role === "agent"` the agency demand modules render
  * INLINE below via {@link AgentSections}, a SERVER component that re-asserts requireAgent(),
@@ -49,7 +50,8 @@ export const dynamic = "force-dynamic";
  * action — for an agency it opens the AGENCY form (`jobs`), never the company one. The Postings
  * list is reached from the "Your postings" panel alone. A posting card opens THAT POSTING, and its
  * "Applicants" action opens the feed — the one rule on every surface (F12, as on the agency
- * dashboard). The counters are counts, the balance included; the unlock rows are rows. There is
+ * dashboard). The counters are counts, the balance included; an unlock row is a door only to the
+ * applicants of the own posting it names (where that worker shows unlocked). There is
  * no standing door to Credits on the page (F15 — a "Buy credits" card repeated the header's balance
  * chip): an owner whose balance is empty or low gets the needs-you item's own contextual "Buy
  * credits" — the one labelled way to buy, shown exactly when it matters. A needs-you item shows no
@@ -90,8 +92,10 @@ export default async function DashboardPage() {
   // No caption when the catalog offers no unlock price.
   const unitPrice = unlockUnitPriceInr((await catalog).products);
   // Newest first by the day each row prints (a re-grant moves it; the API's order does not).
-  // An unread list renders the panel's error state instead (below), never these rows.
-  const recentUnlocks = recentUnlockRows(unlocks ?? [], Date.now());
+  // An unread list renders the panel's error state instead (below), never these rows. A row
+  // names a posting only from the postings list this page already read (no read of its own): an
+  // agency reads none, and a failed postings read leaves every row plain.
+  const recentUnlocks = recentUnlockRows(unlocks ?? [], postings ?? [], Date.now());
   const attention = buildAttentionItems({ credits, unlocks, postings }, { isAgency, isOwner });
   const quick = quickActions({ isAgency });
   // The destinations this page ALREADY offers — the head's primary and the quick actions it
@@ -320,29 +324,48 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <div className="dash-candlist">
-              {recentUnlocks.map((row) => (
+              {recentUnlocks.map((row) => {
                 // FACELESS: a row names nobody — no worker id/phone/name reaches the DOM. It says
                 // WHEN and whether access is still open — an ended window is a neutral "Expired",
-                // never a green "Unlocked". It is NOT a link and names no posting: a company
-                // unlock is stored without its posting, so the title and the link to that
-                // posting's applicants arrive with #2033's posting-context field. An agency
-                // unlock keeps its job id, but this page does not read the agency's jobs (their
-                // titles), and the agency applicant feed does not show held unlocks yet.
-                <Card key={row.key} padding="sm" className="dash-unlock">
-                  <div className="dash-unlock__main">
-                    <div className="dash-unlock__title">Unlocked contact</div>
-                    <div className="dash-unlock__meta">
-                      Unlocked <span className="bb-mono">{row.unlockedOn}</span> ·{" "}
-                      {row.live ? "until" : "ended"} <span className="bb-mono">{row.endsOn}</span>
+                // never a green "Unlocked" — and, for a company unlock made from one of THIS
+                // payer's own postings (#2033's posting context, matched against the list read
+                // above), WHICH posting: the row then opens that posting's applicants, where the
+                // worker shows unlocked. Any other row names no posting and is not a link. An
+                // agency unlock carries its `jobs` id, but this page does not read the agency's
+                // jobs (AgentSections reads them itself, behind its own role gate and flag), so an
+                // agency row stays plain; the agency applicant feed shows the held unlock (#2053).
+                // `href` and its accessible name travel together (the DS link contract).
+                const link = row.posting
+                  ? {
+                      href: `/postings/${row.posting.id}/applicants`,
+                      ariaLabel: `${row.posting.title} — Applicants`,
+                    }
+                  : {};
+                return (
+                  <Card key={row.key} padding="sm" className="dash-unlock" {...link}>
+                    <div className="dash-unlock__main">
+                      <div className="dash-unlock__title">
+                        {row.posting ? row.posting.title : "Unlocked contact"}
+                      </div>
+                      <div className="dash-unlock__meta">
+                        Unlocked <span className="bb-mono">{row.unlockedOn}</span> ·{" "}
+                        {row.live ? "until" : "ended"} <span className="bb-mono">{row.endsOn}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="dash-unlock__right">
-                    <Badge tone={row.live ? "success" : "neutral"} upper>
-                      {row.live ? "Unlocked" : "Expired"}
-                    </Badge>
-                  </div>
-                </Card>
-              ))}
+                    <div className="dash-unlock__right">
+                      <Badge tone={row.live ? "success" : "neutral"} upper>
+                        {row.live ? "Unlocked" : "Expired"}
+                      </Badge>
+                      {row.posting ? (
+                        <span className="dash-unlock__cta">
+                          Applicants
+                          <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
+                        </span>
+                      ) : null}
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>

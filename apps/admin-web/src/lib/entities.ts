@@ -95,6 +95,18 @@ export function getWorker(id: string) {
 // payers — Companies (role=employer) and Agencies (role=agent)
 // ---------------------------------------------------------------------------
 
+/** The stored payer role. An unknown one is rejected, not rendered. */
+const payerRoleSchema = z.enum(["employer", "agent"]);
+
+/**
+ * The role of the payer behind a row's `payer_id` (#2032), served beside it on postings, ledger
+ * movements and payment orders so a customer cell links straight to the Company or the Agency
+ * (`customerHref`, `lib/customer.ts`). `null` when the server could not resolve the id (an
+ * ops-created posting, or an orphaned legacy id); `.optional()` keeps an older API that predates
+ * the field an honest parse, whose cells fall back to `/companies/:id`.
+ */
+const payerRoleRefSchema = payerRoleSchema.nullable().optional();
+
 export const payerListItemSchema = z.object({
   id: z.string(),
   /**
@@ -102,7 +114,7 @@ export const payerListItemSchema = z.object({
    * legal name, and not a contact person. Same three states as the header describes.
    */
   org_name: z.string().nullable().optional(),
-  role: z.enum(["employer", "agent"]),
+  role: payerRoleSchema,
   status: z.enum(["pending", "active", "suspended"]),
   previous_status: z.enum(["pending", "active", "suspended"]).nullable(),
   created_at: z.string(),
@@ -180,6 +192,7 @@ export function getPayerCredits(id: string, f: { cursor?: string; limit?: number
 export const jobPostingListItemSchema = z.object({
   id: z.string(),
   payer_id: z.string().nullable(),
+  payer_role: payerRoleRefSchema,
   org_label: z.string(),
   role_title: z.string(),
   location_label: z.string().nullable(),
@@ -349,6 +362,7 @@ export type FinanceSummary = z.infer<typeof financeSummarySchema>;
 export const ledgerRowSchema = z.object({
   id: z.string(),
   payer_id: z.string(),
+  payer_role: payerRoleRefSchema,
   delta: z.number(),
   reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
   unlock_id: z.string().nullable(),
@@ -361,6 +375,7 @@ export type LedgerRow = z.infer<typeof ledgerRowSchema>;
 export const orderRowSchema = z.object({
   id: z.string(),
   payer_id: z.string(),
+  payer_role: payerRoleRefSchema,
   pack_code: z.string(),
   amount_inr: z.number(),
   credits_granted: z.number(),
