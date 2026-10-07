@@ -139,17 +139,15 @@ function make(
     // session with no OIE state, which must take the legacy transcript re-parse.
     findSession: opts.sessionThrows
       ? vi.fn().mockRejectedValue(new Error("db down"))
-      : vi
-          .fn()
-          .mockResolvedValue(
-            "conversationState" in opts
-              ? {
-                  id: JOB.sessionId,
-                  workerId: JOB.workerId,
-                  conversationState: opts.conversationState,
-                }
-              : { id: JOB.sessionId, workerId: JOB.workerId, conversationState: null },
-          ),
+      : vi.fn().mockResolvedValue(
+          "conversationState" in opts
+            ? {
+                id: JOB.sessionId,
+                workerId: JOB.workerId,
+                conversationState: opts.conversationState,
+              }
+            : { id: JOB.sessionId, workerId: JOB.workerId, conversationState: null },
+        ),
   };
   // The in-flight transcript, for the early-finish path. `undefined` = no buffer (the
   // normal post-flush case, where Postgres is authoritative).
@@ -1274,7 +1272,12 @@ describe("ProfileExtractionProcessor — transcript source", () => {
         bodyText: "Aap kis sheher mein rehte hain?",
         metadata: { identity_intake: true },
       },
-      { id: "m2", direction: "inbound", bodyText: "Sitamarhi", metadata: { identity_intake: true } },
+      {
+        id: "m2",
+        direction: "inbound",
+        bodyText: "Sitamarhi",
+        metadata: { identity_intake: true },
+      },
       { id: "m3", direction: "inbound", bodyText: "VMC operator, 5 saal", metadata: {} },
     ]);
     await proc.process(makeJob());
@@ -1292,7 +1295,12 @@ describe("ProfileExtractionProcessor — transcript source", () => {
       messages: [],
       buffered: {
         messages: [
-          { role: "assistant", text: "Aapka pehla naam kya hai?", at: "2026-09-30T00:00:00.000Z", intake: true },
+          {
+            role: "assistant",
+            text: "Aapka pehla naam kya hai?",
+            at: "2026-09-30T00:00:00.000Z",
+            intake: true,
+          },
           { role: "worker", text: "Sitaram", at: "2026-09-30T00:00:01.000Z", intake: true },
           { role: "worker", text: "VMC chalata hun", at: "2026-09-30T00:00:02.000Z" },
         ] as never,
@@ -1354,6 +1362,124 @@ const withMap = (over: Record<string, unknown> = {}) => ({
     occupation: PIN,
     ...over,
   },
+});
+
+// #2021 — a structured chat on a GENERIC family pack keeps its trade answer in the draft's
+// `skills` (target_field: skills), not in `worker_attributes`. The canonical `skills` column now
+// carries the closed `skill_*` ids those answer-map values claim, pack-scoped.
+describe("#2021 — generic-pack answer-map skills become closed skill ids", () => {
+  /** The flush's provenance stamp for a chat the model neither led nor settled. */
+  const WORKER_ONLY = { llm_led_turns: 0, llm_draft_settled: false };
+  const genericChat = (
+    packId: string,
+    questionKey: string,
+    values: string[],
+    stamp: Record<string, unknown> = WORKER_ONLY,
+  ) => ({
+    conversationState: {
+      answer_map: [
+        record(),
+        record({ question_key: questionKey, target_field: "skills", value_normalized: values }),
+      ],
+      occupation: { ...PIN, pack_id: packId },
+      pack_id: packId,
+      pack_version: 1,
+      ...stamp,
+    },
+  });
+  const storedSkills = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
+    (profiles.create.mock.calls[0]![0] as { skills: string[] }).skills;
+
+  it("welding: mig + arc → skill_mig_welding + skill_arc_welding on the canonical column", async () => {
+    const { proc, profiles } = make(genericChat("qp_welding", "welding_process", ["mig", "arc"]));
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual(["skill_arc_welding", "skill_mig_welding"]);
+  });
+
+  it("plumbing: drainage → skill_drainage_systems", async () => {
+    const { proc, profiles } = make(genericChat("qp_plumbing", "plumbing_scope", ["drainage"]));
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual(["skill_drainage_systems"]);
+  });
+
+  it("is pack-scoped: `furniture` under qp_painting derives nothing", async () => {
+    const { proc, profiles } = make(genericChat("qp_painting", "painting_scope", ["furniture"]));
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual([]);
+  });
+
+  it("a trade with no match skill derives nothing", async () => {
+    const { proc, profiles } = make(
+      genericChat("qp_electrical", "electrical_scope", ["house_wiring", "panel"]),
+    );
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual([]);
+  });
+
+  // WORKER-ONLY (owner ruling 2026-10-07). The answer-map record below is byte-identical to the
+  // one the first test derives from; only the session's provenance stamp differs. An LLM-settled
+  // record (`settleFromLlmDraft` + `matchOptions`) cannot be told apart from a tap per record, so
+  // the session decides, and anything but a clean, well-formed "the model wrote nothing" fails
+  // closed.
+  describe("worker-only: a session the model led or settled derives nothing", () => {
+    const welding = (stamp: Record<string, unknown>) =>
+      genericChat("qp_welding", "welding_process", ["mig"], stamp);
+
+    it("zero LLM turns, nothing settled, captured welding_process → skill_mig_welding", async () => {
+      const { proc, profiles } = make(welding(WORKER_ONLY));
+      await proc.process(makeJob());
+      expect(storedSkills(profiles)).toEqual(["skill_mig_welding"]);
+    });
+
+    it.each([
+      ["an LLM-led session whose draft was settled", { llm_led_turns: 4, llm_draft_settled: true }],
+      ["an LLM-led session with nothing settled", { llm_led_turns: 2, llm_draft_settled: false }],
+      [
+        "a settled draft with zero led turns (the handover settlement)",
+        { llm_led_turns: 0, llm_draft_settled: true },
+      ],
+      ["a legacy session with neither stamp", {}],
+      ["only llm_led_turns present", { llm_led_turns: 0 }],
+      ["only llm_draft_settled present", { llm_draft_settled: false }],
+      ["a malformed count", { llm_led_turns: "0", llm_draft_settled: false }],
+      ["a malformed flag", { llm_led_turns: 0, llm_draft_settled: "false" }],
+      ["a null count", { llm_led_turns: null, llm_draft_settled: false }],
+    ])("%s → []", async (_label, stamp) => {
+      // `genericChat` spreads the stamp over a state that has none, so `{}` is a true legacy row.
+      const { proc, profiles } = make(welding(stamp));
+      await proc.process(makeJob());
+      expect(storedSkills(profiles)).toEqual([]);
+    });
+  });
+
+  it("never canonicalizes the model: parse-overlay and Phase C skills do not reach the column", async () => {
+    // No answer-map skills record at all. The overlay offers "mig", cited from the worker's own
+    // words, and would canonicalize if it were read. It must not be.
+    const { proc, profiles } = make({
+      conversationState: {
+        answer_map: [record()],
+        occupation: { ...PIN, pack_id: "qp_welding" },
+        pack_id: "qp_welding",
+        pack_version: 1,
+      },
+      messages: [{ direction: "inbound", bodyText: "main mig welding karta hoon" }],
+      parsed: {
+        fields: {
+          skills: {
+            value: ["mig"],
+            evidence: { message_index: 0, quote: "mig welding" },
+            source: "transcript",
+            normalization: "verbatim",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+    expect(storedSkills(profiles)).toEqual([]);
+  });
 });
 
 describe("the 77% reaches worker_attributes", () => {
