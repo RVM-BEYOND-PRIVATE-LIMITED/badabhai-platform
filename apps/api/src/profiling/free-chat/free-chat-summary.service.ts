@@ -21,10 +21,12 @@ import { FreeChatFoldLock } from "./free-chat-fold.lock";
 import {
   FREE_CHAT_FOLD_MAX_LINES,
   FREE_CHAT_FOLD_MIN_LINES,
+  carriesHardIdentifier,
   foldWatermarkOf,
   readFreeChatSummary,
   readFreeChatSummaryValue,
   screenFreeChatSummary,
+  summaryTextOf,
   type FreeChatSummary,
 } from "./free-chat-summary";
 import { REPLY_TURNS, recentTurnOf, summaryForModel } from "./free-chat.service";
@@ -42,6 +44,12 @@ export interface FreeChatFoldJob {
   readonly knownName: KnownNameSource;
   /** The transcript as it LANDED with the reply — the fold reads nothing newer or older. */
   readonly messages: readonly BufferedMessage[];
+  /**
+   * This session's folded count as the REQUEST's own row read saw it — a LOWER BOUND (the count
+   * only grows), so {@link FreeChatSummaryService.schedule} may skip a fold that cannot have
+   * anything to fold without touching Redis or the row. Absent reads as 0.
+   */
+  readonly foldedAtLeast?: number;
 }
 
 /** What one fold will send: the lines past the stored count, oldest first, and the count after. */
@@ -101,6 +109,10 @@ const FIXED_LINES: ReadonlySet<string> = new Set(
  * redacted, `{{token}}`s stripped, clipped), with any FIXED line removed from a reply bubble first —
  * the every-third casual nudge is appended to the model's lines, and reviewed copy is not
  * conversation. A line left blank is dropped.
+ *
+ * A LINE CARRYING A HARD IDENTIFIER IS DROPPED TOO (G1 — `containsHardIdentifier`, and a scanner
+ * that throws counts as a hit): it is never sent, so the model cannot echo it into notes that
+ * would then be refused for it on every retry. Its place still counts toward the fold's target.
  */
 export function summaryTurnsOf(
   batch: readonly BufferedMessage[],
@@ -116,21 +128,19 @@ export function summaryTurnsOf(
             .join("\n")
         : message.text;
     const turn = recentTurnOf({ ...message, text }, knownName);
-    if (turn !== null) turns.push(turn);
+    if (turn !== null && !carriesHardIdentifier(turn.text)) turns.push(turn);
   }
   return turns;
 }
 
 /**
- * A summary the API may judge: one a REAL, successful call returned. A mock, a failed call or a
- * call with no metadata is "unavailable" — the classifier's real-verdict rule (ADR-0051 §3.2),
- * applied to what would otherwise be stored indefinitely.
+ * Did a REAL, successful call answer — `ai_metadata.real_call === true` and `success !== false`?
+ * The classifier's real-verdict rule (ADR-0051 §3.2). Only such an answer is judged: a mock, a
+ * failed call, no metadata or no output at all is a TRANSPORT failure, which consumes nothing.
  */
-function realSummaryOf(out: FreeChatSummarizeOutput | null): string | null {
-  if (out === null || out.summary === null) return null;
-  const meta = out.ai_metadata;
-  if (meta === null || meta.real_call !== true || meta.success === false) return null;
-  return out.summary;
+function realCallOf(out: FreeChatSummarizeOutput | null): out is FreeChatSummarizeOutput {
+  const meta = out?.ai_metadata ?? null;
+  return meta !== null && meta.real_call === true && meta.success !== false;
 }
 
 /**
@@ -142,10 +152,15 @@ function realSummaryOf(out: FreeChatSummarizeOutput | null): string | null {
  * with ids and closed reasons only.
  *
  * WHAT. Under the session's lock ({@link FreeChatFoldLock}, at most one fold in flight), read the
- * stored summary off the CURRENT row (or, when it carries none yet, the worker's latest), plan the
- * fold ({@link planFold}), send `previous_summary` + the aged-out turns to the summarizer, screen
- * what comes back (`screenFreeChatSummary`) and merge it monotonically onto the row. A refusal or
- * a null keeps the previous summary; the stored count does not move, so the next fold retries.
+ * stored summary off the CURRENT row (or, when it carries no text yet, the worker's latest), plan
+ * the fold ({@link planFold}), send `previous_summary` + the aged-out turns to the summarizer,
+ * screen what comes back (`screenFreeChatSummary`) and merge it monotonically onto the row.
+ *
+ * NEVER THE SAME BATCH FOREVER. A REAL call that answered null, or whose notes were refused, has
+ * judged these lines: the batch is CONSUMED — the count advances to the plan's target and the
+ * previous text is kept (a watermark-only record, `text: null`, when there is none). Only a
+ * transport failure (a mock, a failed call, no metadata, a merge that did not write) leaves the
+ * count where it was, so the next fold retries the same lines.
  *
  * RECORDED. The spend (`profiling_free_summary`) once per call, and `chat.free_chat_summary_updated`
  * after every fold that reached the model — ids, a closed outcome and counts, never the text.
@@ -170,11 +185,12 @@ export class FreeChatSummaryService {
   ) {}
 
   /**
-   * Fold in the background, OFF THE REQUEST PATH — returns immediately. A transcript that cannot
-   * reach the threshold even with nothing folded yet costs nothing: no Redis, no row read.
+   * Fold in the background, OFF THE REQUEST PATH — returns immediately. A transcript with nothing to
+   * fold past the count the request's own row read already saw (`foldedAtLeast`, a lower bound)
+   * costs nothing: no Redis, no row read.
    */
   schedule(job: FreeChatFoldJob): void {
-    if (agedOutFoldable(job.messages).length < FREE_CHAT_FOLD_MIN_LINES) return;
+    if (planFold(job.messages, job.foldedAtLeast ?? 0) === null) return;
     const run = this.fold(job).catch((error: unknown) => {
       this.logger.error(
         `free-chat fold crashed session=${job.sessionId}: ` +
@@ -215,11 +231,15 @@ export class FreeChatSummaryService {
     const plan = planFold(job.messages, foldWatermarkOf(current.own, job.sessionId));
     if (plan === null) return;
 
-    const name = await this.knownNameOf(job);
+    // FAIL CLOSED: without the worker's name nothing can be redacted (G2), so nothing is sent. The
+    // count does not move; the next fold retries.
+    const lookup = await this.knownNameOf(job);
+    if (!lookup.ok) return;
+    const name = lookup.name;
     const turns = summaryTurnsOf(plan.batch, name);
     if (turns.length === 0) return;
     const input = FreeChatSummarizeInputSchema.safeParse({
-      previous_summary: summaryForModel(current.previous?.text ?? null, name),
+      previous_summary: summaryForModel(current.previousText, name),
       turns,
     });
     if (!input.success) {
@@ -243,18 +263,25 @@ export class FreeChatSummaryService {
       { workerId: job.workerId, sessionId: job.sessionId },
     );
 
-    const raw = realSummaryOf(out);
-    if (raw === null) {
+    if (!realCallOf(out)) {
+      // A TRANSPORT failure: nothing judged these lines, so the count stays and they retry.
       await this.recordFold(job, "unavailable", plan.target, null);
       return;
     }
-    const screened = screenFreeChatSummary(raw, name);
+    if (out.summary === null) {
+      // A real call found nothing worth keeping: the batch is consumed, the previous text kept.
+      await this.store(job, current.previousText, plan.target);
+      await this.recordFold(job, "unavailable", plan.target, null);
+      return;
+    }
+    const screened = screenFreeChatSummary(out.summary, name);
     if (screened.kind === "reject") {
       // The CLOSED reason only — never a word of the summary, which is model text.
       this.logger.warn(
         `free-chat summary rejected session=${job.sessionId} (${screened.reason}); ` +
-          `the previous summary is kept`,
+          `the previous summary is kept and the batch consumed`,
       );
+      await this.store(job, current.previousText, plan.target);
       await this.recordFold(job, "rejected", plan.target, null);
       return;
     }
@@ -268,15 +295,15 @@ export class FreeChatSummaryService {
   }
 
   /**
-   * The summary this fold builds on: the CURRENT row's own (`own` — whose count is the fold's place)
-   * and the text to extend (`previous` — the row's, else the worker's latest from an earlier
-   * session, R23). `"foreign"` when the row does not belong to the job's worker: a tripwire, never
-   * expected, and nothing is folded.
+   * The summary this fold builds on: the CURRENT row's own record (`own` — whose count is the fold's
+   * place) and the text to extend (`previousText` — the row's, else the worker's latest text from an
+   * earlier session, R23; a watermark-only record has none). `"foreign"` when the row does not
+   * belong to the job's worker: a tripwire, never expected, and nothing is folded.
    */
   private async currentSummary(
     job: FreeChatFoldJob,
   ): Promise<
-    { readonly own: FreeChatSummary | null; readonly previous: FreeChatSummary | null } | "foreign"
+    { readonly own: FreeChatSummary | null; readonly previousText: string | null } | "foreign"
   > {
     const row = await this.chat.findSession(job.sessionId);
     if (!row || row.workerId !== job.workerId) {
@@ -287,13 +314,17 @@ export class FreeChatSummaryService {
       return "foreign";
     }
     const own = readFreeChatSummary(row.conversationState);
-    if (own !== null) return { own, previous: own };
+    const ownText = summaryTextOf(own);
+    if (ownText !== null) return { own, previousText: ownText };
     const latest = await this.chat.findLatestFreeChatSummary(job.workerId);
-    return { own: null, previous: readFreeChatSummaryValue(latest?.summary) };
+    return { own, previousText: summaryTextOf(readFreeChatSummaryValue(latest?.summary)) };
   }
 
-  /** The monotonic merge onto the current row. False when it did not write (or threw). */
-  private async store(job: FreeChatFoldJob, text: string, target: number): Promise<boolean> {
+  /**
+   * The monotonic merge onto the current row — a new summary, or (`text` null or the previous text)
+   * a consumed batch. False when it did not write (or threw).
+   */
+  private async store(job: FreeChatFoldJob, text: string | null, target: number): Promise<boolean> {
     try {
       const wrote = await this.chat.mergeFreeChatSummary(job.sessionId, job.workerId, {
         v: 1,
@@ -358,16 +389,22 @@ export class FreeChatSummaryService {
     }
   }
 
-  /** The worker's own name for the G2 redaction — FAIL SAFE to null, logged with ids only. */
-  private async knownNameOf(job: FreeChatFoldJob): Promise<string | null> {
+  /**
+   * The worker's own name for the G2 redaction — `ok: false` when the lookup FAILED (and the caller
+   * folds nothing), as opposed to a worker with no name stored (`name: null`, nothing to redact).
+   * Logged with ids only.
+   */
+  private async knownNameOf(
+    job: FreeChatFoldJob,
+  ): Promise<{ readonly ok: true; readonly name: string | null } | { readonly ok: false }> {
     try {
-      return await job.knownName();
+      return { ok: true, name: await job.knownName() };
     } catch {
       this.logger.warn(
         `known name unavailable worker=${job.workerId} session=${job.sessionId}; ` +
-          `this fold is not name-redacted`,
+          `no fold now, the next one retries`,
       );
-      return null;
+      return { ok: false };
     }
   }
 }

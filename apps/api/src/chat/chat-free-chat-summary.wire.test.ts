@@ -156,7 +156,11 @@ function makeWorld() {
       async (_tx: unknown, id: string, state: Record<string, unknown>, at: Date) => {
         const row = rows.get(id)!;
         if (row.status !== "active") return false;
-        Object.assign(row, { conversationState: state, status: "abandoned", endedAt: at });
+        // The statement's `state || <the LIVE row's free_chat_summary>` — the operand pinned
+        // in chat.repository.test.ts (`keepLiveFreeChatSummary`), mirrored here.
+        const live = row.conversationState?.free_chat_summary;
+        const merged = live != null ? { ...state, free_chat_summary: live } : state;
+        Object.assign(row, { conversationState: merged, status: "abandoned", endedAt: at });
         return true;
       },
     ),
@@ -203,7 +207,7 @@ function makeWorld() {
       ai_metadata: { ...REAL_META, task_type: "profiling_free_reply" },
     })),
     freeChatSummarize: vi.fn(async (_input: unknown) => ({
-      summary: "Worker chats casually about cricket and his day.",
+      summary: "- Worker chats casually about cricket and his day.",
       ai_metadata: { ...REAL_META, task_type: "profiling_free_summary" },
     })),
   };
@@ -342,7 +346,7 @@ describe("Release 2 — six casual exchanges fold into a summary a NEW session's
     const stored = w.rows.get(s1)!.conversationState!.free_chat_summary as Record<string, unknown>;
     expect(stored).toMatchObject({
       v: 1,
-      text: "Worker chats casually about cricket and his day.",
+      text: "- Worker chats casually about cricket and his day.",
       session_id: s1,
       folded_lines: 4,
     });
@@ -377,7 +381,7 @@ describe("Release 2 — six casual exchanges fold into a summary a NEW session's
     await w.send(s2, "phir se namaste");
     const reply = w.ai.freeChatReply.mock.calls[0]![0] as { summary: unknown; category: string };
     expect(reply.category).toBe("casual");
-    expect(reply.summary).toBe("Worker chats casually about cricket and his day.");
+    expect(reply.summary).toBe("- Worker chats casually about cricket and his day.");
     // The classifier never got it (R24) — in either session.
     for (const [input] of w.ai.freeChatClassify.mock.calls) {
       expect("summary" in (input as object)).toBe(false);

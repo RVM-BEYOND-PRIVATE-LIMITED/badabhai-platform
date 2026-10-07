@@ -560,13 +560,16 @@ describe("the flush — free-chat rows are flagged, every other row is inserted 
 const EARLIER = "55555555-5555-4555-8555-555555555555";
 const SUMMARY = {
   v: 1,
-  text: "Worker likes cricket; asked about welding pay.",
+  text: "- Worker likes cricket.\n- Asked about welding pay.",
   updated_at: T0.toISOString(),
   session_id: SESSION,
   folded_lines: 6,
 };
 
-describe("Release 2 — every replacing writer carries the row's summary", () => {
+describe("Release 2 — the replacing writers leave the summary to their own SQL", () => {
+  // The statement keeps the LIVE row's key (`keepLiveFreeChatSummary`, pinned in
+  // chat.repository.test.ts). The service must NOT spread the copy it READ: that copy can be older
+  // than a fold that landed since, and spreading it would only hand the SQL a stale value to lose.
   const ROW = { turn_count: 2, free_chat_summary: SUMMARY };
   const env = (): ProfilingEnvelope => ({ ...emptyProfilingEnvelope(), freeChat: null });
 
@@ -578,7 +581,7 @@ describe("Release 2 — every replacing writer carries the row's summary", () =>
     });
     await svc.postMessage(WORKER, DTO, CTX);
     const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
-    expect(state.free_chat_summary).toEqual(SUMMARY);
+    expect("free_chat_summary" in state).toBe(false);
   });
 
   it("the completion flush", async () => {
@@ -589,38 +592,17 @@ describe("Release 2 — every replacing writer carries the row's summary", () =>
     });
     await svc.postMessage(WORKER, DTO, CTX);
     const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
-    expect(state.free_chat_summary).toEqual(SUMMARY);
+    expect("free_chat_summary" in state).toBe(false);
   });
 
-  it("the abandon sweep — buffer alive, and buffer gone", async () => {
+  it("the abandon sweep with its buffer alive", async () => {
     const alive = make({ buffer: { profiling: env() } });
     await alive.svc.abandonInterview(
       { id: SESSION, workerId: WORKER, conversationState: ROW },
       400,
       CTX,
     );
-    expect(
-      (alive.chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>).free_chat_summary,
-    ).toEqual(SUMMARY);
-    const gone = make({ buffer: null });
-    await gone.svc.abandonInterview(
-      { id: SESSION, workerId: WORKER, conversationState: ROW },
-      400,
-      CTX,
-    );
-    expect(
-      (gone.chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>).free_chat_summary,
-    ).toEqual(SUMMARY);
-  });
-
-  it("a row without one writes NO summary key — byte-identical to Release 1", async () => {
-    const { svc, chat } = make({
-      conversationState: { turn_count: 2 },
-      turn: { checkpointDue: true },
-      written: { profiling: env() },
-    });
-    await svc.postMessage(WORKER, DTO, CTX);
-    const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
+    const state = alive.chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>;
     expect("free_chat_summary" in state).toBe(false);
   });
 });
@@ -631,6 +613,30 @@ describe("Release 2 — the turn's summary thunk", () => {
     await svc.postMessage(WORKER, DTO, CTX);
     expect(await turnInput()!.summary!()).toBe(SUMMARY.text);
     expect(chat.findLatestFreeChatSummary).not.toHaveBeenCalled();
+  });
+
+  it("a WATERMARK-ONLY own record (text null) is no summary — the latest carrier's text is read", async () => {
+    const { svc, chat, turnInput } = make({
+      conversationState: { free_chat_summary: { ...SUMMARY, text: null } },
+      latestSummary: { id: EARLIER, summary: { ...SUMMARY, session_id: EARLIER } },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    expect(await turnInput()!.summary!()).toBe(SUMMARY.text);
+    expect(chat.findLatestFreeChatSummary).toHaveBeenCalledOnce();
+  });
+
+  it("carries THIS session's folded count off the same row — the fold's cheap pre-check", async () => {
+    const own = make({ conversationState: { free_chat_summary: SUMMARY } });
+    await own.svc.postMessage(WORKER, DTO, CTX);
+    expect(own.turnInput()!.foldedLines).toBe(6);
+    const copied = make({
+      conversationState: { free_chat_summary: { ...SUMMARY, session_id: EARLIER } },
+    });
+    await copied.svc.postMessage(WORKER, DTO, CTX);
+    expect(copied.turnInput()!.foldedLines).toBe(0);
+    const none = make();
+    await none.svc.postMessage(WORKER, DTO, CTX);
+    expect(none.turnInput()!.foldedLines).toBe(0);
   });
 
   it("falls back to the worker's latest session carrying one — lazily, once", async () => {
@@ -686,8 +692,12 @@ describe("Release 2 — a new session inherits the summary at its greeting", () 
     });
   });
 
-  it("copies nothing when the worker has none, or the stored one does not parse", async () => {
-    for (const latestSummary of [undefined, { id: EARLIER, summary: { v: 2 } }]) {
+  it("copies nothing when the worker has none, the stored one does not parse, or it is a watermark", async () => {
+    for (const latestSummary of [
+      undefined,
+      { id: EARLIER, summary: { v: 2 } },
+      { id: EARLIER, summary: { ...SUMMARY, session_id: EARLIER, text: null } },
+    ]) {
       const { svc, chat } = make({ latestSummary });
       await svc.startSession(WORKER, CTX, CONFIRM_FIRST);
       expect(chat.mergeFreeChatSummary).not.toHaveBeenCalled();
@@ -767,6 +777,17 @@ describe("free_chat_mode (#2030) — the free chat's mode after every profiling 
     broken.buffer.load.mockRejectedValue(new Error("redis down"));
     expect("free_chat_mode" in (await broken.svc.startSession(WORKER, CTX))).toBe(false);
   });
+
+  it("POST /chat/session: a Redis that NEVER ANSWERS costs the field, never the response", async () => {
+    // On the shared connection a command against a downed Redis never rejects; without the bound
+    // this reattach would hang forever. With it, the field is dropped after REDIS_TIMEOUT_MS.
+    const hung = make({ liveSession: { id: SESSION, status: "active", startedAt: T0 } });
+    hung.buffer.load.mockImplementation(() => new Promise(() => undefined));
+    const started = Date.now();
+    const res = await hung.svc.startSession(WORKER, CTX);
+    expect(res).toEqual({ session_id: SESSION, status: "active", started_at: T0 });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  }, 5_000);
 
   it.each(["greeting", "free", "resume"] as const)(
     "POST /chat/message: the mode AFTER the turn — %s",

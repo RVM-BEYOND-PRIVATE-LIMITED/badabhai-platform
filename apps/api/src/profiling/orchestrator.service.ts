@@ -525,6 +525,11 @@ export interface FreeChatTurnInput {
    * construction compiles unchanged.
    */
   readonly summary?: () => Promise<string | null>;
+  /**
+   * ADR-0051 §8 — this session's folded count as the request's own row read saw it: a LOWER BOUND
+   * the fold's scheduler uses to skip a fold with nothing to fold, at no cost. Absent reads as 0.
+   */
+  readonly foldedLines?: number;
 }
 
 export interface TurnInput {
@@ -4287,6 +4292,7 @@ export class ProfilingOrchestrator {
         requestId: input.ctx.requestId,
         knownName: input.knownName,
         messages: landed.messages,
+        ...(fc.foldedLines !== undefined ? { foldedAtLeast: fc.foldedLines } : {}),
       });
     }
   }

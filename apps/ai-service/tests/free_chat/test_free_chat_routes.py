@@ -13,8 +13,9 @@ THE CONTRACT UNDER TEST, in order of importance:
    false) is only ever one the router actually made.
 4. The classify message carries the mode and, in résumé mode only, the question on screen.
 5. The reply's category picks its prompt; the model never does.
-6. Release 2 (§8): the reply renders the rolling summary as a labelled DATA block (and is the
-   Release 1 request byte for byte without one); the classifier never sees it (R24); the fold
+6. Release 2 (§8): the reply renders the rolling summary as a labelled DATA block (without one,
+   the user messages are Release 1's; the system prompt gains one rule); the classifier never
+   sees it (R24); the fold
    gates its previous summary and every turn, makes no call when no turn survives, and answers
    null from its mock, so an unarmed task stores nothing.
 
@@ -515,10 +516,10 @@ def test_reply_renders_the_summary_as_a_labelled_notes_block(
 
 
 @pytest.mark.parametrize("summary", [None, " \n\t "], ids=["absent", "whitespace-only"])
-def test_reply_without_a_summary_is_the_release_1_request_byte_for_byte(
+def test_reply_without_a_summary_keeps_the_release_1_user_messages(
     monkeypatch: pytest.MonkeyPatch, summary: str | None
 ) -> None:
-    """Every live reply stays exactly what it was until the API sends a summary."""
+    """Without a summary the user messages are Release 1's; the system prompt gains one rule."""
     captured: list[dict] = []
     monkeypatch.setattr(free_chat_router.router, "run", _fake_run("{}", captured))
     monkeypatch.setattr(free_chat_router, "resolve_prompt", lambda _name: None)

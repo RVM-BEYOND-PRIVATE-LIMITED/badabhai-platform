@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 import {
   type Database,
   aiJobs,
@@ -35,6 +35,26 @@ export const CHAT_HISTORY_MAX = 500;
  * — which is exactly what has to accept it for the flush to be atomic.
  */
 export type Tx = Database;
+
+/**
+ * ADR-0051 §8 — THE LIVE ROW'S ROLLING SUMMARY, as the right-hand operand of a whole-column write:
+ * `{free_chat_summary: <the row's value>}` when the row carries the key, else `{}`.
+ *
+ * WHY IN THE STATEMENT. The summary is written OFF the request path (a fold merges it after the
+ * reply is served), so a request that read the row before a fold landed and replaces the column
+ * after would erase it. Postgres evaluates this against the row it locks for the UPDATE, so a fold
+ * committed while the write waited is kept — a read-then-spread in the service cannot promise that
+ * (the TD145 reasoning `endSession` already applies to `general_form_completed_at`).
+ *
+ * A CASE, NOT `jsonb_strip_nulls`: that is recursive and would strip the `text: null` of a
+ * watermark-only record. `{}` for a row without the key, so `state || '{}'` is `state` and every
+ * row without a summary is written exactly as before. On the RIGHT of `||`, so the live value wins
+ * over any older copy the state may carry (the correction path spreads the whole column it read).
+ */
+function keepLiveFreeChatSummary(): SQL {
+  const live = sql`${chatSessions.conversationState} -> 'free_chat_summary'`;
+  return sql`CASE WHEN ${live} IS NOT NULL THEN jsonb_build_object('free_chat_summary', ${live}) ELSE '{}'::jsonb END`;
+}
 
 @Injectable()
 export class ChatRepository {
@@ -360,7 +380,12 @@ export class ChatRepository {
   ): Promise<boolean> {
     const updated = await tx
       .update(chatSessions)
-      .set({ conversationState: state, status: "abandoned", endedAt: at })
+      .set({
+        // ADR-0051 §8 — the live row's summary survives the replace (`keepLiveFreeChatSummary`).
+        conversationState: sql`${JSON.stringify(state)}::jsonb || ${keepLiveFreeChatSummary()}`,
+        status: "abandoned",
+        endedAt: at,
+      })
       .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.status, "active")))
       .returning({ id: chatSessions.id });
     return updated.length > 0;
@@ -397,6 +422,10 @@ export class ChatRepository {
    * Persist the interview ConversationState for a session (and touch
    * lastMessageAt in the same write). Stored as loose JSONB; the caller owns the
    * shape (ai-contracts ConversationState). Profile signals only — never PII.
+   *
+   * ADR-0051 §8 — THE ONE KEY THE CALLER DOES NOT OWN is kept from the live row: the rolling
+   * free-chat summary (`keepLiveFreeChatSummary`). The mid-interview checkpoint and the review
+   * screen's correction both replace the column through here.
    */
   async saveConversationState(
     sessionId: string,
@@ -406,7 +435,10 @@ export class ChatRepository {
   ): Promise<void> {
     await (tx ?? this.db)
       .update(chatSessions)
-      .set({ conversationState: state, lastMessageAt: at })
+      .set({
+        conversationState: sql`${JSON.stringify(state)}::jsonb || ${keepLiveFreeChatSummary()}`,
+        lastMessageAt: at,
+      })
       .where(eq(chatSessions.id, sessionId));
   }
 
@@ -446,7 +478,8 @@ export class ChatRepository {
     const updated = await tx
       .update(chatSessions)
       .set({
-        conversationState: sql`${JSON.stringify(state)}::jsonb || jsonb_strip_nulls(jsonb_build_object('general_form_completed_at', ${chatSessions.conversationState} -> 'general_form_completed_at'))`,
+        // TD145's mark, then ADR-0051 §8's rolling summary — each the LIVE row's, never erased.
+        conversationState: sql`${JSON.stringify(state)}::jsonb || jsonb_strip_nulls(jsonb_build_object('general_form_completed_at', ${chatSessions.conversationState} -> 'general_form_completed_at')) || ${keepLiveFreeChatSummary()}`,
         lastMessageAt: at,
         status: "ended",
         endedAt: at,
@@ -628,11 +661,14 @@ export class ChatRepository {
    * caller parses the value (`readFreeChatSummaryValue`, strict, fails soft).
    *
    * WHO READS IT: a new session copying the summary at its greeting, a reply whose own row carries
-   * none yet, and a fold whose own row carries none yet. Newest-started wins because each new
+   * no text yet, and a fold whose own row carries no text yet. Newest-started wins because each new
    * session inherits the summary at open and folds onto its own row, so the newest carrier holds
    * the latest text. The summary is kept indefinitely (R23) — no age bound.
    *
-   * PRESENCE IN THE WHERE CLAUSE, for {@link findFreeChatLockDecider}'s reason. ONE INDEXED READ:
+   * A TEXT, NOT JUST THE KEY: a watermark-only record (`text: null`, a consumed batch with no
+   * summary yet) is no summary to any reader, and must not shadow an older session's text.
+   *
+   * IN THE WHERE CLAUSE, for {@link findFreeChatLockDecider}'s reason. ONE INDEXED READ:
    * `chat_sessions_worker_id_idx` narrows to one worker's handful of rows; the jsonb test runs over
    * those only.
    */
@@ -648,7 +684,7 @@ export class ChatRepository {
       .where(
         and(
           eq(chatSessions.workerId, workerId),
-          sql`${chatSessions.conversationState} -> 'free_chat_summary' IS NOT NULL`,
+          sql`${chatSessions.conversationState} -> 'free_chat_summary' ->> 'text' IS NOT NULL`,
         ),
       )
       .orderBy(desc(chatSessions.startedAt))
@@ -663,8 +699,9 @@ export class ChatRepository {
    *
    * THE {@link mergeFreeChatLock} SHAPE: a JSONB MERGE (`||`) because the column holds state this
    * method did not read, `last_message_at` UNTOUCHED because the worker said nothing here, and
-   * scoped to the session AND its owner. The three REPLACING writers (checkpoint, flush, abandon)
-   * carry the key the row already holds (`storedFreeChatSummary`), so none of them erases it.
+   * scoped to the session AND its owner. The three REPLACING writers (`saveConversationState`,
+   * `endSession`, `abandonSession`) keep the live row's key in their own statement
+   * (`keepLiveFreeChatSummary`), so none of them erases it.
    *
    * MONOTONIC, IN THE STATEMENT. It writes only when the row holds no summary, holds one stamped
    * for ANOTHER session, or holds one for this session that covers FEWER lines — so a stale fold

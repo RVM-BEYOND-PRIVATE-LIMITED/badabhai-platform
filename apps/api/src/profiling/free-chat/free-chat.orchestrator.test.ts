@@ -1571,6 +1571,25 @@ describe("Release 2 — the summary rides the reply, never the classifier (R24)"
 });
 
 describe("Release 2 — when a fold is scheduled (R21)", () => {
+  it("carries the request's folded count as the job's lower bound (foldedAtLeast)", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("casual"));
+    world.replyWith(answer(["Theek hai."]));
+    await world.orchestrator.takeTurn({
+      sessionId: SESSION,
+      workerId: WORKER,
+      text: "kaise ho",
+      now: T0,
+      submissionId: "77777777-7777-4777-8777-777777777777",
+      voiceNoteId: null,
+      freeChat: { enabled: true, sessionLocked: false, locked: async () => false, foldedLines: 6 },
+      knownName: async () => null,
+      ctx: CTX as never,
+    });
+    expect(scheduled(world).mock.calls[0]![0]).toMatchObject({ foldedAtLeast: 6 });
+  });
+
   it("after a free-mode casual/career reply LANDS — with the transcript that landed", async () => {
     const world = makeWorld();
     await inFreeMode(world);
@@ -1655,14 +1674,14 @@ describe("Release 2 — the fold is OFF the request path", () => {
     const world = makeWorld({ realFold: true });
     await inFreeMode(world);
     world.ai.freeChatSummarize.mockResolvedValue({
-      summary: "Worker made small talk.",
+      summary: "- Worker made small talk.",
       ai_metadata: { ...REAL_META, task_type: "profiling_free_summary" },
     });
     for (let n = 1; n <= 5; n++) await casual(world, n);
     await (world.fold as FreeChatSummaryService).idle();
     expect(world.chat.mergeFreeChatSummary).toHaveBeenCalledWith(SESSION, WORKER, {
       v: 1,
-      text: "Worker made small talk.",
+      text: "- Worker made small talk.",
       updated_at: expect.any(String),
       session_id: SESSION,
       folded_lines: 4,
@@ -1673,7 +1692,7 @@ describe("Release 2 — the fold is OFF the request path", () => {
       session_id: SESSION,
       outcome: "updated",
       folded_lines: 4,
-      summary_chars: "Worker made small talk.".length,
+      summary_chars: "- Worker made small talk.".length,
     });
     expect(
       EVENT_REGISTRY["chat.free_chat_summary_updated"].payload.safeParse(event!.payload).success,

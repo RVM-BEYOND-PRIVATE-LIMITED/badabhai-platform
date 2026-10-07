@@ -4,6 +4,7 @@ import type { FreeChatMode } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { logSafeReason } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
+import { withinRedisDeadline } from "../queue/redis-deadline";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -36,9 +37,10 @@ import {
 } from "../profiling/free-chat/free-chat.state";
 import {
   copiedFreeChatSummary,
+  foldWatermarkOf,
   readFreeChatSummary,
   readFreeChatSummaryValue,
-  storedFreeChatSummary,
+  summaryTextOf,
 } from "../profiling/free-chat/free-chat-summary";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
@@ -611,7 +613,8 @@ export class ChatService {
       const latest = readFreeChatSummaryValue(
         (await this.chat.findLatestFreeChatSummary(workerId))?.summary,
       );
-      if (latest === null) return;
+      // Only a TEXT is inherited: a watermark-only record counts another session's lines.
+      if (latest === null || latest.text === null) return;
       await this.chat.mergeFreeChatSummary(
         sessionId,
         workerId,
@@ -636,7 +639,7 @@ export class ChatService {
   ): Promise<string | null> {
     try {
       const latest = await this.chat.findLatestFreeChatSummary(workerId);
-      return readFreeChatSummaryValue(latest?.summary)?.text ?? null;
+      return summaryTextOf(readFreeChatSummaryValue(latest?.summary));
     } catch (error) {
       this.logger.warn(
         `free-chat summary unreadable session=${sessionId}; the reply goes without one: ` +
@@ -649,7 +652,9 @@ export class ChatService {
   /**
    * ADR-0051 (#2030) — `{ free_chat_mode }` from the session's LIVE envelope, or `{}`: under the kill
    * switch, when the envelope carries no mode, when there is no buffer, and when it cannot be read
-   * (this is a wire hint, so a Redis error costs the field, never the response).
+   * in time. This is a wire hint, so a Redis error — or a Redis that never answers, which on the
+   * shared connection never rejects — costs the field, never the response: the read runs under
+   * `withinRedisDeadline`.
    */
   private async liveFreeChatModeField(
     sessionId: string,
@@ -657,7 +662,7 @@ export class ChatService {
   ): Promise<{ free_chat_mode?: FreeChatMode }> {
     if (this.config.CHAT_FREE_CHAT_DISABLED === true) return {};
     try {
-      const live = await this.buffer.load(sessionId);
+      const live = await withinRedisDeadline(() => this.buffer.load(sessionId));
       return live !== null && live.workerId === workerId ? freeChatModeField(live.profiling) : {};
     } catch {
       return {};
@@ -687,8 +692,10 @@ export class ChatService {
    * today's interview, the safe side — and logs ids only.
    *
    * Release 2's SUMMARY is a memoised thunk too, read only by a casual or career reply: this
-   * session's row (already loaded — no query) first, else the worker's latest session carrying one
-   * (R23). It never rejects, and under the kill switch it is always null.
+   * session's row text (already loaded — no query) first, else the worker's latest session carrying
+   * a text (R23); a watermark-only record is no summary. It never rejects, and under the kill switch
+   * it is always null. `foldedLines` is this session's count off the same row — the fold's
+   * scheduler skips a fold that cannot have anything to fold.
    */
   private freeChatTurnInput(
     session: { readonly conversationState: unknown },
@@ -698,16 +705,18 @@ export class ChatService {
     const enabled = this.config.CHAT_FREE_CHAT_DISABLED !== true;
     const sessionLocked = carriesFreeChatLock(session.conversationState);
     const ownSummary = readFreeChatSummary(session.conversationState);
+    const ownText = summaryTextOf(ownSummary);
     let pending: Promise<boolean> | null = null;
     let pendingSummary: Promise<string | null> | null = null;
     return {
       enabled,
       sessionLocked,
+      foldedLines: foldWatermarkOf(ownSummary, sessionId),
       summary: () =>
         (pendingSummary ??= !enabled
           ? Promise.resolve(null)
-          : ownSummary !== null
-            ? Promise.resolve(ownSummary.text)
+          : ownText !== null
+            ? Promise.resolve(ownText)
             : this.latestFreeChatSummaryText(workerId, sessionId)),
       locked: () =>
         (pending ??= sessionLocked
@@ -1180,8 +1189,9 @@ export class ChatService {
             // row's own lock first, the envelope's second: a rebuilt envelope never erases it.
             ...storedFreeChatLock(session.conversationState),
             ...toFreeChatStatePatch(buffered.profiling),
-            // ADR-0051 §8 — and the rolling summary the jsonb merge wrote: the row is its only home.
-            ...storedFreeChatSummary(session.conversationState),
+            // ADR-0051 §8 — the rolling summary is NOT spread here: `saveConversationState` keeps
+            // the LIVE row's key in its own statement, so a fold that landed after this request's
+            // read survives the replace.
             // #2021 — same reasoning: the model-provenance stamp must survive a REPLACING write.
             ...toLlmProvenanceStatePatch(buffered.profiling),
           },
@@ -1470,9 +1480,8 @@ export class ChatService {
       // "released" whatever it carries. ABSENT outside résumé mode.
       ...storedFreeChatLock(storedState),
       ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
-      // ADR-0051 §8 — the rolling summary, carried for the record: it outlives the session (R23),
-      // and the next session copies it from the newest row that carries one.
-      ...storedFreeChatSummary(storedState),
+      // ADR-0051 §8 — the rolling summary outlives the session (R23): `endSession` keeps the LIVE
+      // row's key in its own statement, so nothing is spread here.
       // #2021 — whether the model led any turn or settled any answer in this interview, SAME
       // REASONING AS `form_kind` ABOVE (engine bookkeeping outside the frozen contract, durable
       // only here). The extraction processor derives generic-pack match skills from the answer map
@@ -1897,8 +1906,7 @@ export class ChatService {
           // — the row's own lock first, the envelope's second, so a rebuilt envelope never erases it.
           ...storedFreeChatLock(session.conversationState),
           ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
-          // ADR-0051 §8 — and the rolling summary, which this replace must not erase either.
-          ...storedFreeChatSummary(session.conversationState),
+          // ADR-0051 §8 — the rolling summary: `abandonSession` keeps the LIVE row's key itself.
           // #2021 — see `flushInterview`.
           ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
