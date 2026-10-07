@@ -10,17 +10,32 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_free_chat_keys.dar
 /// `option_key`, never on the display copy, so the keys are byte-pinned to the
 /// source that declares them.
 ///
-/// PINNED TO THE ADR, NOT YET TO THE SERVER MODULE. The server's own
-/// declaration lives in `apps/api/src/profiling/free-chat/free-chat.copy.ts`
-/// (`FREE_CHAT_START_KEY` / `_LATER_KEY` / `_RESUME_KEY`), which is still in
-/// review on #2047. ADR-0051 is merged and names all three, so that is the
-/// authority available today; [serverModule] below is the forward pin — it
-/// takes over automatically the moment the module lands, and until then this
-/// test does NOT silently skip, because the ADR check always runs.
+/// PINNED TO THE ADR, NOT TO THE SERVER MODULE — DELIBERATELY, AND THIS IS THE
+/// ONE THING TO CHANGE WHEN #2047 LANDS.
+///
+/// The server declares these in `free-chat.copy.ts` under
+/// `apps/api/src/profiling/free-chat/`, and that module is still in review. The
+/// `TD144` guard (`apps/api/src/config/worker-app-parity-filter.guard.test.ts`)
+/// requires ci.yml's `worker-app-parity` filter to list EVERY server file a
+/// worker-app parity test reads — and separately requires every listed path to
+/// EXIST. So naming that file here before it is merged reddens CI whichever way
+/// the filter is written. It is referenced in prose only, on purpose.
+///
+/// ADR-0051 is merged and names all three keys, so it is the authority today
+/// and this pin is live, not a placeholder.
+///
+/// WHEN #2047 MERGES: add a `File(...)` pin here pointing at that module (the
+/// path is the api package's profiling/free-chat directory), AND add the same
+/// path to the `worker-app-parity` filter in `.github/workflows/ci.yml`, in the
+/// same PR. The guard enforces the pair; one without the other is red.
+///
+/// The literal path is spelled out nowhere in this file on purpose: the guard
+/// scans the raw source for quoted relative paths into the api package,
+/// comments included, so writing
+/// it even inside a comment would demand a filter entry for a file that does
+/// not exist yet.
 void main() {
   final File adr = File('../../docs/decisions/0051-profiling-stage-free-chat.md');
-  final File serverModule =
-      File('../api/src/profiling/free-chat/free-chat.copy.ts');
 
   test('the three mode keys match ADR-0051 byte-for-byte', () {
     expect(
@@ -45,26 +60,6 @@ void main() {
   test('the résumé label matches ADR-0051', () {
     final String md = adr.readAsStringSync();
     expect(md, contains(kFreeChatResumeLabel));
-  });
-
-  test('once the server module lands, it is the authority', () {
-    if (!serverModule.existsSync()) {
-      // #2047 not merged yet. Deliberately not a skip-with-pass of the WHOLE
-      // file: the ADR test above is the live pin meanwhile.
-      return;
-    }
-    final String ts = serverModule.readAsStringSync();
-    final Set<String> serverKeys =
-        RegExp('FREE_CHAT_[A-Z_]+_KEY\\s*=\\s*"([^"]+)"')
-            .allMatches(ts)
-            .map((Match m) => m.group(1)!)
-            .toSet();
-    expect(serverKeys, <String>{
-      kFreeChatStartKey,
-      kFreeChatLaterKey,
-      kFreeChatResumeKey,
-    });
-    expect(ts, contains(kFreeChatResumeLabel));
   });
 
   group('freeChatModeAfterTap', () {
