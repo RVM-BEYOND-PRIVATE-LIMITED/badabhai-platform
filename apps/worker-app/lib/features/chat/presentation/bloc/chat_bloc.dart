@@ -17,6 +17,7 @@ import '../../../../core/api/api_models.dart'
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_reason.dart';
 import '../../../../core/observability/analytics.dart';
+import '../../../../core/session/chat_turn_resume_store.dart';
 import '../../../../core/session/known_worker_facts_store.dart';
 import '../../../../core/util/title_case.dart';
 import '../../domain/chat_answered_facts.dart';
@@ -25,6 +26,7 @@ import '../../domain/chat_companion_keys.dart';
 import '../../domain/chat_identity_questions.dart';
 import '../../domain/chat_repository.dart';
 import '../../domain/chat_session_opening.dart';
+import '../../domain/chat_free_chat_keys.dart';
 import '../../domain/chat_turn.dart';
 
 // ---------------- Events ----------------
@@ -233,6 +235,7 @@ class ChatState extends Equatable {
     this.generalFormOffer,
     this.editProposal,
     this.cooldownUntil,
+    this.freeChat = false,
     this.editNotice,
     this.workerName,
   });
@@ -435,6 +438,20 @@ class ChatState extends Equatable {
   /// and nothing ever read it.
   final DateTime? cooldownUntil;
 
+  /// ADR-0051 / #2030 — is the worker in the profiling-stage FREE CHAT rather
+  /// than the interview?
+  ///
+  /// STICKY, and decided by the chip the worker tapped, never by what a single
+  /// turn happens to carry: `free_chat_resume` is absent on the greeting and on
+  /// a distress turn, so reading the mode off that chip would snap the app back
+  /// to interview behaviour under a suicide helpline. See
+  /// [freeChatModeAfterTap].
+  ///
+  /// Two things hang on it: the "build my profile" CTA (whose early-finish path
+  /// would extract an empty transcript, since free-chat lines are excluded from
+  /// extraction) and the #1316 per-ask analytics.
+  final bool freeChat;
+
   /// ADR-0044 — the tab is in the post-completion COMPANION: sends go to
   /// `/chat/companion/message`, the "build my profile" CTA is hidden (the profile
   /// is done), and a turn is never counted as an answered interview ask.
@@ -499,6 +516,7 @@ class ChatState extends Equatable {
     EditProposal? editProposal,
     bool clearEditProposal = false,
     DateTime? cooldownUntil,
+    bool? freeChat,
     bool clearCooldownUntil = false,
     String? editNotice,
     bool clearEditNotice = false,
@@ -548,6 +566,7 @@ class ChatState extends Equatable {
       // ADR-0046 — TURN-SCOPED: cleared on next turn unless explicitly set.
       editProposal: clearEditProposal ? null : (editProposal ?? this.editProposal),
       cooldownUntil: clearCooldownUntil ? null : (cooldownUntil ?? this.cooldownUntil),
+      freeChat: freeChat ?? this.freeChat,
       editNotice: clearEditNotice ? null : (editNotice ?? this.editNotice),
       // STICKY: only a capture replaces it; every other turn passes null.
       workerName: workerName ?? this.workerName,
@@ -583,6 +602,7 @@ class ChatState extends Equatable {
         generalFormOffer,
         editProposal,
         cooldownUntil,
+        freeChat,
         editNotice,
         workerName,
       ];
@@ -666,9 +686,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     this._repo, {
     ChatAnalyticsSink? analyticsSink,
     KnownWorkerFactsStore? knownFacts,
+    ChatTurnResumeStore? turnResume,
     DateTime Function()? clock,
   })  : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
         _knownFacts = knownFacts,
+        _turnResume = turnResume,
         _clock = clock ?? DateTime.now,
         super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
     on<ChatStarted>(_onStarted);
@@ -786,6 +808,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// so a later form does not ask that fact again (see [chatAnsweredFact]).
   /// Null records nothing.
   final KnownWorkerFactsStore? _knownFacts;
+
+  /// #2030 ask 3 — where the last served turn's chips are remembered across a
+  /// cold start. Null wherever persistence is not wired: the chat then loses
+  /// its chips on a reload, exactly as before.
+  final ChatTurnResumeStore? _turnResume;
 
   /// The question the latest processed turn asked (`asked_question_id`), i.e.
   /// what the worker's next message answers. Null before the first reply and
@@ -936,6 +963,78 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     }
     final List<ChatMessage>? redrawn = _historyRedraw(history);
     if (redrawn != null) emit(state.copyWith(messages: redrawn));
+
+    // #2030 ask 3 — and the chips that redraw cannot carry. LAST, so a served
+    // opening (a fresh open, a résumé confirm) is never overwritten by a
+    // remembered turn: [_restoreTurn] bails the moment the state has options.
+    await _restoreTurn(emit);
+  }
+
+  /// #2030 ask 3 — persist the last served turn's chips and the free-chat mode.
+  ///
+  /// Keyed by the live session id, so a later restore can refuse chips that
+  /// belong to a session the worker has since left. No session id (a mock, a
+  /// failed open) stores nothing rather than storing unattributable chips.
+  void _rememberTurn(List<ChatOption> options) {
+    final ChatTurnResumeStore? store = _turnResume;
+    if (store == null) return;
+    unawaited(() async {
+      try {
+        final String? sessionId = await _repo.latestSessionId();
+        if (sessionId == null || sessionId.isEmpty) return;
+        await store.write(ChatTurnResumeState(
+          sessionId: sessionId,
+          options: <({String optionKey, String labelText})>[
+            for (final ChatOption o in options)
+              (optionKey: o.optionKey, labelText: o.labelText),
+          ],
+          freeChat: state.freeChat,
+        ));
+      } catch (_) {
+        // Best-effort by contract: never let bookkeeping break a served turn.
+      }
+    }());
+  }
+
+  /// #2030 ask 3 — redraw the chips a cold start would otherwise lose.
+  ///
+  /// The transcript redraw carries no options and `POST /chat/session` serves an
+  /// opening only on a FRESH open, so a worker returning after a background
+  /// re-lock saw the greeting's text with its "Haan, shuru karein" / "Baad
+  /// mein" gone.
+  ///
+  /// THREE GUARDS, because drawing a wrong chip is worse than drawing none:
+  ///  * the remembered session must BE the live one;
+  ///  * the live state must have no options of its own — a served turn always
+  ///    wins over a remembered one;
+  ///  * nothing is restored once the worker has started sending (the chips
+  ///    would answer a question that has already moved on).
+  Future<void> _restoreTurn(Emitter<ChatState> emit) async {
+    final ChatTurnResumeStore? store = _turnResume;
+    if (store == null) return;
+    if (state.suggestedOptions.isNotEmpty) return;
+    if (_inFlightSends > 0) return;
+    ChatTurnResumeState? saved;
+    try {
+      saved = await store.read();
+    } catch (_) {
+      return;
+    }
+    if (saved == null || saved.options.isEmpty) return;
+    final String? live = await _repo.latestSessionId();
+    if (live == null || live != saved.sessionId) return;
+    // Re-checked after the awaits: a send may have landed while they ran, and
+    // its chips are the live ones.
+    if (state.suggestedOptions.isNotEmpty || _inFlightSends > 0) return;
+    final List<ChatOption> options = <ChatOption>[
+      for (final ({String optionKey, String labelText}) o in saved.options)
+        ChatOption(optionKey: o.optionKey, labelText: o.labelText),
+    ];
+    emit(state.copyWith(
+      suggestedOptions: options,
+      followups: <String>[for (final ChatOption o in options) o.labelText],
+      freeChat: saved.freeChat,
+    ));
   }
 
   /// The transcript with bubble 0 swapped for the server-served [opener].
@@ -1033,6 +1132,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // `ChatState.workerName` (and so does not fly) until the server's reply shows
     // the name steps are done — see [_revealNameIfComplete].
     _captureNameAnswer(state.askedQuestionKey, text);
+    // ADR-0051 / #2030 — the free-chat MODE moves on the tap, not on the reply.
+    // Applied before the send so the CTA and the #1316 bookkeeping below both
+    // read the mode the worker just chose. Null = this tap says nothing about
+    // the mode, so it is left exactly as it was (a model follow-up chip, an
+    // interview option, a typed message).
+    final bool? modeAfterTap = freeChatModeAfterTap(event.optionKey);
+    if (modeAfterTap != null && modeAfterTap != state.freeChat) {
+      emit(state.copyWith(freeChat: modeAfterTap));
+    }
     // #761 — OPTIMISTIC LOOKAHEAD. If the tapped option carries a server
     // prediction WITH a next question (a `close`-shaped prediction has a null
     // key and is skipped — its closing line is not latency-critical), render the
@@ -1125,6 +1233,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       askIndex: askIndex,
       answering: _askedQuestionId,
       tappedOption: event.servedOption,
+      // #2030 ask 5 — read AFTER the mode flip above, so tapping "Baad mein"
+      // excludes its own send: choosing free chat is not answering an ask.
+      freeChatSend: state.freeChat || isFreeChatKey(event.optionKey),
     );
   }
 
@@ -1142,6 +1253,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     String? submissionId,
     String? answering,
     bool tappedOption = false,
+    bool freeChatSend = false,
   }) async {
     _inFlightSends++;
     try {
@@ -1223,6 +1335,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           canReadAloud: turn.readAloud != false,
         );
       }
+      // #2030 ask 3 — remember THIS turn's chips, so a cold start can redraw
+      // them. Fire-and-forget: the store never throws and a miss only costs
+      // the chips, so it must not sit in front of the emit.
+      _rememberTurn(turn.suggestedOptions);
       emit(_withCompanionTurn(state.copyWith(
         messages: nextMessages,
         sending: _inFlightSends > 0,
@@ -1288,6 +1404,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         return;
       }
       if (!turn.fromClosedSession) _holdInterview = true;
+      // #2030 ask 5 — FREE CHAT IS NOT THE INTERVIEW. A free-chat send counted
+      // as an answered ask, which silently poisons the #1316 abandonment curve
+      // with chit-chat. Excluded on two grounds: the mode is on, or the worker
+      // tapped one of the greeting's own mode chips (choosing a mode is not
+      // answering a question).
+      //
+      // Returns BEFORE `_recordAnsweredFact` too: a free-chat line is excluded
+      // from extraction server-side, so recording it as an answered interview
+      // fact would describe a profile the server is not building.
+      if (freeChatSend) {
+        return;
+      }
       // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
       // index for the abandonment curve. On a retry this is the FIRST time this
       // ask records (the failed attempt threw below and emitted nothing), so no

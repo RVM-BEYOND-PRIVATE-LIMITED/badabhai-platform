@@ -21,6 +21,7 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_free_chat_keys.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/widgets/flying_name.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
@@ -84,6 +85,113 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  // ── #2030 ask 2 — THE CTA IN FREE CHAT ────────────────────────────────────
+  group('free chat replaces the build-my-profile CTA', () {
+    testWidgets('tapping "Baad mein" swaps the interview CTA for the exit',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Theek hai, baatein karte hain.',
+                suggestedOptions: <ChatOption>[
+                  ChatOption(
+                    optionKey: kFreeChatResumeKey,
+                    labelText: kFreeChatResumeLabel,
+                  ),
+                ],
+              ));
+
+      await pumpScreen(tester);
+      // The interview CTA stands before the mode changes.
+      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+
+      // TYPING the words is not tapping the chip: only the chip carries the
+      // `option_key`, and the mode is keyed on that, never on the text. A
+      // worker who types "baad mein" stays in the interview.
+      await tester.enterText(find.byType(TextField), 'Baad mein');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.byKey(kFreeChatResumeCtaKey), findsNothing);
+    });
+
+    testWidgets(
+        'the exit CTA is drawn instead of the interview CTA, and posts the '
+        'resume chip', (WidgetTester tester) async {
+      // Drive the mode with the greeting chip the server serves.
+      when(() => repo.ensureSession()).thenAnswer((_) async => ChatSessionOpening(
+            text: 'Namaste, main Bada Bhai hoon. Shuru karein?',
+            options: const <ChatOption>[
+              ChatOption(
+                optionKey: kFreeChatLaterKey,
+                labelText: 'Baad mein',
+              ),
+            ],
+          ));
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'Baatein karte hain.'));
+
+      await pumpScreen(tester);
+      await tester.tap(find.text('Baad mein').first);
+      await tester.pumpAndSettle();
+
+      // The interview CTA is GONE — its early-finish path would extract an
+      // empty transcript, because free-chat lines are excluded from extraction.
+      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text(kChatDoneReadyLabel), findsNothing);
+
+      // REPLACED, not hidden: a visible full-width exit remains.
+      expect(find.byKey(kFreeChatResumeCtaKey), findsOneWidget);
+
+      await tester.tap(find.byKey(kFreeChatResumeCtaKey));
+      await tester.pumpAndSettle();
+      // It posts the server's own label, which `isResumeChip` reads either way.
+      verify(() => repo.sendMessage(kFreeChatResumeLabel,
+          submissionId: any(named: 'submissionId'))).called(1);
+    });
+
+    testWidgets(
+        'a DISTRESS turn — no resume chip served — still leaves a way out',
+        (WidgetTester tester) async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => ChatSessionOpening(
+            text: 'Namaste, main Bada Bhai hoon. Shuru karein?',
+            options: const <ChatOption>[
+              ChatOption(optionKey: kFreeChatLaterKey, labelText: 'Baad mein'),
+            ],
+          ));
+      // ADR-0051 R9: the distress line carries NO chips at all. This is exactly
+      // why the CTA is replaced rather than hidden — hiding it would strand the
+      // worker on the one turn where that is least acceptable.
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap akele nahi hain. Tele-MANAS 14416 par abhi baat '
+                    'kijiye, yeh muft hai.',
+                suggestedOptions: <ChatOption>[],
+              ));
+
+      await pumpScreen(tester);
+      await tester.tap(find.text('Baad mein').first);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Tele-MANAS 14416'), findsOneWidget);
+      // The turn served no chips, so the ONLY "Resume banayein" on screen is
+      // the CTA — which is the whole point: the route onward survives a turn
+      // that carries no chip of its own.
+      expect(find.byKey(kFreeChatResumeCtaKey), findsOneWidget);
+      expect(find.text(kFreeChatResumeLabel), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(kFreeChatResumeCtaKey),
+          matching: find.text(kFreeChatResumeLabel),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
 
   // ── #2030 — the trash cool-down locks the PROFILING composer too ──────────
   testWidgets(
