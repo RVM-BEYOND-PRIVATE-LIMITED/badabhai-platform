@@ -45,6 +45,7 @@ better than a confidently wrong one they do not notice.
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from typing import NamedTuple
 
 # The ONE city gazetteer (packages/profiling-lexicon cities.json). Read from the privacy
@@ -442,9 +443,10 @@ def _parse_vacancy(text: str, *, require_cue: bool) -> str | None:
 
 
 # --- Pay -------------------------------------------------------------------
+# "20 hazaar" is the Hinglish "20k" and cues money the same way (#2088).
 _MONEY_CUE_RE = re.compile(
     r"₹|\brs\.?\b|\binr\b|\brupees?\b|\bsalary\b|\bpay\b|\bwage[s]?\b|\bctc\b|"
-    r"\bstipend\b|\bper month\b|\bpm\b|\bmonthly\b|\bp\.m\.?\b|\bmonth\b|\d\s*k\b",
+    r"\bstipend\b|\bper month\b|\bpm\b|\bmonthly\b|\bp\.m\.?\b|\bmonth\b|\d\s*(?:k|hazaa?r)\b",
     re.IGNORECASE,
 )
 _SUFFIX_WORD = r"(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)"
@@ -467,7 +469,7 @@ _AMOUNT_RE = re.compile(_NUMBER + r"\s*" + _SUFFIX, re.IGNORECASE)
 # suffix word starts like a separator, so the capture groups, the span and `figure.end`
 # are unchanged; the trailing `\s*` + suffix is left as it was (nothing follows it).
 _PAY_RANGE_RE = re.compile(
-    _NUMBER + r"(?:\s*" + _SUFFIX_WORD + r")?\s*(?:-|–|—|to|se|and|upto|up to)\s*"
+    _NUMBER + r"(?:\s*" + _SUFFIX_WORD + r")?\s*(?:-|–|—|to|se|and|aur|upto|up to)\s*"
     r"(?:(?:₹|rs\.?|inr)\s*)?" + _NUMBER + r"\s*" + _SUFFIX,
     re.IGNORECASE,
 )
@@ -505,16 +507,17 @@ def _scale(digits: str, suffix: str | None, partner: str | None) -> int | None:
 
 
 # The CLAUSE an amount sits in, for the add-on screen below: the shared boundaries plus
-# "+", "plus" and " and " — "Salary 20k + 2k bonus" is two statements. A boundary inside
-# a RANGE ("between 18000 and 22000", "18,000 - 22,000") is not one.
+# "+", "plus" and " and " / " aur " — "Salary 20k + 2k bonus" is two statements, and so is
+# "20 hazaar aur 2 hazaar bonus" (#2088). A boundary inside a RANGE ("between 18000 and
+# 22000", "18,000 - 22,000") is not one.
 #
-# The " and " arm is tried only where a whitespace run STARTS, and is listed first, as in
+# The " and " / " aur " arm is tried only where a whitespace run STARTS, and is listed first, as in
 # `_PHRASE_SPLIT_RE` (#1995, R53 (e)). Unanchored, `\s+and\s+` scanned to the run's end
 # from every position of the run: O(k^2). A run that starts with newlines before an "and"
 # is now one boundary where it was a boundary per newline plus the arm; the boundaries
 # are adjacent and hold no figure, so every clause `_pay_clause` returns is unchanged.
 _PAY_CLAUSE_BOUNDARY_RE = re.compile(
-    r"(?<!\s)\n*[^\S\n]\s*and\s+|[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])",
+    r"(?<!\s)\n*[^\S\n]\s*(?:and|aur)\s+|[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])",
     re.IGNORECASE,
 )
 # An amount in a clause about an ADD-ON — overtime, a bonus, an allowance, a statutory
@@ -561,29 +564,85 @@ def _is_bare_year(message: str, match: re.Match[str]) -> bool:
     if suffix or not _PAY_YEAR_RE.fullmatch(digits.rstrip(",")):
         return False
     return not (
-        _PAY_CURRENCY_BEFORE_RE.search(message[: match.start()])
+        _currency_before(message, match.start())
         or _PAY_CURRENCY_AFTER_RE.match(message, match.end())
     )
 
 
+# Wide enough for the longest currency token ("rupees") plus the character its `\b` reads.
+_PAY_CURRENCY_BEFORE_WINDOW = 10
+
+
+def _currency_before(message: str, pos: int) -> bool:
+    """A currency token ends ``message[:pos]``, whitespace aside. The whitespace run is walked
+    back once and the token read in a fixed window: searching the whole prefix with `\\s*$`
+    cost O(n) per year-shaped amount, O(n^2) on "1998 1998 ..." (#2088)."""
+    end = pos
+    while end > 0 and message[end - 1].isspace():
+        end -= 1
+    window = message[max(0, end - _PAY_CURRENCY_BEFORE_WINDOW) : end]
+    return _PAY_CURRENCY_BEFORE_RE.search(window) is not None
+
+
 # The separator of a range match, read back from between its two halves: the text after the
 # low figure (and its suffix) up to the high number. Fullmatched on that bounded slice only.
-_PAY_RANGE_AND_SEP_RE = re.compile(r"\s*and\s*(?:(?:₹|rs\.?|inr)\s*)?", re.IGNORECASE)
+# "aur" is Hindi "and" (#2088).
+_PAY_RANGE_AND_SEP_RE = re.compile(r"\s*(?:and|aur)\s*(?:(?:₹|rs\.?|inr)\s*)?", re.IGNORECASE)
 # How many times the FIRST figure of an "and" pair must exceed the second before the pair is
 # read as two statements. "20k and 2k bonus" (10x) and "20000 and 3000 incentive" (6.7x) split;
 # a reversed band ("25k and 20k in hand", 1.25x) stays one range, as it was.
 _PAY_AND_SPLIT_RATIO = 2
+# "between" right before the pair names a range in any order ("in hand between 20k and 10k").
+# Searched only in a fixed-width window before the match, so it costs O(1) per range match.
+_PAY_BETWEEN_BEFORE_RE = re.compile(r"\bbetween\s*(?:(?:₹|rs\.?|inr)\s*)?$", re.IGNORECASE)
+_PAY_BETWEEN_WINDOW = 24
+# An ADD-ON word in the second figure's own clause makes that figure the add-on, whatever the
+# ratio: "20k and 15k bonus" is a 20k wage plus a 15k bonus (#2088). Read in a fixed-width
+# window after the match, cut at the first clause boundary in it: O(1) per range match.
+_PAY_ADDON_AFTER_WINDOW = 32
+
+
+def _addon_follows(match: re.Match[str]) -> bool:
+    """An add-on word sits in the clause right after the pair's second figure. The window
+    starts at the figure's last character, not at ``match.end()``: the range regex swallows
+    the whitespace after a suffix-less figure, and the " and " boundary needs it ("25000 and
+    PF" is the figure, a boundary, then a benefit — not an add-on figure)."""
+    figure_end = match.end(4) if match.group(4) else match.end(3)
+    window = match.string[figure_end : figure_end + _PAY_ADDON_AFTER_WINDOW]
+    boundary = _PAY_CLAUSE_BOUNDARY_RE.search(window)
+    if boundary is not None:
+        window = window[: boundary.start()]
+    return _PAY_ADDON_RE.search(window) is not None
 
 
 def _is_split_and_pair(match: re.Match[str], low: int | None, high: int | None) -> bool:
-    """An "and"-joined pair whose second figure is at most HALF the first is two statements,
-    not a range (#2066). "salary 20k and 2k bonus" read as Rs 2,000-20,000; the bonus clause
-    then dropped the whole range and no pay was recorded. A stated range ascends ("between
-    15k and 20k", "20k and 25k"); "-", "to", "se" and "upto" pairs are left as they were."""
-    if low is None or high is None or low < _PAY_AND_SPLIT_RATIO * high:
+    """An "and"/"aur"-joined pair is two statements, not a range, when its second figure is at
+    most HALF the first, or is followed by an add-on word (#2066, #2088). "salary 20k and 2k
+    bonus" read as Rs 2,000-20,000; the bonus clause then dropped the whole range and no pay
+    was recorded. A stated range ascends ("between 15k and 20k", "20k and 25k"); a "between"
+    pair, and "-", "to", "se" and "upto" pairs, are left as they were."""
+    if low is None or high is None:
         return False
     low_end = match.end(2) if match.group(2) else match.end(1)
-    return _PAY_RANGE_AND_SEP_RE.fullmatch(match.string, low_end, match.start(3)) is not None
+    if _PAY_RANGE_AND_SEP_RE.fullmatch(match.string, low_end, match.start(3)) is None:
+        return False
+    window_start = max(0, match.start() - _PAY_BETWEEN_WINDOW)
+    if _PAY_BETWEEN_BEFORE_RE.search(match.string[window_start : match.start()]) is not None:
+        return False
+    return low >= _PAY_AND_SPLIT_RATIO * high or _addon_follows(match)
+
+
+def _blank_spans(message: str, spans: list[tuple[int, int]]) -> str:
+    """``message`` with each (sorted, disjoint) span blanked by spaces of the same length, so
+    every later span stays true. Built in one pass, not one copy of the message per span."""
+    parts: list[str] = []
+    last = 0
+    for start, end in spans:
+        parts.append(message[last:start])
+        parts.append(" " * (end - start))
+        last = end
+    parts.append(message[last:])
+    return "".join(parts)
 
 
 def _pay_figures(message: str) -> list[_PayFigure]:
@@ -591,7 +650,7 @@ def _pay_figures(message: str) -> list[_PayFigure]:
     amount that scales into the monthly window is one more. A figure below the floor
     ("5 welders", "8 hours") or a bare year is not pay and is not a figure."""
     figures: list[_PayFigure] = []
-    residue = message
+    blanked: list[tuple[int, int]] = []
     split_pairs: list[tuple[int, int]] = []
     for match in _PAY_RANGE_RE.finditer(message):
         low_s, low_x, high_s, high_x = match.groups()
@@ -616,16 +675,17 @@ def _pay_figures(message: str) -> list[_PayFigure]:
             figures.append(_PayFigure(match.start(), match.end(), single, None, True))
         else:
             continue  # neither half is pay: its digits stay for the amount scan
-        # Blanked with spaces of the same length, so every later span stays true.
-        residue = (
-            residue[: match.start()] + " " * (match.end() - match.start()) + residue[match.end() :]
-        )
+        blanked.append(match.span())
+    residue = _blank_spans(message, blanked)
+    pair = 0  # split pairs and amounts both run left to right: one pointer, not a scan each
     for match in _AMOUNT_RE.finditer(residue):
         value = _scale(match.group(1), match.group(2), None)
         if value is None or _is_bare_year(residue, match):
             continue
         end = match.end()
-        if any(start <= match.start() < stop for start, stop in split_pairs):
+        while pair < len(split_pairs) and split_pairs[pair][1] <= match.start():
+            pair += 1
+        if pair < len(split_pairs) and split_pairs[pair][0] <= match.start():
             # A half of a split "and" pair ends at its last character, not after the `\s*`
             # a suffix-less amount swallows: "20000 and 3000 incentive" put the " and "
             # boundary INSIDE the 20000's span, so its clause ran on into the incentive and
@@ -635,17 +695,52 @@ def _pay_figures(message: str) -> list[_PayFigure]:
     return sorted(figures, key=lambda figure: figure.start)
 
 
+class _ClauseBoundaries(NamedTuple):
+    """The pay-clause boundaries of one message, found once: their starts and ends, sorted."""
+
+    starts: list[int]
+    ends: list[int]
+
+
+def _clause_boundaries(message: str) -> _ClauseBoundaries:
+    spans = [m.span() for m in _PAY_CLAUSE_BOUNDARY_RE.finditer(message)]
+    return _ClauseBoundaries([s for s, _ in spans], [e for _, e in spans])
+
+
+def _pay_clause_span(
+    message: str, figure: _PayFigure, boundaries: _ClauseBoundaries
+) -> tuple[int, int]:
+    """The clause ``figure`` sits in: from the end of the last boundary wholly before it to
+    the start of the first boundary wholly after it. A boundary INSIDE the figure ("between
+    18000 and 22000") is neither, so it never splits a range. Boundaries do not overlap, so
+    both lists are sorted and each side is one bisection: a message with many figures costs
+    O(F log B), not the O(F * B) a scan per figure did."""
+    before = bisect_right(boundaries.ends, figure.start)
+    after = bisect_left(boundaries.starts, figure.end)
+    start = boundaries.ends[before - 1] if before else 0
+    end = boundaries.starts[after] if after < len(boundaries.starts) else len(message)
+    return start, end
+
+
 def _pay_clause(message: str, figure: _PayFigure) -> str:
-    """The clause ``figure`` sits in. A boundary INSIDE the figure ("between 18000 and
-    22000") is neither before nor after it, so it never splits a range."""
-    start, end = 0, len(message)
-    for boundary in _PAY_CLAUSE_BOUNDARY_RE.finditer(message):
-        if boundary.end() <= figure.start:
-            start = boundary.end()
-        elif boundary.start() >= figure.end:
-            end = boundary.start()
-            break
+    """The clause ``figure`` sits in (see `_pay_clause_span`)."""
+    start, end = _pay_clause_span(message, figure, _clause_boundaries(message))
     return message[start:end]
+
+
+def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFigure]:
+    """The figures whose clause is NOT about an add-on. The boundaries are found once and
+    each distinct clause is screened once (figures in one clause share its verdict)."""
+    boundaries = _clause_boundaries(message)
+    verdicts: dict[tuple[int, int], bool] = {}
+    kept: list[_PayFigure] = []
+    for figure in figures:
+        span = _pay_clause_span(message, figure, boundaries)
+        if span not in verdicts:
+            verdicts[span] = _PAY_ADDON_RE.search(message[span[0] : span[1]]) is not None
+        if not verdicts[span]:
+            kept.append(figure)
+    return kept
 
 
 def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
@@ -658,7 +753,7 @@ def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
     if require_cue and not _MONEY_CUE_RE.search(message):
         return None
     figures = _pay_figures(message)
-    kept = [f for f in figures if not _PAY_ADDON_RE.search(_pay_clause(message, f))]
+    kept = _addon_figure_screen(message, figures)
     if len(kept) > 1 and any(basis.search(message) for basis in _PAY_BASIS_KINDS.values()):
         return None
 

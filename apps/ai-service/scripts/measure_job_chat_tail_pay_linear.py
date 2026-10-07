@@ -66,7 +66,10 @@ RULES: dict[str, str] = {
     "range": "_PAY_RANGE_RE",
 }
 _N, _S, _W = answers._NUMBER, answers._SUFFIX, answers._SUFFIX_WORD
-_SEP = r"\s*(?:-|–|—|to|se|and|upto|up to)\s*"
+#: The "and" word set. #2088 added Hindi "aur" to the shipped clause and range regexes; MAIN and
+#: LOOSE carry the same word set, so the comparison stays #1995's quadratic-vs-linear SHAPE.
+_AND = r"(?:and|aur)"
+_SEP = r"\s*(?:-|–|—|to|se|and|aur|upto|up to)\s*"
 _TAIL_WORDS = r"(?:in|at|for|with|on|near|from|starting|salary|pay|shift|urgently|immediately|asap)"
 #: name -> {variant: source}. `shipped` must equal the module's regex (`check_shipped`). The loose
 #: variants are plausible wrong fixes: the tail anchored on a word character (`\b\s+`), so
@@ -81,10 +84,14 @@ SOURCES: dict[str, dict[str, str]] = {
     },
     "clause": {
         "shipped": (
-            r"(?<!\s)\n*[^\S\n]\s*and\s+|[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])"
+            r"(?<!\s)\n*[^\S\n]\s*"
+            + _AND
+            + r"\s+|[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])"
         ),
-        "main": r"[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])|\s+and\s+",
-        "loose": r"[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])|(?<!\s)\s+and\s+",
+        "main": r"[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])|\s+" + _AND + r"\s+",
+        "loose": (
+            r"[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])|(?<!\s)\s+" + _AND + r"\s+"
+        ),
     },
     "range": {
         "shipped": (

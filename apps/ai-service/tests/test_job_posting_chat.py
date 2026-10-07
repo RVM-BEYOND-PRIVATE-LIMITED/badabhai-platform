@@ -3974,6 +3974,8 @@ _AND_PAIR_CASES: list[tuple[str, dict]] = [
     ("salary 25k-20k", _pay(20000, 25000)),
     ("salary 25k and 20k", _pay(20000, 25000)),
     ("salary 25k and 20k in hand", _pay(20000, 25000)),
+    ("in hand between 20k and 10k", _pay(10000, 20000)),
+    ("salary between rs 20000 and rs 8000", _pay(8000, 20000)),
 ]
 
 
@@ -3988,3 +3990,50 @@ def test_a_split_and_pair_without_an_add_on_still_records_both_figures() -> None
     # range read gave.
     band = answers.detect_answers("salary 1 lakh and 20k", None).get("pay_range")
     assert band == _pay(20000, 100000)
+
+
+# --- #2088: Hindi "aur", and an add-on right after the second figure --------------------
+# "aur" is "and": a range separator, a split-pair separator and a pay-clause boundary. An
+# add-on word in the second figure's own clause splits the pair whatever the ratio, so
+# "20k and 15k bonus" is a 20k wage (it read as a 15-20k range the bonus then dropped).
+_AUR_AND_ADDON_CASES: list[tuple[str, dict | None]] = [
+    ("20 hazaar aur 2 hazaar bonus", _pay(20000)),
+    ("salary 20 hazar aur 3 hazar incentive", _pay(20000)),
+    ("15 hazaar aur 20 hazaar", _pay(15000, 20000)),
+    ("in hand 15 hazaar aur 20 hazaar", _pay(15000, 20000)),
+    ("salary 15k aur 20k", _pay(15000, 20000)),
+    ("salary 20k in hand aur PF ESI", _pay(20000)),
+    ("salary 20k and 15k bonus", _pay(20000)),
+    ("salary 20k and 15k diwali bonus", _pay(20000)),
+    ("salary 20k and 25k bonus", _pay(20000)),
+    ("20k and 25k in hand plus 2k bonus", _pay(20000, 25000)),
+    # A boundary right after the second figure ends its clause: "and PF" is a benefit.
+    ("salary 12k and 25k and PF", _pay(12000, 25000)),
+    ("salary 12k aur 25k aur PF", _pay(12000, 25000)),
+    # "between" still names one range, so an add-on there drops it, as before.
+    ("salary between 15k and 20k bonus", None),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _AUR_AND_ADDON_CASES)
+def test_aur_and_a_trailing_add_on_split_the_pair(text: str, pay: dict | None) -> None:
+    assert answers.detect_answers(text, None).get("pay_range") == pay
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+
+
+@pytest.mark.parametrize(
+    ("text", "follows"),
+    [
+        ("12000 and 25000 bonus", True),
+        ("12k and 25k diwali bonus", True),
+        # A boundary right after the figure ends its clause, even when the range regex
+        # swallowed the whitespace the " and " boundary needs.
+        ("12000 and 25000 and PF", False),
+        ("12000 aur 25000 aur PF", False),
+        ("12k and 25k in hand", False),
+    ],
+)
+def test_an_add_on_follows_only_inside_the_second_figures_clause(text: str, follows: bool) -> None:
+    match = answers._PAY_RANGE_RE.search(text)
+    assert match is not None
+    assert answers._addon_follows(match) is follows

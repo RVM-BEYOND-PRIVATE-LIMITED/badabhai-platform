@@ -56,10 +56,11 @@ def _load_measure_script():
 
 measure = _load_measure_script()
 
-#: Main's text, exactly as `answers.py` spelled it before #1995.
+#: Main's text, as `answers.py` spelled it before #1995 — with #2088's "and"/"aur" word set,
+#: which the shipped regexes carry too (the oracle compares shapes, not word sets).
 _MAIN_FRAGMENTS = {
     "tail": r"\s+\b(?:in|at|for|with|on|near|from|starting|salary|pay|shift|urgently|",
-    "clause": r"(?<![A-Za-z])plus(?![A-Za-z])|\s+and\s+",
+    "clause": r"(?<![A-Za-z])plus(?![A-Za-z])|\s+(?:and|aur)\s+",
     "range": r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)?\s*",
 }
 
@@ -275,3 +276,25 @@ def test_the_timing_inputs_take_the_slow_path() -> None:
     assert answers._LOCATION_CUE_RE.search("plant is in Pune" + ws + "x") is not None
     assert answers._PAY_CLAUSE_BOUNDARY_RE.search("salary 20k bonus" + ws + "x") is None
     assert answers._PAY_RANGE_RE.search("salary 20k 5" + ws + "!") is None
+
+
+# --- 4. many figures: the pay parser is linear in the FIGURE count too (#2088) ------------------
+#: Each shape repeats a pay figure until the message is k characters long. Before #2088 the
+#: clause screen scanned every boundary per figure, the residue was re-copied per range, and the
+#: year screen searched the whole prefix per year-shaped amount: O(n^2), 3-95 s at 20k-40k.
+_MANY_FIGURES = {
+    "split and pairs": "20k and 2k ",
+    "comma list": "20k, ",
+    "rising and pairs": "20k and 25k ",
+    "aur pairs": "20 hazaar aur 2 hazaar ",
+    "dashed ranges": "15-20k ",
+    "bare years": "1998 ",
+}
+
+
+@pytest.mark.parametrize("k", _RUNS)
+@pytest.mark.parametrize("topic", [None, "pay_range"])
+@pytest.mark.parametrize("unit", list(_MANY_FIGURES.values()), ids=list(_MANY_FIGURES))
+def test_detect_answers_is_linear_in_the_figure_count(unit: str, topic: str | None, k: int) -> None:
+    text = unit * (k // len(unit)) + "bonus"
+    assert _best_of_3(lambda t: answers.detect_answers(t, topic), text) < _budget_s(k)
