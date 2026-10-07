@@ -22,6 +22,8 @@ import {
   FreeChatRefuseSchema,
   FreeChatReplyInputSchema,
   FreeChatReplyOutputSchema,
+  FreeChatSummarizeInputSchema,
+  FreeChatSummarizeOutputSchema,
 } from "./free-chat";
 import {
   CompanionCareerAnswerSchema,
@@ -1272,6 +1274,9 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     // The reply union's two members; the union itself is not a `.shape`.
     ["FreeChatAnswer", FreeChatAnswerSchema.shape],
     ["FreeChatRefuse", FreeChatRefuseSchema.shape],
+    // Release 2 — the rolling summary.
+    ["FreeChatSummarizeInput", FreeChatSummarizeInputSchema.shape],
+    ["FreeChatSummarizeOutput", FreeChatSummarizeOutputSchema.shape],
   ];
 
   it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
@@ -1361,5 +1366,35 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     ).toThrow();
     expect(FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "news" }).status).toBe("refuse");
     expect(() => FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "salary_promise" })).toThrow();
+  });
+
+  it("Release 2: the reply carries an optional summary, defaulted so an older caller still parses", () => {
+    expect(FreeChatReplyInputSchema.parse({ category: "casual", text: "kaise ho" }).summary).toBeNull();
+    expect(
+      FreeChatReplyInputSchema.parse({ category: "casual", text: "kaise ho", summary: "s".repeat(1200) })
+        .summary,
+    ).toHaveLength(1200);
+    expect(() =>
+      FreeChatReplyInputSchema.parse({ category: "casual", text: "kaise ho", summary: "s".repeat(1201) }),
+    ).toThrow();
+  });
+
+  it("Release 2: the summarize call folds 1-24 turns into an optional previous summary", () => {
+    const turn = { role: "worker", text: "aaj thak gaya" };
+    expect(FreeChatSummarizeInputSchema.parse({ turns: [turn] }).previous_summary).toBeNull();
+    expect(() => FreeChatSummarizeInputSchema.parse({ turns: [] })).toThrow();
+    expect(FreeChatSummarizeInputSchema.parse({ turns: Array(24).fill(turn) }).turns).toHaveLength(24);
+    expect(() => FreeChatSummarizeInputSchema.parse({ turns: Array(25).fill(turn) })).toThrow();
+    expect(() =>
+      FreeChatSummarizeInputSchema.parse({ turns: [turn], previous_summary: "p".repeat(1201) }),
+    ).toThrow();
+  });
+
+  it("Release 2: the summary output is nullable and loose — the API judges length, not the transport", () => {
+    const empty = FreeChatSummarizeOutputSchema.parse({});
+    expect(empty.summary).toBeNull();
+    expect(empty.ai_metadata).toBeNull();
+    expect(FreeChatSummarizeOutputSchema.parse({ summary: "x".repeat(2000) }).summary).toHaveLength(2000);
+    expect(() => FreeChatSummarizeOutputSchema.parse({ summary: "x".repeat(2001) })).toThrow();
   });
 });

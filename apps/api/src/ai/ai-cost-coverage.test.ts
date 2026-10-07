@@ -183,6 +183,10 @@ describe("every task type that can spend is either emitted or named as unledgere
       // here as a one-PR gap; this is the PR that closed it.
       "profiling_free_classify",
       "profiling_free_reply",
+      // ADR-0051 §8 (Release 2) — the rolling summary's fold, wired in
+      // `FreeChatSummaryService.fold` in the change that calls it. The contract commit named it on
+      // KNOWN_UNLEDGERED for the length of one PR; this is the commit that moved it here.
+      "profiling_free_summary",
       "resume_generation",
       // RI-autofill's option mapping (owner override B). Emitter wired in
       // `ResumeOptionMapService.map`, in the SAME change that routed the task.

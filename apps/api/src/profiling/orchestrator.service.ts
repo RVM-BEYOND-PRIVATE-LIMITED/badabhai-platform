@@ -196,6 +196,9 @@ import {
   type ResumeSkipFacts,
 } from "./free-chat/free-chat.router";
 import { screenFreeChatAnswer } from "./free-chat/free-chat-output.validator";
+// ADR-0051 §8 (Release 2) — the rolling summary's fold. A VALUE import for the same reason as
+// `FreeChatService` above: a trailing constructor parameter.
+import { FreeChatSummaryService } from "./free-chat/free-chat-summary.service";
 import {
   answerSetHash,
   forgetAnswer,
@@ -512,6 +515,21 @@ export interface FreeChatTurnInput {
    * ordinary turn costs no query. Fails toward `true` (today's interview) when it cannot be read.
    */
   readonly locked: () => Promise<boolean>;
+  /**
+   * ADR-0051 §8 (Release 2) — the worker's stored rolling summary text, or null: this session's row
+   * first, else the worker's latest session carrying one. A memoised THUNK like {@link locked}, read
+   * ONLY by a casual or career reply (R24 — the classifier never gets it), so every other turn costs
+   * no query. It never rejects: an unreadable summary reads as none.
+   *
+   * OPTIONAL, AND ABSENT MEANS NO SUMMARY — the reply is Release 1's exactly, and every test
+   * construction compiles unchanged.
+   */
+  readonly summary?: () => Promise<string | null>;
+  /**
+   * ADR-0051 §8 — this session's folded count as the request's own row read saw it: a LOWER BOUND
+   * the fold's scheduler uses to skip a fold with nothing to fold, at no cost. Absent reads as 0.
+   */
+  readonly foldedLines?: number;
 }
 
 export interface TurnInput {
@@ -799,6 +817,10 @@ export class ProfilingOrchestrator {
     // and optional for the same reason again: without one no greeting opens and no message is
     // classified, so every existing construction is today's interview exactly.
     private readonly freeChat?: FreeChatService,
+    // ADR-0051 §8 (Release 2) — the rolling summary's fold, scheduled after a casual or career reply
+    // lands. Trailing and optional again: without one nothing is folded and every reply is
+    // Release 1's.
+    private readonly freeChatSummary?: FreeChatSummaryService,
   ) {}
 
   /**
@@ -995,8 +1017,9 @@ export class ProfilingOrchestrator {
           await this.identityIntake?.record(decided.intake.settled, intakeRefOf(input));
         }
         // ADR-0051 — the free chat's mode change, durable lock and served-turn event, only for
-        // the decision that landed (the same after-the-CAS rule). Never throws.
-        await this.recordFreeChatEffects(envelope, measured.profiling, decided.freeChat, input);
+        // the decision that landed (the same after-the-CAS rule) — and, after a casual or career
+        // reply, the rolling summary's fold, scheduled OFF the request path. Never throws.
+        await this.recordFreeChatEffects(envelope, measured, decided.freeChat, input);
         return decided.result;
       }
 
@@ -4236,12 +4259,13 @@ export class ProfilingOrchestrator {
    */
   private async recordFreeChatEffects(
     before: ProfilingEnvelope,
-    after: ProfilingEnvelope | undefined,
+    landed: TranscriptBuffer,
     served: FreeChatServed | undefined,
     input: TurnInput,
   ): Promise<void> {
     const fc = this.freeChatInputOf(input);
     if (fc === null || !fc.enabled || this.freeChat === undefined) return;
+    const after = landed.profiling;
     const ref: FreeChatEventRef = {
       workerId: input.workerId,
       sessionId: input.sessionId,
@@ -4257,6 +4281,20 @@ export class ProfilingOrchestrator {
       fc.sessionLocked,
     );
     if (served !== undefined) await this.freeChat.recordServed(served, ref);
+    // ADR-0051 §8 (R21) — a free-mode casual or career REPLY that landed may have pushed earlier
+    // talk out of the next reply's window: fold it into the summary. SCHEDULED, NEVER AWAITED — the
+    // worker's response does not wait on a summarizer — and only from the transcript that landed.
+    if (served !== undefined && foldsAfter(served)) {
+      this.freeChatSummary?.schedule({
+        workerId: input.workerId,
+        sessionId: input.sessionId,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+        knownName: input.knownName,
+        messages: landed.messages,
+        ...(fc.foldedLines !== undefined ? { foldedAtLeast: fc.foldedLines } : {}),
+      });
+    }
   }
 
   /** One mode transition's event, and — entering résumé mode — the durable lock. */
@@ -4719,6 +4757,11 @@ export class ProfilingOrchestrator {
       { ...t.envelope, freeChat: { ...state, casualReplies } },
       result,
       servedFacts(state.mode, facts, "answered", { nudge }),
+      true,
+      true,
+      // ADR-0051 §8 (R22) — the ONE exchange the rolling summary may fold: the worker's message and
+      // the model-written reply. Every fixed line, fallback and refusal above is not foldable.
+      true,
     );
   }
 
@@ -4861,6 +4904,7 @@ export class ProfilingOrchestrator {
     served: FreeChatServed | null,
     replyIsAside = true,
     counts = true,
+    foldable = false,
   ): FreeChatRouted {
     const state = next.freeChat ?? null;
     const counted =
@@ -4871,7 +4915,7 @@ export class ProfilingOrchestrator {
       { ...counted, packId: t.packs.packId, packVersion: t.packs.packVersion },
       t.packs.engine.universal,
     );
-    const turned = this.asideTurn(t.buffer, pinned, t.input, result, replyIsAside);
+    const turned = this.asideTurn(t.buffer, pinned, t.input, result, replyIsAside, foldable);
     return { kind: "serve", decided: served === null ? turned : { ...turned, freeChat: served } };
   }
 
@@ -4899,20 +4943,27 @@ export class ProfilingOrchestrator {
     return t.refs.classify.verdict;
   }
 
-  /** The reply call, memoised per `takeTurn` (see {@link FreeChatRefs}). */
+  /**
+   * The reply call, memoised per `takeTurn` (see {@link FreeChatRefs}). It alone reads the rolling
+   * summary (R24); a thunk that throws or rejects anyway costs the summary, never the reply.
+   */
   private replyMemo(
     t: FreeChatTurn,
     category: FreeChatReplyCategory,
   ): Promise<FreeChatReplyOutput | null> {
-    t.refs.reply ??= t.service.reply(
-      {
-        category,
-        text: t.input.text,
-        messages: t.buffer.messages,
-        workerContext: freeChatWorkerContextOf(t.envelope),
-      },
-      callCtxOf(t.input),
-    );
+    t.refs.reply ??= (async () =>
+      t.service.reply(
+        {
+          category,
+          text: t.input.text,
+          messages: t.buffer.messages,
+          workerContext: freeChatWorkerContextOf(t.envelope),
+          summary: await Promise.resolve()
+            .then(() => t.fc.summary?.() ?? null)
+            .catch(() => null),
+        },
+        callCtxOf(t.input),
+      ))();
     return t.refs.reply;
   }
 
@@ -4932,8 +4983,11 @@ export class ProfilingOrchestrator {
     input: TurnInput,
     result: TurnResult,
     replyIsAside: boolean,
+    foldable: boolean,
   ): { buffer: TranscriptBuffer; result: TurnResult } {
     const at = input.now.toISOString();
+    // ADR-0051 §8 — ABSENT, never false, on every line that is not a casual/career exchange.
+    const fold = foldable ? { foldable: true as const } : {};
     return {
       buffer: {
         ...buffer,
@@ -4945,13 +4999,14 @@ export class ProfilingOrchestrator {
             at,
             voiceNoteId: input.voiceNoteId,
             aside: true,
+            ...fold,
           },
           {
             role: "assistant" as const,
             text: result.reply,
             at,
             voiceNoteId: null,
-            ...(replyIsAside ? { aside: true as const } : {}),
+            ...(replyIsAside ? { aside: true as const, ...fold } : {}),
           },
         ],
         profiling: stampLastTurn(envelope, input, result),
@@ -6833,6 +6888,19 @@ const FLOW_RESUME_FACTS: VerdictFacts = {
   category: "resume",
   confidenceBucket: null,
 };
+
+/**
+ * Does a served turn feed the rolling summary (ADR-0051 §8)? Only a free-mode casual or career
+ * reply the model wrote and the gate passed — `answered`. A fallback, a refusal, a fixed line and
+ * every résumé-mode aside never fold.
+ */
+function foldsAfter(served: FreeChatServed): boolean {
+  return (
+    served.mode === "free" &&
+    served.outcome === "answered" &&
+    (served.category === "casual" || served.category === "career")
+  );
+}
 
 /** A free chat still in greeting or free mode — before résumé mode, the lock. */
 function isFreeChatOpen(envelope: ProfilingEnvelope | null | undefined): boolean {

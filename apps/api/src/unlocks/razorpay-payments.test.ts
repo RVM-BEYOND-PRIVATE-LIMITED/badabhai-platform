@@ -392,6 +392,34 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
     expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
     expect(emitted(d.events)).toEqual([]); // no authorization for money that never moved
   });
+
+  it("#2085: a matching expected_price_inr creates the order exactly as before", async () => {
+    const order = await d.svc.createCreditOrder(PAYER, "pack_50", CTX, 2000);
+    expect(order?.amountInr).toBe(2000);
+    expect(d.razorpay.createOrder).toHaveBeenCalledOnce();
+  });
+
+  it("#2085: a mismatched expected_price_inr is a 409 — no provider order, no row, no event", async () => {
+    await expect(d.svc.createCreditOrder(PAYER, "pack_50", CTX, 1500)).rejects.toMatchObject({
+      status: 409,
+      response: { reason: "price_mismatch", expected_price_inr: 1500, current_price_inr: 2000 },
+    });
+    expect(d.razorpay.createOrder).not.toHaveBeenCalled();
+    expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+    expect(emitted(d.events)).toEqual([]);
+  });
+
+  it("#2085: the DTO accepts an integer expected_price_inr and rejects anything else", () => {
+    expect(CreateCreditOrderSchema.parse({ pack_code: "pack_50", expected_price_inr: 2000 })).toEqual({
+      pack_code: "pack_50",
+      expected_price_inr: 2000,
+    });
+    for (const bad of [-1, 1.5, "2000", null]) {
+      expect(
+        CreateCreditOrderSchema.safeParse({ pack_code: "pack_50", expected_price_inr: bad }).success,
+      ).toBe(false);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -771,6 +799,22 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
     // No provider was contacted and no order row exists.
     expect(d.razorpay.createOrder).not.toHaveBeenCalled();
     expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+  });
+
+  it("#2085: a matching expected_price_inr buys the pack; a mismatch leaves the ledger untouched", async () => {
+    const ok = makeMockService();
+    await expect(ok.svc.purchaseCredits(PAYER, "pack_50", CTX, 2000)).resolves.toMatchObject({
+      credits: 50,
+    });
+    expect(ok.repo.creditPack).toHaveBeenCalledOnce();
+
+    const refused = makeMockService();
+    await expect(refused.svc.purchaseCredits(PAYER, "pack_50", CTX, 1999)).rejects.toMatchObject({
+      status: 409,
+      response: { reason: "price_mismatch", expected_price_inr: 1999, current_price_inr: 2000 },
+    });
+    expect(refused.repo.creditPack).not.toHaveBeenCalled(); // no ledger row, no credits
+    expect(emitted(refused.events)).toEqual([]); // no payment.* for money that never moved
   });
 
   it("verify cannot be used to grant credits while real payments are off (fail closed)", async () => {

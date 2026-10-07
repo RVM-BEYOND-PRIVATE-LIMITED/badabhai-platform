@@ -205,6 +205,9 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   // chat that builds nothing in the profile: `false`, same side as the companion's career answer.
   profiling_free_classify: true,
   profiling_free_reply: false,
+  // Release 2 — the rolling free-chat summary: continuity for the casual/career reply, `false`
+  // for the same reason as the reply itself; it builds nothing in the profile.
+  profiling_free_summary: false,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

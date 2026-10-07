@@ -31,6 +31,7 @@ import { redactKnownName, type KnownNameSource } from "../../common/redact-known
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { isUniversalPlaceholderLabel } from "../../occupation/family-chip-labels";
+import { FREE_CHAT_SUMMARY_MAX } from "./free-chat-summary";
 import { UNAVAILABLE_VERDICT, type FreeChatVerdict } from "./free-chat.router";
 
 /** The classify contract's text bound (`FreeChatClassifyInputSchema.text`). */
@@ -72,6 +73,11 @@ export interface FreeChatReplyRequest {
   readonly text: string;
   readonly messages: readonly BufferedMessage[];
   readonly workerContext: CompanionCareerWorkerContext;
+  /**
+   * ADR-0051 §8 (Release 2) — the worker's stored rolling summary, or null. The REPLY alone gets it
+   * (R24): the classifier's request has no such field.
+   */
+  readonly summary: string | null;
 }
 
 /** What one served free-chat turn reports on the spine — ids, counts and closed enums only. */
@@ -177,6 +183,7 @@ export class FreeChatService {
       text: clip(redactKnownName(req.text, name), REPLY_TEXT_MAX),
       recent_turns: recentTurnsOf(req.messages, REPLY_TURNS, name),
       worker_context: workerContextFor(req.workerContext, name),
+      summary: summaryForModel(req.summary, name),
     });
     if (!input.success) {
       this.logger.warn(
@@ -323,15 +330,43 @@ export function recentTurnsOf(
 ): CompanionRecentTurn[] {
   const turns: CompanionRecentTurn[] = [];
   for (const message of messages) {
-    if (message.intake === true) continue;
-    const text = clip(
-      redactKnownName(message.text.replace(/\{\{[^}]*\}\}/g, ""), knownName).trim(),
-      RECENT_TURN_MAX,
-    ).trim();
-    if (text.length === 0) continue;
-    turns.push({ role: message.role === "worker" ? "worker" : "bada_bhai", text });
+    const turn = recentTurnOf(message, knownName);
+    if (turn !== null) turns.push(turn);
   }
   return turns.slice(-limit);
+}
+
+/**
+ * ONE line as a contract turn, or null when it is never sent — an identity-intake line, or one that
+ * is blank once its `{{token}}`s are stripped. The worker's known name is redacted and the text
+ * clipped to the contract's bound. {@link recentTurnsOf} is this over a conversation, and the
+ * rolling summary's window and fold (`free-chat-summary.service.ts`) use it too, so "a line the
+ * reply sees" has one definition.
+ */
+export function recentTurnOf(
+  message: BufferedMessage,
+  knownName: string | null,
+): CompanionRecentTurn | null {
+  if (message.intake === true) return null;
+  const text = clip(
+    redactKnownName(message.text.replace(/\{\{[^}]*\}\}/g, ""), knownName).trim(),
+    RECENT_TURN_MAX,
+  ).trim();
+  if (text.length === 0) return null;
+  return { role: message.role === "worker" ? "worker" : "bada_bhai", text };
+}
+
+/**
+ * A stored rolling summary as a model input (ADR-0051 §8): the worker's own name redacted AGAIN at
+ * the egress (G2 — the name may have changed since the summary was screened), trimmed and clipped
+ * to the contract's bound; null when there is none or nothing is left. Shared by the reply's
+ * `summary` and the fold's `previous_summary`, so neither can carry a value the contract rejects —
+ * an off-contract summary must cost the reply its continuity, never the reply.
+ */
+export function summaryForModel(summary: string | null, knownName: string | null): string | null {
+  if (summary === null) return null;
+  const text = clip(redactKnownName(summary, knownName).trim(), FREE_CHAT_SUMMARY_MAX).trim();
+  return text.length > 0 ? text : null;
 }
 
 /**

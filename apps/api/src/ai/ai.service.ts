@@ -15,6 +15,7 @@ import {
   CompanionEditParseOutputSchema,
   FreeChatClassifyOutputSchema,
   FreeChatReplyOutputSchema,
+  FreeChatSummarizeOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
   ResumeParseOutputSchema,
@@ -52,6 +53,8 @@ import {
   type FreeChatClassifyOutput,
   type FreeChatReplyInput,
   type FreeChatReplyOutput,
+  type FreeChatSummarizeInput,
+  type FreeChatSummarizeOutput,
   type SkillCanonicalizationInput,
   type SkillCanonicalization,
   type ProfileExtractionInput,
@@ -468,6 +471,25 @@ export class AiService {
     ctx?: AiRequestContext,
   ): Promise<FreeChatReplyOutput | null> {
     return this.post("/free-chat/reply", input, FreeChatReplyOutputSchema, 10000, ctx);
+  }
+
+  /**
+   * ADR-0051 §8 (Release 2) — fold the free-chat turns that aged out of the reply's recent-turn
+   * window into the worker's rolling summary: the previous summary plus 1-24 turns in, the new
+   * summary (or null) out.
+   *
+   * EIGHT SECONDS, and nobody waits on them: the fold runs AFTER the reply was served, off the
+   * request path (`FreeChatSummaryService`), so the budget bounds only how long one fold may hold
+   * its per-session lock. Null on every failure — unreachable, non-OK, a schema miss, the abort —
+   * and the caller keeps the previous summary. The far side applies the masking policy in force
+   * (ADR-0047); the caller has already redacted the worker's own name (G2). The output is
+   * UNTRUSTED: the caller re-validates it (`screenFreeChatSummary`) before storing a byte.
+   */
+  async freeChatSummarize(
+    input: FreeChatSummarizeInput,
+    ctx?: AiRequestContext,
+  ): Promise<FreeChatSummarizeOutput | null> {
+    return this.post("/free-chat/summarize", input, FreeChatSummarizeOutputSchema, 8000, ctx);
   }
 
   async extractProfile(

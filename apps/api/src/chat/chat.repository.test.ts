@@ -134,9 +134,75 @@ describe("ChatRepository.endSession — the duplicate-transcript guard", () => {
     // `IS NULL` guard would refuse every later write.
     const q = renderQuery(captured.set!.conversationState);
     expect(q.sql).toMatch(
-      /^\$1::jsonb \|\| jsonb_strip_nulls\(jsonb_build_object\('general_form_completed_at', (?:"chat_sessions"\.)?"conversation_state" -> 'general_form_completed_at'\)\)$/,
+      /^\$1::jsonb \|\| jsonb_strip_nulls\(jsonb_build_object\('general_form_completed_at', (?:"chat_sessions"\.)?"conversation_state" -> 'general_form_completed_at'\)\) \|\| CASE /,
     );
     expect(q.params).toEqual([JSON.stringify(state)]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ADR-0051 §8 — a fold merged between a request's read and its whole-column write survives it:
+ * every REPLACING writer keeps the LIVE row's `free_chat_summary` in its own statement.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** The exact operand every replacing writer appends — the live row's key, or `{}`. */
+const KEEP_LIVE_SUMMARY =
+  `CASE WHEN "chat_sessions"."conversation_state" -> 'free_chat_summary' IS NOT NULL ` +
+  `THEN jsonb_build_object('free_chat_summary', "chat_sessions"."conversation_state" -> 'free_chat_summary') ` +
+  `ELSE '{}'::jsonb END`;
+
+describe("the replacing writers keep the LIVE row's rolling summary (ADR-0051 §8)", () => {
+  const STATE = { turn_count: 4, answer_map: [] };
+
+  it("saveConversationState (the checkpoint, the correction): state || the live key", async () => {
+    const { db, captured } = makeCapturingDb();
+    const at = new Date("2026-10-07T10:00:00.000Z");
+    await new ChatRepository(db as never).saveConversationState(SESSION, STATE, at);
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toBe(`$1::jsonb || ${KEEP_LIVE_SUMMARY}`);
+    // The state is ONE bound value; the live summary is read from the row, never re-sent.
+    expect(q.params).toEqual([JSON.stringify(STATE)]);
+    expect(captured.set!.lastMessageAt).toBe(at);
+  });
+
+  it("endSession (the flush): state || TD145's mark || the live key", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).endSession(db as never, SESSION, STATE, new Date());
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toBe(
+      `$1::jsonb || jsonb_strip_nulls(jsonb_build_object('general_form_completed_at', ` +
+        `"chat_sessions"."conversation_state" -> 'general_form_completed_at')) || ${KEEP_LIVE_SUMMARY}`,
+    );
+    expect(q.params).toEqual([JSON.stringify(STATE)]);
+  });
+
+  it("abandonSession (the sweep): state || the live key, still conditional on `active`", async () => {
+    const { db, captured } = makeCapturingDb();
+    const at = new Date("2026-10-07T10:00:00.000Z");
+    await new ChatRepository(db as never).abandonSession(db as never, SESSION, STATE, at);
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toBe(`$1::jsonb || ${KEEP_LIVE_SUMMARY}`);
+    expect(q.params).toEqual([JSON.stringify(STATE)]);
+    expect(captured.set).toMatchObject({ status: "abandoned", endedAt: at });
+    expect(renderWhere(captured.where)).toContain('"status"');
+  });
+
+  it("the live key goes on the RIGHT of `||` — it wins over an older copy the state carries", async () => {
+    // The correction path spreads the whole column it read, summary included; a fold that landed
+    // since is newer, and the right-hand operand of `||` is the one jsonb keeps.
+    const { db, captured } = makeCapturingDb();
+    const stale = { ...STATE, free_chat_summary: { v: 1, text: "- stale", folded_lines: 2 } };
+    await new ChatRepository(db as never).saveConversationState(SESSION, stale, new Date());
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql.endsWith(KEEP_LIVE_SUMMARY)).toBe(true);
+    expect(q.sql.indexOf("$1::jsonb")).toBe(0);
+  });
+
+  it("a CASE, never jsonb_strip_nulls, around the summary — a watermark's `text: null` must survive", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).saveConversationState(SESSION, STATE, new Date());
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).not.toContain("jsonb_strip_nulls");
   });
 });
 
@@ -519,5 +585,82 @@ describe("ChatRepository.mergeFreeChatLock — the lock, merged beside the state
     expect(await new ChatRepository(won.db as never).mergeFreeChatLock(SESSION, WORKER, AT)).toBe(
       true,
     );
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ADR-0051 §8 (Release 2) — the rolling free-chat summary
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe("ChatRepository.findLatestFreeChatSummary — the summary a new session inherits", () => {
+  it("filters on the worker AND the key's presence IN the WHERE clause, newest started first", async () => {
+    const h = makeSelectingDb([{ id: SESSION, summary: { v: 1 } }]);
+    const out = await new ChatRepository(h.db as never).findLatestFreeChatSummary(WORKER);
+    expect(out).toEqual({ id: SESSION, summary: { v: 1 } });
+    const { sql, params } = new PgDialect().sqlToQuery(h.captured.where as never);
+    expect(sql).toContain('"worker_id" = $1');
+    // A TEXT, not just the key: a watermark-only record must not shadow an older session's text.
+    expect(sql).toMatch(/"conversation_state" -> 'free_chat_summary' ->> 'text' IS NOT NULL/);
+    expect(params).toEqual([WORKER]);
+    expect(renderOrderBy(h)).toMatch(/started_at"?\s+desc/i);
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("returns undefined for a worker with no summary anywhere", async () => {
+    const h = makeSelectingDb([]);
+    expect(
+      await new ChatRepository(h.db as never).findLatestFreeChatSummary(WORKER),
+    ).toBeUndefined();
+  });
+});
+
+describe("ChatRepository.mergeFreeChatSummary — merged beside the state, monotonic", () => {
+  const SUMMARY = {
+    v: 1 as const,
+    text: "Worker likes cricket.",
+    updated_at: "2026-10-07T10:00:00.000Z",
+    session_id: SESSION,
+    folded_lines: 8,
+  };
+
+  it("MERGES one sibling key — never a replace — with every value a bound parameter", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY);
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toMatch(
+      /^coalesce\((?:"chat_sessions"\.)?"conversation_state", '\{\}'::jsonb\) \|\| jsonb_build_object\('free_chat_summary', jsonb_build_object\('v', 1, 'text', \$1::text, 'updated_at', \$2::text, 'session_id', \$3::text, 'folded_lines', \$4::int\)\)$/,
+    );
+    // The model-written text is a PARAMETER, never spliced into the statement.
+    expect(q.params).toEqual([SUMMARY.text, SUMMARY.updated_at, SESSION, 8]);
+    expect(Object.keys(captured.set!)).toEqual(["conversationState"]);
+  });
+
+  it("is scoped to the session and its owner — NOT to an active row — and guarded monotonic", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY);
+    const { sql, params } = new PgDialect().sqlToQuery(captured.where as never);
+    expect(sql).not.toContain('"status"');
+    // Writes only over no summary, another session's, or one covering FEWER of this session's lines
+    // — the WHOLE predicate pinned, so a guard weakened by any extra disjunct is caught.
+    const s = `"chat_sessions"."conversation_state" -> 'free_chat_summary'`;
+    expect(sql).toBe(
+      `("chat_sessions"."id" = $1 and "chat_sessions"."worker_id" = $2 and ` +
+        `(${s} IS NULL OR ${s} ->> 'session_id' IS DISTINCT FROM $3::text OR ` +
+        `CASE WHEN jsonb_typeof(${s} -> 'folded_lines') = 'number' ` +
+        `THEN (${s} ->> 'folded_lines')::numeric < $4::int ELSE true END))`,
+    );
+    expect(params).toEqual([SESSION, WORKER, SESSION, 8]);
+  });
+
+  it("reports whether it wrote — false when a fold covering as many lines already landed", async () => {
+    const lost = makeCapturingDb();
+    lost.setUpdateMatchesNothing();
+    expect(
+      await new ChatRepository(lost.db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY),
+    ).toBe(false);
+    const won = makeCapturingDb();
+    expect(
+      await new ChatRepository(won.db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY),
+    ).toBe(true);
   });
 });

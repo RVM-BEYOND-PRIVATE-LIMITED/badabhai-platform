@@ -16,10 +16,25 @@ interface RedisIdemClient {
   get(key: string): Promise<string | null>;
 }
 
-/** What a completed attempt left behind, as stored. */
+/**
+ * What a completed attempt left behind, as stored.
+ *
+ * `body` (#2103) is a failure's OBJECT response body exactly as the first attempt returned it —
+ * e.g. the 409 `{ reason: "price_mismatch", expected_price_inr, current_price_inr }` — so a
+ * replay carries the same error body the client already saw, not a message-only rendering of
+ * it. OPTIONAL for backward compatibility: an outcome stored before #2103 (or a string-form
+ * exception, which has no object body) carries only `message` and replays exactly as before.
+ * `message` is still written beside it, so a rollback to the previous build reads every blob
+ * this build stores.
+ */
 type StoredOutcome =
   | { readonly ok: true; readonly value: unknown }
-  | { readonly ok: false; readonly status: number; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly status: number;
+      readonly message: string;
+      readonly body?: Record<string, unknown>;
+    };
 
 /** The sentinel written by the winning reservation, before the work has finished. */
 const IN_FLIGHT = "in_flight";
@@ -63,6 +78,9 @@ export interface RunOnceOptions<T> {
    * Encrypt the stored outcome at rest. Set it on any route whose response carries a credential.
    * Off by default, so adding a route that DOES carry one is a deliberate decision rather than
    * an omission.
+   *
+   * The stored outcome includes an object-form `HttpException` body (replayed verbatim), so a
+   * route whose `work` can throw a body carrying a credential or PII must be `secret` too.
    */
   readonly secret?: boolean;
   /** How long one key's outcome is honoured. Defaults to {@link RequestIdempotency.WINDOW_SECONDS}. */
@@ -182,11 +200,11 @@ export class RequestIdempotency {
       // STORED, NOT RELEASED — the property that makes this a mutex rather than a retry helper.
       // By the time most failures throw, the side effect may already have happened (a counter
       // moved, a row written, a provider called), so releasing would let the ladder repeat it.
-      // An HttpException replays as itself; anything else is not ours to reinterpret, so it
-      // replays as a neutral 503.
+      // An HttpException replays as itself — its status AND its object body (#2103); anything
+      // else is not ours to reinterpret, so it replays as a neutral 503.
       const outcome: StoredOutcome =
         err instanceof HttpException
-          ? { ok: false, status: err.getStatus(), message: RequestIdempotency.messageOf(err) }
+          ? RequestIdempotency.failureOf(err)
           : {
               ok: false,
               status: HttpStatus.SERVICE_UNAVAILABLE,
@@ -216,8 +234,8 @@ export class RequestIdempotency {
     window: number,
   ): Promise<void> {
     try {
-      // The WHOLE outcome, not just the success value. A failure shape carries only a
-      // client-visible status and message today, but branching on `ok` here would mean a future
+      // The WHOLE outcome, not just the success value. A failure shape carries only what
+      // the client already received (status, message, object body — #2103), but branching on `ok` here would mean a future
       // field added to the failure side silently lands in plaintext — and the cost of
       // encrypting a small object once per window is nothing.
       const payload = JSON.stringify(outcome);
@@ -270,11 +288,45 @@ export class RequestIdempotency {
     }
 
     if (outcome.ok) return outcome.value as T;
-    // The SAME status and the SAME wording the first attempt produced. Replaying the RESPONSE
+    // The SAME status and the SAME body the first attempt produced. Replaying the RESPONSE
     // rather than the exception CLASS is deliberate: tagged exceptions exist so a service emits
     // ONE monitoring event per real occurrence, and a retry of a request that already happened
     // is not a second occurrence.
+    //
+    // The object body when one was stored (#2103): `AllExceptionsFilter` renders
+    // `getResponse()` verbatim, so this is the identical error body. A blob without one (stored
+    // before #2103, or from a string-form exception) replays message-only, exactly as before.
+    if (RequestIdempotency.isPlainObject(outcome.body)) {
+      throw new HttpException(outcome.body, outcome.status);
+    }
     throw new HttpException(outcome.message, outcome.status);
+  }
+
+  /**
+   * The stored form of a failed attempt. The object body is captured ONLY when the exception's
+   * response already IS an object — i.e. exactly what `AllExceptionsFilter` sent the client as
+   * `error` — so nothing is stored or replayed that the original response did not return. It is
+   * round-tripped through JSON so a body that cannot be serialised degrades to the message-only
+   * form instead of failing the store.
+   */
+  private static failureOf(err: HttpException): StoredOutcome {
+    const base = {
+      ok: false as const,
+      status: err.getStatus(),
+      message: RequestIdempotency.messageOf(err),
+    };
+    const res = err.getResponse();
+    if (!RequestIdempotency.isPlainObject(res)) return base;
+    try {
+      const body: unknown = JSON.parse(JSON.stringify(res));
+      return RequestIdempotency.isPlainObject(body) ? { ...base, body } : base;
+    } catch {
+      return base;
+    }
+  }
+
+  private static isPlainObject(v: unknown): v is Record<string, unknown> {
+    return typeof v === "object" && v !== null && !Array.isArray(v);
   }
 
   /**
