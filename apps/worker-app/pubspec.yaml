@@ -301,20 +301,26 @@ flutter:
     # and admin-web already ship (converted from the brand kit's OTF). It is the
     # DISPLAY family now; Anek Latin / Baloo 2 / Mukta stay in the fallback chain
     # for the ₹ and Devanagari glyphs this 182-glyph display cut does not carry.
-    # ONE file declared across the weights the display styles ask for (600/700/
-    # 800), so a heavy heading uses the real face, not a synthesized bold.
+    # ONE WEIGHT, DECLARED ONCE. Only the Regular cut exists in this repo, and
+    # it used to be declared four times — at 400, 600, 700 AND 800 — to "use the
+    # real face, not a synthesized bold". That did the opposite: declaring a
+    # weight tells the engine a REAL cut of that weight exists, so a w700/w800
+    # heading matched the 800 entry and was painted from Regular outlines with
+    # no emboldening at all. Every display style lost its weight — the form
+    # flow's question headlines (`formQuestionHeadline`, w800), its option-card
+    # titles (`formCardTitle`, w700) and every `BbButton` label — which is why
+    # the questions and options read as unbranded body text.
+    #
+    # Declared once at its true weight, the engine picks it for any heavier
+    # request and synthesizes the bold, so headings are heavy again. Replace this
+    # with real 600/700/800 cuts if the brand kit ever ships them; do NOT point
+    # several weights at one file again.
     # LICENCE: commercial ("Nicky Laatz 2022 – All rights reserved"); the owner
     # ruled 2026-09-29 to ship it in this repo (see the brand-kit LICENCE.txt).
     - family: Kilimanjaro Sans
       fonts:
         - asset: assets/fonts/KilimanjaroSans-Regular.otf
           weight: 400
-        - asset: assets/fonts/KilimanjaroSans-Regular.otf
-          weight: 600
-        - asset: assets/fonts/KilimanjaroSans-Regular.otf
-          weight: 700
-        - asset: assets/fonts/KilimanjaroSans-Regular.otf
-          weight: 800
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter-Regular.ttf
