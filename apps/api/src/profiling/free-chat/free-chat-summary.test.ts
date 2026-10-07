@@ -280,14 +280,24 @@ describe("screenFreeChatSummary — the shared hard-identifier fixture (SECURITY
   });
 
   it("never refuses the PERMITTED half for an identifier", () => {
-    // The permitted half proves the wall does not over-fire. A permitted text that is blank once
-    // trimmed is refused by the format wall (a bare "-"), never by the identifier scanner.
+    // The permitted half proves the wall does not over-fire. Each case becomes a well-formed note —
+    // ONE "- " bullet per non-blank line, since the fixture carries multi-line texts ("Line one\n
+    // Line two…") that a single leading bullet would hand to the format wall instead. A permitted
+    // text with no non-blank line is refused by the format wall (a bare "-"), never by the scanner.
+    const asNote = (text: string): string =>
+      text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => `- ${line}`)
+        .join("\n");
     for (const c of cases.filter((entry) => entry.expected === null)) {
-      const screened = screenFreeChatSummary(`- ${c.text}`, null);
-      if (c.text.trim().length === 0) {
+      const note = asNote(c.text);
+      const screened = screenFreeChatSummary(note.length > 0 ? note : `- ${c.text}`, null);
+      if (note.length === 0) {
         expect(screened, JSON.stringify(c.text)).toEqual(reject("format"));
       } else {
-        expect(screened, JSON.stringify(c.text)).toEqual(accept(`- ${c.text}`.trim()));
+        expect(screened, JSON.stringify(c.text)).toEqual(accept(note));
       }
     }
   });
