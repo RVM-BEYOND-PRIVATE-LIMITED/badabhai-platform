@@ -41,6 +41,10 @@ import type { ProfileProjection, ProjectedValue } from "../profiling/answer-map-
  * authored option value. A typed field went through a capture normalizer. A free-text answer is the
  * worker's own words, trimmed. The one other model write into the map, `settleFromLlmDraft` on
  * `skills`, goes through `matchOptions`, so it can only store a pack option value (closed set).
+ * That argument is about TEXT SAFETY (what may be stored and printed), not decision rights: a
+ * closed-set value the model picked is still the model's pick. Whether such a value may DERIVE
+ * anything is decided elsewhere — the #2021 generic-pack match skills are derived only for a
+ * session the model neither led nor settled (`readWorkerOnlyAnswerMap`, owner ruling 2026-10-07).
  *
  * `education` is not listed because nothing on this path writes it: the crosswalk has no
  * `education` destination, so the draft always stores `[]`.

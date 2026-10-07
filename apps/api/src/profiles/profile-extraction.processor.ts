@@ -29,6 +29,7 @@ import {
   conversationFormKind,
   narrowAnswerRecords,
   readGeneralRoadStamp,
+  readWorkerOnlyAnswerMap,
   type GeneralRoadStamp,
 } from "../profiling/conversation-state";
 import {
@@ -216,6 +217,9 @@ type PersistedConversationState = {
   readonly prefilled_keys: unknown;
   // ADR-0045. Never narrowed here: `readGeneralRoadStamp` (strict, versioned) is its only reader.
   readonly general_road: unknown;
+  // #2021. Never narrowed here: `readWorkerOnlyAnswerMap` (fail closed) is their only reader.
+  readonly llm_led_turns: unknown;
+  readonly llm_draft_settled: unknown;
 };
 
 /**
@@ -1397,6 +1401,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       pinnedOccupationLabel: occupation?.label ?? null,
       packId: packPinOf(state).packId,
       answerMap,
+      workerOnlyAnswerMap: readWorkerOnlyAnswerMap(state),
     });
     this.logWithheldDraftFields(job.aiJobId, extraction.withheldDraftFields);
     return {
@@ -1518,6 +1523,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       pinnedOccupationLabel: pin?.label ?? null,
       packId: null,
       answerMap,
+      workerOnlyAnswerMap: false,
     });
     this.logWithheldDraftFields(job.aiJobId, deterministic.withheldDraftFields);
     const result = buildGeneralRoadExtraction({
@@ -2324,23 +2330,33 @@ export interface InterviewExtraction {
 /**
  * What `toExtractionOutput` reads besides the projection and the Phase C overlay.
  *
- * `answerMap` and `packId` feed #2021's generic-pack canonicalization; `pinnedOccupationLabel`
- * feeds #2004's draft certification. A caller that must not canonicalize (the general road,
- * ADR-0045 R7) passes `packId: null`.
+ * `answerMap`, `packId` and `workerOnlyAnswerMap` feed #2021's generic-pack canonicalization;
+ * `pinnedOccupationLabel` feeds #2004's draft certification. A caller that must not canonicalize
+ * (the general road, ADR-0045 R7) passes `packId: null`.
  */
 export interface ExtractionContext {
   readonly pinnedOccupationLabel: string | null;
   readonly packId: string | null;
   readonly answerMap: readonly AnswerRecord[];
+  /**
+   * #2021 — the model wrote NOTHING into this session's answer map: `readWorkerOnlyAnswerMap` over
+   * the persisted `conversation_state` (`llm_led_turns === 0` and `llm_draft_settled === false`,
+   * both present). FALSE derives no generic-pack skill at all (owner ruling 2026-10-07,
+   * worker-only; legacy sessions without the stamps fail closed).
+   */
+  readonly workerOnlyAnswerMap: boolean;
 }
 
 /**
  * #2021 — the answer map's deterministic `skills` values, per question, as the generic-pack
  * canonicalizer reads them. ANSWER MAP ONLY: never `skill_labels`, never the parse overlay, never
  * Phase C. Only `answered` records count, exactly as `projectProfile`'s `liveValues` reads them.
- * NOT TAP-ONLY: an `answered` record may come from Phase A `settleFromLlmDraft`, which records an
- * LLM-draft option that `matchOptions` matched deterministically against the pack's closed options
- * (same as `PACK_ANSWER_SKILLS`). Tap-only provenance is an open owner question (#2073).
+ *
+ * NOT TAP-ONLY ON ITS OWN: an `answered` record may come from Phase A `settleFromLlmDraft`, which
+ * records an LLM-draft option that `matchOptions` matched against the pack's closed options. The
+ * records carry no per-record provenance (that would be a change to the shared ai-contracts
+ * `AnswerRecordSchema`, deferred), so the worker-only rule is enforced per SESSION by
+ * {@link genericPackSkillsOf}, never here.
  */
 function answerMapSkillAnswers(answerMap: readonly AnswerRecord[]): GenericPackAnswer[] {
   const answers: GenericPackAnswer[] = [];
@@ -2359,13 +2375,31 @@ function answerMapSkillAnswers(answerMap: readonly AnswerRecord[]): GenericPackA
 }
 
 /**
+ * #2021 — the generic-pack `skill_*` ids for the canonical `skills` column.
+ *
+ * WORKER-ONLY (owner ruling 2026-10-07). A session the LLM led, or whose answer map it settled
+ * (`settleFromLlmDraft`, matched by `matchOptions`), derives NOTHING: closed-set option values make
+ * the model's text safe to store, they do not give the model the right to decide which match
+ * skills a worker holds. A session with no provenance stamp (finalized before #2021) is treated
+ * the same way — fail closed.
+ */
+function genericPackSkillsOf({
+  packId,
+  answerMap,
+  workerOnlyAnswerMap,
+}: Pick<ExtractionContext, "packId" | "answerMap" | "workerOnlyAnswerMap">): string[] {
+  if (!workerOnlyAnswerMap) return [];
+  return canonicalGenericPackSkills(packId, answerMapSkillAnswers(answerMap));
+}
+
+/**
  * EXPORTED FOR THE #2021 DB GATE (`generic-pack-chat-reach.db.test.ts`), which runs this exact seam
  * against Postgres. Not a public API: the processor is its only production caller.
  */
 export function toExtractionOutput(
   projection: ProjectionResult,
   interview: InterviewExtractOutput | null,
-  { pinnedOccupationLabel, packId, answerMap }: ExtractionContext,
+  { pinnedOccupationLabel, packId, answerMap, workerOnlyAnswerMap }: ExtractionContext,
 ): InterviewExtraction {
   // #2004 — FIRST, so nothing below can read a value the certification withheld. The rich draft
   // and every profile field built from it (`machines`, `certifications`, `education_*`, the
@@ -2400,14 +2434,14 @@ export function toExtractionOutput(
     // CANONICAL IDS ARE NOT INVENTED HERE. Writing a guess into these columns would put an
     // unvalidated id in the one place the match engine trusts absolutely. So the role stays null,
     // and `skills` holds only what the taxonomy's closed lookup returns for a GENERIC family
-    // pack's answer-map values (#2021): closed option values, pack-scoped, including
-    // LLM-draft-settled records matched deterministically by `matchOptions` (same as
-    // `PACK_ANSWER_SKILLS`), never the model's free-text `skill_labels`. `rebuildForWorker` carries
-    // them through the attribute bridge. A pack with no entry (every role pack, every trade with no
-    // match skill) yields `[]`, as before.
+    // pack's answer-map values (#2021): closed option values, pack-scoped, and ONLY in a session
+    // the model wrote nothing into (`workerOnlyAnswerMap`) — never the model's `skill_labels`.
+    // `rebuildForWorker` carries them through the attribute bridge. A pack with no entry (every
+    // role pack, every trade with no match skill) or a session that fails the gate yields `[]`,
+    // as before #2021.
     canonical_trade_id: null,
     canonical_role_id: null,
-    skills: canonicalGenericPackSkills(packId, answerMapSkillAnswers(answerMap)),
+    skills: genericPackSkillsOf({ packId, answerMap, workerOnlyAnswerMap }),
     // THE MODEL'S LIST WHEN IT PRODUCED ONE. Was a union with the answer map's skills, which
     // made this a superset in a different order and never the traced array. See `preferModelList`.
     skill_labels: preferModelList(interview?.skills, draft.skills),

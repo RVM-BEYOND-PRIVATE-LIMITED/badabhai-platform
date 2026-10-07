@@ -16,12 +16,16 @@
  * never an `mskill_*` id. Whether a claim reaches a posting is decided by the bridge.
  *
  * A LOOKUP, NOT A MODEL. Every key is an option VALUE from a checked-in pack JSON: a closed set.
- * The answer-map records it reads hold closed option values, INCLUDING LLM-draft-settled records
- * (Phase A `settleFromLlmDraft`) whose option was matched deterministically by `matchOptions`,
- * exactly as `PACK_ANSWER_SKILLS` reads them. So provenance is not tap-only, but the model cannot
- * name a value outside the pack's options, and no LLM, embedding or confidence floor decides the
- * mapping. The model-produced `skill_labels` never reach this table. (Whether only tapped answers
- * should count is an open owner question, #2073.)
+ * No LLM, embedding or confidence floor decides the mapping, and the model-produced
+ * `skill_labels` never reach this table.
+ *
+ * WORKER-ONLY, ENFORCED BY THE CALLER (owner ruling 2026-10-07). An answer-map record can also be
+ * written by Phase A's `settleFromLlmDraft`, which matches the model's free-text draft to an option
+ * with `matchOptions`. Closed-set makes that value safe to store; it does not give the model the
+ * right to decide a worker's match skills. Records carry no per-record provenance, so
+ * `apps/api`'s `toExtractionOutput` calls this ONLY for a session whose persisted stamp says the
+ * model led no turn and settled nothing (`readWorkerOnlyAnswerMap`; legacy sessions fail closed).
+ * This function itself trusts its input to be worker-originated.
  *
  * THE RULES ARE `PACK_ANSWER_SKILLS`' RULES (see that file), restated where they bite here:
  *   1. Map only what a chip literally claims, read with the question stem.

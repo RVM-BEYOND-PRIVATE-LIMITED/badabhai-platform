@@ -1368,7 +1368,14 @@ const withMap = (over: Record<string, unknown> = {}) => ({
 // `skills` (target_field: skills), not in `worker_attributes`. The canonical `skills` column now
 // carries the closed `skill_*` ids those answer-map values claim, pack-scoped.
 describe("#2021 — generic-pack answer-map skills become closed skill ids", () => {
-  const genericChat = (packId: string, questionKey: string, values: string[]) => ({
+  /** The flush's provenance stamp for a chat the model neither led nor settled. */
+  const WORKER_ONLY = { llm_led_turns: 0, llm_draft_settled: false };
+  const genericChat = (
+    packId: string,
+    questionKey: string,
+    values: string[],
+    stamp: Record<string, unknown> = WORKER_ONLY,
+  ) => ({
     conversationState: {
       answer_map: [
         record(),
@@ -1377,6 +1384,7 @@ describe("#2021 — generic-pack answer-map skills become closed skill ids", () 
       occupation: { ...PIN, pack_id: packId },
       pack_id: packId,
       pack_version: 1,
+      ...stamp,
     },
   });
   const storedSkills = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
@@ -1406,6 +1414,42 @@ describe("#2021 — generic-pack answer-map skills become closed skill ids", () 
     );
     await proc.process(makeJob());
     expect(storedSkills(profiles)).toEqual([]);
+  });
+
+  // WORKER-ONLY (owner ruling 2026-10-07). The answer-map record below is byte-identical to the
+  // one the first test derives from; only the session's provenance stamp differs. An LLM-settled
+  // record (`settleFromLlmDraft` + `matchOptions`) cannot be told apart from a tap per record, so
+  // the session decides, and anything but a clean, well-formed "the model wrote nothing" fails
+  // closed.
+  describe("worker-only: a session the model led or settled derives nothing", () => {
+    const welding = (stamp: Record<string, unknown>) =>
+      genericChat("qp_welding", "welding_process", ["mig"], stamp);
+
+    it("zero LLM turns, nothing settled, captured welding_process → skill_mig_welding", async () => {
+      const { proc, profiles } = make(welding(WORKER_ONLY));
+      await proc.process(makeJob());
+      expect(storedSkills(profiles)).toEqual(["skill_mig_welding"]);
+    });
+
+    it.each([
+      ["an LLM-led session whose draft was settled", { llm_led_turns: 4, llm_draft_settled: true }],
+      ["an LLM-led session with nothing settled", { llm_led_turns: 2, llm_draft_settled: false }],
+      [
+        "a settled draft with zero led turns (the handover settlement)",
+        { llm_led_turns: 0, llm_draft_settled: true },
+      ],
+      ["a legacy session with neither stamp", {}],
+      ["only llm_led_turns present", { llm_led_turns: 0 }],
+      ["only llm_draft_settled present", { llm_draft_settled: false }],
+      ["a malformed count", { llm_led_turns: "0", llm_draft_settled: false }],
+      ["a malformed flag", { llm_led_turns: 0, llm_draft_settled: "false" }],
+      ["a null count", { llm_led_turns: null, llm_draft_settled: false }],
+    ])("%s → []", async (_label, stamp) => {
+      // `genericChat` spreads the stamp over a state that has none, so `{}` is a true legacy row.
+      const { proc, profiles } = make(welding(stamp));
+      await proc.process(makeJob());
+      expect(storedSkills(profiles)).toEqual([]);
+    });
   });
 
   it("never canonicalizes the model: parse-overlay and Phase C skills do not reach the column", async () => {

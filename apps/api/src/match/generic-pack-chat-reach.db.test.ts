@@ -5,6 +5,7 @@ import { getMatchSkill, MATCH_SKILLS } from "@badabhai/taxonomy";
 
 import type { EventsService } from "../events/events.service";
 import { projectProfile } from "../profiling/answer-map-projector";
+import { readWorkerOnlyAnswerMap } from "../profiling/conversation-state";
 import { toExtractionOutput } from "../profiles/profile-extraction.processor";
 import { MatchConfigRepository } from "./match-config.repository";
 import { MatchConfigService } from "./match-config.service";
@@ -58,7 +59,17 @@ const chatWorker = (i: number): string => uuid(0x8e00 + i);
 const postingFor = (i: number): string => uuid(0x8f00 + i);
 /** One open posting per match skill, so a worker's feed is exactly the postings his skills reach. */
 const POSTINGS = MATCH_SKILLS.map((skill, i) => ({ id: postingFor(i), skillId: skill.skillId }));
-const ALL_WORKERS = GENERIC_PACK_CHAT_CASES.map((_, i) => chatWorker(i));
+/** The LLM-led welding chat (#2021 worker-only ruling) — an index no case uses. */
+const LLM_LED_WORKER = chatWorker(0x40);
+const ALL_WORKERS = [...GENERIC_PACK_CHAT_CASES.map((_, i) => chatWorker(i)), LLM_LED_WORKER];
+
+/**
+ * The provenance stamp `ChatService.flushInterview` writes into `conversation_state`
+ * (`toLlmProvenanceStatePatch`). A fully deterministic chat: the model led no turn, settled nothing.
+ */
+const WORKER_ONLY_STAMP = { llm_led_turns: 0, llm_draft_settled: false } as const;
+/** A chat Phase A led, whose draft `settleFromLlmDraft` turned into the same answer-map record. */
+const LLM_LED_STAMP = { llm_led_turns: 3, llm_draft_settled: true } as const;
 
 describe.skipIf(!RUN)(
   "generic-pack chats reach their trade's postings (Matching V1, #2021)",
@@ -94,12 +105,15 @@ describe.skipIf(!RUN)(
       workerId: string,
       packId: string,
       answers: Readonly<Record<string, readonly string[]>>,
+      conversationState: Readonly<Record<string, unknown>> = WORKER_ONLY_STAMP,
     ): Promise<void> {
       const answerMap = answerRecordsFor(latestPack(packId), answers);
       const { output } = toExtractionOutput(projectProfile(answerMap), null, {
         pinnedOccupationLabel: null,
         packId,
         answerMap,
+        // The processor's own read of the persisted stamp.
+        workerOnlyAnswerMap: readWorkerOnlyAnswerMap(conversationState),
       });
       await client.sql`
       INSERT INTO workers (id, phone_e164, phone_hash, status)
@@ -145,6 +159,20 @@ describe.skipIf(!RUN)(
         }
       },
     );
+
+    // WORKER-ONLY (owner ruling 2026-10-07). The SAME welding answer the first case derives
+    // `mskill_mig_welder` from, but in a session the LLM led and whose draft it settled: the record
+    // is indistinguishable, so the session stamp is what decides — and it derives nothing.
+    it("an LLM-led qp_welding chat derives nothing and sees an empty feed", async () => {
+      await profileFromChat(
+        LLM_LED_WORKER,
+        "qp_welding",
+        { welding_process: ["mig", "arc"] },
+        LLM_LED_STAMP,
+      );
+      expect(await repo.listSkillRows(LLM_LED_WORKER)).toEqual([]);
+      expect(await feed.listFeed(LLM_LED_WORKER, 100, {})).toEqual([]);
+    });
   },
 );
 
