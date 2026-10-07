@@ -127,6 +127,7 @@ unavailable.
 |---|---|---|---|---|
 | `profiling_free_classify` | `POST /free-chat/classify` | cheap tier (`gemini-2.5-flash-lite`), fallback Haiku | 0.0 / 48 | ~2.5 s |
 | `profiling_free_reply` | `POST /free-chat/reply` | `default_career_model` (Haiku), fallback `gemini-2.5-flash` | 0.5 / 512 | 10 s |
+| `profiling_free_summary` (Release 2, §8) | `POST /free-chat/summarize` | cheap tier (`gemini-2.5-flash-lite`), fallback Haiku | 0.0 / 400 | ~8 s, off the request path |
 
 - **The reply has two prompts on one task**, chosen by `category`. Both prompts:
   - write Latin Hinglish
@@ -193,7 +194,12 @@ unavailable.
 
 ### 3.8 Wire
 
-- **One additive field:** `read_aloud: false`, only on model-written turns.
+- **Additive fields:**
+  - `read_aloud: false`, only on model-written turns.
+  - Release 2, #2030: `free_chat_mode` (`greeting` | `free` | `resume`) on `POST /chat/message` replies, the
+    `POST /chat/session` start response and replays. It carries the mode after the turn, and is ABSENT (never null)
+    under the kill switch, with no mode, on the voice form and on an ended session. The app hides its "build my
+    profile" CTA while it is `greeting` or `free`.
 - The greeting uses the existing `opening_text` / `opening_options` fields, or the reply's `suggested_options`.
 - **The app needs no release for release 1.** It draws server chips and posts the tapped label back as text.
 - **App follow-ups** (frontend issue):
@@ -325,6 +331,10 @@ tasks). Release 2 adds the cross-session summary deferred by R19.
 - **Erasure.** The summary lives on `chat_sessions`, which account erasure already removes.
 - **Arming.** Append `profiling_free_summary` to the box's `AI_REAL_CALL_TASKS`. Until then the mock folds nothing,
   so merging first is safe.
+- **Only real calls are stored.** A summary is kept only when `ai_metadata.real_call === true` and `success !== false`;
+  anything else is recorded as `unavailable`.
+- **Known limit.** The last (up to 6) lines of a session never leave the window, so they are not folded and the next
+  session does not see them.
 
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.
