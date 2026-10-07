@@ -143,8 +143,9 @@ NestJS boot assertion).
   `AI_REAL_CALL_TASKS` allowlist to name `companion_classify` and `companion_edit_parse` (P1)
   and `companion_career_answer` (P3). The production box sets its own list, which replaces
   the compose default (#1843), so widening means appending to that list on the box. The
-  profiling-stage free chat's two tasks (`profiling_free_classify`, `profiling_free_reply`,
-  ADR-0051) are appended the same way; see its kill-switch entry below.
+  profiling-stage free chat's three tasks (`profiling_free_classify`, `profiling_free_reply`,
+  ADR-0051, and Release 2's rolling summary `profiling_free_summary`, §8) are appended the same
+  way; see its kill-switch entry below.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
@@ -166,7 +167,8 @@ NestJS boot assertion).
   `true` sends every session straight to today's interview with no greeting and no classifier
   call, byte for byte the pre-ADR-0051 chat. Bridged through the GitHub `production` environment
   secret of the same name (compose `${CHAT_FREE_CHAT_DISABLED:-false}`, `ci.yml` `env:` + `envs:`).
-  The two model tasks it calls (`profiling_free_classify`, `profiling_free_reply`) are armed
+  The three model tasks it calls (`profiling_free_classify`, `profiling_free_reply`, and
+  Release 2's `profiling_free_summary`, whose unarmed mock stores no summary) are armed
   separately, by appending them to the box's `AI_REAL_CALL_TASKS`. No migration.
 - **Matching V1 cutover gate (ADR-0036 §8, #1904)** — `MATCH_V1_ENABLED`, api only
   (`booleanFromString`, default off). Off is the legacy source for the worker feed, apply and the

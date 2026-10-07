@@ -306,6 +306,8 @@ services:
       # (see the allowlist's note on why this file's default does not reach production). The
       # profiling-stage free chat (ADR-0051) is armed the same way, by appending
       # `profiling_free_classify,profiling_free_reply`; unarmed, both answer from their mocks.
+      # Its Release 2 rolling summary (§8) is armed by appending `profiling_free_summary`;
+      # unarmed, its mock returns no summary, so nothing is stored.
       # `:-false` because these bools reject "".
       #
       # THE KNOBS (confidence floor, max rows, proposal TTL, strikes, memory) ARE NOT BRIDGED:

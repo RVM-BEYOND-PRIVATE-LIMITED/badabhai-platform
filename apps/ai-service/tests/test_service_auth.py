@@ -247,6 +247,10 @@ class TestServiceAuthEnabled:
         # POST /free-chat/reply. Both carry worker free text (the message, the question on
         # screen, recent turns), and the reply's answer is served to the worker, so both are
         # gated by the same bearer; the API's validator is the reply's second lock.
+        #
+        # 22 -> 23 with ADR-0051 Release 2 (§8): POST /free-chat/summarize. It carries the
+        # worker's free-chat turns and their rolling summary, so the same bearer gates it; the
+        # API's validation before storing is the summary's second lock.
         assert post_paths == [
             "/companion/career",
             "/companion/classify",
@@ -254,6 +258,7 @@ class TestServiceAuthEnabled:
             "/embeddings/skill-alias",
             "/free-chat/classify",
             "/free-chat/reply",
+            "/free-chat/summarize",
             "/growth/cluster",
             "/job-posting-chat/opening",
             "/job-posting-chat/respond",
