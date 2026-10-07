@@ -78,6 +78,9 @@ export interface RunOnceOptions<T> {
    * Encrypt the stored outcome at rest. Set it on any route whose response carries a credential.
    * Off by default, so adding a route that DOES carry one is a deliberate decision rather than
    * an omission.
+   *
+   * The stored outcome includes an object-form `HttpException` body (replayed verbatim), so a
+   * route whose `work` can throw a body carrying a credential or PII must be `secret` too.
    */
   readonly secret?: boolean;
   /** How long one key's outcome is honoured. Defaults to {@link RequestIdempotency.WINDOW_SECONDS}. */
