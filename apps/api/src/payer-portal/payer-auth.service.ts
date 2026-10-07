@@ -17,8 +17,9 @@ import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "../payers/payers.repository";
-import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
+import { resolveSessionOrgClaim } from "../payers/payer-session-org-claim";
 import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
 import { FreeTierService } from "../match/free-tier.service";
 import type {
@@ -181,13 +182,12 @@ export class PayerAuthService {
         requestId: ctx.requestId,
       });
     }
-    if (!(await this.orgs.resolveOrgForPayer(id))) {
-      await this.orgs.ensureSoloOrg(id);
-    }
+    const org = await this.resolveOrEnsureOrg(id);
     // A synthetic account must be `active` or PayerAuthGuard 403s it on the very next request.
     await this.payers.activate(id);
 
-    const session = await this.sessions.create(id, "employer");
+    // #2079 — the org claim rides the session exactly as on a real login.
+    const session = await this.sessions.create(id, "employer", org);
 
     // NOT `payer.session_started`: a synthetic session must never be indistinguishable from a
     // real login when reading the spine. No idempotencyKey — each mint is a distinct fact.
@@ -224,9 +224,7 @@ export class PayerAuthService {
     // Guarantee the payer's solo org + owner membership (ADR-0027 / B5). Cheap common case
     // (1 read → org already exists via signup or the B5.1 backfill); only a gap payer created
     // BEFORE B5.2 shipped has none, and is repaired here on first login. Idempotent, fail-safe.
-    if (!(await this.orgs.resolveOrgForPayer(account.id))) {
-      await this.orgs.ensureSoloOrg(account.id);
-    }
+    const org = await this.resolveOrEnsureOrg(account.id);
 
     // ADR-0037 — a SUSPENDED payer proves mailbox control but gets no session.
     //
@@ -258,8 +256,10 @@ export class PayerAuthService {
 
     // Carry the role onto the session (ADR-0022) so PayerRoleGuard gates agent-only routes
     // without a DB hit; pre-ADR-0022 sessions (no role) resolve it via the guard's fallback.
-    // (The session `org_id`/`org_role` claim lands with the member API + PayerOrgRoleGuard in B5.3.)
-    const session = await this.sessions.create(account.id, account.role);
+    // #2079 — the member's `org_id`/`org_role` (just resolved from `payer_members`, never a
+    // client value) rides the session as a display hint. The authority stays server-side:
+    // PayerOrgRoleGuard re-reads the CURRENT role on every owner-only request.
+    const session = await this.sessions.create(account.id, account.role, org);
     await this.events.emit({
       event_name: "payer.session_started",
       actor: { actor_type: "payer", actor_id: account.id },
@@ -279,9 +279,14 @@ export class PayerAuthService {
     };
   }
 
-  /** POST /payer/refresh — mint a fresh JWT for the already-validated payer+session. */
+  /**
+   * POST /payer/refresh — mint a fresh JWT for the already-validated payer+session. The #2079
+   * org claim is RE-DECIDED from the current membership (never copied from the old token), so
+   * a refresh after a demotion/removal drops the stale `owner` hint.
+   */
   async refresh(payerId: string, sid: string): Promise<PayerRefreshResponse> {
-    const fresh = await this.sessions.mint(payerId, sid);
+    const org = await resolveSessionOrgClaim(this.orgs, payerId);
+    const fresh = await this.sessions.mint(payerId, sid, undefined, org);
     return {
       access_token: fresh.token,
       token_type: "Bearer",
@@ -295,6 +300,20 @@ export class PayerAuthService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /**
+   * The payer's CURRENT active membership, repairing a gap payer (no org yet) with their solo
+   * org first. The membership is RE-READ after the repair rather than trusting
+   * `ensureSoloOrg`'s return: its owner-member insert is `ON CONFLICT DO NOTHING`, so the
+   * row it would report may not be the row that exists. Returns `undefined` (→ no session
+   * org claim, least privilege) if no active membership resolves even then.
+   */
+  private async resolveOrEnsureOrg(payerId: string): Promise<ResolvedOrg | undefined> {
+    const existing = await this.orgs.resolveOrgForPayer(payerId);
+    if (existing) return existing;
+    await this.orgs.ensureSoloOrg(payerId);
+    return (await this.orgs.resolveOrgForPayer(payerId)) ?? undefined;
+  }
 
   /**
    * Issue + deliver a code for an EXISTING account, reading the canonical stored contact

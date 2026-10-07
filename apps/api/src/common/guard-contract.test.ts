@@ -358,6 +358,8 @@ const CONTRACT: ControllerContract[] = [
     // payer_id is the SESSION payer, the body carries only a pack code / the provider's
     // own ids, and never an amount. They additionally 404 NEUTRALLY while
     // PAYMENTS_ENABLE_REAL is off (the default) — a launch gate, not an auth gate.
+    // #2079: the three credit-PURCHASE routes are org-OWNER-only (method-level
+    // PayerOrgRoleGuard + @OrgRoles("owner")); balance/ledger reads and unlocks stay open.
     name: "PayerUnlocks",
     ctor: PayerUnlocksController,
     routes: {
@@ -366,9 +368,9 @@ const CONTRACT: ControllerContract[] = [
       listOwn: [P],
       ownCredits: [P],
       creditsLedger: [P],
-      buyPack: [P],
-      createOrder: [P],
-      verifyPayment: [P],
+      buyPack: [P, POR],
+      createOrder: [P, POR],
+      verifyPayment: [P, POR],
     },
   },
   // PUBLIC Razorpay capture webhook. It CANNOT carry a session guard — Razorpay's servers
