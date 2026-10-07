@@ -468,6 +468,8 @@ const POSTING_FEED_PROJECTION = [
   "payMax",
   "payMin",
   "payType",
+  // #1961 — `published_at` again, as microsecond text for the keyset cursor. Not a card field.
+  "postedKey",
   "publishedAt",
   "requirements",
   "roleKind",
@@ -479,7 +481,7 @@ const MSKILL_A = "mskill_vmc_operator";
 const MSKILL_B = "mskill_cnc_turner";
 
 describe("#1823 findOpenPostingsForFeed — the projection is the card, and only the card", () => {
-  it("projects EXACTLY the card columns plus id and published_at", async () => {
+  it("projects EXACTLY the card columns plus id, published_at and its keyset text", async () => {
     const { repo, captured } = makeDb();
     await repo.findOpenPostingsForFeed(WORKER, 50, { wantedSkillIds: [] });
     // Vacuity guard: an explicit selection was passed at all (a bare select() is `undefined`).

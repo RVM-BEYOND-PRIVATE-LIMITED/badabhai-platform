@@ -29,6 +29,7 @@ function feedRow(
     matchedSkillId: skill,
     boosted: false,
     publishedAt: new Date("2026-10-01T09:00:00.000Z"),
+    publishedKey: "2026-10-01T09:00:00.000000Z",
     roleTitle: `Role ${id.slice(-1)}`,
     city: "Pune",
     area: null,

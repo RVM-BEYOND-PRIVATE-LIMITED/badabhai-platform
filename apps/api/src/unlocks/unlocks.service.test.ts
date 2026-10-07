@@ -102,6 +102,8 @@ function setup(opts: SetupOpts = {}) {
       return owned && owned.payerId === payerId ? { kind: owned.kind, id: refId } : null;
     }),
     listByPayer: vi.fn(async () => []),
+    // #2033: the payer route's status-filtered read.
+    listByPayerWithStatus: vi.fn(async (): Promise<unknown[]> => []),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
     // pre-lock consent check fires in the reveal tests.
@@ -620,21 +622,49 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     expect(t.txMethods.recordDeny).not.toHaveBeenCalled();
   }
 
-  const allowed: { who: string; payer: string; ref: string | null; stored: string | null }[] = [
-    { who: "agent · own jobs row (kept)", payer: AGENT, ref: AGENT_JOB, stored: AGENT_JOB },
-    { who: "agent · own pre-#1969 posting (stored null)", payer: AGENT, ref: AGENT_OLD_POSTING, stored: null },
-    { who: "agent · null", payer: AGENT, ref: null, stored: null },
-    { who: "employer · own posting (stored null)", payer: EMPLOYER, ref: EMPLOYER_POSTING, stored: null },
-    { who: "employer · null", payer: EMPLOYER, ref: null, stored: null },
+  // `stored` is `job_id`; `posting` is #2033's `job_posting_id` — at most one is set.
+  const allowed: {
+    who: string;
+    payer: string;
+    ref: string | null;
+    stored: string | null;
+    posting: string | null;
+  }[] = [
+    { who: "agent · own jobs row (kept)", payer: AGENT, ref: AGENT_JOB, stored: AGENT_JOB, posting: null },
+    {
+      who: "agent · own pre-#1969 posting (job_id null, posting kept)",
+      payer: AGENT,
+      ref: AGENT_OLD_POSTING,
+      stored: null,
+      posting: AGENT_OLD_POSTING,
+    },
+    { who: "agent · null", payer: AGENT, ref: null, stored: null, posting: null },
+    {
+      who: "employer · own posting (job_id null, posting kept)",
+      payer: EMPLOYER,
+      ref: EMPLOYER_POSTING,
+      stored: null,
+      posting: EMPLOYER_POSTING,
+    },
+    { who: "employer · null", payer: EMPLOYER, ref: null, stored: null, posting: null },
   ];
 
-  it.each(allowed)("$who → grants", async ({ payer, ref, stored }) => {
+  it.each(allowed)("$who → grants", async ({ payer, ref, stored, posting }) => {
     const { t, out } = await unlockAs(payer, ref);
     expect(out).toMatchObject({ ok: true, status: "granted" });
     expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ payerId: payer, jobId: stored }),
+      expect.objectContaining({ payerId: payer, jobId: stored, jobPostingId: posting }),
     );
+    // #2033: the posting id is ROW-ONLY — no event carries it, and job_id on the spine stays
+    // the `jobs` context (event schemas are never mutated).
+    const payloads = JSON.stringify(t.events.emit.mock.calls.map((c) => c[0]));
+    if (posting !== null) expect(payloads).not.toContain(posting);
+    for (const call of t.events.emit.mock.calls) {
+      const payload = (call[0] as { payload: Record<string, unknown> }).payload;
+      expect(payload).not.toHaveProperty("job_posting_id");
+      if ("job_id" in payload) expect(payload.job_id).toBe(stored);
+    }
     if (ref === null) expect(t.repo.findOwnedJobRef).not.toHaveBeenCalled();
     else expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
     // The ownership read replaces the #1903 existence read on this route.
@@ -688,6 +718,18 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     expectNothingHappened(t);
   });
 
+  it("#2033 — a deny on an owned posting records the posting context on the deny row", async () => {
+    const { t, out } = await unlockAs(EMPLOYER, EMPLOYER_POSTING, {
+      ...consented,
+      consentPurposes: ["profiling"], // worker exists, no employer_sharing → no_consent deny
+    });
+    expect(out).toEqual(neutralUnavailable());
+    expect(t.txMethods.recordDeny).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: null, jobPostingId: EMPLOYER_POSTING, denyReason: "no_consent" }),
+    );
+  });
+
   it("the ops default ('normalise') is unchanged: no ownership read, an unknown id stores null", async () => {
     const t = setup({ ...consented, jobRowExists: false });
     const out = await t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: UNKNOWN }, CTX);
@@ -695,8 +737,75 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     expect(t.repo.findOwnedJobRef).not.toHaveBeenCalled();
     expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ jobId: null }),
+      expect.objectContaining({ jobId: null, jobPostingId: null }),
     );
+  });
+});
+
+describe("UnlockService.listOwnForPayer — #2033 payer-visible states only, expiry derived", () => {
+  const NOW = new Date("2026-10-06T12:00:00.000Z");
+  const PAST = new Date("2026-10-06T11:59:59.999Z");
+  const FUTURE = new Date("2026-10-20T12:00:00.000Z");
+  const row = (id: string, status: string, expiresAt: Date | null) => ({
+    unlock_id: id,
+    payer_id: PAYER,
+    worker_id: WORKER,
+    job_id: null,
+    job_posting_id: null,
+    status,
+    reveal_count: 0,
+    granted_at: null,
+    expires_at: expiresAt,
+    created_at: NOW,
+  });
+
+  it("asks the repository for ONLY the stored payer-visible statuses (filtered in SQL)", async () => {
+    const t = setup();
+    await t.svc.listOwnForPayer(PAYER, NOW);
+    expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(PAYER, ["granted", "revealed", "expired"]);
+    expect(t.repo.listByPayer).not.toHaveBeenCalled();
+  });
+
+  it("derives expired from expires_at, keeps live states, and drops anything internal", async () => {
+    const t = setup();
+    t.repo.listByPayerWithStatus.mockResolvedValueOnce([
+      row("live-granted", "granted", FUTURE),
+      row("lapsed-granted", "granted", PAST),
+      row("boundary-granted", "granted", NOW), // expires_at == now is NOT live (grant uses `>`)
+      row("live-revealed", "revealed", FUTURE),
+      row("lapsed-revealed", "revealed", PAST),
+      row("stored-expired", "expired", FUTURE),
+      // Defence in depth: even if the SQL filter regressed, these never leave the service.
+      row("denied", "denied", null),
+      row("requested", "requested", null),
+    ]);
+    const { unlocks } = await t.svc.listOwnForPayer(PAYER, NOW);
+    expect(unlocks.map((u) => [u.unlock_id, u.status])).toEqual([
+      ["live-granted", "granted"],
+      ["lapsed-granted", "expired"],
+      ["boundary-granted", "expired"],
+      ["live-revealed", "revealed"],
+      ["lapsed-revealed", "expired"],
+      ["stored-expired", "expired"],
+    ]);
+    for (const u of unlocks) expect(["granted", "revealed", "expired", "revoked"]).toContain(u.status);
+  });
+
+  it("passes the posting context through untouched", async () => {
+    const t = setup();
+    const posting = "e3900000-0000-4000-8000-0000000000e1";
+    t.repo.listByPayerWithStatus.mockResolvedValueOnce([
+      { ...row("u", "granted", FUTURE), job_posting_id: posting },
+    ]);
+    const { unlocks } = await t.svc.listOwnForPayer(PAYER, NOW);
+    expect(unlocks[0]).toMatchObject({ job_id: null, job_posting_id: posting });
+  });
+
+  it("the ops list (listByPayer) is unchanged — no status filter, no derivation", async () => {
+    const t = setup();
+    await t.svc.listByPayer(PAYER);
+    expect(t.repo.listByPayer).toHaveBeenCalledWith(PAYER);
+    expect(t.repo.listByPayerWithStatus).not.toHaveBeenCalled();
   });
 });
 

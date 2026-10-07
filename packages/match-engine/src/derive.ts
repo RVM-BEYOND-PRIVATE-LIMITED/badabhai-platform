@@ -16,6 +16,7 @@
  * level skill gets `[]` — no reach. We never fabricate a skill to give a man a feed.
  */
 import {
+  isMatchSkillId,
   matchSkillForRole,
   matchSkillIndustry,
   matchSkillsForAttribute,
@@ -40,6 +41,11 @@ export interface DeriveWorkerSkillsInput {
   additionalRoleIds?: readonly string[];
   /** Canonical corpus (`skill_*`) attribute ids on the worker profile. */
   profileSkills?: readonly string[];
+  /**
+   * PACK-ONLY match skills his own pack answers name directly (#2022) — the trades with no role and
+   * no corpus id to bridge through. Closed-set: anything that is not a `MatchSkillId` is dropped.
+   */
+  matchSkillIds?: readonly string[];
   /** The worker's estimated TOTAL experience, in years. `null` when unknown. */
   totalYears?: number | null;
 }
@@ -50,6 +56,7 @@ export interface DeriveWorkerSkillsInput {
  * SET   = `ROLE_TO_MATCH_SKILL[canonicalRoleId]` (if any)
  *       ∪ `ROLE_TO_MATCH_SKILL[r]` for every declared secondary role id `r` (Layer A (f))
  *       ∪ `ATTRIBUTE_TO_MATCH_SKILLS[s]` for every corpus attribute `s`
+ *       ∪ every pack-only `mskill_*` his pack answers name (#2022), closed-set checked
  * MONTHS= `bucketMonths(totalYears)` — identically on every row (the coarse rule)
  * WANTS = `true` — the launch default; a worker who says otherwise flips the row
  * DATES = `null` — we do not know the stints yet, so we do not claim them
@@ -73,6 +80,10 @@ export function deriveWorkerSkills(
   for (const attribute of input.profileSkills ?? []) {
     if (typeof attribute !== "string") continue;
     for (const derived of matchSkillsForAttribute(attribute)) skillIds.add(derived);
+  }
+
+  for (const direct of input.matchSkillIds ?? []) {
+    if (isMatchSkillId(direct)) skillIds.add(direct);
   }
 
   if (skillIds.size === 0) return [];
@@ -136,6 +147,7 @@ export function workerSkillDeriveInput(
     evidence.profile === null &&
     pack.corpusSkillIds.length === 0 &&
     pack.roleIds.length === 0 &&
+    pack.matchSkillIds.length === 0 &&
     evidence.secondaryRoleIds.length === 0
   ) {
     return null;
@@ -150,6 +162,8 @@ export function workerSkillDeriveInput(
     profileSkills: [
       ...new Set([...(evidence.profile?.profileSkills ?? []), ...pack.corpusSkillIds]),
     ].sort(),
+    // Pack-only skills (#2022) have no other source, so there is nothing to union with.
+    matchSkillIds: pack.matchSkillIds,
     totalYears: evidence.profile?.totalYears ?? null,
   };
 }

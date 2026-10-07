@@ -263,6 +263,13 @@ export interface AdminPayerDetail extends AdminPayerListItem {
 export interface AdminJobPostingListItem {
   id: string;
   payer_id: string | null;
+  /**
+   * The role of the payer behind \`payer_id\` (\`payers.role\`), so the admin UI can link straight
+   * to the Companies (\`employer\`) or Agencies (\`agent\`) page (#2032). Additive. \`null\` when
+   * \`payer_id\` resolves to no \`payers\` row — the column carries no FK (faceless rails), so a
+   * legacy opaque id can be orphaned.
+   */
+  payer_role: PayerRole | null;
   org_label: string;
   role_title: string;
   location_label: string | null;

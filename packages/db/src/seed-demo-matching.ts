@@ -70,11 +70,10 @@ import {
   type MatchConfig,
 } from "@badabhai/match-engine";
 import {
-  ATTRIBUTE_TO_MATCH_SKILLS,
-  PACK_ANSWER_SKILLS,
   ROLE_TO_MATCH_SKILL,
   matchSkillIndustry,
   matchSkillLabel,
+  packReachableMatchSkills,
 } from "@badabhai/taxonomy";
 import {
   CURRENT_CONSENT_VERSION,
@@ -1028,24 +1027,13 @@ export const FORM_KIND_PACK: Readonly<Record<TradeFormKindName, string>> = {
 
 /**
  * The match skills a FULLY-answered form for this pack can derive: every id the taxonomy's
- * `PACK_ANSWER_SKILLS` can emit for it, through the same two bridges `deriveWorkerSkills` uses.
+ * `PACK_ANSWER_SKILLS` can emit for it, routed exactly as `deriveWorkerSkills` routes it.
  * An upper bound — a real worker derives the subset his chips claim.
  */
 export function formReachableSkills(packId: string): string[] {
-  const out = new Set<string>();
-  for (const options of Object.values(PACK_ANSWER_SKILLS[packId] ?? {})) {
-    for (const ids of Object.values(options)) {
-      for (const id of ids) {
-        if (id.startsWith("role_")) {
-          const viaRole = ROLE_TO_MATCH_SKILL[id as keyof typeof ROLE_TO_MATCH_SKILL];
-          if (viaRole !== undefined) out.add(viaRole);
-        } else {
-          for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) out.add(m);
-        }
-      }
-    }
-  }
-  return [...out].sort();
+  // The taxonomy's own resolver: it routes role, attribute AND pack-only (`mskill_*`, #2022) ids
+  // exactly as `deriveWorkerSkills` does, so this report cannot drift from the derivation.
+  return packReachableMatchSkills(packId);
 }
 
 /**

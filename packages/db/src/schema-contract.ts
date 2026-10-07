@@ -765,13 +765,32 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "(column does not exist). Old builds on a migrated database are fine (a superset); new " +
       "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
-  // 0132: ADR-0050 §4.1 — the agency job's explicit match input and the twin marker.
+  // 0132: the company-posting context of an unlock (#2033). Unconditional — no flag — because
+  // `unlocks` is read through bare `select()` / `.returning()`, which name every model column.
+  // The FK is applied in the same transaction as the column, so the column answers for it.
+  {
+    id: "0132-unlocks-job-posting-id",
+    migration: "0132_unlocks_job_posting_id",
+    kind: "column",
+    table: "unlocks",
+    object: "job_posting_id",
+    requiredBy:
+      "UnlocksRepository's bare `select()` / `.returning()` (findByPayerWorker, findByIdForUpdate, " +
+      "upsertGrant, recordDeny, listByPayer, listByPayerWithStatus, getProjection) — every unlock " +
+      "request, reveal and unlock list, ops and payer",
+    failureMode:
+      "every contact-unlock route 500s (column does not exist): POST /payer/unlocks, the reveal, " +
+      "GET /payer/unlocks and the ops /unlocks routes. Old builds on a migrated database are fine " +
+      "(a superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  // 0133 (renumbered from 0132 behind #2059): ADR-0050 §4.1 — the agency job's explicit match input and the twin marker.
   // Unconditional — no flag — for the same reason as 0131: bare `select()` / `.returning()` name
   // every model column. The three CHECKs ride in the same transaction as the columns, so the
   // columns answer for them. APPLY-BEFORE-DEPLOY (migration header).
   {
-    id: "0132-jobs-match-skill-ids",
-    migration: "0132_agency_twin_match_skills",
+    id: "0133-jobs-match-skill-ids",
+    migration: "0133_agency_twin_match_skills",
     kind: "column",
     table: "jobs",
     object: "match_skill_ids",
@@ -785,8 +804,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
   {
-    id: "0132-job-postings-sync-source",
-    migration: "0132_agency_twin_match_skills",
+    id: "0133-job-postings-sync-source",
+    migration: "0133_agency_twin_match_skills",
     kind: "column",
     table: "job_postings",
     object: "sync_source",

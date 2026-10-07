@@ -1,5 +1,9 @@
 -- ===========================================================================
--- 0132 - jobs.match_skill_ids + job_postings.sync_source (ADR-0050 §4.1, #1957 step 1)
+-- 0133 - jobs.match_skill_ids + job_postings.sync_source (ADR-0050 §4.1, #1957 step 1)
+--
+-- RENUMBERED 0132 -> 0133 (slot collision with 0132_unlocks_job_posting_id, #2059). The
+-- statements below are byte-identical to the ones the owner applied to production by hand
+-- (2026-10-06); only this header and the file name changed.
 --
 -- PURELY ADDITIVE. Two columns and three CHECKs. Nothing existing is altered, dropped or
 -- rewritten, and nothing is backfilled beyond the column default.
@@ -37,7 +41,7 @@
 -- A build carrying this change against a database without the columns 500s all of them
 -- ("column match_skill_ids / sync_source does not exist"). An OLD build on a migrated database
 -- is fine (a superset; the jobs default fills every INSERT that does not name the column).
--- Registered as `0132-jobs-match-skill-ids` and `0132-job-postings-sync-source` in
+-- Registered as `0133-jobs-match-skill-ids` and `0133-job-postings-sync-source` in
 -- `schema-contract.ts`; run `pnpm --filter @badabhai/db db:audit:schema-contract` first.
 --
 -- LOCKS. Postgres 11+ stores a constant `ADD COLUMN ... DEFAULT` in the catalog (no table

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 
 from ..ai.canonicalize import SkillCanonicalStore, canonicalize_labels
 from ..certified_values import certified_items, certified_scalar
@@ -27,7 +26,7 @@ from ..contracts import (
 )
 from ..logging_config import get_logger
 from ..output_floor import carries_hard_identifier, floored_items
-from ..pseudonymize import certified_clean_skill_labels
+from ..pseudonymize import certified_clean_skill_labels, has_control_character
 from . import signals
 from .canonical_roles import ROLE_TRADE, coerce_json_text, normalize_role_id
 from .signals import Signals
@@ -642,10 +641,6 @@ def sanitize_skill_labels(labels: list[str]) -> list[str]:
     )
 
 
-def _has_control_char(value: str) -> bool:
-    return any(unicodedata.category(ch) == "Cc" for ch in value)
-
-
 def certify_model_labels(draft: WorkerProfileDraft) -> tuple[WorkerProfileDraft, int]:
     """``draft`` with every free-text label it stores certified, plus how many were withheld
     (#1788).
@@ -659,10 +654,12 @@ def certify_model_labels(draft: WorkerProfileDraft) -> tuple[WorkerProfileDraft,
     `education_level` / `education_field` are certified by the route already (#1739).
 
     A CONTROL CHARACTER WITHHOLDS FIRST. The profile's lists are clamped (C0 and DEL stripped)
-    before they are certified, and neither the gateway nor the G1 floor sees through one:
-    "9876\\x00543210" certifies clean. Certifying the raw draft value would store exactly what the
-    profile withheld, so a value carrying a control character (Unicode Cc: C0, DEL, C1) is
-    withheld outright. No clean label carries one.
+    before they are certified, and no gateway rule sees through one: on main "9876\\x00543210"
+    certified clean. Certifying the raw draft value would store exactly what the profile
+    withheld, so a value carrying a control character (Unicode Cc: C0, DEL, C1) is withheld
+    outright. No clean label carries one. Since #1984 the certifier itself withholds such a
+    value too (`pseudonymize.has_control_character`); this check stays as defense in depth and
+    keeps the withheld count exact.
 
     WITHHELD MEANS ABSENT: a failing entry is dropped and a failing `primary_role` becomes None,
     never masked text. A list whose every entry fails is stored empty, not refilled from the
@@ -676,11 +673,11 @@ def certify_model_labels(draft: WorkerProfileDraft) -> tuple[WorkerProfileDraft,
     withheld = 0
     for field in MODEL_LABEL_LIST_FIELDS:
         values: list[str] = getattr(draft, field)
-        kept = certified_items([value for value in values if not _has_control_char(value)])
+        kept = certified_items([value for value in values if not has_control_character(value)])
         withheld += len(values) - len(kept)
         update[field] = kept
     role = draft.primary_role
-    role = None if role is None or _has_control_char(role) else certified_scalar(role)
+    role = None if role is None or has_control_character(role) else certified_scalar(role)
     if draft.primary_role is not None and role is None:
         withheld += 1
     update["primary_role"] = role
@@ -693,8 +690,12 @@ def certify_model_labels(draft: WorkerProfileDraft) -> tuple[WorkerProfileDraft,
 
 def clamp_skill_labels(labels: list[str]) -> list[str]:
     """Hygiene-clamp raw skill labels for ``DraftProfile.skill_labels`` (Q14):
-    strip control chars, trim, drop empties, drop over-length (> 80 chars),
-    case-insensitive dedupe (first casing wins), cap at 20 labels."""
+    strip C0 control chars and DEL, trim, drop empties, drop over-length (> 80 chars),
+    case-insensitive dedupe (first casing wins), cap at 20 labels.
+
+    C1 (``\\x80-\\x9f``) is deliberately NOT stripped here: a label still carrying one is
+    WITHHELD by `certified_clean_skill_labels` (#1984), which is the fail-closed direction —
+    stripping would splice "W\\x85elding" into a word the certifier never saw typed."""
     out: list[str] = []
     seen: set[str] = set()
     for raw in labels:

@@ -318,13 +318,15 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `GET /payer/unlocks`
 - **Auth:** `PayerAuthGuard` (Bearer).
-- **Query:** `?limit=` (clamped 1–500, default 100).
-- **Response:** `{ unlocks: [{ unlock_id, payer_id, worker_id, job_id|null, status: 'granted'|'revealed'|'expired'|'revoked', reveal_count, granted_at, expires_at, created_at }] }`.
-- **Mobile gotchas:** PII-free routing records only — opaque IDs, no names/phones.
+- **Query:** none (corrected 2026-10-06 — the route never read a `limit`). Newest first, capped at 500 rows.
+- **Response:** `{ unlocks: [{ unlock_id, payer_id, worker_id|null, job_id|null, job_posting_id|null, status: 'granted'|'revealed'|'expired'|'revoked', reveal_count, granted_at, expires_at, created_at }] }`.
+- **Status (#2033):** only payer-visible rows are listed — internal attempt/deny rows never are. `expired` is **derived**: a `granted`/`revealed` row whose `expires_at` is at or before the server's now reads `expired`. `revoked` is in the contract but nothing emits it today.
+- **Context (#2033):** `job_id` is an agency `jobs` id; `job_posting_id` (additive, migration 0132) is the owned company posting the unlock was made from. At most one is set; both are `null` for search, the ops route, and rows written before 0132.
+- **Mobile gotchas:** PII-free routing records only — opaque IDs, no names/phones. `worker_id` is `null` after a worker's DSAR deletion.
 
 #### `POST /payer/unlocks`
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly disclosure cap.
-- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context and must be `null` or a job / posting the **session payer owns** (#1899): an owned `jobs` id (agency vacancy) is stored; an owned company posting's id is accepted and stored as `null` (#1903). An unknown or another payer's id gets the neutral `200 { status: 'unavailable' }` body — byte-identical to every other deny — with nothing emitted, debited or written. A malformed id is a `400` (syntax only).
+- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context and must be `null` or a job / posting the **session payer owns** (#1899): an owned `jobs` id (agency vacancy) is stored; an owned company posting's id is accepted, stored as `job_id: null` (#1903) and kept as `job_posting_id` (#2033, migration 0132; row-only — no event carries it). An unknown or another payer's id gets the neutral `200 { status: 'unavailable' }` body — byte-identical to every other deny — with nothing emitted, debited or written. A malformed id is a `400` (syntax only).
 - **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases).
 - **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
@@ -447,6 +449,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `GET /admin/job-postings/:id`
 - **Auth:** `AdminAuthGuard` + capability `read_entities`. Never called by the payer app.
 - **Response (`AdminJobPostingDetail`, snake_case):** the list fields plus `description`, `shift`, `needed_by`, `boosted_until`, `previous_status`, `applied_count`, `skipped_count`, `updated_at`, and — **added 2026-09-29** — `area`, `min_experience_years`, `max_experience_years`, `pay_type`, `requirements`, `benefits`, `role_kind`. Every one is a nullable, PII-free card field the owning payer already reads back; `role_kind` is returned **raw** (the admin UI labels it with `jobRoleLabel()` and shows the raw id when it is not one of the 21). Explicit column select — never a bare `select()`.
+- **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders`. It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null`.
 
 ---
 

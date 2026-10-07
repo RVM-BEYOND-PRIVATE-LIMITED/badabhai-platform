@@ -163,6 +163,7 @@ import {
   TURN_KINDS,
   toEngineState,
   withAnswers,
+  withLlmDraftSettlement,
   type LastTurn,
   type ProfilingEnvelope,
   type TurnKind,
@@ -2300,6 +2301,7 @@ export class ProfilingOrchestrator {
         // that Phase A never got to test — filling in an answer for an interview that never
         // happened. Zero led turns means zero settlement, and the pack asks the questions.
         if (next.llmLedTurns > 0) {
+          const beforeSettle = answers;
           answers = settleFromLlmDraft(
             answers,
             next.llmDraft,
@@ -2307,7 +2309,7 @@ export class ProfilingOrchestrator {
             items,
             turn,
           );
-          next = withAnswers(next, answers);
+          next = withLlmDraftSettlement(next, beforeSettle, answers);
           // COUNTS ONLY — no draft text, no transcript, no worker identity beyond the session
           // (§3 Privacy First). This is the line that separates "the model was never there" from
           // "the model left mid-interview", which is the distinction the fallback EVENT cannot
@@ -2417,6 +2419,7 @@ export class ProfilingOrchestrator {
           // `done` and fallback branches do anyway. Doing it BEFORE the pause is what keeps
           // a decline from walking back into a re-ask of the trade the conversation just
           // named; the accept path settles again idempotently.
+          const beforeSettle = answers;
           answers = settleFromLlmDraft(
             answers,
             next.llmDraft,
@@ -2424,7 +2427,7 @@ export class ProfilingOrchestrator {
             items,
             turn,
           );
-          next = withAnswers(next, answers);
+          next = withLlmDraftSettlement(next, beforeSettle, answers);
           next = {
             ...next,
             formOfferPrompt: { kind: formKind, state: "pending" },
@@ -2497,6 +2500,7 @@ export class ProfilingOrchestrator {
         // `done` — Phase A is over. What the model gathered becomes ANSWERS before the engine is
         // consulted, or the template tail opens by asking a worker their trade immediately after
         // a conversation that was largely about it.
+        const beforeSettle = answers;
         answers = settleFromLlmDraft(
           answers,
           next.llmDraft,
@@ -2504,7 +2508,7 @@ export class ProfilingOrchestrator {
           items,
           turn,
         );
-        next = withAnswers(next, answers);
+        next = withLlmDraftSettlement(next, beforeSettle, answers);
         // FALL THROUGH so the engine serves the template pack's first question on THIS turn:
         // returning the model's closing words here would cost the worker a round trip to see a
         // bubble with no question in it.
@@ -3567,7 +3571,8 @@ export class ProfilingOrchestrator {
       items,
       turn,
     );
-    let next = withAnswers(envelope, settled);
+    // #2021 — stamps `llmDraftSettled`; this settlement is unguarded by `llmLedTurns`.
+    let next = withLlmDraftSettlement(envelope, answers, settled);
     next = {
       ...next,
       formKind,
@@ -4050,16 +4055,20 @@ export class ProfilingOrchestrator {
     outcome: SkillsStageOutcome,
     excludeFromParse: boolean,
   ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
-    const settled = forgetExperienceYears(
-      settleFromLlmDraft(
-        answers,
-        { ...envelope.llmDraft, skills: [], experiences: [] },
-        envelope.occupation?.label ?? null,
-        items,
-        turn,
-      ),
+    const settledRaw = settleFromLlmDraft(
+      answers,
+      { ...envelope.llmDraft, skills: [], experiences: [] },
+      envelope.occupation?.label ?? null,
+      items,
+      turn,
     );
-    let next = withAnswers(envelope, settled);
+    const settled = forgetExperienceYears(settledRaw);
+    // #2021 — `llmDraftSettled` is read off the settlement's own output, before the years are
+    // forgotten, so a write the forget step then reshapes still counts.
+    let next = {
+      ...withAnswers(envelope, settled),
+      llmDraftSettled: withLlmDraftSettlement(envelope, answers, settledRaw).llmDraftSettled,
+    };
     next = {
       ...next,
       generalRoad: { ...next.generalRoad, gateOpen: false, outcome, handedOver: true },

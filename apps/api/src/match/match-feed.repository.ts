@@ -12,6 +12,12 @@ export interface MatchFeedRow {
   matchedSkillId: string;
   boosted: boolean;
   publishedAt: Date | null;
+  /**
+   * #1961 — `published_at` as microsecond UTC text (`2099-01-05T00:00:00.000000Z`), or null.
+   * The keyset value a `next_cursor` carries; `publishedAt` (a millisecond `Date`) cannot be
+   * one. Never on the card.
+   */
+  publishedKey: string | null;
   roleTitle: string;
   city: string | null;
   // Worker-visible card content (#1561, migration 0116). All nullable — a posting created
@@ -66,6 +72,20 @@ export interface MatchFeedFilters {
   shift?: string;
   /** Minimum monthly pay the worker will consider. OFF unless he sets it. */
   payMin?: number;
+}
+
+/**
+ * #1961 — one row's position in {@link MatchFeedRepository.listFeed}'s ORDER BY:
+ * `(boosted_until > now()) DESC, match_tier ASC, published_at DESC NULLS LAST, id ASC`.
+ * `boosted` is the bucket the row was SERVED in; the read after it compares against the boost
+ * state at ITS `now()` (see `keysetAfter`).
+ */
+export interface MatchFeedKey {
+  boosted: boolean;
+  matchTier: 1 | 2;
+  /** Microsecond UTC text, or null for an unpublished row (sorts last in its tier). */
+  publishedKey: string | null;
+  id: string;
 }
 
 /** One applicant row for the payer's candidate list, in rank order. */
@@ -151,6 +171,7 @@ export class MatchFeedRepository {
     workerId: string,
     limit: number,
     filters: MatchFeedFilters,
+    after?: MatchFeedKey,
   ): Promise<MatchFeedRow[]> {
     const rows = await this.db.execute<{
       job_posting_id: string;
@@ -159,6 +180,7 @@ export class MatchFeedRepository {
       matched_skill_id: string;
       boosted: boolean;
       published_at: Date | null;
+      published_key: string | null;
       role_title: string;
       city: string | null;
       area: string | null;
@@ -180,6 +202,8 @@ export class MatchFeedRepository {
              jr.matched_skill_id                          AS matched_skill_id,
              (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) AS boosted,
              jp.published_at                              AS published_at,
+             to_char(jp.published_at AT TIME ZONE 'UTC',
+                     'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')     AS published_key,
              jp.role_title                                AS role_title,
              jp.city                                      AS city,
              jp.area                                      AS area,
@@ -214,6 +238,7 @@ export class MatchFeedRepository {
         -- still see an 18000-25000 job — it can pay him what he asked.
         AND (${filters.payMin ?? null}::int IS NULL OR jp.pay_max IS NULL
              OR jp.pay_max >= ${filters.payMin ?? null}::int)
+        ${after === undefined ? dsql`` : dsql`AND ${keysetAfter(after)}`}
       ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC,
                jr.match_tier ASC,
                jp.published_at DESC NULLS LAST,
@@ -228,6 +253,7 @@ export class MatchFeedRepository {
       matched_skill_id: string;
       boosted: boolean;
       published_at: Date | string | null;
+      published_key: string | null;
       role_title: string;
       city: string | null;
       area: string | null;
@@ -251,6 +277,7 @@ export class MatchFeedRepository {
       matchedSkillId: r.matched_skill_id,
       boosted: Boolean(r.boosted),
       publishedAt: r.published_at === null ? null : new Date(r.published_at),
+      publishedKey: r.published_key,
       roleTitle: r.role_title,
       city: r.city,
       area: r.area,
@@ -379,4 +406,32 @@ export class MatchFeedRepository {
       matchedSkillId: r.matched_skill_id,
     }));
   }
+}
+
+/**
+ * #1961 — "strictly after `after`" in the feed's ORDER BY, one clause per key, most significant
+ * first. The boost bucket is the LIVE expression, so a row whose boost changed between two page
+ * reads is placed by its state now: one that LOST its boost after being served lands after the
+ * cursor and is RE-SERVED; one that GAINED a boost while the cursor sits in the unboosted bucket
+ * lands before it and is not reached on this scroll (it heads the next first page). ADR-0052.
+ *
+ *   boosted bucket      unboosted rows come after a boosted cursor
+ *   match_tier ASC      a higher tier comes after
+ *   published_at DESC   NULLS LAST: an older or unpublished row comes after
+ *   id ASC              the total-order tail
+ */
+function keysetAfter(after: MatchFeedKey) {
+  const boosted = dsql`(jp.boosted_until IS NOT NULL AND jp.boosted_until > now())`;
+  const id = dsql`${after.id}::uuid`;
+  const t = after.publishedKey === null ? null : dsql`${after.publishedKey}::timestamptz`;
+  const sameTierAfter =
+    t === null
+      ? dsql`(jp.published_at IS NULL AND jp.id > ${id})`
+      : dsql`(jp.published_at IS NULL OR jp.published_at < ${t}
+              OR (jp.published_at = ${t} AND jp.id > ${id}))`;
+  const sameBucketAfter = dsql`(jr.match_tier > ${after.matchTier}::int
+              OR (jr.match_tier = ${after.matchTier}::int AND ${sameTierAfter}))`;
+  return after.boosted
+    ? dsql`(NOT ${boosted} OR ${sameBucketAfter})`
+    : dsql`(NOT ${boosted} AND ${sameBucketAfter})`;
 }
