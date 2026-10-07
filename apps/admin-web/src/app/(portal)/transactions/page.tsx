@@ -7,10 +7,10 @@ import {
   formatRupees,
   formatTimestamp,
   packCodeLabel,
-  shortId,
 } from "../../../lib/format";
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
 import { StatusPill } from "../../../components/status-pill";
+import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
@@ -260,9 +260,7 @@ export default async function TransactionsPage({
                       </time>
                     </td>
                     <td>
-                      <Link className="link mono" href={`/companies/${o.payer_id}`}>
-                        {shortId(o.payer_id)}
-                      </Link>
+                      <CustomerLink payerId={o.payer_id} payerRole={o.payer_role} />
                     </td>
                     <td>{packCodeLabel(o.pack_code)}</td>
                     <td className="mono ui-num">{formatRupees(o.amount_inr)}</td>
