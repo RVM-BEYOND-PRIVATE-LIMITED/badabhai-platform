@@ -1,5 +1,5 @@
 {
-  "id": "62c8bade-9931-4740-bfe2-60f9dc6fc445",
+  "id": "0f3ce855-3974-4f6e-9e95-c01e9293d9a3",
   "prevId": "d9a67c2b-93bb-470c-86b3-c569a477a6fc",
   "version": "7",
   "dialect": "postgresql",
@@ -8264,12 +8264,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "sync_source": {
-          "name": "sync_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -8548,14 +8542,6 @@
         "job_postings_role_kind_chk": {
           "name": "job_postings_role_kind_chk",
           "value": "\"job_postings\".\"role_kind\" IS NULL OR \"job_postings\".\"role_kind\" IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')"
-        },
-        "job_postings_sync_source_chk": {
-          "name": "job_postings_sync_source_chk",
-          "value": "\"job_postings\".\"sync_source\" IS NULL OR \"job_postings\".\"sync_source\" = 'agency_job'"
-        },
-        "job_postings_twin_owner_chk": {
-          "name": "job_postings_twin_owner_chk",
-          "value": "\"job_postings\".\"sync_source\" IS NULL OR (\"job_postings\".\"source_job_id\" IS NOT NULL AND \"job_postings\".\"payer_id\" IS NULL)"
         }
       },
       "isRLSEnabled": true
@@ -8680,13 +8666,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "match_skill_ids": {
-          "name": "match_skill_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -8820,10 +8799,6 @@
         "jobs_role_kind_chk": {
           "name": "jobs_role_kind_chk",
           "value": "\"jobs\".\"role_kind\" IS NULL OR \"jobs\".\"role_kind\" IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')"
-        },
-        "jobs_match_skill_ids_array_chk": {
-          "name": "jobs_match_skill_ids_array_chk",
-          "value": "jsonb_typeof(\"jobs\".\"match_skill_ids\") = 'array'"
         }
       },
       "isRLSEnabled": true
@@ -10844,6 +10819,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "job_posting_id": {
+          "name": "job_posting_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -10970,6 +10951,19 @@
           "tableTo": "jobs",
           "columnsFrom": [
             "job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "unlocks_job_posting_id_job_postings_id_fk": {
+          "name": "unlocks_job_posting_id_job_postings_id_fk",
+          "tableFrom": "unlocks",
+          "tableTo": "job_postings",
+          "columnsFrom": [
+            "job_posting_id"
           ],
           "columnsTo": [
             "id"

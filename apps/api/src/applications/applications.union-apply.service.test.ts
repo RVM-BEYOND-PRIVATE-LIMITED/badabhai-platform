@@ -69,7 +69,7 @@ function setup(
     emit: vi.fn(async (p: Record<string, unknown>) => p),
     emitMany: vi.fn(async (l: unknown[]) => l),
   };
-  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [] })) };
+  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [], next: null })) };
   const matchApply = {
     buildSnapshot: vi.fn(async () => SNAPSHOT),
     trySnapshot: vi.fn(async () => ("snapshot" in opts ? opts.snapshot : null)),

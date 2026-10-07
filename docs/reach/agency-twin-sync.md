@@ -10,7 +10,7 @@ Each agency `jobs` row (owner `payers.role = 'agent'`) gets exactly one `job_pos
 
 - **System-owned.** `payer_id` is NULL and `created_by` is `AGENCY_TWIN_SYSTEM_ACTOR_ID`.
   `org_label` is `AGENCY_TWIN_ORG_LABEL`; it is never projected to a worker. Both constants live in
-  `packages/config/src/agency-twin.ts` and are checked at boot. Migration 0132's
+  `packages/config/src/agency-twin.ts` and are checked at boot. Migration 0133's
   `job_postings_twin_owner_chk` makes an agent-owned or unlinked twin impossible in the DB.
 - **Derived.** The agency keeps authoring in `jobs` (#1885), and the twin is a projection of it.
   The field map is the D4 map: `title → role_title`, plus city, area, pay, pay_type, shift,

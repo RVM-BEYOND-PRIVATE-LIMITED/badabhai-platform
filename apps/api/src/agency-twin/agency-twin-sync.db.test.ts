@@ -22,7 +22,7 @@ import { AgencyTwinService } from "./agency-twin.service";
  * The unit tests prove what the sync PLANS and what each statement SAYS. Only a database proves
  * the parts that are about evaluation:
  *
- *   - migration 0132's CHECKs really refuse an agent-owned or unlinked twin;
+ *   - the ADR-0050 §4.1 migration's CHECKs really refuse an agent-owned or unlinked twin;
  *   - `FOR UPDATE OF jobs` over the agent join, the insert, the diffed update and the in-tx
  *     `job_reach` materialization run, and an unchanged source writes and emits NOTHING;
  *   - every write persists exactly one VALIDATED `job_posting.twin_synced` on its own tx;
@@ -214,7 +214,7 @@ describe.skipIf(!RUN)("ADR-0050 agency twin sync, against Postgres", () => {
     expect((await twinOf(J_OPEN))!.status).toBe("open");
   });
 
-  it("migration 0132's CHECKs refuse an agent-owned or unlinked twin (C2 in the database)", async () => {
+  it("the §4.1 migration's CHECKs refuse an agent-owned or unlinked twin (C2 in the database)", async () => {
     await expect(client.sql`
       INSERT INTO job_postings (created_by, payer_id, org_label, role_title, vacancy_band, status,
                                 source_job_id, sync_source)

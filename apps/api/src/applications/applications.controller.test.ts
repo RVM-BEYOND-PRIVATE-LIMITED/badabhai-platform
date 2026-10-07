@@ -11,7 +11,7 @@ const JOB = "22222222-2222-4222-8222-222222222222";
 
 function make() {
   const applications = {
-    getFeed: vi.fn(async () => ({ jobs: [] })),
+    getFeed: vi.fn(async () => ({ jobs: [], next_cursor: null })),
     apply: vi.fn(async () => ({ status: "applied" })),
     skip: vi.fn(async () => ({ status: "skipped" })),
     applicantsForJob: vi.fn(async () => ({ applicants: [] })),
@@ -27,7 +27,14 @@ describe("ApplicationsController (thin) — worker from token", () => {
   it("feed uses the authed worker id + clamped limit", async () => {
     const { controller, applications } = make();
     await controller.feed(WORKER, { limit: 20 } as never, CTX);
-    expect(applications.getFeed).toHaveBeenCalledWith(WORKER.id, 20, { tradeKey: undefined, city: undefined }, CTX);
+    expect(applications.getFeed).toHaveBeenCalledWith(WORKER.id, 20, { tradeKey: undefined, city: undefined }, CTX, undefined);
+  });
+
+  it("feed passes the DTO-decoded cursor through untouched (#1961)", async () => {
+    const { controller, applications } = make();
+    const cursor = { v: 1, m: "jobs", o: 50, j: { t: "2099-01-05T00:00:00.000000Z", id: JOB } };
+    await controller.feed(WORKER, { limit: 50, cursor } as never, CTX);
+    expect(applications.getFeed).toHaveBeenCalledWith(WORKER.id, 50, expect.any(Object), CTX, cursor);
   });
 
   it("apply passes the authed worker id (not the body) + jobId", async () => {

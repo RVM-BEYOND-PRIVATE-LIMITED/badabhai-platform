@@ -21,6 +21,11 @@ import { MatchConfigService } from "../match/match-config.service";
 import { PayersRepository } from "../payers/payers.repository";
 import type { JobRefPolicy } from "../payers/job-ref-policy";
 import {
+  PAYER_VISIBLE_STORED_STATUSES,
+  toPayerUnlocks,
+  type PayerUnlockProjection,
+} from "./payer-unlock-view";
+import {
   UnlocksRepository,
   type Tx,
   type UnlockProjection,
@@ -73,7 +78,14 @@ export interface RelayResolution {
 type DeferredEmit = () => Promise<void>;
 
 /** #1899 — the job context an unlock may store, or a refusal (the reference is not the payer's). */
-type JobContextResolution = { ok: true; jobContext: string | null } | { ok: false };
+/**
+ * `jobContext` is the `jobs` id (or null) every row AND event carries. `jobPostingId` (#2033)
+ * is the owned company posting, ROW-ONLY — it is never put on an event (event schemas are
+ * never mutated). At most one of the two is non-null.
+ */
+type JobContextResolution =
+  | { ok: true; jobContext: string | null; jobPostingId: string | null }
+  | { ok: false };
 
 /** What a transaction step returns: the HTTP body + the events to emit post-commit. */
 interface TxResult<R> {
@@ -171,7 +183,7 @@ export class UnlockService {
       this.logger.warn(`unlock refused: job ref not owned by payer=${payerId}`);
       return neutralUnavailable();
     }
-    const { jobContext } = resolved;
+    const { jobContext, jobPostingId } = resolved;
 
     // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
     // is keyed on (payer, worker) so a retry is one logical request in the spine. The
@@ -249,6 +261,7 @@ export class UnlockService {
               payerId,
               workerId,
               jobId: jobContext,
+              jobPostingId,
               denyReason: reason,
             });
             events.push(() => this.emitDenied(row.id, payerId, workerId, jobContext, reason, ctx));
@@ -282,6 +295,7 @@ export class UnlockService {
             payerId,
             workerId,
             jobId: jobContext,
+            jobPostingId,
             denyReason: "capped",
           });
           // Order preserved: cap_exceeded THEN denied (unchanged from emit-in-tx).
@@ -307,6 +321,7 @@ export class UnlockService {
           payerId,
           workerId,
           jobId: jobContext,
+          jobPostingId,
           routingTokenRef,
           grantedAt: now,
           expiresAt,
@@ -553,6 +568,20 @@ export class UnlockService {
   // ===========================================================================
   async listByPayer(payerId: string): Promise<{ unlocks: UnlockProjection[] }> {
     return { unlocks: await this.repo.listByPayer(payerId) };
+  }
+
+  /**
+   * #2033 — the SESSION payer's own unlocks on the payer contract (GET /payer/unlocks): only
+   * payer-visible rows (internal `requested` / `denied` rows are filtered in SQL, so they
+   * neither leak nor consume the list cap), with `expired` derived from `expires_at`. See
+   * {@link toPayerUnlocks}. Read-only: no event.
+   */
+  async listOwnForPayer(
+    payerId: string,
+    now: Date = new Date(),
+  ): Promise<{ unlocks: PayerUnlockProjection[] }> {
+    const rows = await this.repo.listByPayerWithStatus(payerId, PAYER_VISIBLE_STORED_STATUSES);
+    return { unlocks: toPayerUnlocks(rows, now) };
   }
 
   async getOne(unlockId: string): Promise<UnlockProjection | undefined> {
@@ -992,8 +1021,9 @@ export class UnlockService {
    * holds: payer-web sends a company posting's `job_postings.id`, and that insert violated
    * the FK — a 500 with the debit rolled back. So: null stays null, an existing `jobs` row
    * is kept, and ANY other id is stored (and evented) as null. A posting id therefore never
-   * lands in a `jobs`-id field on the row or on the spine. No migration — the rejected
-   * alternative was an additive `unlocks.job_posting_id`.
+   * lands in a `jobs`-id field on the row or on the spine. #1903 shipped with no migration;
+   * #2033 later added the additive `unlocks.job_posting_id` (0132), written only for an
+   * OWNED posting on the `"payer_owned"` policy — never on an event.
    *
    * Existence, not openness: a closed `jobs` row still satisfies the FK and is still the
    * context the payer unlocked from. A read error PROPAGATES — the request fails before
@@ -1008,26 +1038,42 @@ export class UnlockService {
     payerId: string,
     policy: JobRefPolicy,
   ): Promise<JobContextResolution> {
-    if (jobId === null) return { ok: true, jobContext: null };
+    if (jobId === null) return { ok: true, jobContext: null, jobPostingId: null };
     if (policy === "normalise") {
-      if (await this.repo.legacyJobExists(jobId)) return { ok: true, jobContext: jobId };
+      if (await this.repo.legacyJobExists(jobId)) {
+        return { ok: true, jobContext: jobId, jobPostingId: null };
+      }
       // ADR-0050 §4.5 (C5) — an agency TWIN id resolves to its SOURCE job, which the FK holds;
-      // any other non-`jobs` id is stored as null exactly as #1903 stores it.
-      return { ok: true, jobContext: await this.repo.findAgencyTwinSourceJobId(jobId) };
+      // any other non-`jobs` id is stored as null exactly as #1903 stores it. The ops route never
+      // captures a `job_posting_id` (#2033), and a twin's id is never one (C5).
+      return {
+        ok: true,
+        jobContext: await this.repo.findAgencyTwinSourceJobId(jobId),
+        jobPostingId: null,
+      };
     }
     // #1899 — "payer_owned": the SESSION payer must own the reference. An owned `jobs` row is
     // kept (the FK holds it); an owned posting is accepted and stored as null exactly as #1903
     // stores it; unknown and foreign are the same refusal (no id oracle).
     const owned = await this.repo.findOwnedJobRef(jobId, payerId);
-    if (owned !== null) return { ok: true, jobContext: owned.kind === "job" ? owned.id : null };
+    if (owned !== null) {
+      // #2033 — an owned posting is now KEPT on the row as `job_posting_id` (migration 0132), so
+      // the payer's list can say which posting a grant came from. `job_id` and every event still
+      // carry null for it, exactly as #1903 stores it.
+      return owned.kind === "job"
+        ? { ok: true, jobContext: owned.id, jobPostingId: null }
+        : { ok: true, jobContext: null, jobPostingId: owned.id };
+    }
     // ADR-0050 §4.5 — a twin has no owner (payer_id NULL, C2), so ownership is the SOURCE's: the
-    // agency that owns the agency job may unlock from its twin's context, stored as the source
-    // id. Anyone else gets the same refusal as an unknown or foreign id.
+    // agency that owns the agency job may unlock from its twin's context. The unlock lands in the
+    // SOURCE's id space — `job_id = source`, `job_posting_id` NULL — because a twin's own id never
+    // becomes an unlock key (C5), and the twin is not a company posting #2033's column describes.
+    // Anyone else gets the same refusal as an unknown or foreign id.
     const source = await this.repo.findAgencyTwinSourceJobId(jobId);
     if (source === null) return { ok: false };
     const ownedSource = await this.repo.findOwnedJobRef(source, payerId);
     if (ownedSource === null || ownedSource.kind !== "job") return { ok: false };
-    return { ok: true, jobContext: source };
+    return { ok: true, jobContext: source, jobPostingId: null };
   }
 
   /**

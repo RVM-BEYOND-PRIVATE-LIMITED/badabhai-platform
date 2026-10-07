@@ -110,7 +110,7 @@ function setup(
     emit: vi.fn(async (p: Record<string, unknown>) => p),
     emitMany: vi.fn(async (l: Array<Record<string, unknown>>) => l),
   };
-  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [] })) };
+  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [], next: null })) };
   const workerSkills = {
     listWantedSkillIds: vi.fn(async () => opts.wanted ?? ["mskill_vmc_operator"]),
   };

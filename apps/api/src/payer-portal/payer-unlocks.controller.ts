@@ -96,10 +96,14 @@ export class PayerUnlocksController {
     return this.unlocks.reveal(unlockId, ctx, payer.id);
   }
 
-  /** List the caller's OWN unlocks (scoped to the session `payer_id`; PII-free projection). */
+  /**
+   * List the caller's OWN unlocks (scoped to the session `payer_id`; PII-free projection).
+   * #2033: payer-visible states only (`granted | revealed | expired | revoked`), `expired`
+   * derived from `expires_at`, plus the additive `job_posting_id`.
+   */
   @Get("unlocks")
   listOwn(@CurrentPayer() payer: AuthenticatedPayer) {
-    return this.unlocks.listByPayer(payer.id);
+    return this.unlocks.listOwnForPayer(payer.id);
   }
 
   /** The caller's OWN credit balance (amounts + id only). */

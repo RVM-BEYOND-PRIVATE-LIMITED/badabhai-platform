@@ -433,6 +433,8 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
           "expires_at",
           "granted_at",
           "job_id",
+          // #2033 (migration 0132): the company-posting context — an opaque id, not PII.
+          "job_posting_id",
           "payer_id",
           "reveal_count",
           "status",
@@ -440,6 +442,8 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
           "worker_id",
         ].sort(),
       );
+      // The ops route never resolves a posting (only the payer-owned path writes it).
+      expect(u.job_posting_id).toBeNull();
       for (const k of [...PII_KEYS, "routing_token", "routing_token_ref"]) {
         expect(u).not.toHaveProperty(k);
       }

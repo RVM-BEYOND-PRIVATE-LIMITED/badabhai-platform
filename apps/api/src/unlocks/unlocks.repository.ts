@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -70,6 +70,12 @@ export interface UnlockProjection {
   // a null worker_id BEFORE relaying (a gone worker cannot be revealed).
   worker_id: string | null;
   job_id: string | null;
+  /**
+   * #2033 (migration 0132) — the COMPANY-posting context, the `job_postings` twin of `job_id`.
+   * Null for search, an agency `jobs` context (that is `job_id`), the ops route, and every row
+   * written before 0132. Additive: older clients ignore it.
+   */
+  job_posting_id: string | null;
   status: UnlockStatus;
   reveal_count: number;
   granted_at: Date | null;
@@ -231,6 +237,8 @@ export class UnlocksRepository {
       payerId: string;
       workerId: string;
       jobId: string | null;
+      /** #2033 — the owned company posting, or null. At most one of jobId / jobPostingId. */
+      jobPostingId: string | null;
       routingTokenRef: string;
       grantedAt: Date;
       expiresAt: Date;
@@ -242,6 +250,7 @@ export class UnlocksRepository {
         payerId: input.payerId,
         workerId: input.workerId,
         jobId: input.jobId,
+        jobPostingId: input.jobPostingId,
         status: "granted" satisfies UnlockStatus,
         denyReason: null,
         routingTokenRef: input.routingTokenRef,
@@ -251,7 +260,9 @@ export class UnlocksRepository {
       .onConflictDoUpdate({
         target: [unlocks.payerId, unlocks.workerId],
         set: {
+          // A (re-)grant is a fresh purchase: it carries THIS request's context, both columns.
           jobId: input.jobId,
+          jobPostingId: input.jobPostingId,
           status: "granted" satisfies UnlockStatus,
           denyReason: null,
           routingTokenRef: input.routingTokenRef,
@@ -277,6 +288,8 @@ export class UnlocksRepository {
       payerId: string;
       workerId: string;
       jobId: string | null;
+      /** #2033 — the owned company posting, or null. */
+      jobPostingId: string | null;
       denyReason: UnlockDenyReason;
     },
   ): Promise<Unlock> {
@@ -286,6 +299,7 @@ export class UnlocksRepository {
         payerId: input.payerId,
         workerId: input.workerId,
         jobId: input.jobId,
+        jobPostingId: input.jobPostingId,
         status: "denied" satisfies UnlockStatus,
         denyReason: input.denyReason,
       })
@@ -296,7 +310,12 @@ export class UnlocksRepository {
           // We only stamp the deny when there is no granted/revealed row already.
           status: sql`case when ${unlocks.status} in ('granted','revealed') then ${unlocks.status} else 'denied' end`,
           denyReason: sql`case when ${unlocks.status} in ('granted','revealed') then ${unlocks.denyReason} else ${input.denyReason} end`,
-          jobId: input.jobId,
+          // #2033 — the posting context belongs to the grant it describes: a KEPT grant keeps
+          // the context it was bought under, both columns. Every SET expression reads the
+          // EXISTING row (Postgres evaluates them against the pre-update tuple), so these
+          // CASEs see the same status the two above do.
+          jobId: sql`case when ${unlocks.status} in ('granted','revealed') then ${unlocks.jobId} else ${input.jobId}::uuid end`,
+          jobPostingId: sql`case when ${unlocks.status} in ('granted','revealed') then ${unlocks.jobPostingId} else ${input.jobPostingId}::uuid end`,
           updatedAt: sql`now()`,
         },
       })
@@ -709,6 +728,27 @@ export class UnlocksRepository {
     return rows.map((u) => this.project(u));
   }
 
+  /**
+   * #2033 — the payer's unlocks whose STORED status is one of `statuses`, newest first, capped.
+   * The filter runs in SQL so rows outside the set never reach the caller AND never consume
+   * the cap. Which statuses a caller may see is the service's rule, not this method's.
+   * Served by `unlocks_payer_id_idx`; the status test is a residual filter on that payer's rows.
+   */
+  async listByPayerWithStatus(
+    payerId: string,
+    statuses: readonly UnlockStatus[],
+  ): Promise<UnlockProjection[]> {
+    // An empty IN () is invalid SQL and would mean "nothing" anyway.
+    if (statuses.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(unlocks)
+      .where(and(eq(unlocks.payerId, payerId), inArray(unlocks.status, [...statuses])))
+      .orderBy(desc(unlocks.createdAt))
+      .limit(OPS_LIST_CAP);
+    return rows.map((u) => this.project(u));
+  }
+
   /** A single unlock projection by id (ops read), or undefined. PII-free. */
   async getProjection(unlockId: string): Promise<UnlockProjection | undefined> {
     const rows = await this.db.select().from(unlocks).where(eq(unlocks.id, unlockId)).limit(1);
@@ -722,6 +762,7 @@ export class UnlocksRepository {
       payer_id: u.payerId,
       worker_id: u.workerId,
       job_id: u.jobId,
+      job_posting_id: u.jobPostingId,
       status: u.status,
       reveal_count: u.revealCount,
       granted_at: u.grantedAt,

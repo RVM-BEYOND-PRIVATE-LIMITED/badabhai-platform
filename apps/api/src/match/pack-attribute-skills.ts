@@ -30,8 +30,9 @@ export function corpusSkillsEmitted(): string[] {
 
 /**
  * The corpus attribute ids implied by one worker's pack answers — the `skill_*` half of
- * {@link packAnswerEvidence}. The `role_*` half rides the role bridge and is read from
- * `packAnswerEvidence` directly by the rebuild.
+ * {@link packAnswerEvidence}. The `role_*` half (role bridge) and the pack-only `mskill_*` half
+ * (#2022) are read from `packAnswerEvidence` directly by the rebuild — a check that a pack
+ * "derives something" must read all three, not this.
  */
 export function corpusSkillsForPackAttributes(answers: readonly PackAnswer[]): string[] {
   return packAnswerEvidence(answers).corpusSkillIds;

@@ -15,7 +15,7 @@
  *   - {@link materializeJobReachWithin} — the moment-③ statement on a caller's executor; the
  *                                      api's posting publish runs the same function.
  *
- * WHAT A TWIN IS NOT (the ADR's constraints, enforced here and by migration 0132's CHECKs):
+ * WHAT A TWIN IS NOT (the ADR's constraints, enforced here and by the ADR-0050 §4.1 migration's CHECKs):
  *   - never agent-owned: `payer_id` is NULL (C2, `job_postings_twin_owner_chk`);
  *   - never a guess: `match_skill_ids` is copied from the agency's EXPLICIT `jobs.match_skill_ids`
  *     and NEVER read from `trade_key` / `TRADE_TO_MATCH_SKILL` (C4);
@@ -35,7 +35,7 @@ import type { Database } from "./client";
 import { screenJobTextForConversion } from "./match-v1-derive";
 import { jobPostings, jobs, payers, type JobStatus } from "./schema";
 
-/** The `job_postings.sync_source` value a twin carries (migration 0132's closed set). */
+/** The `job_postings.sync_source` value a twin carries (the §4.1 migration's closed set). */
 export const AGENCY_TWIN_SYNC_SOURCE = "agency_job" as const;
 
 /** ADR-0050 Q4 — `jobs` has no vacancy count; D4's conservative band. */

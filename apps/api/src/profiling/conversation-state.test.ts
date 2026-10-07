@@ -13,10 +13,13 @@ import {
   PROFILING_ENVELOPE_KEYS,
   readGeneralFormCompletedAt,
   readGeneralRoadStamp,
+  readWorkerOnlyAnswerMap,
   toGeneralRoadStatePatch,
   toConversationStatePatch,
   toEngineState,
+  toLlmProvenanceStatePatch,
   withAnswers,
+  withLlmDraftSettlement,
   type ProfilingEnvelope,
 } from "./conversation-state";
 import { recordAnswer } from "./answer-map";
@@ -153,6 +156,7 @@ const FULL: ProfilingEnvelope = {
   // decides on, so a narrower that dropped it would silently re-interrogate every worker whose
   // envelope had round-tripped through Redis once.
   llmLedTurns: 6,
+  llmDraftSettled: true,
   llmFallback: true,
   llmGateOpen: true,
   llmGateAsked: true,
@@ -700,5 +704,75 @@ describe("readGeneralFormCompletedAt — the general form's completion mark (ADR
     expect(
       readGeneralFormCompletedAt({ general_road: { general_form_completed_at: AT } }),
     ).toBeNull();
+  });
+});
+
+// #2021 — the session-level provenance stamp the generic-pack derivation is gated on (owner ruling
+// 2026-10-07, worker-only).
+describe("#2021 — LLM provenance stamp", () => {
+  const MIG = {
+    questionKey: "welding_process",
+    targetField: "skills",
+    valueRaw: "MIG welding",
+    valueNormalized: ["mig"],
+    evidence: null,
+  };
+
+  it("withLlmDraftSettlement stamps true when the settlement wrote a record", () => {
+    const before = {};
+    const after = recordAnswer(before, MIG, 3);
+    const next = withLlmDraftSettlement(emptyProfilingEnvelope(), before, after);
+    expect(next.llmDraftSettled).toBe(true);
+    expect(answersOf(next).welding_process?.value_normalized).toEqual(["mig"]);
+  });
+
+  it("withLlmDraftSettlement leaves it false when the settlement wrote nothing", () => {
+    const answers = recordAnswer({}, MIG, 1);
+    const next = withLlmDraftSettlement(emptyProfilingEnvelope(), answers, answers);
+    expect(next.llmDraftSettled).toBe(false);
+  });
+
+  it("is sticky: a later no-op settlement never clears it", () => {
+    const answers = recordAnswer({}, MIG, 1);
+    const stamped = { ...emptyProfilingEnvelope(), llmDraftSettled: true };
+    expect(withLlmDraftSettlement(stamped, answers, answers).llmDraftSettled).toBe(true);
+  });
+
+  it("toLlmProvenanceStatePatch writes both stamps off the envelope", () => {
+    expect(toLlmProvenanceStatePatch(emptyProfilingEnvelope())).toEqual({
+      llm_led_turns: 0,
+      llm_draft_settled: false,
+    });
+    expect(toLlmProvenanceStatePatch(FULL)).toEqual({
+      llm_led_turns: 6,
+      llm_draft_settled: true,
+    });
+  });
+
+  it("readWorkerOnlyAnswerMap is true ONLY for a clean, well-formed, model-free stamp", () => {
+    expect(readWorkerOnlyAnswerMap({ llm_led_turns: 0, llm_draft_settled: false })).toBe(true);
+    for (const state of [
+      { llm_led_turns: 1, llm_draft_settled: false },
+      { llm_led_turns: 0, llm_draft_settled: true },
+      { llm_led_turns: 0 },
+      { llm_draft_settled: false },
+      {},
+      { llm_led_turns: "0", llm_draft_settled: false },
+      { llm_led_turns: 0, llm_draft_settled: "false" },
+      { llm_led_turns: null, llm_draft_settled: null },
+      null,
+      undefined,
+      "state",
+    ]) {
+      expect(readWorkerOnlyAnswerMap(state), JSON.stringify(state)).toBe(false);
+    }
+  });
+
+  it("a stamp round-trips the envelope narrower, and a legacy envelope reads false", () => {
+    expect(narrowProfilingEnvelope({ rev: 1, llmDraftSettled: true })?.llmDraftSettled).toBe(true);
+    expect(narrowProfilingEnvelope({ rev: 1 })?.llmDraftSettled).toBe(false);
+    expect(narrowProfilingEnvelope({ rev: 1, llmDraftSettled: "yes" })?.llmDraftSettled).toBe(
+      false,
+    );
   });
 });
