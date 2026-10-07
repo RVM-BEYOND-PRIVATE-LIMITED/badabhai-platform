@@ -216,10 +216,20 @@ read on the same `/payer/reach/*` route group (`PayerApplicantInboxController` â
   `rank` / `hot` stay posting-relative. RV-R2 (cross-job signal correlation) is unchanged in kind:
   the inbox shows a worker who applied to two postings as two rows, each with the per-posting
   signals the payer could already read.
-- **Membership.** Each per-posting list's own membership, never wider:
+- **Membership.** The same membership rules as each per-posting list:
   - `action = 'applied'` only;
   - no worker inside the deletion grace window (ADR-0031 (b));
   - an agency applier only if he has a `worker_profiles` row (the agency list ranks profiles).
+
+  One difference in reach, by design. The per-posting COMPANY list (`listForPosting`) stops at
+  `OPS_LIST_CAP` = 500 rows, a buffer bound on that unpaginated read. The inbox is page-bounded
+  instead and ranks the whole posting, so applicants ranked 501st and below on a company posting
+  appear ONLY in the inbox. They are the same owner's applicants, in the same faceless row, carrying
+  their true posting rank (501, 502, â€¦). The agency per-job list has no cap, so the two agree there.
+
+  Consent withdrawal is NOT a membership exclusion on either list today. This is pre-existing on
+  `main` and is tracked as risks-register R63, awaiting an owner ruling. Identity stays behind the
+  `employer_sharing` check at unlock.
 - **Events (RB-D).** Each agency row on the page emits the same `feed.shown` the per-job list emits
   for it. The actor is the session payer and the payload is the unchanged v1
   `worker_id/job_id/rank/score/hot`, sent as one all-or-nothing batch, only for rows actually on
@@ -232,6 +242,13 @@ read on the same `/payer/reach/*` route group (`PayerApplicantInboxController` â
   carries a payer id, a filter, or a count. A forged but well-formed cursor only moves the position
   within the caller's OWN rows, because ownership comes from the session, never the cursor. It
   names an application id the payer was already served.
+
+  Opaque is not secret: base64url decodes to the last served row's application `created_at` and
+  application id. Neither is PII under ADR-0047, and both belong to a row the payer was already
+  served (for an agency row, the application id is not otherwise in the response). The timestamp
+  must be a real instant: it must round-trip exactly and have a year >= 1. An impossible date such
+  as 30 February or year 0000 is a `400` at the DTO. It used to pass `Date.parse` and fail at the
+  Postgres bind as a `500` (L1, fixed in the shared check that also guards the `GET /feed` cursor).
 - **Precedence (dual reference).** `applications_job_ref_chk` allows a row naming BOTH a `jobs` id
   and a `job_postings` id; the write path never produces one. If both are the session payer's, the
   row is listed ONCE, under the agency job: jobs-first, `listForOwned`'s resolution order, and a
