@@ -2474,6 +2474,12 @@ textarea.input {
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
+/* The applicant's rank on THAT posting ("· ranked #2") — posting-relative, so it reads on this
+   line rather than as a badge that looks like a place in the newest-first list. One unit: it
+   wraps as a whole after the title, never inside. */
+.applicant__posting-rank {
+  white-space: nowrap;
+}
 /* …a 44px target on a phone or a coarse pointer: the text-link HIT STRIP recipe (as
    `.reveal-card__ext`) — an out-of-flow strip centred on the link, so the line does not grow and
    the focus ring stays on the text. */

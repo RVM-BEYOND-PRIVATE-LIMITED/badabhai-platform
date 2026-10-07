@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { IconButtonBase } from "@badabhai/icons/button";
-import { Button, Card } from "../../../../../components/ds";
+import { Badge, Button, Card } from "../../../../../components/ds";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { CandidateRow } from "./applicant-actions";
 
@@ -14,6 +14,10 @@ import type { CandidateRow } from "./applicant-actions";
  *  - the unlock and the masked-resume disclosure name THE ROW'S posting — and when one worker sits
  *    on two rows (he applied to two postings), the row whose Unlock was pressed, through the
  *    confirm dialog (state cell 6, `confirmContext`, appended after `result`);
+ *  - confirm-on-spend is PER ROW: his other row never inherits a confirm (or its Retry) — it
+ *    always opens the dialog for its own posting; Cancel forgets both halves of the asking row;
+ *    a dialog with no asking posting spends nothing (no worker's-other-row fallback);
+ *  - the rank is posting-relative, so it reads on the posting line, not as the rank badge;
  *  - ONE ConfirmSpendDialog for the whole list, outside every card;
  *  - NO board: no New / Shortlist tabs, no Keep / Pass; the head's toolbar is the caller's;
  *  - each card names its posting — a link when the session has its page, plain text when not —
@@ -172,22 +176,29 @@ function buttons(scope: ReactNode = currentTree): Btn[] {
 const cards = () =>
   elements().filter((el) => el.type === Card && el.props.className === "applicant");
 
-/** Deep visible text, expanding pure child components (never the hooked Dialog / icon button). */
-function deepText(node: ReactNode = currentTree, seen: WeakSet<object> = new WeakSet()): string {
+/**
+ * Deep visible text, expanding pure child components (never the hooked Dialog / icon button).
+ * Scoped to `node`: the walk recurses through `walkText`, which has no default — an `undefined`
+ * child (an expanded component's empty slot) is empty text, never the whole tree again.
+ */
+function deepText(node: ReactNode = currentTree): string {
+  return walkText(node, new WeakSet());
+}
+function walkText(node: ReactNode, seen: WeakSet<object>): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return ` ${node} `;
-  if (Array.isArray(node)) return node.map((n) => deepText(n, seen)).join("");
+  if (Array.isArray(node)) return node.map((n) => walkText(n, seen)).join("");
   const el = node as El;
   if (seen.has(el)) return "";
   seen.add(el);
   const hooked = isNamed(el, "Dialog") || el.type === IconButtonBase;
   if (typeof el.type === "function" && !hooked) {
-    return deepText((el.type as (p: unknown) => ReactNode)(el.props), seen);
+    return walkText((el.type as (p: unknown) => ReactNode)(el.props), seen);
   }
   let out = "";
-  if (el.props && "toolbar" in el.props) out += deepText(el.props.toolbar as ReactNode, seen);
-  if (el.props && "footer" in el.props) out += deepText(el.props.footer as ReactNode, seen);
-  if (el.props && "children" in el.props) out += deepText(el.props.children as ReactNode, seen);
+  if (el.props && "toolbar" in el.props) out += walkText(el.props.toolbar as ReactNode, seen);
+  if (el.props && "footer" in el.props) out += walkText(el.props.footer as ReactNode, seen);
+  if (el.props && "children" in el.props) out += walkText(el.props.children as ReactNode, seen);
   return out;
 }
 
@@ -250,6 +261,76 @@ describe("inbox mode — the unlock names THE ROW's posting (one worker, two pos
   });
 });
 
+describe("inbox mode — confirm-on-spend is per ROW (security review I-1, N1, N2)", () => {
+  const FAILED = { ok: false, error: "Couldn’t unlock right now. Please retry." };
+  const unlockOn = (card: ReactNode) => buttons(card).find((b) => /unlock/i.test(b.text) && !b.text.startsWith("Unlock ·"));
+  const confirm = () => buttons().find((b) => b.text.startsWith("Unlock · 1 credit"))!.onClick!();
+
+  it("his OTHER row never inherits a failed confirm: it shows a plain Unlock and confirms for ITS posting", async () => {
+    unlockAction.mockResolvedValueOnce(FAILED).mockResolvedValueOnce(GRANTED);
+    mount([ROW_A, ROW_B]);
+    unlockOn(cards()[0]!)!.onClick!();
+    await confirm();
+    expect(unlockAction).toHaveBeenCalledTimes(1);
+    expect(unlockAction).toHaveBeenLastCalledWith({ postingId: P1, workerId: W1 });
+
+    // Row A (which confirmed) offers its Retry and says why; row B never asked — nothing to retry.
+    const [a, b] = cards();
+    expect(unlockOn(a!)!.text).toBe("Retry unlock (1 credit)");
+    expect(deepText(a!)).toContain(FAILED.error);
+    expect(unlockOn(b!)!.text).toBe("Unlock contact (1 credit)");
+    expect(deepText(b!)).not.toContain(FAILED.error);
+
+    // B's Unlock OPENS the dialog — no spend on B's posting without a confirm.
+    unlockOn(b!)!.onClick!();
+    expect(unlockAction).toHaveBeenCalledTimes(1);
+    expect(cells[4]).toBe(W1);
+    expect(cells[6]).toBe(P2);
+    await confirm();
+    expect(unlockAction).toHaveBeenCalledTimes(2);
+    expect(unlockAction).toHaveBeenLastCalledWith({ postingId: P2, workerId: W1 });
+  });
+
+  it("the row that confirmed retries WITHOUT a re-prompt, on its own posting", async () => {
+    unlockAction.mockResolvedValueOnce(FAILED).mockResolvedValueOnce(GRANTED);
+    mount([ROW_A, ROW_B]);
+    unlockOn(cards()[1]!)!.onClick!();
+    await confirm();
+    await unlockOn(cards()[1]!)!.onClick!();
+    expect(cells[4]).toBeNull(); // no dialog
+    expect(unlockAction).toHaveBeenCalledTimes(2);
+    expect(unlockAction.mock.calls.map((c) => c[0])).toEqual([
+      { postingId: P2, workerId: W1 },
+      { postingId: P2, workerId: W1 },
+    ]);
+  });
+
+  it("Cancel forgets WHICH row asked — the worker and the posting both", () => {
+    mount([ROW_A, ROW_B]);
+    unlockOn(cards()[1]!)!.onClick!();
+    expect([cells[4], cells[6]]).toEqual([W1, P2]);
+    buttons().find((b) => b.text === "Cancel")!.onClick!();
+    expect([cells[4], cells[6]]).toEqual([null, null]);
+    expect(unlockAction).not.toHaveBeenCalled();
+  });
+
+  it("a dialog open with NO asking posting spends nothing — never his other row's (a view-only one)", async () => {
+    unlockAction.mockResolvedValue(GRANTED);
+    // An agency: W1's first row is an older company posting (view-only), his second its own job.
+    const viewOnly: CandidateRow = { ...ROW_A, posting: posting(P1, "Old company posting", { href: null, viewOnly: true }) };
+    const own: CandidateRow = { ...ROW_A, posting: posting(J1, "Fitter", { href: `/agency/jobs/${J1}` }) };
+    mount([viewOnly, own]);
+    // Defence in depth: the dialog's worker cell set without its posting cell (no UI path does this).
+    cells[4] = W1;
+    cells[6] = null;
+    renderFn!();
+    await confirm();
+    expect(unlockAction).not.toHaveBeenCalled();
+    expect([cells[4], cells[6]]).toEqual([null, null]); // closed, not a dead confirm
+    expect(cells[1]).toEqual({}); // nothing marked confirmed
+  });
+});
+
 describe("inbox mode — ONE confirm dialog, the shared chrome", () => {
   it("renders exactly one ConfirmSpendDialog for a three-card list, never inside a card", () => {
     mount([ROW_A, ROW_B, ROW_C]);
@@ -302,6 +383,22 @@ describe("inbox mode — each card names its posting", () => {
       [`/agency/jobs/${J1}`, "Fitter"],
     ]);
     expect(deepText()).toContain("Applied to");
+  });
+
+  it("the rank is HIS rank on that posting: on its line, never the rank badge", () => {
+    mount([ROW_A, ROW_B, ROW_C]);
+    const rankBadges = elements().filter(
+      (el) => el.type === Badge && /^#\d+$/.test(textOf(el.props.children as ReactNode).trim()),
+    );
+    expect(rankBadges).toHaveLength(0);
+    const lines = cards().map((card) =>
+      textOf(elements(card).find((el) => el.props?.className === "applicant__posting")!.props.children as ReactNode),
+    );
+    expect(lines).toEqual([
+      "Applied to CNC Turner · ranked #2",
+      "Applied to VMC Operator · ranked #1",
+      "Applied to Fitter · ranked #3",
+    ]);
   });
 
   it("a posting with no page for this session is plain text — no link at all", () => {

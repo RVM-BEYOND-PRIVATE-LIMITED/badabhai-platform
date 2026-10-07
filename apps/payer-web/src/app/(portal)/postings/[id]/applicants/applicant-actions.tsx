@@ -68,15 +68,23 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
  * `postingId`; each row carries its OWN `posting` instead, and:
  *  - the row's posting is the unlock's `job_id` and the masked resume's context — per row, so the
  *    confirm dialog remembers WHICH row asked (a worker who applied to two postings is two rows);
- *  - the card names its posting ("Applied to …"), linked to its details when this session has one;
+ *  - confirm-on-spend is per ROW (its key), not per worker: a row that has not confirmed always
+ *    opens the dialog, even when the same worker's other row confirmed and then failed. "Retry"
+ *    (no re-prompt) and its error line belong to the row that confirmed — a different row never
+ *    inherits them, so it can never spend on its own posting without a confirm;
+ *  - the card names its posting ("Applied to …"), linked to its details when this session has one,
+ *    and the applicant's rank on THAT posting reads on the same line ("· ranked #2") — not as the
+ *    rank badge, which in a newest-first list would look like a place in this list;
  *  - there is NO board: no stage tabs, no Keep / Pass / Mark as contacted. Stages are this page's
  *    local state and nothing persists them, so over a paged, filtered inbox they would be a filter
  *    that silently forgets — the head's toolbar is the caller's posting filter instead;
  *  - a row whose posting is `viewOnly` (its own Applicants page offers this session no unlock)
  *    offers none here either.
  * Row state stays keyed by worker id in both modes: an unlock is one grant per (payer, worker), so
- * unlocking him on one row shows him unlocked on his other row too. The ONE ConfirmSpendDialog,
- * the balance affordance and the toast are shared by both.
+ * unlocking him on one row shows him unlocked on his other row too (and an unlock in flight is
+ * in flight on both). The ONE ConfirmSpendDialog, the balance affordance and the toast are shared
+ * by both. On a posting's feed a card's key IS the worker id, so every per-row rule above is the
+ * per-worker rule it always was.
  */
 
 type Stage = "new" | "shortlist";
@@ -101,6 +109,14 @@ type FeedProps =
   /** The Candidates inbox: each row names its own posting; no board. */
   | { postingId?: undefined; applicants: CandidateRow[] };
 
+/**
+ * A card's key — also the key of its confirm-on-spend. A posting's feed: the worker (one card per
+ * worker). The inbox: posting + worker (one worker who applied to two postings is two cards).
+ */
+function rowKey(board: boolean, context: string, workerId: string): string {
+  return board ? workerId : `${context}:${workerId}`;
+}
+
 function feedRows(feed: FeedProps): FeedRow[] {
   if (feed.postingId !== undefined) {
     const postingId = feed.postingId;
@@ -108,14 +124,14 @@ function feedRows(feed: FeedProps): FeedRow[] {
       applicant,
       posting: null,
       context: postingId,
-      key: applicant.workerId,
+      key: rowKey(true, postingId, applicant.workerId),
     }));
   }
   return feed.applicants.map(({ posting, ...applicant }) => ({
     applicant,
     posting,
     context: posting.id,
-    key: `${posting.id}:${applicant.workerId}`,
+    key: rowKey(false, posting.id, applicant.workerId),
   }));
 }
 
@@ -169,7 +185,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   const [rows, setRows] = useState<Record<string, RowState>>({});
   // Confirm-on-spend (C11): confirm only the FIRST unlock per row this session — a retry
   // after a transient failure (or a later reveal) does not re-prompt. Reveal/resume are
-  // NOT spend actions and are never confirmed.
+  // NOT spend actions and are never confirmed. Keyed by the card's key (`rowKey`): the worker on
+  // a posting's feed, posting + worker in the inbox — so another row of the same worker confirms
+  // for itself.
   const [confirmedUnlock, setConfirmedUnlock] = useState<Record<string, boolean>>({});
   // Pipeline stage per row (LOCAL ONLY). A worker absent from the map is "new".
   const [stages, setStages] = useState<Record<string, RowStage>>({});
@@ -247,7 +265,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     // First unlock for this row → OPEN the confirm dialog (the spend gate). A row already
     // confirmed this session (e.g. a retry after a transient failure) unlocks directly — no
     // re-prompt. The dialog copy is MOCK-neutral and names NO candidate detail (faceless).
-    if (confirmedUnlock[workerId]) {
+    if (confirmedUnlock[row.key]) {
       void runUnlock(workerId, row.context);
       return;
     }
@@ -255,17 +273,27 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     setConfirmContext(row.context);
   }
 
+  // Closing the dialog without spending forgets WHICH row asked — both halves of it.
+  function onCancelUnlock() {
+    setConfirmWorker(null);
+    setConfirmContext(null);
+  }
+
   // The confirm dialog's success action: mark the row confirmed, close the dialog, then run
   // the (ids-only) unlock. Fires at most once per row — a later retry/reveal never re-prompts.
-  // The posting it names is the asking row's; absent that (state seeded without it), the
-  // worker's first row's — on a posting's feed, that posting.
+  // The posting it names is the asking row's. Absent that (state seeded without it), a posting's
+  // feed has only its own posting to name; the inbox has no posting it may assume — a worker's
+  // other row can be one this session may not spend on (a view-only posting) — so it spends
+  // nothing and closes.
   function onConfirmUnlock() {
     const workerId = confirmWorker;
     if (workerId === null) return;
-    const context =
-      confirmContext ?? feed.find((r) => r.applicant.workerId === workerId)?.context ?? null;
-    if (context === null) return;
-    setConfirmedUnlock((prev) => ({ ...prev, [workerId]: true }));
+    const context = confirmContext ?? props.postingId ?? null;
+    if (context === null) {
+      onCancelUnlock();
+      return;
+    }
+    setConfirmedUnlock((prev) => ({ ...prev, [rowKey(board, context, workerId)]: true }));
     setConfirmWorker(null);
     setConfirmContext(null);
     void runUnlock(workerId, context);
@@ -399,6 +427,11 @@ export function ApplicantActions(props: ApplicantActionsProps) {
             const granted = row.unlock?.kind === "granted" ? row.unlock : null;
             const routed = row.contact?.kind === "routed" ? row.contact : null;
             const stage = stageOf(a.workerId);
+            // A failed unlock's "Retry" (which never re-prompts) and its error line are the row's
+            // that confirmed it. On a posting's feed that is the worker's one card; in the inbox a
+            // row of the same worker that has not confirmed shows a plain Unlock, which opens the
+            // dialog for ITS posting.
+            const unlockError = board || confirmedUnlock[r.key] ? row.unlockError : null;
             const tags = a.skills && a.skills.length > 0 ? a.skills : a.signals;
             // The visible line that says why Unlock is disabled (a real zero balance). Keyed by
             // position, not the worker id, so no full id lands in a DOM attribute.
@@ -421,7 +454,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                     ) : null}
                   </div>
                   <div className="applicant__relevance">
-                    <Badge tone="neutral">#{a.rank}</Badge>
+                    {/* The rank is the applicant's place on ONE posting. On its feed that is the
+                        list on screen; in the inbox it reads on the posting line below instead. */}
+                    {board ? <Badge tone="neutral">#{a.rank}</Badge> : null}
                     {/*
                       MATCHING V1 (ADR-0036 moment ⑥) vs the legacy weighted engine. The
                       presence of `matchTier` is the discriminator — V1 has no score and
@@ -463,9 +498,10 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   </div>
                 </div>
 
-                {/* INBOX ONLY — the posting this applicant applied to (his #rank above is his
-                    place on IT). The payer's own title; linked to its details when this session
-                    has that page, plain text when it does not (an agency's older company posting). */}
+                {/* INBOX ONLY — the posting this applicant applied to, and his rank on IT (the
+                    inbox itself is newest first, so a rank badge up top would read as a place in
+                    this list). The payer's own title; linked to its details when this session has
+                    that page, plain text when it does not (an agency's older company posting). */}
                 {r.posting ? (
                   <p className="applicant__posting">
                     <span className="applicant__posting-lead">Applied to</span>{" "}
@@ -476,6 +512,8 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                     ) : (
                       <span className="applicant__posting-title">{r.posting.title}</span>
                     )}
+                    {" "}
+                    <span className="applicant__posting-rank">· ranked #{a.rank}</span>
                   </p>
                 ) : null}
 
@@ -655,7 +693,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                         >
                           {row.busy
                             ? "Unlocking…"
-                            : row.unlockError
+                            : unlockError
                               ? "Retry unlock (1 credit)"
                               : "Unlock contact (1 credit)"}
                         </Button>
@@ -683,9 +721,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                       {/* Transient unlock failure: retryable inline error (the Unlock button
                           stays + relabels to "Retry"); aria-live for SRs; never blanks the row. */}
                       <div aria-live="polite">
-                        {row.unlockError ? (
-                          <p className="applicant__error">{row.unlockError}</p>
-                        ) : null}
+                        {unlockError ? <p className="applicant__error">{unlockError}</p> : null}
                       </div>
                     </div>
                   )}
@@ -701,7 +737,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
           language beyond "1 credit". Confirming runs the (ids-only) unlock exactly once. */}
       <ConfirmSpendDialog
         open={confirmWorker !== null}
-        onCancel={() => setConfirmWorker(null)}
+        onCancel={onCancelUnlock}
         onConfirm={onConfirmUnlock}
       />
 

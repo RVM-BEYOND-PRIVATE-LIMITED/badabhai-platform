@@ -279,11 +279,18 @@ postings (company postings, or an agency's jobs). There is no stage (New / Short
 stages are a posting page's local state and nothing persists them. Paging is keyset — "Next page"
 carries the API's cursor and keeps the filter; a later page offers "First page". Each card names its
 posting ("Applied to …"): a company posting links `/postings/<id>`, an agency's job
-`/agency/jobs/<id>`; the unlock and the masked-resume disclosure name that row's posting. A filter
-that matches nothing (unknown, another payer's, not an id) is one state with the empty posting's
-("No applicants for this posting" → All postings). A read failure is an in-place card with Retry
-under the kept head; a 429 (the hourly reach cap it shares with the per-posting feed) is a neutral
-"Too many requests". The trail is the group, as text; the page has no children.
+`/agency/jobs/<id>`; the applicant's rank on that posting reads on the same line ("· ranked #2") —
+the inbox is newest first, so its cards carry no rank badge. The unlock and the masked-resume
+disclosure name that row's posting, and confirm-on-spend is per row: a worker who applied to two
+postings is two cards, and the second always confirms for its own posting (a Retry is only ever the
+card that confirmed). A filter that matches nothing (unknown, another payer's, not an id) is one
+state with the empty posting's ("No applicants for this posting" → All postings); an uppercase id
+is the same posting. A read failure is an in-place card with Retry under the kept head; a 429 (the
+hourly reach cap it shares with the per-posting feed) is a neutral "Too many requests". A page
+cursor the API refuses (a 400 — one it never issued, e.g. hand-edited) is not an outage, by the
+admin rule "A refused read is not an outage": a calm "This page link isn't valid" whose one action
+is "First page" (filter kept) — never Retry, which could only be refused again (`inboxRefusal` in
+`lib/candidate-inbox.ts`). The trail is the group, as text; the page has no children.
 
 **Agency dashboard doors** (final sweep F15/F21 — a glance, not a second rail). The head's primary
 is New posting (`/agency/jobs/new`). "Your postings" shows three rows — each card opens that

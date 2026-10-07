@@ -1,10 +1,12 @@
 import { z } from "zod";
 import type { AgencyJob, CandidateInboxRow, InboxPostingRef, PostingSummary } from "./contracts";
+import { isPayerBadRequest } from "./payer-errors";
 
 /**
  * PURE reads for the Candidates tab (`/candidates`, the cross-posting applicant inbox) — no I/O,
  * no React. The page reads the URL, the inbox and the payer's own postings list; these decide what
- * the URL asks for, which page each row's posting opens, and what the posting filter offers.
+ * the URL asks for, what a failed read refused, which page each row's posting opens, and what the
+ * posting filter offers.
  *
  * AFFORDANCE ONLY: nothing here authorizes anything. The inbox endpoint decides which rows the
  * session sees and the unlock endpoint decides every spend; this module only mirrors the portal's
@@ -36,7 +38,7 @@ export interface CandidatesQuery {
   cursor: string | null;
 }
 
-/** A cursor the server could have minted: base64url, at most 256 characters (its own bound). */
+/** The SHAPE of a cursor the server mints: base64url, at most 256 characters (its own bound). */
 const CURSOR_SHAPE = /^[A-Za-z0-9_-]{1,256}$/;
 const uuid = z.string().uuid();
 
@@ -44,8 +46,13 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 /**
  * Read `/candidates?postingId=&cursor=`. An empty `postingId` is "all" (the filter form's "All
- * postings" option submits it). A cursor of any other shape is dropped — the page shows the newest
- * page rather than a request the server would refuse.
+ * postings" option submits it). A posting id is lowercased — the form of every id the payer's
+ * own data carries — so an uppercase spelling selects its option rather than adding a second one.
+ *
+ * A cursor of any other shape is dropped: the page reads the newest page. A cursor OF that shape
+ * is sent as it is — only the server can tell whether it minted one (it is opaque) — so a
+ * hand-edited one is still refused, and that 400 is the page's cursor refusal
+ * ({@link inboxRefusal}): the way out is the first page, never a Retry.
  */
 export function parseCandidatesQuery(params: SearchParams): CandidatesQuery {
   const rawPosting = params[POSTING_FILTER_PARAM];
@@ -53,10 +60,29 @@ export function parseCandidatesQuery(params: SearchParams): CandidatesQuery {
   let filter: CandidateFilter;
   if (rawPosting === undefined || rawPosting === "") filter = { kind: "all" };
   else if (typeof rawPosting === "string" && uuid.safeParse(rawPosting).success)
-    filter = { kind: "posting", postingId: rawPosting };
+    filter = { kind: "posting", postingId: rawPosting.toLowerCase() };
   else filter = { kind: "unknown", raw: Array.isArray(rawPosting) ? rawPosting.join(",") : rawPosting };
   const cursor = typeof rawCursor === "string" && CURSOR_SHAPE.test(rawCursor) ? rawCursor : null;
   return { filter, cursor };
+}
+
+/**
+ * What a failed inbox read REFUSED — the admin console's rule (docs/design/NAVIGATION.md, "A
+ * refused read is not an outage"), on this page's address:
+ *  - the posting filter: never the refused part of a read. A value that cannot be an id is never
+ *    sent — it is `unknown`, decided before any read, and its state's "All postings" is the way
+ *    out (the filter-cleared page) — and a well-formed id is never refused;
+ *  - `"cursor"` — a 400 with a page cursor in the address: the server did not mint that cursor
+ *    (hand-edited, or from another list). Repeating the request cannot succeed, so the way out is
+ *    the first page, the posting filter kept — never Retry;
+ *  - `null` — anything else: a 400 with no cursor (nothing in the address the server could have
+ *    refused, so it is not the payer's), a 5xx, an unreadable answer. An outage, with Retry.
+ * A 429 is neither: the page tells it apart first (`isPayerRateLimited`).
+ */
+export type InboxRefusal = "cursor" | null;
+
+export function inboxRefusal(err: unknown, query: Pick<CandidatesQuery, "cursor">): InboxRefusal {
+  return isPayerBadRequest(err) && query.cursor !== null ? "cursor" : null;
 }
 
 /** The filter's selected value (null = all postings). */

@@ -19,6 +19,7 @@ import {
   candidatePosting,
   candidatesHref,
   companyPostingOptions,
+  inboxRefusal,
   parseCandidatesQuery,
   selectedPosting,
   withSelectedOption,
@@ -50,7 +51,10 @@ export const dynamic = "force-dynamic";
  * READS — four, side by side, each with its own degraded state so none blanks another:
  *  - the inbox page (`GET /payer/reach/applicants`) — the page's content. A failure is an in-place
  *    error card with Retry under the head; a 429 (the hourly reach cap it shares with the
- *    per-posting feed) is a neutral "too many requests" instead. Never blanks the head or filter;
+ *    per-posting feed) is a neutral "too many requests" instead; and a page cursor the server
+ *    REFUSED (a 400 — one it never minted, e.g. hand-edited) is a calm "this page link isn't
+ *    valid" whose way out is the first page, filter kept — never Retry, which could only be
+ *    refused again (`inboxRefusal`). Never blanks the head or filter;
  *  - the payer's OWN postings (company postings or agency jobs) — only the filter's options;
  *    unread, the filter still offers "All postings";
  *  - the balance — the Unlock affordance only (the shell's chip prints it);
@@ -74,6 +78,8 @@ const HEAD = {
 type InboxRead =
   | { kind: "ok"; inbox: CandidateInbox }
   | { kind: "rate-limited" }
+  /** The server refused the page cursor (see `inboxRefusal`): no Retry, the first page instead. */
+  | { kind: "cursor-refused" }
   | { kind: "error" };
 
 export default async function CandidatesPage({
@@ -140,6 +146,8 @@ export default async function CandidatesPage({
       <PageHeader {...header} />
       {read.kind === "rate-limited" ? (
         <RateLimitedState />
+      ) : read.kind === "cursor-refused" ? (
+        <CursorRefusedState firstPage={candidatesHref({ postingId: keep })} />
       ) : read.kind === "error" ? (
         <LoadErrorState firstPage={query.cursor ? candidatesHref({ postingId: keep }) : null} />
       ) : query.filter.kind === "unknown" ? (
@@ -169,7 +177,8 @@ async function readInbox({ filter, cursor }: CandidatesQuery): Promise<InboxRead
     });
     return { kind: "ok", inbox };
   } catch (e) {
-    return isPayerRateLimited(e) ? { kind: "rate-limited" } : { kind: "error" };
+    if (isPayerRateLimited(e)) return { kind: "rate-limited" };
+    return inboxRefusal(e, { cursor }) === "cursor" ? { kind: "cursor-refused" } : { kind: "error" };
   }
 }
 
@@ -258,6 +267,35 @@ function LoadErrorState({ firstPage }: { firstPage: string | null }) {
               <span>First page</span>
             </Link>
           ) : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The server refused the page cursor in the address (a 400 — one it never minted). Calm, not an
+ * error: nothing is down, and Retry would only be refused again, so the one way out is the first
+ * page, the posting filter kept. The pager is not drawn under it (it follows an answered page), so
+ * this is the screen's only "First page".
+ */
+function CursorRefusedState({ firstPage }: { firstPage: string }) {
+  return (
+    <Card>
+      <div className="state">
+        <span className="state__icon">
+          <Icon name="link-break" />
+        </span>
+        <h2 className="state__title">This page link isn&rsquo;t valid</h2>
+        <p className="state__body">
+          It isn&rsquo;t one this list gave out, so there is nothing to show. Start again from the
+          first page.
+        </p>
+        <div className="state__actions">
+          <Link className="bb-btn bb-btn--secondary" href={firstPage}>
+            <Icon name={ACTION_ICON.back} />
+            <span>First page</span>
+          </Link>
         </div>
       </div>
     </Card>

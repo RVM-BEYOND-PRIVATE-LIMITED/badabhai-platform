@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CandidateInbox, CandidateInboxRow } from "../../../lib/contracts";
+import { PayerValidationError } from "../../../lib/payer-errors";
 
 /**
  * /candidates PAGE — every applicant across the payer's postings (owner request 2026-10-07).
@@ -18,7 +19,8 @@ import type { CandidateInbox, CandidateInboxRow } from "../../../lib/contracts";
  *    one card list (so one confirm dialog), the balance as an affordance, live grants seeded.
  *  - FILTER / PAGING: `?postingId=` reaches the seam; a non-id never does; `nextCursor` → Next
  *    page keeping the filter; a later page offers First page.
- *  - STATES: empty, filtered-empty (= unknown id, byte for byte), error (Retry, head kept), 429.
+ *  - STATES: empty, filtered-empty (= unknown id, byte for byte), error (Retry, head kept), 429,
+ *    and a REFUSED page cursor (400 with a cursor) — First page with the filter kept, never Retry.
  */
 
 const requirePayer = vi.fn();
@@ -355,6 +357,23 @@ describe("candidates page — the posting filter reaches the server; a non-id ne
     expect(getCandidateInbox).toHaveBeenCalledWith({});
   });
 
+  it("an UPPERCASE id is the same posting: read lowercased, its own option selected — no duplicate", async () => {
+    // An id WITH hex letters — an all-digit one reads the same in either case and proves nothing.
+    const PX = "abcdef12-0000-4000-8000-0000000000ab";
+    getPostings.mockResolvedValueOnce([...POSTINGS, { ...POSTINGS[0]!, id: PX, roleTitle: "Welder" }]);
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [companyRow(W1, PX, "Welder")], nextCursor: NEXT });
+    const upper = PX.toUpperCase();
+    expect(upper).not.toBe(PX);
+    const out = await html({ postingId: upper });
+    expect(getCandidateInbox).toHaveBeenCalledWith({ postingId: PX });
+    expect(out).toContain(`<option value="${PX}" selected="">Welder</option>`);
+    expect(out.match(/<option /g)).toHaveLength(4); // All postings + the three owned — nothing added
+    expect(out).not.toContain(upper);
+    expect(out).not.toContain("Selected posting");
+    // The pager keeps the posting in the form every other link carries.
+    expect(out).toContain(`href="/candidates?postingId=${PX}&amp;cursor=${NEXT}"`);
+  });
+
   it("?postingId=<not an id> → NO read, the filtered-empty state, the value shown as selected", async () => {
     const out = await html({ postingId: "garbage" });
     expect(getCandidateInbox).not.toHaveBeenCalled();
@@ -459,10 +478,57 @@ describe("candidates page — states (the head and filter never blank)", () => {
     expect(out).not.toContain("candidates-pager");
   });
 
-  it("ERROR on a later page also offers the newest page (a stale link is not a dead end)", async () => {
-    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 400"));
+  it("ERROR (an outage) on a later page offers Retry AND the newest page (a stale link is not a dead end)", async () => {
+    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 502"));
     const out = await html({ postingId: P1, cursor: NEXT });
+    expect(stateOf(out)).toContain("We couldn’t load candidates");
+    expect(stateOf(out)).toContain('data-retry="">Retry</button>');
     expect(stateOf(out)).toContain(`<a href="/candidates?postingId=${P1}" class="bb-btn bb-btn--secondary">`);
+  });
+
+  it("a REFUSED page cursor (400 — hand-edited) is not an outage: First page, filter kept, NO Retry", async () => {
+    const refusals = [
+      new PayerValidationError("/payer/reach/applicants", [{ path: "cursor", message: "cursor is malformed" }]),
+      new Error("payer API /payer/reach/applicants returned 400"),
+    ];
+    for (const refusal of refusals) {
+      getCandidateInbox.mockRejectedValueOnce(refusal);
+      // `abc` has the cursor's shape, so it is sent — only the server can say it never minted it.
+      const out = await html({ postingId: P1, cursor: "abc" });
+      expect(getCandidateInbox).toHaveBeenLastCalledWith({ postingId: P1, cursor: "abc" });
+      headKept(out);
+      const state = stateOf(out);
+      expect(state.startsWith('<div class="state">')).toBe(true); // calm, not state--error
+      expect(textOf(state)).toContain("This page link isn’t valid");
+      // Repeating a refused request cannot succeed: no Retry anywhere, and not the outage copy.
+      expect(out).not.toContain("data-retry");
+      expect(out).not.toContain("couldn’t load");
+      expect(textOf(out)).not.toMatch(/temporary|retry/i);
+      // The one way out: the first page of the SAME posting filter — once on the screen.
+      expect(Array.from(state.matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual([
+        `/candidates?postingId=${P1}`,
+      ]);
+      expect(textOf(out).match(/First page/g)).toHaveLength(1);
+      expect(out).not.toContain("candidates-pager");
+    }
+  });
+
+  it("…with no filter, its First page is the bare route", async () => {
+    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 400"));
+    const state = stateOf(await html({ cursor: "abc" }));
+    expect(Array.from(state.matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual(["/candidates"]);
+    expect(state).not.toContain("data-retry");
+  });
+
+  it("a 400 with NO cursor is an outage: nothing in the address to refuse, so Retry — no First page", async () => {
+    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 400"));
+    const out = await html({ postingId: P1 });
+    const state = stateOf(out);
+    expect(state).toContain('<div class="state state--error">');
+    expect(textOf(state)).toContain("We couldn’t load candidates");
+    expect(state).toContain('data-retry="">Retry</button>');
+    expect(textOf(out)).not.toContain("First page");
+    expect(textOf(out)).not.toContain("This page link");
   });
 
   it("429: a neutral 'too many requests' — not the failure copy, no cause, a way to try again", async () => {

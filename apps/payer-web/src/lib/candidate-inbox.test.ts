@@ -5,10 +5,12 @@ import {
   candidatePosting,
   candidatesHref,
   companyPostingOptions,
+  inboxRefusal,
   parseCandidatesQuery,
   selectedPosting,
   withSelectedOption,
 } from "./candidate-inbox";
+import { PayerValidationError } from "./payer-errors";
 
 /**
  * Candidates (`/candidates`) — the pure reads behind the page: what the URL asks for, where each
@@ -29,6 +31,20 @@ describe("parseCandidatesQuery — what the URL asks for", () => {
     expect(parseCandidatesQuery({ postingId: P1 }).filter).toEqual({ kind: "posting", postingId: P1 });
   });
 
+  it("an uppercase posting id is the same posting — lowercased, the form the payer's data carries", () => {
+    const upper = "ABCDEF12-0000-4000-8000-00000000000A"; // hex LETTERS: case has to matter
+    expect(parseCandidatesQuery({ postingId: upper }).filter).toEqual({
+      kind: "posting",
+      postingId: upper.toLowerCase(),
+    });
+    // So the filter selects the listed option instead of adding a second "Selected posting".
+    const id = upper.toLowerCase();
+    const options = [{ id, label: "CNC Turner" }];
+    expect(withSelectedOption(options, selectedPosting(parseCandidatesQuery({ postingId: upper }).filter), [])).toEqual(
+      options,
+    );
+  });
+
   it("a value that cannot be an id — or a repeated param — matches nothing, decided here", () => {
     expect(parseCandidatesQuery({ postingId: "not-an-id" }).filter).toEqual({
       kind: "unknown",
@@ -37,7 +53,7 @@ describe("parseCandidatesQuery — what the URL asks for", () => {
     expect(parseCandidatesQuery({ postingId: [P1, J1] }).filter.kind).toBe("unknown");
   });
 
-  it("carries a cursor the server could have minted, and drops any other shape", () => {
+  it("carries a cursor of the shape the server mints (only it can say it minted one), drops any other", () => {
     expect(parseCandidatesQuery({ cursor: CURSOR }).cursor).toBe(CURSOR);
     expect(parseCandidatesQuery({ cursor: "" }).cursor).toBeNull();
     expect(parseCandidatesQuery({ cursor: "has space" }).cursor).toBeNull();
@@ -51,6 +67,37 @@ describe("parseCandidatesQuery — what the URL asks for", () => {
     expect(selectedPosting({ kind: "all" })).toBeNull();
     expect(selectedPosting({ kind: "posting", postingId: P1 })).toBe(P1);
     expect(selectedPosting({ kind: "unknown", raw: "zz" })).toBe("zz");
+  });
+});
+
+describe("inboxRefusal — a refused read is not an outage (the admin console's rule)", () => {
+  const bare400 = new Error("payer API /payer/reach/applicants?cursor=abc returned 400");
+  const issues400 = new PayerValidationError("/payer/reach/applicants?cursor=abc", [
+    { path: "cursor", message: "cursor is malformed" },
+  ]);
+
+  it("a 400 with a page cursor in the address is the cursor's refusal — either 400 shape", () => {
+    expect(inboxRefusal(bare400, { cursor: "abc" })).toBe("cursor");
+    expect(inboxRefusal(issues400, { cursor: "abc" })).toBe("cursor");
+  });
+
+  it("a 400 with NO cursor cannot be the payer's: an outage (null), so Retry", () => {
+    expect(inboxRefusal(bare400, { cursor: null })).toBeNull();
+    expect(inboxRefusal(issues400, { cursor: null })).toBeNull();
+  });
+
+  it("anything but a 400 is an outage, cursor or not — a 5xx, a 429, a parse failure", () => {
+    for (const err of [
+      new Error("payer API /payer/reach/applicants returned 500"),
+      new Error("payer API /payer/reach/applicants returned 503"),
+      new Error("payer API /payer/reach/applicants returned 429"),
+      new Error("payer API /payer/reach/applicants returned 4000"),
+      new TypeError("Expected string, received number"),
+      { message: "payer API /x returned 400" }, // not a thrown Error
+      null,
+    ]) {
+      expect(inboxRefusal(err, { cursor: "abc" }), String((err as { message?: string })?.message)).toBeNull();
+    }
   });
 });
 

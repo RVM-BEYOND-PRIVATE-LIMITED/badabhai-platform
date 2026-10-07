@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isPayerRateLimited } from "./payer-errors";
+import { isPayerBadRequest, isPayerRateLimited } from "./payer-errors";
 
 /**
  * CANDIDATES INBOX seam — `getCandidateInbox` against `GET /payer/reach/applicants`, through the
@@ -16,7 +16,8 @@ import { isPayerRateLimited } from "./payer-errors";
  *  - FACELESS, ENFORCED: a forbidden key on a row or its posting THROWS (assertNoAgencyPII, dev/
  *    test) — the transport is lenient precisely so the guard can see it; an unknown harmless key
  *    is dropped from the result;
- *  - a 429 (the shared reach cap) is told apart from any other failure.
+ *  - a 429 (the shared reach cap) is told apart from any other failure, and so is a 400 (a
+ *    refusal — the page's cursor refusal reads it) in both of the transport's 400 shapes.
  */
 
 const TOKEN = "payer.jwt.token";
@@ -250,6 +251,33 @@ describe("getCandidateInbox — failures throw; a 429 is told apart", () => {
       expect(err, String(status)).toBeInstanceOf(Error);
       expect(isPayerRateLimited(err), String(status)).toBe(false);
     }
+  });
+
+  it("a 400 is recognisably a refusal — the API's real one (issues) and a bare one — nothing else is", async () => {
+    const { getCandidateInbox } = await import("./payer-api");
+    // The API's ZodValidationPipe answer to a cursor it never minted: `error.issues[]`.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { message: "Validation failed", issues: [{ path: "cursor", message: "cursor is malformed" }] } }, 400),
+    );
+    const piped = await getCandidateInbox({ cursor: "abc" }).catch((e: unknown) => e);
+    expect(isPayerBadRequest(piped)).toBe(true);
+    expect(isPayerRateLimited(piped)).toBe(false);
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 400));
+    expect(isPayerBadRequest(await getCandidateInbox({ cursor: "abc" }).catch((e: unknown) => e))).toBe(true);
+    for (const status of [429, 500, 503]) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({}, status));
+      const err = await getCandidateInbox({ cursor: "abc" }).catch((e: unknown) => e);
+      expect(isPayerBadRequest(err), String(status)).toBe(false);
+    }
+  });
+
+  it("isPayerBadRequest reads only the transport's 400 shape", () => {
+    expect(isPayerBadRequest(new Error("payer API /payer/reach/applicants returned 400"))).toBe(true);
+    expect(isPayerBadRequest(new Error("payer API /payer/reach/applicants returned 4000"))).toBe(false);
+    expect(isPayerBadRequest(new Error("payer API /x returned 400 returned 500"))).toBe(false);
+    expect(isPayerBadRequest({ message: "payer API /x returned 400" })).toBe(false);
+    expect(isPayerBadRequest("payer API /x returned 400")).toBe(false);
+    expect(isPayerBadRequest(null)).toBe(false);
   });
 
   it("isPayerRateLimited reads only the transport's 429 shape", () => {
