@@ -1,5 +1,9 @@
 import "reflect-metadata";
+import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ConflictException } from "@nestjs/common";
+import type { Request } from "express";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
@@ -23,6 +27,9 @@ const CTX: RequestContext = {
   requestId: "req-1",
 };
 const POSTING = "cccccccc-0000-4000-8000-000000000003";
+
+/** A request carrying no `Idempotency-Key` — the unguarded path every legacy client takes. */
+const NO_KEY = { header: () => undefined } as unknown as Request;
 
 function makeCtrl() {
   const jobPostings = {
@@ -64,10 +71,16 @@ function makeCtrl() {
   const disclosures = {
     countDisclosuresForPosting: vi.fn(async (_id: string, _payerId: string) => 0),
   };
+  // #2085 — a PASS-THROUGH double: these cases send NO Idempotency-Key, which is exactly the
+  // path where runOnce runs the work unchanged. The keyed cases use the REAL seam (below).
+  const idempotency = {
+    runOnce: vi.fn(async (o: { work: () => Promise<unknown> }) => o.work()),
+  };
   const ctrl = new PayerJobPostingsController(
     jobPostings as never,
     plans as never,
     disclosures as never,
+    idempotency as never,
   );
   return { ctrl, jobPostings, plans, disclosures };
 }
@@ -279,7 +292,7 @@ describe("PayerJobPostingsController — quota top-up is session-scoped + owners
 
   it("checks ownership FIRST, then tops up with the SESSION payer id (no body payer_id)", async () => {
     const dto = { tier: "topup_10" as const };
-    await d.ctrl.topUpQuota(POSTING, dto, PAYER_A, CTX);
+    await d.ctrl.topUpQuota(POSTING, dto, PAYER_A, NO_KEY, CTX);
     expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
     expect(d.plans.topUpQuotaForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, dto, CTX);
     expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
@@ -290,7 +303,154 @@ describe("PayerJobPostingsController — quota top-up is session-scoped + owners
 
   it("on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
     d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
-    await expect(d.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_A, CTX)).rejects.toThrow();
+    await expect(d.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_A, NO_KEY, CTX)).rejects.toThrow();
     expect(d.plans.topUpQuotaForPayer).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2085 — POST /payer/job-postings/:id/quota-topup honours Idempotency-Key, through the SAME
+// seam, scoping, window and conflict/replay semantics as POST /payer/capacity (#1148). These
+// cases drive the REAL RequestIdempotency against an in-memory Redis.
+// ---------------------------------------------------------------------------
+describe("#2085 — one confirmed tap is one quota top-up", () => {
+  const withKey = (key: string): Request =>
+    ({
+      header: (n: string) => (n.toLowerCase() === "idempotency-key" ? key : undefined),
+    }) as unknown as Request;
+
+  function ctrlWithRealSeam() {
+    const store = new Map<string, string>();
+    const redis = {
+      async set(key: string, value: string, _m: string, _s: number, nx?: string) {
+        if (nx === "NX" && store.has(key)) return null;
+        store.set(key, value);
+        return "OK";
+      },
+      async get(key: string) {
+        return store.get(key) ?? null;
+      },
+    };
+    const pii = {
+      // A REAL digest, so distinct keys can never collide by construction of the double.
+      hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
+      encrypt: (v: string) => v,
+      decrypt: (v: string) => v,
+    };
+    const seam = new RequestIdempotency(pii as never, { client: Promise.resolve(redis) } as never);
+    const d = makeCtrl();
+    // Each charge stamps a DISTINGUISHABLE running total, as the real atomic increment does, so
+    // "second equals first" can only come from a replay — never from two identical charges.
+    let charges = 0;
+    d.plans.topUpQuotaForPayer.mockImplementation(async () => {
+      charges += 1;
+      return { plan: { id: "plan-1", quotaTopupCount: 10 * charges } };
+    });
+    const ctrl = new PayerJobPostingsController(
+      d.jobPostings as never,
+      d.plans as never,
+      d.disclosures as never,
+      seam,
+    );
+    return { ctrl, topUp: d.plans.topUpQuotaForPayer, jobPostings: d.jobPostings, store };
+  }
+
+  const TOPUP = { tier: "topup_10" };
+
+  it("THE DOUBLE CHARGE: the same key twice tops up ONCE and replays the original result", async () => {
+    const { ctrl, topUp } = ctrlWithRealSeam();
+    const first = await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("tap-1"), CTX);
+    const second = await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("tap-1"), CTX);
+    expect(topUp).toHaveBeenCalledTimes(1);
+    expect(second).toStrictEqual(first);
+    expect(second).toEqual({ plan: { id: "plan-1", quotaTopupCount: 10 } });
+  });
+
+  it("a DIFFERENT key tops up again — two confirmed purchases are two charges", async () => {
+    const { ctrl, topUp } = ctrlWithRealSeam();
+    await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("tap-a"), CTX);
+    const second = await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("tap-b"), CTX);
+    expect(topUp).toHaveBeenCalledTimes(2);
+    expect(second).toEqual({ plan: { id: "plan-1", quotaTopupCount: 20 } });
+  });
+
+  it("NO key behaves exactly as before (legacy clients) and reserves nothing", async () => {
+    const { ctrl, topUp, store } = ctrlWithRealSeam();
+    await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, NO_KEY, CTX);
+    await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, NO_KEY, CTX);
+    expect(topUp).toHaveBeenCalledTimes(2);
+    expect(store.size).toBe(0);
+  });
+
+  it("a duplicate landing MID-FLIGHT is refused 409 and never starts a second charge", async () => {
+    const { ctrl, topUp } = ctrlWithRealSeam();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    topUp.mockImplementationOnce(async () => {
+      await gate;
+      return { plan: { id: "plan-1", quotaTopupCount: 10 } };
+    });
+    const inflight = ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("tap-2"), CTX);
+    await expect(
+      ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("tap-2"), CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    release();
+    await inflight;
+    expect(topUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("SAME KEY, DIFFERENT TIER replays the first purchase (capacity's decision: the key names the intent)", async () => {
+    const { ctrl, topUp } = ctrlWithRealSeam();
+    const first = await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("tap-3"), CTX);
+    const second = await ctrl.topUpQuota(
+      POSTING,
+      { tier: "topup_25" },
+      PAYER_B,
+      withKey("tap-3"),
+      CTX,
+    );
+    expect(topUp).toHaveBeenCalledTimes(1);
+    expect(second).toStrictEqual(first);
+  });
+
+  it("a price-mismatch 409 is stored under the key and replayed — the retry is never charged", async () => {
+    const { ctrl, topUp } = ctrlWithRealSeam();
+    topUp.mockRejectedValueOnce(new ConflictException("The price changed"));
+    const body = { tier: "topup_10", expected_price_inr: 1 };
+    await expect(
+      ctrl.topUpQuota(POSTING, body, PAYER_B, withKey("tap-4"), CTX),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      ctrl.topUpQuota(POSTING, body, PAYER_B, withKey("tap-4"), CTX),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(topUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("another payer's key does NOT reach this payer's bucket (XB-A)", async () => {
+    const { ctrl, topUp } = ctrlWithRealSeam();
+    await ctrl.topUpQuota(POSTING, TOPUP, PAYER_A, withKey("shared"), CTX);
+    await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("shared"), CTX);
+    expect(topUp).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses its OWN scope, never the raw header, and checks ownership before reserving", async () => {
+    const { ctrl, store, jobPostings, topUp } = ctrlWithRealSeam();
+    const raw = "raw-header-2085";
+    await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey(raw), CTX);
+    const keys = [...store.keys()];
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toContain(`payer_idem:quota_topup_purchase:${PAYER_B.id}:`);
+    expect(keys[0]).not.toContain(raw);
+    expect(keys[0]).not.toMatch(/capacity_purchase|credits_purchase/);
+
+    // A foreign/unknown posting is a neutral 404 BEFORE any reservation or charge.
+    jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    await expect(
+      ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("foreign"), CTX),
+    ).rejects.toThrow();
+    expect(store.size).toBe(1);
+    expect(topUp).toHaveBeenCalledTimes(1);
   });
 });

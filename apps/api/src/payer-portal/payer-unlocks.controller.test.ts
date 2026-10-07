@@ -146,8 +146,13 @@ describe("PayerUnlocksController — identity from the session, never the body (
 
   it("buyPack binds payer_id to the SESSION payer (the body carries only pack_code)", async () => {
     const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, NO_KEY, CTX);
-    expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX);
+    expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX, undefined);
     expect(out).toEqual({ payer_id: PAYER_A.id, balance: 50, credits: 50, pack_code: "starter" });
+  });
+
+  it("#2085: buyPack forwards the confirmed expected_price_inr to the price check", async () => {
+    await d.ctrl.buyPack({ pack_code: "starter", expected_price_inr: 2000 }, PAYER_A, NO_KEY, CTX);
+    expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX, 2000);
   });
 
   it("buyPack on an UNKNOWN pack (service → null) throws a real 404 (NotFoundException)", async () => {
@@ -176,7 +181,7 @@ describe("PayerUnlocksController — identity from the session, never the body (
   it("buyPack still GRANTS while PAYMENTS_ENABLE_REAL is off (the alpha default is untouched)", async () => {
     d.unlocks.realPaymentsLive = false;
     const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, NO_KEY, CTX);
-    expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX);
+    expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX, undefined);
     expect(out).toMatchObject({ credits: 50 });
   });
 });
@@ -215,7 +220,7 @@ describe("PayerUnlocksController — real-payment routes (order + verify)", () =
 
     it("createOrder binds to the SESSION payer and forwards only the pack CODE (XB-A/XT5)", async () => {
       await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, CTX);
-      expect(d.unlocks.createCreditOrder).toHaveBeenCalledWith(PAYER_A.id, "pack_50", CTX);
+      expect(d.unlocks.createCreditOrder).toHaveBeenCalledWith(PAYER_A.id, "pack_50", CTX, undefined);
     });
 
     it("createOrder returns the public key ID + amounts, and NEVER a secret", async () => {

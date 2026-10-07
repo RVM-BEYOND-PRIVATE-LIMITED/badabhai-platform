@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
+import { expectedPriceInrSchema } from "../pricing/charge-price";
 
 /**
  * Buy a paid plan for a job posting (ADR-0013 Decision B). Price/quota/window are
@@ -11,6 +12,8 @@ export const BuyPlanSchema = z.object({
   payer_id: uuidSchema,
   tier: z.enum(["standard", "pro"]),
   coupon: z.string().min(1).max(64).optional(),
+  /** #2085 — the ₹ the payer confirmed; refused with 409 `price_mismatch` if it is not the charge. */
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type BuyPlanDto = z.infer<typeof BuyPlanSchema>;
 
@@ -29,6 +32,8 @@ export const BuyBoostSchema = z.object({
   payer_id: uuidSchema,
   tier: z.enum(["boost_7", "boost_15", "boost_30", "all_candidates"]),
   coupon: z.string().min(1).max(64).optional(),
+  /** #2085 — the ₹ the payer confirmed; refused with 409 `price_mismatch` if it is not the charge. */
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type BuyBoostDto = z.infer<typeof BuyBoostSchema>;
 
@@ -42,6 +47,8 @@ export type BuyBoostDto = z.infer<typeof BuyBoostSchema>;
 export const PayerBuyPlanSchema = z.object({
   tier: z.enum(["standard", "pro"]),
   coupon: z.string().min(1).max(64).optional(),
+  /** #2085 — the ₹ the payer confirmed; refused with 409 `price_mismatch` if it is not the charge. */
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type PayerBuyPlanDto = z.infer<typeof PayerBuyPlanSchema>;
 
@@ -53,6 +60,8 @@ export type PayerBuyPlanDto = z.infer<typeof PayerBuyPlanSchema>;
 export const PayerBuyBoostSchema = z.object({
   tier: z.enum(["boost_7", "boost_15", "boost_30", "all_candidates"]),
   coupon: z.string().min(1).max(64).optional(),
+  /** #2085 — the ₹ the payer confirmed; refused with 409 `price_mismatch` if it is not the charge. */
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type PayerBuyBoostDto = z.infer<typeof PayerBuyBoostSchema>;
 
@@ -67,6 +76,8 @@ export type PayerBuyBoostDto = z.infer<typeof PayerBuyBoostSchema>;
 export const BuyCapacitySchema = z.object({
   tier: z.string().min(1).max(64),
   coupon: z.string().min(1).max(64).optional(),
+  /** #2085 — the ₹ the payer confirmed; refused with 409 `price_mismatch` if it is not the charge. */
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type BuyCapacityDto = z.infer<typeof BuyCapacitySchema>;
 
@@ -81,5 +92,7 @@ export type BuyCapacityDto = z.infer<typeof BuyCapacitySchema>;
 export const PayerTopUpQuotaSchema = z.object({
   tier: z.string().min(1).max(64),
   coupon: z.string().min(1).max(64).optional(),
+  /** #2085 — the ₹ the payer confirmed; refused with 409 `price_mismatch` if it is not the charge. */
+  expected_price_inr: expectedPriceInrSchema.optional(),
 });
 export type PayerTopUpQuotaDto = z.infer<typeof PayerTopUpQuotaSchema>;
