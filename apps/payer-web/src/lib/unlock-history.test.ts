@@ -9,15 +9,25 @@ import {
 } from "./unlock-history";
 
 /**
- * The payer's own unlock history, read for two screens: which company applicant rows start
- * unlocked (F10) and what a dashboard Recent-unlocks row says (F37). Pure; a fixed `now`.
- * Fixtures mirror the wire as getUnlocks maps it (a company unlock carries no posting).
+ * The payer's own unlock history, read for two screens: which applicant rows start unlocked
+ * (F10) and what a dashboard Recent-unlocks row says (F37). Pure; a fixed `now`. Fixtures mirror
+ * the wire as getUnlocks maps it: `jobPostingId` is null unless the unlock was made from a company
+ * posting (#2033); an agency unlock's `jobs` id is not carried.
  */
 
 const NOW = Date.parse("2026-10-06T12:00:00.000Z");
 const W1 = "33333333-0000-4000-8000-000000000001";
 const W2 = "33333333-0000-4000-8000-000000000002";
 const W3 = "33333333-0000-4000-8000-000000000003";
+/** This payer's own company postings, as the dashboard read them. */
+const P1 = "55555555-0000-4000-8000-000000000001";
+const P2 = "55555555-0000-4000-8000-000000000002";
+const OWN = [
+  { id: P1, roleTitle: "CNC Operator" },
+  { id: P2, roleTitle: "VMC Setter" },
+];
+/** A real posting id that is NOT in this payer's list (another payer's, or one not read). */
+const FOREIGN = "55555555-0000-4000-8000-0000000000ff";
 
 const item = (over: Partial<UnlockHistoryItem> = {}): UnlockHistoryItem => ({
   unlockId: "44444444-0000-4000-8000-000000000001",
@@ -26,6 +36,7 @@ const item = (over: Partial<UnlockHistoryItem> = {}): UnlockHistoryItem => ({
   createdAt: "2026-10-01T09:00:00.000Z",
   expiresAt: "2026-10-15T09:00:00.000Z",
   grantedAt: "2026-10-01T09:00:00.000Z",
+  jobPostingId: null,
   ...over,
 });
 
@@ -35,7 +46,8 @@ describe("isLiveUnlock — granted AND the window still open", () => {
   });
 
   it("a record whose window has ENDED is not live, even though its stored status still says granted", () => {
-    // Nothing moves a lapsed grant to `expired` in the store; the window end is what decides.
+    // The server derives `expired` at ITS read; a row it still sent as granted can lapse before
+    // the page renders (or under clock skew) — the window end at `now` decides.
     expect(isLiveUnlock(item({ expiresAt: "2026-10-06T11:59:59.000Z" }), NOW)).toBe(false);
     expect(isLiveUnlock(item({ expiresAt: "2026-10-06T12:00:00.000Z" }), NOW)).toBe(false);
   });
@@ -63,9 +75,9 @@ describe("liveUnlocksFor — the feed's live grants, keyed by worker", () => {
   });
 
   it("one grant opens that worker's row on EVERY feed it appears on (per payer+worker, not per posting)", () => {
-    // A company unlock is stored with no posting, so nothing could tie it to one feed — and the
-    // grant is the worker's either way (ADR-0010 sign-off 1).
-    const history = [item({ unlockId: "u-1", workerId: W1 })];
+    // A company unlock now records the posting it was made from (#2033), but the grant is the
+    // worker's (ADR-0010 sign-off 1): that context never ties it to one feed.
+    const history = [item({ unlockId: "u-1", workerId: W1, jobPostingId: P1 })];
     const held = { kind: "granted", unlockId: "u-1", expiresAt: "2026-10-15T09:00:00.000Z" };
     expect(liveUnlocksFor(history, [W1, W2], NOW)).toEqual({ [W1]: held });
     expect(liveUnlocksFor(history, [W3, W1], NOW)).toEqual({ [W1]: held });
@@ -88,24 +100,42 @@ describe("unlockRow — what a Recent-unlocks row says", () => {
   it("dates: unlocked on the GRANT day (a re-grant moves it), ends on the window end", () => {
     const row = unlockRow(
       item({ createdAt: "2026-08-01T09:00:00.000Z", grantedAt: "2026-10-01T23:30:00.000Z" }),
+      OWN,
       NOW,
     );
     expect(row.unlockedOn).toBe("2026-10-01");
     expect(row.endsOn).toBe("2026-10-15");
     // No grant time on the record → its creation day.
-    expect(unlockRow(item({ grantedAt: null }), NOW).unlockedOn).toBe("2026-10-01");
+    expect(unlockRow(item({ grantedAt: null }), OWN, NOW).unlockedOn).toBe("2026-10-01");
   });
 
   it("live vs ended follows isLiveUnlock (a lapsed 'granted' row reads ended)", () => {
-    expect(unlockRow(item(), NOW).live).toBe(true);
-    expect(unlockRow(item({ expiresAt: "2026-09-01T00:00:00.000Z" }), NOW).live).toBe(false);
-    expect(unlockRow(item({ status: "expired" }), NOW).live).toBe(false);
+    expect(unlockRow(item(), OWN, NOW).live).toBe(true);
+    expect(unlockRow(item({ expiresAt: "2026-09-01T00:00:00.000Z" }), OWN, NOW).live).toBe(false);
+    expect(unlockRow(item({ status: "expired" }), OWN, NOW).live).toBe(false);
   });
 
-  it("carries exactly its key, status and days — no worker id, no posting (none is reachable)", () => {
-    const row = unlockRow(item(), NOW);
-    expect(Object.keys(row).sort()).toEqual(["endsOn", "key", "live", "unlockedOn"]);
+  it("carries exactly its key, status, days and posting — no worker id; no context names no posting", () => {
+    const row = unlockRow(item(), OWN, NOW);
+    expect(Object.keys(row).sort()).toEqual(["endsOn", "key", "live", "posting", "unlockedOn"]);
+    expect(row.posting).toBeNull();
     expect(JSON.stringify(row)).not.toContain(W1);
+  });
+
+  it("#2033: names its posting when the unlock was made from one of the payer's OWN postings", () => {
+    expect(unlockRow(item({ jobPostingId: P2 }), OWN, NOW).posting).toEqual({
+      id: P2,
+      title: "VMC Setter",
+    });
+  });
+
+  it("#2033: an id NOT in the payer's own list is never resolved — no title, no id carried", () => {
+    // Another payer's posting (or one this page did not read) must not lend the row a title.
+    const foreign = unlockRow(item({ jobPostingId: FOREIGN }), OWN, NOW);
+    expect(foreign.posting).toBeNull();
+    expect(JSON.stringify(foreign)).not.toContain(FOREIGN);
+    // No list read (an agency session, or a failed postings read): even an own id names nothing.
+    expect(unlockRow(item({ jobPostingId: P1 }), [], NOW).posting).toBeNull();
   });
 });
 
@@ -123,7 +153,7 @@ describe("recentUnlockRows — newest first by the day each row PRINTS", () => {
   });
 
   it("orders by the printed unlock day, not the API's creation order", () => {
-    const rows = recentUnlockRows([fresh, regrant], NOW);
+    const rows = recentUnlockRows([fresh, regrant], OWN, NOW);
     expect(rows.map((r) => r.key)).toEqual(["regrant", "fresh"]);
     expect(rows.map((r) => r.unlockedOn)).toEqual(["2026-10-05", "2026-09-20"]);
   });
@@ -137,17 +167,38 @@ describe("recentUnlockRows — newest first by the day each row PRINTS", () => {
       }),
     );
     // The API puts the re-grant LAST (oldest creation); it is the newest unlock.
-    const rows = recentUnlockRows([...older.reverse(), regrant], NOW);
+    const rows = recentUnlockRows([...older.reverse(), regrant], OWN, NOW);
     expect(rows).toHaveLength(5);
     expect(rows[0]!.key).toBe("regrant");
     expect(rows.map((r) => r.key)).not.toContain("old-0");
+  });
+
+  it("#2033: each row names its OWN posting, resolved against the list it is given", () => {
+    const rows = recentUnlockRows(
+      [
+        item({ unlockId: "from-p1", grantedAt: "2026-10-03T09:00:00.000Z", jobPostingId: P1 }),
+        item({ unlockId: "foreign", grantedAt: "2026-10-02T09:00:00.000Z", jobPostingId: FOREIGN }),
+        item({ unlockId: "search", grantedAt: "2026-10-01T09:00:00.000Z" }),
+      ],
+      OWN,
+      NOW,
+    );
+    expect(rows.map((r) => [r.key, r.posting?.title ?? null])).toEqual([
+      ["from-p1", "CNC Operator"],
+      ["foreign", null],
+      ["search", null],
+    ]);
   });
 
   it("ties keep the API's order; an unreadable time sinks to the end", () => {
     const a = item({ unlockId: "a" });
     const b = item({ unlockId: "b" });
     const broken = item({ unlockId: "broken", grantedAt: "soon" });
-    expect(recentUnlockRows([broken, a, b], NOW).map((r) => r.key)).toEqual(["a", "b", "broken"]);
+    expect(recentUnlockRows([broken, a, b], OWN, NOW).map((r) => r.key)).toEqual([
+      "a",
+      "b",
+      "broken",
+    ]);
   });
 });
 

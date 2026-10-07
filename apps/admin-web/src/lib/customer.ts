@@ -26,3 +26,21 @@ export const CUSTOMER_SECTION_HREF = {
   Company: "/companies",
   Agency: "/agencies",
 } as const satisfies Readonly<Record<CustomerKind, string>>;
+
+/** The section a customer of unknown role is sent to — its detail route redirects an agency on. */
+const ROLE_UNKNOWN_KIND: CustomerKind = "Company";
+
+/**
+ * Where a customer cell links — the ONE place a customer's address is built (a fence in
+ * `customer.test.ts` keeps every other file from spelling `/companies/${…}` by hand).
+ *
+ * With the role known (`payer_role`, #2032) it is the customer's own section: a Company opens
+ * `/companies/:id`, an Agency `/agencies/:id` — no redirect hop (sweep AW-28). Without it — an
+ * older API that predates the field, a row that never carried it (the top balances), or a
+ * `payer_id` the server could not resolve (`null`) — it is `/companies/:id`, the address that
+ * still redirects an agency to its own section.
+ */
+export function customerHref(payerId: string, payerRole?: PayerRole | null): string {
+  const kind = payerRole ? CUSTOMER_KIND_LABELS[payerRole] : ROLE_UNKNOWN_KIND;
+  return `${CUSTOMER_SECTION_HREF[kind]}/${encodeURIComponent(payerId)}`;
+}

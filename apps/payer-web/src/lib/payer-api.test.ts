@@ -143,7 +143,8 @@ describe("getUnlocks — the payer's own history, with its grant day passed thro
     ...over,
   });
 
-  it("maps granted_at → grantedAt (null kept null); carries NO job context and no payer id", async () => {
+  it("maps granted_at → grantedAt (null kept null); carries NO agency job id and no payer id", async () => {
+    // A pre-#2033 API: no `job_posting_id` key at all (migration 0132 is apply-before-deploy).
     fetchMock.mockResolvedValue(
       jsonResponse({
         unlocks: [
@@ -167,6 +168,7 @@ describe("getUnlocks — the payer's own history, with its grant day passed thro
         createdAt: "2026-08-01T09:00:00.000Z",
         expiresAt: "2026-10-15T09:00:00.000Z",
         grantedAt: "2026-10-01T09:00:00.000Z",
+        jobPostingId: null,
       },
       {
         unlockId: "33333333-3333-4333-8333-333333333333",
@@ -175,13 +177,65 @@ describe("getUnlocks — the payer's own history, with its grant day passed thro
         createdAt: "2026-08-01T09:00:00.000Z",
         expiresAt: "2026-10-15T09:00:00.000Z",
         grantedAt: null,
+        jobPostingId: null,
       },
     ]);
     expect(JSON.stringify(out)).not.toContain("11111111-1111-4111-8111-111111111111");
-    // An agency unlock's `jobs` id is on the wire, but no screen can use it yet (a company unlock
-    // carries none, #1903): it is not carried, so nothing can claim a posting it cannot reach.
+    // An agency unlock's `jobs` id is on the wire, but no screen that renders the history reads the
+    // agency's jobs: it is not carried, so nothing can claim a job it cannot name.
     expect(JSON.stringify(out)).not.toContain("55555555-5555-4555-8555-555555555555");
     for (const u of out) expect(u).not.toHaveProperty("jobId");
+  });
+
+  it("#2033: job_posting_id → jobPostingId; a null and an ABSENT key both read as no context", async () => {
+    const POSTED = "66666666-6666-4666-8666-666666666666";
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        unlocks: [
+          // A company unlock made from an owned posting (post-0132): job_id null, the posting set.
+          row({ job_posting_id: POSTED }),
+          // A search unlock on a post-0132 API: both contexts null.
+          row({ unlock_id: "33333333-3333-4333-8333-333333333333", job_posting_id: null }),
+          // A pre-#2033 API row: no key at all (`row()` carries none).
+          row({ unlock_id: "77777777-7777-4777-8777-777777777777" }),
+        ],
+      }),
+    );
+    const { getUnlocks } = await import("./payer-api");
+    const out = await getUnlocks();
+    expect(out.map((u) => [u.unlockId, u.jobPostingId])).toEqual([
+      ["22222222-2222-4222-8222-222222222222", POSTED],
+      ["33333333-3333-4333-8333-333333333333", null],
+      ["77777777-7777-4777-8777-777777777777", null],
+    ]);
+  });
+
+  it("#2033: the server-derived `expired` (and `revoked`) are ended access — never live, even inside the window", async () => {
+    // The server's clock read the window as lapsed; this one still sees it open (skew). The
+    // server's word wins: no applicant row may start unlocked on an `expired` record.
+    const { liveUnlocksFor } = await import("./unlock-history");
+    const OPEN_UNTIL = "2026-10-15T09:00:00.000Z";
+    const W_EXPIRED = "44444444-4444-4444-8444-444444444444";
+    const W_REVOKED = "88888888-8888-4888-8888-888888888888";
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        unlocks: [
+          row({ status: "expired", expires_at: OPEN_UNTIL, job_posting_id: null }),
+          row({
+            unlock_id: "33333333-3333-4333-8333-333333333333",
+            worker_id: W_REVOKED,
+            status: "revoked",
+            expires_at: OPEN_UNTIL,
+            job_posting_id: null,
+          }),
+        ],
+      }),
+    );
+    const { getUnlocks } = await import("./payer-api");
+    const out = await getUnlocks();
+    expect(out.map((u) => u.status)).toEqual(["expired", "expired"]);
+    const inWindow = Date.parse("2026-10-06T12:00:00.000Z");
+    expect(liveUnlocksFor(out, [W_EXPIRED, W_REVOKED], inWindow)).toEqual({});
   });
 });
 

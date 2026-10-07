@@ -11,6 +11,8 @@ import {
   ordersPageSchema,
   jobPostingDetailSchema,
   jobPostingListItemSchema,
+  ledgerRowSchema,
+  orderRowSchema,
   payerListItemSchema,
   qs,
   workerDetailSchema,
@@ -348,6 +350,58 @@ describe("finance schemas — money never arrives without its provenance", () =>
         payments: MOCK_POSTURE,
       }).success,
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// payer_role (#2032) — the role served beside a payer_id, so a customer cell links straight
+// to the Company or the Agency. A schema without the key would STRIP it, and every cell would
+// quietly fall back to the redirect hop — so each row shape is asserted to KEEP it.
+// ---------------------------------------------------------------------------
+
+const POSTING_DETAIL = {
+  ...POSTING_ROW,
+  description: null,
+  shift: null,
+  needed_by: null,
+  boosted_until: null,
+  previous_status: null,
+  applied_count: 0,
+  skipped_count: 0,
+  updated_at: "2026-08-04T11:32:00.537Z",
+};
+
+const ROWS_WITH_A_PAYER = [
+  { name: "a posting row", schema: jobPostingListItemSchema, row: POSTING_ROW },
+  { name: "a posting detail", schema: jobPostingDetailSchema, row: POSTING_DETAIL },
+  { name: "a ledger row", schema: ledgerRowSchema, row: LEDGER_ROW },
+  { name: "an order row", schema: orderRowSchema, row: ORDER_ROW },
+] as const;
+
+describe("payer_role (#2032) on every row that carries a payer_id", () => {
+  it.each(ROWS_WITH_A_PAYER)("$name keeps each role, and null", ({ schema, row }) => {
+    for (const payer_role of ["employer", "agent", null] as const) {
+      expect(schema.parse({ ...row, payer_role }).payer_role).toBe(payer_role);
+    }
+  });
+
+  it.each(ROWS_WITH_A_PAYER)("$name still parses WITHOUT it — an older API", ({ schema, row }) => {
+    const parsed = schema.parse(row);
+    expect(parsed).not.toHaveProperty("payer_role");
+  });
+
+  it.each(ROWS_WITH_A_PAYER)("$name rejects an unknown role", ({ schema, row }) => {
+    expect(schema.safeParse({ ...row, payer_role: "superuser" }).success).toBe(false);
+  });
+
+  it("reaches the parsed pages, not just the rows", () => {
+    const page = (item: unknown) => ({ items: [item], nextCursor: null, payments: MOCK_POSTURE });
+    expect(
+      ledgerPageSchema.parse(page({ ...LEDGER_ROW, payer_role: "agent" })).items[0],
+    ).toHaveProperty("payer_role", "agent");
+    expect(
+      ordersPageSchema.parse(page({ ...ORDER_ROW, payer_role: "employer" })).items[0],
+    ).toHaveProperty("payer_role", "employer");
   });
 });
 
