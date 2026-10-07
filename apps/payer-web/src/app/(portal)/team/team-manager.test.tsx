@@ -488,3 +488,15 @@ describe("TeamManager — Remove asks first (generic DS Dialog), then returns fo
     expect(ofType(tree, Dialog)).toHaveLength(1);
   });
 });
+
+describe("TeamManager — what the invite hint promises a recruiter (owner ruling 2026-10-07)", () => {
+  it("says a recruiter can buy credits too, and that only managing the team stays with owners", () => {
+    const hint = findByClass(TeamManager({ members: [] }) as ReactElement, "form__hint");
+    expect(hint).toHaveLength(1);
+    const text = gatherText(hint[0]!).replace(/\s+/g, " ");
+    expect(text).toMatch(/buy credits/i);
+    // Billing is no longer an owner-only power — only user management is.
+    expect(text).not.toMatch(/billing/i);
+    expect(text).toMatch(/managing the team stays with owners/i);
+  });
+});

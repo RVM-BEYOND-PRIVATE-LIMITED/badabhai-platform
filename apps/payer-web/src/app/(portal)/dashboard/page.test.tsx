@@ -292,28 +292,29 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(creditsDoors(tree).all).toEqual([]);
   });
 
-  it("a RECRUITER is never sent to Credits or told to buy (Owner-only — it 404s for them)", async () => {
+  it("a RECRUITER gets the SAME doors as an owner — any member can buy (owner ruling 2026-10-07)", async () => {
     for (const role of ["employer", "agent"] as const) {
-      for (const balance of [0, 3, 247]) {
+      for (const balance of [0, 3]) {
         const tree = await render(
           { ...granted, credits: { payerId: "p", balance } },
           role,
           "recruiter",
         );
-        expect(hrefsOf(tree), `${role} ${balance}`).not.toContain("/credits");
-        expect(findByClass(tree, "attention__action"), `${role} ${balance}`).toEqual([]);
-        expect(textOf(tree), `${role} ${balance}`).not.toMatch(/Buy credits/);
+        const doors = creditsDoors(tree);
+        expect(doors.all, `${role} ${balance}`).toEqual(["/credits"]);
+        expect(doors.inAction, `${role} ${balance}`).toHaveLength(1);
+        expect(textOf(doors.inAction[0]!).trim(), `${role} ${balance}`).toBe("Buy credits");
+        // Nobody is sent to ask an owner any more.
+        expect(textOf(tree), `${role} ${balance}`).not.toMatch(/account owner/i);
       }
+      // …and, like an owner, no in-page door at a healthy balance (the header chip is it).
+      const healthy = await render(
+        { ...granted, credits: { payerId: "p", balance: 247 } },
+        role,
+        "recruiter",
+      );
+      expect(creditsDoors(healthy).all, role).toEqual([]);
     }
-    // A recruiter is told who can fix it, in words.
-    const low = await render(
-      { ...granted, credits: { payerId: "p", balance: 3 } },
-      "employer",
-      "recruiter",
-    );
-    expect(textOf(findByClass(low, "attention__item")[0]!)).toContain(
-      "Ask your account owner to buy credits",
-    );
   });
 
   it("all postings closed: the needs-you item says so, and the head's New posting is the door", async () => {
@@ -338,8 +339,8 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
       findByClass(await render(undefined, role, orgRole), "quick__card").map((c) =>
         textOf(c).trim(),
       );
-    // Plans & capacity is a COMPANY page; no "Buy credits" card (the shell's balance chip is an
-    // owner's door to Credits — F15); no "Invite workers" door (the agency's invite tools are
+    // Plans & capacity is a COMPANY page; no "Buy credits" card (the shell's balance chip is the
+    // door to Credits — F15); no "Invite workers" door (the agency's invite tools are
     // their own section).
     for (const orgRole of ["owner", "recruiter"] as const) {
       const company = await labels("employer", orgRole);
