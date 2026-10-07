@@ -311,13 +311,14 @@ export default async function SkillDiscoveryPage({
           </h2>
           <div className="page__actions">
             <FilterChip
+              cursor={cursor}
               selected={view === "grouped"}
               href={listHref({ view: undefined, cursor: undefined })}
             >
               <Icon name="rows" />
               Grouped
             </FilterChip>
-            <FilterChip selected={view === "flat"} href={listHref({ view: "flat", cursor: undefined })}>
+            <FilterChip selected={view === "flat"} href={listHref({ view: "flat", cursor: undefined })} cursor={cursor}>
               <Icon name="list-bullets" />
               Flat
             </FilterChip>
@@ -330,6 +331,7 @@ export default async function SkillDiscoveryPage({
           <div className="filters--inline" role="group" aria-label="Status">
             {(["awaiting", "held", "decided", "all"] as const).map((s) => (
               <FilterChip
+                cursor={cursor}
                 key={s}
                 selected={statusScope === s}
                 href={listHref({ statusScope: s, cursor: undefined })}
@@ -343,21 +345,21 @@ export default async function SkillDiscoveryPage({
               The Derived tab says it is sequenced behind Direct in its own label; the full reason
               is a standing note, in the foot notes after the results. */}
           <div className="filters--inline" role="group" aria-label="Review tier">
-            <FilterChip selected={activeTier === "all"} href={tierTabHref("all")}>
+            <FilterChip selected={activeTier === "all"} href={tierTabHref("all")} cursor={cursor}>
               All tiers
             </FilterChip>
-            <FilterChip selected={activeTier === "direct"} href={tierTabHref("direct")}>
+            <FilterChip selected={activeTier === "direct"} href={tierTabHref("direct")} cursor={cursor}>
               Direct (default)
             </FilterChip>
-            <FilterChip selected={activeTier === "ambiguous"} href={tierTabHref("ambiguous")}>
+            <FilterChip selected={activeTier === "ambiguous"} href={tierTabHref("ambiguous")} cursor={cursor}>
               Ambiguous
             </FilterChip>
             {activeTier === "derived" && derivedAck ? (
-              <FilterChip selected href={tierTabHref("derived")}>
+              <FilterChip selected href={tierTabHref("derived")} cursor={cursor}>
                 Derived
               </FilterChip>
             ) : (
-              <FilterChip selected={false} href={derivedViewAnywayHref}>
+              <FilterChip selected={false} href={derivedViewAnywayHref} cursor={cursor}>
                 Derived (sequenced behind Direct) — view anyway
               </FilterChip>
             )}
@@ -379,12 +381,14 @@ export default async function SkillDiscoveryPage({
               {view === "grouped" && (
                 <div className="filters--inline" role="group" aria-label="Batch order">
                   <FilterChip
+                    cursor={cursor}
                     selected={groupSort === "candidates"}
                     href={listHref({ groupSort: undefined })}
                   >
                     Biggest batch first (server order)
                   </FilterChip>
                   <FilterChip
+                    cursor={cursor}
                     selected={groupSort === "undecided"}
                     href={listHref({ groupSort: "undecided" })}
                   >

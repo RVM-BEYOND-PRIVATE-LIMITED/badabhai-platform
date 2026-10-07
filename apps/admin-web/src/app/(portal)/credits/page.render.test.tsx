@@ -368,3 +368,62 @@ describe("a quiet reporting window points at the window chips, not a second link
     expect(out).not.toContain("Widen to 90 days");
   });
 });
+
+/**
+ * On a later page the selected chips are the way back to page one (review of #2095). Chips drop
+ * the cursor, so their target is the first page of the same window and reason — not this address
+ * — and the Pager only goes forward. They stay links there, still marked current.
+ */
+describe("on a later ledger page the selected chips link the first page", () => {
+  it("both rows' selected chips go to page one of the same window and reason", async () => {
+    const out = renderToStaticMarkup(
+      await CreditsPage({
+        searchParams: Promise.resolve({ windowDays: "7", reason: "grant", cursor: "c2" }),
+      }),
+    );
+    expect(out.match(/<[a-z]+ aria-current="true"[^>]*>/g)).toEqual([
+      '<a aria-current="true" class="btn btn--selected" href="/credits?windowDays=7&amp;reason=grant">',
+      '<a aria-current="true" class="btn btn--sm btn--selected" href="/credits?windowDays=7&amp;reason=grant">',
+    ]);
+  });
+});
+
+/**
+ * A reason the chips offer is never the refused part (review of #2095). With a valid reason and
+ * an over-long cursor (the API's bound is 256 characters), the 400 is the CURSOR's — the reason
+ * copy ("not one the ledger records") was false there.
+ */
+describe("a valid reason with a refused cursor gets the cursor's copy", () => {
+  it("a chip's reason plus an over-long cursor: the page was refused, not the reason", async () => {
+    stub.ledger = new AdminRequestError(400, "cursor too long");
+    const out = renderToStaticMarkup(
+      await CreditsPage({
+        searchParams: Promise.resolve({ windowDays: "7", reason: "grant", cursor: "x".repeat(300) }),
+      }),
+    );
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected the reason filter");
+    expect(out).not.toContain("not one the ledger records");
+    expect(out).not.toContain(">Retry<");
+    expect(hrefOf(out, "Back to the first page")).toBe("/credits?windowDays=7&amp;reason=grant");
+  });
+
+  it("a reason the chips do not offer is still the refused part, cursor or not", async () => {
+    stub.ledger = new AdminRequestError(400, "Invalid enum value");
+    const out = renderToStaticMarkup(
+      await CreditsPage({
+        searchParams: Promise.resolve({ windowDays: "7", reason: "bogus", cursor: "x".repeat(300) }),
+      }),
+    );
+    expect(out).toContain("The server rejected the reason filter");
+  });
+
+  it("a chip's reason with no cursor cannot have been refused: the 400 is ours — an outage", async () => {
+    stub.ledger = new AdminRequestError(400, "Invalid filter value.");
+    const out = renderToStaticMarkup(
+      await CreditsPage({ searchParams: Promise.resolve({ windowDays: "7", reason: "grant" }) }),
+    );
+    expect(out).toContain("The ledger is unavailable");
+    expect(out).not.toContain("rejected");
+  });
+});

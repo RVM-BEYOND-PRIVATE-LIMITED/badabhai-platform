@@ -643,3 +643,33 @@ describe("the current value of a link chip row is text, not a control (final re-
     expect(decl(hover, "background")).toBe("var(--brand-tint-2)");
   });
 });
+
+describe("the navigation pending cue (review of #2095)", () => {
+  const REDUCED = "@media (prefers-reduced-motion: reduce)";
+
+  it("the dot is drawn in its link's own colour and only while pending", () => {
+    expect(lastTopLevel(".nav-pending", "display")).toBe("none");
+    const on = body(".nav-pending--on");
+    expect(decl(on, "display")).toBe("inline-block");
+    expect(decl(on, "background")).toBe("currentColor");
+  });
+
+  it("the page-wide bar is the structural-navigation colour, above the sticky topbar, never a target", () => {
+    const bar = body(".nav-progress");
+    expect(decl(bar, "position")).toBe("fixed");
+    expect(decl(bar, "background")).toBe("var(--text-heading)");
+    expect(decl(bar, "z-index")).toBe("var(--z-toast)");
+    expect(decl(bar, "pointer-events")).toBe("none");
+    expect(contrast(color("var(--text-heading)"), color("var(--surface-card)"))).toBeGreaterThanOrEqual(3);
+  });
+
+  it("neither moves under prefers-reduced-motion", () => {
+    for (const sel of [".nav-pending--on", ".nav-progress--on"]) {
+      const still = ALL.find(
+        (r) => r.atRules.join() === REDUCED && r.selector.split(",").some((p) => p.trim() === sel),
+      );
+      expect(still, sel).toBeDefined();
+      expect(decl(still!.body, "animation"), sel).toBe("none");
+    }
+  });
+});

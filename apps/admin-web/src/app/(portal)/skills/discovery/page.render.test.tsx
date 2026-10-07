@@ -682,10 +682,10 @@ describe("grouped rows link to their own decision screen — a group is a lens, 
 
 // ---------------------------------------------------------------------------
 // AC#12 — loading. The route-level skeletons (`(portal)/loading.tsx` and this route's own
-// `./loading.tsx`) were REMOVED by the final re-sweep (O-1): a Suspense boundary above a page held
-// same-route navigations — a chip, a filter, a page cursor — in a transition that never
-// committed. A navigation now keeps the current page until the next one has rendered; the fence
-// is app/no-suspense-above-a-page.test.ts.
+// `./loading.tsx`) were REMOVED by the final re-sweep (O-1): a Suspense boundary held same-route
+// navigations — a chip, a filter, a page cursor — in a transition that never committed. A
+// navigation now keeps the current page until the next one has rendered, and the clicked nav
+// link shows it is pending; the fence is app/no-loading-boundary-anywhere.test.ts.
 
 // ---------------------------------------------------------------------------
 // #1856 — hierarchy and rhythm. The CSS stacks (`.queue-metrics`, `.queue-controls`, …) are
@@ -979,5 +979,21 @@ describe("a batch label wraps inside its row (AW-01)", () => {
     const body = summary.slice(0, summary.indexOf("</summary>"));
     expect(body).toContain(`<span class="reviewgroup__title"><strong>${GROUP.label}</strong> · 2 candidates · 1 undecided · ${GROUP.trade_family}</span>`);
     expect(body).toContain("disclosure__caret");
+  });
+});
+
+/** On a later flat page the selected chips are the way back to page one (review of #2095). */
+describe("on a later page of the flat queue the selected chips link the first page", () => {
+  it("every selected chip is a link, marked current, to its own first page — no cursor", async () => {
+    const out = await render({ view: "flat", statusScope: "held", cursor: "c2" });
+    const current = out.match(/<[a-z]+ aria-current="true"[^>]*>/g) ?? [];
+    expect(current).toHaveLength(3);
+    for (const tag of current) {
+      expect(tag).toMatch(/^<a /);
+      expect(tag).not.toContain("cursor=");
+    }
+    expect(current).toContain(
+      '<a aria-current="true" class="btn btn--sm btn--selected" href="/skills/discovery?view=flat&amp;statusScope=held">',
+    );
   });
 });

@@ -835,6 +835,63 @@ details[open] > summary > .disclosure__caret {
   align-items: center;
 }
 
+/* ---- navigation pending cue (components/nav-pending.tsx, review of #2095) ---------
+   No loading boundary shows a navigation any more (app/no-loading-boundary-anywhere.test.ts), so
+   the link that started one does: a dot after its label while Next's link status is pending, in
+   the link's own colour (Safety Yellow on the active rail row, the rail's text colour elsewhere),
+   and a bar along the top of the viewport — the cue a phone sees, since the drawer closes as its
+   link is followed. Both end the moment the navigation commits. */
+.nav-pending {
+  display: none;
+}
+.nav-pending--on {
+  display: inline-block;
+  flex: none;
+  inline-size: var(--space-2);
+  block-size: var(--space-2);
+  margin-inline-start: var(--space-2);
+  border-radius: var(--radius-round);
+  background: currentColor;
+  animation: nav-pending-pulse var(--duration-slower) var(--ease-in-out) infinite alternate;
+}
+/* In a rail row the dot sits at the row's end, so the label never moves. */
+.sidebar__link > .nav-pending--on {
+  margin-inline-start: auto;
+}
+.nav-progress {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--space-1);
+  z-index: var(--z-toast);
+  background: var(--text-heading);
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-progress--on {
+  opacity: 1;
+  transform: scaleX(0.9);
+  animation: nav-progress-grow calc(var(--duration-slower) * 5) var(--ease-out);
+}
+@keyframes nav-pending-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+@keyframes nav-progress-grow {
+  from {
+    transform: scaleX(0.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-pending--on,
+  .nav-progress--on {
+    animation: none;
+  }
+}
+
 /* ---- responsive ---------------------------------------------------------- */
 
 @media (max-width: 1023px) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdminRequestError } from "./admin-http";
-import { readRefusal } from "./read-refusal";
+import { isUnknownValue, readRefusal } from "./read-refusal";
 
 /**
  * What a failed list read REFUSED — the console's one rule (docs/design/NAVIGATION.md, "A refused
@@ -35,5 +35,27 @@ describe("readRefusal", () => {
     ]) {
       expect(readRefusal(err, { filtered: true, cursor: "c2" })).toBeNull();
     }
+  });
+});
+
+/**
+ * Which filters in the address the server could have refused (review of #2095): a value the
+ * page's own chips offer never can be, so a valid filter beside an over-long cursor leaves the
+ * cursor as the refused part — not "the reason is not one the ledger records".
+ */
+describe("isUnknownValue", () => {
+  const REASONS = ["pack_purchase", "grant", "unlock_debit", "refund"] as const;
+
+  it("a value the chips offer is known", () => {
+    expect(isUnknownValue("grant", REASONS)).toBe(false);
+  });
+
+  it("a hand-edited value is unknown — the server may have refused it", () => {
+    expect(isUnknownValue("bogus", REASONS)).toBe(true);
+    expect(isUnknownValue("GRANT", REASONS)).toBe(true);
+  });
+
+  it("an absent value is not a filter at all", () => {
+    expect(isUnknownValue(undefined, REASONS)).toBe(false);
   });
 });

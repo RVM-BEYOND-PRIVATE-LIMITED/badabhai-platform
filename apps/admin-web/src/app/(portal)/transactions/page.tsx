@@ -19,7 +19,8 @@ import {
   FirstPageAction,
   RetryActions,
 } from "../../../components/retry-actions";
-import { readRefusal } from "../../../lib/read-refusal";
+import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
+import { uuidSchema } from "@badabhai/validators";
 import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -71,10 +72,17 @@ export default async function TransactionsPage({
   const filtered = Boolean(status || payerId);
   /**
    * A refused read is not an outage (final re-sweep O-3): a hand-edited `?status=` or `?payerId=`
-   * earned "Payment orders are unavailable" and a Retry that could only be refused again.
+   * earned "Payment orders are unavailable" and a Retry that could only be refused again. Only a
+   * status the chips do not offer, or a customer id that is not a uuid (the API's own rule), can
+   * be the refused part; with valid filters a 400 is the cursor's, or with no cursor, ours.
    */
+  const refusableFilter =
+    isUnknownValue(status, STATUSES) ||
+    (payerId !== undefined && !uuidSchema.safeParse(payerId).success);
   const refusal =
-    ordersRes.status === "rejected" ? readRefusal(ordersRes.reason, { filtered, cursor }) : null;
+    ordersRes.status === "rejected"
+      ? readRefusal(ordersRes.reason, { filtered: refusableFilter, cursor })
+      : null;
 
   /**
    * The CURRENT query without its cursor — where "Back to the first page" lands. RetryActions
@@ -180,6 +188,7 @@ export default async function TransactionsPage({
         <div className="filters filters--inline">
           {STATUSES.map((s) => (
             <FilterChip
+              cursor={cursor}
               key={s}
               selected={s === status}
               /* Keeps an account narrowing (`?payerId=`); a chip used to drop it. */

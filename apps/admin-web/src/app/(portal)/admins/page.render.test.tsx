@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type * as EntitiesModule from "../../../lib/entities";
 
 /**
  * The admin directory under the name ruling — the surface where the dash is the ORDINARY case.
@@ -29,7 +30,10 @@ vi.mock("../../../lib/auth", () => ({
   }),
 }));
 
-vi.mock("../../../lib/entities", () => ({
+// The real module with its read stubbed: the page also reads the directory's own status values
+// (`adminRowSchema`) to tell a refused filter from an outage.
+vi.mock("../../../lib/entities", async (importOriginal) => ({
+  ...(await importOriginal<typeof EntitiesModule>()),
   listAdmins: async () => {
     if (stub.failure) throw stub.failure;
     return stub.directory;
@@ -274,5 +278,24 @@ describe("a failed directory read: refused or unavailable (final re-sweep O-3)",
     expect(out).toContain("The admin directory could not be loaded");
     expect(hrefOf(out, "Retry")).toBe("/admins?role=analyst");
     expect(count(out, ">Clear filters<")).toBe(1);
+  });
+});
+
+/**
+ * A role the chips offer, or a status the directory has, is never the refused part (review of
+ * #2095). The directory has no cursor, so with only known values in the address a 400 is ours.
+ */
+describe("known role and status values are never the refused part", () => {
+  it("a chip's role and a real status: the 400 is an outage, with Retry", async () => {
+    stub.failure = new AdminRequestError(400, "Invalid filter value.");
+    const out = await render({ role: "analyst", status: "active" });
+    expect(out).toContain("The admin directory could not be loaded");
+    expect(out).not.toContain("rejected");
+    expect(hrefOf(out, "Retry")).toBe("/admins?role=analyst&amp;status=active");
+  });
+
+  it("a role the chips do not offer is still the refused part", async () => {
+    stub.failure = new AdminRequestError(400, "Invalid enum value");
+    expect(await render({ role: "root" })).toContain("The server rejected these filters");
   });
 });

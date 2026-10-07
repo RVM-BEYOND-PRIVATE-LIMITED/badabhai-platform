@@ -96,13 +96,15 @@ describe("TopbarCrumb — markup", () => {
   it("links the section with a caret glyph separator — no `/` character, no id", () => {
     nav.pathname = `/workers/${WORKER}/journey/${SESSION}`;
     const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
-    expect(out).toContain('<a class="crumb crumb__link" href="/workers">Workers</a>');
+    expect(out).toContain(
+      '<a class="crumb crumb__link" href="/workers">Workers<span class="nav-pending" aria-hidden="true"></span></a>',
+    );
     expect(out).toContain('<i class="ph-fill ph-caret-right crumb__sep" aria-hidden="true"></i>');
     expect(out).toContain('<span class="crumb">Journey</span>');
     // An ordered list of crumbs: group, section, step — the separator inside the step it opens.
     expect(out).toContain('<nav class="crumbs" aria-label="Breadcrumb"><ol class="crumbs__list">');
     expect(out).toContain(
-      '<li class="crumb__step"><i class="ph-fill ph-caret-right crumb__sep" aria-hidden="true"></i><a class="crumb crumb__link" href="/workers">Workers</a></li>',
+      '<li class="crumb__step"><i class="ph-fill ph-caret-right crumb__sep" aria-hidden="true"></i><a class="crumb crumb__link" href="/workers">Workers<span class="nav-pending" aria-hidden="true"></span></a></li>',
     );
     expect((out.match(/<li[ >]/g) ?? []).length).toBe(3);
     expect(out).not.toContain("5eeded00");
@@ -140,7 +142,9 @@ describe("TopbarCrumb — never links a section the reader cannot open", () => {
   it("links it when the reader may open it", () => {
     nav.pathname = DEEP;
     const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
-    expect(out).toContain('<a class="crumb crumb__link" href="/workers">Workers</a>');
+    expect(out).toContain(
+      '<a class="crumb crumb__link" href="/workers">Workers<span class="nav-pending" aria-hidden="true"></span></a>',
+    );
   });
 });
 
@@ -173,6 +177,19 @@ describe("TopbarCrumb — the section a back link already links", () => {
   it("a page whose back link goes to a RECORD still gets the section as a link", () => {
     nav.pathname = `/companies/${WORKER}/timeline`;
     const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
-    expect(out).toContain('<a class="crumb crumb__link" href="/companies">Companies</a>');
+    expect(out).toContain(
+      '<a class="crumb crumb__link" href="/companies">Companies<span class="nav-pending" aria-hidden="true"></span></a>',
+    );
+  });
+});
+
+/** The crumb's section link — the topbar's one link — carries the pending cue (review of #2095). */
+describe("TopbarCrumb — the pending cue", () => {
+  it("the section link holds the cue after its label, hidden from assistive tech", () => {
+    nav.pathname = `/workers/${WORKER}/journey/${SESSION}`;
+    const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
+    expect(out).toContain(
+      '<a class="crumb crumb__link" href="/workers">Workers<span class="nav-pending" aria-hidden="true"></span></a>',
+    );
   });
 });

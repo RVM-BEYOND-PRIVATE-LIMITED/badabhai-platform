@@ -22,7 +22,7 @@ import {
   FirstPageAction,
   RetryActions,
 } from "../../../components/retry-actions";
-import { readRefusal } from "../../../lib/read-refusal";
+import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
 import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -30,6 +30,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Credits" };
 
 const WINDOWS = [7, 30, 90];
+/** The ledger's reasons, one chip each — and the only reasons the API accepts. */
+const REASONS = ["pack_purchase", "grant", "unlock_debit", "refund"] as const;
 
 /**
  * Credits — the platform's credit position and the movements behind it.
@@ -80,13 +82,13 @@ export default async function CreditsPage({
   const ledger = ledgerRes.status === "fulfilled" ? ledgerRes.value : null;
   /**
    * A refused ledger read is not an outage (final re-sweep O-3). The reason is the one filter that
-   * reaches the ledger (the window is the position's, and only 7/30/90 are ever sent), so a 400
-   * with a reason set refused the reason, one with only a cursor refused the cursor, and one with
-   * neither — or anything else — is ours.
+   * reaches the ledger (the window is the position's, and only 7/30/90 are ever sent), and only a
+   * reason the chips do not offer can be refused: a 400 with one refused the reason, one with
+   * only a cursor (a chip's reason or none) refused the cursor, and one with neither is ours.
    */
   const ledgerRefusal =
     ledgerRes.status === "rejected"
-      ? readRefusal(ledgerRes.reason, { filtered: Boolean(reason), cursor })
+      ? readRefusal(ledgerRes.reason, { filtered: isUnknownValue(reason, REASONS), cursor })
       : null;
 
   // The posture comes from whichever response arrived. If NEITHER did, nothing below renders
@@ -130,6 +132,7 @@ export default async function CreditsPage({
           <nav className="filters--inline" aria-label="Reporting window">
             {WINDOWS.map((w) => (
               <FilterChip
+                cursor={cursor}
                 key={w}
                 selected={w === windowDays}
                 size="md"
@@ -324,8 +327,8 @@ export default async function CreditsPage({
         </div>
 
         <div className="filters filters--inline">
-          {["pack_purchase", "grant", "unlock_debit", "refund"].map((r) => (
-            <FilterChip key={r} selected={r === reason} href={`/credits?windowDays=${windowDays}&reason=${r}`}>
+          {REASONS.map((r) => (
+            <FilterChip key={r} selected={r === reason} href={`/credits?windowDays=${windowDays}&reason=${r}`} cursor={cursor}>
               {creditReasonLabel(r)}
             </FilterChip>
           ))}

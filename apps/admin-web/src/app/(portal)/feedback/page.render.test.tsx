@@ -331,17 +331,13 @@ describe("what this screen refuses to offer", () => {
 });
 
 describe("the category chips", () => {
-  /**
-   * One chip's opening tag, whatever order React chose to emit its attributes in.
-   *
-   * A literal regex for the anchors, then a plain substring match for the one we want — not
-   * a `new RegExp` built from `category`, which is the non-literal-regexp pattern semgrep
-   * blocks (and which would need `category` escaped to be correct anyway).
-   */
+  /** Each tag's chip label — how a chip is found, since the selected one may have no href. */
   const LABEL = { suggestion: "Suggestions", problem: "Problems", other: "Other" } as const;
   /**
-   * One chip's opening tag, found by its label inside the chip row: the SELECTED chip is text
-   * with no href since the final re-sweep (O-2), so an href no longer finds every chip.
+   * One chip's opening tag (`<a …` or `<span …`, up to its `>`), found by its visible label in
+   * the chip row. Not by href: on the first page the SELECTED chip is text with no href (final
+   * re-sweep O-2). A literal regex for the tags, then a plain string match for the label — never
+   * a `new RegExp` built from a value.
    */
   const chip = (html: string, category: keyof typeof LABEL) => {
     const row = html.slice(html.indexOf('<div class="filters filters--inline">'));
@@ -378,12 +374,26 @@ describe("the category chips", () => {
     expect(chip(out, "other")).toContain('href="/feedback?category=other"');
   });
 
+  it("on a later page the active chip links the first page of its tag, still marked current (review of #2095)", async () => {
+    // The Pager only goes forward: as text, the selected chip took the one-click way back.
+    stub.page = { items: [TAGGED], nextCursor: "bmV4dA" };
+    const out = await render({ category: "problem", cursor: "Y3Vyc29y" });
+    expect(chip(out, "problem")).toBe(
+      '<a aria-current="true" class="btn btn--sm btn--selected" href="/feedback?category=problem"',
+    );
+  });
+
   it("a chip never carries the current cursor — changing the filter restarts at page one", async () => {
     // Page three's cursor applied to a different query returns an arbitrary slice of it,
     // which looks like data rather than like an error.
     stub.page = { items: [TAGGED], nextCursor: "bmV4dA" };
     const out = await render({ category: "problem", cursor: "Y3Vyc29y" });
     for (const category of ["suggestion", "problem", "other"] as const) {
+      // On a later page every chip is a link (the selected one back to its first page), so each
+      // must have a real target — an empty or missing href would pass "no cursor" vacuously.
+      expect(/href="([^"]+)"/.exec(chip(out, category))?.[1], `the ${category} chip's href`).toMatch(
+        /^\/feedback\?category=/,
+      );
       expect(chip(out, category), `the ${category} chip must not carry a cursor`).not.toContain(
         "cursor",
       );

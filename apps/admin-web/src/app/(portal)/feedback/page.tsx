@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import { readRefusal } from "../../../lib/read-refusal";
 import {
   FEEDBACK_CATEGORIES,
   listFeedback,
@@ -123,10 +123,9 @@ export default async function FeedbackPage({
      *
      * And only when the address HOLDS something to refuse — a filter or a page cursor. With
      * neither, a 400 cannot be the operator's, so it is an outage like any other: unavailable,
-     * with Retry (the rule the five entity lists follow).
+     * with Retry (the console's one rule, `readRefusal`).
      */
-    rejected =
-      isAdminRequestError(err) && err.status === 400 && Boolean(category || workerId || cursor);
+    rejected = readRefusal(err, { filtered: Boolean(category || workerId), cursor }) !== null;
   }
 
   const failed = page === null;
@@ -201,6 +200,7 @@ export default async function FeedbackPage({
         <div className="filters filters--inline">
           {FEEDBACK_CATEGORIES.map((c) => (
             <FilterChip
+              cursor={cursor}
               key={c}
               selected={c === category}
               /* KEEPS an active worker narrowing and DROPS the cursor. Picking a tag while

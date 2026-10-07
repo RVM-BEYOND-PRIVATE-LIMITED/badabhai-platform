@@ -23,3 +23,14 @@ export function readRefusal(
   if (address.cursor) return "cursor";
   return null;
 }
+
+/**
+ * A filter value the server could have refused: present, and not one of the values the page's
+ * own chips offer (`known`). A chip's value never can be — so with only known values in the
+ * address, a 400 is the cursor's (or, with no cursor, ours), never "that reason is not one the
+ * ledger records" (review of #2095: a valid reason beside an over-long cursor read exactly that).
+ * Pass the result as `filtered` to {@link readRefusal}.
+ */
+export function isUnknownValue(value: string | undefined, known: readonly string[]): boolean {
+  return value !== undefined && !known.includes(value);
+}

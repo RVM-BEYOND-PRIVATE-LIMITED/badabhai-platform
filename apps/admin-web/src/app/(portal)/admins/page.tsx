@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { ADMIN_ROLES, ROLE_LABELS, can } from "../../../lib/auth/capabilities";
-import { listAdmins } from "../../../lib/entities";
+import { adminRowSchema, listAdmins } from "../../../lib/entities";
 import { identityPosture } from "../../../lib/identity";
-import { readRefusal } from "../../../lib/read-refusal";
+import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
@@ -95,14 +95,18 @@ export default async function AdminsPage({
   let failed = false;
   /**
    * A refused read is not an outage (final re-sweep O-3). The directory is unpaginated, so the
-   * only thing in the address to refuse is a role or a status; with neither, a 400 is ours.
+   * only thing in the address to refuse is a role or a status — and only one the directory does
+   * not have (the role chips, the account statuses); with known values, a 400 is ours.
    */
   let refused = false;
   try {
     directory = await listAdmins({ role, status });
   } catch (err) {
     failed = true;
-    refused = readRefusal(err, { filtered }) === "filters";
+    const refusable =
+      isUnknownValue(role, ADMIN_ROLES) ||
+      isUnknownValue(status, adminRowSchema.shape.status.options);
+    refused = readRefusal(err, { filtered: refusable }) === "filters";
   }
 
   /**
@@ -227,6 +231,8 @@ export default async function AdminsPage({
         <div className="filters filters--inline">
           {ADMIN_ROLES.map((r) => (
             <FilterChip
+              /* The directory is unpaginated: there is never a cursor to drop. */
+              cursor={undefined}
               key={r}
               selected={r === role}
               /* Keeps a status narrowing (`?status=`); a chip used to drop it. */

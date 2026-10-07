@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { listEvents, type EventFilters } from "../../../lib/events";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import { readRefusal } from "../../../lib/read-refusal";
 import { queryHref } from "../../../lib/query-href";
 import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
@@ -69,8 +69,9 @@ export default async function EventsPage({
     // our fault, and "correct the value above" over an outage blames a filter that is fine.
     failed = true;
     // A 400 is the operator's address only when the address holds something to refuse — a
-    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
-    refused = isAdminRequestError(err) && err.status === 400 && Boolean(filtered || filters.cursor);
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
+    // console's one rule, `readRefusal`.
+    refused = readRefusal(err, { filtered, cursor: filters.cursor }) !== null;
   }
 
   /** The current query without the cursor — what the recoveries below repeat. */

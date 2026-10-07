@@ -183,11 +183,11 @@ export default async function WorkerJourneyPage({
               (never the primary fill, which marks a screen's one action — AW-11). The active one
               is text, not a link to this page (`<FilterChip>`, final re-sweep O-2). */}
           <nav aria-label="Filter sessions by status" className="page__actions">
-            <FilterChip selected={!status} href={`/workers/${id}/journey`}>
+            <FilterChip selected={!status} href={`/workers/${id}/journey`} cursor={cursor}>
               All
             </FilterChip>
             {SESSION_STATUS_FILTERS.map((s) => (
-              <FilterChip key={s} selected={status === s} href={`/workers/${id}/journey?status=${s}`}>
+              <FilterChip key={s} selected={status === s} href={`/workers/${id}/journey?status=${s}`} cursor={cursor}>
                 {SESSION_STATUS_LABELS[s]}
               </FilterChip>
             ))}

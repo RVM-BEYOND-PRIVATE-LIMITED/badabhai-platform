@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listWorkers } from "../../../lib/entities";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import { readRefusal } from "../../../lib/read-refusal";
 import { queryHref } from "../../../lib/query-href";
 import { identityPosture } from "../../../lib/identity";
 import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
@@ -73,8 +73,9 @@ export default async function WorkersPage({
     // sends the operator to fix filters that are not broken, or not even set.
     failed = true;
     // A 400 is the operator's address only when the address holds something to refuse — a
-    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
-    refused = isAdminRequestError(err) && err.status === 400 && Boolean(filtered || cursor);
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
+    // console's one rule, `readRefusal`.
+    refused = readRefusal(err, { filtered, cursor }) !== null;
   }
 
   /** The current query without the cursor — what the recoveries below repeat. */

@@ -91,11 +91,14 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
    below it, the item is the current section (`aria-current="true"`). Chip filters mark the
    active chip `aria-current="true"` and give it the selected tint (`filterChipClass` →
-   `.btn--selected`) — never the primary fill, which marks a screen's one action. The active
-   chip is TEXT, not a link to the page it is on (`components/filter-chip-link.tsx`, final
-   re-sweep O-2; a fence in `filter-chip.test.ts` keeps every link chip on it): as a link it
-   sat beside a Retry or another selected chip with the same address. The Engine view's picker
-   does the same for the selected worker, and its Worker tab is the way back from a posting.
+   `.btn--selected`) — never the primary fill, which marks a screen's one action. Every link
+   chip renders `components/filter-chip-link.tsx` (a fence in `filter-chip.test.ts`). A chip
+   keeps the other filters and drops the page cursor, so the active chip is TEXT only where its
+   target is the address on screen — the first page (final re-sweep O-2: as a link it sat
+   beside a Retry or another selected chip with the same address). On a later page it stays a
+   link, still `aria-current`, to the first page of the same selection: the Pager only goes
+   forward (review of #2095). The Engine view's picker shows the selected worker as text, and
+   its Worker tab is the way back from a posting.
 7. **Tab title.** `metadata.title` names the page. The root template adds " · BadaBhai Admin",
    so a page never includes it itself.
 
@@ -120,11 +123,14 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   `components/retry-actions.tsx` (Workers, Postings, Events, Companies, Agencies, the event
   timelines, Payment orders, the credit ledger, Skill discovery's flat view, AI calls,
   Feedback, a worker's interview sessions); a test fails if one does not pass its cursor.
-- **A refused read is not an outage.** Every list tells a 400 apart (Workers, Postings,
-  Events, Companies, Agencies, AI calls, Feedback, Skill discovery, and since the final
-  re-sweep O-3 the credit ledger, Payment orders and Admin users — `lib/read-refusal.ts`). A
-  refusal never offers Retry — the request would only be refused again — and says what was
-  refused:
+- **A refused read is not an outage.** Every list tells a 400 apart by one rule,
+  `lib/read-refusal.ts` (Workers, Postings, Events, Companies, Agencies, AI calls, Feedback,
+  the credit ledger, Payment orders and Admin users; Skill discovery keeps its grouped-view
+  exception below). A refusal never offers Retry — the request would only be refused again —
+  and says what was refused. Where a page's chips list every value a filter can take (the
+  ledger's reasons, order statuses, admin roles and statuses), only a value they do not offer
+  — or a customer id that is not a uuid — counts as a refusable filter (`isUnknownValue`): a
+  valid reason beside an over-long cursor is the cursor's refusal, not the reason's.
   - **a filter is set** → the filters. The API refuses a page cursor only when it is longer
     than any it issues (a malformed one falls back to page one), so with a filter set the
     filter is at fault and its first page would be refused too: the state's action is "Clear
@@ -146,13 +152,20 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   state does not repeat a control already on screen: a quiet credit window points at the
   window chips rather than offering a second link to the 90-day one.
   The error boundary's button is "Retry" too.
-- **No loading boundary above a page** (final re-sweep O-1). There is no route `loading.tsx`
-  and no `<Suspense>` in the console (`app/no-suspense-above-a-page.test.ts`): on a production
-  build of next 15.5.25, a boundary above the page held same-route navigations — a chip, a
-  filter, a page cursor — in a transition that never committed (the URL never moved: 1-2 of 6
-  clicks landed on /credits, /events and /transactions; 400/400 with no boundary). A navigation
-  keeps the current page on screen until the next one has rendered. Re-measure before adding
-  one back after a Next or React upgrade.
+- **No Suspense or loading boundary anywhere in admin-web, until re-measured** (final re-sweep
+  O-1, review of #2095). No route `loading.tsx`, no `<Suspense>`, no `React.lazy`, no
+  `next/dynamic` with `loading` — in any layout, page or component
+  (`app/no-loading-boundary-anywhere.test.ts`). A query-only navigation (a chip, a filter, a
+  page cursor) re-renders the same page, so any boundary in it is already visible, and on a
+  production build of next 15.5.25 such a navigation was held in a transition that never
+  committed (the URL never moved: 1-2 of 6 clicks landed on /credits, /events and
+  /transactions; 400/400 with no boundary). A navigation keeps the current page on screen until
+  the next one has rendered. Re-measure before relaxing this after a Next or React upgrade.
+- **A navigation shows that it is under way** (review of #2095). The sidebar links (rail and
+  drawer) and the crumb's section link carry `components/nav-pending.tsx`: while Next's
+  `useLinkStatus` says the link's navigation is pending, a dot after its label, a bar along the
+  top of the viewport (the cue a phone sees, since the drawer closes as its link is followed)
+  and one polite status line, "Opening Workers…". All three end when the navigation commits.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not
   also say "reload". A failure with no button (a secondary read on a detail page) says
   "Reload this page".

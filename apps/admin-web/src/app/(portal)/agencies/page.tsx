@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listPayers } from "../../../lib/entities";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import { readRefusal } from "../../../lib/read-refusal";
 import { queryHref } from "../../../lib/query-href";
 import { identityPosture } from "../../../lib/identity";
 import { PayerList } from "../../../components/payer-list";
@@ -57,8 +57,9 @@ export default async function AgenciesPage({
     // different screens — "pick a status" over an outage blames a filter that is not broken.
     failed = true;
     // A 400 is the operator's address only when the address holds something to refuse — a
-    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
-    refused = isAdminRequestError(err) && err.status === 400 && Boolean(status || cursor);
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
+    // console's one rule, `readRefusal`.
+    refused = readRefusal(err, { filtered: Boolean(status), cursor }) !== null;
   }
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/agencies", { status });

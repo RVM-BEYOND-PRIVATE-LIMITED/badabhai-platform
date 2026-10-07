@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import { readRefusal } from "../../../lib/read-refusal";
 import { listAiTraces, type AiTracePage } from "../../../lib/ai-traces";
 import { aiTraceErrorLabel, outcomeTone, realCallLabel } from "../../../lib/ai-trace-view";
 import { taskTypeLabel } from "../../../lib/ai-cost";
@@ -109,12 +109,9 @@ export default async function AiCallsPage({
      *
      * And only when the address HOLDS something to refuse — a filter or a page cursor. With
      * neither, a 400 cannot be the operator's, so it is an outage like any other: unavailable,
-     * with Retry (the rule the five entity lists follow).
+     * with Retry (the console's one rule, `readRefusal`).
      */
-    rejected =
-      isAdminRequestError(err) &&
-      err.status === 400 &&
-      Boolean(taskType || success || workerId || cursor);
+    rejected = readRefusal(err, { filtered: Boolean(taskType || success || workerId), cursor }) !== null;
   }
 
   const failed = page === null;
