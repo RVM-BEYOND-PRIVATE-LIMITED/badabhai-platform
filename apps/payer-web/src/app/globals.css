@@ -651,17 +651,6 @@ body {
     padding-inline: var(--gutter);
   }
 }
-/* Touch (#1856): the rail rows are drawn at the dense 36px for a mouse. On a phone (where the
-   rail is the drawer) and under any coarse pointer every row is a 44px finger target. A drawn
-   min-height, not a hit strip: the rows are stacked 2px apart, so strips would overlap their
-   neighbours. The drawer scrolls (`.pshell__rail` overflow-y), so the taller list never clips.
-   Desktop density with a fine pointer is unchanged. */
-@media (max-width: 600px), (pointer: coarse) {
-  .pnav__link,
-  .pshell__collapse {
-    min-height: var(--control-md);
-  }
-}
 
 /* Narrow phones (≤540px): the balance chip's unit word is the first thing that can go — visually
    only: it stays in the chip's accessible name ("247 credits"). Then the header's own slack: its

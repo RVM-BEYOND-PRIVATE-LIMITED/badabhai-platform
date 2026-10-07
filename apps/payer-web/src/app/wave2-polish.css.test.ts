@@ -30,9 +30,10 @@ function rule(selector: string, at = ""): Rule {
   return hits[0]!;
 }
 
+// Rail/drawer rows (.pnav__link, .pshell__collapse) are covered by F04 on main
+// (shell-targets-contrast.css.test.ts), whose lift spans ≤1279px and coarse pointers.
 describe("#1856 · touch targets — 44px on phones and coarse pointers, desktop density unchanged", () => {
   it.each([
-    [".pnav__link, .pshell__collapse", ".pnav__link"],
     [".login-mode", ".login-mode"],
     [".agency-batch__share", ".agency-batch__share"],
     [".agency-batch__item", ".agency-batch__item"],
