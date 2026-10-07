@@ -40,6 +40,14 @@ describe("a phone's groups are not pay (issue #2050)", () => {
     `whatsapp 98765${NBSP}43210 pe`,
     `number 98765${EN_DASH}43210`,
     `${devanagari("98765 43210")} mera number hai`,
+    // The separators the security review of #2050 found unread.
+    "(987) 654-3210",
+    "(98765) 43210",
+    `98765${String.fromCharCode(0x2009)}43210`,
+    `98765${String.fromCharCode(0x202f)}43210`,
+    `98765${String.fromCharCode(0x3000)}43210`,
+    `98765${String.fromCharCode(0x200b)}43210`,
+    `98765${String.fromCharCode(0xad)}43210`,
     "job chahiye mera number 98765 43210",
   ])("records no pay from %j", (text) => {
     expect(reading(text)).toEqual([null, null]);
@@ -70,22 +78,58 @@ describe("wages and pay ranges read as before", () => {
     expect(reading(text)).toEqual(now);
   });
 
-  it.each(["10000-90000", "25000-20000", "20050-25000", "20000-20000", "12345 6789"])(
-    "records nothing from %j, a phone-length run that is no pay range (#1731's rule)",
-    (text) => {
-      expect(reading(text)).toEqual([null, null]);
+  it.each([
+    "10000-90000",
+    "25000-20000",
+    "20050-25000",
+    "20000-20000",
+    // DECIDED: a ten-digit run outside #1731's range rule records nothing.
+    "15000 20000 25000",
+    "25000 25000",
+    "salary 18750 22500",
+    "salary 15500 18250 chahiye",
+  ])("records nothing from %j, a phone-length run that is no pay range (#1731's rule)", (text) => {
+    expect(reading(text)).toEqual([null, null]);
+  });
+
+  it.each([
+    ["salary 18000 2023 se mil raha hai", 18000],
+    ["salary 20000 3000 overtime alag", 20000],
+    ["salary 25000 - 2000 pf", 25000],
+    ["salary 15000 1000 bonus", 15000],
+    ["salary 20000 10 12 ghante", 20000],
+    ["98765 4321", 98765],
+    ["12345 6789", 12345],
+  ] as const)(
+    "DECIDED (owner, 2026-10-07): a nine-digit run is no phone, so %j reads as before",
+    (text, wage) => {
+      // The run is TEN digits, an Indian mobile number.
+      expect(reading(text)).toEqual([wage, null]);
     },
   );
+
+  it.each([
+    "1".repeat(5_000) + " " + "1".repeat(5_000),
+    String.fromCharCode(0x967).repeat(4_400) + " 1",
+    "salary 25000 " + "9".repeat(4_301) + "-" + "9".repeat(10),
+  ])("a figure too long to be a range records nothing (%#)", (text) => {
+    // Python's int() refuses past 4,300 digits; both engines check the length first.
+    expect(reading(text)).toEqual([null, null]);
+  });
 
   it("DECIDED: a wage glued to a phone by a space is not recorded", () => {
     // One 15-digit run and no range: prefer no number over a wrong one.
     expect(reading("salary 25000 98765 43210")).toEqual([null, null]);
   });
 
-  it("KNOWN_RESIDUAL: a phone split by a line break is not joined, so its first group is pay", () => {
-    // A line break separates two answers ("25000\n35000 chahiye"); the gateway still masks it.
-    expect(reading("98765\n43210")).toEqual([98765, null]);
-  });
+  it.each(["98765\n43210", "98765.43210", "98765/43210"])(
+    "KNOWN_RESIDUAL: %j is not joined (a line break, a decimal dot, a slash), so its first group is pay",
+    (text) => {
+      // A line break separates two answers, a dot is a decimal and a slash writes dates. The
+      // gateway masks each; this field does not.
+      expect(reading(text)).toEqual([98765, null]);
+    },
+  );
 });
 
 describe("the phone-chain scan is linear", () => {

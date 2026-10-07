@@ -61,6 +61,8 @@ const CREDENTIAL_BEFORE = compilePattern(SALARY.credentialBefore);
 const PHONE_CHAIN = compilePattern(SALARY.phoneChain);
 /** The figures of a run: the only digits `phoneChain` admits. */
 const RUN_FIGURE = /[0-9०-९]+/g;
+/** A longer figure is over the plausible band, so it is no range. `_RANGE_FIGURE_MAX_DIGITS`. */
+const RANGE_FIGURE_MAX_DIGITS = String(SALARY.maxPlausibleInr).length;
 
 // Arrow, not a bare `specs.map(compilePattern)`: `map` passes the INDEX as the second argument,
 // which `compilePattern` now reads as its fragments map. Caught by the typechecker.
@@ -436,6 +438,7 @@ function cueAfterThePeriodPhrase(
  */
 function isPayRange(figures: readonly string[]): boolean {
   if (figures.length !== 2) return false;
+  if (figures.some((figure) => figure.length > RANGE_FIGURE_MAX_DIGITS)) return false;
   const [low, high] = figures.map((figure) => Number(toAscii(figure))) as [number, number];
   return (
     SALARY.minAmountInr <= low &&

@@ -746,6 +746,10 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
          "a wage glued to a phone by a space is part of a 15-digit run: no number rather "
          "than a wrong one"),
         ("5000 6000 milta hai", "eight digits: below the phone length, read as before"),
+        ("salary 20000 3000 overtime alag",
+         "DECIDED (owner, 2026-10-07): the run is TEN digits, an Indian mobile number, so a "
+         "wage next to a small count (nine digits) is read as before"),
+        ("(987) 654-3210", "brackets are a phone's separators too (security review of #2050)"),
     ]),
     # --------------------------------------------- salary: both slots, lines, script --
     ("sal2", [

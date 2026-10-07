@@ -2372,12 +2372,16 @@ _PAY_RANGE_MAX_RATIO: int = _SALARY["payRangeMaxRatio"]
 _PAY_RANGE_ROUND_TO: int = _SALARY["payRangeRoundTo"]
 # The figures of a run. `\d` reads Devanagari digits as `int()` does; a run holds no others.
 _RUN_FIGURE_RE = re.compile(r"\d+")
+# A longer figure is over the plausible band, so it is no range. Checked BEFORE `int()`, which
+# refuses a string past 4,300 digits (Python 3.11+): "1"*5000 + " 1" raised out of `detect` and
+# `/profile/extract` returned 500 (the security review of #2050).
+_RANGE_FIGURE_MAX_DIGITS = len(str(_SALARY["maxPlausibleInr"]))
 
 
 def _is_pay_range(figures: list[str]) -> bool:
     """Two figures that read as a pay range, not a phone: rising, both round, at most
     `_PAY_RANGE_MAX_RATIO` times apart, both in the plausible band."""
-    if len(figures) != 2:
+    if len(figures) != 2 or any(len(figure) > _RANGE_FIGURE_MAX_DIGITS for figure in figures):
         return False
     low, high = (int(figure) for figure in figures)
     return (

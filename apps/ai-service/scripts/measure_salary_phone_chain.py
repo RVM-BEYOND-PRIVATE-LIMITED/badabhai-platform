@@ -7,9 +7,10 @@ The salary detector read digits split by a space or a dash as separate numbers, 
 groups were recorded as pay: "mera number 98765 43210 hai" gave a 98,765 current salary, and with a
 want cue near it ("job chahiye mera number 98765 43210") the EXPECTED salary, which
 /profile/extract stores in salary_expectation. #2050 skips every figure of a phone-shaped run
-(lexicon `salary.json` `phoneChain`: 9+ digits on one line joined only by spaces or dashes) unless
-the run is a pay range (two round, rising figures at most 5x apart: #1731's rule; a space-joined
-pair counts, owner decision 2026-10-07).
+(lexicon `salary.json` `phoneChain`: 10+ digits on one line joined only by the separators a
+phone is written with: spaces, tabs, dashes, brackets, a soft hyphen or a zero-width space)
+unless the run is a pay range (two round, rising figures at most 5x apart: #1731's rule). Owner
+decisions 2026-10-07: a space-joined pair counts as a range, and the run is ten digits.
 
 BEFORE is the detector with the guard switched off (`no_guard()` makes `signals._phone_chains`
 find no run; nothing else is touched), so BEFORE and shipped differ by #2050 alone.
@@ -17,8 +18,8 @@ find no run; nothing else is touched), so BEFORE and shipped differ by #2050 alo
 corpus  Every text whose (current_salary, expected_salary) differs between BEFORE and shipped, over
         four corpora: PHONES (phone shapes the guard SHOULD silence), WAGES (wage lines it must
         leave alone, ranges included), LEXICON (the parity utterances) and REPO (every distinct
-        string of the repo's tracked text, #1933's reader, holding a 9+ digit run of the guard's
-        shape).
+        string of the repo's tracked text, #1933's reader, holding a 10+ digit run of the
+        guard's shape).
 timing  `signals.detect`, BEFORE and shipped, on the guard's worst shapes at the size cap, the
         minimum of `reps` runs.
 
@@ -82,9 +83,14 @@ PHONES = [
     "call 098765 43210",
     "whatsapp 98765 43210 pe",
     "number 98765–43210",
-    "".join(chr(0x966 + int(c)) for c in "98765") + " " + "".join(
-        chr(0x966 + int(c)) for c in "43210"
-    ),
+    "".join(chr(0x966 + int(c)) for c in "98765")
+    + " "
+    + "".join(chr(0x966 + int(c)) for c in "43210"),
+    "(987) 654-3210",
+    "(98765) 43210",
+    "98765" + chr(0x2009) + "43210",
+    "98765" + chr(0x200B) + "43210",
+    "98765" + chr(0xAD) + "43210",
     "job chahiye mera number 98765 43210",
     "number 98765 43210, salary 25000",
     "salary 25000, number 98765 43210",
@@ -105,6 +111,14 @@ WAGES = [
     "15k-20k chahiye",
     "2.5 lakh saal ka",
     "1,20,000 saal ka",
+    # Nine digits: a wage next to a small count (the run is ten digits, owner decision).
+    "salary 18000 2023 se mil raha hai",
+    "salary 20000 3000 overtime alag",
+    "salary 25000 - 2000 pf",
+    "salary 15000 1000 bonus",
+    "salary 20000 10 12 ghante",
+    # A slash is not a separator: a date before a wage.
+    "1/4/2023 25000 milta hai",
 ]
 
 
@@ -115,8 +129,8 @@ def lexicon_texts() -> list[str]:
 
 
 def repo_texts() -> list[str]:
-    """Every distinct tracked string that holds a run the guard could claim (9+ digits joined by
-    spaces or dashes), at most the gateway's size cap."""
+    """Every distinct tracked string that holds a run the guard could claim (10+ digits joined
+    by a phone's separators), at most the gateway's size cap."""
     strings = distinct(linear.corpus())
     return [
         text

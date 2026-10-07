@@ -8,10 +8,12 @@ became the EXPECTED salary, which `/profile/extract` stores in `salary_expectati
 the reach engine scores (weight 0.10) and the worker's own résumé prints ("expects ₹98,765"). And
 "number 98765 43210, salary 25000" lost the real wage to it: first writer wins.
 
-THE FIX (lexicon `salary.json` `phoneChain`, both engines): a run of 9+ digits on one line joined
-only by spaces or dashes is phone-shaped, and none of its figures is pay, unless it is a pay range:
-two round, rising figures at most 5x apart (#1731's rule). A space-joined pair counts as a range too
-(owner decision 2026-10-07).
+THE FIX (lexicon `salary.json` `phoneChain`, both engines): a run of 10+ digits on one line joined
+only by the separators a phone is written with (spaces, tabs, dashes, brackets, a soft hyphen or a
+zero-width space) is phone-shaped, and none of its figures is pay, unless it is a pay range: two
+round, rising figures at most 5x apart (#1731's rule). Owner decisions 2026-10-07: a space-joined
+pair counts as a range too, and the run is ten digits (an Indian mobile number), not nine, so a
+wage next to a small count reads as before.
 
 Pinned here: the phone shapes (1), the wages and ranges that must not move (2), the decided cases
 (3), the measurement (4), linearity (5) and what the guard does not read (6). The TypeScript port
@@ -75,6 +77,14 @@ def before(text: str) -> tuple[int | None, int | None]:
         (f"whatsapp 98765{NBSP}43210 pe", (98765, None)),
         (f"number 98765{EN_DASH}43210", (98765, None)),
         (devanagari("98765 43210") + " mera number hai", (98765, None)),
+        # The separators the security review of #2050 found unread.
+        ("(987) 654-3210", (3210, None)),
+        ("(98765) 43210", (98765, None)),
+        (f"98765{chr(0x2009)}43210", (98765, None)),  # thin space
+        (f"98765{chr(0x202F)}43210", (98765, None)),  # narrow no-break space
+        (f"98765{chr(0x3000)}43210", (98765, None)),  # ideographic space
+        (f"98765{chr(0x200B)}43210", (98765, None)),  # zero-width space
+        (f"98765{chr(0xAD)}43210", (98765, None)),  # soft hyphen
         # The traced harm: the want cue made the group the EXPECTED salary.
         ("job chahiye mera number 98765 43210", (43210, 98765)),
     ],
@@ -133,7 +143,6 @@ def test_a_pay_range_is_pay(text, now):
         "25000-20000",  # falling
         "20050-25000",  # not a multiple of 100
         "20000-20000",  # not rising
-        "12345 6789",  # nine digits, no range
     ],
 )
 def test_a_phone_length_run_that_is_no_pay_range_records_nothing(text):
@@ -157,8 +166,49 @@ def test_DECIDED_a_space_joined_round_pair_is_a_pay_range(text, now):
     assert reading(text) == now == before(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "salary 18000 2023 se mil raha hai",
+        "salary 20000 3000 overtime alag",
+        "salary 25000 - 2000 pf",
+        "salary 25000-2000 pf kat ke",
+        "25000 1200 ka kiraya",
+        "salary 15000 1000 bonus",
+        "salary 18000 2000 pf",
+        "salary 30000 2025",
+        "salary 20000 10 12 ghante",
+        "98765 4321",
+        "12345 6789",
+    ],
+)
+def test_DECIDED_a_nine_digit_run_reads_as_before(text):
+    """Owner decision 2026-10-07, on the security review of #2050: the run is TEN digits, an Indian
+    mobile number. At nine, each of these wages next to a small count recorded nothing. A
+    nine-digit run is no dialable number, so its first group ("98765 4321") is read as before."""
+    assert reading(text) == before(text)
+    assert reading(text)[0] is not None
+
+
+@pytest.mark.parametrize(
+    ("text", "was"),
+    [
+        ("15000 20000 25000", (15000, None)),  # three figures
+        ("25000 25000", (25000, None)),  # not rising
+        ("salary 18750 22500", (18750, None)),  # not multiples of 100
+        ("salary 15500 18250 chahiye", (None, 15500)),
+    ],
+)
+def test_DECIDED_a_ten_digit_run_that_is_no_pay_range_records_nothing(text, was):
+    """#1731's range rule, read as it is in the job-posting chat: two figures, rising, both
+    multiples of 100. A ten-digit run outside it is a phone, so these wages record nothing and the
+    question is asked again. Prefer no number over a wrong one."""
+    assert before(text) == was
+    assert reading(text) == (None, None)
+
+
 def test_DECIDED_a_wage_glued_to_a_phone_by_a_space_is_not_recorded():
-    """"salary 25000 98765 43210" is one 15-digit run and no range, so 25000 goes with the phone.
+    """One 15-digit run and no range ("salary 25000 98765 43210"), so 25000 goes with the phone.
     Prefer no number over a wrong one: a missing wage is asked again, a phone group is not."""
     text = "salary 25000 98765 43210"
     assert before(text) == (25000, None)
@@ -171,12 +221,12 @@ def test_DECIDED_a_wage_glued_to_a_phone_by_a_space_is_not_recorded():
 def test_the_detector_reads_the_lexicon_copy_both_engines_read():
     spec = lexicon.load("salary")
     assert signals._PHONE_CHAIN_RE.pattern == lexicon.compile_pattern(spec["phoneChain"]).pattern
-    assert signals._PHONE_CHAIN_MIN_DIGITS == spec["phoneChainMinDigits"] == 9
+    assert signals._PHONE_CHAIN_MIN_DIGITS == spec["phoneChainMinDigits"] == 10
     assert (spec["payRangeMaxRatio"], spec["payRangeRoundTo"]) == (5, 100)
 
 
 def test_no_lexicon_utterance_moves_but_the_phone_rows():
-    """The parity corpus (559 rows on 2026-10-07): only #2050's own `salph` rows move."""
+    """The parity corpus (561 rows on 2026-10-07): only #2050's own `salph` rows move."""
     moved = {text for text, _b, _a in measure.moves(measure.lexicon_texts())}
     assert moved == {
         "mera number 98765 43210 hai",
@@ -187,6 +237,7 @@ def test_no_lexicon_utterance_moves_but_the_phone_rows():
         "number 98765 43210, salary 25000",
         devanagari("98765 43210") + " mera number hai",
         "salary 25000 98765 43210",
+        "(987) 654-3210",
     }
 
 
@@ -211,10 +262,30 @@ def test_the_phone_chain_scan_is_linear_at_the_size_cap(label):
 # --- 6. what the guard does not read -------------------------------------------------------------
 
 
-@pytest.mark.parametrize("text", ["98765\n43210", "98765,43210 pe call karo", "98765.43210"])
-def test_KNOWN_RESIDUAL_a_phone_split_by_a_line_break_a_comma_or_a_dot_reads_as_before(text):
+@pytest.mark.parametrize(
+    "text", ["98765\n43210", "98765.43210", "98765/43210", "job chahiye mera number 98765.43210"]
+)
+def test_KNOWN_RESIDUAL_a_phone_split_by_a_line_break_a_dot_or_a_slash_reads_as_before(text):
     """Not joined, on purpose: a line break separates two answers ("25000\\n35000 chahiye"), a
-    comma groups money ("25,000"), and a dot is a decimal ("2.5 lakh"). The gateway still masks all
-    three and the output floor refuses them as phones."""
+    dot is a decimal ("2.5 lakh") and a slash writes dates ("1/4/2023 25000"; the gateway's phone
+    rule excludes it too, R30). So the first group is still pay, and with a want cue near it the
+    expected salary. The gateway masks each of these, so no model sees them; this field does."""
     assert reading(text) == before(text)
-    assert contains_hard_identifier(text) == "phone"
+    assert reading(text) != (None, None)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1" * 5000 + " " + "1" * 5000,
+        chr(0x967) * 4400 + " 1",
+        "salary 25000 " + "9" * 4301 + "-" + "9" * 10,
+    ],
+)
+def test_a_figure_too_long_for_int_is_no_range_and_raises_nothing(text):
+    """The security review of #2050: `int()` refuses a string past 4,300 digits, so the range check
+    raised out of `detect` and `/profile/extract` returned 500. A figure longer than the plausible
+    band's digits is no range, checked before it is parsed."""
+    assert reading(text) == (None, None)
+    _rich, legacy = profile_extractor.extract(text)
+    assert legacy.salary_expectation.amount_min is None
