@@ -12,6 +12,10 @@
 6. Release 2 (§8): the summary prompt states what to keep, the format, what never to include,
    the DATA rule and the JSON contract; both reply prompts carry ONE line about the notes; the
    classifier carries none (R24).
+7. Regional languages (§9, #2126): the classifier names the five languages; both reply prompts
+   carry the LANGUAGE rules (mirror the worker's language, mixed with English, Latin letters,
+   each language's respectful "you") and name every regional word the API's free-chat gate
+   rejects — the lists pinned EQUAL to `free-chat-regional-walls.ts`, read from its source.
 """
 
 from __future__ import annotations
@@ -41,6 +45,17 @@ _REPO = Path(__file__).resolve().parents[4]
 _VALIDATOR_TS = (
     _REPO / "apps" / "api" / "src" / "chat-companion" / "v2" / "career-output.validator.ts"
 )
+_REGIONAL_TS = (
+    _REPO / "apps" / "api" / "src" / "profiling" / "free-chat" / "free-chat-regional-walls.ts"
+)
+#: The five regional languages (ADR-0051 §9) and the respectful "you" each reply must use.
+REGIONAL_LANGUAGES = {
+    "Marathi": ("tumhi",),
+    "Gujarati": ("tame", "aap"),
+    "Kannada": ("neevu", "nimma"),
+    "Telugu": ("meeru", "mee"),
+    "Tamil": ("neenga", "unga"),
+}
 REPLY_PROMPTS = {
     "casual": free_prompts.CASUAL_SYSTEM_PROMPT,
     "career": free_prompts.CAREER_SYSTEM_PROMPT,
@@ -154,6 +169,74 @@ def test_both_reply_prompts_name_the_promise_and_rating_shapes() -> None:
         for word in ("score", "rank", "rating"):
             assert f'"{word}"' in prompt, (category, word)
         assert 'a "/", "out of" or "me se" between two numbers' in _folded(prompt), category
+
+
+# ── 3b. the regional languages (ADR-0051 §9, #2126) ──────────────────────────────────────────
+
+
+def _regional_list(const: str) -> tuple[str, ...]:
+    """One `export const X: readonly string[] = [...]` list, read from the API source."""
+    source = _REGIONAL_TS.read_text(encoding="utf-8")
+    match = re.search(rf"export const {const}: readonly string\[\] = \[(.*?)\];", source, re.S)
+    assert match, f"{const} moved in free-chat-regional-walls.ts"
+    return tuple(re.findall(r'"([^"]+)"', match.group(1)))
+
+
+@pytest.mark.parametrize(
+    "const",
+    [
+        "REGIONAL_PERSONA_TOKENS",
+        "REGIONAL_PROMISE_TOKENS",
+        "REGIONAL_SURELY_WORDS",
+        "REGIONAL_WILL_GET_WORDS",
+        "REGIONAL_SENSITIVE_WORDS",
+        "REGIONAL_RESPECTFUL_YOU",
+        "REGIONAL_JUDGEMENT_WORDS",
+    ],
+)
+def test_the_regional_lists_equal_the_apis_and_both_reply_prompts_name_every_word(
+    const: str,
+) -> None:
+    """The prompt's words ARE the gate's words: a word the API adds turns this red, rather than
+    silently turning good regional answers into fallback lines."""
+    api_words = _regional_list(const)
+    assert len(api_words) >= 1  # non-vacuous
+    assert getattr(free_prompts, const) == api_words, const
+    for category, prompt in REPLY_PROMPTS.items():
+        for word in api_words:
+            assert f'"{word}"' in prompt, (category, const, word)
+
+
+@pytest.mark.parametrize("category", sorted(REPLY_PROMPTS))
+def test_both_reply_prompts_mirror_the_workers_language_in_latin_letters(category: str) -> None:
+    folded = _folded(REPLY_PROMPTS[category])
+    for rule in (
+        "reply in the language of the worker's latest message mixed with english, the way "
+        "hinglish mixes hindi and english, and always in latin letters",
+        'hindi, hinglish or english, or when unsure: hinglish, always using "aap".',
+        "every rule below holds in every language",
+        "praise the work, never the person, in every language",
+    ):
+        assert rule in folded, (category, rule)
+    for language, respectful in REGIONAL_LANGUAGES.items():
+        assert f"- {language.casefold()}: {language.casefold()} with english" in folded, language
+        for word in respectful:
+            assert f'"{word}"' in folded, (category, language, word)
+    # Hinglish is no longer the only reply language, so neither prompt may still demand it.
+    assert "hinglish (hindi written in latin script)" not in folded, category
+
+
+def test_the_classify_prompt_reads_every_regional_language() -> None:
+    folded = _folded(free_prompts.CLASSIFY_SYSTEM_PROMPT)
+    for language in REGIONAL_LANGUAGES:
+        assert language.casefold() in folded, language
+    assert "classify the meaning, whatever the language." in folded
+
+
+def test_the_summary_notes_stay_english() -> None:
+    """The notes are model-facing only, so they stay English whatever language the chat is in
+    (owner: everything but the reply language stays the same)."""
+    assert "compact english bullet notes" in _folded(free_prompts.SUMMARY_SYSTEM_PROMPT)
 
 
 def test_the_prompts_own_examples_pass_the_validator_shapes() -> None:
@@ -273,10 +356,11 @@ def test_news_and_sports_are_casual() -> None:
 def test_the_classify_prompt_stays_short_for_p95() -> None:
     """It runs on the live interview path; the companion's classifier was shrunk to ~790 chars
     for p95. This one carries eight labels, the résumé-mode rule, the self-description rule and
-    the narrowed trash rule, so it is larger (1,647 chars / 251 words, measured 2026-10-06), and
-    a budget keeps it from growing unnoticed."""
-    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT) < 1750
-    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT.split()) < 270
+    the narrowed trash rule, so it is larger (1,647 chars / 251 words, measured 2026-10-06; the
+    five regional languages, ADR-0051 §9, took it to 1,740 / 264 on 2026-10-07), and a budget
+    keeps it from growing unnoticed."""
+    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT) < 1800
+    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT.split()) < 280
 
 
 # ── 5. the routes ────────────────────────────────────────────────────────────────────────────

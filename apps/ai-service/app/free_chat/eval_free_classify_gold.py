@@ -227,6 +227,34 @@ _ROWS: list[tuple] = [
     ("ok", "free", None, "unclear"),
     ("...", "free", None, "unclear"),
 ]
+
+# ── ADR-0051 §9 (#2126): the five regional languages, own script and Latin letters (17) ──
+# The classifier reads the meaning whatever the language, so each line carries the category a
+# Hinglish line of the same meaning would. Fabricated, like every line above.
+REGIONAL_ROWS: list[tuple] = [
+    # Tamil
+    ("enakku resume venum", "free", None, "resume"),
+    ("welder ku salary evvalavu kidaikkum", "free", None, "career"),
+    ("தற்கொலை பண்ணிக்கலாம்னு தோணுது", "free", None, "distress"),
+    ("அஞ்சு வருஷமா இந்த வேலை செய்யறேன்", "resume", Q_YEARS, "resume"),
+    # Telugu
+    ("naaku CV kavali", "free", None, "resume"),
+    ("ఏదైనా ఉద్యోగం ఉందా", "free", None, "jobs"),
+    ("ఈ రోజు చాలా బోర్ కొడుతోంది", "free", None, "casual"),
+    ("Hyderabad lo untanu", "resume", Q_CITY, "resume"),
+    # Kannada
+    ("ನನ್ನ ರೆಸ್ಯೂಮೆ ಮಾಡಿಕೊಡಿ", "free", None, "resume"),
+    ("CNC kaliyalu eshtu time beku", "free", None, "career"),
+    ("yaavudadru kelasa ide na", "free", None, "jobs"),
+    # Marathi
+    ("मला बायोडाटा बनवायचा आहे", "free", None, "resume"),
+    ("aaj khup kantala aalay", "free", None, "casual"),
+    ("कोणत्या पक्षाला मत द्यावं", "free", None, "off_limits"),
+    # Gujarati
+    ("mare resume banavvu chhe", "free", None, "resume"),
+    ("electrician no pagar ketlo hoy", "free", None, "career"),
+    ("મને લોન જોઈએ છે", "free", None, "off_limits"),
+]
 # fmt: on
 
-CASES: list[Case] = [Case(*row) for row in _ROWS]
+CASES: list[Case] = [Case(*row) for row in _ROWS + REGIONAL_ROWS]

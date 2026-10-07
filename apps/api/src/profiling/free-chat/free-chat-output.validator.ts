@@ -23,12 +23,18 @@
  * credential ID, and a phone number split by `,` `;` `_` `|`, a dash, a middle dot or a danda, none
  * of which `looksLikePii` sees. A scanner that errors rejects too: fail closed.
  *
+ * AND THE REGIONAL WALLS (ADR-0051 §9, #2126): a reply in Marathi, Gujarati, Kannada, Telugu or Tamil
+ * mixed with English (Latin letters, as Hinglish) is held to the same persona, promise, sensitive
+ * and rating bar in that language's own words — `free-chat-regional-walls.ts`.
+ *
  * ANY FAILURE SERVES `REPLY_FALLBACK`; the caller logs the closed reason, never a line.
  */
 
 import { isAbusive } from "@badabhai/profiling-lexicon";
 
 import { containsHardIdentifier } from "../resume-import/resume-parse-gates";
+
+import { regionalWallFailure } from "./free-chat-regional-walls";
 
 import {
   screenAnswerWith,
@@ -51,9 +57,9 @@ export type FreeChatScreenResult =
 const TEMPLATE_TOKEN = /\{\{|\}\}/;
 
 /**
- * Screen one model reply. The template, abuse and hard-identifier checks run over EVERY line and
- * chip first — a chip the length rule would drop is still model text, and any finding in it rejects
- * the answer,
+ * Screen one model reply. The template, abuse, hard-identifier and regional checks run over EVERY
+ * line and chip first — a chip the length rule would drop is still model text, and any finding in
+ * it rejects the answer,
  * the same "a dropped chip cannot launder unsafe text" rule the career gate applies to its content
  * checks.
  */
@@ -64,6 +70,10 @@ export function screenFreeChatAnswer(answer: CareerAnswerText): FreeChatScreenRe
   }
   if (texts.some((text) => isAbusive(text))) return { kind: "reject", failure: "abusive" };
   if (texts.some(carriesHardIdentifier)) return { kind: "reject", failure: "pii" };
+  for (const text of texts) {
+    const failure = regionalWallFailure(text);
+    if (failure !== null) return { kind: "reject", failure };
+  }
   return screenAnswerWith(answer, FREE_CHAT_WALLS);
 }
 

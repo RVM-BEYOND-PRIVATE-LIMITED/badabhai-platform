@@ -5,6 +5,7 @@ import { greetingState, enterMode, registerStrike, FREE_CHAT_ASIDE_CAP } from ".
 import {
   confidenceBucketOf,
   DISTRESS_PHRASES,
+  DISTRESS_STEMS,
   FREE_CHAT_MIN_CONFIDENCE,
   isFreeChatChip,
   isResumeChip,
@@ -104,6 +105,42 @@ describe("the distress list (ADR-0051 §5.2) — whole phrases, case- and diacri
     // मारना ("to hit") must not read as मरना ("to die").
     expect(matchesDistress("मारना चाहता")).toBe(false);
     expect(matchesDistress("main kal kaam pe jaana chahta hoon")).toBe(false);
+  });
+});
+
+describe("the regional distress list (ADR-0051 §9, #2126) — five languages, both scripts", () => {
+  it.each(DISTRESS_STEMS)("a word STARTING with the stem %j matches", (stem) => {
+    expect(matchesDistress(stem)).toBe(true);
+    // A case ending joined straight onto the noun, the way these languages write it.
+    expect(matchesDistress(`naan ${stem}ku yosikkiren`)).toBe(true);
+  });
+
+  it.each([
+    ["Tamil, inflected", "நான் தற்கொலைக்கு யோசிக்கிறேன்"],
+    ["Tamil, Latin", "enakku vaazha pidikkala"],
+    ["Telugu, inflected", "నేను ఆత్మహత్యకు ప్రయత్నిస్తా"],
+    ["Telugu, Latin", "naaku chanipovalani undi"],
+    ["Kannada, inflected", "ನಾನು ಆತ್ಮಹತ್ಯೆಗೆ ಯೋಚನೆ ಮಾಡ್ತಿದೀನಿ"],
+    ["Kannada, Latin", "nanage saayabeku anisutte"],
+    ["Marathi", "मला मरायचं आहे"],
+    ["Marathi, Latin", "mala jagaychi ichha nahi"],
+    ["Gujarati", "મારે મરી જવું છે"],
+    ["Gujarati, aapghat", "aapghaat karvano vichar aave chhe"],
+  ])("%s: %j → distress", (_language, text) => {
+    expect(matchesDistress(text)).toBe(true);
+  });
+
+  it.each([
+    // "adventure" begins like "saaganum" ("to die") and must not read as it.
+    "saagasam pidikkum",
+    "Marathi mein baat karte hain",
+    "naaku cinema ante ishtam",
+    "ನನಗೆ ಕೆಲಸ ಬೇಕು",
+    "મને નોકરી જોઈએ છે",
+    "నాకు ఉద్యోగం కావాలి",
+    "எனக்கு வேலை வேண்டும்",
+  ])("ordinary talk is not distress: %j", (text) => {
+    expect(matchesDistress(text)).toBe(false);
   });
 });
 
