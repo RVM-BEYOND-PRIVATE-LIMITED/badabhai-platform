@@ -20,6 +20,8 @@ vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     default: ({
       children,
       href,
@@ -131,4 +133,15 @@ describe("the trail never repeats the page's H1 (every route the rail offers)", 
       }
     });
   }
+});
+
+describe("the trail's link carries the navigation pending cue (components/nav-pending.tsx)", () => {
+  it("the section link ends in its cue — idle, and hidden from assistive tech", () => {
+    const out = crumb(`/postings/${ID}/applicants`);
+    expect(out).toContain(
+      '<a href="/postings" class="pcrumb__link"><span class="pcrumb__label">Postings</span><span class="nav-pending" aria-hidden="true"></span></a>',
+    );
+    // The cue adds no words: the link is still named "Postings".
+    expect(links(out)).toEqual([["/postings", "Postings"]]);
+  });
 });

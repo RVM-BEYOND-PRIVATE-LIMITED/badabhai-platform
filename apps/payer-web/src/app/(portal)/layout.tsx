@@ -5,6 +5,7 @@ import { getOrgRole } from "../../lib/auth/org-roles";
 import { agencyFlags } from "../../lib/config";
 import { getCredits } from "../../lib/payer-api";
 import { BadaBhaiLogo, Badge, ThemeToggle } from "../../components/ds";
+import { NavPendingCue } from "../../components/nav-pending";
 import { AccountMenu } from "./account-menu";
 import { BalanceChip } from "./balance-chip";
 import { AppShell } from "./app-shell";
@@ -77,6 +78,8 @@ export default async function PortalLayout({ children }: { children: ReactNode }
             size={30}
             sub={`for ${isAgency ? "Agencies" : "Companies"}`}
           />
+          {/* A client child: this layout stays a server component (components/nav-pending.tsx). */}
+          <NavPendingCue label="Dashboard" />
         </Link>
       }
       header={

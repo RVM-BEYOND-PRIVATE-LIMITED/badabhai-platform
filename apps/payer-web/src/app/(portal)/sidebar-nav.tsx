@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
+import { NavPendingCue } from "../../components/nav-pending";
 import { isNavItemActive, type NavSection } from "./nav-model";
 
 /**
@@ -42,6 +43,8 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                     {/* PARKED — reachable, but the page it opens explains rather than does.
                         Badged so the rail sets the right expectation before the click. */}
                     {item.parked ? <span className="pnav__soon">Soon</span> : null}
+                    {/* The navigation this row started is under way (components/nav-pending.tsx). */}
+                    <NavPendingCue label={item.label} />
                   </Link>
                 </li>
               );

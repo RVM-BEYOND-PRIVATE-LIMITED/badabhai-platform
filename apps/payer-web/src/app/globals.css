@@ -652,6 +652,113 @@ body {
   }
 }
 
+/* ---- navigation pending cue (components/nav-pending.tsx) ---------------------------------------
+   No loading boundary shows a navigation (app/no-suspense-above-a-page.test.ts), so the link that
+   started one does: a dot after its label while Next's link status is pending, in the link's own
+   colour, and a bar along the top of the viewport — the cue a phone sees, since the drawer closes
+   as its link is followed. Nothing shows for the first --nav-pending-delay (= NAV_PENDING_DELAY_MS
+   in components/nav-pending-store.ts, which holds the bar and the status line back; the dot waits
+   here), so a prefetched navigation never flashes. Both end the moment the navigation commits.
+   The delay is NOT a motion token: those collapse to 0ms under reduced motion, which would bring
+   the flash back for exactly the users who asked for less movement. */
+.nav-pending {
+  display: none;
+}
+.nav-pending--on {
+  --nav-pending-delay: 180ms;
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+  inline-size: var(--space-2);
+  block-size: var(--space-2);
+  margin-inline-start: var(--space-2);
+  border-radius: var(--radius-round);
+  background: currentColor;
+  visibility: hidden;
+  animation:
+    nav-pending-reveal 0s linear var(--nav-pending-delay) forwards,
+    nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
+      alternate;
+}
+/* A rail row and the brand lockup: at the end of the row (after a Soon badge), so the label
+   never moves. */
+.pnav__link > .nav-pending--on,
+.pshell__brandlink > .nav-pending--on {
+  margin-inline-start: auto;
+}
+.pnav__soon + .nav-pending--on {
+  margin-inline-start: var(--space-2);
+}
+.nav-progress {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--space-1);
+  z-index: var(--z-toast);
+  background: var(--text-heading);
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-progress--on {
+  opacity: 1;
+  transform: scaleX(0.9);
+  animation: nav-progress-grow calc(var(--duration-slower) * 5) var(--ease-out);
+}
+@keyframes nav-pending-reveal {
+  to {
+    visibility: visible;
+  }
+}
+@keyframes nav-pending-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+@keyframes nav-progress-grow {
+  from {
+    transform: scaleX(0.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No pulse, no growing bar — but the dot still waits out the delay. */
+  .nav-pending--on {
+    animation: nav-pending-reveal 0s linear var(--nav-pending-delay) forwards;
+  }
+  .nav-progress--on {
+    animation: none;
+  }
+}
+/* The icon rail (collapsed from 1024px, and the 1024–1279px band) has no label to follow, so the
+   dot pins to the row's corner rather than pushing the centred icon aside. */
+@media (min-width: 1024px) {
+  .pshell--collapsed .pnav__link,
+  .pshell--collapsed .pshell__brandlink {
+    position: relative;
+  }
+  .pshell--collapsed .pnav__link > .nav-pending--on,
+  .pshell--collapsed .pshell__brandlink > .nav-pending--on {
+    position: absolute;
+    inset-block-start: var(--space-1);
+    inset-inline-end: var(--space-1);
+    margin: 0;
+  }
+}
+@media (max-width: 1279px) and (min-width: 1024px) {
+  .pnav__link,
+  .pshell__brandlink {
+    position: relative;
+  }
+  .pnav__link > .nav-pending--on,
+  .pshell__brandlink > .nav-pending--on {
+    position: absolute;
+    inset-block-start: var(--space-1);
+    inset-inline-end: var(--space-1);
+    margin: 0;
+  }
+}
+
 /* Narrow phones (≤540px): the balance chip's unit word is the first thing that can go — visually
    only: it stays in the chip's accessible name ("247 credits"). Then the header's own slack: its
    inline padding and gaps step down one size, and the theme toggle's "System" pill shows only its

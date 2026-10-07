@@ -339,7 +339,19 @@ moved): Agency postings → a posting 3/10, the rail's Worker activity 6/10, Pos
 navigation keeps the current page on screen until the next one has rendered — there is no
 skeleton. Same-section navigations never showed it anyway (React holds the visible page during a
 transition); a link into another section did (at ~0.1–0.25s on a slow backend) and now holds the
-current page instead. Re-measure before adding one back after a Next or React upgrade.
+current page instead. The same fence forbids `React.lazy` and `next/dynamic` (each suspends into
+a boundary). Re-measure before adding one back after a Next or React upgrade.
+
+**The pending cue** (`src/components/nav-pending.tsx`) answers the click instead: Next's
+`useLinkStatus` on the link that started the navigation — no boundary. A dot after the label of a
+rail / drawer row, the brand lockup, the trail's link, a `PageHeader` action or back link, a
+posting row's title and Applicants link (Postings, Agency postings) and a dashboard card's
+Applicants link; a thin bar along the top of the viewport (the cue a phone sees — the drawer closes
+as its link is followed); and one polite status line, "Opening Postings…", in the shell outside the
+region that goes inert behind the open drawer. Nothing shows for the first 180ms, so a prefetched
+navigation never flashes; reduced motion drops the pulse and the growing bar but keeps that delay.
+Only a cued link announces, so a link without one shows nothing until the page arrives: a dashboard
+card's whole-card link (the DS `Card` overlay — cueing it is a design-system change) is one.
 
 ### Agency on the company surface
 

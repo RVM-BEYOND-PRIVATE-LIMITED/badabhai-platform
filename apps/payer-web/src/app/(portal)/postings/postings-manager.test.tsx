@@ -4,6 +4,8 @@ import type * as ReactModule from "react";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Dialog } from "../../../components/ds";
 import { ConfirmSpendDialog } from "../../../components/unlock";
+import { NavPendingCue } from "../../../components/nav-pending";
+import { linkCues } from "../../../../test/link-cues";
 
 /**
  * POSTINGS-MANAGER tests — STATUS RENDERING + LIVE LIFECYCLE TRIO + CLOSE + A11Y (B8).
@@ -707,5 +709,13 @@ describe("PostingsManager — READ-ONLY (an agent's older company postings)", ()
   it("a read-only empty list offers no create action", () => {
     const tree = render([], {}, true);
     expect(hrefs(tree)).not.toContain("/postings/new");
+  });
+});
+
+describe("the navigation pending cue on a posting row (components/nav-pending.tsx)", () => {
+  it("the title and the Applicants link each carry it, named for where they go", () => {
+    const cues = linkCues(render([OPEN]), NavPendingCue);
+    expect(cues.get(`/postings/${OPEN.id}`)).toEqual([OPEN.roleTitle]);
+    expect(cues.get(`/postings/${OPEN.id}/applicants`)).toEqual(["Applicants"]);
   });
 });

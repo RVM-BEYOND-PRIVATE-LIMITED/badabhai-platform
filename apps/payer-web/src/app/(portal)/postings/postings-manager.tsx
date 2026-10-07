@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog } from "../../../components/ds";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { formatInr } from "../../../lib/format";
 import {
   closePostingAction,
@@ -259,6 +260,7 @@ export function PostingsManager({
                 <div className="posting-card__head">
                   <Link className="posting-card__title" href={`/postings/${p.id}`}>
                     {p.roleTitle}
+                    <NavPendingCue label={p.roleTitle} />
                   </Link>
                   <Badge tone={statusTone(p.status)} upper>
                     {p.status}
@@ -285,6 +287,7 @@ export function PostingsManager({
                   <div className="posting-card__links">
                     <Link className="postings-link" href={`/postings/${p.id}/applicants`}>
                       <Icon name={ACTION_ICON.users} /> Applicants
+                      <NavPendingCue label="Applicants" />
                     </Link>{" "}
                     <Link className="postings-link" href={`/postings/${p.id}/edit`}>
                       <Icon name={ACTION_ICON.edit} /> Edit posting
