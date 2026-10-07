@@ -268,6 +268,10 @@ shuru / ok, and baad mein / baad me / later / abhi nahi.
 
 Any widening of this list follows the same review as the copy.
 
+- **Regional (§9, R28):** whole phrases in Marathi, Gujarati, Kannada, Telugu and Tamil (own script and Latin), plus
+  word-start stems for "suicide" itself. The canonical list is `DISTRESS_PHRASES` and `DISTRESS_STEMS` in
+  `apps/api/src/profiling/free-chat/free-chat.router.ts`.
+
 ## 6. Consequences
 
 - **Latency and cost.** One classifier call per typed résumé-mode answer that the skip list does not settle.
@@ -348,8 +352,56 @@ tasks). Release 2 adds the cross-session summary deferred by R19.
 - **Known limit.** Lines still inside the window at session end (up to 6, plus up to 3 pending ones, plus any fold
   skipped while the lock was held) are not folded, so the next session does not see them.
 
+## 9. Regional languages (owner rulings 2026-10-07, #2126)
+
+Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker write in five more languages.
+
+| # | Ruling |
+|---|---|
+| **R25** | **Input.** The worker may write in **Marathi, Gujarati, Kannada, Telugu or Tamil** as well as Hindi, Hinglish and English, in the language's own script or in Latin letters. Every category, mode and guardrail behaves the same whatever the language. |
+| **R26** | **Reply language.** A casual or career reply comes back in the worker's language **mixed with English, in Latin letters**: the way Hinglish mixes Hindi and English (Tamil + English, Telugu + English, and so on). Hindi, Hinglish, English and anything unsure keep today's Hinglish. |
+| **R27** | **Everything else is unchanged:** the fixed lines (§5.1, still Hinglish), the résumé lock and interview, the English résumé, the English conversation notes (§8) and every guardrail. |
+| **R28** | **Distress list.** §5.2 is widened with phrases in the five languages, in both scripts, reviewed and approved by the owner like the copy. |
+
+**How it works:**
+- **Classifier.** The prompt names the five languages and classifies the meaning "whatever the language". The labelled
+  set gains 17 regional lines (all five languages, both scripts, both modes) as a baseline, not a gate (R20).
+- **Reply prompts.** A shared LANGUAGE block tells both reply prompts to answer in the language of the worker's
+  latest message, mixed with English, always in Latin letters. It also gives each language's respectful "you"
+  (tumhi; tame/aap; neevu/nimma; meeru/mee; neenga/unga) and its informal "you" to avoid.
+- **The reply gate stays Latin-only.** The career gate's `non_latin` wall is unchanged, so a reply in a regional
+  script still serves the fallback line. Its word walls are spelled in Hindi and English, so a free-chat-only
+  **regional wall** (`free-chat-regional-walls.ts`) holds a regional reply to the same bar in its own words:
+  - **persona:** familiar address (anna, thambi, machan, bhau, dada, maga, …) and the informal "you";
+  - **promise:** "pakku" alone, or a "surely" word and a "will get" word in one line (the regional
+    "zaroor milegi"). A "surely" word alone is advice, just as "zaroor try kijiye" is;
+  - **sensitive advice:** each language's words for lawyer, court, medicine, treatment, loan, insurance and
+    investment;
+  - **rating:** a respectful "you" directly before a judgement word (the regional "aap achhe").
+
+  The walls reuse the career gate's failure reasons and run over every line and chip. They apply to every
+  free-chat reply, Hinglish included. **The companion's validator is untouched** (§4). Both reply prompts name every
+  word on these lists, and an ai-service test pins the prompt's lists equal to the API's.
+- **Distress.** The §5.2 list gains whole phrases in the five languages, in both scripts, plus **word-start stems**
+  for the word "suicide" itself (आत्महत्य, ఆత్మహత్య, ಆತ್ಮಹತ್ಯ, આત્મહત્ય, આપઘાત, தற்கொலை and their Latin
+  spellings). Tamil, Telugu, Kannada and Gujarati join case endings onto the noun ("தற்கொலைக்கு"), which a
+  whole-word match would miss. Distress is still checked before anything else, in both modes.
+
+**Known limits (accepted):**
+- The fixed lines (deflect, jobs, distress, cool-down, …) stay Hinglish, so a Tamil worker reads a Hinglish fixed line
+  between Tamil + English model replies. Translated fixed lines would need their own copy review.
+- The abuse lexicon is Hindi/English. Regional abuse is caught by the classifier: a strike in free mode, and the
+  uncounted de-escalation in résumé mode (an AI-only verdict never ends profiling).
+- `hasFirstPersonClaim` (the résumé-entry check that turns a self-description into the first answer) reads Hinglish,
+  so a regional "I am a welder, make my résumé" enters résumé mode with the opener rather than as the first answer.
+- Romanized spellings vary. The lists carry the common ones, and the prompts steer the model away from all of them.
+  A miss is no worse than a word the prompt could also miss.
+- The Hindi/English walls also apply to a regional reply. For example, the career gate's `pakka` is also Telugu for
+  "beside", so a Telugu line using it that way serves the fallback.
+
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.
 Signed (Divyanshu): Divyanshu          Date: 2026-10-06
 Release 2 rulings R21–R24 taken 2026-10-07 (§8).
+Regional-language rulings R25–R28 taken 2026-10-07 (§9).
 ```

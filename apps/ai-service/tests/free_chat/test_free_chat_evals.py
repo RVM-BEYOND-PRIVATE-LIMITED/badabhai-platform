@@ -43,7 +43,9 @@ def test_the_categories_and_modes_are_the_contracts() -> None:
 
 
 def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
-    assert 55 <= len(gold.CASES) <= 70
+    # About sixty Hindi/Hinglish/English lines, plus the regional lines (ADR-0051 §9).
+    assert 55 <= len(gold.CASES) - len(gold.REGIONAL_ROWS) <= 70
+    assert 15 <= len(gold.REGIONAL_ROWS) <= 25
     assert all(isinstance(case, gold.Case) for case in gold.CASES)
     counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(gold.CATEGORIES)
@@ -117,6 +119,23 @@ def test_the_set_mixes_hinglish_devanagari_and_english() -> None:
     # Both modes carry Devanagari, so the script bucket is not only a free-mode measurement.
     modes = {case.mode for case in gold.CASES if re.search("[ऀ-ॿ]", case.text)}
     assert modes == set(gold.MODES)
+
+
+def test_the_set_carries_the_five_regional_languages_in_both_scripts() -> None:
+    """ADR-0051 §9 (#2126): own script for each, Latin letters too, and both modes."""
+    texts = [row[0] for row in gold.REGIONAL_ROWS]
+    for language, block in {
+        "Tamil": "[஀-௿]",
+        "Telugu": "[ఀ-౿]",
+        "Kannada": "[ಀ-೿]",
+        "Gujarati": "[઀-૿]",
+        "Marathi (Devanagari)": "[ऀ-ॿ]",
+    }.items():
+        assert any(re.search(block, text) for text in texts), language
+    assert sum(text.isascii() for text in texts) >= 5, "too few Latin-letter regional lines"
+    assert {row[1] for row in gold.REGIONAL_ROWS} == set(gold.MODES)
+    # Every regional row is also a case, scored like any other.
+    assert all(gold.Case(*row) in gold.CASES for row in gold.REGIONAL_ROWS)
 
 
 def test_no_case_is_one_of_the_classify_prompts_quoted_examples() -> None:

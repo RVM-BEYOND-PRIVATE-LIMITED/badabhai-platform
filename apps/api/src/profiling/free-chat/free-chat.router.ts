@@ -151,6 +151,140 @@ export const DISTRESS_PHRASES: readonly string[] = [
   "मरना चाहता",
   "मरना चाहती",
   "जीने का मन नहीं",
+  // ── ADR-0051 §9 (#2126): the five regional languages, own script and Latin letters ──
+  // Tamil — want to die / going to die / do not feel like living / going to give up my life
+  "சாகணும்",
+  "சாகப் போறேன்",
+  "சாக போறேன்",
+  "செத்துடலாம்",
+  "செத்துப் போகணும்",
+  "செத்து போகணும்",
+  "வாழ பிடிக்கல",
+  "வாழவே பிடிக்கல",
+  "வாழ விருப்பம் இல்லை",
+  "உயிரை விடப் போறேன்",
+  "உயிரை விட போறேன்",
+  "saaganum",
+  "saganum",
+  "saaga poren",
+  "saga poren",
+  "sethudalam",
+  "setthudalam",
+  "sethu poganum",
+  "setthu poganum",
+  "vaazha pidikkala",
+  "vazha pidikkala",
+  "vaazhave pidikkala",
+  "vazhave pidikkala",
+  "uyira vida poren",
+  "uyirai vida poren",
+  // Telugu — want to die / I will die / do not want to live
+  "చనిపోవాలని",
+  "చచ్చిపోవాలని",
+  "చనిపోతాను",
+  "చచ్చిపోతాను",
+  "చచ్చిపోవాలి",
+  "బతకాలని లేదు",
+  "బ్రతకాలని లేదు",
+  "chanipovalani",
+  "chachipovalani",
+  "chanipothanu",
+  "chanipotanu",
+  "chanipotha",
+  "chanipota",
+  "chachipothanu",
+  "chachipotanu",
+  "chachipotha",
+  "chachipota",
+  "chachipovali",
+  "bathakalani ledu",
+  "batakalani ledu",
+  "brathakalani ledu",
+  "bratakalani ledu",
+  // Kannada — want to die / I will die / do not want to live
+  "ಸಾಯಬೇಕು",
+  "ಸಾಯ್ತೀನಿ",
+  "ಸಾಯುತ್ತೇನೆ",
+  "ಸತ್ತು ಹೋಗಬೇಕು",
+  "ಬದುಕೋಕೆ ಇಷ್ಟ ಇಲ್ಲ",
+  "ಬದುಕಲು ಇಷ್ಟವಿಲ್ಲ",
+  "ಬದುಕು ಬೇಡ",
+  "saayabeku",
+  "sayabeku",
+  "saaytini",
+  "saytini",
+  "saaythini",
+  "saaytheeni",
+  "sattu hogabeku",
+  "sattu hogbeku",
+  "sathu hogbeku",
+  "badukoke ishta illa",
+  "badukalu ishta illa",
+  "baduku beda",
+  // Marathi — want to die / feel like dying / want to give my life / no wish to live
+  "मरायचं आहे",
+  "मरायचंय",
+  "मरायचे आहे",
+  "मरून जावंसं वाटतं",
+  "मरून जावेसे वाटते",
+  "जीव द्यायचा आहे",
+  "जगायची इच्छा नाही",
+  "जगावंसं वाटत नाही",
+  "जगावेसे वाटत नाही",
+  "marayche aahe",
+  "marayacha aahe",
+  "marayachay",
+  "marun javasa vatta",
+  "marun javasa vatat",
+  "marun javese vatate",
+  "jeev dyaycha aahe",
+  "jiv dyaycha aahe",
+  "jagaychi ichha nahi",
+  "jagaychi iccha nahi",
+  "jagavasa vatat nahi",
+  "jagavese vatat nahi",
+  // Gujarati — want to die / I will die / do not want to live
+  "મરી જવું છે",
+  "મરવું છે",
+  "મરી જઈશ",
+  "જીવવું નથી",
+  "જીવવાનું મન નથી",
+  "mari javu chhe",
+  "mari javu che",
+  "marvu chhe",
+  "marvu che",
+  "mari jaish",
+  "mari jais",
+  "jivvu nathi",
+  "jeevvu nathi",
+  "jivvanu man nathi",
+  "jeevvanu man nathi",
+];
+
+/**
+ * THE DISTRESS STEMS (ADR-0051 §9, #2126) — matched at the START of a word, not as a whole word.
+ * Tamil, Telugu, Kannada and Gujarati join case endings straight onto the noun ("தற்கொலைக்கு",
+ * "ఆత్మహత్యకు", "ಆತ್ಮಹತ್ಯೆಗೆ", "aatmahatyege"), so a whole-word match on "suicide" in those
+ * languages would miss the commonest way it is written. Each stem is the word for suicide itself,
+ * which begins no innocent word; anything shorter or vaguer belongs in the whole-phrase list.
+ */
+export const DISTRESS_STEMS: readonly string[] = [
+  "आत्महत्य",
+  "ఆత్మహత్య",
+  "ಆತ್ಮಹತ್ಯ",
+  "આત્મહત્ય",
+  "આપઘાત",
+  "தற்கொலை",
+  "aatmahaty",
+  "atmahaty",
+  "aathmahaty",
+  "athmahaty",
+  "tharkolai",
+  "thatkolai",
+  "tarkolai",
+  "aapghat",
+  "aapghaat",
+  "apghat",
 ];
 
 /**
@@ -169,11 +303,15 @@ function foldDistress(text: string): string {
 }
 
 const FOLDED_DISTRESS: readonly string[] = DISTRESS_PHRASES.map(foldDistress);
+const FOLDED_DISTRESS_STEMS: readonly string[] = DISTRESS_STEMS.map(foldDistress);
 
-/** Does the message carry a phrase from the distress list, as a whole phrase? */
+/** Does the message carry a distress phrase as a whole phrase, or a word that starts with a stem? */
 export function matchesDistress(text: string): boolean {
   const haystack = ` ${foldDistress(text)} `;
-  return FOLDED_DISTRESS.some((phrase) => haystack.includes(` ${phrase} `));
+  return (
+    FOLDED_DISTRESS.some((phrase) => haystack.includes(` ${phrase} `)) ||
+    FOLDED_DISTRESS_STEMS.some((stem) => haystack.includes(` ${stem}`))
+  );
 }
 
 /** The contracts §4 buckets the event carries — the companion's, unchanged. */
