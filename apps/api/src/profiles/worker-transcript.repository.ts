@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNotNull, not, sql } from "drizzle-orm";
 import { chatMessages, type Database } from "@badabhai/db";
 
-import { IDENTITY_INTAKE_METADATA } from "../chat/chat-transcript.buffer";
+import { FREE_CHAT_METADATA, IDENTITY_INTAKE_METADATA } from "../chat/chat-transcript.buffer";
 import { DATABASE } from "../database/database.module";
 
 /**
@@ -23,7 +23,11 @@ export function workerTurnsStatement(db: Database, workerId: string, limit: numb
         // chat's first questions is not the worker describing his work, and the quote block would
         // otherwise print "Ramesh Kumar" or "Pune" as his own words (and the veto would scan them).
         // Parenthesised so the negation reads as it binds, not as operator precedence decides.
-        not(sql`(${chatMessages.metadata} @> ${JSON.stringify(IDENTITY_INTAKE_METADATA)}::jsonb)`),
+        // ADR-0051 §3.5 — NOR a free-chat line: a worker's casual talk ("aaj mausam accha hai")
+        // is not his account of his work, and the quote block must never print it as one.
+        not(
+          sql`(${chatMessages.metadata} @> ${JSON.stringify(IDENTITY_INTAKE_METADATA)}::jsonb or ${chatMessages.metadata} @> ${JSON.stringify(FREE_CHAT_METADATA)}::jsonb)`,
+        ),
       ),
     )
     .orderBy(desc(chatMessages.createdAt))

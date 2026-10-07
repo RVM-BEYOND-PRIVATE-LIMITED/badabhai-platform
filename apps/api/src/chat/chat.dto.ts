@@ -83,6 +83,16 @@ export const PostMessageResponseSchema = z.object({
    * the corpus can fill in progressively without a client release. See `question-tts-text.ts`.
    */
   tts_text: z.string().optional(),
+  /**
+   * ADR-0051 §3.8 — `false` on a turn whose `reply` a MODEL wrote (the profiling-stage free chat's
+   * casual or career answer). Such a turn carries no `tts_text`: only fixed lines are read aloud
+   * (R17), and a model reply has no authored Devanagari twin.
+   *
+   * ADDITIVE AND ABSENT, never `true`, on every other turn — so every existing body is
+   * byte-identical and a client that predates it sees nothing new (it then offers the speaker on
+   * the Latin text, the accepted release-1 limit, ADR-0051 §6).
+   */
+  read_aloud: z.literal(false).optional(),
   blocked: z.boolean(),
   is_mock: z.boolean(),
   suggested_followups: z.array(z.string()).default([]),

@@ -20,14 +20,16 @@ const WORKER = "11111111-1111-4111-8111-111111111111";
 describe("workerTurnsStatement", () => {
   const compiled = workerTurnsStatement(db, WORKER, 200).toSQL();
 
-  it("reads the worker's own inbound, non-null rows — and NOT an identity-intake answer", () => {
+  it("reads the worker's own inbound, non-null rows — and NOT an identity-intake or free-chat line", () => {
     expect(compiled.sql).toMatch(
-      /where \("chat_messages"\."worker_id" = \$\d+ and "chat_messages"\."direction" = \$\d+ and "chat_messages"\."body_text" is not null and not \("chat_messages"\."metadata" @> \$\d+::jsonb\)\)/,
+      /where \("chat_messages"\."worker_id" = \$\d+ and "chat_messages"\."direction" = \$\d+ and "chat_messages"\."body_text" is not null and not \("chat_messages"\."metadata" @> \$\d+::jsonb or "chat_messages"\."metadata" @> \$\d+::jsonb\)\)/,
     );
     expect(compiled.params).toContain(WORKER);
     expect(compiled.params).toContain("inbound");
-    // The marker is bound, never interpolated, and it is exactly the one the flush writes.
+    // The markers are bound, never interpolated, and they are exactly the ones the flush writes.
     expect(compiled.params).toContain(JSON.stringify({ identity_intake: true }));
+    // ADR-0051 §3.5 — a worker's casual talk must never be quoted as his words about his work.
+    expect(compiled.params).toContain(JSON.stringify({ free_chat: true }));
   });
 
   it("stays newest-first and capped — the cost bound is unchanged", () => {

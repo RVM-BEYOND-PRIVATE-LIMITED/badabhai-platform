@@ -51,7 +51,11 @@ import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { ChatRepository } from "../chat/chat.repository";
-import { ChatTranscriptBuffer, isIdentityIntakeMetadata } from "../chat/chat-transcript.buffer";
+import {
+  ChatTranscriptBuffer,
+  isMeaningExcluded,
+  isMeaningExcludedMetadata,
+} from "../chat/chat-transcript.buffer";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import {
@@ -2127,7 +2131,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
           // are kept for the worker's thread and left out of the extraction input: none of them is
           // about his work, and a surname or a town read as part of his account of it is noise the
           // model would try to use. Filtered in BOTH branches, on the one marker each branch has.
-          .filter((m) => m.bodyText && !isIdentityIntakeMetadata(m.metadata))
+          // ADR-0051 §3.5 — the free chat's lines (the greeting, casual and career talk, the
+          // résumé-mode deflections) are left out the same way: casual talk never reaches a profile.
+          .filter((m) => m.bodyText && !isMeaningExcludedMetadata(m.metadata))
           .map((m) => ({
             role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
             text: m.bodyText as string,
@@ -2141,7 +2147,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // the empty one (exactly today's behaviour) beats failing the job.
     try {
       const buffered = await this.buffer.load(sessionId);
-      const lines = (buffered?.messages ?? []).filter((m) => m.intake !== true);
+      const lines = (buffered?.messages ?? []).filter((m) => !isMeaningExcluded(m));
       if (lines.length > 0) {
         this.logger.log(
           `session ${sessionId} not yet flushed; extracting from the ` +

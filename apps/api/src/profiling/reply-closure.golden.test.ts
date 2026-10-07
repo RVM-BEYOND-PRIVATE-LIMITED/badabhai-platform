@@ -27,6 +27,7 @@ import {
   INTAKE_HANDOFF_TEXT,
   intakeLineText,
 } from "./identity-intake/identity-intake";
+import { FREE_CHAT_COPY_ENTRIES } from "./free-chat/free-chat.copy";
 
 /**
  * THE CLOSURE, OVER THE REAL 466-ITEM CORPUS — committed as a golden artifact.
@@ -304,6 +305,10 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
         (step) => [`INTAKE_COPY.${step}.why`, INTAKE_COPY[step].why] as const,
       ),
       ["INTAKE_HANDOFF_TEXT", INTAKE_HANDOFF_TEXT],
+      // ADR-0051 — every fixed line the free chat serves, read from the copy module it serves from.
+      ...FREE_CHAT_COPY_ENTRIES.map(
+        ([key, line]) => [`FREE_CHAT_COPY.${key}`, line.latin] as const,
+      ),
     ];
     for (const [name, text] of served) {
       expect(ids.has(clipId(normalizeReplyText(text))), `${name} has no clip in the manifest`).toBe(

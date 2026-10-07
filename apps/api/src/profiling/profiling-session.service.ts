@@ -56,6 +56,12 @@ import type {
 } from "./profiling.dto";
 
 /**
+ * How many live sessions the voice form considers before minting — a bound on the envelope reads
+ * `notContinuable` makes. A worker rarely holds more than two; the sweep retires the rest.
+ */
+const VOICE_REATTACH_CANDIDATES = 5;
+
+/**
  * The voice form's half of the interview — and ONLY its half.
  *
  * WHAT THIS CLASS IS NOT. It is not a second interview engine. Every turn it takes goes through
@@ -112,18 +118,32 @@ export class ProfilingSessionService {
    * resume-after-kill, and minting a session each time would leave a trail of one-question
    * interviews and — worse — ask a worker who answered nine questions yesterday to begin again.
    * The session row is the durable anchor; `openTurn` is idempotent on top of it.
+   *
+   * THE CANDIDATES ARE THE LIVE SESSIONS, most recently touched first — not the latest by
+   * `last_message_at`, which ranks a fresh greeting session (clock still NULL) below an older ENDED
+   * one and so never consulted `notContinuable` for it. The newest one this surface may continue
+   * wins; one it may not (an armed general road, a free chat in greeting or free mode, ADR-0051) is
+   * skipped. Only when none qualifies is a NEW session minted, WITHOUT the reattach
+   * (`{ mint: true }`) that would hand back the very session just ruled out.
    */
   async start(workerId: string, ctx: RequestContext): Promise<ProfilingSessionResponse> {
-    const existing = await this.chat.findLatestSessionByWorker(workerId);
-    const reattach =
-      existing !== undefined &&
-      existing.status === "active" &&
-      !(await this.armedForGeneralRoad(existing));
-    const sessionId =
-      reattach && existing
-        ? existing.id
-        : ((await this.chatService.startSession(workerId, ctx)) as { session_id: string })
-            .session_id;
+    const live = await this.chat.listActiveSessionsByWorker(workerId, VOICE_REATTACH_CANDIDATES);
+    let sessionId: string | null = null;
+    for (const candidate of live) {
+      if (!(await this.notContinuable(candidate))) {
+        sessionId = candidate.id;
+        break;
+      }
+    }
+    sessionId ??= (
+      (await this.chatService.startSession(
+        workerId,
+        ctx,
+        live.length === 0 ? {} : { mint: true },
+      )) as {
+        session_id: string;
+      }
+    ).session_id;
 
     const turn = await this.orchestrator.openTurn({
       sessionId,
@@ -152,13 +172,21 @@ export class ProfilingSessionService {
    *
    * FAILS CLOSED: an envelope that cannot be read counts as armed. A fresh voice interview costs
    * the worker the questions he answered by voice; continuing an armed session costs him the form.
+   *
+   * ADR-0051 §3.6 — AND NOT A FREE-CHAT SESSION STILL IN GREETING OR FREE MODE. Its greeting chips
+   * and free-mode turns are drawn by the chat alone, and `openTurn` here would put the pack's first
+   * question over a free chat the worker never left. Résumé mode IS today's interview, and is
+   * continued as before. ONE envelope read answers both questions, under the same fail-closed rule.
    */
-  private async armedForGeneralRoad(session: ChatSession): Promise<boolean> {
+  private async notContinuable(session: ChatSession): Promise<boolean> {
     if (readGeneralRoadStamp(session.conversationState) !== null) return true;
     try {
-      const road = (await this.orchestrator.viewSession(session.id, new Date()))?.envelope
-        .generalRoad;
-      return road?.armed === true && road.lane !== "classic";
+      const live = (await this.orchestrator.viewSession(session.id, new Date()))?.envelope;
+      const road = live?.generalRoad;
+      const mode = live?.freeChat?.mode;
+      return (
+        (road?.armed === true && road.lane !== "classic") || mode === "greeting" || mode === "free"
+      );
     } catch (error) {
       this.logger.warn(
         `voice form start: session ${session.id} unreadable (${

@@ -57,6 +57,13 @@ import { chatMessages } from "./schema";
  */
 const IDENTITY_INTAKE_MARKER = { identity_intake: true } as const;
 
+/**
+ * The marker the profiling-stage free chat writes on its lines (ADR-0051 §3.5) — a literal twin of
+ * the api's `FREE_CHAT_METADATA`. A worker's casual talk is not a trade phrase, and mining it would
+ * print every "kaise ho" as an alias candidate.
+ */
+const FREE_CHAT_MARKER = { free_chat: true } as const;
+
 // THE REPOSITORY-ROOT `.env` FIRST, exactly as the other 55 db runners do. Without it this
 // runner threw `DATABASE_URL is not set` for its entire life: `pnpm db:mine:aliases` runs with
 // cwd = packages/db, where a bare `config()` finds no file, and nothing else supplies the URL.
@@ -276,7 +283,7 @@ async function main(): Promise<void> {
     // town) are inbound rows too, and none ever resolves to an occupation, so without this every
     // one would be printed as an alias candidate. They carry `metadata.identity_intake`, the same
     // marker the extraction and transcript readers exclude; `metadata` is NOT NULL (default {}),
-    // so the negation never drops an ordinary row.
+    // so the negation never drops an ordinary row. ADR-0051 — the free chat's lines likewise.
     const rows = await db
       .select({ sessionId: chatMessages.sessionId, bodyText: chatMessages.bodyText })
       .from(chatMessages)
@@ -284,7 +291,9 @@ async function main(): Promise<void> {
         and(
           eq(chatMessages.direction, "inbound"),
           isNotNull(chatMessages.bodyText),
-          not(sqlExpr`(${chatMessages.metadata} @> ${JSON.stringify(IDENTITY_INTAKE_MARKER)}::jsonb)`),
+          not(
+            sqlExpr`(${chatMessages.metadata} @> ${JSON.stringify(IDENTITY_INTAKE_MARKER)}::jsonb or ${chatMessages.metadata} @> ${JSON.stringify(FREE_CHAT_MARKER)}::jsonb)`,
+          ),
         ),
       )
       .orderBy(desc(chatMessages.createdAt))
