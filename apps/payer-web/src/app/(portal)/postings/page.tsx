@@ -4,7 +4,8 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
-import { applicantQuotaStep } from "../../../lib/pricing-config";
+import { quotaTopUpTier } from "../../../lib/pricing-config";
+import { formatInr } from "../../../lib/format";
 import {
   agentPostingRedirect,
   COMPANY_POSTING_ROUTES,
@@ -27,9 +28,11 @@ export const dynamic = "force-dynamic";
  *
  * The PAUSE / RESUME / ADD APPLICANT SLOTS / CLOSE lifecycle is LIVE: the payer-authed
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}` routes (#178/#180),
- * wired in the manager with per-row busy state + inline retryable errors. The slot STEP copy is
- * config-derived from the LIVE catalog (D-6; fetch failure ⇒ compile-time defaults + the
- * cached-pricing note) — this page never hardcodes a quota number.
+ * wired in the manager with per-row busy state + inline retryable errors. ADD APPLICANT SLOTS is
+ * a purchase: its button shows its slots and ₹ and asks first (owner ruling 2026-10-07, F11). That
+ * offer is `quotaTopUpTier()` of the LIVE catalog — the very tier `topUpQuotaAction` charges by —
+ * so the button, the dialog and the quota note below all name what is actually bought (D-6; fetch
+ * failure ⇒ compile-time defaults + the cached-pricing note). Never a hardcoded price or quota.
  *
  * AN AGENT (owner ruling 2026-10-01): agencies post AGENCY jobs only, so this company surface
  * is never linked for them. An agent who opens it directly is redirected to their own Postings
@@ -44,7 +47,10 @@ export default async function PostingsPage() {
   // An agent's own postings page — null when the agency surface is off (it would 404).
   const agencyPostings = isAgency ? postingRoutes(true) : null;
   const { products, live } = await getLiveCatalog();
-  const quotaStep = applicantQuotaStep(products);
+  // The slot top-up on offer: the SAME tier the action charges by (display only — XT5).
+  const tier = quotaTopUpTier(products);
+  const topUpOffer =
+    tier !== null ? { priceInr: tier.priceInr, additionalViews: tier.additionalViews } : null;
 
   let postings: PostingSummary[] | null = null;
   let error: string | null = null;
@@ -106,9 +112,16 @@ export default async function PostingsPage() {
             <p className="alert__title">Applicant quota</p>
             <p className="alert__body">
               Seeing more of a posting&rsquo;s applicants costs more.{" "}
-              {quotaStep !== null
-                ? `Each "Add applicant slots" adds ${quotaStep} more applicant slots (from the pricing config).`
-                : "Slot amounts come from the pricing config."}
+              {topUpOffer !== null ? (
+                <>
+                  Each &ldquo;Add applicant slots&rdquo; adds{" "}
+                  <span className="bb-mono">{topUpOffer.additionalViews}</span> more applicant slots
+                  for <span className="bb-mono">{formatInr(topUpOffer.priceInr)}</span> (from the
+                  pricing config).
+                </>
+              ) : (
+                "Slot amounts come from the pricing config."
+              )}
             </p>
           </div>
         </div>
@@ -137,7 +150,7 @@ export default async function PostingsPage() {
           </div>
         </Card>
       ) : (
-        <PostingsManager postings={postings} readOnly={isAgency} />
+        <PostingsManager postings={postings} readOnly={isAgency} topUpOffer={topUpOffer} />
       )}
     </div>
   );

@@ -3886,6 +3886,11 @@ textarea.input {
     width: auto;
     min-inline-size: calc(2 * var(--control-md));
   }
+  /* A tier the plan already covers carries a line of text, not a button: it takes the card's
+     full width under the price, never the narrow action track. */
+  .plans-page .capacity-tier > .capacity-tier__included {
+    grid-column: 1 / -1;
+  }
 }
 /* (The table's role link and the tiles' caption link take their 44px touch target in the
    touch section at the end of this block.) */
@@ -4768,6 +4773,13 @@ img.agency-qr__code,
   color: var(--text-muted);
   font-size: var(--text-sm);
   margin: 0 0 var(--space-2);
+}
+/* A tier the plan already covers (its grant is at or below the live allowance): it says so where
+   the buy button would be. */
+.capacity-tier__included {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0;
 }
 .capacity-nudge {
   margin-top: var(--space-4);
