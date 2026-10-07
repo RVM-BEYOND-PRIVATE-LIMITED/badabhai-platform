@@ -291,10 +291,59 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/capacity`
 - **Auth:** `PayerAuthGuard` (Bearer). `payer_id` from session.
-- **Body:** `{ tier: string (1–64), coupon?: string (1–64) }` — **no** `payer_id`, **no** price/amount (XT5: send the tier **code** only; server resolves price).
+- **Headers:** `Idempotency-Key?: string` (#1148) — see [Purchase idempotency](#purchase-idempotency-idempotency-key).
+- **Body:** `{ tier: string (1–64), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }` — **no** `payer_id`, **no** price/amount (XT5: send the tier **code** only; server resolves price). `expected_price_inr` (#2085) is a guard, never charged — see [Price confirmation](#price-confirmation-expected_price_inr).
 - **Response:** `{ payer_id, quote, max_active_vacancies, source_tier, expires_at, resumed_plan_ids: UUID[] }`.
 - **Events:** `payment.authorized`, `payment.captured`, `capacity.purchased`, `posting_plan.resumed` (one per auto-resumed plan), `coupon.redeemed` (if coupon).
-- **Mobile gotchas:** **MOCK payment** (`PAYMENTS_ENABLE_REAL=false`; `real_call:false`) — no real money in Phase 1. `quote` is informational; don't echo it as an authoritative charge. `resumed_plan_ids` tells you how many paused plans were auto-resumed. Atomic per-payer (advisory-locked); concurrent buys serialize — no special client retry needed. `201`.
+- **Errors:** `400` unknown tier · `409` same key still in flight · `409 price_mismatch`.
+- **Mobile gotchas:** **MOCK payment** (`PAYMENTS_ENABLE_REAL=false`; `real_call:false`) — no real money in Phase 1. `quote` is informational; don't echo it as an authoritative charge. `resumed_plan_ids` tells you how many paused plans were auto-resumed. Atomic per-payer (advisory-locked); concurrent buys serialize. `201`.
+
+#### `POST /payer/job-postings/:id/plan` · `POST /payer/job-postings/:id/boost`
+- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404`.
+- **Body:** plan `{ tier: 'standard'|'pro', coupon?, expected_price_inr? }` · boost `{ tier: 'boost_7'|'boost_15'|'boost_30'|'all_candidates', coupon?, expected_price_inr? }`.
+- **Errors (#2085):** `409 price_mismatch` — refused before the plan/boost row or any payment event. No `Idempotency-Key` on these two yet.
+
+#### `POST /payer/job-postings/:id/quota-topup`
+- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).
+- **Headers:** `Idempotency-Key?: string` (#2085) — the same seam, scope rules, window and replay semantics as `POST /payer/capacity`; scope `quota_topup_purchase`. See [Purchase idempotency](#purchase-idempotency-idempotency-key).
+- **Body:** `{ tier: string (1–64, e.g. 'topup_10'), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }`. No `payer_id`.
+- **Response:** `{ plan, quote }` — `plan.quotaTopupCount` is the running top-up total.
+- **Events:** `payment.authorized`, `payment.captured`, `posting_plan.quota_topped`, `coupon.redeemed` (if coupon). Unchanged by #2085; a replay emits nothing.
+- **Errors:** `400` unknown tier · `409` no active plan on the posting · `409` same key still in flight (`"This quota top-up is already being processed; check the posting before trying again"`) · `409 price_mismatch`.
+- `201`. **MOCK payment** (`real_call:false`).
+
+#### Purchase idempotency (`Idempotency-Key`)
+Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings/:id/quota-topup`.
+- **Optional.** No header (or a blank one) → the request runs exactly as before; nothing is reserved.
+- Mint **one key per confirmed purchase** and reuse it only for retries of that purchase. A new purchase (a renewal, a second top-up) needs a new key.
+- Keys are scoped per route **and** per session payer, and honoured for **180 s**.
+- **Same key, first attempt finished** → the stored outcome is replayed: the same `201` body, or the same error status + `message`. The work does not run again, so nothing is charged twice and no event is emitted twice.
+- **Same key, first attempt still running** → `409` (the in-flight message for that route). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting.
+- **Same key, different body** → **not** compared: the first purchase's outcome is replayed. The key names the intent; a client that changes the body under one key has a bug.
+- A replayed error carries only `statusCode` + `message` (not extra fields such as `reason`).
+- If Redis is unavailable the request runs undeduplicated (fail open at this one step; all money paths stay fail-closed).
+
+#### Price confirmation (`expected_price_inr`)
+Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `POST /payer/capacity`, `POST /payer/credits`, `POST /payer/credits/order` (#2085).
+- **Optional** integer, whole rupees, `0–10,000,000`. A non-integer, negative or string value is a `400`. Absent → behaviour unchanged.
+- It is compared to the **final** price the purchase would be charged at that moment — after the active offer and any valid `coupon`. It is never used as the charge.
+- Mismatch → `409`, **nothing charged**: no entitlement row, no ledger row, no provider order, no `payment.*` event.
+  ```json
+  { "statusCode": 409, "error": "Conflict", "reason": "price_mismatch",
+    "message": "The price changed: you confirmed ₹1000 but the current price is ₹750. Nothing was charged; re-read the price and confirm again",
+    "expected_price_inr": 1000, "current_price_inr": 750 }
+  ```
+  Re-read `GET /payer/pricing/catalog`, show the new price, and ask the payer to confirm again (with a **new** `Idempotency-Key`; the old key replays this `409`).
+- Send the `price_inr` from `GET /payer/pricing/catalog` for that tier. With a coupon, the catalog price is pre-coupon, so expect a `409` unless you send the post-coupon amount.
+
+#### `GET /payer/pricing/catalog`
+- **Auth:** `PayerAuthGuard` (Bearer).
+- **Response:** `{ revision: int, source: 'db'|'default', products: Product[], prices: PayerTierPrice[], priced_at: ISO8601 }`. `products` is unchanged since D-6. `prices` + `priced_at` are additive (#2085):
+  `PayerTierPrice = { product_code, tier_code, base_price_inr: int, price_inr: int, discount_inr: int, offer: { code: string, ends_at: ISO8601 } | null }`.
+- `price_inr` is what a purchase of that tier is charged at `priced_at` without a coupon. It is computed by the same function the purchase routes charge through, so shown == charged. `offer` is the automatic ops offer applied, or `null`. Coupons and `floorPriceInr` never ship.
+- Credit packs (`contact_unlock`) are charged at list price and take no offer, so their `offer` is always `null`.
+- An offer can expire after `priced_at`; `expected_price_inr` catches that.
+- **Events:** none (read-only).
 
 #### Pricing (read-only, ops-intent, unauthenticated)
 - `GET /pricing/catalog` → `{ catalog, revision, source: 'db'|'default' }`.
@@ -312,7 +361,8 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/credits`
 - **Auth:** `PayerAuthGuard` (Bearer) + `PayerOrgRoleGuard` `@OrgRoles('owner')` (#2079). A `recruiter`, or a payer with no active org membership, gets `403`. The same owner-only gate is on `POST /payer/credits/order` and `POST /payer/credits/verify` (real-payments routes). The role is re-read from the DB per request, so a demoted owner is refused on their next request.
-- **Body:** `{ pack_code: string }` — code only; price/credits resolved server-side.
+- **Headers:** `Idempotency-Key?: string` (#1046) — see [Purchase idempotency](#purchase-idempotency-idempotency-key).
+- **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
 - **Response:** `{ payer_id, balance, credits, pack_code }`.
 - **Events:** `payment.authorized`, `payment.captured`.
 - **Mobile gotchas:** **MOCK money** (`real_call:false`). Unknown pack → `404`. `201`.

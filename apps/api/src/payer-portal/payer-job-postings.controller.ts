@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Get,
   HttpCode,
@@ -8,9 +9,12 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from "@nestjs/common";
+import type { Request } from "express";
 import { Ctx, type RequestContext } from "../common/request-context";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerRoleGuard, PayerRoles } from "../payers/payer-role.guard";
@@ -77,6 +81,7 @@ export class PayerJobPostingsController {
     private readonly jobPostings: JobPostingsService,
     private readonly plans: PostingPlansService,
     private readonly disclosures: ResumeDisclosureService,
+    private readonly idempotency: RequestIdempotency,
   ) {}
 
   /** Merge a posting with its honest per-posting stats + résumés-downloaded count. */
@@ -226,6 +231,16 @@ export class PayerJobPostingsController {
    * can only top up their own plan. The `payer_id` is the SESSION payer (XB-A) — never a body
    * value. Priced through the pricing engine + mock-paid. 201 on top-up; 409 if the posting has
    * no active plan to top up.
+   *
+   * IDEMPOTENT UNDER `Idempotency-Key` (#2085), the same seam and the same semantics as
+   * `POST /payer/capacity` (#1148). A top-up writes no per-purchase artifact a natural key could
+   * be a key OF — `quota_topup_count` is one mutable counter on the plan row that every top-up
+   * adds to — so, as with capacity, only the caller can say whether two identical requests are
+   * one intent or two. Without the key a retry after a timeout charged the payer twice. The
+   * header stays OPTIONAL: a client that sends none runs exactly as before.
+   *
+   * OWNERSHIP IS CHECKED BEFORE THE RESERVATION: it is a read with no side effect, and doing it
+   * first keeps an unknown or foreign posting id from minting a Redis reservation at all.
    */
   @Post(":id/quota-topup")
   @HttpCode(201)
@@ -234,9 +249,28 @@ export class PayerJobPostingsController {
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(PayerTopUpQuotaSchema)) dto: PayerTopUpQuotaDto,
     @CurrentPayer() payer: AuthenticatedPayer,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
     await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
-    return this.plans.topUpQuotaForPayer(id, payer.id, dto, ctx);
+    return this.idempotency.runOnce({
+      namespace: "payer_idem",
+      // Its OWN scope: sharing `capacity_purchase` / `credits_purchase` would let a key reused
+      // across two different purchases be served the other purchase's stored result.
+      scope: "quota_topup_purchase",
+      // The SESSION payer (XB-A) — scoping by it stops one payer replaying another's key.
+      subject: payer.id,
+      subjectLabel: "payer",
+      logLabel: "payer",
+      idempotencyKey: req.header("idempotency-key"),
+      // 409, as on capacity: a duplicate cannot invent a plan/quota it has not computed. The
+      // client re-reads `GET /payer/job-postings/:id` (its `applicant_visibility_quota`).
+      inFlight: (): never => {
+        throw new ConflictException(
+          "This quota top-up is already being processed; check the posting before trying again",
+        );
+      },
+      work: () => this.plans.topUpQuotaForPayer(id, payer.id, dto, ctx),
+    });
   }
 }

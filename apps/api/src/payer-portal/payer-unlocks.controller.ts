@@ -192,7 +192,7 @@ export class PayerUnlocksController {
         );
       },
       work: async () => {
-        const result = await this.unlocks.purchaseCredits(payer.id, dto.pack_code, ctx);
+        const result = await this.unlocks.purchaseCredits(payer.id, dto.pack_code, ctx, dto.expected_price_inr);
         // INSIDE the guard: an unknown pack is a property of THIS request, so a retry under the
         // same key replays the 404 rather than re-running the lookup. A different pack code is a
         // different logical request and carries its own key.
@@ -228,7 +228,7 @@ export class PayerUnlocksController {
     @Ctx() ctx: RequestContext,
   ) {
     if (!this.unlocks.realPaymentsLive) throw new NotFoundException();
-    const order = await this.unlocks.createCreditOrder(payer.id, dto.pack_code, ctx);
+    const order = await this.unlocks.createCreditOrder(payer.id, dto.pack_code, ctx, dto.expected_price_inr);
     // Unknown pack → a real 404 (a public catalog item, not a per-tenant resource).
     if (!order) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
     return {
