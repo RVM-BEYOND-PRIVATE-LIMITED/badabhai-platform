@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_left, bisect_right
+from collections import Counter
 from typing import NamedTuple
 
 # The ONE city gazetteer (packages/profiling-lexicon cities.json). Read from the privacy
@@ -449,8 +450,19 @@ _MONEY_CUE_RE = re.compile(
     r"\bstipend\b|\bper month\b|\bpm\b|\bmonthly\b|\bp\.m\.?\b|\bmonth\b|\d\s*(?:k|hazaa?r)\b",
     re.IGNORECASE,
 )
-_SUFFIX_WORD = r"(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)"
-_SUFFIX = _SUFFIX_WORD + "?"
+# A suffix is a whole word: no letter may follow it (#2132). Without the boundary the "k" that
+# starts the next word read as thousands, so "salary 8000 ka hai" recorded Rs 80 lakh, "20 km"
+# became a Rs 20,000 figure, and "15000 ka hai" recorded nothing (over the ceiling). Anything
+# else may follow — punctuation, a dash, a slash, a digit, Devanagari, the end ("25k/month",
+# "25k-30k", "25k."). "lakhs" / "lacs" / "hazaar" still read: the alternation backtracks to them.
+# The one exception is a word typed glued to the suffix that is a range separator of
+# `_PAY_RANGE_RE` or a pay period ("18kto22k", "15 hazaarse 20 hazaar", "20kpm", "25kmonthly"):
+# none of these continues a word after "k" / "lakh" / "thousand", and refusing them would lose a
+# figure that was read before ("ka", "km", "kg", "kiya", "kaur", "kpa" are still refused).
+_SUFFIX_END = r"(?!(?!to|se|upto|pm|p\.m|per|month|mahin)[A-Za-z])"
+_SUFFIX_WORD = r"(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)" + _SUFFIX_END
+# `_SUFFIX` wraps the word in a group of its own so that `?` applies to the boundary as well.
+_SUFFIX = "(?:" + _SUFFIX_WORD + ")?"
 # Decimals are allowed because "1.5 lakh" is how the amount is actually written here.
 _NUMBER = r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)"
 _AMOUNT_RE = re.compile(_NUMBER + r"\s*" + _SUFFIX, re.IGNORECASE)
@@ -528,6 +540,13 @@ _PAY_ADDON_RE = re.compile(
         r"bonus(?:es)?|allowances?|incentives?|overtime|ot|extra|increments?|hikes?|pf|esi|"
         r"esic|gratuity|food|canteen|room|rent|travel|conveyance|da|hra"
     ),
+    re.IGNORECASE,
+)
+# What a BARE figure's clause may hold beside the figure: a currency word or a period, nothing
+# that names what the figure is for (#2133). "1500\nfood allowance" and "Rs 1500 per month\nfood
+# allowance" are bare; "fresher 12000" and "salary 18000" are not.
+_PAY_BARE_WORD_RE = re.compile(
+    r"₹|" + _cue(r"rs|inr|rupees?|per\s+month|per\s+mahina|pm|p\.m|monthly|month|mahina"),
     re.IGNORECASE,
 )
 # A bare four-digit YEAR is not pay ("Established 1998" became pay_min 1998, R34). It is
@@ -740,19 +759,97 @@ def _pay_clause(message: str, figure: _PayFigure) -> str:
     return message[start:end]
 
 
+def _is_bare(message: str, figure: _PayFigure, span: tuple[int, int]) -> bool:
+    """``figure`` is all its clause ``span`` says, but for a currency word or a period."""
+    rest = message[span[0] : figure.start] + " " + message[figure.end : span[1]]
+    return _HAS_ALNUM_RE.search(_PAY_BARE_WORD_RE.sub(" ", rest)) is None
+
+
+def _said_clause(
+    message: str, boundaries: _ClauseBoundaries, index: int, step: int
+) -> tuple[int, int] | None:
+    """The first clause from clause ``index`` on, walking by ``step`` (1 or -1), that holds a
+    letter or a digit; clauses of whitespace or punctuation alone ("\\n\\n") are walked past.
+    Clause ``k`` runs from boundary ``k - 1``'s end to boundary ``k``'s start."""
+    while 0 <= index <= len(boundaries.starts):
+        start = boundaries.ends[index - 1] if index else 0
+        end = boundaries.starts[index] if index < len(boundaries.starts) else len(message)
+        if _HAS_ALNUM_RE.search(message, start, end) is not None:
+            return start, end
+        index += step
+    return None
+
+
+def _follows_a_wage(
+    message: str,
+    figure: _PayFigure,
+    boundaries: _ClauseBoundaries,
+    wages: list[_PayFigure],
+    wage_starts: list[int],
+) -> bool:
+    """The clause before ``figure``'s that says anything holds a wage — a kept figure at least
+    `_PAY_AND_SPLIT_RATIO` times it (the #2066 test for two statements)."""
+    clause = _said_clause(message, boundaries, bisect_right(boundaries.ends, figure.start) - 1, -1)
+    if clause is None:
+        return False
+    first, last = bisect_left(wage_starts, clause[0]), bisect_left(wage_starts, clause[1])
+    if first and wages[first - 1].end > clause[0]:
+        first -= 1  # a range that started earlier and runs into the clause
+    return any(_PAY_AND_SPLIT_RATIO * figure.low <= wage.low for wage in wages[first:last])
+
+
+def _labels_an_addon(
+    message: str, figure: _PayFigure, boundaries: _ClauseBoundaries, figure_starts: list[int]
+) -> bool:
+    """The clause after ``figure``'s that says anything is an add-on's LABEL: it names an add-on
+    and states no figure of its own."""
+    clause = _said_clause(message, boundaries, bisect_left(boundaries.starts, figure.end) + 1, 1)
+    if clause is None:
+        return False
+    holds_figure = bisect_left(figure_starts, clause[0]) != bisect_left(figure_starts, clause[1])
+    return not holds_figure and _PAY_ADDON_RE.search(message[clause[0] : clause[1]]) is not None
+
+
 def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFigure]:
-    """The figures whose clause is NOT about an add-on. The boundaries are found once and
-    each distinct clause is screened once (figures in one clause share its verdict)."""
+    """The figures that are NOT an add-on's amount. A figure is one when its own clause names an
+    add-on (#1727 R34), or when it is the AMOUNT of a "wage, amount, label" run (#2133): "salary
+    18000\\n1500\\nfood allowance", "18000 + 1500 and PF", "18000\\n3000 aur incentive alag" read
+    as Rs 1,500-18,000 — the add-on became the band's MINIMUM. The amount is a single figure
+    alone in its clause (`_is_bare`), the clause before it holds the wage (`_follows_a_wage`)
+    and the clause after it is the add-on's label (`_labels_an_addon`). So a lone "25000 and PF"
+    is the wage; "18000\\n20000\\nPF" is two wages; "salary\\n25000\\nPF" has its label before
+    it; and a range is never an add-on's amount, as before.
+
+    The boundaries are found once and each distinct clause is screened once (figures in one
+    clause share its verdict). The "wage, amount, label" test runs only for an amount alone in
+    its clause, and each of its two walks stops at the first said clause; the next amount's
+    clause is one, so a clause is walked at most twice (forward from the amount before it, back
+    from the amount after it) and its wages are read for one amount at most. O(n) together; a
+    bare test per figure of a many-figure clause would be O(n^2)."""
     boundaries = _clause_boundaries(message)
+    spans = [_pay_clause_span(message, figure, boundaries) for figure in figures]
     verdicts: dict[tuple[int, int], bool] = {}
-    kept: list[_PayFigure] = []
-    for figure in figures:
-        span = _pay_clause_span(message, figure, boundaries)
+    for span in spans:
         if span not in verdicts:
             verdicts[span] = _PAY_ADDON_RE.search(message[span[0] : span[1]]) is not None
-        if not verdicts[span]:
-            kept.append(figure)
-    return kept
+    kept = [(fig, span) for fig, span in zip(figures, spans, strict=True) if not verdicts[span]]
+    if len(kept) < 2:
+        return [figure for figure, _ in kept]
+    wages = [figure for figure, _ in kept]
+    wage_starts = [figure.start for figure in wages]
+    shared = Counter(spans)
+    figure_starts = [figure.start for figure in figures]
+    return [
+        figure
+        for figure, span in kept
+        if not (
+            not figure.from_range
+            and shared[span] == 1
+            and _is_bare(message, figure, span)
+            and _follows_a_wage(message, figure, boundaries, wages, wage_starts)
+            and _labels_an_addon(message, figure, boundaries, figure_starts)
+        )
+    ]
 
 
 def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:

@@ -56,12 +56,17 @@ def _load_measure_script():
 
 measure = _load_measure_script()
 
-#: Main's text, as `answers.py` spelled it before #1995 — with #2088's "and"/"aur" word set,
-#: which the shipped regexes carry too (the oracle compares shapes, not word sets).
+#: Main's text, as `answers.py` spelled it before #1995 — with #2088's "and"/"aur" word set and
+#: #2132's suffix word boundary, which the shipped regexes carry too (the oracle compares the
+#: whitespace shape around the optional suffix, not the suffix's own text).
 _MAIN_FRAGMENTS = {
     "tail": r"\s+\b(?:in|at|for|with|on|near|from|starting|salary|pay|shift|urgently|",
     "clause": r"(?<![A-Za-z])plus(?![A-Za-z])|\s+(?:and|aur)\s+",
-    "range": r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)?\s*",
+    "range": (
+        r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*"
+        r"(?:(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)"
+        r"(?!(?!to|se|upto|pm|p\.m|per|month|mahin)[A-Za-z]))?\s*"
+    ),
 }
 
 
@@ -297,4 +302,50 @@ _MANY_FIGURES = {
 @pytest.mark.parametrize("unit", list(_MANY_FIGURES.values()), ids=list(_MANY_FIGURES))
 def test_detect_answers_is_linear_in_the_figure_count(unit: str, topic: str | None, k: int) -> None:
     text = unit * (k // len(unit)) + "bonus"
+    assert _best_of_3(lambda t: answers.detect_answers(t, topic), text) < _budget_s(k)
+
+
+# --- 5. the "wage, amount, label" add-on screen is linear in the figure count too (#2133) ------
+#: name -> (head, unit, tail); the unit repeats until the message is k characters long. "one
+#: clause" puts every figure in ONE clause with no add-on word: a bare test per figure there reads
+#: the whole clause per figure, O(n^2) — measured 0.76 s at 10k and 2.95 s at 20k with the
+#: one-figure-per-clause guard removed, 14 ms and 30 ms with it. The other two repeat a whole
+#: "wage, amount, label" run, so every amount walks back to its wage and on to its label, once
+#: through single newlines and once through runs of empty clauses.
+_NEXT_CLAUSE_SHAPES = {
+    "one clause of small figures": ("salary 20000 ", "1000 ", "\nfood allowance"),
+    "wage, amount, label per line": ("salary ", "20000\n1000\nfood allowance\n", ""),
+    "runs of empty clauses": ("salary ", "20000" + "\n" * 8 + "1000" + "\n" * 8 + "bonus\n", ""),
+}
+
+
+def _next_clause_text(shape: str, k: int) -> str:
+    head, unit, tail = _NEXT_CLAUSE_SHAPES[shape]
+    return head + unit * ((k - len(head)) // len(unit)) + tail
+
+
+def test_the_next_clause_timing_inputs_reach_the_screen() -> None:
+    # Guards the guard: every small figure passes the ratio test against the 20000, so only the
+    # one-figure-per-clause guard keeps "one clause" from a bare test per figure (and it keeps the
+    # fold); in the other two the screen really drops every amount, so every walk ran.
+    expected = {
+        "one clause of small figures": {"pay_min": 1000, "pay_max": 20000},
+        "wage, amount, label per line": {"pay_min": 20000, "pay_max": None},
+        "runs of empty clauses": {"pay_min": 20000, "pay_max": None},
+    }
+    for shape, pay in expected.items():
+        text = _next_clause_text(shape, 400)
+        figures = answers._pay_figures(text)
+        assert len(figures) > 10
+        assert {f.low for f in figures} == {1000, 20000}
+        assert answers.detect_answers(text, "pay_range")["pay_range"] == pay
+
+
+@pytest.mark.parametrize("k", _RUNS)
+@pytest.mark.parametrize("topic", [None, "pay_range"])
+@pytest.mark.parametrize("shape", list(_NEXT_CLAUSE_SHAPES))
+def test_the_next_clause_screen_is_linear_in_the_figure_count(
+    shape: str, topic: str | None, k: int
+) -> None:
+    text = _next_clause_text(shape, k)
     assert _best_of_3(lambda t: answers.detect_answers(t, topic), text) < _budget_s(k)

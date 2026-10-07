@@ -4116,3 +4116,154 @@ def test_a_single_amount_span_holds_no_trailing_whitespace(text: str, figure: st
     (found,) = answers._pay_figures(text)
     assert not found.from_range
     assert text[found.start : found.end] == figure
+
+
+# --- #2132: an amount suffix ends where its word ends -------------------------------------
+# The suffix had no word boundary, so the "k" that starts a following word read as thousands:
+# "salary 8000 ka hai" recorded Rs 80 lakh, "20 km" a Rs 20,000 figure, and "15000 ka hai"
+# nothing at all (Rs 1.5 crore is over the ceiling).
+_SUFFIX_BOUNDARY_CASES: list[tuple[str, dict | None]] = [
+    ("salary 8000 ka hai", _pay(8000)),
+    ("8000 kamai", _pay(8000)),
+    ("salary 18000, plant 20 km from Pune", _pay(18000)),
+    ("salary 15000 ka hai", _pay(15000)),
+    ("15000 KA HAI", _pay(15000)),
+    ("18000 kaam ke", _pay(18000)),
+    ("12000 rupees, site 5 kms away", _pay(12000)),
+    ("20 km", None),
+    ("25 kitchen helpers", None),
+    ("2 lacquer sprayers", None),
+    ("18 to 22 ka hai", None),
+    # A glued word that only LOOKS like an allowed continuation is still refused.
+    ("salary 15000 Kaur", _pay(15000)),
+    ("8 kpa pressure", None),
+    ("20 kgs", None),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _SUFFIX_BOUNDARY_CASES)
+def test_a_suffix_is_not_the_first_letter_of_a_word(text: str, pay: dict | None) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"salary {text}", None).get("pay_range") == pay
+
+
+# Every real suffix still reads: glued, spaced, upper-cased, decimal, every word, and followed
+# by punctuation, a digit, a dash, a slash or the end.
+_REAL_SUFFIX_CASES: list[tuple[str, dict]] = [
+    ("25k", _pay(25000)),
+    ("25 k", _pay(25000)),
+    ("25K", _pay(25000)),
+    ("1.5k", _pay(1500)),
+    ("25 hazar", _pay(25000)),
+    ("25 hazaar", _pay(25000)),
+    ("25hazaar", _pay(25000)),
+    ("25 thousand", _pay(25000)),
+    ("2 lakh", _pay(200000)),
+    ("2 lakhs", _pay(200000)),
+    ("2 lac", _pay(200000)),
+    ("2 lacs", _pay(200000)),
+    ("1.5lakh", _pay(150000)),
+    ("2 LAKHS", _pay(200000)),
+    ("25k/month", _pay(25000)),
+    ("25k,", _pay(25000)),
+    ("25k.", _pay(25000)),
+    ("(25k)", _pay(25000)),
+    ("25k\nper month", _pay(25000)),
+    ("25k pm", _pay(25000)),
+    ("rs 25k only", _pay(25000)),
+    ("२५k", _pay(25000)),
+    ("25k-30k", _pay(25000, 30000)),
+    ("25k–30k", _pay(25000, 30000)),
+    ("18000 - 22000", _pay(18000, 22000)),
+    ("18 se 22 hazaar", _pay(18000, 22000)),
+    ("18k to 22k", _pay(18000, 22000)),
+    ("18-22k", _pay(18000, 22000)),
+    ("18 to 22 thousand", _pay(18000, 22000)),
+    ("1.5 to 2 lakh", _pay(150000, 200000)),
+    ("between 18k and 22k", _pay(18000, 22000)),
+    ("18 hazaar se 22 hazaar", _pay(18000, 22000)),
+    # A range separator or a pay period typed glued to the suffix still reads.
+    ("18kto22k", _pay(18000, 22000)),
+    ("18 kse 22k", _pay(18000, 22000)),
+    ("15 hazaarse 20 hazaar", _pay(15000, 20000)),
+    ("2lakhto3lakh", _pay(200000, 300000)),
+    ("2 lakhsto3 lac", _pay(200000, 300000)),
+    ("20kupto25k", _pay(20000, 25000)),
+    ("20kpm", _pay(20000)),
+    ("25kmonthly", _pay(25000)),
+    ("25kper month", _pay(25000)),
+    ("1.5lakhp.m.", _pay(150000)),
+    ("20kmahina", _pay(20000)),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _REAL_SUFFIX_CASES)
+def test_a_real_suffix_still_scales(text: str, pay: dict) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"salary {text}", None).get("pay_range") == pay
+
+
+@pytest.mark.parametrize(
+    ("text", "figure"),
+    [("8000 ka hai", "8000"), ("20 km se 25k", "25k"), ("2 lakhs pm", "2 lakhs")],
+)
+def test_a_suffix_cut_off_by_a_letter_is_not_in_the_figure(text: str, figure: str) -> None:
+    found = [f for f in answers._pay_figures(text) if text[f.start : f.end] == figure]
+    assert len(found) == 1
+
+
+# --- #2133: a bare figure labelled by the clause after it is an add-on ---------------------
+# The add-on screen read only a figure's OWN clause, so an add-on whose label sat in the next
+# clause ("1500\nfood allowance") was folded into the band as its MINIMUM: Rs 1,500-18,000.
+# Owner ruling 2026-10-07: the base pay only, with and without a suffix.
+_NEXT_CLAUSE_ADDON_CASES: list[tuple[str, dict | None]] = [
+    ("salary 18000\n1500\nfood allowance", _pay(18000)),
+    ("salary 18000 + 1500 and PF", _pay(18000)),
+    ("salary 18000\n3000 aur incentive alag", _pay(18000)),
+    ("salary 18000\n1.5k\nfood allowance", _pay(18000)),
+    ("salary 18000 + 1.5k and PF", _pay(18000)),
+    ("salary 18000\n3k aur incentive alag", _pay(18000)),
+    ("salary 18k\n3 hazaar\n\nbonus", _pay(18000)),
+    ("salary 18000\nRs 1500 per month\nfood allowance", _pay(18000)),
+    ("salary 20000 and 1500 and PF", _pay(20000)),
+    ("salary 18-20k\n1500\nfood allowance", _pay(18000, 20000)),
+    # Two figures and a basis recorded nothing; the add-on no longer counts as a second figure,
+    # also when the wage is a range whose " and " puts its end in a clause of its own.
+    ("in hand 18000\n1500\nfood allowance", _pay(18000)),
+    ("in hand between 18000 and 22000\n1500\nfood allowance", _pay(18000, 22000)),
+    # Unchanged: a lone figure is the wage, whatever its next clause names ...
+    ("25000 and PF", _pay(25000)),
+    ("salary\n25000\nPF ESI", _pay(25000)),
+    # ... a figure with no wage in the clause BEFORE it is not an add-on to one: a later "CTC 3
+    # lakh" is a second basis, and the pair still records nothing ...
+    ("15000\nPF ESI\nCTC 3 lakh", None),
+    ("salary\n25000\nPF\nCTC 3 lakh", None),
+    # ... a second figure that is not at most half the other is a second wage ...
+    ("salary 18000\n20000\nPF ESI", _pay(18000, 20000)),
+    ("salary 18000\n10000\nfood allowance", _pay(10000, 18000)),
+    # ... a figure with words of its own is not bare ...
+    ("experienced 25000\nfresher 12000\nPF ESI", _pay(12000, 25000)),
+    ("fresher 12000\nexperienced 25000\nPF ESI", _pay(12000, 25000)),
+    # ... a next clause that names no add-on is not an add-on's label ...
+    ("salary 25000 operator\n12000\nhelper", _pay(12000, 25000)),
+    # ... a next clause with a figure of its own labels THAT figure, so the bare one has no
+    # label and stays in the fold as on main (its own add-on clause drops the 2500) ...
+    ("salary 18000\n1500\nbonus 2500", _pay(1500, 18000)),
+    # ... a range is never an add-on's amount: "CTC 3 lakh" and an in-hand range are two bases ...
+    ("CTC 3 lakh\n18000-22000\nPF ESI", None),
+    # ... and a stated range is still one range.
+    ("18000 - 22000\n1500\nfood allowance", _pay(18000, 22000)),
+    ("salary 18000 - 22000 and PF", _pay(18000, 22000)),
+    ("18 se 22 hazaar aur PF", _pay(18000, 22000)),
+    ("18k to 22k\nfood free", _pay(18000, 22000)),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _NEXT_CLAUSE_ADDON_CASES)
+def test_an_add_on_labelled_in_the_next_clause_is_not_the_pay_minimum(
+    text: str, pay: dict | None
+) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    # The money cue for the cross-topic read goes in a clause of its own at the END: a leading
+    # "salary " would be a word in the first figure's clause, which is then not bare.
+    assert answers.detect_answers(f"{text}\nmonthly", None).get("pay_range") == pay
