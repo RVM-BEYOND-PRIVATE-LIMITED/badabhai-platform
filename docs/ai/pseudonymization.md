@@ -756,12 +756,19 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
     pre-existing separator spellings the security review named: `"Reg No: - 123456"`, an en dash
     (`"Reg. No. – 123456"`, which Word's autocorrect produces), `"Reg No #123456"` and
     `"Reg.No.=123456"`. Each leaves the ID raw, G1/G2 admits it and its digits are pay, on the #1933
-    rules and here alike. Separately, the
-    salary guard holds the credential cues only, so a passport number G1/G2 refuses
-    (`"Passport No. M123456"`) is still recorded as pay. #1950 reads the dot in the guard but adds
-    no cue to it; the owner split that out as #2043 (2026-10-06), because "account" and "a/c" can
-    sit right before a real wage. The sentence-end transparency was confirmed by the owner the
-    same day.
+    rules and here alike. The sentence-end transparency was confirmed by the owner on 2026-10-06.
+  - **The salary guard's résumé cues: fixed by #2043.** The guard held the credential cues only,
+    so a passport number G1/G2 refuses (`"Passport No. M123456"`) was still recorded as pay. The
+    owner split that out of #1950 as #2043 (2026-10-06). The guard now reads the identifier-only
+    résumé cues: passport, voter, gstin, uan, provident fund, ifsc, dob and date of birth. It also
+    reads the "id" word in the connector's "no"-word slot, as the G1/G2 résumé rule does, and
+    takes a leading `{WB}`, so "payroll" no longer ends in the cue "roll". "account", "a/c" and
+    "esic" stay out on measurement (`scripts/measure_salary_guard_resume_cues.py`): each sits
+    right before a real wage ("salary account 25000 aata hai", "ESIC 15000 milta hai"), and none
+    protects anything, because a full account, ESIC or UAN number is never read as pay. No
+    lexicon utterance changes its salary, and "dob 1995, salary 18000" now records 18000 instead
+    of 1995. **Still unread by both rules alike:** a two-word connector ("Voter ID No: …",
+    "IFSC code …"): G1/G2 admits the text and its digits are pay (#2091).
 
 ## Input policy switch (ADR-0047)
 

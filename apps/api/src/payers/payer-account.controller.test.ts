@@ -17,9 +17,10 @@ import { PayerAuthGuard, type AuthenticatedPayer } from "./payer-auth.guard";
 import type { PayerSessionService } from "./payer-session.service";
 import { PayerAccountController } from "./payer-account.controller";
 import { PayerAccountService } from "./payer-account.service";
-import { PayerUpdateSchema, type PayerUpdateDto } from "./payer-account.dto";
+import { PayerMeSchema, PayerUpdateSchema, type PayerUpdateDto } from "./payer-account.dto";
 import type { EventsService } from "../events/events.service";
 import type { PayerContact, PayersRepository } from "./payers.repository";
+import type { PayerOrgsRepository } from "./payer-orgs.repository";
 
 /** A no-op EventsService stub for the read-only PROF-1 describes (no event is emitted there). */
 function noopEvents(): EventsService {
@@ -27,6 +28,23 @@ function noopEvents(): EventsService {
 }
 
 const CTX: RequestContext = { requestId: "req-1", correlationId: "corr-1" };
+
+const ORG_ID = "33333333-3333-4333-8333-333333333333";
+
+/**
+ * #2079 — org-membership stub. Defaults to an active OWNER membership (every payer has a solo
+ * org after B5.2). Pass a resolver to model a recruiter / demotion / no membership.
+ */
+function makeOrgs(
+  resolve: (
+    payerId: string,
+  ) => Promise<{ orgId: string; orgRole: "owner" | "recruiter" } | null> = async () => ({
+    orgId: ORG_ID,
+    orgRole: "owner",
+  }),
+) {
+  return { resolveOrgForPayer: vi.fn(resolve) } as unknown as PayerOrgsRepository;
+}
 
 /**
  * Horizontal-authz / IDOR build-blocker (ADR-0019 Decision C / LC-1).
@@ -114,7 +132,7 @@ function guardFor(payerId: string | null) {
   } as unknown as PayerSessionService;
   // The guard's role fallback reads payers.findById; reuse the same per-id repo stub.
   const { repo } = makeRepo();
-  return new PayerAuthGuard(session, config, repo);
+  return new PayerAuthGuard(session, config, repo, makeOrgs());
 }
 
 /**
@@ -137,7 +155,7 @@ describe("PayerAccountController — horizontal-authz / IDOR (ADR-0019 C / LC-1)
     expect(req.payer).toEqual({ id: PAYER_A, sid: "sid", role: "employer" });
 
     const { repo, findById } = makeRepo();
-    const controller = new PayerAccountController(new PayerAccountService(repo, noopEvents()));
+    const controller = new PayerAccountController(new PayerAccountService(repo, noopEvents(), makeOrgs()));
     const result = await controller.me(currentPayerOf(req));
 
     expect(findById).toHaveBeenCalledExactlyOnceWith(PAYER_A);
@@ -151,7 +169,7 @@ describe("PayerAccountController — horizontal-authz / IDOR (ADR-0019 C / LC-1)
     await guard.canActivate(ctx);
 
     const { repo, findById } = makeRepo();
-    const controller = new PayerAccountController(new PayerAccountService(repo, noopEvents()));
+    const controller = new PayerAccountController(new PayerAccountService(repo, noopEvents(), makeOrgs()));
     const result = await controller.me(currentPayerOf(req));
 
     // The only id reaching the repo is B's (from the guard) — A is unreachable.
@@ -204,7 +222,7 @@ describe("PayerAccountController — horizontal-authz / IDOR (ADR-0019 C / LC-1)
    */
   it("still 404s neutrally if the row vanishes after the guard admitted the request", async () => {
     const { repo } = makeRepo(); // findById returns undefined for the unknown id
-    const controller = new PayerAccountController(new PayerAccountService(repo, noopEvents()));
+    const controller = new PayerAccountController(new PayerAccountService(repo, noopEvents(), makeOrgs()));
     await expect(
       controller.me({ id: "99999999-9999-4999-8999-999999999999", sid: "s1", role: "employer" }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -233,7 +251,7 @@ describe("PayerAccountController — own contact on GET /payer/me (PROF-1)", () 
       };
     });
     const repo = { findById, findAuthFacts, decryptContact } as unknown as PayersRepository;
-    return new PayerAccountController(new PayerAccountService(repo, noopEvents()));
+    return new PayerAccountController(new PayerAccountService(repo, noopEvents(), makeOrgs()));
   }
 
   it("returns the caller's OWN decrypted email and a MASKED phoneLast4", async () => {
@@ -297,6 +315,57 @@ describe("PayerAccountController — own contact on GET /payer/me (PROF-1)", () 
  *   - the write binds to the GUARD principal id (a body `payer_id` is ignored / rejected);
  *   - no raw org-name/phone is ever logged across the update path.
  */
+/**
+ * #2079 — `GET /payer/me` returns the caller's CURRENT `orgId` / `orgRole`, resolved from
+ * `payer_members` on EVERY read (never from the token, never client-supplied). This is the
+ * always-current read payer-web's `getOrgRole()` consumes, so a demotion shows on the next read.
+ */
+describe("PayerAccountController — org role on GET /payer/me (#2079)", () => {
+  const SELF: AuthenticatedPayer = { id: PAYER_A, sid: "sid", role: "employer" };
+
+  function controllerWithOrgs(orgs: PayerOrgsRepository) {
+    const { repo } = makeRepo();
+    return new PayerAccountController(new PayerAccountService(repo, noopEvents(), orgs));
+  }
+
+  it("an OWNER reads orgRole:'owner' + their orgId", async () => {
+    const orgs = makeOrgs();
+    const me = await controllerWithOrgs(orgs).me(SELF);
+    expect(me).toMatchObject({ orgId: ORG_ID, orgRole: "owner" });
+    // Resolved for the GUARD principal only.
+    expect(orgs.resolveOrgForPayer).toHaveBeenCalledExactlyOnceWith(PAYER_A);
+  });
+
+  it("a RECRUITER reads orgRole:'recruiter'", async () => {
+    const me = await controllerWithOrgs(
+      makeOrgs(async () => ({ orgId: ORG_ID, orgRole: "recruiter" })),
+    ).me(SELF);
+    expect(me).toMatchObject({ orgId: ORG_ID, orgRole: "recruiter" });
+  });
+
+  it("no active membership (removed member) → orgId/orgRole null (least privilege)", async () => {
+    const me = await controllerWithOrgs(makeOrgs(async () => null)).me(SELF);
+    expect(me.orgId).toBeNull();
+    expect(me.orgRole).toBeNull();
+  });
+
+  it("a DEMOTED owner reads 'recruiter' on the very next request (no token involved)", async () => {
+    let role: "owner" | "recruiter" = "owner";
+    const controller = controllerWithOrgs(makeOrgs(async () => ({ orgId: ORG_ID, orgRole: role })));
+    expect((await controller.me(SELF)).orgRole).toBe("owner");
+    role = "recruiter";
+    expect((await controller.me(SELF)).orgRole).toBe("recruiter");
+  });
+
+  it("the wire schema is ADDITIVE: every pre-#2079 field is still present; unknown roles rejected", async () => {
+    const me = await controllerWithOrgs(makeOrgs()).me(SELF);
+    expect(Object.keys(me).sort()).toEqual(
+      ["email", "id", "orgId", "orgName", "orgRole", "phoneLast4", "role", "status"].sort(),
+    );
+    expect(PayerMeSchema.safeParse({ ...me, orgRole: "admin" }).success).toBe(false);
+  });
+});
+
 describe("PayerAccountController — self-edit on PATCH /payer/me (PROF-3)", () => {
   const SELF: AuthenticatedPayer = { id: PAYER_A, sid: "sid", role: "employer" };
 
@@ -352,7 +421,7 @@ describe("PayerAccountController — self-edit on PATCH /payer/me (PROF-3)", () 
   function controllerWith(repo: PayersRepository) {
     const emit = vi.fn(async (_params: EmittedEvent) => undefined);
     const events = { emit } as unknown as EventsService;
-    const controller = new PayerAccountController(new PayerAccountService(repo, events));
+    const controller = new PayerAccountController(new PayerAccountService(repo, events, makeOrgs()));
     return { controller, emit };
   }
 

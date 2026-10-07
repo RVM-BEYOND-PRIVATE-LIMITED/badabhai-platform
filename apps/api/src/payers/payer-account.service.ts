@@ -3,6 +3,7 @@ import type { Payer } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "./payers.repository";
+import { PayerOrgsRepository, type ResolvedOrg } from "./payer-orgs.repository";
 import { PayerMeSchema, type PayerMeDto, type PayerUpdateDto } from "./payer-account.dto";
 
 /**
@@ -26,14 +27,20 @@ export class PayerAccountService {
   constructor(
     private readonly payers: PayersRepository,
     private readonly events: EventsService,
+    private readonly orgs: PayerOrgsRepository,
   ) {}
 
-  /** The authenticated payer's own `{ id, role, status, orgName, email, phoneLast4 }`. */
+  /**
+   * The authenticated payer's own `{ id, role, status, orgName, email, phoneLast4, orgId,
+   * orgRole }`. `orgId`/`orgRole` (#2079) are read from `payer_members` on EVERY call, so this
+   * is the always-current org-role read for payer-web (a JWT claim can be up to a half-life
+   * stale; this cannot).
+   */
   async getOwnAccount(authPayerId: string): Promise<PayerMeDto> {
     const row = await this.payers.findById(authPayerId);
     // A valid session whose payer row is gone → neutral not-found (no oracle).
     if (!row) throw new NotFoundException("Payer account not found");
-    return this.toMaskedDto(row);
+    return this.toMaskedDto(row, await this.orgs.resolveOrgForPayer(authPayerId));
   }
 
   /**
@@ -76,7 +83,7 @@ export class PayerAccountService {
       requestId: ctx.requestId,
     });
 
-    return this.toMaskedDto(updated);
+    return this.toMaskedDto(updated, await this.orgs.resolveOrgForPayer(authPayerId));
   }
 
   /**
@@ -84,8 +91,12 @@ export class PayerAccountService {
    * The phone is masked to its last 4 digits; the raw E.164 number is never returned. A
    * decrypt failure fails CLOSED — a generic 500 that NEVER leaks ciphertext or crypto
    * internals (the org-name/phone/email are never logged here either).
+   *
+   * `org` (#2079) is the caller's CURRENT active membership, resolved from the DB by the
+   * caller on this very request; `null` (no active membership) surfaces as `orgId`/`orgRole`
+   * `null` — least privilege for every reader.
    */
-  private toMaskedDto(row: Payer): PayerMeDto {
+  private toMaskedDto(row: Payer, org: ResolvedOrg | null): PayerMeDto {
     let contact;
     try {
       contact = this.payers.decryptContact(row);
@@ -105,6 +116,8 @@ export class PayerAccountService {
       orgName: contact.orgName,
       email: contact.email,
       phoneLast4,
+      orgId: org?.orgId ?? null,
+      orgRole: org?.orgRole ?? null,
     });
   }
 }

@@ -27,8 +27,9 @@ import { loadUtteranceFixtures } from "../internal/fixtures.js";
 import { compilePattern, loadLexicon, type PatternSpec } from "../internal/regex.js";
 import { detectSalaries } from "./salary.js";
 
-const UNFOLDED_CONNECTOR = String.raw`\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*`;
-const LINEAR_CONNECTOR = String.raw`\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?`;
+// The "id" word since #2043 ("Voter ID ABC1234567"), as in the G1/G2 résumé rule's connector.
+const UNFOLDED_CONNECTOR = String.raw`\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*`;
+const LINEAR_CONNECTOR = String.raw`\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?`;
 const VALUE_TAIL = String.raw`[A-Za-z0-9/-]{0,20}$`;
 
 const SPEC = loadLexicon<{ credentialBefore: PatternSpec }>("salary").credentialBefore;
@@ -248,5 +249,39 @@ describe("a dot after the cue and a ':-' separator (issue #1950, R56)", () => {
   it("KNOWN_RESIDUAL: a spaced dot is not read, so its digits are still pay", () => {
     // Recorded in R56's resolution; the Python half pins the same shape through the gateway.
     expect(detectSalaries("Reg . No . 123456").current?.value).toBe(123456);
+  });
+});
+
+describe("the identifier-only résumé cues and a leading word boundary (issue #2043)", () => {
+  // The Python half (`test_salary_guard_resume_cues.py`) pins the same cases and the measurement.
+  it.each([
+    "Passport No. M123456",
+    "Passport.No. M123456",
+    "Voter ID ABC1234567",
+    "Provident Fund no MH/BAN/12345/678",
+    "GSTIN 27ABCDE1234F1Z5",
+    "IFSC SBIN0001234",
+  ])("an identifier after a résumé cue is not pay: %s", (text) => {
+    expect(detectSalaries(text).current).toBeNull();
+  });
+
+  it("a birth year is not the salary", () => {
+    expect(detectSalaries("dob 1995, salary 18000").current?.value).toBe(18000);
+  });
+
+  it.each([
+    ["salary account 25000 aata hai", 25000],
+    ["a/c: 18000 credit hota hai", 18000],
+    ["ESIC 15000 milta hai", 15000],
+    ["PF ESIC ke saath 18000 milta hai", 18000],
+    ["dobara 18000 milega", 18000],
+    ["payroll: 18000", 18000],
+    ["Company payroll. 18000 milta hai", 18000],
+  ])("a real wage is kept: %s", (text, value) => {
+    expect(detectSalaries(text).current?.value).toBe(value);
+  });
+
+  it("KNOWN_RESIDUAL (#2091): a two-word connector ('ID No') is not read, so its digits are pay", () => {
+    expect(detectSalaries("Voter ID No: XYZ9876543").current?.value).toBe(9876543);
   });
 });

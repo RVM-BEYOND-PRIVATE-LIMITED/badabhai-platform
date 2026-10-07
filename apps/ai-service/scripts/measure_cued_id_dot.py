@@ -9,7 +9,9 @@
 straight after the cue word, so "Reg.No." and "Regn. No." reach their value; "regn" among the
 credential cues; and `-?` after the separator, so "No.:- 123456" reads ":-" as ":".
 
-PRE is each rule as #1933 shipped it, frozen here as text (`PRE_1950`). `apply_1950` rewrites that
+PRE is each rule as #1933 shipped it, frozen here as text (`PRE_1950`), plus the edits later issues
+made to it (`EDITS_LATER`: #2043's résumé cues and word boundary on the salary guard), so PRE and
+shipped still differ by #1950 alone. `apply_1950` rewrites that
 text with exactly #1950's edits (`EDITS_1950`), and a test pins that the result IS the shipped
 rule, so PRE differs from the shipped rules by #1950 and nothing else. `pre_rules()` swaps PRE into
 the modules.
@@ -106,13 +108,43 @@ EDITS_1950: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
-def apply_1950(name: str, text: str) -> str:
-    """``text`` with #1950's edits for rule ``name``. Raises if an edit no longer lands once."""
-    for old, new in EDITS_1950[name]:
+#: Edits that LATER issues made to a rule, applied on top of #1950's. They are not #1950's, so PRE
+#: takes them too (`pre_source`): PRE and shipped then differ by #1950's tokens and nothing else.
+#: #2043 gave the salary guard the identifier-only résumé cues, a leading word boundary and the
+#: "id" word in the connector's "no"-word slot.
+EDITS_LATER: dict[str, tuple[tuple[str, str], ...]] = {
+    "credential_before": (
+        ("(?:roll|", "{WB}(?:roll|"),
+        (
+            "|nsdc)",
+            r"|nsdc|passport|voter|gstin|uan|provident\s+fund|ifsc|dob|date\s+of\s+birth)",
+        ),
+        (r"(?:no\.?|number|num|#)", r"(?:no\.?|number|num|id|#)"),
+    ),
+}
+
+
+def _apply(name: str, text: str, edits: tuple[tuple[str, str], ...]) -> str:
+    for old, new in edits:
         if text.count(old) != 1:
             raise ValueError(f"{name}: {old!r} occurs {text.count(old)} times, not once")
         text = text.replace(old, new)
     return text
+
+
+def apply_1950(name: str, text: str) -> str:
+    """``text`` with #1950's edits for rule ``name``. Raises if an edit no longer lands once."""
+    return _apply(name, text, EDITS_1950[name])
+
+
+def apply_later(name: str, text: str) -> str:
+    """``text`` with the later issues' edits for rule ``name`` (`EDITS_LATER`), if any."""
+    return _apply(name, text, EDITS_LATER.get(name, ()))
+
+
+def pre_source(name: str) -> str:
+    """PRE's text for rule ``name``: #1933's, plus the later issues' edits."""
+    return apply_later(name, PRE_1950[name])
 
 
 def shipped_source(name: str) -> str:
@@ -126,8 +158,8 @@ def pre(name: str) -> re.Pattern[str]:
     """Rule ``name`` as #1933 shipped it, compiled the way the shipped rule is."""
     if name == "credential_before":
         flags = lexicon.load("salary")["credentialBefore"]["flags"]
-        return lexicon.compile_pattern({"source": PRE_1950[name], "flags": flags})
-    return re.compile(PRE_1950[name], linear.shipped(name).flags)
+        return lexicon.compile_pattern({"source": pre_source(name), "flags": flags})
+    return re.compile(pre_source(name), linear.shipped(name).flags)
 
 
 def pre_rules() -> AbstractContextManager[None]:

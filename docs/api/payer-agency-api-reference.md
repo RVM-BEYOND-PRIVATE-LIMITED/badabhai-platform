@@ -199,7 +199,8 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `GET /payer/me`
 - **Auth:** `PayerAuthGuard` (Bearer).
-- **Response:** `{ id: UUID, role: 'employer'|'agent', status: 'pending'|'active'|'suspended', orgName: string, email: string, phoneLast4: string|null }`.
+- **Response:** `{ id: UUID, role: 'employer'|'agent', status: 'pending'|'active'|'suspended', orgName: string, email: string, phoneLast4: string|null, orgId: UUID|null, orgRole: 'owner'|'recruiter'|null }`.
+- **Org role (#2079, additive):** `orgId`/`orgRole` are the caller's CURRENT active org membership, read from `payer_members` on every call (never from the token). `null` = no active membership → treat as least privilege (`recruiter`). This is the authoritative read for UI owner affordances; the server enforces owner-only routes itself.
 - **Events:** none.
 - **Mobile gotchas:** Self-scoped only. Phone is masked to last 4 (`phoneLast4`); raw E.164 never returned. `Cache-Control: no-store` — do not cache.
 
@@ -359,7 +360,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Response:** `{ payer_id, balance: number (≥0) }`.
 
 #### `POST /payer/credits`
-- **Auth:** `PayerAuthGuard` (Bearer).
+- **Auth:** `PayerAuthGuard` (Bearer) + `PayerOrgRoleGuard` `@OrgRoles('owner')` (#2079). A `recruiter`, or a payer with no active org membership, gets `403`. The same owner-only gate is on `POST /payer/credits/order` and `POST /payer/credits/verify` (real-payments routes). The role is re-read from the DB per request, so a demoted owner is refused on their next request.
 - **Headers:** `Idempotency-Key?: string` (#1046) — see [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
 - **Response:** `{ payer_id, balance, credits, pack_code }`.
@@ -521,7 +522,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 | Account role | `agent` | Agency. Posts agency jobs via `/payer/agency/*` (agency jobs, invites, referrals); shares capacity, unlocks, reach and credits with employers. **Cannot write company postings** (#1885) — reads its own pre-existing `job_postings` only. |
 
 - The role is set at account creation (`signup` `role`) and is carried in the JWT and returned by `login/verify` + `GET /payer/me`. Use it for UI gating, but **the backend enforces it** (`PayerRoleGuard` + `@PayerRoles('agent')` on `/payer/agency/*`; `@PayerRoles('employer')` on the `/payer/job-postings` writes and chat publish — #1885). Do not rely on client-side role checks for security.
-- **Owner vs recruiter (org-member roles): DOES NOT EXIST.** There is **no** team/multi-user surface. Each payer account is a **single principal** — one login = one account. Multi-user org RBAC (owner/recruiter) is a Phase-2+ feature with **no API today** (stubbed in payer-web only). Build the app as single-user-per-account; do not surface team management.
+- **Owner vs recruiter (org-member roles, ADR-0027 / B5.3, #2079).** Every payer is a member of one org with `org_role` `owner` | `recruiter` (a self-signed-up payer is the `owner` of their solo org). Read it from `GET /payer/me` `orgRole` (always current). The payer JWT also carries `org_id` + `org_role` claims minted at login/refresh — a display hint only, absent on tokens minted before #2079 (treat absent as `recruiter`). **Owner-only, enforced server-side** by `PayerOrgRoleGuard` (current role from the DB per request): `POST /payer/credits`, `POST /payer/credits/order`, `POST /payer/credits/verify`, `POST /payer/org/members`, `DELETE /payer/org/members/:id` → `403` for a recruiter. Mobile must not surface payment flows anyway (CLAUDE.md §12).
 
 Which surface each role can call:
 
@@ -561,7 +562,7 @@ Stub or back these out behind a feature flag; do not ship them as working flows.
 | Posting **plans/boosts for payers** (payer-authed) | **MISSING ENDPOINT** | No payer-authed plan/boost purchase route exists; only the IDOR ops routes above. Buyers are blocked until built. |
 | Credit **history / top-up ledger** | **PARTIAL — balance live, history synthesized** | `GET /payer/credits` (balance) and `GET /payer/unlocks` (spends) are live; there is **no** credit-ledger/top-up-history endpoint. Build history from those two; do not expect a server ledger. |
 | Per-posting **applicant quota** field | **MOCK-ONLY** | Live posting rows have no `applicantQuota`; it's config-sourced. Do not display a per-posting quota for live rows. |
-| **Org-member / team management** (owner vs recruiter) | **MISSING — Phase 2+** | No `/payer/org/members` API. Single principal per account. Do not build team UI. |
+| **Org-member / team management** (owner vs recruiter) | **LIVE (web)** | `GET/POST /payer/org/members`, `DELETE /payer/org/members/:id`, `POST /payer/org/invites/accept` (B5.3); writes owner-only. The caller's role is `GET /payer/me` `orgRole` (#2079). Mobile: no team UI planned. |
 | Worker **attribution** to agency invite | **STUB — no caller** | `attributeWorkerToInvite()` exists server-side (consent-gated) but is **not wired** to onboarding; `agency_invite.accepted` does not fire yet. Referral `accepted` counts stay ~0. |
 | Real **WhatsApp invite send** | **MOCK** | `MESSAGING_ENABLE_REAL=false`. Agency copies the `link` manually; no platform send. |
 | Real **payments** (credits/capacity/any purchase) | **MOCK** | `PAYMENTS_ENABLE_REAL=false` (fail-closed). All money flows are mock ledgers in Phase 1; `real_call:false`. Do not integrate a real payment SDK. |
