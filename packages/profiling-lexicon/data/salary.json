@@ -404,5 +404,40 @@
     "'{WB}' in front of the group stops a cue matching inside a word: 'payroll' ends in 'roll',",
     "so 'Company payroll. 18000 milta hai' and 'payroll: 18000' dropped a real wage. Over the",
     "lexicon parity corpus and the repo's tracked text no other verdict moves."
+  ],
+  "phoneChain": {
+    "source": "(?<![0-9०-९])[0-9०-९]+(?:[ \\t\\u00a0\\u2010-\\u2015\\u2212-]+[0-9०-९]+)*",
+    "flags": ""
+  },
+  "phoneChainMinDigits": 9,
+  "payRangeMaxRatio": 5,
+  "payRangeRoundTo": 100,
+  "$comment_phoneChain": [
+    "A FIGURE INSIDE A PHONE-SHAPED RUN IS NOT PAY (issue #2050, found by the security review of",
+    "#1950). The matcher reads digits split by a space or a dash as separate numbers, so 'mera",
+    "number 98765 43210 hai' recorded 98765 as the current salary and 'mera number 987 654 3210'",
+    "recorded 3210. With a want cue near it, 'job chahiye mera number 98765 43210' recorded 98765",
+    "as the EXPECTED salary, which /profile/extract stores in salary_expectation, the reach",
+    "engine scores and the worker's own resume prints. 'number 98765 43210, salary 25000' lost",
+    "the real wage to the phone's first group (first writer wins).",
+    "",
+    "phoneChain is a run of digits on one line joined only by spaces, tabs, no-break spaces or",
+    "dashes. A run of phoneChainMinDigits digits or more is phone-shaped (the gateway's phone",
+    "rule reads 9 to 13), and none of its figures is recorded, unless it is a PAY RANGE: exactly",
+    "two figures, rising, both multiples of payRangeRoundTo, the high one at most",
+    "payRangeMaxRatio times the low, both within minAmountInr..maxPlausibleInr. That is #1731's",
+    "money-range rule in the job-posting chat ('20000-25000'). A pair joined by a space counts",
+    "too ('salary 15000 18000', owner decision 2026-10-07): a phone both of whose halves are",
+    "multiples of 100 is about 1 in 10,000.",
+    "",
+    "No line break, so two answers on adjacent lines never join; no comma or dot, so '25,000'",
+    "and '2.5' stay money. Each repeat takes a separator run then a digit run, two disjoint",
+    "classes, so a run has one reading and the scan is linear (R55); the lookbehind keeps a scan",
+    "from starting inside a digit run. The '-' sits last in its class, so neither engine reads a",
+    "range and no escape is needed.",
+    "",
+    "Prefer no number over a wrong one: 'salary 25000 98765 43210' records nothing, because the",
+    "wage is part of a 15-digit run. Measured with scripts/measure_salary_phone_chain.py: over",
+    "the lexicon parity corpus no other utterance moves."
   ]
 }
