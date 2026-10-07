@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
@@ -16,7 +15,7 @@ import {
 } from "../../../../lib/agency-view";
 import { bandLabel } from "../../../../lib/masking";
 import { Badge, Button, Card } from "../../../../components/ds";
-import { NavPendingCue } from "../../../../components/nav-pending";
+import { PortalLink } from "../../../../components/portal-link";
 import {
   closeAgencyJobAction,
   pauseAgencyJobAction,
@@ -157,10 +156,13 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
               <Card key={j.id} className="agency-job">
                 <div className="agency-job__main">
                   <div className="agency-job__head">
-                    <Link className="agency-job__title" href={`/agency/jobs/${j.id}`}>
+                    <PortalLink
+                      className="agency-job__title"
+                      href={`/agency/jobs/${j.id}`}
+                      pendingLabel={j.title}
+                    >
                       {j.title}
-                      <NavPendingCue label={j.title} />
-                    </Link>
+                    </PortalLink>
                     <Badge tone={statusTone(j.status)} upper>
                       {j.status}
                     </Badge>
@@ -188,14 +190,14 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                 </div>
 
                 <div className="agency-job__actions">
-                  <Link
+                  <PortalLink
                     className="bb-btn bb-btn--secondary bb-btn--sm"
                     href={`/agency/jobs/${j.id}/applicants`}
+                    pendingLabel="Applicants"
                   >
                     <Icon name={ACTION_ICON.users} />
                     <span>Applicants</span>
-                    <NavPendingCue label="Applicants" />
-                  </Link>
+                  </PortalLink>
                   {isEditableJob(j) ? (
                     <div className="agency-job__btns">
                       {/* The posting's own edit page (F02) — the same door its details header
@@ -208,13 +210,14 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                           <span>Edit posting</span>
                         </span>
                       ) : (
-                        <Link
+                        <PortalLink
                           className="bb-btn bb-btn--secondary bb-btn--sm"
                           href={`/agency/jobs/${j.id}/edit`}
+                          pendingLabel="Edit posting"
                         >
                           <Icon name={ACTION_ICON.edit} />
                           <span>Edit posting</span>
-                        </Link>
+                        </PortalLink>
                       )}
                       {active
                         ? lifecycle("pause", "pause", () => pauseAgencyJobAction({ jobId: j.id }))

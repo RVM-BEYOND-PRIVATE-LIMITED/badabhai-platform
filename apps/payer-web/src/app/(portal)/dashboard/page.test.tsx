@@ -4,7 +4,6 @@ import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { Icon } from "@badabhai/icons";
 import { Badge, MaskedCandidate, StatTile } from "../../../components/ds";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
-import { NavPendingCue } from "../../../components/nav-pending";
 import { linkCues } from "../../../../test/link-cues";
 
 /**
@@ -889,10 +888,19 @@ describe("F29 · one failed read never blanks the dashboard", () => {
   });
 });
 
-describe("the navigation pending cue on a posting card (components/nav-pending.tsx)", () => {
-  it("each card's Applicants link carries it", async () => {
-    const cues = linkCues(await render(), NavPendingCue);
+describe("the navigation pending cue on the dashboard (components/portal-link.tsx)", () => {
+  it("each posting card — its whole-card link and its Applicants link — carries it", async () => {
+    const cues = linkCues(await render());
     expect(cues.get("/postings/j1/applicants")).toEqual(["Applicants"]);
     expect(cues.get("/postings/j2/applicants")).toEqual(["Applicants"]);
+    expect(cues.get("/postings/j1")).toEqual([expect.any(String)]);
+    expect(cues.get("/postings/j2")).toEqual([expect.any(String)]);
+  });
+
+  it("so do the quick card and the panel's Postings link — no link on the page goes without one", async () => {
+    const cues = linkCues(await render());
+    expect(cues.get("/plans")).toEqual(["Plans & capacity"]);
+    expect(cues.get("/postings")).toEqual(["Postings"]);
+    expect([...cues].filter(([, labels]) => labels.length === 0)).toEqual([]);
   });
 });

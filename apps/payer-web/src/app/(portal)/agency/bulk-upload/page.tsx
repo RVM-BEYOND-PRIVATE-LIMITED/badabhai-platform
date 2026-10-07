@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../lib/config";
 import { notFound } from "next/navigation";
 import { PageHeader } from "../../../../components/page-header";
+import { PortalLink } from "../../../../components/portal-link";
 
 export const dynamic = "force-dynamic";
 
@@ -67,13 +67,14 @@ export default async function BulkUploadPage() {
           </p>
         </div>
         <div className="alert__actions">
-          <Link
+          <PortalLink
             className="bb-btn bb-btn--secondary bb-btn--sm"
             href="/agency/referrals#batch-invites"
+            pendingLabel="Referrals"
           >
             <Icon name="link" />
             <span>Create batch invite links</span>
-          </Link>
+          </PortalLink>
         </div>
       </div>
     </>

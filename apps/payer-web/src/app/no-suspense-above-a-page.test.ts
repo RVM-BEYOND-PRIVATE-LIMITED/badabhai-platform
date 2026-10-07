@@ -104,6 +104,12 @@ const parse = (code: string, file: string) =>
  *    `require("react")` / `await import("react")`), or destructured from one — `await`,
  *    parentheses and type assertions unwrapped;
  *  - `export * from "react"` (it re-exports both);
+ *  - React handed on through a local binding (re-review of #2115, Minor 1) — flagged at the
+ *    BARREL, as a named re-export is: any export of a name bound to React or a barrel
+ *    (`export const Kit = R`, `export { R as Kit }`, `export { React }`, `export default React`,
+ *    `export =`); and in place, React loaded with `import()` and reached through `.then`
+ *    (`import("react").then(({ lazy }) => …)`, `.then((R) => R.lazy)`) or through `.default`
+ *    (`(await import("react")).default.lazy`, `const { default: R } = …`);
  *  - `next/dynamic` loaded in any way (import, re-export, `import()`, `require`): every call
  *    wraps `React.lazy`, and `ssr: false` or a `loading` option adds a `<Suspense>` too.
  * A `lazy` that is not React's (zod's `z.lazy`, a `lazyData` field) is left alone.
@@ -126,8 +132,43 @@ function boundaryUses(
   const through = (e: ts.Expression): ReadonlySet<string> | null => {
     const inner = unwrap(e);
     if (ts.isIdentifier(inner)) return bound.get(inner.text) ?? null;
+    // A module's `default` IS the module here: `(await import("react")).default` is React.
+    if (ts.isPropertyAccessExpression(inner) && inner.name.text === "default") {
+      return through(inner.expression);
+    }
+    if (ts.isElementAccessExpression(inner) && moduleName(inner.argumentExpression) === "default") {
+      return through(inner.expression);
+    }
     const spec = loaded(inner);
     return spec === null ? null : boundariesOf(spec);
+  };
+  /** A destructured key's name (`{ lazy }`, `{ lazy: load }`, `{ "lazy": load }`), or null. */
+  const keyOf = (el: ts.BindingElement): string | null => {
+    const key = el.propertyName ?? el.name;
+    return ts.isIdentifier(key) || ts.isStringLiteralLike(key) ? key.text : null;
+  };
+  /** What `.then(fn)` hands `fn`'s FIRST parameter, when it is called on React. */
+  const thenSource = (param: ts.ParameterDeclaration): ReadonlySet<string> | null => {
+    const fn = param.parent;
+    if (!(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) || fn.parameters[0] !== param) {
+      return null;
+    }
+    const call = fn.parent;
+    if (!ts.isCallExpression(call) || call.arguments[0] !== fn) return null;
+    const callee = call.expression;
+    return ts.isPropertyAccessExpression(callee) && callee.name.text === "then"
+      ? through(callee.expression)
+      : null;
+  };
+  /** What an object pattern destructures: a declaration's value, a `.then` parameter, a `default`. */
+  const patternSource = (pattern: ts.ObjectBindingPattern): ReadonlySet<string> | null => {
+    const p = pattern.parent;
+    if (ts.isVariableDeclaration(p)) return p.initializer ? through(p.initializer) : null;
+    if (ts.isParameter(p)) return thenSource(p);
+    if (ts.isBindingElement(p) && keyOf(p) === "default" && ts.isObjectBindingPattern(p.parent)) {
+      return patternSource(p.parent);
+    }
+    return null;
   };
   const bind = (node: ts.Node) => {
     if (ts.isImportDeclaration(node)) {
@@ -139,6 +180,21 @@ function boundaryUses(
     }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const names = through(node.initializer);
+      if (names) bound.set(node.name.text, names);
+    }
+    // `import("react").then((R) => …)`: R is React.
+    if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+      const names = thenSource(node);
+      if (names) bound.set(node.name.text, names);
+    }
+    // `const { default: R } = await import("react")` (or a `.then` parameter): R is React.
+    if (
+      ts.isBindingElement(node) &&
+      ts.isIdentifier(node.name) &&
+      keyOf(node) === "default" &&
+      ts.isObjectBindingPattern(node.parent)
+    ) {
+      const names = patternSource(node.parent);
       if (names) bound.set(node.name.text, names);
     }
     ts.forEachChild(node, bind);
@@ -181,12 +237,31 @@ function boundaryUses(
       const names = through(node.expression);
       if (names !== null && isBoundary(moduleName(node.argumentExpression), names)) hit(node);
     }
-    // Destructured: `const { Suspense, lazy } = React` (= require("react"), = await import(…)).
-    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name)) {
-      const names = node.initializer ? through(node.initializer) : null;
-      for (const el of node.name.elements) {
-        const key = el.propertyName ?? el.name;
-        if (isBoundary(ts.isIdentifier(key) ? key.text : null, names)) hit(el);
+    // Destructured: `const { Suspense, lazy } = React` (= require("react"), = await import(…)),
+    // `import("react").then(({ lazy }) => …)`, `{ default: { lazy } }`.
+    if (ts.isObjectBindingPattern(node)) {
+      const names = patternSource(node);
+      if (names !== null || ts.isVariableDeclaration(node.parent)) {
+        for (const el of node.elements) if (isBoundary(keyOf(el), names)) hit(el);
+      }
+    }
+    // React handed on: an export of a name bound to React (or a barrel) is a barrel of React
+    // itself — flagged here, at the barrel, as a named re-export is.
+    if (ts.isExportDeclaration(node) && !node.moduleSpecifier && node.exportClause) {
+      if (ts.isNamedExports(node.exportClause)) {
+        for (const el of node.exportClause.elements) {
+          const local = el.propertyName ?? el.name;
+          if (ts.isIdentifier(local) && bound.has(local.text)) hit(el);
+        }
+      }
+    }
+    if (ts.isExportAssignment(node) && through(node.expression) !== null) hit(node);
+    if (
+      ts.isVariableStatement(node) &&
+      node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      for (const d of node.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && d.initializer && through(d.initializer) !== null) hit(d);
       }
     }
     ts.forEachChild(node, visit);
@@ -375,6 +450,76 @@ describe("the detector — re-exports, barrels and an awaited import (review of 
       "components/ui.ts:1",
       "components/ui.ts:1",
     ]);
+  });
+});
+
+describe("the detector — React handed on through a local binding (re-review of #2115, Minor 1)", () => {
+  // Inside an async function, as in a module: in a bare script `await (x)` is a call to `await`.
+  const inAsync = (body: string) => boundaryUses(`async function load() { ${body} }`);
+
+  it("flags, at the barrel, any export of a name bound to React", () => {
+    expect(boundaryUses('import * as R from "react";\nexport const Kit = R;')).toEqual(["x.tsx:2"]);
+    expect(boundaryUses('import R from "react"; export { R as Kit };')).toHaveLength(1);
+    expect(boundaryUses("export { React };")).toHaveLength(1);
+    expect(boundaryUses("export default React;")).toHaveLength(1);
+    expect(boundaryUses('import * as R from "react"; export = R;')).toHaveLength(1);
+    expect(boundaryUses('const R = require("react"); export const Kit = R;')).toHaveLength(1);
+    expect(boundaryUses('export const Kit = await import("react");')).toHaveLength(1);
+    expect(boundaryUses('export default (await import("react")).default;')).toHaveLength(1);
+  });
+
+  it("leaves an export of anything else alone", () => {
+    expect(boundaryUses('import { useState } from "react"; export { useState };')).toEqual([]);
+    expect(
+      boundaryUses('import * as z from "zod"; export const Kit = z; export default z;'),
+    ).toEqual([]);
+    expect(boundaryUses("export default function Page() { return null; }")).toEqual([]);
+    expect(boundaryUses("const Page = () => null; export default Page; export { Page };")).toEqual(
+      [],
+    );
+    expect(boundaryUses("export default React.memo(Card);")).toEqual([]);
+  });
+
+  it("the scan flags such a barrel across files — the barrel is the finding", () => {
+    const sources = new Map([
+      ["/s/components/kit.ts", 'import * as R from "react";\nexport const Kit = R;'],
+      ["/s/components/kit2.ts", 'import React from "react";\nexport { React as Kit2 };'],
+      ["/s/components/kit3.ts", 'import React from "react";\nexport default React;'],
+      [
+        "/s/app/page.tsx",
+        'import { Kit } from "../components/kit";\nexport const P = Kit.lazy(f);',
+      ],
+    ]);
+    expect(scanSources(sources, "/s").sort()).toEqual([
+      "components/kit.ts:2",
+      "components/kit2.ts:2",
+      "components/kit3.ts:2",
+    ]);
+  });
+
+  it("finds React loaded with import() and reached through .then or .default, in place", () => {
+    expect(boundaryUses('import("react").then(({ lazy }) => lazy(f));')).toHaveLength(1);
+    expect(boundaryUses('import("react").then(({ Suspense: S }) => S);')).toHaveLength(1);
+    expect(boundaryUses('import("react").then((R) => R.lazy(f));')).toHaveLength(1);
+    expect(
+      boundaryUses('import("react").then(function (m) { return m.default.lazy(f); });'),
+    ).toHaveLength(1);
+    expect(boundaryUses('import("react").then(({ default: R }) => R.lazy(f));')).toHaveLength(1);
+    expect(boundaryUses('import("react").then(({ default: { lazy } }) => lazy);')).toHaveLength(1);
+    expect(inAsync('(await import("react")).default.lazy(f);')).toHaveLength(1);
+    expect(inAsync('const m = await import("react"); m.default.lazy(f);')).toHaveLength(1);
+    expect(inAsync('const { default: R } = await import("react"); R.lazy(f);')).toHaveLength(1);
+    expect(inAsync('(await import("react"))["default"]["lazy"](f);')).toHaveLength(1);
+  });
+
+  it("leaves a .then or .default that is not React's alone", () => {
+    expect(boundaryUses('import("zod").then(({ lazy }) => lazy);')).toEqual([]);
+    expect(boundaryUses('import("zod").then((z) => z.lazy(f));')).toEqual([]);
+    expect(boundaryUses("promise.then(({ lazy }) => lazy);")).toEqual([]);
+    expect(boundaryUses('import("react").then(noop, ({ lazy }) => lazy);')).toEqual([]);
+    expect(boundaryUses("function f({ lazy }) { return lazy; }")).toEqual([]);
+    expect(inAsync('(await import("./format")).default.lazy;')).toEqual([]);
+    expect(inAsync('const { default: z } = await import("zod"); z.lazy(f);')).toEqual([]);
   });
 });
 

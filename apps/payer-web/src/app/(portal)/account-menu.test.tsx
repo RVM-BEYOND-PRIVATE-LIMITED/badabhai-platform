@@ -39,10 +39,12 @@ vi.mock("react", async () => {
 const logoutAction = vi.fn();
 vi.mock("./logout-action", () => ({ logoutAction: () => logoutAction() }));
 vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: ReactNode; href: string }) => ({
+  default: ({ children, ...rest }: { children: ReactNode; href: string }) => ({
     type: "a",
-    props: { href, children },
+    props: { ...rest, children },
   }),
+  // The Account item is a PortalLink, whose pending cue reads the link's status (idle here).
+  useLinkStatus: () => ({ pending: false }),
 }));
 
 const { AccountMenu } = await import("./account-menu");
@@ -65,31 +67,47 @@ function render(over: Props = {}): ReactElement {
   }) as ReactElement;
 }
 
-/** Collect every element's props (flattened) + all visible text. */
-function walk(node: ReactNode, props: Array<Record<string, unknown>>, parts: string[]): void {
+/**
+ * Collect every element's props (flattened) + all visible text; `hosts` gets the props of the
+ * native elements only (what reaches the DOM — a component's props are not a second element).
+ */
+function walk(
+  node: ReactNode,
+  props: Array<Record<string, unknown>>,
+  parts: string[],
+  hosts: Array<Record<string, unknown>> = [],
+): void {
   if (node === null || node === undefined || typeof node === "boolean") return;
   if (typeof node === "string" || typeof node === "number") {
     parts.push(String(node));
     return;
   }
   if (Array.isArray(node)) {
-    node.forEach((c) => walk(c, props, parts));
+    node.forEach((c) => walk(c, props, parts, hosts));
     return;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
   props.push(el.props as Record<string, unknown>);
   if (typeof el.type === "function") {
-    walk((el.type as (p: unknown) => ReactNode)(el.props), props, parts);
+    walk((el.type as (p: unknown) => ReactNode)(el.props), props, parts, hosts);
     return;
   }
-  if (el.props && "children" in el.props) walk(el.props.children as ReactNode, props, parts);
+  if (typeof el.type === "string") hosts.push(el.props as Record<string, unknown>);
+  if (el.props && "children" in el.props) {
+    walk(el.props.children as ReactNode, props, parts, hosts);
+  }
 }
 
-function collect(tree: ReactNode): { props: Array<Record<string, unknown>>; text: string } {
+function collect(tree: ReactNode): {
+  props: Array<Record<string, unknown>>;
+  hosts: Array<Record<string, unknown>>;
+  text: string;
+} {
   const props: Array<Record<string, unknown>> = [];
+  const hosts: Array<Record<string, unknown>> = [];
   const parts: string[] = [];
-  walk(tree, props, parts);
-  return { props, text: parts.join(" ") };
+  walk(tree, props, parts, hosts);
+  return { props, hosts, text: parts.join(" ") };
 }
 
 beforeEach(() => {
@@ -115,9 +133,14 @@ describe("AccountMenu — collapsed trigger (a11y)", () => {
     expect(trigger!["aria-label"]).toBe("Signed in as Acme");
   });
 
-  it("does not render the panel when collapsed (default)", () => {
-    const { props } = collect(render());
-    expect(props.some((p) => p["role"] === "menu")).toBe(false);
+  it("collapsed (default), the panel is hidden — but stays mounted, so the Account link outlives the click that closes it", () => {
+    // Its navigation's pending cue (components/portal-link.tsx) is the link's own state: an
+    // unmounted link would take the shell's bar and "Opening Account…" line with it.
+    const panels = collect(render()).hosts.filter((p) => p["role"] === "menu");
+    expect(panels).toHaveLength(1);
+    expect(panels[0]!["hidden"]).toBe(true);
+    openState = true;
+    expect(collect(render()).hosts.find((p) => p["role"] === "menu")!["hidden"]).toBe(false);
   });
 });
 
@@ -161,11 +184,11 @@ describe("AccountMenu — open panel shows the payer's OWN identity", () => {
 });
 
 describe("AccountMenu — Sign out menu item", () => {
-  /** All menuitems in the open panel (the settings Link + the new Sign-out button). */
+  /** All menuitems in the open panel (the settings link + the Sign-out button), as rendered. */
   function menuitems(over: Props = {}) {
     openState = true;
-    const { props } = collect(render(over));
-    return props.filter((p) => p["role"] === "menuitem");
+    const { hosts } = collect(render(over));
+    return hosts.filter((p) => p["role"] === "menuitem");
   }
 
   /** The Sign-out menuitem = the role="menuitem" that is NOT the /account Link. */

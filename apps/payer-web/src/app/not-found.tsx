@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { Icon } from "@badabhai/icons";
 import { Card } from "../components/ds";
+import { PortalLink } from "../components/portal-link";
 
 /**
  * Neutral 404 (ADR-0019 Phase 1) — matches the role-guard neutral style.
@@ -14,6 +14,10 @@ import { Card } from "../components/ds";
  * the private `chrome-card`/`chrome-title`/`chrome-sub`/`chrome-actions` set. The COPY is
  * unchanged on purpose: it is the no-oracle wording, not decoration, and the icon is a neutral
  * wayfinding glyph — nothing that hints "forbidden" rather than "absent".
+ *
+ * It renders OUTSIDE the portal shell (a guard's `notFound()` lands here, above the `(portal)`
+ * layout), so there is no bar or status line — but its link is a `PortalLink`, and the dot on the
+ * button still answers the click while the Dashboard loads.
  */
 export default function NotFound() {
   return (
@@ -28,9 +32,13 @@ export default function NotFound() {
             This page doesn&rsquo;t exist, or isn&rsquo;t available to your account.
           </p>
           <div className="state__actions">
-            <Link className="bb-btn bb-btn--primary" href="/dashboard">
+            <PortalLink
+              className="bb-btn bb-btn--primary"
+              href="/dashboard"
+              pendingLabel="Dashboard"
+            >
               <span>Go to dashboard</span>
-            </Link>
+            </PortalLink>
           </div>
         </div>
       </Card>

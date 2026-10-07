@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 import { decl, parseRules, stripComments, type Rule } from "../../test/css-rules";
 
 /**
@@ -145,5 +146,155 @@ describe("the bar along the top of the viewport", () => {
 
   it("under reduced motion it does not grow — it just shows", () => {
     expect(decl(one(".nav-progress--on", REDUCE), "animation")).toBe("none");
+  });
+});
+
+/* ---- follow-up to #2115: every in-app link is a PortalLink, so every link carries the cue ---- */
+
+/**
+ * Every stylesheet the app loads: globals.css and what it `@import`s (workspace packages resolve
+ * through the app's node_modules, relative paths beside globals.css). Read as text — no RegExp is
+ * built from a value.
+ */
+function stylesheets(): Array<[string, Rule[]]> {
+  const app = join(here, "..", "..");
+  const globals = readFileSync(join(here, "globals.css"), "utf8");
+  const out: Array<[string, Rule[]]> = [["globals.css", G]];
+  for (const line of globals.split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("@import ")) continue;
+    const spec = t.slice(t.indexOf('"') + 1, t.lastIndexOf('"'));
+    const path = spec.startsWith(".") ? join(here, spec) : join(app, "node_modules", spec);
+    out.push([spec, parseRules(stripComments(readFileSync(path, "utf8")))]);
+  }
+  return out;
+}
+
+/** The classes in a compound selector (`a.pnav__link:hover` → ["pnav__link"]). */
+function classesOf(compound: string): string[] {
+  const out: string[] = [];
+  for (let i = compound.indexOf("."); i >= 0; i = compound.indexOf(".", i + 1)) {
+    let j = i + 1;
+    while (j < compound.length && /[\w-]/.test(compound[j]!)) j += 1;
+    if (j > i + 1) out.push(compound.slice(i + 1, j));
+  }
+  return out;
+}
+
+/**
+ * Every class a cued link can carry: the `className` of each `<PortalLink>` in src (the only
+ * in-app link — app/every-link-shows-the-cue.test.ts), read from the syntax tree — each string
+ * piece of it, so a conditional or template class (`pnav__link--active`, `bb-btn--primary`'s
+ * stem) counts too.
+ */
+function cuedLinkClasses(): Set<string> {
+  const src = join(here, "..");
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)],
+    );
+  const out = new Set<string>();
+  const strings = (node: ts.Node) => {
+    if (ts.isStringLiteralLike(node)) node.text.split(/\s+/).forEach((c) => c && out.add(c));
+    if (ts.isTemplateExpression(node)) {
+      for (const piece of [node.head, ...node.templateSpans.map((s) => s.literal)]) {
+        piece.text.split(/\s+/).forEach((c) => c && out.add(c));
+      }
+    }
+    ts.forEachChild(node, strings);
+  };
+  for (const f of walk(src).filter((p) => p.endsWith(".tsx") && !p.endsWith(".test.tsx"))) {
+    const code = readFileSync(f, "utf8");
+    if (!code.includes("<PortalLink")) continue;
+    const sf = ts.createSourceFile(f, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const visit = (node: ts.Node) => {
+      if (
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        node.tagName.getText(sf) === "PortalLink"
+      ) {
+        for (const a of node.attributes.properties) {
+          if (ts.isJsxAttribute(a) && a.name.getText(sf) === "className" && a.initializer) {
+            strings(a.initializer);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  return out;
+}
+
+describe("every cued link stays the dot's anchor (re-review of #2115, nit)", () => {
+  const CUED = cuedLinkClasses();
+  const SHEETS = stylesheets();
+  /** Every rule, in any loaded stylesheet and any media context, that styles a cued link itself. */
+  const LINK_RULES = SHEETS.flatMap(([sheet, rules]) =>
+    rules
+      .filter((r) => !r.selector.startsWith("@"))
+      .filter((r) =>
+        subjects(r.selector).some(
+          (s) =>
+            classesOf(s).some((c) => CUED.has(c)) ||
+            // A bare type selector on `a` styles every link, cued ones included.
+            s === "a" ||
+            s.startsWith("a:") ||
+            s.startsWith("a."),
+        ),
+      )
+      .map((r) => [sheet, r] as const),
+  );
+
+  it("the scans are not vacuous: the cued links' classes and their rules are seen", () => {
+    for (const c of [
+      "pnav__link",
+      "pshell__brandlink",
+      "pshell__balance",
+      "bb-stretched-link",
+      "bb-btn",
+      "posting-card__title",
+      "postings-link",
+      "quick__card",
+      "account-menu__link",
+      "capacity-link",
+    ]) {
+      expect(CUED, c).toContain(c);
+    }
+    expect(SHEETS.map(([s]) => s)).toEqual(
+      expect.arrayContaining(["globals.css", "../styles/ds-components.css"]),
+    );
+    expect(LINK_RULES.length).toBeGreaterThan(30);
+  });
+
+  it("no rule on a cued link sets `position: static` (or resets it with `all`) — the zero-specificity anchor would lose", () => {
+    // `:where(a:has(> .nav-pending)) { position: relative }` has NO specificity on purpose (a
+    // link's own position wins: the card overlay stays absolute). So any rule that names a cued
+    // link and says `static` beats it, and the dot would hang off the nearest positioned
+    // ancestor instead — far from the link that was clicked.
+    const offenders = LINK_RULES.filter(
+      ([, r]) => decl(r, "position") === "static" || decl(r, "all") !== null,
+    ).map(([sheet, r]) => `${sheet}: ${r.selector} (${r.at || "top"})`);
+    expect(offenders).toEqual([]);
+  });
+
+  it("a card's whole-surface overlay keeps its own absolute position (it IS the dot's anchor)", () => {
+    const overlay = D.filter((r) => r.selector === ".bb-stretched-link" && r.at === "");
+    expect(overlay).toHaveLength(1);
+    expect(decl(overlay[0]!, "position")).toBe("absolute");
+  });
+
+  it("the overlay's dot sits INSIDE the card's corner, in a colour of its own (the overlay is transparent)", () => {
+    const dot = one(".bb-stretched-link > .nav-pending--on");
+    expect(decl(dot, "inset-block-start")).toBe("var(--space-1)");
+    expect(decl(dot, "inset-inline-end")).toBe("var(--space-1)");
+    // `currentColor` on a `color: transparent` overlay would draw an invisible dot.
+    expect(decl(dot, "background")).toBe("var(--text-heading)");
+  });
+
+  it("the account menu's panel, kept mounted while closed, is really hidden then", () => {
+    // account-menu.tsx: the Account link outlives the click that closes the menu, so its cue
+    // does too; the panel's own `display: grid` would otherwise override `[hidden]`.
+    expect(decl(one(".account-menu__panel[hidden]"), "display")).toBe("none");
+    expect(decl(one(".account-menu__panel"), "display")).toBe("grid");
   });
 });

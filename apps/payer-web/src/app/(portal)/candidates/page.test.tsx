@@ -437,7 +437,7 @@ describe("candidates page — keyset paging", () => {
   });
 });
 
-describe("candidates page — the navigation pending cue on every query-only link (#2115)", () => {
+describe("candidates page — the navigation pending cue on every link (#2115 and its follow-up)", () => {
   it("Next page and First page (the pager) carry it", async () => {
     getCandidateInbox.mockResolvedValueOnce({ applicants: [companyRow(W1)], nextCursor: NEXT });
     const cues = linkCue(await html({ postingId: P1, cursor: NEXT }));
@@ -460,10 +460,20 @@ describe("candidates page — the navigation pending cue on every query-only lin
     expect(linkCue(stateOf(await html({ postingId: P1 }))).get("/candidates")).toBe(true);
   });
 
-  it("the scan sees links WITHOUT it too (it is not vacuous)", async () => {
+  it("so do the empty states' Postings and New posting — every in-app link is a PortalLink", async () => {
     getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
-    // The empty state's Postings link is a link to another section, not a query-only one.
-    expect(linkCue(stateOf(await html())).get("/postings")).toBe(false);
+    expect(linkCue(stateOf(await html())).get("/postings")).toBe(true);
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
+    getPostings.mockResolvedValueOnce([]);
+    expect(linkCue(stateOf(await html())).get("/postings/new")).toBe(true);
+  });
+
+  it("no link on a full page goes without it — and the scan sees one that does (it is not vacuous)", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [companyRow(W1)], nextCursor: NEXT });
+    const page = linkCue(await html({ postingId: P1, cursor: NEXT }));
+    expect(page.size).toBeGreaterThan(2);
+    expect([...page].filter(([, cued]) => !cued)).toEqual([]);
+    expect(linkCue('<a href="/postings">Postings</a>').get("/postings")).toBe(false);
   });
 });
 

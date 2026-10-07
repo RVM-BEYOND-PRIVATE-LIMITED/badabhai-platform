@@ -435,10 +435,33 @@ the growing bar but keeps that delay. The dot TAKES NO SPACE: it is absolutely p
 link's corner (inside the corner on a rail row, which clips), and the link is positioned whether or
 not it is pending — so a click never widens a button or pushes a badge (review of #2115: +24px on a
 header action, +16px on a title link, before; 0px after, measured on a production build).
-Only a cued link announces, so a link without one shows nothing until the page arrives. Not yet
-cued: the "Edit posting" link / button on each row of Postings and Agency postings (the header's
-"Edit posting" is), and a dashboard card's whole-card link (the DS `Card` overlay — cueing it is a
-design-system change).
+
+**Every in-app link carries it** (follow-up to #2115). Only a cued link announces, and #2115 left
+~20 without one — on a slow backend a dashboard quick card answered a click with ~3s of nothing.
+So the cue is never placed by hand: every in-app link is a `PortalLink`
+(`src/components/portal-link.tsx`) — next/link's `Link` with the cue as its last child — and it
+cannot be written without a `pendingLabel`, the destination the status line names. No other
+module may render next/link's `Link` or place the cue (`src/app/every-link-shows-the-cue.test.ts`,
+read from the syntax tree over all of `src/`, so a route added later is covered the day it lands).
+That brought in the dashboard's quick card, attention action and panel links, the DS `Card` /
+`StatTile` whole-surface overlay (its dot sits inside the card's top-right corner, in the heading
+colour — the overlay itself is transparent; the card's layout and hover lift are untouched), every
+row's "Edit posting", the plans and posting-form links, the account menu's Account item, the AI
+chat's "manual form" link, the error boundary's and the 404's way out. The account menu's panel
+now stays mounted while closed (`hidden`): its link must outlive the click that closes the menu,
+or the bar and the status line go with it (the dot is hidden with the panel; the bar is the cue
+there, as on a phone's drawer). Not a `PortalLink`, by design: an external URL, `mailto:` /
+`tel:`, a hash-only `#id`, a download or a new tab — plain `<a>`, since none leaves an in-app
+navigation pending (the fence rejects a `PortalLink` to any of them). Measured on a production
+build, 1.5s per read, on eight of them (quick card, panel "Postings", a card's whole-card link,
+the Account item, a plans row title, plans "New posting", both rows' "Edit posting") at 1280 and
+375, five clicks each: 80/80 committed; the cue showed at 190–213ms (the Account item: its bar
+and status line, at 195–210ms); 0px shift of the clicked link, its ancestors or the page; nothing
+left on screen after the commit. The same links before: 0/30 showed anything, for 1.5–4.8s. A
+fast backend (commits at 53–129ms) showed no cue at all (0/24) — no flash.
+
+Not yet cued: no link. Outside this rule: a button that navigates with `router.push` (a form's
+submit, the agency form's Cancel) — it is not a link, so it has no link status to show.
 
 ### Agency on the company surface
 

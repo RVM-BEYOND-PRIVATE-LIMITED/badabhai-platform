@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog } from "../../../components/ds";
-import { NavPendingCue } from "../../../components/nav-pending";
+import { PortalLink } from "../../../components/portal-link";
 import { formatInr } from "../../../lib/format";
 import type { ChargedPrice } from "../../../lib/pricing-config";
 import {
@@ -363,10 +362,13 @@ export function PostingsManager({
             <Card key={p.id} padding="md" className="posting-card">
               <div className="posting-card__main">
                 <div className="posting-card__head">
-                  <Link className="posting-card__title" href={`/postings/${p.id}`}>
+                  <PortalLink
+                    className="posting-card__title"
+                    href={`/postings/${p.id}`}
+                    pendingLabel={p.roleTitle}
+                  >
                     {p.roleTitle}
-                    <NavPendingCue label={p.roleTitle} />
-                  </Link>
+                  </PortalLink>
                   <Badge tone={statusTone(p.status)} upper>
                     {p.status}
                   </Badge>
@@ -390,13 +392,20 @@ export function PostingsManager({
                     the posting's details. A read-only row has neither. */}
                 {readOnly ? null : (
                   <div className="posting-card__links">
-                    <Link className="postings-link" href={`/postings/${p.id}/applicants`}>
+                    <PortalLink
+                      className="postings-link"
+                      href={`/postings/${p.id}/applicants`}
+                      pendingLabel="Applicants"
+                    >
                       <Icon name={ACTION_ICON.users} /> Applicants
-                      <NavPendingCue label="Applicants" />
-                    </Link>{" "}
-                    <Link className="postings-link" href={`/postings/${p.id}/edit`}>
+                    </PortalLink>{" "}
+                    <PortalLink
+                      className="postings-link"
+                      href={`/postings/${p.id}/edit`}
+                      pendingLabel="Edit posting"
+                    >
                       <Icon name={ACTION_ICON.edit} /> Edit posting
-                    </Link>
+                    </PortalLink>
                   </div>
                 )}
 

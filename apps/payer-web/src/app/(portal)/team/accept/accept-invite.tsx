@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Button } from "../../../../components/ds";
+import { PortalLink } from "../../../../components/portal-link";
 import { acceptInviteAction } from "../actions";
 
 /**
@@ -38,9 +38,13 @@ export function AcceptInvite({ token }: { token: string }) {
         <h2 className="state__title">This invite link is missing its code</h2>
         <p className="state__body">Ask your team owner to resend the invite.</p>
         <div className="state__actions">
-          <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/dashboard">
+          <PortalLink
+            className="bb-btn bb-btn--secondary bb-btn--sm"
+            href="/dashboard"
+            pendingLabel="Dashboard"
+          >
             Go to your dashboard
-          </Link>
+          </PortalLink>
         </div>
       </div>
     );
@@ -55,10 +59,14 @@ export function AcceptInvite({ token }: { token: string }) {
           <p className="alert__body">{result.message}</p>
         </div>
         <div className="alert__actions">
-          <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/dashboard">
+          <PortalLink
+            className="bb-btn bb-btn--primary bb-btn--sm"
+            href="/dashboard"
+            pendingLabel="Dashboard"
+          >
             <span>Go to your dashboard</span>
             <Icon name={ACTION_ICON.next} />
-          </Link>
+          </PortalLink>
         </div>
       </div>
     );

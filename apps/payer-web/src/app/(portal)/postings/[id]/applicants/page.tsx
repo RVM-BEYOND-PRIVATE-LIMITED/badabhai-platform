@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -9,6 +8,7 @@ import { COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
 import { liveUnlocksFor } from "../../../../../lib/unlock-history";
 import { Card } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
+import { PortalLink } from "../../../../../components/portal-link";
 import { RetryButton } from "../../../../../components/retry-button";
 import { PublishedReachNotice } from "../../../../../components/published-reach-notice";
 import { PUBLISHED_REACH_PARAM, parsePublishedReach } from "../../../../../lib/published-reach";
@@ -198,10 +198,14 @@ function PostingNotFound() {
         <h2 className="state__title">No posting found here</h2>
         <p className="state__body">It may not exist, or it isn&rsquo;t one of your postings.</p>
         <div className="state__actions">
-          <Link className="bb-btn bb-btn--secondary" href={COMPANY_POSTING_ROUTES.list}>
+          <PortalLink
+            className="bb-btn bb-btn--secondary"
+            href={COMPANY_POSTING_ROUTES.list}
+            pendingLabel="Postings"
+          >
             <Icon name={ACTION_ICON.posting} />
             <span>Postings</span>
-          </Link>
+          </PortalLink>
         </div>
       </div>
     </Card>

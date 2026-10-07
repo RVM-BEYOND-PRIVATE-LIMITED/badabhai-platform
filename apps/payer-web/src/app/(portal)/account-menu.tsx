@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Avatar, Badge } from "../../components/ds";
+import { PortalLink } from "../../components/portal-link";
 import { logoutAction } from "./logout-action";
 
 /**
@@ -21,6 +21,11 @@ import { logoutAction } from "./logout-action";
  * A11Y: WAI-ARIA menu-button — `aria-haspopup="menu"` / `aria-expanded` / `aria-controls`,
  * an explicit accessible name, Enter/Space to toggle, Escape to close (focus returns to the
  * trigger), and close-on-outside-click. Focus ring + AA contrast come from tokens.
+ *
+ * THE PANEL STAYS MOUNTED, `hidden` while closed. Choosing "Account" closes the menu at once, but
+ * the link must outlive that click: its navigation's pending cue (components/portal-link.tsx) is
+ * the link's own state, so an unmounted link would take the shell's bar and "Opening Account…"
+ * line with it — and on a slow backend the click would show nothing until the page arrived.
  */
 
 type Role = "employer" | "agent";
@@ -104,57 +109,62 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
         <span className="sr-only">{accessibleName}</span>
       </button>
 
-      {open ? (
-        <div
-          id={panelId}
-          role="menu"
-          className="bb-card bb-card--raised account-menu__panel"
-          aria-label="Account"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              close();
-            }
+      <div
+        id={panelId}
+        role="menu"
+        hidden={!open}
+        className="bb-card bb-card--raised account-menu__panel"
+        aria-label="Account"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            close();
+          }
+        }}
+      >
+        <div className="account-menu__identity">
+          <span className="account-menu__org">{orgName}</span>
+          {email ? <span className="account-menu__email bb-mono">{email}</span> : null}
+          <div className="account-menu__badges">
+            <Badge tone="brand" upper>
+              {ROLE_LABEL[role]}
+            </Badge>
+            <Badge tone={STATUS_TONE[status]} upper>
+              {STATUS_LABEL[status]}
+            </Badge>
+          </div>
+        </div>
+
+        <PortalLink
+          className="account-menu__link"
+          href="/account"
+          pendingLabel="Account"
+          role="menuitem"
+          onClick={() => close(false)}
+        >
+          <Icon name={ACTION_ICON.settings} />
+          {/* The page's own name (its H1 is "Account"), so the menu and the page agree. */}
+          <span>Account</span>
+          <Icon name={ACTION_ICON.next} className="account-menu__link-arrow" />
+        </PortalLink>
+
+        {/* Sign out — same row affordance, danger-tinted. Closes the menu (no focus return,
+            the page is about to navigate) then runs the server logout action. */}
+        <button
+          type="button"
+          role="menuitem"
+          className="account-menu__link account-menu__link--danger"
+          aria-busy={signingOut}
+          disabled={signingOut}
+          onClick={() => {
+            close(false);
+            startSignOut(() => logoutAction());
           }}
         >
-          <div className="account-menu__identity">
-            <span className="account-menu__org">{orgName}</span>
-            {email ? <span className="account-menu__email bb-mono">{email}</span> : null}
-            <div className="account-menu__badges">
-              <Badge tone="brand" upper>
-                {ROLE_LABEL[role]}
-              </Badge>
-              <Badge tone={STATUS_TONE[status]} upper>
-                {STATUS_LABEL[status]}
-              </Badge>
-            </div>
-          </div>
-
-          <Link className="account-menu__link" href="/account" role="menuitem" onClick={() => close(false)}>
-            <Icon name={ACTION_ICON.settings} />
-            {/* The page's own name (its H1 is "Account"), so the menu and the page agree. */}
-            <span>Account</span>
-            <Icon name={ACTION_ICON.next} className="account-menu__link-arrow" />
-          </Link>
-
-          {/* Sign out — same row affordance, danger-tinted. Closes the menu (no focus return,
-              the page is about to navigate) then runs the server logout action. */}
-          <button
-            type="button"
-            role="menuitem"
-            className="account-menu__link account-menu__link--danger"
-            aria-busy={signingOut}
-            disabled={signingOut}
-            onClick={() => {
-              close(false);
-              startSignOut(() => logoutAction());
-            }}
-          >
-            <Icon name="sign-out" />
-            <span>{signingOut ? "Signing out…" : "Sign out"}</span>
-          </button>
-        </div>
-      ) : null}
+          <Icon name="sign-out" />
+          <span>{signingOut ? "Signing out…" : "Sign out"}</span>
+        </button>
+      </div>
     </div>
   );
 }
