@@ -1316,6 +1316,13 @@ textarea.input {
   outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
+/* Touch (#1856): the Sign in / Create account pill is a 36px label — the whole label is the
+   radio's target, so on a phone and under a coarse pointer it is drawn at 44px. */
+@media (max-width: 600px), (pointer: coarse) {
+  .login-mode {
+    min-height: var(--control-md);
+  }
+}
 
 /* ---- Inline valid-email affordance — the right-side check tints green (the action/verified
    color) once the typed email is well-formed. Presentation only. ---- */
@@ -2076,12 +2083,13 @@ textarea.input {
  * The retired pre-UI-1 page classes (.applicants-back/-title/-meta/-explainer/-warn/
  * -state/-empty) had no markup left behind them and are gone.
  * ------------------------------------------------------------------ */
+/* The pipeline is the PageHeader's toolbar row, so the head's own --section-gap already
+   separates it from the page below; a margin of its own here doubled that to 40px (#1856). */
 .applicants-pipeline {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
-  margin-bottom: var(--space-4);
 }
 .applicants-pipeline__note {
   color: var(--text-muted);
@@ -2094,6 +2102,15 @@ textarea.input {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
+}
+/* HEADER RHYTHM (#1856): the alerts above the list are the page's preamble (balance, the
+   faceless boundary) and each ends on --block-gap. At that gap the last alert read as the
+   list's first card, so the list — or the per-stage empty Card in its place — opens a full
+   --section-gap below it, the same step that separates the head from the preamble. The page
+   is block flow, so this margin COLLAPSES with the alert's --block-gap: it must state the
+   whole gap, not the difference. */
+.applicants-page .alert + :is(.applicants-list, .bb-card) {
+  margin-top: var(--section-gap);
 }
 /* `--applicant-pad` restates the DS Card inset so the footer band below can bleed by exactly
    that amount (a phone step shrinks both together). `--applicant-band` names the focal band's
@@ -2127,9 +2144,12 @@ textarea.input {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
-/* The trade is the card's headline — Shift Blue, like every heading in the system. */
+/* The trade is the card's headline — Shift Blue in the display face, like every heading in
+   the system (#1856: it was set in the UI face, level with the body copy around it). */
 .applicant__trade {
+  font-family: var(--font-display);
   font-weight: var(--weight-bold);
+  letter-spacing: var(--ui-h2-tracking);
   color: var(--text-heading);
   font-size: var(--text-base);
   line-height: var(--leading-snug);
@@ -3591,12 +3611,25 @@ textarea.input {
 /* /agency/referrals — the two invite tools are FORMS, and on this page every form lives in a
    framed panel (KYC, Payouts). Framing them the same way turns one long column of loose forms
    and tiles into a stack of distinct blocks: forms in panels, tile runs in sections. */
+/* RHYTHM (#1856): both tools are ONE grid with the --block-gap step — the batch tool already
+   was (`.agency-batch`), but the single-link tool was flow layout, where the title's, note's,
+   sub's and form's own margins gave 12/12/16px steps beside the batch tool's even 16px. The
+   children drop those margins (they would ADD to the gap). A zero-minimum track, so a long
+   unbroken invite url can never widen the panel. */
 .agency-referrals-page .agency-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--block-gap);
   padding: var(--panel-pad);
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xs);
+}
+/* The batch result keeps its own top step (it is a Card below the form, not a sibling row), so
+   /agency/referrals and /agency/dashboard space the same panel the same way. */
+.agency-referrals-page .agency-section > :not(.agency-batch__result) {
+  margin: 0;
 }
 /* One heading size for every block on the page — the panel/section title role (the legacy
    agency title is a size larger, so the invite tools out-shouted the money panels). */
@@ -3606,11 +3639,35 @@ textarea.input {
   font-weight: var(--ui-h2-weight);
   letter-spacing: var(--ui-h2-tracking);
 }
-/* The consent note inside a framed panel is an inset callout, not a second bordered box. */
+/* The consent note inside a framed panel is an inset callout, not a second bordered box. It
+   keeps the reading measure of the prose around it (the sub and the form are both capped at
+   --reading-max), so the panel reads as one left-aligned column instead of a full-bleed note
+   over a narrower paragraph. */
 .agency-referrals-page .agency-invite__note {
+  max-width: var(--reading-max);
   background: var(--surface-sunken);
   border-color: transparent;
   box-shadow: none;
+}
+/* FUNNEL (#1856): the conversion bar belongs to the tiles above it — at the shared stat row's
+   --section-gap it read as a separate block. Inside a section the row steps by --block-gap. A
+   row that ENDS its section keeps the section gap. */
+.agency-referrals-page .section > .stat-row:not(:last-child) {
+  margin-bottom: var(--block-gap);
+}
+/* PANEL BODIES (#1856): KYC and Payouts stack a status line, a masked key/value list, a form
+   and a live status. In flow layout those steps were whatever each child happened to carry —
+   0px between the KYC key/value list and its form, 4px above "Requestable now". One grid with
+   the --block-gap step gives every body the same rhythm; children drop their own margins (an
+   alert's --block-gap would otherwise double it). Table panels are excluded: their body is the
+   table's own scroller and owns no padding or rhythm. */
+.agency-referrals-page .panel:not(.panel--table) > .panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--block-gap);
+}
+.agency-referrals-page .panel:not(.panel--table) > .panel__body > * {
+  margin: 0;
 }
 /* Payouts head, PHONES ONLY. The shared `.panel__text` pattern keeps "Request payout" on the
    title row at every width — but on a phone that leaves the text column ~110px beside the
@@ -4281,7 +4338,7 @@ textarea.input {
 }
 /* The link in a row is context, not content — truncate it rather than let 50 wrapped URLs
    bury the codes. The full link travels via the copy-all button (and is still selectable). */
-.agency-batch__item a,
+.agency-batch__item a:not(.agency-batch__share),
 .agency-batch__item > span:last-child:not(.agency-batch__code) {
   min-width: 0;
   overflow: hidden;
@@ -4292,8 +4349,9 @@ textarea.input {
   font-size: var(--text-xs);
 }
 /* The per-row WhatsApp share. Pinned to the END of the row and never truncated — it is an
-   ACTION, so it must stay hittable no matter how long the url beside it is (the rule above
-   would otherwise ellipsis it away, since it matches every anchor in the row). */
+   ACTION, so it must stay hittable no matter how long the url beside it is. The truncating rule
+   above EXCLUDES it with :not(): as a bare `.agency-batch__item a` (0,1,1) it out-ranked this
+   one-class rule (0,1,0), so the share rendered mono, muted and clipped like the url. */
 .agency-batch__share {
   flex: 0 0 auto;
   margin-left: auto;
@@ -4312,6 +4370,22 @@ textarea.input {
 }
 .agency-batch__share:hover {
   background: var(--surface-inset);
+}
+/* Touch (#1856): on a phone and under a coarse pointer both anchors in a row are 44px targets.
+   Drawn, not hit strips — fifty rows sit edge to edge, so strips would overlap the next row's.
+   The row trades its block padding for the 44px line, so it grows by only 8px, and the url
+   link keeps its block box (and so its ellipsis) by taking the height as its line-height. */
+@media (max-width: 600px), (pointer: coarse) {
+  .agency-batch__item {
+    min-height: var(--control-md);
+    padding-block: 0;
+  }
+  .agency-batch__item a:not(.agency-batch__share) {
+    line-height: var(--control-md);
+  }
+  .agency-batch__share {
+    min-height: var(--control-md);
+  }
 }
 
 /* ---- 3. /agency/qr — the PRINTABLE invite sheet ------------------------------
