@@ -13,6 +13,7 @@ import {
 } from "../../../lib/format";
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
 import { StatusPill } from "../../../components/status-pill";
+import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
@@ -239,13 +240,9 @@ export default async function CreditsPage({
                       {summary.top_balances.map((b) => (
                         <tr key={b.payer_id}>
                           <td>
-                            <Link
-                              className="link mono"
-                              href={`/companies/${b.payer_id}`}
-                              title={b.payer_id}
-                            >
-                              {shortId(b.payer_id)}
-                            </Link>
+                            {/* The summary serves no role for a balance, so this cell keeps the
+                                address that redirects an agency on, and names no persona. */}
+                            <CustomerLink payerId={b.payer_id} />
                           </td>
                           <td className="mono ui-num">{formatCount(b.balance)}</td>
                         </tr>
@@ -380,9 +377,7 @@ export default async function CreditsPage({
                       </time>
                     </td>
                     <td>
-                      <Link className="link mono" href={`/companies/${row.payer_id}`}>
-                        {shortId(row.payer_id)}
-                      </Link>
+                      <CustomerLink payerId={row.payer_id} payerRole={row.payer_role} />
                     </td>
                     <td>
                       {/* The pill shows the REASON, toned by direction — a debit spends

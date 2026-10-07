@@ -4,8 +4,9 @@ import { can } from "../../../lib/auth/capabilities";
 import { listJobPostings } from "../../../lib/entities";
 import { isAdminRequestError } from "../../../lib/admin-http";
 import { queryHref } from "../../../lib/query-href";
-import { formatPayBand, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
+import { formatPayBand, formatRelative, formatTimestamp } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
+import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { JobFilterBar } from "./filter-bar";
@@ -183,9 +184,7 @@ export default async function JobsPage({
                     </td>
                     <td>
                       {j.payer_id ? (
-                        <Link className="link mono" href={`/companies/${j.payer_id}`} title={j.payer_id}>
-                          {shortId(j.payer_id)}
-                        </Link>
+                        <CustomerLink payerId={j.payer_id} payerRole={j.payer_role} />
                       ) : (
                         // No payer_id means ops created it directly — there is no customer
                         // account behind it, and saying so beats a dead link.

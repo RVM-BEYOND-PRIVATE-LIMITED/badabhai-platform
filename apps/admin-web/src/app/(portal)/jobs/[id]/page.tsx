@@ -17,6 +17,7 @@ import {
   shortId,
 } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
+import { CustomerLink } from "../../../../components/customer-link";
 import { DetailList } from "../../../../components/detail-list";
 import { Stat } from "../../../../components/stat";
 import { JobDetailHeader } from "./job-detail-header";
@@ -211,9 +212,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               {
                 label: "Customer",
                 value: job.payer_id ? (
-                  <Link className="link mono" href={`/companies/${job.payer_id}`}>
-                    {shortId(job.payer_id)}
-                  </Link>
+                  <CustomerLink payerId={job.payer_id} payerRole={job.payer_role} />
                 ) : (
                   "ops-created (no customer)"
                 ),

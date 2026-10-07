@@ -7,6 +7,7 @@ import {
   isRupeeTile,
   statTiles,
 } from "../../../../test/stat-tiles";
+import { customerCell } from "../../../../test/customer-cell";
 
 /**
  * The transactions page's simulated-money marking, asserted on the PAGE (#1856). The ₹ tile here
@@ -176,5 +177,44 @@ describe("the orders table names the payer the console's way", () => {
     const out = await render();
     expect(out).toContain('<th scope="col">Customer</th>');
     expect(out).not.toContain('<th scope="col">Account</th>');
+  });
+});
+
+/**
+ * THE CUSTOMER CELL (#2032, sweep AW-28): straight to the customer's own section when the order
+ * names the payer's role, with the persona beside the id; the redirecting address when it does not.
+ */
+describe("the orders table links the customer's own section", () => {
+  const PAYER = "8a110000-0001-4a00-8000-000000000001";
+  const withRole = (payer_role: unknown) => {
+    const page = orders(MOCK);
+    stub.orders = { ...page, items: page.items.map((o) => ({ ...o, payer_role })) };
+  };
+
+  it("an agency's order links /agencies/<id> directly, named Agency", async () => {
+    withRole("agent");
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
+    expect(out).not.toContain(`href="/companies/${PAYER}"`);
+  });
+
+  it("a company's order links /companies/<id>, named Company", async () => {
+    withRole("employer");
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Company", "</td>"));
+    expect(out).not.toContain(`href="/agencies/${PAYER}"`);
+  });
+
+  it("a null role (an orphaned id) falls back to /companies/<id>, claiming no persona", async () => {
+    withRole(null);
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, null, "</td>"));
+  });
+
+  it("an absent role (an older API) falls back the same way", async () => {
+    const out = await render();
+    expect(orders(MOCK).items[0]).toHaveProperty("payer_id", PAYER);
+    expect(orders(MOCK).items[0]).not.toHaveProperty("payer_role");
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, null, "</td>"));
   });
 });
