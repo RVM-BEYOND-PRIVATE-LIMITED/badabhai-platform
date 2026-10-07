@@ -14,22 +14,29 @@ import { CREDENTIAL_ID_RE, RESUME_CUED_ID_RE, containsHardIdentifier } from "./r
  * (47 ms at 400 spaces, 388 ms at 800). Each quantifier is now folded into the optional token it
  * follows: the ai-service's exact connector (`_CREDENTIAL_ID_RE`, `_RESUME_CUED_ID_RE`).
  *
- * MAIN is each shipped rule with main's connector put back and nothing else touched, so the
- * differential isolates the connector. The Python half (`test_pseudonymize_cued_id_linear.py`)
- * runs the same comparison over the repo corpus; this file covers the V8 engine.
+ * UNFOLDED is each shipped rule with the connector written main's way put back and nothing else
+ * touched, so the differential isolates the folding. The Python half
+ * (`test_pseudonymize_cued_id_linear.py`) runs the same comparison over the repo corpus; this file
+ * covers the V8 engine.
+ *
+ * SINCE #1950 (R56) THE ORACLE CARRIES `-?`. #1950 added `-?` after the separator, so a ":-" reads,
+ * and the unfolded connector carries that token too. #1950's other tokens (the `\.?` after the cue
+ * word, the "regn" cue) sit outside the connector, so the swap keeps them. What #1950 itself
+ * changed is pinned below in "a dot after the cue and a ':-' separator", and measured in the
+ * Python half (`test_pseudonymize_cued_id_dot.py`).
  */
 
 const RULES = {
   credential: {
     shipped: CREDENTIAL_ID_RE,
-    main: String.raw`\s*(?:no\.?|number|num|#)?\s*[:-]?\s*`,
-    linear: String.raw`\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]\s*)?`,
+    unfolded: String.raw`\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*`,
+    linear: String.raw`\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?`,
     value: String.raw`(?=[A-Za-z0-9/-]{0,64}\d)`,
   },
   resume: {
     shipped: RESUME_CUED_ID_RE,
-    main: String.raw`\s*(?:no\.?|number|num|id|#)?\s*[:-]?\s*`,
-    linear: String.raw`\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]\s*)?`,
+    unfolded: String.raw`\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*`,
+    linear: String.raw`\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?`,
     value: String.raw`(?=[A-Za-z0-9/-]{0,24}\d)`,
   },
 } as const;
@@ -46,24 +53,26 @@ const looseConnector = (name: RuleName): string =>
  * compiled at runtime; the "literals" test below pins each one, by source text, to the shipped
  * rule with exactly one connector swapped, so a later edit to a rule cannot leave a stale copy.
  */
-const LITERALS: Record<RuleName, { shipped: RegExp; main: RegExp; loose: RegExp }> = {
+const LITERALS: Record<RuleName, { shipped: RegExp; unfolded: RegExp; loose: RegExp }> = {
   credential: {
     shipped:
-      /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
-    main: /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:no\.?|number|num|#)?\s*[:-]?\s*(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+    unfolded:
+      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
     loose:
-      /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#))?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#))?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
   },
   resume: {
     shipped:
-      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
-    main: /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:no\.?|number|num|id|#)?\s*[:-]?\s*(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+    unfolded:
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
     loose:
-      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:(?:no\.?|number|num|id|#))?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:(?:no\.?|number|num|id|#))?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
   },
 };
 
-const mainOf = (name: RuleName): RegExp => LITERALS[name].main;
+const unfoldedOf = (name: RuleName): RegExp => LITERALS[name].unfolded;
 const looseOf = (name: RuleName): RegExp => LITERALS[name].loose;
 
 /** Every match as [index, length], the global way `test` would find each in turn. */
@@ -74,7 +83,7 @@ function spans(pattern: RegExp, text: string): [number, number][] {
 function moved(text: string, against: (name: RuleName) => RegExp = (n) => LITERALS[n].shipped) {
   return NAMES.filter(
     (name) =>
-      JSON.stringify(spans(mainOf(name), text)) !== JSON.stringify(spans(against(name), text)),
+      JSON.stringify(spans(unfoldedOf(name), text)) !== JSON.stringify(spans(against(name), text)),
   );
 }
 
@@ -151,23 +160,23 @@ describe("the cued-identifier connector (issue #1933, R54)", () => {
   it.each(NAMES)(
     "%s: folds each whitespace run into the token it follows, nothing else",
     (name) => {
-      const { shipped, main, linear, value } = RULES[name];
+      const { shipped, unfolded, linear, value } = RULES[name];
       expect(shipped.source).toContain(linear + value);
-      expect(shipped.source).not.toContain(main);
-      expect(mainOf(name).source).toContain(main);
-      expect(mainOf(name).source).not.toBe(shipped.source);
+      expect(shipped.source).not.toContain(unfolded);
+      expect(unfoldedOf(name).source).toContain(unfolded);
+      expect(unfoldedOf(name).source).not.toBe(shipped.source);
     },
   );
 
   it.each(NAMES)(
     "%s: every frozen literal is the shipped rule with exactly one connector swapped",
     (name) => {
-      const { shipped, main, linear } = RULES[name];
+      const { shipped, unfolded, linear } = RULES[name];
       const lit = LITERALS[name];
       expect(lit.shipped.source).toBe(shipped.source);
-      expect(lit.main.source).toBe(shipped.source.replace(linear, main));
+      expect(lit.unfolded.source).toBe(shipped.source.replace(linear, unfolded));
       expect(lit.loose.source).toBe(shipped.source.replace(linear, looseConnector(name)));
-      for (const variant of [lit.shipped, lit.main, lit.loose]) {
+      for (const variant of [lit.shipped, lit.unfolded, lit.loose]) {
         expect(variant.flags).toBe(`g${shipped.flags}`);
       }
     },
@@ -191,7 +200,7 @@ describe("the cued-identifier connector (issue #1933, R54)", () => {
     expect(verdict).toBeNull();
   });
 
-  it("matches main span for span over the shared fixture, in four views of each case", () => {
+  it("matches the unfolded rule span for span over the shared fixture, in four views of each case", () => {
     const fixture = join(
       __dirname,
       "../../../../../packages/ai-contracts/src/__fixtures__/hard-identifiers.cases.json",
@@ -207,21 +216,25 @@ describe("the cued-identifier connector (issue #1933, R54)", () => {
 
   // A correctness sweep, not a timing test: well under 1 s alone, but over vitest's 5 s default on
   // a shared CI runner under turbo's parallel `test --coverage` (see #2023).
-  it("matches main span for span over 20,000 seeded cue lines", { timeout: 30_000 }, () => {
-    const next = seeded(1933);
-    const seen = { credential: 0, resume: 0 };
-    for (let i = 0; i < 20_000; i += 1) {
-      const text = Array.from({ length: 1 + Math.floor(next() * 3) }, () => cueLine(next)).join(
-        " ",
-      );
-      expect(moved(text), JSON.stringify(text)).toEqual([]);
-      if (CREDENTIAL_ID_RE.test(text)) seen.credential += 1;
-      if (RESUME_CUED_ID_RE.test(text)) seen.resume += 1;
-    }
-    // Both rules matched many times: the comparison was not vacuous.
-    expect(seen.credential).toBeGreaterThan(2_000);
-    expect(seen.resume).toBeGreaterThan(1_000);
-  });
+  it(
+    "matches the unfolded rule span for span over 20,000 seeded cue lines",
+    { timeout: 30_000 },
+    () => {
+      const next = seeded(1933);
+      const seen = { credential: 0, resume: 0 };
+      for (let i = 0; i < 20_000; i += 1) {
+        const text = Array.from({ length: 1 + Math.floor(next() * 3) }, () => cueLine(next)).join(
+          " ",
+        );
+        expect(moved(text), JSON.stringify(text)).toEqual([]);
+        if (CREDENTIAL_ID_RE.test(text)) seen.credential += 1;
+        if (RESUME_CUED_ID_RE.test(text)) seen.resume += 1;
+      }
+      // Both rules matched many times: the comparison was not vacuous.
+      expect(seen.credential).toBeGreaterThan(2_000);
+      expect(seen.resume).toBeGreaterThan(1_000);
+    },
+  );
 
   it.each([
     ["roll number R/2019/123456 hai", "credential_id"],
@@ -245,4 +258,29 @@ describe("the cued-identifier connector (issue #1933, R54)", () => {
       expect(moved(text)).toEqual([]);
     },
   );
+});
+
+describe("a dot after the cue and a ':-' separator (issue #1950, R56)", () => {
+  // The certificate spellings G1/G2 admitted before #1950: no connector token started with ".",
+  // the separator was one character, and "regn" was no cue. The ai-service's copies read the same
+  // shapes (`test_pseudonymize_cued_id_dot.py`).
+  it.each([
+    "Reg.No.:- 123456",
+    "Regn. No. MH2019CN4471",
+    "Roll.No-456789",
+    "reg no:- 123456",
+    "Passport.No: K123456",
+    "A/c. No. 445566",
+  ])("%s is a credential identifier", (text) => {
+    expect(containsHardIdentifier(text)).toBe("credential_id");
+  });
+
+  it("a short roll number after a doubled separator is still too short to be one", () => {
+    expect(containsHardIdentifier("roll no.:- 12345")).toBeNull();
+  });
+
+  it("KNOWN_RESIDUAL: a spaced dot is not read", () => {
+    // Recorded in R56's resolution; the Python half pins the same shape through the gateway.
+    expect(containsHardIdentifier("Reg . No . 123456")).toBeNull();
+  });
 });

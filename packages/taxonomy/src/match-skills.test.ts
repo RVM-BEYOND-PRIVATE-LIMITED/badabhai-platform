@@ -25,6 +25,18 @@ import { TRADE_KEYS } from "./enums";
 
 const MATCH_SKILL_IDS = new Set<string>(MATCH_SKILLS.map((s) => s.skillId));
 
+/** The eight form trades the owner minted a skill for (#2022, 2026-10-06), in append order. */
+const MINTED_FOR_2022 = [
+  "mskill_conventional_machinist",
+  "mskill_tool_die_maker",
+  "mskill_sheet_metal_worker",
+  "mskill_press_operator",
+  "mskill_painter_coater",
+  "mskill_maintenance_technician",
+  "mskill_industrial_electrician",
+  "mskill_assembly_line_worker",
+] as const;
+
 /**
  * Everything below 0x20 except tab / LF / CR. Built from an escaped STRING rather than
  * written as a regex literal, so this file cannot itself contain the bytes it hunts for.
@@ -66,6 +78,24 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
         "status",
       ]);
     }
+  });
+
+  it("#2022: the eight minted trades are appended, manufacturing, and follow the conventions", () => {
+    expect(MATCH_SKILLS.slice(-MINTED_FOR_2022.length).map((s) => s.skillId)).toEqual([
+      ...MINTED_FOR_2022,
+    ]);
+    for (const id of MINTED_FOR_2022) {
+      expect(matchSkillIndustry(id), id).toBe("ind_industrial_manufacturing");
+      expect(id).toMatch(/^mskill_[a-z]+(_[a-z]+)*$/);
+    }
+    expect(matchSkillLabel("mskill_tool_die_maker")).toBe("Tool & Die Maker");
+    expect(matchSkillLabel("mskill_painter_coater")).toBe("Painter / Powder Coater");
+    // Pack-only: no role and no corpus attribute bridges to them yet.
+    const bridged = new Set<string>([
+      ...Object.values(ROLE_TO_MATCH_SKILL),
+      ...Object.values(ATTRIBUTE_TO_MATCH_SKILLS).flat(),
+    ]);
+    for (const id of MINTED_FOR_2022) expect(bridged.has(id), id).toBe(false);
   });
 
   it("every domainId is a real SKILL_DOMAINS slug", () => {
@@ -126,7 +156,8 @@ describe("MATCH_SKILL_RELATION_PAIRS — the authored source of truth", () => {
   it("lists each UNDIRECTED pair exactly ONCE (the seeder rejects a duplicate)", () => {
     const unordered = MATCH_SKILL_RELATION_PAIRS.map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`));
     expect(new Set(unordered).size).toBe(MATCH_SKILL_RELATION_PAIRS.length);
-    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(18);
+    // 18 before #2022; the owner's ruling minting eight form trades added four curated pairs.
+    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(22);
   });
 
   it("is a TUPLE list, not an object list — the db seeder destructures [a, b]", () => {
@@ -229,6 +260,42 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
     ]);
   });
 
+  it("#2022: the minted trades carry exactly the curated, conservative relations", () => {
+    expect(RELATED_MATCH_SKILLS.mskill_conventional_machinist).toEqual([
+      "mskill_cnc_operator_general",
+      "mskill_tool_die_maker",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_tool_die_maker).toEqual(["mskill_conventional_machinist"]);
+    expect(RELATED_MATCH_SKILLS.mskill_sheet_metal_worker).toEqual(["mskill_press_operator"]);
+    expect(RELATED_MATCH_SKILLS.mskill_press_operator).toEqual(["mskill_sheet_metal_worker"]);
+    expect(RELATED_MATCH_SKILLS.mskill_maintenance_technician).toEqual(["mskill_fitter"]);
+    // Deliberately unpaired — see the note at the end of MATCH_SKILL_RELATION_PAIRS.
+    expect(RELATED_MATCH_SKILLS.mskill_painter_coater).toEqual([]);
+    expect(RELATED_MATCH_SKILLS.mskill_industrial_electrician).toEqual([]);
+    expect(RELATED_MATCH_SKILLS.mskill_assembly_line_worker).toEqual([]);
+    // No CNC skill gains a manual neighbour: a manual lathe/mill claim derives the CNC skill
+    // EXACTLY (#2022 point 1), so a relation would only put CNC hands on manual-only postings.
+    for (const cnc of [
+      "mskill_cnc_turner",
+      "mskill_vmc_operator",
+      "mskill_cnc_grinding_operator",
+    ] as const) {
+      expect(RELATED_MATCH_SKILLS[cnc]).not.toContain("mskill_conventional_machinist");
+    }
+    // The pre-existing neighbourhoods the new pairs touch moved only by the new edge.
+    expect(RELATED_MATCH_SKILLS.mskill_fitter).toEqual([
+      "mskill_maintenance_technician",
+      "mskill_plumber",
+      "mskill_quality_inspector",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_cnc_operator_general).toEqual([
+      "mskill_cnc_grinding_operator",
+      "mskill_cnc_turner",
+      "mskill_conventional_machinist",
+      "mskill_hmc_operator",
+    ]);
+  });
+
   it("carries 2-4 relations per related skill (the spec's curation shape)", () => {
     for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
       if (related.length === 0) continue; // a curated empty set is legitimate
@@ -318,7 +385,15 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
   it("the vocabulary was NOT expanded to make the batch fit", () => {
     // The owner ruled that skills with no legitimate existing mskill stay unmatched rather
     // than earning a new concept. 62 of the 96 are in families with no mskill at all.
-    expect(MATCH_SKILLS).toHaveLength(18);
+    // The vocabulary DID grow later, for a different reason: #2022 (2026-10-06) minted one skill
+    // per trade FORM that derived nothing. That ruling re-dispositioned no promotable skill (the
+    // five-mapping pin above still holds), and no promotable skill reaches a #2022 skill.
+    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length);
+    for (const id of PROMOTABLE_SKILL_IDS) {
+      for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
+        expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);
+      }
+    }
   });
 
   it("the REVIEW cases were all closed as INTENTIONALLY_UNMATCHED, not quietly mapped", () => {

@@ -53,6 +53,11 @@ function makeDb() {
 
   const chain: Record<string, unknown> = {
     from: () => chain,
+    // The join ON clause is captured too: its parameters reach the driver just the same.
+    leftJoin: (_table: unknown, on: unknown) => {
+      if (on !== undefined) capture(on);
+      return chain;
+    },
     where: (w: unknown) => {
       if (w !== undefined) capture(w);
       return chain;

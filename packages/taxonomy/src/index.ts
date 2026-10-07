@@ -242,7 +242,8 @@ export * from "./skill-corpus";
 // relation, and the three deterministic bridges from today's data into it.
 export * from "./promotable-skills";
 export * from "./match-skills";
-// The fourth bridge — closed-set pack answers → the `skill_*`/`role_*` ids they claim.
+// The fourth bridge — closed-set pack answers → the `skill_*`/`role_*` ids they claim, or a
+// pack-only `mskill_*` (#2022).
 export * from "./pack-answer-skills";
 export * from "./crosswalk-integrity";
 

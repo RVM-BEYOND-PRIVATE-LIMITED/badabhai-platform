@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CreditReason, PaymentOrderStatus } from "@badabhai/db";
+import type { CreditReason, PayerRole, PaymentOrderStatus } from "@badabhai/db";
 
 /**
  * Zod DTOs + projections for the admin FINANCE reads (BP-2) — credits, the ledger, and
@@ -128,6 +128,13 @@ export interface AdminFinanceSummary {
 export interface AdminLedgerRow {
   id: string;
   payer_id: string;
+  /**
+   * The role of the payer behind \`payer_id\` (\`payers.role\`), so the admin UI can link straight
+   * to the Companies (\`employer\`) or Agencies (\`agent\`) page (#2032). Additive. \`null\` when
+   * \`payer_id\` resolves to no \`payers\` row — the column carries no FK (faceless rails), so a
+   * legacy opaque id can be orphaned.
+   */
+  payer_role: PayerRole | null;
   delta: number;
   reason: CreditReason;
   unlock_id: string | null;
@@ -140,6 +147,13 @@ export interface AdminLedgerRow {
 export interface AdminOrderRow {
   id: string;
   payer_id: string;
+  /**
+   * The role of the payer behind \`payer_id\` (\`payers.role\`), so the admin UI can link straight
+   * to the Companies (\`employer\`) or Agencies (\`agent\`) page (#2032). Additive. \`null\` when
+   * \`payer_id\` resolves to no \`payers\` row — the column carries no FK (faceless rails), so a
+   * legacy opaque id can be orphaned.
+   */
+  payer_role: PayerRole | null;
   pack_code: string;
   amount_inr: number;
   credits_granted: number;

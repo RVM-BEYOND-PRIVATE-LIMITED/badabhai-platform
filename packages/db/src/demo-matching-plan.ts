@@ -129,29 +129,22 @@ function cityByName(name: string): DemoCity {
  *     `mskill_mig_welder`; "CNC turner" → `mskill_cnc_turner`; "CNC operator" →
  *     `mskill_cnc_operator_general`; vmc/hmc/setter/programmer/cam/grinding roles → their own
  *     match skill (`ROLE_TO_MATCH_SKILL`, packages/taxonomy/src/match-skills.ts);
- *   - trade form: only `qp_cnc_turning` bridges (`PACK_ATTRIBUTE_SKILLS`) → `mskill_cnc_turner`
- *     (+ programmer / cam by `programming_level`). The other 20 forms derive NOTHING today.
+ *   - trade form: every form whose pack has a `PACK_ANSWER_SKILLS` entry derives its trade's own
+ *     skill (#2019; and since #2022 the eight trades below too). The five polymer forms derive
+ *     NOTHING today.
  * So `welder` postings are mostly MIG (what a live welder holds), and `cnc_turner` postings name
  * `mskill_cnc_turner`.
  *
- * NO PROXIES (owner decision, 2026-10-06). The vocabulary has 18 skills and none for the
- * electrician, maintenance-technician, assembly, press, coating, sheet-metal, tool/mould-making,
- * manual-machining or polymer kinds. Those 13 kinds are SKIPPED rather than posted under a
- * "nearest" skill: a worker must never see an irrelevant job. {@link SKIPPED_ROLE_KINDS} names
- * them (it agrees with `PACKS_WITHOUT_MATCH_SKILL` in @badabhai/taxonomy); the plan test pins that
- * the catalogue covers exactly the other 8.
+ * NO PROXIES (owner decision, 2026-10-06). A kind is posted ONLY under its own skill. The eight
+ * trades the owner minted skills for in #2022 (manual machinist, tool & die, sheet metal, press,
+ * coating, maintenance, industrial electrician, assembly line) are posted under THOSE skills —
+ * never the old "nearest" one (an electrician job is not a fitter job). The polymer kinds still
+ * have no match skill and are SKIPPED: a worker must never see an irrelevant job.
+ * {@link SKIPPED_ROLE_KINDS} names them; the plan test pins that the catalogue covers exactly the
+ * other kinds, and that every form the taxonomy bridges is posted.
  */
 /** Role kinds with no match skill of their own — no demo postings (see above). */
 export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
-  // Manual lathe/mill — a CNC skill would be a proxy (#2019, `PACKS_WITHOUT_MATCH_SKILL`).
-  "conventional_machinist",
-  "tool_die_maker",
-  "sheet_metal_worker",
-  "press_operator",
-  "painter_coating",
-  "maintenance_technician",
-  "industrial_electrician",
-  "assembly_line_worker",
   "injection_moulding_operator",
   "mould_die_maker",
   "blow_moulding_operator",
@@ -263,8 +256,8 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   },
   {
     // A general CNC operator (what "CNC operator" in the chat derives). The role vocabulary has no
-    // general-CNC kind and `conventional_machinist` is MANUAL machining (a proxy, #2019), so the
-    // card illustration uses the nearest CNC kind; the MATCH skill is the real one.
+    // general-CNC kind and `conventional_machinist` is MANUAL machining (its own skill since
+    // #2022), so the card illustration uses the nearest CNC kind; the MATCH skill is the real one.
     roleKind: "cnc_turner",
     skillId: "mskill_cnc_operator_general",
     weight: 4,
@@ -436,6 +429,135 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     ],
     shiftWeights: [5, 4, 1],
   },
+  // ── the eight trades minted in #2022 — each posted under its OWN skill, never a proxy ──
+  {
+    roleKind: "conventional_machinist",
+    skillId: "mskill_conventional_machinist",
+    weight: 3,
+    titles: ["Lathe Machinist", "Conventional Lathe Operator", "Manual Milling Machinist"],
+    pay: [14000, 22000],
+    minExp: [1, 5],
+    unit: "job shop",
+    requirements: [
+      "Centre lathe or milling machine",
+      "Tool grinding",
+      "Vernier and micrometer use",
+      "Can read drawings",
+    ],
+    shiftWeights: [8, 2, 0],
+  },
+  {
+    roleKind: "tool_die_maker",
+    skillId: "mskill_tool_die_maker",
+    weight: 2,
+    titles: ["Tool and Die Maker", "Press Tool Maker", "Tool Room Fitter"],
+    pay: [22000, 36000],
+    minExp: [2, 6],
+    unit: "tool room",
+    requirements: [
+      "Press tool and die assembly",
+      "Surface grinder and milling",
+      "Die tryout and correction",
+      "Slip gauge and height gauge",
+    ],
+    shiftWeights: [8, 2, 0],
+  },
+  {
+    roleKind: "sheet_metal_worker",
+    skillId: "mskill_sheet_metal_worker",
+    weight: 3,
+    titles: ["Sheet Metal Worker", "Press Brake Operator", "Sheet Metal Fabricator"],
+    pay: [15000, 24000],
+    minExp: [0, 4],
+    unit: "sheet metal fabrication shop",
+    requirements: [
+      "Press brake bending",
+      "Shearing and punching",
+      "Flat pattern layout",
+      "MS and GI sheet",
+    ],
+    shiftWeights: [6, 3, 1],
+  },
+  {
+    roleKind: "press_operator",
+    skillId: "mskill_press_operator",
+    weight: 3,
+    titles: ["Press Operator", "Power Press Operator", "Press Shop Setter"],
+    pay: [13000, 21000],
+    minExp: [0, 3],
+    unit: "press shop",
+    requirements: [
+      "Mechanical or hydraulic press",
+      "Die setting",
+      "Two-hand control and safety guards",
+      "First piece check",
+    ],
+    shiftWeights: [5, 4, 1],
+  },
+  {
+    roleKind: "painter_coating",
+    skillId: "mskill_painter_coater",
+    weight: 2,
+    titles: ["Powder Coating Operator", "Spray Painter", "Paint Shop Operator"],
+    pay: [13000, 21000],
+    minExp: [0, 3],
+    unit: "paint shop",
+    requirements: [
+      "Powder coating gun",
+      "Surface preparation",
+      "DFT gauge checking",
+      "Curing oven basics",
+    ],
+    shiftWeights: [5, 4, 1],
+  },
+  {
+    roleKind: "maintenance_technician",
+    skillId: "mskill_maintenance_technician",
+    weight: 3,
+    titles: ["Maintenance Technician", "Mechanical Maintenance Technician"],
+    pay: [17000, 28000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Preventive and breakdown maintenance",
+      "Hydraulics and pneumatics",
+      "Bearing and gearbox work",
+      "PM checklist",
+    ],
+    shiftWeights: [4, 5, 1],
+  },
+  {
+    roleKind: "industrial_electrician",
+    skillId: "mskill_industrial_electrician",
+    weight: 3,
+    titles: ["Industrial Electrician", "Plant Electrician", "Maintenance Electrician"],
+    pay: [17000, 28000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Panel wiring",
+      "Motor and VFD work",
+      "Starter circuits",
+      "Wireman licence preferred",
+    ],
+    shiftWeights: [4, 5, 1],
+  },
+  {
+    roleKind: "assembly_line_worker",
+    skillId: "mskill_assembly_line_worker",
+    weight: 4,
+    titles: ["Assembly Line Operator", "Assembly Line Worker", "Line Associate"],
+    pay: [12000, 19000],
+    minExp: [0, 2],
+    unit: "auto assembly plant",
+    requirements: [
+      "Torque tools and nut runner",
+      "Work instruction sheets",
+      "Sub-assembly and final assembly",
+      "5S and SOP",
+    ],
+    shiftWeights: [4, 5, 1],
+  },
 ];
 
 export const DEMO_BENEFITS: readonly string[] = [
@@ -499,7 +621,7 @@ export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
     city: "Manesar",
     showcase: true,
     story:
-      "Maintenance fitter, 5 years. Plumbing and QC jobs arrive as related. (No electrician match skill exists, so electrician jobs are not seeded.)",
+      "Maintenance fitter, 5 years. Maintenance technician, plumbing and QC jobs arrive as related. Industrial electrician jobs are seeded but are NOT related to a fitter, so he never sees them.",
     skills: [{ skillId: "mskill_fitter", months: 60 }],
   },
   {

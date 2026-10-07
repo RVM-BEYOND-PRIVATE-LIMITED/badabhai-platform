@@ -8,9 +8,17 @@
  * the run, O(k^3) in V8 as in Python (the ai-service extractor took 2.6-7.9 s on "reg" + 800
  * spaces + "!5000"). Each quantifier is now folded into the optional token it follows.
  *
- * MAIN is the shipped source with main's connector put back and nothing else touched, so the
- * differential below isolates the connector. The Python half (`test_pseudonymize_cued_id_linear`)
- * runs the same comparison over the repo corpus; this side covers the TypeScript engine.
+ * UNFOLDED is the shipped source with the connector written main's way put back and nothing else
+ * touched, so the differential below isolates the folding. The Python half
+ * (`test_pseudonymize_cued_id_linear`) runs the same comparison over the repo corpus; this side
+ * covers the TypeScript engine.
+ *
+ * SINCE #1950 (R56) THE ORACLE CARRIES `-?`. #1950 added `-?` after the separator, so a ":-"
+ * reads, and the unfolded connector carries that token too: `\s*(?:no\.?|number|num|#)?\s*
+ * (?:[:-]-?)?\s*`. #1950's other tokens (the `\.?` after the cue word, the "regn" cue) sit
+ * outside the connector, so the swap keeps them. What #1950 itself changed is pinned below in
+ * "a dot after the cue and a ':-' separator", and measured in the Python half
+ * (`test_pseudonymize_cued_id_dot`).
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,8 +27,8 @@ import { loadUtteranceFixtures } from "../internal/fixtures.js";
 import { compilePattern, loadLexicon, type PatternSpec } from "../internal/regex.js";
 import { detectSalaries } from "./salary.js";
 
-const MAIN_CONNECTOR = String.raw`\s*(?:no\.?|number|num|#)?\s*[:-]?\s*`;
-const LINEAR_CONNECTOR = String.raw`\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]\s*)?`;
+const UNFOLDED_CONNECTOR = String.raw`\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*`;
+const LINEAR_CONNECTOR = String.raw`\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?`;
 const VALUE_TAIL = String.raw`[A-Za-z0-9/-]{0,20}$`;
 
 const SPEC = loadLexicon<{ credentialBefore: PatternSpec }>("salary").credentialBefore;
@@ -35,9 +43,10 @@ function withConnector(connector: string): RegExp {
   return compilePattern({ ...SPEC, source: SPEC.source.replace(LINEAR_CONNECTOR, connector) });
 }
 
-let mainGuard: RegExp | undefined;
-/** Main's guard, compiled on first use so an edited connector fails the tests, not the import. */
-const main = (): RegExp => (mainGuard ??= withConnector(MAIN_CONNECTOR));
+let unfoldedGuard: RegExp | undefined;
+/** The unfolded guard, compiled on first use so an edited connector fails the tests, not the
+ * import. */
+const unfolded = (): RegExp => (unfoldedGuard ??= withConnector(UNFOLDED_CONNECTOR));
 
 /** What `detectSalaries` reads: the guard's hit, as [index, length], or null. */
 function hit(pattern: RegExp, slice: string): [number, number] | null {
@@ -69,7 +78,7 @@ function spaced(text: string): string {
 /** The guard slices of `text` on which `against` and main disagree. */
 function moved(text: string, against: RegExp = SHIPPED): string[] {
   return guardSlices(text).filter(
-    (slice) => JSON.stringify(hit(main(), slice)) !== JSON.stringify(hit(against, slice)),
+    (slice) => JSON.stringify(hit(unfolded(), slice)) !== JSON.stringify(hit(against, slice)),
   );
 }
 
@@ -143,10 +152,10 @@ function cueLine(next: () => number): string {
 describe("the salary credential guard's connector (issue #1933, R54)", () => {
   it("folds each whitespace run into the token it follows, and nothing else changed", () => {
     expect(SPEC.source).toContain(LINEAR_CONNECTOR + VALUE_TAIL);
-    expect(SPEC.source).not.toContain(MAIN_CONNECTOR);
-    expect(main().source).toContain(MAIN_CONNECTOR);
-    expect(main().source).not.toBe(SHIPPED.source);
-    expect(main().flags).toBe(SHIPPED.flags);
+    expect(SPEC.source).not.toContain(UNFOLDED_CONNECTOR);
+    expect(unfolded().source).toContain(UNFOLDED_CONNECTOR);
+    expect(unfolded().source).not.toBe(SHIPPED.source);
+    expect(unfolded().flags).toBe(SHIPPED.flags);
   });
 
   it("is linear on a whitespace run after a cue", () => {
@@ -161,7 +170,7 @@ describe("the salary credential guard's connector (issue #1933, R54)", () => {
     expect(reading.current?.value).toBe(5000);
   });
 
-  it("gives main's verdict on every slice of the parity corpus, in three views of each text", () => {
+  it("gives the unfolded verdict on every slice of the parity corpus, in three views of each text", () => {
     const texts = loadUtteranceFixtures().map((fixture) => fixture.text);
     expect(texts.length).toBeGreaterThan(500);
     const differing = texts.flatMap((text) =>
@@ -176,22 +185,26 @@ describe("the salary credential guard's connector (issue #1933, R54)", () => {
   // A correctness sweep, not a timing test: ~0.5 s alone, but over the 5 s default on a shared CI
   // runner under turbo's parallel `test --coverage` (6.1 s / 5.2 s on #1990). The linear-time
   // guard is "is linear on a whitespace run after a cue" above, which keeps its own ceiling.
-  it("gives main's verdict on every slice of 20,000 seeded cue lines", { timeout: 30_000 }, () => {
-    const next = seeded(1933);
-    let hits = 0;
-    let sliced = 0;
-    for (let i = 0; i < 20_000; i += 1) {
-      const text = `${next() < 0.3 ? "abhi 25000 milta hai, " : ""}${cueLine(next)}`;
-      expect(moved(text), JSON.stringify(text)).toEqual([]);
-      for (const slice of guardSlices(text)) {
-        sliced += 1;
-        if (SHIPPED.test(slice)) hits += 1;
+  it(
+    "gives the unfolded verdict on every slice of 20,000 seeded cue lines",
+    { timeout: 30_000 },
+    () => {
+      const next = seeded(1933);
+      let hits = 0;
+      let sliced = 0;
+      for (let i = 0; i < 20_000; i += 1) {
+        const text = `${next() < 0.3 ? "abhi 25000 milta hai, " : ""}${cueLine(next)}`;
+        expect(moved(text), JSON.stringify(text)).toEqual([]);
+        for (const slice of guardSlices(text)) {
+          sliced += 1;
+          if (SHIPPED.test(slice)) hits += 1;
+        }
       }
-    }
-    // Both verdicts were met many times: the comparison was not vacuous.
-    expect(hits).toBeGreaterThan(4_000);
-    expect(sliced - hits).toBeGreaterThan(4_000);
-  });
+      // Both verdicts were met many times: the comparison was not vacuous.
+      expect(hits).toBeGreaterThan(4_000);
+      expect(sliced - hits).toBeGreaterThan(4_000);
+    },
+  );
 
   it("still drops a roll number and keeps a wage", () => {
     expect(detectSalaries("NCVT hai, roll number R/2019/123456").current).toBeNull();
@@ -210,4 +223,30 @@ describe("the salary credential guard's connector (issue #1933, R54)", () => {
       expect(moved(text)).toEqual([]);
     },
   );
+});
+
+describe("a dot after the cue and a ':-' separator (issue #1950, R56)", () => {
+  // The certificate spellings whose identifier digits were recorded as pay before #1950: no
+  // connector token started with ".", the separator was one character, and "regn" was no cue.
+  it.each(["Reg.No.:- 123456", "Regn. No. MH2019CN4471", "Roll.No-4567890", "reg no:- 123456"])(
+    "an identifier after %s is not pay",
+    (text) => {
+      expect(detectSalaries(text).current).toBeNull();
+    },
+  );
+
+  it("a short roll number after a doubled separator is not pay either, as without the dot", () => {
+    expect(detectSalaries("roll no.:- 12345").current).toBeNull();
+    expect(detectSalaries("roll no 12345").current).toBeNull();
+  });
+
+  it("a wage beside a dotted cue is kept", () => {
+    const both = detectSalaries("abhi 25000 milta hai, 35000 chahiye, NCVT certificate. hai");
+    expect([both.current?.value, both.expected?.value]).toEqual([25000, 35000]);
+  });
+
+  it("KNOWN_RESIDUAL: a spaced dot is not read, so its digits are still pay", () => {
+    // Recorded in R56's resolution; the Python half pins the same shape through the gateway.
+    expect(detectSalaries("Reg . No . 123456").current?.value).toBe(123456);
+  });
 });

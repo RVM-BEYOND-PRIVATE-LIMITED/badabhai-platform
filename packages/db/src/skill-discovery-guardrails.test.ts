@@ -553,7 +553,9 @@ describe("the match-skill wall", () => {
 
   it("SKILL_CORPUS and MATCH_SKILLS are untouched by anything in this pipeline", () => {
     // A tripwire, not a tautology: it pins the two counts this workstream promised not to move.
-    expect(MATCH_SKILLS).toHaveLength(18);
+    // 18 + the 8 the owner minted directly in #2022 (2026-10-06) — a taxonomy ruling, not
+    // anything this pipeline produced. A further change here needs its own ruling.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8);
     expect(SKILL_CORPUS.length).toBeGreaterThan(0);
     for (const s of MATCH_SKILLS) expect(s.skillId.startsWith("mskill_")).toBe(true);
   });

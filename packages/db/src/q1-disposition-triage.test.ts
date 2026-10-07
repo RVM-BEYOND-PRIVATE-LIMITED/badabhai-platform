@@ -34,6 +34,11 @@ import {
 const BATCH = "data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d";
 const PROMOTABLE = batchScopeSkillIds(BATCH);
 const VALID = new Set(MATCH_SKILLS.map((m) => m.skillId));
+// The Q1-era vocabulary is the first 18 entries. #2022 (owner ruling 2026-10-06) APPENDED eight
+// skills for trade forms that derived nothing; it touched no Q1 disposition.
+const Q1_ERA_MATCH_SKILLS = 18;
+const MINTED_FOR_2022 = 8;
+const VALID_AT_Q1 = new Set(MATCH_SKILLS.slice(0, Q1_ERA_MATCH_SKILLS).map((m) => m.skillId));
 
 const artifact = JSON.parse(
   readFileSync(
@@ -84,12 +89,13 @@ describe("the pack is structurally sound", () => {
   });
 
   it("no unknown mskill_* can enter — every candidate is one of the existing 18", () => {
-    expect(VALID.size).toBe(18);
+    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022);
+    expect(VALID_AT_Q1.size).toBe(Q1_ERA_MATCH_SKILLS);
     for (const r of Q1_TRIAGE) {
-      for (const c of r.candidates) expect(VALID, `${r.skillId} -> ${c}`).toContain(c);
+      for (const c of r.candidates) expect(VALID_AT_Q1, `${r.skillId} -> ${c}`).toContain(c);
     }
     for (const d of artifact.dispositions) {
-      for (const c of d.candidates) expect(VALID, `${d.skill_id} -> ${c}`).toContain(c);
+      for (const c of d.candidates) expect(VALID_AT_Q1, `${d.skill_id} -> ${c}`).toContain(c);
     }
   });
 
@@ -255,7 +261,8 @@ describe("conservatism — the owner asked for it, so it is asserted", () => {
 describe("what was applied, and what was not", () => {
   it("the bridge grew by exactly the 96; the vocabulary and the corpus did not move", () => {
     expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS)).toHaveLength(145);
-    expect(MATCH_SKILLS).toHaveLength(18);
+    // Q1 did not move the vocabulary; #2022 later appended eight (see Q1_ERA_MATCH_SKILLS).
+    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022);
     expect(SKILL_CORPUS).toHaveLength(49);
   });
 
