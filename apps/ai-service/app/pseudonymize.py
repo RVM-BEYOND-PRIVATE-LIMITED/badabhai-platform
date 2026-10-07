@@ -40,7 +40,7 @@ import hashlib
 import re
 import secrets
 import unicodedata
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 
 from .profiling import lexicon as _lexicon
@@ -1462,11 +1462,9 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # after the separator (":-" and "--" read as ":" and "-"). None of them is whitespace and each is
 # followed by a different class, so a run still has one reading and the rule stays linear. The
 # accepted language is a superset, so every VERDICT only grows: a G1/G2 refusal, a certifier
-# refusal or a salary-guard drop is never lost. The masked TEXT grows per cue, but not across
-# cues: `sub` is non-overlapping and this rule runs before the phone rule, so a newly read dotted
-# cue's value can swallow a later cue glued on by "/" or "-" ("Cert. NAPS/2020/reg: 445566" leaves
-# 445566 raw) or the first group of a spaced phone ("Licence. 098765 43210"). The same happens on
-# the undotted spelling, on PRE and here alike; the walls still refuse both. Risks-register R62.
+# refusal or a salary-guard drop is never lost. The masked TEXT grew per cue but not across cues
+# (risks-register R62), until #2049 made the gateway mask every cue's value; see
+# `_cued_id_values` below.
 # Over the repo corpus (#1875's method, `scripts/measure_cued_id_dot.py`) no string changes; the
 # dot is transparent by construction, so a number written straight after "cert." masks or is
 # dropped as pay exactly as it was after "cert". The test file
@@ -1482,6 +1480,160 @@ _CREDENTIAL_ID_RE = re.compile(
     r"(?=[A-Za-z0-9/\-]{0," + str(_CREDENTIAL_ID_LOOKAHEAD_MAX) + r"}\d)"
     r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
 )
+
+# EVERY CUE'S VALUE IS MASKED, AND A PHONE A VALUE CUTS IS MASKED WHOLE (issue #2049, risks-register
+# R62, found by the security review of #1950). The gateway used to run `_CREDENTIAL_ID_RE` as a
+# non-overlapping `sub` ahead of the phone rule, and a value runs to the end of its token, so the
+# masked text was not monotone across cues:
+#
+#     "Cert NAPS/2020/reg: 445566"  ->  "Cert [ID_1]: 445566"     "reg" was inside the first value,
+#                                                                so its own ID was never matched
+#     "Licence 098765 43210"        ->  "Licence [ID_1] 43210"    the phone rule saw five digits
+#
+# In both, NOT reading the first cue masked more: "Cert." before #1950 read as no cue, so the dotted
+# spellings came out "Cert. NAPS/2020/reg: [ID_1]" and "Licence. [PHONE_1]". G1/G2 and the
+# certifiers search rather than substitute, so they refused every such text; the masked text is
+# what was short (the prompt with AI_RAW_PII_ENABLED off, the at-rest copies and the embedding
+# input under both settings).
+#
+# THE FIX IS IN THE SCAN, NOT THE RULE. `_CREDENTIAL_ID_RE` is unchanged (its four other copies
+# only search, so none of them could cut anything). The gateway now masks the union of the values
+# the rule matches from EVERY cue start, overlapping or not. And a value that a phone run on the
+# same text starts inside and runs past grows through the rest of its run of digits and phone
+# separators, to the last digit, as one [ID_n] token. So "Cert [ID_1]: [ID_2]" and
+# "Licence [ID_1]". So does a value a digit follows straight on: the value's class is ASCII, so
+# that digit is a non-ASCII one ("123456" then Devanagari digits), which `_PHONE_RE`'s `\d` reads.
+# Without that, the value's last ASCII digit stopped a phone from starting at the glued digit, a
+# phone starting in the value overran 13 digits, and once the value was a token the phone rule
+# split the rest of the run anew (the security review of #2049; single-cue on main as well).
+#
+# WHY THE WHOLE RUN, NOT THE PHONE'S END. Where the phone rule starts reading a run decides how it
+# splits the run into phones. Grown only to the cut phone's end, "reg no 123456 25000 43210" left
+# "43210" raw, where the old scan's phone rule, starting after "123456", had read "25000 43210" as
+# a phone. Grown through the run, nothing in the run is left for a different split to miss, and a
+# run that neither a cut phone nor a glued digit continues is split exactly as before: it starts
+# after a non-digit either way. So every character the old scan masked is still masked, and no
+# cue's reading leaves raw a character that another cue's value or a phone run covers. Measured,
+# not just argued: `scripts/measure_cued_id_monotone.py`. The cost is the run's tail: digits the
+# phone rule would have left raw on both scans are masked with the ID (a run of numbers after a
+# cut phone, across lines and commas), which is the safe direction; the profile detectors read
+# the raw text.
+#
+# STILL LINEAR (R54). A value runs to the end of its token, so every value that starts inside an
+# earlier one ends where it ends. Each cue start is tried with `_cued_id_probe` (the rule with its
+# value cut to the six characters it needs), which finds the same reading and value start in time
+# bounded by the connector; the full rule runs only for a value that starts past the last one, so
+# each token is scanned once. "reg-1-" * 3333 masks one value, in one pass over it.
+_CUED_ID_VALUE_RUN = r"[A-Za-z0-9/\-]{5,})"
+_CUED_ID_PROBE_RUN = r"[A-Za-z0-9/\-]{5})"
+_cued_id_probe_cache: tuple[re.Pattern[str], re.Pattern[str]] | None = None
+#: The rest of a run of digits and phone separators, up to its last digit. Each repeat takes one
+#: digit, so a run has one reading and the scan is linear.
+_DIGIT_RUN_REST_RE = re.compile(r"(?:[" + _PHONE_SEPARATORS + r"]*\d)*")
+_A_DIGIT_RE = re.compile(r"\d")
+
+
+def _cued_id_probe(rule: re.Pattern[str]) -> re.Pattern[str]:
+    """``rule`` with its value cut to the six characters it needs at least.
+
+    Nothing follows the value group, so the probe succeeds wherever the rule does, with the same
+    cue, the same connector reading and the same value start, and never scans the value's run.
+    Derived from the rule object it is handed and kept for it, so the measurement scripts, which
+    swap `_CREDENTIAL_ID_RE` for an older text, get that text's probe. Fails loudly (and so the
+    gateway fails closed) if the rule no longer ends in its value run.
+    """
+    global _cued_id_probe_cache
+    cached = _cued_id_probe_cache
+    if cached is not None and cached[0] is rule:
+        return cached[1]
+    if not rule.pattern.endswith(_CUED_ID_VALUE_RUN):
+        raise ValueError("the cued-ID rule no longer ends in its value run")
+    probe = re.compile(rule.pattern[: -len(_CUED_ID_VALUE_RUN)] + _CUED_ID_PROBE_RUN, rule.flags)
+    _cued_id_probe_cache = (rule, probe)
+    return probe
+
+
+def _cued_id_values(text: str) -> list[tuple[int, int]]:
+    """The spans the gateway masks as cued IDs in ``text``: disjoint, left to right (#2049, R62).
+
+    Every value `_CREDENTIAL_ID_RE` matches from any cue start. A value that a phone run
+    (`_PHONE_RE`, on the same text) starts inside and runs past, or that a (non-ASCII) digit
+    follows straight on, grows through the rest of its run of digits and phone separators. See the
+    note above.
+    """
+    rule = _CREDENTIAL_ID_RE
+    probe = _cued_id_probe(rule)
+    values: list[tuple[int, int]] = []
+    pos = 0
+    while (found := probe.search(text, pos)) is not None:
+        pos = found.start() + 1
+        if values and values[-1][0] <= found.start(1) < values[-1][1]:
+            continue  # inside the last value's token, so it ends where that value ends
+        match = rule.match(text, found.start())
+        if match is None:  # pragma: no cover - the probe and the rule read alike by construction
+            raise ValueError("the cued-ID probe and rule disagree")
+        values.append(match.span(1))
+    if not values:
+        return values
+    phones = [match.span() for match in _PHONE_RE.finditer(text)]
+    grown: list[tuple[int, int]] = []
+    at = 0
+    for start, end in values:
+        while at < len(phones) and phones[at][1] <= end:
+            at += 1
+        if (at < len(phones) and phones[at][0] < end) or _A_DIGIT_RE.match(text, end):
+            end = _DIGIT_RUN_REST_RE.match(text, end).end()
+        if grown and start < grown[-1][1]:
+            grown[-1] = (grown[-1][0], max(grown[-1][1], end))
+        else:
+            grown.append((start, end))
+    return grown
+
+
+class _SpanMatch:
+    """One span a `_SpanRule` masks, shaped like the `re.Match` the rule list's callbacks and
+    `_apply` read: `span()` and `group()`, group 0 only."""
+
+    __slots__ = ("string", "_start", "_end")
+
+    def __init__(self, string: str, start: int, end: int) -> None:
+        self.string = string
+        self._start = start
+        self._end = end
+
+    def span(self, group: int = 0) -> tuple[int, int]:
+        return self._start, self._end
+
+    def group(self, group: int = 0) -> str:
+        return self.string[self._start : self._end]
+
+
+class _SpanRule:
+    """A masking rule whose spans come from a function rather than one regex scan, shaped like the
+    `re.Pattern` the rule list holds (`finditer`, `sub`), so the fast path and `_apply` run it as
+    they run a regex. ``spans`` must return disjoint spans, left to right."""
+
+    __slots__ = ("_spans",)
+
+    def __init__(self, spans: Callable[[str], list[tuple[int, int]]]) -> None:
+        self._spans = spans
+
+    def finditer(self, text: str) -> Iterator[_SpanMatch]:
+        return (_SpanMatch(text, start, end) for start, end in self._spans(text))
+
+    def sub(self, replace: Callable[[_SpanMatch], str], text: str) -> str:
+        out: list[str] = []
+        pos = 0
+        for match in self.finditer(text):
+            start, end = match.span()
+            out.append(text[pos:start])
+            out.append(replace(match))
+            pos = end
+        if not out:
+            return text
+        out.append(text[pos:])
+        return "".join(out)
+
 
 # --- D-1 money-amount carve-out (context-drift register 2026-07-16 row D-1;
 # --- owner ruling 2026-07-17) -----------------------------------------------
@@ -1749,8 +1901,8 @@ def _is_covered(region: set[int], reader_masked: set[int], reader_kept: set[int]
 
 
 def _apply(
-    regex: re.Pattern[str],
-    replace: Callable[[re.Match[str]], str],
+    regex: re.Pattern[str] | _SpanRule,
+    replace: Callable[..., str],
     masked_group: int,
     text: str,
     src: list[int | None],
@@ -1761,8 +1913,9 @@ def _apply(
 
     Rebuilds ``text`` and a parallel source-index list (a masked token's characters map to
     ``None``). When a match actually masks (its replacement differs from the matched text), the
-    set of source offsets under group ``masked_group`` - group 1 for the cue/leading/credential
-    rules that keep a cue and tokenise only the value, group 0 for the whole-match rules - is
+    set of source offsets under group ``masked_group`` - group 1 for the cue/leading rules that
+    keep a cue and tokenise only the value, group 0 for the whole-match rules and the cued-ID
+    spans (a `_SpanRule`, whose match is the value alone) - is
     appended to ``regions`` as ONE region. Keeping regions per-match (not one flat set) is what
     lets the caller judge each spaced-view region on its own (``_is_covered``): a phone split by
     an invisible masks the same digits in both views, but its spaced span also covers the
@@ -1923,10 +2076,10 @@ def _mask(
             return match.group(0)
         return replace_group1(match, "PERSON")
 
-    def replace_credential(match: re.Match[str]) -> str:
-        """Keep the roll/registration cue, tokenise only the id (group 1). Its own replacer, not
-        `replace_group1`: the NAME stoplist has no business vetoing an ID mask."""
-        return match.group(0).replace(match.group(1), token_for(match.group(1), "ID"))
+    def replace_credential(match: _SpanMatch) -> str:
+        """Tokenise a cued ID (a span `_cued_id_values` found; its cue stays as written). Its own
+        replacer, not `replace_group1`: the NAME stoplist has no business vetoing an ID mask."""
+        return token_for(match.group(), "ID")
 
     def replace_ms_firm(match: re.Match[str]) -> str:
         """Keep the M/S cue, tokenise the firm after it (group 1, which ends the match).
@@ -1977,20 +2130,22 @@ def _mask(
         return token_for(match.group(0), "EMPLOYER")
 
     # Each rule as (regex, replacement callback, group whose SPAN is the masked value): group 0
-    # for the whole-match rules, group 1 for the cue/leading/credential rules that keep a cue
-    # and tokenise only the value. `_apply` runs them exactly like `regex.sub`, in this order,
+    # for the whole-match rules and the cued-ID spans, group 1 for the cue/leading rules that keep
+    # a cue and tokenise only the value. `_apply` runs them exactly like `regex.sub`, in this order,
     # while recording the SOURCE offsets each mask actually covered. The ORDER is load-bearing
     # (email first; ids before phone; phone before money; the capitals employer rule after both
     # name rules — see the module notes and `_CORPORATE_FORM_CAPS` detail 1).
-    rules: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str], int]] = [
+    rules: list[tuple[re.Pattern[str] | _SpanRule, Callable[..., str], int]] = [
         # 0. EMAIL FIRST — the only COMPOSITE pattern (name in the local part, employer in the
         #    domain, sometimes a phone). A rule ahead of it fragments the address. See `_EMAIL_RE`.
         (_EMAIL_RE, lambda m: token_for(m.group(0), "EMAIL"), 0),
         # 1. ID-like tokens (PAN, Aadhaar, cued credential IDs) so phone matching doesn't eat them.
         (_PAN_RE, lambda m: token_for(m.group(0), "ID"), 0),
         (_AADHAAR_RE, lambda m: token_for(m.group(0), "ID"), 0),
-        #    The credential replacer keeps the cue and tokenises group 1.
-        (_CREDENTIAL_ID_RE, replace_credential, 1),
+        #    Cued credential IDs: every cue's value, each grown through a phone it cuts (#2049).
+        #    The cue stays; only the value is a span. Built per call so a swapped
+        #    `_cued_id_values` (the measurement scripts) is the one that runs.
+        (_SpanRule(_cued_id_values), replace_credential, 0),
         # 2. Phone numbers.
         (_PHONE_RE, lambda m: token_for(m.group(0), "PHONE"), 0),
         # 3. Employers / companies (title case; the capitals rule is 4b below).
