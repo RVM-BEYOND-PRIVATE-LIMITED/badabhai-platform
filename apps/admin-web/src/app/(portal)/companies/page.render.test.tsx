@@ -244,3 +244,19 @@ describe("the rosters call a customer a company or an agency — never an accoun
     expect(out).toContain("That is not a customer status this portal recognises");
   });
 });
+
+/**
+ * A status the filter offers is never the refused part (delta review of #2095): beside an
+ * over-long cursor (the API's bound is 256), the 400 is the cursor's — first page, filter kept.
+ */
+describe("a valid status with a refused cursor gets the cursor's copy, on both rosters", () => {
+  it.each(PAGES)("%s: the page was refused, not the status", async (name, page) => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render(page, { status: "active", cursor: "x".repeat(300) });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected that filter");
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toContain(`href="/${name}?status=active"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`);
+    expect(state).not.toContain(">Clear filters<");
+  });
+});

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { PriceMismatchError } from "../../../lib/payer-errors";
+import { PRICE_UNREADABLE_MESSAGE } from "../../../lib/price-confirmation";
 
 /**
  * Capacity-upgrade Server-Action tests (A1, ADR-0016 — MOCK payment only). Covers:
@@ -189,5 +191,50 @@ describe("upgradeCapacityAction — Idempotency-Key threading + 409 = pending (#
     expect(res.ok).toBe(false);
     expect(res).not.toHaveProperty("allowance"); // no invented number
     expect(buyCapacity).toHaveBeenCalledTimes(1); // no re-POST
+  });
+});
+
+/**
+ * #2085 — PRICE CONFIRMATION at the capacity action. The confirmed price is forwarded beside the
+ * tier code and key; the API's refusal of a changed price is a non-terminal `priceChanged` result
+ * (one POST, no allowance re-read, never `ok`/`pending`); a malformed price never reaches the seam.
+ */
+describe("#2085 — upgradeCapacityAction forwards the confirmed price; a refusal is 'price changed'", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f";
+
+  it("forwards the confirmed price beside the tier code and key", async () => {
+    buyCapacity.mockResolvedValueOnce({
+      ok: true,
+      allowance: 10,
+      sourceTier: "growth",
+      expiresAt: null,
+      resumedPlanIds: [],
+    });
+    await upgradeCapacityAction({ tier: "growth", idempotencyKey: KEY, expectedPriceInr: 4999 });
+    expect(buyCapacity).toHaveBeenCalledWith({
+      tier: "growth",
+      idempotencyKey: KEY,
+      expectedPriceInr: 4999,
+    });
+  });
+
+  it("a refused price is { priceChanged, currentPriceInr } — one POST, no re-read, never ok or pending", async () => {
+    buyCapacity.mockRejectedValueOnce(new PriceMismatchError("/payer/capacity", 3999));
+    const res = await upgradeCapacityAction({
+      tier: "growth",
+      idempotencyKey: KEY,
+      expectedPriceInr: 4999,
+    });
+    expect(res).toEqual({ ok: false, priceChanged: true, currentPriceInr: 3999 });
+    expect(buyCapacity).toHaveBeenCalledTimes(1);
+    expect(getCapacity).not.toHaveBeenCalled();
+  });
+
+  it("a malformed confirmed price is refused before the seam", async () => {
+    for (const bad of [-1, 49.99, "4999"]) {
+      const res = await upgradeCapacityAction({ tier: "growth", expectedPriceInr: bad as number });
+      expect(res, String(bad)).toEqual({ ok: false, error: PRICE_UNREADABLE_MESSAGE });
+    }
+    expect(buyCapacity).not.toHaveBeenCalled();
   });
 });

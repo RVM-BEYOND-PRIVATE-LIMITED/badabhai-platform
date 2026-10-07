@@ -22,10 +22,10 @@ TRANSPARENT: "Cue." decides exactly as "Cue" wherever the cue already ended on a
 last property is the deliberate answer to the sentence-end question (section 3): a number written
 straight after "certificate." masks, or is dropped as pay, exactly as one after "certificate"
 always was. Over the repo corpus (#1875's method, section 4) no string and no certifier label
-changes outcome. The masked TEXT is not monotone ACROSS cues (the security review of #1950):
-`sub` is non-overlapping, so a newly read dotted cue's value can swallow a later glued cue or the
-first group of a spaced phone, exactly as the undotted spelling already did. The walls still
-refuse both; pinned as `KNOWN_RESIDUAL` in section 7 and tracked as risks-register R62.
+changes outcome. The masked TEXT was not monotone ACROSS cues (the security review of #1950,
+risks-register R62): the gateway's non-overlapping `sub` let a newly read dotted cue's value
+swallow a later glued cue or the first group of a spaced phone, exactly as the undotted spelling
+already did. #2049 made the gateway mask every cue's value; section 7 pins the two shapes.
 
 WHAT IT STILL DOES NOT READ, pinned as `KNOWN_RESIDUAL` (section 7): a SPACED dot ("Reg . No ."),
 a dot after "Num"/"Number", the separators "No: -", an en dash, "No #" and "No.=" (all
@@ -336,8 +336,8 @@ def test_property_shipped_only_ever_decides_more_and_only_on_a_new_shape():
     masks and shipped does not are only connector text PRE swallowed into a value, "NO--" in
     "NO--abc9"); every sample whose decisions move holds a new shape. The generator joins its one
     to three cue lines with a space, so no cue is ever glued to the previous value by "/" or "-"
-    and none is followed by a spaced phone: this says nothing about those shapes. See the R62
-    residual in section 7."""
+    and none is followed by a spaced phone: this says nothing about those shapes. #2049's
+    `tests/test_pseudonymize_cued_id_monotone.py` fuzzes them (R62, section 7)."""
     rules = measure.variants()
     rng = random.Random(1950)
     seen: Counter[str] = Counter()
@@ -460,27 +460,29 @@ def test_KNOWN_RESIDUAL_a_spaced_dash_an_en_dash_a_hash_or_an_equals_is_not_read
             "Cert. NAPS/2020/reg: 445566",
             "Cert NAPS/2020/reg: 445566",
             "Cert. NAPS/2020/reg: [ID_1]",
-            "Cert. [ID_1]: 445566",
+            "Cert. [ID_1]: [ID_2]",
             "credential_id",
         ),
         (
             "Licence. 098765 43210",
             "Licence 098765 43210",
             "Licence. [PHONE_1]",
-            "Licence. [ID_1] 43210",
+            "Licence. [ID_1]",
             "phone",
         ),
     ],
 )
-def test_KNOWN_RESIDUAL_r62_masked_text_is_not_monotone_across_cues(
+def test_r62_the_masked_text_is_monotone_across_cues_since_2049(
     dotted, undotted, masked_pre, masked, verdict
 ):
-    """Risks-register R62, found by the security review of #1950. The gateway's `sub` is
-    non-overlapping and the cued-ID rule runs before the phone rule, so a cue's value runs to the
-    end of its token and takes a later cue glued on by "/" (whose own ID is then never matched), or
-    the first group of a spaced phone. On PRE the dotted spelling was not read, so the later cue or
-    the phone rule masked the digits; now the dot reads as the undotted spelling always did, and
-    leaves the same tail raw. The walls are untouched: G1/G2 refuses all four texts."""
+    """Risks-register R62, found by the security review of #1950 and pinned here as
+    `KNOWN_RESIDUAL` until #2049. The gateway's non-overlapping `sub` ran ahead of the phone rule,
+    so a cue's value ran to the end of its token and took a later cue glued on by "/" (whose own
+    ID was then never matched), or the first group of a spaced phone; reading the dot left the
+    tail raw that PRE's later cue or phone rule had masked. #2049 masks every cue's value and
+    grows a value through a phone it cuts, so the dotted text masks everything PRE masked and
+    more, and the undotted text masks as the dotted one. The walls never read the scan: G1/G2
+    refuses all four texts, on PRE and here."""
     assert under_pre(pseudonymize, dotted).text == masked_pre
     assert pseudonymize(dotted).text == masked
     undotted_masked = masked.replace(". ", " ", 1)
@@ -514,4 +516,5 @@ def test_the_corpus_leaves_both_cued_id_test_files_out():
     assert "test_pseudonymize_cued_id_dot.py" not in listed
     assert "test_pseudonymize_cued_id_linear.py" not in listed
     assert "test_salary_guard_resume_cues.py" not in listed  # #2043's own fixtures
+    assert "test_pseudonymize_cued_id_monotone.py" not in listed  # #2049's
     assert "test_pseudonymize.py" in listed  # the rest of the service's tests are read

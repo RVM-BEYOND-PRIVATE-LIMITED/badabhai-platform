@@ -92,6 +92,7 @@ describe("getLiveCatalog — LIVE read of GET /payer/pricing/catalog (Bearer, D-
     const { getLiveCatalog } = await import("./live-catalog");
     await expect(getLiveCatalog()).resolves.toEqual({
       products: DEFAULT_CATALOG.products,
+      prices: null, // #2085 — no effective prices: the readers show the catalog price
       live: false,
     });
   });
@@ -105,5 +106,112 @@ describe("getLiveCatalog — LIVE read of GET /payer/pricing/catalog (Bearer, D-
     const res = await getLiveCatalog();
     expect(res.live).toBe(false);
     expect(res.products).toBe(DEFAULT_CATALOG.products);
+  });
+});
+
+/**
+ * #2085 — the catalog now carries each tier's EFFECTIVE charge price (`prices[]`, computed by the
+ * function every purchase route charges through, active offer included) and `priced_at`. Both are
+ * additive: an older API sends neither and must still parse, with the readers falling back to the
+ * catalog price. A malformed price row is schema drift — the documented fallback, never an
+ * unvalidated price.
+ */
+describe("getLiveCatalog — #2085 effective prices (prices[] + priced_at)", () => {
+  const PRICES = [
+    {
+      product_code: "quota_topup",
+      tier_code: "topup_10",
+      base_price_inr: 1000,
+      price_inr: 750,
+      discount_inr: 250,
+      offer: { code: "DIWALI", ends_at: "2026-11-01T00:00:00.000Z" },
+    },
+    {
+      product_code: "contact_unlock",
+      tier_code: "pack_50",
+      base_price_inr: 2000,
+      price_inr: 2000,
+      discount_inr: 0,
+      offer: null,
+    },
+  ];
+
+  it("maps prices[] to the per-tier charge price, offer included, and stays live", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        revision: 4,
+        source: "db",
+        products: DEFAULT_CATALOG.products,
+        prices: PRICES,
+        priced_at: "2026-10-07T09:00:00.000Z",
+      }),
+    );
+    const { getLiveCatalog } = await import("./live-catalog");
+    const res = await getLiveCatalog();
+    expect(res.live).toBe(true);
+    expect(res.products).toEqual(DEFAULT_CATALOG.products);
+    expect(res.prices).toEqual([
+      {
+        productCode: "quota_topup",
+        tierCode: "topup_10",
+        basePriceInr: 1000,
+        priceInr: 750,
+        discountInr: 250,
+        offer: { code: "DIWALI", endsAt: "2026-11-01T00:00:00.000Z" },
+      },
+      {
+        productCode: "contact_unlock",
+        tierCode: "pack_50",
+        basePriceInr: 2000,
+        priceInr: 2000,
+        discountInr: 0,
+        offer: null,
+      },
+    ]);
+  });
+
+  it("an API older than #2085 (no prices / priced_at keys) still parses LIVE, with prices null", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ revision: 3, source: "db", products: DEFAULT_CATALOG.products }),
+    );
+    const { getLiveCatalog } = await import("./live-catalog");
+    const res = await getLiveCatalog();
+    expect(res).toEqual({ products: DEFAULT_CATALOG.products, prices: null, live: true });
+  });
+
+  it("explicit nulls parse the same way (nullable, not just optional)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        revision: 3,
+        source: "db",
+        products: DEFAULT_CATALOG.products,
+        prices: null,
+        priced_at: null,
+      }),
+    );
+    const { getLiveCatalog } = await import("./live-catalog");
+    expect(await getLiveCatalog()).toEqual({
+      products: DEFAULT_CATALOG.products,
+      prices: null,
+      live: true,
+    });
+  });
+
+  it("a malformed price row is schema drift → the documented fallback (never an unvalidated price)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        revision: 4,
+        source: "db",
+        products: DEFAULT_CATALOG.products,
+        prices: [{ ...PRICES[0], price_inr: "750" }],
+        priced_at: "2026-10-07T09:00:00.000Z",
+      }),
+    );
+    const { getLiveCatalog } = await import("./live-catalog");
+    expect(await getLiveCatalog()).toEqual({
+      products: DEFAULT_CATALOG.products,
+      prices: null,
+      live: false,
+    });
   });
 });

@@ -6,6 +6,8 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CreditPack } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
+import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
+import { priceFigure } from "../../../components/price-figure";
 import { createOrderAction, topUpAction, verifyPaymentAction } from "./actions";
 import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
 
@@ -30,6 +32,14 @@ import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
  * NO "MOCK" WORDING (owner ruling 2026-10-07, F35): a pack's button reads "Buy" in both modes
  * and the confirm carries no mock disclaimer. Only the copy changed — the mode still decides
  * the flow (and the busy label: "Opening…" for checkout, "Adding…" for the top-up).
+ *
+ * SHOWN == CHARGED (#2085). A pack's `priceInr` is the price it is charged (the catalog's
+ * `prices[]`); its tile strikes the list price through when an offer lowers it. The purchase
+ * sends back the exact number the payer saw — the confirm's price (mock) or the tile's (real,
+ * which has no confirm of its own) — as `expected_price_inr`. A changed price is refused by the
+ * API with nothing bought: the panel says so in the neutral notice, refreshes the page so the new
+ * price shows, and retires the purchase key (the next confirm is a new purchase). It never
+ * retries on its own.
  */
 export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; real?: boolean }) {
   const router = useRouter();
@@ -45,12 +55,17 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
   // re-tap into a replay (charged once), and reset on success or a genuinely new pack so a real
   // second purchase gets a FRESH key. A ref, not state: reusing a key must not trigger a render,
   // and the value must survive re-renders. PII-free (`crypto.randomUUID()`), no payer id (XB-A).
-  const purchaseKeyRef = useRef<{ key: string; packCode: string } | null>(null);
+  // It also remembers the price it was first confirmed at (#2085 L2 — see confirmMockTopUp).
+  const purchaseKeyRef = useRef<{ key: string; packCode: string; priceInr: number } | null>(null);
 
   /** Reuse the pending key for a retry of the SAME pack; mint a fresh one otherwise. */
-  function idempotencyKeyFor(packCode: string): string {
-    if (purchaseKeyRef.current === null || purchaseKeyRef.current.packCode !== packCode) {
-      purchaseKeyRef.current = { key: crypto.randomUUID(), packCode };
+  function idempotencyKeyFor(pack: CreditPack): string {
+    if (purchaseKeyRef.current === null || purchaseKeyRef.current.packCode !== pack.code) {
+      purchaseKeyRef.current = {
+        key: crypto.randomUUID(),
+        packCode: pack.code,
+        priceInr: pack.priceInr,
+      };
     }
     return purchaseKeyRef.current.key;
   }
@@ -84,11 +99,29 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
     if (!pack) return;
     setPendingConfirm(null);
     resetBanners();
+    // ONE KEY, ONE CONFIRMED PRICE (#2085 L2). A key still held for this pack belongs to an earlier
+    // attempt whose outcome is unknown (still processing, a failure, a dropped connection). Reusing
+    // it is what stops a retry buying twice — the API replays the FIRST attempt — so it is never
+    // swapped for a fresh key while held. But that replay is the first attempt's purchase, at the
+    // first attempt's price: sent after the payer confirmed a DIFFERENT price, the panel would
+    // announce a purchase this dialog never described. So that confirm is not sent; the payer is
+    // told an earlier purchase may still be processing. Deliberate: a hold (until the page is
+    // reloaded and the earlier attempt's effect shows) over a second charge or a mislabelled one.
+    const held = purchaseKeyRef.current;
+    if (held !== null && held.packCode === pack.code && held.priceInr !== pack.priceInr) {
+      setNotice(earlierPurchaseMessage(held.priceInr));
+      return;
+    }
     setPendingCode(pack.code);
     // One key per purchase, reused across a retry of THIS pack (safe re-tap after a timeout).
-    const idempotencyKey = idempotencyKeyFor(pack.code);
+    const idempotencyKey = idempotencyKeyFor(pack);
     startTransition(async () => {
-      const res = await topUpAction({ packCode: pack.code, idempotencyKey });
+      // The price sent back is the one the dialog showed for this pack (#2085).
+      const res = await topUpAction({
+        packCode: pack.code,
+        idempotencyKey,
+        expectedPriceInr: pack.priceInr,
+      });
       setPendingCode(null);
       if (res.ok) {
         // TERMINAL success — the purchase is DONE. Drop the key so a genuine next buy mints a fresh one.
@@ -107,6 +140,12 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
             : "Purchase is still processing — check your balance in a moment.",
         );
         router.refresh();
+      } else if ("priceChanged" in res) {
+        // #2085 — nothing was bought. A new confirm at the new price is a NEW purchase, so the
+        // key is retired (reusing it would replay this refusal); the page re-reads the price.
+        purchaseKeyRef.current = null;
+        setNotice(priceChangedMessage(res.currentPriceInr));
+        router.refresh();
       } else {
         // KEEP the key: the next tap of this SAME pack replays it and the server dedupes.
         setError(res.error);
@@ -121,10 +160,20 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
     startTransition(async () => {
       try {
         // 1. The SERVER creates the order and resolves the price. The client never names
-        //    an amount; it only says which pack.
-        const order = await createOrderAction({ packCode: pack.code });
+        //    an amount to charge; it says which pack, and the price on that pack's tile
+        //    (#2085) so the server can refuse a price that changed since.
+        const order = await createOrderAction({
+          packCode: pack.code,
+          expectedPriceInr: pack.priceInr,
+        });
         if (!order.ok) {
-          setError(order.error);
+          if ("priceChanged" in order) {
+            // No order exists, so no checkout opens at a price the payer did not see.
+            setNotice(priceChangedMessage(order.currentPriceInr));
+            router.refresh();
+          } else {
+            setError(order.error);
+          }
           return;
         }
 
@@ -212,7 +261,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
                   </Badge>
                 ) : null}
               </div>
-              <div className="credit-pack__price bb-mono">{formatInr(p.priceInr)}</div>
+              <div className="credit-pack__price bb-mono">{priceFigure(p)}</div>
               <p className="credit-pack__credits">
                 <span className="bb-mono">{p.credits}</span> unlock credits
               </p>

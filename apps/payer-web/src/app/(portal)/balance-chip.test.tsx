@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 /**
  * The shell's credit balance chip: "credits" (the billing unit), the wallet icon, a link to
- * Credits for an OWNER only, and — because below 540px the unit word is hidden visually — an
+ * Credits (the shell links it for every member — ruling 2026-10-07; the static variant stays for
+ * a context with no Credits door), and — because below 540px the unit word is hidden visually — an
  * accessible name and the shared tooltip (`.bb-icon-tip`, hidden by default, shown by the shared
  * hover / focus rules) carrying the same words.
  */
@@ -29,13 +30,13 @@ const text = (markup: string) =>
     .trim();
 
 describe("BalanceChip", () => {
-  it("an OWNER's chip links to Credits and is named '<n> credits — open Credits'", () => {
+  it("the linked chip opens Credits and is named '<n> credits — open Credits'", () => {
     const out = html(1234, true);
     expect(out).toMatch(/^<a href="\/credits" class="pshell__balance" aria-label="1234 credits — open Credits"/);
     expect(out).toContain('<i class="ph-fill ph-wallet" aria-hidden="true"></i>');
   });
 
-  it("anyone else's chip is static text (no link — a recruiter's /credits is a 404)", () => {
+  it("the static variant is plain text (no link)", () => {
     const out = html(1234, false);
     expect(out).toMatch(/^<span class="pshell__balance pshell__balance--static">/);
     expect(out).not.toContain("href=");

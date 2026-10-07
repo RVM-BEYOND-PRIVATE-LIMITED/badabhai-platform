@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { SubmitPendingCue, usePendingPush } from "../../../components/nav-pending";
 import { useUrlState } from "../../../components/use-url-state";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -25,7 +25,9 @@ export function EventFilterBar({
   subjectType: string;
   correlationId: string;
 }) {
-  const router = useRouter();
+  // Navigates in a transition, so Apply can show that the new list is on its way — the same
+  // signal a link gives, with no loading boundary (components/nav-pending.tsx).
+  const [pending, push] = usePendingPush();
   const [values, setValues] = useUrlState({ eventName, actorType, subjectType, correlationId });
   const set = (k: keyof typeof values) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setValues((v) => ({ ...v, [k]: e.target.value }));
@@ -38,7 +40,7 @@ export function EventFilterBar({
       if (t) q.set(k, t);
     }
     const qs = q.toString();
-    router.push(qs ? `/events?${qs}` : "/events");
+    push(qs ? `/events?${qs}` : "/events");
   }
 
   return (
@@ -91,6 +93,7 @@ export function EventFilterBar({
         <button className="btn btn--primary" type="submit">
           <Icon name={ACTION_ICON.filter} />
           Apply
+          <SubmitPendingCue pending={pending} message="Applying the filters…" />
         </button>
       </div>
     </form>

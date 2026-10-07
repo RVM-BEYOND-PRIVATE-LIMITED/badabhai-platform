@@ -2,7 +2,12 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listPayers } from "../../../lib/entities";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import {
+  isUnknownValue,
+  readRefusal,
+  type ReadRefusal,
+} from "../../../lib/read-refusal";
+import { PAYER_STATUSES } from "../../../lib/list-filter-values";
 import { queryHref } from "../../../lib/query-href";
 import { identityPosture } from "../../../lib/identity";
 import { PayerList } from "../../../components/payer-list";
@@ -48,7 +53,9 @@ export default async function CompaniesPage({
 
   let page: Awaited<ReturnType<typeof listPayers>> | null = null;
   let failed = false;
-  let refused = false;
+  /** A filter in the address the server could have refused (a value it does not accept). */
+  const refusable = isUnknownValue(status, PAYER_STATUSES);
+  let refusal: ReadRefusal = null;
   try {
     page = await listPayers({ role: "employer", status, cursor });
   } catch (err) {
@@ -56,9 +63,14 @@ export default async function CompaniesPage({
     // different screens — "pick a status" over an outage blames a filter that is not broken.
     failed = true;
     // A 400 is the operator's address only when the address holds something to refuse — a
-    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
-    refused = isAdminRequestError(err) && err.status === 400 && Boolean(status || cursor);
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
+    // console's one rule, `readRefusal` — and only a filter value the server does not accept
+    // counts as refusable: a valid one beside an over-long cursor leaves the CURSOR refused.
+    refusal = readRefusal(err, { filtered: refusable, cursor });
   }
+  const refused = refusal !== null;
+  /** The filters were refused — not the page cursor beside them. */
+  const filtersRefused = refusal === "filters";
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/companies", { status });
   /**
@@ -118,31 +130,31 @@ export default async function CompaniesPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? refused && status
+                ? filtersRefused
                   ? "That filter was rejected."
                   : "Nothing was fetched."
                 : `${page?.items.length ?? 0} compan${page?.items.length === 1 ? "y" : "ies"} on this page.`}
             </p>
           </div>
-          {refused ? null : clearFilters}
+          {filtersRefused ? null : clearFilters}
         </div>
 
         {refused ? (
           <div className="state state--error">
             <h3 className="state__title">
-              {status ? "The server rejected that filter" : CURSOR_REFUSAL.title}
+              {filtersRefused ? "The server rejected that filter" : CURSOR_REFUSAL.title}
             </h3>
             <p className="state__body">
-              {status
+              {filtersRefused
                 ? "That is not a customer status this portal recognises, so nothing was fetched. Pick a status from the list above, or clear the filter and start again."
                 : CURSOR_REFUSAL.body}
             </p>
-            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
-                page cursor only when it is longer than any it issues (a malformed one falls back
-                to page one), so with a filter set the FILTER is what was refused — keeping it on
-                the first page would be refused again, and the way out is Clear filters. With no
-                filter, the cursor was refused: the first page. */}
-            {status ? (
+            {/* Repeating a refused request cannot succeed, so there is no Retry. With a filter
+                value the server does not accept in the address, that value is what was refused —
+                keeping it on the first page would be refused again, and the way out is Clear
+                filters. Otherwise the page cursor was refused (the API refuses one only when it
+                is longer than any it issues): the first page, filters kept. */}
+            {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (
               <FirstPageAction href={listHref} cursor={cursor} />

@@ -344,6 +344,12 @@ export const FREE_CHAT_MODE_TRIGGERS = [
   "first_turn",
 ] as const;
 export type FreeChatModeTrigger = (typeof FREE_CHAT_MODE_TRIGGERS)[number];
+// HOW A ROLLING SUMMARY UPDATE ENDED (ADR-0051 Release 2). `updated` a new summary was stored;
+// `rejected` the model's summary failed the API's validation (an identifier, the length, a
+// template token) and the previous one was kept; `unavailable` the call returned no summary
+// (mock, timeout, blocked, error) and the previous one was kept.
+export const FREE_CHAT_SUMMARY_OUTCOMES = ["updated", "rejected", "unavailable"] as const;
+export type FreeChatSummaryOutcome = (typeof FREE_CHAT_SUMMARY_OUTCOMES)[number];
 
 // ---- Consent ----
 export const CONSENT_PURPOSES = [

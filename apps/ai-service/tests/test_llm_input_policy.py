@@ -401,7 +401,7 @@ ROUTE_CASES: list[tuple[str, str, dict[str, Any], tuple[str, ...]]] = [
         },
         RAW_PIECES,
     ),
-    # ADR-0051 — the profiling-stage free chat: every model input of both routes.
+    # ADR-0051 — the profiling-stage free chat: every model input of every route.
     ("free-chat-classify", "/free-chat/classify", {"text": PROBE, "mode": "free"}, RAW_PIECES),
     (
         "free-chat-classify-question",
@@ -447,6 +447,26 @@ ROUTE_CASES: list[tuple[str, str, dict[str, Any], tuple[str, ...]]] = [
             "worker_context": {"trade_label": "Welder at Tata Motors, phone 9876543210"},
         },
         ("Tata Motors", "9876543210"),
+    ),
+    # ADR-0051 Release 2 (§8): the rolling summary, as the reply reads it and as the fold
+    # writes it. Model-written and API-validated at rest, and still gated like every other input.
+    (
+        "free-chat-reply-summary",
+        "/free-chat/reply",
+        {"category": "career", "text": "aur kya seekhun", "summary": PROBE},
+        RAW_PIECES,
+    ),
+    (
+        "free-chat-summarize-turns",
+        "/free-chat/summarize",
+        {"turns": [{"role": "worker", "text": PROBE}, {"role": "bada_bhai", "text": "Achha."}]},
+        RAW_PIECES,
+    ),
+    (
+        "free-chat-summarize-previous",
+        "/free-chat/summarize",
+        {"previous_summary": PROBE, "turns": [{"role": "worker", "text": "theek hai"}]},
+        RAW_PIECES,
     ),
     (
         # `shift` is a free-text field the résumé boundary does not certify, so the payload

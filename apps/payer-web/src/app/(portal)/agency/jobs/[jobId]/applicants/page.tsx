@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../../../../lib/auth/roles";
-import { getOrgRole } from "../../../../../../lib/auth/org-roles";
 import { agencyFlags } from "../../../../../../lib/config";
 import {
   getAgencyJob,
@@ -48,7 +47,7 @@ export default async function AgencyJobApplicantsPage({
 }: {
   params: Promise<{ jobId: string }>;
 }) {
-  const session = await requireAgent();
+  await requireAgent();
   if (!agencyFlags().agencyPortalEnabled) notFound();
 
   const { jobId } = await params;
@@ -91,7 +90,6 @@ export default async function AgencyJobApplicantsPage({
           applicants={feed.applicants}
           // Balance is an affordance hint only — a failed read keeps Unlock enabled.
           balance={balance ?? 1}
-          canBuyCredits={getOrgRole(session) === "owner"}
           // Only this feed's workers, only live grants — the client gets no unlock id it has no
           // row for. Request time: this page is force-dynamic.
           unlocked={liveUnlocksFor(

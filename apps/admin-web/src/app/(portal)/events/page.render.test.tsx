@@ -111,7 +111,9 @@ describe("a 400 is the operator's address, and says so", () => {
     // The API refuses a page cursor only when it is longer than any it issues, so with a filter
     // set the FILTER was refused, and its first page would be refused again.
     stub.failure = new stub.RequestError(400);
-    const out = await render({ subjectType: "nonsense", cursor: "c2" });
+    // A subject type the API refuses: it accepts any text up to 64 characters, so only a longer
+    // one can be the refused filter (a valid one beside a cursor leaves the CURSOR refused).
+    const out = await render({ subjectType: "x".repeat(65), cursor: "c2" });
     expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain(">Retry<");
     expect(out.split(">Clear filters<").length - 1).toBe(1);
@@ -132,5 +134,31 @@ describe("a 400 is the operator's address, and says so", () => {
     expect(out).not.toContain("correlation id");
     expect(out).not.toContain("filter combination");
     expect(out).toMatch(/href="\/events">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+  });
+});
+
+/** Free text within the API's bounds and a real correlation id are never the refused part (delta review of #2095). */
+describe("valid filters with a refused cursor get the cursor's copy", () => {
+  it("an event name, an actor type and a correlation id beside an over-long cursor: the page was refused", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({
+      eventName: "worker.registered",
+      actorType: "worker",
+      correlationId: "6155050c-c91b-4c6e-96a7-8da023f1d2d2",
+      cursor: "x".repeat(300),
+    });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected these filters");
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(state)?.[1] ?? "";
+    expect(first).toContain("eventName=worker.registered");
+    expect(first).not.toContain("cursor=");
+    expect(state).not.toContain(">Clear filters<");
+  });
+
+  it("free text past the API's bound is still the refused part", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ actorType: "x".repeat(65), cursor: "x".repeat(300) });
+    expect(out).toContain("The server rejected these filters");
   });
 });

@@ -72,3 +72,23 @@ describe("the drawer toggle", () => {
     expect(out).toContain('<aside class="sidebar" id="portal-sidebar">');
   });
 });
+
+/**
+ * The navigation status line and page-wide bar (review of #2095), rendered ONCE by the shell —
+ * outside the page, which is `inert` behind an open drawer (an inert live region says nothing),
+ * and outside the drawer that closes as its link is followed.
+ */
+describe("the navigation status", () => {
+  it("is one polite status region, outside both the sidebar and the page", () => {
+    const out = render();
+    expect(out.split('role="status" aria-live="polite"')).toHaveLength(2);
+    const status = out.indexOf('role="status" aria-live="polite"');
+    const sidebar = out.indexOf('<aside class="sidebar"');
+    const sidebarEnd = out.indexOf("</aside>");
+    const main = out.indexOf('<div class="shell__main"');
+    expect(status).toBeGreaterThan(-1);
+    expect(status > sidebar && status < sidebarEnd).toBe(false);
+    expect(status).toBeLessThan(main);
+    expect(out).toContain('<div class="nav-progress" aria-hidden="true"></div>');
+  });
+});

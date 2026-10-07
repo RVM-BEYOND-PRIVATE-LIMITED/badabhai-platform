@@ -1,34 +1,40 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PriceMismatchError } from "../../../lib/payer-errors";
+import { PRICE_UNREADABLE_MESSAGE } from "../../../lib/price-confirmation";
 
 /**
- * CREDIT TOP-UP Server Action — AUTHORIZATION regression tests (#463 / TD79).
+ * CREDIT purchase Server Actions — AUTHORIZATION regression tests (#463 / TD79, #2079).
  *
- * The bug these lock down: `topUpAction` shipped with NO gate. The Credits PAGE is
- * `requireOwner()`-gated and the nav hides /credits from a Recruiter, but a Next.js Server
- * Action is an independently invocable POST endpoint — so a Recruiter in the org could replay
- * the panel's request and grant themselves credits while the UI claimed billing was Owner-only.
+ * The bug these first locked down: `topUpAction` shipped with NO gate. A Next.js Server Action is
+ * an independently invocable POST endpoint, so a page gate is not an action gate — each action
+ * must assert its own gate before it touches the seam.
+ *
+ * WHO MAY BUY (owner ruling 2026-10-07): ANY signed-in payer member — Owner or Recruiter. The gate
+ * is therefore `requirePayer()` (no session ⇒ /login), and the org-role gate is NOT consulted: it
+ * is mocked here to refuse the way it would for a Recruiter, so an action that still called it
+ * fails every happy path below.
  *
  * What is asserted:
- *  - GATE FIRST: requireOwner() runs BEFORE the pack check and BEFORE the `topUp` seam — proven
- *    by a call-ORDER recorder, not just by "topUp was not called" (a gate that grants first and
+ *  - GATE FIRST: requirePayer() runs BEFORE the pack check and BEFORE the seam — proven by a
+ *    call-ORDER recorder, not just by "topUp was not called" (a gate that grants first and
  *    refuses after is not a gate);
- *  - NEUTRAL refusal (no-oracle): the refusal is the bare not-found sentinel requireOwner()
- *    throws — it names no role, no deny cause, and is IDENTICAL for a valid and an unknown pack,
- *    so a refused caller cannot use the action as a pack/org/role oracle;
- *  - the Owner path is unchanged (pack CODE only forwarded — XT5/XB-A: never a payer_id/price);
- *  - every failure copy stays generic and PII-free.
- *
- * The gate's own logic (dev-only Owner override, fail-closed to `recruiter`) is tested in
- * lib/auth/org-roles.test.ts; here it is mocked so the ACTION's ordering is the thing under test.
+ *  - a RECRUITER is admitted and reaches the seam; an unauthenticated caller reaches nothing;
+ *  - NEUTRAL refusal (no-oracle): the refusal is the bare redirect sentinel requirePayer()
+ *    throws — it names no role, no deny cause, and is IDENTICAL for a valid and an unknown pack;
+ *  - pack CODE only forwarded (XT5/XB-A: never a payer_id/price);
+ *  - every failure copy stays generic and PII-free, and the API's 403 is one neutral line.
  */
 
-// The sentinel Next throws from notFound(): a NEUTRAL 404, the same answer a caller gets for a
-// route that does not exist. Not a "forbidden" — that is the point (org-roles.ts).
+// The sentinel Next throws from redirect("/login") — the unauthenticated refusal. It names no
+// role and no deny cause.
+const REDIRECT = new Error("NEXT_REDIRECT");
+// What the org-role gate throws for a Recruiter. The actions must never consult it now.
 const NOT_FOUND = new Error("NEXT_NOT_FOUND");
 
 /** Call-order log — the only way to prove the gate precedes the grant. */
 const calls: string[] = [];
 
+const requirePayer = vi.fn();
 const requireOwner = vi.fn();
 const topUp = vi.fn();
 const createCreditOrder = vi.fn();
@@ -47,6 +53,20 @@ class PurchaseConflictError extends Error {
   }
 }
 
+/** The REAL typed 403 the seam throws (#2079) — exported from the mock for the same reason. */
+class PurchaseForbiddenError extends Error {
+  constructor() {
+    super("purchase refused for this account");
+    this.name = "PurchaseForbiddenError";
+  }
+}
+
+vi.mock("../../../lib/auth", () => ({
+  requirePayer: () => {
+    calls.push("requirePayer");
+    return requirePayer();
+  },
+}));
 vi.mock("../../../lib/auth/org-roles", () => ({
   requireOwner: () => {
     calls.push("requireOwner");
@@ -71,15 +91,24 @@ vi.mock("../../../lib/payer-api", () => ({
     return getCredits();
   },
   PurchaseConflictError,
+  PurchaseForbiddenError,
 }));
 
 const { topUpAction, createOrderAction, verifyPaymentAction } = await import("./actions");
 
-const OWNER = { payerId: "p1", role: "employer" as const, displayLabel: "Acme" };
+/** The least-privileged member is the DEFAULT caller, so every happy path proves Recruiter access. */
+const RECRUITER = {
+  payerId: "p1",
+  role: "employer" as const,
+  displayLabel: "Acme",
+  status: "active" as const,
+  orgRole: "recruiter" as const,
+};
 
 beforeEach(() => {
   calls.length = 0;
-  requireOwner.mockReset().mockResolvedValue(OWNER);
+  requirePayer.mockReset().mockResolvedValue(RECRUITER);
+  requireOwner.mockReset().mockRejectedValue(NOT_FOUND);
   topUp.mockReset().mockResolvedValue({
     payerId: "p1",
     balance: 60,
@@ -106,45 +135,45 @@ beforeEach(() => {
 });
 
 describe("topUpAction — gate FIRST (#463: no credit may be granted before authorization)", () => {
-  it("calls requireOwner() BEFORE the seam on the happy path (order, not just presence)", async () => {
+  it("calls requirePayer() BEFORE the seam on the happy path (order, not just presence)", async () => {
     await topUpAction({ packCode: "pack_50" });
-    expect(calls).toEqual(["requireOwner", "topUp"]);
+    expect(calls).toEqual(["requirePayer", "topUp"]);
   });
 
-  it("a non-Owner is refused and the seam is NEVER reached — no credit is granted", async () => {
-    requireOwner.mockRejectedValueOnce(NOT_FOUND);
-    await expect(topUpAction({ packCode: "pack_50" })).rejects.toBe(NOT_FOUND);
-    expect(topUp).not.toHaveBeenCalled();
-    // The gate is the FIRST thing that ran, and nothing ran after it.
-    expect(calls).toEqual(["requireOwner"]);
+  it("a RECRUITER is admitted — the purchase reaches the seam (owner ruling 2026-10-07)", async () => {
+    const res = await topUpAction({ packCode: "pack_50" });
+    expect(res).toEqual({ ok: true, balance: 60, creditsAdded: 50 });
+    // The org-role gate was never consulted — it would have 404'd this caller.
+    expect(requireOwner).not.toHaveBeenCalled();
   });
 
-  it("an unauthenticated caller (login redirect out of requireOwner→requirePayer) grants nothing", async () => {
-    const REDIRECT = new Error("NEXT_REDIRECT");
-    requireOwner.mockRejectedValueOnce(REDIRECT);
+  it("an unauthenticated caller is refused and the seam is NEVER reached — no credit is granted", async () => {
+    requirePayer.mockRejectedValueOnce(REDIRECT);
     await expect(topUpAction({ packCode: "pack_50" })).rejects.toBe(REDIRECT);
     expect(topUp).not.toHaveBeenCalled();
+    // The gate is the FIRST thing that ran, and nothing ran after it.
+    expect(calls).toEqual(["requirePayer"]);
   });
 
   it("runs the gate even for an INVALID pack code (authz is never skipped by a cheap guard)", async () => {
-    requireOwner.mockRejectedValueOnce(NOT_FOUND);
-    await expect(topUpAction({ packCode: "" })).rejects.toBe(NOT_FOUND);
+    requirePayer.mockRejectedValueOnce(REDIRECT);
+    await expect(topUpAction({ packCode: "" })).rejects.toBe(REDIRECT);
     expect(topUp).not.toHaveBeenCalled();
   });
 });
 
 describe("topUpAction — no-oracle refusal (the refused caller learns nothing)", () => {
   it("refuses a known and an unknown pack IDENTICALLY (no pack-existence oracle)", async () => {
-    requireOwner.mockRejectedValue(NOT_FOUND);
+    requirePayer.mockRejectedValue(REDIRECT);
     const known = await topUpAction({ packCode: "pack_50" }).catch((e: unknown) => e);
     const unknown = await topUpAction({ packCode: "pack_ghost" }).catch((e: unknown) => e);
-    expect(known).toBe(NOT_FOUND);
+    expect(known).toBe(REDIRECT);
     expect(unknown).toBe(known); // byte-identical refusal — the pack code changes nothing
     expect(topUp).not.toHaveBeenCalled();
   });
 
   it("the refusal carries no role name / deny cause / PII", async () => {
-    requireOwner.mockRejectedValueOnce(NOT_FOUND);
+    requirePayer.mockRejectedValueOnce(REDIRECT);
     const err = await topUpAction({ packCode: "pack_50" }).catch((e: unknown) => e);
     expect(String((err as Error).message)).not.toMatch(
       /forbidden|denied|owner|recruiter|role|billing|payer_id|phone|email/i,
@@ -152,7 +181,7 @@ describe("topUpAction — no-oracle refusal (the refused caller learns nothing)"
   });
 });
 
-describe("topUpAction — Owner path unchanged (XT5/XB-A: pack CODE only)", () => {
+describe("topUpAction — purchase path (XT5/XB-A: pack CODE only)", () => {
   it("forwards ONLY the pack code and returns the new balance + credits added", async () => {
     const res = await topUpAction({ packCode: "pack_50" });
     expect(topUp).toHaveBeenCalledWith({ packCode: "pack_50" }); // no payer_id, no price
@@ -166,7 +195,7 @@ describe("topUpAction — Owner path unchanged (XT5/XB-A: pack CODE only)", () =
     expect(huge).toEqual({ ok: false, error: "Choose a pack to buy." });
     expect(topUp).not.toHaveBeenCalled();
     // …but the gate still ran first for both (authorization precedes validation).
-    expect(calls).toEqual(["requireOwner", "requireOwner"]);
+    expect(calls).toEqual(["requirePayer", "requirePayer"]);
   });
 
   it("an unknown pack (seam → null) is a neutral not-available, never a fake success", async () => {
@@ -192,16 +221,21 @@ describe("topUpAction — Owner path unchanged (XT5/XB-A: pack CODE only)", () =
  * invocable POST endpoint, not a child of the page that renders the button.
  */
 describe("createOrderAction — gate FIRST, pack CODE only, no secret in the result", () => {
-  it("calls requireOwner() BEFORE the seam (order, not just presence)", async () => {
+  it("calls requirePayer() BEFORE the seam (order, not just presence)", async () => {
     await createOrderAction({ packCode: "pack_50" });
-    expect(calls).toEqual(["requireOwner", "createCreditOrder"]);
+    expect(calls).toEqual(["requirePayer", "createCreditOrder"]);
   });
 
-  it("a non-Owner is refused and NO order is created (no money starts moving)", async () => {
-    requireOwner.mockRejectedValueOnce(NOT_FOUND);
-    await expect(createOrderAction({ packCode: "pack_50" })).rejects.toBe(NOT_FOUND);
+  it("a RECRUITER can start checkout — the org-role gate is not consulted", async () => {
+    expect(await createOrderAction({ packCode: "pack_50" })).toMatchObject({ ok: true });
+    expect(requireOwner).not.toHaveBeenCalled();
+  });
+
+  it("an unauthenticated caller is refused and NO order is created (no money starts moving)", async () => {
+    requirePayer.mockRejectedValueOnce(REDIRECT);
+    await expect(createOrderAction({ packCode: "pack_50" })).rejects.toBe(REDIRECT);
     expect(createCreditOrder).not.toHaveBeenCalled();
-    expect(calls).toEqual(["requireOwner"]);
+    expect(calls).toEqual(["requirePayer"]);
   });
 
   it("forwards ONLY the pack code — never a payer_id, price, or currency (XB-A/XT5)", async () => {
@@ -240,7 +274,7 @@ describe("createOrderAction — gate FIRST, pack CODE only, no secret in the res
       error: "Choose a pack to continue.",
     });
     expect(createCreditOrder).not.toHaveBeenCalled();
-    expect(calls).toEqual(["requireOwner", "requireOwner"]);
+    expect(calls).toEqual(["requirePayer", "requirePayer"]);
   });
 
   it("a seam throw collapses to one retryable line with no reason or PII", async () => {
@@ -253,14 +287,19 @@ describe("createOrderAction — gate FIRST, pack CODE only, no secret in the res
 describe("verifyPaymentAction — gate FIRST, and NEVER a fabricated success", () => {
   const INPUT = { orderId: "order_1", paymentId: "pay_1", signature: "sig_1" };
 
-  it("calls requireOwner() BEFORE the seam", async () => {
+  it("calls requirePayer() BEFORE the seam", async () => {
     await verifyPaymentAction(INPUT);
-    expect(calls).toEqual(["requireOwner", "verifyCreditPayment"]);
+    expect(calls).toEqual(["requirePayer", "verifyCreditPayment"]);
   });
 
-  it("a non-Owner is refused and the verify seam is never reached", async () => {
-    requireOwner.mockRejectedValueOnce(NOT_FOUND);
-    await expect(verifyPaymentAction(INPUT)).rejects.toBe(NOT_FOUND);
+  it("a RECRUITER's payment is confirmed — the org-role gate is not consulted", async () => {
+    expect(await verifyPaymentAction(INPUT)).toMatchObject({ ok: true });
+    expect(requireOwner).not.toHaveBeenCalled();
+  });
+
+  it("an unauthenticated caller is refused and the verify seam is never reached", async () => {
+    requirePayer.mockRejectedValueOnce(REDIRECT);
+    await expect(verifyPaymentAction(INPUT)).rejects.toBe(REDIRECT);
     expect(verifyCreditPayment).not.toHaveBeenCalled();
   });
 
@@ -346,7 +385,7 @@ describe("topUpAction — Idempotency-Key threading + 409 = pending (#1185)", ()
     // Exactly ONE purchase POST (topUp), then a GET re-read (getCredits) — never a re-POST.
     expect(topUp).toHaveBeenCalledTimes(1);
     expect(getCredits).toHaveBeenCalledTimes(1);
-    expect(calls).toEqual(["requireOwner", "topUp", "getCredits"]);
+    expect(calls).toEqual(["requirePayer", "topUp", "getCredits"]);
   });
 
   it("a 409 whose re-read ALSO blips stays PENDING with no figure — never ok:true, never a fabricated balance", async () => {
@@ -358,5 +397,99 @@ describe("topUpAction — Idempotency-Key threading + 409 = pending (#1185)", ()
     expect(res).not.toHaveProperty("balance"); // no invented number
     // Still no re-POST on the failed-re-read path.
     expect(topUp).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * #2085 — PRICE CONFIRMATION at the action boundary. The price the payer confirmed is forwarded to
+ * the seam (after the gate, unchanged); the API's refusal of a changed price is a non-terminal
+ * `priceChanged` result carrying the API's current price — one POST, no re-read, never `ok`, never
+ * the in-flight `pending`. A present-but-malformed price is refused before the seam: a guard the
+ * caller asked for is never silently dropped.
+ */
+describe("#2085 — topUpAction / createOrderAction forward the confirmed price; a refusal is 'price changed'", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f";
+
+  it("topUpAction forwards the confirmed price beside the pack code and key (gate first)", async () => {
+    await topUpAction({ packCode: "pack_50", idempotencyKey: KEY, expectedPriceInr: 2000 });
+    expect(topUp).toHaveBeenCalledWith({
+      packCode: "pack_50",
+      idempotencyKey: KEY,
+      expectedPriceInr: 2000,
+    });
+    expect(calls).toEqual(["requirePayer", "topUp"]);
+  });
+
+  it("a refused price is { priceChanged, currentPriceInr } — ONE POST, no balance re-read, never ok or pending", async () => {
+    topUp.mockRejectedValueOnce(new PriceMismatchError("/payer/credits", 1500));
+    const res = await topUpAction({ packCode: "pack_50", idempotencyKey: KEY, expectedPriceInr: 2000 });
+    expect(res).toEqual({ ok: false, priceChanged: true, currentPriceInr: 1500 });
+    expect(res).not.toHaveProperty("pending");
+    expect(calls).toEqual(["requirePayer", "topUp"]); // no getCredits, no second topUp
+  });
+
+  it("a malformed confirmed price is refused BEFORE the seam (after the gate)", async () => {
+    for (const bad of [-1, 12.5, Number.NaN, "2000", 10_000_001]) {
+      calls.length = 0;
+      const res = await topUpAction({ packCode: "pack_50", expectedPriceInr: bad as number });
+      expect(res, String(bad)).toEqual({ ok: false, error: PRICE_UNREADABLE_MESSAGE });
+      expect(calls, String(bad)).toEqual(["requirePayer"]);
+    }
+    expect(topUp).not.toHaveBeenCalled();
+  });
+
+  it("createOrderAction forwards the tile's price; a refused price opens no checkout", async () => {
+    await createOrderAction({ packCode: "pack_50", expectedPriceInr: 2000 });
+    expect(createCreditOrder).toHaveBeenCalledWith({ packCode: "pack_50", expectedPriceInr: 2000 });
+
+    createCreditOrder.mockRejectedValueOnce(new PriceMismatchError("/payer/credits/order", 2400));
+    const res = await createOrderAction({ packCode: "pack_50", expectedPriceInr: 2000 });
+    expect(res).toEqual({ ok: false, priceChanged: true, currentPriceInr: 2400 });
+    expect(createCreditOrder).toHaveBeenCalledTimes(2); // one per call — never re-posted
+
+    const bad = await createOrderAction({ packCode: "pack_50", expectedPriceInr: -3 });
+    expect(bad).toEqual({ ok: false, error: PRICE_UNREADABLE_MESSAGE });
+    expect(createCreditOrder).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * A 403 FROM THE API (#2079). #2098 put an owner-only `PayerOrgRoleGuard` on the purchase routes;
+ * the 2026-10-07 ruling opens buying to every member and the backend is lifting that guard, but
+ * until it deploys a Recruiter this app admits gets a 403 (as could any account the API refuses).
+ * The seam types it as PurchaseForbiddenError. The action must turn it into ONE neutral line: no
+ * crash, no role name or deny cause (no-oracle), and no "retry" — a retry is the same 403.
+ */
+describe("a 403 from the API on a purchase (#2079) surfaces neutrally", () => {
+  const NEUTRAL = "Buying credits isn't available for this account.";
+
+  it("topUpAction returns the neutral line — no retry invitation, no balance re-read", async () => {
+    topUp.mockRejectedValueOnce(new PurchaseForbiddenError());
+    const res = await topUpAction({ packCode: "pack_50" });
+    expect(res).toEqual({ ok: false, error: NEUTRAL });
+    if (!res.ok && "error" in res) {
+      expect(res.error).not.toMatch(/retry|forbidden|denied|owner|recruiter|role|403/i);
+    }
+    // Not the 409 path: nothing to re-read, and never a second POST.
+    expect(calls).toEqual(["requirePayer", "topUp"]);
+  });
+
+  it("createOrderAction returns the same neutral line — no order, no checkout", async () => {
+    createCreditOrder.mockRejectedValueOnce(new PurchaseForbiddenError());
+    expect(await createOrderAction({ packCode: "pack_50" })).toEqual({ ok: false, error: NEUTRAL });
+  });
+
+  it("verifyPaymentAction stays honest about money that may have moved — points at support", async () => {
+    verifyCreditPayment.mockRejectedValueOnce(new PurchaseForbiddenError());
+    const res = await verifyPaymentAction({
+      orderId: "order_1",
+      paymentId: "pay_1",
+      signature: "sig_1",
+    });
+    expect(res).toEqual({
+      ok: false,
+      error:
+        "We couldn't confirm that payment yet. If money left your account, it will be credited automatically — contact support if it isn't.",
+    });
   });
 });

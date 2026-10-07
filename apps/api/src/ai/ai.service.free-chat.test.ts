@@ -8,8 +8,9 @@ import type { ServerConfig } from "@badabhai/config";
 import { AiService } from "./ai.service";
 
 /**
- * ADR-0051 — the profiling-stage free chat's two transport calls: the routes, the parse, the
- * fail-closed null, and the budgets (2.5 s classify, 10 s reply). The CALL SHAPE is pinned too:
+ * ADR-0051 — the profiling-stage free chat's transport calls: the routes, the parse, the
+ * fail-closed null, and the budgets (2.5 s classify, 10 s reply, 8 s summarize — Release 2). The
+ * CALL SHAPE is pinned too:
  * the ai-service's eval reads `ai.service.ts` for exactly
  * `this.post("/free-chat/classify", input, <Schema>, <ms>` to keep the two sides' timeouts in step.
  */
@@ -59,6 +60,7 @@ describe("freeChatClassify / freeChatReply", () => {
       text: "kaise ho",
       recent_turns: [],
       worker_context: { trade_label: null, experience_bucket: null },
+      summary: null,
     };
     expect(await ai.freeChatReply(input)).toMatchObject({
       status: "answer",
@@ -89,6 +91,7 @@ describe("freeChatClassify / freeChatReply", () => {
         text: "x",
         recent_turns: [],
         worker_context: { trade_label: null, experience_bucket: null },
+        summary: null,
       }),
     ).toBeNull();
   });
@@ -119,6 +122,7 @@ describe("freeChatClassify / freeChatReply", () => {
         text: "x",
         recent_turns: [],
         worker_context: { trade_label: null, experience_bucket: null },
+        summary: null,
       });
       await vi.advanceTimersByTimeAsync(2_400);
       expect(signals[0]?.aborted).toBe(false);
@@ -142,5 +146,68 @@ describe("freeChatClassify / freeChatReply", () => {
     expect(source).toContain(
       'this.post("/free-chat/reply", input, FreeChatReplyOutputSchema, 10000,',
     );
+    expect(source).toContain(
+      'this.post("/free-chat/summarize", input, FreeChatSummarizeOutputSchema, 8000,',
+    );
+  });
+});
+
+describe("freeChatSummarize — Release 2's rolling summary (ADR-0051 §8)", () => {
+  const input = {
+    previous_summary: null,
+    turns: [{ role: "worker" as const, text: "aaj chhutti hai" }],
+  };
+
+  it("posts to /free-chat/summarize and parses the summary (or null)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response({ summary: "Worker had a day off.", ai_metadata: null }))
+      .mockResolvedValueOnce(response({ summary: null, ai_metadata: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const ai = new AiService(config);
+    expect(await ai.freeChatSummarize(input)).toEqual({
+      summary: "Worker had a day off.",
+      ai_metadata: null,
+    });
+    expect(await ai.freeChatSummarize(input)).toEqual({ summary: null, ai_metadata: null });
+    expect(fetchMock.mock.calls[0]![0]).toBe("http://ai-service:8000/free-chat/summarize");
+  });
+
+  it("returns NULL on a schema miss, a non-OK and when unreachable", async () => {
+    const ai = new AiService(config);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ summary: 42 })));
+    expect(await ai.freeChatSummarize(input)).toBeNull();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 503 } as unknown as Response),
+    );
+    expect(await ai.freeChatSummarize(input)).toBeNull();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    expect(await ai.freeChatSummarize(input)).toBeNull();
+  });
+
+  it("is bounded at 8 s", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              signal = init.signal;
+              init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+            }),
+        ),
+      );
+      const out = new AiService(config).freeChatSummarize(input);
+      await vi.advanceTimersByTimeAsync(7_900);
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(signal?.aborted).toBe(true);
+      expect(await out).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
