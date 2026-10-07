@@ -75,7 +75,7 @@ function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unkn
   // (MATCH_V1_ENABLED false), so these must never be called — asserted below, so a
   // regression that leaks the V1 branch into the flag-off path fails loudly rather than
   // quietly changing what `/feed` serves.
-  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [] })) };
+  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [], next: null })) };
   const matchApply = {
     buildSnapshot: vi.fn(),
     trySnapshot: vi.fn(),
