@@ -6,6 +6,8 @@ import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
+import type { ChargedPrice } from "../../../lib/pricing-config";
+import { priceChangedMessage } from "../../../lib/price-confirmation";
 import {
   closePostingAction,
   pausePostingAction,
@@ -50,20 +52,32 @@ import {
  * trigger on close — but a confirmed purchase disables the row's buttons while it runs, so that
  * restore falls to the body. Once the dialog is closed and the purchase has settled, focus goes
  * back to the row's slot button, and only if it is still lost: a payer who moved on is left there.
+ *
+ * SHOWN == CHARGED, ONCE (#2085). The confirm sends back the exact price it showed
+ * (`expected_price_inr`) and ONE idempotency key per confirmed purchase, per posting — minted on
+ * the confirm, reused by every retry of that posting's purchase (a re-tap after a timeout is
+ * replayed, not bought twice), retired on success. A refused price (409 `price_mismatch`) means
+ * nothing was bought: the row says so neutrally with the new price, the page re-renders with it,
+ * and the key is retired — the next confirm is a new purchase. A duplicate still in flight is a
+ * neutral "still processing", and keeps the key. Nothing retries on its own.
  */
 
 const NONE = "—";
 
 /**
  * The one applicant-slot top-up on offer, as the server page read it from the live catalog
- * (`quotaTopUpTier` — the tier `topUpQuotaAction` charges by). DISPLAY only: the action sends no
- * price, and the server re-resolves the charge (XT5).
+ * (`quotaTopUpTier` — the tier `topUpQuotaAction` charges by), at the price it is charged
+ * (#2085). That price is what the trigger and the confirm show and what the confirm sends back
+ * as the confirmed price; the server still resolves the charge itself (XT5).
  */
-export interface TopUpOffer {
-  priceInr: number;
+export interface TopUpOffer extends ChargedPrice {
   /** Applicant slots one purchase adds. */
   additionalViews: number;
 }
+
+/** The neutral notice for a top-up whose first attempt is still running (#2085). */
+const TOP_UP_PENDING =
+  "Purchase is still processing — check this posting's applicant slots in a moment.";
 
 /** A row's slot button — where focus returns once its confirmed purchase has settled. */
 const topUpButtonId = (postingId: string) => `posting-topup-${postingId}`;
@@ -91,20 +105,25 @@ interface RowState {
   /** A per-row SUCCESS note (e.g. the paid top-up confirmation — the faceless row
    * itself shows no quota column, so the effect must be said out loud). */
   notice: string | null;
+  /** A NEUTRAL note — nothing failed and nothing was bought: a changed price, or a purchase
+   * still processing (#2085). */
+  info: string | null;
 }
 
-const IDLE: RowState = { busy: null, error: null, notice: null };
+const IDLE: RowState = { busy: null, error: null, notice: null, info: null };
 
 type LifecycleResult =
   | { ok: true; posting: PostingSummary | null; notice?: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+  | { ok: false; info: string };
 type LifecycleAction = (input: { postingId: string }) => Promise<LifecycleResult>;
+/** The one-tap actions. Add applicant slots is a purchase with its own call (`buyTopUp`). */
+type OneTapAction = Exclude<RowAction, "topUp">;
 
-/** Each row action's Server Action (each binds tenancy to the session — only the id is sent). */
-const ACTIONS: Record<RowAction, LifecycleAction> = {
+/** Each one-tap action's Server Action (each binds tenancy to the session — only the id is sent). */
+const ACTIONS: Record<OneTapAction, LifecycleAction> = {
   pause: pausePostingAction,
   resume: resumePostingAction,
-  topUp: topUpQuotaAction,
   close: closePostingAction,
 };
 
@@ -162,6 +181,10 @@ export function PostingsManager({
   // The posting whose slot button opened the confirm: focus goes back there once the dialog is
   // closed and that row's purchase has settled — only if focus was lost meanwhile.
   const focusBack = useRef<string | null>(null);
+  // ONE idempotency key per confirmed slot purchase, PER POSTING (#2085): reused by every retry of
+  // that posting's purchase, dropped on success or a refused price. A ref — reusing a key must not
+  // render. PII-free (`crypto.randomUUID()`), no payer id (XB-A).
+  const topUpKeys = useRef<Map<string, string>>(new Map());
   const rows = postings.map((p) => freshRows[p.id] ?? p);
 
   useEffect(() => {
@@ -175,23 +198,24 @@ export function PostingsManager({
   }, [confirmingTopUp, state]);
 
   function rowState(id: string): RowState {
-    return state[id] ?? IDLE;
+    return { ...IDLE, ...state[id] };
   }
   function patchState(id: string, p: Partial<RowState>) {
     setState((prev) => ({ ...prev, [id]: { ...(prev[id] ?? IDLE), ...p } }));
   }
 
-  async function run(id: string, which: RowAction) {
-    const action = ACTIONS[which];
-    patchState(id, { busy: which, error: null, notice: null });
+  async function run(id: string, which: RowAction, call: () => Promise<LifecycleResult>) {
+    patchState(id, { busy: which, error: null, notice: null, info: null });
     try {
-      const res = await action({ postingId: id });
+      const res = await call();
       if (res.ok) {
         if (res.posting !== null) {
           const posting = res.posting;
           setFreshRows((prev) => ({ ...prev, [id]: posting }));
         }
         patchState(id, { busy: null, notice: res.notice ?? null });
+      } else if ("info" in res) {
+        patchState(id, { busy: null, info: res.info });
       } else {
         patchState(id, { busy: null, error: res.error });
       }
@@ -200,6 +224,42 @@ export function PostingsManager({
       // strand the row busy-forever with every button disabled.
       patchState(id, { busy: null, error: "Could not reach the server. Please retry." });
     }
+  }
+
+  function runOneTap(id: string, which: OneTapAction) {
+    const action = ACTIONS[which];
+    return run(id, which, () => action({ postingId: id }));
+  }
+
+  /** This posting's purchase key: the pending one for a retry, a fresh one for a new purchase. */
+  function topUpKeyFor(id: string): string {
+    const pending = topUpKeys.current.get(id);
+    if (pending !== undefined) return pending;
+    const key = crypto.randomUUID();
+    topUpKeys.current.set(id, key);
+    return key;
+  }
+
+  /** Buy one slot top-up at the price the confirm showed (`offer`), under this purchase's key. */
+  async function buyTopUp(id: string, offer: TopUpOffer): Promise<LifecycleResult> {
+    const res = await topUpQuotaAction({
+      postingId: id,
+      expectedPriceInr: offer.priceInr,
+      idempotencyKey: topUpKeyFor(id),
+    });
+    if (res.ok) {
+      topUpKeys.current.delete(id); // DONE — a genuine next purchase gets a fresh key
+      return res;
+    }
+    if ("priceChanged" in res) {
+      // Nothing was bought; a confirm at the new price is a NEW purchase (the old key would
+      // replay this refusal). The action re-rendered the page with the new price.
+      topUpKeys.current.delete(id);
+      return { ok: false, info: priceChangedMessage(res.currentPriceInr) };
+    }
+    // Still in flight: KEEP the key, so a re-tap replays the first attempt instead of buying again.
+    if ("pending" in res) return { ok: false, info: TOP_UP_PENDING };
+    return res; // a failure — KEEP the key: a retry of this purchase must reuse it
   }
 
   /** A row's slot button only ASKS — nothing is bought, and the row's last result stays. */
@@ -211,9 +271,11 @@ export function PostingsManager({
   /** The dialog's confirm — the ONLY path to the purchase; the row's slot button then spins. */
   function confirmTopUp() {
     const id = confirmingTopUp;
-    if (id === null) return;
+    // The offer THIS dialog showed is the price that is sent back (#2085).
+    const offer = topUpOffer;
+    if (id === null || offer === null) return;
     setConfirmingTopUp(null);
-    void run(id, "topUp");
+    void run(id, "topUp", () => buyTopUp(id, offer));
   }
 
   if (rows.length === 0) {
@@ -315,6 +377,14 @@ export function PostingsManager({
                       </div>
                     </div>
                   )}
+                  {rs.info !== null && (
+                    <div className="alert alert--info">
+                      <Icon name="info" className="alert__icon" />
+                      <div className="alert__text">
+                        <p className="alert__body">{rs.info}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -332,7 +402,7 @@ export function PostingsManager({
                         iconLeft={ACTION_ICON_OF[a]}
                         loading={rs.busy === a}
                         disabled={rs.busy !== null}
-                        onClick={() => (a === "topUp" ? askTopUp(p.id) : void run(p.id, a))}
+                        onClick={() => (a === "topUp" ? askTopUp(p.id) : void runOneTap(p.id, a))}
                       >
                         {a === "topUp" ? topUpFace : ACTION_LABEL[a]}
                       </Button>

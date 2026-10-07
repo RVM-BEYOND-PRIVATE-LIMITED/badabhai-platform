@@ -83,6 +83,7 @@ import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import { cardFieldsFromPostingWire, type CardFields } from "./job-card-view";
 import { payerFetch } from "./payer-http";
+import { PayerConflictError, PriceMismatchError } from "./payer-errors";
 import { getLiveCatalog } from "./live-catalog";
 // `findCreditPack` is deliberately NOT imported here: the credit HISTORY renders the ₹
 // stamped on each ledger row at purchase, never a lookup against the current catalog
@@ -324,11 +325,22 @@ export async function reveal(input: { unlockId: string }): Promise<RevealResult>
 }
 
 /**
- * POST /payer/credits — buy a credit pack for the caller (LIVE). The body carries ONLY
- * `{ pack_code }`; the payer is the session token and the server resolves price +
- * credits from config (XB-A — NO payer_id, NO price, NO credits is ever sent). The
+ * The optional `expected_price_inr` body field (#2085): the ₹ the payer confirmed, sent ONLY
+ * when the caller has one. It is a guard the API compares to the price it is about to charge
+ * (409 `price_mismatch` → {@link PriceMismatchError}, nothing bought) — never a charged amount.
+ */
+function confirmedPrice(expectedPriceInr: number | undefined): { expected_price_inr?: number } {
+  return expectedPriceInr === undefined ? {} : { expected_price_inr: expectedPriceInr };
+}
+
+/**
+ * POST /payer/credits — buy a credit pack for the caller (LIVE). The body carries the
+ * `pack_code` and, when the payer confirmed one, `expected_price_inr` (#2085 — a guard, never
+ * the charge); the payer is the session token and the server resolves price + credits from
+ * config (XB-A — NO payer_id, NO credits is ever sent). The
  * backend (`PayerUnlocksController.buyPack`, @HttpCode(201)) returns
  * `{ payer_id, balance, credits, pack_code }`, mapped onto {@link TopUpResult}.
+ * A changed price throws {@link PriceMismatchError} (it is not a 404 or an in-flight 409).
  *
  * MONEY IS MOCK: `realCall` stays false — the backend mock-purchases (real_call:false);
  * there is NO Razorpay anywhere in this app. An UNKNOWN pack is a real backend 404 (a
@@ -345,12 +357,15 @@ export async function topUp(input: {
    * display, but never re-posts, never guesses a number, and never claims the purchase is done.
    */
   idempotencyKey?: string;
+  /** The ₹ the payer confirmed for this pack (#2085). */
+  expectedPriceInr?: number;
 }): Promise<TopUpResult | null> {
   let wire: ReturnType<typeof buyPackResultWireSchema.parse>;
   try {
     wire = await payerFetch("/payer/credits", {
       method: "POST",
-      body: { pack_code: input.packCode }, // XB-A: pack CODE ONLY — no payer_id/price/credits.
+      // XB-A: pack CODE (+ the confirmed price guard) — no payer_id, no credits.
+      body: { pack_code: input.packCode, ...confirmedPrice(input.expectedPriceInr) },
       idempotencyKey: input.idempotencyKey,
       schema: buyPackResultWireSchema,
     });
@@ -379,9 +394,10 @@ export async function topUp(input: {
 /**
  * POST /payer/credits/order — create a REAL Razorpay order (real-payments stream).
  *
- * The body carries ONLY `{ pack_code }` (XB-A/XT5: no payer_id, no amount, no currency) —
- * the server resolves the ₹ from the same pricing catalog the page advertised, so a
- * tampered client cannot name its own price.
+ * The body carries `{ pack_code }` plus, when the payer confirmed one, `expected_price_inr`
+ * (XB-A/XT5: no payer_id, no amount, no currency) — the server resolves the ₹ from the same
+ * pricing catalog the page advertised, so a tampered client cannot name its own price; the
+ * confirmed price only lets it REFUSE a changed one ({@link PriceMismatchError}, #2085).
  *
  * The response's `key_id` is the PUBLIC `rzp_*` key id; it comes from the API on this
  * response rather than from a `NEXT_PUBLIC_*` build value, which keeps the key rotatable
@@ -391,11 +407,16 @@ export async function topUp(input: {
  * launch gate answers a NEUTRAL 404 — indistinguishable by design). The caller shows a
  * generic "cannot start checkout" rather than guessing which.
  */
-export async function createCreditOrder(input: { packCode: string }): Promise<CreditOrder | null> {
+export async function createCreditOrder(input: {
+  packCode: string;
+  /** The ₹ the payer saw on the pack they chose (#2085). */
+  expectedPriceInr?: number;
+}): Promise<CreditOrder | null> {
   try {
     return await payerFetch("/payer/credits/order", {
       method: "POST",
-      body: { pack_code: input.packCode }, // pack CODE ONLY — never an amount
+      // pack CODE (+ the confirmed price guard) — never an amount to charge
+      body: { pack_code: input.packCode, ...confirmedPrice(input.expectedPriceInr) },
       schema: creditOrderWireSchema,
     });
   } catch (e) {
@@ -533,9 +554,11 @@ export type BuyCapacityResult =
 /**
  * POST /payer/capacity — buy/upgrade the caller's OWN hiring capacity (LIVE, Bearer only).
  *
- * The body carries ONLY the tier CODE: NEVER a payer_id (XB-A — the session token is the
- * identity) and NEVER a price/amount/quota (XT5 — the server prices it via the pricing
- * engine). The backend RAISES the allowance and auto-resumes paused plans up to it, then
+ * The body carries the tier CODE and, when the payer confirmed one, `expected_price_inr`
+ * (#2085): NEVER a payer_id (XB-A — the session token is the identity) and NEVER an amount to
+ * charge or a quota (XT5 — the server prices it via the pricing engine; the confirmed price is
+ * only a guard it refuses a changed price with, {@link PriceMismatchError}). The backend RAISES
+ * the allowance and auto-resumes paused plans up to it, then
  * returns `{ payer_id, quote, max_active_vacancies, source_tier, expires_at, resumed_plan_ids }`.
  *
  * Mapped onto a typed {@link BuyCapacityResult}: only ids/counts/tier/timestamps are
@@ -548,8 +571,11 @@ export type BuyCapacityResult =
 export async function buyCapacity({
   tier,
   idempotencyKey,
+  expectedPriceInr,
 }: {
   tier: string;
+  /** The ₹ the payer confirmed for this tier (#2085). */
+  expectedPriceInr?: number;
   /**
    * Optional per-purchase idempotency key (#1148). A duplicate capacity purchase is WORSE than a
    * duplicate credit pack — `greatest()` grants NO extra allowance but re-fires the payment +
@@ -562,7 +588,8 @@ export async function buyCapacity({
   try {
     const wire = await payerFetch("/payer/capacity", {
       method: "POST",
-      body: { tier }, // XB-A: tier CODE ONLY — no payer_id; XT5: no price/amount/quota.
+      // XB-A: tier CODE (+ the confirmed price guard) — no payer_id; XT5: no amount/quota.
+      body: { tier, ...confirmedPrice(expectedPriceInr) },
       idempotencyKey,
       schema: buyCapacityWireSchema,
     });
@@ -580,19 +607,23 @@ export async function buyCapacity({
     // or a double-charge-prevention 409 would masquerade as a generic "retry" (a re-tap = a
     // second purchase attempt the server already deduped).
     if (e instanceof Error && /returned 409/.test(e.message)) throw new PurchaseConflictError();
+    // A refused confirmed price (#2085) is not a retryable failure either: nothing was bought,
+    // and the payer must see the new price and confirm again — never a "retry" at the old one.
+    if (e instanceof PriceMismatchError) throw e;
     // Neutral failure — no leaked deny reason / role state (no-oracle); never a fake success.
     return { ok: false, error: "Capacity upgrade failed (service unavailable). Please retry." };
   }
 }
 
 /**
- * A 409 from a PURCHASE (`POST /payer/credits` #1046, or `POST /payer/capacity` #1148): a
- * DUPLICATE landed while the first request carrying the same `Idempotency-Key` was still in
- * flight. The 409 body carries NO renderable balance/allowance by design (asserted server-side)
- * — inventing a figure would be worse than the double-charge it prevents. The ONLY correct
- * response is to RE-READ the real figure (`GET /payer/credits` / `GET /payer/capacity`): never
- * re-POST, never render a guessed number. Thrown by {@link topUp} and {@link buyCapacity} so the
- * action can distinguish this from every other failure.
+ * A 409 from a PURCHASE (`POST /payer/credits` #1046, `POST /payer/capacity` #1148, or the
+ * quota top-up #2085): a DUPLICATE landed while the first request carrying the same
+ * `Idempotency-Key` was still in flight. The 409 body carries NO renderable
+ * balance/allowance by design (asserted server-side) — inventing a figure would be worse than
+ * the double-charge it prevents. The ONLY correct response is to RE-READ the real figure
+ * (`GET /payer/credits` / `GET /payer/capacity` / the posting): never re-POST, never render a
+ * guessed number. Thrown by {@link topUp}, {@link buyCapacity} and {@link topUpPostingQuota}
+ * so the action can distinguish this from every other failure.
  */
 export class PurchaseConflictError extends Error {
   constructor() {
@@ -1557,12 +1588,18 @@ export async function resumePosting(input: { postingId: string }): Promise<Posti
 /**
  * POST /payer/job-postings/:id/quota-topup — top up applicant-visibility quota on the
  * caller's OWN ACTIVE PLAN for this posting (LIVE, B2 #180 — "view more → pay more").
- * The body carries ONLY the config'd catalog tier CODE ({@link quotaTopUpTier} — XT5:
- * the backend re-resolves price + grant through the pricing engine; the client can
- * never send an amount). Session identity only (XB-A). Unknown/not-owned → neutral 404
- * → `null`; a 409 (NO ACTIVE PLAN to top up) throws `QuotaTopUpNoPlanError` so the
- * action can say "buy a plan first" without weakening the not-found neutrality. The
- * wire returns the topped-up plan `{ plan, quote }`; the fresh posting row is re-read
+ * The body carries the config'd catalog tier CODE ({@link quotaTopUpTier} — XT5: the
+ * backend re-resolves price + grant through the pricing engine; the client never sends
+ * an amount to charge) and, when the payer confirmed one, `expected_price_inr` (#2085).
+ * Session identity only (XB-A). Unknown/not-owned → neutral 404 → `null`.
+ *
+ * THREE 409s, three answers:
+ *  - `price_mismatch` → {@link PriceMismatchError} (nothing bought; the payer re-confirms);
+ *  - the in-flight duplicate of an `Idempotency-Key` (#2085, the same seam as capacity) →
+ *    {@link PurchaseConflictError} (still processing, outcome unknown — never re-post);
+ *  - anything else — no ACTIVE PLAN to top up → `QuotaTopUpNoPlanError`, so the action can
+ *    say "buy a plan first" without weakening the not-found neutrality.
+ * The wire returns the topped-up plan `{ plan, quote }`; the fresh posting row is re-read
  * so the action keeps its PostingSummary contract.
  */
 export interface QuotaTopUpOutcome {
@@ -1578,27 +1615,41 @@ export interface QuotaTopUpOutcome {
 
 export async function topUpPostingQuota(input: {
   postingId: string;
+  /** The ₹ the payer confirmed for one top-up (#2085). */
+  expectedPriceInr?: number;
+  /**
+   * Optional per-purchase idempotency key (#2085, the capacity seam's semantics): the SAME key
+   * across a retry of ONE confirmed top-up makes the backend charge once and replay the first
+   * result. Without it a retry after a timeout bought a second top-up.
+   */
+  idempotencyKey?: string;
 }): Promise<QuotaTopUpOutcome | null> {
   // The LIVE catalog (D-6): the tier CODE + display views come from the API's active
   // catalog (an ops tier edit reaches this body without a rebuild), falling open to
   // the compile-time defaults on fetch failure — the backend re-resolves price + grant
-  // through the pricing engine either way (XT5), so a stale code at worst 400s, never
-  // mis-charges.
-  const { products } = await getLiveCatalog();
-  const tier = quotaTopUpTier(products);
+  // through the pricing engine either way (XT5), so a stale code at worst 400s or (with a
+  // confirmed price that no longer matches) 409s, never mis-charges.
+  const catalog = await getLiveCatalog();
+  const tier = quotaTopUpTier(catalog);
   if (!tier) throw new Error("no quota top-up tier configured"); // fail-closed, config-sourced
   try {
     await payerFetch(`/payer/job-postings/${input.postingId}/quota-topup`, {
       method: "POST",
-      body: { tier: tier.code },
+      body: { tier: tier.code, ...confirmedPrice(input.expectedPriceInr) },
+      idempotencyKey: input.idempotencyKey,
       schema: quotaTopUpWireSchema,
     });
   } catch (e) {
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    // The in-flight duplicate is told apart from "no active plan" by the API's documented
+    // message (payer-agency-api-reference.md) — the 409 carries no machine-readable reason.
+    if (e instanceof PayerConflictError && QUOTA_TOPUP_IN_FLIGHT.test(e.detail ?? "")) {
+      throw new PurchaseConflictError();
+    }
     if (e instanceof Error && /returned 409/.test(e.message)) {
       throw new QuotaTopUpNoPlanError();
     }
-    throw e;
+    throw e; // incl. PriceMismatchError — the action tells the payer the new price.
   }
   // The charge is COMMITTED past this line (payment + quota events emitted server-side).
   // A transient failure on the fresh-row re-read must NOT propagate as an error — the
@@ -1609,6 +1660,13 @@ export async function topUpPostingQuota(input: {
     return { posting: null, addedViews: tier.additionalViews };
   }
 }
+
+/**
+ * The quota top-up's in-flight 409 message (#2085): "This quota top-up is already being
+ * processed; check the posting before trying again". Matched on its stable phrase; a reworded
+ * message degrades to the no-active-plan answer, which is what every 409 here meant before.
+ */
+const QUOTA_TOPUP_IN_FLIGHT = /already being processed/i;
 
 /** 409 from quota-topup: the posting has no ACTIVE PLAN to top up (buy a plan first). */
 export class QuotaTopUpNoPlanError extends Error {

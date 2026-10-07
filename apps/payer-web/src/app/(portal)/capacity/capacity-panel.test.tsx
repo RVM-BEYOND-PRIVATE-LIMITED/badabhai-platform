@@ -152,7 +152,11 @@ describe("capacity panel — ONE key per PURCHASE (a): a retry of the SAME tier 
     const keys = sentKeys();
     expect(keys[0]).toBe("key-1");
     expect(keys[1]).toBe("key-1");
-    expect(upgradeCapacityAction).toHaveBeenCalledWith({ tier: "growth", idempotencyKey: "key-1" });
+    expect(upgradeCapacityAction).toHaveBeenCalledWith({
+      tier: "growth",
+      idempotencyKey: "key-1",
+      expectedPriceInr: 4999,
+    });
   });
 });
 
@@ -304,12 +308,15 @@ describe("capacity panel — the price is on the trigger, and the confirm says w
     expect(upgradeCapacityAction).not.toHaveBeenCalled();
   });
 
-  it("only the confirm sends — ONCE, the tier code and a purchase key, never a price", async () => {
+  it("only the confirm sends — ONCE: the tier code, a purchase key and the price it showed — nothing else", async () => {
     upgradeCapacityAction.mockResolvedValue({ ok: true, resumedCount: 0, allowance: 10 });
     await confirmUpgrade(TIER_B);
     expect(upgradeCapacityAction).toHaveBeenCalledTimes(1);
-    expect(upgradeCapacityAction).toHaveBeenCalledWith({ tier: "growth", idempotencyKey: "key-1" });
-    expect(JSON.stringify(upgradeCapacityAction.mock.calls[0])).not.toMatch(/price|inr|4999/i);
+    // #2085: the confirmed price rides along as a guard (the server still prices the charge).
+    // EXACTLY these three keys — never a payer id, an amount to charge, or the allowance.
+    const sent = upgradeCapacityAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent).toStrictEqual({ tier: "growth", idempotencyKey: "key-1", expectedPriceInr: 4999 });
+    expect(JSON.stringify(sent)).not.toMatch(/payer|amount|allowance|vacanc/i);
   });
 
   it("while it runs, the busy state is on the confirmed tier's button only", () => {
@@ -441,5 +448,96 @@ describe("capacity panel — a tier the plan already covers reads as included, n
 
   it("below every tier: every tier is for sale", () => {
     expect(forSale(render(null, null, 1))).toEqual(["Upgrade · ₹999", "Upgrade · ₹4,999"]);
+  });
+});
+
+/**
+ * #2085 — SHOWN == SENT. The upgrade sends back `expectedPriceInr` equal to the exact number its
+ * confirm showed; under an active offer the tile strikes the list price and the OFFER price is the
+ * one on the button, on the confirm and in the request. A refused price is a neutral notice naming
+ * the new price, the page refreshes, the key is retired — and nothing retries on its own.
+ */
+describe("capacity panel — #2085: the price shown is the price sent; a refused price is said, never retried", () => {
+  /** A tier under an active offer: charged ₹3,999, list ₹4,999. */
+  const OFFER_TIER: CapacityTier = { ...TIER_B, priceInr: 3999, listPriceInr: 4999 };
+  const rupees = (s: string) => Number(s.replace(/[₹,\s]/g, ""));
+
+  function renderWith(tiers: CapacityTier[], armed: CapacityTier | null): ReactElement {
+    stateQueue = [null, armed, null, null];
+    stateCursor = 0;
+    refCursor = 0;
+    effects = [];
+    return CapacityPanel({ tiers, currentAllowance: null }) as ReactElement;
+  }
+  /** The ONE ₹ figure the armed confirm's question shows. */
+  function shownInConfirm(tiers: CapacityTier[], armed: CapacityTier): number {
+    const body = textOf(
+      (findAll(renderWith(tiers, armed), Dialog)[0]!.props as { children?: ReactNode }).children,
+    );
+    const figures = body.match(/₹[\d,]+/g) ?? [];
+    expect(figures, body).toHaveLength(1);
+    return rupees(figures[0]!);
+  }
+  async function confirmFrom(tiers: CapacityTier[], armed: CapacityTier): Promise<void> {
+    const footer = (findAll(renderWith(tiers, armed), Dialog)[0]!.props as { footer?: ReactNode })
+      .footer;
+    (findAll(footer, Button).find((b) => textOf(b).includes("Upgrade"))!.props as {
+      onClick: () => void;
+    }).onClick();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  const lastSent = () =>
+    (upgradeCapacityAction.mock.calls.at(-1)![0] as { expectedPriceInr?: number }).expectedPriceInr;
+
+  it("the confirm sends exactly the number its dialog showed — at list price and under an offer", async () => {
+    upgradeCapacityAction.mockResolvedValue({ ok: true, resumedCount: 0, allowance: 10 });
+    for (const [tiers, armed] of [
+      [[TIER_A, TIER_B], TIER_B],
+      [[TIER_A, OFFER_TIER], OFFER_TIER],
+    ] as const) {
+      const shown = shownInConfirm([...tiers], armed);
+      await confirmFrom([...tiers], armed);
+      expect(lastSent(), armed.code).toBe(shown);
+    }
+    expect(shownInConfirm([TIER_A, OFFER_TIER], OFFER_TIER)).toBe(3999);
+  });
+
+  it("an offer is shown honestly: the tile strikes the list price; the button carries the offer price only", () => {
+    const tree = renderWith([TIER_A, OFFER_TIER], null);
+    const struck = findAll(tree, "s");
+    expect(struck.map((s) => [(s.props as { className?: string }).className, textOf(s)])).toEqual([
+      ["price-was", "₹4,999"],
+    ]);
+    const buttons = findAll(tree, Button).map((b) => textOf(b).replace(/\s+/g, " ").trim());
+    expect(buttons).toContain("Upgrade · ₹3,999");
+    expect(buttons.join(" ")).not.toContain("₹4,999");
+  });
+
+  it("a refused price: a neutral notice with the new price, the page refreshed, ONE call, no retry", async () => {
+    upgradeCapacityAction.mockResolvedValueOnce({
+      ok: false,
+      priceChanged: true,
+      currentPriceInr: 5499,
+    });
+    await confirmUpgrade(TIER_B);
+    expect(upgradeCapacityAction).toHaveBeenCalledTimes(1);
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toContain(
+      "The price changed to ₹5,499. Review and confirm again.",
+    );
+    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("after a refused price the next confirm is a NEW purchase — a fresh key", async () => {
+    upgradeCapacityAction.mockResolvedValueOnce({
+      ok: false,
+      priceChanged: true,
+      currentPriceInr: 5499,
+    });
+    await confirmUpgrade(TIER_B);
+    upgradeCapacityAction.mockResolvedValueOnce({ ok: true, resumedCount: 0, allowance: 10 });
+    await confirmUpgrade(TIER_B);
+    expect(sentKeys()).toEqual(["key-1", "key-2"]);
   });
 });

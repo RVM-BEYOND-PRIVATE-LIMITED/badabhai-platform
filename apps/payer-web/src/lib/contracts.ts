@@ -623,7 +623,10 @@ export const maskedResumeWireSchema = z.union([
 /** A credit pack offered for purchase — sourced from config, never hardcoded here. */
 export const creditPackSchema = z.object({
   code: z.string(),
+  /** What buying the pack is charged (#2085) — shown on the tile and confirm, sent back as confirmed. */
   priceInr: z.number().int().positive(),
+  /** The catalog list price, only when an active offer lowers `priceInr` below it. */
+  listPriceInr: z.number().int().positive().optional(),
   credits: z.number().int().positive(),
 });
 export type CreditPack = z.infer<typeof creditPackSchema>;

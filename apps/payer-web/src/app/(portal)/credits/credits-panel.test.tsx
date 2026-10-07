@@ -59,14 +59,20 @@ vi.mock("react", async () => {
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: routerRefresh }) }));
 
-// Observe the Server Action; the other imports must exist so the module resolves.
+// Observe the Server Actions (and the checkout, for the real-mode #2085 case).
 const topUpAction = vi.fn();
+const createOrderAction = vi.fn();
+const loadCheckoutScript = vi.fn();
+const openCheckout = vi.fn();
 vi.mock("./actions", () => ({
   topUpAction: (i: unknown) => topUpAction(i),
-  createOrderAction: vi.fn(),
+  createOrderAction: (i: unknown) => createOrderAction(i),
   verifyPaymentAction: vi.fn(),
 }));
-vi.mock("./razorpay-checkout", () => ({ loadCheckoutScript: vi.fn(), openCheckout: vi.fn() }));
+vi.mock("./razorpay-checkout", () => ({
+  loadCheckoutScript: () => loadCheckoutScript(),
+  openCheckout: (i: unknown) => openCheckout(i),
+}));
 
 const { CreditsPanel } = await import("./credits-panel");
 
@@ -123,6 +129,9 @@ beforeEach(() => {
   useRef.mockClear();
   stateSetters = [];
   topUpAction.mockReset();
+  createOrderAction.mockReset();
+  loadCheckoutScript.mockReset();
+  openCheckout.mockReset();
   routerRefresh.mockReset();
   keyBox = { current: null };
   uuidCounter = 0;
@@ -143,7 +152,12 @@ describe("credits panel — ONE key per PURCHASE (a): a retry of the SAME pack r
     const keys = sentKeys();
     expect(keys[0]).toBe("key-1");
     expect(keys[1]).toBe("key-1"); // same purchase → same key → backend dedupes the re-tap
-    expect(topUpAction).toHaveBeenCalledWith({ packCode: "pack_50", idempotencyKey: "key-1" });
+    // …and the price the dialog showed (#2085). Exact: no payer id, no other field.
+    expect(topUpAction).toHaveBeenCalledWith({
+      packCode: "pack_50",
+      idempotencyKey: "key-1",
+      expectedPriceInr: 2000,
+    });
   });
 });
 
@@ -310,5 +324,129 @@ describe("credits panel — fence: the purchase dialog never says it charges (re
     const copy = [textOf(p.title), textOf(p.children), textOf(p.footer)].join(" ");
     expect(copy).toContain("₹2,000");
     expect(copy).not.toMatch(/charg/i);
+  });
+});
+
+/**
+ * #2085 — SHOWN == SENT. The purchase sends back `expectedPriceInr` equal to the exact number the
+ * payer saw: the confirm's price (mock), or the tile's (real, which has no confirm of its own). An
+ * active offer is shown honestly — the tile strikes the list price — and the OFFER price is the one
+ * shown on the confirm and sent. A refused price (409 `price_mismatch`) is a neutral notice naming
+ * the new price, the page is refreshed so it shows, the purchase key is retired, and nothing is
+ * retried on its own.
+ */
+describe("credits panel — #2085: the price shown is the price sent; a refused price is said, never retried", () => {
+  /** A pack under an active offer: charged ₹6,000, list ₹8,000. */
+  const OFFER_PACK: CreditPack = { code: "pack_200", priceInr: 6000, listPriceInr: 8000, credits: 200 };
+  const PACKS = [PACK_A, PACK_B, OFFER_PACK];
+  const rupees = (s: string) => Number(s.replace(/[₹,\s]/g, ""));
+
+  /** Render with `pack` armed and read back the ONE ₹ figure its confirm question shows. */
+  function shownInConfirm(pack: CreditPack): number {
+    stateQueue = [null, pack, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
+    const body = textOf((findAll(tree, Dialog)[0]!.props as { children?: ReactNode }).children);
+    const figures = body.match(/₹[\d,]+/g) ?? [];
+    expect(figures, body).toHaveLength(1); // one number on the confirm — no ambiguity
+    return rupees(figures[0]!);
+  }
+
+  /** Arm `pack` and press the confirm, as the payer does. */
+  async function confirmFrom(pack: CreditPack): Promise<void> {
+    stateQueue = [null, pack, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
+    const footer = (findAll(tree, Dialog)[0]!.props as { footer?: ReactNode }).footer;
+    const confirm = findAll(footer, Button).find((b) => textOf(b).includes("Add credits"))!;
+    (confirm.props as { onClick: () => void }).onClick();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  const lastSent = () =>
+    (topUpAction.mock.calls.at(-1)![0] as { expectedPriceInr?: number }).expectedPriceInr;
+
+  it("the confirm sends exactly the number its dialog showed — at list price and under an offer", async () => {
+    topUpAction.mockResolvedValue({ ok: true, balance: 60, creditsAdded: 50 });
+    for (const pack of [PACK_A, PACK_B, OFFER_PACK]) {
+      const shown = shownInConfirm(pack);
+      await confirmFrom(pack);
+      expect(lastSent(), pack.code).toBe(shown);
+    }
+    // Under the offer, what is shown and sent is the OFFER price, never the list price.
+    expect(shownInConfirm(OFFER_PACK)).toBe(6000);
+  });
+
+  it("an offer is shown honestly: the tile strikes the list price beside the offer price", () => {
+    stateQueue = [null, null, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
+    const tile = findAll(tree, Card).find((c) => c.key === OFFER_PACK.code)!;
+    const struck = findAll(tile, "s");
+    expect(struck).toHaveLength(1);
+    expect((struck[0]!.props as { className?: string }).className).toBe("price-was");
+    expect(textOf(struck[0]!)).toBe("₹8,000");
+    expect(textOf(tile)).toContain("₹6,000");
+    // A pack with no offer strikes nothing.
+    const plain = findAll(tree, Card).find((c) => c.key === PACK_A.code)!;
+    expect(findAll(plain, "s")).toEqual([]);
+  });
+
+  it("a refused price: a neutral notice with the new price, the page refreshed, ONE call, no retry", async () => {
+    topUpAction.mockResolvedValueOnce({ ok: false, priceChanged: true, currentPriceInr: 2400 });
+    await confirmBuy(PACK_A);
+    expect(topUpAction).toHaveBeenCalledTimes(1);
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toContain(
+      "The price changed to ₹2,400. Review and confirm again.",
+    );
+    // Neutral: neither the success toast nor the danger toast.
+    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("after a refused price the next confirm is a NEW purchase — a fresh key (the old one would replay the refusal)", async () => {
+    topUpAction.mockResolvedValueOnce({ ok: false, priceChanged: true, currentPriceInr: 2400 });
+    await confirmBuy(PACK_A);
+    topUpAction.mockResolvedValueOnce({ ok: true, balance: 60, creditsAdded: 50 });
+    await confirmBuy(PACK_A);
+    expect(sentKeys()).toEqual(["key-1", "key-2"]);
+  });
+
+  it("real mode: the order carries the tile's price; a refused price opens no checkout and says so", async () => {
+    createOrderAction.mockResolvedValue({ ok: false, priceChanged: true, currentPriceInr: 7000 });
+    stateQueue = [null, null, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: PACKS, real: true }) as ReactElement;
+    const tile = findAll(tree, Card).find((c) => c.key === OFFER_PACK.code)!;
+    const tilePrice = findAll(tile, "div").find((d) =>
+      String((d.props as { className?: string }).className).includes("credit-pack__price"),
+    )!;
+    // The tile's charged figure is the last ₹ on it (the struck list price comes first).
+    const shown = rupees((textOf(tilePrice).match(/₹[\d,]+/g) ?? []).at(-1)!);
+    (findAll(tile, Button)[0]!.props as { onClick: () => void }).onClick();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(createOrderAction).toHaveBeenCalledTimes(1);
+    expect(createOrderAction).toHaveBeenCalledWith({ packCode: "pack_200", expectedPriceInr: shown });
+    expect(shown).toBe(6000);
+    expect(loadCheckoutScript).not.toHaveBeenCalled();
+    expect(openCheckout).not.toHaveBeenCalled();
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toContain(
+      "The price changed to ₹7,000. Review and confirm again.",
+    );
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("Cancel sends nothing", () => {
+    stateQueue = [null, OFFER_PACK, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
+    const dialog = findAll(tree, Dialog)[0]!;
+    const footer = (dialog.props as { footer?: ReactNode }).footer;
+    (findAll(footer, Button).find((b) => textOf(b).includes("Cancel"))!.props as {
+      onClick: () => void;
+    }).onClick();
+    (dialog.props as { onClose: () => void }).onClose();
+    expect(topUpAction).not.toHaveBeenCalled();
   });
 });

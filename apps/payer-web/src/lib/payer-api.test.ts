@@ -1303,3 +1303,232 @@ describe("live-swap guardrails (source) — the seam is FULLY live, no mock fall
     expect(src).toMatch(/payerFetch\("\/payer\/credits\/ledger/);
   });
 });
+
+/**
+ * #2085 — PRICE CONFIRMATION and the IDEMPOTENT quota top-up, through the REAL transport.
+ *
+ *  - every purchase body carries `expected_price_inr` = the price the caller confirmed, beside its
+ *    code, and nothing else new (never a payer_id, never an amount to charge);
+ *  - a 409 `price_mismatch` — as the API's exception filter actually puts it on the wire, nested
+ *    under `error` — is a {@link PriceMismatchError} carrying the API's current price, on every
+ *    purchase route. It must NOT be read as the in-flight duplicate (PurchaseConflictError), the
+ *    no-active-plan 409, a 404 null, or capacity's neutral `{ ok:false }`;
+ *  - the quota top-up sends the caller's `Idempotency-Key` verbatim, and tells its in-flight
+ *    duplicate (still processing) apart from "no active plan".
+ */
+describe("#2085 — expected_price_inr, price_mismatch, and the idempotent quota top-up", () => {
+  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f";
+
+  /** A 409 exactly as `AllExceptionsFilter` serialises a thrown ConflictException payload. */
+  function conflict(payload: Record<string, unknown>): Response {
+    return jsonResponse(
+      {
+        statusCode: 409,
+        error: { statusCode: 409, error: "Conflict", ...payload },
+        requestId: "req-1",
+        path: "/payer/x",
+        timestamp: "2026-10-07T09:00:00.000Z",
+      },
+      409,
+    );
+  }
+  const priceMismatch = (expected: number, current: number) =>
+    conflict({
+      reason: "price_mismatch",
+      message: `The price changed: you confirmed ₹${expected} but the current price is ₹${current}. Nothing was charged; re-read the price and confirm again`,
+      expected_price_inr: expected,
+      current_price_inr: current,
+    });
+  const bodyOf = (call: unknown) =>
+    JSON.parse((call as [string, RequestInit])[1].body as string) as Record<string, unknown>;
+  const callTo = (suffix: string) =>
+    fetchMock.mock.calls.find((c) => (c[0] as string).endsWith(suffix));
+
+  it("topUp sends the confirmed price beside the pack code — and nothing else", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ payer_id: PAYER_A, balance: 57, credits: 50, pack_code: "pack_50" }, 201),
+    );
+    const { topUp } = await import("./payer-api");
+    await topUp({ packCode: "pack_50", idempotencyKey: KEY, expectedPriceInr: 2000 });
+    expect(bodyOf(fetchMock.mock.calls[0])).toStrictEqual({
+      pack_code: "pack_50",
+      expected_price_inr: 2000,
+    });
+  });
+
+  it("topUp: a price_mismatch is a PriceMismatchError with the API's current price — NOT the in-flight conflict", async () => {
+    fetchMock.mockResolvedValue(priceMismatch(2000, 1500));
+    const { topUp, PurchaseConflictError } = await import("./payer-api");
+    const { PriceMismatchError } = await import("./payer-errors");
+    const err = await topUp({ packCode: "pack_50", expectedPriceInr: 2000 }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(PriceMismatchError);
+    expect(err).not.toBeInstanceOf(PurchaseConflictError);
+    expect((err as InstanceType<typeof PriceMismatchError>).currentPriceInr).toBe(1500);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // refused once — never re-posted at the new price
+  });
+
+  it("a 409 WITHOUT reason price_mismatch is still the in-flight conflict (existing handling kept)", async () => {
+    fetchMock.mockResolvedValue(
+      conflict({
+        message: "This purchase is already being processed; check your balance before trying again",
+      }),
+    );
+    const { topUp, PurchaseConflictError } = await import("./payer-api");
+    await expect(topUp({ packCode: "pack_50", idempotencyKey: KEY })).rejects.toBeInstanceOf(
+      PurchaseConflictError,
+    );
+  });
+
+  it("createCreditOrder sends the confirmed price; a price_mismatch is a PriceMismatchError, not a null 404", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        order_id: "order_1",
+        key_id: "rzp_test_k",
+        amount: 200000,
+        amount_inr: 2000,
+        currency: "INR",
+        pack_code: "pack_50",
+        credits: 50,
+      }),
+    );
+    const { createCreditOrder } = await import("./payer-api");
+    const { PriceMismatchError } = await import("./payer-errors");
+    await createCreditOrder({ packCode: "pack_50", expectedPriceInr: 2000 });
+    expect(bodyOf(fetchMock.mock.calls[0])).toStrictEqual({
+      pack_code: "pack_50",
+      expected_price_inr: 2000,
+    });
+
+    fetchMock.mockResolvedValueOnce(priceMismatch(2000, 2400));
+    const err = await createCreditOrder({ packCode: "pack_50", expectedPriceInr: 2000 }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(PriceMismatchError);
+    expect((err as InstanceType<typeof PriceMismatchError>).currentPriceInr).toBe(2400);
+  });
+
+  it("buyCapacity sends the confirmed price; a price_mismatch THROWS — never the neutral 'retry' { ok:false }", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        payer_id: PAYER_A,
+        quote: {},
+        max_active_vacancies: 15,
+        source_tier: "cap_15",
+        expires_at: null,
+        resumed_plan_ids: [],
+      }),
+    );
+    const { buyCapacity, PurchaseConflictError } = await import("./payer-api");
+    const { PriceMismatchError } = await import("./payer-errors");
+    await buyCapacity({ tier: "cap_15", idempotencyKey: KEY, expectedPriceInr: 12000 });
+    expect(bodyOf(fetchMock.mock.calls[0])).toStrictEqual({
+      tier: "cap_15",
+      expected_price_inr: 12000,
+    });
+
+    fetchMock.mockResolvedValueOnce(priceMismatch(12000, 9000));
+    const err = await buyCapacity({
+      tier: "cap_15",
+      idempotencyKey: KEY,
+      expectedPriceInr: 12000,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PriceMismatchError);
+    expect(err).not.toBeInstanceOf(PurchaseConflictError);
+    expect((err as InstanceType<typeof PriceMismatchError>).currentPriceInr).toBe(9000);
+  });
+
+  it("a FLAT price_mismatch body is read too; a missing or garbled current price is null, never a guess", async () => {
+    const { topUp } = await import("./payer-api");
+    const { PriceMismatchError } = await import("./payer-errors");
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ reason: "price_mismatch", current_price_inr: 1800 }, 409),
+    );
+    const flat = await topUp({ packCode: "pack_50", expectedPriceInr: 2000 }).catch(
+      (e: unknown) => e,
+    );
+    expect((flat as InstanceType<typeof PriceMismatchError>).currentPriceInr).toBe(1800);
+
+    for (const current of [undefined, "1800", -5, 12.5]) {
+      fetchMock.mockResolvedValueOnce(
+        conflict({ reason: "price_mismatch", current_price_inr: current }),
+      );
+      const err = await topUp({ packCode: "pack_50", expectedPriceInr: 2000 }).catch(
+        (e: unknown) => e,
+      );
+      expect(err, String(current)).toBeInstanceOf(PriceMismatchError);
+      expect(
+        (err as InstanceType<typeof PriceMismatchError>).currentPriceInr,
+        String(current),
+      ).toBeNull();
+    }
+  });
+
+  /** quota-topup routes: the catalog read, the POST (answered by `topup`), the posting re-read. */
+  function topUpRoutes(topup: () => Response) {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/pricing/catalog")) return Promise.resolve(catalogResponse());
+      if (url.endsWith("/quota-topup")) return Promise.resolve(topup());
+      return Promise.resolve(jsonResponse(jobPostingRow({ status: "open" })));
+    });
+  }
+
+  it("quota-topup sends the confirmed price and the purchase's Idempotency-Key header, verbatim", async () => {
+    topUpRoutes(() => jsonResponse({ plan: { id: "p1" }, quote: {} }, 201));
+    const { topUpPostingQuota } = await import("./payer-api");
+    await topUpPostingQuota({ postingId: POSTING_ID, expectedPriceInr: 1000, idempotencyKey: KEY });
+    const call = callTo("/quota-topup") as [string, RequestInit];
+    expect(bodyOf(call)).toStrictEqual({ tier: "topup_10", expected_price_inr: 1000 });
+    expect((call[1].headers as Record<string, string>)["Idempotency-Key"]).toBe(KEY);
+  });
+
+  it("quota-topup without a key sends no Idempotency-Key header (the header stays optional)", async () => {
+    topUpRoutes(() => jsonResponse({ plan: { id: "p1" }, quote: {} }, 201));
+    const { topUpPostingQuota } = await import("./payer-api");
+    await topUpPostingQuota({ postingId: POSTING_ID, expectedPriceInr: 1000 });
+    const call = callTo("/quota-topup") as [string, RequestInit];
+    expect(call[1].headers as Record<string, string>).not.toHaveProperty("Idempotency-Key");
+  });
+
+  it("quota-topup: price_mismatch → PriceMismatchError (not 'no active plan')", async () => {
+    topUpRoutes(() => priceMismatch(1000, 750));
+    const { topUpPostingQuota, QuotaTopUpNoPlanError } = await import("./payer-api");
+    const { PriceMismatchError } = await import("./payer-errors");
+    const err = await topUpPostingQuota({
+      postingId: POSTING_ID,
+      expectedPriceInr: 1000,
+      idempotencyKey: KEY,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PriceMismatchError);
+    expect(err).not.toBeInstanceOf(QuotaTopUpNoPlanError);
+    expect((err as InstanceType<typeof PriceMismatchError>).currentPriceInr).toBe(750);
+  });
+
+  it("quota-topup: the in-flight duplicate is 'still processing', NOT 'buy a plan first'", async () => {
+    topUpRoutes(() =>
+      conflict({
+        message:
+          "This quota top-up is already being processed; check the posting before trying again",
+      }),
+    );
+    const { topUpPostingQuota, PurchaseConflictError, QuotaTopUpNoPlanError } =
+      await import("./payer-api");
+    const err = await topUpPostingQuota({
+      postingId: POSTING_ID,
+      expectedPriceInr: 1000,
+      idempotencyKey: KEY,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PurchaseConflictError);
+    expect(err).not.toBeInstanceOf(QuotaTopUpNoPlanError);
+  });
+
+  it("quota-topup: the real no-active-plan 409 (wire envelope) is still QuotaTopUpNoPlanError", async () => {
+    topUpRoutes(() => conflict({ message: "no active plan to top up for this posting" }));
+    const { topUpPostingQuota, QuotaTopUpNoPlanError } = await import("./payer-api");
+    await expect(
+      topUpPostingQuota({ postingId: POSTING_ID, expectedPriceInr: 1000, idempotencyKey: KEY }),
+    ).rejects.toBeInstanceOf(QuotaTopUpNoPlanError);
+  });
+});

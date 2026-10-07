@@ -9,6 +9,12 @@ import {
   topUp,
   verifyCreditPayment,
 } from "../../../lib/payer-api";
+import { PriceMismatchError } from "../../../lib/payer-errors";
+import {
+  PRICE_UNREADABLE_MESSAGE,
+  readExpectedPrice,
+  type PriceChangedResult,
+} from "../../../lib/price-confirmation";
 
 /**
  * MOCK credit top-up Server Action (XT5 / E-R2 — MOCK ledger only).
@@ -31,6 +37,8 @@ export type TopUpActionResult =
   // completed purchase. This is a NON-terminal result: `balance` (when present) is the CURRENT
   // figure, re-read for display only — never a final/confirmed balance, never a granted delta.
   | { ok: false; pending: true; balance?: number }
+  // A 409 `price_mismatch` (#2085): the confirmed price is not the price now — nothing bought.
+  | PriceChangedResult
   | { ok: false; error: string };
 
 const packCodeSchema = z.string().min(1).max(64);
@@ -49,6 +57,8 @@ function safeIdempotencyKey(key: string | undefined): string | undefined {
 export async function topUpAction(input: {
   packCode: string;
   idempotencyKey?: string;
+  /** The ₹ the payer confirmed in the dialog (#2085) — sent as `expected_price_inr`. */
+  expectedPriceInr?: number;
 }): Promise<TopUpActionResult> {
   // GATE FIRST (#463 — TD79). A Next.js Server Action is an INDEPENDENTLY INVOCABLE POST
   // endpoint, not a child of the page that renders the button: the page's requireOwner()
@@ -70,14 +80,22 @@ export async function topUpAction(input: {
   if (!packCodeSchema.safeParse(input.packCode).success) {
     return { ok: false, error: "Choose a pack to buy." };
   }
+  const confirmed = readExpectedPrice(input.expectedPriceInr);
+  if (!confirmed.ok) return { ok: false, error: PRICE_UNREADABLE_MESSAGE };
   try {
     const result = await topUp({
       packCode: input.packCode,
       idempotencyKey: safeIdempotencyKey(input.idempotencyKey),
+      expectedPriceInr: confirmed.value,
     });
     if (!result) return { ok: false, error: "That pack is no longer available." };
     return { ok: true, balance: result.balance, creditsAdded: result.creditsAdded };
   } catch (e) {
+    // #2085 — the price changed since the payer confirmed it. Nothing was bought; the panel
+    // says so and refreshes the price. Never retried here at the new price.
+    if (e instanceof PriceMismatchError) {
+      return { ok: false, priceChanged: true, currentPriceInr: e.currentPriceInr };
+    }
     // 409 DUPLICATE-IN-FLIGHT (#1185): the backend 409s ONLY while the FIRST attempt's in-flight
     // sentinel still stands — that attempt has NOT committed and may still throw. This is "still
     // processing, outcome UNKNOWN", NOT "already done" (the earlier #1046 branch read this inverted
@@ -113,6 +131,7 @@ export type CreateOrderActionResult =
       currency: string;
       packCode: string;
     }
+  | PriceChangedResult
   | { ok: false; error: string };
 
 export type VerifyPaymentActionResult =
@@ -131,14 +150,21 @@ export type VerifyPaymentActionResult =
  */
 export async function createOrderAction(input: {
   packCode: string;
+  /** The ₹ the payer saw on the pack they chose (#2085) — sent as `expected_price_inr`. */
+  expectedPriceInr?: number;
 }): Promise<CreateOrderActionResult> {
   await requireOwner(); // GATE FIRST — authorization precedes validation and the seam.
 
   if (!packCodeSchema.safeParse(input.packCode).success) {
     return { ok: false, error: "Choose a pack to continue." };
   }
+  const confirmed = readExpectedPrice(input.expectedPriceInr);
+  if (!confirmed.ok) return { ok: false, error: PRICE_UNREADABLE_MESSAGE };
   try {
-    const order = await createCreditOrder({ packCode: input.packCode });
+    const order = await createCreditOrder({
+      packCode: input.packCode,
+      expectedPriceInr: confirmed.value,
+    });
     // null = a 404: an unknown pack OR real payments switched off. The API answers both
     // identically on purpose, so this message must not guess which.
     if (!order) return { ok: false, error: "Checkout is unavailable right now." };
@@ -150,7 +176,12 @@ export async function createOrderAction(input: {
       currency: order.currency,
       packCode: order.pack_code,
     };
-  } catch {
+  } catch (e) {
+    // #2085 — the price changed: no provider order exists, so no checkout opens at a price
+    // the payer did not see.
+    if (e instanceof PriceMismatchError) {
+      return { ok: false, priceChanged: true, currentPriceInr: e.currentPriceInr };
+    }
     return { ok: false, error: "Couldn't start checkout. Please retry." };
   }
 }

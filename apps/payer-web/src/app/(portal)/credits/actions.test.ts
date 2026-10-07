@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PriceMismatchError } from "../../../lib/payer-errors";
+import { PRICE_UNREADABLE_MESSAGE } from "../../../lib/price-confirmation";
 
 /**
  * CREDIT TOP-UP Server Action — AUTHORIZATION regression tests (#463 / TD79).
@@ -358,5 +360,58 @@ describe("topUpAction — Idempotency-Key threading + 409 = pending (#1185)", ()
     expect(res).not.toHaveProperty("balance"); // no invented number
     // Still no re-POST on the failed-re-read path.
     expect(topUp).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * #2085 — PRICE CONFIRMATION at the action boundary. The price the payer confirmed is forwarded to
+ * the seam (after the gate, unchanged); the API's refusal of a changed price is a non-terminal
+ * `priceChanged` result carrying the API's current price — one POST, no re-read, never `ok`, never
+ * the in-flight `pending`. A present-but-malformed price is refused before the seam: a guard the
+ * caller asked for is never silently dropped.
+ */
+describe("#2085 — topUpAction / createOrderAction forward the confirmed price; a refusal is 'price changed'", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f";
+
+  it("topUpAction forwards the confirmed price beside the pack code and key (gate first)", async () => {
+    await topUpAction({ packCode: "pack_50", idempotencyKey: KEY, expectedPriceInr: 2000 });
+    expect(topUp).toHaveBeenCalledWith({
+      packCode: "pack_50",
+      idempotencyKey: KEY,
+      expectedPriceInr: 2000,
+    });
+    expect(calls).toEqual(["requireOwner", "topUp"]);
+  });
+
+  it("a refused price is { priceChanged, currentPriceInr } — ONE POST, no balance re-read, never ok or pending", async () => {
+    topUp.mockRejectedValueOnce(new PriceMismatchError("/payer/credits", 1500));
+    const res = await topUpAction({ packCode: "pack_50", idempotencyKey: KEY, expectedPriceInr: 2000 });
+    expect(res).toEqual({ ok: false, priceChanged: true, currentPriceInr: 1500 });
+    expect(res).not.toHaveProperty("pending");
+    expect(calls).toEqual(["requireOwner", "topUp"]); // no getCredits, no second topUp
+  });
+
+  it("a malformed confirmed price is refused BEFORE the seam (after the gate)", async () => {
+    for (const bad of [-1, 12.5, Number.NaN, "2000", 10_000_001]) {
+      calls.length = 0;
+      const res = await topUpAction({ packCode: "pack_50", expectedPriceInr: bad as number });
+      expect(res, String(bad)).toEqual({ ok: false, error: PRICE_UNREADABLE_MESSAGE });
+      expect(calls, String(bad)).toEqual(["requireOwner"]);
+    }
+    expect(topUp).not.toHaveBeenCalled();
+  });
+
+  it("createOrderAction forwards the tile's price; a refused price opens no checkout", async () => {
+    await createOrderAction({ packCode: "pack_50", expectedPriceInr: 2000 });
+    expect(createCreditOrder).toHaveBeenCalledWith({ packCode: "pack_50", expectedPriceInr: 2000 });
+
+    createCreditOrder.mockRejectedValueOnce(new PriceMismatchError("/payer/credits/order", 2400));
+    const res = await createOrderAction({ packCode: "pack_50", expectedPriceInr: 2000 });
+    expect(res).toEqual({ ok: false, priceChanged: true, currentPriceInr: 2400 });
+    expect(createCreditOrder).toHaveBeenCalledTimes(2); // one per call — never re-posted
+
+    const bad = await createOrderAction({ packCode: "pack_50", expectedPriceInr: -3 });
+    expect(bad).toEqual({ ok: false, error: PRICE_UNREADABLE_MESSAGE });
+    expect(createCreditOrder).toHaveBeenCalledTimes(2);
   });
 });

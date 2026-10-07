@@ -54,9 +54,11 @@ export default async function CreditsPage() {
 
   // Server-resolved payment mode. Fail-closed: anything but an explicit "true" is MOCK.
   const realPayments = payerServerConfig().paymentsEnableReal;
-  const { products, live } = await getLiveCatalog();
-  const packs = offeredCreditPacks(products);
-  const unit = unlockUnitPriceInr(products);
+  // Priced at what each pack is charged (#2085 — the catalog's `prices[]`).
+  const catalog = await getLiveCatalog();
+  const { live } = catalog;
+  const packs = offeredCreditPacks(catalog);
+  const unit = unlockUnitPriceInr(catalog);
   const threshold = lowBalanceThreshold();
 
   let dashboard: Dashboard | null = null;

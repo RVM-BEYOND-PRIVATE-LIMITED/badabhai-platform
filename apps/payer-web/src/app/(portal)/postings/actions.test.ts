@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PriceMismatchError } from "../../../lib/payer-errors";
+import { PRICE_UNREADABLE_MESSAGE } from "../../../lib/price-confirmation";
 import type { PostingSummary } from "../../../lib/contracts";
 
 /**
@@ -19,6 +21,8 @@ const closePosting = vi.fn();
 const revalidatePath = vi.fn();
 
 class QuotaTopUpNoPlanError extends Error {}
+/** The seam's typed in-flight 409 (#2085) — exported from the mock so `instanceof` holds. */
+class PurchaseConflictError extends Error {}
 
 vi.mock("../../../lib/payer-api", () => ({
   pausePosting: (i: unknown) => pausePosting(i),
@@ -26,6 +30,7 @@ vi.mock("../../../lib/payer-api", () => ({
   topUpPostingQuota: (i: unknown) => topUpPostingQuota(i),
   closePosting: (i: unknown) => closePosting(i),
   QuotaTopUpNoPlanError,
+  PurchaseConflictError,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
 
@@ -132,5 +137,59 @@ describe("topUpQuotaAction — the paid action's honesty contracts", () => {
       ok: false,
       error: "Could not add applicant slots right now. Please retry.",
     });
+  });
+});
+
+/**
+ * #2085 — the top-up is a confirmed, idempotent purchase. The action forwards the price the payer
+ * confirmed and the purchase's key (a malformed key is dropped, as on capacity/credits; a malformed
+ * price is refused — never silently dropped). A refused price is `priceChanged` and re-renders the
+ * page so the new price shows; the in-flight duplicate is a non-terminal `pending` — neither is
+ * ever `ok`, neither is retried.
+ */
+describe("#2085 — topUpQuotaAction: confirmed price + idempotency key; 'price changed' and 'pending'", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f";
+
+  it("forwards the confirmed price and a well-formed key to the seam", async () => {
+    topUpPostingQuota.mockResolvedValue({ posting: POSTING, addedViews: 10 });
+    await topUpQuotaAction({ postingId: ID, expectedPriceInr: 1000, idempotencyKey: KEY });
+    expect(topUpPostingQuota).toHaveBeenCalledWith({
+      postingId: ID,
+      expectedPriceInr: 1000,
+      idempotencyKey: KEY,
+    });
+  });
+
+  it("DROPS a malformed key (degrades to no-key) rather than forwarding junk", async () => {
+    topUpPostingQuota.mockResolvedValue({ posting: POSTING, addedViews: 10 });
+    await topUpQuotaAction({ postingId: ID, expectedPriceInr: 1000, idempotencyKey: "not-a-uuid" });
+    expect(topUpPostingQuota).toHaveBeenCalledWith({
+      postingId: ID,
+      expectedPriceInr: 1000,
+      idempotencyKey: undefined,
+    });
+  });
+
+  it("a refused price is { priceChanged, currentPriceInr } and re-renders /postings with the new price", async () => {
+    topUpPostingQuota.mockRejectedValue(new PriceMismatchError("/payer/job-postings/x/quota-topup", 750));
+    const res = await topUpQuotaAction({ postingId: ID, expectedPriceInr: 1000, idempotencyKey: KEY });
+    expect(res).toEqual({ ok: false, priceChanged: true, currentPriceInr: 750 });
+    expect(topUpPostingQuota).toHaveBeenCalledTimes(1);
+    expect(revalidatePath).toHaveBeenCalledWith("/postings");
+  });
+
+  it("the in-flight duplicate is a non-terminal PENDING — never ok, never 'buy a plan first'", async () => {
+    topUpPostingQuota.mockRejectedValue(new PurchaseConflictError());
+    const res = await topUpQuotaAction({ postingId: ID, expectedPriceInr: 1000, idempotencyKey: KEY });
+    expect(res).toEqual({ ok: false, pending: true });
+    expect(topUpPostingQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it("a malformed confirmed price is refused before the seam", async () => {
+    for (const bad of [-1, 999.5, "1000"]) {
+      const res = await topUpQuotaAction({ postingId: ID, expectedPriceInr: bad as number });
+      expect(res, String(bad)).toEqual({ ok: false, error: PRICE_UNREADABLE_MESSAGE });
+    }
+    expect(topUpPostingQuota).not.toHaveBeenCalled();
   });
 });

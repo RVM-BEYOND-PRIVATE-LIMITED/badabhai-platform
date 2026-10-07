@@ -232,8 +232,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+let uuidCounter = 0;
+
 beforeEach(() => {
   refs = [];
+  // A deterministic purchase key (#2085), so key identity is assertable.
+  uuidCounter = 0;
+  vi.stubGlobal("crypto", { randomUUID: () => `key-${++uuidCounter}` });
   pausePostingAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
   resumePostingAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
   topUpQuotaAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
@@ -346,7 +351,9 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
       const update = setters[1]!.mock.calls[0]![0] as (
         prev: Record<string, unknown>,
       ) => Record<string, unknown>;
-      expect(update({}), label).toEqual({ [OPEN.id]: { busy, error: null, notice: null } });
+      expect(update({}), label).toEqual({
+        [OPEN.id]: { busy, error: null, notice: null, info: null },
+      });
     }
   });
 
@@ -356,7 +363,11 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(topUpQuotaAction).not.toHaveBeenCalled(); // asks first (owner ruling 2026-10-07)
     const open = render([OPEN], {}, false, { confirming: OPEN.id });
     footerButtons(dialogOf(open))[1]!.onClick();
-    expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
+    expect(topUpQuotaAction).toHaveBeenCalledWith({
+      postingId: OPEN.id,
+      expectedPriceInr: 1000,
+      idempotencyKey: "key-1",
+    });
 
     const errored = render([OPEN], {
       [OPEN.id]: {
@@ -477,18 +488,22 @@ describe("PostingsManager — Add applicant slots shows its price and asks first
     expect(topUpQuotaAction).not.toHaveBeenCalled();
   });
 
-  it("only the dialog's confirm buys — ONCE, with only the posting id — and that row's slot button then spins", () => {
+  it("only the dialog's confirm buys — ONCE: the posting id, the price it showed and a purchase key — and that row's slot button then spins", () => {
     const dialog = dialogOf(render([OPEN], {}, false, { confirming: OPEN.id }));
     footerButtons(dialog)[1]!.onClick();
     expect(setters[2]).toHaveBeenCalledWith(null); // the dialog closes
     expect(topUpQuotaAction).toHaveBeenCalledTimes(1);
-    expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
-    // XB-A: never a payer id, and never a price — the server re-resolves the charge.
-    expect(JSON.stringify(topUpQuotaAction.mock.calls[0])).not.toMatch(/payer|price|inr/i);
+    // #2085: the confirmed price rides along as a guard (the server still prices the charge).
+    // EXACTLY these three keys — XB-A: never a payer id; never an amount to charge.
+    const sent = topUpQuotaAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent).toStrictEqual({ postingId: OPEN.id, expectedPriceInr: 1000, idempotencyKey: "key-1" });
+    expect(JSON.stringify(sent)).not.toMatch(/payer|amount/i);
     const update = setters[1]!.mock.calls[0]![0] as (
       prev: Record<string, unknown>,
     ) => Record<string, unknown>;
-    expect(update({})).toEqual({ [OPEN.id]: { busy: "topUp", error: null, notice: null } });
+    expect(update({})).toEqual({
+      [OPEN.id]: { busy: "topUp", error: null, notice: null, info: null },
+    });
     // While it runs, the busy state is on THAT row's slot button only (siblings just disabled).
     const busy = collect(
       render([OPEN], { [OPEN.id]: { busy: "topUp", error: null, notice: null } }),
@@ -707,5 +722,157 @@ describe("PostingsManager — READ-ONLY (an agent's older company postings)", ()
   it("a read-only empty list offers no create action", () => {
     const tree = render([], {}, true);
     expect(hrefs(tree)).not.toContain("/postings/new");
+  });
+});
+
+/**
+ * #2085 — Add applicant slots is a CONFIRMED, IDEMPOTENT purchase.
+ *  - SHOWN == SENT: the confirm sends back `expectedPriceInr` equal to the one ₹ figure its dialog
+ *    showed (under an offer, the offer price).
+ *  - ONE KEY PER CONFIRMED PURCHASE, PER POSTING: a retry of a posting's purchase (after a failure
+ *    or a dropped connection) reuses its key, so the backend replays rather than buys again; another
+ *    posting's purchase has its own key and never displaces it; success retires it.
+ *  - A refused price is a NEUTRAL row note naming the new price (one call, no retry) and retires the
+ *    key; the in-flight duplicate is a NEUTRAL "still processing" and KEEPS the key.
+ */
+describe("PostingsManager — #2085: the price shown is the price sent, under one key per purchase", () => {
+  const SECOND: PostingSummary = {
+    ...OPEN,
+    id: "bbbb2222-0000-4000-8000-000000000002",
+    roleTitle: "VMC Operator",
+  };
+  /** The top-up under an active offer: charged ₹750, list ₹1,000. */
+  const OFFER_750 = { priceInr: 750, listPriceInr: 1000, additionalViews: 10 };
+  const rupees = (s: string) => Number(s.replace(/[₹,\s]/g, ""));
+  type Row = { busy: unknown; error: unknown; notice: unknown; info: unknown };
+
+  /** Arm `postingId`'s confirm, press it as the payer does, and return the row's settled state. */
+  async function confirmOn(postingId: string, offer: typeof OFFER = OFFER): Promise<Row> {
+    const tree = render([OPEN, SECOND], {}, false, { confirming: postingId, offer });
+    footerButtons(dialogOf(tree))[1]!.onClick();
+    const setRows = setters[1]!;
+    await new Promise((r) => setTimeout(r, 0));
+    // Fold this confirm's row-state writes into the record React would hold.
+    const rows = setRows.mock.calls.reduce(
+      (acc, [update]) => (update as (p: Record<string, Row>) => Record<string, Row>)(acc),
+      {} as Record<string, Row>,
+    );
+    return rows[postingId]!;
+  }
+  const sent = () =>
+    topUpQuotaAction.mock.calls.map(
+      (c) => c[0] as { postingId: string; expectedPriceInr?: number; idempotencyKey?: string },
+    );
+  const keys = () => sent().map((s) => s.idempotencyKey);
+  const FAILED = { ok: false, error: "Could not add applicant slots right now. Please retry." };
+
+  it("the confirm sends exactly the number its dialog showed — under an offer, the offer price", async () => {
+    for (const offer of [OFFER, OFFER_750]) {
+      const dialog = dialogOf(render([OPEN], {}, false, { confirming: OPEN.id, offer }));
+      const body = textOf((dialog.props as { children?: ReactNode }).children);
+      const figures = body.match(/₹[\d,]+/g) ?? [];
+      expect(figures, body).toHaveLength(1); // one number on the confirm — no ambiguity
+      await confirmOn(OPEN.id, offer);
+      expect(sent().at(-1)!.expectedPriceInr, body).toBe(rupees(figures[0]!));
+    }
+    expect(sent().map((s) => s.expectedPriceInr)).toEqual([1000, 750]);
+  });
+
+  it("a retry reuses the posting's key; another posting has its own and never displaces it; success retires it", async () => {
+    topUpQuotaAction
+      .mockResolvedValueOnce(FAILED) // OPEN, first attempt
+      .mockResolvedValueOnce(FAILED) // OPEN, retry
+      .mockResolvedValueOnce(FAILED) // SECOND, its own purchase
+      .mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." }) // OPEN, retry lands
+      .mockResolvedValueOnce(FAILED) // OPEN, a NEW purchase
+      .mockResolvedValueOnce(FAILED); // SECOND, retry
+    await confirmOn(OPEN.id);
+    await confirmOn(OPEN.id);
+    await confirmOn(SECOND.id);
+    await confirmOn(OPEN.id);
+    await confirmOn(OPEN.id);
+    await confirmOn(SECOND.id);
+    expect(keys()).toEqual(["key-1", "key-1", "key-2", "key-1", "key-3", "key-2"]);
+    expect(sent().map((s) => s.postingId)).toEqual([OPEN.id, OPEN.id, SECOND.id, OPEN.id, OPEN.id, SECOND.id]);
+  });
+
+  it("a rejected action (connection dropped) keeps the key — the retry is the same purchase", async () => {
+    topUpQuotaAction.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce(FAILED);
+    const row = await confirmOn(OPEN.id);
+    expect(row.error).toBe("Could not reach the server. Please retry.");
+    await confirmOn(OPEN.id);
+    expect(keys()).toEqual(["key-1", "key-1"]);
+  });
+
+  it("a refused price: a NEUTRAL row note with the new price, ONE call, no retry — and the key is retired", async () => {
+    topUpQuotaAction.mockResolvedValueOnce({ ok: false, priceChanged: true, currentPriceInr: 1200 });
+    const row = await confirmOn(OPEN.id);
+    expect(row).toEqual({
+      busy: null,
+      error: null,
+      notice: null,
+      info: "The price changed to ₹1,200. Review and confirm again.",
+    });
+    expect(topUpQuotaAction).toHaveBeenCalledTimes(1);
+    // The payer re-reads the new price and confirms again: a NEW purchase, a fresh key.
+    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    await confirmOn(OPEN.id);
+    expect(keys()).toEqual(["key-1", "key-2"]);
+  });
+
+  it("the in-flight duplicate: a NEUTRAL 'still processing' note — and the key is KEPT for the re-tap", async () => {
+    topUpQuotaAction.mockResolvedValueOnce({ ok: false, pending: true });
+    const row = await confirmOn(OPEN.id);
+    expect(row.error).toBeNull();
+    expect(row.notice).toBeNull();
+    expect(row.info).toMatch(/still processing/);
+    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    await confirmOn(OPEN.id);
+    expect(keys()).toEqual(["key-1", "key-1"]);
+  });
+
+  it("a new attempt clears the row's last neutral note — a stale 'price changed' never sits beside the next result", () => {
+    const noted = {
+      [OPEN.id]: {
+        busy: null,
+        error: null,
+        notice: null,
+        info: "The price changed to ₹1,200. Review and confirm again.",
+      },
+    };
+    const dialog = dialogOf(render([OPEN], noted, false, { confirming: OPEN.id }));
+    footerButtons(dialog)[1]!.onClick();
+    const update = setters[1]!.mock.calls[0]![0] as (
+      prev: Record<string, unknown>,
+    ) => Record<string, unknown>;
+    expect(update(noted)).toEqual({
+      [OPEN.id]: { busy: "topUp", error: null, notice: null, info: null },
+    });
+  });
+
+  it("a neutral note renders as the info alert in the row's live region — not the danger or success band", () => {
+    const tree = render([OPEN], {
+      [OPEN.id]: {
+        busy: null,
+        error: null,
+        notice: null,
+        info: "The price changed to ₹1,200. Review and confirm again.",
+      },
+    });
+    const info = byClass(tree, "alert--info");
+    expect(info).toHaveLength(1);
+    expect(textOf(info[0]!)).toBe("The price changed to ₹1,200. Review and confirm again.");
+    expect(byClass(tree, "alert--danger")).toEqual([]);
+    expect(byClass(tree, "alert--success")).toEqual([]);
+    // A row that has reported is idle again: the payer can confirm at the new price.
+    expect(collect(tree).buttons.every((b) => !b.disabled && !b.loading)).toBe(true);
+  });
+
+  it("Cancel sends nothing and mints no key", () => {
+    const dialog = dialogOf(render([OPEN], {}, false, { confirming: OPEN.id, offer: OFFER_750 }));
+    footerButtons(dialog)[0]!.onClick();
+    (dialog.props as { onClose: () => void }).onClose();
+    expect(topUpQuotaAction).not.toHaveBeenCalled();
+    expect(uuidCounter).toBe(0);
   });
 });

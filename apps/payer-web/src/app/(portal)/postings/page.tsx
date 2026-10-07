@@ -5,7 +5,6 @@ import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { quotaTopUpTier } from "../../../lib/pricing-config";
-import { formatInr } from "../../../lib/format";
 import {
   agentPostingRedirect,
   COMPANY_POSTING_ROUTES,
@@ -14,9 +13,10 @@ import {
 import type { PostingSummary } from "../../../lib/contracts";
 import { Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
+import { priceFigure } from "../../../components/price-figure";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
-import { PostingsManager } from "./postings-manager";
+import { PostingsManager, type TopUpOffer } from "./postings-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +46,19 @@ export default async function PostingsPage() {
   const isAgency = session.role === "agent";
   // An agent's own postings page — null when the agency surface is off (it would 404).
   const agencyPostings = isAgency ? postingRoutes(true) : null;
-  const { products, live } = await getLiveCatalog();
-  // The slot top-up on offer: the SAME tier the action charges by (display only — XT5).
-  const tier = quotaTopUpTier(products);
-  const topUpOffer =
-    tier !== null ? { priceInr: tier.priceInr, additionalViews: tier.additionalViews } : null;
+  const catalog = await getLiveCatalog();
+  const { live } = catalog;
+  // The slot top-up on offer: the SAME tier the action charges by, at the price it is charged
+  // (#2085) — the price the row's confirm shows and sends back.
+  const tier = quotaTopUpTier(catalog);
+  const topUpOffer: TopUpOffer | null =
+    tier !== null
+      ? {
+          priceInr: tier.priceInr,
+          ...(tier.listPriceInr !== undefined ? { listPriceInr: tier.listPriceInr } : {}),
+          additionalViews: tier.additionalViews,
+        }
+      : null;
 
   let postings: PostingSummary[] | null = null;
   let error: string | null = null;
@@ -116,7 +124,7 @@ export default async function PostingsPage() {
                 <>
                   Each &ldquo;Add applicant slots&rdquo; adds{" "}
                   <span className="bb-mono">{topUpOffer.additionalViews}</span> more applicant slots
-                  for <span className="bb-mono">{formatInr(topUpOffer.priceInr)}</span> (from the
+                  for <span className="bb-mono">{priceFigure(topUpOffer)}</span> (from the
                   pricing config).
                 </>
               ) : (

@@ -90,7 +90,7 @@ export default async function DashboardPage() {
   const postings = readValue(postingsRead);
 
   // No caption when the catalog offers no unlock price.
-  const unitPrice = unlockUnitPriceInr((await catalog).products);
+  const unitPrice = unlockUnitPriceInr(await catalog);
   // Newest first by the day each row prints (a re-grant moves it; the API's order does not).
   // An unread list renders the panel's error state instead (below), never these rows. A row
   // names a posting only from the postings list this page already read (no read of its own): an

@@ -35,3 +35,38 @@ export class PayerValidationError extends Error {
 export function isPayerValidationError(e: unknown): e is PayerValidationError {
   return e instanceof PayerValidationError;
 }
+
+/**
+ * A 409 the API refused with, other than a price mismatch. The message keeps the transport's
+ * historic `payer API <path> returned 409` shape, so every existing `/returned 409/` handler
+ * still matches. `detail` is the API's own message, kept so a seam can tell two 409s on one
+ * route apart (the quota top-up's in-flight duplicate vs no active plan). It is never rendered.
+ */
+export class PayerConflictError extends Error {
+  readonly detail: string | null;
+
+  constructor(path: string, detail: string | null) {
+    super(`payer API ${path} returned 409`);
+    this.name = "PayerConflictError";
+    this.detail = detail;
+  }
+}
+
+/**
+ * A 409 `price_mismatch` (#2085): the `expected_price_inr` the payer confirmed is not the price
+ * the purchase would be charged, so the API refused BEFORE any write or event. Nothing was bought.
+ *
+ * Its message is deliberately NOT `returned 409`: the purchase seams already read a bare 409 as
+ * "a duplicate is still in flight" or "no active plan", and a price change must never be mistaken
+ * for either. `currentPriceInr` is the API's current price, or null when the body did not carry
+ * a usable one.
+ */
+export class PriceMismatchError extends Error {
+  readonly currentPriceInr: number | null;
+
+  constructor(path: string, currentPriceInr: number | null) {
+    super(`payer API ${path} refused the confirmed price (price_mismatch)`);
+    this.name = "PriceMismatchError";
+    this.currentPriceInr = currentPriceInr;
+  }
+}

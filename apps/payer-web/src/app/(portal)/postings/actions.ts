@@ -7,15 +7,23 @@ import {
   pausePosting,
   resumePosting,
   topUpPostingQuota,
+  PurchaseConflictError,
   QuotaTopUpNoPlanError,
 } from "../../../lib/payer-api";
+import { PriceMismatchError } from "../../../lib/payer-errors";
+import {
+  PRICE_UNREADABLE_MESSAGE,
+  readExpectedPrice,
+  type PriceChangedResult,
+} from "../../../lib/price-confirmation";
 import type { PostingSummary } from "../../../lib/contracts";
 
 /**
  * Job-management Server Actions (ADR-0019 Phase 1 — LIVE).
  *
  * Every action binds to the SERVER-HELD session payer (XB-A) inside the data seam —
- * the client supplies ONLY the posting id, never a payer id. All four lifecycle routes
+ * the client supplies the posting id (and, for the top-up purchase, the price the payer
+ * confirmed and the purchase's idempotency key — #2085), never a payer id. All four lifecycle routes
  * are the payer-authed `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}`
  * (#178/#180): a posting that isn't the caller's returns the SAME neutral not-found
  * (no cross-tenant existence oracle), and a backend failure surfaces as an error —
@@ -69,15 +77,46 @@ export async function resumePostingAction(input: {
  * on the faceless row) and the fresh posting when the re-read succeeded. */
 export type TopUpQuotaActionResult =
   | { ok: true; posting: PostingSummary | null; notice: string }
+  // A 409 DUPLICATE-IN-FLIGHT of this purchase's Idempotency-Key (#2085, as capacity #1185):
+  // the first attempt is still running and may still throw — NOT done, NOT failed. Non-terminal.
+  | { ok: false; pending: true }
+  // A 409 `price_mismatch` (#2085): the confirmed price is not the price now — nothing bought.
+  | PriceChangedResult
   | { ok: false; error: string };
 
+/**
+ * The per-purchase idempotency key (#2085) — a client-minted `crypto.randomUUID()`, validated
+ * here (invariant #7) exactly as the capacity and credits actions do: a malformed key is
+ * DROPPED (the call degrades to the no-key behaviour) rather than forwarded as a junk header.
+ */
+const idempotencyKeySchema = z.string().uuid();
+
+/**
+ * Add applicant slots to one of the caller's OWN postings — a purchase (#180). The client sends
+ * the posting id, the price the payer confirmed in the dialog (#2085, `expected_price_inr`) and
+ * the purchase's idempotency key; the seam picks the tier and the server prices it (XT5).
+ */
 export async function topUpQuotaAction(input: {
   postingId: string;
+  /** The ₹ the payer confirmed in the dialog (#2085). */
+  expectedPriceInr?: number;
+  /** One key per confirmed purchase, reused by its retries (#2085). */
+  idempotencyKey?: string;
 }): Promise<TopUpQuotaActionResult> {
   const valid = parseId(input.postingId);
   if (!valid.ok) return valid;
+  const confirmed = readExpectedPrice(input.expectedPriceInr);
+  if (!confirmed.ok) return { ok: false, error: PRICE_UNREADABLE_MESSAGE };
+  const idempotencyKey =
+    input.idempotencyKey && idempotencyKeySchema.safeParse(input.idempotencyKey).success
+      ? input.idempotencyKey
+      : undefined;
   try {
-    const outcome = await topUpPostingQuota({ postingId: input.postingId });
+    const outcome = await topUpPostingQuota({
+      postingId: input.postingId,
+      expectedPriceInr: confirmed.value,
+      idempotencyKey,
+    });
     if (!outcome) return { ok: false, error: "That posting could not be found." };
     revalidatePath("/postings");
     // The charge is committed — say what it bought. A failed fresh-row re-read is NOT a
@@ -88,6 +127,17 @@ export async function topUpQuotaAction(input: {
         : `Applicant slots added (${outcome.addedViews} more applicant views) — refresh to see it.`;
     return { ok: true, posting: outcome.posting, notice };
   } catch (e) {
+    // #2085 — the price changed since the payer confirmed it. Nothing was bought. Re-render the
+    // page so the new price is what the row's button and dialog show; never retried here.
+    if (e instanceof PriceMismatchError) {
+      revalidatePath("/postings");
+      return { ok: false, priceChanged: true, currentPriceInr: e.currentPriceInr };
+    }
+    // The same confirmed purchase is still in flight: never re-post, never claim it is done.
+    if (e instanceof PurchaseConflictError) {
+      revalidatePath("/postings");
+      return { ok: false, pending: true };
+    }
     // The ONE distinguishable business deny (409, no active plan): actionable copy.
     // Not an existence oracle — the neutral not-found above already covered ownership.
     if (e instanceof QuotaTopUpNoPlanError) {
