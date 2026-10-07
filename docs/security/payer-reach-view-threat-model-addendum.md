@@ -170,3 +170,90 @@ and IDOR cases run through the real `AllExceptionsFilter`; fail-closed 5xx),
 (`findOwnedJobSignalRowById` SQL pin), `payer-reach.controller.test.ts` (cap before delegation,
 no data-access dependency), `match-feed.repository.test.ts` and `rank-parity.test.ts`
 (pending-deletion exclusion; the latter on real Postgres under `RUN_DB_TESTS=1`).
+
+## 6. Amendment — the cross-posting inbox `GET /payer/reach/applicants` (2026-10-07)
+
+Owner request (Prakash, 2026-10-07): a payer-web **Candidates** tab — one list of every applicant
+across all of the payer's postings, newest application first, filterable by posting. It is a new
+read on the same `/payer/reach/*` route group (`PayerApplicantInboxController` →
+`PayerApplicantInboxService`). Everything in §1–§5 still holds; these are the deltas.
+
+- **Principal.** The session payer only: `PayerAuthGuard`, the same principal class as the
+  per-posting list, no ops or worker principal. `payer_id` comes from the verified session (XB-A).
+  The query has no slot for one: the schema is `.strict()`, so `payer_id` / `payerId` (and `stage`)
+  are a `400`, never silently ignored.
+- **Ownership (RV3 / RB-A), two layers.**
+  1. One owner-scoped page statement (`inboxPageStatement`): a `UNION ALL` of
+     `jobs j … WHERE j.payer_id = :session` and `job_postings jp … WHERE jp.payer_id = :session`.
+     These are the same two predicates `listForOwned` resolves an id with, and `payer_id` is never
+     projected.
+  2. The detail reads that build the rows re-check ownership on their own.
+     `ReachRepository.findOwnedJobSignalRowsByIds` binds `jobs.payer_id`;
+     `MatchFeedRepository.listRankedCandidatesByApplication` joins `job_postings` on
+     `jp.payer_id = :session`. A row the page let through but a detail read does not own is
+     dropped, never shown half-built. Measured on Postgres: with either arm's ownership predicate
+     in the page statement deliberately removed (one at a time), no row of another payer was
+     rendered. RV-R4 (app-layer tenancy only) applies unchanged.
+- **No-oracle choice.** The optional `postingId` is a filter on a collection, not a resource
+  lookup. An unknown id, another payer's job, and another payer's posting all return
+  `200 {"applicants":[],"nextCursor":null}`, byte-identical to an owned posting nobody has applied
+  to. Every case costs the same single page read (no separate ownership probe), so neither the
+  body nor the read count separates "not yours" from "yours, empty". There is no `404` on this
+  route. RV-R3 (latency normalisation) is unchanged.
+- **Scrape bound (RV1 / RB-C).** The SAME per-payer bucket as the per-posting list:
+  `PayerDisclosureRateLimit` scope `payer_reach`, cap `PAYER_REACH_MAX_PER_HOUR`, ONE unit per page.
+  It is checked in the controller BEFORE any read, so a capped payer touches no data. It fails
+  closed: Redis down gives the same neutral `429`. Because the bucket is shared, the inbox and the
+  per-posting list draw on one hourly budget; they do not add a second one. A page is at most 50
+  rows (default 20). RV-R1 (velocity, not lifetime volume) applies unchanged.
+- **Projection parity (RB-B).** Each row is EXACTLY the per-posting route's row for that
+  applicant, built by the same code, plus `posting { id, title, kind }`:
+  - legacy agency row: `ReachService.rankAppliers`;
+  - V1 company row: `toMatchCandidateRowDto`.
+
+  `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`), never a
+  worker field, and it never enters an event. No new PII and no new field reach a payer.
+  `rank` / `hot` stay posting-relative. RV-R2 (cross-job signal correlation) is unchanged in kind:
+  the inbox shows a worker who applied to two postings as two rows, each with the per-posting
+  signals the payer could already read.
+- **Membership.** Each per-posting list's own membership, never wider:
+  - `action = 'applied'` only;
+  - no worker inside the deletion grace window (ADR-0031 (b));
+  - an agency applier only if he has a `worker_profiles` row (the agency list ranks profiles).
+- **Events (RB-D).** Each agency row on the page emits the same `feed.shown` the per-job list emits
+  for it. The actor is the session payer and the payload is the unchanged v1
+  `worker_id/job_id/rank/score/hot`, sent as one all-or-nothing batch, only for rows actually on
+  the page. Company rows emit nothing, as on their posting's list. A company-only inbox page is
+  therefore rate-limited but **not durably audited**: the existing residual RV-R5, now covering
+  this read too. A durable read trail remains a new versioned event, never a reused `feed.shown`.
+- **Pagination.** Keyset on `(applications.created_at DESC, applications.id DESC)`, a total order.
+  The cursor is opaque base64url of `{v:1, t:<created_at, µs UTC>, id:<application uuid>}`. It is
+  validated with Zod on the way in, and anything the server did not mint is a `400`. It NEVER
+  carries a payer id, a filter, or a count. A forged but well-formed cursor only moves the position
+  within the caller's OWN rows, because ownership comes from the session, never the cursor. It
+  names an application id the payer was already served.
+- **Precedence (dual reference).** `applications_job_ref_chk` allows a row naming BOTH a `jobs` id
+  and a `job_postings` id; the write path never produces one. If both are the session payer's, the
+  row is listed ONCE, under the agency job: jobs-first, `listForOwned`'s resolution order, and a
+  `NOT EXISTS` on the company arm. This keeps the keyset a total order (no duplicate application).
+  Consequence: a `postingId` filter on that company posting omits such a row, while its per-posting
+  list shows it.
+- **Scale note.** Both arms start from the payer's own postings and reach `applications` through
+  existing indexes (`jobs_payer_id_status_idx`, `job_postings_payer_id_*`,
+  `applications_job_id_idx`, `applications_rank_idx`). They then top-N sort that one payer's
+  applied applications. Measured: 1.6 ms over 236k applications. Cost grows with one payer's
+  application count, never the table's. At about 100k applications per payer, newest-first across
+  postings needs a `payer_id` column on `applications` (with an index on
+  `payer_id, created_at DESC, id DESC`). That is an additive migration, not needed now.
+
+**Tests:** `payer-applicant-inbox.service.test.ts` covers ownership (including the defence-in-depth
+case), the neutral empty page, ordering and pagination, row parity against the real
+`listForOwned`, events, and fail-closed behaviour. `payer-applicant-inbox.repository.test.ts` pins
+the page SQL: both ownership predicates, membership, precedence, keyset, and order.
+`match-feed.repository.test.ts` pins the window rank text against `listCandidates`.
+`reach.repository.test.ts` pins the batched ownership and applier reads.
+`payer-applicant-inbox.controller.test.ts` covers the shared bucket and the cap before the read.
+`payer-applicant-inbox.dto.test.ts` covers strictness, bounds, and the cursor.
+`payer-applicant-inbox.db.test.ts` (real Postgres under `RUN_DB_TESTS=1`, a CI DB gate) covers
+ownership, the cross-arm microsecond tie walked at several page sizes, membership, precedence, row
+parity, the detail-read ownership layer, and validated `feed.shown` writes.
