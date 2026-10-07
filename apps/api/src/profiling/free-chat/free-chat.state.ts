@@ -55,6 +55,12 @@ export const FREE_CHAT_MAX_DEFLECTS = 2;
  */
 export const FREE_CHAT_MAX_DEESCALATIONS = 2;
 
+/**
+ * Double-tapped free-chat chips one pending question may absorb as no-ops before a further one
+ * passes through to the interview — a client re-sending a chip in a loop never stalls it.
+ */
+export const FREE_CHAT_MAX_CHIP_NO_OPS = 2;
+
 /** The résumé nudge rides every Nth casual reply (R9). */
 export const FREE_CHAT_NUDGE_EVERY = 3;
 
@@ -127,6 +133,11 @@ export interface FreeChatState {
    * {@link FREE_CHAT_MAX_DEESCALATIONS}. Absent on every envelope written before it reads as null.
    */
   readonly deescalated: FreeChatDeflections | null;
+  /**
+   * How many double-tapped free-chat chips have been absorbed as no-ops for one pending question,
+   * or null — {@link deflected}'s shape and rule, capped at {@link FREE_CHAT_MAX_CHIP_NO_OPS}.
+   */
+  readonly chipNoOps: FreeChatDeflections | null;
 }
 
 /** The deflect count for one pending question — see {@link FreeChatState.deflected}. */
@@ -158,6 +169,7 @@ export function greetingState(): FreeChatState {
     clarifiedFor: null,
     deflected: null,
     deescalated: null,
+    chipNoOps: null,
   };
 }
 
@@ -196,6 +208,7 @@ export function enterMode(
     clarifiedFor: null,
     deflected: null,
     deescalated: null,
+    chipNoOps: null,
   };
 }
 
@@ -304,6 +317,7 @@ export function narrowFreeChat(value: unknown): FreeChatState | null {
     // Unreadable reads as "never deflected" — at most two extra deflections, never a stuck one.
     deflected: mode === "resume" ? narrowDeflections(v.deflected) : null,
     deescalated: mode === "resume" ? narrowDeflections(v.deescalated) : null,
+    chipNoOps: mode === "resume" ? narrowDeflections(v.chipNoOps) : null,
   };
 }
 
@@ -352,6 +366,19 @@ export function toFreeChatStatePatch(envelope: { readonly freeChat?: FreeChatSta
   const state = envelope.freeChat ?? null;
   if (state === null || state.mode !== "resume" || state.lockedAt === null) return {};
   return { free_chat_lock: { v: 1, locked_at: state.lockedAt } };
+}
+
+/**
+ * The lock a stored row ALREADY carries, as a spread — the raw value, kept whatever its shape (the
+ * decider counts presence). Every replacing writer spreads this FIRST and the envelope's patch
+ * second, so an envelope rebuilt without the lock (a lost Redis buffer, a session that opened
+ * locked, the kill switch) can never erase one the row holds; the envelope's own lock wins when
+ * it has one.
+ */
+export function storedFreeChatLock(conversationState: unknown): { free_chat_lock?: unknown } {
+  return carriesFreeChatLock(conversationState)
+    ? { free_chat_lock: (conversationState as Record<string, unknown>)[FREE_CHAT_LOCK_KEY] }
+    : {};
 }
 
 /** The lock read back off a persisted `conversation_state`, or null — FAILS SOFT, never throws. */

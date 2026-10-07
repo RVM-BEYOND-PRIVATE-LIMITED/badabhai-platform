@@ -153,9 +153,9 @@ function makeWorld(
   const chat = {
     findSession: vi.fn(async () => session),
     findLatestSessionByWorker: vi.fn(async () => opts.latest ?? undefined),
-    // The voice form's reattach candidate: the LIVE session, the one `startSession` reattaches to.
-    findActiveSessionByWorker: vi.fn(async () =>
-      opts.latest?.status === "active" ? opts.latest : undefined,
+    // The voice form's reattach candidates: the LIVE sessions, most recently touched first.
+    listActiveSessionsByWorker: vi.fn(async () =>
+      opts.latest?.status === "active" ? [opts.latest] : [],
     ),
     listPackAnswers: vi.fn(async () => opts.flushed ?? []),
   };
@@ -391,6 +391,7 @@ describe("start — the voice form mints past a live greeting session (a REAL st
       conversationState: null,
     };
     const chat = {
+      listActiveSessionsByWorker: vi.fn(async () => [greeting]),
       findActiveSessionByWorker: vi.fn(async () => greeting),
       findLatestSessionByWorker: vi.fn(async () => undefined),
       createSession: vi.fn(async () => ({
@@ -436,11 +437,55 @@ describe("start — the voice form mints past a live greeting session (a REAL st
 
     expect(result.session_id).toBe(NEW_SESSION);
     expect(chat.createSession).toHaveBeenCalledOnce();
-    // The voice form read the live session ONCE; `startSession` did not reattach to it.
-    expect(chat.findActiveSessionByWorker).toHaveBeenCalledOnce();
+    // The voice form read the live sessions ONCE; `startSession` did not reattach to one.
+    expect(chat.listActiveSessionsByWorker).toHaveBeenCalledOnce();
+    expect(chat.findActiveSessionByWorker).not.toHaveBeenCalled();
     expect(orchestrator.openTurn).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: NEW_SESSION }),
     );
+  });
+});
+
+describe("start — reattaches to the newest CONTINUABLE live session before minting (N4)", () => {
+  it("skips a live greeting session and continues the older résumé-mode one — no second mint", async () => {
+    const RESUME_SESSION = "66666666-6666-4666-8666-666666666666";
+    const { service, chat, chatService, orchestrator } = makeWorld();
+    chat.listActiveSessionsByWorker.mockResolvedValue([
+      { id: SESSION, workerId: WORKER, status: "active" },
+      { id: RESUME_SESSION, workerId: WORKER, status: "active" },
+    ] as never);
+    // Read in candidate order: the greeting session first, then the résumé-mode one.
+    const viewIn = (mode: string) =>
+      ({
+        buffer: {} as never,
+        envelope: { generalRoad: { armed: false }, freeChat: { mode } } as never,
+        items: [],
+        served: served(),
+      }) as SessionView;
+    orchestrator.viewSession
+      .mockResolvedValueOnce(viewIn("greeting"))
+      .mockResolvedValueOnce(viewIn("resume"));
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(RESUME_SESSION);
+    expect(chatService.startSession).not.toHaveBeenCalled();
+  });
+
+  it("mints (skipping the reattach) only when no live session is continuable", async () => {
+    const { service, chat, chatService, orchestrator } = makeWorld();
+    chat.listActiveSessionsByWorker.mockResolvedValue([
+      { id: SESSION, workerId: WORKER, status: "active" },
+    ] as never);
+    orchestrator.viewSession.mockResolvedValue({
+      buffer: {} as never,
+      envelope: { generalRoad: { armed: false }, freeChat: { mode: "free" } } as never,
+      items: [],
+      served: served(),
+    });
+    const result = await service.start(WORKER, CTX);
+    expect(result.session_id).toBe(OTHER_SESSION);
+    expect(chatService.startSession).toHaveBeenCalledWith(WORKER, CTX, { mint: true });
   });
 });
 

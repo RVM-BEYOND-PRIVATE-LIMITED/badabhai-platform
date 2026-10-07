@@ -241,6 +241,7 @@ const FULL: ProfilingEnvelope = {
     clarifiedFor: "key:q_city",
     deflected: { key: "key:q_city", count: 2 },
     deescalated: { key: "key:q_city", count: 1 },
+    chipNoOps: { key: "key:q_city", count: 2 },
   },
 };
 

@@ -335,6 +335,53 @@ describe("abandon → a new session → still locked; a finished session release
   });
 });
 
+describe("a lock that lives only on the ROW survives every replacing writer (N3)", () => {
+  /** An envelope rebuilt without the lock: a lost buffer, a session that opened locked, the switch. */
+  const rebuilt = (): ProfilingEnvelope => ({ ...emptyProfilingEnvelope(), freeChat: null });
+  const ROW = { turn_count: 2, free_chat_lock: LOCK };
+
+  it("the mid-interview checkpoint", async () => {
+    const { svc, chat } = make({
+      conversationState: ROW,
+      turn: { checkpointDue: true },
+      written: { profiling: rebuilt() },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
+    expect(state.free_chat_lock).toEqual(LOCK);
+  });
+
+  it("the abandon sweep", async () => {
+    const { svc, chat } = make({ buffer: { profiling: rebuilt() } });
+    await svc.abandonInterview({ id: SESSION, workerId: WORKER, conversationState: ROW }, 400, CTX);
+    const state = chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.free_chat_lock).toEqual(LOCK);
+  });
+
+  it("the completion flush", async () => {
+    const { svc, chat } = make({
+      conversationState: ROW,
+      turn: { complete: true, completionReason: "complete", kind: "close" },
+      written: { profiling: rebuilt() },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.free_chat_lock).toEqual(LOCK);
+  });
+
+  it("the envelope's own lock wins over the row's when it has one", async () => {
+    const later = new Date(T0.getTime() + 60_000);
+    const env: ProfilingEnvelope = {
+      ...emptyProfilingEnvelope(),
+      freeChat: enterMode(null, "resume", "chip", later),
+    };
+    const { svc, chat } = make({ buffer: { profiling: env } });
+    await svc.abandonInterview({ id: SESSION, workerId: WORKER, conversationState: ROW }, 400, CTX);
+    const state = chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.free_chat_lock).toEqual({ v: 1, locked_at: later.toISOString() });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // POST /chat/message
 // ---------------------------------------------------------------------------

@@ -27,7 +27,11 @@ import {
 } from "../profiling/conversation-state";
 import { generalFormOfferFor, type GeneralFormOffer } from "../profiling/skills-gate";
 import { identityGapsOf } from "../profiling/identity-intake/identity-intake";
-import { carriesFreeChatLock, toFreeChatStatePatch } from "../profiling/free-chat/free-chat.state";
+import {
+  carriesFreeChatLock,
+  storedFreeChatLock,
+  toFreeChatStatePatch,
+} from "../profiling/free-chat/free-chat.state";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -908,7 +912,13 @@ export class ChatService {
     //     LATER turn happens to complete again — which, for an interview the client
     //     believes is finished, is never.
     if (buffer.completedAt) {
-      const reflushed = await this.finalizeInterview(workerId, dto.session_id, buffer, ctx);
+      const reflushed = await this.finalizeInterview(
+        workerId,
+        dto.session_id,
+        buffer,
+        ctx,
+        session.conversationState,
+      );
       this.logger.warn(
         `session ${dto.session_id} had a completed-but-unflushed buffer; ` +
           `re-flush ${reflushed ? "succeeded" : "FAILED again"}`,
@@ -995,7 +1005,7 @@ export class ChatService {
     //    end; `flushed` says the transcript is durable. They differ exactly when the flush
     //    transaction rolled back, and conflating them loses the whole interview.
     const flush = turn.complete
-      ? await this.flushInterview(workerId, dto.session_id, buffered, ctx)
+      ? await this.flushInterview(workerId, dto.session_id, buffered, ctx, session.conversationState)
       : null;
     const flushed = flush !== null && flush !== "failed";
     const terminal = turn.complete && flushed;
@@ -1042,7 +1052,9 @@ export class ChatService {
             // worker's certified skills, or this REPLACING write would drop them.
             ...toGeneralRoadStatePatch(buffered.profiling),
             // ADR-0051 — same reasoning: this REPLACING write must carry the résumé lock the
-            // jsonb merge wrote, or the worker would be let out of the lock by a checkpoint.
+            // jsonb merge wrote, or the worker would be let out of the lock by a checkpoint. The
+            // row's own lock first, the envelope's second: a rebuilt envelope never erases it.
+            ...storedFreeChatLock(session.conversationState),
             ...toFreeChatStatePatch(buffered.profiling),
           },
           now,
@@ -1250,8 +1262,9 @@ export class ChatService {
     sessionId: string,
     buffer: TranscriptBuffer,
     ctx: RequestContext,
+    storedState: unknown,
   ): Promise<boolean> {
-    return (await this.flushInterview(workerId, sessionId, buffer, ctx)) !== "failed";
+    return (await this.flushInterview(workerId, sessionId, buffer, ctx, storedState)) !== "failed";
   }
 
   /**
@@ -1271,6 +1284,11 @@ export class ChatService {
     sessionId: string,
     buffer: TranscriptBuffer,
     ctx: RequestContext,
+    /**
+     * The row's `conversation_state` as the caller read it — the source of a résumé lock (ADR-0051)
+     * the buffer's envelope may no longer carry. REQUIRED, so no call site can forget it.
+     */
+    storedState: unknown,
   ): Promise<"won" | "already_final" | "failed"> {
     const at = new Date();
     // The state snapshot that lands in `chat_sessions.conversation_state`. Built
@@ -1317,8 +1335,10 @@ export class ChatService {
       // confirmed at the gate, which the general form, the profile build and the résumé read
       // after this buffer is gone. ABSENT for every session not on the skills lane.
       ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
-      // ADR-0051 — the résumé lock, carried for the record. Harmless on a FINISHED session: the
-      // lock decider reads an ended row as "released" whatever it carries. ABSENT outside résumé mode.
+      // ADR-0051 — the résumé lock, carried for the record: the row's own first, the envelope's
+      // second. Harmless on a FINISHED session — the lock decider reads an ended row as
+      // "released" whatever it carries. ABSENT outside résumé mode.
+      ...storedFreeChatLock(storedState),
       ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
       // The RFS field ids the worker actually answered.
       //
@@ -1638,7 +1658,13 @@ export class ChatService {
         completedAt: settledAt,
         completionReason: pendingOffer.completionReason ?? "complete",
       };
-      const outcome = await this.flushInterview(workerId, sessionId, declined, ctx);
+      const outcome = await this.flushInterview(
+        workerId,
+        sessionId,
+        declined,
+        ctx,
+        session.conversationState,
+      );
       // RECORDED ONLY IF THIS FLUSH BECAME THE RECORD. A worker who came back and answered in the
       // same instant may have closed the session first — with a "Haan" that is now the stored
       // answer — and a "no" written here would contradict the one record of their consent.
@@ -1687,7 +1713,13 @@ export class ChatService {
       (buffer.profiling?.resumeUpdateOffer?.state === "settled" ||
         buffer.profiling?.generalRoad?.handedOver === true)
     ) {
-      const outcome = await this.flushInterview(workerId, sessionId, buffer, ctx);
+      const outcome = await this.flushInterview(
+        workerId,
+        sessionId,
+        buffer,
+        ctx,
+        session.conversationState,
+      );
       this.logger.log(
         `completed-but-unflushed session re-driven reason=${
           buffer.profiling?.generalRoad?.handedOver === true
@@ -1723,7 +1755,9 @@ export class ChatService {
           // ADR-0045 — an abandoned skills-lane session keeps what the worker confirmed.
           ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
           // ADR-0051 — AND ITS RÉSUMÉ LOCK, which is the whole point of an abandoned résumé
-          // session: the worker who returns later is still locked (R5). This replace must carry it.
+          // session: the worker who returns later is still locked (R5). This replace must carry it
+          // — the row's own lock first, the envelope's second, so a rebuilt envelope never erases it.
+          ...storedFreeChatLock(session.conversationState),
           ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
@@ -1872,7 +1906,9 @@ export class ChatService {
       // rows and its pin. A flush that fails again keeps today's reattach.
       const buffered = await this.buffer.load(live.id);
       if (buffered !== null && buffered.workerId === workerId && buffered.completedAt) {
-        if (!(await this.finalizeInterview(workerId, live.id, buffered, ctx))) return false;
+        if (!(await this.finalizeInterview(workerId, live.id, buffered, ctx, live.conversationState))) {
+          return false;
+        }
         this.logger.log(
           `re-flushed a completed confirmed leftover worker=${workerId} session=${live.id}`,
         );

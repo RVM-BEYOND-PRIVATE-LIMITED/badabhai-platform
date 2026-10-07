@@ -196,6 +196,21 @@ export class ChatRepository {
   }
 
   /**
+   * The worker's LIVE sessions, most recently touched first, at most `limit` — the voice form's
+   * reattach candidates (ADR-0051): the newest one it may continue wins, so it mints a new session
+   * only when none qualifies, rather than leaving a second active row beside a continuable one.
+   * The same predicate and ordering as {@link findActiveSessionByWorker}.
+   */
+  async listActiveSessionsByWorker(workerId: string, limit: number): Promise<ChatSession[]> {
+    return this.db
+      .select()
+      .from(chatSessions)
+      .where(and(eq(chatSessions.workerId, workerId), eq(chatSessions.status, "active")))
+      .orderBy(sql`coalesce(${chatSessions.lastMessageAt}, ${chatSessions.startedAt}) DESC`)
+      .limit(limit);
+  }
+
+  /**
    * #1744 — has this session already become a CONFIRMED profile for this worker?
    *
    * A profile carries no session id; the link is its extraction job:

@@ -1123,6 +1123,58 @@ describe("résumé mode — a double-tapped free-chat chip is a no-op", () => {
   );
 });
 
+describe("the chip no-op yields to whatever owns the words, and is capped", () => {
+  it('a typed "baad mein" with "Resume update kar doon?" on screen reaches the OFFER\'s reader', async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    const saved = world.saved()!;
+    world.store.set(SESSION, {
+      ...saved,
+      profiling: {
+        ...saved.profiling!,
+        resumeUpdateOffer: {
+          state: "pending",
+          accepted: null,
+          completionReason: "complete",
+          answeredAt: null,
+        },
+      },
+    });
+    const turn = await world.say("baad mein");
+    // The offer read the answer and closed the interview — no no-op re-serve.
+    expect(turn.complete).toBe(true);
+    expect(world.envelope().resumeUpdateOffer).toMatchObject({ state: "settled", accepted: false });
+  });
+
+  it("at most two no-ops per pending question — the third chip passes to the interview", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    expect((await world.say("Haan, shuru karein")).reply).toBe(FREE_CHAT_COPY.OPENER.latin);
+    expect((await world.say("Haan, shuru karein")).reply).toBe(FREE_CHAT_COPY.OPENER.latin);
+    expect(world.saved()!.turnCount).toBe(0);
+    expect(world.envelope().freeChat!.chipNoOps).toEqual({
+      key: `text:${FREE_CHAT_COPY.OPENER.latin}`,
+      count: 2,
+    });
+    await world.say("Haan, shuru karein");
+    expect(world.saved()!.turnCount).toBe(1);
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+  });
+});
+
+describe("the pending-import reads are memoised per turn", () => {
+  it('"Resume banayein" in free mode reads the identity line and the pending import ONCE each', async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.resume.identityForChat.mockClear();
+    world.resume.pendingForChat.mockClear();
+    // The import check at the top of free mode, then the opening "Haan" serves: two looks, one read.
+    expect((await world.say(FREE_CHAT_RESUME_LABEL)).reply).toBe(FREE_CHAT_COPY.OPENER.latin);
+    expect(world.resume.identityForChat).toHaveBeenCalledOnce();
+    expect(world.resume.pendingForChat).toHaveBeenCalledOnce();
+  });
+});
+
 describe("a pending résumé import found at the greeting or in free mode (an upload is résumé intent)", () => {
   it("serves the import's turn on the next message instead of hiding it behind Haan", async () => {
     const world = makeWorld();
@@ -1262,6 +1314,21 @@ describe("the gates beside the turn", () => {
       to: "resume",
       trigger: "resume_import",
     });
+  });
+
+  it("openTurn WITHOUT the chat's flag never opens an import under a greeting (the voice form)", async () => {
+    const world = makeWorld();
+    await world.greet();
+    world.resume.identityForChat.mockResolvedValue(LINE as never);
+    const before = world.saved();
+    const opened = await world.orchestrator.openTurn({
+      sessionId: SESSION,
+      workerId: WORKER,
+      now: T0,
+      ctx: CTX as never,
+    });
+    expect(opened.unavailable).toBe(true);
+    expect(world.saved()).toEqual(before);
   });
 
   it("openResumeConfirm opens nothing beneath a greeting with NO import — and openTurn writes nothing", async () => {

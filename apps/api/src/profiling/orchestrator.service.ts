@@ -105,7 +105,10 @@ import {
   RESUME_IDENTITY_OPTIONS,
   type IdentitySummary,
 } from "./resume-import/resume-identity";
-import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
+import {
+  ResumeSuggestionReader,
+  type ResumeSuggestion,
+} from "./resume-import/resume-suggestion-reader";
 import { ResumeAutofillService } from "./form/resume-autofill.service";
 import {
   readResumeUpdateOfferReply,
@@ -169,6 +172,7 @@ import {
 import {
   enterMode,
   FREE_CHAT_ASIDE_CAP,
+  FREE_CHAT_MAX_CHIP_NO_OPS,
   FREE_CHAT_MAX_DEESCALATIONS,
   FREE_CHAT_MAX_DEFLECTS,
   FREE_CHAT_NUDGE_EVERY,
@@ -331,6 +335,13 @@ interface FreeChatRefs {
    */
   classify: { readonly key: string; readonly verdict: Promise<FreeChatVerdict> } | null;
   reply: Promise<FreeChatReplyOutput | null> | null;
+  /**
+   * The two résumé-import reads (the staged identity line, the pending batch import). They depend
+   * only on the worker, so a free-mode turn — which may look for an import at the greeting and
+   * again on "Haan" — reads each once, and a lost CAS reads neither again.
+   */
+  identity: Promise<IdentitySummary | null> | null;
+  pendingImport: ReturnType<ResumeSuggestionReader["pendingForChat"]> | null;
 }
 
 /**
@@ -812,7 +823,12 @@ export class ProfilingOrchestrator {
     const citySeed: CitySeedRef = { promise: null };
     // ADR-0051 — the free chat's classify and reply calls, memoised for the same reason: a lost
     // CAS re-runs `decide`, and must not pay (or record) a model call twice.
-    const freeRefs: FreeChatRefs = { classify: null, reply: null };
+    const freeRefs: FreeChatRefs = {
+      classify: null,
+      reply: null,
+      identity: null,
+      pendingImport: null,
+    };
 
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
@@ -1087,7 +1103,11 @@ export class ProfilingOrchestrator {
       // already served whichever of them applied, and the turn path owns every later offer.
       // ADR-0051 — a free chat still in greeting or free mode (its intake, if any, settled: a pending
       // one returned above) may still open a résumé-import turn; see `openResumeConfirm`.
-      const opening = buffer.turnCount === 0 && (intake === null || isFreeChatOpen(envelope));
+      // ONLY ON THE CHAT'S FLAG: a free chat's screen is opened from the chat's start path alone,
+      // whatever the intake did — the voice form never opens a résumé turn under a greeting.
+      const opening =
+        buffer.turnCount === 0 &&
+        (isFreeChatOpen(envelope) ? input.freeChat === true : intake === null);
 
       // ── THE RÉSUMÉ-UPDATE OFFER, RE-SERVED (ADR-0043) ──────────────────────────────────
       //
@@ -3578,14 +3598,7 @@ export class ProfilingOrchestrator {
     items: readonly QuestionPackItem[],
     answers: AnswerMap,
   ): Promise<{ importId: string; facts: ResumeConfirmFact[] } | null> {
-    const offer = await this.resumeSuggestions.pendingForChat(workerId);
-    if (!offer) return null;
-    // `chatServableItems(items)` — the same shared filter the accept path runs through
-    // (#1505 F3), so a résumé's `education`/`salary_expected`/`preferred_locations` suggestions
-    // are never offered for confirmation in the chat; only trade/experience/city/availability
-    // shrink the batch-confirm bubble.
-    const facts = confirmableFacts(offer.suggestions, chatServableItems(items), answers);
-    return { importId: offer.importId, facts };
+    return confirmOf(await this.resumeSuggestions.pendingForChat(workerId), items, answers);
   }
 
   /**
@@ -4297,13 +4310,28 @@ export class ProfilingOrchestrator {
         state.held === null ? t.envelope : { ...t.envelope, freeChat: { ...state, held: null } },
     });
     const pending = this.pendingQuestion(t, state);
-    // A DOUBLE-TAPPED FREE-CHAT CHIP ("Haan, shuru karein" sent twice, a stale "Resume banayein"):
-    // a no-op. The pending question is re-served as it stands — never captured as an answer, never
-    // classified, and counted toward no cap. Nothing on screen to re-serve is today's interview.
-    if (isFreeChatChip(t.input.text) && pending !== null) return this.serveNoOp(t, state, pending);
-    const pre = preClassifyResume(t.input.text, this.resumeSkipFacts(t, state, pending));
+    const skip = this.resumeSkipFacts(t, state, pending);
+    const pre = preClassifyResume(t.input.text, skip);
     if (pre.kind === "distress")
       return this.serveResumeDistress(t, state, pending, LEXICON_DISTRESS);
+    // A DOUBLE-TAPPED FREE-CHAT CHIP ("Haan, shuru karein" sent twice, a stale "Resume banayein"):
+    // a no-op that re-serves the pending question as it stands — never captured, never classified.
+    // ONLY where nothing else owns the words: a pending offer, an open gate, the turn cap or an
+    // option on screen reads them first (a typed "baad mein" is a real answer to "Resume update
+    // kar doon?"). At most twice per pending question; a third passes to the interview.
+    if (
+      pending !== null &&
+      isFreeChatChip(t.input.text) &&
+      !skip.capped &&
+      !skip.pendingOffer &&
+      !skip.gateOpen &&
+      !skip.offeredOption
+    ) {
+      const key = pendingKeyOf(pending);
+      const count = state.chipNoOps?.key === key ? state.chipNoOps.count : 0;
+      if (count >= FREE_CHAT_MAX_CHIP_NO_OPS) return pass();
+      return this.serveNoOp(t, { ...state, chipNoOps: { key, count: count + 1 } }, pending);
+    }
     if (pre.kind === "pass" || pending === null) return pass();
 
     const verdict = await this.classifyMemo(t, "resume", pending);
@@ -4552,7 +4580,8 @@ export class ProfilingOrchestrator {
     served: FreeChatServed,
   ): Promise<FreeChatRouted | null> {
     const answers = answersOf(entered);
-    const line = await this.resolveResumeIdentity(t.input.workerId);
+    t.refs.identity ??= this.resolveResumeIdentity(t.input.workerId);
+    const line = await t.refs.identity;
     if (line !== null && entered.resumeIdentity?.importId !== line.importId) {
       const next: ProfilingEnvelope = {
         ...entered,
@@ -4565,7 +4594,8 @@ export class ProfilingOrchestrator {
       return this.serveAside(t, next, fields, served, false);
     }
     if (entered.resumeConfirm === null) {
-      const pending = await this.resolveResumeConfirm(t.input.workerId, t.items, answers);
+      t.refs.pendingImport ??= this.resumeSuggestions.pendingForChat(t.input.workerId);
+      const pending = confirmOf(await t.refs.pendingImport, t.items, answers);
       if (pending && pending.facts.length > 0) {
         const next: ProfilingEnvelope = {
           ...entered,
@@ -4782,8 +4812,8 @@ export class ProfilingOrchestrator {
 
   /**
    * A double-tapped free-chat chip in résumé mode: the pending question re-served as it stands. An
-   * aside that counts toward NO cap (not the aside cap, not a deflect, clarify or de-escalation
-   * count) and records no served-turn event — nothing was decided.
+   * aside that counts only toward its own cap (`chipNoOps` — not the aside cap, not a deflect,
+   * clarify or de-escalation count) and records no served-turn event — nothing was decided.
    */
   private serveNoOp(
     t: FreeChatTurn,
@@ -6696,6 +6726,23 @@ function intakeAskTurn(
 function progressItemsOf(envelope: ProfilingEnvelope, engine: EnginePacks): QuestionPackItem[] {
   const selectable = selectableEnginePacks(envelope, engine);
   return [...(selectable.occupation?.items ?? []), ...selectable.universal.items];
+}
+
+/**
+ * A pending import, resolved against the pack and the current answers — the body of
+ * `resolveResumeConfirm`, shared with the free chat's memoised read. `chatServableItems(items)` is
+ * the same shared filter the accept path runs through (#1505 F3), so a résumé's `education` /
+ * `salary_expected` / `preferred_locations` suggestions are never offered for confirmation in the
+ * chat; only trade/experience/city/availability shrink the batch-confirm bubble.
+ */
+function confirmOf(
+  offer: { importId: string; suggestions: ReadonlyMap<string, ResumeSuggestion> } | null,
+  items: readonly QuestionPackItem[],
+  answers: AnswerMap,
+): { importId: string; facts: ResumeConfirmFact[] } | null {
+  if (!offer) return null;
+  const facts = confirmableFacts(offer.suggestions, chatServableItems(items), answers);
+  return { importId: offer.importId, facts };
 }
 
 /** The attribution one intake turn's writes and events carry. */

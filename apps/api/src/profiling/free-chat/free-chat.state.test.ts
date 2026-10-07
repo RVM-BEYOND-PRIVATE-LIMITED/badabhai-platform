@@ -10,6 +10,7 @@ import {
   narrowFreeChat,
   pendingKeyOf,
   readFreeChatLock,
+  storedFreeChatLock,
   registerStrike,
   toFreeChatStatePatch,
   type FreeChatState,
@@ -110,6 +111,7 @@ describe("narrowFreeChat — read back field by field, failing toward 'no mode y
       clarifiedFor: "key:primary_trade",
       deflected: { key: "key:primary_trade", count: 1 },
       deescalated: { key: "key:primary_trade", count: 2 },
+      chipNoOps: { key: "key:primary_trade", count: 1 },
     };
     expect(narrowFreeChat(JSON.parse(JSON.stringify(state)))).toEqual(state);
   });
@@ -151,6 +153,7 @@ describe("narrowFreeChat — read back field by field, failing toward 'no mode y
       clarifiedFor: null,
       deflected: null,
       deescalated: null,
+      chipNoOps: null,
     });
   });
 });
@@ -181,6 +184,17 @@ describe("the deflect count — narrowed, keyed, and back-compatible", () => {
       pendingKeyOf({ questionKey: "primary_trade", reply: "Aap kaunsa kaam karte hain?" }),
     ).toBe("key:primary_trade");
     expect(pendingKeyOf({ questionKey: null, reply: "Theek hai." })).toBe("text:Theek hai.");
+  });
+});
+
+describe("storedFreeChatLock — the row's own lock, kept whatever its shape", () => {
+  it("spreads the raw stored value, and nothing when the row has none", () => {
+    expect(storedFreeChatLock({ free_chat_lock: { v: 1, locked_at: T0.toISOString() } })).toEqual({
+      free_chat_lock: { v: 1, locked_at: T0.toISOString() },
+    });
+    expect(storedFreeChatLock({ free_chat_lock: { v: 9 } })).toEqual({ free_chat_lock: { v: 9 } });
+    expect(storedFreeChatLock({ turn_count: 3 })).toEqual({});
+    expect(storedFreeChatLock(null)).toEqual({});
   });
 });
 

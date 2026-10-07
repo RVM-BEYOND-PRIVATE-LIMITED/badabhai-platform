@@ -436,6 +436,20 @@ describe("ChatRepository.markGeneralFormCompleted — the chat's 'form done' sig
  * ADR-0051 — the free chat's durable résumé lock
  * ══════════════════════════════════════════════════════════════════════════ */
 
+describe("ChatRepository.listActiveSessionsByWorker — the voice form's reattach candidates", () => {
+  it("filters on the worker AND status='active', most recently touched first, capped", async () => {
+    const h = makeSelectingDb([{ id: SESSION }]);
+    const out = await new ChatRepository(h.db as never).listActiveSessionsByWorker(WORKER, 5);
+    expect(out).toEqual([{ id: SESSION }]);
+    const { sql, params } = new PgDialect().sqlToQuery(h.captured.where as never);
+    expect(sql).toContain('"worker_id" = $1');
+    expect(sql).toContain('"status" = $2');
+    expect(params).toEqual([WORKER, "active"]);
+    expect(renderOrderBy(h)).toMatch(/coalesce\(.*"last_message_at".*"started_at"\) desc/i);
+    expect(h.captured.limit).toBe(5);
+  });
+});
+
 describe("ChatRepository.findFreeChatLockDecider — the session that decides the lock", () => {
   it("filters on the worker AND (ended OR carries the lock key) IN the WHERE clause", async () => {
     const h = makeSelectingDb([{ id: SESSION, status: "abandoned" }]);

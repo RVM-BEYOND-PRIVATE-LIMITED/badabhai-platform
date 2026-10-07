@@ -110,6 +110,11 @@ describe("the G1 floor — a hard identifier never leaves in a model line or chi
     expect(failure(["SCANNER_BOOM theek hai."])).toBe("pii");
   });
 
+  it('a DASHED ₹ range trips the phone wall — the career prompt asks for "₹X se ₹Y" instead', () => {
+    expect(failure(["Aam taur par ₹15,000-25,000 milta hai."])).toBe("pii");
+    expect(failure(["Aam taur par ₹15,000 se ₹25,000 milta hai."])).toBeNull();
+  });
+
   it("still serves an ordinary career line with a ₹ range (R11)", () => {
     expect(failure(["Shuru mein aam taur par ₹15,000 se ₹25,000 milta hai."])).toBeNull();
   });

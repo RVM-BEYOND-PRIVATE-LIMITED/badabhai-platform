@@ -56,6 +56,12 @@ import type {
 } from "./profiling.dto";
 
 /**
+ * How many live sessions the voice form considers before minting — a bound on the envelope reads
+ * `notContinuable` makes. A worker rarely holds more than two; the sweep retires the rest.
+ */
+const VOICE_REATTACH_CANDIDATES = 5;
+
+/**
  * The voice form's half of the interview — and ONLY its half.
  *
  * WHAT THIS CLASS IS NOT. It is not a second interview engine. Every turn it takes goes through
@@ -113,26 +119,31 @@ export class ProfilingSessionService {
    * interviews and — worse — ask a worker who answered nine questions yesterday to begin again.
    * The session row is the durable anchor; `openTurn` is idempotent on top of it.
    *
-   * THE CANDIDATE IS THE LIVE SESSION (`findActiveSessionByWorker`), the one `startSession` itself
-   * reattaches to — not the latest by `last_message_at`, which ranks a fresh greeting session
-   * (clock still NULL) below an older ENDED one and so never consulted `notContinuable` for it,
-   * after which `startSession` reattached to that very session anyway. A live session that may not
-   * be continued here (an armed general road, a free chat in greeting or free mode, ADR-0051) gets
-   * a NEW session minted WITHOUT the reattach (`{ mint: true }`).
+   * THE CANDIDATES ARE THE LIVE SESSIONS, most recently touched first — not the latest by
+   * `last_message_at`, which ranks a fresh greeting session (clock still NULL) below an older ENDED
+   * one and so never consulted `notContinuable` for it. The newest one this surface may continue
+   * wins; one it may not (an armed general road, a free chat in greeting or free mode, ADR-0051) is
+   * skipped. Only when none qualifies is a NEW session minted, WITHOUT the reattach
+   * (`{ mint: true }`) that would hand back the very session just ruled out.
    */
   async start(workerId: string, ctx: RequestContext): Promise<ProfilingSessionResponse> {
-    const live = await this.chat.findActiveSessionByWorker(workerId);
-    const reattach = live !== undefined && !(await this.notContinuable(live));
-    const sessionId =
-      reattach && live
-        ? live.id
-        : (
-            (await this.chatService.startSession(
-              workerId,
-              ctx,
-              live === undefined ? {} : { mint: true },
-            )) as { session_id: string }
-          ).session_id;
+    const live = await this.chat.listActiveSessionsByWorker(workerId, VOICE_REATTACH_CANDIDATES);
+    let sessionId: string | null = null;
+    for (const candidate of live) {
+      if (!(await this.notContinuable(candidate))) {
+        sessionId = candidate.id;
+        break;
+      }
+    }
+    sessionId ??= (
+      (await this.chatService.startSession(
+        workerId,
+        ctx,
+        live.length === 0 ? {} : { mint: true },
+      )) as {
+        session_id: string;
+      }
+    ).session_id;
 
     const turn = await this.orchestrator.openTurn({
       sessionId,
