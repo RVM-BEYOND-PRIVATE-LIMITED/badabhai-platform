@@ -45,8 +45,10 @@ void main() {
           'package root — the parity net is worthless if it silently skips',
     );
     final String md = adr.readAsStringSync();
-    // §5.1 writes each chip as: "<label>" → `free_chat_<slug>`
-    final Set<String> adrKeys = RegExp(r'`(free_chat_[a-z_]+)`')
+    // §5.1 writes each chip as: "<label>" → `free_chat_<slug>`. Match that chip shape, not every
+    // `free_chat_*` token: Release 2 (#2086) documents the reply field `free_chat_mode` in the same
+    // ADR, and a bare-token match counted it as a fourth chip key.
+    final Set<String> adrKeys = RegExp(r'" → `(free_chat_[a-z_]+)`')
         .allMatches(md)
         .map((Match m) => m.group(1)!)
         .toSet();
