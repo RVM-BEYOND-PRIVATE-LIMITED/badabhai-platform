@@ -662,7 +662,7 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
     for (const p of props(dsStrip())) expect(decl(strip, p), p).toBe(decl(dsStrip(), p));
   });
 
-  it('MARKUP: the ONE back link (PageHeader) is `<p className="page-back">` → a direct <Link> (so `> a` matches)', () => {
+  it('MARKUP: the ONE back link (PageHeader) is `<p className="page-back">` → a direct <PortalLink> (so `> a` matches)', () => {
     // The selector is a CHILD combinator, so a wrapper span or a second link inside the
     // paragraph would silently lose the hit area — pin the shape. Every page renders its back
     // link through PageHeader (2026-10-01), so the shape lives in ONE place and no page may
@@ -677,9 +677,11 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
     const close = component.indexOf("</p>", tagEnd);
     const inner = component.slice(tagEnd + 1, close).trim();
     expect(component.startsWith("<p ", open)).toBe(true);
-    expect(inner.startsWith("<Link ")).toBe(true);
-    expect(inner.endsWith("</Link>")).toBe(true);
-    expect(offsets(inner, "<Link ")).toHaveLength(1);
+    // A PortalLink renders next/link's <a> directly (plus the pending cue inside it), so the
+    // paragraph's child is still the <a> (components/portal-link.tsx).
+    expect(inner.startsWith("<PortalLink ")).toBe(true);
+    expect(inner.endsWith("</PortalLink>")).toBe(true);
+    expect(offsets(inner, "<PortalLink ")).toHaveLength(1);
     // The arrow is the typed icon, never the `←` glyph.
     expect(inner).toContain("<Icon name={ACTION_ICON.back} />");
     expect(inner).not.toContain("←");

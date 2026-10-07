@@ -4,7 +4,6 @@ import type * as ReactModule from "react";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Dialog } from "../../../components/ds";
 import { ConfirmSpendDialog } from "../../../components/unlock";
-import { NavPendingCue } from "../../../components/nav-pending";
 import { linkCues } from "../../../../test/link-cues";
 
 /**
@@ -748,11 +747,14 @@ describe("PostingsManager — READ-ONLY (an agent's older company postings)", ()
   });
 });
 
-describe("the navigation pending cue on a posting row (components/nav-pending.tsx)", () => {
-  it("the title and the Applicants link each carry it, named for where they go", () => {
-    const cues = linkCues(render([OPEN]), NavPendingCue);
+describe("the navigation pending cue on a posting row (components/portal-link.tsx)", () => {
+  it("the title, the Applicants link and Edit posting each carry it, named for where they go", () => {
+    const cues = linkCues(render([OPEN]));
     expect(cues.get(`/postings/${OPEN.id}`)).toEqual([OPEN.roleTitle]);
     expect(cues.get(`/postings/${OPEN.id}/applicants`)).toEqual(["Applicants"]);
+    expect(cues.get(`/postings/${OPEN.id}/edit`)).toEqual(["Edit posting"]);
+    // …and no link on the row goes without one.
+    expect([...cues].filter(([, labels]) => labels.length === 0)).toEqual([]);
   });
 });
 

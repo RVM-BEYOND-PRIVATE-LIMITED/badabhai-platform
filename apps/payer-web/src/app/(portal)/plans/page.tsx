@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
@@ -16,6 +15,7 @@ import { Badge, Card, StatTile } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { priceFigure } from "../../../components/price-figure";
 import { PageHeader } from "../../../components/page-header";
+import { PortalLink } from "../../../components/portal-link";
 import { RetryButton } from "../../../components/retry-button";
 import { CapacityPanel } from "../capacity/capacity-panel";
 
@@ -125,9 +125,9 @@ export default async function PlansPage() {
                 icon={ACTION_ICON.users}
                 caption={
                   // Slots are added per posting, on the Postings page.
-                  <Link href="/postings">
+                  <PortalLink href="/postings" pendingLabel="Postings">
                     Add applicant slots in Postings <Icon name={ACTION_ICON.next} />
-                  </Link>
+                  </PortalLink>
                 }
               />
             </div>
@@ -227,9 +227,13 @@ export default async function PlansPage() {
                     {capacity.postings.map((p) => (
                       <tr key={p.postingId}>
                         <td>
-                          <Link className="capacity-link" href={`/postings/${p.postingId}`}>
+                          <PortalLink
+                            className="capacity-link"
+                            href={`/postings/${p.postingId}`}
+                            pendingLabel={p.roleTitle}
+                          >
                             {p.roleTitle}
-                          </Link>
+                          </PortalLink>
                         </td>
                         <td>
                           <Badge
@@ -321,10 +325,14 @@ export default async function PlansPage() {
           </div>
           {/* The page's ONE "New posting" (the plan cards used to carry one each). */}
           <div className="section__actions">
-            <Link className="bb-btn bb-btn--secondary" href={COMPANY_POSTING_ROUTES.create}>
+            <PortalLink
+              className="bb-btn bb-btn--secondary"
+              href={COMPANY_POSTING_ROUTES.create}
+              pendingLabel="New posting"
+            >
               <Icon name={ACTION_ICON.create} />
               <span>New posting</span>
-            </Link>
+            </PortalLink>
           </div>
         </div>
         {postingTiers.length === 0 ? (

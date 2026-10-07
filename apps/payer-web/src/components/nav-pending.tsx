@@ -20,7 +20,9 @@ import {
  * exactly when the navigation commits.
  *
  *  - `NavPendingCue` sits INSIDE a `<Link>` (it must: `useLinkStatus` reads the nearest link): a dot
- *    on the link's corner while that link's navigation is pending. It takes NO space — absolutely
+ *    on the link's corner while that link's navigation is pending. It is never placed by hand:
+ *    every in-app link is a `PortalLink` (components/portal-link.tsx), which puts it there — the
+ *    only module allowed to (app/every-link-shows-the-cue.test.ts). It takes NO space — absolutely
  *    positioned, the link anchored whether or not it is pending (globals.css), so a click never
  *    resizes a button or pushes a badge. Hidden from assistive tech, so the link's accessible name
  *    never changes. A client child, so a server component can place it without becoming a client

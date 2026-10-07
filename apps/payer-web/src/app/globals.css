@@ -664,7 +664,10 @@ body {
    THE DOT TAKES NO SPACE (review of #2115): it is absolutely positioned on its link's corner, and
    every link that carries one is positioned whether or not it is pending — so a click never
    widens a button, pushes a badge or reflows a header (measured: +24px on a header action, +16px
-   on a title, before). nav-pending.css.test.ts fences it. */
+   on a title, before). nav-pending.css.test.ts fences it.
+
+   EVERY in-app link carries one: each is a `PortalLink` (components/portal-link.tsx), the only
+   module that may render next/link's `Link` (app/every-link-shows-the-cue.test.ts). */
 .nav-pending {
   display: none;
 }
@@ -696,6 +699,17 @@ body {
 .pshell__brandlink > .nav-pending--on {
   inset-block-start: var(--space-1);
   inset-inline-end: var(--space-1);
+}
+/* A DS Card / StatTile whole-surface link (`.bb-stretched-link`, ds-components.css) is an empty,
+   TRANSPARENT overlay spanning its card — still absolutely positioned (its class outranks the
+   zero-specificity anchor above), so the card's layout and hover lift are untouched. Its dot can
+   take neither the link's colour (transparent) nor the corner just outside it (the card's own
+   rounded corner), so it sits inside the card's top-right corner, in the padding, in the
+   heading colour. */
+.bb-stretched-link > .nav-pending--on {
+  inset-block-start: var(--space-1);
+  inset-inline-end: var(--space-1);
+  background: var(--text-heading);
 }
 .nav-progress {
   position: fixed;
@@ -1499,6 +1513,12 @@ textarea.input {
   gap: var(--space-4);
   padding: var(--space-4);
   animation: account-menu-pop var(--duration-fast) var(--ease-out);
+}
+/* Closed, the panel stays MOUNTED and `hidden` (account-menu.tsx: its Account link must outlive
+   the click that closes it, or the navigation's pending cue goes with it). The `display: grid`
+   above would otherwise override the attribute and leave the closed panel on screen. */
+.account-menu__panel[hidden] {
+  display: none;
 }
 @keyframes account-menu-pop {
   from {

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, type PointerEvent } from "react";
 import {
   ACTION_ICON,
@@ -9,7 +8,7 @@ import {
   restoreTooltip,
   watchEscapeWhileHovered,
 } from "@badabhai/icons";
-import { NavPendingCue } from "../../components/nav-pending";
+import { PortalLink } from "../../components/portal-link";
 
 /**
  * The shell header's credit balance — the ONE place the shell shows it, in "credits" (the unit
@@ -60,9 +59,12 @@ export function BalanceChip({ balance, linkToCredits }: { balance: number; linkT
 
   if (linkToCredits) {
     return (
-      <Link
+      // The navigation to Credits shows the pending cue (components/portal-link.tsx) — pinned to
+      // the chip's corner, so the header never reflows.
+      <PortalLink
         className="pshell__balance"
         href="/credits"
+        pendingLabel="Credits"
         aria-label={`${words} — open Credits`}
         onKeyDown={(e) => dismissTooltipOnEscape(e.currentTarget, e.key)}
         onBlur={(e) => restoreTooltip(e.currentTarget)}
@@ -70,10 +72,7 @@ export function BalanceChip({ balance, linkToCredits }: { balance: number; linkT
         onPointerLeave={onPointerLeave}
       >
         {body}
-        {/* The navigation to Credits is under way (components/nav-pending.tsx) — pinned to the
-            chip's corner, so the header never reflows. */}
-        <NavPendingCue label="Credits" />
-      </Link>
+      </PortalLink>
     );
   }
   return (

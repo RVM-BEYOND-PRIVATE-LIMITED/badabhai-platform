@@ -38,6 +38,8 @@ vi.mock("next/link", async () => {
   return {
     default: ({ children, href, ...rest }: { children: ReactNode; href: string }) =>
       React.createElement("a", { href, ...rest }, children),
+    // Every in-app link is a PortalLink, whose pending cue reads the link's status (idle here).
+    useLinkStatus: () => ({ pending: false }),
   };
 });
 vi.mock("./account-form", () => ({ AccountForm: () => null }));

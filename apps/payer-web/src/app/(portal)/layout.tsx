@@ -1,11 +1,10 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { requirePayer } from "../../lib/auth";
 import { getOrgRole } from "../../lib/auth/org-roles";
 import { agencyFlags } from "../../lib/config";
 import { getCredits } from "../../lib/payer-api";
 import { BadaBhaiLogo, Badge, ThemeToggle } from "../../components/ds";
-import { NavPendingCue } from "../../components/nav-pending";
+import { PortalLink } from "../../components/portal-link";
 import { AccountMenu } from "./account-menu";
 import { BalanceChip } from "./balance-chip";
 import { AppShell } from "./app-shell";
@@ -69,9 +68,10 @@ export default async function PortalLayout({ children }: { children: ReactNode }
         /* Brand lockup → Dashboard (the portal home). Authorization is unchanged: the
            target route is itself behind requirePayer(). The rail is a Shift Blue band, so
            the lockup takes its on-ink form; the persona is its caption. */
-        <Link
+        <PortalLink
           className="pshell__brandlink"
           href="/dashboard"
+          pendingLabel="Dashboard"
           aria-label="BadaBhai — go to dashboard"
         >
           <BadaBhaiLogo
@@ -79,9 +79,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
             size={30}
             sub={`for ${isAgency ? "Agencies" : "Companies"}`}
           />
-          {/* A client child: this layout stays a server component (components/nav-pending.tsx). */}
-          <NavPendingCue label="Dashboard" />
-        </Link>
+        </PortalLink>
       }
       header={
         <>

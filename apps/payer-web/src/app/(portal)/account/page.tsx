@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
 import { agencyFlags } from "../../../lib/config";
@@ -8,6 +7,7 @@ import type { AgencyKyc } from "../../../lib/contracts";
 import type { PayerSession } from "../../../lib/auth/types";
 import { Avatar, Badge, Card } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
+import { PortalLink } from "../../../components/portal-link";
 import { RetryButton } from "../../../components/retry-button";
 import { AccountForm } from "./account-form";
 import { EMAIL_SUPPORT_HELPER } from "./messages";
@@ -224,14 +224,15 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
           <p className="alert__body">{kycBody}</p>
         </div>
         <div className="alert__actions">
-          <Link
+          <PortalLink
             className="bb-btn bb-btn--secondary bb-btn--sm"
             href="/agency/referrals"
+            pendingLabel="Referrals"
             aria-label="Manage in Referrals — KYC details"
           >
             <Icon name={ACTION_ICON.edit} />
             <span>Manage in Referrals</span>
-          </Link>
+          </PortalLink>
         </div>
       </div>
 
@@ -259,16 +260,17 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
           </p>
         </div>
         <div className="alert__actions">
-          <Link
+          <PortalLink
             className="bb-btn bb-btn--secondary bb-btn--sm"
             href="/agency/referrals"
+            pendingLabel="Referrals"
             aria-label={
               bankAdded ? "Manage in Referrals — bank details" : "Add in Referrals — bank details"
             }
           >
             <Icon name={bankAdded ? ACTION_ICON.edit : ACTION_ICON.add} />
             <span>{bankAdded ? "Manage in Referrals" : "Add in Referrals"}</span>
-          </Link>
+          </PortalLink>
         </div>
       </div>
     </section>

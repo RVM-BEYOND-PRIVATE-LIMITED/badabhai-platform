@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { looksLikePii } from "@badabhai/validators";
@@ -12,6 +11,7 @@ import { Badge, Button, Card, Textarea } from "../../../../../components/ds";
 // Imported from the module path (not the ds barrel) so a test can mock just this
 // interactive pill while rendering the other hookless DS primitives for real.
 import { Chip } from "../../../../../components/ds/chip";
+import { PortalLink } from "../../../../../components/portal-link";
 import { DraftPreview } from "./draft-preview";
 import {
   publishJobPostingChatAction,
@@ -289,9 +289,9 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
             >
               {resumable.length > 0 ? "Start a new chat" : "Start chat"}
             </Button>
-            <Link className="ai-chat-intro__alt" href="/postings/new">
+            <PortalLink className="ai-chat-intro__alt" href="/postings/new" pendingLabel="New posting">
               Use the manual form instead
-            </Link>
+            </PortalLink>
           </div>
         </Card>
 
@@ -377,9 +377,9 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
           ) : null}
           {/* The page has no back link (a MODE of New posting — F15), so the way to the manual
               form stays here once a conversation is open, as on the choose screen. */}
-          <Link className="ai-chat__alt" href="/postings/new">
+          <PortalLink className="ai-chat__alt" href="/postings/new" pendingLabel="New posting">
             Use the manual form instead
-          </Link>
+          </PortalLink>
         </div>
       </aside>
     </div>

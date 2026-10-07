@@ -1,44 +1,38 @@
 import type { ReactElement, ReactNode } from "react";
 
 /**
- * Which links in an UNRENDERED element tree carry the navigation pending cue
- * (`NavPendingCue`, components/nav-pending.tsx), for the suites that walk a component's returned
- * tree instead of rendering it.
+ * Which links in an UNRENDERED element tree carry the navigation pending cue, for the suites that
+ * walk a component's returned tree instead of rendering it.
  *
- * Every element with a string `href` prop is a link (a `<Link>`, or a DS card with `href`). The
- * map gives each href the labels of the cues inside it — not counting a cue that sits inside a
- * NESTED link (a card's whole-card link wraps its "Applicants" link; that cue is the inner
- * link's). Function components are not expanded: the cue is matched by its type.
+ * Every element with a string `href` prop is a link: a `PortalLink` (components/portal-link.tsx),
+ * a DS Card / StatTile with `href` (its overlay is a `PortalLink`), or a raw `<a>`. A link carries
+ * the cue exactly when it names one — its `pendingLabel` prop; the map gives each href the labels
+ * of its links, so a link with none maps to `[]`. Function components are not expanded: what a
+ * `PortalLink` renders from that prop is pinned by components/portal-link.test.tsx, and that every
+ * in-app link IS one by app/every-link-shows-the-cue.test.ts.
+ *
+ * A link's children are walked too — a card's whole-card link wraps its "Applicants" link, which
+ * is recorded under its own href.
  */
-export function linkCues(tree: ReactNode, cue: unknown): Map<string, string[]> {
+export function linkCues(tree: ReactNode): Map<string, string[]> {
   const out = new Map<string, string[]>();
 
-  const cuesIn = (node: ReactNode, into: string[]): void => {
+  const walk = (node: ReactNode): void => {
     if (node === null || node === undefined || typeof node !== "object") return;
     if (Array.isArray(node)) {
-      for (const c of node) cuesIn(c, into);
+      for (const c of node) walk(c);
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
     if (!el.props) return;
-    if (el.type === cue) {
-      into.push(String(el.props.label));
-      return;
+    const { href, pendingLabel } = el.props;
+    if (typeof href === "string") {
+      const labels = typeof pendingLabel === "string" ? [pendingLabel] : [];
+      out.set(href, [...(out.get(href) ?? []), ...labels]);
     }
-    if (typeof el.props.href === "string") {
-      visitLink(el);
-      return;
-    }
-    cuesIn(el.props.children, into);
+    walk(el.props.children);
   };
 
-  const visitLink = (el: ReactElement<Record<string, unknown> & { children?: ReactNode }>) => {
-    const labels: string[] = [];
-    cuesIn(el.props.children, labels);
-    const href = el.props.href as string;
-    out.set(href, [...(out.get(href) ?? []), ...labels]);
-  };
-
-  cuesIn(tree, []);
+  walk(tree);
   return out;
 }

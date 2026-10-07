@@ -1,15 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
-import { NavPendingCue } from "../../../../../components/nav-pending";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
+import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import {
   ConfirmSpendDialog,
@@ -362,7 +361,10 @@ export function ApplicantActions(props: ApplicantActionsProps) {
             <p className="alert__title">0 credits</p>
             <p className="alert__body">
               {/* Every member can open Credits (owner ruling 2026-10-07) — no viewer check. */}
-              <Link href="/credits">Buy credits</Link> to unlock an applicant&rsquo;s routed
+              <PortalLink href="/credits" pendingLabel="Credits">
+                Buy credits
+              </PortalLink>{" "}
+              to unlock an applicant&rsquo;s routed
               contact. This is your own balance — not a signal about any applicant.
             </p>
           </div>
@@ -507,12 +509,15 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   <p className="applicant__posting">
                     <span className="applicant__posting-lead">Applied to</span>{" "}
                     {r.posting.href ? (
-                      <Link className="applicant__posting-link" href={r.posting.href}>
+                      // The click answers before the details page arrives (no loading boundary —
+                      // components/portal-link.tsx).
+                      <PortalLink
+                        className="applicant__posting-link"
+                        href={r.posting.href}
+                        pendingLabel={r.posting.title}
+                      >
                         {r.posting.title}
-                        {/* The click answers before the details page arrives (no loading
-                            boundary — components/nav-pending.tsx). */}
-                        <NavPendingCue label={r.posting.title} />
-                      </Link>
+                      </PortalLink>
                     ) : (
                       <span className="applicant__posting-title">{r.posting.title}</span>
                     )}
@@ -707,10 +712,14 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                             gets an enabled next step beside it; it is about the payer's own
                             balance, never a signal about this applicant. */}
                         {balance === 0 ? (
-                          <Link className="bb-btn bb-btn--secondary" href="/credits">
+                          <PortalLink
+                            className="bb-btn bb-btn--secondary"
+                            href="/credits"
+                            pendingLabel="Credits"
+                          >
                             <Icon name={ACTION_ICON.credits} />
                             <span>Buy credits</span>
-                          </Link>
+                          </PortalLink>
                         ) : null}
                       </div>
                       {/* Plain text, not a link: the "Buy credits" button right above is this

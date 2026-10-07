@@ -78,6 +78,8 @@ vi.mock("next/link", async () => {
       href: string;
       className?: string;
     }) => React.createElement("a", { href, className }, children),
+    // Every in-app link is a PortalLink, whose pending cue reads the link's status (idle here).
+    useLinkStatus: () => ({ pending: false }),
   };
 });
 
