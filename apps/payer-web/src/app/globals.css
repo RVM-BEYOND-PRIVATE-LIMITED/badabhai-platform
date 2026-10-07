@@ -1783,9 +1783,11 @@ textarea.input {
 .dash-posting:hover .dash-view__arrow {
   color: var(--text-accent);
 }
-/* A Recent-unlocks row (a DS Card): when the contact was unlocked and whether access is still
-   open. It is not a link (no posting context is reachable yet — see the dashboard), so it has NO
-   hover rule here: a lift says "you can click this". */
+/* A Recent-unlocks row (a DS Card): when the contact was unlocked, whether access is still open,
+   and — when the unlock was made from one of the payer's own company postings (#2033) — which
+   posting. Only a row that names a posting is a link, and it takes the DS whole-card link's lift
+   and focus ring (`.bb-card--link`); the row's own rules add NO hover, because a lift says "you
+   can click this" and an unlinked row opens nothing. */
 .dash-unlock {
   display: flex;
   align-items: center;
@@ -1819,6 +1821,17 @@ textarea.input {
   align-items: center;
   gap: var(--space-3);
   flex: none;
+}
+/* A linked row's "go" cue, named for its destination (F13 — "Applicants"). Static: the card's
+   own link brings the hover, and the arrow already nudges (`.dash-view__arrow`). */
+.dash-unlock__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+  white-space: nowrap;
 }
 .dash-empty,
 .dash-state {
