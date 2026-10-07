@@ -251,8 +251,10 @@ member, so Credits is P (with the nav item and the chip link for everyone).
 | Both    | —            | Dashboard        | `/dashboard`        | `dashboard/page.tsx`        | What needs you, position, quick actions, recent work       | P                                              |
 | Company | Hiring       | New posting      | `/postings/new`     | `postings/new/page.tsx`     | Create a company posting (`job_postings`)                  | P; agent → redirected to `/agency/jobs/new`    |
 | Company | Hiring       | Postings         | `/postings`         | `postings/page.tsx`         | List + pause / resume / add applicant slots / close        | P; agent → see "Agency on the company surface" |
+| Company | Hiring       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting; unlock | P                                  |
 | Agency  | Demand       | New posting      | `/agency/jobs/new`  | `agency/jobs/new/page.tsx`  | Create an agency posting (`jobs`, the worker feed's table) | A + F; nav-F                                   |
 | Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + pause / resume / close; links details, applicants, edit | A + F; nav-F                               |
+| Agency  | Demand       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting; unlock | P + F (agent); nav-F               |
 | Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
@@ -265,6 +267,30 @@ Not in the rail, on purpose: **Bulk invite upload** (`/agency/bulk-upload`). It 
 violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Nothing in
 the portal links to it (final sweep F17: the dashboard's "not available" tile was a dead end, and is
 gone); the route stays so an old link lands on its explanation, which points at batch invite links.
+
+**Candidates** (`/candidates`, owner request 2026-10-07) is ONE list of every applicant to every
+posting the payer owns, newest application first (`GET /payer/reach/applicants`) — the same faceless
+card and unlock as a posting's Applicants page (which keeps its name), with one confirm-on-spend
+dialog for the list and the balance as an affordance. Both personas, one route: a company's sits in
+Hiring, an agency's in Demand beside Postings, behind F like the rest of Demand (the page checks it
+for an agent). Its head is H1 "Candidates" + one sentence, no back link and no primary action; the
+toolbar row is the posting filter — a plain GET form (`?postingId=`, "Show") over the payer's OWN
+postings (company postings, or an agency's jobs). There is no stage (New / Shortlist) filter:
+stages are a posting page's local state and nothing persists them. Paging is keyset — "Next page"
+carries the API's cursor and keeps the filter; a later page offers "First page". Each card names its
+posting ("Applied to …"): a company posting links `/postings/<id>`, an agency's job
+`/agency/jobs/<id>`; the applicant's rank on that posting reads on the same line ("· ranked #2") —
+the inbox is newest first, so its cards carry no rank badge. The unlock and the masked-resume
+disclosure name that row's posting, and confirm-on-spend is per row: a worker who applied to two
+postings is two cards, and the second always confirms for its own posting (a Retry is only ever the
+card that confirmed). A filter that matches nothing (unknown, another payer's, not an id) is one
+state with the empty posting's ("No applicants for this posting" → All postings); an uppercase id
+is the same posting. A read failure is an in-place card with Retry under the kept head; a 429 (the
+hourly reach cap it shares with the per-posting feed) is a neutral "Too many requests". A page
+cursor the API refuses (a 400 — one it never issued, e.g. hand-edited) is not an outage, by the
+admin rule "A refused read is not an outage": a calm "This page link isn't valid" whose one action
+is "First page" (filter kept) — never Retry, which could only be refused again (`inboxRefusal` in
+`lib/candidate-inbox.ts`). The trail is the group, as text; the page has no children.
 
 **Agency dashboard doors** (final sweep F15/F21 — a glance, not a second rail). The head's primary
 is New posting (`/agency/jobs/new`). "Your postings" shows three rows — each card opens that
@@ -322,6 +348,7 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | Route                        | Trail                            | Back link                 |
 | ---------------------------- | -------------------------------- | ------------------------- |
 | `/postings`, `/postings/new` | "Hiring" (text)                  | —                         |
+| `/candidates`                | "Hiring" / "Demand" (text)       | —                         |
 | `/postings/<id>`             | "Hiring › Postings" (text)       | Postings                  |
 | `/postings/ai/new`           | "Hiring › New posting" (text)    | New posting               |
 | `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | the posting, by its title |
@@ -398,7 +425,9 @@ a boundary). Re-measure before adding one back after a Next or React upgrade.
 `useLinkStatus` on the link that started the navigation — no boundary. A dot on the corner of a
 rail / drawer row, the brand lockup, the header's balance chip (Credits), the trail's link, a
 `PageHeader` action or back link, a posting row's title and Applicants link (Postings, Agency
-postings) and a dashboard card's Applicants link; a thin bar along the top of the viewport (the cue
+postings), a dashboard card's Applicants link, and on Candidates every link that changes only the
+query (the pager's First page / Next page, a state's First page, "All postings") and each card's
+"Applied to" posting link; a thin bar along the top of the viewport (the cue
 a phone sees — the drawer closes as its link is followed); and one polite status line, "Opening
 Postings…", in the shell outside the region that goes inert behind the open drawer. Nothing shows
 for the first 180ms, so a prefetched navigation never flashes; reduced motion drops the pulse and
@@ -424,6 +453,9 @@ Agencies post agency jobs only. The company posting surface is never linked for 
 - `/postings/<id>` → read-only: no action at all (no View applicants, no Edit posting).
 - `/postings/<id>/edit` and `/postings/<id>/applicants` → redirect to `/postings/<id>` before any
   read (the feed unlocks contacts; a read-only posting offers no such action).
+- `/candidates` → the API lists applicants to these older postings too; each such card is VIEW-ONLY:
+  its posting title is plain text (no link) and it offers no Unlock. The rule is the posting's own
+  page's, per row (`lib/candidate-inbox.ts` `candidatePosting`); the server still decides every spend.
 - `/plans`, `/capacity` → redirect to `/dashboard` (a company page — see the rail).
 - The backend role gate for this surface is issue #1885.
 
@@ -434,6 +466,7 @@ Agencies post agency jobs only. The company posting surface is never linked for 
 | The job entity (both personas) | Posting: New posting · Postings · Posting details · Edit posting · Publish posting |
 | Headcount on a posting         | Openings                                                                           |
 | Person in a posting's feed     | Applicant                                                                          |
+| Every applicant, all postings  | Candidates (the tab; a posting's own feed stays "Applicants")                      |
 | Person an agency referred      | Worker                                                                             |
 | The balance                    | Credits (wallet icon everywhere)                                                   |
 | Buying the balance             | Buy credits                                                                        |

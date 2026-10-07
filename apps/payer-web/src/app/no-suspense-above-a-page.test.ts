@@ -26,8 +26,10 @@ import ts from "typescript";
  * so it stays mounted — already visible — across /postings -> /postings/<id> and across every
  * /agency/* page. The navigation transition suspended inside that visible boundary on an RSC
  * response that had fully arrived, and was never woken: the URL never moved and the screen never
- * changed. payer-web renders no query-only link today (a crawl of every portal route found none),
- * so the same-section links ARE its trigger.
+ * changed. When this fence landed payer-web rendered no query-only link (a crawl of every portal
+ * route found none), so the same-section links were its trigger. Candidates (`/candidates`) now
+ * renders them — its pager and "All postings" change only the query — which is admin-web's O-1
+ * trigger exactly, and one more reason no boundary may come back.
  *
  * So the portal shows no route-level loading state: a navigation keeps the current page on
  * screen until the next one has rendered, and the link that started it shows the pending cue
