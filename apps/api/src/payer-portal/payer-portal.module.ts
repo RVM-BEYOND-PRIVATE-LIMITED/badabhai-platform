@@ -28,6 +28,7 @@ import { RequestIdempotency } from "../common/idempotency/request-idempotency.se
 import { PayerCapacityController } from "./payer-capacity.controller";
 import { PayerAuthController } from "./payer-auth.controller";
 import { PayerReachController } from "./payer-reach.controller";
+import { PayerApplicantInboxController } from "./payer-applicant-inbox.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import { PayerPricingController } from "./payer-pricing.controller";
@@ -37,6 +38,8 @@ import { JobPostingChatModule } from "./job-posting-chat/job-posting-chat.module
 import { PayerAuthService } from "./payer-auth.service";
 import { PayerOrgMembersService } from "./payer-org-members.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
+import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
+import { PayerApplicantInboxRepository } from "./payer-applicant-inbox.repository";
 import {
   MEMBER_INVITE_MAILER,
   MockMemberInviteMailer,
@@ -100,6 +103,9 @@ import {
     PayerUnlocksController,
     PayerCapacityController,
     PayerReachController,
+    // The cross-posting applicant inbox (`GET /payer/reach/applicants`, the "Candidates" tab):
+    // the same route group, guard and reach cap as PayerReachController.
+    PayerApplicantInboxController,
     PayerDisclosureController,
     PayerJobPostingsController,
     PayerPricingController,
@@ -115,6 +121,10 @@ import {
     // The payer applicant list's source selection (#1823): an owned agency `jobs` row → the
     // ReachService pool; an owned posting → MatchCandidatesService (MatchModule, @Global).
     PayerApplicantsService,
+    // The inbox: one page read (its repository), then the per-posting row builders above
+    // (ReachService via ReachModule, MatchCandidatesService via the @Global MatchModule).
+    PayerApplicantInboxService,
+    PayerApplicantInboxRepository,
     PayerOtpService,
     // Org-invite mailer seam (ADR-0027 / B5.4). Mirrors the WhatsApp/login-channel factory:
     // the MOCK mailer (no send — the raw token/link never leaves the process) is the alpha

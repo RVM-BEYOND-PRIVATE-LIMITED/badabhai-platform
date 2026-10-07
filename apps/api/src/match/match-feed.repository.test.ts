@@ -582,3 +582,106 @@ describe("listFeed — ADR-0050 §4.4 read fences for an agency TWIN", () => {
     expect(sql).toContain("jp.sync_source IS NOT NULL AND EXISTS");
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * listRankedCandidatesByApplication — the payer inbox's company rows.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe("listRankedCandidatesByApplication — the posting rank, from the ONE rank-key spelling", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
+  const APP = "33333333-3333-4333-8333-333333333333";
+
+  /** The `ORDER BY …` inside `OVER (…)`, normalised to one line. */
+  function windowOrderOf(sql: string): string {
+    const over = sql.indexOf("OVER (PARTITION BY a.job_posting_id ORDER BY");
+    expect(over, "statement has the posting-partitioned window").toBeGreaterThan(-1);
+    const from = sql.indexOf("ORDER BY", over);
+    return sql.slice(from, sql.indexOf("))::int", from)).trim();
+  }
+
+  it("ranks with EXACTLY the candidate list's ORDER BY — text-identical, floor bound the same way", async () => {
+    // The inbox's rank must be the position listCandidates puts the applicant at. Both read the
+    // rank tuple from `candidateRankKeys`; a hand-copied key list here would drift silently.
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 24, 500);
+    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 24);
+    const listOrder = orderByOf(statements[0]!.sql).replace(/\$\d+/g, "$n");
+    const windowOrder = windowOrderOf(statements[1]!.sql).replace(/\$\d+/g, "$n");
+    expect(windowOrder).toBe(listOrder);
+    expect(statements[1]!.params).toContain(24);
+  });
+
+  it("partitions by posting and has the list's membership: applied, not pending deletion, badge LEFT-joined", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    const { sql } = statements[0]!;
+    expect(sql).toContain("row_number() OVER (PARTITION BY a.job_posting_id ORDER BY");
+    expect(sql).toContain("AND a.action = 'applied'");
+    expect(sql).toContain("INNER JOIN workers w ON w.id = a.worker_id");
+    expect(sql).toContain("AND w.deletion_scheduled_at IS NULL");
+    expect([...sql.matchAll(/(\w+)\s+JOIN\s+job_reach/g)].map((m) => m[1])).toEqual(["LEFT"]);
+  });
+
+  it("re-asserts ownership: the postings must be the SESSION payer's", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    const { sql, params } = statements[0]!;
+    expect(sql).toContain("INNER JOIN job_postings jp ON jp.id = a.job_posting_id");
+    const p = params.indexOf(PAYER);
+    expect(p, "the payer is bound").toBeGreaterThan(-1);
+    expect(sql).toContain(`AND jp.payer_id = $${p + 1}::uuid`);
+  });
+
+  it("windows over the WHOLE posting, then keeps only the named applications", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    const { sql, params } = statements[0]!;
+    // The application filter must sit OUTSIDE the window — inside it, every rank would be 1.
+    const inner = sql.indexOf("WHERE a.job_posting_id = ANY(");
+    const outer = sql.lastIndexOf("WHERE r.id = ANY(");
+    expect(inner).toBeGreaterThan(-1);
+    expect(outer).toBeGreaterThan(sql.indexOf(") r"));
+    expect(sql.slice(inner, sql.indexOf(") r"))).not.toContain("a.id = ANY");
+    expect(params).toContainEqual([POSTING]);
+    expect(params).toContainEqual([APP]);
+  });
+
+  it("reads nothing for an empty page", async () => {
+    const { repo, statements } = makeDb();
+    expect(await repo.listRankedCandidatesByApplication(PAYER, [], [APP], 36)).toEqual([]);
+    expect(await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [], 36)).toEqual([]);
+    expect(statements).toHaveLength(0);
+  });
+
+  it("maps the shared candidate row plus its posting and a numeric rank (int8 arrives as text)", async () => {
+    const { repo } = makeDb([
+      {
+        id: APP,
+        worker_id: "44444444-4444-4444-8444-444444444444",
+        job_posting_id: POSTING,
+        match_tier: 1,
+        skill_months: 12,
+        industry_months: null,
+        last_worked_at: new Date("2024-03-01T00:00:00.000Z"),
+        created_at: "2026-07-20T08:00:00.000Z",
+        engine_version: "v1.0",
+        matched_skill_id: null,
+        candidate_rank: "7",
+      },
+    ]);
+    const [row] = await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    expect(row).toEqual({
+      applicationId: APP,
+      workerId: "44444444-4444-4444-8444-444444444444",
+      matchTier: 1,
+      skillMonths: 12,
+      industryMonths: null,
+      lastWorkedAt: "2024-03-01",
+      createdAt: new Date("2026-07-20T08:00:00.000Z"),
+      engineVersion: "v1.0",
+      matchedSkillId: null,
+      jobPostingId: POSTING,
+      rank: 7,
+    });
+  });
+});

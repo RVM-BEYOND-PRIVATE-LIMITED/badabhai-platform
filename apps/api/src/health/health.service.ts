@@ -194,6 +194,8 @@ export function resolveBuildId(raw: string | undefined): string {
 
 /** Cap each probe so a stuck socket can never hang the /health response. */
 const PROBE_TIMEOUT_MS = 2000;
+/** How far `safeReason` follows an error's `cause` chain looking for a driver code. */
+const SAFE_REASON_MAX_CAUSE_DEPTH = 4;
 
 /**
  * The dependencies that are actually PROBED. Narrower than `keyof HealthChecks` on
@@ -482,13 +484,24 @@ export class HealthService {
     }
   }
 
-  /** A non-sensitive failure tag for logs: the error code if present, else its name. */
+  /**
+   * A non-sensitive failure tag for logs: the error code if present, else its name.
+   *
+   * Drizzle wraps every driver failure in a `DrizzleQueryError` whose name is plain
+   * "Error" and which carries no code, so the tag must follow `cause` to the driver's
+   * own error (SQLSTATE such as 28P01, or ECONNREFUSED/ENOTFOUND). Bounded depth; still
+   * code/name only, never a message.
+   */
   private static safeReason(err: unknown): string {
-    if (err instanceof Error) {
-      const code = (err as { code?: unknown }).code;
-      return typeof code === "string" && code.length > 0 ? code : err.name;
+    let current: unknown = err;
+    let fallback = "unknown";
+    for (let depth = 0; depth < SAFE_REASON_MAX_CAUSE_DEPTH && current instanceof Error; depth++) {
+      const code = (current as { code?: unknown }).code;
+      if (typeof code === "string" && code.length > 0) return code;
+      if (fallback === "unknown" || current.name !== "Error") fallback = current.name;
+      current = (current as { cause?: unknown }).cause;
     }
-    return "unknown";
+    return fallback;
   }
 
   /** Reject after PROBE_TIMEOUT_MS so a hung dependency can't stall /health. */
