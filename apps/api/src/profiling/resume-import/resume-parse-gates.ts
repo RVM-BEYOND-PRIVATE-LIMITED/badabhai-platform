@@ -135,6 +135,38 @@ const GSTIN_RE = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/;
 // precisely the ambiguity `no-misleading-character-class` exists to flag. Written as
 // alternatives there is nothing to misread \u2014 each branch is one code point.
 const INVISIBLE_RE = /\u200b|\u200c|\u200d|\u2060|\ufeff/g;
+
+// A CONTROL CHARACTER FAILS CLOSED (issue #2064, risks-register R59; the far side's #1984).
+//
+// PARITY: mirrors `_NON_LAYOUT_CONTROL_CHAR_RE`, `_LAYOUT_WHITESPACE_RE` and
+// `CONTROL_CHARACTER_REFUSAL` in `apps/ai-service/app/pseudonymize.py`. No pattern in this file
+// sees through a Unicode `Cc` character, so one inside an identifier split it past every rule:
+// "call 9876<NUL>543210" read as no phone and "anil<NUL>@example.com" as no email. The value is
+// WITHHELD, not cleaned — deleting the character would certify a value that differs from the one
+// stored, and a C1 such as NEL (U+0085) renders as a line break, so the matched text is not what
+// a reader sees. No honest value carries one.
+//
+// `\p{Cc}` IS EXACTLY THE FAR SIDE'S `[\x00-\x1f\x7f-\x9f]` — a closed, stable category of 65
+// code points, pinned over all of Unicode by `resume-parse-gates.control-chars.test.ts`. TAB, LF
+// and CR are carved out: a free-text value (a quoted résumé line, a multi-line answer) carries
+// them legitimately, so they are read as a plain space, which every pattern here already treats
+// as a separator — they can split nothing a typed space could not. Same carve-out as the
+// companion walls (R57). The rewrite to a space is a no-op for every pattern TODAY (JS `\s`
+// already matches all three, and no mutation of it fails a test); it is kept so a future pattern
+// that lists a literal space rather than `\s` reads them as the far side does.
+//
+// NOT `\p{Cf}`. ZWJ / ZWNJ shape Devanagari conjuncts; they stay in `INVISIBLE_RE` above and are
+// stripped, as on the far side. Withholding Cf is a separate owner decision.
+const NON_LAYOUT_CONTROL_CHAR_RE = /(?![\t\n\r])\p{Cc}/u;
+const LAYOUT_WHITESPACE_RE = /[\t\n\r]/g;
+
+/**
+ * What {@link containsHardIdentifier} returns for a value carrying a non-layout control character.
+ * NOT one of {@link HARD_IDENTIFIER_CLASSES} (the shared fixture pins that set): like
+ * `"scanner_error"`, a fail-closed refusal of its own, and non-null, so every caller withholds.
+ */
+export const CONTROL_CHARACTER_REFUSAL = "control_character";
+
 // Cued identifiers the interview's CREDENTIAL_ID_RE does not name. Cue-based rather than
 // shape-based because these shapes are ambiguous: a passport number `M1234567` is
 // indistinguishable from a part number, and a date of birth from the date range a résumé
@@ -177,10 +209,17 @@ export const CREDENTIAL_ID_RE =
  * amounts pass". Measured false by the RI-3 security review: `PHONE_RE` is bounded above at
  * 13 digits and anchored on both sides, so a 14+ digit run matched nothing at any offset.
  * `LONG_DIGIT_RUN_RE` is the floor that closes it without touching salaries.
+ *
+ * A CONTROL CHARACTER FAILS CLOSED FIRST (#2064, R59), exactly as `contains_hard_identifier` does
+ * on the far side: any `Cc` other than TAB / LF / CR returns {@link CONTROL_CHARACTER_REFUSAL};
+ * those three are read as a space, so "98765\t43210" is still a phone. `Cf` is untouched.
  */
-export function containsHardIdentifier(raw: string): HardIdentifierClass | "scanner_error" | null {
+export function containsHardIdentifier(
+  raw: string,
+): HardIdentifierClass | typeof CONTROL_CHARACTER_REFUSAL | "scanner_error" | null {
   try {
-    const text = raw.replace(INVISIBLE_RE, "");
+    if (NON_LAYOUT_CONTROL_CHAR_RE.test(raw)) return CONTROL_CHARACTER_REFUSAL;
+    const text = raw.replace(LAYOUT_WHITESPACE_RE, " ").replace(INVISIBLE_RE, "");
     if (PAN_RE.test(text)) return "pan";
     if (AADHAAR_RE.test(text)) return "aadhaar";
     if (PHONE_RE.test(text)) return "phone";

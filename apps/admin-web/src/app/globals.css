@@ -2509,6 +2509,19 @@ textarea.field__input {
     align-items: baseline;
   }
 
+  /* An event chain row's link (/events/[id]) and any action link directly in a field's help
+     line. `.field__help > .link` is console-wide, not page-scoped: today its users are the
+     scoping lines on /feedback and /ai-calls ("Open worker · View journey · Clear the worker
+     filter"), and any future help-line link gets the same 44px target. Chain rows sit
+     --space-3 apart and the scoping links share one wrapping line, so a strip would overlap
+     its neighbour; the link takes the height itself. Text stays on its row's baseline. */
+  .chain__item > .link,
+  .field__help > .link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+
   /* A candidate-id chip in a review group, and the crumb's section link: the target takes the
      height itself (chips wrap in rows a strip would overlap; the crumb sits in a bar with room). */
   .chip > .link {

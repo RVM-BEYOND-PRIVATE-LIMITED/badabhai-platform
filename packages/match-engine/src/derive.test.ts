@@ -194,7 +194,12 @@ describe("workerSkillDeriveInput — the ONE assembly both writers of worker_ski
 
   it("UNIONS profile skills, declared occupations and pack answers — never replaces", () => {
     const input = workerSkillDeriveInput({
-      profile: { canonicalRoleId: "role_plumber", profileSkills: ["skill_cmm"], totalYears: 4 },
+      profile: {
+        canonicalRoleId: "role_plumber",
+        profileSkills: ["skill_cmm"],
+        totalYears: 4,
+        sourceSession: null,
+      },
       secondaryRoleIds: ["role_carpenter"],
       packAnswers: [
         ...welderForm,
@@ -222,7 +227,10 @@ describe("workerSkillDeriveInput — the ONE assembly both writers of worker_ski
         optionKeys: ["panel_wiring", "motor_drive", "cable_laying"],
       },
     ];
-    for (const profile of [null, { canonicalRoleId: null, profileSkills: [], totalYears: 6 }]) {
+    for (const profile of [
+      null,
+      { canonicalRoleId: null, profileSkills: [], totalYears: 6, sourceSession: null },
+    ]) {
       const input = workerSkillDeriveInput({ profile, secondaryRoleIds: [], packAnswers });
       expect(input).not.toBeNull();
       expect(input!.matchSkillIds).toEqual(["mskill_industrial_electrician"]);
@@ -248,6 +256,90 @@ describe("workerSkillDeriveInput — the ONE assembly both writers of worker_ski
       "mskill_cnc_turner",
       "mskill_conventional_machinist",
     ]);
+  });
+});
+
+describe("workerSkillDeriveInput — a worker-only generic qp_electrical chat (#2075)", () => {
+  /** The persisted `conversation_state` subset `PROFILE_SOURCE_SESSION_ANSWERS` selects. */
+  function session(
+    values: readonly string[],
+    stamp: Record<string, unknown> = { llm_led_turns: 0, llm_draft_settled: false },
+  ): Record<string, unknown> {
+    return {
+      pack_id: "qp_electrical",
+      answer_map: [
+        {
+          question_key: "electrical_scope",
+          target_field: "skills",
+          status: "answered",
+          value_normalized: values,
+        },
+      ],
+      ...stamp,
+    };
+  }
+  const profileWith = (sourceSession: unknown) => ({
+    canonicalRoleId: null,
+    profileSkills: [],
+    totalYears: 3,
+    sourceSession,
+  });
+  const derived = (sourceSession: unknown): string[] => {
+    const input = workerSkillDeriveInput({
+      profile: profileWith(sourceSession),
+      secondaryRoleIds: [],
+      packAnswers: [],
+    });
+    return input === null ? [] : deriveWorkerSkills(input).map((r) => r.skillId);
+  };
+
+  it("`industrial` or `panel` derives the industrial electrician, via matchSkillIds only", () => {
+    for (const values of [["industrial"], ["panel"], ["industrial", "panel", "house_wiring"]]) {
+      const input = workerSkillDeriveInput({
+        profile: profileWith(session(values)),
+        secondaryRoleIds: [],
+        packAnswers: [],
+      });
+      expect(input!.matchSkillIds).toEqual(["mskill_industrial_electrician"]);
+      // The profile's corpus column is untouched: nothing is added to `profileSkills`.
+      expect(input!.profileSkills).toEqual([]);
+      expect(deriveWorkerSkills(input!).map((r) => r.skillId)).toEqual([
+        "mskill_industrial_electrician",
+      ]);
+    }
+  });
+
+  it("`house_wiring` and `motor` derive nothing (no proxy)", () => {
+    expect(derived(session(["house_wiring", "motor"]))).toEqual([]);
+  });
+
+  it("fails closed: an LLM-led, LLM-settled, legacy or absent session derives nothing", () => {
+    expect(
+      derived(session(["industrial"], { llm_led_turns: 2, llm_draft_settled: false })),
+    ).toEqual([]);
+    expect(derived(session(["panel"], { llm_led_turns: 0, llm_draft_settled: true }))).toEqual([]);
+    expect(derived(session(["panel"], {}))).toEqual([]);
+    expect(derived(null)).toEqual([]);
+    expect(derived("not an object")).toEqual([]);
+  });
+
+  it("is pack-scoped: the same answer under another pack derives nothing", () => {
+    expect(derived({ ...session(["industrial", "panel"]), pack_id: "qp_painting" })).toEqual([]);
+  });
+
+  it("unions with the form's pack-only skill and dedupes", () => {
+    const input = workerSkillDeriveInput({
+      profile: profileWith(session(["panel"])),
+      secondaryRoleIds: [],
+      packAnswers: [
+        {
+          packId: "qp_industrial_electrician",
+          attributeKey: "electrical_work_type",
+          optionKeys: ["panel_wiring"],
+        },
+      ],
+    });
+    expect(input!.matchSkillIds).toEqual(["mskill_industrial_electrician"]);
   });
 });
 

@@ -112,83 +112,93 @@ export default async function AgencyReferralsPage() {
       />
 
       {/*
-        a) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). FIRST (final
-        sweep F19): it is what the page reports, and above the forms it puts "Create invite link"
-        on screen sooner than the forms' own fields and prose did (measured at 1280 / 375).
-
-        A `.section` (not a `.panel`): the body is a run of StatTiles that already carry their
-        own surface, so a bordered frame around them would be a box inside a box. The k-anon
-        disclosure is the section's SUB — it describes the whole funnel, so it reads before the
-        numbers rather than as a footnote after them.
+        THE LEAD PAIR (F19): the funnel, then the one primary. A layout box only — on a laptop it
+        is plain block flow and changes nothing; on a phone (≤600px, globals.css) it lifts the
+        invite panel above the funnel, so "Create invite link" is on the first screen (it sat at
+        823-867 on a 375x812 phone, under 355px of funnel tiles). Only this pair reorders: the
+        page itself stays block flow, where an earnings section's last margin still collapses.
       */}
-      <section className="section">
-        <div className="section__head">
-          <div className="section__text">
-            <h2 className="section__title">Referral funnel</h2>
-            {summary && !funnelError ? (
-              <p className="section__sub">
-                Aggregate only — counts below {summary.minBucket} show as &ldquo;&lt;
-                {summary.minBucket}&rdquo; to protect a single worker&rsquo;s privacy. There is no
-                per-worker breakdown.
-              </p>
-            ) : null}
-          </div>
-        </div>
-        {summary && !funnelError ? (
-          <>
-            {/* `stat-row--kpi` (the shared opt-in): no hole beside a wrapped tile, and each
-                tile is a compact ledger row on a phone instead of a 115px card. */}
-            <div className="stat-row stat-row--kpi">
-              <StatTile
-                label="Invites created"
-                value={kAnonCount(summary.created, summary.minBucket)}
-                icon="link"
-              />
-              <StatTile
-                label="Clicked"
-                value={kAnonCount(summary.clicked, summary.minBucket)}
-                icon="cursor-click"
-              />
-              <StatTile
-                label="Accepted"
-                value={kAnonCount(summary.accepted, summary.minBucket)}
-                icon="seal-check"
-              />
-            </div>
+      <div className="agency-referrals-page__lead">
+        {/*
+          a) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). FIRST in the
+          DOM and on every screen wider than a phone (final sweep F19): it is what the page
+          reports, and above the forms it puts "Create invite link" on screen sooner than the
+          forms' own fields and prose did (measured at 1280).
 
-            <ProgressBar
-              tone="success"
-              label="Created-to-clicked conversion"
-              value={pct ?? 0}
-              showValue={pct !== null}
-            />
-            {pct === null && (
-              <p className="section__sub">
-                Conversion appears once both stages clear the privacy floor of{" "}
-                {summary.minBucket}.
-              </p>
-            )}
-          </>
-        ) : (
-          <div className="state state--error">
-            <span className="state__icon">
-              <Icon name="warning-circle" />
-            </span>
-            <h3 className="state__title">Referral funnel unavailable</h3>
-            <p className="state__body">
-              Your funnel counts could not load right now. Nothing has changed — your invites
-              and referrals are safe. Please retry shortly.
-            </p>
-            <div className="state__actions">
-              <RetryButton />
+          A `.section` (not a `.panel`): the body is a run of StatTiles that already carry their
+          own surface, so a bordered frame around them would be a box inside a box. The k-anon
+          disclosure is the section's SUB — it describes the whole funnel, so it reads before the
+          numbers rather than as a footnote after them.
+        */}
+        <section className="section">
+          <div className="section__head">
+            <div className="section__text">
+              <h2 className="section__title">Referral funnel</h2>
+              {summary && !funnelError ? (
+                <p className="section__sub">
+                  Aggregate only — counts below {summary.minBucket} show as &ldquo;&lt;
+                  {summary.minBucket}&rdquo; to protect a single worker&rsquo;s privacy. There is no
+                  per-worker breakdown.
+                </p>
+              ) : null}
             </div>
           </div>
-        )}
-      </section>
+          {summary && !funnelError ? (
+            <>
+              {/* `stat-row--kpi` (the shared opt-in): no hole beside a wrapped tile, and each
+                  tile is a compact ledger row on a phone instead of a 115px card. */}
+              <div className="stat-row stat-row--kpi">
+                <StatTile
+                  label="Invites created"
+                  value={kAnonCount(summary.created, summary.minBucket)}
+                  icon="link"
+                />
+                <StatTile
+                  label="Clicked"
+                  value={kAnonCount(summary.clicked, summary.minBucket)}
+                  icon="cursor-click"
+                />
+                <StatTile
+                  label="Accepted"
+                  value={kAnonCount(summary.accepted, summary.minBucket)}
+                  icon="seal-check"
+                />
+              </div>
 
-      {/* b) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). Its
-          "Create invite link" is this page's ONE primary, right under the consent note. */}
-      <AgencyInvitePanel />
+              <ProgressBar
+                tone="success"
+                label="Created-to-clicked conversion"
+                value={pct ?? 0}
+                showValue={pct !== null}
+              />
+              {pct === null && (
+                <p className="section__sub">
+                  Conversion appears once both stages clear the privacy floor of{" "}
+                  {summary.minBucket}.
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="state state--error">
+              <span className="state__icon">
+                <Icon name="warning-circle" />
+              </span>
+              <h3 className="state__title">Referral funnel unavailable</h3>
+              <p className="state__body">
+                Your funnel counts could not load right now. Nothing has changed — your invites
+                and referrals are safe. Please retry shortly.
+              </p>
+              <div className="state__actions">
+                <RetryButton />
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* b) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). Its
+            "Create invite link" is this page's ONE primary, right under the consent note. */}
+        <AgencyInvitePanel />
+      </div>
 
       {/*
         c) BATCH MINT — the same faceless mint, N at a time (≤50) for a gate drive or a print

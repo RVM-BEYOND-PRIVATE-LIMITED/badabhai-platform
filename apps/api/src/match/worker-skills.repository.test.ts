@@ -1,10 +1,11 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
-import { PgDialect } from "drizzle-orm/pg-core";
+import { PgDialect, QueryBuilder } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   jobPostings,
+  PROFILE_SOURCE_SESSION_ANSWERS,
   workerIndustryTenure,
   workerProfiles,
   workerSkills,
@@ -229,7 +230,40 @@ describe("findLatestProfileSignals — reads the LATEST profile, by the backfill
       "canonicalRoleId",
       "experience",
       "skills",
+      "sourceSession",
     ]);
+  });
+
+  it("#2075 — reads the profile's source session through the ONE shared fragment", async () => {
+    const { repo, captured } = makeDb({ rows: [] });
+    await repo.findLatestProfileSignals(WORKER);
+    // Identity, not a copy: `db:backfill:worker-skills` selects the same constant.
+    expect(captured.selection!.sourceSession).toBe(PROFILE_SOURCE_SESSION_ANSWERS);
+    // Render the REPOSITORY'S OWN selection the way Drizzle renders it in production: inside a
+    // single-table `worker_profiles` select. Compiling the fragment standalone qualifies columns
+    // that the real query does NOT, which is how an unqualified, mis-correlated subquery
+    // (`"worker_id" = "worker_id"`) once passed this test and failed in Postgres.
+    const sql = new QueryBuilder()
+      .select(captured.selection as Record<string, SQL>)
+      .from(workerProfiles)
+      .orderBy(...CURRENT_PROFILE_ORDER)
+      .limit(1)
+      .toSQL().sql;
+    // The chain: the profile's own extraction job → the session it names → that session's
+    // state, scoped to the profile's own worker, every column qualified.
+    expect(sql).toContain('from "ai_jobs" as "src_aj"');
+    expect(sql).toContain('inner join "chat_sessions" as "src_cs"');
+    expect(sql).toContain('"src_aj"."id" = "worker_profiles"."ai_job_id"');
+    expect(sql).toContain(`"src_aj"."job_type" = 'profile_extraction'`);
+    expect(sql).toContain('"src_cs"."worker_id" = "worker_profiles"."worker_id"');
+    // TEXT comparison: a malformed `input_ref.session_id` matches nothing, never a cast error.
+    expect(sql).toContain(`"src_cs"."id"::text = "src_aj"."input_ref" ->> 'session_id'`);
+    // Four keys, never the whole envelope.
+    for (const key of ["pack_id", "answer_map", "llm_led_turns", "llm_draft_settled"]) {
+      expect(sql).toContain(`'${key}', "src_cs"."conversation_state" -> '${key}'`);
+    }
+    expect(sql.match(/conversation_state/g)).toHaveLength(4);
+    expect(sql).not.toMatch(/"worker_id" = "worker_id"|"id" = "ai_job_id"/);
   });
 
   it("returns undefined when the worker has no profile (not an empty signal object)", async () => {
@@ -239,7 +273,7 @@ describe("findLatestProfileSignals — reads the LATEST profile, by the backfill
     expect(await repo.findLatestProfileSignals(WORKER)).toBeUndefined();
   });
 
-  it("maps a well-formed row to its three signals", async () => {
+  it("maps a well-formed row to its signals (no source session → null)", async () => {
     const { repo } = makeDb({
       rows: [
         {
@@ -253,6 +287,7 @@ describe("findLatestProfileSignals — reads the LATEST profile, by the backfill
       canonicalRoleId: "role_vmc_operator",
       profileSkills: ["skill_turning", "skill_milling"],
       totalYears: 7.5,
+      sourceSession: null,
     });
   });
 
@@ -280,7 +315,9 @@ describe("findLatestProfileSignals — reads the LATEST profile, by the backfill
 
   it("keeps only string skill ids, and treats a non-array `skills` as none", async () => {
     const { repo } = makeDb({
-      rows: [{ canonicalRoleId: null, skills: ["skill_turning", 42, null, "skill_cmm"], experience: {} }],
+      rows: [
+        { canonicalRoleId: null, skills: ["skill_turning", 42, null, "skill_cmm"], experience: {} },
+      ],
     });
     expect((await repo.findLatestProfileSignals(WORKER))!.profileSkills).toEqual([
       "skill_turning",
@@ -355,7 +392,12 @@ describe("replaceDerivedSkillsAndTenure — the derived writer may only touch it
     expect(q.sql).toContain('"worker_skill"."worker_id" = $1');
     expect(q.sql).toContain('"worker_skill"."source" = $2');
     expect(q.sql).toContain("not in");
-    expect(q.params).toEqual([WORKER, "derived_coarse", "mskill_vmc_operator", "mskill_cnc_turner"]);
+    expect(q.params).toEqual([
+      WORKER,
+      "derived_coarse",
+      "mskill_vmc_operator",
+      "mskill_cnc_turner",
+    ]);
   });
 
   it("with an EMPTY derivation, prunes every derived row (and still spares interview/ops rows)", async () => {
@@ -372,7 +414,12 @@ describe("replaceDerivedSkillsAndTenure — the derived writer may only touch it
 
   it("rebuilds tenure delete-then-insert so a vacated industry cannot linger", async () => {
     const { repo, captured } = makeDb();
-    await repo.replaceDerivedSkillsAndTenure(WORKER, ROWS, [{ industryId: MFG, calendarMonths: 36 }], NOW);
+    await repo.replaceDerivedSkillsAndTenure(
+      WORKER,
+      ROWS,
+      [{ industryId: MFG, calendarMonths: 36 }],
+      NOW,
+    );
     const wipe = captured.deletes.find((d) => d.table === workerIndustryTenure)!;
     expect(text(wipe.where)).toBe('"worker_industry_tenure"."worker_id" = $1');
     expect(params(wipe.where)).toEqual([WORKER]);
@@ -392,7 +439,12 @@ describe("replaceDerivedSkillsAndTenure — the derived writer may only touch it
 
   it("runs every statement on the TRANSACTION, so no reader sees half a rebuild", async () => {
     const { repo, captured } = makeDb();
-    await repo.replaceDerivedSkillsAndTenure(WORKER, ROWS, [{ industryId: MFG, calendarMonths: 36 }], NOW);
+    await repo.replaceDerivedSkillsAndTenure(
+      WORKER,
+      ROWS,
+      [{ industryId: MFG, calendarMonths: 36 }],
+      NOW,
+    );
     expect(captured.inserts.every((i) => i.on === "tx")).toBe(true);
     expect(captured.deletes.every((d) => d.on === "tx")).toBe(true);
   });
@@ -412,7 +464,9 @@ describe("listWantedSkillIds — opt-in supply only", () => {
   });
 
   it("returns the ids, and an empty list when he wants nothing", async () => {
-    const { repo } = makeDb({ rows: [{ skillId: "mskill_fitter" }, { skillId: "mskill_plumber" }] });
+    const { repo } = makeDb({
+      rows: [{ skillId: "mskill_fitter" }, { skillId: "mskill_plumber" }],
+    });
     expect(await repo.listWantedSkillIds(WORKER)).toEqual(["mskill_fitter", "mskill_plumber"]);
     const { repo: empty } = makeDb({ rows: [] });
     expect(await empty.listWantedSkillIds(WORKER)).toEqual([]);
@@ -464,7 +518,9 @@ describe("reconcileReachForWorker — the per-worker job_reach rebuild", () => {
     const { repo, captured } = makeDb();
     await repo.reconcileReachForWorker(WORKER, SKILLS);
     const insert = captured.statements[1]!;
-    expect(insert.sql).toContain("MIN(CASE WHEN jp.match_skill_ids @> to_jsonb(ws.skill_id) THEN 1 ELSE 2 END)");
+    expect(insert.sql).toContain(
+      "MIN(CASE WHEN jp.match_skill_ids @> to_jsonb(ws.skill_id) THEN 1 ELSE 2 END)",
+    );
     expect(insert.sql).toContain("jp.reach_skill_ids @> to_jsonb(ws.skill_id)");
     // ...and the join only counts skills he WANTS.
     expect(insert.sql).toContain("ws.wants");
@@ -769,7 +825,9 @@ describe("materializeReachForPosting — publish-time reach set", () => {
   it("upserts, so re-publishing a posting cannot duplicate a worker's reach row", async () => {
     const { repo, captured } = makeDb();
     await repo.materializeReachForPosting(POSTING, POSTED, REACH);
-    expect(captured.statements[0]!.sql).toContain("ON CONFLICT (job_posting_id, worker_id) DO UPDATE");
+    expect(captured.statements[0]!.sql).toContain(
+      "ON CONFLICT (job_posting_id, worker_id) DO UPDATE",
+    );
   });
 });
 
@@ -781,7 +839,12 @@ describe("setPostingSkillSets — FIRST OPEN ONLY", () => {
     // Restamping would let a posting pause/resume its way back to the top of the
     // newest-first feed for free — a boost bought with a toggle.
     const { repo, captured } = makeDb();
-    await repo.setPostingSkillSets(POSTING, ["mskill_fitter"], ["mskill_fitter", "mskill_plumber"], null);
+    await repo.setPostingSkillSets(
+      POSTING,
+      ["mskill_fitter"],
+      ["mskill_fitter", "mskill_plumber"],
+      null,
+    );
     expect(Object.keys(captured.updateSet!).sort()).toEqual([
       "matchSkillIds",
       "reachSkillIds",
@@ -798,7 +861,12 @@ describe("setPostingSkillSets — FIRST OPEN ONLY", () => {
 
   it("writes both id arrays to the right posting", async () => {
     const { repo, captured } = makeDb();
-    await repo.setPostingSkillSets(POSTING, ["mskill_fitter"], ["mskill_fitter", "mskill_plumber"], null);
+    await repo.setPostingSkillSets(
+      POSTING,
+      ["mskill_fitter"],
+      ["mskill_fitter", "mskill_plumber"],
+      null,
+    );
     expect(captured.updateTable).toBe(jobPostings);
     expect(captured.updateSet!.matchSkillIds).toEqual(["mskill_fitter"]);
     expect(captured.updateSet!.reachSkillIds).toEqual(["mskill_fitter", "mskill_plumber"]);
@@ -897,7 +965,9 @@ describe("findReachRow — the apply gate", () => {
       [3, 2],
       [0, 2],
     ] as const) {
-      const { repo } = makeDb({ exec: [[{ match_tier: stored, matched_skill_id: "mskill_fitter" }]] });
+      const { repo } = makeDb({
+        exec: [[{ match_tier: stored, matched_skill_id: "mskill_fitter" }]],
+      });
       expect((await repo.findReachRow(WORKER, POSTING))!.matchTier).toBe(expected);
     }
   });

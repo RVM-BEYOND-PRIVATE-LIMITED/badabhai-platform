@@ -247,6 +247,9 @@ export * from "./match-skills";
 export * from "./pack-answer-skills";
 // #2021 — a generic family pack's `target_field: skills` answers → the `skill_*` ids they claim.
 export * from "./generic-pack-skills";
+// #2075 — the same answers → the PACK-ONLY `mskill_*` ids they claim, derived at rebuild time from
+// the persisted, worker-only-gated answer map (never written into `worker_profiles.skills`).
+export * from "./generic-pack-match-skills";
 export * from "./crosswalk-integrity";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).

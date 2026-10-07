@@ -60,6 +60,7 @@ import {
 } from "@badabhai/ai-contracts";
 
 import { IDENTITY_INTAKE_STEPS, type IdentityIntakeStep } from "@badabhai/event-schema";
+import { isWorkerOnlyAnswerMap } from "@badabhai/taxonomy";
 import {
   CHAT_GATE_KINDS,
   PROFILING_LANE_REASONS,
@@ -1965,9 +1966,10 @@ export function toLlmProvenanceStatePatch(envelope: ProfilingEnvelope): {
  * regression, because before #2021 every session derived none.
  */
 export function readWorkerOnlyAnswerMap(conversationState: unknown): boolean {
-  if (typeof conversationState !== "object" || conversationState === null) return false;
-  const state = conversationState as Record<string, unknown>;
-  return state.llm_led_turns === 0 && state.llm_draft_settled === false;
+  // #2075 — the rule lives in `@badabhai/taxonomy`, because both writers of `worker_skill` (the
+  // live rebuild and the `packages/db` backfill) apply it too, and the backfill cannot import
+  // apps/api. One definition, so the extraction and the rebuild cannot disagree on a session.
+  return isWorkerOnlyAnswerMap(conversationState);
 }
 
 /**

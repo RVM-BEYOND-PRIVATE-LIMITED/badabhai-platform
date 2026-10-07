@@ -277,10 +277,16 @@ describe("credits page — (e) packs + unit price resolve from the live catalog 
     expect(joined).toContain(`₹${unit} per unlock`);
   });
 
-  it("keeps checkout MOCK-only (no real payment is taken)", async () => {
+  it("the default (mock) posture shows no mock / staging-preview copy (owner ruling 2026-10-07, F35)", async () => {
     const { joined } = await render({ balance: 50 });
-    expect(joined).toMatch(/Mock payments only/i);
-    expect(joined).toMatch(/no real payment is taken/i);
+    expect(joined).not.toMatch(/\bmock\b/i);
+    expect(joined).not.toMatch(/staging preview/i);
+    expect(joined).not.toMatch(/no real payment is taken/i);
+    expect(joined).not.toMatch(/no money moves/i);
+    // The description still says what a credit buys and its config price — and stops there.
+    expect(joined).toContain(
+      `1 credit = 1 contact unlock (₹${unlockUnitPriceInr(DEFAULT_CATALOG.products)} per unlock).`,
+    );
   });
 });
 
@@ -289,13 +295,13 @@ describe("credits page — (e) packs + unit price resolve from the live catalog 
  * SERVER-side and handed to the panel; the client cannot pick its own mode.
  */
 describe("credits page — real vs mock payment mode (server-decided)", () => {
-  it("DEFAULTS to mock: real=false on the panel and the mock copy is rendered", async () => {
+  it("DEFAULTS to mock: real=false on the panel, with no mock copy and no claim that Razorpay is live", async () => {
     const { joined, panelReal } = await render({ balance: 50 });
     expect(panelReal).toBe(false);
-    expect(joined).toMatch(/Mock payments only/i);
-    expect(joined).toMatch(/no real payment is taken/i);
-    // The word "Razorpay" DOES appear in mock mode — as the note that real checkout is a
-    // separate rollout. What must not appear is any claim that it is LIVE here.
+    // The mode still decides the flow (real=false above); only its copy is gone (F35).
+    expect(joined).not.toMatch(/Mock payments only/i);
+    expect(joined).not.toMatch(/no real payment is taken/i);
+    // What must never appear in mock mode is any claim that Razorpay is LIVE here.
     expect(joined).not.toMatch(/Pay securely via Razorpay/i);
     expect(joined).not.toMatch(/Payments by Razorpay/i);
   });
@@ -375,7 +381,14 @@ describe("credits page — (g) UI-1 page spine + real empty/error states", () =>
     expect(classes).toContain("page-head__sub");
     expect(classes).toContain("stat-row");
     expect(classes).toContain("panel panel--table");
-    expect(classes).toContain("alert alert--info");
+    // The page's info band is the DS alert. Only REAL mode draws one now (the Razorpay note) —
+    // the mock-mode band was the "Mock payments only" disclaimer the owner ruled out (F35).
+    payerServerConfig.mockReturnValue({
+      apiBaseUrl: "http://localhost:3001",
+      paymentsEnableReal: true,
+      agencySupplyEnabled: false,
+    });
+    expect((await render({ balance: 50 })).classes).toContain("alert alert--info");
     for (const retired of [
       "dash-title",
       "dash-sub",

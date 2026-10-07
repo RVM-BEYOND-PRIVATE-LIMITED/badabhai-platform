@@ -267,20 +267,28 @@ describe("agency referrals page — the conversion RATE honours the k-anon floor
 /* ── F19 (final sweep): the funnel first, then the one primary, then the secondary tool ── */
 
 describe("agency referrals page — F19 reading order", () => {
-  /** The page's top-level blocks, by what they are. */
+  type Block = ReactElement<Record<string, unknown>>;
+  const LEAD = "agency-referrals-page__lead";
+  const blocksOf = (children: ReactNode): Block[] =>
+    ([] as ReactNode[])
+      .concat(children)
+      .flat()
+      .filter((k): k is Block => typeof k === "object" && k !== null);
+  /** What a top-level block is. */
+  const kind = (k: Block): string => {
+    if (k.type === AgencyInvitePanel) return "invite";
+    if (k.type === AgencyBatchInvitePanel) return "batch";
+    const text = collect(k).text.join(" ");
+    if (/Referral funnel/.test(text)) return "funnel";
+    if (/earnings|payout/i.test(text) || collect(k).components.includes(EarningsPanel)) return "money";
+    return typeof k.type === "string" ? k.type : "header";
+  };
+  /** The page's blocks in DOM (reading) order. The lead box is layout only: read through it. */
   async function blocks(): Promise<string[]> {
     const page = (await AgencyReferralsPage()) as ReactElement<{ children: ReactNode[] }>;
-    return (page.props.children as ReactNode[])
-      .flat()
-      .filter((k): k is ReactElement<Record<string, unknown>> => typeof k === "object" && k !== null)
-      .map((k) => {
-        if (k.type === AgencyInvitePanel) return "invite";
-        if (k.type === AgencyBatchInvitePanel) return "batch";
-        const text = collect(k).text.join(" ");
-        if (/Referral funnel/.test(text)) return "funnel";
-        if (/earnings|payout/i.test(text) || collect(k).components.includes(EarningsPanel)) return "money";
-        return typeof k.type === "string" ? k.type : "header";
-      });
+    return blocksOf(page.props.children)
+      .flatMap((k) => (k.props.className === LEAD ? blocksOf(k.props.children as ReactNode) : [k]))
+      .map(kind);
   }
 
   it("funnel ABOVE the forms; the invite link (the one primary) before the batch links; money last", async () => {
@@ -290,5 +298,13 @@ describe("agency referrals page — F19 reading order", () => {
   it("…and the same order while payouts are off", async () => {
     getAgencyEarnings.mockResolvedValueOnce(null);
     expect(await blocks()).toEqual(["header", "funnel", "invite", "batch", "money"]);
+  });
+
+  it("F19 (re-sweep): the funnel and the one primary share ONE lead box — the phone reorders only inside it", async () => {
+    // globals.css lifts the invite panel above the funnel at ≤600px within this box; the DOM —
+    // and every wider screen — keeps the funnel first.
+    const lead = elements(await AgencyReferralsPage()).filter((e) => e.props.className === LEAD);
+    expect(lead).toHaveLength(1);
+    expect(blocksOf(lead[0]!.props.children as ReactNode).map(kind)).toEqual(["funnel", "invite"]);
   });
 });

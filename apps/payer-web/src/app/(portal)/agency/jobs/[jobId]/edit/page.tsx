@@ -13,9 +13,9 @@ export const dynamic = "force-dynamic";
  * Agency "Edit posting" (final sweep F02) — the one place an agency edits one of its OWN `jobs`
  * rows. It replaced the inline editor on the Postings list, which opened inside the row's card
  * below the page head and the row header, so the worker card and "Save changes" started below a
- * laptop's fold. The structure is the company edit page's: back to the posting's details · H1 ·
- * the form, with the page head leading the FORM column so the card-preview rail starts at the top
- * of the content (the same fit rule as New posting).
+ * laptop's fold. The structure is the company edit page's: back to the posting (by its title) ·
+ * H1 · the form, with the page head leading the FORM column so the card-preview rail starts at the
+ * top of the content (the same fit rule as New posting).
  *
  * SECURITY: `requireAgent()` FIRST, then the agency-portal flag, then a uuid guard before the id
  * reaches the authed API path — like every sibling agency page. The read binds to the server-held
@@ -43,9 +43,11 @@ export default async function EditAgencyPostingPage({
   if (!isEditableJob(job)) redirect(detailHref);
 
   // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
+  // Back to the posting by its own name — its details page's H1, and the applicants page's back
+  // label: one label per destination.
   const lead = (
     <PageHeader
-      back={{ href: detailHref, label: "Posting details" }}
+      back={{ href: detailHref, label: job.title }}
       title="Edit posting"
       description={`Change the role, location, pay, timing, chips or description for ${job.title} — the card preview updates as you edit.`}
     />

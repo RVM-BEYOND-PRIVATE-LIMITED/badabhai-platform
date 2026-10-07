@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { buildAttentionItems, LOW_BALANCE_THRESHOLD } from "./attention";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as attention from "./attention";
+import { buildAttentionItems } from "./attention";
+import { lowBalanceThreshold } from "../../../lib/pricing-config";
 import type { Dashboard } from "../../../lib/contracts";
 
 /**
@@ -60,7 +62,7 @@ describe("buildAttentionItems", () => {
 
   it("warns BEFORE the wallet empties, not after", () => {
     const out = buildAttentionItems(
-      { ...HEALTHY, credits: { payerId: "p", balance: LOW_BALANCE_THRESHOLD - 1 } },
+      { ...HEALTHY, credits: { payerId: "p", balance: lowBalanceThreshold() - 1 } },
       EMPLOYER_OWNER,
     );
     expect(out.map((i) => i.id)).toContain("credits-low");
@@ -69,7 +71,7 @@ describe("buildAttentionItems", () => {
 
   it("is silent about the wallet exactly AT the threshold", () => {
     const out = buildAttentionItems(
-      { ...HEALTHY, credits: { payerId: "p", balance: LOW_BALANCE_THRESHOLD } },
+      { ...HEALTHY, credits: { payerId: "p", balance: lowBalanceThreshold() } },
       EMPLOYER_OWNER,
     );
     expect(out.map((i) => i.id)).not.toContain("credits-low");
@@ -131,7 +133,7 @@ describe("buildAttentionItems", () => {
     expect(empty.body).toContain("Ask your account owner to buy credits");
     expect(empty.actionHref).toBeUndefined();
     const low = buildAttentionItems(
-      { ...HEALTHY, credits: { payerId: "p", balance: LOW_BALANCE_THRESHOLD - 1 } },
+      { ...HEALTHY, credits: { payerId: "p", balance: lowBalanceThreshold() - 1 } },
       EMPLOYER_RECRUITER,
     )[0]!;
     expect(low.body).toContain("Ask your account owner to buy credits");
@@ -218,5 +220,51 @@ describe("buildAttentionItems — a part that could not be read says nothing", (
     expect(
       buildAttentionItems({ credits: null, unlocks: null, postings: null }, EMPLOYER_OWNER),
     ).toEqual([]);
+  });
+});
+
+/**
+ * N7 (final re-sweep) — the dashboard warned "Only N credits left" from 10 (its own constant)
+ * while /credits warned from 5 (the pricing config), so balances 5-9 read "low" on one page and
+ * fine on the other. ONE threshold now: the pricing config's `lowBalanceThreshold()` (default 5,
+ * `PAYER_LOW_BALANCE_THRESHOLD` overrides it) — the number /credits reads.
+ */
+describe("buildAttentionItems — the low-balance threshold is the pricing config's (N7)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+  const at = (balance: number, opts = EMPLOYER_OWNER) =>
+    buildAttentionItems({ ...HEALTHY, credits: { payerId: "p", balance } }, opts);
+  const ids = (balance: number) => at(balance).map((i) => i.id);
+  /** Every "Buy credits" the owner's needs-you band offers at this balance. */
+  const buys = (balance: number) => at(balance).filter((i) => i.actionLabel === "Buy credits");
+
+  it("the dashboard keeps no number of its own", () => {
+    expect("LOW_BALANCE_THRESHOLD" in attention).toBe(false);
+  });
+
+  it("default: 5 — balances 5 to 9 are not low (as on /credits); 4 is, with ONE Buy credits", () => {
+    vi.stubEnv("PAYER_LOW_BALANCE_THRESHOLD", "");
+    expect(lowBalanceThreshold()).toBe(5);
+    for (const balance of [5, 6, 7, 8, 9]) {
+      expect(ids(balance), `balance ${balance}`).toEqual([]);
+      expect(buys(balance), `balance ${balance}`).toEqual([]);
+    }
+    expect(ids(4)).toEqual(["credits-low"]);
+    expect(buys(4)).toHaveLength(1);
+    expect(buys(4)[0]!.actionHref).toBe("/credits");
+    // A recruiter is told, never linked (Credits is Owner-only) — at the same number.
+    expect(at(4, EMPLOYER_RECRUITER).map((i) => i.id)).toEqual(["credits-low"]);
+    expect(at(4, EMPLOYER_RECRUITER)[0]!.actionHref).toBeUndefined();
+    expect(at(5, EMPLOYER_RECRUITER)).toEqual([]);
+  });
+
+  it("the config override moves the dashboard WITH /credits (8: 7 is low, 8 is not)", () => {
+    vi.stubEnv("PAYER_LOW_BALANCE_THRESHOLD", "8");
+    expect(lowBalanceThreshold()).toBe(8);
+    expect(ids(7)).toEqual(["credits-low"]);
+    expect(buys(7)).toHaveLength(1);
+    expect(ids(8)).toEqual([]);
+    expect(buys(8)).toEqual([]);
   });
 });

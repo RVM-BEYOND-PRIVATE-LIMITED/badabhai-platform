@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PageHeaderContent } from "../../../../components/page-header";
 import type * as EntitiesModule from "../../../../lib/entities";
+import { customerCell } from "../../../../../test/customer-cell";
 
 /**
  * What the job-posting DETAIL page renders after PR-A widened the admin projection with the
@@ -377,5 +378,38 @@ describe("the posting page calls its publisher the customer — never an account
     const out = await render();
     expect(out).toContain("ops-created (no customer)");
     expect(out).not.toMatch(/\baccounts?\b/i);
+  });
+});
+
+/**
+ * THE CUSTOMER ROW (#2032, sweep AW-28): straight to the customer's own section when the API
+ * names the payer's role, with the persona beside the id; the redirecting address when it does not.
+ */
+describe("the Customer row links the customer's own section", () => {
+  const PAYER = BASE.payer_id;
+
+  it("an agency's posting links /agencies/<id> directly, named Agency", async () => {
+    stub.job = { ...BASE, payer_role: "agent" };
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</dd>"));
+    expect(out).not.toContain(`href="/companies/${PAYER}"`);
+  });
+
+  it("a company's posting links /companies/<id>, named Company", async () => {
+    stub.job = { ...BASE, payer_role: "employer" };
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Company", "</dd>"));
+  });
+
+  it("a null role (an orphaned id) falls back to /companies/<id>, claiming no persona", async () => {
+    stub.job = { ...BASE, payer_role: null };
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, null, "</dd>"));
+  });
+
+  it("an absent role (an older API) falls back the same way", async () => {
+    expect(BASE).not.toHaveProperty("payer_role");
+    const out = await render();
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, null, "</dd>"));
   });
 });
