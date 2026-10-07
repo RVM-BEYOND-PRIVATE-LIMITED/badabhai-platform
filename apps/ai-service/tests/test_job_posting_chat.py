@@ -4037,3 +4037,42 @@ def test_an_add_on_follows_only_inside_the_second_figures_clause(text: str, foll
     match = answers._PAY_RANGE_RE.search(text)
     assert match is not None
     assert answers._addon_follows(match) is follows
+
+
+# --- #2094: a range ends at its second figure's last character ----------------------------
+# The range regex swallows the whitespace after a suffix-less second figure ("22000 "), so
+# the " and " / " aur " boundary sat INSIDE the range and its clause ran on into "PF": the
+# whole range was dropped as an add-on and no pay was recorded.
+_RANGE_SPAN_CASES: list[tuple[str, dict | None]] = [
+    ("between 18000 and 22000 and PF", _pay(18000, 22000)),
+    ("18000-22000 and ESI", _pay(18000, 22000)),
+    ("18000 to 22000 aur PF", _pay(18000, 22000)),
+    ("18,000 - 22,000 and PF ESI extra", _pay(18000, 22000)),
+    ("rs 18000 se rs 22000 aur food free", _pay(18000, 22000)),
+    # Unchanged: a suffixed figure already ended at its suffix ...
+    ("15-20k and PF", _pay(15000, 20000)),
+    # ... and an add-on in the range's OWN clause still drops it.
+    ("18000-22000 bonus", None),
+    ("between 18000 and 22000 incentive", None),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _RANGE_SPAN_CASES)
+def test_a_range_ends_at_its_second_figure(text: str, pay: dict | None) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"salary {text}", None).get("pay_range") == pay
+
+
+@pytest.mark.parametrize(
+    ("text", "figure"),
+    [
+        ("18000-22000 and ESI", "18000-22000"),
+        ("between 18000 and 22000 \n and PF", "18000 and 22000"),
+        ("18000 to 22000k  aur PF", "18000 to 22000k"),
+        ("15 - 20 lakh   and PF", "15 - 20 lakh"),
+    ],
+)
+def test_a_range_figure_span_holds_no_trailing_whitespace(text: str, figure: str) -> None:
+    (found,) = answers._pay_figures(text)
+    assert found.from_range
+    assert text[found.start : found.end] == figure
