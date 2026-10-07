@@ -21,6 +21,8 @@ import { PayerValidationError } from "../../../lib/payer-errors";
  *    page keeping the filter; a later page offers First page.
  *  - STATES: empty, filtered-empty (= unknown id, byte for byte), error (Retry, head kept), 429,
  *    and a REFUSED page cursor (400 with a cursor) — First page with the filter kept, never Retry.
+ *  - PENDING CUE: every query-only link (First page, Next page, All postings) and each card's
+ *    "Applied to" link carries the navigation pending cue (no loading boundary — #2115).
  */
 
 const requirePayer = vi.fn();
@@ -55,6 +57,8 @@ vi.mock("../postings/[id]/applicants/actions", () => ({
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
+    // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+    useLinkStatus: () => ({ pending: false }),
     default: ({ children, href, className }: { children: ReactNode; href: string; className?: string }) =>
       React.createElement("a", { href, className }, children),
   };
@@ -132,6 +136,17 @@ const unlockButtons = (markup: string) =>
   Array.from(
     markup.matchAll(/<button([^>]*)>(?:(?!<\/button>)[\s\S])*?Unlock contact \(1 credit\)/g),
     (m) => m[1]!,
+  );
+/**
+ * Every link in the markup → whether it carries the navigation pending cue (the idle cue SSRs as
+ * its always-present `nav-pending` span, a DIRECT child of the link — what the CSS anchors on).
+ */
+const linkCue = (markup: string) =>
+  new Map(
+    Array.from(markup.matchAll(/<a href="([^"]*)"[^>]*>((?:(?!<\/a>)[\s\S])*)<\/a>/g), (m) => [
+      m[1]!.replace(/&amp;/g, "&"),
+      m[2]!.endsWith('<span class="nav-pending" aria-hidden="true"></span>'),
+    ]),
   );
 /** The markup of the state card (from its `.state` block to the end). */
 const stateOf = (markup: string) => markup.slice(markup.indexOf('<div class="state'));
@@ -256,8 +271,9 @@ describe("candidates page — the list: the shared faceless cards, each naming i
   it("renders ONE shared card list, its cards faceless, each linking its company posting", async () => {
     const out = await html();
     expect(out.match(/bb-avatar--masked/g)).toHaveLength(2);
-    expect(out).toContain(`<a href="/postings/${P1}" class="applicant__posting-link">CNC Turner</a>`);
-    expect(out).toContain(`<a href="/postings/${P2}" class="applicant__posting-link">VMC Operator</a>`);
+    const cue = '<span class="nav-pending" aria-hidden="true"></span>';
+    expect(out).toContain(`<a href="/postings/${P1}" class="applicant__posting-link">CNC Turner${cue}</a>`);
+    expect(out).toContain(`<a href="/postings/${P2}" class="applicant__posting-link">VMC Operator${cue}</a>`);
     expect(out).toContain("Applicants are faceless");
     expect(unlockButtons(out)).toHaveLength(2);
     await listProps(); // exactly one ApplicantActions → exactly one ConfirmSpendDialog
@@ -281,7 +297,9 @@ describe("candidates page — the list: the shared faceless cards, each naming i
       nextCursor: null,
     });
     const out = await html();
-    expect(out).toContain(`<a href="/agency/jobs/${J1}" class="applicant__posting-link">Fitter</a>`);
+    expect(out).toContain(
+      `<a href="/agency/jobs/${J1}" class="applicant__posting-link">Fitter<span class="nav-pending" aria-hidden="true"></span></a>`,
+    );
     expect(out).not.toContain(`href="/postings/${P1}"`);
     expect(out).toContain('<span class="applicant__posting-title">Old company posting</span>');
     // The agency job's card offers the spend; the view-only one does not.
@@ -415,6 +433,36 @@ describe("candidates page — keyset paging", () => {
     const out = await html({ cursor: NEXT });
     expect(out).toContain("No more applicants");
     expect(out).toContain('<a href="/candidates" class="bb-btn bb-btn--secondary">');
+  });
+});
+
+describe("candidates page — the navigation pending cue on every query-only link (#2115)", () => {
+  it("Next page and First page (the pager) carry it", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [companyRow(W1)], nextCursor: NEXT });
+    const cues = linkCue(await html({ postingId: P1, cursor: NEXT }));
+    expect(cues.get(`/candidates?postingId=${P1}&cursor=${NEXT}`)).toBe(true);
+    expect(cues.get(`/candidates?postingId=${P1}`)).toBe(true);
+  });
+
+  it("each card's Applied to link carries it", async () => {
+    const cues = linkCue(await html());
+    expect(cues.get(`/postings/${P1}`)).toBe(true);
+    expect(cues.get(`/postings/${P2}`)).toBe(true);
+  });
+
+  it("the states' First page (outage on a later page, refused cursor) and All postings carry it", async () => {
+    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 502"));
+    expect(linkCue(stateOf(await html({ postingId: P1, cursor: NEXT }))).get(`/candidates?postingId=${P1}`)).toBe(true);
+    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 400"));
+    expect(linkCue(stateOf(await html({ postingId: P1, cursor: "abc" }))).get(`/candidates?postingId=${P1}`)).toBe(true);
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
+    expect(linkCue(stateOf(await html({ postingId: P1 }))).get("/candidates")).toBe(true);
+  });
+
+  it("the scan sees links WITHOUT it too (it is not vacuous)", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
+    // The empty state's Postings link is a link to another section, not a query-only one.
+    expect(linkCue(stateOf(await html())).get("/postings")).toBe(false);
   });
 });
 

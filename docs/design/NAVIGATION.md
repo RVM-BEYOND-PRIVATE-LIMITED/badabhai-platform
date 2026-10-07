@@ -425,7 +425,9 @@ a boundary). Re-measure before adding one back after a Next or React upgrade.
 `useLinkStatus` on the link that started the navigation — no boundary. A dot on the corner of a
 rail / drawer row, the brand lockup, the header's balance chip (Credits), the trail's link, a
 `PageHeader` action or back link, a posting row's title and Applicants link (Postings, Agency
-postings) and a dashboard card's Applicants link; a thin bar along the top of the viewport (the cue
+postings), a dashboard card's Applicants link, and on Candidates every link that changes only the
+query (the pager's First page / Next page, a state's First page, "All postings") and each card's
+"Applied to" posting link; a thin bar along the top of the viewport (the cue
 a phone sees — the drawer closes as its link is followed); and one polite status line, "Opening
 Postings…", in the shell outside the region that goes inert behind the open drawer. Nothing shows
 for the first 180ms, so a prefetched navigation never flashes; reduced motion drops the pulse and

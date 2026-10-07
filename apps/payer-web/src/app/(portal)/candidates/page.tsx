@@ -27,6 +27,7 @@ import {
   type PostingOption,
 } from "../../../lib/candidate-inbox";
 import { Card } from "../../../components/ds";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { ApplicantActions } from "../postings/[id]/applicants/applicant-actions";
@@ -67,7 +68,9 @@ export const dynamic = "force-dynamic";
  * "Next page" carries the server's `nextCursor` verbatim, keeping the filter.
  *
  * LOADING: no route `loading.tsx`, no Suspense, no `next/dynamic` here — a navigation keeps the
- * current page on screen until this one has rendered.
+ * current page on screen until this one has rendered (app/no-suspense-above-a-page.test.ts). Every
+ * link this page draws that only changes the query (First page, Next page, All postings) carries
+ * the navigation pending cue (components/nav-pending.tsx), so a slow page still answers the click.
  */
 const HEAD = {
   title: "Candidates",
@@ -231,6 +234,7 @@ function Pager({
         <Link className="bb-btn bb-btn--secondary" href={candidatesHref({ postingId })}>
           <Icon name={ACTION_ICON.back} />
           <span>First page</span>
+          <NavPendingCue label="First page" />
         </Link>
       ) : null}
       {nextCursor ? (
@@ -240,6 +244,7 @@ function Pager({
         >
           <span>Next page</span>
           <Icon name={ACTION_ICON.next} />
+          <NavPendingCue label="Next page" />
         </Link>
       ) : null}
     </nav>
@@ -265,6 +270,7 @@ function LoadErrorState({ firstPage }: { firstPage: string | null }) {
             <Link className="bb-btn bb-btn--secondary" href={firstPage}>
               <Icon name={ACTION_ICON.back} />
               <span>First page</span>
+              <NavPendingCue label="First page" />
             </Link>
           ) : null}
         </div>
@@ -295,6 +301,7 @@ function CursorRefusedState({ firstPage }: { firstPage: string }) {
           <Link className="bb-btn bb-btn--secondary" href={firstPage}>
             <Icon name={ACTION_ICON.back} />
             <span>First page</span>
+            <NavPendingCue label="First page" />
           </Link>
         </div>
       </div>
@@ -339,6 +346,7 @@ function FilteredEmptyState() {
           <Link className="bb-btn bb-btn--secondary" href={candidatesHref({})}>
             <Icon name={ACTION_ICON.clearFilters} />
             <span>All postings</span>
+            <NavPendingCue label="All postings" />
           </Link>
         </div>
       </div>

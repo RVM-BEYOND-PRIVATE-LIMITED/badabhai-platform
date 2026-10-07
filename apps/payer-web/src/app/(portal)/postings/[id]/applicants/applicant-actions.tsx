@@ -8,6 +8,7 @@ import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
+import { NavPendingCue } from "../../../../../components/nav-pending";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import {
@@ -508,6 +509,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                     {r.posting.href ? (
                       <Link className="applicant__posting-link" href={r.posting.href}>
                         {r.posting.title}
+                        {/* The click answers before the details page arrives (no loading
+                            boundary — components/nav-pending.tsx). */}
+                        <NavPendingCue label={r.posting.title} />
                       </Link>
                     ) : (
                       <span className="applicant__posting-title">{r.posting.title}</span>

@@ -18,6 +18,7 @@ import type { CandidateRow } from "./applicant-actions";
  *    always opens the dialog for its own posting; Cancel forgets both halves of the asking row;
  *    a dialog with no asking posting spends nothing (no worker's-other-row fallback);
  *  - the rank is posting-relative, so it reads on the posting line, not as the rank badge;
+ *  - the posting link carries the navigation pending cue (no loading boundary — #2115);
  *  - ONE ConfirmSpendDialog for the whole list, outside every card;
  *  - NO board: no New / Shortlist tabs, no Keep / Pass; the head's toolbar is the caller's;
  *  - each card names its posting — a link when the session has its page, plain text when not —
@@ -35,11 +36,17 @@ const revealContactAction = vi.fn();
 const maskedResumeAction = vi.fn();
 
 vi.mock("next/link", () => ({
+  // The pending cue inside each link reads its status (components/nav-pending.tsx): idle.
+  useLinkStatus: () => ({ pending: false }),
   default: ({ children, href, className }: { children: ReactNode; href: string; className?: string }) => ({
     type: "a",
     props: { href, className, children },
   }),
 }));
+// The posting link carries the navigation pending cue, a client component with an effect, which
+// this walk (it calls components outside a renderer) cannot run; its own behaviour is
+// components/nav-pending.render.test.tsx. Matched below by this stand-in's identity.
+vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),
@@ -66,6 +73,8 @@ vi.mock("react", async () => {
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
+const { NavPendingCue } = await import("../../../../../components/nav-pending");
+const { linkCues } = await import("../../../../../../test/link-cues");
 
 const P1 = "11111111-0000-4000-8000-000000000001";
 const P2 = "11111111-0000-4000-8000-000000000002";
@@ -399,6 +408,13 @@ describe("inbox mode — each card names its posting", () => {
       "Applied to VMC Operator · ranked #1",
       "Applied to Fitter · ranked #3",
     ]);
+  });
+
+  it("each posting link carries the navigation pending cue, named for its posting", () => {
+    mount([ROW_A, ROW_C]);
+    const cues = linkCues(currentTree, NavPendingCue);
+    expect(cues.get(`/postings/${P1}`)).toEqual(["CNC Turner"]);
+    expect(cues.get(`/agency/jobs/${J1}`)).toEqual(["Fitter"]);
   });
 
   it("a posting with no page for this session is plain text — no link at all", () => {
