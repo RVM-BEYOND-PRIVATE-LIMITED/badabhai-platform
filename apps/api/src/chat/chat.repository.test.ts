@@ -521,3 +521,79 @@ describe("ChatRepository.mergeFreeChatLock — the lock, merged beside the state
     );
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ADR-0051 §8 (Release 2) — the rolling free-chat summary
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe("ChatRepository.findLatestFreeChatSummary — the summary a new session inherits", () => {
+  it("filters on the worker AND the key's presence IN the WHERE clause, newest started first", async () => {
+    const h = makeSelectingDb([{ id: SESSION, summary: { v: 1 } }]);
+    const out = await new ChatRepository(h.db as never).findLatestFreeChatSummary(WORKER);
+    expect(out).toEqual({ id: SESSION, summary: { v: 1 } });
+    const { sql, params } = new PgDialect().sqlToQuery(h.captured.where as never);
+    expect(sql).toContain('"worker_id" = $1');
+    expect(sql).toMatch(/"conversation_state" -> 'free_chat_summary' IS NOT NULL/);
+    expect(params).toEqual([WORKER]);
+    expect(renderOrderBy(h)).toMatch(/started_at"?\s+desc/i);
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("returns undefined for a worker with no summary anywhere", async () => {
+    const h = makeSelectingDb([]);
+    expect(
+      await new ChatRepository(h.db as never).findLatestFreeChatSummary(WORKER),
+    ).toBeUndefined();
+  });
+});
+
+describe("ChatRepository.mergeFreeChatSummary — merged beside the state, monotonic", () => {
+  const SUMMARY = {
+    v: 1 as const,
+    text: "Worker likes cricket.",
+    updated_at: "2026-10-07T10:00:00.000Z",
+    session_id: SESSION,
+    folded_lines: 8,
+  };
+
+  it("MERGES one sibling key — never a replace — with every value a bound parameter", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY);
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toMatch(
+      /^coalesce\((?:"chat_sessions"\.)?"conversation_state", '\{\}'::jsonb\) \|\| jsonb_build_object\('free_chat_summary', jsonb_build_object\('v', 1, 'text', \$1::text, 'updated_at', \$2::text, 'session_id', \$3::text, 'folded_lines', \$4::int\)\)$/,
+    );
+    // The model-written text is a PARAMETER, never spliced into the statement.
+    expect(q.params).toEqual([SUMMARY.text, SUMMARY.updated_at, SESSION, 8]);
+    expect(Object.keys(captured.set!)).toEqual(["conversationState"]);
+  });
+
+  it("is scoped to the session and its owner — NOT to an active row — and guarded monotonic", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY);
+    const { sql, params } = new PgDialect().sqlToQuery(captured.where as never);
+    expect(sql).not.toContain('"status"');
+    // Writes only over no summary, another session's, or one covering FEWER of this session's lines
+    // — the WHOLE predicate pinned, so a guard weakened by any extra disjunct is caught.
+    const s = `"chat_sessions"."conversation_state" -> 'free_chat_summary'`;
+    expect(sql).toBe(
+      `("chat_sessions"."id" = $1 and "chat_sessions"."worker_id" = $2 and ` +
+        `(${s} IS NULL OR ${s} ->> 'session_id' IS DISTINCT FROM $3::text OR ` +
+        `CASE WHEN jsonb_typeof(${s} -> 'folded_lines') = 'number' ` +
+        `THEN (${s} ->> 'folded_lines')::numeric < $4::int ELSE true END))`,
+    );
+    expect(params).toEqual([SESSION, WORKER, SESSION, 8]);
+  });
+
+  it("reports whether it wrote — false when a fold covering as many lines already landed", async () => {
+    const lost = makeCapturingDb();
+    lost.setUpdateMatchesNothing();
+    expect(
+      await new ChatRepository(lost.db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY),
+    ).toBe(false);
+    const won = makeCapturingDb();
+    expect(
+      await new ChatRepository(won.db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY),
+    ).toBe(true);
+  });
+});

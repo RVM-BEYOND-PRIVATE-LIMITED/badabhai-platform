@@ -14,6 +14,8 @@ import {
   type WorkerPackAnswer,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+// TYPE-ONLY: the stored summary's shape is defined once, beside its readers. No runtime edge.
+import type { FreeChatSummary } from "../profiling/free-chat/free-chat-summary";
 
 /**
  * Safety bound for the per-session message-history read (the chat loop +
@@ -614,6 +616,85 @@ export class ChatRepository {
           eq(chatSessions.workerId, workerId),
           eq(chatSessions.status, "active"),
           sql`${chatSessions.conversationState} -> 'free_chat_lock' IS NULL`,
+        ),
+      )
+      .returning({ id: chatSessions.id });
+    return updated.length > 0;
+  }
+
+  /**
+   * ADR-0051 §8 (Release 2) — the worker's NEWEST session (by `started_at`) whose state CARRIES a
+   * rolling free-chat summary, as its id and the raw `free_chat_summary` value — or undefined. The
+   * caller parses the value (`readFreeChatSummaryValue`, strict, fails soft).
+   *
+   * WHO READS IT: a new session copying the summary at its greeting, a reply whose own row carries
+   * none yet, and a fold whose own row carries none yet. Newest-started wins because each new
+   * session inherits the summary at open and folds onto its own row, so the newest carrier holds
+   * the latest text. The summary is kept indefinitely (R23) — no age bound.
+   *
+   * PRESENCE IN THE WHERE CLAUSE, for {@link findFreeChatLockDecider}'s reason. ONE INDEXED READ:
+   * `chat_sessions_worker_id_idx` narrows to one worker's handful of rows; the jsonb test runs over
+   * those only.
+   */
+  async findLatestFreeChatSummary(
+    workerId: string,
+  ): Promise<{ id: string; summary: unknown } | undefined> {
+    const rows = await this.db
+      .select({
+        id: chatSessions.id,
+        summary: sql<unknown>`${chatSessions.conversationState} -> 'free_chat_summary'`,
+      })
+      .from(chatSessions)
+      .where(
+        and(
+          eq(chatSessions.workerId, workerId),
+          sql`${chatSessions.conversationState} -> 'free_chat_summary' IS NOT NULL`,
+        ),
+      )
+      .orderBy(desc(chatSessions.startedAt))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * ADR-0051 §8 (Release 2) — write a rolling free-chat summary onto THIS session's row: a sibling
+   * key, `free_chat_summary: {v: 1, text, updated_at, session_id, folded_lines}`, merged into
+   * `conversation_state`.
+   *
+   * THE {@link mergeFreeChatLock} SHAPE: a JSONB MERGE (`||`) because the column holds state this
+   * method did not read, `last_message_at` UNTOUCHED because the worker said nothing here, and
+   * scoped to the session AND its owner. The three REPLACING writers (checkpoint, flush, abandon)
+   * carry the key the row already holds (`storedFreeChatSummary`), so none of them erases it.
+   *
+   * MONOTONIC, IN THE STATEMENT. It writes only when the row holds no summary, holds one stamped
+   * for ANOTHER session, or holds one for this session that covers FEWER lines — so a stale fold
+   * (one that outlived its lock) can never overwrite a newer one, and a repeated copy at open (0
+   * over 0) is a no-op. The test is in the WHERE clause rather than a read-then-write for
+   * {@link pinPack}'s reason: two writers both pass a prior read; only one can pass this. A stored
+   * count that is not a JSON number reads as lower — the unreadable summary is replaced.
+   *
+   * NOT CONDITIONAL ON `active`, unlike the lock: a fold that lands just after the session closed
+   * still belongs to the worker's record (R23), and the lock means nothing on an ended row while
+   * the summary does.
+   *
+   * Returns whether it wrote.
+   */
+  async mergeFreeChatSummary(
+    sessionId: string,
+    workerId: string,
+    summary: FreeChatSummary,
+  ): Promise<boolean> {
+    const stored = sql`${chatSessions.conversationState} -> 'free_chat_summary'`;
+    const updated = await this.db
+      .update(chatSessions)
+      .set({
+        conversationState: sql`coalesce(${chatSessions.conversationState}, '{}'::jsonb) || jsonb_build_object('free_chat_summary', jsonb_build_object('v', 1, 'text', ${summary.text}::text, 'updated_at', ${summary.updated_at}::text, 'session_id', ${summary.session_id}::text, 'folded_lines', ${summary.folded_lines}::int))`,
+      })
+      .where(
+        and(
+          eq(chatSessions.id, sessionId),
+          eq(chatSessions.workerId, workerId),
+          sql`(${stored} IS NULL OR ${stored} ->> 'session_id' IS DISTINCT FROM ${summary.session_id}::text OR CASE WHEN jsonb_typeof(${stored} -> 'folded_lines') = 'number' THEN (${stored} ->> 'folded_lines')::numeric < ${summary.folded_lines}::int ELSE true END)`,
         ),
       )
       .returning({ id: chatSessions.id });

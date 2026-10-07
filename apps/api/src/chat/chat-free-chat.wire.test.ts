@@ -8,7 +8,11 @@ import { enterMode, greetingState } from "../profiling/free-chat/free-chat.state
 import type { FreeChatTurnInput, TurnResult } from "../profiling/orchestrator.service";
 import { ChatService } from "./chat.service";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
-import { PostMessageResponseSchema, StartSessionResponseSchema } from "./chat.dto";
+import {
+  PostMessageResponseSchema,
+  StartSessionResponseSchema,
+  type StartSessionResponse,
+} from "./chat.dto";
 
 /**
  * ═══ THE PROFILING-STAGE FREE CHAT ON THE CHAT WIRE (ADR-0051, #2027) ═══
@@ -84,6 +88,8 @@ interface Opts {
   written?: Partial<TranscriptBuffer> | null;
   conversationState?: Record<string, unknown> | null;
   lastMessageAt?: Date | null;
+  /** Release 2 — what `findLatestFreeChatSummary` returns, or "throws". */
+  latestSummary?: { id: string; summary: unknown } | undefined | "throws";
 }
 
 function make(opts: Opts = {}) {
@@ -104,6 +110,11 @@ function make(opts: Opts = {}) {
       return opts.decider;
     }),
     mergeFreeChatLock: vi.fn(async (..._args: unknown[]) => true),
+    findLatestFreeChatSummary: vi.fn(async () => {
+      if (opts.latestSummary === "throws") throw new Error("statement timeout");
+      return opts.latestSummary;
+    }),
+    mergeFreeChatSummary: vi.fn(async (..._args: unknown[]) => true),
     touchSession: vi.fn(async (..._args: unknown[]) => undefined),
     saveConversationState: vi.fn(async (..._args: unknown[]) => undefined),
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
@@ -211,6 +222,8 @@ describe("POST /chat/session — the greeting opens a new session (ADR-0051 (b))
         { option_key: "free_chat_start", label_text: "Haan, shuru karein" },
         { option_key: "free_chat_later", label_text: "Baad mein" },
       ],
+      // ADR-0051 (#2030) — the app hides its build-profile CTA in greeting and free mode.
+      free_chat_mode: "greeting",
     });
     expect(StartSessionResponseSchema.safeParse(res).success).toBe(true);
     expect(orchestrator.openFreeChatGreeting).toHaveBeenCalledWith(
@@ -537,5 +550,280 @@ describe("the flush — free-chat rows are flagged, every other row is inserted 
       undefined,
     ]);
     expect("metadata" in rows[3]!).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Release 2 — the rolling conversation summary (ADR-0051 §8)
+// ---------------------------------------------------------------------------
+
+const EARLIER = "55555555-5555-4555-8555-555555555555";
+const SUMMARY = {
+  v: 1,
+  text: "Worker likes cricket; asked about welding pay.",
+  updated_at: T0.toISOString(),
+  session_id: SESSION,
+  folded_lines: 6,
+};
+
+describe("Release 2 — every replacing writer carries the row's summary", () => {
+  const ROW = { turn_count: 2, free_chat_summary: SUMMARY };
+  const env = (): ProfilingEnvelope => ({ ...emptyProfilingEnvelope(), freeChat: null });
+
+  it("the mid-interview checkpoint", async () => {
+    const { svc, chat } = make({
+      conversationState: ROW,
+      turn: { checkpointDue: true },
+      written: { profiling: env() },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
+    expect(state.free_chat_summary).toEqual(SUMMARY);
+  });
+
+  it("the completion flush", async () => {
+    const { svc, chat } = make({
+      conversationState: ROW,
+      turn: { complete: true, completionReason: "complete", kind: "close" },
+      written: { profiling: env() },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.free_chat_summary).toEqual(SUMMARY);
+  });
+
+  it("the abandon sweep — buffer alive, and buffer gone", async () => {
+    const alive = make({ buffer: { profiling: env() } });
+    await alive.svc.abandonInterview(
+      { id: SESSION, workerId: WORKER, conversationState: ROW },
+      400,
+      CTX,
+    );
+    expect(
+      (alive.chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>).free_chat_summary,
+    ).toEqual(SUMMARY);
+    const gone = make({ buffer: null });
+    await gone.svc.abandonInterview(
+      { id: SESSION, workerId: WORKER, conversationState: ROW },
+      400,
+      CTX,
+    );
+    expect(
+      (gone.chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>).free_chat_summary,
+    ).toEqual(SUMMARY);
+  });
+
+  it("a row without one writes NO summary key — byte-identical to Release 1", async () => {
+    const { svc, chat } = make({
+      conversationState: { turn_count: 2 },
+      turn: { checkpointDue: true },
+      written: { profiling: env() },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
+    expect("free_chat_summary" in state).toBe(false);
+  });
+});
+
+describe("Release 2 — the turn's summary thunk", () => {
+  it("reads THIS session's own summary off the row it already loaded — no query", async () => {
+    const { svc, chat, turnInput } = make({ conversationState: { free_chat_summary: SUMMARY } });
+    await svc.postMessage(WORKER, DTO, CTX);
+    expect(await turnInput()!.summary!()).toBe(SUMMARY.text);
+    expect(chat.findLatestFreeChatSummary).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the worker's latest session carrying one — lazily, once", async () => {
+    const { svc, chat, turnInput } = make({
+      latestSummary: { id: EARLIER, summary: { ...SUMMARY, session_id: EARLIER } },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    expect(chat.findLatestFreeChatSummary).not.toHaveBeenCalled();
+    const input = turnInput()!;
+    expect(await input.summary!()).toBe(SUMMARY.text);
+    expect(await input.summary!()).toBe(SUMMARY.text);
+    expect(chat.findLatestFreeChatSummary).toHaveBeenCalledOnce();
+    expect(chat.findLatestFreeChatSummary).toHaveBeenCalledWith(WORKER);
+  });
+
+  it("none anywhere, an unreadable read and an unparseable value are all null — never a throw", async () => {
+    for (const latestSummary of [
+      undefined,
+      "throws" as const,
+      { id: EARLIER, summary: { v: 9 } },
+    ]) {
+      const { svc, turnInput } = make({ latestSummary });
+      await svc.postMessage(WORKER, DTO, CTX);
+      await expect(turnInput()!.summary!()).resolves.toBeNull();
+    }
+  });
+
+  it("the KILL SWITCH: no summary, and no read", async () => {
+    const { svc, chat, turnInput } = make({
+      killSwitch: true,
+      conversationState: { free_chat_summary: SUMMARY },
+      latestSummary: { id: EARLIER, summary: SUMMARY },
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    expect(await turnInput()!.summary!()).toBeNull();
+    expect(chat.findLatestFreeChatSummary).not.toHaveBeenCalled();
+  });
+});
+
+describe("Release 2 — a new session inherits the summary at its greeting", () => {
+  it("copies the latest onto the new session — re-stamped, its count at 0", async () => {
+    const { svc, chat } = make({
+      latestSummary: {
+        id: EARLIER,
+        summary: { ...SUMMARY, session_id: EARLIER, folded_lines: 12 },
+      },
+    });
+    await svc.startSession(WORKER, CTX, CONFIRM_FIRST);
+    expect(chat.mergeFreeChatSummary).toHaveBeenCalledWith(NEW_SESSION, WORKER, {
+      ...SUMMARY,
+      session_id: NEW_SESSION,
+      folded_lines: 0,
+    });
+  });
+
+  it("copies nothing when the worker has none, or the stored one does not parse", async () => {
+    for (const latestSummary of [undefined, { id: EARLIER, summary: { v: 2 } }]) {
+      const { svc, chat } = make({ latestSummary });
+      await svc.startSession(WORKER, CTX, CONFIRM_FIRST);
+      expect(chat.mergeFreeChatSummary).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a copy that fails never costs the greeting", async () => {
+    const { svc } = make({ latestSummary: "throws" });
+    const res = (await svc.startSession(WORKER, CTX, CONFIRM_FIRST)) as Record<string, unknown>;
+    expect(res.opening_text).toBe(FREE_CHAT_COPY.GREETING.latin);
+  });
+
+  it("no copy under the kill switch, nor for a locked worker (no greeting, no free chat)", async () => {
+    const off = make({ killSwitch: true, latestSummary: { id: EARLIER, summary: SUMMARY } });
+    await off.svc.startSession(WORKER, CTX, CONFIRM_FIRST);
+    expect(off.chat.findLatestFreeChatSummary).not.toHaveBeenCalled();
+    const locked = make({
+      decider: { id: SESSION, status: "abandoned" },
+      latestSummary: { id: EARLIER, summary: SUMMARY },
+    });
+    await locked.svc.startSession(WORKER, CTX, CONFIRM_FIRST);
+    expect(locked.chat.mergeFreeChatSummary).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2030 — `free_chat_mode` on the wire
+// ---------------------------------------------------------------------------
+
+describe("free_chat_mode (#2030) — the free chat's mode after every profiling response", () => {
+  const inMode = (mode: "greeting" | "free" | "resume"): ProfilingEnvelope => ({
+    ...emptyProfilingEnvelope(),
+    freeChat:
+      mode === "greeting"
+        ? greetingState()
+        : mode === "free"
+          ? enterMode(greetingState(), "free", "chip", T0)
+          : enterMode(null, "resume", "chip", T0),
+  });
+
+  it("POST /chat/session: a résumé-import opening is `resume`, read off the envelope it wrote", async () => {
+    const { svc } = make({
+      resumeConfirm: { ...GREETING_TURN, reply: "Resume se ye mila" },
+      buffer: { profiling: inMode("resume") },
+    });
+    const res = (await svc.startSession(WORKER, CTX, CONFIRM_FIRST)) as StartSessionResponse;
+    expect(res.free_chat_mode).toBe("resume");
+    expect(StartSessionResponseSchema.safeParse(res).success).toBe(true);
+  });
+
+  it("POST /chat/session: a REATTACH reports the live session's mode", async () => {
+    const { svc } = make({
+      liveSession: { id: SESSION, status: "active", startedAt: T0 },
+      buffer: { profiling: inMode("free") },
+    });
+    const res = await svc.startSession(WORKER, CTX);
+    expect(res).toEqual({
+      session_id: SESSION,
+      status: "active",
+      started_at: T0,
+      free_chat_mode: "free",
+    });
+  });
+
+  it("POST /chat/session: ABSENT under the kill switch, without a mode, and on an unreadable buffer", async () => {
+    const live = { id: SESSION, status: "active", startedAt: T0 };
+    const off = make({
+      killSwitch: true,
+      liveSession: live,
+      buffer: { profiling: inMode("free") },
+    });
+    expect("free_chat_mode" in (await off.svc.startSession(WORKER, CTX))).toBe(false);
+    expect(off.buffer.load).not.toHaveBeenCalled();
+    const none = make({ liveSession: live, buffer: { profiling: emptyProfilingEnvelope() } });
+    expect("free_chat_mode" in (await none.svc.startSession(WORKER, CTX))).toBe(false);
+    const broken = make({ liveSession: live });
+    broken.buffer.load.mockRejectedValue(new Error("redis down"));
+    expect("free_chat_mode" in (await broken.svc.startSession(WORKER, CTX))).toBe(false);
+  });
+
+  it.each(["greeting", "free", "resume"] as const)(
+    "POST /chat/message: the mode AFTER the turn — %s",
+    async (mode) => {
+      const { svc } = make({ written: { profiling: inMode(mode) } });
+      const res = await svc.postMessage(WORKER, DTO, CTX);
+      expect(res.free_chat_mode).toBe(mode);
+      expect(PostMessageResponseSchema.safeParse(res).success).toBe(true);
+    },
+  );
+
+  it("the turn where the mode CHANGES reports the new one (greeting → free, greeting → resume)", async () => {
+    const later = make({
+      buffer: { profiling: inMode("greeting") },
+      written: { profiling: inMode("free") },
+      turn: { reply: FREE_CHAT_COPY.LATER_ACK.latin, options: [RESUME_CHIP] },
+    });
+    expect(
+      (await later.svc.postMessage(WORKER, { ...DTO, text: "Baad mein" }, CTX)).free_chat_mode,
+    ).toBe("free");
+    const start = make({
+      buffer: { profiling: inMode("greeting") },
+      written: { profiling: inMode("resume") },
+      turn: { reply: FREE_CHAT_COPY.OPENER.latin, options: [] },
+    });
+    expect(
+      (await start.svc.postMessage(WORKER, { ...DTO, text: "Haan" }, CTX)).free_chat_mode,
+    ).toBe("resume");
+  });
+
+  it("a REPLAY and an UNAVAILABLE turn carry the live envelope's mode; a vanished buffer none", async () => {
+    // Nothing was written on either, so the envelope the request loaded is read — no second load.
+    const replay = make({ buffer: { profiling: inMode("free") }, turn: { replayed: true } });
+    expect((await replay.svc.postMessage(WORKER, DTO, CTX)).free_chat_mode).toBe("free");
+    expect(replay.buffer.load).toHaveBeenCalledOnce();
+    const unavailable = make({
+      buffer: { profiling: inMode("free") },
+      turn: { unavailable: true },
+    });
+    const res = await unavailable.svc.postMessage(WORKER, DTO, CTX);
+    expect(res.free_chat_mode).toBe("free");
+    expect(unavailable.buffer.load).toHaveBeenCalledOnce();
+    expect(PostMessageResponseSchema.safeParse(res).success).toBe(true);
+    const degraded = make({ written: null });
+    expect("free_chat_mode" in (await degraded.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
+  });
+
+  it("ABSENT — never null — under the kill switch and on an envelope with no mode", async () => {
+    const off = make({ killSwitch: true, written: { profiling: inMode("resume") } });
+    expect("free_chat_mode" in (await off.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
+    const offReplay = make({
+      killSwitch: true,
+      buffer: { profiling: inMode("free") },
+      turn: { replayed: true },
+    });
+    expect("free_chat_mode" in (await offReplay.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
+    const none = make({ written: { profiling: emptyProfilingEnvelope() } });
+    expect("free_chat_mode" in (await none.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
   });
 });

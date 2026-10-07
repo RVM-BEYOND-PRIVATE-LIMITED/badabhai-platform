@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
+import type { FreeChatMode } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { logSafeReason } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -33,6 +34,12 @@ import {
   storedFreeChatLock,
   toFreeChatStatePatch,
 } from "../profiling/free-chat/free-chat.state";
+import {
+  copiedFreeChatSummary,
+  readFreeChatSummary,
+  readFreeChatSummaryValue,
+  storedFreeChatSummary,
+} from "../profiling/free-chat/free-chat-summary";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -184,12 +191,19 @@ export type ChatTurnOutcome =
       readonly flushed: boolean;
       readonly generalFormOffer?: GeneralFormOffer | null;
     }
-  /** The orchestrator wrote NOTHING: a lost CAS after two attempts, or no resolvable pack. */
-  | { readonly kind: "unavailable"; readonly reply: string }
+  /**
+   * The orchestrator wrote NOTHING: a lost CAS after two attempts, or no resolvable pack.
+   * `envelope` is the one this request loaded before the turn (ADR-0051 #2030 reads its free-chat
+   * mode) — absent when there was none.
+   */
+  | { readonly kind: "unavailable"; readonly reply: string; readonly envelope?: ProfilingEnvelope }
   /** The buffer vanished between the CAS write and the read-back. The reply is still served. */
   | { readonly kind: "degraded"; readonly reply: string }
-  /** Layer A fired — the previous reply, byte-identically, with no state changed. */
-  | { readonly kind: "replay"; readonly turn: TurnResult }
+  /**
+   * Layer A fired — the previous reply, byte-identically, with no state changed. `envelope` is the
+   * one this request loaded before the turn: a replay changes no mode, so it still stands.
+   */
+  | { readonly kind: "replay"; readonly turn: TurnResult; readonly envelope?: ProfilingEnvelope }
   /** A real turn. `terminal` is true only when the interview closed AND the flush LANDED. */
   | {
       readonly kind: "turn";
@@ -287,7 +301,10 @@ export class ChatService {
         workerId,
         ctx,
       );
-      return opened === null ? base : { ...base, ...opened };
+      // ADR-0051 (#2030) — the live session's free-chat mode, so a cold start can hide the
+      // build-profile CTA in a free chat it is reattaching to. ABSENT when there is none.
+      const mode = await this.liveFreeChatModeField(live.id, workerId);
+      return opened === null ? { ...base, ...mode } : { ...base, ...opened, ...mode };
     }
 
     const session = await this.chat.createSession(workerId);
@@ -332,7 +349,10 @@ export class ChatService {
       workerId,
       ctx,
     );
-    if (opened !== null) return { ...base, ...opened };
+    // ADR-0051 (#2030) — a résumé-import opening is résumé mode; read off the envelope it wrote.
+    if (opened !== null) {
+      return { ...base, ...opened, ...(await this.liveFreeChatModeField(session.id, workerId)) };
+    }
 
     // ADR-0051 (#2027) — THE FREE CHAT'S GREETING OPENS THE SESSION ("Shuru karein?" Haan | Baad
     // mein), for a worker who is not locked into résumé mode and a client that renders a served
@@ -539,7 +559,7 @@ export class ChatService {
     ctx: RequestContext,
   ): Promise<Pick<
     StartSessionResponse,
-    "opening_text" | "opening_tts_text" | "opening_options"
+    "opening_text" | "opening_tts_text" | "opening_options" | "free_chat_mode"
   > | null> {
     if (!confirmFirst || this.config.CHAT_FREE_CHAT_DISABLED === true) return null;
     const now = new Date();
@@ -556,6 +576,9 @@ export class ChatService {
         ctx,
       });
       if (opened === null) return null;
+      // ADR-0051 §8 (Release 2) — the worker's rolling summary rides onto the new session, so its
+      // casual and career replies read it off their own row. Its own failure costs nothing more.
+      await this.copyFreeChatSummary(sessionId, workerId);
       const tts = ttsTextFor(opened.reply);
       return {
         opening_text: opened.reply,
@@ -564,6 +587,8 @@ export class ChatService {
           option_key: option.option_key,
           label_text: option.label_text,
         })),
+        // ADR-0051 (#2030) — the greeting just written IS the envelope's mode.
+        free_chat_mode: "greeting",
       };
     } catch (error) {
       this.logger.warn(
@@ -572,6 +597,78 @@ export class ChatService {
       );
       return null;
     }
+  }
+
+  /**
+   * ADR-0051 §8 (Release 2) — copy the worker's latest rolling summary onto a NEW session at its
+   * greeting (a monotonic merge: re-stamped with this session, its count at 0 — `folded_lines`
+   * counts only this session's lines). A worker with none costs one indexed read. BEST EFFORT and
+   * never thrown: a reply on a row without one falls back to the same read, and the session's first
+   * fold writes onto its own row.
+   */
+  private async copyFreeChatSummary(sessionId: string, workerId: string): Promise<void> {
+    try {
+      const latest = readFreeChatSummaryValue(
+        (await this.chat.findLatestFreeChatSummary(workerId))?.summary,
+      );
+      if (latest === null) return;
+      await this.chat.mergeFreeChatSummary(
+        sessionId,
+        workerId,
+        copiedFreeChatSummary(latest, sessionId),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `free-chat summary not copied onto session=${sessionId}; its replies read the latest ` +
+          `instead: ${logSafeReason(error, "free-chat summary copy")}`,
+      );
+    }
+  }
+
+  /**
+   * ADR-0051 §8 (Release 2) — the worker's latest stored summary text, from the newest session that
+   * carries one, or null. FAILS SOFT: an unreadable summary costs the reply its continuity, never
+   * the reply. Logs ids only.
+   */
+  private async latestFreeChatSummaryText(
+    workerId: string,
+    sessionId: string,
+  ): Promise<string | null> {
+    try {
+      const latest = await this.chat.findLatestFreeChatSummary(workerId);
+      return readFreeChatSummaryValue(latest?.summary)?.text ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `free-chat summary unreadable session=${sessionId}; the reply goes without one: ` +
+          `${logSafeReason(error, "free-chat summary read")}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * ADR-0051 (#2030) — `{ free_chat_mode }` from the session's LIVE envelope, or `{}`: under the kill
+   * switch, when the envelope carries no mode, when there is no buffer, and when it cannot be read
+   * (this is a wire hint, so a Redis error costs the field, never the response).
+   */
+  private async liveFreeChatModeField(
+    sessionId: string,
+    workerId: string,
+  ): Promise<{ free_chat_mode?: FreeChatMode }> {
+    if (this.config.CHAT_FREE_CHAT_DISABLED === true) return {};
+    try {
+      const live = await this.buffer.load(sessionId);
+      return live !== null && live.workerId === workerId ? freeChatModeField(live.profiling) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** {@link liveFreeChatModeField} for an envelope already in hand — the same kill-switch rule. */
+  private freeChatModeOf(envelope: ProfilingEnvelope | undefined): {
+    free_chat_mode?: FreeChatMode;
+  } {
+    return this.config.CHAT_FREE_CHAT_DISABLED === true ? {} : freeChatModeField(envelope);
   }
 
   /**
@@ -588,17 +685,30 @@ export class ChatService {
    * ADR-0051 — the free chat's inputs for one CHAT turn. The lock read is a memoised THUNK: only the
    * identity intake's handoff asks it, so an ordinary turn costs no query. It fails toward LOCKED —
    * today's interview, the safe side — and logs ids only.
+   *
+   * Release 2's SUMMARY is a memoised thunk too, read only by a casual or career reply: this
+   * session's row (already loaded — no query) first, else the worker's latest session carrying one
+   * (R23). It never rejects, and under the kill switch it is always null.
    */
   private freeChatTurnInput(
     session: { readonly conversationState: unknown },
     sessionId: string,
     workerId: string,
   ): FreeChatTurnInput {
+    const enabled = this.config.CHAT_FREE_CHAT_DISABLED !== true;
     const sessionLocked = carriesFreeChatLock(session.conversationState);
+    const ownSummary = readFreeChatSummary(session.conversationState);
     let pending: Promise<boolean> | null = null;
+    let pendingSummary: Promise<string | null> | null = null;
     return {
-      enabled: this.config.CHAT_FREE_CHAT_DISABLED !== true,
+      enabled,
       sessionLocked,
+      summary: () =>
+        (pendingSummary ??= !enabled
+          ? Promise.resolve(null)
+          : ownSummary !== null
+            ? Promise.resolve(ownSummary.text)
+            : this.latestFreeChatSummaryText(workerId, sessionId)),
       locked: () =>
         (pending ??= sessionLocked
           ? Promise.resolve(true)
@@ -726,7 +836,13 @@ export class ChatService {
           dto.session_id,
         );
       case "unavailable":
+        // ADR-0051 (#2030) — nothing was written, so the envelope this request loaded still holds
+        // the session's mode. No second Redis read.
+        return this.degradedResponse(dto.session_id, outcome.reply, {
+          extra: this.freeChatModeOf(outcome.envelope),
+        });
       case "degraded":
+        // The buffer vanished: there is no envelope to report a mode from.
         return this.degradedResponse(dto.session_id, outcome.reply);
       case "replay":
         // 4. Layer A of the double-submit defence fired: this exact message at this exact rev
@@ -777,6 +893,9 @@ export class ChatService {
             form_offer: null,
             // No résumé update was settled on this turn (ADR-0043).
             resume_update: null,
+            // ADR-0051 (#2030) — a replay changes no mode, so the envelope this request loaded is
+            // the one the response it repeats carried. No second Redis read.
+            ...this.freeChatModeOf(outcome.envelope),
           },
           dto.session_id,
         );
@@ -969,7 +1088,11 @@ export class ChatService {
         `chat turn dropped session=${dto.session_id}: orchestrator wrote nothing; ` +
           `the worker can retry into the same session`,
       );
-      return { kind: "unavailable", reply: turn.reply };
+      return {
+        kind: "unavailable",
+        reply: turn.reply,
+        ...(buffer.profiling ? { envelope: buffer.profiling } : {}),
+      };
     }
 
     // 4. Layer A of the double-submit defence fired: this exact message at this exact rev
@@ -977,7 +1100,7 @@ export class ChatService {
     //    state changed — which is what a mobile client on a flaky 2G connection needs, as
     //    opposed to a 409 telling it something went wrong when nothing did.
     if (turn.replayed) {
-      return { kind: "replay", turn };
+      return { kind: "replay", turn, ...(buffer.profiling ? { envelope: buffer.profiling } : {}) };
     }
 
     // 5. Re-read the buffer the orchestrator just wrote.
@@ -1057,6 +1180,8 @@ export class ChatService {
             // row's own lock first, the envelope's second: a rebuilt envelope never erases it.
             ...storedFreeChatLock(session.conversationState),
             ...toFreeChatStatePatch(buffered.profiling),
+            // ADR-0051 §8 — and the rolling summary the jsonb merge wrote: the row is its only home.
+            ...storedFreeChatSummary(session.conversationState),
             // #2021 — same reasoning: the model-provenance stamp must survive a REPLACING write.
             ...toLlmProvenanceStatePatch(buffered.profiling),
           },
@@ -1238,6 +1363,8 @@ export class ChatService {
             ]),
           )
         : null,
+      // ADR-0051 (#2030) — the free-chat mode AFTER this turn, off the envelope that landed.
+      ...this.freeChatModeOf(buffered.profiling),
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -1343,6 +1470,9 @@ export class ChatService {
       // "released" whatever it carries. ABSENT outside résumé mode.
       ...storedFreeChatLock(storedState),
       ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
+      // ADR-0051 §8 — the rolling summary, carried for the record: it outlives the session (R23),
+      // and the next session copies it from the newest row that carries one.
+      ...storedFreeChatSummary(storedState),
       // #2021 — whether the model led any turn or settled any answer in this interview, SAME
       // REASONING AS `form_kind` ABOVE (engine bookkeeping outside the frozen contract, durable
       // only here). The extraction processor derives generic-pack match skills from the answer map
@@ -1767,6 +1897,8 @@ export class ChatService {
           // — the row's own lock first, the envelope's second, so a rebuilt envelope never erases it.
           ...storedFreeChatLock(session.conversationState),
           ...(buffer.profiling ? toFreeChatStatePatch(buffer.profiling) : {}),
+          // ADR-0051 §8 — and the rolling summary, which this replace must not erase either.
+          ...storedFreeChatSummary(session.conversationState),
           // #2021 — see `flushInterview`.
           ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
@@ -2078,7 +2210,7 @@ export class ChatService {
   private degradedResponse(
     sessionId: string,
     reply: string,
-    opts: { blocked?: boolean } = {},
+    opts: { blocked?: boolean; extra?: { free_chat_mode?: FreeChatMode } } = {},
   ): PostMessageResponse {
     return this.checkedResponse(
       {
@@ -2120,6 +2252,7 @@ export class ChatService {
         form_offer: null,
         // No résumé update was settled on this turn (ADR-0043).
         resume_update: null,
+        ...opts.extra,
       },
       sessionId,
     );
@@ -2646,6 +2779,17 @@ function readAloudFields(
   tts: () => { tts_text?: string },
 ): { read_aloud?: false; tts_text?: string } {
   return turn.readAloud === false ? { read_aloud: false } : tts();
+}
+
+/**
+ * `{ free_chat_mode }` from an envelope, or `{}` — ABSENT, never null, when it carries no mode
+ * (#2030). The kill switch is the caller's.
+ */
+function freeChatModeField(envelope: ProfilingEnvelope | undefined): {
+  free_chat_mode?: FreeChatMode;
+} {
+  const mode = envelope?.freeChat?.mode;
+  return mode === undefined ? {} : { free_chat_mode: mode };
 }
 
 /**

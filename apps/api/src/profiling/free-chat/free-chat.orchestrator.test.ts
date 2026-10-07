@@ -24,6 +24,7 @@ import {
 } from "./free-chat.copy";
 import { FREE_CHAT_ASIDE_CAP, FREE_CHAT_COOLDOWN_MS } from "./free-chat.state";
 import { FreeChatService } from "./free-chat.service";
+import { FreeChatSummaryService } from "./free-chat-summary.service";
 
 /**
  * ═══ THE PROFILING-STAGE FREE CHAT, THROUGH THE ORCHESTRATOR (ADR-0051, #2027) ═══
@@ -181,6 +182,13 @@ interface WorldOpts {
   loseCas?: number;
   /** Build the identity intake too. */
   withIntake?: boolean;
+  /**
+   * Release 2 — what the chat's summary thunk resolves to (`"throws"` rejects). ABSENT leaves the
+   * thunk off the turn input, as every pre-Release-2 construction is.
+   */
+  summary?: string | null | "throws";
+  /** Release 2 — wire a REAL `FreeChatSummaryService` (its row, lock and model faked) for the fold. */
+  realFold?: boolean;
 }
 
 function makeWorld(opts: WorldOpts = {}) {
@@ -221,6 +229,10 @@ function makeWorld(opts: WorldOpts = {}) {
     findPackPin: vi.fn(async () => null),
     pinPack: vi.fn(async () => true),
     mergeFreeChatLock: vi.fn(async (..._args: unknown[]) => true),
+    // Release 2 — the fold's row read and its monotonic merge (the real fold only).
+    findSession: vi.fn(async () => ({ id: SESSION, workerId: WORKER, conversationState: null })),
+    findLatestFreeChatSummary: vi.fn(async () => undefined),
+    mergeFreeChatSummary: vi.fn(async (..._args: unknown[]) => true),
   };
   const events = { emit: vi.fn(async (_params: unknown) => undefined) };
   const llm = {
@@ -243,9 +255,29 @@ function makeWorld(opts: WorldOpts = {}) {
   const ai = {
     freeChatClassify: vi.fn(async (_input: unknown): Promise<unknown> => verdict("unclear", 0)),
     freeChatReply: vi.fn(async (_input: unknown): Promise<unknown> => null),
+    freeChatSummarize: vi.fn(async (_input: unknown): Promise<unknown> => null),
   };
   const cost = { record: vi.fn(async (..._args: unknown[]) => undefined) };
   const freeChat = new FreeChatService(ai as never, cost as never, events as never, chat as never);
+  // Release 2 — the fold: a recording fake by default, or the real service over faked seams.
+  const foldLock = {
+    acquire: vi.fn(async () => "tok"),
+    release: vi.fn(async () => undefined),
+  };
+  const realFold = new FreeChatSummaryService(
+    ai as never,
+    cost as never,
+    events as never,
+    chat as never,
+    foldLock as never,
+  );
+  const fold = opts.realFold
+    ? realFold
+    : ({ schedule: vi.fn((_job: unknown) => undefined) } as unknown as FreeChatSummaryService);
+  const summaryThunk = vi.fn(async () => {
+    if (opts.summary === "throws") throw new Error("summary read failed");
+    return opts.summary ?? null;
+  });
 
   let intake: IdentityIntakeService | undefined;
   const workersRepo = {
@@ -290,6 +322,7 @@ function makeWorld(opts: WorldOpts = {}) {
     skills as never,
     intake,
     opts.withoutFreeChat ? undefined : freeChat,
+    opts.withoutFreeChat ? undefined : fold,
   );
 
   const freeChatInput = () =>
@@ -300,6 +333,7 @@ function makeWorld(opts: WorldOpts = {}) {
             enabled: opts.killSwitch !== true,
             sessionLocked: opts.sessionLocked === true,
             locked: async () => opts.workerLocked === true,
+            ...(opts.summary === undefined ? {} : { summary: summaryThunk }),
           },
         };
 
@@ -367,6 +401,8 @@ function makeWorld(opts: WorldOpts = {}) {
     classifyAs,
     replyWith,
     advance,
+    fold,
+    summaryThunk,
   };
 }
 
@@ -1425,5 +1461,222 @@ describe("the spine — every event validates, and a pass-through emits no serve
     expect(new Set(served.map((c) => c.idempotencyKey)).size).toBe(served.length);
     // The pass-through turn ("main welder hoon") served nothing of the free chat's own.
     expect(JSON.stringify(calls)).not.toContain("main welder hoon");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Release 2 — the rolling conversation summary (ADR-0051 §8)
+// ---------------------------------------------------------------------------
+
+/** The `schedule` spy of the default (fake) fold. */
+const scheduled = (world: ReturnType<typeof makeWorld>) =>
+  (world.fold as unknown as { schedule: ReturnType<typeof vi.fn> }).schedule;
+
+/** One casual exchange the model answers. */
+async function casual(world: ReturnType<typeof makeWorld>, n: number) {
+  world.classifyAs(verdict("casual"));
+  world.replyWith(answer([`Theek hai, baat ${n}.`]));
+  return world.say(`kaise ho ${n}`);
+}
+
+describe("Release 2 — only a free-mode casual/career exchange is foldable (R22)", () => {
+  it("flags the casual and career pairs, and no greeting, fixed line, refusal, fallback or résumé line", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    await casual(world, 1);
+    world.classifyAs(verdict("career"));
+    world.replyWith(answer(["Aam taur par welding mein accha kaam milta hai."]));
+    await world.say("welding kaisa kaam hai");
+    world.classifyAs(verdict("career"));
+    world.replyWith({ status: "refuse", topic: "news", ai_metadata: null });
+    await world.say("aaj ki khabar");
+    world.classifyAs(verdict("casual"));
+    world.replyWith(answer(["Bahut badhiya!"]));
+    await world.say("mast");
+    world.classifyAs(verdict("jobs"));
+    await world.say("job chahiye");
+    world.classifyAs(verdict("unclear", 0.9));
+    await world.say("hmm");
+    await world.say("jeene ka mann nahi");
+    await world.say("Resume banayein");
+
+    const foldable = world
+      .saved()!
+      .messages.filter((m) => m.foldable === true)
+      .map((m) => m.text);
+    expect(foldable).toEqual([
+      "kaise ho 1",
+      "Theek hai, baat 1.",
+      "welding kaisa kaam hai",
+      "Aam taur par welding mein accha kaam milta hai.",
+    ]);
+    // Every foldable line is an aside too — still out of every reader of meaning.
+    expect(world.saved()!.messages.filter((m) => m.foldable === true && m.aside !== true)).toEqual(
+      [],
+    );
+  });
+
+  it("résumé mode never flags a line foldable", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("casual"));
+    await world.say("aaj mausam accha hai");
+    expect(world.saved()!.messages.some((m) => m.foldable === true)).toBe(false);
+  });
+});
+
+describe("Release 2 — the summary rides the reply, never the classifier (R24)", () => {
+  it("a casual reply's input carries the stored summary; the classifier's has no such field", async () => {
+    const world = makeWorld({ summary: "Worker likes cricket." });
+    await inFreeMode(world);
+    await casual(world, 1);
+    const reply = world.ai.freeChatReply.mock.calls[0]![0] as { summary: unknown };
+    expect(reply.summary).toBe("Worker likes cricket.");
+    for (const [input] of world.ai.freeChatClassify.mock.calls) {
+      expect("summary" in (input as object)).toBe(false);
+    }
+  });
+
+  it("a career reply carries it too", async () => {
+    const world = makeWorld({ summary: "Asked about welding before." });
+    await inFreeMode(world);
+    world.classifyAs(verdict("career"));
+    world.replyWith(answer(["Welding mein kaam milta hai."]));
+    await world.say("welding seekhun?");
+    expect((world.ai.freeChatReply.mock.calls[0]![0] as { summary: unknown }).summary).toBe(
+      "Asked about welding before.",
+    );
+  });
+
+  it("is read ONLY by a reply — a fixed-line turn costs no summary read", async () => {
+    const world = makeWorld({ summary: "Notes." });
+    await inFreeMode(world);
+    world.classifyAs(verdict("jobs"));
+    await world.say("job chahiye");
+    expect(world.summaryThunk).not.toHaveBeenCalled();
+  });
+
+  it("no summary is null on the wire, and a thunk that rejects costs the summary, never the reply", async () => {
+    const none = makeWorld({ summary: null });
+    await inFreeMode(none);
+    await casual(none, 1);
+    expect((none.ai.freeChatReply.mock.calls[0]![0] as { summary: unknown }).summary).toBeNull();
+
+    const broken = makeWorld({ summary: "throws" });
+    await inFreeMode(broken);
+    const turn = await casual(broken, 1);
+    expect(turn.reply).toBe("Theek hai, baat 1.");
+    expect((broken.ai.freeChatReply.mock.calls[0]![0] as { summary: unknown }).summary).toBeNull();
+  });
+});
+
+describe("Release 2 — when a fold is scheduled (R21)", () => {
+  it("after a free-mode casual/career reply LANDS — with the transcript that landed", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    await casual(world, 1);
+    expect(scheduled(world)).toHaveBeenCalledOnce();
+    expect(scheduled(world).mock.calls[0]![0]).toEqual({
+      workerId: WORKER,
+      sessionId: SESSION,
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+      knownName: expect.any(Function),
+      messages: world.saved()!.messages,
+    });
+  });
+
+  it("never after a fixed line, a refusal, a fallback, a clarify or a résumé-mode aside", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("jobs"));
+    await world.say("job chahiye");
+    world.classifyAs(verdict("career"));
+    world.replyWith({ status: "refuse", topic: "news", ai_metadata: null });
+    await world.say("khabar");
+    world.classifyAs(verdict("casual"));
+    world.replyWith(null);
+    await world.say("hello");
+    world.classifyAs(verdict("unclear", 0.9));
+    await world.say("hmm");
+    await world.say("Resume banayein");
+    world.classifyAs(verdict("casual"));
+    await world.say("aaj mausam accha hai");
+    expect(scheduled(world)).not.toHaveBeenCalled();
+  });
+
+  it("a lost CAS schedules ONE fold, for the decision that landed", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("casual"));
+    world.replyWith(answer(["Theek hai."]));
+    // Lose the next write: the decision re-runs against the same state and lands on attempt two.
+    world.buffer.saveWithCas.mockImplementationOnce(async () => false);
+    const turn = await world.say("kaise ho");
+    expect(turn.reply).toBe("Theek hai.");
+    expect(scheduled(world)).toHaveBeenCalledOnce();
+  });
+
+  it("the kill switch schedules nothing", async () => {
+    const off = makeWorld({ killSwitch: true });
+    for (const text of ["kaise ho", "aaj mausam kaisa hai", "kya haal hai"]) await off.say(text);
+    expect(scheduled(off)).not.toHaveBeenCalled();
+    expect(off.ai.freeChatSummarize).not.toHaveBeenCalled();
+  });
+});
+
+describe("Release 2 — the fold is OFF the request path", () => {
+  it("every turn returns BEFORE its fold settles, and a failing fold never touches a served turn", async () => {
+    const world = makeWorld({ realFold: true });
+    await inFreeMode(world);
+    // The summarizer does not answer until released: a turn that waited on its fold would hang.
+    let release!: (out: unknown) => void;
+    world.ai.freeChatSummarize.mockReturnValue(new Promise((resolve) => (release = resolve)));
+    for (let n = 1; n <= 5; n++) {
+      const turn = await casual(world, n);
+      // (The third carries the every-third nudge after the model's line.)
+      expect(turn.reply.startsWith(`Theek hai, baat ${n}.`)).toBe(true);
+    }
+    // The fifth reply aged four foldable lines out — the fold started, and is still waiting.
+    await vi.waitFor(() => expect(world.ai.freeChatSummarize).toHaveBeenCalledOnce());
+    expect(world.chat.mergeFreeChatSummary).not.toHaveBeenCalled();
+
+    // A fold that FAILS outright (the row read throws): the next turn is served as ever.
+    world.chat.findSession.mockRejectedValue(new Error("db down"));
+    const after = await casual(world, 6);
+    expect(after.reply.startsWith("Theek hai, baat 6.")).toBe(true);
+
+    release(null);
+    await (world.fold as FreeChatSummaryService).idle();
+    expect(world.chat.mergeFreeChatSummary).not.toHaveBeenCalled();
+  }, 10_000);
+
+  it("a real fold stores what the summarizer wrote, once the reply has been served", async () => {
+    const world = makeWorld({ realFold: true });
+    await inFreeMode(world);
+    world.ai.freeChatSummarize.mockResolvedValue({
+      summary: "Worker made small talk.",
+      ai_metadata: { ...REAL_META, task_type: "profiling_free_summary" },
+    });
+    for (let n = 1; n <= 5; n++) await casual(world, n);
+    await (world.fold as FreeChatSummaryService).idle();
+    expect(world.chat.mergeFreeChatSummary).toHaveBeenCalledWith(SESSION, WORKER, {
+      v: 1,
+      text: "Worker made small talk.",
+      updated_at: expect.any(String),
+      session_id: SESSION,
+      folded_lines: 4,
+    });
+    const [event] = world.emitted("chat.free_chat_summary_updated");
+    expect(event!.payload).toEqual({
+      worker_id: WORKER,
+      session_id: SESSION,
+      outcome: "updated",
+      folded_lines: 4,
+      summary_chars: "Worker made small talk.".length,
+    });
+    expect(
+      EVENT_REGISTRY["chat.free_chat_summary_updated"].payload.safeParse(event!.payload).success,
+    ).toBe(true);
   });
 });

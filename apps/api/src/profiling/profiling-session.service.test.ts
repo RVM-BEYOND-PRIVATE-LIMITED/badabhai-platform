@@ -808,6 +808,23 @@ describe("the step a client draws", () => {
     if (step.kind !== "question") throw new Error("unreachable");
     expect(step.question.question_kind).toBe("ask");
   });
+
+  it("never carries `free_chat_mode` (#2030) — not even over a chat session in résumé mode", async () => {
+    // The voice form continues a chat session in résumé mode as today's interview; the free chat's
+    // wire field belongs to the chat alone, and the voice form never asks for the free chat.
+    const { service, chatService } = makeWorld({
+      outcome: {
+        kind: "turn",
+        turn: turn(),
+        buffered: { profiling: { freeChat: { mode: "resume" } } } as never,
+        terminal: false,
+        updateQueued: false,
+      },
+    });
+    const res = await service.answer(WORKER, chips("stainless"), CTX);
+    expect(JSON.stringify(res)).not.toContain("free_chat_mode");
+    expect(chatService.runTurn.mock.calls[0]).toHaveLength(6);
+  });
 });
 
 // ---------------------------------------------------------------------------
