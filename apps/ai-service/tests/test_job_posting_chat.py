@@ -3952,3 +3952,39 @@ def test_a_label_topic_still_sees_the_whole_token(text: str, asked: str) -> None
     placeholder guard still refuses to record it (a "[PERSON_]" half-token would slip
     past that guard and publish)."""
     assert asked not in answers.detect_answers(text, asked)
+
+
+# --- #2066: an "and"-joined add-on is not the low end of a pay range -------------------
+# "salary 20k and 2k bonus" read as Rs 2,000-20,000; the bonus clause then dropped that
+# range and no pay was recorded. An "and" pair whose second figure is at most half the first
+# is two statements; a rising (or merely reversed) one is still a range, and "-" / "to" pairs
+# are untouched.
+_AND_PAIR_CASES: list[tuple[str, dict]] = [
+    ("salary 20k and 2k bonus", _pay(20000)),
+    ("salary 20000 and 3000 incentive", _pay(20000)),
+    ("salary rs 20000 and rs 2000 bonus", _pay(20000)),
+    ("salary 18k and 1500 food allowance", _pay(18000)),
+    ("salary 20 hazaar and 2 hazaar bonus", _pay(20000)),
+    ("salary 20k and 2 helpers", _pay(20000)),
+    ("salary 20k and 25k", _pay(20000, 25000)),
+    ("salary between 15k and 20k", _pay(15000, 20000)),
+    ("salary 15k and 20k", _pay(15000, 20000)),
+    ("salary 15-20k", _pay(15000, 20000)),
+    ("salary 15k to 20k", _pay(15000, 20000)),
+    ("salary 25k-20k", _pay(20000, 25000)),
+    ("salary 25k and 20k", _pay(20000, 25000)),
+    ("salary 25k and 20k in hand", _pay(20000, 25000)),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _AND_PAIR_CASES)
+def test_an_and_joined_add_on_is_not_a_pay_range(text: str, pay: dict) -> None:
+    assert answers.detect_answers(text, None).get("pay_range") == pay
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+
+
+def test_a_split_and_pair_without_an_add_on_still_records_both_figures() -> None:
+    # No longer one range, so the two amounts stand alone and fold into the same band the
+    # range read gave.
+    band = answers.detect_answers("salary 1 lakh and 20k", None).get("pay_range")
+    assert band == _pay(20000, 100000)
