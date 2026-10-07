@@ -41,6 +41,7 @@ const PAYER = uuid(9201);
 const OPS = uuid(9301);
 const RETRACTED_ROW = uuid(9401);
 const ACTIVE_ROW = uuid(9402);
+const EXPIRED_UNSWEPT_ROW = uuid(9403);
 
 // Overlapping on purpose: the retracted row's own id (SKILL_STALE) must NOT survive into
 // the protection set even though the active row also mentions a DIFFERENT id
@@ -48,6 +49,9 @@ const ACTIVE_ROW = uuid(9402);
 // must not drop the genuinely active row's ids either.
 const SKILL_STALE = "mskill_cnc_turner";
 const SKILL_LIVE = "mskill_hmc_operator";
+// Held only by a row that is past expiry but not yet swept (#1953): the sweep owns it, so
+// the in-force read used by a publish/unpause/edit rebuild must NOT return it.
+const SKILL_EXPIRED = "mskill_cnc_setter_operator";
 
 describe.skipIf(!RUN)("ReachWidenRepository.activeIdsForPostings — excludes retracted rows", () => {
   let client: DbClient;
@@ -83,11 +87,37 @@ describe.skipIf(!RUN)("ReachWidenRepository.activeIdsForPostings — excludes re
   });
 });
 
+describe.skipIf(!RUN)("ReachWidenRepository.activeIdsForPosting — in-force grants only (#1953)", () => {
+  let client: DbClient;
+  let repo: ReachWidenRepository;
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL, { max: 1 });
+    repo = new ReachWidenRepository(client.db);
+    await seed(client);
+  }, 60_000);
+
+  afterAll(async () => {
+    if (client) {
+      await cleanup(client);
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("returns exactly the un-retracted, unexpired grant ids", async () => {
+    expect(await repo.activeIdsForPosting(POSTING)).toEqual([SKILL_LIVE]);
+  });
+
+  it("returns nothing for a posting with no grants", async () => {
+    expect(await repo.activeIdsForPosting(uuid(9999))).toEqual([]);
+  });
+});
+
 async function seed(client: DbClient): Promise<void> {
   const { sql } = client;
   await cleanup(client);
 
-  for (const skillId of [SKILL_STALE, SKILL_LIVE]) {
+  for (const skillId of [SKILL_STALE, SKILL_LIVE, SKILL_EXPIRED]) {
     await sql`
       INSERT INTO skill (skill_id, label_en, domain_id, source, status, kind, industry_id)
       VALUES (${skillId}, ${skillId}, 'cnc-machining', 'rvm', 'active', 'match_skill',
@@ -123,6 +153,13 @@ async function seed(client: DbClient): Promise<void> {
     INSERT INTO job_reach_widen (id, job_posting_id, added_skill_ids, expires_at, retracted_at, ops_actor_id)
     VALUES (${ACTIVE_ROW}::uuid, ${POSTING}::uuid, ${`["${SKILL_LIVE}"]`}::jsonb,
             now() + interval '10 hours', NULL, ${OPS}::uuid)
+  `;
+
+  // The EXPIRED-BUT-UNSWEPT row: past expiry, retracted_at still NULL (#1953).
+  await sql`
+    INSERT INTO job_reach_widen (id, job_posting_id, added_skill_ids, expires_at, retracted_at, ops_actor_id)
+    VALUES (${EXPIRED_UNSWEPT_ROW}::uuid, ${POSTING}::uuid, ${`["${SKILL_EXPIRED}"]`}::jsonb,
+            now() - interval '1 minute', NULL, ${OPS}::uuid)
   `;
 }
 
