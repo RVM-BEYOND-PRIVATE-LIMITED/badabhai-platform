@@ -566,12 +566,33 @@ def _is_bare_year(message: str, match: re.Match[str]) -> bool:
     )
 
 
+# The separator of a range match, read back from between its two halves: the text after the
+# low figure (and its suffix) up to the high number. Fullmatched on that bounded slice only.
+_PAY_RANGE_AND_SEP_RE = re.compile(r"\s*and\s*(?:(?:₹|rs\.?|inr)\s*)?", re.IGNORECASE)
+# How many times the FIRST figure of an "and" pair must exceed the second before the pair is
+# read as two statements. "20k and 2k bonus" (10x) and "20000 and 3000 incentive" (6.7x) split;
+# a reversed band ("25k and 20k in hand", 1.25x) stays one range, as it was.
+_PAY_AND_SPLIT_RATIO = 2
+
+
+def _is_split_and_pair(match: re.Match[str], low: int | None, high: int | None) -> bool:
+    """An "and"-joined pair whose second figure is at most HALF the first is two statements,
+    not a range (#2066). "salary 20k and 2k bonus" read as Rs 2,000-20,000; the bonus clause
+    then dropped the whole range and no pay was recorded. A stated range ascends ("between
+    15k and 20k", "20k and 25k"); "-", "to", "se" and "upto" pairs are left as they were."""
+    if low is None or high is None or low < _PAY_AND_SPLIT_RATIO * high:
+        return False
+    low_end = match.end(2) if match.group(2) else match.end(1)
+    return _PAY_RANGE_AND_SEP_RE.fullmatch(match.string, low_end, match.start(3)) is not None
+
+
 def _pay_figures(message: str) -> list[_PayFigure]:
     """Every pay figure ``message`` states, in order. A range is ONE figure; any other
     amount that scales into the monthly window is one more. A figure below the floor
     ("5 welders", "8 hours") or a bare year is not pay and is not a figure."""
     figures: list[_PayFigure] = []
     residue = message
+    split_pairs: list[tuple[int, int]] = []
     for match in _PAY_RANGE_RE.finditer(message):
         low_s, low_x, high_s, high_x = match.groups()
         if (
@@ -582,6 +603,9 @@ def _pay_figures(message: str) -> list[_PayFigure]:
             continue  # "1998-2005" is a span of years; its halves are screened below
         low = _scale(low_s, low_x, high_x)
         high = _scale(high_s, high_x, low_x)
+        if _is_split_and_pair(match, low, high):
+            split_pairs.append(match.span())
+            continue  # two statements, not a range: its halves are screened one by one below
         if low is not None and high is not None:
             figures.append(
                 _PayFigure(match.start(), match.end(), min(low, high), max(low, high), True)
@@ -600,7 +624,14 @@ def _pay_figures(message: str) -> list[_PayFigure]:
         value = _scale(match.group(1), match.group(2), None)
         if value is None or _is_bare_year(residue, match):
             continue
-        figures.append(_PayFigure(match.start(), match.end(), value, None, False))
+        end = match.end()
+        if any(start <= match.start() < stop for start, stop in split_pairs):
+            # A half of a split "and" pair ends at its last character, not after the `\s*`
+            # a suffix-less amount swallows: "20000 and 3000 incentive" put the " and "
+            # boundary INSIDE the 20000's span, so its clause ran on into the incentive and
+            # was dropped with it (#2066). Every other amount keeps the span it had.
+            end = match.end(2) if match.group(2) else match.end(1)
+        figures.append(_PayFigure(match.start(), end, value, None, False))
     return sorted(figures, key=lambda figure: figure.start)
 
 
