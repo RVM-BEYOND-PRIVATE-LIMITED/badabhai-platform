@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { DEFAULT_CATALOG, parseCatalog, type Catalog } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { PostingPlansService } from "./posting-plans.service";
+import { PricingService } from "../pricing/pricing.service";
 import { AGENCY_TWIN_READ_ONLY_MESSAGE } from "../common/agency-twin-fence";
 
 const POSTING = "33333333-3333-4333-8333-333333333333";
@@ -632,5 +633,196 @@ describe("PostingPlansService.getPostingStats", () => {
     await service.getPostingStats(POSTING, PAYER);
     expect(findActivePlanForPostingAndPayer).toHaveBeenCalledWith(POSTING, PAYER, expect.any(Date));
     expect(findActiveBoost).toHaveBeenCalledWith(POSTING, expect.any(Date));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2085 — price integrity on every posting-plans purchase route.
+//
+// (a) `expected_price_inr` is the ₹ the payer CONFIRMED. Absent → unchanged; equal → charged;
+//     different → a 409 `price_mismatch` thrown BEFORE any receipt row or payment event, so a
+//     refusal charges nothing.
+// (b) The payer catalog prices each tier through the SAME function the charge does, so with an
+//     ops offer live the catalog shows the offer price and the charge takes exactly that.
+// ---------------------------------------------------------------------------
+describe("#2085 — expected_price_inr guards every posting-plans purchase", () => {
+  const SESSION_PAYER = "55555555-5555-4555-8555-555555555555";
+  const PAYMENT_EVENTS = ["payment.authorized", "payment.captured"];
+
+  async function expectMismatch(promise: Promise<unknown>, expected: number, current: number) {
+    const err = await promise.then(
+      () => {
+        throw new Error("expected a 409 price_mismatch");
+      },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      statusCode: 409,
+      reason: "price_mismatch",
+      expected_price_inr: expected,
+      current_price_inr: current,
+    });
+  }
+
+  it("quota top-up: a matching expected price is charged exactly as before", async () => {
+    const { service, names, addQuotaTopup } = make();
+    const { quote } = await service.topUpQuotaForPayer(
+      POSTING,
+      SESSION_PAYER,
+      { tier: "topup_10", expected_price_inr: 1000 },
+      CTX,
+    );
+    expect(quote.finalInr).toBe(1000);
+    expect(addQuotaTopup).toHaveBeenCalledOnce();
+    expect(names()).toEqual([...PAYMENT_EVENTS, "posting_plan.quota_topped"]);
+  });
+
+  it("quota top-up: a mismatched expected price is refused — no grant, no payment event", async () => {
+    const { service, emit, addQuotaTopup, findActivePlanForPostingAndPayer } = make();
+    await expectMismatch(
+      service.topUpQuotaForPayer(
+        POSTING,
+        SESSION_PAYER,
+        { tier: "topup_10", expected_price_inr: 900 },
+        CTX,
+      ),
+      900,
+      1000,
+    );
+    expect(addQuotaTopup).not.toHaveBeenCalled();
+    expect(findActivePlanForPostingAndPayer).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("capacity: mismatch refused before the locked tx (no upsert, no event); match charged", async () => {
+    const refused = make();
+    await expectMismatch(
+      refused.service.buyCapacity(SESSION_PAYER, { tier: "cap_5", expected_price_inr: 4999 }, CTX),
+      4999,
+      5000,
+    );
+    expect(refused.withTransaction).not.toHaveBeenCalled();
+    expect(refused.upsertCapacity).not.toHaveBeenCalled();
+    expect(refused.emit).not.toHaveBeenCalled();
+
+    const ok = make();
+    const res = await ok.service.buyCapacity(
+      SESSION_PAYER,
+      { tier: "cap_5", expected_price_inr: 5000 },
+      CTX,
+    );
+    expect(res.quote.finalInr).toBe(5000);
+    expect(ok.upsertCapacity).toHaveBeenCalledOnce();
+  });
+
+  it("plan: the payer wrapper forwards expected_price_inr; mismatch writes no plan", async () => {
+    const { service, insertPlan, emit } = make();
+    await expectMismatch(
+      service.buyPlanForPayer(POSTING, SESSION_PAYER, { tier: "standard", expected_price_inr: 1 }, CTX),
+      1,
+      1000,
+    );
+    expect(insertPlan).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("boost: the payer wrapper forwards expected_price_inr; mismatch writes no boost", async () => {
+    const { service, insertBoost, emit, extendPostingBoostWindow } = make();
+    await expectMismatch(
+      service.buyBoostForPayer(POSTING, SESSION_PAYER, { tier: "boost_7", expected_price_inr: 500 }, CTX),
+      500,
+      499,
+    );
+    expect(insertBoost).not.toHaveBeenCalled();
+    expect(extendPostingBoostWindow).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("the comparison is against the FINAL price, coupon included", async () => {
+    const cat = parseCatalog({
+      ...DEFAULT_CATALOG,
+      coupons: [
+        {
+          code: "save10",
+          scope: { productCode: "quota_topup" },
+          kind: "percent",
+          value: 10,
+          from: "2026-01-01T00:00:00.000Z",
+          until: "2099-01-01T00:00:00.000Z",
+          totalUsageCap: 100,
+          perPayerLimit: 5,
+        },
+      ],
+    });
+    const { service } = make({ catalog: cat });
+    const { quote } = await service.topUpQuotaForPayer(
+      POSTING,
+      SESSION_PAYER,
+      { tier: "topup_10", coupon: "save10", expected_price_inr: 900 },
+      CTX,
+    );
+    expect(quote.finalInr).toBe(900);
+  });
+
+  it("an ACTIVE OFFER: the payer catalog shows the offer price and the charge equals it", async () => {
+    const until = "2099-01-01T00:00:00.000Z";
+    const cat = parseCatalog({
+      ...DEFAULT_CATALOG,
+      offers: [
+        {
+          code: "diwali25",
+          scope: { productCode: "quota_topup", tierCode: "topup_10" },
+          kind: "percent",
+          value: 25,
+          from: "2026-01-01T00:00:00.000Z",
+          until,
+        },
+      ],
+    });
+    // The REAL PricingService projection over the same catalog the charge reads.
+    const pricing = new PricingService(
+      { getActive: vi.fn().mockResolvedValue({ catalog: cat, revision: 7 }) } as never,
+      { emit: vi.fn() } as never,
+    );
+    const view = await pricing.getPayerCatalog();
+    const shown = view.prices.find(
+      (p) => p.product_code === "quota_topup" && p.tier_code === "topup_10",
+    )!;
+    expect(shown).toEqual({
+      product_code: "quota_topup",
+      tier_code: "topup_10",
+      base_price_inr: 1000,
+      price_inr: 750,
+      discount_inr: 250,
+      offer: { code: "diwali25", ends_at: until },
+    });
+
+    // The web sends the price it showed; the charge accepts it and takes exactly that.
+    const { service, emit } = make({ catalog: cat });
+    const { quote } = await service.topUpQuotaForPayer(
+      POSTING,
+      SESSION_PAYER,
+      { tier: "topup_10", expected_price_inr: shown.price_inr },
+      CTX,
+    );
+    expect(quote.finalInr).toBe(shown.price_inr);
+    expect(quote.offerApplied).toBe("diwali25");
+    const captured = emit.mock.calls.find((c) => c[0].event_name === "payment.captured")![0];
+    expect(captured.payload.amount_inr).toBe(750);
+
+    // A client still showing the LIST price is refused rather than silently charged ₹750.
+    const stale = make({ catalog: cat });
+    await expectMismatch(
+      stale.service.topUpQuotaForPayer(
+        POSTING,
+        SESSION_PAYER,
+        { tier: "topup_10", expected_price_inr: 1000 },
+        CTX,
+      ),
+      1000,
+      750,
+    );
+    expect(stale.addQuotaTopup).not.toHaveBeenCalled();
   });
 });

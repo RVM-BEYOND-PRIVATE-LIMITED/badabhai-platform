@@ -1,30 +1,24 @@
 import { Controller, Get, UseGuards } from "@nestjs/common";
-import type { Product } from "@badabhai/pricing";
 import { PayerAuthGuard } from "../payers/payer-auth.guard";
-import { PricingService } from "../pricing/pricing.service";
+import { PricingService, type PayerCatalogView } from "../pricing/pricing.service";
+
+export type { PayerCatalogView, PayerTierPrice } from "../pricing/pricing.service";
 
 /**
- * The payer-facing catalog projection (D-6): the PRICED PRODUCTS only.
- *
- * Deliberately NOT the full ops `ActiveCatalog`: `offers`/`coupons` are ops promo
- * config (coupon codes + usage caps) the portal renders nowhere — least exposure —
- * and `floorPriceInr` is resolve-engine internals. `revision`/`source` ride along
- * as provenance (source:"default" = the engine failed closed to the typed default,
- * which is STILL what the server would charge, so the portal may render it as live).
- * PII-free by construction (ADR-0013 §A.3: codes + integer ₹ + counts/days only).
- */
-export interface PayerCatalogView {
-  readonly revision: number;
-  readonly source: "db" | "default";
-  readonly products: readonly Product[];
-}
-
-/**
- * Payer-facing READ-ONLY pricing surface (context-drift D-6).
+ * Payer-facing READ-ONLY pricing surface (context-drift D-6, extended by #2085).
  *
  * WHY THIS EXISTS: apps/payer-web used to render prices from the COMPILE-TIME
  * `DEFAULT_CATALOG`, so an ops catalog edit (PUT /pricing/catalog) never reached the
  * portal without a rebuild. The portal now reads THIS route for the live catalog.
+ *
+ * WHAT IT RETURNS: the priced PRODUCTS (unchanged since D-6) plus, since #2085, `prices` —
+ * each tier's EFFECTIVE charge price and the active automatic offer behind it, computed by
+ * the same function every purchase route charges through, so the dialog can show what the
+ * purchase will actually take. Coupons (codes + usage caps) and `floorPriceInr` never ship:
+ * a coupon is a code the payer types, not something to advertise. `revision`/`source` ride
+ * along as provenance (source:"default" = the engine failed closed to the typed default,
+ * which is STILL what the server would charge, so the portal may render it as live).
+ * PII-free by construction (ADR-0013 §A.3: codes + integer ₹ + counts/days only).
  *
  * WHY NOT the existing `GET /pricing/catalog`: that controller is ops-intent (the
  * ADR-0013 config builder — its comment slates a PricingAdminGuard launch gate, which
@@ -42,10 +36,9 @@ export interface PayerCatalogView {
 export class PayerPricingController {
   constructor(private readonly pricing: PricingService) {}
 
-  /** The active catalog's products (validated, fail-closed server-side) for price DISPLAY. */
+  /** The active catalog's products + each tier's effective charge price, for price DISPLAY. */
   @Get("catalog")
-  async getCatalog(): Promise<PayerCatalogView> {
-    const { catalog, revision, source } = await this.pricing.getActiveCatalog();
-    return { revision, source, products: catalog.products };
+  getCatalog(): Promise<PayerCatalogView> {
+    return this.pricing.getPayerCatalog();
   }
 }

@@ -27,6 +27,19 @@ export const PayerMeSchema = z.object({
   email: z.string().email(),
   /** Last 4 digits of the payer's OWN contact phone (masked), or null if none is set. */
   phoneLast4: z.string().length(4).nullable(),
+  /**
+   * #2079 — the caller's org id (ADR-0027 / B5), resolved from their CURRENT active
+   * `payer_members` row on every read. `null` when they have no active membership.
+   */
+  orgId: z.string().uuid().nullable(),
+  /**
+   * #2079 — the caller's CURRENT org role (`owner` | `recruiter`), read from the DB on every
+   * request (never from the token, never client-supplied), so a demotion/removal shows up on
+   * the very next read. `null` = no active membership → readers MUST treat it as least
+   * privilege. A label for UI affordances; the server enforces owner-only routes itself
+   * (`PayerOrgRoleGuard`). ADDITIVE: older clients ignore it.
+   */
+  orgRole: z.enum(["owner", "recruiter"]).nullable(),
 });
 export type PayerMeDto = z.infer<typeof PayerMeSchema>;
 

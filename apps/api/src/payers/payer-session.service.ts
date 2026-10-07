@@ -4,7 +4,7 @@ import { JwtService } from "@nestjs/jwt";
 import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
-import type { PayerRole } from "@badabhai/db";
+import type { OrgRole, PayerRole } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 
@@ -50,7 +50,25 @@ interface PayerJwtClaims {
   sid: string;
   typ: "payer";
   role?: PayerRole;
+  /** #2079 — the member's org id at issue/refresh time. OPTIONAL: absent on older tokens. */
+  org_id?: string;
+  /** #2079 — the member's org role at issue/refresh time. OPTIONAL: absent on older tokens. */
+  org_role?: OrgRole;
   exp?: number;
+}
+
+/**
+ * #2079 (ADR-0027 / B5.3) — the org membership carried on the signed session as the
+ * `org_id` + `org_role` JWT claims. Decided SERVER-SIDE from `payer_members` at
+ * create/refresh (never client-supplied). It is a DISPLAY HINT only, never the authority:
+ * {@link import("./payer-org-role.guard").PayerOrgRoleGuard} re-resolves the CURRENT role
+ * from the DB on every guarded request, so a token minted before a demotion/removal can
+ * never keep owner rights on the server. A session without the claim (minted before #2079,
+ * or when the membership could not be resolved) reads as `null` = least privilege.
+ */
+export interface PayerSessionOrgClaim {
+  orgId: string;
+  orgRole: OrgRole;
 }
 
 export interface PayerSessionToken {
@@ -68,6 +86,13 @@ export interface ValidatedPayerSession {
    * resolve the role from the `payers` row. Callers must never treat `null` as privileged.
    */
   role: PayerRole | null;
+  /**
+   * #2079 — the `org_id`/`org_role` claim the token carries, or `null` for a token minted
+   * without it (pre-#2079, or an unresolvable membership). A HINT, never an authz input:
+   * `null` must be read as least privilege (recruiter), and owner-only routes re-resolve the
+   * current role from the DB regardless of this value.
+   */
+  org: PayerSessionOrgClaim | null;
 }
 
 @Injectable()
@@ -115,8 +140,15 @@ export class PayerSessionService {
    * with the session and the guard needs no DB hit on the hot path. Login mints WITH the
    * role (it has just loaded the `payers` row); a caller that omits it produces a
    * pre-ADR-0022-shaped session that the guard resolves via its fallback — backward-compat.
+   *
+   * `org` (#2079) is likewise OPTIONAL: when supplied it rides the JWT as `org_id`/`org_role`
+   * (see {@link PayerSessionOrgClaim} — a hint, never the authority). Omitted → no claim.
    */
-  async create(payerId: string, role?: PayerRole): Promise<PayerSessionToken> {
+  async create(
+    payerId: string,
+    role?: PayerRole,
+    org?: PayerSessionOrgClaim,
+  ): Promise<PayerSessionToken> {
     const sid = randomUUID();
     const ttl = this.ttlSeconds();
     const redis = await this.client();
@@ -141,10 +173,7 @@ export class PayerSessionService {
         })`,
       );
     }
-    const token = await this.jwt.signAsync(
-      { sub: payerId, sid, typ: "payer", ...(role ? { role } : {}) },
-      { expiresIn: `${this.config.SESSION_TTL_DAYS}d` },
-    );
+    const token = await this.signToken(payerId, sid, role, org);
     return { token, expiresInSeconds: ttl };
   }
 
@@ -170,7 +199,8 @@ export class PayerSessionService {
       // Role (ADR-0022): the Redis blob is the server-side authority; fall back to the JWT
       // claim, then `null` for a pre-ADR-0022 session (the guard resolves it from the row).
       const role = PayerSessionService.readRole(raw) ?? claims.role ?? null;
-      return { payerId: claims.sub, sid: claims.sid, remainingSeconds, role };
+      const org = PayerSessionService.readOrgClaim(claims);
+      return { payerId: claims.sub, sid: claims.sid, remainingSeconds, role, org };
     } catch (err) {
       this.logger.error(
         `Payer session Redis error; treating as unauthenticated (reason: ${
@@ -188,13 +218,48 @@ export class PayerSessionService {
    * vertical-authz role it already carried. It is OPTIONAL (existing callers unchanged): the
    * guard passes the role it resolved this request, so once a fallback has run, the refreshed
    * token carries the role and subsequent requests skip the DB hit.
+   *
+   * `org` (#2079) is NOT carried over from the old token: the caller passes the membership it
+   * resolved from the DB just now, so every refresh re-decides the claim (a demoted/removed
+   * member's rolling token stops advertising `owner`). Omitted → the fresh token has no claim.
    */
-  async mint(payerId: string, sid: string, role?: PayerRole): Promise<PayerSessionToken> {
-    const token = await this.jwt.signAsync(
-      { sub: payerId, sid, typ: "payer", ...(role ? { role } : {}) },
-      { expiresIn: `${this.config.SESSION_TTL_DAYS}d` },
-    );
+  async mint(
+    payerId: string,
+    sid: string,
+    role?: PayerRole,
+    org?: PayerSessionOrgClaim,
+  ): Promise<PayerSessionToken> {
+    const token = await this.signToken(payerId, sid, role, org);
     return { token, expiresInSeconds: this.ttlSeconds() };
+  }
+
+  /** Sign the payer JWT. Optional claims are OMITTED (never null) when not supplied. */
+  private signToken(
+    payerId: string,
+    sid: string,
+    role: PayerRole | undefined,
+    org: PayerSessionOrgClaim | undefined,
+  ): Promise<string> {
+    const claims: Omit<PayerJwtClaims, "exp"> = {
+      sub: payerId,
+      sid,
+      typ: "payer",
+      ...(role ? { role } : {}),
+      ...(org ? { org_id: org.orgId, org_role: org.orgRole } : {}),
+    };
+    return this.jwt.signAsync(claims, { expiresIn: `${this.config.SESSION_TTL_DAYS}d` });
+  }
+
+  /**
+   * Read the #2079 org claim off verified JWT claims. Both halves must be present and the role
+   * a KNOWN value — anything else (absent on a legacy token, malformed) is `null`, which every
+   * reader treats as least privilege.
+   */
+  private static readOrgClaim(claims: PayerJwtClaims): PayerSessionOrgClaim | null {
+    const orgRole: unknown = claims.org_role;
+    if (typeof claims.org_id !== "string" || claims.org_id.length === 0) return null;
+    if (orgRole !== "owner" && orgRole !== "recruiter") return null;
+    return { orgId: claims.org_id, orgRole };
   }
 
   /** Parse the persisted role from the Redis session blob (tolerant of legacy shapes). */
