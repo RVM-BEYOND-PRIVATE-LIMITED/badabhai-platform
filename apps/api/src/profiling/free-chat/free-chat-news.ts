@@ -4,8 +4,10 @@
  * A casual or career reply that refused on `news` hands the worker's question to the searched
  * answer. Code decides everything the worker then reads (§4, "AI never decides"):
  *
- *   capped                       → NEWS_CAP                         (`capped`)
+ *   own-name lookup errored (G2)  → NEWS_UNAVAILABLE                 (`unavailable`, no call)
+ *   an identifier in the question → NEWS_UNAVAILABLE                 (`unavailable`, no call, R9)
  *   cap store unreadable          → NEWS_UNAVAILABLE                 (`unavailable`, no call)
+ *   capped                       → NEWS_CAP                         (`capped`)
  *   null / timeout / error        → NEWS_UNAVAILABLE                 (`unavailable`)
  *   the unarmed mock              → today's NEWS line                (`unavailable`)
  *     (no_results, real_call false, error_code null)
@@ -16,15 +18,21 @@
  *   refuse(topic)                 → that topic's fixed line          (`refused`; `news` → NEWS_UNAVAILABLE)
  *   answer, a line fails the gate → NEWS_UNAVAILABLE                 (`rejected`)
  *   answer, no search ran         → NEWS_UNAVAILABLE                 (`rejected`, ungrounded)
+ *   answer, a line carries a link → NEWS_UNAVAILABLE                 (`rejected`, link — §8)
  *   answer, no tile survives      → NEWS_UNAVAILABLE                 (`rejected`)
  *   answer, all checks pass       → the lines + 1-3 tiles            (`answered`)
  *
  * The lines go through the free chat's WHOLE reply gate (`screenFreeChatAnswer`) with no chips:
  * shape, Latin only, persona, promise, sensitive, rating, PII and G1, abuse, template tokens and the
- * regional walls. The tiles go through `newsLinksOf`.
+ * regional walls — and no line may carry a URL or a domain (§8): links reach the worker only as
+ * checked tiles. The tiles go through `newsLinksOf`.
+ *
+ * THE CAP COUNTS PAID ATTEMPTS (R5 as revised, §8): {@link keepsSlot} decides whether a request's
+ * reservation is kept — whenever the request may have reached Anthropic.
  */
 
 import type { FreeChatNewsOutput } from "@badabhai/ai-contracts";
+import { looksLikePii, looksLikeUrl } from "@badabhai/validators";
 import type {
   FreeChatNewsKind,
   FreeChatNewsOutcome,
@@ -32,12 +40,26 @@ import type {
   FreeChatRefusalTopic,
 } from "@badabhai/types";
 
+import { containsHardIdentifier } from "../resume-import/resume-parse-gates";
 import { screenFreeChatAnswer, type FreeChatAnswerFailure } from "./free-chat-output.validator";
 import { newsLinksOf, type FreeChatNewsLink } from "./free-chat-news-links";
 import { FREE_CHAT_COPY, FREE_CHAT_REFUSAL_LINES, type FreeChatLine } from "./free-chat.copy";
 
 /** Why the API threw a news answer away — a closed reason for the log, never a line of it. */
-export type FreeChatNewsRejection = FreeChatAnswerFailure | "ungrounded" | "no_valid_source";
+export type FreeChatNewsRejection =
+  | FreeChatAnswerFailure
+  | "ungrounded"
+  | "link"
+  | "no_valid_source";
+
+/**
+ * One news call as the API made it: whether the request was handed to the ai-service at all, and
+ * what came back (null on a timeout, a non-OK, a schema miss or an unreachable service).
+ */
+export interface FreeChatNewsCall {
+  readonly sent: boolean;
+  readonly output: FreeChatNewsOutput | null;
+}
 
 /** A searched answer that passed every check. */
 export interface FreeChatNewsAnswered {
@@ -67,8 +89,9 @@ export type FreeChatNewsVerdict = FreeChatNewsAnswered | FreeChatNewsFixed;
 
 /**
  * One news request, end to end: the verdict plus the worker's count for the day. `dailyCount` is
- * the news answers counted today INCLUDING this one when it was answered, the slots still held when
- * it was not (its own was handed back), and null when the cap store could not be read.
+ * the paid attempts counted today AFTER this request — including its own slot when it was kept,
+ * without it when it was handed back — and null when no reservation was made (an unreadable cap,
+ * an identifier in the question, an own-name lookup that errored).
  */
 export type FreeChatNewsResolution = FreeChatNewsVerdict & { readonly dailyCount: number | null };
 
@@ -107,11 +130,60 @@ export function newsCapped(heldToday: number): FreeChatNewsResolution {
   return { ...fixed("capped", FREE_CHAT_COPY.NEWS_CAP, null), dailyCount: heldToday };
 }
 
-/** The cap store could not be read: FAIL CLOSED — no call, the unavailable line. */
-export const NEWS_CAP_UNREADABLE: FreeChatNewsResolution = {
+/**
+ * NO REQUEST WAS MADE, AND NO SLOT TAKEN: the cap store could not be read, the question carries an
+ * identifier (R9), or the worker's own name could not be looked up (G2). FAIL CLOSED — no call, the
+ * unavailable line, no count.
+ */
+export const NEWS_NOT_REQUESTED: FreeChatNewsResolution = {
   ...fixed("unavailable", UNAVAILABLE, null),
   dailyCount: null,
 };
+
+/**
+ * R9 — does a news question (or a recent turn riding with it) carry an identifier? A phone number,
+ * an email, an ID number: `looksLikePii` OR `containsHardIdentifier`. Such text is never searched —
+ * the search query is written from it and leaves for a third-party search provider. A scanner that
+ * throws counts as a hit — fail closed. Independent of `AI_RAW_PII_ENABLED`.
+ */
+export function carriesNewsIdentifier(text: string): boolean {
+  try {
+    return looksLikePii(text) || containsHardIdentifier(text) !== null;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * R5 AS REVISED — is this request's slot KEPT? Whenever it may have reached Anthropic: a real call
+ * (`real_call === true`, whatever it found), and a request that was sent but came back with nothing
+ * (a timeout or an error after dispatch may still have been billed). HANDED BACK only when it
+ * certainly did not: never sent (the input was refused before sending), or a result that says no
+ * call was made — the unarmed mock, the spend-cap or cooldown mock (`real_call: false`), or a
+ * blocked input (no metadata).
+ */
+export function keepsSlot(call: FreeChatNewsCall): boolean {
+  if (!call.sent) return false;
+  if (call.output === null) return true;
+  return call.output.ai_metadata?.real_call === true;
+}
+
+/**
+ * A LINE CARRYING A LINK (§8): a URL, a `www.` host or a dotted common TLD (`looksLikeUrl`, which
+ * also reads the fullwidth / invisibly split fold), or a bare host on a TLD that list does not
+ * name but a phishing or messaging link uses (`wa.me`, `bit.ly`, `x.xyz`, …). Links reach the
+ * worker only as checked tiles. A check that throws counts as a hit — fail closed.
+ */
+const EXTRA_LINK_HOST =
+  /(?:^|[^\w.@-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:me|ly|gl|gd|xyz|online|site|top|app|link|click|live|shop|store|ws|cc|tk|ml|ga|cf|gq|icu|buzz|club|vip|gov|edu)\b/i;
+
+function carriesLink(line: string): boolean {
+  try {
+    return looksLikeUrl(line) || EXTRA_LINK_HOST.test(line.normalize("NFKC"));
+  } catch {
+    return true;
+  }
+}
 
 /** Judge one news call's output — see the module header for the whole table. */
 export function judgeNews(out: FreeChatNewsOutput | null): FreeChatNewsVerdict {
@@ -162,6 +234,7 @@ function judgeAnswer(out: Extract<FreeChatNewsOutput, { status: "answer" }>): Fr
     fixed("rejected", UNAVAILABLE, out.search_count, { rejection });
   // GROUNDED ONLY (§4): a source can only have come from a search that actually ran.
   if (out.search_count < 1) return rejected("ungrounded");
+  if (out.lines.some(carriesLink)) return rejected("link");
   const screened = screenFreeChatAnswer({ lines: out.lines, followup_chips: [] });
   if (screened.kind === "reject") return rejected(screened.failure);
   const links = newsLinksOf(out.sources);

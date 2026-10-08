@@ -83,7 +83,7 @@ import { MAX_SKILLS } from "./skill-certifier";
 import { narrowGeneralFormOffer, type GeneralFormOffer } from "./skills-gate";
 // One-directional: the free chat's state module imports nothing from this file.
 import { narrowFreeChat, type FreeChatState } from "./free-chat/free-chat.state";
-import { narrowNewsLinks, type FreeChatNewsLink } from "./free-chat/free-chat-news-links";
+import { newsLinksField, type FreeChatNewsLink } from "./free-chat/free-chat-news-links";
 
 /**
  * The reply-cache entry — Layer A of the double-submit defence.
@@ -1266,12 +1266,6 @@ function narrowFormOfferPrompt(value: unknown): FormOfferPromptState | null {
   const kind = TRADE_FORM_KINDS.find((candidate) => candidate === v.kind);
   if (kind === undefined) return null;
   return { kind, state: v.state };
-}
-
-/** `{ newsLinks }` when a stored value still holds a valid tile, else `{}` (ADR-0054). */
-function newsLinksField(value: unknown): { newsLinks?: readonly FreeChatNewsLink[] } {
-  const links = narrowNewsLinks(value);
-  return links === null ? {} : { newsLinks: links };
 }
 
 function narrowLastTurn(value: unknown): LastTurn | null {

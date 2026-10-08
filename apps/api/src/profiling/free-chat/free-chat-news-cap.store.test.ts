@@ -20,30 +20,48 @@ import {
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const NOW = new Date("2026-10-08T10:00:00.000Z");
 
-function make(opts: { throwOn?: "incr" | "decr"; hang?: boolean } = {}) {
+type Fault = "command" | "abort" | "reject" | "hang";
+
+/**
+ * An in-memory Redis with the two shapes the store uses: a MULTI … EXEC block (queued commands run
+ * together; ioredis's `[error, result]` pairs, or null when aborted) and a bare DECR. `transactions`
+ * records each EXEC's command names, so atomicity is asserted, not assumed.
+ */
+function make(opts: { fault?: Fault } = {}) {
   const kv = new Map<string, number>();
   const expiry = new Map<string, number>();
+  const transactions: string[][] = [];
+  const bump = (key: string, by: number) => {
+    const next = (kv.get(key) ?? 0) + by;
+    kv.set(key, next);
+    return next;
+  };
+  const multi = () => {
+    const queued: Array<{ name: string; run: () => unknown }> = [];
+    const tx = {
+      incr: (key: string) => (queued.push({ name: "incr", run: () => bump(key, 1) }), tx),
+      decr: (key: string) => (queued.push({ name: "decr", run: () => bump(key, -1) }), tx),
+      expireat: (key: string, at: number) => (
+        queued.push({ name: "expireat", run: () => (expiry.set(key, at), 1) }),
+        tx
+      ),
+      exec: vi.fn(async (): Promise<Array<[Error | null, unknown]> | null> => {
+        if (opts.fault === "hang") return new Promise(() => undefined);
+        if (opts.fault === "reject") throw new Error("ECONNREFUSED");
+        if (opts.fault === "abort") return null;
+        transactions.push(queued.map((q) => q.name));
+        if (opts.fault === "command") return queued.map(() => [new Error("WRONGTYPE"), null]);
+        return queued.map((q) => [null, q.run()]);
+      }),
+    };
+    return tx;
+  };
   const client = {
-    incr: vi.fn(async (key: string) => {
-      if (opts.hang) return new Promise<number>(() => undefined);
-      if (opts.throwOn === "incr") throw new Error("ECONNREFUSED");
-      const next = (kv.get(key) ?? 0) + 1;
-      kv.set(key, next);
-      return next;
-    }),
-    decr: vi.fn(async (key: string) => {
-      if (opts.throwOn === "decr") throw new Error("ECONNREFUSED");
-      const next = (kv.get(key) ?? 0) - 1;
-      kv.set(key, next);
-      return next;
-    }),
-    expireat: vi.fn(async (key: string, at: number) => {
-      expiry.set(key, at);
-      return 1;
-    }),
+    multi: vi.fn(multi),
+    decr: vi.fn(async (key: string) => bump(key, -1)),
   };
   const cap = new FreeChatNewsCap({ client: Promise.resolve(client) } as never);
-  return { cap, client, kv, expiry };
+  return { cap, client, kv, expiry, transactions };
 }
 
 beforeEach(() => {
@@ -82,14 +100,14 @@ describe("the IST day — keyed by India's calendar, not UTC's", () => {
 });
 
 describe("reserve", () => {
-  it("counts up to the cap of five, re-asserting the expiry on every hit", async () => {
-    const { cap, client } = make();
+  it("counts up to the cap of five, INCR and EXPIREAT in ONE MULTI on every hit", async () => {
+    const { cap, transactions, expiry } = make();
     expect(FREE_CHAT_NEWS_DAILY_CAP).toBe(5);
     for (let i = 1; i <= FREE_CHAT_NEWS_DAILY_CAP; i++) {
       expect(await cap.reserve(WORKER, NOW)).toEqual({ ok: true, count: i });
     }
-    expect(client.expireat).toHaveBeenCalledTimes(FREE_CHAT_NEWS_DAILY_CAP);
-    expect(client.expireat).toHaveBeenLastCalledWith(newsCapKey(WORKER, NOW), newsCapExpiryOf(NOW));
+    expect(transactions).toEqual(Array(FREE_CHAT_NEWS_DAILY_CAP).fill(["incr", "expireat"]));
+    expect(expiry.get(newsCapKey(WORKER, NOW))).toBe(newsCapExpiryOf(NOW));
   });
 
   it("over the cap: not ok, the INCR handed straight back, the count held reported", async () => {
@@ -110,20 +128,23 @@ describe("reserve", () => {
     });
   });
 
-  it("FAILS CLOSED: a Redis error or a hung command is null, never a throw", async () => {
-    expect(await make({ throwOn: "incr" }).cap.reserve(WORKER, NOW)).toBeNull();
-    expect(await make({ hang: true }).cap.reserve(WORKER, NOW)).toBeNull();
-  });
+  it.each(["command", "abort", "reject", "hang"] as const)(
+    "FAILS CLOSED on a %s — null, never a throw",
+    async (fault) => {
+      expect(await make({ fault }).cap.reserve(WORKER, NOW)).toBeNull();
+    },
+  );
 });
 
 describe("release", () => {
-  it("hands back the slot on the key the reservation used, re-asserting its expiry", async () => {
-    const { cap, client, kv } = make();
+  it("hands back the slot on the key the reservation used, DECR and EXPIREAT in ONE MULTI", async () => {
+    const { cap, kv, transactions, expiry } = make();
     await cap.reserve(WORKER, NOW);
     await cap.reserve(WORKER, NOW);
     await cap.release(WORKER, NOW);
     expect(kv.get(newsCapKey(WORKER, NOW))).toBe(1);
-    expect(client.expireat).toHaveBeenLastCalledWith(newsCapKey(WORKER, NOW), newsCapExpiryOf(NOW));
+    expect(transactions.at(-1)).toEqual(["decr", "expireat"]);
+    expect(expiry.get(newsCapKey(WORKER, NOW))).toBe(newsCapExpiryOf(NOW));
   });
 
   it("a released slot can be taken again — a failure costs the worker nothing", async () => {
@@ -134,7 +155,8 @@ describe("release", () => {
   });
 
   it("a release that fails is swallowed", async () => {
-    const { cap } = make({ throwOn: "decr" });
-    await expect(cap.release(WORKER, NOW)).resolves.toBeUndefined();
+    for (const fault of ["command", "abort", "reject", "hang"] as const) {
+      await expect(make({ fault }).cap.release(WORKER, NOW)).resolves.toBeUndefined();
+    }
   });
 });

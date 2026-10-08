@@ -5,8 +5,10 @@ import { FREE_CHAT_NEWS_OUTCOMES, FREE_CHAT_REFUSAL_TOPICS } from "@badabhai/typ
 
 import { FREE_CHAT_COPY, FREE_CHAT_REFUSAL_LINES } from "./free-chat.copy";
 import {
+  carriesNewsIdentifier,
   judgeNews,
-  NEWS_CAP_UNREADABLE,
+  keepsSlot,
+  NEWS_NOT_REQUESTED,
   NEWS_TURN_OUTCOMES,
   newsCapped,
   newsServedOf,
@@ -176,6 +178,35 @@ describe("an answer — grounded, gated, and sourced", () => {
     });
   });
 
+  it("is REJECTED when a line carries a LINK — a URL, a www host or a bare domain (§8, H2)", () => {
+    for (const line of [
+      "Form yahan bharein: https://pmkvy-form.in/apply",
+      "Details www.pmkvy-form.in par milengi.",
+      "Registration pmkvy-form.in par shuru hai.",
+      "Form PIB.gov.in par hai.",
+      "WhatsApp wa.me/919876 par bhejiye.",
+      "Short link bit.ly/abc dekhiye.",
+      "Naya portal jobs-india.xyz par hai.",
+      "Fullwidth ｐｍｋｖｙ．ｉｎ par dekhiye.",
+    ]) {
+      expect(judgeNews(answer({ lines: [line] })), line).toMatchObject({
+        outcome: "rejected",
+        rejection: "link",
+        line: FREE_CHAT_COPY.NEWS_UNAVAILABLE,
+      });
+    }
+  });
+
+  it("keeps ordinary lines — sentence dots, abbreviations, degrees and amounts are not links", () => {
+    for (const line of [
+      "Pune mein ek nayi factory khul rahi hai.",
+      "B.Com aur ITI walon ki bharti hai.",
+      "Petrol Rs.105 litre hai.",
+    ]) {
+      expect(judgeNews(answer({ lines: [line] })).outcome, line).toBe("answered");
+    }
+  });
+
   it("is REJECTED when a line fails the reply gate (G1, persona, script, shape, promise)", () => {
     for (const lines of [
       ["Call karein 98765 43210 par."],
@@ -216,6 +247,65 @@ describe("an answer — grounded, gated, and sourced", () => {
   });
 });
 
+describe("R5 as revised — keepsSlot: every request that may have reached Anthropic is counted", () => {
+  const call = (output: unknown, sent = true) => ({
+    sent,
+    output: output as FreeChatNewsOutput | null,
+  });
+
+  it("KEEPS: a real call (any outcome), and a sent request that came back null", () => {
+    expect(keepsSlot(call(answer()))).toBe(true);
+    expect(
+      keepsSlot(call(parsed({ status: "no_results", search_count: 2, ai_metadata: REAL }))),
+    ).toBe(true);
+    expect(
+      keepsSlot(call(parsed({ status: "refuse", topic: "off_limits", ai_metadata: REAL }))),
+    ).toBe(true);
+    expect(keepsSlot(call(answer({ ai_metadata: { ...REAL, success: false } })))).toBe(true);
+    expect(keepsSlot(call(null))).toBe(true);
+  });
+
+  it("HANDS BACK: never sent, the unarmed mock, the spend-cap mock, a blocked input", () => {
+    expect(keepsSlot(call(null, false))).toBe(false);
+    const mock = (errorCode: string | null) =>
+      parsed({
+        status: "no_results",
+        search_count: 0,
+        ai_metadata: { ...REAL, real_call: false, error_code: errorCode },
+      });
+    expect(keepsSlot(call(mock(null)))).toBe(false);
+    expect(keepsSlot(call(mock("spend_cap")))).toBe(false);
+    expect(
+      keepsSlot(call(parsed({ status: "refuse", topic: "unsafe_other", ai_metadata: null }))),
+    ).toBe(false);
+  });
+});
+
+describe("R9 — carriesNewsIdentifier", () => {
+  it("flags a phone, an email, a PAN, an Aadhaar-shaped run and a cued ID", () => {
+    for (const text of [
+      "mera number 98765 43210",
+      "+91-98765-43210 par",
+      "ramu@example.in",
+      "PAN ABCDE1234F",
+      "2345 6789 0123",
+      "roll no 2019CN4471",
+    ]) {
+      expect(carriesNewsIdentifier(text), text).toBe(true);
+    }
+  });
+
+  it("passes an ordinary news question, a year and a price", () => {
+    for (const text of [
+      "aaj ka mausam kaisa hai",
+      "2026 mein ITI admission kab",
+      "petrol 105 rupaye",
+    ]) {
+      expect(carriesNewsIdentifier(text), text).toBe(false);
+    }
+  });
+});
+
 describe("the spine's facts, and the turn event's mapping", () => {
   const payload = (r: FreeChatNewsResolution) => {
     const s = newsServedOf(r);
@@ -248,7 +338,7 @@ describe("the spine's facts, and the turn event's mapping", () => {
       },
       { ...judgeNews(answer({ search_count: 0 })), dailyCount: 1 },
       newsCapped(5),
-      NEWS_CAP_UNREADABLE,
+      NEWS_NOT_REQUESTED,
     ];
     expect(new Set(endings.map((e) => e.outcome))).toEqual(new Set(FREE_CHAT_NEWS_OUTCOMES));
     for (const ending of endings) expect(valid(ending), ending.outcome).toBe(true);
@@ -265,7 +355,7 @@ describe("the spine's facts, and the turn event's mapping", () => {
       searchCount: null,
       dailyCount: 5,
     });
-    expect(NEWS_CAP_UNREADABLE).toMatchObject({
+    expect(NEWS_NOT_REQUESTED).toMatchObject({
       outcome: "unavailable",
       line: FREE_CHAT_COPY.NEWS_UNAVAILABLE,
       dailyCount: null,

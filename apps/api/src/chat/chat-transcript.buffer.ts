@@ -9,7 +9,10 @@ import {
 } from "../profiling/conversation-state";
 import {
   narrowNewsLinks,
+  newsLinksField,
+  toWireNewsLinks,
   type FreeChatNewsLink,
+  type FreeChatNewsLinkWire,
 } from "../profiling/free-chat/free-chat-news-links";
 import { PROFILE_EXTRACTION_QUEUE, type ProfileExtractionJobData } from "../queue/queue.constants";
 
@@ -157,13 +160,10 @@ export const FREE_CHAT_METADATA = { free_chat: true } as const;
  */
 export function freeChatMetadataOf(
   message: Pick<BufferedMessage, "newsLinks">,
-): typeof FREE_CHAT_METADATA | { free_chat: true; news_links: FreeChatNewsLink[] } {
+): typeof FREE_CHAT_METADATA | { free_chat: true; news_links: FreeChatNewsLinkWire[] } {
   const links = message.newsLinks;
   if (links === undefined || links.length === 0) return FREE_CHAT_METADATA;
-  return {
-    ...FREE_CHAT_METADATA,
-    news_links: links.map((link) => ({ title: link.title, url: link.url, site: link.site })),
-  };
+  return { ...FREE_CHAT_METADATA, news_links: toWireNewsLinks(links) };
 }
 
 /**
@@ -173,12 +173,6 @@ export function freeChatMetadataOf(
 export function newsLinksOfMetadata(metadata: unknown): FreeChatNewsLink[] | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   return narrowNewsLinks((metadata as Record<string, unknown>).news_links);
-}
-
-/** `{ newsLinks }` when a stored value still holds a valid tile, else `{}` (ADR-0054). */
-function newsLinksFieldOf(value: unknown): { newsLinks?: FreeChatNewsLink[] } {
-  const links = narrowNewsLinks(value);
-  return links === null ? {} : { newsLinks: links };
 }
 
 /**
@@ -556,7 +550,7 @@ export class ChatTranscriptBuffer {
         // line is simply never summarised, which is how every line read before Release 2 behaves.
         ...(msg.foldable === true ? { foldable: true as const } : {}),
         // ADR-0054 — RE-CHECKED like every tile read back from a store; ABSENT unless one survives.
-        ...newsLinksFieldOf(msg.newsLinks),
+        ...newsLinksField(msg.newsLinks),
       });
     }
 

@@ -101,9 +101,65 @@ describe("one source → one tile", () => {
   });
 });
 
+describe("strict hosts and no open redirect (ADR-0054 §8, security F)", () => {
+  it("refuses an IDN LOOK-ALIKE — the parser punycodes it, and xn-- is never listed", () => {
+    // "thehіndu.com" with a Cyrillic "і" (U+0456).
+    const lookAlike = `https://www.theh${String.fromCodePoint(0x456)}ndu.com/news/a`;
+    expect(new URL(lookAlike).hostname).toMatch(/^www\.xn--/);
+    expect(newsLinkOf(source(lookAlike))).toBeNull();
+    expect(newsLinkOf(source("https://www.xn--thehndu-6gg.com/a"))).toBeNull();
+  });
+
+  it("refuses a raw authority that is not plain host characters", () => {
+    for (const url of [
+      "https://www.thehindu%2Ecom/a",
+      "https://www.thehindu.com;evil.net/a",
+      "https://evil.net\\@www.thehindu.com/a",
+      "https://www.thehindu.com\\evil",
+      " https://www.thehindu.com/a",
+      "https://www.thehindu.com/a b",
+      "https://www.thehindu.com/a\n",
+      `https://www.thehindu.com/${String.fromCodePoint(0x200b)}a`,
+      "HTTPS://evil.net/a",
+    ]) {
+      expect(newsLinkOf(source(url)), JSON.stringify(url)).toBeNull();
+    }
+    // An upper-case scheme and host are the same URL, normalised.
+    expect(newsLinkOf(source("HTTPS://WWW.THEHINDU.COM/a"))?.url).toBe(
+      "https://www.thehindu.com/a",
+    );
+  });
+
+  it.each([
+    "url",
+    "redirect",
+    "redirect_uri",
+    "redirect_url",
+    "next",
+    "goto",
+    "dest",
+    "destination",
+    "out",
+    "u",
+    "link",
+    "target",
+  ])("refuses a query carrying the open-redirect key %j", (key) => {
+    expect(newsLinkOf(source(`https://www.thehindu.com/r?${key}=https://evil.net`))).toBeNull();
+    // Case-insensitive, and after the parser percent-decodes the key.
+    expect(newsLinkOf(source(`https://www.thehindu.com/r?id=1&${key.toUpperCase()}=x`))).toBeNull();
+  });
+
+  it("refuses a percent-encoded redirect key, and keeps an ordinary query", () => {
+    expect(newsLinkOf(source("https://www.thehindu.com/r?%75rl=https://evil.net"))).toBeNull();
+    expect(newsLinkOf(source("https://www.thehindu.com/a?ref=home&page=2"))).not.toBeNull();
+  });
+});
+
 describe("the title — cleaned, bounded, and no hard identifier (G1)", () => {
   it("removes control and format characters and collapses whitespace", () => {
-    expect(cleanNewsTitle("Pune\u0000 factory‮ opens​\ttoday")).toBe("Pune factory opens today");
+    expect(cleanNewsTitle("Pune\u0000 factory\u202e opens\u200b\ttoday")).toBe(
+      "Pune factory opens today",
+    );
   });
 
   it("clips to 200 characters without splitting a surrogate pair", () => {
@@ -113,8 +169,8 @@ describe("the title — cleaned, bounded, and no hard identifier (G1)", () => {
   });
 
   it("is null when nothing is left", () => {
-    expect(cleanNewsTitle(" ​\u0007 ")).toBeNull();
-    expect(newsLinkOf(source("https://www.thehindu.com/a", "‮"))).toBeNull();
+    expect(cleanNewsTitle(" \u200b\u0007 ")).toBeNull();
+    expect(newsLinkOf(source("https://www.thehindu.com/a", "\u202e"))).toBeNull();
   });
 
   it("drops a title carrying a phone number, an email or an Aadhaar-shaped run", () => {
@@ -124,6 +180,30 @@ describe("the title — cleaned, bounded, and no hard identifier (G1)", () => {
       "Card 2345 6789 0123 found",
     ]) {
       expect(newsLinkOf(source("https://www.thehindu.com/a", title)), title).toBeNull();
+    }
+  });
+
+  it("drops a title the content walls fail: abuse, a job promise (Hinglish or regional), a template token", () => {
+    for (const title of [
+      "Chutiya log pakde gaye",
+      "Sabko naukri pakki milegi",
+      "100% job guarantee scheme",
+      "Kaam zaroor milegi, abhi apply karein",
+      "Velai pakku kidaikkum",
+      "Offer {{worker_name}} ke liye",
+    ]) {
+      expect(newsLinkOf(source("https://www.thehindu.com/a", title)), title).toBeNull();
+    }
+  });
+
+  it("does NOT apply the sensitive, rating or Latin-only walls — real headlines pass", () => {
+    for (const title of [
+      "RBI keeps home loan rates unchanged",
+      "Court orders minimum wage revision",
+      "Top 10 ITI ranking released",
+      "சென்னையில் புதிய தொழிற்சாலை",
+    ]) {
+      expect(newsLinkOf(source("https://www.thehindu.com/a", title))?.title, title).toBe(title);
     }
   });
 

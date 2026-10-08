@@ -1,4 +1,5 @@
 import { TRADE_FORM_KINDS } from "../profiling/trade-form-router";
+import { FREE_CHAT_NEWS_LINKS_MAX } from "../profiling/free-chat/free-chat-news-links";
 import { z } from "zod";
 import { CHAT_GATE_KINDS, FREE_CHAT_MODES, MESSAGE_DIRECTIONS } from "@badabhai/types";
 import { ANSWER_TYPES } from "@badabhai/ai-contracts";
@@ -69,7 +70,7 @@ export const NewsLinkWireSchema = z.object({
 });
 
 /** 1-3 tiles, ABSENT (never null, never empty) when a message has none. */
-const NewsLinksWireSchema = z.array(NewsLinkWireSchema).min(1).max(3);
+const NewsLinksWireSchema = z.array(NewsLinkWireSchema).min(1).max(FREE_CHAT_NEWS_LINKS_MAX);
 
 /**
  * Outbound shape of POST /chat/message (CHAT-UE-1). Mirrors the return object

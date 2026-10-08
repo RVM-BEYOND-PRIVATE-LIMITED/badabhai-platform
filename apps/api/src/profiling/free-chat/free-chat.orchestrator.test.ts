@@ -1875,9 +1875,10 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
       ai_metadata: { ...NEWS_META, success: false, error_code: "timeout" },
     });
     expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
-    expect(world.newsCount.held).toBe(0);
+    // R5 as revised: it reached Anthropic, so the attempt is counted.
+    expect(world.newsCount.held).toBe(1);
     expect(newsServed(world)).toEqual([
-      expect.objectContaining({ outcome: "unavailable", search_count: 0 }),
+      expect.objectContaining({ outcome: "unavailable", search_count: 0, daily_count: 1 }),
     ]);
   });
 
@@ -1891,8 +1892,10 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     });
     expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
     expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line", refusal_topic: null });
+    // It never reached Anthropic: the slot is handed back.
+    expect(world.newsCount.held).toBe(0);
     expect(newsServed(world)).toEqual([
-      expect.objectContaining({ outcome: "unavailable", search_count: null }),
+      expect.objectContaining({ outcome: "unavailable", search_count: null, daily_count: 0 }),
     ]);
   });
 
@@ -1921,14 +1924,15 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     ]);
   });
 
-  it("a FAILED call (null): NEWS_UNAVAILABLE, the slot handed back", async () => {
+  it("a SENT call that came back null (timeout): NEWS_UNAVAILABLE, the slot KEPT (may be billed)", async () => {
     const world = makeWorld();
     await inFreeMode(world);
     const turn = await askNews(world, null);
     expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
-    expect(world.newsCount.held).toBe(0);
+    expect(world.newsCount.held).toBe(1);
+    expect(world.newsCap.release).not.toHaveBeenCalled();
     expect(newsServed(world)).toEqual([
-      expect.objectContaining({ outcome: "unavailable", search_count: null, daily_count: 0 }),
+      expect.objectContaining({ outcome: "unavailable", search_count: null, daily_count: 1 }),
     ]);
   });
 
@@ -1943,8 +1947,14 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
     expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line" });
     expect(newsServed(world)).toEqual([
-      expect.objectContaining({ outcome: "no_results", search_count: 2, source_count: 0 }),
+      expect.objectContaining({
+        outcome: "no_results",
+        search_count: 2,
+        source_count: 0,
+        daily_count: 1,
+      }),
     ]);
+    expect(world.newsCount.held).toBe(1);
   });
 
   it("a NESTED refusal serves that topic's line — distress without a chip, news unavailable", async () => {
@@ -1979,10 +1989,11 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     expect(lastTurnServed(world)).toMatchObject({ outcome: "refused", refusal_topic: "news" });
 
     expect(newsServed(world).map((p) => p.outcome)).toEqual(["refused", "refused", "refused"]);
-    expect(world.newsCount.held).toBe(0);
+    // Three real calls: three paid attempts.
+    expect(world.newsCount.held).toBe(3);
   });
 
-  it("REJECTED lines (G1, persona): NEWS_UNAVAILABLE, the turn a fallback, the slot back", async () => {
+  it("REJECTED lines (G1, persona): NEWS_UNAVAILABLE, the turn a fallback, the slot KEPT", async () => {
     const world = makeWorld();
     await inFreeMode(world);
     const turn = await askNews(
@@ -1996,7 +2007,76 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     expect(newsServed(world)).toEqual([
       expect.objectContaining({ outcome: "rejected", kind: null, source_count: 0 }),
     ]);
-    expect(world.newsCount.held).toBe(0);
+    expect(world.newsCount.held).toBe(1);
+  });
+
+  it("a LINK in a line (a bare phishing domain): rejected, never served", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(
+      world,
+      newsAnswer({ lines: ["PMKVY form pmkvy-form.in par bharein."] }),
+    );
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(JSON.stringify(world.saved()!.messages)).not.toContain("pmkvy-form");
+    expect(newsServed(world)).toEqual([expect.objectContaining({ outcome: "rejected" })]);
+  });
+
+  it("R9: a question with an IDENTIFIER is never searched — no slot, no call, daily_count null", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("career"));
+    world.replyWith(REFUSE_NEWS);
+    world.newsWith(newsAnswer());
+    const turn = await world.say("mera number 98765 43210 hai, job ki khabar bhejo");
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(world.newsCap.reserve).not.toHaveBeenCalled();
+    expect(world.ai.freeChatNews).not.toHaveBeenCalled();
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line" });
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", search_count: null, daily_count: null }),
+    ]);
+  });
+
+  it("R9: an identifier in an EARLIER turn never rides along with 'aur batao'", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("casual"));
+    world.replyWith(answer(["Theek hai."]));
+    await world.say("mera email ramu@example.in hai");
+    await askNews(world, newsAnswer());
+    const sent = world.ai.freeChatNews.mock.calls[0]![0] as { recent_turns: { text: string }[] };
+    expect(JSON.stringify(sent)).not.toContain("ramu@example.in");
+    expect(sent.recent_turns.map((t) => t.text)).toContain("Theek hai.");
+  });
+
+  it("G2 FAILS CLOSED for news: an own-name lookup that ERRORS makes no slot and no call", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("career"));
+    world.replyWith(REFUSE_NEWS);
+    world.newsWith(newsAnswer());
+    const turn = await world.orchestrator.takeTurn({
+      sessionId: SESSION,
+      workerId: WORKER,
+      text: "Pune mein koi factory khul rahi hai?",
+      now: T0,
+      submissionId: "99999999-9999-4999-8999-999999999999",
+      voiceNoteId: null,
+      freeChat: { enabled: true, sessionLocked: false, locked: async () => false },
+      knownName: async () => {
+        throw new Error("decrypt failed");
+      },
+      ctx: CTX as never,
+    });
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    // The classifier and the reply keep their fail-open lookup (unchanged); news does not.
+    expect(world.ai.freeChatReply).toHaveBeenCalledOnce();
+    expect(world.newsCap.reserve).not.toHaveBeenCalled();
+    expect(world.ai.freeChatNews).not.toHaveBeenCalled();
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", daily_count: null }),
+    ]);
   });
 
   it("ZERO VALID TILES: rejected — an answer is never served without its source", async () => {
@@ -2046,6 +2126,41 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     ]);
   });
 
+  it("the app's CONCURRENT RESEND of one submission: one reservation, one news call", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    // Each concurrent turn classifies and replies on its own; only news is shared.
+    world.ai.freeChatClassify.mockResolvedValue(verdict("career"));
+    world.ai.freeChatReply.mockResolvedValue(REFUSE_NEWS);
+    let finish: (value: unknown) => void = () => undefined;
+    world.ai.freeChatNews.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    const input = {
+      sessionId: SESSION,
+      workerId: WORKER,
+      text: "kal ka match kisne jeeta",
+      now: T0,
+      submissionId: "abababab-abab-4bab-8bab-abababababab",
+      voiceNoteId: null,
+      freeChat: { enabled: true, sessionLocked: false, locked: async () => false },
+      knownName: async () => null,
+      ctx: CTX as never,
+    };
+    const first = world.orchestrator.takeTurn(input);
+    // The app gave up at 15 s and resent the SAME submission while the first is still searching.
+    const resend = world.orchestrator.takeTurn({ ...input, now: new Date(T0.getTime() + 15_000) });
+    await vi.waitFor(() => expect(world.ai.freeChatNews).toHaveBeenCalledOnce());
+    finish(newsAnswer());
+    const [a, b] = await Promise.all([first, resend]);
+    expect(world.newsCap.reserve).toHaveBeenCalledOnce();
+    expect(world.ai.freeChatNews).toHaveBeenCalledOnce();
+    expect(world.newsCount.held).toBe(1);
+    expect(a.reply).toBe(b.reply);
+    expect(a.newsLinks).toEqual(b.newsLinks);
+    expect(newsServed(world)).toHaveLength(1);
+  });
+
   it("a DUPLICATE submit replays the answer WITH its tiles, and runs nothing again", async () => {
     const world = makeWorld();
     await inFreeMode(world);
@@ -2084,11 +2199,15 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
       ([params]) => params as { event_name: string; payload: unknown; idempotencyKey: string },
     );
     const news = calls.filter((c) => c.event_name === "chat.free_chat_news_served");
+    // Three held, then an answer (4), a timeout that may have been billed (5, kept), then the cap.
     expect(news.map((c) => (c.payload as { outcome: string }).outcome)).toEqual([
       "answered",
       "unavailable",
-      "answered",
       "capped",
+      "capped",
+    ]);
+    expect(news.map((c) => (c.payload as { daily_count: number }).daily_count)).toEqual([
+      4, 5, 5, 5,
     ]);
     for (const { event_name: name, payload } of calls) {
       expect(

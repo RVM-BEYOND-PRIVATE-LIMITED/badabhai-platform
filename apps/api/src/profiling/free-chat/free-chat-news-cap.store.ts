@@ -24,9 +24,31 @@ const DAY_MS = 86_400_000;
  * store uses (ioredis at runtime; BullMQ's interface declares less).
  */
 interface RedisCounter {
-  incr(key: string): Promise<number>;
+  multi(): RedisCounterTransaction;
   decr(key: string): Promise<number>;
-  expireat(key: string, unixSeconds: number): Promise<number>;
+}
+
+/** A MULTI … EXEC block: the queued commands run atomically, in order. */
+interface RedisCounterTransaction {
+  incr(key: string): RedisCounterTransaction;
+  decr(key: string): RedisCounterTransaction;
+  expireat(key: string, unixSeconds: number): RedisCounterTransaction;
+  /** One `[error, result]` pair per queued command, or null when the transaction was aborted. */
+  exec(): Promise<Array<[Error | null, unknown]> | null>;
+}
+
+/**
+ * The counter a MULTI left behind — its FIRST command's integer result. Throws on an aborted
+ * transaction, a failed command or a non-integer, so the caller fails closed.
+ */
+function counterOf(results: Array<[Error | null, unknown]> | null): number {
+  if (results === null) throw new Error("news cap transaction aborted");
+  for (const [error] of results) if (error !== null) throw error;
+  const value = results[0]?.[1];
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error("news cap counter is not an integer");
+  }
+  return value;
 }
 
 /**
@@ -60,18 +82,20 @@ export function newsCapKey(workerId: string, now: Date): string {
  * BullMQ's existing connection (never a second client): the `ResumeRateLimit` pattern, with a DECR
  * release, keyed by the IST day rather than the UTC one.
  *
- * RESERVED BEFORE THE CALL, HANDED BACK UNLESS ANSWERED. A request that does not end `answered`
- * releases its slot, so a failure, a refusal or the unarmed mock costs the worker nothing. The
- * caller memoises the reservation per `takeTurn`, so a lost CAS never counts twice.
+ * IT COUNTS PAID ATTEMPTS (R5 as revised, ADR-0054 §8). A slot is reserved before the call and
+ * handed back ONLY when the request never reached Anthropic (the caller decides — see
+ * `FreeChatService.requestNews`). The caller memoises the reservation per `takeTurn` and shares it
+ * across a concurrent retry, so neither a lost CAS nor a resent submission counts twice.
  *
  * FAILS CLOSED, the opposite of the companion's fail-open stores: "the cap could not be read" is
  * "no call", never "unlimited calls" — `reserve` returns null and the worker reads the unavailable
- * line. Every call runs under `withinRedisDeadline`, so a downed Redis (whose commands never reject
- * on the shared connection) costs 150 ms, never a hang. A timed-out INCR may still land late; it
- * then holds one slot until the day ends, which is the fail-closed direction.
+ * line. Every call runs under `withinRedisDeadline` (the documented fail-closed exception in that
+ * helper: here a timeout REFUSES), so a downed Redis — whose commands never reject on the shared
+ * connection — costs 150 ms, never a hang. A timed-out INCR may still land late; it then holds one
+ * slot until the day ends, which is the fail-closed direction.
  *
- * EVERY HIT RE-ASSERTS THE EXPIRY (`EXPIREAT`, idempotent): a process that dies between the INCR and
- * the EXPIREAT leaves a TTL-less key only until the worker's next request that day.
+ * ATOMIC: the INCR and its `EXPIREAT` run in ONE `MULTI`, as do the DECR and its `EXPIREAT`, so a
+ * process that dies mid-reservation can never leave a counter without its expiry.
  */
 @Injectable()
 export class FreeChatNewsCap {
@@ -97,8 +121,8 @@ export class FreeChatNewsCap {
     try {
       return await withinRedisDeadline(async () => {
         const redis = await this.client();
-        const count = await redis.incr(key);
-        await redis.expireat(key, expireAt);
+        // ONE MULTI: the INCR never lands without its expiry, so no TTL-less key can outlive the day.
+        const count = counterOf(await redis.multi().incr(key).expireat(key, expireAt).exec());
         if (count <= FREE_CHAT_NEWS_DAILY_CAP) return { ok: true, count };
         await redis.decr(key);
         return { ok: false, count: count - 1 };
@@ -124,8 +148,7 @@ export class FreeChatNewsCap {
     try {
       await withinRedisDeadline(async () => {
         const redis = await this.client();
-        await redis.decr(key);
-        await redis.expireat(key, expireAt);
+        counterOf(await redis.multi().decr(key).expireat(key, expireAt).exec());
       });
     } catch (err) {
       this.logger.warn(

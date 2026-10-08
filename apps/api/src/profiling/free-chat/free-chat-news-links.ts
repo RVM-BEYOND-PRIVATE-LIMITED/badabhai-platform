@@ -1,18 +1,26 @@
 /**
- * THE "READ MORE" TILES OF A LIVE-NEWS ANSWER (ADR-0054 §3.3) — PURE.
+ * THE "READ MORE" TILES OF A LIVE-NEWS ANSWER (ADR-0054 §3.3, §8) — PURE.
  *
  * A news answer's sources come from the web search, not from the model's pen, but they still
  * arrive over the wire from a service that read the open web: UNTRUSTED. A tile is served only when
  * every check below passes, and a source that fails one is dropped:
  *
- *   - the URL parses, is `https:`, carries no credentials and no explicit port, and its normalised
- *     form is at most {@link FREE_CHAT_NEWS_URL_MAX} characters;
- *   - its host IS a domain on the owner-approved list (`FREE_CHAT_NEWS_DOMAINS`) or a subdomain of
+ *   - THE URL. The raw string carries no whitespace, control character or backslash, starts with
+ *     `https://`, and its raw authority is plain `[A-Za-z0-9.-]` (no `%`, `;`, `@` credentials or
+ *     `:` port). The WHATWG parser then agrees: `https:`, no credentials, no port, a host of plain
+ *     `[a-z0-9-]` labels — an IDN look-alike is punycoded (`xn--…`) and so never equals a listed
+ *     domain. The normalised form is at most {@link FREE_CHAT_NEWS_URL_MAX} characters, and its
+ *     query string carries no open-redirect key ({@link OPEN_REDIRECT_KEYS}).
+ *   - THE HOST IS a domain on the owner-approved list (`FREE_CHAT_NEWS_DOMAINS`) or a subdomain of
  *     one, matched on a LABEL BOUNDARY — `x.indiatimes.com` passes, `evilindiatimes.com` and
- *     `indiatimes.com.evil.net` do not;
- *   - its title, once control and format characters are removed and whitespace is collapsed, is
- *     non-empty, at most {@link FREE_CHAT_NEWS_TITLE_MAX} characters, and carries no hard identifier
- *     (ADR-0047 G1, `containsHardIdentifier` — a scanner that errors drops the tile: fail closed).
+ *     `indiatimes.com.evil.net` do not.
+ *   - THE TITLE is third-party text a worker reads. Once control and format characters are removed
+ *     and whitespace is collapsed it is non-empty, at most {@link FREE_CHAT_NEWS_TITLE_MAX}
+ *     characters, and passes the content walls a headline must (ADR-0054 §8): no hard identifier
+ *     (ADR-0047 G1), nothing the abuse lexicon flags, no job promise (the career gate's wall and its
+ *     regional twin), no `{{`/`}}` template token. NOT the sensitive, rating or Latin-only walls: a
+ *     real headline about loan rates, or one in Tamil, is legitimate. A check that throws drops the
+ *     tile — fail closed.
  *
  * `site` is NEVER taken from the input: it is re-derived from the URL's host, minus `www.`. The
  * served `url` is the parsed URL's normalised `href`, so what the app opens is exactly what was
@@ -22,9 +30,12 @@
  * replay stamp carries.
  */
 
+import { isAbusive } from "@badabhai/profiling-lexicon";
 import { FREE_CHAT_NEWS_DOMAINS } from "@badabhai/types";
 
+import { statesJobPromise } from "../../chat-companion/v2/career-output.validator";
 import { containsHardIdentifier } from "../resume-import/resume-parse-gates";
+import { regionalPromise } from "./free-chat-regional-walls";
 
 /** At most three tiles per answer (the contract's `sources` bound, ADR-0054 R6). */
 export const FREE_CHAT_NEWS_LINKS_MAX = 3;
@@ -33,11 +44,38 @@ export const FREE_CHAT_NEWS_URL_MAX = 500;
 /** The longest title a tile shows; a longer one is clipped, never rejected. */
 export const FREE_CHAT_NEWS_TITLE_MAX = 200;
 
+/**
+ * Query keys that hand a link on to somewhere else — an article URL never needs one, and a listed
+ * site's open redirect would turn an approved host into a hop to any host. Compared lower-cased,
+ * after the parser has percent-decoded the key.
+ */
+export const OPEN_REDIRECT_KEYS: ReadonlySet<string> = new Set([
+  "url",
+  "redirect",
+  "redirect_uri",
+  "redirect_url",
+  "next",
+  "goto",
+  "dest",
+  "destination",
+  "out",
+  "u",
+  "link",
+  "target",
+]);
+
 /** One "read more" tile: the article's title, its link, and the site it is on. */
 export interface FreeChatNewsLink {
   readonly title: string;
   readonly url: string;
   readonly site: string;
+}
+
+/** One tile as the chat wire and a flushed row's metadata carry it — the same three fields. */
+export interface FreeChatNewsLinkWire {
+  title: string;
+  url: string;
+  site: string;
 }
 
 /** A source as the search reported it — `site` is ignored, see the module header. */
@@ -54,6 +92,13 @@ const WHITESPACE_RUN = /\s+/g;
 const LEADING_WWW = /^www\./;
 /** A lone high surrogate left at the end of a clipped string. */
 const TRAILING_HIGH_SURROGATE = /[\uD800-\uDBFF]$/;
+/** Anything a raw URL must not carry anywhere: whitespace, a control or format character, `\`. */
+const RAW_URL_FORBIDDEN = /[\s\p{Cc}\p{Cf}\\]/u;
+/** The raw scheme and authority: `https://` then plain host characters up to the path. */
+const RAW_HTTPS_AUTHORITY = /^https:\/\/[A-Za-z0-9.-]+(?:[/?#]|$)/i;
+/** A parsed host: plain lower-case labels on dot boundaries. */
+const PLAIN_HOST = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/;
+const TEMPLATE_TOKEN = /\{\{|\}\}/;
 
 /**
  * Is `host` a listed news domain, or a subdomain of one? Exact on a LABEL BOUNDARY: the host must
@@ -65,9 +110,18 @@ export function isListedNewsHost(host: string): boolean {
   return FREE_CHAT_NEWS_DOMAINS.some((domain) => lower === domain || lower.endsWith(`.${domain}`));
 }
 
+/** Does the query string carry a key that forwards the reader elsewhere? */
+function carriesRedirectKey(url: URL): boolean {
+  for (const key of url.searchParams.keys()) {
+    if (OPEN_REDIRECT_KEYS.has(key.toLowerCase())) return true;
+  }
+  return false;
+}
+
 /** The checked, normalised URL — or null when any URL check fails. */
 function checkedUrl(raw: string): URL | null {
   if (raw.length > FREE_CHAT_NEWS_URL_MAX) return null;
+  if (RAW_URL_FORBIDDEN.test(raw) || !RAW_HTTPS_AUTHORITY.test(raw)) return null;
   let url: URL;
   try {
     url = new URL(raw);
@@ -76,14 +130,16 @@ function checkedUrl(raw: string): URL | null {
   }
   if (url.protocol !== "https:") return null;
   if (url.username !== "" || url.password !== "" || url.port !== "") return null;
+  if (!PLAIN_HOST.test(url.hostname)) return null;
   if (url.href.length > FREE_CHAT_NEWS_URL_MAX) return null;
+  if (carriesRedirectKey(url)) return null;
   return isListedNewsHost(url.hostname) ? url : null;
 }
 
 /**
  * A headline as a tile shows it: control characters read as spaces, format characters removed,
  * whitespace collapsed, clipped to {@link FREE_CHAT_NEWS_TITLE_MAX} without splitting a surrogate
- * pair — or null when nothing is left or it carries a hard identifier (G1, fail closed).
+ * pair — or null when nothing is left or it fails a content wall (see the module header).
  */
 export function cleanNewsTitle(raw: string): string | null {
   const text = raw
@@ -96,13 +152,19 @@ export function cleanNewsTitle(raw: string): string | null {
       ? text
       : text.slice(0, FREE_CHAT_NEWS_TITLE_MAX).replace(TRAILING_HIGH_SURROGATE, "").trim();
   if (clipped.length === 0) return null;
-  return carriesHardIdentifier(clipped) ? null : clipped;
+  return failsTitleWall(clipped) ? null : clipped;
 }
 
-/** G1 over a title. A scanner that throws counts as a hit — fail closed. */
-function carriesHardIdentifier(text: string): boolean {
+/** The content walls a headline meets. Any check that throws counts as a hit — fail closed. */
+function failsTitleWall(title: string): boolean {
   try {
-    return containsHardIdentifier(text) !== null;
+    return (
+      containsHardIdentifier(title) !== null ||
+      TEMPLATE_TOKEN.test(title) ||
+      isAbusive(title) ||
+      statesJobPromise(title) ||
+      regionalPromise(title)
+    );
   } catch {
     return true;
   }
@@ -153,4 +215,22 @@ export function narrowNewsLinks(value: unknown): FreeChatNewsLink[] | null {
   }
   const links = newsLinksOf(sources);
   return links.length > 0 ? links : null;
+}
+
+/**
+ * `{ newsLinks }` when a stored value still holds a valid tile, else `{}` — the ONE spread every
+ * reader of a stored copy uses (the replay stamp, the buffered line), so the field is ABSENT, never
+ * empty, wherever nothing survives.
+ */
+export function newsLinksField(value: unknown): { newsLinks?: FreeChatNewsLink[] } {
+  const links = narrowNewsLinks(value);
+  return links === null ? {} : { newsLinks: links };
+}
+
+/**
+ * Tiles as the wire and a flushed row's metadata carry them — mapped FIELD BY FIELD, so an internal
+ * field added to a tile can never leak onto either. The one mapper both use.
+ */
+export function toWireNewsLinks(links: readonly FreeChatNewsLink[]): FreeChatNewsLinkWire[] {
+  return links.map((link) => ({ title: link.title, url: link.url, site: link.site }));
 }

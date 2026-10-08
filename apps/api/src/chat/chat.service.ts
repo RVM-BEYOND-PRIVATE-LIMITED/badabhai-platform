@@ -42,7 +42,11 @@ import {
   readFreeChatSummaryValue,
   summaryTextOf,
 } from "../profiling/free-chat/free-chat-summary";
-import type { FreeChatNewsLink } from "../profiling/free-chat/free-chat-news-links";
+import {
+  toWireNewsLinks,
+  type FreeChatNewsLink,
+  type FreeChatNewsLinkWire,
+} from "../profiling/free-chat/free-chat-news-links";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -677,15 +681,13 @@ export class ChatService {
    * stays byte-identical — a replay or a reload included). Mapped field by field, so an internal
    * field can never leak onto the wire.
    */
-  private newsLinksField(links: readonly FreeChatNewsLink[] | undefined): {
-    news_links?: { title: string; url: string; site: string }[];
+  private wireNewsLinks(links: readonly FreeChatNewsLink[] | undefined): {
+    news_links?: FreeChatNewsLinkWire[];
   } {
     if (this.config.CHAT_FREE_CHAT_DISABLED === true || links === undefined || links.length === 0) {
       return {};
     }
-    return {
-      news_links: links.map((link) => ({ title: link.title, url: link.url, site: link.site })),
-    };
+    return { news_links: toWireNewsLinks(links) };
   }
 
   /** {@link liveFreeChatModeField} for an envelope already in hand — the same kill-switch rule. */
@@ -925,7 +927,7 @@ export class ChatService {
             // the one the response it repeats carried. No second Redis read.
             ...this.freeChatModeOf(outcome.envelope),
             // ADR-0054 — a replayed news answer shows its tiles again, as the response it repeats did.
-            ...this.newsLinksField(outcome.turn.newsLinks),
+            ...this.wireNewsLinks(outcome.turn.newsLinks),
           },
           dto.session_id,
         );
@@ -1397,7 +1399,7 @@ export class ChatService {
       // ADR-0051 (#2030) — the free-chat mode AFTER this turn, off the envelope that landed.
       ...this.freeChatModeOf(buffered.profiling),
       // ADR-0054 — an answered news turn's "read more" tiles. ABSENT on every other turn.
-      ...this.newsLinksField(turn.newsLinks),
+      ...this.wireNewsLinks(turn.newsLinks),
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -2504,7 +2506,7 @@ export class ChatService {
           ...(m.role === "worker" ? {} : this.ttsField(m.text, null)),
           created_at: m.at,
           // ADR-0054 — an answered news reply's tiles, on that bubble only.
-          ...this.newsLinksField(m.role === "worker" ? undefined : m.newsLinks),
+          ...this.wireNewsLinks(m.role === "worker" ? undefined : m.newsLinks),
         })),
         ...liveGeneralRoadFields(buffered.profiling),
       };
@@ -2528,7 +2530,7 @@ export class ChatService {
         ...(row.direction === "inbound" ? {} : this.ttsField(row.bodyText ?? "", null)),
         created_at: row.createdAt.toISOString(),
         // ADR-0054 — the durable half: the tiles the flush kept in the row's metadata, re-checked.
-        ...this.newsLinksField(
+        ...this.wireNewsLinks(
           row.direction === "inbound"
             ? undefined
             : (newsLinksOfMetadata(row.metadata) ?? undefined),

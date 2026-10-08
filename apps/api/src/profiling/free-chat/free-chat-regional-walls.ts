@@ -256,6 +256,22 @@ const SENSITIVE = new Set(REGIONAL_SENSITIVE_WORDS);
 const RESPECTFUL_YOU = new Set(REGIONAL_RESPECTFUL_YOU);
 const JUDGEMENT = new Set(REGIONAL_JUDGEMENT_WORDS);
 
+/** A regional "pakka", or a "surely" word and a "will get" word in one text. */
+function promisesIn(words: readonly string[]): boolean {
+  return (
+    words.some((word) => PROMISE.has(word)) ||
+    (words.some((word) => SURELY.has(word)) && words.some((word) => WILL_GET.has(word)))
+  );
+}
+
+/**
+ * The regional PROMISE wall ALONE — for a live-news tile's third-party headline (ADR-0054 §8),
+ * which meets the promise wall but not the persona, sensitive or rating walls.
+ */
+export function regionalPromise(text: string): boolean {
+  return promisesIn(foldWords(text).split(" ").filter(Boolean));
+}
+
 /** Does a respectful "you" sit directly before a judgement word? */
 function ratesTheWorker(words: readonly string[]): boolean {
   return words.some((word, i) => {
@@ -271,10 +287,7 @@ function ratesTheWorker(words: readonly string[]): boolean {
 export function regionalWallFailure(text: string): CareerAnswerFailure | null {
   const words = foldWords(text).split(" ").filter(Boolean);
   if (words.some((word) => PERSONA.has(word))) return "persona";
-  if (words.some((word) => PROMISE.has(word))) return "promise";
-  if (words.some((word) => SURELY.has(word)) && words.some((word) => WILL_GET.has(word))) {
-    return "promise";
-  }
+  if (promisesIn(words)) return "promise";
   if (words.some((word) => SENSITIVE.has(word))) return "sensitive_advice";
   if (ratesTheWorker(words)) return "worker_rating";
   return null;

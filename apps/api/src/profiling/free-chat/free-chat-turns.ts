@@ -900,7 +900,11 @@ export class FreeChatTurns {
     return t.refs.reply;
   }
 
-  /** The live-news request, memoised per `takeTurn` (see {@link FreeChatRefs}). */
+  /**
+   * The live-news request, memoised per `takeTurn` (see {@link FreeChatRefs}) and SHARED with a
+   * concurrent turn of the same submission (`FreeChatService.requestNews`), so neither a lost CAS
+   * nor the app's resend of a slow submission reserves or pays twice.
+   */
   private newsMemo(t: FreeChatTurn): Promise<FreeChatNewsResolution> {
     t.refs.news ??= t.service.requestNews(
       {
@@ -910,6 +914,7 @@ export class FreeChatTurns {
       },
       callCtxOf(t.input),
       t.input.now,
+      t.input.submissionId,
     );
     return t.refs.news;
   }
