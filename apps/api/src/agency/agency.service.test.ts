@@ -1439,8 +1439,10 @@ describe("ADR-0053 P2d — AgencyService's invite paths follow the TENANT", () =
   });
 
   it("the click and the consent-gated attribution keep the STORED owner (code-keyed, no resolution)", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const resolve = vi.spyOn(tenancy, "resolve");
     const d = make({
-      tenancy: resolverOver(ON, TEAM),
+      tenancy,
       invite: { id: INVITE_ID, inviterPayerId: ANCHOR, invitedWorkerId: null, status: "created" },
       consent: { revokedAt: null },
     });
@@ -1451,5 +1453,7 @@ describe("ADR-0053 P2d — AgencyService's invite paths follow the TENANT", () =
       ANCHOR,
       ANCHOR,
     ]);
+    // Neither path has a payer session to resolve: the stored owner is the only owner.
+    expect(resolve).not.toHaveBeenCalled();
   });
 });

@@ -71,6 +71,11 @@ describe("db:audit:org-tenancy — read-only by construction", () => {
       "payer_credits",
       "agency_invites",
       "referral_links",
+      // The agency money tables (ADR-0053 §4, O-5; PR #2175 review F5). Expected 0 while
+      // AGENCY_PAYOUTS_ENABLED is off — a member's own KYC / accrual / request would stay theirs.
+      "agency_kyc",
+      "agency_payout_accruals",
+      "agency_payout_requests",
     ]) {
       expect(c5.sql, table).toMatch(new RegExp(`FROM ${table} WHERE`));
     }

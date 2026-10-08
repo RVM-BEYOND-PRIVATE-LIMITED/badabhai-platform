@@ -26,7 +26,7 @@ import ts from "typescript";
  * initialised with an arrow function or function expression — is listed when (a) one of its
  * parameters, or a property of a parameter typed inline, as an array element, or by an interface
  * or type literal declared ANYWHERE under apps/api/src, is named `payerId` / `*PayerId` /
- * `agencyId` and typed `string`, and (b) its OWN body names a tenant table: a Drizzle table
+ * `agencyId` / `tenant` / `tenantKey` and typed `string`, and (b) its OWN body names a tenant table: a Drizzle table
  * imported from `@badabhai/db`, Drizzle's relational `….query.<table>`, or the table in a `sql`
  * template's FROM / JOIN / INTO / UPDATE. Parsed with the TypeScript compiler (syntax only).
  * The fixture suite below proves each of those paths fires.
@@ -81,7 +81,8 @@ const SQL_TABLE = new RegExp(
 /**
  * `payerId`, `inviterPayerId`, `agencyPayerId`, … the payout module's `agencyId`, and the
  * tenancy vocabulary itself — `tenant` / `tenantKey` — so a converted parameter that loses its
- * brand but keeps its name (`tenant: string`) is caught (review of PR #2174, security L1).
+ * brand but keeps its name (`tenant: string`) is caught (review of PR #2174, security L1; the
+ * same finding, F3, on PR #2175).
  */
 const PAYER_ID_NAME = /^(?:[a-z][A-Za-z]*PayerId|payerId|agencyId|tenant|tenantKey)$/;
 
@@ -345,10 +346,12 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
 
   it("the scanner finds the known raw-id readers (a guard against a vacuous scan)", () => {
     // One per detection path: a Drizzle table, a raw `sql` template, an inline input type. Each
-    // must name a callable that is STILL raw: a Phase 2 PR that converts one swaps in another.
-    // The `sql` and inline-type examples are NAMED_EXCEPTIONS (P2d converted the agency ones),
-    // which stay raw through the flip, so those two never need swapping again.
-    expect(found).toContain("unlocks/unlocks.repository.ts UnlocksRepository.getBalance");
+    // must name a callable that is STILL raw, so all three are NAMED_EXCEPTIONS: they stay raw
+    // through the flip and never need swapping (P2d review F2; these used to be P2b/P2d methods).
+    // A Drizzle table (`payerCredits`), named directly in the body.
+    expect(found).toContain(
+      "admin/admin-entities.repository.ts AdminEntitiesRepository.getCreditBalance",
+    );
     // Its only table reference is a `dsql` template (the file imports no Drizzle table).
     expect(found).toContain("match/free-tier.service.ts FreeTierService.grantForPayer");
     // Its raw id is `filter.payerId` in an INLINE type literal (the parameter is `filter`).
@@ -485,8 +488,11 @@ describe("one org choice — every caller goes through the resolver (ADR-0053 §
       "payers/payer-account.service.ts",
       "payer-portal/payer-auth.service.ts",
     ]) {
-      // Login asks the HEALING entry point (one place repairs a missing org, review L1).
-      expect(codeOf(join(SRC, file)), file).toMatch(/\.(resolveActingOrg|ensureActingOrg)\(/);
+      // Login asks the HEALING entry point (one place repairs a missing org, review L1). The org-
+      // role guard asks the TENANT entry point, once, and hands that scope on (PR #2175 F1).
+      expect(codeOf(join(SRC, file)), file).toMatch(
+        /\.(resolve|resolveActingOrg|ensureActingOrg)\(/,
+      );
     }
   });
 

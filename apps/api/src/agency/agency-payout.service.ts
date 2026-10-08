@@ -5,7 +5,6 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { AgencyKycStatus, AgencyPayoutRequest, Database } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
-import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import { AgencyKycService } from "./agency-kyc.service";
 import {
@@ -46,12 +45,12 @@ export type PayoutRequestOutcome =
  *    into a `requested` (MOCK — no disbursement) row and emits `agency_payout.requested`.
  *
  * ORG-LEVEL (ADR-0053 PAY-DB-01 P2d, owner ruling O-5): the agency is the ORG. Each entry point
- * ({@link getEarnings}, {@link requestPayout}, {@link listRequests}) resolves the session payer's
- * tenancy ONCE; the TENANT KEY keys the accruals, the requests and the KYC gate read (so a
- * teammate's referral earns for the org), and the acting login is the event actor
- * (`agency_payout.blocked` / `.requested`). Who may reach them is the route's decision:
- * `AgencyPayoutsController` admits the org's OWNER only. Org tenancy off: the key is the session
- * payer, today's behaviour exactly.
+ * ({@link getEarnings}, {@link requestPayout}, {@link listRequests}) takes the tenant scope
+ * `PayerOrgRoleGuard` authorized the org's OWNER on (`@CurrentTenantScope()`) and never
+ * resolves again, so the owner check and the key are one membership read (PR #2175, F1). The
+ * TENANT KEY keys the accruals, the requests and the KYC gate read (so a teammate's referral
+ * earns for the org), and the acting login is the event actor (`agency_payout.blocked` /
+ * `.requested`). Org tenancy off: the key is the session payer, today's behaviour exactly.
  */
 @Injectable()
 export class AgencyPayoutService {
@@ -60,8 +59,6 @@ export class AgencyPayoutService {
     private readonly kyc: AgencyKycService,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
-    // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
-    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   /** ₹ accrued per qualifying unlock (floor of basis × rate). Owner-ratified default = ₹10. */
@@ -84,7 +81,7 @@ export class AgencyPayoutService {
    * the whole batch (every new accrual row + every one of its events) commits, or none of it
    * does, and a retry after a rollback re-inserts + re-emits the full batch cleanly.
    *
-   * Takes the TENANT KEY its caller resolved (never re-resolved here): the accruals belong to
+   * Takes the TENANT KEY of its caller's scope (never re-resolved here): the accruals belong to
    * the org whose invites referred the worker. `agency_payout.accrued` is a system fact
    * (actor `system`), so it needs no acting login.
    */
@@ -133,8 +130,8 @@ export class AgencyPayoutService {
   }
 
   /** The org's earnings off REAL accrual data + the current gate state. Recomputes first. */
-  async getEarnings(actorPayerId: string): Promise<AgencyEarningsView> {
-    const { tenantKey } = await this.tenancy.resolve(actorPayerId);
+  async getEarnings(scope: PayerTenantScope): Promise<AgencyEarningsView> {
+    const { tenantKey } = scope;
     await this.recomputeAccruals(tenantKey);
     const agg = await this.repo.aggregate(tenantKey);
     const kycStatus = await this.kyc.statusForGate(tenantKey);
@@ -170,8 +167,7 @@ export class AgencyPayoutService {
    * request row with no audit event. Now an emit failure rolls the claim back too — the request
    * row and its claimed accruals revert to unclaimed, exactly as if the request never happened.
    */
-  async requestPayout(actorPayerId: string): Promise<PayoutRequestOutcome> {
-    const scope = await this.tenancy.resolve(actorPayerId);
+  async requestPayout(scope: PayerTenantScope): Promise<PayoutRequestOutcome> {
     // Defense-in-depth: the controller already 404s when the flag is OFF, but never proceed.
     if (!this.config.AGENCY_PAYOUTS_ENABLED) {
       return this.blocked(scope, "disabled", 0);
@@ -262,8 +258,7 @@ export class AgencyPayoutService {
   }
 
   /** The org's OWN payout request history (ids / ₹ / status). */
-  async listRequests(actorPayerId: string): Promise<AgencyPayoutRequest[]> {
-    const { tenantKey } = await this.tenancy.resolve(actorPayerId);
-    return this.repo.listRequests(tenantKey);
+  async listRequests(scope: PayerTenantScope): Promise<AgencyPayoutRequest[]> {
+    return this.repo.listRequests(scope.tenantKey);
   }
 }

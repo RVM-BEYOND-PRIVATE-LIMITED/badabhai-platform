@@ -15,16 +15,28 @@ function ctxWith(payer: unknown) {
   return { context, req };
 }
 
+/**
+ * The guard asks the resolver ONCE per request for the tenant SCOPE (ADR-0053 §5.2 rule 1) and
+ * derives the org from it; `org: null` is a scope with no acting org (no membership).
+ */
 function make(opts: { allowed?: string[]; org?: { orgId: string; orgRole: string } | null; resolveThrows?: boolean }) {
   const reflector = { getAllAndOverride: vi.fn(() => opts.allowed) };
+  const org = opts.org === undefined ? { orgId: "org-1", orgRole: "owner" } : opts.org;
+  const scope = {
+    actorPayerId: PAYER,
+    tenantKey: PAYER,
+    orgId: org?.orgId ?? null,
+    orgRole: org?.orgRole ?? null,
+    mode: "off",
+  };
   const tenancy = {
-    resolveActingOrg: vi.fn(async () => {
+    resolve: vi.fn(async () => {
       if (opts.resolveThrows) throw new Error("db down");
-      return opts.org === undefined ? { orgId: "org-1", orgRole: "owner" } : opts.org;
+      return scope;
     }),
   };
   const guard = new PayerOrgRoleGuard(reflector as never, tenancy as never);
-  return { guard, tenancy };
+  return { guard, tenancy, scope };
 }
 
 describe("PayerOrgRoleGuard — org resolution + RBAC (ADR-0027 / B5.3)", () => {
@@ -33,7 +45,39 @@ describe("PayerOrgRoleGuard — org resolution + RBAC (ADR-0027 / B5.3)", () => 
     const { context, req } = ctxWith({ id: PAYER });
     await expect(d.guard.canActivate(context)).resolves.toBe(true);
     expect(req.payerOrg).toEqual({ orgId: "org-1", orgRole: "recruiter" });
-    expect(d.tenancy.resolveActingOrg).toHaveBeenCalledWith(PAYER);
+    expect(d.tenancy.resolve).toHaveBeenCalledWith(PAYER);
+  });
+
+  it("resolves ONCE and attaches the very scope it authorized on, for @CurrentTenantScope (PR #2175 F1)", async () => {
+    const d = make({ allowed: ["owner"], org: { orgId: "org-1", orgRole: "owner" } });
+    const { context, req } = ctxWith({ id: PAYER });
+    await expect(d.guard.canActivate(context)).resolves.toBe(true);
+    expect(d.tenancy.resolve).toHaveBeenCalledTimes(1);
+    expect(req.payerTenantScope).toBe(d.scope);
+  });
+
+  it("a refused request attaches NO scope (nothing downstream can act on it)", async () => {
+    const d = make({ allowed: ["owner"], org: { orgId: "org-1", orgRole: "recruiter" } });
+    const { context, req } = ctxWith({ id: PAYER });
+    await expect(d.guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    const none = make({ allowed: undefined, org: null });
+    const noOrg = ctxWith({ id: PAYER });
+    await expect(none.guard.canActivate(noOrg.context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(noOrg.req.payerTenantScope).toBeUndefined();
+    expect(req.payerOrg).toBeUndefined();
+  });
+
+  it("a resolver DENIAL (an `on` 403) is the guard's own 'no membership' 403, never the resolver's body", async () => {
+    const reflector = { getAllAndOverride: vi.fn(() => ["owner"]) };
+    const tenancy = {
+      resolve: vi.fn(async () => {
+        throw new ForbiddenException("Not permitted for this organization");
+      }),
+    };
+    const guard = new PayerOrgRoleGuard(reflector as never, tenancy as never);
+    const err = await guard.canActivate(ctxWith({ id: PAYER }).context).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as ForbiddenException).message).toBe("Not a member of an organization");
   });
 
   it("allows an owner on an @OrgRoles('owner') route", async () => {

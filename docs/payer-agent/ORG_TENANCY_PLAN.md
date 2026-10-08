@@ -327,10 +327,11 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
   already is the tenant key.
 - **Resolution points (once each):** `AgencyService.{createInvite, createInviteBatch, referralsSummary}`
   (the batch resolves once, BEFORE its loop: N rows, one key; a refusal mints nothing and is the
-  resolver's 403, not the batch's 503) · `AgencyKycService.{submit, getOwnView}` ·
-  `AgencyPayoutService.{getEarnings, requestPayout, listRequests}` · `AgencyWorkersService.listReferred`.
-  Composed callers take the key: `AgencyKycService.statusForGate(TenantKey)`,
-  `AgencyPayoutService.recomputeAccruals(TenantKey)`. The invite click and the consent-gated
+  resolver's 403, not the batch's 503) · `AgencyWorkersService.listReferred` · and, for the five
+  money routes, **the owner gate itself** (see O-5 below): `AgencyKycService.{submit, getOwnView}`
+  and `AgencyPayoutService.{getEarnings, requestPayout, listRequests}` take the guard's
+  `PayerTenantScope` and inject no resolver. Composed callers take the key:
+  `AgencyKycService.statusForGate(TenantKey)`, `AgencyPayoutService.recomputeAccruals(TenantKey)`. The invite click and the consent-gated
   attribution are code-keyed and keep the STORED owner (no resolution).
 - **Referred-worker handle:** the per-agency pseudonym (`ref`) is keyed by the tenant, so one
   agency's members see one handle per man; `off` keeps every handle byte-identical.
@@ -349,18 +350,30 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
   `off`, the most-recently-accepted membership), so a team member is refused even though `off`
   would key them to themself. The surface is a 404 in production while
   `AGENCY_PAYOUTS_ENABLED` is off, so nothing observable changes there.
-- **Cost:** the money routes make two membership reads per request (the guard's
-  `resolveActingOrg` and the service's `resolve`). Accepted on a low-frequency, flag-gated
-  surface; §5.4's budget is the tenant routes' p95.
-- **Not converted — rule documented only:** `ReferralLinkService.mintLink` (`agent_payer_id`) has
-  no caller. Its doc now says the wiring PR must pass the resolved tenant key. T5 cannot see it
-  (it delegates to `createLink`, typed by `NewReferralLink` from packages/db: blind spots 3 and 8),
-  so it joins the §5 item 4 hand-check list.
-- **T5 vacuity guard:** the two live examples P2a pointed at P2d methods (the raw-`sql` path and
-  the inline-type path) now name NAMED_EXCEPTIONS that stay raw through the flip —
-  `FreeTierService.grantForPayer` (a `dsql` template, no Drizzle table import) and
-  `AdminEntitiesRepository.listJobPostings` (`filter: { payerId?: string }`) — so they never need
-  swapping again. The fixtures still pin both paths.
+- **One resolution per money request (review F1 / M1 of PR #2175; ADR §5.2 rule 1 amended).**
+  As first built, the guard decided `owner` on one membership read (`resolveActingOrg`) and the
+  service keyed the rows on a second (`resolve`): in `on`, an invite accepted between the two
+  admitted a payer as the owner of their solo org and then keyed them to the team's anchor — able
+  to overwrite the team's KYC or claim its accruals (an O-5 breach). Fixed at the source:
+  `PayerOrgRoleGuard` now calls `resolve()` once, derives the org role from that scope (any
+  denial is its existing "Not a member of an organization" 403), attaches the scope to
+  `req.payerTenantScope`, and the five handlers pass `@CurrentTenantScope()` to the services. The
+  team routes get the same guard, unchanged in every outcome. `agency-payouts-single-resolution.test.ts`
+  drives a whole request over a membership read that changes between calls: one read, and the
+  team's key never reaches a repository (it failed on all five routes before the fix).
+- **`ReferralLinkService.mintLink`** (`agent_payer_id`) has no caller; its `agentPayerId` now
+  takes `TenantKey | null` (review F4), so a future agent caller must pass the resolved key. T5
+  still cannot see the method (it delegates to `createLink`), but the type closes it: it is no
+  longer a hand-check item.
+- **T5 name pattern (review F3):** `PAYER_ID_NAME` also matches `tenant` / `tenantKey`, so a
+  converted parameter that reverts from `TenantKey` to `string` is caught (fixture-pinned).
+- **Census C5 (review F5):** also counts `agency_kyc`, `agency_payout_accruals` and
+  `agency_payout_requests` held under a team member's own key (expected 0 while payouts are off).
+- **T5 vacuity guard:** all three live examples are now NAMED_EXCEPTIONS that stay raw through
+  the flip, so they never need swapping again (review F2) — `AdminEntitiesRepository.getCreditBalance`
+  (a Drizzle table), `FreeTierService.grantForPayer` (a `dsql` template, no Drizzle table import)
+  and `AdminEntitiesRepository.listJobPostings` (`filter: { payerId?: string }`, an inline type).
+  The fixtures still pin every path.
 
 ---
 
@@ -399,9 +412,6 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
       `ownerId`, `tenantId`, a bare `id`.
    7. A parameter typed `any` / `unknown` carrying a payer id.
    8. A callable that only delegates to a listed helper (safe once the helper is retyped).
-
-   *Known instance of 3 + 8 (P2d): `ReferralLinkService.mintLink`'s `agentPayerId`. No caller
-   today; its doc states the rule (the wiring PR passes the resolved tenant key).*
    Closed by the PR #2155 scanner, with fixture tests: arrow-function class properties, top-level
    const arrows, Drizzle relational `this.db.query.<table>`, and parameter types declared in
    another apps/api file.
@@ -513,7 +523,10 @@ UNION ALL SELECT 'payment_orders', count(*) FROM payment_orders WHERE payer_id I
 UNION ALL SELECT 'credit_ledger', count(*) FROM credit_ledger WHERE payer_id IN (SELECT id FROM team_members)
 UNION ALL SELECT 'payer_credits', count(*) FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members)
 UNION ALL SELECT 'agency_invites', count(*) FROM agency_invites WHERE inviter_payer_id IN (SELECT id FROM team_members)
-UNION ALL SELECT 'referral_links', count(*) FROM referral_links WHERE agent_payer_id IN (SELECT id FROM team_members);
+UNION ALL SELECT 'referral_links', count(*) FROM referral_links WHERE agent_payer_id IN (SELECT id FROM team_members)
+UNION ALL SELECT 'agency_kyc', count(*) FROM agency_kyc WHERE payer_id IN (SELECT id FROM team_members)
+UNION ALL SELECT 'agency_payout_accruals', count(*) FROM agency_payout_accruals WHERE agency_payer_id IN (SELECT id FROM team_members)
+UNION ALL SELECT 'agency_payout_requests', count(*) FROM agency_payout_requests WHERE agency_payer_id IN (SELECT id FROM team_members);
 
 -- C5b The same, in CREDITS: the balance in team members' own wallets. Reported on its own line,
 --     never summed into C5's row count (PR #2155 review L4). Same team_members CTE as C5.

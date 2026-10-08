@@ -5,6 +5,7 @@ import type { EventsService } from "../events/events.service";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { ReferralLinkService } from "./referral-link.service";
 import type { ReferralLinkRepository } from "./referral-link.repository";
+import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 
 const CODE = "abcdef012345";
 const WORKER = "44444444-4444-4444-8444-444444444444";
@@ -357,7 +358,11 @@ describe("mintLink", () => {
         ...v,
       })),
     });
-    const out = await h.svc.mintLink({ kind: "agent", agentPayerId: LINK_ID, medium: "paid" });
+    const out = await h.svc.mintLink({
+      kind: "agent",
+      agentPayerId: await ownTenantKey(LINK_ID),
+      medium: "paid",
+    });
 
     expect(out.code).toMatch(/^[a-f0-9]{12}$/);
     expect(out.url).toBe(`${BASE}/r/${out.code}`);
@@ -533,5 +538,26 @@ describe("#1800 — mintLink cannot mint a resume_qr link", () => {
       // @ts-expect-error — `resume_qr` is not an accepted kind for mintLink.
       h.svc.mintLink({ kind: "resume_qr", ownerWorkerId: WORKER });
     expect(typeof mint).toBe("function");
+  });
+});
+
+describe("ADR-0053 — mintLink's agent_payer_id is a TENANT key (P2d review F4)", () => {
+  it("refuses a raw payer id by TYPE — a future agent caller must pass the resolver's key", async () => {
+    const h = make({
+      createLink: vi.fn().mockImplementation(async (v: Record<string, unknown>) => ({
+        id: LINK_ID,
+        ...v,
+      })),
+    });
+    // The assertion is the compile error: `tsc` fails this file if `agentPayerId` ever takes a
+    // raw string again, because the directive below would then be unused. Never invoked.
+    const raw = (): Promise<unknown> =>
+      // @ts-expect-error — a raw (session / body) payer id is not a TenantKey.
+      h.svc.mintLink({ kind: "agent", agentPayerId: "raw-session-payer-id" });
+    expect(typeof raw).toBe("function");
+    // The resolver's key is accepted and stored as given; null still means "no agent".
+    await h.svc.mintLink({ kind: "agent", agentPayerId: await ownTenantKey(LINK_ID) });
+    await h.svc.mintLink({ kind: "campaign", agentPayerId: null });
+    expect(h.repo.createLink.mock.calls.map((c) => c[0].agentPayerId)).toEqual([LINK_ID, null]);
   });
 });

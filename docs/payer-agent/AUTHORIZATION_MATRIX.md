@@ -24,7 +24,7 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 |---|---|---|---|
 | `PayerAuthGuard` | `payers/payer-auth.guard.ts:83` | Bearer JWT → session; **also re-reads `{role,status}` from the `payers` row every request** | 401 missing row; **403** if `status !== "active"` |
 | `PayerRoleGuard` | `payers/payer-role.guard.ts:50` | `@PayerRoles(...)` metadata | 403 — **but a NO-OP when metadata is absent** ⚠️ |
-| `PayerOrgRoleGuard` | `payers/payer-org-role.guard.ts:65` | resolves the caller's single ACTIVE `payer_members` row → `req.payerOrg` | 403, **fail-closed** on no membership or resolve error |
+| `PayerOrgRoleGuard` | `payers/payer-org-role.guard.ts:65` | resolves the caller's tenant scope ONCE (ADR-0053 resolver) → `req.payerOrg` + `req.payerTenantScope` (`@CurrentTenantScope()`, handed to the service, which does not resolve again) | 403, **fail-closed** on no membership or resolve error |
 | `AgencyPayoutsEnabledGuard` | `agency/agency-payouts-enabled.guard.ts:14` | `AGENCY_PAYOUTS_ENABLED` | neutral **404** |
 | `InternalServiceGuard` | `common/guards/internal-service.guard.ts:26` | constant-time compare of `x-internal-service-token` | **deny-all when the secret is unset** |
 
@@ -72,6 +72,10 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 > (`PAY-DB-01`, org tenancy, is still OPEN and now being planned), so there is no org-shared
 > balance yet; the ruling is "for now", and an org-shared wallet is that change's to settle.
 > The finding below is the original 2026-08-11 text.
+>
+> **2026-10-08 (PAY-DB-01 P2d, PR #2175):** `@OrgRoles("owner")` is no longer applied only to
+> `/payer/org/members` — the agency money routes `/payer/agency/{kyc,earnings,payouts}` are
+> owner-only too (ADR-0053 O-5; table above). The "only" below is the 2026-08-11 state.
 
 > **`GAP-AUTHZ-01` (P1 — pending dimension 9).** `@OrgRoles("owner")` is applied **only** to
 > `/payer/org/members`. The frontend's own model says billing/wallet is Owner-only

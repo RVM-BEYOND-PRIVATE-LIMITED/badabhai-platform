@@ -5,8 +5,7 @@ import { EventsService } from "../events/events.service";
 import { isUniqueViolation } from "../common/db-error";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { PayersRepository } from "../payers/payers.repository";
-import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
-import type { TenantKey } from "../payers/payer-tenant-scope";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import { AgencyKycRepository } from "./agency-kyc.repository";
 import type { SubmitAgencyKycDto } from "./agency-kyc.dto";
 
@@ -43,11 +42,12 @@ export interface AgencyKycOpsRow extends AgencyKycView {
  *    this returns `'verified'`.
  *
  * ORG-LEVEL (ADR-0053 PAY-DB-01 P2d, owner ruling O-5): KYC describes the legal entity, so the
- * agency-facing entry points ({@link submit}, {@link getOwnView}) resolve the session payer's
- * tenancy ONCE and key the row by the TENANT KEY; the acting login is the event actor. Who may
- * reach them is the route's decision: `AgencyPayoutsController` admits the org's OWNER only
- * (`PayerOrgRoleGuard` + `@OrgRoles("owner")`). Org tenancy off: the key is the session payer,
- * today's behaviour exactly. The ops verify / reject stay literal (they name the row's key).
+ * agency-facing entry points ({@link submit}, {@link getOwnView}) key the row by the TENANT KEY
+ * of the scope they are HANDED; the acting login is the event actor. They never resolve: the
+ * scope is the one `PayerOrgRoleGuard` authorized the OWNER on (`@OrgRoles("owner")`,
+ * `@CurrentTenantScope()`), so the role check and the key are one membership read (PR #2175,
+ * F1). Org tenancy off: the key is the session payer, today's behaviour exactly. The ops
+ * verify / reject stay literal (they name the row's key).
  */
 @Injectable()
 export class AgencyKycService {
@@ -60,8 +60,6 @@ export class AgencyKycService {
     // `{role, status}` projection built for exactly this question, and it deliberately
     // avoids `findById`, which returns the full encrypted-PII row.
     private readonly payers: PayersRepository,
-    // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
-    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   private static last4(value: string): string {
@@ -85,9 +83,9 @@ export class AgencyKycService {
   /**
    * Submit/replace the org's KYC (encrypt at rest → pending). Emits `agency_kyc.submitted`
    * (ADR-0053 §7: actor = the acting login, `payer_id` / subject = the tenant). Masked view.
+   * `scope` is the guard's (see the class note) — never re-resolved here.
    */
-  async submit(actorPayerId: string, dto: SubmitAgencyKycDto): Promise<AgencyKycView> {
-    const scope = await this.tenancy.resolve(actorPayerId);
+  async submit(scope: PayerTenantScope, dto: SubmitAgencyKycDto): Promise<AgencyKycView> {
     let row: AgencyKyc;
     try {
       row = await this.repo.upsertPending(scope.tenantKey, {
@@ -122,15 +120,14 @@ export class AgencyKycService {
     return this.toView(row);
   }
 
-  /** The org's OWN masked KYC status (keyed by the session payer's tenant). */
-  async getOwnView(actorPayerId: string): Promise<AgencyKycView> {
-    const scope = await this.tenancy.resolve(actorPayerId);
+  /** The org's OWN masked KYC status (keyed by the guard's scope — never re-resolved here). */
+  async getOwnView(scope: PayerTenantScope): Promise<AgencyKycView> {
     return this.toView(await this.repo.findByPayer(scope.tenantKey));
   }
 
   /**
    * The payout-gate read: the raw status enum (null if never submitted). NO decrypt. Takes the
-   * tenant key its caller (`AgencyPayoutService`) already resolved — never re-resolved here.
+   * tenant key of the scope its caller (`AgencyPayoutService`) was handed.
    */
   async statusForGate(tenant: TenantKey): Promise<AgencyKycStatus | null> {
     const row = await this.repo.findByPayer(tenant);

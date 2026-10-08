@@ -116,9 +116,8 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
   it("finds the resolver's injectors in source (a guard against a vacuous scan)", () => {
     expect([...injectors].sort()).toEqual([
       // PAY-DB-01 P2a: the services whose payer paths resolve the tenant key.
-      // P2d (ORG_TENANCY_PLAN §3.4): the agency KYC, payout and referred-worker services.
-      "AgencyKycService",
-      "AgencyPayoutService",
+      // P2d (ORG_TENANCY_PLAN §3.4): the referred-worker service. The agency KYC and payout
+      // services take the scope their route's owner gate resolved and inject no resolver.
       "AgencyService",
       "AgencyWorkersService",
       "JobPostingChatService",

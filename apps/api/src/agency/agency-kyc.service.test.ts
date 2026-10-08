@@ -1,13 +1,13 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { ConflictException, ForbiddenException } from "@nestjs/common";
+import { ConflictException } from "@nestjs/common";
 import { DrizzleQueryError } from "drizzle-orm";
 import type { ServerConfig } from "@badabhai/config";
 import type { AgencyKyc } from "@badabhai/db";
 import type { PayersRepository } from "../payers/payers.repository";
-import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import {
   defaultModeResolver,
+  ownScope,
   ownTenantKey,
   resolverOver,
 } from "../payers/payer-tenant-scope.test-support";
@@ -60,8 +60,6 @@ function make(opts?: {
   rejected?: boolean;
   /** ADR-0037 Decision 7 — the owning agency's lifecycle status. Defaults to `active`. */
   payerStatus?: "pending" | "active" | "suspended";
-  /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a suite passes `on`. */
-  tenancy?: PayerTenantScopeService;
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
   const events = { emit } as unknown as EventsService;
@@ -82,20 +80,14 @@ function make(opts?: {
       .fn()
       .mockResolvedValue({ role: "agent", status: opts?.payerStatus ?? "active" }),
   } as unknown as PayersRepository;
-  const svc = new AgencyKycService(
-    repo,
-    pii,
-    events,
-    payers,
-    opts?.tenancy ?? defaultModeResolver(),
-  );
+  const svc = new AgencyKycService(repo, pii, events, payers);
   return { svc, repo, emit, payers, captured: () => captured };
 }
 
 describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
   it("ENCRYPTS every field (no plaintext) and stores a keyed PAN hash", async () => {
     const { svc, captured } = make();
-    await svc.submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER });
+    await svc.submit(await ownScope(AGENCY), { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER });
     const c = captured()!;
 
     expect(c.panEnc).not.toContain(PAN);
@@ -110,7 +102,7 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
 
   it("emits agency_kyc.submitted with NO PAN/bank in the payload (PII-free spine)", async () => {
     const { svc, emit } = make();
-    await svc.submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER });
+    await svc.submit(await ownScope(AGENCY), { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER });
 
     const call = emit.mock.calls.find((c) => (c[0] as { event_name: string }).event_name === "agency_kyc.submitted");
     expect(call).toBeDefined();
@@ -126,7 +118,7 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
 
   it("returns a MASKED view (last-4 only) — never the full PAN/bank", async () => {
     const { svc } = make();
-    const view = await svc.submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER });
+    const view = await svc.submit(await ownScope(AGENCY), { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER });
     expect(view).toMatchObject({ status: "pending", panLast4: "234F", bankLast4: "9012" });
     expect(JSON.stringify(view)).not.toContain(PAN);
     expect(JSON.stringify(view)).not.toContain(BANK);
@@ -137,7 +129,7 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
     // Wrapped exactly as drizzle 0.45 throws it: the SQLSTATE is on `cause`, not the error (#1811).
     (repo.upsertPending as ReturnType<typeof vi.fn>).mockRejectedValue(queryError("23505"));
     const err = await svc
-      .submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER })
+      .submit(await ownScope(AGENCY), { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER })
       .then(() => null)
       .catch((e: Error) => e);
 
@@ -153,14 +145,14 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
     const boom = queryError("23514");
     (repo.upsertPending as ReturnType<typeof vi.fn>).mockRejectedValue(boom);
     await expect(
-      svc.submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER }),
+      svc.submit(await ownScope(AGENCY), { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER }),
     ).rejects.toBe(boom);
     expect(emit).not.toHaveBeenCalled();
   });
 
   it("getOwnView returns not_submitted when there is no KYC row", async () => {
     const { svc } = make({ row: undefined });
-    expect(await svc.getOwnView(AGENCY)).toMatchObject({ status: "not_submitted", panLast4: null });
+    expect(await svc.getOwnView(await ownScope(AGENCY))).toMatchObject({ status: "not_submitted", panLast4: null });
   });
 
   it("statusForGate returns the raw status (verified) with NO decrypt", async () => {
@@ -176,9 +168,9 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
 
 /**
  * ADR-0053 (PAY-DB-01 P2d, owner ruling O-5) — KYC is ORG-level: the agency-facing entry points
- * key the row by the session payer's TENANT key, resolved once; the acting login is the actor.
- * Who may reach these entry points is the ROUTE's decision (owner only, `PayerOrgRoleGuard` —
- * agency-payouts-owner-only.test.ts); this suite pins what the service keys by.
+ * key the row by the TENANT key of the scope they are HANDED (never resolving one themselves —
+ * the route's owner gate resolves once and hands it over, agency-payouts-single-resolution.test.ts);
+ * the acting login is the actor. Scopes here come from the REAL resolver, as the guard's do.
  */
 describe("AgencyKycService — the tenant key keys the org's KYC (ADR-0053 P2d)", () => {
   const ANCHOR = AGENCY;
@@ -187,6 +179,8 @@ describe("AgencyKycService — the tenant key keys the org's KYC (ADR-0053 P2d)"
   const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
   const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
   const DTO = { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER };
+  const scopeOff = (actor: string) => defaultModeResolver(TEAM).resolve(actor);
+  const scopeOn = (actor: string) => resolverOver(ON, TEAM).resolve(actor);
 
   const submitted = (emit: ReturnType<typeof vi.fn>) =>
     emit.mock.calls
@@ -196,21 +190,21 @@ describe("AgencyKycService — the tenant key keys the org's KYC (ADR-0053 P2d)"
       .find((evt) => evt.event_name === "agency_kyc.submitted");
 
   it("off: byte-identical — the session payer keys the row, and is the event's actor, subject and payer_id", async () => {
-    const { svc, repo, emit } = make({ tenancy: defaultModeResolver(TEAM) });
-    await svc.submit(MEMBER, DTO);
+    const { svc, repo, emit } = make();
+    await svc.submit(await scopeOff(MEMBER), DTO);
     expect(repo.upsertPending).toHaveBeenCalledWith(MEMBER, expect.anything());
     expect(submitted(emit)).toMatchObject({
       actor: { actor_type: "agent", actor_id: MEMBER },
       subject: { subject_type: "payer", subject_id: MEMBER },
       payload: { payer_id: MEMBER, status: "pending" },
     });
-    await svc.getOwnView(MEMBER);
+    await svc.getOwnView(await scopeOff(MEMBER));
     expect(repo.findByPayer).toHaveBeenCalledWith(MEMBER);
   });
 
   it("on: the owner (the anchor) keys its own org — every field is the anchor", async () => {
-    const { svc, repo, emit } = make({ tenancy: resolverOver(ON, TEAM) });
-    await svc.submit(ANCHOR, DTO);
+    const { svc, repo, emit } = make();
+    await svc.submit(await scopeOn(ANCHOR), DTO);
     expect(repo.upsertPending).toHaveBeenCalledWith(ANCHOR, expect.anything());
     expect(submitted(emit)).toMatchObject({
       actor: { actor_type: "agent", actor_id: ANCHOR },
@@ -218,34 +212,26 @@ describe("AgencyKycService — the tenant key keys the org's KYC (ADR-0053 P2d)"
     });
   });
 
-  it("on: the row is the ORG's — a teammate's call keys the anchor's row; the login stays the actor", async () => {
-    const { svc, repo, emit } = make({ tenancy: resolverOver(ON, TEAM) });
-    await svc.submit(MEMBER, DTO);
+  it("on: the row is the ORG's — a teammate's scope keys the anchor's row; the login stays the actor", async () => {
+    const { svc, repo, emit } = make();
+    await svc.submit(await scopeOn(MEMBER), DTO);
     expect(repo.upsertPending).toHaveBeenCalledWith(ANCHOR, expect.anything());
     expect(submitted(emit)).toMatchObject({
       actor: { actor_type: "agent", actor_id: MEMBER },
       subject: { subject_type: "payer", subject_id: ANCHOR },
       payload: { payer_id: ANCHOR, status: "pending" },
     });
-    await svc.getOwnView(MEMBER);
+    await svc.getOwnView(await scopeOn(MEMBER));
     expect(repo.findByPayer).toHaveBeenCalledWith(ANCHOR);
   });
 
   it("on: an outsider reads only their own org's KYC, never the team's", async () => {
-    const { svc, repo } = make({ tenancy: resolverOver(ON, TEAM), row: undefined });
-    expect(await svc.getOwnView(OUTSIDER)).toMatchObject({ status: "not_submitted" });
+    const { svc, repo } = make({ row: undefined });
+    expect(await svc.getOwnView(await scopeOn(OUTSIDER))).toMatchObject({
+      status: "not_submitted",
+    });
     expect(repo.findByPayer).toHaveBeenCalledWith(OUTSIDER);
     expect(repo.findByPayer).not.toHaveBeenCalledWith(ANCHOR);
-  });
-
-  it("on: a refused resolution (two team memberships, R3) is a 403 that reads, writes and emits nothing", async () => {
-    const twoTeams = [TEAM[0]!, { anchor: OUTSIDER, members: [MEMBER] }];
-    const { svc, repo, emit } = make({ tenancy: resolverOver(ON, twoTeams) });
-    await expect(svc.submit(MEMBER, DTO)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(svc.getOwnView(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
-    expect(repo.upsertPending).not.toHaveBeenCalled();
-    expect(repo.findByPayer).not.toHaveBeenCalled();
-    expect(emit).not.toHaveBeenCalled();
   });
 });
 

@@ -192,6 +192,13 @@ Also note: **role is self-elected at signup.** `PayerSignupSchema` (`payer-auth.
 > Owner gate by decision. The other rows are unchanged by that ruling. Row 11's history is likewise
 > shown to every member: payer-web's `/credits` page (open to any member since #2110) reads
 > `GET /payer/credits/ledger` for its transaction history.
+>
+> **Rows 5–6 CLOSED 2026-10-08 (PAY-DB-01 P2d, PR #2175; ADR-0053 owner ruling O-5).** Every
+> `AgencyPayoutsController` route — KYC, earnings and payouts — carries `PayerOrgRoleGuard` with a
+> class-level `@OrgRoles("owner")`, after `AgencyPayoutsEnabledGuard`. The guard resolves the
+> tenant scope once and hands it to the service, so the owner check and the tenant the rows are
+> keyed by cannot disagree. Pinned by `guard-contract.test.ts`, `agency-payouts-owner-only.test.ts`
+> and `agency-payouts-single-resolution.test.ts`.
 
 | # | Route | File:line | Today's guards | Why Owner |
 |---|---|---|---|---|
@@ -199,8 +206,8 @@ Also note: **role is self-elected at signup.** `PayerSignupSchema` (`payer-auth.
 | 2 | `POST /payer/credits/order` | `:157-177` | `PayerAuthGuard` | Starts a REAL Razorpay order against the org |
 | 3 | `POST /payer/credits/verify` | `:191-217` | `PayerAuthGuard` | Settles a payment and grants credits |
 | 4 | `POST /payer/capacity` | `payer-capacity.controller.ts:43-51` | `PayerAuthGuard` | Raises the org's concurrent-vacancy allowance — a recurring commercial commitment, not an operational act |
-| 5 | `POST /payer/agency/kyc` | `agency-payouts.controller.ts:30-37` | `PayerAuthGuard, PayerRoleGuard(agent), AgencyPayoutsEnabledGuard` | Submits the ORG's PAN + bank account. Financial identity — must not be a recruiter's to set |
-| 6 | `POST /payer/agency/payouts` | `:57-61` | same | Requests money OUT of the org |
+| 5 | `POST /payer/agency/kyc` | `agency-payouts.controller.ts:30-37` | `PayerAuthGuard, PayerRoleGuard(agent), AgencyPayoutsEnabledGuard` | Submits the ORG's PAN + bank account. Financial identity — must not be a recruiter's to set. **✅ Closed 2026-10-08 (P2d): owner-only** |
+| 6 | `POST /payer/agency/payouts` | `:57-61` | same | Requests money OUT of the org. **✅ Closed 2026-10-08 (P2d): owner-only** |
 
 ### SPEND — genuinely ambiguous, my reasoning and recommendation
 

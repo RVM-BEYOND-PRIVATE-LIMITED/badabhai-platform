@@ -1311,21 +1311,22 @@ describe.skipIf(!RUN)(
         pii,
         events,
         new PayersRepository(client.db, pii),
-        tenancy,
       );
       const payouts = new AgencyPayoutService(
         new AgencyPayoutRepository(client.db),
         kyc,
         events,
         config,
-        tenancy,
       );
       const workers = new AgencyWorkersService(
         new AgencyWorkersRepository(client.db),
         pii,
         tenancy,
       );
-      return { agency, kyc, payouts, workers, pii };
+      // The money routes' services take the scope their owner gate resolved (ONE resolution per
+      // request); `scope(actor)` is that resolution, through the same real resolver.
+      const scope = (actor: string) => tenancy.resolve(actor);
+      return { agency, kyc, payouts, workers, pii, scope };
     }
 
     async function signUp(label: string): Promise<string> {
@@ -1466,15 +1467,17 @@ describe.skipIf(!RUN)(
       });
 
       it("KYC: ONE org row keyed by the anchor; the outsider reads not_submitted", async () => {
-        const view = await on.kyc.submit(ids.G, kycDto("g"));
+        const view = await on.kyc.submit(await on.scope(ids.G), kycDto("g"));
         expect(view).toMatchObject({ status: "pending" });
         const rows = await client.sql<{ payer_id: string }[]>`
           SELECT payer_id FROM agency_kyc WHERE payer_id = ANY(${[ids.G, ids.H]}::uuid[])`;
         expect(rows.map((r) => r.payer_id)).toEqual([ids.G]);
         const [evt] = await eventsNamed("agency_kyc.submitted", ids.G);
         expect(evt).toMatchObject({ actor_id: ids.G, payload: { payer_id: ids.G } });
-        expect(await on.kyc.getOwnView(ids.G)).toMatchObject({ status: "pending" });
-        expect(await on.kyc.getOwnView(ids.I)).toMatchObject({ status: "not_submitted" });
+        expect(await on.kyc.getOwnView(await on.scope(ids.G))).toMatchObject({ status: "pending" });
+        expect(await on.kyc.getOwnView(await on.scope(ids.I))).toMatchObject({
+          status: "not_submitted",
+        });
       });
 
       it("earnings + payout: the unlock on the teammate-referred man earns for the ORG; the request claims it under the anchor and never the outsider's", async () => {
@@ -1491,11 +1494,11 @@ describe.skipIf(!RUN)(
 
         // The outsider asks FIRST, while neither accrual exists: an accrual join that lost its
         // tenant predicate would hand the org's unlock to the outsider here (20, not 10).
-        expect(await on.payouts.getEarnings(ids.I)).toMatchObject({
+        expect(await on.payouts.getEarnings(await on.scope(ids.I))).toMatchObject({
           totalAccruedInr: 10,
           accrualCount: 1,
         });
-        const earnings = await on.payouts.getEarnings(ids.G);
+        const earnings = await on.payouts.getEarnings(await on.scope(ids.G));
         expect(earnings).toMatchObject({
           totalAccruedInr: 10,
           requestableInr: 10,
@@ -1510,7 +1513,7 @@ describe.skipIf(!RUN)(
           SELECT agency_payer_id FROM agency_payout_accruals WHERE source_unlock_id = ${UNLOCK_W3}::uuid`;
         expect(accrualOfI!.agency_payer_id).toBe(ids.I);
 
-        const out = await on.payouts.requestPayout(ids.G);
+        const out = await on.payouts.requestPayout(await on.scope(ids.G));
         expect(out).toMatchObject({ ok: true, amountInr: 10, accrualCount: 1 });
         const requestId = (out as { requestId: string }).requestId;
         const [req] = await client.sql<{ agency_payer_id: string }[]>`
@@ -1519,10 +1522,12 @@ describe.skipIf(!RUN)(
         const [evt] = await eventsNamed("agency_payout.requested", requestId);
         expect(evt).toMatchObject({ actor_id: ids.G, payload: { agency_payer_id: ids.G } });
 
-        expect((await on.payouts.listRequests(ids.G)).map((r) => r.id)).toEqual([requestId]);
-        expect(await on.payouts.listRequests(ids.I)).toEqual([]);
+        expect((await on.payouts.listRequests(await on.scope(ids.G))).map((r) => r.id)).toEqual([
+          requestId,
+        ]);
+        expect(await on.payouts.listRequests(await on.scope(ids.I))).toEqual([]);
         // The org's claim took only its own accrual: the outsider's is still unclaimed.
-        expect(await on.payouts.getEarnings(ids.I)).toMatchObject({
+        expect(await on.payouts.getEarnings(await on.scope(ids.I))).toMatchObject({
           totalAccruedInr: 10,
           requestableInr: 10,
           inRequestInr: 0,
@@ -1553,12 +1558,20 @@ describe.skipIf(!RUN)(
       });
 
       it("KYC, earnings and payouts: the anchor reads exactly what `on` serves; the teammate reads only their own (nothing)", async () => {
-        expect(await off.kyc.getOwnView(ids.G)).toEqual(await on.kyc.getOwnView(ids.G));
-        expect(await off.payouts.listRequests(ids.G)).toEqual(await on.payouts.listRequests(ids.G));
-        expect(await off.payouts.getEarnings(ids.G)).toEqual(await on.payouts.getEarnings(ids.G));
-        expect(await off.kyc.getOwnView(ids.H)).toMatchObject({ status: "not_submitted" });
-        expect(await off.payouts.listRequests(ids.H)).toEqual([]);
-        expect(await off.payouts.getEarnings(ids.H)).toMatchObject({
+        expect(await off.kyc.getOwnView(await off.scope(ids.G))).toEqual(
+          await on.kyc.getOwnView(await on.scope(ids.G)),
+        );
+        expect(await off.payouts.listRequests(await off.scope(ids.G))).toEqual(
+          await on.payouts.listRequests(await on.scope(ids.G)),
+        );
+        expect(await off.payouts.getEarnings(await off.scope(ids.G))).toEqual(
+          await on.payouts.getEarnings(await on.scope(ids.G)),
+        );
+        expect(await off.kyc.getOwnView(await off.scope(ids.H))).toMatchObject({
+          status: "not_submitted",
+        });
+        expect(await off.payouts.listRequests(await off.scope(ids.H))).toEqual([]);
+        expect(await off.payouts.getEarnings(await off.scope(ids.H))).toMatchObject({
           totalAccruedInr: 0,
           kycStatus: "not_submitted",
         });

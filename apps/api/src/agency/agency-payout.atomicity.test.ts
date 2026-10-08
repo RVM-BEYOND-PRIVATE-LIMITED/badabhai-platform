@@ -7,7 +7,7 @@ import type { AgencyPayoutRepository, QualifyingUnlock } from "./agency-payout.r
 import { PayoutBelowThresholdError } from "./agency-payout.repository";
 import type { AgencyKycService } from "./agency-kyc.service";
 import type { EventsService } from "../events/events.service";
-import { defaultModeResolver, ownTenantKey } from "../payers/payer-tenant-scope.test-support";
+import { ownScope, ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 
 /**
  * ATOMICITY (#1129 item 3) — proves the ledger write (`insertAccruals` / `createRequestClaiming`)
@@ -172,7 +172,7 @@ function makeHarness(
           ...CONFIG,
           AGENCY_PAYOUT_MIN_THRESHOLD_INR: opts.thresholdInr,
         } as unknown as ServerConfig);
-  const service = new AgencyPayoutService(repo, kyc, events, config, defaultModeResolver());
+  const service = new AgencyPayoutService(repo, kyc, events, config);
   return { service, world };
 }
 
@@ -235,7 +235,7 @@ describe("AgencyPayoutService.requestPayout atomicity (#1129 item 3) — the cla
       },
     );
 
-    await expect(h.service.requestPayout(AGENCY)).rejects.toThrow(/emit failure/);
+    await expect(h.service.requestPayout(await ownScope(AGENCY))).rejects.toThrow(/emit failure/);
 
     // ROLLBACK: the request row never survives, and — the property that matters most — the
     // accruals the claim UPDATE touched inside the staged tx are back to UNCLAIMED, not stuck
@@ -266,10 +266,10 @@ describe("AgencyPayoutService.requestPayout atomicity (#1129 item 3) — the cla
       },
     );
 
-    await expect(h.service.requestPayout(AGENCY)).rejects.toThrow();
+    await expect(h.service.requestPayout(await ownScope(AGENCY))).rejects.toThrow();
     expect(h.world.requests).toHaveLength(0); // first attempt fully rolled back
 
-    const out = await h.service.requestPayout(AGENCY);
+    const out = await h.service.requestPayout(await ownScope(AGENCY));
     expect(out).toEqual({ ok: true, requestId: REQUEST_ID, amountInr: 20, accrualCount: 2 });
     expect(h.world.requests).toHaveLength(1);
     expect(h.world.events.filter((e) => e.event_name === "agency_payout.requested")).toHaveLength(
@@ -296,7 +296,7 @@ describe("AgencyPayoutService.requestPayout atomicity (#1129 item 3) — the cla
         payoutRequestId: null,
       },
     );
-    const out = await h.service.requestPayout(AGENCY);
+    const out = await h.service.requestPayout(await ownScope(AGENCY));
     expect(out).toEqual({ ok: true, requestId: REQUEST_ID, amountInr: 20, accrualCount: 2 });
     expect(h.world.requests).toHaveLength(1);
     expect(h.world.events.filter((e) => e.event_name === "agency_payout.requested")).toHaveLength(
@@ -311,7 +311,7 @@ describe("AgencyPayoutService.requestPayout atomicity (#1129 item 3) — the cla
     // blocks BEFORE `withTransaction`/`createRequestClaiming` is ever called — the atomicity
     // refactor must not have changed that pre-check.
     const h = makeHarness({ failEmitOnce: false, thresholdInr: 30 });
-    const out = await h.service.requestPayout(AGENCY);
+    const out = await h.service.requestPayout(await ownScope(AGENCY));
     expect(out).toEqual({ ok: false, blocked: true, reason: "below_threshold" });
     expect(h.world.requests).toHaveLength(0);
     expect(h.world.accruals.every((a) => a.payoutRequestId === null)).toBe(true);

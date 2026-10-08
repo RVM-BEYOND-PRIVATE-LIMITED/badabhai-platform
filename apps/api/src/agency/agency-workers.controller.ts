@@ -9,8 +9,10 @@ import { AgencyWorkersService, type AgencyWorkerView } from "./agency-workers.se
 /**
  * B5 — the agency's ENGAGEMENT view of the workers it referred (ADR-0022 portal).
  *
- * Agent-only, session-scoped (XB-A): the `inviter_payer_id` is the verified session
- * payer and appears nowhere in the route, the query or a body. There is deliberately
+ * Agent-only, session-scoped (XB-A): the `inviter_payer_id` is the TENANT KEY the service
+ * resolves from the verified session payer (ADR-0053: the agency org's anchor; the login
+ * itself while org tenancy is off) and appears nowhere in the route, the query or a body.
+ * There is deliberately
  * NO parameterised variant — an agency cannot ask about another agency's referrals
  * because there is nothing to ask WITH.
  *

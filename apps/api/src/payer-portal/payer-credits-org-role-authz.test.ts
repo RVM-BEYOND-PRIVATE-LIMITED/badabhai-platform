@@ -55,13 +55,25 @@ const member =
 // Team management — owner-only (unchanged by the 2026-10-07 ruling)
 // ---------------------------------------------------------------------------------------------
 
-/** A guard whose membership read is driven by `resolve` (called once per request). */
-function guardWith(resolve: Membership) {
-  const resolveActingOrg = vi.fn(resolve);
+/**
+ * A guard whose ONE tenant resolution per request (ADR-0053 §5.2 rule 1) is driven by
+ * `membership`: the scope's acting org is the membership, or none.
+ */
+function guardWith(membership: Membership) {
+  const resolve = vi.fn(async (actor: string) => {
+    const org = await membership();
+    return {
+      actorPayerId: actor,
+      tenantKey: actor,
+      orgId: org?.orgId ?? null,
+      orgRole: org?.orgRole ?? null,
+      mode: "off",
+    };
+  });
   const guard = new PayerOrgRoleGuard(new Reflector(), {
-    resolveActingOrg,
+    resolve,
   } as unknown as PayerTenantScopeService);
-  return { guard, resolveActingOrg };
+  return { guard, resolve };
 }
 
 function ctxFor(controller: Ctor, method: string) {
@@ -127,14 +139,14 @@ describe("team management stays org-OWNER-only (#2079)", () => {
 
       it("a DEMOTED owner loses access on the very next request (current role, per request)", async () => {
         let role: OrgRole = "owner";
-        const { guard, resolveActingOrg } = guardWith(async () => ({ orgId: ORG_ID, orgRole: role }));
+        const { guard, resolve } = guardWith(async () => ({ orgId: ORG_ID, orgRole: role }));
         await expect(guard.canActivate(ctxFor(controller, method).ctx)).resolves.toBe(true);
         role = "recruiter"; // demoted between two requests on the SAME session
         await expect(guard.canActivate(ctxFor(controller, method).ctx)).rejects.toBeInstanceOf(
           ForbiddenException,
         );
-        expect(resolveActingOrg).toHaveBeenCalledTimes(2);
-        expect(resolveActingOrg).toHaveBeenLastCalledWith(PAYER.id);
+        expect(resolve).toHaveBeenCalledTimes(2);
+        expect(resolve).toHaveBeenLastCalledWith(PAYER.id);
       });
     });
   }

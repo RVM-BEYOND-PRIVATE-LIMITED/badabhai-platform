@@ -213,7 +213,10 @@ resolve(actorPayerId: string): Promise<PayerTenantScope>;
 
 1. **Resolve once per request, at the service entry point.** Tenancy is business logic (CLAUDE.md §4),
    so it is never resolved in a controller or a repository. The scope object is passed down. It is
-   never re-resolved inside a transaction.
+   never re-resolved inside a transaction. *Amended 2026-10-08 (PR #2175, review F1): a guard that
+   authorizes on the tenant scope (`PayerOrgRoleGuard` with `@OrgRoles`) resolves it once and
+   hands that scope to the service (`@CurrentTenantScope()`), which then does not resolve: a role
+   check and a tenant key from two reads can disagree when a membership changes mid-request.*
 2. **Repositories take `TenantKey`, not `string`,** for every tenant-row predicate and stamp. A typed
    body, path or JWT value cannot reach a predicate, because only the resolver produces the type:
    its one constructor is private to `payer-tenant-scope.ts`, and `payer-tenancy.static.test.ts`
@@ -256,7 +259,8 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
 ### 5.4 Performance budget
 
 - **Resolver cost:** at most one indexed round trip per tenant-touching request
-  (`payer_members_member_payer_id_idx`, then primary-key joins).
+  (`payer_members_member_payer_id_idx`, then primary-key joins). A route gated by
+  `PayerOrgRoleGuard` makes that one round trip in the guard (rule 1 as amended).
 - **Gate for `on`:** in `shadow`, the resolver's own p95 must be ≤ 5 ms, and the p95 of `/payer/*`
   tenant routes must not regress by more than 5 ms against the `off` baseline.
 - **Later optimisation:** fold the resolver into `PayerAuthGuard`'s existing per-request
