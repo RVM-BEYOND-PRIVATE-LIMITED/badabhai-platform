@@ -29,6 +29,11 @@ language; the reply comes back in that language mixed with English, in Latin let
 mixes Hindi and English), and the regional equivalents of the walls above are named too, from the
 API's `free-chat-regional-walls.ts` lists (pinned equal by a test).
 
+REPLY LANGUAGE (ADR-0051 §11, #2181). CODE decides the language: the API sends `reply_language`
+and the builders add one fixed "Reply language:" line to the USER message
+(:data:`REPLY_LANGUAGE_LINES`). The system prompts never change with it. Without it, §9's rule
+applies.
+
 The prompts are module constants (registered by ``ai/prompt_registry.install_default_prompts``).
 They carry NO request interpolation: the two substitutions, the persona banned tokens and the
 regional words, happen once at import from module data, so the registered text and the route's
@@ -42,7 +47,9 @@ news request's date is computed by the route, never taken from the request.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
+from types import MappingProxyType
 
 from ..ai.router import Message
 from ..companion.prompts import (
@@ -56,6 +63,7 @@ from ..contracts import (
     CompanionMemoryRole,
     CompanionRecentTurn,
     FreeChatClassifyMode,
+    FreeChatReplyLanguage,
 )
 
 #: The classifier's system prompt, kept short for p95 (the companion's classifier was shrunk for
@@ -180,25 +188,84 @@ def render_regional_words() -> str:
     )
 
 
-#: The language rules both reply prompts share (ADR-0051 §9, #2126). Owner ruling 2026-10-07: the
-#: reply is in the language of the worker's message mixed with English, the way Hinglish mixes
-#: Hindi and English, ALWAYS in Latin letters (the API's gate rejects any other script, and its
-#: word walls are spelled in Latin). Hindi, English and anything unsure stay today's Hinglish.
-#: Every other rule is unchanged, in every language.
+#: The language rules both reply prompts share (ADR-0051 §9, #2126; §11, #2181). ALWAYS Latin
+#: letters (the API's gate rejects any other script, and its word walls are spelled in Latin).
+#: §11 (R39, R40): CODE decides the language. The API sends `reply_language`, and the builders
+#: render it as ONE fixed "Reply language:" line in the user message (:data:`REPLY_LANGUAGE_LINES`),
+#: so this text stays one constant (one registry version, cacheable). A present line is followed
+#: exactly; without one (an API that predates §11) §9's rule still applies: mirror the message,
+#: Hindi, English and anything unsure in Hinglish. On `claude-haiku-4-5` the §9 rule alone gave
+#: Hinglish to 9 of 10 regional questions, repeated an answer word for word on "marathi mai
+#: jawab do", and slipped into "tum" forms; the respectful forms, the no-repeat rule and the
+#: bare-request rule are stated here for that reason. Every other rule is unchanged.
 _LANGUAGE_RULES = """\
 LANGUAGE. The worker may write in Hindi, English, Marathi, Gujarati, Kannada, Telugu or Tamil,
-in that language's own script or in Latin letters, often mixed with English. Reply in the
-language of the worker's latest message mixed with English, the way Hinglish mixes Hindi and
-English, and ALWAYS in Latin letters:
-- Hindi, Hinglish or English, or when unsure: Hinglish, always using "aap".
-- Marathi: Marathi with English, using "tumhi", never "tu", "tula" or "tujha".
-- Gujarati: Gujarati with English, using "tame" or "aap", never "tu", "tane" or "taru".
-- Kannada: Kannada with English, using "neevu" and "nimma", never "neenu" or "ninna".
-- Telugu: Telugu with English, using "meeru" and "mee", never "nuvvu" or "neeku".
-- Tamil: Tamil with English, using "neenga" and "unga", never "nee" or "unakku".
+in that language's own script or in Latin letters, often mixed with English. ALWAYS reply in
+Latin letters.
+- When the request has a "Reply language:" line, write in exactly that language, whatever
+  language the worker or the earlier turns used. "Simple English" means short, plain English
+  for a worker with basic English, with no Hindi words, polite and respectful.
+- Without that line, reply in the language of the worker's latest message mixed with English,
+  the way Hinglish mixes Hindi and English. Hindi, Hinglish or English, or when unsure: Hinglish.
+Always respectful, in every language:
+- Hinglish: always using "aap", with "kariye", "seekhiye", "dekhiye", "lijiye", "sakte hain";
+  never "karo", "jaao", "seekho", "jaoge", "sakte ho", "lo", "lelo" or "karunga".
+- Marathi: Marathi with English, using "tumhi" and "kara", never "tu", "tula" or "tujha".
+- Gujarati: Gujarati with English, using "tame" or "aap" and "karjo", never "tu", "tane" or
+  "taru".
+- Kannada: Kannada with English, using "neevu", "nimma" and "maadi", never "neenu" or "ninna".
+- Telugu: Telugu with English, using "meeru", "mee" and "cheyyandi", never "nuvvu" or "neeku".
+- Tamil: Tamil with English, using "neenga", "unga" and "pannunga", never "nee" or "unakku".
+Never repeat an earlier reply of yours, word for word or nearly. If the worker's message only
+asks for another language ("marathi mai jawab do", "reply in Tamil"), answer the worker's
+previous question again, written fresh in the reply language.
 Every rule below holds in every language, and the chips follow the reply's language.
 
 """
+
+#: ADR-0051 §11 (R39, R40): the ONE line a request carries when the API sent `reply_language`,
+#: one fixed wording per language. Rendered from this closed table, never from request text, so
+#: it carries nothing to mask and nothing a worker wrote. Exhaustive over `FreeChatReplyLanguage`
+#: (pinned by a test). The LANGUAGE rules above say what "simple English" means.
+#:
+#: EACH LINE SHOWS ITS LANGUAGE in one respectful sentence ("practise a little every day, then
+#: this work will feel easy"). Measured on `claude-haiku-4-5` (2026-10-08): with the bare line,
+#: regional CAREER answers still came back in Hinglish, and a bare language request repeated the
+#: earlier Hinglish answer. The example rides the request, not the system prompt, so only the one
+#: language asked for is shown and the system prompt stays one constant. Each example is clear of
+#: every API wall (pinned by a test).
+REPLY_LANGUAGE_LINES: Mapping[FreeChatReplyLanguage, str] = MappingProxyType(
+    {
+        "english": (
+            'Reply language: simple English, for example: "Please practise a little every day, '
+            'then this work will feel easy."'
+        ),
+        "hinglish": (
+            "Reply language: Hinglish, Hindi mixed with English, in Latin letters, for example: "
+            '"Aap roz thoda practice kariye, phir yeh kaam aasaan lagega."'
+        ),
+        "marathi": (
+            "Reply language: Marathi mixed with English, in Latin letters, for example: "
+            '"Tumhi roj thoda practice kara, mag he kaam sope vatel."'
+        ),
+        "gujarati": (
+            "Reply language: Gujarati mixed with English, in Latin letters, for example: "
+            '"Tame roj thodi practice karjo, pachhi aa kaam saral lagshe."'
+        ),
+        "kannada": (
+            "Reply language: Kannada mixed with English, in Latin letters, for example: "
+            '"Neevu dina swalpa practice maadi, aamele ee kelasa sulabha anisuttade."'
+        ),
+        "telugu": (
+            "Reply language: Telugu mixed with English, in Latin letters, for example: "
+            '"Meeru roju konchem practice cheyyandi, tarvata ee pani sulabhamga anipistundi."'
+        ),
+        "tamil": (
+            "Reply language: Tamil mixed with English, in Latin letters, for example: "
+            '"Neenga dhinamum konjam practice pannunga, appuram indha velai easy-aa irukkum."'
+        ),
+    }
+)
 
 #: The content walls every model-written free-chat line is held to, whatever the output shape:
 #: the reply's answer rules and the news answer's rules (ADR-0054) both carry this block word for
@@ -254,12 +321,13 @@ Rules for an answer:
 #: request routes here (the classifier files news and sports as casual), and until live news
 #: ships (R12, phase 2) it is refused on `news` so the API serves its fixed line.
 CASUAL_SYSTEM_PROMPT = (
-    """\
+    (
+        """\
 You are Bada Bhai, in the BadaBhai app's chat for Indian blue-collar workers (welder, fitter,
 CNC operator, electrician, plumber, driver and similar trades). You are 28 to 33 years old and
 have spent 8 to 12 years doing the worker's own kind of job: a big brother, not a strict one,
 warm and calm. The worker is making small talk: a greeting, their mood, a feeling or a joke.
-Reply briefly and kindly in the worker's language, as LANGUAGE below says, always respectful.
+Reply briefly and kindly in the reply language, as LANGUAGE below says, always respectful.
 
 Where it fits naturally, connect back to the worker's work or skills, without pushing. The
 WORKER CONTEXT names the worker's trade and experience when known (null when not). Do not ask
@@ -276,10 +344,11 @@ For anything else you are unsure about, the topic is "unsafe_other".
 The topic is one of: "off_limits" | "distress" | "news" | "unsafe_other".
 
 """
-    + _LANGUAGE_RULES
-    + _ANSWER_RULES
-).replace(BANNED_TOKENS_SLOT, render_banned_tokens()).replace(
-    REGIONAL_WORDS_SLOT, render_regional_words()
+        + _LANGUAGE_RULES
+        + _ANSWER_RULES
+    )
+    .replace(BANNED_TOKENS_SLOT, render_banned_tokens())
+    .replace(REGIONAL_WORDS_SLOT, render_regional_words())
 )
 
 #: The career reply's system prompt: the companion's career prompt with the owner's free-chat
@@ -287,10 +356,11 @@ The topic is one of: "off_limits" | "distress" | "news" | "unsafe_other".
 #: are ALLOWED (the API's money and named-employer walls are off for this surface); a job or a
 #: salary is never PROMISED; the worker is encouraged but never compared or marked.
 CAREER_SYSTEM_PROMPT = (
-    """\
+    (
+        """\
 You are Bada Bhai, the career helper for Indian blue-collar workers (welder, fitter, CNC
 operator, electrician, plumber, driver and similar trades) in the BadaBhai app. A worker whose
-resume is not made yet has asked a career question. Answer it briefly in the worker's language,
+resume is not made yet has asked a career question. Answer it briefly in the reply language,
 as LANGUAGE below says: calm, practical and hopeful, like an experienced senior worker talking
 to a junior, a big brother and not a strict one. The WORKER CONTEXT names the worker's trade
 and experience when known (null when not).
@@ -318,10 +388,11 @@ The topic is one of: "legal_medical_financial" | "news" | "off_limits" | "distre
 "unsafe_other".
 
 """
-    + _LANGUAGE_RULES
-    + _ANSWER_RULES
-).replace(BANNED_TOKENS_SLOT, render_banned_tokens()).replace(
-    REGIONAL_WORDS_SLOT, render_regional_words()
+        + _LANGUAGE_RULES
+        + _ANSWER_RULES
+    )
+    .replace(BANNED_TOKENS_SLOT, render_banned_tokens())
+    .replace(REGIONAL_WORDS_SLOT, render_regional_words())
 )
 
 #: The language rules as the news answer states them (ADR-0054): the reply prompts' rules word for
@@ -379,12 +450,13 @@ Rules for an answer:
 #: by `app/free_chat/news.py`, so a tile can only point at a page the search actually returned.
 #: "Today" rides the user message (`build_free_news_messages`), so this text stays one constant.
 NEWS_SYSTEM_PROMPT = (
-    """\
+    (
+        """\
 You are Bada Bhai, in the BadaBhai app's chat for Indian blue-collar workers (welder, fitter,
 CNC operator, electrician, plumber, driver and similar trades). You are 28 to 33 years old and
 have spent 8 to 12 years doing the worker's own kind of job: a big brother, not a strict one,
 warm and calm. The worker has asked about the news. You have a web search tool: use it to find
-what the latest news says, then tell the worker briefly in the worker's language, as LANGUAGE
+what the latest news says, then tell the worker briefly in the reply language, as LANGUAGE
 below says, always respectful.
 
 The user message starts with "Today:" and the date in India, so "aaj", "kal" and "is hafte"
@@ -406,7 +478,7 @@ THE KIND OF NEWS, the "kind" of an answer:
   admissions, safety rules at work. Where it fits, connect it to the worker's trade from the
   WORKER CONTEXT.
 - "everyday": weather, match results, fuel prices and other general current news. The LAST
-  line gently brings the worker back to work and making their resume, in the worker's
+  line gently brings the worker back to work and making their resume, in the reply
   language, for example "Chaliye, ab apna resume bhi bana lete hain, naya kaam dhoondhna
   aasaan hoga."
 
@@ -422,10 +494,11 @@ For anything else you are unsure about, the topic is "unsafe_other".
 The topic is one of: "off_limits" | "distress" | "legal_medical_financial" | "unsafe_other".
 
 """
-    + _NEWS_LANGUAGE_RULES
-    + _NEWS_ANSWER_RULES
-).replace(BANNED_TOKENS_SLOT, render_banned_tokens()).replace(
-    REGIONAL_WORDS_SLOT, render_regional_words()
+        + _NEWS_LANGUAGE_RULES
+        + _NEWS_ANSWER_RULES
+    )
+    .replace(BANNED_TOKENS_SLOT, render_banned_tokens())
+    .replace(REGIONAL_WORDS_SLOT, render_regional_words())
 )
 
 #: The news request's first line: the calendar day in India (the route computes it in IST), so
@@ -507,22 +580,36 @@ def build_free_reply_messages(
     system_prompt: str,
     *,
     message_label: str,
+    reply_language: FreeChatReplyLanguage | None = None,
 ) -> list[Message]:
-    """The reply request: the companion's career builder, plus the notes block when there is one.
+    """The reply request: the companion's career builder, plus the notes block when there is one,
+    and the reply-language line when the API sent one.
 
     THE NOTES OPEN THE LAST USER MESSAGE, above the worker context, so the worker's message
     still comes last and labelled DATA. With no notes (``None``, or notes that render empty) the
     user messages are Release 1's; the system prompt gains one rule (the notes rule in the shared
     answer rules), so a reply without notes differs from Release 1 by that line alone.
+
+    THE REPLY-LANGUAGE LINE (§11) opens the last user message, above the notes: one fixed line
+    from :data:`REPLY_LANGUAGE_LINES`, rendered from a closed enum (so it carries nothing a worker
+    wrote), riding the USER message so the system prompt stays one constant. Above the worker's
+    message, like the notes, so the worker's message still comes last and labelled DATA. Measured
+    on `claude-haiku-4-5` (2026-10-08): the same line placed AFTER the worker's message brought
+    back the verbatim repeats on a bare language request (2 of 2) and recovered 1 of 11 hard
+    cases, so it stays above. With ``reply_language`` None (an API that predates §11) the request
+    bytes are exactly what they were before it.
     """
     messages = build_career_messages(
         text, recent_turns, worker_context, system_prompt, message_label=message_label
     )
     block = render_notes(notes) if notes is not None else ""
-    if not block:
+    parts = [REPLY_LANGUAGE_LINES[reply_language]] if reply_language is not None else []
+    if block:
+        parts.append(f"{NOTES_LABEL}\n{block}")
+    if not parts:
         return messages
     *head, last = messages
-    return [*head, {"role": "user", "content": f"{NOTES_LABEL}\n{block}\n\n{last['content']}"}]
+    return [*head, {"role": "user", "content": "\n\n".join([*parts, last["content"]])}]
 
 
 def build_free_news_messages(
@@ -531,6 +618,8 @@ def build_free_news_messages(
     worker_context: CompanionCareerWorkerContext,
     today: date,
     system_prompt: str,
+    *,
+    reply_language: FreeChatReplyLanguage | None = None,
 ) -> list[Message]:
     """The news request (ADR-0054): the career builder, with today's date opening the last message.
 
@@ -540,13 +629,19 @@ def build_free_news_messages(
     DATA. ``today`` is an ISO calendar date, so the bytes are deterministic for the same inputs
     and the same day. The recent turns ride as ordinary chat messages ("aur batao" has an
     antecedent), exactly as on the reply.
+
+    The reply-language line (§11), when the API sent one, follows the date on the next line, so
+    "Today:" still opens the message as the system prompt says and the worker's question still
+    comes last. Without one the bytes are unchanged.
     """
     messages = build_career_messages(
         text, recent_turns, worker_context, system_prompt, message_label="WORKER QUESTION"
     )
     *head, last = messages
-    content = f"{NEWS_TODAY_LABEL} {today.isoformat()}\n\n{last['content']}"
-    return [*head, {"role": "user", "content": content}]
+    header = f"{NEWS_TODAY_LABEL} {today.isoformat()}"
+    if reply_language is not None:
+        header += f"\n{REPLY_LANGUAGE_LINES[reply_language]}"
+    return [*head, {"role": "user", "content": f"{header}\n\n{last['content']}"}]
 
 
 def build_free_summary_messages(
