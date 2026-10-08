@@ -49,6 +49,18 @@ class SwipeFeedRequested extends SwipeEvent {
   List<Object?> get props => <Object?>[background, fresh];
 }
 
+/// Append the NEXT page of the deck (#2068, ADR-0052) — the Jobs tab asks for
+/// this as the worker nears the end of what is loaded, and the bloc asks itself
+/// when decisions drain the deck that far (see [SwipeBloc._advance]).
+///
+/// A no-op unless [SwipeState.nextCursor] holds a cursor: null means the deck is
+/// finished for this scroll (end of deck, an API build without the key, or a
+/// cursor dropped by a filter change), and page 1 is then the only legal call.
+/// Firing it repeatedly is safe — the in-flight guard collapses the extras.
+class SwipeNextPageRequested extends SwipeEvent {
+  const SwipeNextPageRequested();
+}
+
 /// Apply to the current (head) card.
 class SwipeApplied extends SwipeEvent {
   const SwipeApplied();
@@ -97,7 +109,7 @@ class SwipeJobApplied extends SwipeEvent {
 /// top chip row, which both dispatch this one event. [filters] is the whole
 /// selection across Trade/City/Experience ([FilterSelection.initial] = show
 /// all). Recomputes the visible deck client-side over the already-loaded queue
-/// — no refetch.
+/// — no refetch — and DROPS the paging cursor (#2068).
 class SwipeFiltersChanged extends SwipeEvent {
   const SwipeFiltersChanged(this.filters);
 
@@ -112,6 +124,7 @@ class SwipeFiltersChanged extends SwipeEvent {
 class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   SwipeBloc(this._repo) : super(const SwipeState()) {
     on<SwipeFeedRequested>(_onFeedRequested);
+    on<SwipeNextPageRequested>(_onNextPageRequested);
     on<SwipeApplied>(_onApplied);
     on<SwipeCardApplied>(_onCardApplied);
     on<SwipeSkipped>(_onSkipped);
@@ -120,6 +133,13 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   }
 
   final SwipeRepository _repo;
+
+  /// How few UNDECIDED cards may be left before the next page is fetched
+  /// (#2068). Deck mode shows one card at a time and list mode two or three, so
+  /// a handful of cards is far enough ahead for the page to land before the
+  /// worker reaches the bottom, and small enough that a worker who never scrolls
+  /// costs the server one page.
+  static const int prefetchThreshold = 5;
 
   /// The FULL posting for one job, delegated to the feed repository so a card
   /// can be enriched through the SAME client/session (and the same test mock).
@@ -137,6 +157,13 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   /// A [SwipeFeedRequested.fresh] request arrived while a load was in flight:
   /// run one more background load once it settles.
   bool _reloadQueued = false;
+
+  /// True while a NEXT-PAGE load is in flight (#2068). Separate from
+  /// [_loadingFeed] because the two loads are different animals — page 1
+  /// replaces the deck, a cursor page appends to it — and the near-the-end
+  /// trigger fires once per built card, so without this guard one scroll would
+  /// send the same cursor several times over.
+  bool _loadingPage = false;
 
   /// [SwipeFeedRequested.done] completers waiting on the load in flight (or
   /// the queued one). Completed — never errored — when that load settles.
@@ -190,8 +217,47 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     return super.close();
   }
 
-  /// One `GET /feed` round-trip and its emits. [background] keeps the current
-  /// deck on screen while it reloads.
+  /// One `GET /feed` round-trip, for PAGE 1 or for the page after [cursor]
+  /// (#2068). The narrowing params are identical either way, which is the
+  /// contract: a cursor is a position in ONE order under ONE set of filters, so
+  /// the filters may not move during a scroll — [_onFiltersChanged] drops the
+  /// cursor rather than letting that happen.
+  ///
+  /// `trade_key` is the one param resolved from the loaded QUEUE, so a cursor
+  /// page could in principle resolve it differently from page 1 (a page-2 card
+  /// can be the sibling slug that makes a family chip ambiguous). That only ever
+  /// widens the server-side read — the deck is still narrowed client-side by
+  /// [applyJobFilters] — so it can add inventory, never admit a job the filter
+  /// excludes.
+  Future<FeedPage> _fetchFeed({String? cursor}) {
+    // Resolve a one-trade filter back to a REAL slug from the loaded queue
+    // (#1906) — sending the chip LABEL as `trade_key` never matched a slug and
+    // zeroed the deck. Null means "don't narrow server-side"; the client-side
+    // match still narrows the full feed.
+    final String? trade = outboundTradeKey(state.filters, state.queue);
+    final String? city =
+        state.filters.cities.length == 1 ? state.filters.cities.first : null;
+    // Shift + pay floor are single-value, so they thread straight through as the
+    // OUTBOUND `/feed` narrowing params (server-side); the client-side match in
+    // [applyJobFilters] is what narrows the already-loaded deck immediately.
+    return _repo.getFeed(
+      tradeKey: trade,
+      city: city,
+      shift: state.filters.shift,
+      payMin: state.filters.payMin,
+      cursor: cursor,
+    );
+  }
+
+  /// PAGE 1 and its emits — no cursor, so the queue is REPLACED, which is what
+  /// every caller of [SwipeFeedRequested] means: the screen's first load, the
+  /// tab-focus and resume refetches, the match-input invalidation, the header
+  /// refresh and pull-to-refresh. [background] keeps the current deck on screen
+  /// while it reloads.
+  ///
+  /// The response's own cursor replaces whatever we held: a page-1 read starts a
+  /// NEW scroll, so the old position is void and `next_cursor: null` (an older
+  /// API build, a rollback, or a deck that fits in one page) must land as null.
   Future<void> _loadFeed(
     Emitter<SwipeState> emit, {
     required bool background,
@@ -200,24 +266,12 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       emit(state.copyWith(status: SwipeStatus.loading));
     }
     try {
-      // Resolve a one-trade filter back to a REAL slug from the loaded queue
-      // (#1906) — sending the chip LABEL as `trade_key` never matched a slug and
-      // zeroed the deck. Null means "don't narrow server-side"; the client-side
-      // match still narrows the full feed.
-      final String? trade = outboundTradeKey(state.filters, state.queue);
-      final String? city = state.filters.cities.length == 1 ? state.filters.cities.first : null;
-      // Shift + pay floor are single-value, so they thread straight through as the
-      // OUTBOUND `/feed` narrowing params (server-side); the client-side match in
-      // [applyJobFilters] is what narrows the already-loaded deck immediately.
-      final List<FeedItem> jobs = await _repo.getFeed(
-        tradeKey: trade,
-        city: city,
-        shift: state.filters.shift,
-        payMin: state.filters.payMin,
-      );
+      final FeedPage page = await _fetchFeed();
+      final List<FeedItem> jobs = page.jobs;
       emit(state.copyWith(
         queue: jobs,
         status: jobs.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
+        nextCursor: page.nextCursor,
       ));
     } on Failure catch (failure) {
       // 403 routes to consent; everything else (network / unknown / 401 / 5xx)
@@ -238,6 +292,87 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
         ));
       }
     }
+  }
+
+  /// The page AFTER the loaded queue (#2068, ADR-0052). APPENDS — the worker
+  /// keeps the cards (and the place) he already has.
+  ///
+  /// Never shows a loader and never shows an error view: this load is entirely
+  /// behind the worker's back, and a deck of real jobs must not be replaced by
+  /// either because card 51 did not arrive. A plain failure keeps the queue AND
+  /// the cursor, so the next trigger re-sends the SAME cursor — safe, because
+  /// the read is idempotent (it re-emits `feed.shown` for the cards it serves,
+  /// as a refetch does today).
+  Future<void> _onNextPageRequested(
+    SwipeNextPageRequested event,
+    Emitter<SwipeState> emit,
+  ) async {
+    final String? cursor = state.nextCursor;
+    if (cursor == null || _loadingPage) return;
+    _loadingPage = true;
+    try {
+      final FeedPage page = await _fetchFeed(cursor: cursor);
+      // The scroll moved on while we were out — a page-1 load landed, or the
+      // filters changed — so this page answers a position nobody is at any
+      // more. Appending it would splice old cards into a new deck.
+      if (emit.isDone || state.nextCursor != cursor) return;
+      final List<FeedItem> merged = _appendDeduped(state.queue, page.jobs);
+      emit(state.copyWith(
+        queue: merged,
+        status: merged.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
+        nextCursor: page.nextCursor,
+      ));
+    } on FeedCursorRejectedFailure {
+      // The server refused the cursor: malformed, or minted for a feed order a
+      // flag flip replaced (ADR-0052 §2.2). Drop it FIRST so the dead value can
+      // never go back on the wire, then refetch page 1 — silently, in the
+      // background, no error state. Skipped only when a page-1 load is already
+      // in flight: it is about to replace the deck and its cursor anyway.
+      if (emit.isDone) return;
+      emit(state.copyWith(nextCursor: null));
+      if (!_loadingFeed) await _loadFeed(emit, background: true);
+    } on Failure {
+      // Keep the deck and the cursor (see the method doc): the worker is looking
+      // at real jobs, and the same cursor is safe to resend.
+    } finally {
+      _loadingPage = false;
+    }
+  }
+
+  /// [incoming] appended to [loaded], skipping any card already in the deck.
+  ///
+  /// Required by the V1 path (ADR-0052 §3.3): a card whose paid boost expired
+  /// between two pages sorts into the unboosted bucket and is re-served once.
+  /// Without this the worker would see — and could apply to — the same job
+  /// twice, and the duplicate would break `_advance`'s remove-by-id.
+  static List<FeedItem> _appendDeduped(
+    List<FeedItem> loaded,
+    List<FeedItem> incoming,
+  ) {
+    final Set<String> seen =
+        loaded.map((FeedItem job) => job.jobId).toSet();
+    return <FeedItem>[
+      ...loaded,
+      for (final FeedItem job in incoming)
+        if (seen.add(job.jobId)) job,
+    ];
+  }
+
+  /// Ask for the next page once the UNDECIDED deck is down to
+  /// [prefetchThreshold] cards. Called after every advance, so deck mode — where
+  /// the worker never scrolls, he decides — pages without the screen having to
+  /// watch anything. List mode adds its own near-the-end trigger for the worker
+  /// who scrolls past cards without deciding.
+  ///
+  /// Counts the WHOLE [SwipeState.queue] rather than `visibleQueue`, which is
+  /// the conservative direction: with a filter on, the undecided deck is never
+  /// longer than what the worker can see, so this pages no EARLIER than a
+  /// visible count would. The list view's own trigger, which counts the cards it
+  /// actually renders, covers a filtered deck emptying faster than the queue.
+  void _maybeRequestNextPage() {
+    if (!state.hasMorePages || _loadingPage) return;
+    if (state.queue.length > prefetchThreshold) return;
+    add(const SwipeNextPageRequested());
   }
 
   Future<void> _onApplied(SwipeApplied event, Emitter<SwipeState> emit) async {
@@ -304,16 +439,25 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       queue: next,
       status: next.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
     ));
+    _maybeRequestNextPage();
   }
 
   /// Recompute the visible deck for a new filter selection. Pure client-side over
   /// the loaded queue (no refetch, no `/feed` filter contract). Keeps the queue
   /// and all decision state intact — only what is VISIBLE changes.
+  ///
+  /// The one thing it DOES throw away is the paging cursor (#2068, ADR-0052): the
+  /// cursor is a keyset position inside the order the OLD filters produced, so
+  /// sending it with new ones asks the server a question about a deck that no
+  /// longer exists. Null means the next `/feed` call is page 1, under the new
+  /// filters — the refetch the ADR requires — and until one happens the worker
+  /// keeps seeing the loaded deck, narrowed instantly client-side exactly as
+  /// before.
   Future<void> _onFiltersChanged(
     SwipeFiltersChanged event,
     Emitter<SwipeState> emit,
   ) async {
-    emit(state.copyWith(filters: event.filters));
+    emit(state.copyWith(filters: event.filters, nextCursor: null));
   }
 
   /// Drop the DECIDED card by id, not by position — with a filter active the
@@ -344,6 +488,8 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       status: next.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
       appliedNonce: applied ? state.appliedNonce + 1 : state.appliedNonce,
     ));
+    // The deck just got shorter — top it up if it is running out (#2068).
+    _maybeRequestNextPage();
   }
 
   /// Apply/skip failed. Keep the current card (the worker does not lose their

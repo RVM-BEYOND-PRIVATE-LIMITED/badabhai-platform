@@ -35,13 +35,17 @@ FeedItem _item(String id) => FeedItem(
       rank: 1,
     );
 
+/// Stubs `getFeed` with [answer]'s cards as ONE page — `next_cursor` null, so
+/// nothing in this file pages (#2068). Paging has its own suite.
 void _stubFeed(_MockSwipeRepository repo, Future<List<FeedItem>> Function() answer) {
   when(() => repo.getFeed(
         tradeKey: any(named: 'tradeKey'),
         city: any(named: 'city'),
         shift: any(named: 'shift'),
         payMin: any(named: 'payMin'),
-      )).thenAnswer((_) => answer());
+        cursor: any(named: 'cursor'),
+      )).thenAnswer((_) async =>
+      FeedPage(jobs: await answer(), nextCursor: null));
 }
 
 void _verifyFeedCalls(_MockSwipeRepository repo, int times) {
@@ -50,6 +54,7 @@ void _verifyFeedCalls(_MockSwipeRepository repo, int times) {
         city: any(named: 'city'),
         shift: any(named: 'shift'),
         payMin: any(named: 'payMin'),
+        cursor: any(named: 'cursor'),
       )).called(times);
 }
 

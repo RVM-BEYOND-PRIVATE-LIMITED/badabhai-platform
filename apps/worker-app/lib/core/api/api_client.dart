@@ -1459,29 +1459,41 @@ class ApiClient {
   /// OPTIONAL server-side narrowing params (the ADR-0024 addendum put shift + pay
   /// on the `/feed` wire). Each is appended only when non-null, so the call is
   /// backward-compatible — the feed works with neither set.
-  Future<List<FeedItem>> getFeed({
+  ///
+  /// [cursor] is the previous page's [FeedPage.nextCursor] (#1961 / #2068,
+  /// ADR-0052), passed back UNTOUCHED. Omitted when null — and "omitted" is the
+  /// first page, byte-identical to the pre-cursor call. The whole scroll must
+  /// keep the SAME filters: a cursor is a keyset position in ONE order, so
+  /// pairing it with different narrowing params is meaningless (the caller drops
+  /// the cursor on a filter change — see `SwipeBloc`).
+  ///
+  /// A cursor the server did not mint — or one minted for a different feed order
+  /// after a flag flip — is a 400 with `issues[0].path == "cursor"`; the caller
+  /// falls back to page 1 (see `SwipeRepositoryImpl.getFeed`).
+  Future<FeedPage> getFeed({
     required String authToken,
     int limit = 50,
     String? tradeKey,
     String? city,
     String? shift,
     int? payMin,
+    String? cursor,
   }) async {
     final Map<String, String> queryParams = <String, String>{'limit': limit.toString()};
     if (tradeKey != null) queryParams['trade_key'] = tradeKey;
     if (city != null) queryParams['city'] = city;
     if (shift != null) queryParams['shift'] = shift;
     if (payMin != null) queryParams['pay_min'] = payMin.toString();
+    // Byte-for-byte: the value goes on the wire exactly as the server minted it.
+    // base64url is all unreserved characters, so `Uri` percent-encodes nothing
+    // here — and anything it did encode the server decodes back identically.
+    if (cursor != null && cursor.isNotEmpty) queryParams['cursor'] = cursor;
 
     final Uri uri = Uri(path: '/feed', queryParameters: queryParams);
-    
+
     final Map<String, dynamic> json =
         await _get(uri.toString(), authToken: authToken);
-    final List<dynamic> jobs = json['jobs'] as List<dynamic>? ?? <dynamic>[];
-    return jobs
-        .whereType<Map<String, dynamic>>()
-        .map(FeedItem.fromJson)
-        .toList();
+    return FeedPage.fromJson(json);
   }
 
   /// Searches OPEN jobs by title/skill + location — the Indeed-style

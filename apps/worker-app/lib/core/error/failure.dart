@@ -58,6 +58,23 @@ class InvalidRequestFailure extends Failure {
   ]);
 }
 
+/// The `GET /feed` cursor we sent back was refused (#1961 / #2068, ADR-0052) —
+/// a 400 whose `issues[0].path` is `"cursor"`: either the value is malformed or
+/// it was minted for a different feed order (a feed-source flag flipped
+/// mid-scroll).
+///
+/// A SUB-CASE of the generic 400 that gets its own type because the client's
+/// answer is completely different: never an error view and never a retry of the
+/// same cursor, but a SILENT refetch of page 1 (ADR-0052 §2.2). Nothing is
+/// broken from the worker's side — the deck simply starts over — so this
+/// failure must never reach a screen; `SwipeBloc` handles it and emits no error
+/// state. [message] exists only to satisfy the base class.
+class FeedCursorRejectedFailure extends Failure {
+  const FeedCursorRejectedFailure([
+    super.message = 'Jobs ki list dobara shuru se laa rahe hain.',
+  ]);
+}
+
 /// HTTP 401 — the session is gone; the worker must log in again.
 class UnauthorizedFailure extends Failure {
   const UnauthorizedFailure([super.message = 'Please log in again.']);

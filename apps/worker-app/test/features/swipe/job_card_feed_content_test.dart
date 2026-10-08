@@ -72,8 +72,9 @@ SwipeBloc _blocOf(List<FeedItem> jobs) {
       city: any(named: 'city'),
       shift: any(named: 'shift'),
       payMin: any(named: 'payMin'),
+      cursor: any(named: 'cursor'),
     ),
-  ).thenAnswer((_) async => jobs);
+  ).thenAnswer((_) async => FeedPage(jobs: jobs, nextCursor: null));
   when(() => repo.jobDetail(any())).thenThrow(StateError('no detail'));
   return SwipeBloc(repo);
 }
@@ -86,8 +87,11 @@ SwipeBloc _bloc() {
       city: any(named: 'city'),
       shift: any(named: 'shift'),
       payMin: any(named: 'payMin'),
+      cursor: any(named: 'cursor'),
     ),
-  ).thenAnswer((_) async => const <FeedItem>[_rich]);
+  ).thenAnswer(
+    (_) async => const FeedPage(jobs: <FeedItem>[_rich], nextCursor: null),
+  );
   // The card must NOT depend on the detail route for its content.
   when(() => repo.jobDetail(any())).thenThrow(StateError('no detail'));
   return SwipeBloc(repo);
