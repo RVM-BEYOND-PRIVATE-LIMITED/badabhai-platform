@@ -3,12 +3,12 @@ import { AdminFinanceRepository } from "./admin-finance.repository";
 import { captureQueries, expectColumnsAbsent } from "./testing/query-capture";
 
 /**
- * SQL-shape tests for the payer role on finance rows (#2032).
+ * SQL-shape tests for the payer role on finance rows (#2032, #2106).
  *
- * The ledger and order lists expose `payer_role` next to `payer_id` so admin-web can link
- * straight to the Companies or Agencies page. The role comes from ONE LEFT JOIN on the
- * `payers` primary key inside the page query — never a per-row lookup — and nothing else on
- * `payers` (its contact columns are ciphertext PII) is projected.
+ * The ledger and order lists — and the summary's top balances (#2106) — expose `payer_role`
+ * next to `payer_id` so admin-web can link straight to the Companies or Agencies page. The role
+ * comes from ONE LEFT JOIN on the `payers` primary key inside the query — never a per-row
+ * lookup — and nothing else on `payers` (its contact columns are ciphertext PII) is projected.
  */
 
 const PAYER = "66666666-6666-4666-8666-666666666666";
@@ -76,5 +76,29 @@ describe("admin finance payment orders carry the payer's role (#2032)", () => {
     const c = captureQueries([{ ...ROW, payerRole: null }]);
     const out = await new AdminFinanceRepository(c.db).listOrders({}, null, 10);
     expect(out[0]).toMatchObject({ payer_id: PAYER, payer_role: null });
+  });
+});
+
+describe("admin finance top balances carry the payer's role (#2106)", () => {
+  const ROW = { payerId: PAYER, payerRole: "agent", balance: 500 };
+
+  it("joins payers on its PK and maps role → payer_role", async () => {
+    const c = captureQueries([ROW]);
+    const out = await new AdminFinanceRepository(c.db).topBalances(10);
+    expectRoleJoin(c, "payer_credits");
+    expect(out).toStrictEqual([{ payer_id: PAYER, payer_role: "agent", balance: 500 }]);
+  });
+
+  it("still ranks by the balance row, not by anything on payers", async () => {
+    const c = captureQueries([ROW]);
+    await new AdminFinanceRepository(c.db).topBalances(10);
+    expect(c.sql()).toContain('"payer_credits"."balance" desc');
+    expect(c.sql()).not.toMatch(/"payers"\."[a-z_]+" (asc|desc)/);
+  });
+
+  it("an orphaned opaque payer_id still lists, with payer_role null", async () => {
+    const c = captureQueries([{ ...ROW, payerRole: null }]);
+    const out = await new AdminFinanceRepository(c.db).topBalances(10);
+    expect(out).toStrictEqual([{ payer_id: PAYER, payer_role: null, balance: 500 }]);
   });
 });
