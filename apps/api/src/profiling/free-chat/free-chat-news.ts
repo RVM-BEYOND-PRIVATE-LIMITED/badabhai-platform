@@ -7,8 +7,11 @@
  *   capped                       → NEWS_CAP                         (`capped`)
  *   cap store unreadable          → NEWS_UNAVAILABLE                 (`unavailable`, no call)
  *   null / timeout / error        → NEWS_UNAVAILABLE                 (`unavailable`)
- *   not a real call (the mock)    → today's NEWS line                (`unavailable`)
- *   a real call that failed       → NEWS_UNAVAILABLE                 (`unavailable`)
+ *   the unarmed mock              → today's NEWS line                (`unavailable`)
+ *     (no_results, real_call false, error_code null)
+ *   any other non-real answer     → NEWS_UNAVAILABLE                 (`unavailable`)
+ *     (no metadata; real_call false with an error_code — the spend cap, the cost ceiling, a
+ *     cooldown; a real call with success false)
  *   no_results                    → NEWS_UNAVAILABLE                 (`no_results`)
  *   refuse(topic)                 → that topic's fixed line          (`refused`; `news` → NEWS_UNAVAILABLE)
  *   answer, a line fails the gate → NEWS_UNAVAILABLE                 (`rejected`)
@@ -114,11 +117,15 @@ export const NEWS_CAP_UNREADABLE: FreeChatNewsResolution = {
 export function judgeNews(out: FreeChatNewsOutput | null): FreeChatNewsVerdict {
   if (out === null) return fixed("unavailable", UNAVAILABLE, null);
   const searchCount = out.status === "refuse" ? null : out.search_count;
+  if (isUnarmedMock(out)) return fixed("unavailable", FREE_CHAT_COPY.NEWS, searchCount);
+  // NO REAL VERDICT: a real verdict needs `real_call === true` and `success !== false`. Anything
+  // else — no metadata (a blocked input), a refused call (the spend cap, the cost ceiling, a
+  // cooldown: `real_call` false WITH an `error_code`), a failed one (timeout, provider error) — is
+  // the unavailable line, never the "jaldi aayegi" promise and never `no_results`.
   const meta = out.ai_metadata;
-  // NOT ARMED: the task returns its mock until the owner appends it to `AI_REAL_CALL_TASKS` (R7),
-  // and the worker keeps today's "jaldi aayegi" line until then (R8). No metadata is no real call.
-  if (meta?.real_call !== true) return fixed("unavailable", FREE_CHAT_COPY.NEWS, searchCount);
-  if (meta.success === false) return fixed("unavailable", UNAVAILABLE, searchCount);
+  if (meta?.real_call !== true || meta.success === false) {
+    return fixed("unavailable", UNAVAILABLE, searchCount);
+  }
   switch (out.status) {
     case "no_results":
       return fixed("no_results", UNAVAILABLE, searchCount);
@@ -134,6 +141,19 @@ export function judgeNews(out: FreeChatNewsOutput | null): FreeChatNewsVerdict {
     case "answer":
       return judgeAnswer(out);
   }
+}
+
+/**
+ * THE TASK IS NOT ARMED (R7): the ai-service's mock — `no_results` from a call that was not made
+ * (`real_call: false`) and that nothing refused (`error_code: null`). The worker keeps today's
+ * "jaldi aayegi" line until the owner appends `profiling_free_news` to `AI_REAL_CALL_TASKS` (R8).
+ * A non-null `error_code` is the spend cap, the cost ceiling or a cooldown on an ARMED task — not
+ * this.
+ */
+function isUnarmedMock(out: FreeChatNewsOutput): boolean {
+  // `?.`, not `!== null`: an unparsed body may carry no key at all, which is no metadata either.
+  const meta = out.ai_metadata;
+  return out.status === "no_results" && meta?.real_call === false && meta.error_code === null;
 }
 
 /** A searched answer: grounded, every line through the reply gate, at least one valid tile. */

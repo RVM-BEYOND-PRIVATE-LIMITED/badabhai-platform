@@ -1850,6 +1850,52 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     ]);
   });
 
+  it("SPEND CAP / COOLDOWN (the mock body WITH an error_code): NEWS_UNAVAILABLE, not 'jaldi aayegi'", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(world, {
+      ...NEWS_MOCK,
+      ai_metadata: { ...NEWS_MOCK.ai_metadata, error_code: "spend_cap" },
+    });
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(optionKeys(turn)).toEqual([FREE_CHAT_RESUME_KEY]);
+    expect(world.newsCount.held).toBe(0);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line" });
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", search_count: 0, daily_count: 0 }),
+    ]);
+  });
+
+  it("a REAL call that FAILED (real_call true, success false): NEWS_UNAVAILABLE, never no_results", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(world, {
+      status: "no_results",
+      search_count: 0,
+      ai_metadata: { ...NEWS_META, success: false, error_code: "timeout" },
+    });
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(world.newsCount.held).toBe(0);
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", search_count: 0 }),
+    ]);
+  });
+
+  it("NO ai_metadata (a blocked input): NEWS_UNAVAILABLE, never the NEWS line", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(world, {
+      status: "refuse",
+      topic: "unsafe_other",
+      ai_metadata: null,
+    });
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line", refusal_topic: null });
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", search_count: null }),
+    ]);
+  });
+
   it("CAPPED: NEWS_CAP and the chip, NO call, no search counted", async () => {
     const world = makeWorld({ newsHeld: 5 });
     await inFreeMode(world);

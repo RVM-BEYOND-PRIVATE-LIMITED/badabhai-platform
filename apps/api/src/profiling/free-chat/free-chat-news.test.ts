@@ -69,33 +69,68 @@ describe("no real answer — the unavailable endings", () => {
     });
   });
 
-  it("the UNARMED mock keeps today's NEWS line ('jaldi aayegi') — R7/R8", () => {
-    const mock = parsed({
-      status: "no_results",
-      search_count: 0,
-      ai_metadata: { ...REAL, real_call: false },
-    });
-    expect(judgeNews(mock)).toMatchObject({
+  // THE MOCK BODY — what the ai-service returns for an unarmed task AND for a refused armed call.
+  const mockBody = (meta: Record<string, unknown> | null) =>
+    parsed({ status: "no_results", search_count: 0, ai_metadata: meta });
+
+  it("the UNARMED mock (real_call false, error_code null) keeps today's NEWS line — R7/R8", () => {
+    expect(judgeNews(mockBody({ ...REAL, real_call: false, error_code: null }))).toEqual({
       outcome: "unavailable",
       line: FREE_CHAT_COPY.NEWS,
+      refusalTopic: null,
       searchCount: 0,
+      rejection: null,
     });
-    // No metadata at all is no real call either.
-    expect(judgeNews(parsed({ status: "no_results", search_count: 0 }))).toMatchObject({
-      outcome: "unavailable",
-      line: FREE_CHAT_COPY.NEWS,
-    });
-    // Even an "answer" is not served when it was not a real call.
-    expect(judgeNews(answer({ ai_metadata: { ...REAL, real_call: false } })).outcome).toBe(
-      "unavailable",
-    );
   });
 
-  it("a real call that FAILED → NEWS_UNAVAILABLE", () => {
+  it("the mock body WITH an error_code (spend cap, cost ceiling, cooldown) → NEWS_UNAVAILABLE", () => {
+    // The task IS armed here: "jaldi aayegi" would be false.
+    for (const errorCode of ["spend_cap", "cost_ceiling", "provider_cooldown"]) {
+      expect(
+        judgeNews(mockBody({ ...REAL, real_call: false, error_code: errorCode })),
+        errorCode,
+      ).toMatchObject({
+        outcome: "unavailable",
+        line: FREE_CHAT_COPY.NEWS_UNAVAILABLE,
+        searchCount: 0,
+      });
+    }
+  });
+
+  it("NO ai_metadata at all → NEWS_UNAVAILABLE, like a failure (never the NEWS line)", () => {
+    expect(judgeNews(mockBody(null))).toMatchObject({
+      outcome: "unavailable",
+      line: FREE_CHAT_COPY.NEWS_UNAVAILABLE,
+    });
+    // A BLOCKED input comes back as refuse/unsafe_other with no metadata: not a real verdict.
+    expect(
+      judgeNews(parsed({ status: "refuse", topic: "unsafe_other", ai_metadata: null })),
+    ).toMatchObject({
+      outcome: "unavailable",
+      line: FREE_CHAT_COPY.NEWS_UNAVAILABLE,
+      refusalTopic: null,
+      searchCount: null,
+    });
+  });
+
+  it("a REAL call that FAILED (timeout, provider error) → NEWS_UNAVAILABLE, never no_results", () => {
+    expect(judgeNews(mockBody({ ...REAL, real_call: true, success: false }))).toMatchObject({
+      outcome: "unavailable",
+      line: FREE_CHAT_COPY.NEWS_UNAVAILABLE,
+      searchCount: 0,
+    });
     expect(judgeNews(answer({ ai_metadata: { ...REAL, success: false } }))).toMatchObject({
       outcome: "unavailable",
       line: FREE_CHAT_COPY.NEWS_UNAVAILABLE,
     });
+  });
+
+  it("an answer from a call that was not real is never served", () => {
+    for (const errorCode of [null, "spend_cap"]) {
+      expect(
+        judgeNews(answer({ ai_metadata: { ...REAL, real_call: false, error_code: errorCode } })),
+      ).toMatchObject({ outcome: "unavailable", line: FREE_CHAT_COPY.NEWS_UNAVAILABLE });
+    }
   });
 });
 
