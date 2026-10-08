@@ -361,16 +361,17 @@ describe("every cued link stays the dot's anchor (re-review of #2115, nit)", () 
 });
 
 describe("a navigating BUTTON keeps its box through its pending state", () => {
-  it("the AI chat's publish CTA fills its column — its spinner and 'Publishing…' never resize it", () => {
-    // job-posting-chat.tsx: pressed, the rocket becomes the spinner; once the publish lands the
-    // label reads "Publishing…" through the navigation. Content-sized (`justify-items: start`),
-    // that shrank the button 29px under the payer's finger (measured on a production build).
-    expect(decl(one(".ai-chat__publish"), "justify-items")).toBe("start");
-    expect(decl(one(".ai-chat__publish > .ai-chat__publish-cta"), "justify-self")).toBe("stretch");
-    const chat = readFileSync(
-      join(here, "(portal)", "postings", "ai", "new", "job-posting-chat.tsx"),
-      "utf8",
-    );
-    expect(chat).toMatch(/<Button\s+className="ai-chat__publish-cta"/);
+  it("a DS block button's width is its container's, never its content's (the AI chat's Publish)", () => {
+    // job-posting-chat.tsx renders its Publish CTA `block` (its render test pins that): pressed,
+    // the rocket becomes the spinner and the label "Publishing…" — content-sized, in a column
+    // that is `justify-items: start`, it shrank 29px under the click (production build).
+    const block = D.filter((r) => r.selector === ".bb-btn--block" && r.at === "");
+    expect(block).toHaveLength(1);
+    expect(decl(block[0]!, "width")).toBe("100%");
+    // No later rule gives a block button a content-driven width back.
+    for (const r of [...D, ...G]) {
+      if (r === block[0] || !r.selector.includes("bb-btn--block")) continue;
+      expect(decl(r, "width") ?? "100%", `${r.at} ${r.selector}`).toBe("100%");
+    }
   });
 });

@@ -439,6 +439,17 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     });
   });
 
+  it("the Publish CTA is a BLOCK button: its spinner and 'Publishing…' never resize it under the click", () => {
+    // Content-sized (the column is `justify-items: start`), the CTA shrank 29px when pressed — the
+    // rocket became the spinner, the label "Publishing…" — measured on a production build. The DS
+    // block button (`.bb-btn--block`, width 100%) fills the draft column whatever it reads.
+    for (const navigating of [false, true]) {
+      const acc = render({ convo: { ...CONVO, draftReady: true }, navigating });
+      const cta = button(acc, navigating ? "Publishing" : "Publish posting");
+      expect(cta?.className.split(" "), String(navigating)).toContain("bb-btn--block");
+    }
+  });
+
   it("stays disabled across the success→navigation window (no double publish)", () => {
     const acc = render({ convo: { ...CONVO, draftReady: true }, navigating: true });
     expect(button(acc, "Publishing")?.disabled).toBe(true);

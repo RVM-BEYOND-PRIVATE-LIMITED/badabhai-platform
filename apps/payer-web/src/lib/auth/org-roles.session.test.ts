@@ -315,6 +315,31 @@ describe("an orgRole outside the enum is a CONTRACT DRIFT — logged once, behav
     expect(driftWarns().map(named)).toEqual(['"admin"', '"OWNER"', '"billing_admin"']);
   });
 
+  it("the distinct values are CAPPED: 16 lines, then ONE 'further values suppressed' — memory and log stay bounded", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    // An API (or a proxy) answering a fresh value on every request must not grow the set or the
+    // log without bound.
+    for (let i = 0; i < 40; i++) {
+      fetchMock.mockResolvedValueOnce(json(meBody({ orgRole: `role_${i}` })));
+      await requirePayer();
+    }
+    const lines = driftWarns();
+    expect(lines).toHaveLength(17);
+    expect(lines.slice(0, 16).map(named)).toEqual(
+      Array.from({ length: 16 }, (_, i) => `"role_${i}"`),
+    );
+    expect(lines[16]).toBe(
+      "[payer-session] GET /payer/me returned more unexpected orgRole values; further values suppressed (16 already reported).",
+    );
+    // Already-reported values stay quiet, and so does everything after the cap.
+    fetchMock.mockResolvedValueOnce(json(meBody({ orgRole: "role_3" })));
+    await requirePayer();
+    fetchMock.mockResolvedValueOnce(json(meBody({ orgRole: "role_99" })));
+    const session = await requirePayer();
+    expect(getOrgRole(session)).toBe("recruiter"); // behaviour unchanged past the cap too
+    expect(driftWarns()).toHaveLength(17);
+  });
+
   it("owner, recruiter, null and an ABSENT orgRole (an API before #2079) are not drift — no warn", async () => {
     vi.stubEnv("NODE_ENV", "production");
     for (const body of [

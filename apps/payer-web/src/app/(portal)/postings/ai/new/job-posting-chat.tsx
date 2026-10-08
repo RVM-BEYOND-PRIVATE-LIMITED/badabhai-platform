@@ -361,8 +361,10 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
       <aside className="ai-chat__side">
         <DraftPreview draft={convo.draft} draftReady={convo.draftReady} />
         <div className="ai-chat__publish">
+          {/* BLOCK: it fills the draft column whatever it reads. Content-sized, it shrank 29px
+              under the click (the rocket became the spinner, the label "Publishing…"). */}
           <Button
-            className="ai-chat__publish-cta"
+            block
             size="lg"
             iconRight="rocket-launch"
             loading={busy}

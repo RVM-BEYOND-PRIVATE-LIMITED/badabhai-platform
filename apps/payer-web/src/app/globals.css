@@ -5772,13 +5772,6 @@ img.agency-qr__code,
   gap: var(--space-2);
   justify-items: start;
 }
-/* The publish CTA fills the draft column, as the posting editor's rail CTA does, so its box never
-   follows its content: pressed, its rocket becomes the spinner and, once the publish lands, its
-   label "Publishing…" for the navigation — which shrank a content-sized button 29px under the
-   payer's finger (measured, 1.5s backend). */
-.ai-chat__publish > .ai-chat__publish-cta {
-  justify-self: stretch;
-}
 .ai-chat__publish-note {
   margin: 0;
   color: var(--text-muted);
