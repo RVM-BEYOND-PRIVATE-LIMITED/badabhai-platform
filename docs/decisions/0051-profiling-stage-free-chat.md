@@ -42,7 +42,7 @@ The owner wants a chat we control, like ChatGPT but scoped to BadaBhai, for the 
 | **R5** | **The lock:** a worker leaves résumé mode only when the résumé is done. Someone who leaves and returns later is still locked. |
 | **R6** | **In résumé mode** the model classifies every typed message. Off-topic gets "Pehle resume bana lete hain, phir kuch aur baat karenge." followed by the pending question again. If unsure, ask to clarify. Abuse goes to today's trash handling. |
 | **R7** | **Mixed messages:** trash > résumé > career > casual > jobs. |
-| **R8** | **Jobs:** a fixed line plus an offer to start the résumé. No job search in chat. |
+| **R8** | **Jobs:** a fixed line plus an offer to start the résumé. No job search in chat. **Re-affirmed 2026-10-08 (#2129):** jobs come only after the profile is confirmed, from the companion ([ADR-0044](0044-post-completion-chat-companion.md)). |
 | **R9** | **Casual:** model-written and checked by code. The résumé chip is always shown, and a nudge is added every 3rd casual turn. |
 | **R10** | **Distress:** a fixed line plus a helpline (Tele-MANAS 14416, checked 2026-10-06: toll-free, 24×7, Ministry of Health). The model never writes this reply. |
 | **R11** | **Career:** model-written and checked by code. Refuses legal/medical/financial. **Typical ₹ ranges are allowed. Company names are allowed freely.** Encourage the worker but never rank them. Never promise a job; stay hopeful. |
@@ -287,7 +287,13 @@ Any widening of this list follows the same review as the copy.
 - **Deferred:**
   - the cross-session summary (release 2)
   - live news (phase 2)
-  - job search in chat
+  - job search in chat. **Closed by owner ruling on 2026-10-08 (#2129): it stays out of the profiling
+    chat (R8).** Before confirmation a worker has no skill rows to match on, so the deterministic feed
+    would show either an empty deck (`MATCH_V1` on) or every open posting, unpersonalised (`MATCH_V1`
+    off). The second breaks "never show irrelevant" and is the "every posting" fallback that ADR-0044
+    R5 rules out. The worker gets jobs after confirmation, from the companion's `companion_job:` chips.
+    The app's count of a job opened outside the companion (#2145, PR #2165) never fires here, because
+    this chat serves no job chips.
 
 ## 7. Rollout
 
