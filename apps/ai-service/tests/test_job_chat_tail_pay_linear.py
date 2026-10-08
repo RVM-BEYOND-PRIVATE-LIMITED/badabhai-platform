@@ -56,14 +56,15 @@ def _load_measure_script():
 
 measure = _load_measure_script()
 
-#: Main's text, as `answers.py` spelled it before #1995 — with #2088's "and"/"aur" word set and
-#: #2132's suffix word boundary, which the shipped regexes carry too (the oracle compares the
-#: whitespace shape around the optional suffix, not the suffix's own text).
+#: Main's text, as `answers.py` spelled it before #1995 — with #2088's "and"/"aur" word set,
+#: #2132's suffix word boundary and #2143's comma-ended number, which the shipped regexes carry
+#: too (the oracle compares the whitespace shape around the optional suffix, not the number's or
+#: the suffix's own text).
 _MAIN_FRAGMENTS = {
     "tail": r"\s+\b(?:in|at|for|with|on|near|from|starting|salary|pay|shift|urgently|",
     "clause": r"(?<![A-Za-z])plus(?![A-Za-z])|\s+(?:and|aur)\s+",
     "range": (
-        r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*"
+        r"(?<![\d.])(?<!\d,)(\d+(?:,\d+)*(?:\.\d+)?)\s*"
         r"(?:(k|thousand|thousands|hazar|hazaar|lakh|lakhs|lakhh|lac|lacs|lack|lacks)"
         r"(?!(?!(?:(?:to|se|upto)(?:rs|inr)?|pm|p\.m|per|permonth|month|monthly|mahina|mahine)"
         r"(?![A-Za-z]))[A-Za-z]))?\s*"
@@ -350,3 +351,25 @@ def test_the_next_clause_screen_is_linear_in_the_figure_count(
 ) -> None:
     text = _next_clause_text(shape, k)
     assert _best_of_3(lambda t: answers.detect_answers(t, topic), text) < _budget_s(k)
+
+
+# --- 6. a comma-joined digit run (#2143) ---------------------------------------------------------
+#: A figure could START at every digit of "1,1,1,..." (each follows a comma), and each start read
+#: the run to its end before the range failed: O(n^2), measured 0.27 s at 2,000 chars and 1.1 s
+#: at 4,000 on main. A figure no longer starts inside a comma-joined run.
+_COMMA_RUN_UNITS = ("1,", "12,", "1,1 ", "1,,")
+
+
+def test_the_comma_run_timing_inputs_take_the_slow_path() -> None:
+    # Guards the guard: no range completes on any of them, so every start is tried and fails.
+    for unit in _COMMA_RUN_UNITS:
+        assert answers._PAY_RANGE_RE.search(unit * 100 + "x") is None
+
+
+@pytest.mark.parametrize("k", _RUNS)
+@pytest.mark.parametrize("unit", _COMMA_RUN_UNITS)
+def test_the_pay_parsers_are_linear_on_a_comma_joined_digit_run(unit: str, k: int) -> None:
+    text = unit * (k // len(unit)) + "x"
+    assert _best_of_3(answers._PAY_RANGE_RE.findall, text) < _budget_s(k)
+    assert _best_of_3(answers._AMOUNT_RE.findall, text) < _budget_s(k)
+    assert _best_of_3(lambda t: answers.detect_answers(t, "pay_range"), text) < _budget_s(k)
