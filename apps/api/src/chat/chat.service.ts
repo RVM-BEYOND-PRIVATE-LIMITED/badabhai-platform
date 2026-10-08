@@ -42,6 +42,7 @@ import {
   readFreeChatSummaryValue,
   summaryTextOf,
 } from "../profiling/free-chat/free-chat-summary";
+import type { FreeChatNewsLink } from "../profiling/free-chat/free-chat-news-links";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -53,8 +54,9 @@ import { resolveResumeMenu } from "./resume-menu";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
-  FREE_CHAT_METADATA,
+  freeChatMetadataOf,
   IDENTITY_INTAKE_METADATA,
+  newsLinksOfMetadata,
   type BufferedMessage,
   type TranscriptBuffer,
 } from "./chat-transcript.buffer";
@@ -669,6 +671,23 @@ export class ChatService {
     }
   }
 
+  /**
+   * ADR-0054 — `{ news_links }` for an answered news turn's tiles, or `{}`: ABSENT, never null or
+   * empty, when there are none and under the kill switch (`CHAT_FREE_CHAT_DISABLED`, so every body
+   * stays byte-identical — a replay or a reload included). Mapped field by field, so an internal
+   * field can never leak onto the wire.
+   */
+  private newsLinksField(links: readonly FreeChatNewsLink[] | undefined): {
+    news_links?: { title: string; url: string; site: string }[];
+  } {
+    if (this.config.CHAT_FREE_CHAT_DISABLED === true || links === undefined || links.length === 0) {
+      return {};
+    }
+    return {
+      news_links: links.map((link) => ({ title: link.title, url: link.url, site: link.site })),
+    };
+  }
+
   /** {@link liveFreeChatModeField} for an envelope already in hand — the same kill-switch rule. */
   private freeChatModeOf(envelope: ProfilingEnvelope | undefined): {
     free_chat_mode?: FreeChatMode;
@@ -905,6 +924,8 @@ export class ChatService {
             // ADR-0051 (#2030) — a replay changes no mode, so the envelope this request loaded is
             // the one the response it repeats carried. No second Redis read.
             ...this.freeChatModeOf(outcome.envelope),
+            // ADR-0054 — a replayed news answer shows its tiles again, as the response it repeats did.
+            ...this.newsLinksField(outcome.turn.newsLinks),
           },
           dto.session_id,
         );
@@ -1375,6 +1396,8 @@ export class ChatService {
         : null,
       // ADR-0051 (#2030) — the free-chat mode AFTER this turn, off the envelope that landed.
       ...this.freeChatModeOf(buffered.profiling),
+      // ADR-0054 — an answered news turn's "read more" tiles. ABSENT on every other turn.
+      ...this.newsLinksField(turn.newsLinks),
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -2200,11 +2223,12 @@ export class ChatService {
       // ADR-0048 (D10) — an identity-intake line is stored verbatim for the worker's own redraw
       // and flagged, so the extraction and the résumé's quote/veto reader leave it out. SPREAD,
       // so every other row is inserted exactly as before and takes the column's `{}` default.
-      // ADR-0051 §3.5 — a free-chat line likewise, with its own closed flag.
+      // ADR-0051 §3.5 — a free-chat line likewise, with its own closed flag; ADR-0054 — an answered
+      // news reply's tiles ride beside it, so the session replay redraws them after the flush.
       ...(m.intake === true
         ? { metadata: IDENTITY_INTAKE_METADATA }
         : m.aside === true
-          ? { metadata: FREE_CHAT_METADATA }
+          ? { metadata: freeChatMetadataOf(m) }
           : {}),
       // `created_at` is EXPLICIT: these rows are written at flush but happened over the
       // preceding minutes, and defaulting would stamp a thirty-turn interview as thirty
@@ -2479,6 +2503,8 @@ export class ChatService {
           // script they typed, and nothing reads those back to them.
           ...(m.role === "worker" ? {} : this.ttsField(m.text, null)),
           created_at: m.at,
+          // ADR-0054 — an answered news reply's tiles, on that bubble only.
+          ...this.newsLinksField(m.role === "worker" ? undefined : m.newsLinks),
         })),
         ...liveGeneralRoadFields(buffered.profiling),
       };
@@ -2501,6 +2527,12 @@ export class ChatService {
         // sidecar is keyed by reply text rather than by key.
         ...(row.direction === "inbound" ? {} : this.ttsField(row.bodyText ?? "", null)),
         created_at: row.createdAt.toISOString(),
+        // ADR-0054 — the durable half: the tiles the flush kept in the row's metadata, re-checked.
+        ...this.newsLinksField(
+          row.direction === "inbound"
+            ? undefined
+            : (newsLinksOfMetadata(row.metadata) ?? undefined),
+        ),
       })),
       ...durableGeneralRoadFields(session.conversationState),
     };

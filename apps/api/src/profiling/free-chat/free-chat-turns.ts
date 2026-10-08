@@ -71,6 +71,7 @@ import {
   stampLastTurn,
 } from "../turn-shapes";
 import { screenFreeChatAnswer } from "./free-chat-output.validator";
+import { NEWS_TURN_OUTCOMES, newsServedOf, type FreeChatNewsResolution } from "./free-chat-news";
 import {
   FREE_CHAT_COPY,
   FREE_CHAT_COPY_ENTRIES,
@@ -118,8 +119,9 @@ import {
 } from "./free-chat.state";
 
 /**
- * The free chat's two model calls and two résumé reads, memoised per `takeTurn` CALL (ADR-0051
- * §3.3) — the orchestrator's `CitySeedRef` shape, for its reason: declared OUTSIDE the CAS loop (in
+ * The free chat's model calls (and, ADR-0054, the live-news request) and two résumé reads,
+ * memoised per `takeTurn` CALL (ADR-0051 §3.3) — the orchestrator's `CitySeedRef` shape, for its
+ * reason: declared OUTSIDE the CAS loop (in
  * `ProfilingOrchestrator.takeTurn`) and filled inside {@link FreeChatTurns}, so a lost CAS that
  * re-runs the decision reuses the call it already paid for. The spend is recorded inside the call
  * itself, so it is recorded once too.
@@ -132,6 +134,13 @@ export interface FreeChatRefs {
    */
   classify: { readonly key: string; readonly verdict: Promise<FreeChatVerdict> } | null;
   reply: Promise<FreeChatReplyOutput | null> | null;
+  /**
+   * ADR-0054 — the live-news request a reply refusing on `news` hands over to: the cap reservation,
+   * the call, its verdict and the slot's release, as ONE memoised promise. A lost CAS re-runs the
+   * decision against the same resolution, so it neither pays for the search nor counts the worker's
+   * daily slot twice.
+   */
+  news: Promise<FreeChatNewsResolution> | null;
   /**
    * The two résumé-import reads (the staged identity line, the pending batch import). They depend
    * only on the worker, so a free-mode turn — which may look for an import at the greeting and
@@ -581,6 +590,9 @@ export class FreeChatTurns {
         "fallback",
       );
     }
+    // ADR-0054 — A NEWS QUESTION. The reply's `news` refusal is the trigger (the classifier's
+    // categories are unchanged): the searched answer is tried instead of the fixed NEWS line.
+    if (out.status === "refuse" && out.topic === "news") return this.serveNews(t, state, facts);
     if (out.status === "refuse") {
       return this.serveFreeLine(
         t,
@@ -634,6 +646,55 @@ export class FreeChatTurns {
       // ADR-0051 §8 (R22) — the ONE exchange the rolling summary may fold: the worker's message and
       // the model-written reply. Every fixed line, fallback and refusal above is not foldable.
       true,
+    );
+  }
+
+  /**
+   * A LIVE-NEWS TURN (ADR-0054 §3.1) — free mode only: résumé mode never reaches a reply, so it
+   * never runs news. The request (cap, call, verdict, release) is memoised on the turn's refs.
+   *
+   * ANSWERED: the gate's lines (model-written, so never read aloud) with 1-3 "read more" tiles on
+   * the turn and on its bubble, so a replay and a reload show them too. EVERY OTHER ENDING: its
+   * reviewed fixed line. Every news turn carries the "Resume banayein" chip — except the helpline,
+   * which never carries a chip (ADR-0051 R10). A news turn is an aside like every free-chat turn,
+   * and it is NOT foldable: news is not something the rolling summary should remember about the
+   * worker. It is not a casual reply either, so the nudge's count does not move.
+   */
+  private async serveNews(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    facts: VerdictFacts,
+  ): Promise<FreeChatRouted> {
+    const news = await this.newsMemo(t);
+    const extra: ServedExtra = { news: newsServedOf(news) };
+    if (news.outcome !== "answered") {
+      return this.serveFreeLine(
+        t,
+        state,
+        news.line,
+        news.refusalTopic === "distress" ? [] : RESUME_CHIPS,
+        facts,
+        NEWS_TURN_OUTCOMES[news.outcome],
+        { ...extra, refusalTopic: news.refusalTopic },
+      );
+    }
+    const answers = answersOf(t.envelope);
+    const result: TurnResult = {
+      ...freeTurnResult(
+        news.lines.join("\n"),
+        RESUME_CHIPS,
+        progressOf(t.progressItems, answers),
+        essentialsOf(t.items, answers),
+      ),
+      // MODEL-WRITTEN: never read aloud (R17), exactly as a casual or career answer.
+      readAloud: false,
+      newsLinks: news.links,
+    };
+    return this.serveAside(
+      t,
+      { ...t.envelope, freeChat: state },
+      result,
+      servedFacts(state.mode, facts, NEWS_TURN_OUTCOMES.answered, extra),
     );
   }
 
@@ -839,6 +900,20 @@ export class FreeChatTurns {
     return t.refs.reply;
   }
 
+  /** The live-news request, memoised per `takeTurn` (see {@link FreeChatRefs}). */
+  private newsMemo(t: FreeChatTurn): Promise<FreeChatNewsResolution> {
+    t.refs.news ??= t.service.requestNews(
+      {
+        text: t.input.text,
+        messages: t.buffer.messages,
+        workerContext: freeChatWorkerContextOf(t.envelope),
+      },
+      callCtxOf(t.input),
+      t.input.now,
+    );
+    return t.refs.news;
+  }
+
   /**
    * `ProfilingOrchestrator.intakeTurn`'s sibling for a free-chat ASIDE, and the same three properties:
    *
@@ -879,6 +954,11 @@ export class FreeChatTurns {
             at,
             voiceNoteId: null,
             ...(replyIsAside ? { aside: true as const, ...fold } : {}),
+            // ADR-0054 — an answered news turn's tiles ride its bubble, so the thread redraw (and the
+            // flushed row's metadata) shows them. ABSENT on every other line, never empty.
+            ...(result.newsLinks !== undefined && result.newsLinks.length > 0
+              ? { newsLinks: [...result.newsLinks] }
+              : {}),
           },
         ],
         profiling: stampLastTurn(envelope, input, result),
@@ -924,7 +1004,7 @@ function followupOptions(chips: readonly string[]): QuestionPackOption[] {
 
 /** The extras one served turn may carry beyond its verdict facts. */
 type ServedExtra = Partial<
-  Pick<FreeChatServed, "refusalTopic" | "strikeCount" | "cooldownStarted" | "nudge">
+  Pick<FreeChatServed, "refusalTopic" | "strikeCount" | "cooldownStarted" | "nudge" | "news">
 >;
 
 /** One served turn's event facts — every field the payload's refines read, defaulted honestly. */
@@ -966,12 +1046,14 @@ const FLOW_RESUME_FACTS: VerdictFacts = {
 /**
  * Does a served turn feed the rolling summary (ADR-0051 §8)? Only a free-mode casual or career
  * reply the model wrote and the gate passed — `answered`. A fallback, a refusal, a fixed line and
- * every résumé-mode aside never fold.
+ * every résumé-mode aside never fold — nor does a news answer (ADR-0054): it is about the day's
+ * news, not the worker.
  */
 export function foldsAfter(served: FreeChatServed): boolean {
   return (
     served.mode === "free" &&
     served.outcome === "answered" &&
+    served.news === undefined &&
     (served.category === "casual" || served.category === "career")
   );
 }

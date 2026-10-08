@@ -2,11 +2,13 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import {
   FreeChatClassifyInputSchema,
+  FreeChatNewsInputSchema,
   FreeChatReplyInputSchema,
   type CompanionCareerWorkerContext,
   type CompanionRecentTurn,
   type FreeChatClassifyMode,
   type FreeChatClassifyOutput,
+  type FreeChatNewsOutput,
   type FreeChatReplyOutput,
 } from "@badabhai/ai-contracts";
 import type {
@@ -32,6 +34,14 @@ import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { isUniversalPlaceholderLabel } from "../../occupation/family-chip-labels";
 import { FREE_CHAT_SUMMARY_MAX } from "./free-chat-summary";
+import { FreeChatNewsCap } from "./free-chat-news-cap.store";
+import {
+  judgeNews,
+  NEWS_CAP_UNREADABLE,
+  newsCapped,
+  type FreeChatNewsResolution,
+  type FreeChatNewsServed,
+} from "./free-chat-news";
 import { UNAVAILABLE_VERDICT, type FreeChatVerdict } from "./free-chat.router";
 
 /** The classify contract's text bound (`FreeChatClassifyInputSchema.text`). */
@@ -80,6 +90,16 @@ export interface FreeChatReplyRequest {
   readonly summary: string | null;
 }
 
+/**
+ * One live-news call's inputs, before redaction (ADR-0054): the worker's question, the recent turns
+ * the reply would see and the same closed worker context. No summary — the reply alone reads it.
+ */
+export interface FreeChatNewsRequest {
+  readonly text: string;
+  readonly messages: readonly BufferedMessage[];
+  readonly workerContext: CompanionCareerWorkerContext;
+}
+
 /** What one served free-chat turn reports on the spine — ids, counts and closed enums only. */
 export interface FreeChatServed {
   readonly mode: FreeChatMode;
@@ -91,6 +111,11 @@ export interface FreeChatServed {
   readonly strikeCount: number | null;
   readonly cooldownStarted: boolean;
   readonly nudge: boolean;
+  /**
+   * ADR-0054 — on a turn that ran a live-news request, what that request ended in: recorded as
+   * `chat.free_chat_news_served` beside this turn's own event. ABSENT on every other turn.
+   */
+  readonly news?: FreeChatNewsServed;
 }
 
 /** One mode transition. `from` null is a session with no mode yet being stamped. */
@@ -110,9 +135,10 @@ export interface FreeChatEventRef {
 }
 
 /**
- * THE PROFILING-STAGE FREE CHAT'S SIDE EFFECTS (ADR-0051) — the two model calls, their spend, the
- * two events and the durable lock. Everything that DECIDES is pure and lives in
- * `free-chat.router.ts`; the orchestrator calls this only for I/O.
+ * THE PROFILING-STAGE FREE CHAT'S SIDE EFFECTS (ADR-0051) — the model calls, their spend, the
+ * events and the durable lock; and (ADR-0054) the live-news call with its daily cap. Everything that
+ * DECIDES is pure and lives in `free-chat.router.ts` and `free-chat-news.ts`; the orchestrator calls
+ * this only for I/O.
  *
  * PRIVACY (ADR-0047). The worker's own known name is redacted out of every model input — the
  * message, the pending question and every recent turn — whatever `AI_RAW_PII_ENABLED` says (G2);
@@ -132,6 +158,8 @@ export class FreeChatService {
     private readonly cost: AiCostRecorder,
     private readonly events: EventsService,
     private readonly chat: ChatRepository,
+    // ADR-0054 — the live-news daily cap (Redis). A VALUE import, for the reason stated above.
+    private readonly newsCap: FreeChatNewsCap,
   ) {}
 
   /**
@@ -205,6 +233,81 @@ export class FreeChatService {
   }
 
   /**
+   * ADR-0054 — one live-news call, or null when it failed. The worker's own name is redacted out of
+   * the question, every recent turn and the trade label (G2), exactly as for {@link reply}. The
+   * answer is UNTRUSTED: `judgeNews` checks every line and every source before a worker sees them.
+   * The spend (tokens plus each search, priced by the ai-service) is recorded once, here, before any
+   * branch — the caller memoises the whole request per `takeTurn`.
+   */
+  async news(
+    req: FreeChatNewsRequest,
+    ctx: FreeChatCallContext,
+  ): Promise<FreeChatNewsOutput | null> {
+    const name = await this.knownNameOf(ctx);
+    const input = FreeChatNewsInputSchema.safeParse({
+      text: clip(redactKnownName(req.text, name), REPLY_TEXT_MAX),
+      recent_turns: recentTurnsOf(req.messages, REPLY_TURNS, name),
+      worker_context: workerContextFor(req.workerContext, name),
+    });
+    if (!input.success) {
+      this.logger.warn(
+        `free-chat news input off-contract session=${ctx.sessionId} ` +
+          `paths=[${input.error.issues.map((i) => i.path.join(".")).join(",")}]; no news call is made`,
+      );
+      return null;
+    }
+    const out = await this.ai.freeChatNews(input.data, ctx);
+    await this.cost.record(
+      out?.ai_metadata ?? null,
+      "profiling_free_news",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+      { workerId: ctx.workerId, sessionId: ctx.sessionId },
+    );
+    return out;
+  }
+
+  /**
+   * ONE LIVE-NEWS REQUEST, END TO END (ADR-0054 §3.1): reserve one of the worker's daily slots, make
+   * the call, judge it, and hand the slot back unless it was answered — so a failure, a refusal or
+   * the unarmed mock costs the worker nothing. An unreadable cap makes NO call (fail closed); a
+   * spent one makes none either. Never throws: a call that throws anyway is judged as no answer, and
+   * its slot is handed back.
+   *
+   * `now` is the TURN's clock, the same on every CAS attempt, so the release rebuilds the key the
+   * reservation used. The caller memoises the returned promise per `takeTurn`, so a lost CAS neither
+   * pays nor counts twice.
+   */
+  async requestNews(
+    req: FreeChatNewsRequest,
+    ctx: FreeChatCallContext,
+    now: Date,
+  ): Promise<FreeChatNewsResolution> {
+    const slot = await this.newsCap.reserve(ctx.workerId, now);
+    if (slot === null) return NEWS_CAP_UNREADABLE;
+    if (!slot.ok) return newsCapped(slot.count);
+    const out = await this.news(req, ctx).catch((error: unknown) => {
+      this.logger.warn(
+        `free-chat news call threw session=${ctx.sessionId}; judged as no answer: ` +
+          `${logSafeReason(error, "free-chat news call")}`,
+      );
+      return null;
+    });
+    const verdict = judgeNews(out);
+    if (verdict.outcome === "answered") return { ...verdict, dailyCount: slot.count };
+    if (verdict.rejection !== null) {
+      // The CLOSED reason only — never a line of the answer or a source, which are untrusted text.
+      this.logger.warn(
+        `free-chat news answer rejected session=${ctx.sessionId} (${verdict.rejection}); ` +
+          `the unavailable line is served`,
+      );
+    }
+    await this.newsCap.release(ctx.workerId, now);
+    return { ...verdict, dailyCount: slot.count - 1 };
+  }
+
+  /**
    * `chat.free_chat_turn_served` — once per served free-chat turn, after the CAS that landed it.
    * Keyed on the submission (or the write's rev), so a retried emit stores one row. Never throws.
    */
@@ -236,6 +339,39 @@ export class FreeChatService {
       this.logger.error(
         `chat.free_chat_turn_served not recorded session=${ref.sessionId} ` +
           `outcome=${served.outcome}: ${logSafeReason(error, "free-chat turn event")}`,
+      );
+    }
+  }
+
+  /**
+   * `chat.free_chat_news_served` (ADR-0054 §3.5) — once per news request that LANDED, after the CAS,
+   * beside the turn's own `chat.free_chat_turn_served`. Counts and closed enums only: never the
+   * question, the answer, a URL or a title. Keyed like the turn's event. Never throws.
+   */
+  async recordNews(news: FreeChatNewsServed, ref: FreeChatEventRef): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "chat.free_chat_news_served",
+        actor: { actor_type: "worker", actor_id: ref.workerId },
+        subject: { subject_type: "chat_session", subject_id: ref.sessionId },
+        payload: {
+          worker_id: ref.workerId,
+          session_id: ref.sessionId,
+          outcome: news.outcome,
+          kind: news.kind,
+          search_count: news.searchCount,
+          source_count: news.sourceCount,
+          daily_count: news.dailyCount,
+          submission_id: ref.submissionId,
+        },
+        idempotencyKey: `chat.free_chat_news_served:${ref.sessionId}:${ref.submissionId ?? ref.turnRef}`,
+        correlationId: ref.ctx.correlationId,
+        requestId: ref.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `chat.free_chat_news_served not recorded session=${ref.sessionId} ` +
+          `outcome=${news.outcome}: ${logSafeReason(error, "free-chat news event")}`,
       );
     }
   }

@@ -154,6 +154,7 @@ import {
   resumeEntry,
   type FreeChatRefs,
 } from "./free-chat/free-chat-turns";
+import type { FreeChatNewsLink } from "./free-chat/free-chat-news-links";
 import {
   confirmOf,
   confirmTurnFields,
@@ -439,6 +440,12 @@ export interface TurnResult {
    * byte-identical.
    */
   readonly readAloud?: false;
+  /**
+   * ADR-0054 — the 1-3 "read more" tiles of an ANSWERED live-news turn, each already checked
+   * (`newsLinksOf`). The chat wire carries them as `news_links`. ABSENT on every other turn, never
+   * empty and never null, so every existing body is byte-identical.
+   */
+  readonly newsLinks?: readonly FreeChatNewsLink[];
 }
 
 /**
@@ -779,6 +786,8 @@ export class ProfilingOrchestrator {
     const freeRefs: FreeChatRefs = {
       classify: null,
       reply: null,
+      // ADR-0054 — the live-news request, its daily-cap reservation included.
+      news: null,
       identity: null,
       pendingImport: null,
     };
@@ -4128,6 +4137,8 @@ export class ProfilingOrchestrator {
       fc.sessionLocked,
     );
     if (served !== undefined) await this.freeChat.recordServed(served, ref);
+    // ADR-0054 — the news request this turn ran, recorded only for the decision that landed.
+    if (served?.news !== undefined) await this.freeChat.recordNews(served.news, ref);
     // ADR-0051 §8 (R21) — a free-mode casual or career REPLY that landed may have pushed earlier
     // talk out of the next reply's window: fold it into the summary. SCHEDULED, NEVER AWAITED — the
     // worker's response does not wait on a summarizer — and only from the transcript that landed.
@@ -4952,6 +4963,8 @@ function replayResultOf(last: LastTurn): TurnResult {
     // ADR-0051 — FROM THE CACHE, ABSENT rather than true when unset: a replayed model reply carries
     // `read_aloud: false` exactly as the response it repeats did.
     ...(last.readAloud === false ? { readAloud: false as const } : {}),
+    // ADR-0054 — FROM THE CACHE, ABSENT when unset: a replayed news answer shows its tiles again.
+    ...(last.newsLinks !== undefined ? { newsLinks: last.newsLinks } : {}),
     unansweredEssentials: [],
     complete: false,
     completionReason: null,

@@ -57,6 +57,21 @@ export const GeneralFormOfferWireSchema = z.object({
 });
 
 /**
+ * ADR-0054 — one "read more" tile of a live-news answer: the article's `title` (from the search,
+ * never model-written), its `https:` `url` on an owner-approved site, and the `site` to show (the
+ * host minus `www.`). One definition for the two responses that carry it — a turn and a replayed
+ * thread. Every tile was checked server-side (`newsLinksOf`) before it reached either.
+ */
+export const NewsLinkWireSchema = z.object({
+  title: z.string().min(1),
+  url: z.string().url(),
+  site: z.string().min(1),
+});
+
+/** 1-3 tiles, ABSENT (never null, never empty) when a message has none. */
+const NewsLinksWireSchema = z.array(NewsLinkWireSchema).min(1).max(3);
+
+/**
  * Outbound shape of POST /chat/message (CHAT-UE-1). Mirrors the return object
  * `ChatService.postMessage` constructs field-by-field at step 7 — the schema is
  * the outbound boundary check, validated with `safeParse` so a malformed value
@@ -353,6 +368,17 @@ export const PostMessageResponseSchema = z.object({
    * vanished buffer). Set on a turn, its replay and an unavailable turn alike.
    */
   free_chat_mode: z.enum(FREE_CHAT_MODES).optional(),
+  /**
+   * ADR-0054 (#2127) — the "read more" tiles of an ANSWERED live-news turn in the free chat: 1-3
+   * `{title, url, site}`, drawn under `reply` (a short summary, `read_aloud: false`). Tapping a tile
+   * opens `url` outside the app.
+   *
+   * ADDITIVE AND ABSENT, never null or empty: on every other turn, on a news turn that served a
+   * fixed line (the cap, no result, unavailable, a refusal), and under the kill switch
+   * (`CHAT_FREE_CHAT_DISABLED`), so every body stays byte-identical. Present on that turn's replay
+   * too. A client that predates it shows the summary without tiles (ADR-0054 R7).
+   */
+  news_links: NewsLinksWireSchema.optional(),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 
@@ -463,6 +489,13 @@ export const SessionMessageSchema = z.object({
    */
   tts_text: z.string().optional(),
   created_at: z.string(),
+  /**
+   * ADR-0054 — the "read more" tiles of an answered live-news reply, on THAT outbound bubble only,
+   * exactly as `PostMessageResponse.news_links` served them — from the live buffer, or from the
+   * flushed row once the session has ended. ABSENT (never null or empty) on every other message and
+   * under the kill switch.
+   */
+  news_links: NewsLinksWireSchema.optional(),
 });
 export const SessionMessagesResponseSchema = z.object({
   // OLDEST FIRST — chronological, the order a chat thread is drawn in. The

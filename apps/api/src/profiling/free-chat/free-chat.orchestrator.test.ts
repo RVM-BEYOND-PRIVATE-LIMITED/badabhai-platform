@@ -156,6 +156,13 @@ const verdict = (category: Category, confidence = 0.92) => ({
   ai_metadata: REAL_META,
 });
 
+/** ADR-0054 — the news task's mock while it is unarmed: no real call, nothing found. */
+const NEWS_MOCK = {
+  status: "no_results" as const,
+  search_count: 0,
+  ai_metadata: { ...REAL_META, ai_call_id: "call-news", real_call: false },
+};
+
 const answer = (lines: string[], chips: string[] = []) => ({
   status: "answer" as const,
   lines,
@@ -189,6 +196,10 @@ interface WorldOpts {
   summary?: string | null | "throws";
   /** Release 2 — wire a REAL `FreeChatSummaryService` (its row, lock and model faked) for the fold. */
   realFold?: boolean;
+  /** ADR-0054 — news answers the worker already holds today (the cap is five). */
+  newsHeld?: number;
+  /** ADR-0054 — the news cap store cannot be read. */
+  newsCapDown?: boolean;
 }
 
 function makeWorld(opts: WorldOpts = {}) {
@@ -256,9 +267,30 @@ function makeWorld(opts: WorldOpts = {}) {
     freeChatClassify: vi.fn(async (_input: unknown): Promise<unknown> => verdict("unclear", 0)),
     freeChatReply: vi.fn(async (_input: unknown): Promise<unknown> => null),
     freeChatSummarize: vi.fn(async (_input: unknown): Promise<unknown> => null),
+    // ADR-0054 — the news task's MOCK by default (unarmed, R7): today's NEWS line is served.
+    freeChatNews: vi.fn(async (_input: unknown): Promise<unknown> => NEWS_MOCK),
   };
   const cost = { record: vi.fn(async (..._args: unknown[]) => undefined) };
-  const freeChat = new FreeChatService(ai as never, cost as never, events as never, chat as never);
+  // ADR-0054 — the daily cap, in memory: the REAL store's contract (reserve → ok/count, or null).
+  const newsCount = { held: opts.newsHeld ?? 0 };
+  const newsCap = {
+    reserve: vi.fn(async (_workerId: string, _now: Date) => {
+      if (opts.newsCapDown === true) return null;
+      if (newsCount.held >= 5) return { ok: false, count: newsCount.held };
+      newsCount.held += 1;
+      return { ok: true, count: newsCount.held };
+    }),
+    release: vi.fn(async (_workerId: string, _now: Date) => {
+      newsCount.held -= 1;
+    }),
+  };
+  const freeChat = new FreeChatService(
+    ai as never,
+    cost as never,
+    events as never,
+    chat as never,
+    newsCap as never,
+  );
   // Release 2 — the fold: a recording fake by default, or the real service over faked seams.
   const foldLock = {
     acquire: vi.fn(async () => "tok"),
@@ -378,6 +410,9 @@ function makeWorld(opts: WorldOpts = {}) {
   const replyWith = (...replies: unknown[]) => {
     for (const r of replies) ai.freeChatReply.mockResolvedValueOnce(r);
   };
+  const newsWith = (...outs: unknown[]) => {
+    for (const o of outs) ai.freeChatNews.mockResolvedValueOnce(o);
+  };
   const advance = (ms: number) => {
     now = new Date(now.getTime() + ms);
   };
@@ -400,6 +435,9 @@ function makeWorld(opts: WorldOpts = {}) {
     emitted,
     classifyAs,
     replyWith,
+    newsWith,
+    newsCap,
+    newsCount,
     advance,
     fold,
     summaryThunk,
@@ -1697,5 +1735,321 @@ describe("Release 2 — the fold is OFF the request path", () => {
     expect(
       EVENT_REGISTRY["chat.free_chat_summary_updated"].payload.safeParse(event!.payload).success,
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0054 — live news in free mode
+// ---------------------------------------------------------------------------
+
+const NEWS_META = {
+  ...REAL_META,
+  ai_call_id: "call-news-real",
+  task_type: "profiling_free_news",
+  model_name: "claude-haiku-4-5",
+  provider: "anthropic",
+};
+const NEWS_SOURCE = {
+  url: "https://www.thehindu.com/news/cities/pune/factory",
+  title: "New factory opens in Pune",
+  site: "thehindu.com",
+};
+const newsAnswer = (over: Record<string, unknown> = {}) => ({
+  status: "answer" as const,
+  kind: "work" as const,
+  lines: ["Pune mein ek nayi factory khul rahi hai.", "Bharti agle mahine shuru hogi."],
+  sources: [NEWS_SOURCE, { ...NEWS_SOURCE, url: "https://www.livemint.com/a", title: "Mint" }],
+  search_count: 1,
+  ai_metadata: NEWS_META,
+  ...over,
+});
+const REFUSE_NEWS = { status: "refuse" as const, topic: "news" as const, ai_metadata: null };
+
+/** In free mode, ask a career question whose reply refuses on `news`, with the news call's output. */
+async function askNews(world: ReturnType<typeof makeWorld>, newsOut?: unknown) {
+  world.classifyAs(verdict("career"));
+  world.replyWith(REFUSE_NEWS);
+  if (newsOut !== undefined) world.newsWith(newsOut);
+  return world.say("Pune mein koi factory khul rahi hai?");
+}
+
+const newsServed = (world: ReturnType<typeof makeWorld>) =>
+  world.emitted("chat.free_chat_news_served").map((e) => e.payload);
+const lastTurnServed = (world: ReturnType<typeof makeWorld>) =>
+  world.emitted("chat.free_chat_turn_served").at(-1)!.payload;
+
+describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () => {
+  it("ANSWERED: the lines, the tiles, the résumé chip, read_aloud false, and both events", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(world, newsAnswer());
+
+    expect(turn.reply).toBe(
+      "Pune mein ek nayi factory khul rahi hai.\nBharti agle mahine shuru hogi.",
+    );
+    expect(turn.readAloud).toBe(false);
+    expect(optionKeys(turn)).toEqual([FREE_CHAT_RESUME_KEY]);
+    expect(turn.newsLinks).toEqual([
+      { title: "New factory opens in Pune", url: NEWS_SOURCE.url, site: "thehindu.com" },
+      { title: "Mint", url: "https://www.livemint.com/a", site: "livemint.com" },
+    ]);
+    expect(world.ai.freeChatNews).toHaveBeenCalledOnce();
+    expect(world.newsCap.reserve).toHaveBeenCalledWith(WORKER, T0);
+    expect(world.newsCap.release).not.toHaveBeenCalled();
+
+    // The bubble carries its tiles (the replay's source); both lines are asides, never foldable.
+    const [asked, answered] = world.saved()!.messages.slice(-2);
+    expect(asked).toMatchObject({ role: "worker", aside: true });
+    expect(answered).toMatchObject({ role: "assistant", aside: true, newsLinks: turn.newsLinks });
+    expect(asked!.foldable).toBeUndefined();
+    expect(answered!.foldable).toBeUndefined();
+    expect(scheduled(world)).not.toHaveBeenCalled();
+    // Not a casual reply: the nudge's count does not move.
+    expect(world.envelope().freeChat!.casualReplies).toBe(0);
+
+    expect(lastTurnServed(world)).toMatchObject({
+      mode: "free",
+      category: "career",
+      outcome: "answered",
+      refusal_topic: null,
+    });
+    expect(newsServed(world)).toEqual([
+      {
+        worker_id: WORKER,
+        session_id: SESSION,
+        outcome: "answered",
+        kind: "work",
+        search_count: 1,
+        source_count: 2,
+        daily_count: 1,
+        submission_id: expect.any(String),
+      },
+    ]);
+    expect(world.cost.record.mock.calls.map((c) => c[1])).toContain("profiling_free_news");
+  });
+
+  it("UNARMED (the mock): today's NEWS line, the slot handed back — the dark merge is invisible", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(world);
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS.latin);
+    expect(turn.newsLinks).toBeUndefined();
+    expect(turn.readAloud).toBeUndefined();
+    expect(optionKeys(turn)).toEqual([FREE_CHAT_RESUME_KEY]);
+    expect(world.newsCap.release).toHaveBeenCalledOnce();
+    expect(world.newsCount.held).toBe(0);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line", refusal_topic: null });
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({
+        outcome: "unavailable",
+        kind: null,
+        search_count: 0,
+        source_count: 0,
+        daily_count: 0,
+      }),
+    ]);
+  });
+
+  it("CAPPED: NEWS_CAP and the chip, NO call, no search counted", async () => {
+    const world = makeWorld({ newsHeld: 5 });
+    await inFreeMode(world);
+    const turn = await askNews(world, newsAnswer());
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_CAP.latin);
+    expect(optionKeys(turn)).toEqual([FREE_CHAT_RESUME_KEY]);
+    expect(world.ai.freeChatNews).not.toHaveBeenCalled();
+    expect(world.newsCap.release).not.toHaveBeenCalled();
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line" });
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "capped", search_count: null, daily_count: 5 }),
+    ]);
+  });
+
+  it("an UNREADABLE cap: NEWS_UNAVAILABLE, no call, daily_count null (fail closed)", async () => {
+    const world = makeWorld({ newsCapDown: true });
+    await inFreeMode(world);
+    const turn = await askNews(world, newsAnswer());
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(world.ai.freeChatNews).not.toHaveBeenCalled();
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", search_count: null, daily_count: null }),
+    ]);
+  });
+
+  it("a FAILED call (null): NEWS_UNAVAILABLE, the slot handed back", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(world, null);
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(world.newsCount.held).toBe(0);
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", search_count: null, daily_count: 0 }),
+    ]);
+  });
+
+  it("NO RESULTS: NEWS_UNAVAILABLE, outcome no_results with its searches", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(world, {
+      status: "no_results",
+      search_count: 2,
+      ai_metadata: NEWS_META,
+    });
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "fixed_line" });
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "no_results", search_count: 2, source_count: 0 }),
+    ]);
+  });
+
+  it("a NESTED refusal serves that topic's line — distress without a chip, news unavailable", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const offLimits = await askNews(world, {
+      status: "refuse",
+      topic: "off_limits",
+      ai_metadata: NEWS_META,
+    });
+    expect(offLimits.reply).toBe(FREE_CHAT_COPY.OFF_LIMITS.latin);
+    expect(optionKeys(offLimits)).toEqual([FREE_CHAT_RESUME_KEY]);
+    expect(lastTurnServed(world)).toMatchObject({
+      outcome: "refused",
+      refusal_topic: "off_limits",
+    });
+
+    const distress = await askNews(world, {
+      status: "refuse",
+      topic: "distress",
+      ai_metadata: NEWS_META,
+    });
+    expect(distress.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(optionKeys(distress)).toEqual([]);
+
+    const nested = await askNews(world, {
+      status: "refuse",
+      topic: "news",
+      ai_metadata: NEWS_META,
+    });
+    expect(nested.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "refused", refusal_topic: "news" });
+
+    expect(newsServed(world).map((p) => p.outcome)).toEqual(["refused", "refused", "refused"]);
+    expect(world.newsCount.held).toBe(0);
+  });
+
+  it("REJECTED lines (G1, persona): NEWS_UNAVAILABLE, the turn a fallback, the slot back", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(
+      world,
+      newsAnswer({ lines: ["Bhai, call karein 98765 43210 par."] }),
+    );
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(turn.newsLinks).toBeUndefined();
+    expect(JSON.stringify(world.saved()!.messages)).not.toContain("98765");
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "fallback" });
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "rejected", kind: null, source_count: 0 }),
+    ]);
+    expect(world.newsCount.held).toBe(0);
+  });
+
+  it("ZERO VALID TILES: rejected — an answer is never served without its source", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const turn = await askNews(
+      world,
+      newsAnswer({
+        sources: [
+          { ...NEWS_SOURCE, url: "http://www.thehindu.com/a" },
+          { ...NEWS_SOURCE, url: "https://evilindiatimes.com/a" },
+        ],
+      }),
+    );
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(newsServed(world)).toEqual([expect.objectContaining({ outcome: "rejected" })]);
+  });
+
+  it("RÉSUMÉ MODE never runs news — an off-topic question is deflected as today", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("casual"));
+    world.newsWith(newsAnswer());
+    const turn = await world.say("aaj ki taaza khabar kya hai");
+    expect(turn.reply.startsWith(FREE_CHAT_COPY.LOCK_DEFLECT.latin)).toBe(true);
+    expect(world.ai.freeChatReply).not.toHaveBeenCalled();
+    expect(world.ai.freeChatNews).not.toHaveBeenCalled();
+    expect(world.newsCap.reserve).not.toHaveBeenCalled();
+    expect(newsServed(world)).toEqual([]);
+  });
+
+  it("a LOST CAS re-decides against the SAME request: one call, one reservation, one event", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.cost.record.mockClear();
+    world.buffer.saveWithCas.mockImplementationOnce(async () => false);
+    const turn = await askNews(world, newsAnswer());
+    expect(turn.newsLinks).toHaveLength(2);
+    expect(world.ai.freeChatNews).toHaveBeenCalledOnce();
+    expect(world.newsCap.reserve).toHaveBeenCalledOnce();
+    expect(world.newsCount.held).toBe(1);
+    expect(newsServed(world)).toHaveLength(1);
+    expect(world.cost.record.mock.calls.map((c) => c[1])).toEqual([
+      "profiling_free_classify",
+      "profiling_free_reply",
+      "profiling_free_news",
+    ]);
+  });
+
+  it("a DUPLICATE submit replays the answer WITH its tiles, and runs nothing again", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("career"));
+    world.replyWith(REFUSE_NEWS);
+    world.newsWith(newsAnswer());
+    const input = {
+      sessionId: SESSION,
+      workerId: WORKER,
+      text: "kal ka match kisne jeeta",
+      now: T0,
+      submissionId: "88888888-8888-4888-8888-888888888888",
+      voiceNoteId: null,
+      freeChat: { enabled: true, sessionLocked: false, locked: async () => false },
+      knownName: async () => null,
+      ctx: CTX as never,
+    };
+    const first = await world.orchestrator.takeTurn(input);
+    const again = await world.orchestrator.takeTurn(input);
+    expect(again.replayed).toBe(true);
+    expect(again.reply).toBe(first.reply);
+    expect(again.readAloud).toBe(false);
+    expect(again.newsLinks).toEqual(first.newsLinks);
+    expect(world.ai.freeChatNews).toHaveBeenCalledOnce();
+    expect(world.newsCap.reserve).toHaveBeenCalledOnce();
+  });
+
+  it("every news-turn event validates against the registry", async () => {
+    const world = makeWorld({ newsHeld: 3 });
+    await inFreeMode(world);
+    await askNews(world, newsAnswer({ kind: "everyday", search_count: 2 }));
+    await askNews(world, null);
+    await askNews(world, newsAnswer());
+    await askNews(world, newsAnswer());
+    const calls = world.events.emit.mock.calls.map(
+      ([params]) => params as { event_name: string; payload: unknown; idempotencyKey: string },
+    );
+    const news = calls.filter((c) => c.event_name === "chat.free_chat_news_served");
+    expect(news.map((c) => (c.payload as { outcome: string }).outcome)).toEqual([
+      "answered",
+      "unavailable",
+      "answered",
+      "capped",
+    ]);
+    for (const { event_name: name, payload } of calls) {
+      expect(
+        EVENT_REGISTRY[name as keyof typeof EVENT_REGISTRY].payload.safeParse(payload).success,
+        `${name} ${JSON.stringify(payload)}`,
+      ).toBe(true);
+    }
+    expect(new Set(news.map((c) => c.idempotencyKey)).size).toBe(news.length);
   });
 });

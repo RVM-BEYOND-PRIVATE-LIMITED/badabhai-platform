@@ -10,6 +10,7 @@ import { ChatService } from "./chat.service";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
 import {
   PostMessageResponseSchema,
+  SessionMessagesResponseSchema,
   StartSessionResponseSchema,
   type StartSessionResponse,
 } from "./chat.dto";
@@ -846,5 +847,137 @@ describe("free_chat_mode (#2030) — the free chat's mode after every profiling 
     expect("free_chat_mode" in (await offReplay.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
     const none = make({ written: { profiling: emptyProfilingEnvelope() } });
     expect("free_chat_mode" in (await none.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0054 — live news: the "read more" tiles on the wire
+// ---------------------------------------------------------------------------
+
+describe("news_links (ADR-0054 §3.4) — an answered news turn's tiles, and only there", () => {
+  const LINKS = [
+    {
+      title: "New factory opens in Pune",
+      url: "https://www.thehindu.com/news/cities/pune/factory",
+      site: "thehindu.com",
+    },
+    { title: "Mint", url: "https://www.livemint.com/a", site: "livemint.com" },
+  ];
+  const NEWS_TURN: Partial<TurnResult> = {
+    reply: "Pune mein ek nayi factory khul rahi hai.",
+    options: [RESUME_CHIP],
+    readAloud: false,
+    newsLinks: LINKS,
+  };
+  const newsLine = {
+    role: "assistant" as const,
+    text: "Pune mein ek nayi factory khul rahi hai.",
+    at: T0.toISOString(),
+    voiceNoteId: null,
+    aside: true as const,
+    newsLinks: LINKS,
+  };
+  const askedLine = {
+    role: "worker" as const,
+    text: "Pune mein koi factory khul rahi hai?",
+    at: T0.toISOString(),
+    voiceNoteId: null,
+    aside: true as const,
+  };
+
+  it("POST /chat/message: the tiles as {title, url, site}, beside a summary that is not read aloud", async () => {
+    const { svc } = make({ turn: NEWS_TURN });
+    const res = await svc.postMessage(WORKER, DTO, CTX);
+    expect(res.news_links).toEqual(LINKS);
+    expect(res.read_aloud).toBe(false);
+    expect("tts_text" in res).toBe(false);
+    expect(PostMessageResponseSchema.safeParse(res).success).toBe(true);
+  });
+
+  it("ABSENT — never null, never empty — on every other turn", async () => {
+    for (const turn of [
+      { reply: FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin, options: [RESUME_CHIP] },
+      { reply: FREE_CHAT_COPY.NEWS_CAP.latin, options: [RESUME_CHIP] },
+      { reply: "Aapka din accha jaaye.", readAloud: false as const },
+      { reply: "x", newsLinks: [] },
+    ]) {
+      const { svc } = make({ turn });
+      expect("news_links" in (await svc.postMessage(WORKER, DTO, CTX))).toBe(false);
+    }
+  });
+
+  it("the two new fixed lines carry their Devanagari twins", async () => {
+    for (const line of [FREE_CHAT_COPY.NEWS_CAP, FREE_CHAT_COPY.NEWS_UNAVAILABLE]) {
+      const { svc } = make({ turn: { reply: line.latin, options: [RESUME_CHIP] } });
+      expect((await svc.postMessage(WORKER, DTO, CTX)).tts_text).toBe(line.dev);
+    }
+  });
+
+  it("a REPLAYED news turn shows its tiles again", async () => {
+    const { svc } = make({ turn: { ...NEWS_TURN, replayed: true } });
+    const res = await svc.postMessage(WORKER, DTO, CTX);
+    expect(res.news_links).toEqual(LINKS);
+    expect(PostMessageResponseSchema.safeParse(res).success).toBe(true);
+  });
+
+  it("the KILL SWITCH keeps every body byte-identical — no tiles, live or replayed", async () => {
+    const live = make({ killSwitch: true, turn: NEWS_TURN });
+    expect("news_links" in (await live.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
+    const replayed = make({ killSwitch: true, turn: { ...NEWS_TURN, replayed: true } });
+    expect("news_links" in (await replayed.svc.postMessage(WORKER, DTO, CTX))).toBe(false);
+  });
+
+  it("GET messages (live buffer): the tiles ride THAT bubble only", async () => {
+    const { svc } = make({ buffer: { messages: [askedLine, newsLine] } });
+    const res = await svc.listMessages(WORKER, SESSION);
+    expect("news_links" in res.messages[0]!).toBe(false);
+    expect(res.messages[1]!.news_links).toEqual(LINKS);
+    expect(SessionMessagesResponseSchema.safeParse(res).success).toBe(true);
+    const off = make({ killSwitch: true, buffer: { messages: [askedLine, newsLine] } });
+    const hidden = await off.svc.listMessages(WORKER, SESSION);
+    expect(hidden.messages.some((m) => "news_links" in m)).toBe(false);
+  });
+
+  it("GET messages (after the flush): the tiles come back from the row's metadata, re-checked", async () => {
+    const { svc, chat } = make({ buffer: null });
+    const rows = [
+      {
+        direction: "inbound",
+        bodyText: askedLine.text,
+        createdAt: T0,
+        metadata: { free_chat: true },
+      },
+      {
+        direction: "outbound",
+        bodyText: newsLine.text,
+        createdAt: T0,
+        metadata: { free_chat: true, news_links: LINKS },
+      },
+      {
+        direction: "outbound",
+        bodyText: "tampered",
+        createdAt: T0,
+        metadata: {
+          free_chat: true,
+          news_links: [{ title: "x", url: "https://evil.example/a", site: "thehindu.com" }],
+        },
+      },
+    ];
+    Object.assign(chat, { listMessages: vi.fn(async () => rows) });
+    const res = await svc.listMessages(WORKER, SESSION);
+    expect("news_links" in res.messages[0]!).toBe(false);
+    expect(res.messages[1]!.news_links).toEqual(LINKS);
+    expect("news_links" in res.messages[2]!).toBe(false);
+    expect(SessionMessagesResponseSchema.safeParse(res).success).toBe(true);
+  });
+
+  it("the FLUSH keeps the tiles in the row's metadata beside the free-chat flag", async () => {
+    const { svc, chat } = make({ buffer: { messages: [askedLine, newsLine] } });
+    await svc.abandonInterview({ id: SESSION, workerId: WORKER, conversationState: null }, 30, CTX);
+    const rows = chat.insertMessages.mock.calls[0]![1] as Record<string, unknown>[];
+    expect(rows.map((row) => row.metadata)).toEqual([
+      { free_chat: true },
+      { free_chat: true, news_links: LINKS },
+    ]);
   });
 });

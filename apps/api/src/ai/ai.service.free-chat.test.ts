@@ -9,7 +9,8 @@ import { AiService } from "./ai.service";
 
 /**
  * ADR-0051 — the profiling-stage free chat's transport calls: the routes, the parse, the
- * fail-closed null, and the budgets (2.5 s classify, 10 s reply, 8 s summarize — Release 2). The
+ * fail-closed null, and the budgets (2.5 s classify, 10 s reply, 8 s summarize — Release 2, 25 s
+ * news — ADR-0054). The
  * CALL SHAPE is pinned too:
  * the ai-service's eval reads `ai.service.ts` for exactly
  * `this.post("/free-chat/classify", input, <Schema>, <ms>` to keep the two sides' timeouts in step.
@@ -209,5 +210,96 @@ describe("freeChatSummarize — Release 2's rolling summary (ADR-0051 §8)", () 
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("freeChatNews — ADR-0054 live news", () => {
+  const input = {
+    text: "aaj ka mausam kaisa hai",
+    recent_turns: [],
+    worker_context: { trade_label: null, experience_bucket: null },
+  };
+
+  it("posts to /free-chat/news and parses an answer, no_results or a refusal", async () => {
+    const answer = {
+      status: "answer",
+      kind: "everyday",
+      lines: ["Aaj Pune mein baarish ho sakti hai."],
+      sources: [
+        { url: "https://mausam.imd.gov.in/a", title: "Forecast", site: "mausam.imd.gov.in" },
+      ],
+      search_count: 1,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(answer))
+      .mockResolvedValueOnce(response({ status: "no_results", search_count: 0 }))
+      .mockResolvedValueOnce(response({ status: "refuse", topic: "off_limits" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const ai = new AiService(config);
+    expect(await ai.freeChatNews(input)).toEqual({ ...answer, ai_metadata: null });
+    expect(await ai.freeChatNews(input)).toEqual({
+      status: "no_results",
+      search_count: 0,
+      ai_metadata: null,
+    });
+    expect(await ai.freeChatNews(input)).toMatchObject({ status: "refuse", topic: "off_limits" });
+    expect(fetchMock.mock.calls[0]![0]).toBe("http://ai-service:8000/free-chat/news");
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body)).toEqual(input);
+  });
+
+  it("returns NULL on a schema miss (4 sources, an unknown kind), a non-OK and when unreachable", async () => {
+    const ai = new AiService(config);
+    const source = { url: "https://www.thehindu.com/a", title: "t", site: "thehindu.com" };
+    for (const bad of [
+      {
+        status: "answer",
+        kind: "work",
+        lines: ["x"],
+        sources: [source, source, source, source],
+        search_count: 1,
+      },
+      { status: "answer", kind: "politics", lines: ["x"], sources: [source], search_count: 1 },
+      { status: "answer", kind: "work", lines: ["x"], sources: [], search_count: 1 },
+    ]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(bad)));
+      expect(await ai.freeChatNews(input)).toBeNull();
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 503 } as unknown as Response),
+    );
+    expect(await ai.freeChatNews(input)).toBeNull();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    expect(await ai.freeChatNews(input)).toBeNull();
+  });
+
+  it("is bounded at 25 s — and keeps the call shape the ai-service eval reads", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              signal = init.signal;
+              init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+            }),
+        ),
+      );
+      const out = new AiService(config).freeChatNews(input);
+      await vi.advanceTimersByTimeAsync(24_900);
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(signal?.aborted).toBe(true);
+      expect(await out).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+    const source = readFileSync(join(__dirname, "ai.service.ts"), "utf8");
+    expect(source).toContain(
+      'this.post("/free-chat/news", input, FreeChatNewsOutputSchema, 25000,',
+    );
   });
 });
