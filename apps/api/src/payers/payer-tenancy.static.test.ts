@@ -39,8 +39,11 @@ import ts from "typescript";
  *     their payer id rides a Drizzle insert type declared in packages/db (`New…`), which this
  *     scan does not read; the same holds for ANY parameter typed by a type from outside
  *     apps/api/src. (5 is hand-converted in P2a: it takes `NewTenantJobPosting`, whose
- *     `payerId` is a `TenantKey | null`.)
- *  6. A raw id under a name outside PAYER_ID_NAME (e.g. `ownerId`, `tenantId`, `id`).
+ *     `payerId` is a `TenantKey | null`. 1–4 are hand-converted in P2c: the lock and the coupon
+ *     count take a `TenantKey`; the inserts take `NewTenantPostingPlan` / `NewTenantPostingBoost`,
+ *     whose `payerId` is a `TenantKey`. The "T5 blind spots 1–5" case pins all five.)
+ *  6. A raw id under a name outside PAYER_ID_NAME (e.g. `ownerId`, `tenantId`, `id`). (`tenant`
+ *     and `tenantKey` are inside it since the P2c review: a de-branded `tenant: string` is seen.)
  *  7. A parameter typed `any` / `unknown` that carries a payer id.
  *  8. A callable that only DELEGATES to a listed helper (deliberate: retyping the helper forces
  *     its callers through the type system — but only once the helper is retyped).
@@ -75,8 +78,12 @@ const SQL_TABLE = new RegExp(
   `\\b(?:from|join|into|update)\\s+(?:public\\.)?(${Object.values(TENANT_TABLES).join("|")})\\b`,
   "i",
 );
-/** `payerId`, `inviterPayerId`, `agencyPayerId`, … and the payout module's `agencyId`. */
-const PAYER_ID_NAME = /^(?:[a-z][A-Za-z]*PayerId|payerId|agencyId)$/;
+/**
+ * `payerId`, `inviterPayerId`, `agencyPayerId`, … the payout module's `agencyId`, and the
+ * tenancy vocabulary itself — `tenant` / `tenantKey` — so a converted parameter that loses its
+ * brand but keeps its name (`tenant: string`) is caught (review of PR #2174, security L1).
+ */
+const PAYER_ID_NAME = /^(?:[a-z][A-Za-z]*PayerId|payerId|agencyId|tenant|tenantKey)$/;
 
 /**
  * Stay actor- or literal-keyed through the flip (ORG_TENANCY_PLAN §4). Each needs a reason a
@@ -135,13 +142,8 @@ const UNCONVERTED: readonly string[] = [
   "unlocks/unlocks.repository.ts UnlocksRepository.recordDeny",
   "unlocks/unlocks.repository.ts UnlocksRepository.tryDebit",
   "unlocks/unlocks.repository.ts UnlocksRepository.upsertGrant",
-  // P2c — plans, boosts, quota top-up, capacity
-  "posting-plans/posting-plans.repository.ts PostingPlansRepository.addQuotaTopup",
-  "posting-plans/posting-plans.repository.ts PostingPlansRepository.countActivePlansForPayer",
-  "posting-plans/posting-plans.repository.ts PostingPlansRepository.findActivePlanForPostingAndPayer",
-  "posting-plans/posting-plans.repository.ts PostingPlansRepository.getCapacity",
-  "posting-plans/posting-plans.repository.ts PostingPlansRepository.listPausedPlansForPayer",
-  "posting-plans/posting-plans.repository.ts PostingPlansRepository.upsertCapacity",
+  // P2c — plans, boosts, quota top-up, capacity, coupons: CONVERTED (PR "payer org tenancy
+  // phase 2c"), including the blind spots 1–4 below, which it converted by hand.
   // P2d — agency invites, workers, KYC, payouts (agency JOBS moved to P2a and are converted)
   "agency/agency-invites.repository.ts AgencyInvitesRepository.create",
   "agency/agency-invites.repository.ts AgencyInvitesRepository.stageCountsForOwner",
@@ -378,6 +380,74 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
   });
 });
 
+/** The written type of each parameter of `Class.method` in `file` (syntax only). */
+function paramTypesOf(file: string, className: string, method: string): string[] {
+  const sf = ts.createSourceFile(file, readFileSync(join(SRC, file), "utf8"), ts.ScriptTarget.Latest, true);
+  let found: string[] | null = null;
+  sf.forEachChild((node) => {
+    if (!ts.isClassDeclaration(node) || node.name?.text !== className) return;
+    for (const member of node.members) {
+      if (ts.isMethodDeclaration(member) && member.name.getText(sf) === method) {
+        found = member.parameters.map((p) => p.type?.getText(sf) ?? "<untyped>");
+      }
+    }
+  });
+  if (found === null) throw new Error(`${file}: ${className}.${method} not found`);
+  return found;
+}
+
+/** The written type of `property` on the top-level type alias `alias` in `file`. */
+function aliasPropertyType(file: string, alias: string, property: string): string | null {
+  const sf = ts.createSourceFile(file, readFileSync(join(SRC, file), "utf8"), ts.ScriptTarget.Latest, true);
+  let found: string | null = null;
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertySignature(node) && ts.isIdentifier(node.name) && node.name.text === property) {
+      found = node.type?.getText(sf) ?? null;
+    }
+    node.forEachChild(visit);
+  };
+  sf.forEachChild((node) => {
+    if (ts.isTypeAliasDeclaration(node) && node.name.text === alias) visit(node.type);
+  });
+  return found;
+}
+
+/**
+ * T5's blind spots 1–5 (the header list) are converted by HAND, so nothing above would notice a
+ * revert: a `TenantKey` is assignable to `string`, so retyping one of these back to a raw id
+ * still compiles. Pinned here by their written signatures instead.
+ */
+describe("T5 blind spots 1–5 — the hand-converted callables keep taking the tenant key (P2a, P2c)", () => {
+  const PLANS = "posting-plans/posting-plans.repository.ts";
+
+  it("1, 2: the capacity advisory lock and the coupon count take a TenantKey (O-4)", () => {
+    expect(paramTypesOf(PLANS, "PostingPlansRepository", "lockPayer")).toEqual(["Tx", "TenantKey"]);
+    expect(paramTypesOf(PLANS, "PostingPlansRepository", "couponUsage")).toEqual([
+      "string",
+      "TenantKey",
+    ]);
+  });
+
+  it("3, 4: the plan and boost inserts take an insert type whose payerId is a TenantKey", () => {
+    expect(paramTypesOf(PLANS, "PostingPlansRepository", "insertPlan")[0]).toBe(
+      "NewTenantPostingPlan",
+    );
+    expect(paramTypesOf(PLANS, "PostingPlansRepository", "insertBoost")[0]).toBe(
+      "NewTenantPostingBoost",
+    );
+    expect(aliasPropertyType(PLANS, "NewTenantPostingPlan", "payerId")).toBe("TenantKey");
+    expect(aliasPropertyType(PLANS, "NewTenantPostingBoost", "payerId")).toBe("TenantKey");
+  });
+
+  it("5: the posting insert takes NewTenantJobPosting, whose payerId is a TenantKey or NULL (ops)", () => {
+    const POSTINGS = "job-postings/job-postings.repository.ts";
+    expect(paramTypesOf(POSTINGS, "JobPostingsRepository", "create")[0]).toBe(
+      "NewTenantJobPosting",
+    );
+    expect(aliasPropertyType(POSTINGS, "NewTenantJobPosting", "payerId")).toBe("TenantKey | null");
+  });
+});
+
 /** Non-test source under apps/api/src, comments stripped (prose may name what code must not do). */
 function codeOf(file: string): string {
   return readFileSync(file, "utf8")
@@ -524,6 +594,28 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
       ),
     ]);
     expect(found).toEqual(["fx/raw.repository.ts stmt"]);
+  });
+
+  it("a raw id under the tenancy vocabulary itself — `tenant` / `tenantKey` typed `string` (review of PR #2174, L1)", () => {
+    // The converted repositories name the parameter `tenant`; a revert that keeps the name but
+    // drops the brand (`tenant: string`) must not slip past the scan. Typed `TenantKey`, it is fine.
+    const found = scanRawTenantKeyCallables([
+      fixture(
+        "fx/tenant.repository.ts",
+        `${TABLE_IMPORT}import type { TenantKey } from "../payers/payer-tenant-scope";
+        export class FxRepository {
+          async count(tx: Tx, tenant: string) { return tx.select().from(unlocks); }
+          async find(id: string, tenantKey: string | undefined) { return this.db.select().from(jobPostings); }
+          async create(input: { tenant: string }) { return this.db.insert(unlocks).values(input); }
+          async ok(tx: Tx, tenant: TenantKey) { return tx.select().from(unlocks); }
+        }`,
+      ),
+    ]);
+    expect(found).toEqual([
+      "fx/tenant.repository.ts FxRepository.count",
+      "fx/tenant.repository.ts FxRepository.create",
+      "fx/tenant.repository.ts FxRepository.find",
+    ]);
   });
 });
 

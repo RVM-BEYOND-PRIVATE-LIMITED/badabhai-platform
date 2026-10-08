@@ -407,20 +407,24 @@ export class JobPostingsService {
     );
   }
 
-  async listForPayer(
-    actorPayerId: string,
+  /**
+   * The tenant's postings, newest first, in a scope the caller already resolved. The payer
+   * postings list (`PayerPostingPlansService.listWithStats`) reads each row's plan stats in the
+   * same scope — one resolution per request. There is no `listForPayer`: no route lists postings
+   * without their stats (PAY-DB-01 P2c review L-1).
+   */
+  async listInScope(
+    scope: PayerTenantScope,
     query: ListJobPostingsQueryDto,
   ): Promise<JobPostingApi[]> {
-    const scope = await this.tenancy.resolve(actorPayerId);
     return this.repo.listByPayer(scope.tenantKey, query.status);
   }
 
-  /** One of the caller's tenant's postings; no-oracle 404 for an unknown OR foreign id. */
-  async getOneForPayer(id: string, actorPayerId: string): Promise<JobPostingApi> {
-    return this.getOneInScope(id, await this.tenancy.resolve(actorPayerId));
-  }
-
-  /** {@link getOneForPayer} for a caller that already resolved the scope. */
+  /**
+   * One of the tenant's postings, in a scope the caller already resolved; no-oracle 404 for an
+   * unknown OR foreign id. The posting-ownership chokepoint every payer write and read composes
+   * (the `*ForPayer` writes below, the paid routes' seam, the applicant list).
+   */
   async getOneInScope(id: string, scope: PayerTenantScope): Promise<JobPostingApi> {
     const row = await this.repo.findByIdAndPayer(id, scope.tenantKey);
     if (!row) throw new NotFoundException("Job posting not found");

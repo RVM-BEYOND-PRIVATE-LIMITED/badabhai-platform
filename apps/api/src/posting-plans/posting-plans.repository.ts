@@ -15,22 +15,37 @@ import {
   type PostingPlanStatus,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /** Coupon redemption counts (for fail-closed cap enforcement at purchase). */
 export interface CouponUsageCounts {
   readonly total: number;
+  /** Redemptions by the TENANT (ADR-0053 O-4: `perPayerLimit` is per org once the flag is on). */
   readonly perPayer: number;
 }
+
+/**
+ * A plan / boost insert (ADR-0053 §5.2 rule 3, hand-converted: the Drizzle `New…` types carry
+ * `payer_id` as a plain string, which the T5 scan cannot see). The row's owner is the resolved
+ * TENANT key, never a raw id; who bought it is the event envelope's actor (§7).
+ */
+export type NewTenantPostingPlan = Omit<NewPostingPlan, "payerId"> & { payerId: TenantKey };
+export type NewTenantPostingBoost = Omit<NewPostingBoost, "payerId"> & { payerId: TenantKey };
 
 /**
  * A Drizzle transaction handle. The capacity chokepoint ({@link PostingPlansService})
  * opens ONE transaction per buy/upgrade and threads `tx` through these methods, so the
  * count-active-vacancies → decide-status → write is ONE atomic operation under a
- * per-payer advisory lock (ADR-0016 / ADR-0010 F-2 discipline). `Tx` is the first
+ * per-tenant advisory lock (ADR-0016 / ADR-0010 F-2 discipline; ADR-0053). `Tx` is the first
  * argument of a `db.transaction` callback.
  */
 export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
+/**
+ * ADR-0053 (PAY-DB-01) P2c: every predicate and stamp on `posting_plans`, `posting_boosts` and
+ * `payer_capacity` takes the branded {@link TenantKey} the resolver mints — never a raw id — and
+ * so does the capacity lock and the coupon count. In mode `off` the key is the caller itself.
+ */
 @Injectable()
 export class PostingPlansRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -41,28 +56,30 @@ export class PostingPlansRepository {
   }
 
   /**
-   * Take a transaction-scoped advisory lock keyed on `payer_id` (ADR-0016 / F-2). All
-   * capacity-affecting writes for one payer serialize on this lock, so N concurrent
-   * buys can NEVER each read "under cap" and all write 'active' — the count-and-write
-   * that follows inside the same `tx` is effectively atomic per payer. Released on
-   * commit/rollback. We hash the UUID into the bigint key space (mirrors unlocks).
+   * Take a transaction-scoped advisory lock keyed on the TENANT (ADR-0016 / F-2; ADR-0053 §6:
+   * the capacity lock is per org). All capacity-affecting writes for one tenant serialize on
+   * this lock, so N concurrent buys — by one login or by several members of one org — can
+   * NEVER each read "under cap" and all write 'active': the count-and-write that follows
+   * inside the same `tx` is effectively atomic per tenant. Released on commit/rollback. We
+   * hash the UUID into the bigint key space (mirrors unlocks). Hand-converted (T5 blind spot
+   * 1: the lock touches no table).
    */
-  async lockPayer(tx: Tx, payerId: string): Promise<void> {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${payerId}, 0))`);
+  async lockPayer(tx: Tx, tenant: TenantKey): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenant}, 0))`);
   }
 
   /**
-   * Count this payer's CURRENTLY-ACTIVE vacancies = posting_plans in status='active'
+   * Count the tenant's CURRENTLY-ACTIVE vacancies = posting_plans in status='active'
    * that are not expired (expires_at null or in the future). DERIVED (no side counter,
    * no drift; ADR-0016). Tx-scoped so it sees this txn's writes under the advisory lock.
    */
-  async countActivePlansForPayer(tx: Tx, payerId: string, now: Date): Promise<number> {
+  async countActivePlansForPayer(tx: Tx, tenant: TenantKey, now: Date): Promise<number> {
     const rows = await tx
       .select({ c: count() })
       .from(postingPlans)
       .where(
         and(
-          eq(postingPlans.payerId, payerId),
+          eq(postingPlans.payerId, tenant),
           eq(postingPlans.status, "active"),
           or(isNull(postingPlans.expiresAt), gt(postingPlans.expiresAt, now)),
         ),
@@ -71,31 +88,36 @@ export class PostingPlansRepository {
   }
 
   /**
-   * The payer's capacity row, or undefined. Pass `tx` to read the allowance UNDER the
-   * per-payer advisory lock during a buy (ADR-0016 / F-2): reading on the locked tx's own
-   * connection (not a second pool connection) is what keeps the chokepoint deadlock-free
-   * at concurrency ≥ pool size — same discipline as every other in-lock read. `this.db`
-   * is the standalone (ops/no-lock) path.
+   * The tenant's capacity row (one allowance per org, ADR-0053 §4), or undefined. Pass `tx`
+   * to read the allowance UNDER the per-tenant advisory lock during a buy (ADR-0016 / F-2):
+   * reading on the locked tx's own connection (not a second pool connection) is what keeps
+   * the chokepoint deadlock-free at concurrency ≥ pool size — same discipline as every other
+   * in-lock read. `this.db` is the standalone (no-lock) path.
    */
-  async getCapacity(payerId: string, tx?: Tx): Promise<PayerCapacity | undefined> {
+  async getCapacity(tenant: TenantKey, tx?: Tx): Promise<PayerCapacity | undefined> {
     const exec = tx ?? this.db;
     const rows = await exec
       .select()
       .from(payerCapacity)
-      .where(eq(payerCapacity.payerId, payerId))
+      .where(eq(payerCapacity.payerId, tenant))
       .limit(1);
     return rows[0];
   }
 
   /**
-   * Upsert the payer's capacity allowance — idempotent on the unique payer_id (ADR-0016).
+   * Upsert the tenant's capacity allowance — idempotent on the unique payer_id (ADR-0016).
    * RAISES max_active_vacancies to the tier grant; stamps source_tier + expires_at. The
    * GREATEST guard means a re-applied (or older/smaller) grant can never LOWER a live
    * allowance — an upgrade only ever grows it (so a replayed purchase is naturally safe).
    * Tx-scoped (called under the advisory lock during auto-resume) or standalone.
    */
   async upsertCapacity(
-    input: { payerId: string; maxActiveVacancies: number; sourceTier: string | null; expiresAt: Date | null },
+    input: {
+      payerId: TenantKey;
+      maxActiveVacancies: number;
+      sourceTier: string | null;
+      expiresAt: Date | null;
+    },
     tx?: Tx,
   ): Promise<PayerCapacity> {
     const exec = tx ?? this.db;
@@ -123,14 +145,14 @@ export class PostingPlansRepository {
   }
 
   /**
-   * A payer's PAUSED plans, oldest-paid first (deterministic auto-resume order;
+   * A tenant's PAUSED plans, oldest-paid first (deterministic auto-resume order;
    * ADR-0016). Tx-scoped (read under the advisory lock so it sees a consistent set).
    */
-  async listPausedPlansForPayer(tx: Tx, payerId: string): Promise<PostingPlan[]> {
+  async listPausedPlansForPayer(tx: Tx, tenant: TenantKey): Promise<PostingPlan[]> {
     return tx
       .select()
       .from(postingPlans)
-      .where(and(eq(postingPlans.payerId, payerId), eq(postingPlans.status, "paused")))
+      .where(and(eq(postingPlans.payerId, tenant), eq(postingPlans.status, "paused")))
       .orderBy(asc(postingPlans.paidAt));
   }
 
@@ -157,11 +179,12 @@ export class PostingPlansRepository {
   }
 
   /**
-   * Insert a posting plan. `input.status` is explicit ('active' | 'paused' per the
-   * capacity decision; ADR-0016). Tx-scoped when `tx` is supplied so the insert is
-   * part of the count-and-write atomic step under the per-payer advisory lock.
+   * Insert a posting plan, owned by the TENANT ({@link NewTenantPostingPlan}). `input.status`
+   * is explicit ('active' | 'paused' per the capacity decision; ADR-0016). Tx-scoped when
+   * `tx` is supplied so the insert is part of the count-and-write atomic step under the
+   * per-tenant advisory lock.
    */
-  async insertPlan(input: NewPostingPlan, tx?: Tx): Promise<PostingPlan> {
+  async insertPlan(input: NewTenantPostingPlan, tx?: Tx): Promise<PostingPlan> {
     const exec = tx ?? this.db;
     const rows = await exec.insert(postingPlans).values(input).returning();
     const row = rows[0];
@@ -169,7 +192,8 @@ export class PostingPlansRepository {
     return row;
   }
 
-  async insertBoost(input: NewPostingBoost): Promise<PostingBoost> {
+  /** Insert a booster receipt, owned by the TENANT ({@link NewTenantPostingBoost}). */
+  async insertBoost(input: NewTenantPostingBoost): Promise<PostingBoost> {
     const rows = await this.db.insert(postingBoosts).values(input).returning();
     const row = rows[0];
     if (!row) throw new Error("Failed to create posting boost");
@@ -223,15 +247,15 @@ export class PostingPlansRepository {
   }
 
   /**
-   * The payer's single ACTIVE, unexpired plan for a posting — the target of a quota top-up
+   * The tenant's single ACTIVE, unexpired plan for a posting — the target of a quota top-up
    * (B2). Latest-paid first (if a posting somehow carries more than one active plan, the
-   * most recent receipt is the one topped up). PAYER-SCOPED (`payer_id` in the WHERE) so a
+   * most recent receipt is the one topped up). TENANT-SCOPED (`payer_id` in the WHERE) so a
    * foreign plan is invisible; a plain read (no lock — {@link addQuotaTopup} is the atomic
    * guard). PII-free (ids/counts only).
    */
   async findActivePlanForPostingAndPayer(
     jobPostingId: string,
-    payerId: string,
+    tenant: TenantKey,
     now: Date,
   ): Promise<PostingPlan | undefined> {
     const rows = await this.db
@@ -240,7 +264,7 @@ export class PostingPlansRepository {
       .where(
         and(
           eq(postingPlans.jobPostingId, jobPostingId),
-          eq(postingPlans.payerId, payerId),
+          eq(postingPlans.payerId, tenant),
           eq(postingPlans.status, "active"),
           or(isNull(postingPlans.expiresAt), gt(postingPlans.expiresAt, now)),
         ),
@@ -253,14 +277,14 @@ export class PostingPlansRepository {
   /**
    * Atomically add `delta` applicant-visibility views to a plan's quota_topup_count (B2).
    * ONE UPDATE (`SET col = col + delta`) so concurrent top-ups COMPOSE without a lock. The
-   * WHERE re-asserts the plan is still the payer's + active + unexpired (no TOCTOU vs the
+   * WHERE re-asserts the plan is still the tenant's + active + unexpired (no TOCTOU vs the
    * read in {@link findActivePlanForPostingAndPayer}): returns undefined if the plan changed
    * or expired in between → the caller 409s. The immutable `applicant_visibility_quota`
    * receipt is NEVER touched. PII-free.
    */
   async addQuotaTopup(
     planId: string,
-    payerId: string,
+    tenant: TenantKey,
     delta: number,
     now: Date,
   ): Promise<PostingPlan | undefined> {
@@ -273,7 +297,7 @@ export class PostingPlansRepository {
       .where(
         and(
           eq(postingPlans.id, planId),
-          eq(postingPlans.payerId, payerId),
+          eq(postingPlans.payerId, tenant),
           eq(postingPlans.status, "active"),
           or(isNull(postingPlans.expiresAt), gt(postingPlans.expiresAt, now)),
         ),
@@ -284,10 +308,14 @@ export class PostingPlansRepository {
 
   /**
    * Count coupon redemptions from the `coupon.redeemed` event spine (the source of
-   * truth) — total across all payers + this payer's count — so the engine enforces
+   * truth) — total across all payers + this TENANT's count — so the engine enforces
    * totalUsageCap / perPayerLimit fail-closed at purchase. PII-free (codes + ids).
+   *
+   * ADR-0053 O-4: the per-payer count keys on the tenant, so `perPayerLimit` is per ORG once
+   * the flag is on — `coupon.redeemed`'s payload `payer_id` carries the tenant key (§7).
+   * Hand-converted (T5 blind spot 2: it reads `events`, not a tenant table).
    */
-  async couponUsage(couponCode: string, payerId: string): Promise<CouponUsageCounts> {
+  async couponUsage(couponCode: string, tenant: TenantKey): Promise<CouponUsageCounts> {
     const base = and(
       eq(events.eventName, "coupon.redeemed"),
       sql`${events.payload} ->> 'coupon_code' = ${couponCode}`,
@@ -296,7 +324,7 @@ export class PostingPlansRepository {
     const payerRows = await this.db
       .select({ c: count() })
       .from(events)
-      .where(and(base, sql`${events.payload} ->> 'payer_id' = ${payerId}`));
+      .where(and(base, sql`${events.payload} ->> 'payer_id' = ${tenant}`));
     return { total: Number(totalRows[0]?.c ?? 0), perPayer: Number(payerRows[0]?.c ?? 0) };
   }
 }

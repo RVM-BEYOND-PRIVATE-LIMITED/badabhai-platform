@@ -38,6 +38,7 @@ import { JobPostingChatModule } from "./job-posting-chat/job-posting-chat.module
 import { PayerAuthService } from "./payer-auth.service";
 import { PayerOrgMembersService } from "./payer-org-members.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
+import { PayerPostingPlansService } from "./payer-posting-plans.service";
 import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
 import { PayerApplicantInboxRepository } from "./payer-applicant-inbox.repository";
 import { PayerApplicantStageController } from "./payer-applicant-stage.controller";
@@ -129,6 +130,9 @@ import {
     // The payer applicant list's source selection (#1823): an owned agency `jobs` row → the
     // ReachService pool; an owned posting → MatchCandidatesService (MatchModule, @Global).
     PayerApplicantsService,
+    // ADR-0053 P2c — the posting surface's ONE seam onto plans, boosts and quota top-ups
+    // (resolve once; ownership and purchase in the same scope) and the stats of the posting reads.
+    PayerPostingPlansService,
     // The inbox: one page read (its repository), then the per-posting row builders above
     // (ReachService via ReachModule, MatchCandidatesService via the @Global MatchModule).
     PayerApplicantInboxService,

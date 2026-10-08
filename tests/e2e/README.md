@@ -108,11 +108,14 @@ email provider, so this stops a leaked gate token from impersonating a real cust
 `role: "employer"` — the seam is not a signup API and has no `role` field; there is no way
 to mint a synthetic `"agent"` session through it today.
 
-> The suite rewrites are complete for the tables above. `payer-capacity.e2e.test.ts` never
-> needed either seam: `payer_capacity`/`posting_plans` are a deliberately FK-less "opaque
-> rail" keyed on a bare `payer_id` (see `packages/db/src/schema/payer.ts`), so its cases
-> drive the ops `POST /job-postings/:id/plan` route (`InternalServiceGuard`) directly with a
-> `randomUUID()` payer id. **(2026-08-26, #1166):** the ops `POST /payers/:payerId/capacity`
+> The suite rewrites are complete for the tables above. `payer-capacity.e2e.test.ts` drives
+> the ops `POST /job-postings/:id/plan` route (`InternalServiceGuard`) directly, with a
+> **real** payer id minted through the payer seam above — so it needs `PAYER_TEST_LOGIN_*`
+> armed on the API and the runner. **(PAY-DB-01 P2c, PR #2174):** it used `randomUUID()`
+> payer ids (`payer_capacity`/`posting_plans` carry no FK to `payers`), but the ops route now
+> resolves `payer_id` through the payer tenant resolver (ADR-0053 §5.2 rule 4), and with
+> `PAYER_ORG_TENANCY_MODE=on` — the CI e2e job's mode — an id that names no payer is a neutral
+> `403`. Do not go back to random ids. **(2026-08-26, #1166):** the ops `POST /payers/:payerId/capacity`
 > route this suite used to also drive was RETIRED (no caller anywhere in the repo) — the
 > auto-resume / `capacity.purchased`+`payment.*` / fail-closed-auth cases that asserted
 > against it directly were removed rather than ported (`PostingPlansService.buyCapacity`
