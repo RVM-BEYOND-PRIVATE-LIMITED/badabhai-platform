@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CENSUS_QUERIES,
   censusCount,
   flipGate,
+  runCensus,
   type CensusQuery,
   type CensusResult,
 } from "./audit-org-tenancy";
@@ -29,6 +30,7 @@ describe("db:audit:org-tenancy — read-only by construction", () => {
       "C3",
       "C4",
       "C5",
+      "C5b",
       "C6a",
       "C6b",
       "C7",
@@ -72,6 +74,16 @@ describe("db:audit:org-tenancy — read-only by construction", () => {
     ]) {
       expect(c5.sql, table).toMatch(new RegExp(`FROM ${table} WHERE`));
     }
+  });
+
+  it("C5's headline counts ROWS only; the credits balance is its own line, C5b (review L4)", () => {
+    const c5 = CENSUS_QUERIES.find((q) => q.id === "C5")!;
+    const c5b = CENSUS_QUERIES.find((q) => q.id === "C5b")!;
+    // Summing a balance into a row count makes the headline meaningless (rows + credits).
+    expect(c5.sql).not.toMatch(/sum\s*\(\s*balance/i);
+    expect(c5b.sql).toMatch(/sum\s*\(\s*balance/i);
+    expect(c5b.sql).toMatch(/FROM payer_credits WHERE/);
+    expect(c5b.rule).toBe("record");
   });
 
   it("the write-keyword screen is not vacuous: it rejects a write", () => {
@@ -128,5 +140,49 @@ describe("db:audit:org-tenancy — counting and the flip gate", () => {
           : r,
     );
     expect(flipGate(results)).toEqual({ pass: true, failing: [] });
+  });
+});
+
+describe("db:audit:org-tenancy — the run is ONE read-only transaction (review L5)", () => {
+  /** A postgres.js stand-in: `begin(mode, fn)` hands `fn` a transaction; the outer client refuses queries. */
+  function fakeSql(opts: { readOnly?: string; bypass?: boolean } = {}) {
+    const tx = {
+      unsafe: vi.fn(async (text: string) => {
+        if (/transaction_read_only/.test(text))
+          return [{ transaction_read_only: opts.readOnly ?? "on" }];
+        if (/rolbypassrls/.test(text))
+          return [{ who: "postgres", bypass_rls: opts.bypass ?? true }];
+        return [{ marker: text.slice(0, 12) }];
+      }),
+    };
+    const sql = {
+      begin: vi.fn(async (_mode: string, fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
+      unsafe: vi.fn(async () => {
+        throw new Error("a census query ran OUTSIDE the read-only transaction");
+      }),
+    };
+    return { sql, tx };
+  }
+
+  it("opens ONE `read only` transaction and runs every check inside it", async () => {
+    const { sql, tx } = fakeSql();
+    const results = await runCensus(sql as never);
+    expect(sql.begin).toHaveBeenCalledTimes(1);
+    expect(sql.begin.mock.calls[0]![0]).toBe("read only");
+    expect(sql.unsafe).not.toHaveBeenCalled();
+    const ran = tx.unsafe.mock.calls.map((c) => c[0]);
+    for (const q of CENSUS_QUERIES) expect(ran).toContain(q.sql);
+    expect(results.map((r) => r.query.id)).toEqual(CENSUS_QUERIES.map((q) => q.id));
+  });
+
+  it("refuses to measure when the transaction does not report read-only", async () => {
+    const { sql, tx } = fakeSql({ readOnly: "off" });
+    await expect(runCensus(sql as never)).rejects.toThrow(/read-only/);
+    expect(tx.unsafe.mock.calls.map((c) => c[0])).not.toContain(CENSUS_QUERIES[0]!.sql);
+  });
+
+  it("refuses a role that does not bypass RLS (a zero would be a permission artifact)", async () => {
+    const { sql } = fakeSql({ bypass: false });
+    await expect(runCensus(sql as never)).rejects.toThrow(/does not bypass RLS/);
   });
 });

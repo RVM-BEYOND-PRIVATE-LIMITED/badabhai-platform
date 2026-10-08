@@ -20,8 +20,15 @@ declare const tenantKeyBrand: unique symbol;
  * The acting org's anchor id, as the key for every tenant-row predicate and stamp.
  *
  * BRANDED so a raw id from a body, a path or a JWT claim cannot be passed where a tenant key
- * is expected: the only way to obtain one is {@link chooseActingOrg} (through the resolver
- * service). Phase 2 retypes the tenant repositories to accept this type instead of `string`.
+ * is expected. The brand is a compile-time device, so it holds only while nothing casts to it:
+ * the one constructor is the private `asTenantKey` below (reached through {@link chooseActingOrg},
+ * which only the resolver service calls), and `payer-tenancy.static.test.ts` fails on any type
+ * assertion to this type — or to {@link PayerTenantScope} / {@link ActingOrgChoice}, or to an
+ * alias or interface built on one — anywhere else in non-test source. What the brand CANNOT stop:
+ * a value typed `any` (an unparsed request body, `JSON.parse`) assigns to it with no cast, and
+ * the lint config has no type-aware `no-unsafe-argument`. Inputs reach the payer services only as
+ * Zod-parsed DTOs and the session id; Phase 2 reviews must keep it that way. Phase 2 retypes the
+ * tenant repositories to accept this type instead of `string`.
  */
 export type TenantKey = string & { readonly [tenantKeyBrand]: true };
 
@@ -69,6 +76,18 @@ export type ActingOrgChoice =
   | { readonly kind: "no_membership" }
   | { readonly kind: "denied"; readonly reason: TenancyDenial };
 
+/**
+ * A TEAM membership: one in an org someone else anchors. The one spelling of "team" — the
+ * resolver's R2/R3 and invite rule A1 (`PayerOrgMembersService.accept`) both use it, so they can
+ * never disagree about who is already in a team.
+ */
+export function isTeamMembership(
+  membership: Pick<ActiveMembershipFacts, "anchorPayerId">,
+  actorPayerId: string,
+): boolean {
+  return membership.anchorPayerId !== actorPayerId;
+}
+
 /** The only constructor of a {@link TenantKey}. Deliberately not exported. */
 function asTenantKey(payerId: string): TenantKey {
   return payerId as TenantKey;
@@ -86,8 +105,10 @@ function asTenantKey(payerId: string): TenantKey {
  *    No such membership → the actor's solo org (the one it anchors).
  *  - R3: more than one team membership → denied (fail closed).
  *  - R4: no membership to act in → `no_membership`; the service heals with `ensureSoloOrg`.
- *  - R5: the acting org is not `active`, or — for a TEAM org — its anchor is not → denied (O-6).
- *    A solo org's anchor is the actor; their own status is judged at authentication, not here.
+ *  - R5: the acting org is not `active` → denied. When the actor is NOT the acting org's anchor,
+ *    the anchor not being `active` → denied too (O-6). The anchor-status check is skipped only
+ *    when the actor IS the anchor: their own status is judged by `PayerAuthGuard`, not here
+ *    (ADR-0053 §3.2 R5, amended 2026-10-08).
  *  - R6: the actor's vertical role differs from the anchor's → denied (O-9).
  */
 export function chooseActingOrg(
@@ -109,18 +130,18 @@ export function chooseActingOrg(
     };
   }
 
-  const team = memberships.filter((m) => m.anchorPayerId !== actorPayerId);
+  const team = memberships.filter((m) => isTeamMembership(m, actorPayerId));
   if (team.length > 1) return { kind: "denied", reason: "multiple_team_memberships" };
   const acting = team[0] ?? memberships.find((m) => m.anchorPayerId === actorPayerId);
   if (!acting) return { kind: "no_membership" };
 
   if (acting.orgStatus !== "active") return { kind: "denied", reason: "org_inactive" };
-  // O-6: an anchor's suspension blocks its TEAM. On a solo org the anchor IS the actor, and the
-  // actor's own status is the authentication layer's to judge (PayerAuthGuard admits only
-  // `active`; login resolves the org before a first-time payer is activated). Judging it here
-  // would deny a solo payer and break solo identity (ADR-0053 §5.3).
-  const teamOrg = acting.anchorPayerId !== actorPayerId;
-  if (teamOrg && acting.anchorStatus !== "active") {
+  // O-6: an anchor's suspension blocks every member who is not the anchor. When the actor IS the
+  // anchor, their own status is PayerAuthGuard's to judge (it admits only `active`), and login
+  // resolves the org BEFORE a first-time payer is activated — judging it here refused every first
+  // login in `on` and broke solo identity (ADR-0053 §3.2 R5 as amended, §5.3).
+  const actorIsNonAnchorMember = isTeamMembership(acting, actorPayerId);
+  if (actorIsNonAnchorMember && acting.anchorStatus !== "active") {
     return { kind: "denied", reason: "anchor_inactive" };
   }
   if (acting.memberRole !== acting.anchorRole) return { kind: "denied", reason: "role_mismatch" };

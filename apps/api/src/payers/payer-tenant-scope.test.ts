@@ -5,6 +5,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { PayerOrgStatus, PayerRole, PayerStatus } from "@badabhai/db";
 import {
   chooseActingOrg,
+  isTeamMembership,
   type ActiveMembershipFacts,
   type PayerOrgTenancyMode,
 } from "./payer-tenant-scope";
@@ -109,6 +110,16 @@ describe("chooseActingOrg — off / shadow serve the pre-ADR answer", () => {
       expect(choice.kind).toBe("resolved");
       expect(choice.kind === "resolved" && choice.scope.tenantKey).toBe(ACTOR);
     }
+  });
+});
+
+describe("isTeamMembership — the ONE 'team' predicate (R2/R3 here, accept rule A1)", () => {
+  it("is a team membership exactly when someone other than the actor anchors the org", () => {
+    expect(isTeamMembership(TEAM, ACTOR)).toBe(true);
+    expect(isTeamMembership(SOLO, ACTOR)).toBe(false);
+    // The org role does not decide it: an owner row in someone else's org is still a team row.
+    expect(isTeamMembership(m(TEAM_ANCHOR, { orgRole: "owner" }), ACTOR)).toBe(true);
+    expect(isTeamMembership(m(ACTOR, { orgRole: "recruiter" }), ACTOR)).toBe(false);
   });
 });
 

@@ -15,8 +15,10 @@
  *      would 403 them).
  *  C3  rule A2 breached: a team org's anchor is an active member of another org. MUST be 0.
  *  C4  rule A3 / R6 breached: a member's vertical role differs from the anchor's. MUST be 0.
- *  C5  born-where (O-2): rows and balance a team member owns under their OWN key, which they
- *      stop seeing at the flip. Record it; the owner ruled O-2 (no merge) on 2026-10-08.
+ *  C5  born-where (O-2): rows a team member owns under their OWN key, which they stop seeing at
+ *      the flip. Record it; the owner ruled O-2 (no merge) on 2026-10-08.
+ *  C5b the same, in CREDITS: the balance in team members' own wallets. Its own line — a balance
+ *      summed into C5's row count would make that headline meaningless.
  *  C6  payers with no solo org, or an org whose anchor has no active owner membership. MUST be
  *      0 to flip cleanly (R4 heals the first kind on the next request).
  *  C7  team orgs R5 would block at the flip (org or anchor not active). Record it (O-6).
@@ -26,9 +28,9 @@
  * READ-ONLY BY CONSTRUCTION
  * ===========================================================================================
  * Every statement below is a SELECT (or a WITH … SELECT); `audit-org-tenancy.test.ts` refuses
- * any other. The session is put into READ ONLY before the first query and that is verified, so
- * a write would fail in Postgres even if one slipped in. Nothing is repaired here: the census
- * measures, the owner decides.
+ * any other. The whole run is ONE `read only` transaction (checked to report read-only before the
+ * first query), so Postgres refuses a write even if one slipped in. Nothing is repaired here:
+ * the census measures, the owner decides.
  *
  * ===========================================================================================
  * PRIVACY
@@ -36,8 +38,8 @@
  * Output is opaque uuids, enum values (org_role, role, status), counts and one timestamp. No
  * name, email, phone, org name or ciphertext is selected.
  */
-import { sql as dsql } from "drizzle-orm";
 import { config } from "dotenv";
+import type { Sql, TransactionSql } from "postgres";
 
 import { createDbClient } from "./client";
 
@@ -150,9 +152,20 @@ export const CENSUS_QUERIES: readonly CensusQuery[] = [
       UNION ALL SELECT 'payer_capacity', count(*) FROM payer_capacity WHERE payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'payment_orders', count(*) FROM payment_orders WHERE payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'credit_ledger', count(*) FROM credit_ledger WHERE payer_id IN (SELECT id FROM team_members)
-      UNION ALL SELECT 'payer_credits.balance_sum', coalesce(sum(balance), 0)::bigint FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members)
+      UNION ALL SELECT 'payer_credits', count(*) FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'agency_invites', count(*) FROM agency_invites WHERE inviter_payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'referral_links', count(*) FROM referral_links WHERE agent_payer_id IN (SELECT id FROM team_members)`,
+  },
+  {
+    // Its own line, never summed into C5: C5 counts ROWS, this is CREDITS (review L4).
+    id: "C5b",
+    title: "born-where (O-2): credits held in team members' own wallets",
+    rule: "record",
+    tally: true,
+    sql: `
+      WITH ${TEAM_MEMBERS_CTE}
+      SELECT 'payer_credits.balance' AS t, coalesce(sum(balance), 0)::bigint AS n
+      FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members)`,
   },
   {
     id: "C6a",
@@ -218,7 +231,7 @@ export function censusCount(result: CensusResult): number {
 
 /**
  * The flip gate (plan §5 step 1): the checks that must be zero, and which of them are not.
- * C5 non-zero is NOT a failure — it is what O-2 rules on, and O-2 was ruled (born-where).
+ * C5 / C5b non-zero is NOT a failure — it is what O-2 rules on, and O-2 was ruled (born-where).
  */
 export function flipGate(results: readonly CensusResult[]): { pass: boolean; failing: string[] } {
   const failing = results
@@ -236,6 +249,40 @@ function formatRow(row: Record<string, unknown>): string {
     .join(" ");
 }
 
+/**
+ * Run every check inside ONE `read only` transaction (review L5) and return the results in
+ * order. Postgres itself refuses a write inside it, whatever a query says; the transaction is
+ * also checked to REPORT read-only before anything is measured. A role without BYPASSRLS is
+ * refused: every payer table is RLS-locked with no policies, so its zeros would mean "not allowed
+ * to look", not "nothing to fix".
+ */
+export async function runCensus(sql: Sql): Promise<CensusResult[]> {
+  const run = async (tx: TransactionSql): Promise<CensusResult[]> => {
+    const [ro] = (await tx.unsafe("SHOW transaction_read_only")) as unknown as {
+      transaction_read_only: string;
+    }[];
+    if (ro?.transaction_read_only !== "on") {
+      throw new Error(`[${SCRIPT}] transaction is not read-only; refusing to measure`);
+    }
+    const [who] = (await tx.unsafe(
+      "SELECT current_user AS who, (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS bypass_rls",
+    )) as unknown as { who: string; bypass_rls: boolean }[];
+    if (who?.bypass_rls !== true) {
+      throw new Error(
+        `[${SCRIPT}] role ${who?.who} does not bypass RLS. Every count would be a permission ` +
+          `artifact rather than a measurement; refusing to report.`,
+      );
+    }
+    const results: CensusResult[] = [];
+    for (const query of CENSUS_QUERIES) {
+      const rows = (await tx.unsafe(query.sql)) as unknown as Record<string, unknown>[];
+      results.push({ query, rows });
+    }
+    return results;
+  };
+  return (await sql.begin("read only", run)) as unknown as CensusResult[];
+}
+
 async function main(): Promise<void> {
   const url = process.env["DATABASE_URL"];
   if (!url) throw new Error(`[${SCRIPT}] DATABASE_URL is not set`);
@@ -245,35 +292,11 @@ async function main(): Promise<void> {
   console.log(`[${SCRIPT}] target host=${parsed.hostname} db=${parsed.pathname.slice(1)}`);
   console.log(`[${SCRIPT}] READ-ONLY — measures, repairs nothing\n`);
 
-  const { db, sql } = createDbClient(url, { max: 1 });
+  const { sql } = createDbClient(url, { max: 1 });
   try {
-    await db.execute(dsql`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`);
-    const [ro] = (await db.execute(dsql`SHOW default_transaction_read_only`)) as unknown as {
-      default_transaction_read_only: string;
-    }[];
-    if (ro?.default_transaction_read_only !== "on") {
-      throw new Error(`[${SCRIPT}] session is not read-only; refusing to measure`);
-    }
-
-    // A ZERO FROM A ROLE WITHOUT BYPASSRLS IS NOT EVIDENCE: every payer table is RLS-locked
-    // with no policies, so it would read as "nothing to fix" when it means "not allowed to look".
-    const [who] = (await db.execute(dsql`
-      SELECT current_user AS who,
-             (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS bypass_rls
-    `)) as unknown as { who: string; bypass_rls: boolean }[];
-    if (who?.bypass_rls !== true) {
-      throw new Error(
-        `[${SCRIPT}] role ${who?.who} does not bypass RLS. Every count would be a permission ` +
-          `artifact rather than a measurement; refusing to report.`,
-      );
-    }
-
-    const results: CensusResult[] = [];
-    for (const query of CENSUS_QUERIES) {
-      const rows = (await sql.unsafe(query.sql)) as unknown as Record<string, unknown>[];
-      const result = { query, rows };
-      results.push(result);
-
+    const results = await runCensus(sql);
+    for (const result of results) {
+      const { query, rows } = result;
       const n = censusCount(result);
       const tag = query.rule === "must_be_zero" ? (n === 0 ? "ok" : "MUST BE 0") : query.rule;
       console.log(`${query.id.padEnd(4)} ${String(n).padStart(6)}  [${tag}] ${query.title}`);
@@ -284,7 +307,9 @@ async function main(): Promise<void> {
     const gate = flipGate(results);
     console.log("");
     if (gate.pass) {
-      console.log("✓ Flip gate (plan §5 step 1): C2, C3, C4 and C6 are all 0. Record C1 and C5.");
+      console.log(
+        "✓ Flip gate (plan §5 step 1): C2, C3, C4 and C6 are all 0. Record C1, C5 and C5b.",
+      );
     } else {
       console.log(`✗ Flip gate (plan §5 step 1) FAILS on ${gate.failing.join(", ")}.`);
       process.exitCode = 1;

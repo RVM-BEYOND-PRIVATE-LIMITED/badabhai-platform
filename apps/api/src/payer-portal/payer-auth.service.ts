@@ -306,16 +306,14 @@ export class PayerAuthService {
 
   /**
    * The payer's CURRENT acting org (ADR-0053 §3.2 — the choice the guards share), repairing a
-   * gap payer (no org yet) with their solo org first. The org is RE-RESOLVED after the repair
-   * rather than trusting `ensureSoloOrg`'s return: its owner-member insert is `ON CONFLICT DO
-   * NOTHING`, so the row it would report may not be the row that exists. Returns `undefined`
-   * (→ no session org claim, least privilege) if no acting org resolves even then.
+   * gap payer (no org yet) with their solo org first. The repair has ONE home,
+   * {@link PayerTenantScopeService.ensureActingOrg}: it heals at most once and re-resolves
+   * afterwards rather than trusting `ensureSoloOrg`'s return (its owner-member insert is `ON
+   * CONFLICT DO NOTHING`, so the row it would report may not be the row that exists). Returns
+   * `undefined` (→ no session org claim, least privilege) if no acting org resolves even then.
    */
   private async resolveOrEnsureOrg(payerId: string): Promise<ResolvedOrg | undefined> {
-    const existing = await this.tenancy.resolveActingOrg(payerId);
-    if (existing) return existing;
-    await this.orgs.ensureSoloOrg(payerId);
-    return (await this.tenancy.resolveActingOrg(payerId)) ?? undefined;
+    return (await this.tenancy.ensureActingOrg(payerId)) ?? undefined;
   }
 
   /**

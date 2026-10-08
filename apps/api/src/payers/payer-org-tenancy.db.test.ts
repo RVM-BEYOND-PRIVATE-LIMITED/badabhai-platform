@@ -257,3 +257,94 @@ describe.skipIf(!RUN)(
     );
   },
 );
+
+/**
+ * The two invite-rule reads, EVALUATED (review L3). `anchorsTeamOrg` (rule A2) and
+ * `findAnchorRole` (rule A3) are unit-tested against fakes; whether their WHERE clauses say what
+ * the rules mean — an invited row has no member id yet, a removed row no longer counts, a payer
+ * who joined someone else's team anchors nothing — is a property of Postgres evaluating them.
+ */
+describe.skipIf(!RUN)("ADR-0053 §3.5 — the accept-rule reads against Postgres", () => {
+  let client!: DbClient;
+  let orgs!: PayerOrgsRepository;
+  let payers!: PayersRepository;
+  const created: string[] = [];
+  const RULE_TAG = randomUUID().slice(0, 8);
+
+  /** A payer with their solo org (the signup data path). */
+  async function payer(label: string, role: "employer" | "agent" = "employer"): Promise<string> {
+    const { id } = await payers.createOrGet({
+      role,
+      email: `rules-${label}-${RULE_TAG}@e2e.badabhai.invalid`,
+      orgName: "Rules Org",
+      phone: undefined,
+    });
+    await orgs.ensureSoloOrg(id);
+    created.push(id);
+    return id;
+  }
+
+  async function orgOf(anchor: string): Promise<string> {
+    const [row] = await client.sql`SELECT id FROM payer_orgs WHERE root_payer_id = ${anchor}::uuid`;
+    return String(row!.id);
+  }
+
+  /** A member row in `anchor`'s org, written exactly as invite / accept / remove leave it. */
+  async function memberRow(
+    anchor: string,
+    status: "invited" | "active" | "removed",
+    memberPayerId: string | null,
+  ): Promise<void> {
+    await client.sql`
+      INSERT INTO payer_members (org_id, member_payer_id, email_enc, email_hash, org_role, status,
+                                 invited_at, accepted_at, removed_at)
+      VALUES (${await orgOf(anchor)}::uuid, ${memberPayerId}, 'enc:rules', ${`hash:rules-${randomUUID()}`},
+              'recruiter', ${status}::text, now(),
+              CASE WHEN ${status}::text = 'invited' THEN NULL ELSE now() END,
+              CASE WHEN ${status}::text = 'removed' THEN now() ELSE NULL END)`;
+  }
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL, { max: 2 });
+    const config = loadServerConfig({ NODE_ENV: "test" });
+    orgs = new PayerOrgsRepository(client.db);
+    payers = new PayersRepository(client.db, new PiiCryptoService(config));
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    await client.sql`DELETE FROM payer_orgs WHERE root_payer_id = ANY(${created}::uuid[])`;
+    await client.sql`DELETE FROM payers WHERE id = ANY(${created}::uuid[])`;
+    await client.sql.end({ timeout: 5 });
+  });
+
+  it("A2: a founder whose org has only an INVITED member (no member id yet) anchors a team", async () => {
+    const founder = await payer("invited-founder");
+    expect(await orgs.anchorsTeamOrg(founder)).toBe(false); // the solo owner row alone is not a team
+    await memberRow(founder, "invited", null);
+    expect(await orgs.anchorsTeamOrg(founder)).toBe(true);
+  });
+
+  it("A2: a founder whose only other member was REMOVED does not anchor a team", async () => {
+    const founder = await payer("removed-founder");
+    const former = await payer("removed-member");
+    await memberRow(founder, "removed", former);
+    expect(await orgs.anchorsTeamOrg(founder)).toBe(false);
+  });
+
+  it("A2: a payer who JOINED someone else's team anchors nothing (their own org is solo)", async () => {
+    const founder = await payer("host-founder");
+    const joiner = await payer("joiner");
+    await memberRow(founder, "active", joiner);
+    expect(await orgs.anchorsTeamOrg(joiner)).toBe(false);
+    expect(await orgs.anchorsTeamOrg(founder)).toBe(true);
+  });
+
+  it("A3: the founder's role is read from payers; an unknown org reads null (refused, fail closed)", async () => {
+    const employer = await payer("role-employer", "employer");
+    const agent = await payer("role-agent", "agent");
+    expect(await orgs.findAnchorRole(await orgOf(employer))).toBe("employer");
+    expect(await orgs.findAnchorRole(await orgOf(agent))).toBe("agent");
+    expect(await orgs.findAnchorRole(randomUUID())).toBeNull();
+  });
+});

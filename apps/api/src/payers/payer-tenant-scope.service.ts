@@ -95,6 +95,20 @@ export class PayerTenantScopeService {
     return null;
   }
 
+  /**
+   * LOGIN's entry point: the acting org, healing a payer who has NO membership at all with their
+   * solo org — exactly once, in every mode (review L1). `on` already heals inside the decision
+   * (R4) and never heals a payer who is merely denied (a heal cannot fix a denial). `off`/`shadow`
+   * never heal on their own (the guard and the claim must not write), so this heals once there.
+   */
+  async ensureActingOrg(actorPayerId: string): Promise<ResolvedOrg | null> {
+    if (this.mode() === "on") return this.resolveActingOrg(actorPayerId);
+    const existing = await this.resolveActingOrg(actorPayerId);
+    if (existing) return existing;
+    await this.orgs.ensureSoloOrg(actorPayerId);
+    return this.resolveActingOrg(actorPayerId);
+  }
+
   /** `off`/`shadow`: serve the pre-ADR answer; in `shadow`, also log what `on` would decide. */
   private async servedWithoutTenancy(
     actorPayerId: string,

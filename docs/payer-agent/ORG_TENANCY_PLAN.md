@@ -70,13 +70,13 @@ program takes **no** migration number, so the two cannot collide. That branch mu
 |---|---|
 | `apps/api/src/payers/payer-tenant-scope.ts` **(new)** | `TenantKey` brand; `PayerTenantScope`; pure `chooseActingOrg(memberships, actorId, mode)` implementing ADR §3.2 R2–R6 (R4's heal is in the service) |
 | `apps/api/src/payers/payer-tenant-scope.service.ts` **(new)** | `resolve(actorPayerId)`: R1 read, R4 heal via `ensureSoloOrg`, R7 fail-closed, `shadow` logging `{actor, would_key, would_differ, outcome, ms}`. The **only** reader of `PAYER_ORG_TENANCY_MODE`. |
-| `apps/api/src/payers/payer-orgs.repository.ts` | new `listActiveMembershipsWithAnchor(payerId)`: `payer_members` ⋈ `payer_orgs` ⋈ the anchor's `payers` (id, role, status). DB access only. `resolveOrgForPayer` (`:93`) delegates its choice to `chooseActingOrg`; in `off` it keeps the most-recently-accepted tie-break. |
+| `apps/api/src/payers/payer-orgs.repository.ts` | new `listActiveMembershipsWithAnchor(payerId)`: `payer_members` ⋈ `payer_orgs` ⋈ the anchor's `payers` (id, role, status). DB access only. **As built (PR #2155):** `resolveOrgForPayer` is **removed**, not delegated — a repository that called `chooseActingOrg` would hold business logic and need the mode. The repository returns raw rows; the choice is the service's `resolveActingOrg` (in `off` it keeps the most-recently-accepted tie-break, NULL first), and login's heal is the service's `ensureActingOrg`. |
 | `apps/api/src/payers/payer-org-role.guard.ts` | same choice function (Team page = data scope) |
 | `apps/api/src/payers/payer-session-org-claim.ts` | same choice function |
 | `apps/api/src/payers/payer-account.service.ts` (`GET`/`PATCH /payer/me`, `:43`, `:86`) | same choice function |
 | `apps/api/src/payer-portal/payer-auth.service.ts` (`:307-315`) | same choice function |
 | `apps/api/src/payers/payers.module.ts` | provide and export `PayerTenantScopeService` |
-| `apps/api/src/payers/payers.module.boot.test.ts` **(new)** | boots the real module graph. Typecheck and unit tests do not catch a missing provider. |
+| `apps/api/src/payers/payers.module.boot.test.ts` **(new)** | **As built:** a STATIC wiring test, not a boot — this repo's vitest emits no `design:paramtypes`, so a `Test.createTestingModule` boot resolves every dependency as `undefined` and passes regardless. It reads who injects the resolver from source (TypeScript syntax tree) and walks every module reachable from `AppModule` to assert each one that provides or mounts such a class can resolve it. The real boot is the CI `e2e` job (it starts the built API). |
 
 ### 2.3 Membership invariants (ADR §3.5)
 
@@ -89,7 +89,7 @@ program takes **no** migration number, so the two cannot collide. That branch mu
 
 | File | Change |
 |---|---|
-| `packages/db/src/audit-org-tenancy.ts` **(new)** | runs §6 queries C1–C8 and prints counts plus ids only. Read-only by construction: no write statement is compiled in. |
+| `packages/db/src/audit-org-tenancy.ts` **(new)** | runs §6 queries C1–C8 (C5b reports the team members' wallet credits on its own line) and prints counts plus ids only. Read-only by construction: no write statement is compiled in, and the whole run is one `sql.begin("read only", …)` transaction checked to report read-only; a role without BYPASSRLS is refused. Exits 1 when the §5 flip gate fails. |
 | `packages/db/package.json` | `"db:audit:org-tenancy": "tsx src/audit-org-tenancy.ts"` |
 
 ### 2.5 Red tests (must be observed RED in CI)
@@ -128,6 +128,13 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 - Trusted ops routes that take a payer id flow through the **same** service entry point, and so
   through the resolver (ADR §5.2 rule 4).
 - **Every PR shrinks the T5 allowlist** and adds T2 isolation cases for its routes.
+- **Every PR converts by hand what T5 cannot see** in its domain (§5 item 4 lists them): P2a owns
+  `JobPostingsRepository.create`; P2c owns `PostingPlansRepository.lockPayer`, `couponUsage`,
+  `insertPlan` and `insertBoost`.
+- **No cast to the brand.** `payer-tenancy.static.test.ts` (S-F1) refuses a type assertion to
+  `TenantKey` / `PayerTenantScope` / `ActingOrgChoice` outside `payer-tenant-scope.ts`; inputs reach
+  services only as Zod-parsed DTOs and the session id (a value typed `any` would slip the brand).
+- **Before P3:** close risk register **R65** (the A1/A2 accept race; §5 item 5).
 
 ### 3.1 P2a — postings, applicants, Candidates inbox
 
@@ -211,12 +218,34 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 1. T5 asserts the allowlist equals §4 exactly. Nothing else may take a raw payer id for a tenant row.
 2. T0 and T0-HTTP are `it` (not `it.fails`) and green on `main`.
 3. `docs/payer-agent/*` registers are updated. `GAP-FE-01` and `GAP-AUTHZ-01` are re-checked.
+4. **T5's blind spots are HAND-CHECKED, each with its finding recorded in the P3 PR.** An empty
+   UNCONVERTED list is not proof of completeness while any of these exist (the same list heads
+   `payer-tenancy.static.test.ts`):
+   1. `PostingPlansRepository.lockPayer` — an advisory lock keyed by the payer id; touches no table.
+   2. `PostingPlansRepository.couponUsage` — counts `coupon.redeemed` in `events` (O-4).
+   3. `PostingPlansRepository.insertPlan`, 4. `insertBoost`, 5. `JobPostingsRepository.create` —
+      the payer id rides a Drizzle insert type (`New…`) from packages/db, which T5 does not read.
+      Same for any parameter typed by a type declared outside apps/api/src.
+   6. A raw id under a name outside T5's pattern (`payerId` / `*PayerId` / `agencyId`) — e.g.
+      `ownerId`, `tenantId`, a bare `id`.
+   7. A parameter typed `any` / `unknown` carrying a payer id.
+   8. A callable that only delegates to a listed helper (safe once the helper is retyped).
+   Closed by the PR #2155 scanner, with fixture tests: arrow-function class properties, top-level
+   const arrows, Drizzle relational `this.db.query.<table>`, and parameter types declared in
+   another apps/api file.
+5. **Risk register R65 is closed:** the A1/A2 reads and the accept write run in one transaction
+   that first locks the accepter (`SELECT … FROM payers WHERE id = $1 FOR UPDATE` or an advisory
+   lock); the invite path takes the same lock on the inviter. Until then census C2 = C3 = 0 is
+   the only evidence, and the race fails closed (R3).
+6. **Census DB case (P3 prerequisite, review L4):** a `RUN_DB_TESTS` test that seeds C2/C3/C4/C6
+   breaches and asserts `runCensus` reports them, wired into the CI DB-gate step. P1 verified this
+   by hand on a throwaway database only (PR #2155).
 
 **Owner actions (O-8), in order:**
 
 | Step | Action | Pass condition |
 |---|---|---|
-| 1 | Run `pnpm --filter @badabhai/db db:audit:org-tenancy` against production (read-only) | C2 = C3 = C4 = C6 = 0. C1 and C5 recorded. A non-zero C5 is expected and needs no further ruling: O-2 (ruled 2026-10-08) keeps those rows and balances personal. Tell the affected members before `on`. |
+| 1 | Run `pnpm --filter @badabhai/db db:audit:org-tenancy` against production (read-only) | C2 = C3 = C4 = C6 = 0. C1, C5 and C5b recorded. A non-zero C5 / C5b is expected and needs no further ruling: O-2 (ruled 2026-10-08) keeps those rows and balances personal. Tell the affected members before `on`. |
 | 2 | Set the `production` secret `PAYER_ORG_TENANCY_MODE=shadow` and redeploy | — |
 | 3 | Observe `shadow` for at least 48 h of payer traffic | zero resolver errors; `would_differ` only for C1 actors; resolver p95 ≤ 5 ms; tenant-route p95 regression ≤ 5 ms (ADR §5.4) |
 | 4 | security-engineer pass in a non-production environment with mode `on` and a seeded team org | no Critical or High findings |
@@ -298,9 +327,13 @@ UNION ALL SELECT 'posting_boosts', count(*) FROM posting_boosts WHERE payer_id I
 UNION ALL SELECT 'payer_capacity', count(*) FROM payer_capacity WHERE payer_id IN (SELECT id FROM team_members)
 UNION ALL SELECT 'payment_orders', count(*) FROM payment_orders WHERE payer_id IN (SELECT id FROM team_members)
 UNION ALL SELECT 'credit_ledger', count(*) FROM credit_ledger WHERE payer_id IN (SELECT id FROM team_members)
-UNION ALL SELECT 'payer_credits.balance_sum', coalesce(sum(balance), 0) FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members)
+UNION ALL SELECT 'payer_credits', count(*) FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members)
 UNION ALL SELECT 'agency_invites', count(*) FROM agency_invites WHERE inviter_payer_id IN (SELECT id FROM team_members)
 UNION ALL SELECT 'referral_links', count(*) FROM referral_links WHERE agent_payer_id IN (SELECT id FROM team_members);
+
+-- C5b The same, in CREDITS: the balance in team members' own wallets. Reported on its own line,
+--     never summed into C5's row count (PR #2155 review L4). Same team_members CTE as C5.
+SELECT coalesce(sum(balance), 0) AS credits FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members);
 
 -- C6  Payers with no solo org, or whose solo org lacks their active owner membership (R4 heals these; MUST be 0 to flip cleanly).
 SELECT p.id FROM payers p LEFT JOIN payer_orgs po ON po.root_payer_id = p.id WHERE po.id IS NULL;

@@ -16,6 +16,7 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "../payers/payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
+import { isTeamMembership } from "../payers/payer-tenant-scope";
 import type { InviteMemberDto, AcceptInviteDto } from "./payer-org-members.dto";
 import { MEMBER_INVITE_MAILER, type MemberInviteMailer } from "./member-invite.mailer";
 
@@ -223,7 +224,7 @@ export class PayerOrgMembersService {
     orgId: string,
   ): Promise<AcceptRefusalRule | null> {
     const memberships = await this.orgs.listActiveMembershipsWithAnchor(payerId);
-    if (memberships.some((m) => m.anchorPayerId !== payerId)) return "A1_already_in_a_team";
+    if (memberships.some((m) => isTeamMembership(m, payerId))) return "A1_already_in_a_team";
     if (await this.orgs.anchorsTeamOrg(payerId)) return "A2_anchors_a_team";
     if ((await this.orgs.findAnchorRole(orgId)) !== payerRole) return "A3_role_mismatch";
     return null;
