@@ -31,6 +31,12 @@ word, the "regn" cue) sit outside the connector, so the swap keeps them. What #1
 is measured against the #1933 rule text in `test_pseudonymize_cued_id_dot.py`. The mutation counts
 below were measured on #1933's text.
 
+SINCE #2091 (R56) THE ORACLE CARRIES THE LABEL WORDS. #2091 put up to two label words in front
+of the "no" word ("id", then "card" or "code"), each folded with its own `\\s*`, and took "id"
+out of the "no"-word group. They never existed unfolded, so the oracle carries them exactly as
+shipped and these sections still measure #1933's folding and nothing else.
+`test_pseudonymize_cued_id_two_word.py` measures #2091 itself.
+
 Each section was seen to FAIL against a mutation (re-measured 2026-10-03; failures of this file's
 48). Main's connector back in all three copies: 43, including all 13 timing tests. Back in
 `_RESUME_CUED_ID_RE` only: 30 (its 3 timing tests). Back in the lexicon mirror only: 29 (the
@@ -79,12 +85,13 @@ def _load_measure_script():
 measure = _load_measure_script()
 _ZWSP = "\u200b"
 
-#: The connector written main's way (pre-#1933), carrying #1950's `-?`: the oracle's one
-#: difference from the shipped rules.
+#: The connector written main's way (pre-#1933), carrying #1950's `-?` and #2091's label words
+#: (folded, as shipped): the oracle's one difference from the shipped rules.
+_LABEL_WORDS = r"\s*(?:id\s*)?(?:(?:card|code)\s*)?"
 _UNFOLDED_CONNECTORS = {
-    "credential_id": r"\s*(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
-    "resume_cued_id": r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:\-]-?)?\s*",
-    "credential_before": r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*",  # "id" since #2043
+    "credential_id": _LABEL_WORDS + r"(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
+    "resume_cued_id": _LABEL_WORDS + r"(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
+    "credential_before": _LABEL_WORDS + r"(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*",
 }
 #: What follows the connector in each rule: the value's lookahead, or the guard's identifier tail.
 _VALUE_AFTER = {

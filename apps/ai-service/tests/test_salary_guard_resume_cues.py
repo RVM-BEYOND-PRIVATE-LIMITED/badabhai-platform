@@ -169,20 +169,16 @@ def test_what_g1_g2_refuses_on_a_resume_cue_is_not_pay(text):
 
 
 @pytest.mark.parametrize(
-    ("text", "digits"),
-    [
-        ("voter id no XYZ9876543", 9876543),
-        ("Voter ID No: XYZ9876543", 9876543),
-        ("IFSC code HDFC0004321", 4321),
-    ],
+    "text", ["voter id no XYZ9876543", "Voter ID No: XYZ9876543", "IFSC code HDFC0004321"]
 )
-def test_KNOWN_RESIDUAL_a_two_word_connector_is_read_by_neither_rule(text, digits):
-    """Both connectors read ONE number word ("no", "number", "num", "id", "#"), so "ID No" and the
-    word "code" are read by neither the guard nor the G1/G2 résumé rule: G1/G2 admits the text and
-    its digits are pay. The two rules agree, as #2043 meant; reading a second word is a change to
-    the shared connector (a #1933-class review), tracked as #2091."""
-    assert contains_hard_identifier(text) is None
-    assert pay(text) == (digits, None)
+def test_a_two_word_label_is_read_by_both_rules_since_2091(text):
+    """Pinned here as `KNOWN_RESIDUAL` until #2091: both connectors read ONE number word, so "ID No"
+    and the word "code" were read by neither the guard nor the G1/G2 résumé rule, G1/G2 admitted
+    the text and its digits were pay (9876543, 4321). #2091 reads up to two label words in front
+    of the number word, in the shared connector, so both rules agree on these the other way
+    round. `test_pseudonymize_cued_id_two_word.py` pins the widening and its measurement."""
+    assert contains_hard_identifier(text) == "credential_id"
+    assert pay(text) == (None, None)
 
 
 # --- 6. linear on a whitespace run after each new cue --------------------------------------------
