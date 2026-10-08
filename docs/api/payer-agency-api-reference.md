@@ -114,6 +114,20 @@ The global exceptions filter returns:
 
 Stack traces are never leaked; `requestId` is for support correlation.
 
+When a route throws a structured body, the filter puts that **whole body** under `error` — nothing is lifted to the top level. A purchase `409` (#2111) therefore reads its machine-readable reason at `error.reason`, never at `reason`:
+
+```json
+{
+  "statusCode": 409,
+  "error": { "statusCode": 409, "error": "Conflict", "message": "…", "reason": "in_flight" },
+  "requestId": "opaque-uuid",
+  "path": "/payer/job-postings/…/quota-topup",
+  "timestamp": "ISO8601"
+}
+```
+
+Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_plan` (#2111) — see [Purchase idempotency](#purchase-idempotency-idempotency-key) and [Price confirmation](#price-confirmation-expected_price_inr). Branch on `error.reason`; `error.message` is advice copy for humans. Do not reword the in-flight copy (`already being processed`) while payer-web builds that predate `reason` support are live — they tell the two quota top-up 409s apart by that text.
+
 ### 3.3 Status codes
 
 | Code | Meaning | Mobile action |
@@ -125,6 +139,7 @@ Stack traces are never leaked; `requestId` is for support correlation.
 | 401 | Missing/invalid/expired Bearer | refresh once, retry; else re-login |
 | 403 | Role mismatch: an employer on an agent-only `/payer/agency/*` route, or an agent on a company-posting write (`/payer/job-postings` writes, chat publish — #1885). Body: `error.message` = `"Payer role is not permitted for this resource"` | check role; route agents to `/payer/agency/jobs` |
 | 404 | Unknown **or** not-owned resource (no-oracle) | treat as generic "not found" |
+| 409 | Conflict. On a purchase route the body carries `error.reason` (§3.2): `price_mismatch`, `in_flight`, `no_active_plan` (quota top-up). Other 409s (lifecycle, an active boost) carry no `reason` | branch on `error.reason`; no reason → generic conflict |
 | 429 | Rate limit exceeded (fail-closed) | back off; show neutral "try again later" |
 | 500 | Server error | retry with backoff; surface `requestId` |
 
@@ -295,14 +310,14 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ tier: string (1–64), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }` — **no** `payer_id`, **no** price/amount (XT5: send the tier **code** only; server resolves price). `expected_price_inr` (#2085) is a guard, never charged — see [Price confirmation](#price-confirmation-expected_price_inr).
 - **Response:** `{ payer_id, quote, max_active_vacancies, source_tier, expires_at, resumed_plan_ids: UUID[] }`.
 - **Events:** `payment.authorized`, `payment.captured`, `capacity.purchased`, `posting_plan.resumed` (one per auto-resumed plan), `coupon.redeemed` (if coupon).
-- **Errors:** `400` unknown tier · `409` same key still in flight · `409 price_mismatch`.
+- **Errors:** `400` unknown tier · `409 in_flight` — same key still in flight (`"This capacity purchase is already being processed; check your capacity before trying again"`) · `409 price_mismatch`. The reason is `error.reason` (§3.2).
 - **Mobile gotchas:** **MOCK payment** (`PAYMENTS_ENABLE_REAL=false`; `real_call:false`) — no real money in Phase 1. `quote` is informational; don't echo it as an authoritative charge. `resumed_plan_ids` tells you how many paused plans were auto-resumed. Atomic per-payer (advisory-locked); concurrent buys serialize. `201`.
 
 #### `POST /payer/job-postings/:id/plan` · `POST /payer/job-postings/:id/boost`
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).
 - **Headers:** `Idempotency-Key?: string` (#2103) — the same seam, scope rules, window and replay semantics as `POST /payer/capacity` / `…/quota-topup`; scopes `plan_purchase` and `boost_purchase` (separate — one key on plan and boost is two purchases). See [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** plan `{ tier: 'standard'|'pro', coupon?, expected_price_inr? }` · boost `{ tier: 'boost_7'|'boost_15'|'boost_30'|'all_candidates', coupon?, expected_price_inr? }`.
-- **Errors:** `400` unknown tier · `409 price_mismatch` (#2085) — refused before the plan/boost row or any payment event · boost: `409` an active boost already exists · `409` same key still in flight (`"This plan purchase is already being processed; check the posting before trying again"` / `"This boost purchase is already being processed; …"`).
+- **Errors:** `400` unknown tier · `409 price_mismatch` (#2085) — refused before the plan/boost row or any payment event · boost: `409` an active boost already exists (no `reason`) · `409 in_flight` (#2111) — same key still in flight (`"This plan purchase is already being processed; check the posting before trying again"` / `"This boost purchase is already being processed; …"`). The reason is `error.reason` (§3.2).
 - A replay under the same key emits no event and charges nothing.
 
 #### `POST /payer/job-postings/:id/quota-topup`
@@ -311,7 +326,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ tier: string (1–64, e.g. 'topup_10'), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }`. No `payer_id`.
 - **Response:** `{ plan, quote }` — `plan.quotaTopupCount` is the running top-up total.
 - **Events:** `payment.authorized`, `payment.captured`, `posting_plan.quota_topped`, `coupon.redeemed` (if coupon). Unchanged by #2085; a replay emits nothing.
-- **Errors:** `400` unknown tier · `409` no active plan on the posting · `409` same key still in flight (`"This quota top-up is already being processed; check the posting before trying again"`) · `409 price_mismatch`.
+- **Errors:** `400` unknown tier · three `409`s, told apart by `error.reason` (§3.2; #2111):
+  - `no_active_plan` — the posting has no active, unexpired plan of yours to top up (`"no active plan to top up for this posting"`). Nothing charged. Buy a plan first. Stored under the key and replayed like any outcome.
+  - `in_flight` — the same `Idempotency-Key` is still running (`"This quota top-up is already being processed; check the posting before trying again"`). Outcome unknown: re-read `GET /payer/job-postings/:id`, never re-post.
+  - `price_mismatch` — see [Price confirmation](#price-confirmation-expected_price_inr).
+
+  The messages are unchanged from before #2111; `reason` is additive. A client on a pre-#2111 API sees no `reason` and must keep its message fallback until it drops support for that build.
 - `201`. **MOCK payment** (`real_call:false`).
 
 #### Purchase idempotency (`Idempotency-Key`)
@@ -320,7 +340,7 @@ Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings
 - Mint **one key per confirmed purchase** and reuse it only for retries of that purchase. A new purchase (a renewal, a second top-up) needs a new key.
 - Keys are scoped per route **and** per session payer, and honoured for **180 s**.
 - **Same key, first attempt finished** → the stored outcome is replayed: the same `201` body, or the same error status **and the same error body** (#2103). The work does not run again, so nothing is charged twice and no event is emitted twice.
-- **Same key, first attempt still running** → `409` (the in-flight message for that route). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting.
+- **Same key, first attempt still running** → `409` with `error.reason: "in_flight"` (#2111, on all five routes) and the route's in-flight message (unchanged). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting. This `409` is never stored, so it is never replayed.
 - **Same key, different body** → **not** compared: the first purchase's outcome is replayed. The key names the intent; a client that changes the body under one key has a bug.
 - **Replayed error body (#2103):** identical to the first response's `error` object — every field, e.g. a replayed `409 price_mismatch` still carries `reason`, `expected_price_inr`, `current_price_inr`. Only the envelope's `requestId`/`path`/`timestamp` differ (they describe the retry). Outcomes stored by a pre-#2103 build (at most 180 s around the deploy) replay as `{ message }` only.
 - If Redis is unavailable the request runs undeduplicated (fail open at this one step; all money paths stay fail-closed).
@@ -329,11 +349,22 @@ Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings
 Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `POST /payer/capacity`, `POST /payer/credits`, `POST /payer/credits/order` (#2085).
 - **Optional** integer, whole rupees, `0–10,000,000`. A non-integer, negative or string value is a `400`. Absent → behaviour unchanged.
 - It is compared to the **final** price the purchase would be charged at that moment — after the active offer and any valid `coupon`. It is never used as the charge.
-- Mismatch → `409`, **nothing charged**: no entitlement row, no ledger row, no provider order, no `payment.*` event.
+- Mismatch → `409`, **nothing charged**: no entitlement row, no ledger row, no provider order, no `payment.*` event. The wire body (the global filter nests the thrown body under `error` — §3.2; read `error.reason`, `error.current_price_inr`):
   ```json
-  { "statusCode": 409, "error": "Conflict", "reason": "price_mismatch",
-    "message": "The price changed: you confirmed ₹1000 but the current price is ₹750. Nothing was charged; re-read the price and confirm again",
-    "expected_price_inr": 1000, "current_price_inr": 750 }
+  {
+    "statusCode": 409,
+    "error": {
+      "statusCode": 409,
+      "error": "Conflict",
+      "reason": "price_mismatch",
+      "message": "The price changed: you confirmed ₹1000 but the current price is ₹750. Nothing was charged; re-read the price and confirm again",
+      "expected_price_inr": 1000,
+      "current_price_inr": 750
+    },
+    "requestId": "opaque-uuid",
+    "path": "/payer/job-postings/…/quota-topup",
+    "timestamp": "ISO8601"
+  }
   ```
   Re-read `GET /payer/pricing/catalog`, show the new price, and ask the payer to confirm again (with a **new** `Idempotency-Key`; the old key replays this `409`).
 - Send the `price_inr` from `GET /payer/pricing/catalog` for that tier. With a coupon, the catalog price is pre-coupon, so expect a `409` unless you send the post-coupon amount.
@@ -543,7 +574,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `GET /admin/job-postings/:id`
 - **Auth:** `AdminAuthGuard` + capability `read_entities`. Never called by the payer app.
 - **Response (`AdminJobPostingDetail`, snake_case):** the list fields plus `description`, `shift`, `needed_by`, `boosted_until`, `previous_status`, `applied_count`, `skipped_count`, `updated_at`, and — **added 2026-09-29** — `area`, `min_experience_years`, `max_experience_years`, `pay_type`, `requirements`, `benefits`, `role_kind`. Every one is a nullable, PII-free card field the owning payer already reads back; `role_kind` is returned **raw** (the admin UI labels it with `jobRoleLabel()` and shows the raw id when it is not one of the 21). Explicit column select — never a bare `select()`.
-- **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders`. It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null`.
+- **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders` — and, **added 2026-10-07 (#2106)**, on every `top_balances[]` row of `GET /admin/finance/summary` (`{ payer_id, payer_role, balance }`). It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null` (for `top_balances`, once the admin-web pass-through lands).
 
 ---
 
