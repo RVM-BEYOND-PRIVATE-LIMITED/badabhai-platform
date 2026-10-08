@@ -4,6 +4,9 @@
 **Method:** evidence-based static analysis; every claim carries a `file:line` citation.
 **Findings feed** `GAP_REGISTER.md`. Coverage caveats: `AUDIT_STATUS.md`.
 
+> **UPDATE 2026-10-07.** P6 (buy credits) and P7 (team) no longer 404 at the first hop — see the
+> update notes at the top of each. The rest is the 2026-08-11 snapshot, not re-traced.
+
 ---
 
 # End-to-end business flow traces (payer + agency), apps/payer-web ↔ apps/api ↔ packages/db
@@ -185,6 +188,13 @@ No-oracle discipline holds throughout: every deny cause (no credits / no consent
 
 ### P6 — Buy credits (mock vs real Razorpay)
 
+> **UPDATE 2026-10-07 — the 404 below is gone.** `/credits` and `topUpAction` /
+> `createOrderAction` / `verifyPaymentAction` gate on `requirePayer()`, open to every member by
+> owner ruling 2026-10-07 (#2110); the API's credit routes carry only `PayerAuthGuard` (#2109).
+> The confirm step shows the charged price and sends `expected_price_inr`; a changed price is a
+> `409 price_mismatch` and nothing is bought (#2101, #2112). Credits land on the member's own
+> `payer_id` wallet (`PAY-DB-01` still OPEN). The table below is the 2026-08-11 trace.
+
 | Hop | Mock path | Real path |
 |---|---|---|
 | Route | `/credits` | `/credits` |
@@ -208,6 +218,11 @@ No-oracle discipline holds throughout: every deny cause (no credits / no consent
 ---
 
 ### P7 — Team: invite → email → accept → active member → Owner-only gates
+
+> **UPDATE 2026-10-07 — the first hop no longer dies.** `getOrgRole()` reads `GET /payer/me`
+> `orgRole` (#2098, #2110): an owner sees the Team item and reaches `/team`; a recruiter gets
+> neither (neutral 404). The invite-email hop was not re-checked for this update. The table
+> below is the 2026-08-11 trace.
 
 | Hop | Artifact | State |
 |---|---|---|

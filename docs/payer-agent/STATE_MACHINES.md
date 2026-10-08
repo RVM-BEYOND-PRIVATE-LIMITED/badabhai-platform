@@ -55,7 +55,7 @@ The `previous_status` column plus `coalesce(...,'pending')` closes the backdoor-
 | **Enforced** | **In the WHERE.** accept: `payer-orgs.repository.ts:225-250` re-checks `id + token_hash + status='invited' + not expired` in one UPDATE and nulls the token (strictly single-use) · remove: `payer-orgs.repository.ts:259-273` re-checks `org_id + org_role='recruiter' + status<>'removed'` |
 | **Concurrency** | accept/remove are race-safe. **The seat cap is NOT**: `countActiveOrInvited` then `inviteMember` with no lock and no constraint (`apps/api/src/payer-portal/payer-org-members.service.ts:92-98` → `payer-orgs.repository.ts:131-137,163-193`). N concurrent invites for N distinct emails all read `seats < MAX` and all insert |
 | **Events** | `payer_member.invited` / `.accepted` / `.removed`, all PII-free, all emitted |
-| **FE illegal?** | No — backend owns the owner-only gate. (payer-web's `/team` is a 404 for every real user because `getOrgRole()` stubs to `recruiter`, but that is a UX P0, not an authz hole) |
+| **FE illegal?** | No — backend owns the owner-only gate. (payer-web's `/team` is a 404 for every real user because `getOrgRole()` stubs to `recruiter`, but that is a UX P0, not an authz hole) **Update 2026-10-07 (#2110):** the stub is gone — `getOrgRole()` reads `GET /payer/me` `orgRole`, so owners reach `/team` and recruiters get the neutral 404 |
 
 ## 4. `job_postings` — draft | open | paused | suspended | closed
 
