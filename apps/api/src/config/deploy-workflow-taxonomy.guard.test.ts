@@ -260,6 +260,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /AGENCY_TWIN_SYNC_ENABLED:\s*\$\{\{\s*secrets\.AGENCY_TWIN_SYNC_ENABLED\s*\}\}/,
       /envs:[^\n]*\bAGENCY_TWIN_SYNC_ENABLED\b/,
     ],
+    // Owner ruling 2026-10-07 — the payer applicant pipeline board. A plain boolean on the api
+    // only, turned on in production ONLY by the environment secret, after migration 0134.
+    [
+      "PAYER_APPLICANT_STAGES_ENABLED",
+      /PAYER_APPLICANT_STAGES_ENABLED:\s*\$\{\{\s*secrets\.PAYER_APPLICANT_STAGES_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bPAYER_APPLICANT_STAGES_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -316,6 +323,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["FEED_POSTINGS_UNION_ENABLED", "false"],
     // ADR-0050 — off is the kill switch (twins paused); none exist until it is armed.
     ["AGENCY_TWIN_SYNC_ENABLED", "false"],
+    // Owner ruling 2026-10-07 — off is today's applicant feeds and no stage route, byte for byte.
+    ["PAYER_APPLICANT_STAGES_ENABLED", "false"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],

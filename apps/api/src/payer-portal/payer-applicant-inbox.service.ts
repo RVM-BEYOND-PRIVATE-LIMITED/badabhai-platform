@@ -1,4 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { ReachService } from "../reach/reach.service";
 import type { ApplicantRowDto } from "../reach/reach.dto";
@@ -8,6 +9,8 @@ import {
   type InboxPageRow,
 } from "./payer-applicant-inbox.repository";
 import { encodeInboxCursor } from "./payer-applicant-inbox.cursor";
+import { applicantStagesEnabled, type ApplicantStagesConfig } from "./payer-applicant-stages.flag";
+import { readStoredStage } from "./payer-applicant-stages.service";
 import type {
   InboxApplicantRowDto,
   PayerApplicantInboxDto,
@@ -51,6 +54,13 @@ import type {
  * FAIL CLOSED: any read error propagates (a 5xx) and nothing is emitted. A page row whose detail
  * is gone by the time it is read — the worker entered the deletion grace window between the two
  * reads — is left out rather than shown half-built; the cursor still advances past it.
+ *
+ * STAGES (owner ruling 2026-10-07; only while `PAYER_APPLICANT_STAGES_ENABLED` is on): the page
+ * read itself joins the saved board, so each row carries its `stage` (`new` when nobody has moved
+ * him) — the value the per-posting feed shows for him — and the optional `?stage=` filter is
+ * applied below the page LIMIT, keeping the keyset exact. Off, the page read never names the
+ * table and no row carries `stage`; a `stage` filter cannot reach here (the query pipe 400s it),
+ * and is refused again if one ever did, rather than silently ignored.
  */
 @Injectable()
 export class PayerApplicantInboxService {
@@ -60,6 +70,7 @@ export class PayerApplicantInboxService {
     private readonly repo: PayerApplicantInboxRepository,
     private readonly reach: ReachService,
     private readonly candidates: MatchCandidatesService,
+    @Inject(SERVER_CONFIG) private readonly config: ApplicantStagesConfig,
   ) {}
 
   async list(
@@ -67,11 +78,18 @@ export class PayerApplicantInboxService {
     query: PayerApplicantInboxQueryDto,
     ctx: RequestContext,
   ): Promise<PayerApplicantInboxDto> {
+    const stagesOn = applicantStagesEnabled(this.config);
+    if (!stagesOn && query.stage !== undefined) {
+      // Unreachable through the route (the pipe validates with the stage-less schema while off).
+      // Refused rather than ignored: a filter that silently does nothing is a wrong answer.
+      throw new BadRequestException("stage filter is not available");
+    }
     // One row past the page says whether there is a next one, without a COUNT.
     const read = await this.repo.listPage(payerId, {
       postingId: query.postingId,
       after: query.cursor,
       limit: query.limit + 1,
+      ...(stagesOn ? { stages: { only: query.stage } } : {}),
     });
     const page = read.slice(0, query.limit);
     const last = page.at(-1);
@@ -97,12 +115,12 @@ export class PayerApplicantInboxService {
       if (ref.postingKind === "agency_job") {
         const row = agencyRow(ref.postingId, ref.workerId);
         if (!row) continue;
-        applicants.push({ ...row, posting: postingRef(ref, "agency_job") });
+        applicants.push({ ...row, posting: postingRef(ref, "agency_job"), ...stageOf(ref) });
         shown.push({ jobId: ref.postingId, row });
       } else {
         const row = candidateByApplication.get(ref.applicationId);
         if (!row) continue;
-        applicants.push({ ...row, posting: postingRef(ref, "company_posting") });
+        applicants.push({ ...row, posting: postingRef(ref, "company_posting"), ...stageOf(ref) });
       }
     }
 
@@ -133,4 +151,9 @@ function indexAppliers(
 
 function postingRef<K extends InboxPageRow["postingKind"]>(ref: InboxPageRow, kind: K) {
   return { id: ref.postingId, title: ref.postingTitle, kind };
+}
+
+/** `{ stage }` when the page read joined the board (flag on), nothing otherwise (flag off). */
+function stageOf(ref: InboxPageRow) {
+  return ref.stage === undefined ? {} : { stage: readStoredStage(ref.stage) };
 }

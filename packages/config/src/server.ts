@@ -1120,6 +1120,22 @@ export const serverEnvSchema = z.object({
   // PayerDisclosureRateLimit with scope "agency_invite_mint". Fail-closed (a Redis
   // outage rejects, never uncaps).
   AGENCY_INVITE_MINT_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
+  // THE PAYER APPLICANT PIPELINE BOARD, SAVED SERVER-SIDE (owner ruling 2026-10-07) — payer-web's
+  // New / Shortlist / Passed stages in `payer_applicant_stages` (migration 0134), set through
+  // `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage`.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S API EXACTLY. With it off the stage route is a 404, the two
+  // applicant feeds carry no `stage` field, `GET /payer/reach/applicants?stage=` is the 400 it has
+  // always been, and NOTHING reads or writes `payer_applicant_stages` — so migration 0134 is
+  // apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after 0134 is applied: on
+  // against a database without the table, both applicant feeds 500.
+  PAYER_APPLICANT_STAGES_ENABLED: booleanFromString,
+  // Per-PAYER hourly cap on the stage WRITE route (the invite-mint analogue of XB-G). Every real
+  // change writes a row and an event, so an uncapped account could flood the spine by toggling one
+  // applicant back and forth. Its own bucket (scope "payer_applicant_stage") — never the
+  // `payer_reach` read budget, so triaging a long list cannot lock a payer out of reading it.
+  // Generous: a recruiter clears hundreds of applicants an hour. Fail-closed (Redis down rejects).
+  PAYER_APPLICANT_STAGE_MAX_PER_HOUR: z.coerce.number().int().positive().default(600),
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable
