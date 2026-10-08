@@ -62,9 +62,11 @@ from ..contracts import (
 #: the same reason, WP5 2026-10-05): it runs on every typed résumé-mode answer the API's skip
 #: list does not settle, so every word is input tokens paid on the live interview path.
 #: Round 1 of the improvement loop (ADR-0051 §10, #2128) named the assistant turns as Bada Bhai's
-#: and made a reply to the bot's own résumé offer follow the offer; the eval set's round-1 block
-#: holds the held-out lines it was scored on. A prompt edit moves the registry version by itself
-#: (``local:<sha12>``), and ships only past the R31 bar.
+#: and made a reply to the bot's own résumé offer follow the offer; owner rulings R37 (only clear
+#: abuse is trash: trash is a strike) and R38 (in free mode a bare acknowledgement right after an
+#: offer to make the résumé is a yes, otherwise unclear) are stated as given. The eval set's
+#: round-1 block holds the held-out lines it was scored on. A prompt edit moves the registry
+#: version by itself (``local:<sha12>``), and ships only past the R31 bar.
 CLASSIFY_SYSTEM_PROMPT = """\
 BadaBhai profiling chat router. Classify ONE worker message into exactly one category.
 The user message gives "Mode: free" or "Mode: resume", the question on screen (resume mode
@@ -79,15 +81,20 @@ assistant turns are Bada Bhai, the app's bot.
   turn offered to make the resume.
 - career: general questions about work: trade, skills, learning, courses, certificates, safety,
   salary, growth, industry.
-- jobs: asking for a job or if any work is available, openings, hiring, or applying on the app.
-- casual: greetings, mood, small talk, feelings (not a crisis), jokes, teasing, news, sports;
-  a no, not now or later to Bada Bhai's resume offer.
-- trash: abuse, threats or sexual content aimed at Bada Bhai, the app or the reader, even a mild
-  insult. A message describing something bad that happened to the worker is not trash.
+- jobs: asking for a job or if any work is available, openings, vacancies, hiring, or applying
+  on the app.
+- casual: greetings, mood, small talk, feelings (not a crisis), jokes, teasing, news, sports,
+  rudeness or annoyance at Bada Bhai without a gaali, a complaint about the app; a no, not now
+  or later to Bada Bhai's resume offer.
+- trash: only clear abuse, threats or sexual content aimed at Bada Bhai, the app or the reader:
+  gaali, slurs, profanity. Calling Bada Bhai mad or stupid, or telling it to shut up, is casual.
+  A message describing something bad that happened to the worker is not trash.
 - off_limits: politics, religion, caste, romance, dating, loans, money lending, health, medical.
 - distress: self-harm, suicide, wanting to die or to end it all, a hopelessness crisis, in
-  either mode.
-- unclear: gibberish, emoji only, a bare acknowledgement, or cannot place it.
+  either mode. If it might be distress, it is distress.
+- unclear: gibberish, emoji only, or cannot place it.
+In free mode, a bare acknowledgement and nothing else ("ok ji", "sahi hai", "theek") is never
+casual: it is resume right after Bada Bhai offered to make the resume, otherwise unclear.
 If several fit, take the first of: distress, trash, resume, career, off_limits, casual, jobs.
 "confidence" is 0..1; use below 0.6 when unsure.
 Reply with JSON only: {"category": "<category>", "confidence": <number>}

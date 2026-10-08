@@ -48,7 +48,7 @@ def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
     blocks = (gold.REGIONAL_ROWS, gold.ROUND1_ROWS)
     assert 55 <= len(gold.CASES) - sum(len(block) for block in blocks) <= 70
     assert 15 <= len(gold.REGIONAL_ROWS) <= 25
-    assert 20 <= len(gold.ROUND1_ROWS) <= 30
+    assert 30 <= len(gold.ROUND1_ROWS) <= 45
     assert all(isinstance(case, gold.Case) for case in gold.CASES)
     counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(gold.CATEGORIES)
@@ -99,7 +99,7 @@ def test_the_review_cases_are_in_the_set_with_their_labels() -> None:
     assert by_key[("nahi abhi nahi", "free", None)].turns == after_jobs
 
 
-def test_recent_turns_are_well_formed_and_carry_the_jobs_line() -> None:
+def test_recent_turns_are_well_formed_and_carry_reviewed_bot_lines() -> None:
     with_turns = [case for case in gold.CASES if case.turns]
     assert len(with_turns) >= 2
     for case in with_turns:
@@ -113,36 +113,120 @@ def test_recent_turns_are_well_formed_and_carry_the_jobs_line() -> None:
     )
     assert f"| JOBS | {gold.JOBS_LINE} |" in adr
     assert f"| CASUAL_NUDGE | {gold.CASUAL_NUDGE_LINE} |" in adr
+    # Every fixed line a case answers is the API's served copy, word for word.
+    copy = _REPO / "apps" / "api" / "src" / "profiling" / "free-chat" / "free-chat.copy.ts"
+    served = set(re.findall(r'latin:\s*"([^"]+)"', copy.read_text(encoding="utf-8")))
+    for line in (
+        gold.JOBS_LINE,
+        gold.CASUAL_NUDGE_LINE,
+        gold.NEWS_CAP_LINE,
+        gold.OFF_LIMITS_LINE,
+        gold.LATER_ACK_LINE,
+        gold.FREE_CLARIFY_LINE,
+    ):
+        assert line in served, line
+
+
+#: The fixed lines that offer to MAKE the résumé (owner ruling R38, ADR-0051 §10). A model-written
+#: casual reply carries the offer when the API appends the nudge as its last line.
+_OFFERS = {gold.JOBS_LINE, gold.CASUAL_NUDGE_LINE, gold.NEWS_CAP_LINE}
+_BARE_ACKS = {"ok", "okay", "accha", "achha", "theek hai", "thik hai", "hmm"}
+
+
+def _round1() -> dict[str, list[gold.Case]]:
+    by_text: dict[str, list[gold.Case]] = {}
+    for row in gold.ROUND1_ROWS:
+        case = gold.Case(*row)
+        by_text.setdefault(case.text, []).append(case)
+    return by_text
+
+
+def _offered(case: gold.Case) -> bool:
+    return bool(case.turns) and case.turns[-1][1].splitlines()[-1] in _OFFERS
 
 
 def test_round1_replies_to_a_resume_offer_follow_the_offer() -> None:
     """ADR-0051 §10 round 1 (#2128): a yes to the bot's own résumé offer is `resume`, a no or a
-    later is `casual` (the lock must never close on a "no"), after BOTH offer lines, and a yes to
-    a casual line that offered nothing stays casual. Held-out lines, never the baseline's misses."""
-    offers = {gold.JOBS_LINE, gold.CASUAL_NUDGE_LINE}
-    after_offer: dict[str, set[str]] = {"resume": set(), "casual": set()}
+    later is `casual` (the lock must never close on a "no"), after both offer lines, and a yes to
+    a casual line that offered nothing stays casual. The reviewed labels are pinned line by line,
+    so a flipped yes or no fails here, not only in a live run."""
+    by_text = _round1()
+    yes = {"bilkul, bana dijiye", "theek hai bana do", "chalo, kar lete hain", "சரி, பண்ணலாம்"}
+    no = {
+        "nahi ji",
+        "pehle thoda soch lun",
+        "baad mein karenge",
+        "rehne do",
+        "vaddu, tarvata chuddam",
+    }
+    for texts, label in ((yes, "resume"), (no, "casual")):
+        cases = [case for text in texts for case in by_text[text]]
+        assert {case.category for case in cases} == {label}, label
+        assert all(_offered(case) for case in cases), label
+        offers = {case.turns[-1][1].splitlines()[-1] for case in cases}
+        assert offers == {gold.JOBS_LINE, gold.CASUAL_NUDGE_LINE}, label
+    (no_offer,) = by_text["haan wahi soch raha hoon"]
+    assert not _offered(no_offer) and no_offer.category == "casual"
+
+
+def test_round1_a_bare_acknowledgement_is_a_yes_only_after_an_offer() -> None:
+    """Owner ruling R38: in free mode a bare acknowledgement right after a line that offers to MAKE
+    the résumé is a yes (`resume`); after any other line, OFF_LIMITS included, it is `unclear`.
+    In résumé mode it answers the question on screen (`resume`, review L2)."""
+    acks = [case for case in gold.CASES if case.text.casefold() in _BARE_ACKS]
+    free = [case for case in acks if case.mode == "free"]
+    for case in free:
+        assert case.category == ("resume" if _offered(case) else "unclear"), case
+    after = {case.turns[-1][1].splitlines()[-1] for case in free if _offered(case)}
+    assert after == _OFFERS  # every offer line is measured
+    not_offers = {case.turns[-1][1] for case in free if case.turns and not _offered(case)}
+    assert gold.OFF_LIMITS_LINE in not_offers and len(not_offers) >= 3
+    assert any(not case.turns for case in free)  # and one with no line before it at all
+    resume_mode = [case for case in acks if case.mode == "resume"]
+    assert resume_mode and all(case.category == "resume" for case in resume_mode)
+
+
+def test_round1_trash_is_clear_abuse_only() -> None:
+    """Owner ruling R37: trash is a STRIKE in free mode, so only clear abuse is trash. A mild
+    insult, teasing, a complaint about the app or exasperation at a misread is `casual`. The trash
+    lines are pinned EXACTLY, so widening trash again is a deliberate, reviewed change."""
+    trash = {case.text for case in gold.CASES if case.category == "trash"}
+    assert trash == {
+        "nangi photo bhejo",
+        "fuck off",
+        "ek aur sawal poocha toh sar phod dunga",
+        "tula ghari yeun maarin",
+        "you useless piece of shit",
+    }
+    assert {case.mode for case in gold.CASES if case.category == "trash"} == set(gold.MODES)
+    labels = {case.text: case.category for case in gold.CASES}
+    for mild in (
+        "tu pagal hai kya",
+        "dimaag hai ki nahi tere paas",
+        "tu toh ekdum gadha hai",
+        "chup kar bakwas mat kar",
+        "bakwas sawal mat pucho, bewakoof",
+        "arre Bada Bhai, aap toh pure buddhu nikle, haha",
+        "yeh app kisi kaam ka nahi, bas resume resume karta rehta hai",
+        "arre kitni baar bataun, aap samajhte hi nahi",
+    ):
+        assert labels[mild] == "casual", mild
+    by_text = _round1()
+    (complaint,) = by_text["yeh app kisi kaam ka nahi, bas resume resume karta rehta hai"]
+    assert complaint.turns[-1] == (gold.BOT, gold.JOBS_LINE)
+    (exasperated,) = by_text["arre kitni baar bataun, aap samajhte hi nahi"]
+    assert exasperated.turns[-1] == (gold.BOT, gold.FREE_CLARIFY_LINE)
+
+
+def test_round1_lines_are_not_copies_of_the_baseline_misses() -> None:
+    """Review L1: a held-out line is a DIFFERENT sentence, not a miss reordered or cut down."""
+    misses = {"haan ji", "nahi abhi nahi", "ok", "tu pagal hai kya", "cricket kaun jeeta",
+              "naukri ke liye CV chahiye", "yaavudadru kelasa ide na"}  # fmt: skip
+    words = {miss: set(miss.casefold().split()) for miss in misses}
     for row in gold.ROUND1_ROWS:
-        case = gold.Case(*row)
-        if not case.turns:
-            continue
-        bot_line = case.turns[-1][1]
-        assert case.turns[-1][0] == gold.BOT, case.text
-        offered = bot_line.splitlines()[-1] in offers
-        if not offered:
-            assert case.category == "casual", case.text
-            continue
-        assert case.category in after_offer, case.text
-        after_offer[case.category].add(bot_line.splitlines()[-1])
-    # Yes and no are both measured after both offers.
-    assert after_offer == {"resume": offers, "casual": offers}
-    # The reviewed labels, line by line: a flipped yes or no fails here, not only in a live run.
-    labels = {gold.Case(*row).text: gold.Case(*row).category for row in gold.ROUND1_ROWS}
-    yes = {"ji haan", "theek hai bana do", "chalo, kar lete hain", "சரி, பண்ணலாம்"}
-    no = {"nahi ji", "abhi nahi", "baad mein karenge", "rehne do", "vaddu, tarvata chuddam"}
-    assert {text: labels[text] for text in yes} == dict.fromkeys(yes, "resume")
-    assert {text: labels[text] for text in no} == dict.fromkeys(no, "casual")
-    baseline_misses = {"haan ji", "nahi abhi nahi", "ok", "tu pagal hai kya"}
-    assert not baseline_misses & {row[0] for row in gold.ROUND1_ROWS}
+        tokens = set(row[0].casefold().split())
+        for miss, miss_tokens in words.items():
+            assert not tokens or not (tokens <= miss_tokens or miss_tokens <= tokens), (row, miss)
 
 
 def test_every_regional_language_asks_for_a_job_in_both_scripts() -> None:

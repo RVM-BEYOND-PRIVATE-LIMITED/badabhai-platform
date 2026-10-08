@@ -365,15 +365,46 @@ def test_a_reply_to_the_bots_resume_offer_follows_the_offer() -> None:
     assert "a no, not now or later to bada bhai's resume offer" in _label_rule("casual")
 
 
-def test_round1_widenings_of_trash_unclear_and_distress() -> None:
-    """Round 1 (#2128): a mild insult aimed at us is trash (teasing stays casual), a bare
-    acknowledgement is unclear, and distress wins mid-interview too."""
-    assert "even a mild insult" in _label_rule("trash")
-    assert "jokes, teasing, news, sports" in _label_rule("casual")
-    assert "a bare acknowledgement" in _label_rule("unclear")
+def test_trash_is_clear_abuse_only_by_owner_ruling_r37() -> None:
+    """Owner ruling R37 (2026-10-08): trash is a STRIKE in free mode (3 a day block typing), and
+    the deterministic abuse list deliberately leaves mild words out, so only clear abuse is trash.
+    Rudeness without a gaali, annoyance, teasing and a complaint about the app are casual."""
+    trash = _label_rule("trash")
+    assert trash.startswith("trash: only clear abuse, threats or sexual content")
+    assert "gaali, slurs, profanity" in trash
+    assert "calling bada bhai mad or stupid, or telling it to shut up, is casual" in trash
+    assert "mild insult" not in trash  # the round-1 widening R37 overrode
+    casual = _label_rule("casual")
+    assert "jokes, teasing, news, sports" in casual
+    assert "rudeness or annoyance at bada bhai without a gaali, a complaint about the app" in casual
+
+
+def test_a_bare_acknowledgement_follows_an_offer_in_free_mode_only() -> None:
+    """Owner ruling R38: in free mode a bare acknowledgement right after Bada Bhai offers to make
+    the résumé is a yes; after anything else it is unclear, never casual. Scoped to FREE mode
+    (review L2): in résumé mode it answers the question on screen. Its examples are not gold
+    lines, so the set still measures the rule (pinned by the eval tests)."""
+    folded = _folded(free_prompts.CLASSIFY_SYSTEM_PROMPT)
+    rule = (
+        'in free mode, a bare acknowledgement and nothing else ("ok ji", "sahi hai", '
+        '"theek") is never casual: it is resume right after bada bhai offered to make the '
+        "resume, otherwise unclear."
+    )
+    assert rule in folded
+
+
+def test_distress_wins_in_either_mode_and_when_in_doubt() -> None:
+    """Round 1 (#2128): the one résumé-mode distress line sits at 0.75 confidence and tipped to
+    casual or resume in two drafts, so distress is stated for both modes with a safety bias."""
     distress = _label_rule("distress")
     assert "wanting to die or to end it all" in distress
     assert "in either mode" in distress
+    assert "if it might be distress, it is distress." in distress
+
+
+def test_the_jobs_label_keeps_vacancies() -> None:
+    """Review L3: round 1 rewrote the jobs label; "vacancies" stays in it."""
+    assert "openings, vacancies, hiring" in _label_rule("jobs")
 
 
 def test_the_classify_prompt_stays_short_for_p95() -> None:
@@ -381,12 +412,12 @@ def test_the_classify_prompt_stays_short_for_p95() -> None:
     for p95. This one carries eight labels, the résumé-mode rule, the self-description rule and
     the narrowed trash rule, so it is larger (1,647 chars / 251 words, measured 2026-10-06; the
     five regional languages, ADR-0051 §9, took it to 1,740 / 264 on 2026-10-07), and a budget
-    keeps it from growing unnoticed. Round 1 of the improvement loop (§10, #2128) took it to
-    2,034 / 321 for the reply-to-the-offer rule; measured on claude-haiku-4-5 over the 112-line
-    set, two runs each, p50 stayed flat (796-802 ms -> 804-809 ms) and p95 rose about 100 ms
-    (871-912 ms -> 983-1009 ms), well inside the API's 2.5 s classify timeout."""
-    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT) < 2100
-    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT.split()) < 330
+    keeps it from growing unnoticed. Round 1 of the improvement loop (§10, #2128, owner rulings
+    R37/R38) took it to 2,417 / 387. Measured on claude-haiku-4-5 over the 126-line set, round
+    trip: p50 810 -> 804 ms and p95 927 -> 960 ms, well inside the API's 2.5 s classify timeout
+    (one call of 126 on the revised run took 2,778 ms, a provider spike)."""
+    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT) < 2500
+    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT.split()) < 400
 
 
 # ── 5. the routes ────────────────────────────────────────────────────────────────────────────
