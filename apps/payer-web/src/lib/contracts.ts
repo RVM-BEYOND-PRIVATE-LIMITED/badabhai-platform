@@ -1168,13 +1168,27 @@ export const agencyJobWireSchema = z.object({
   neededBy: neededBySchema.nullable(),
   // THE WORKER-VISIBLE CARD CONTENT the owner view returns (#1647/#1648 + migration 0131). These
   // were write-only until the projection added them; the card + edit prefill read them now.
-  // `roleKind` is the display role (never a match input); `tradeKey` above stays the matcher.
+  // `roleKind` is the display role; the MATCH input is `matchSkillIds` below — ADR-0050 C4 made
+  // the pick explicit, and `tradeKey` above is never read for matching any more.
   shift: shiftSchema.nullable().optional(),
   payType: payTypeSchema.nullable().optional(),
   description: z.string().nullable().optional(),
   requirements: z.array(z.string()).nullable().optional(),
   benefits: z.array(z.string()).nullable().optional(),
   roleKind: z.string().nullable().optional(),
+  /**
+   * ADR-0050 C4 — the job's EXPLICIT match pick (`jobs.match_skill_ids`), echoed back by
+   * `AgencyService.toJobView` so the edit form can prefill the skill picker. Never rendered on
+   * the worker card (`roleKind` is the display role; this is the MATCH input, and the only one:
+   * `trade_key` is never read for matching, ADR-0050 C4).
+   *
+   * `nullable().optional()` for the same rollout reason as the card fields above: an API older
+   * than #2069 omits the key, and absent reads as "not chosen yet" — exactly what `[]` means on
+   * the column (its own migration-0132 default). Loose `z.string()` not `matchSkillIdSchema`: a
+   * vocabulary the portal does not know yet must not fail the whole row's parse, and only the
+   * server decides which ids are live.
+   */
+  matchSkillIds: z.array(z.string()).nullable().optional(),
   applicantsReceived: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -1189,9 +1203,10 @@ export const agencyJobListWireSchema = z.array(agencyJobWireSchema);
  */
 export const agencyJobInputSchema = z
   .object({
-    // `tradeKey` stays REQUIRED with NO default — it is the agency job's MATCHING classifier (15
-    // trades). PR-B adds `roleKind` beside it as the display role (21 kinds); the two are distinct
-    // and both required so an agency job traces to a card exactly like a company posting.
+    // `tradeKey` stays REQUIRED with NO default — the job's 15-trade classifier. PR-B adds
+    // `roleKind` beside it as the display role (21 kinds); the two are distinct and both required
+    // so an agency job traces to a card exactly like a company posting. NEITHER matches: since
+    // ADR-0050 C4 the match input is `matchSkillIds` below, and a trade is never read for it.
     tradeKey: tradeKeySchema,
     roleKind: roleKindInputSchema,
     title: z.string().min(1).max(200),
@@ -1216,6 +1231,19 @@ export const agencyJobInputSchema = z
       .optional(),
     requirements: requirementsInputSchema.optional(),
     benefits: benefitsInputSchema.optional(),
+    /**
+     * ADR-0050 §6.1 step 2 — the match pick, mirroring the backend `matchSkillIds` field
+     * (agency.dto.ts) exactly: `.min(1)` and OPTIONAL, because an empty pick is expressed by
+     * OMITTING the key (create stores `[]`; edit leaves the stored pick UNCHANGED) and never by
+     * sending `[]`, so a form that serialized an untouched picker cannot erase a stored pick.
+     * `.max(50)` is the same anti-abuse request bound; the BUSINESS cap is
+     * `match_config.max_skills_per_posting`, which only the server knows (the picker reads it
+     * from the live reach preview) — a `.max(3)` here would disagree the moment ops change it.
+     *
+     * Q9: optional at the API, REQUIRED by the payer-web form. The requirement is the FORM's
+     * rule, not this schema's: an edit that did not touch the pick omits the key legitimately.
+     */
+    matchSkillIds: z.array(matchSkillIdSchema).min(1).max(50).optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",

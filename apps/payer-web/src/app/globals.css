@@ -3542,6 +3542,18 @@ textarea.input {
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--space-4) var(--space-5);
 }
+/* #2104 — the match-skill picker's group: the panel, then its refusal line. A column so the
+   message sits under the panel like a DS field's error sits under its control, and no focus ring
+   of its own (the ring belongs to the chip the payer then presses; this box is only a scroll/focus
+   target for a refused submit). Tokens only. */
+.agency-job-form__match {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.agency-job-form__match:focus {
+  outline: none;
+}
 .agency-job-form__actions {
   display: flex;
   gap: var(--space-3);
