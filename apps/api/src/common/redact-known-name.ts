@@ -69,13 +69,13 @@ import {
 export const REDACTED_NAME_PLACEHOLDER = "[NAME]";
 
 /**
- * Name parts shorter than this are NOT redacted word-anchored — counted after the fold
- * (#2166). A part of exactly {@link SHORT_PART_LETTERS} letters is redacted only as a
- * WHOLE word; a one-letter initial never on its own.
+ * Name tokens shorter than this are NOT redacted on their own. The one exception (#2166): a
+ * part this long as STORED that the fold makes shorter — a nukta letter, which NFC cannot
+ * recompose — is redacted only as a WHOLE word (see `knownNameMatcher`).
  *
  * Load-bearing: Indian stored names routinely carry initials ("R Suresh Kumar",
- * "K. M. Ramesh"). Redacting a short token wherever it starts a word would rewrite every
- * "R", every "jara" for a stored "ज़र", and shred the text the extractor reads — the exact
+ * "K. M. Ramesh"). Redacting a 1-2 character token would rewrite every "R", "ka",
+ * "me", "ji" and "hai" in the message and shred the text the extractor reads — the exact
  * over-masking regression class that killed the gazetteer attempt. 3 is the shortest
  * length at which a token is a name rather than a letter.
  *
@@ -200,16 +200,19 @@ export interface KnownNameMatcher {
  * read alike, and the text itself is never rewritten outside a matched span. The stored name splits
  * on whitespace (and a zero-width space) into WORDS, and each word into PARTS on anything that is not
  * a letter or a mark (`NAME_SEPARATORS`: a dot, a hyphen, an apostrophe, a digit, a modifier letter).
- * A part is measured AFTER the fold, in code points once composed:
+ * A part is measured in code points once composed (NFC), as STORED and again after the fold:
  *
- *   - {@link MIN_TOKEN_LENGTH}+ is LONG: matched on its own, word-anchored (below);
- *   - exactly {@link SHORT_PART_LETTERS} is SHORT: matched on its own only as a WHOLE word — no
- *     letter, MARK, digit or `_` after it — the probe's two-letter rule. A stored "ज़र" folds to "जर":
- *     it redacts a standalone "ज़र" or "जर" but never "जरा"; a Bengali "রয়" never "রয়েছে"; the
- *     Devanagari "जय" and the Bengali "জয়" read alike. Measured BEFORE the fold, the nukta (which
- *     NFC cannot recompose: U+0958–095F, U+09DC/DD/DF are composition exclusions) counted as a
- *     third letter, and the folded two-letter needle shredded every word it began;
- *   - one letter is an INITIAL and is never matched on its own.
+ *   - {@link MIN_TOKEN_LENGTH}+ after the fold is LONG: matched on its own, word-anchored (below);
+ *   - {@link MIN_TOKEN_LENGTH}+ as stored but shorter after the fold is NUKTA-SHORTENED: matched on
+ *     its own only as a WHOLE word — no letter, MARK, digit or `_` after it. The nukta letters are
+ *     composition exclusions (U+0958–095F, U+09DC/DD/DF), so NFC keeps the nukta as a third code
+ *     point, and the fold then removes it: a stored "ज़र" folds to "जर". Matched word-anchored, that
+ *     two-letter needle shredded every word it began ("जरा"); as a whole word it still redacts a
+ *     standalone "ज़र" or "जर", and a Bengali "রয়" never touches "রয়েছে";
+ *   - shorter than {@link MIN_TOKEN_LENGTH} as stored ("Om", "Ji", "Md", "जय") is never matched on
+ *     its own, exactly as before #2166 — a two-letter part matched even as a whole word would take
+ *     every "ji" from a worker stored as "Ram Ji". So the Devanagari "जय" (two code points) is never
+ *     matched alone while the Bengali "জয়" (three as stored, a nukta letter) is, as a whole word.
  *
  * What is matched, first alternative first — JS alternation is first-match-wins at a position, so the
  * order is the whole mechanism that collapses a name to ONE placeholder:
@@ -222,13 +225,13 @@ export interface KnownNameMatcher {
  *        ("Raju007", "R.K.") — the pre-#2166 whitespace token, kept so a stored word that matched
  *        as written still does (a word that folds below three is left to the part rules);
  *      - each LONG part on its own ("Suresh", "Prasad");
- *      - each SHORT part as a whole word ("Om", "जर").
+ *      - each NUKTA-SHORTENED part as a whole word ("ज़र", matched as "जर").
  *
  * Inside a multi-part alternative (1, 2, and the multi-part words of 3), between two parts a
  * typed name may carry whitespace, an invisible, or the punctuation names are written with
  * ({@link SEPARATOR}). Between two LONG parts, or two parts the stored name joins with an
- * apostrophe, the separator may also be missing ("SureshKumar", "DSouza"). Next to an initial or
- * a short part it may not: "S.Aman" must never eat "saman".
+ * apostrophe, the separator may also be missing ("SureshKumar", "DSouza"). Next to a part shorter
+ * than that it may not: "S.Aman" must never eat "saman".
  *
  * - CASE-INSENSITIVE: workers type "suresh", the DB holds "Suresh".
  * - WORD-ANCHORED with Unicode lookarounds, unchanged by #2166 (not `\b`, which is ASCII-only):
@@ -254,8 +257,8 @@ export interface KnownNameMatcher {
  *     read as what a soft hyphen is — a break INSIDE a word — or "Sur<SHY>esh" would shred "sur".
  *   - The parts must come in stored order to collapse: "Kumar Suresh" is two placeholders.
  *   - A name typed in another script than the one it is stored in (the R32 transliteration line).
- *   - KNOWN COST of the short rule: a stored two-letter part that is also a word goes as that whole
- *     word, for that worker — a worker stored as "Ram Ji" loses every standalone "ji".
+ *   - A part of one or two letters as stored is never redacted on its own ("Om" in "main Om
+ *     hoon"), as before #2166: the initials rule, kept so short parts never shred ordinary text.
  */
 export function knownNameMatcher(fullName: string | null | undefined): KnownNameMatcher | null {
   if (typeof fullName !== "string") return null;
@@ -279,24 +282,20 @@ const SEPARATED = `${SEPARATOR}+`;
 const SEPARATED_OR_GLUED = `${SEPARATOR}*`;
 /** An invisible typed inside a name ("Sur<ZWSP>esh") — the sentinel, between any two characters. */
 const INSIDE_A_PART = `${sentinelSource()}*`;
-/** What may NOT follow a SHORT part: it is matched only as a whole word, marks included. */
+/** What may NOT follow a NUKTA-SHORTENED part: it is matched only as a whole word, marks included. */
 const WHOLE_WORD_END = "(?![\\p{L}\\p{M}\\p{N}_])";
 /** A stored separator a typed name commonly drops: "DSouza" for "D'Souza". */
 const APOSTROPHES_ONLY = /^['\u2018\u2019\u02BB\u02BC]+$/u;
 const WHITESPACE = /\s+/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
-/**
- * A part of exactly this many letters (after the fold) is SHORT: matched on its own only as a whole
- * word. Fewer is an initial, never matched on its own; {@link MIN_TOKEN_LENGTH}+ is long.
- */
-export const SHORT_PART_LETTERS = 2;
-
 /** One part of the stored name, folded for matching. */
 interface NamePart {
   readonly needle: string;
   /** Code points of the FOLDED needle, once composed. */
   readonly letters: number;
+  /** Code points of the part AS STORED (marks kept), once composed. */
+  readonly stored: number;
   readonly word: number;
   /** Joined to the previous part of the SAME word by apostrophes only. */
   readonly glued: boolean;
@@ -319,6 +318,11 @@ function lettersOf(needle: string): number {
 
 function isLong(part: NamePart): boolean {
   return part.letters >= MIN_TOKEN_LENGTH;
+}
+
+/** Long enough as stored; short only because the fold removed a mark NFC kept apart (a nukta). */
+function isNuktaShortened(part: NamePart): boolean {
+  return !isLong(part) && part.stored >= MIN_TOKEN_LENGTH;
 }
 
 /** A literal, escaped code point by code point, that tolerates an invisible between any two. */
@@ -358,14 +362,15 @@ function knownNameRegExp(fullName: string): RegExp | null {
       parts.push({
         needle,
         letters: lettersOf(needle),
+        stored: lettersOf(part),
         word: index,
         glued: previous?.word === index && APOSTROPHES_ONLY.test(separatorBefore),
       });
     }
   });
   const long = parts.filter(isLong);
-  const short = parts.filter((part) => part.letters === SHORT_PART_LETTERS);
-  if (long.length === 0 && short.length === 0 && storedWords.length === 0) return null;
+  const nuktaShortened = parts.filter(isNuktaShortened);
+  if (long.length === 0 && nuktaShortened.length === 0 && storedWords.length === 0) return null;
 
   const ordered: string[] = [];
   if (long.length > 0 && parts.length > 1) ordered.push(sequence(parts));
@@ -380,7 +385,7 @@ function knownNameRegExp(fullName: string): RegExp | null {
   });
   for (const word of storedWords) rest.push({ source: literal(word), letters: lettersOf(word) });
   for (const part of long) rest.push({ source: literal(part.needle), letters: part.letters });
-  for (const part of short) {
+  for (const part of nuktaShortened) {
     rest.push({ source: `${literal(part.needle)}${WHOLE_WORD_END}`, letters: part.letters });
   }
   // Longest first, so a word is never cut short by a part it contains ("Ram-Prasad" before "Ram").
@@ -397,7 +402,7 @@ function knownNameRegExp(fullName: string): RegExp | null {
   // Unicode-aware word anchoring. `\b` is defined on ASCII `\w`, so `\bराम\b` and
   // `\bRam\b` behave inconsistently across the scripts this product actually sees.
   // The lookarounds say exactly what is meant: not adjacent to another letter,
-  // digit, or underscore (a SHORT part adds: nor a mark). Matched against the FOLDED
+  // digit, or underscore (a nukta-shortened part adds: nor a mark). Matched against the FOLDED
   // text, never the original.
   // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the stored name is data here, never pattern syntax: every character of it is escaped one code point at a time (`literal` -> `escapeRegExp`), and the only unescaped source is this module's own constant classes and quantifiers. No alternative carries a nested quantifier, so the pattern cannot backtrack catastrophically (pinned by a 20,000-character timing test).
   return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`, "giu");

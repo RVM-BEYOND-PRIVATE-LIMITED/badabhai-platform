@@ -99,9 +99,10 @@ describe("name tokens found in text — dropped, fail closed", () => {
     expect(maskSampleLine("main sureshkumar hoon", NAME)).toEqual(shown("main [NAME] hoon"));
   });
 
-  it("a TWO-letter name token as a whole word (M1) is masked — the redaction's short rule (#2166)", () => {
+  it("drops a line where a TWO-letter name token appears as a whole word (M1)", () => {
+    // The redaction never takes a two-letter part (it would shred "ji", "Md"); the probe drops instead.
     expect(maskSampleLine("main Om hoon, welder", "Om Prakash")).toEqual(
-      shown("main [NAME] hoon, welder"),
+      dropped("name_tokens_found"),
     );
     // …but not where those two letters are only part of a word.
     expect(maskSampleLine("roz kaam karta hoon", "Om Prakash")).toEqual(

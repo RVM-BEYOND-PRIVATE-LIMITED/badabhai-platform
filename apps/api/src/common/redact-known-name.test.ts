@@ -271,12 +271,15 @@ describe("#2166 — no over-masking: ordinary words that CONTAIN a name part are
     expect(redactKnownName("sur mein gaana", `Sur${SOFT_HYPHEN}esh Kumar`)).toBe("sur mein gaana");
   });
 
-  it("a two-letter part goes only as a WHOLE word; a one-letter initial never on its own", () => {
-    expect(redactKnownName("om shanti, Omkar, som, roz kaam", "Om Prakash")).toBe(
-      `${P} shanti, Omkar, som, roz kaam`,
+  it("parts under three letters as stored never match on their own, as on main", () => {
+    expect(redactKnownName("main Om hoon, om shanti, Omkar", "Om Prakash")).toBe(
+      "main Om hoon, om shanti, Omkar",
     );
     expect(redactKnownName("ab Ramesh bolega", "A B Ramesh")).toBe(`ab ${P} bolega`);
     expect(redactKnownName("R K se mila", "R K Ramesh")).toBe("R K se mila");
+    expect(redactKnownName("Md shop pe, kr diya, al bhi", "Md Kr Al Salim")).toBe(
+      "Md shop pe, kr diya, al bhi",
+    );
   });
 
   it("Devanagari: आराम and रामपुर are not राम", () => {
@@ -318,9 +321,11 @@ describe("#2166 — known limits, pinned so nobody is surprised", () => {
     expect(redactKnownName("id suresh_kumar hai", "Suresh Kumar")).toBe("id suresh_kumar hai");
   });
 
-  it("KNOWN COST: a two-letter part that is also a word goes as that word, for that worker", () => {
-    expect(redactKnownName("haan ji, kal aaunga", "Ram Ji")).toBe(`haan ${P}, kal aaunga`);
-    expect(redactKnownName("haan ji, kal aaunga", "Ram Kumar")).toBe("haan ji, kal aaunga");
+  it("a stored two-letter part never takes the ordinary word it spells ('Ram Ji' keeps every 'ji')", () => {
+    expect(redactKnownName("haan ji, theek hai ji, kal aaunga", "Ram Ji")).toBe(
+      "haan ji, theek hai ji, kal aaunga",
+    );
+    expect(redactKnownName("Ram Ji yahan", "Ram Ji")).toBe(`${P} yahan`);
   });
 });
 
@@ -364,12 +369,14 @@ describe("#2166 review — a part is measured AFTER the fold (code M1: short nuk
     expect(redactKnownName(`${ROY} ${HERE}`, ROY)).toBe(`${P} ${HERE}`);
   });
 
-  it("the Devanagari जय and the Bengali জয় read alike: a whole word only", () => {
+  it("the Devanagari जय is never matched alone; the Bengali জয় is, as a whole word", () => {
+    // Deliberate: जय is two code points as stored (the initials rule); জয় is three (U+09DF keeps its
+    // nukta under NFC), so only the fold shortens it, and that case alone gets the whole-word rule.
     const JAY = "\u091C\u092F"; // जय, no nukta
     const JAYKAR = "\u091C\u092F\u0915\u093E\u0930"; // जयकार
     const JOY = "\u099C\u09DF"; // জয়, a nukta letter
     const JOYI = "\u099C\u09DF\u09C0"; // জয়ী (winner)
-    expect(redactKnownName(`main ${JAY} hoon, ${JAYKAR}`, JAY)).toBe(`main ${P} hoon, ${JAYKAR}`);
+    expect(redactKnownName(`main ${JAY} hoon, ${JAYKAR}`, JAY)).toBe(`main ${JAY} hoon, ${JAYKAR}`);
     expect(redactKnownName(`main ${JOY} hoon, ${JOYI}`, JOY)).toBe(`main ${P} hoon, ${JOYI}`);
   });
 });

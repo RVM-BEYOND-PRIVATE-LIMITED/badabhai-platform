@@ -28,13 +28,13 @@
  *   identifier    a hard identifier (`containsHardIdentifier`: PAN, Aadhaar, phone, email,
  *                 credential ids, GSTIN, long digit runs), a PAN in lower case, a phone- or
  *                 email-shaped run (`looksLikePii`), or TEN OR MORE digits in total.
- *   name          the worker's OWN stored name — the whole name, any part of 3+ letters, or a
- *                 two-letter part as a whole word, matched exactly as `redactKnownName` matches it
- *                 (in the RAW input too, where an invisible may part it from the word before) — or
- *                 a self-introduction cue ("mera naam", "my name is", "मेरा नाम"). The employer
- *                 copy prints only the name's initials (`resume-disclosure.service.ts`); a
- *                 brief that repeated it would un-mask the worker on the one surface built to hide
- *                 him. No gazetteer (the R32 lesson): only the name we hold is looked for.
+ *   name          the worker's OWN stored name — the whole name or any part of 3+ letters (one
+ *                 only a nukta made three: as a whole word), matched exactly as `redactKnownName`
+ *                 matches it (in the RAW input too, where an invisible may part it from the word
+ *                 before) — or a self-introduction cue ("mera naam", "my name is", "मेरा नाम").
+ *                 The employer copy prints only the name's initials (`resume-disclosure.service.ts`);
+ *                 a brief that repeated it would un-mask the worker on the one surface built to
+ *                 hide him. No gazetteer (the R32 lesson): only the name we hold is looked for.
  *   contact      an "@" in any width (a UPI id, a handle, an email with no TLD) or an email spelled
  *                 out ("ramesh at gmail dot com").
  *   link          a URL (`looksLikeUrl`), a host followed by a path ("t.me/ramesh"), or a

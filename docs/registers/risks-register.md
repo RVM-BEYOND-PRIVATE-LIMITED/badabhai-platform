@@ -420,10 +420,12 @@ switch, `AI_RAW_PII_ENABLED`, default off. The rows above are not reworded.
   apostrophes, digits and modifier letters (and a stored zero-width space); the text is folded
   unit by unit (invisibles, compatibility forms, NFC/NFD, the nukta and Latin diacritics) and only
   the matched span of the original is replaced; a throw fails the turn or job CLOSED; a long run
-  of combining marks is capped per unit. **Short parts:** a part is measured after the fold, so a
-  two-letter part (`Om`, `ज़र` folded to `जर`) is redacted only as a whole word — never inside
-  `जरा` or `রয়েছে` — and a one-letter initial never on its own; the cost is that a stored
-  two-letter part that is also a word (`Ram Ji` → every standalone `ji`) goes for that worker.
+  of combining marks is capped per unit. **Short parts:** a part of one or two letters as stored
+  (`Om`, `Ji`, `Md`, `जय`) is never redacted on its own, as before #2166, so short parts never
+  shred ordinary text. The one exception is NUKTA-ONLY: a part three code points long as stored
+  that the fold shortens (a nukta letter NFC cannot recompose — `ज़र` folds to `जर`, Bengali `রয়`,
+  `জয়`) is redacted only as a whole word, so never inside `जरा` or `রয়েছে`. The Devanagari `जय`
+  (never alone) and the Bengali `জয়` (whole word) therefore differ, deliberately.
   **Known limits, accepted:** an initial glued to a dotted name (`KSuresh` for `K.Suresh`);
   virama, anusvara and chandrabindu spelling variants; parts out of stored order (`Kumar Suresh`
   is two placeholders); a name typed in another script than the one stored; an

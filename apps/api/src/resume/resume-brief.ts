@@ -44,10 +44,10 @@ export const FALLBACK_BRIEF_MAX_SKILLS = 3;
  *     written by the form);
  *   - no MONEY shape — the write wall's own predicate, `looksLikeMoney`, so the render can never
  *     pass a figure the write would refuse;
- *   - not the worker's CURRENT name — the whole name, any part of 3+ letters or a two-letter part as
- *     a whole word, matched exactly as `redactKnownName` matches it (`knownNameMatcher`, the same
- *     reading of the name and the text: dotted, hyphenated, apostrophe, invisible-character and
- *     non-NFC names alike, #2166).
+ *   - not the worker's CURRENT name — the whole name or any part of 3+ letters (one only a nukta made
+ *     three: as a whole word), matched exactly as `redactKnownName` matches it (`knownNameMatcher`,
+ *     the same reading of the name and the text: dotted, hyphenated, apostrophe, invisible-character
+ *     and non-NFC names alike, #2166).
  *
  * `knownName` IS THE DECRYPTED NAME, OR NULL WHEN NONE IS STORED. A caller that could not DECRYPT
  * a stored name must not call this with null — it must treat the brief as unusable, because a
