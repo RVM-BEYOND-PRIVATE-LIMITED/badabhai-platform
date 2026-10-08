@@ -178,8 +178,13 @@
   - **Failed write.** The log shows `written` below `captured`, with
     `erased-token tombstone write failed for N of M (… errorType: <name>)`. Those devices get the neutral 401
     and the ladder. There is nothing to repair; do not write tombstones by hand.
-  - **Turning it off.** Set `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS=0` and redeploy. This stops new writes
-    and makes the reader ignore keys already written; they expire by TTL.
+  - **Turning it off.** Set `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS=0` and recreate the api. This stops new
+    writes and makes the reader ignore keys already written; they expire by TTL. **Set it on the box**, persisted
+    in the project `.env` that compose interpolates from, then `dc up -d --no-deps api`, then confirm with
+    `dc exec api printenv ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS` (the procedure and the preamble are in
+    `docs/otp-throttles-runbook.md` §1–§2). A GitHub secret of this name does nothing: the CI deploy bridge does
+    not carry it. The name reaches the container only because `docker-compose.staging.yml` declares it on the api
+    service (pinned by `apps/api/src/auth/erased-refresh-tombstone-compose.guard.test.ts`).
 - **`revokeAll` fails open (risks-register R69, pre-existing).** If Redis errors while sessions are being revoked,
   `revokeAll` logs `logout-all Redis error` and returns 0. The erasure then continues and records
   `sessions_revoked: 0`. Any `refresh:<hash>` record it failed to delete survives for up to `AUTH_REFRESH_TTL_DAYS`
@@ -221,7 +226,8 @@
   ```bash
   docker compose exec redis sh -c "redis-cli --scan --pattern 'refresh_erased:*' | xargs -r redis-cli del"
   ```
-  The alternative is `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS=0` plus a redeploy, which stops all reads at
-  once and lets the keys expire. Clearing the keys costs every other recently-erased worker the PIN-screen 410,
+  The alternative is `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS=0` set on the box and the api recreated (§7
+  "Turning it off"; check it with `printenv` in the container), which stops all reads at once and lets the keys
+  expire. Clearing the keys costs every other recently-erased worker the PIN-screen 410,
   and they fall back to the neutral 401 and the ladder. Record the restore and the flush in the ops log. A
   restore of a DPDP-erased row is itself an owner decision.

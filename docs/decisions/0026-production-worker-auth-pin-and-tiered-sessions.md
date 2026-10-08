@@ -777,8 +777,19 @@ own block is Frontend's half of #1462 and is NOT in this change.
 ## Amendment — 2026-10-08: the PIN-screen 410 for an erased worker (#1176 ratified, #2113)
 
 - Status: Accepted · Date: 2026-10-08 · Ruled by: Prakash (owner), recorded on #2113 ·
-  Scope: `apps/api/src/auth/*`, `packages/config`. No migration, no event change, no client
-  change, no new request input. **Security-engineer review is required before merge.**
+  Scope: `apps/api/src/auth/*`, `packages/config`, one line in `docker-compose.staging.yml`. No
+  migration, no event change, no client change, no new request input. **Security-engineer review
+  is required before merge.**
+- **Design correction (review round 1, for the Architect).** The approved design said
+  `docker-compose.staging.yml` needed no change. That was wrong. The file is the production
+  overlay, its api service has no `env_file:`, and compose forwards only the names a service
+  declares, so without a declaration the container always ran the zod default and the ruling-2
+  kill switch (`0`) could not be armed in staging or production (the #1306 class). The api
+  service now declares
+  `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: ${ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS:-604800}`,
+  mirroring the zod default, and `apps/api/src/auth/erased-refresh-tombstone-compose.guard.test.ts` pins it.
+  It is set on the box (project `.env` plus an api recreate), like
+  `ACCOUNT_DELETION_COOLDOWN_SECONDS`; no CI secret bridge carries it.
 
 **Problem.** A normal erasure revokes every session first (D4). So a deleted worker's app
 presents a refresh token that resolves to nothing, and `verifyPin` answered the neutral 401. The
