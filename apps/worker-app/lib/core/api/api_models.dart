@@ -11,6 +11,8 @@ library;
 
 import 'package:equatable/equatable.dart';
 
+import '../../features/chat/domain/chat_news_link.dart';
+
 import 'occupation_label.dart';
 
 /// Thrown when the API returns a non-2xx response.
@@ -1047,6 +1049,7 @@ class ChatReply extends Equatable {
     this.editProposal,
     this.cooldownUntil,
     this.readAloud,
+    this.newsLinks = const <ChatNewsLink>[],
   });
 
 final String reply;
@@ -1071,6 +1074,10 @@ final String reply;
   /// [ttsText] (or [reply] fallback) without the worker tapping the speaker.
   /// Client-side behaviour only; the server never speaks.
   final bool? readAloud;
+
+  /// ADR-0054 §3.4 — this turn's news tiles, empty on every turn but an
+  /// answered news one.
+  final List<ChatNewsLink> newsLinks;
 
   /// The tap-to-answer options for THIS turn (`suggested_options`, #761), served
   /// ALONGSIDE [suggestedFollowups]. Each carries the stable `option_key` the
@@ -1332,6 +1339,12 @@ final String reply;
             : null,
         // ADR-0046 — whether to auto-read this turn aloud.
         readAloud: json['read_aloud'] is bool ? json['read_aloud'] as bool : null,
+        // ADR-0054 §3.4 (#2148) — the "read more" tiles under an answered news
+        // turn. ADDITIVE and ABSENT on every other turn, never null, so an
+        // empty list is the honest reading of "no tiles" however the wire says
+        // it. Items that cannot safely become a tile are dropped by
+        // [ChatNewsLink.listFromJson], not rendered broken.
+        newsLinks: ChatNewsLink.listFromJson(json['news_links']),
       );
 
   @override
@@ -1359,6 +1372,7 @@ final String reply;
         editProposal,
         cooldownUntil,
         readAloud,
+        newsLinks,
       ];
 }
 
@@ -1421,6 +1435,7 @@ class SessionMessage extends Equatable {
     required this.bodyText,
     required this.createdAt,
     this.ttsText,
+    this.newsLinks = const <ChatNewsLink>[],
   });
 
   /// 'inbound' (the worker) | 'outbound' (bada bhai). Kept as the RAW wire
@@ -1442,6 +1457,11 @@ class SessionMessage extends Equatable {
   /// hydrated bot bubble; read-aloud falls back to [bodyText] when null.
   final String? ttsText;
 
+  /// ADR-0054 §3.4 — the tiles that rode this bot row, so a replay after a
+  /// restart draws them again. Empty on a worker row and on every turn that
+  /// served none.
+  final List<ChatNewsLink> newsLinks;
+
   /// True for the worker's own (inbound) messages. Anything that is not
   /// explicitly 'inbound' is treated as a bada-bhai bubble — the tolerant
   /// default the contract's enum note asks for.
@@ -1450,6 +1470,10 @@ class SessionMessage extends Equatable {
   factory SessionMessage.fromJson(Map<String, dynamic> json) => SessionMessage(
         direction: json['direction'] as String? ?? 'outbound',
         bodyText: json['body_text'] as String?,
+        // ADR-0054 §3.4 (#2148) — the replay carries the SAME field on the bot
+        // row that served them, so a restart redraws the tiles rather than
+        // leaving a summary whose sources vanished.
+        newsLinks: ChatNewsLink.listFromJson(json['news_links']),
         createdAt: json['created_at'] as String? ?? '',
         // #896 — additive: absent / null / blank -> null (read-aloud falls back
         // to the romanized body_text).
