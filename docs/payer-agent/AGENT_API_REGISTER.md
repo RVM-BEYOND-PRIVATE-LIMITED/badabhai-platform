@@ -3,7 +3,7 @@
 **Status:** Route inventory + wiring COMPLETE. Implementation quality **NOT AUDITED** (dims 8–9).
 
 **Guard legend:** `P` = `PayerAuthGuard` · `R` = `PayerRoleGuard` · `PE` =
-`AgencyPayoutsEnabledGuard` · `I` = `InternalServiceGuard`.
+`AgencyPayoutsEnabledGuard` · `ORG` = `PayerOrgRoleGuard` · `I` = `InternalServiceGuard`.
 
 Every agency controller carries `@PayerRoles("agent")` at **class** level, so an `employer`
 session is 403'd across the whole surface. Verified in `agency/agency-role-authz.test.ts`.
@@ -61,14 +61,18 @@ can leak PII was **NOT audited** (dimension 9).
 
 | Route | Guards | Frontend consumer | Wiring |
 |---|---|---|---|
-| `POST /payer/agency/kyc` | `P,R,PE` | `agency/referrals/supply-actions.ts` | ⚙️ wired, **404 in alpha** |
-| `GET /payer/agency/kyc` | `P,R,PE` | `kyc-panel.tsx` | ⚙️ wired, **404 in alpha** |
-| `GET /payer/agency/earnings` | `P,R,PE` | `earnings-panel.tsx` | ⚙️ wired, **404 in alpha** |
-| `POST /payer/agency/payouts` | `P,R,PE` | `payout-panel.tsx` | ⚙️ wired, **404 in alpha** |
-| `GET /payer/agency/payouts` | `P,R,PE` | `payout-panel.tsx` | ⚙️ wired, **404 in alpha** |
+| `POST /payer/agency/kyc` | `P,R,PE,ORG` (owner) | `agency/referrals/supply-actions.ts` | ⚙️ wired, **404 in alpha** |
+| `GET /payer/agency/kyc` | `P,R,PE,ORG` (owner) | `kyc-panel.tsx` | ⚙️ wired, **404 in alpha** |
+| `GET /payer/agency/earnings` | `P,R,PE,ORG` (owner) | `earnings-panel.tsx` | ⚙️ wired, **404 in alpha** |
+| `POST /payer/agency/payouts` | `P,R,PE,ORG` (owner) | `payout-panel.tsx` | ⚙️ wired, **404 in alpha** |
+| `GET /payer/agency/payouts` | `P,R,PE,ORG` (owner) | `payout-panel.tsx` | ⚙️ wired, **404 in alpha** |
 
 `AgencyPayoutsEnabledGuard` returns a **neutral 404** when `AGENCY_PAYOUTS_ENABLED` is false
-(the default) — so no KYC/PAN/bank PII can even be collected. **Per the owner's alpha ruling this
+(the default) — so no KYC/PAN/bank PII can even be collected. Behind it, `PayerOrgRoleGuard` +
+class-level `@OrgRoles("owner")` makes all five routes **owner-only** (ADR-0053 O-5, PAY-DB-01
+P2d, 2026-10-08): a recruiter gets 403 once the flag is on; while it is off, owner and
+recruiter get the same 404. The guard resolves the tenant scope once and hands it to the
+service, so the owner check and the org the rows are keyed by are one read. **Per the owner's alpha ruling this
 is correct behaviour, not a defect.**
 
 The obligation it creates is *honesty*: `agency/referrals/page.tsx:191-193` renders a

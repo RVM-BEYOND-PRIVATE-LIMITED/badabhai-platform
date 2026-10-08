@@ -9,6 +9,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { AdminRepository } from "../admin/admin.repository";
 import { AgencyKycRepository } from "../agency/agency-kyc.repository";
 import { AgencyKycService } from "../agency/agency-kyc.service";
+import { ownScope } from "../payers/payer-tenant-scope.test-support";
 import { isUniqueViolation, sqlStateOf } from "./db-error";
 import { PiiCryptoService } from "./pii-crypto.service";
 
@@ -201,9 +202,11 @@ describe.skipIf(!RUN)("unique violations against a real database (#1811)", () =>
       account_holder_name: "Test Holder",
     };
 
-    await expect(svc.submit(await seedAgency("a"), dto)).resolves.toMatchObject({
+    await expect(svc.submit(await ownScope(await seedAgency("a")), dto)).resolves.toMatchObject({
       status: "pending",
     });
-    await expect(svc.submit(await seedAgency("b"), dto)).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.submit(await ownScope(await seedAgency("b")), dto)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 });

@@ -11,6 +11,7 @@ import {
   type AgencyKycStatus,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /** One granted unlock that qualifies for a commission accrual (the join off real unlock data). */
 export interface QualifyingUnlock {
@@ -45,6 +46,10 @@ export class PayoutBelowThresholdError extends Error {
  * gets the disjoint remainder) — the caller (`AgencyPayoutService`, via {@link withTransaction})
  * OWNS that transaction so the claim and its `agency_payout.requested` event commit together
  * (#1129 item 3).
+ *
+ * ADR-0053 (PAY-DB-01 P2d, O-5): the agency is the ORG. Every agency-scoped predicate and stamp
+ * (`agency_invites.inviter_payer_id`, `agency_payer_id`) takes the branded {@link TenantKey} —
+ * the org's anchor — so a teammate's referral earns for the org and the org has one ledger.
  */
 @Injectable()
 export class AgencyPayoutRepository {
@@ -66,7 +71,7 @@ export class AgencyPayoutRepository {
    * (`agency_invites.invited_worker_id`), whose `granted_at` falls within `windowDays` of the
    * invite's `attributed_at`. Nulls never match (both sides filtered NOT NULL).
    */
-  async findQualifyingUnlocks(agencyId: string, windowDays: number): Promise<QualifyingUnlock[]> {
+  async findQualifyingUnlocks(tenant: TenantKey, windowDays: number): Promise<QualifyingUnlock[]> {
     const rows = await this.db
       .select({
         unlockId: unlocks.id,
@@ -77,7 +82,7 @@ export class AgencyPayoutRepository {
       .innerJoin(unlocks, eq(unlocks.workerId, agencyInvites.invitedWorkerId))
       .where(
         and(
-          eq(agencyInvites.inviterPayerId, agencyId),
+          eq(agencyInvites.inviterPayerId, tenant),
           isNotNull(agencyInvites.invitedWorkerId),
           isNotNull(agencyInvites.attributedAt),
           eq(unlocks.status, "granted"),
@@ -105,7 +110,7 @@ export class AgencyPayoutRepository {
    */
   async insertAccruals(
     rows: Array<{
-      agencyPayerId: string;
+      agencyPayerId: TenantKey;
       sourceUnlockId: string;
       basisInr: number;
       rateBps: number;
@@ -124,18 +129,18 @@ export class AgencyPayoutRepository {
   }
 
   /** Aggregate earnings for the agency (off the real accrual + request rows). */
-  async aggregate(agencyId: string): Promise<AgencyEarningsAgg> {
+  async aggregate(tenant: TenantKey): Promise<AgencyEarningsAgg> {
     const [tot] = await this.db
       .select({ total: sum(agencyPayoutAccruals.amountInr), n: count() })
       .from(agencyPayoutAccruals)
-      .where(eq(agencyPayoutAccruals.agencyPayerId, agencyId));
+      .where(eq(agencyPayoutAccruals.agencyPayerId, tenant));
 
     const [req] = await this.db
       .select({ requestable: sum(agencyPayoutAccruals.amountInr) })
       .from(agencyPayoutAccruals)
       .where(
         and(
-          eq(agencyPayoutAccruals.agencyPayerId, agencyId),
+          eq(agencyPayoutAccruals.agencyPayerId, tenant),
           isNull(agencyPayoutAccruals.payoutRequestId),
         ),
       );
@@ -143,7 +148,7 @@ export class AgencyPayoutRepository {
     const byStatus = await this.db
       .select({ status: agencyPayoutRequests.status, total: sum(agencyPayoutRequests.amountInr) })
       .from(agencyPayoutRequests)
-      .where(eq(agencyPayoutRequests.agencyPayerId, agencyId))
+      .where(eq(agencyPayoutRequests.agencyPayerId, tenant))
       .groupBy(agencyPayoutRequests.status);
 
     const n = (v: string | null): number => Number(v ?? 0);
@@ -163,11 +168,11 @@ export class AgencyPayoutRepository {
   }
 
   /** The agency's OWN payout requests (ids / ₹ / status only). */
-  async listRequests(agencyId: string): Promise<AgencyPayoutRequest[]> {
+  async listRequests(tenant: TenantKey): Promise<AgencyPayoutRequest[]> {
     return this.db
       .select()
       .from(agencyPayoutRequests)
-      .where(eq(agencyPayoutRequests.agencyPayerId, agencyId))
+      .where(eq(agencyPayoutRequests.agencyPayerId, tenant))
       .orderBy(desc(agencyPayoutRequests.createdAt));
   }
 
@@ -186,7 +191,7 @@ export class AgencyPayoutRepository {
    */
   async createRequestClaiming(
     input: {
-      agencyId: string;
+      tenant: TenantKey;
       kycStatus: AgencyKycStatus;
       thresholdInr: number;
       idempotencyKey: string;
@@ -196,7 +201,7 @@ export class AgencyPayoutRepository {
     const [request] = await tx
       .insert(agencyPayoutRequests)
       .values({
-        agencyPayerId: input.agencyId,
+        agencyPayerId: input.tenant,
         amountInr: 0,
         accrualCount: 0,
         status: "requested",
@@ -211,7 +216,7 @@ export class AgencyPayoutRepository {
       .set({ payoutRequestId: request.id })
       .where(
         and(
-          eq(agencyPayoutAccruals.agencyPayerId, input.agencyId),
+          eq(agencyPayoutAccruals.agencyPayerId, input.tenant),
           isNull(agencyPayoutAccruals.payoutRequestId),
         ),
       )

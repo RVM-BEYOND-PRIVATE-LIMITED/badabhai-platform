@@ -144,7 +144,7 @@ describe("GET /payer/agency/workers gains NO referral-linkage field (C10)", () =
       ]),
     };
     const pii = { hmac: vi.fn().mockReturnValue("0123456789abcdef0123") };
-    const svc = new AgencyWorkersService(repo as never, pii as never);
+    const svc = new AgencyWorkersService(repo as never, pii as never, defaultModeResolver());
     const { workers } = await svc.listReferred(PAYER_A);
 
     expect(workers).toHaveLength(1);

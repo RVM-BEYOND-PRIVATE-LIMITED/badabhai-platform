@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /** One referred worker's ENGAGEMENT row. No name, no phone, no employer, no job. */
 export interface AgencyWorkerEngagementRow {
@@ -27,8 +28,10 @@ export interface AgencyWorkerEngagementRow {
  * dropped; this one cannot be, because removing it changes the result set
  * visibly and the test below asserts the count.
  *
- * SCOPE: `inviter_payer_id = :payerId` is the tenancy predicate. An agency sees
- * only workers IT referred, and only via `agency_invites` rows it owns.
+ * SCOPE: `inviter_payer_id = :tenant` is the tenancy predicate (ADR-0053 PAY-DB-01
+ * P2d: the agency ORG's anchor, the branded `TenantKey`). An agency sees only workers
+ * IT referred — whichever of its members minted the invite — and only via
+ * `agency_invites` rows it owns.
  *
  * WHAT IS DELIBERATELY NOT SELECTED: `workers.full_name_enc`, `phone_hash`,
  * `job_postings.org_label`, and the ids of the jobs applied to. The projection
@@ -45,7 +48,7 @@ export class AgencyWorkersRepository {
    * capped by the caller.
    */
   async listReferredWithConsent(
-    payerId: string,
+    tenant: TenantKey,
     limit: number,
   ): Promise<AgencyWorkerEngagementRow[]> {
     const rows = await this.db.execute<{
@@ -99,7 +102,7 @@ export class AgencyWorkersRepository {
           WHERE wd.worker_id = ai.invited_worker_id AND wd.revoked_at IS NULL
         )                                                      AS last_active_on
       FROM agency_invites ai
-      WHERE ai.inviter_payer_id = ${payerId}
+      WHERE ai.inviter_payer_id = ${tenant}
         AND ai.invited_worker_id IS NOT NULL
         -- THE DPDP GATE (invariant #6). Latest consent row per worker must be
         -- unrevoked AND carry the purpose. A worker who consented under an older

@@ -5,6 +5,7 @@ import type { ReferralClickPlatform, ReferralLinkKind, ReferralLinkMedium } from
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { ReferralLinkRepository } from "./referral-link.repository";
 import {
   fallbackTarget,
@@ -123,13 +124,20 @@ export class ReferralLinkService {
    * the measurement spine and are all exercised; this is the one seam without a caller. If a
    * campaign or worker-share link ever needs its own space, this is where it starts — wire a
    * controller, do not quietly repoint the agency mint at it.
+   *
+   * ORG TENANCY (ADR-0053 PAY-DB-01 §4, plan §3.4): `referral_links.agent_payer_id` is a
+   * TENANT-KEY column, exactly like `agency_invites.inviter_payer_id`, so `agentPayerId` takes
+   * the branded {@link TenantKey}: whoever wires an agent caller must pass the agency session's
+   * resolved `scope.tenantKey`, never the login's id (a member's link belongs to the org). The
+   * type is the guard — T5 (`payer-tenancy.static.test.ts`) cannot see this method, because it
+   * only delegates to `createLink` (a packages/db insert type).
    */
   async mintLink(input: {
     // A `resume_qr` link is minted ONLY by `ResumeQrLinkService.codeFor`: one per worker, get-or-create,
     // collision-checked. Excluded by type so a second mint path for it cannot compile.
     kind: Exclude<ReferralLinkKind, "resume_qr">;
     medium?: ReferralLinkMedium;
-    agentPayerId?: string | null;
+    agentPayerId?: TenantKey | null;
     ownerWorkerId?: string | null;
     campaignId?: string | null;
     payload?: Record<string, unknown>;

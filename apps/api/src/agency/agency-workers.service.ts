@@ -1,11 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { AgencyWorkersRepository } from "./agency-workers.repository";
 
 /** One referred worker as the agency portal sees him. PII-FREE by construction. */
 export interface AgencyWorkerView {
   /**
-   * A per-agency pseudonym, NOT the worker uuid.
+   * A per-agency pseudonym, NOT the worker uuid. Per agency ORG (ADR-0053): every member of
+   * one agency sees the same handle for the same man.
    *
    * Two agencies who both referred the same man see two unrelated handles, so they
    * cannot collude to build a joint profile of him — and neither handle is the id
@@ -35,7 +37,9 @@ export interface AgencyWorkerView {
  *   1. CONSENT — the repository's SQL selects only workers carrying an active
  *      `agent_activity_visibility` consent. No consent, no row, ever.
  *   2. TENANCY — scoped to `agency_invites.inviter_payer_id`, so an agency sees
- *      only the workers it referred.
+ *      only the workers it referred. The key is the session payer's TENANT KEY
+ *      (ADR-0053 PAY-DB-01 P2d), resolved once per request: a teammate sees the
+ *      org's referrals; org tenancy off, the key is the session payer, as before.
  *   3. PSEUDONYMITY — the worker uuid never leaves this service.
  *
  * NO EVENT IS EMITTED. This is a read that changes nothing, and one event per
@@ -55,17 +59,22 @@ export class AgencyWorkersService {
   constructor(
     private readonly repo: AgencyWorkersRepository,
     private readonly pii: PiiCryptoService,
+    // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
-  async listReferred(payerId: string): Promise<{ workers: AgencyWorkerView[] }> {
-    const rows = await this.repo.listReferredWithConsent(payerId, AgencyWorkersService.MAX_ROWS);
+  async listReferred(actorPayerId: string): Promise<{ workers: AgencyWorkerView[] }> {
+    const { tenantKey } = await this.tenancy.resolve(actorPayerId);
+    const rows = await this.repo.listReferredWithConsent(tenantKey, AgencyWorkersService.MAX_ROWS);
     const workers = rows.map((r) => ({
-      // Keyed HMAC over (agency, worker). Including the PAYER id in the input is
-      // what makes the pseudonym per-agency rather than global — without it, two
-      // agencies would derive the SAME handle for a shared referral and could
-      // join their lists. Truncated to 16 hex chars: enough that a collision is
-      // not a practical concern at this scale, short enough to render.
-      ref: this.pii.hmac(`agency_worker:${payerId}:${r.workerId}`).slice(0, 16),
+      // Keyed HMAC over (agency, worker). Including the agency's TENANT KEY in the
+      // input is what makes the pseudonym per-agency rather than global — without
+      // it, two agencies would derive the SAME handle for a shared referral and
+      // could join their lists. The tenant, not the login (ADR-0053): one agency's
+      // members share one handle per man; org tenancy off, it is the session payer,
+      // so every handle is unchanged. Truncated to 16 hex chars: enough that a
+      // collision is not a practical concern at this scale, short enough to render.
+      ref: this.pii.hmac(`agency_worker:${tenantKey}:${r.workerId}`).slice(0, 16),
       profileComplete: r.profileComplete,
       appliedCount: r.appliedCount,
       unlockedCount: r.unlockedCount,

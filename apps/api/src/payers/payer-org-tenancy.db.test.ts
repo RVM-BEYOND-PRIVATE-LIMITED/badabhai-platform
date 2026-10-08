@@ -21,6 +21,12 @@ import {
 import { AgencyService } from "../agency/agency.service";
 import { AgencyJobsRepository } from "../agency/agency-jobs.repository";
 import { AgencyInvitesRepository } from "../agency/agency-invites.repository";
+import { AgencyKycRepository } from "../agency/agency-kyc.repository";
+import { AgencyKycService } from "../agency/agency-kyc.service";
+import { AgencyPayoutRepository } from "../agency/agency-payout.repository";
+import { AgencyPayoutService } from "../agency/agency-payout.service";
+import { AgencyWorkersRepository } from "../agency/agency-workers.repository";
+import { AgencyWorkersService } from "../agency/agency-workers.service";
 import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "../agency/agency.dto";
 import { ReachRepository } from "../reach/reach.repository";
 import { ReachService } from "../reach/reach.service";
@@ -1240,6 +1246,335 @@ describe.skipIf(!RUN)(
         expect(own.quote.couponApplied).toBe(COUPON);
         const [evt] = await eventsOf(ids.B, "coupon.redeemed");
         expect(evt).toMatchObject({ actor_id: ids.B, payload: { payer_id: ids.B } });
+      });
+    });
+  },
+);
+
+/**
+ * ADR-0053 P2d (PAY-DB-01) — T2 for the agency supply side: invites, the referrals funnel, the
+ * referred-worker list, KYC, earnings and payouts, AGAINST A REAL POSTGRES, in BOTH modes over the
+ * SAME rows.
+ *
+ * Agencies: G anchors a team, H is G's active recruiter, I is an outsider — every one a real
+ * `agent` payer with the solo org signup founds; H's membership is the row a successful accept
+ * writes. Every service is the REAL one over the real repositories; only the resolver's mode
+ * differs between the `on` and `off` sets.
+ *
+ *  - `on`: a teammate's invite is the ORG's (`inviter_payer_id` = the anchor, the actor = the
+ *    login), so the worker it refers appears in the org's list under the org's handle and the
+ *    unlock on him earns for the org; KYC, the accruals and the payout request are one set of
+ *    rows keyed by the anchor. Who may reach KYC / earnings / payouts is the route's owner-only
+ *    gate (agency-payouts-owner-only.test.ts) — here the owner drives them.
+ *  - `off`: today's behaviour, byte for byte — the teammate's invite is their own, and the
+ *    anchor's reads return exactly what they return in `on` (solo identity).
+ *
+ * Fixtures carry no PII: synthetic `@e2e.badabhai.invalid` emails, `enc:`/`hash:` markers in the
+ * worker phone columns, a synthetic PAN, ids fresh per run, all deleted afterwards.
+ */
+describe.skipIf(!RUN)(
+  "ADR-0053 P2d — agency invites, referred workers, KYC, earnings and payouts follow the TENANT (Postgres)",
+  () => {
+    const P2D_TAG = randomUUID().slice(0, 8);
+    const P2D_CTX: RequestContext = {
+      correlationId: randomUUID(),
+      requestId: `tenancy-p2d-${P2D_TAG}`,
+    };
+    let client!: DbClient;
+    const payerIds: string[] = [];
+    const ids = { G: "", H: "", I: "" };
+    const W1 = randomUUID(); // referred by H's invite under `on` (the org's), consented
+    const W2 = randomUUID(); // referred by H's invite under `off` (H's own), consented
+    const W3 = randomUUID(); // referred by the OUTSIDER's own invite, consented
+    const UNLOCK_W1 = randomUUID();
+    const UNLOCK_W3 = randomUUID();
+    let codeForW1 = "";
+
+    type Services = ReturnType<typeof servicesFor>;
+    let on!: Services;
+    let off!: Services;
+
+    function servicesFor(config: ServerConfig) {
+      const pii = new PiiCryptoService(config);
+      const events = new EventsService(new EventsRepository(client.db), config);
+      const tenancy = new PayerTenantScopeService(config, new PayerOrgsRepository(client.db));
+      const agency = new AgencyService(
+        new AgencyJobsRepository(client.db),
+        new AgencyInvitesRepository(client.db),
+        new ConsentRepository(client.db),
+        events,
+        {} as never, // MatchSkillsService — no agency job is created here
+        tenancy,
+      );
+      const kyc = new AgencyKycService(
+        new AgencyKycRepository(client.db),
+        pii,
+        events,
+        new PayersRepository(client.db, pii),
+      );
+      const payouts = new AgencyPayoutService(
+        new AgencyPayoutRepository(client.db),
+        kyc,
+        events,
+        config,
+      );
+      const workers = new AgencyWorkersService(
+        new AgencyWorkersRepository(client.db),
+        pii,
+        tenancy,
+      );
+      // The money routes' services take the scope their owner gate resolved (ONE resolution per
+      // request); `scope(actor)` is that resolution, through the same real resolver.
+      const scope = (actor: string) => tenancy.resolve(actor);
+      return { agency, kyc, payouts, workers, pii, scope };
+    }
+
+    async function signUp(label: string): Promise<string> {
+      const config = loadServerConfig({ NODE_ENV: "test" });
+      const repo = new PayersRepository(client.db, new PiiCryptoService(config));
+      const { id } = await repo.createOrGet({
+        role: "agent",
+        email: `tenancy-p2d-${label}-${P2D_TAG}@e2e.badabhai.invalid`,
+        orgName: `Tenancy P2d ${P2D_TAG}`,
+        phone: undefined,
+      });
+      await new PayerOrgsRepository(client.db).ensureSoloOrg(id);
+      await repo.activate(id);
+      payerIds.push(id);
+      return id;
+    }
+
+    async function joinTeam(anchor: string, member: string): Promise<void> {
+      await client.sql`
+        INSERT INTO payer_members (org_id, member_payer_id, email_enc, email_hash, org_role, status,
+                                   invited_by, invited_at, accepted_at)
+        SELECT o.id, m.id, m.email_enc, m.email_hash, 'recruiter', 'active', ${anchor}::uuid, now(), now()
+        FROM payer_orgs o, payers m
+        WHERE o.root_payer_id = ${anchor}::uuid AND m.id = ${member}::uuid`;
+    }
+
+    async function inviteOwner(inviteId: string): Promise<string> {
+      const [row] = await client.sql<{ inviter_payer_id: string }[]>`
+        SELECT inviter_payer_id FROM agency_invites WHERE id = ${inviteId}::uuid`;
+      return row!.inviter_payer_id;
+    }
+
+    async function eventsNamed(eventName: string, subjectId: string) {
+      return client.sql<{ actor_id: string | null; payload: Record<string, unknown> }[]>`
+        SELECT actor_id, payload FROM events
+        WHERE event_name = ${eventName} AND subject_id = ${subjectId}::uuid
+        ORDER BY occurred_at`;
+    }
+
+    const kycDto = (n: string) => ({
+      pan: `PANP2D${P2D_TAG}${n}`,
+      bank_account: "123456789012",
+      ifsc: "HDFC0001234",
+      account_holder_name: "Tenancy Test Holder",
+    });
+
+    beforeAll(async () => {
+      client = createDbClient(DATABASE_URL, { max: 3 });
+      const base = {
+        NODE_ENV: "test",
+        UNLOCK_LATENCY_TARGET_MS: "0",
+        // The payout surface is exercised end to end: the flag on, and a 10-rupee threshold so
+        // ONE accrual (25% of 40) is requestable.
+        AGENCY_PAYOUTS_ENABLED: "true",
+        AGENCY_PAYOUT_MIN_THRESHOLD_INR: "10",
+      };
+      on = servicesFor(loadServerConfig({ ...base, PAYER_ORG_TENANCY_MODE: "on" }));
+      off = servicesFor(loadServerConfig({ ...base, PAYER_ORG_TENANCY_MODE: "off" }));
+
+      ids.G = await signUp("g");
+      ids.H = await signUp("h");
+      ids.I = await signUp("i");
+      await joinTeam(ids.G, ids.H);
+
+      for (const [worker, label] of [
+        [W1, "w1"],
+        [W2, "w2"],
+        [W3, "w3"],
+      ] as const) {
+        await client.sql`
+          INSERT INTO workers (id, phone_e164, phone_hash, status)
+          VALUES (${worker}::uuid, ${`enc:p2d-${P2D_TAG}-${label}`}, ${`hash:p2d-${P2D_TAG}-${label}`}, 'active')`;
+        await client.sql`
+          INSERT INTO worker_consents (worker_id, consent_version, purposes, accepted_at)
+          VALUES (${worker}::uuid, '2026-06-01',
+                  ${JSON.stringify(["profiling", "agent_activity_visibility"])}::jsonb, now())`;
+      }
+    }, 60_000);
+
+    afterAll(async () => {
+      if (!client) return;
+      const { sql } = client;
+      const workers = [W1, W2, W3];
+      const inviteIds = (
+        await sql<{ id: string }[]>`
+          SELECT id FROM agency_invites WHERE inviter_payer_id = ANY(${payerIds}::uuid[])`
+      ).map((r) => r.id);
+      const requestIds = (
+        await sql<{ id: string }[]>`
+          SELECT id FROM agency_payout_requests WHERE agency_payer_id = ANY(${payerIds}::uuid[])`
+      ).map((r) => r.id);
+      await sql`
+        DELETE FROM events
+        WHERE correlation_id = ${P2D_CTX.correlationId}::uuid
+           OR subject_id = ANY(${[...payerIds, ...inviteIds, ...requestIds, UNLOCK_W1, UNLOCK_W3]}::uuid[])`;
+      await sql`DELETE FROM agency_payout_accruals WHERE agency_payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM agency_payout_requests WHERE agency_payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM agency_kyc WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM agency_invites WHERE inviter_payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM unlocks WHERE worker_id = ANY(${workers}::uuid[])`;
+      await sql`DELETE FROM workers WHERE id = ANY(${workers}::uuid[])`;
+      await sql`DELETE FROM payer_orgs WHERE root_payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payers WHERE id = ANY(${payerIds}::uuid[])`;
+      await sql.end({ timeout: 5 });
+    });
+
+    describe("mode on", () => {
+      it("invites: a teammate's mint is the ORG's row — inviter_payer_id = the anchor; the event names the anchor as owner, the login as actor", async () => {
+        const mint = await on.agency.createInvite(ids.H, { campaign: "p2d" }, P2D_CTX);
+        codeForW1 = mint.code;
+        expect(await inviteOwner(mint.agency_invite_id)).toBe(ids.G);
+        const [evt] = await eventsNamed("agency_invite.created", mint.agency_invite_id);
+        expect(evt).toMatchObject({ actor_id: ids.H, payload: { inviter_payer_id: ids.G } });
+
+        const { invites } = await on.agency.createInviteBatch(ids.H, 5, {}, P2D_CTX);
+        expect(invites).toHaveLength(5);
+        for (const i of invites) expect(await inviteOwner(i.agency_invite_id)).toBe(ids.G);
+      });
+
+      it("referrals funnel: the teammate's funnel IS the anchor's (6 created, above the k-anon floor); the outsider's is empty", async () => {
+        const asG = await on.agency.referralsSummary(ids.G);
+        expect(asG).toMatchObject({ created: 6, clicked: 0, accepted: 0 });
+        expect(await on.agency.referralsSummary(ids.H)).toEqual(asG);
+        expect(await on.agency.referralsSummary(ids.I)).toMatchObject({
+          created: 0,
+          clicked: 0,
+          accepted: 0,
+        });
+      });
+
+      it("referred workers: the man H's invite brought in is in the ORG's list, under the ORG's handle; the outsider sees nobody", async () => {
+        expect(await on.agency.attributeWorkerToInvite(codeForW1, W1)).toEqual({ ok: true });
+        const asG = await on.workers.listReferred(ids.G);
+        expect(asG.workers).toHaveLength(1);
+        expect(asG.workers[0]!.ref).toBe(on.pii.hmac(`agency_worker:${ids.G}:${W1}`).slice(0, 16));
+        expect(await on.workers.listReferred(ids.H)).toEqual(asG);
+        expect((await on.workers.listReferred(ids.I)).workers).toEqual([]);
+      });
+
+      it("KYC: ONE org row keyed by the anchor; the outsider reads not_submitted", async () => {
+        const view = await on.kyc.submit(await on.scope(ids.G), kycDto("g"));
+        expect(view).toMatchObject({ status: "pending" });
+        const rows = await client.sql<{ payer_id: string }[]>`
+          SELECT payer_id FROM agency_kyc WHERE payer_id = ANY(${[ids.G, ids.H]}::uuid[])`;
+        expect(rows.map((r) => r.payer_id)).toEqual([ids.G]);
+        const [evt] = await eventsNamed("agency_kyc.submitted", ids.G);
+        expect(evt).toMatchObject({ actor_id: ids.G, payload: { payer_id: ids.G } });
+        expect(await on.kyc.getOwnView(await on.scope(ids.G))).toMatchObject({ status: "pending" });
+        expect(await on.kyc.getOwnView(await on.scope(ids.I))).toMatchObject({
+          status: "not_submitted",
+        });
+      });
+
+      it("earnings + payout: the unlock on the teammate-referred man earns for the ORG; the request claims it under the anchor and never the outsider's", async () => {
+        expect(await on.kyc.verify(ids.G)).toEqual({ ok: true });
+        // The outsider has a referral of its own: W3, through its own invite.
+        const mintOfI = await on.agency.createInvite(ids.I, {}, P2D_CTX);
+        expect(await on.agency.attributeWorkerToInvite(mintOfI.code, W3)).toEqual({ ok: true });
+        // Paying parties unlock W1 (the org's referral) and W3 (the outsider's), after each was
+        // attributed (granted inside the 90-day window).
+        await client.sql`
+          INSERT INTO unlocks (id, payer_id, worker_id, status, granted_at)
+          VALUES (${UNLOCK_W1}::uuid, ${randomUUID()}::uuid, ${W1}::uuid, 'granted', now()),
+                 (${UNLOCK_W3}::uuid, ${randomUUID()}::uuid, ${W3}::uuid, 'granted', now())`;
+
+        // The outsider asks FIRST, while neither accrual exists: an accrual join that lost its
+        // tenant predicate would hand the org's unlock to the outsider here (20, not 10).
+        expect(await on.payouts.getEarnings(await on.scope(ids.I))).toMatchObject({
+          totalAccruedInr: 10,
+          accrualCount: 1,
+        });
+        const earnings = await on.payouts.getEarnings(await on.scope(ids.G));
+        expect(earnings).toMatchObject({
+          totalAccruedInr: 10,
+          requestableInr: 10,
+          accrualCount: 1,
+          kycStatus: "verified",
+          canRequest: true,
+        });
+        const [accrual] = await client.sql<{ agency_payer_id: string }[]>`
+          SELECT agency_payer_id FROM agency_payout_accruals WHERE source_unlock_id = ${UNLOCK_W1}::uuid`;
+        expect(accrual!.agency_payer_id).toBe(ids.G);
+        const [accrualOfI] = await client.sql<{ agency_payer_id: string }[]>`
+          SELECT agency_payer_id FROM agency_payout_accruals WHERE source_unlock_id = ${UNLOCK_W3}::uuid`;
+        expect(accrualOfI!.agency_payer_id).toBe(ids.I);
+
+        const out = await on.payouts.requestPayout(await on.scope(ids.G));
+        expect(out).toMatchObject({ ok: true, amountInr: 10, accrualCount: 1 });
+        const requestId = (out as { requestId: string }).requestId;
+        const [req] = await client.sql<{ agency_payer_id: string }[]>`
+          SELECT agency_payer_id FROM agency_payout_requests WHERE id = ${requestId}::uuid`;
+        expect(req!.agency_payer_id).toBe(ids.G);
+        const [evt] = await eventsNamed("agency_payout.requested", requestId);
+        expect(evt).toMatchObject({ actor_id: ids.G, payload: { agency_payer_id: ids.G } });
+
+        expect((await on.payouts.listRequests(await on.scope(ids.G))).map((r) => r.id)).toEqual([
+          requestId,
+        ]);
+        expect(await on.payouts.listRequests(await on.scope(ids.I))).toEqual([]);
+        // The org's claim took only its own accrual: the outsider's is still unclaimed.
+        expect(await on.payouts.getEarnings(await on.scope(ids.I))).toMatchObject({
+          totalAccruedInr: 10,
+          requestableInr: 10,
+          inRequestInr: 0,
+          kycStatus: "not_submitted",
+        });
+      });
+    });
+
+    describe("mode off — today's behaviour exactly: the teammate is their own tenant", () => {
+      it("invites: the teammate's mint is stamped with, and evented as, the login; it joins no org funnel", async () => {
+        const mint = await off.agency.createInvite(ids.H, {}, P2D_CTX);
+        expect(await inviteOwner(mint.agency_invite_id)).toBe(ids.H);
+        const [evt] = await eventsNamed("agency_invite.created", mint.agency_invite_id);
+        expect(evt).toMatchObject({ actor_id: ids.H, payload: { inviter_payer_id: ids.H } });
+        // The anchor's funnel is the 6 org invites (5 still `created`, W1's now `accepted` and
+        // floored to 0), unchanged by H's own; H's own (1) floors to 0.
+        expect(await off.agency.referralsSummary(ids.G)).toMatchObject({ created: 5, accepted: 0 });
+        expect(await off.agency.referralsSummary(ids.H)).toMatchObject({ created: 0 });
+        expect(await off.agency.attributeWorkerToInvite(mint.code, W2)).toEqual({ ok: true });
+      });
+
+      it("referred workers: the teammate sees only the man THEIR invite brought in; the anchor's list and handles are what `on` serves", async () => {
+        const asH = await off.workers.listReferred(ids.H);
+        expect(asH.workers.map((w) => w.ref)).toEqual([
+          off.pii.hmac(`agency_worker:${ids.H}:${W2}`).slice(0, 16),
+        ]);
+        expect(await off.workers.listReferred(ids.G)).toEqual(await on.workers.listReferred(ids.G));
+      });
+
+      it("KYC, earnings and payouts: the anchor reads exactly what `on` serves; the teammate reads only their own (nothing)", async () => {
+        expect(await off.kyc.getOwnView(await off.scope(ids.G))).toEqual(
+          await on.kyc.getOwnView(await on.scope(ids.G)),
+        );
+        expect(await off.payouts.listRequests(await off.scope(ids.G))).toEqual(
+          await on.payouts.listRequests(await on.scope(ids.G)),
+        );
+        expect(await off.payouts.getEarnings(await off.scope(ids.G))).toEqual(
+          await on.payouts.getEarnings(await on.scope(ids.G)),
+        );
+        expect(await off.kyc.getOwnView(await off.scope(ids.H))).toMatchObject({
+          status: "not_submitted",
+        });
+        expect(await off.payouts.listRequests(await off.scope(ids.H))).toEqual([]);
+        expect(await off.payouts.getEarnings(await off.scope(ids.H))).toMatchObject({
+          totalAccruedInr: 0,
+          kycStatus: "not_submitted",
+        });
       });
     });
   },

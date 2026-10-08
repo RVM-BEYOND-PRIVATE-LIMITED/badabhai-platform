@@ -22,12 +22,13 @@ export const TENANCY_DENIED_MESSAGE = "Not permitted for this organization";
  * `GET /payer/me` and — from Phase 2 — every tenant-row predicate share one answer.
  *
  * Two entry points, one decision ({@link chooseActingOrg}):
- *  - {@link resolve} — the tenant-route entry point (Phase 2 wires it into the services). Returns
+ *  - {@link resolve} — the tenant-route entry point (Phase 2 wires it into the services, and
+ *    `PayerOrgRoleGuard` calls it once and hands the scope on — §5.2 rule 1 as amended). Returns
  *    the {@link PayerTenantScope} whose branded `tenantKey` the repositories will accept.
  *    `off`/`shadow` never fail a request: the key is the actor, whatever the membership read
  *    does. `on` fails closed: any denial or resolve error is a neutral 403 (R7).
  *  - {@link resolveActingOrg} — the org only, for the callers that existed before this ADR
- *    (`PayerOrgRoleGuard`, the session claim, `GET /payer/me`, login). A denial is `null`
+ *    (the session claim, `GET /payer/me`, login). A denial is `null`
  *    (no org); a read error propagates, as it did when those callers read the repository
  *    themselves, so each keeps its own error handling unchanged.
  *

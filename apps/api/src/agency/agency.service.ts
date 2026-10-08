@@ -170,14 +170,18 @@ export interface OpsAgencyJobMatchSkillsResult {
  * on `jobs.payer_id` / `agency_invites.inviter_payer_id`), and the events.
  *
  * INVARIANTS enforced here:
- *  - `payerId` is ALWAYS the SESSION payer (passed in by the controller from the verified
- *    session — XB-A); it is never read from a body/param.
+ *  - `actorPayerId` is ALWAYS the SESSION payer (passed in by the controller from the verified
+ *    session — XB-A); it is never read from a body/param. Only the resolver turns it into the
+ *    tenant key the repositories accept.
  *  - JOBS ARE TENANT-OWNED (ADR-0053, PAY-DB-01 P2a): every job entry point resolves the
  *    session payer's tenancy ONCE. The TENANT KEY owns and scopes the `jobs` rows (and is the
  *    `payer_id` the `job.*` payloads carry — the row's owner, as `opsSetMatchSkills` already
  *    reports it); the ACTING LOGIN is the event actor. Org tenancy off: both are the session
- *    payer, today's behaviour exactly. Invites, referrals and the funnel are not converted
- *    yet (P2d) and stay keyed by the session payer.
+ *    payer, today's behaviour exactly.
+ *  - INVITES ARE TENANT-OWNED TOO (PAY-DB-01 P2d): the mint (singular and batch) and the
+ *    referrals funnel resolve ONCE per request; the TENANT KEY is `inviter_payer_id` (and the
+ *    `agency_invite.created` payload's), the acting login is its actor. The per-hour mint cap
+ *    stays per LOGIN (the controller's, ADR-0053 §5.2 rule 5).
  *  - No-oracle: an unknown job and another payer's job both surface the IDENTICAL neutral
  *    404 (`readOwnedById` returns undefined for both → 404 here).
  *  - Every write emits exactly one registry-validated event with the PAYER as actor.
@@ -592,13 +596,17 @@ export class AgencyService {
 
   // ───────────────────────────── Mock invite hook ─────────────────────────────
 
-  /** Mint an OWNED opaque invite code. Returns the code only. Emits agency_invite.created. */
+  /**
+   * Mint an opaque invite code OWNED BY THE ORG (the tenant key). Returns the code only. Emits
+   * agency_invite.created (actor = the acting login).
+   */
   async createInvite(
-    payerId: string,
+    actorPayerId: string,
     meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<AgencyInviteMint> {
-    return this.mintOneInvite(payerId, meta, ctx);
+    const scope = await this.tenancy.resolve(actorPayerId);
+    return this.mintOneInvite(scope, meta, ctx);
   }
 
   /**
@@ -636,26 +644,30 @@ export class AgencyService {
    *        a repository-level change, tracked, not silently assumed away here.
    *  - The hourly cap for all N units is already RESERVED by the controller before we get
    *    here (one atomic INCRBY, fail-closed) — a batch that would cross the cap mints zero.
+   *  - The tenancy is resolved ONCE, BEFORE the loop (ADR-0053 §5.2 rule 1): all N rows carry
+   *    the same tenant key, and a refused resolution mints nothing (it is not a mid-batch
+   *    failure, so it surfaces as the resolver's neutral 403, not the batch's 503).
    */
   async createInviteBatch(
-    payerId: string,
+    actorPayerId: string,
     count: number,
     meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<{ invites: AgencyInviteMint[] }> {
+    const scope = await this.tenancy.resolve(actorPayerId);
     const invites: AgencyInviteMint[] = [];
     for (let i = 0; i < count; i += 1) {
       try {
         // ONE `meta` for all N — never indexed, never per-invite. See
         // CreateAgencyInviteBatchSchema: per-invite metadata is the `labels[]` violation.
-        invites.push(await this.mintOneInvite(payerId, meta, ctx));
+        invites.push(await this.mintOneInvite(scope, meta, ctx));
       } catch (err) {
         // Partial success is the CORRECT outcome: the invites already minted are durable
         // and their events are already on the spine, so we stop and return the subset.
         // Log the SHAPE of the failure only — never a code (a live bearer token), never a
         // full payer id, never the DB error surface, which is echoed to nobody.
         this.logger.error(
-          `agency invite batch stopped early payer=${payerId.slice(0, 8)}… minted=${invites.length}/${count} (reason: ${
+          `agency invite batch stopped early payer=${scope.actorPayerId.slice(0, 8)}… minted=${invites.length}/${count} (reason: ${
             err instanceof Error ? err.name : "unknown"
           })`,
         );
@@ -684,12 +696,12 @@ export class AgencyService {
    * only after the event is persisted, so a returned code is always a code on the spine.
    */
   private async mintOneInvite(
-    payerId: string,
+    scope: PayerTenantScope,
     meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<AgencyInviteMint> {
-    const { id, code } = await this.insertInviteWithFreshCode(payerId, meta);
-    await this.emitInviteCreated(id, payerId, meta, ctx);
+    const { id, code } = await this.insertInviteWithFreshCode(scope, meta);
+    await this.emitInviteCreated(id, scope, meta, ctx);
     return { agency_invite_id: id, code, link: `/i/${code}` };
   }
 
@@ -716,7 +728,7 @@ export class AgencyService {
    * the agency is the one we actually attempted to store.
    */
   private async insertInviteWithFreshCode(
-    payerId: string,
+    scope: PayerTenantScope,
     meta: AgencyInviteMeta,
   ): Promise<{ id: string; code: string }> {
     let lastErr: unknown;
@@ -725,7 +737,7 @@ export class AgencyService {
       try {
         const invite = await this.invitesRepo.create({
           code,
-          inviterPayerId: payerId,
+          inviterPayerId: scope.tenantKey,
           campaign: meta.campaign,
           medium: meta.medium,
           payload: meta.context,
@@ -739,7 +751,7 @@ export class AgencyService {
     }
     // Bounded retries exhausted: neutral surface, never the constraint name or the code.
     this.logger.error(
-      `agency invite code collision retries exhausted payer=${payerId.slice(0, 8)}… (reason: ${
+      `agency invite code collision retries exhausted payer=${scope.actorPayerId.slice(0, 8)}… (reason: ${
         lastErr instanceof Error ? lastErr.name : "unknown"
       })`,
     );
@@ -772,7 +784,7 @@ export class AgencyService {
    */
   private async emitInviteCreated(
     inviteId: string,
-    payerId: string,
+    scope: PayerTenantScope,
     meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<void> {
@@ -783,9 +795,10 @@ export class AgencyService {
     // indistinguishable from "the agency sent {}").
     const contextKeys = Object.keys(meta.context ?? {}).sort();
 
+    // ADR-0053 §7: `inviter_payer_id` is the TENANT (the row's owner); the actor is the login.
     const payload: PayloadInputOf<"agency_invite.created"> = {
       agency_invite_id: inviteId,
-      inviter_payer_id: payerId,
+      inviter_payer_id: scope.tenantKey,
       channel: "whatsapp",
       campaign: meta.campaign,
       medium: meta.medium,
@@ -797,7 +810,7 @@ export class AgencyService {
       try {
         await this.events.emit({
           event_name: "agency_invite.created",
-          actor: { actor_type: "payer", actor_id: payerId },
+          actor: { actor_type: "payer", actor_id: scope.actorPayerId },
           subject: { subject_type: "agency_invite", subject_id: inviteId },
           payload,
           correlationId: ctx.correlationId,
@@ -812,7 +825,7 @@ export class AgencyService {
 
     this.logger.error(
       `AUDIT ORPHAN agency_invite row written but agency_invite.created not persisted ` +
-        `invite=${inviteId} payer=${payerId.slice(0, 8)}… attempts=${EVENT_EMIT_RETRIES} ` +
+        `invite=${inviteId} payer=${scope.actorPayerId.slice(0, 8)}… attempts=${EVENT_EMIT_RETRIES} ` +
         `(reason: ${lastErr instanceof Error ? lastErr.name : "unknown"}) — ` +
         `reconcile by re-emitting agency_invite.created for this invite id`,
     );
@@ -936,14 +949,16 @@ export class AgencyService {
   // ───────────────────────── Read-only referrals summary ─────────────────────────
 
   /**
-   * The agency's OWN funnel counts by stage, scoped by `inviter_payer_id == session`.
+   * The agency's OWN funnel counts by stage, scoped by `inviter_payer_id == the session
+   * payer's tenant key` (ADR-0053: every member of an agency org reads the org's funnel).
    * AGGREGATE-ONLY (no per-invite/per-worker rows ever leave the repo) with a k-anon floor:
    * any stage count strictly below {@link MIN_BUCKET} is suppressed to 0 so the agency can
    * never tell whether ONE specific named invitee consented (no consent oracle, ADR-0022
    * C.1 #2). `minBucket` is echoed so the client knows a 0 may mean "below floor".
    */
-  async referralsSummary(payerId: string): Promise<AgencyReferralsSummary> {
-    const raw: AgencyInviteStageCounts = await this.invitesRepo.stageCountsForOwner(payerId);
+  async referralsSummary(actorPayerId: string): Promise<AgencyReferralsSummary> {
+    const { tenantKey } = await this.tenancy.resolve(actorPayerId);
+    const raw: AgencyInviteStageCounts = await this.invitesRepo.stageCountsForOwner(tenantKey);
     const floor = (n: number): number => (n < AgencyService.MIN_BUCKET ? 0 : n);
     return {
       created: floor(raw.created),

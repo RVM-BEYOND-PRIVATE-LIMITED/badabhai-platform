@@ -7,6 +7,7 @@ import {
   type AgencyKycStatus,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /** The ciphertext fields written on submit (already encrypted by the service). */
 export interface AgencyKycCiphertext {
@@ -22,6 +23,11 @@ export interface AgencyKycCiphertext {
  * are AES ciphertext + a keyed HMAC (`panHash`); this repo only ever moves those tokens, never
  * plaintext (the service owns encrypt/decrypt). One row per agency (`payer_id` UNIQUE); a
  * re-submit RESETS the row to `pending` (a new submission must be re-verified).
+ *
+ * ADR-0053 (PAY-DB-01 P2d, O-5): KYC describes the legal entity, so `payer_id` is the agency
+ * ORG's tenant key. The agency-facing write and read take the branded {@link TenantKey} (only
+ * the resolver mints one). The ops verify / reject stay LITERAL: ops act on the row the queue
+ * named, whose `payer_id` already is the tenant key.
  */
 @Injectable()
 export class AgencyKycRepository {
@@ -31,11 +37,11 @@ export class AgencyKycRepository {
    * Upsert the agency's KYC (create or replace-and-reset-to-pending). A resubmission wipes any
    * prior verified/rejected state — new details require fresh ops verification. Returns the row.
    */
-  async upsertPending(payerId: string, c: AgencyKycCiphertext): Promise<AgencyKyc> {
+  async upsertPending(tenant: TenantKey, c: AgencyKycCiphertext): Promise<AgencyKyc> {
     const [row] = await this.db
       .insert(agencyKyc)
       .values({
-        payerId,
+        payerId: tenant,
         panEnc: c.panEnc,
         panHash: c.panHash,
         bankAccountEnc: c.bankAccountEnc,
@@ -64,11 +70,11 @@ export class AgencyKycRepository {
   }
 
   /** Fetch the agency's own KYC row (ciphertext; decrypt only via the service). */
-  async findByPayer(payerId: string): Promise<AgencyKyc | undefined> {
+  async findByPayer(tenant: TenantKey): Promise<AgencyKyc | undefined> {
     const [row] = await this.db
       .select()
       .from(agencyKyc)
-      .where(eq(agencyKyc.payerId, payerId))
+      .where(eq(agencyKyc.payerId, tenant))
       .limit(1);
     return row;
   }

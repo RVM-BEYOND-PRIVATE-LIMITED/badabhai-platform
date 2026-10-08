@@ -26,9 +26,9 @@ import ts from "typescript";
  * initialised with an arrow function or function expression — is listed when (a) one of its
  * parameters, or a property of a parameter typed inline, as an array element, or by an interface
  * or type literal declared ANYWHERE under apps/api/src, is named `payerId` / `*PayerId` /
- * `agencyId` and typed `string`, and (b) its OWN body names a tenant table: a Drizzle table
- * imported from `@badabhai/db`, Drizzle's relational `….query.<table>`, or the table in a `sql`
- * template's FROM / JOIN / INTO / UPDATE. Parsed with the TypeScript compiler (syntax only).
+ * `agencyId` / `tenant` / `tenantKey` and typed `string`, and (b) its OWN body names a tenant
+ * table: a Drizzle table imported from `@badabhai/db`, Drizzle's relational `….query.<table>`,
+ * or the table in a `sql` template's FROM / JOIN / INTO / UPDATE. Parsed with the TypeScript compiler (syntax only).
  * The fixture suite below proves each of those paths fires.
  *
  * WHAT T5 CANNOT SEE — P3 MUST HAND-CHECK EVERY ONE (ORG_TENANCY_PLAN §5). A green T5 with an
@@ -81,7 +81,8 @@ const SQL_TABLE = new RegExp(
 /**
  * `payerId`, `inviterPayerId`, `agencyPayerId`, … the payout module's `agencyId`, and the
  * tenancy vocabulary itself — `tenant` / `tenantKey` — so a converted parameter that loses its
- * brand but keeps its name (`tenant: string`) is caught (review of PR #2174, security L1).
+ * brand but keeps its name (`tenant: string`) is caught (review of PR #2174, security L1; the
+ * same finding, F3, on PR #2175).
  */
 const PAYER_ID_NAME = /^(?:[a-z][A-Za-z]*PayerId|payerId|agencyId|tenant|tenantKey)$/;
 
@@ -144,17 +145,8 @@ const UNCONVERTED: readonly string[] = [
   "unlocks/unlocks.repository.ts UnlocksRepository.upsertGrant",
   // P2c — plans, boosts, quota top-up, capacity, coupons: CONVERTED (PR "payer org tenancy
   // phase 2c"), including the blind spots 1–4 below, which it converted by hand.
-  // P2d — agency invites, workers, KYC, payouts (agency JOBS moved to P2a and are converted)
-  "agency/agency-invites.repository.ts AgencyInvitesRepository.create",
-  "agency/agency-invites.repository.ts AgencyInvitesRepository.stageCountsForOwner",
-  "agency/agency-kyc.repository.ts AgencyKycRepository.findByPayer",
-  "agency/agency-kyc.repository.ts AgencyKycRepository.upsertPending",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.aggregate",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.createRequestClaiming",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.findQualifyingUnlocks",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.insertAccruals",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.listRequests",
-  "agency/agency-workers.repository.ts AgencyWorkersRepository.listReferredWithConsent",
+  // P2d — agency invites, workers, KYC, payouts: CONVERTED (PR "payer org tenancy phase 2d").
+  // The ops KYC verify / reject stay literal (NAMED_EXCEPTIONS above).
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -311,12 +303,31 @@ function asCallable(
   return null;
 }
 
+/**
+ * Compute once per test file, then reuse. The source tree is ~1,400 files: re-reading and
+ * re-parsing it for every check took this file to 39 s under --coverage on CI, against a 30 s
+ * per-test limit (merge-train review of PR #2175). Every check reads the SAME tree.
+ */
+function once<T>(fn: () => T): () => T {
+  let cached: { value: T } | undefined;
+  return () => (cached ??= { value: fn() }).value;
+}
+
+/** Every non-test source file under apps/api/src with its text — read ONCE per test file. */
+const prodFiles = once(
+  (): ReadonlyMap<string, string> =>
+    new Map(tsFiles(SRC).map((file) => [file, readFileSync(file, "utf8")])),
+);
+
 /** Every non-test source file under apps/api/src, parsed (syntax only). */
 function parsedSources(): ts.SourceFile[] {
-  return tsFiles(SRC).map((file) =>
-    ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true),
+  return [...prodFiles()].map(([file, text]) =>
+    ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true),
   );
 }
+
+/** {@link parsedSources}, parsed ONCE per test file: T5, S-F1 and N1 all read this one parse. */
+const prodSources = once(parsedSources);
 
 /** An in-memory source, for the fixtures that prove each detection path can fire. */
 function fixture(path: string, text: string): ts.SourceFile {
@@ -324,7 +335,7 @@ function fixture(path: string, text: string): ts.SourceFile {
 }
 
 /** `<path> <Class>.<member>` / `<path> <function>` for every raw-id tenant-table callable. */
-function scanRawTenantKeyCallables(sources: readonly ts.SourceFile[] = parsedSources()): string[] {
+function scanRawTenantKeyCallables(sources: readonly ts.SourceFile[] = prodSources()): string[] {
   const out: string[] = [];
   const rawTypes = rawIdTypes(sources);
   for (const sf of sources) {
@@ -354,12 +365,18 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
 
   it("the scanner finds the known raw-id readers (a guard against a vacuous scan)", () => {
     // One per detection path: a Drizzle table, a raw `sql` template, an inline input type. Each
-    // must name a callable that is STILL raw: a Phase 2 PR that converts one swaps in another.
-    expect(found).toContain("unlocks/unlocks.repository.ts UnlocksRepository.getBalance");
+    // must name a callable that is STILL raw, so all three are NAMED_EXCEPTIONS: they stay raw
+    // through the flip and never need swapping (P2d review F2; these used to be P2b/P2d methods).
+    // A Drizzle table (`payerCredits`), named directly in the body.
     expect(found).toContain(
-      "agency/agency-workers.repository.ts AgencyWorkersRepository.listReferredWithConsent",
+      "admin/admin-entities.repository.ts AdminEntitiesRepository.getCreditBalance",
     );
-    expect(found).toContain("agency/agency-invites.repository.ts AgencyInvitesRepository.create");
+    // Its only table reference is a `dsql` template (the file imports no Drizzle table).
+    expect(found).toContain("match/free-tier.service.ts FreeTierService.grantForPayer");
+    // Its raw id is `filter.payerId` in an INLINE type literal (the parameter is `filter`).
+    expect(found).toContain(
+      "admin/admin-entities.repository.ts AdminEntitiesRepository.listJobPostings",
+    );
   });
 
   it("the two lists are disjoint and free of duplicates (a reviewable allowlist)", () => {
@@ -382,7 +399,12 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
 
 /** The written type of each parameter of `Class.method` in `file` (syntax only). */
 function paramTypesOf(file: string, className: string, method: string): string[] {
-  const sf = ts.createSourceFile(file, readFileSync(join(SRC, file), "utf8"), ts.ScriptTarget.Latest, true);
+  const sf = ts.createSourceFile(
+    file,
+    readFileSync(join(SRC, file), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
   let found: string[] | null = null;
   sf.forEachChild((node) => {
     if (!ts.isClassDeclaration(node) || node.name?.text !== className) return;
@@ -398,7 +420,12 @@ function paramTypesOf(file: string, className: string, method: string): string[]
 
 /** The written type of `property` on the top-level type alias `alias` in `file`. */
 function aliasPropertyType(file: string, alias: string, property: string): string | null {
-  const sf = ts.createSourceFile(file, readFileSync(join(SRC, file), "utf8"), ts.ScriptTarget.Latest, true);
+  const sf = ts.createSourceFile(
+    file,
+    readFileSync(join(SRC, file), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
   let found: string | null = null;
   const visit = (node: ts.Node): void => {
     if (ts.isPropertySignature(node) && ts.isIdentifier(node.name) && node.name.text === property) {
@@ -450,14 +477,17 @@ describe("T5 blind spots 1–5 — the hand-converted callables keep taking the 
 
 /** Non-test source under apps/api/src, comments stripped (prose may name what code must not do). */
 function codeOf(file: string): string {
-  return readFileSync(file, "utf8")
+  return (prodFiles().get(file) ?? readFileSync(file, "utf8"))
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
 }
 
+/** The paths of {@link prodFiles} (no second directory walk). */
+const prodPaths = (): string[] => [...prodFiles().keys()];
+
 describe("T8 — PAYER_ORG_TENANCY_MODE has ONE reader (ADR-0053 §5.3)", () => {
   it("only the resolver service reads the mode", () => {
-    const readers = tsFiles(SRC)
+    const readers = prodPaths()
       .filter((f) => codeOf(f).includes("PAYER_ORG_TENANCY_MODE"))
       .map(rel);
     expect(readers).toEqual(["payers/payer-tenant-scope.service.ts"]);
@@ -466,7 +496,7 @@ describe("T8 — PAYER_ORG_TENANCY_MODE has ONE reader (ADR-0053 §5.3)", () => 
 
 describe("one org choice — every caller goes through the resolver (ADR-0053 §3.2)", () => {
   it("only the resolver and the invite-accept invariants read a payer's memberships", () => {
-    const readers = tsFiles(SRC)
+    const readers = prodPaths()
       .filter((f) => /\.listActiveMembershipsWithAnchor\(/.test(codeOf(f)))
       .map(rel)
       .sort();
@@ -477,7 +507,7 @@ describe("one org choice — every caller goes through the resolver (ADR-0053 §
   });
 
   it("nothing picks an org on its own: the retired single-row read is gone", () => {
-    const offenders = tsFiles(SRC)
+    const offenders = prodPaths()
       .filter((f) => /\bresolveOrgForPayer\b/.test(codeOf(f)))
       .map(rel);
     expect(offenders).toEqual([]);
@@ -490,8 +520,11 @@ describe("one org choice — every caller goes through the resolver (ADR-0053 §
       "payers/payer-account.service.ts",
       "payer-portal/payer-auth.service.ts",
     ]) {
-      // Login asks the HEALING entry point (one place repairs a missing org, review L1).
-      expect(codeOf(join(SRC, file)), file).toMatch(/\.(resolveActingOrg|ensureActingOrg)\(/);
+      // Login asks the HEALING entry point (one place repairs a missing org, review L1). The org-
+      // role guard asks the TENANT entry point, once, and hands that scope on (PR #2175 F1).
+      expect(codeOf(join(SRC, file)), file).toMatch(
+        /\.(resolve|resolveActingOrg|ensureActingOrg)\(/,
+      );
     }
   });
 
@@ -554,8 +587,8 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
   });
 
   it("a property of a parameter typed INLINE — a type literal, alone or as an array element", () => {
-    // The only live example of this path is a P2d method; this fixture keeps the path pinned
-    // after P2d converts it (review of PR #2167, finding 5).
+    // Pinned by a fixture as well as by the live example above (review of PR #2167, finding 5):
+    // P2d converted the agency methods that were this path's only live examples then.
     const found = scanRawTenantKeyCallables([
       fixture(
         "fx/inline.repository.ts",
@@ -731,13 +764,37 @@ function chooseActingOrgImporters(sources: readonly ts.SourceFile[]): string[] {
   return out.sort();
 }
 
-/** Every .ts under apps/api/src, tests included (an import from a test is still an import). */
-function allSources(dir: string = SRC): ts.SourceFile[] {
+/**
+ * A module specifier written with an escape sequence (`"./x.test-support"`): its cooked
+ * text names a module its raw text does not. The text pre-filters below let such a file through.
+ */
+const ESCAPED_SPECIFIER = /(?:from|import|require)\s*\(?\s*["'][^"'\n]*\\[ux]/;
+
+/** True when an import-only screen for `needle` must parse this file (a lossless pre-filter). */
+const mayImport = (text: string, needle: string): boolean =>
+  text.includes(needle) || ESCAPED_SPECIFIER.test(text);
+
+/** Every .ts path under apps/api/src, tests included (an import from a test is still an import). */
+function allTsPaths(dir: string = SRC): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) return allSources(full);
-    if (!name.endsWith(".ts") || name.endsWith(".d.ts")) return [];
-    return [ts.createSourceFile(full, readFileSync(full, "utf8"), ts.ScriptTarget.Latest, true)];
+    if (statSync(full).isDirectory()) return allTsPaths(full);
+    return name.endsWith(".ts") && !name.endsWith(".d.ts") ? [full] : [];
+  });
+}
+
+/**
+ * Every .ts under apps/api/src, tests included, that can import from `needle`, parsed. A module
+ * specifier naming `payer-tenant-scope` must contain it verbatim (or carry an escape, which
+ * {@link mayImport} lets through), so pre-filtering on the RAW text loses nothing and spares
+ * parsing ~1,300 files to read their imports.
+ */
+function sourcesThatMayImport(needle: string): ts.SourceFile[] {
+  return allTsPaths().flatMap((file) => {
+    const text = readFileSync(file, "utf8");
+    return mayImport(text, needle)
+      ? [ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)]
+      : [];
   });
 }
 
@@ -755,7 +812,9 @@ function testSupportImporters(sources: readonly ts.SourceFile[]): string[] {
   const out = new Set<string>();
   const isSupport = (spec: string): boolean => /\.test-support(\.ts)?$/.test(spec);
   for (const sf of sources) {
-    if (isTestSupport(sf)) continue;
+    // Lossless pre-filter: a specifier naming a `.test-support` module contains that text
+    // verbatim, unless escaped (`mayImport` lets an escaped specifier through).
+    if (isTestSupport(sf) || !mayImport(sf.text, "test-support")) continue;
     const visit = (node: ts.Node): void => {
       if (
         (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
@@ -784,19 +843,19 @@ function testSupportImporters(sources: readonly ts.SourceFile[]): string[] {
 
 describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-0053 §5.2 rule 2)", () => {
   it("no type assertion to TenantKey / PayerTenantScope / ActingOrgChoice outside payer-tenant-scope.ts", () => {
-    const offenders = forgedTenancyCasts(parsedSources()).filter(
+    const offenders = forgedTenancyCasts(prodSources()).filter(
       (o) => !o.startsWith(`${SCOPE_FILE}:`),
     );
     expect(offenders, "mint a TenantKey only through the resolver").toEqual([]);
   });
 
   it("no cast to PayerTenantScopeService outside tests and *.test-support.ts (L1)", () => {
-    const production = parsedSources().filter((sf) => !isTestSupport(sf));
+    const production = prodSources().filter((sf) => !isTestSupport(sf));
     expect(forgedTenancyCasts(production, RESOLVER), "inject the real resolver").toEqual([]);
   });
 
   it("no production file imports a *.test-support module (L1)", () => {
-    expect(testSupportImporters(parsedSources())).toEqual([]);
+    expect(testSupportImporters(prodSources())).toEqual([]);
   });
 
   it("the resolver-cast screen is not vacuous: a cast, an alias cast and a call type argument count", () => {
@@ -838,7 +897,7 @@ describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-
   });
 
   it("chooseActingOrg is imported only by the resolver service and its own test", () => {
-    expect(chooseActingOrgImporters(allSources())).toEqual([
+    expect(chooseActingOrgImporters(sourcesThatMayImport("payer-tenant-scope"))).toEqual([
       "payers/payer-tenant-scope.service.ts",
       "payers/payer-tenant-scope.test.ts",
     ]);
@@ -881,6 +940,19 @@ describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-
     ]);
   });
 
+  it("the import screens' raw-text pre-filter is lossless: an ESCAPED specifier is still parsed and caught", () => {
+    // `-` is `-`: the cooked specifier names the module, the raw text does not.
+    const escapedScope = `import { chooseActingOrg } from "./payer\\u002dtenant-scope";`;
+    const escapedSupport = `import { resolverOver } from "../payers/payer-tenant-scope.test\\u002dsupport";`;
+    expect(mayImport(escapedScope, "payer-tenant-scope")).toBe(true);
+    expect(mayImport(escapedSupport, "test-support")).toBe(true);
+    expect(mayImport(`import { a } from "./other";`, "payer-tenant-scope")).toBe(false);
+    expect(chooseActingOrgImporters([fixture("fx/esc-a.ts", escapedScope)])).toEqual([
+      "fx/esc-a.ts",
+    ]);
+    expect(testSupportImporters([fixture("fx/esc-b.ts", escapedSupport)])).toEqual(["fx/esc-b.ts"]);
+  });
+
   it("the import screen is not vacuous: a named import, an alias, a namespace and a re-export all count", () => {
     const found = chooseActingOrgImporters([
       fixture("fx/a.ts", `import { chooseActingOrg } from "../payers/payer-tenant-scope";`),
@@ -891,5 +963,108 @@ describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-
       fixture("fx/f.ts", `import type { TenantKey } from "../payers/payer-tenant-scope.service";`),
     ]);
     expect(found).toEqual(["fx/a.ts", "fx/b.ts", "fx/c.ts", "fx/d.ts"]);
+  });
+});
+
+/**
+ * A tenant scope reaches a route handler ONLY through `@CurrentTenantScope()` (review N1 of PR
+ * #2175). Nest builds a handler argument from its parameter decorator, not its type: a parameter
+ * typed `PayerTenantScope` (or any type carrying a `TenantKey`) under `@Body()` / `@Query()` /
+ * `@Param()` would turn request JSON into a "scope" with no cast at all, past S-F1. So every route
+ * handler parameter whose type names a forgeable tenancy type must carry exactly one decorator,
+ * `@CurrentTenantScope()`, the one that reads the scope `PayerOrgRoleGuard` resolved.
+ */
+const ROUTE_DECORATORS = new Set([
+  "Get",
+  "Post",
+  "Put",
+  "Patch",
+  "Delete",
+  "All",
+  "Options",
+  "Head",
+]);
+
+function decoratorNames(node: ts.Node, sf: ts.SourceFile): string[] {
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
+  return decorators.map((d) =>
+    ts.isCallExpression(d.expression)
+      ? d.expression.expression.getText(sf)
+      : d.expression.getText(sf),
+  );
+}
+
+/** `checked`: every route-handler parameter typed with a tenancy type; `offenders`: the ones not taken by exactly `@CurrentTenantScope()`. */
+function scopeHandlerParams(sources: readonly ts.SourceFile[]): {
+  checked: string[];
+  offenders: string[];
+} {
+  const names = forgeableNames(sources);
+  const checked: string[] = [];
+  const offenders: string[] = [];
+  for (const sf of sources) {
+    sf.forEachChild((cls) => {
+      if (!ts.isClassDeclaration(cls) || !decoratorNames(cls, sf).includes("Controller")) return;
+      for (const m of cls.members) {
+        if (
+          !ts.isMethodDeclaration(m) ||
+          !decoratorNames(m, sf).some((d) => ROUTE_DECORATORS.has(d))
+        )
+          continue;
+        m.parameters.forEach((p, i) => {
+          if (!p.type || !typeNamesIn(p.type, sf).some((n) => names.has(lastName(n)))) return;
+          const at = `${rel(sf.fileName)} ${cls.name?.text}.${m.name.getText(sf)}#${i}`;
+          checked.push(at);
+          const decorators = ts.canHaveDecorators(p) ? (ts.getDecorators(p) ?? []) : [];
+          const only = decorators.length === 1 ? decorators[0]!.expression : undefined;
+          const exact =
+            only !== undefined &&
+            ts.isCallExpression(only) &&
+            only.expression.getText(sf) === "CurrentTenantScope" &&
+            only.arguments.length === 0;
+          if (!exact) offenders.push(at);
+        });
+      }
+    });
+  }
+  return { checked: checked.sort(), offenders: offenders.sort() };
+}
+
+describe("N1 — a tenant scope reaches a handler only through @CurrentTenantScope() (ADR-0053 §5.2 rule 1)", () => {
+  it("every route-handler parameter typed with a tenancy type is taken by exactly @CurrentTenantScope()", () => {
+    const { checked, offenders } = scopeHandlerParams(prodSources());
+    // Not vacuous: the five agency money handlers take the owner gate's scope.
+    expect(checked.filter((c) => c.startsWith("agency/agency-payouts.controller.ts"))).toHaveLength(
+      5,
+    );
+    expect(offenders, "take the scope with @CurrentTenantScope(), never from the request").toEqual(
+      [],
+    );
+  });
+
+  it("the screen is not vacuous: body / query / bare / doubled / argument-carrying scopes all count", () => {
+    const { checked, offenders } = scopeHandlerParams([
+      fixture(
+        "fx/scope.controller.ts",
+        `type Key = TenantKey;
+        @Controller("fx")
+        export class FxController {
+          @Get("a") a(@CurrentTenantScope() scope: PayerTenantScope) {}
+          @Post("b") b(@Body() scope: PayerTenantScope) {}
+          @Post("c") c(@Body() dto: { tenant: TenantKey; n: number }) {}
+          @Get("d") d(@Query() q: Key) {}
+          @Get("e") e(scope: PayerTenantScope) {}
+          @Get("f") f(@CurrentTenantScope() @Body() scope: PayerTenantScope) {}
+          @Get("g") g(@CurrentTenantScope("x") scope: PayerTenantScope) {}
+          @Get("h") h(@CurrentPayer() payer: AuthenticatedPayer, @Body() dto: CreateDto) {}
+          private helper(scope: PayerTenantScope) {}
+        }
+        export class FxService { run(scope: PayerTenantScope) {} }`,
+      ),
+    ]);
+    expect(checked).toHaveLength(7);
+    expect(offenders).toEqual(
+      ["b", "c", "d", "e", "f", "g"].map((h) => `fx/scope.controller.ts FxController.${h}#0`),
+    );
   });
 });

@@ -19,7 +19,8 @@ import {
  * Agency Supply Portal — INVITE mint/click + the read-only referrals SUMMARY (ADR-0022).
  * Every route is agent-only (`@UseGuards(PayerAuthGuard, PayerRoleGuard)` +
  * `@PayerRoles('agent')`), one principal per route. The owning `inviter_payer_id` is the
- * verified SESSION payer (XB-A) — never a body/param.
+ * TENANT KEY the service resolves from the verified SESSION payer (XB-A; ADR-0053 — the agency
+ * org's anchor, the login itself while org tenancy is off) — never a body/param.
  *
  * FACELESS: mint takes NO phone/name/email/worker-id (only an optional non-PII campaign
  * tag) and returns an opaque code only. There is deliberately NO agency-facing endpoint
@@ -131,8 +132,9 @@ export class AgencyInvitesController {
 
   /**
    * The agency's OWN funnel counts by stage (created/clicked/accepted), scoped by the
-   * SESSION `inviter_payer_id`. AGGREGATE-ONLY with a k-anon floor — counts below the floor
-   * are suppressed so a single named invitee's consent can never be inferred (no oracle).
+   * `inviter_payer_id` = the session payer's TENANT KEY (ADR-0053: the agency org's).
+   * AGGREGATE-ONLY with a k-anon floor — counts below the floor are suppressed so a single
+   * named invitee's consent can never be inferred (no oracle).
    */
   @Get("referrals/summary")
   referralsSummary(@CurrentPayer() payer: AuthenticatedPayer) {

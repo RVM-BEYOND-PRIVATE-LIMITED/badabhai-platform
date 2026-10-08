@@ -1,5 +1,9 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { ForbiddenException } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
 import { AgencyWorkersService } from "./agency-workers.service";
 import type {
   AgencyWorkersRepository,
@@ -26,10 +30,14 @@ const pii = {
   hmac: (v: string) => createHmac("sha256", "test-pepper").update(v).digest("hex"),
 } as unknown as PiiCryptoService;
 
-function setup(rows: AgencyWorkerEngagementRow[]) {
+/** `tenancy`: the REAL resolver — the default mode (`off`) unless a suite passes `on`. */
+function setup(
+  rows: AgencyWorkerEngagementRow[],
+  tenancy: PayerTenantScopeService = defaultModeResolver(),
+) {
   const repo = { listReferredWithConsent: vi.fn(async () => rows) };
   return {
-    svc: new AgencyWorkersService(repo as unknown as AgencyWorkersRepository, pii),
+    svc: new AgencyWorkersService(repo as unknown as AgencyWorkersRepository, pii, tenancy),
     repo,
   };
 }
@@ -184,5 +192,64 @@ describe("AgencyWorkersService — the consent gate is the REPOSITORY's, and it 
       AgencyWorkersService.MAX_ROWS,
     );
     expect(AgencyWorkersService.MAX_ROWS).toBeLessThanOrEqual(200);
+  });
+});
+
+/**
+ * ADR-0053 (PAY-DB-01 P2d) — the referred-worker list is the agency ORG's: the session payer's
+ * tenancy is resolved once and the TENANT key scopes the read AND keys the pseudonym, so every
+ * member of one agency sees the same men under the same handles. Org tenancy off: the key is
+ * the session payer, so every handle is byte-identical to before.
+ */
+describe("AgencyWorkersService — the tenant key scopes the list and keys the pseudonym (ADR-0053 P2d)", () => {
+  const ANCHOR = AGENCY_A;
+  const MEMBER = "77777777-7777-4777-8777-777777777777";
+  const OUTSIDER = AGENCY_B;
+  const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+  const refOf = (tenant: string) => pii.hmac(`agency_worker:${tenant}:${WORKER}`).slice(0, 16);
+
+  it("off: a team member is their own tenant — their own key scopes the read and keys the handle", async () => {
+    const { svc, repo } = setup([ROW], defaultModeResolver(TEAM));
+    const [row] = (await svc.listReferred(MEMBER)).workers;
+    expect(repo.listReferredWithConsent).toHaveBeenCalledWith(
+      MEMBER,
+      AgencyWorkersService.MAX_ROWS,
+    );
+    expect(row!.ref).toBe(refOf(MEMBER));
+  });
+
+  it("off: the anchor's handle is unchanged by the conversion (byte-identical pseudonym)", async () => {
+    const { svc } = setup([ROW], defaultModeResolver(TEAM));
+    expect((await svc.listReferred(ANCHOR)).workers[0]!.ref).toBe(refOf(ANCHOR));
+  });
+
+  it("on: the teammate reads the ORG's referrals under the ORG's handles — identical to the anchor's list", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const asMember = setup([ROW], tenancy);
+    const asAnchor = setup([ROW], tenancy);
+    const memberList = await asMember.svc.listReferred(MEMBER);
+    expect(asMember.repo.listReferredWithConsent).toHaveBeenCalledWith(
+      ANCHOR,
+      AgencyWorkersService.MAX_ROWS,
+    );
+    expect(memberList.workers[0]!.ref).toBe(refOf(ANCHOR));
+    expect(memberList).toEqual(await asAnchor.svc.listReferred(ANCHOR));
+  });
+
+  it("on: an outsider's read is keyed to the outsider alone", async () => {
+    const { svc, repo } = setup([], resolverOver(ON, TEAM));
+    await svc.listReferred(OUTSIDER);
+    expect(repo.listReferredWithConsent).toHaveBeenCalledWith(
+      OUTSIDER,
+      AgencyWorkersService.MAX_ROWS,
+    );
+  });
+
+  it("on: a refused resolution is a 403 that never reaches the repository", async () => {
+    const twoTeams = [TEAM[0]!, { anchor: OUTSIDER, members: [MEMBER] }];
+    const { svc, repo } = setup([ROW], resolverOver(ON, twoTeams));
+    await expect(svc.listReferred(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.listReferredWithConsent).not.toHaveBeenCalled();
   });
 });
