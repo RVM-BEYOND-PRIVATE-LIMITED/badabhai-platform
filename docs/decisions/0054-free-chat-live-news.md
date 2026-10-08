@@ -1,6 +1,7 @@
 # ADR-0054: Live news in the profiling-stage free chat (web search, summary + "read more" tiles)
 
-- **Status:** **Accepted — rulings R1–R8 taken by the owner on 2026-10-08** (design session, #2127).
+- **Status:** **Accepted — rulings R1–R9 taken by the owner on 2026-10-08** (design session, #2127). R5 was revised and
+  R9 added the same day, after the security gate (§8).
   Backend merges **dark**. The owner arms it on the box after the worker-app release that renders the tiles (R7).
 - **Date:** 2026-10-08
 - **Owner:** Divyanshu (Backend Platform)
@@ -37,10 +38,11 @@ Two provider facts shaped the decision (checked 2026-10-08):
 | **R2** | **Scope: work AND everyday news.** Work news covers jobs and hiring, factories and companies, wages and minimum wage, skill schemes, ITI admissions and safety rules. Everyday news covers weather, match scores and fuel prices. **An everyday answer steers the worker toward the profile**, said in the prompt (the model ends with one gentle line back to work and the résumé). |
 | **R3** | **Off-limits stays off-limits.** Politics, religion, caste, romance, loans and health get the same fixed deflect as today, and distress gets the helpline. Legal, medical or financial advice is refused; news *about* a scheme or rule is not advice. |
 | **R4** | **Sources: a trusted list, owner-approved.** It has 41 sites: government, national, Hindi, the five regional languages, and the everyday sources. They are kept in `FREE_CHAT_NEWS_DOMAINS` (`packages/types`). The search may read only these, and a tile may point only at these. |
-| **R5** | **Daily cap: 5 news answers per worker per day**, using the IST day. Over the cap the worker gets the NEWS_CAP line. |
+| **R5** | **Daily cap: 5 paid news attempts per worker per day** (revised 2026-10-08, §8), using the IST day. Every request that reached Anthropic counts, whether or not news was found. Over the cap the worker gets the NEWS_CAP line. |
 | **R6** | **Display: a short text summary, then "read more" tiles** (1–3), each a link to its article. Rendering the tiles is app work (Rishi). |
 | **R7** | **Go-live: armed after the app update.** The backend merges dark; the task returns its mock until the owner appends `profiling_free_news` to the box's `AI_REAL_CALL_TASKS`, after the app release that renders the tiles. Older app versions show the summary without tiles. |
 | **R8** | **Two new fixed lines** (§5), approved as drafted. Today's NEWS line stays as the answer while news is unarmed. |
+| **R9** | **A question carrying an identifier is never searched** (2026-10-08, §8). If the worker's news question contains a phone number, email or ID number, no search runs and the worker gets NEWS_UNAVAILABLE. |
 
 ## 3. Decision
 
@@ -63,9 +65,10 @@ free mode → classifier: casual | career → reply model → refuse(topic: news
   change. The cost is one extra short reply call before the search. Moving news detection into the classifier is a
   candidate for the improvement loop (#2128).
 - **Résumé mode never runs news.** Off-topic there is deflected as today (ADR-0051 R6).
-- **The cap is reserved before the call and released when the request does not end `answered`.** A failure costs
-  the worker nothing. The reservation is memoised outside the CAS loop (the `refs.reply` pattern), so a lost CAS
-  never counts twice.
+- **The cap is reserved before the call and released only when the request never reached Anthropic** (R5 as revised):
+  unarmed mock, blocked input, an identifier in the question (R9), or a failure before dispatch. Every paid attempt
+  keeps its slot, including `no_results`, a refusal, a rejected answer and a timeout. The reservation is
+  memoised outside the CAS loop (the `refs.reply` pattern), so a lost CAS never counts twice.
 
 ### 3.2 The model call
 
@@ -157,10 +160,13 @@ ADR-0051's NEWS line stays for the unarmed (mock) answer. Every news turn also c
 
 ## 6. Consequences
 
-- **Cost.** About ₹1.5–2.5 per answered news turn (1–2 searches plus result tokens on Haiku). The cap bounds a worker
-  at roughly ₹12 per day.
-- **Latency.** A news turn runs the classifier, the short reply refusal and the searched answer: about 8–15 s. The
-  app's typing indicator covers it.
+- **Cost.** About ₹1.5–2.5 per answered news turn (1–2 searches plus result tokens on Haiku). The cap (5 paid attempts) bounds a worker
+  at roughly ₹15 per day.
+- **Latency.** A news turn runs the classifier, the short reply refusal and the searched answer: about 8–15 s
+  typical, with server timeouts of 2.5 + 10 + 25 s. **The worker app gives up on `POST /chat/message` after 15 s
+  today**, then resends the same `submission_id`. The API shares one in-flight news request per submission, so a
+  resend never pays a second search, but the worker would still see an error. Rishi's tiles release (#2148) must
+  raise that timeout to at least 45 s, and the owner arms news only after it ships (R7).
 - **Known limits (accepted):**
   - The trusted list can miss very local news.
   - Search results are only as current as the sites.
@@ -178,7 +184,45 @@ ADR-0051's NEWS line stays for the unarmed (mock) answer. Every news turn also c
 5. **Owner:** append `profiling_free_news` to the box's `AI_REAL_CALL_TASKS` and redeploy. News is live.
 6. **Rollback:** remove the task from `AI_REAL_CALL_TASKS`, or set `CHAT_FREE_CHAT_DISABLED=true`.
 
+## 8. Security-gate amendments (2026-10-08)
+
+The security gate reviewed the ai-service half before merge. The owner took two rulings (R5 revised, R9 new), and
+the engineering fixes below ship in the same PRs.
+
+- **R5 revised: paid attempts, not answers.** If only answers counted, a worker asking hyper-local questions would get
+  `no_results` every time at about ₹2–3 per try. One scripted worker could then exhaust the platform's ₹200 daily AI
+  budget in about 70–100 tries and switch AI off for every worker, profiling interviews included. A second guard: the
+  news input carries `worker_ref`, so the existing ₹25 per-worker daily AI limit (`ai_max_user_daily_cost_inr`)
+  applies to news too.
+- **R9: identifiers never reach a search.** The search query is written by the model from the worker's raw text
+  (production runs `AI_RAW_PII_ENABLED=true`), and Anthropic forwards it to its search provider. ADR-0047 covers LLM
+  prompts; this is a third-party search query, so it is named here as a new egress. Before any call:
+  - the API checks the question for a hard identifier or an email;
+  - the ai-service checks again, as defence in depth;
+  - the prompt also forbids putting a phone, email, ID number or person's name in a search.
+- **Billed failures are charged.** A tool call that fails after dispatch (pause_turn, truncation, timeout) keeps its
+  reservation (measured usage, or the worst case), because Anthropic may already have billed the searches. Only
+  failures before any network I/O are refunded.
+- **No links in the text.** Lines carrying a URL or domain shape are rejected in both services. Links reach the worker
+  only as checked tiles.
+- **Titles get content walls.** A tile title is third-party text, so it passes G1 plus the abuse, promise and
+  template-token checks. A failing title drops its tile. The sensitive and Latin-only walls are not applied, because
+  a real headline about loan rates, or one in Tamil, is legitimate.
+- **Strict hosts.** A tile host must be plain `[a-z0-9-]` labels on a dot boundary of a listed domain. Backslashes,
+  `%`, `;`, ports, credentials and whitespace are refused. The API re-checks with the WHATWG URL parser and serves
+  the normalised `href`.
+- **Grounding.** For a tool call the parser reads the last JSON object, so an answer written before the search cannot
+  win. An answer with no search or no valid source is never served.
+- **Erasure.** The cap key `free_chat:news:{workerId}:{day}` is a bare counter, expiring within about 25 hours.
+  Account deletion does not purge it.
+- **Analytics note.** From merge (even while dark), a reply's `news` refusal records `turn_served` as `fixed_line`
+  plus `chat.free_chat_news_served`, not `refused` with topic `news`. #2128 probes must read the new event. A
+  question blocked by R9 records the existing `unavailable` outcome; the v1 enum is not widened.
+- **Risk register (owner to log):** search-query egress to Anthropic's search sub-processor (R9 bounds it);
+  spend-ledger accuracy for tool calls (fixed above, watch the first armed week in Langfuse).
+
 ```
-Owner rulings R1–R8 taken 2026-10-08 in the design session (sources list and copy approved as drafted).
+Owner rulings R1–R8 taken 2026-10-08 in the design session (sources list and copy approved as drafted);
+R5 revised and R9 added the same day after the security gate (§8).
 Signed (Divyanshu): Divyanshu          Date: 2026-10-08
 ```
