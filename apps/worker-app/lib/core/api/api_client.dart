@@ -32,6 +32,24 @@ const String kConsentVersion = '2026-08-28';
 /// of an infinite spinner. 15s is generous for a slow link yet bounded.
 const Duration kRequestTimeout = Duration(seconds: 15);
 
+/// How long `POST /chat/message` may take (#2160, ADR-0054 §6 R7).
+///
+/// A LIVE-NEWS TURN RUNS THREE SERVER CALLS — the classifier, then the reply,
+/// then the web-search answer — so it takes roughly 8-15 s in the normal case
+/// and the server's own timeouts allow up to about 37 s. At the app-wide 15 s
+/// the client gave up mid-answer and re-sent the same `submission_id`: the
+/// backend deduped it, so nothing was paid for twice, but the worker was shown
+/// an error instead of the news they asked for.
+///
+/// 45 s, the floor the issue asks for: comfortably past the server's own
+/// ceiling, so a turn the server WILL answer is never abandoned by the client.
+/// ONLY this one route — every other request keeps [kRequestTimeout], because
+/// nothing else in the chat fans out to three calls.
+///
+/// The typing indicator is driven by `sending`, which stays true for the whole
+/// await, so the wait reads as "thinking" rather than as a frozen screen.
+const Duration kChatMessageTimeout = Duration(seconds: 45);
+
 /// Default number of polls' worth of BUDGET for an async AI job (#378).
 ///
 /// Kept at 40 because it defines the total wait together with
@@ -528,6 +546,9 @@ class ApiClient {
         if (submissionId != null) 'submission_id': submissionId,
       },
       authToken: authToken,
+      // #2160 — a live-news turn legitimately outruns the app-wide 15 s. See
+      // [kChatMessageTimeout].
+      timeout: kChatMessageTimeout,
     );
     return ChatReply.fromJson(json);
   }
