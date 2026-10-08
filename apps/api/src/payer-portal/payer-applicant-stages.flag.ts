@@ -18,11 +18,12 @@ export function applicantStagesEnabled(config: ApplicantStagesConfig): boolean {
 }
 
 /**
- * The stage route's launch gate: a NEUTRAL 404 while the flag is off, indistinguishable from a
- * route that does not exist (the `AgencyPayoutsEnabledGuard` shape). Listed AFTER
- * `PayerAuthGuard`, so an unauthenticated caller still gets the 401 every `/payer/*` route gives,
- * and BEFORE any pipe, the rate limit or the service, so a disabled route costs no Redis unit and
- * touches no table.
+ * The stage route's launch gate: a neutral 404 while the flag is off — Nest's bare
+ * `NotFoundException` body, with no "disabled" wording (the `AgencyPayoutsEnabledGuard` shape). It
+ * is NOT indistinguishable from a route that does not exist: it runs AFTER `PayerAuthGuard`, so an
+ * unauthenticated caller gets the 401 every `/payer/*` route gives, and its 404 body is not the
+ * router's "Cannot PUT …" one. It runs BEFORE any pipe, the rate limit or the service, so a
+ * disabled route costs no Redis unit and touches no table.
  */
 @Injectable()
 export class PayerApplicantStagesEnabledGuard implements CanActivate {

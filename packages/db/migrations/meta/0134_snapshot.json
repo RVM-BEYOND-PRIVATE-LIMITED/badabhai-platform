@@ -1,5 +1,5 @@
 {
-  "id": "bd4d46fc-115b-44d3-8a19-b6c84b5e61b6",
+  "id": "b129c4b3-d632-4912-867a-b42b62764239",
   "prevId": "b9942178-4ad0-408d-a2b5-ce699a8104c7",
   "version": "7",
   "dialect": "postgresql",
@@ -7742,8 +7742,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "updated_by_payer_id": {
-          "name": "updated_by_payer_id",
+        "actor_payer_id": {
+          "name": "actor_payer_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true

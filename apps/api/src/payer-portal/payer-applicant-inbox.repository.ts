@@ -79,6 +79,9 @@ export interface InboxPageQuery {
  * STAGES (owner ruling 2026-10-07; only when `query.stages` is passed, i.e. the flag is on): each
  * arm LEFT JOINs `payer_applicant_stages` on its full primary key — its own posting kind literal,
  * its posting id, the applicant — and projects `COALESCE(s.stage, 'new')` (no row = `new`). The
+ * join keys on the posting row the arm's ownership WHERE already admitted (`j.id` / `jp.id`) and
+ * carries NO payer predicate of its own (ADR-0053 §4, class C "via parent"): when PAY-DB-01 retypes
+ * the two ownership predicates above, the board follows with no change here. The
  * optional filter is a predicate on that same value in EACH arm, below the union and the LIMIT,
  * so a filtered page is still the first N rows of the same total order and the keyset holds
  * unchanged. One PK probe per candidate application; no new index is needed (the plan is driven

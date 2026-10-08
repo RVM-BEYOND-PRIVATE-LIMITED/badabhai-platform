@@ -455,7 +455,12 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
     const svc = new PayerApplicantStagesService(repo as never, { emit: vi.fn() } as never, {
       PAYER_APPLICANT_STAGES_ENABLED: true,
     });
-    return { repo, svc, list: vi.spyOn(repo, "listOwnedPostingStages") };
+    return {
+      repo,
+      svc,
+      owns: vi.spyOn(repo, "findOwnedPostingKind"),
+      list: vi.spyOn(repo, "listPostingStages"),
+    };
   }
 
   it("agency job: every applier carries his stage from the AGENCY board (`new` if none)", async () => {
@@ -467,7 +472,7 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       postingId: JOB_A,
       workerId: APPLIER.workerId,
       stage: "passed",
-      updatedByPayerId: PAYER_A,
+      actorPayerId: PAYER_A,
       updatedAt: new Date(),
     });
     const d = make({ stages: s.svc });
@@ -518,6 +523,10 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
     const s = stagesOn();
     const d = make({ stages: s.svc });
     await d.svc.listForOwned(JOB_A, PAYER_A, CTX);
+    // Ownership first, through the chokepoint, then the board by the RESOLVED kind (ADR-0053 §4).
+    expect(s.owns).toHaveBeenCalledWith(JOB_A, PAYER_A);
+    expect(s.list).toHaveBeenCalledWith("agency_job", JOB_A);
+    expect(s.owns.mock.invocationCallOrder[0]!).toBeLessThan(s.list.mock.invocationCallOrder[0]!);
     expect(s.list.mock.invocationCallOrder[0]!).toBeLessThan(
       d.reachRepo.findOwnedJobSignalRowById.mock.invocationCallOrder[0]!,
     );
@@ -539,8 +548,10 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
     const unknown = await rejection(d.svc.listForOwned(UNKNOWN, PAYER_A, CTX));
     expect(httpOutcome(foreign)).toEqual(httpOutcome(unknown));
     expect(httpOutcome(unknown).status).toBe(404);
-    // …and B never reads A's board: the owner-scoped read came back empty for B.
-    expect(await s.list.mock.results[0]!.value).toEqual([]);
+    // …and neither read any board: the ownership chokepoint answered "not yours" first (ADR-0053).
+    expect(s.owns).toHaveBeenCalledWith(POSTING_A, PAYER_B);
+    expect(s.owns).toHaveBeenCalledWith(UNKNOWN, PAYER_A);
+    expect(s.list).not.toHaveBeenCalled();
   });
 
   it("flag OFF (the default): no `stage` key on any row, and the board is never read", async () => {

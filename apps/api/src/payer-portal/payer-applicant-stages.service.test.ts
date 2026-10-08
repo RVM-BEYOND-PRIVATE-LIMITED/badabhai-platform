@@ -69,6 +69,7 @@ function make(over: { enabled?: boolean } = {}) {
     insertStage: vi.spyOn(repo, "insertStage"),
     updateStage: vi.spyOn(repo, "updateStage"),
     withTransaction: vi.spyOn(repo, "withTransaction"),
+    listPostingStages: vi.spyOn(repo, "listPostingStages"),
   };
   // The real validation every emitted event goes through, so a payload the registry would refuse
   // fails here exactly as it would in EventsService.
@@ -196,7 +197,7 @@ describe("setStage — a real change writes the row and emits ONE validated even
         postingId: POSTING_A,
         workerId: APPLICANT,
         stage: "shortlist",
-        updatedByPayerId: PAYER_A,
+        actorPayerId: PAYER_A,
         updatedAt: NOW,
       },
     ]);
@@ -386,12 +387,38 @@ describe("stagesForOwnedPosting — the per-posting feed's read", () => {
     expect(board!.agency_job.size).toBe(0);
   });
 
-  it("another payer's posting reads as an empty board, never theirs", async () => {
+  it("another payer's posting reads as an empty board — its board is never even read", async () => {
     const d = make();
     await d.svc.setStage(PAYER_B, POSTING_B, APPLICANT, "shortlist", CTX, NOW);
     const board = await d.svc.stagesForOwnedPosting(POSTING_B, PAYER_A);
     expect(board!.company_posting.size).toBe(0);
     expect(board!.agency_job.size).toBe(0);
+    // The ownership chokepoint said "not yours", so the stages table was not touched (ADR-0053 §4).
+    expect(d.spied.findOwnedPostingKind).toHaveBeenCalledWith(POSTING_B, PAYER_A);
+    expect(d.spied.listPostingStages).not.toHaveBeenCalled();
+  });
+
+  it("ownership FIRST through the chokepoint, then the board by the RESOLVED (kind, id) only", async () => {
+    const d = make();
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "passed", CTX, NOW);
+    // A row of the OTHER kind under the same id must not be read as this posting's board.
+    d.repo.rows.set(`company_posting|${JOB_A}|${APPLICANT_2}`, {
+      postingKind: "company_posting",
+      postingId: JOB_A,
+      workerId: APPLICANT_2,
+      stage: "shortlist",
+      actorPayerId: PAYER_B,
+      updatedAt: NOW,
+    });
+    d.spied.findOwnedPostingKind.mockClear();
+    const board = await d.svc.stagesForOwnedPosting(JOB_A, PAYER_A);
+    expect([...board!.agency_job]).toEqual([[APPLICANT, "passed"]]);
+    expect(board!.company_posting.size).toBe(0);
+    expect(d.spied.findOwnedPostingKind).toHaveBeenCalledWith(JOB_A, PAYER_A);
+    expect(d.spied.listPostingStages).toHaveBeenCalledWith("agency_job", JOB_A);
+    expect(d.spied.findOwnedPostingKind.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.spied.listPostingStages.mock.invocationCallOrder.at(-1)!,
+    );
   });
 });
 

@@ -225,6 +225,24 @@ describe("inboxPageStatement — the saved pipeline board (owner ruling 2026-10-
     expect(sql).not.toContain("INNER JOIN payer_applicant_stages");
   });
 
+  it("the board join keys on the arm's OWNED posting row — no payer predicate of its own (ADR-0053 §4)", () => {
+    const { sql, params } = compile({ limit: 21, stages: { only: "passed" } });
+    for (const arm of Object.values(arms(sql))) {
+      const join = arm.slice(
+        arm.indexOf("LEFT JOIN payer_applicant_stages"),
+        arm.indexOf(" WHERE "),
+      );
+      expect(join).toMatch(/^LEFT JOIN payer_applicant_stages s ON /);
+      const on = join.slice(join.indexOf(" ON ") + 4);
+      expect(on).toMatch(
+        /^s\.posting_kind = '[a-z_]+' AND s\.posting_id = jp?\.id AND s\.worker_id = a\.worker_id$/,
+      );
+      expect(on).not.toMatch(/payer_id|\$\d/); // no payer column, no bound value: owned rows only
+    }
+    // Ownership is still exactly the two arms' WHEREs plus the precedence probe.
+    expect(placeholdersOf(params, PAYER)).toHaveLength(3);
+  });
+
   it("projects COALESCE(stage, 'new') in each arm and `p.stage` outside — no row reads as new", () => {
     const { sql } = compile({ limit: 21, stages: {} });
     for (const arm of Object.values(arms(sql))) {

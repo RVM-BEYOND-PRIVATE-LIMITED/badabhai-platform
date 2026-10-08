@@ -102,6 +102,7 @@ describe("payer.applicant_stage_changed", () => {
   it("is STRICT — a payer id, a title, a note or any value cannot ride along", () => {
     for (const smuggled of [
       "payer_id",
+      "actor_payer_id",
       "updated_by_payer_id",
       "posting_title",
       "role_title",

@@ -12,9 +12,8 @@ export interface ApplicantStageKey {
   workerId: string;
 }
 
-/** One stored row of an owned posting's board, as the feed read returns it. */
+/** One stored row of a posting's board, as the feed read returns it. */
 export interface StoredApplicantStage {
-  postingKind: ApplicantPostingKind;
   workerId: string;
   /** Raw text: the CHECK keeps it inside `APPLICANT_STAGES`; narrowing is the service's call. */
   stage: string;
@@ -55,42 +54,14 @@ export function feedMembershipStatement(key: ApplicantStageKey): SQL {
 }
 
 /**
- * The stored board of ONE posting the payer OWNS — ownership in the SQL, per kind, so a posting id
- * of another payer's (or an unknown one) reads nothing at all:
- *
- * ```sql
- * stages s ⋈ jobs j         ON j.id  = s.posting_id WHERE s.posting_kind = 'agency_job'      AND j.payer_id  = :payer
- * UNION ALL
- * stages s ⋈ job_postings jp ON jp.id = s.posting_id WHERE s.posting_kind = 'company_posting' AND jp.payer_id = :payer
- * ```
- *
- * Each arm is a primary-key prefix scan (`posting_kind`, `posting_id`) plus one posting PK probe.
- * Rows of both kinds come back tagged, and the caller keeps the kind its feed resolved to (ids are
- * per-table random uuids, so in practice only one arm can match).
- */
-export function ownedPostingStagesStatement(postingId: string, payerId: string): SQL {
-  return dsql`
-    SELECT s.posting_kind, s.worker_id, s.stage
-    FROM payer_applicant_stages s
-    INNER JOIN jobs j ON j.id = s.posting_id
-    WHERE s.posting_kind = 'agency_job'
-      AND s.posting_id = ${postingId}::uuid
-      AND j.payer_id = ${payerId}::uuid
-    UNION ALL
-    SELECT s.posting_kind, s.worker_id, s.stage
-    FROM payer_applicant_stages s
-    INNER JOIN job_postings jp ON jp.id = s.posting_id
-    WHERE s.posting_kind = 'company_posting'
-      AND s.posting_id = ${postingId}::uuid
-      AND jp.payer_id = ${payerId}::uuid
-  `;
-}
-
-type StoredStageSqlRow = { posting_kind: string; worker_id: string; stage: string };
-
-/**
  * `payer_applicant_stages` (migration 0134) — DATABASE ACCESS ONLY. Whether a request may set a
  * stage, whether it is a real change and what it emits are `PayerApplicantStagesService`'s.
+ *
+ * NO PAYER PREDICATE ON THIS TABLE, ANYWHERE (ADR-0053 §4, class C "via parent"). The table has no
+ * tenant column; every caller first resolves the posting through the posting-ownership chokepoint
+ * ({@link findOwnedPostingKind} → `findOwnedJobRef`) and then addresses rows by the
+ * `(posting_kind, posting_id)` that resolution returned. When PAY-DB-01 moves the chokepoint to the
+ * org's tenant key, this repository needs no change.
  *
  * NOTHING HERE MAY RUN WHILE `PAYER_APPLICANT_STAGES_ENABLED` IS OFF. The table is 0134's, and
  * 0134 is apply-before-flag-on: every caller checks the flag first.
@@ -112,9 +83,10 @@ export class PayerApplicantStagesRepository {
 
   /**
    * Which kind of posting `postingId` is, if the SESSION payer owns it — `null` for an unknown id
-   * and for another payer's alike. The shared no-oracle ownership read (`findOwnedJobRef`: both
+   * and for another payer's alike. THE posting-ownership chokepoint (`findOwnedJobRef`: both
    * tables, concurrently, jobs-first), the one the unlock and disclosure writes use, mapped onto
    * the board's vocabulary. Ownership, not status: a closed posting's board is still the payer's.
+   * The only ownership decision this repository makes.
    */
   async findOwnedPostingKind(
     postingId: string,
@@ -132,8 +104,8 @@ export class PayerApplicantStagesRepository {
   }
 
   /**
-   * The stored stage, holding the row lock (`FOR UPDATE`) until `tx` ends — so two teammates
-   * moving the same applicant serialise, and each event reports the stage it actually replaced.
+   * The stored stage, holding the row lock (`FOR UPDATE`) until `tx` ends — so two concurrent
+   * requests moving the same applicant serialise, and each event reports the stage it actually replaced.
    * `null` when no row exists (the applicant reads `new`). Must be called on a transaction.
    */
   async lockStage(key: ApplicantStageKey, tx: Database): Promise<string | null> {
@@ -153,13 +125,13 @@ export class PayerApplicantStagesRepository {
   async insertStage(
     key: ApplicantStageKey,
     stage: ApplicantStage,
-    payerId: string,
+    actorPayerId: string,
     at: Date,
     tx: Database,
   ): Promise<boolean> {
     const inserted = await tx
       .insert(payerApplicantStages)
-      .values({ ...key, stage, updatedByPayerId: payerId, createdAt: at, updatedAt: at })
+      .values({ ...key, stage, actorPayerId, createdAt: at, updatedAt: at })
       .onConflictDoNothing({
         target: [
           payerApplicantStages.postingKind,
@@ -171,33 +143,41 @@ export class PayerApplicantStagesRepository {
     return inserted.length > 0;
   }
 
-  /** Replace the stored stage. The caller holds the row lock from {@link lockStage}. */
+  /**
+   * Replace the stored stage, stamping the acting login. The caller holds the row lock from
+   * {@link lockStage}.
+   */
   async updateStage(
     key: ApplicantStageKey,
     stage: ApplicantStage,
-    payerId: string,
+    actorPayerId: string,
     at: Date,
     tx: Database,
   ): Promise<void> {
     await tx
       .update(payerApplicantStages)
-      .set({ stage, updatedByPayerId: payerId, updatedAt: at })
+      .set({ stage, actorPayerId, updatedAt: at })
       .where(keyWhere(key));
   }
 
-  /** The stored board of one posting the payer owns ({@link ownedPostingStagesStatement}). */
-  async listOwnedPostingStages(
+  /**
+   * Every stored stage on ONE posting, addressed by the `(posting_kind, posting_id)` the caller
+   * resolved through {@link findOwnedPostingKind} — deliberately NO payer predicate (see the class
+   * note). A primary-key prefix scan.
+   */
+  async listPostingStages(
+    postingKind: ApplicantPostingKind,
     postingId: string,
-    payerId: string,
   ): Promise<StoredApplicantStage[]> {
-    const rows = await this.db.execute<StoredStageSqlRow>(
-      ownedPostingStagesStatement(postingId, payerId),
-    );
-    return (rows as unknown as StoredStageSqlRow[]).map((r) => ({
-      postingKind: toPostingKind(r.posting_kind),
-      workerId: r.worker_id,
-      stage: r.stage,
-    }));
+    return this.db
+      .select({ workerId: payerApplicantStages.workerId, stage: payerApplicantStages.stage })
+      .from(payerApplicantStages)
+      .where(
+        and(
+          eq(payerApplicantStages.postingKind, postingKind),
+          eq(payerApplicantStages.postingId, postingId),
+        ),
+      );
   }
 }
 
@@ -207,10 +187,4 @@ function keyWhere(key: ApplicantStageKey): SQL | undefined {
     eq(payerApplicantStages.postingId, key.postingId),
     eq(payerApplicantStages.workerId, key.workerId),
   );
-}
-
-/** The statement selects the column under a CHECK; anything else is a defect, never data. */
-function toPostingKind(raw: string): ApplicantPostingKind {
-  if (raw === "agency_job" || raw === "company_posting") return raw;
-  throw new Error(`applicant stages: unexpected posting kind ${JSON.stringify(raw)}`);
 }

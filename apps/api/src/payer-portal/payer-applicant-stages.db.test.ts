@@ -166,9 +166,9 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
 
   async function rowsFor(postingId: string) {
     return client.sql<
-      { posting_kind: string; worker_id: string; stage: string; updated_by_payer_id: string }[]
+      { posting_kind: string; worker_id: string; stage: string; actor_payer_id: string }[]
     >`
-      SELECT posting_kind, worker_id, stage, updated_by_payer_id
+      SELECT posting_kind, worker_id, stage, actor_payer_id
       FROM payer_applicant_stages WHERE posting_id = ${postingId}::uuid ORDER BY worker_id`;
   }
 
@@ -221,7 +221,7 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
         posting_kind: "agency_job",
         worker_id: W.w1,
         stage: "shortlist",
-        updated_by_payer_id: PAYER_A,
+        actor_payer_id: PAYER_A,
       },
     ]);
     expect(await eventsFor(c.correlationId)).toEqual([
@@ -265,7 +265,7 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
     expect(out).toMatchObject({ stage: "new", previousStage: "shortlist", changed: true });
     expect((await rowsFor(JOB_A)).find((r) => r.worker_id === W.w1)).toMatchObject({
       stage: "new",
-      updated_by_payer_id: PAYER_A,
+      actor_payer_id: PAYER_A,
     });
     const [e] = await eventsFor(c.correlationId);
     expect(e!.payload).toMatchObject({ stage: "new", previous_stage: "shortlist" });
@@ -298,6 +298,19 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
     expect(err).toBeInstanceOf(NotFoundException);
     // B's own board is B's: w2 is shortlisted on B's posting.
     await move(PAYER_B, POST_B, W.w2!, "shortlist");
+  });
+
+  it("the board read goes through the ownership chokepoint: B's stored board never reaches A (ADR-0053 §4)", async () => {
+    // Not vacuous: B's posting DOES have a stored stage.
+    expect((await rowsFor(POST_B)).map((r) => r.stage)).toEqual(["shortlist"]);
+    const asA = await stages.stagesForOwnedPosting(POST_B, PAYER_A);
+    expect(asA!.company_posting.size).toBe(0);
+    expect(asA!.agency_job.size).toBe(0);
+    const asB = await stages.stagesForOwnedPosting(POST_B, PAYER_B);
+    expect([...asB!.company_posting]).toEqual([[W.w2, "shortlist"]]);
+    // An unknown id reads nothing either.
+    const unknown = await stages.stagesForOwnedPosting(randomUUID(), PAYER_A);
+    expect(unknown!.company_posting.size + unknown!.agency_job.size).toBe(0);
   });
 
   it("per-posting feeds carry each applicant's stage — agency and company — and keep everyone listed", async () => {

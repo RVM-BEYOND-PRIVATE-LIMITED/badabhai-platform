@@ -13,7 +13,9 @@ import {
   HTTP_CODE_METADATA,
   METHOD_METADATA,
   PATH_METADATA,
+  ROUTE_ARGS_METADATA,
 } from "@nestjs/common/constants";
+import { RouteParamtypes } from "@nestjs/common/enums/route-paramtypes.enum";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
@@ -199,5 +201,33 @@ describe("the route's validation (the pipes the decorators run)", () => {
     [{ stage: "passed", note: "good fit" }],
   ])("a body outside { stage: new|shortlist|passed } is a 400 (%j)", (bad) => {
     expect(() => body.transform(bad)).toThrow(BadRequestException);
+  });
+});
+
+describe("the route's validation is WIRED: both decorators carry their ZodValidationPipe", () => {
+  /** The pipes Nest runs for the handler argument of `type` (e.g. BODY, PARAM). */
+  function pipesFor(type: RouteParamtypes): unknown[] {
+    const args = Reflect.getMetadata(
+      ROUTE_ARGS_METADATA,
+      PayerApplicantStageController,
+      "setStage",
+    ) as Record<string, { pipes: unknown[] }>;
+    const entries = Object.entries(args).filter(([k]) => k.startsWith(`${type}:`));
+    expect(entries, `exactly one ${RouteParamtypes[type]} argument`).toHaveLength(1);
+    return entries[0]![1].pipes;
+  }
+
+  it("@Param validates with ApplicantStageParamsSchema (both route ids are uuids)", () => {
+    const pipes = pipesFor(RouteParamtypes.PARAM);
+    expect(pipes).toHaveLength(1);
+    expect(pipes[0]).toBeInstanceOf(ZodValidationPipe);
+    expect(Reflect.get(pipes[0] as object, "schema")).toBe(ApplicantStageParamsSchema);
+  });
+
+  it("@Body validates with SetApplicantStageSchema (strict { stage })", () => {
+    const pipes = pipesFor(RouteParamtypes.BODY);
+    expect(pipes).toHaveLength(1);
+    expect(pipes[0]).toBeInstanceOf(ZodValidationPipe);
+    expect(Reflect.get(pipes[0] as object, "schema")).toBe(SetApplicantStageSchema);
   });
 });

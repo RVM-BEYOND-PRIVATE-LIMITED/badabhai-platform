@@ -37,7 +37,7 @@ export function stagesOff(): PayerApplicantStagesService {
 /** One row of the in-memory board. */
 export interface MemoryStageRow extends ApplicantStageKey {
   stage: string;
-  updatedByPayerId: string;
+  actorPayerId: string;
   updatedAt: Date;
 }
 
@@ -72,23 +72,21 @@ export function memoryStagesRepo(world: {
       at: Date,
     ): Promise<boolean> => {
       if (rows.has(id(key))) return false;
-      rows.set(id(key), { ...key, stage, updatedByPayerId: payerId, updatedAt: at });
+      rows.set(id(key), { ...key, stage, actorPayerId: payerId, updatedAt: at });
       return true;
     },
     updateStage: async (key: ApplicantStageKey, stage: string, payerId: string, at: Date) => {
       const row = rows.get(id(key));
-      if (row) rows.set(id(key), { ...row, stage, updatedByPayerId: payerId, updatedAt: at });
+      if (row) rows.set(id(key), { ...row, stage, actorPayerId: payerId, updatedAt: at });
     },
-    listOwnedPostingStages: async (
+    // NO ownership here, as in the real repository: the caller resolved the posting first.
+    listPostingStages: async (
+      postingKind: ApplicantPostingKind,
       postingId: string,
-      payerId: string,
-    ): Promise<StoredApplicantStage[]> => {
-      const p = world.postings.get(postingId);
-      if (!p || p.owner !== payerId) return [];
-      return [...rows.values()]
-        .filter((r) => r.postingId === postingId && r.postingKind === p.kind)
-        .map((r) => ({ postingKind: r.postingKind, workerId: r.workerId, stage: r.stage }));
-    },
+    ): Promise<StoredApplicantStage[]> =>
+      [...rows.values()]
+        .filter((r) => r.postingId === postingId && r.postingKind === postingKind)
+        .map((r) => ({ workerId: r.workerId, stage: r.stage })),
   };
   return repo;
 }

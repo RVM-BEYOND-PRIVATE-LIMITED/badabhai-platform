@@ -43,14 +43,19 @@ export function readStoredStage(stored: string | null | undefined): ApplicantSta
 
 /**
  * THE PAYER APPLICANT PIPELINE BOARD (owner ruling 2026-10-07) — payer-web's New / Shortlist /
- * Passed stages, saved server-side so they survive a reload and every teammate sees one board.
- * Business rules only: the rows are {@link PayerApplicantStagesRepository}'s.
+ * Passed stages, saved server-side so they survive a reload and are the same in every session that
+ * owns the posting. Today that is the posting's own payer; teammates share the board only once
+ * PAY-DB-01 (ADR-0053) moves posting ownership to the org. Business rules only: the rows are
+ * {@link PayerApplicantStagesRepository}'s.
  *
- * ACCESS IS POSTING OWNERSHIP, the SAME rule the feeds apply: a payer may set a stage only on a
- * posting they own (`jobs.payer_id` / `job_postings.payer_id` = the SESSION payer), and only for
- * a worker who is on that posting's applicant feed. Nothing here scopes by `updated_by_payer_id`,
- * which only records who moved the row — so when org tenancy (PAY-DB-01) widens posting
- * ownership to the org, the board becomes the org's with no change here.
+ * ACCESS IS POSTING OWNERSHIP, through THE chokepoint (ADR-0053 §4, class C "via parent"): every
+ * read and write first resolves the posting with `findOwnedPostingKind` (`findOwnedJobRef` — the
+ * check the unlock and disclosure writes use), and the table is then addressed only by the
+ * `(posting_kind, posting_id)` that resolution returned; nothing here has a payer predicate of its
+ * own. A stage can be set only on an owned posting, and only for a worker on that posting's
+ * applicant feed. `actor_payer_id` only records the acting login that moved the row. When
+ * PAY-DB-01 retypes the chokepoint to the org's tenant key, the board becomes the org's with no
+ * change here.
  *
  * NO ORACLE: an unknown posting, another payer's posting and a worker who is not an applicant all
  * get the SAME 404 body the feeds use ({@link APPLICANT_NOT_FOUND}).
@@ -83,12 +88,13 @@ export class PayerApplicantStagesService {
    * IDEMPOTENT. The stage the applicant already holds (a retry, a double tap, `new` for someone
    * nobody moved) is a 200 with `changed: false`: nothing written, no event. A real change writes
    * the row and emits `payer.applicant_stage_changed` in ONE transaction (the event commits iff
-   * the stage does). The row is locked for the duration, so two teammates moving the same
-   * applicant serialise and each event reports the stage it actually replaced; two concurrent
+   * the stage does). The row is locked for the duration, so two concurrent requests moving the
+   * same applicant serialise and each event reports the stage it actually replaced; two concurrent
    * FIRST moves cannot both insert — the loser re-reads the winner's committed stage and proceeds
    * from it (last write wins, every event exact).
    */
   async setStage(
+    // The SESSION payer: the ownership chokepoint's input and the row's/event's actor.
     payerId: string,
     postingId: string,
     workerId: string,
@@ -142,20 +148,27 @@ export class PayerApplicantStagesService {
 
   /**
    * The stored board of ONE posting the payer owns, for the per-posting feed to annotate its rows
-   * with — `null` while the flag is off (no query). Ownership is in the SQL, so another payer's
-   * posting id (or an unknown one) reads as empty, never as their board.
+   * with — `null` while the flag is off (no query).
+   *
+   * OWNERSHIP FIRST, THROUGH THE CHOKEPOINT (ADR-0053 §4): the posting is resolved with
+   * `findOwnedPostingKind` — jobs-first, exactly the resolution the feed itself makes — and only
+   * then is the board read, by the resolved `(posting_kind, posting_id)`. Another payer's posting
+   * (or an unknown id) resolves to nothing, so its board is never read and the answer is empty.
    */
   async stagesForOwnedPosting(
     postingId: string,
     payerId: string,
   ): Promise<OwnedPostingStages | null> {
     if (!this.enabled) return null;
-    const rows = await this.repo.listOwnedPostingStages(postingId, payerId);
     const byKind: Record<ApplicantPostingKind, Map<string, ApplicantStage>> = {
       agency_job: new Map(),
       company_posting: new Map(),
     };
-    for (const row of rows) byKind[row.postingKind].set(row.workerId, readStoredStage(row.stage));
+    const postingKind = await this.repo.findOwnedPostingKind(postingId, payerId);
+    if (postingKind === null) return byKind;
+    for (const row of await this.repo.listPostingStages(postingKind, postingId)) {
+      byKind[postingKind].set(row.workerId, readStoredStage(row.stage));
+    }
     return byKind;
   }
 

@@ -118,7 +118,7 @@ describe("the vocabularies", () => {
       '"posting_id" uuid NOT NULL',
       '"worker_id" uuid NOT NULL',
       '"stage" text NOT NULL',
-      '"updated_by_payer_id" uuid NOT NULL',
+      '"actor_payer_id" uuid NOT NULL',
     ]) {
       expect(FLAT).toContain(column);
     }
@@ -141,7 +141,12 @@ describe("the key and the indexes", () => {
     );
   });
 
-  it("posting_id and updated_by_payer_id reference nothing (polymorphic / faceless rails)", () => {
+  it("carries NO tenant column (ADR-0053 §4, class C): access is the posting chokepoint's", () => {
+    expect(FLAT).not.toContain('"payer_id"');
+    expect(FLAT).not.toContain('"updated_by_payer_id"');
+  });
+
+  it("posting_id and actor_payer_id reference nothing (polymorphic / faceless rails)", () => {
     expect([...FLAT.matchAll(/FOREIGN KEY/g)]).toHaveLength(1);
   });
 });
@@ -162,6 +167,23 @@ describe("the table is locked (RLS tail is hand-appended)", () => {
   it("declares no policy — deny by default", () => {
     expect(FLAT.toUpperCase()).not.toContain("CREATE POLICY");
     expect(FLAT.toUpperCase()).not.toContain("GRANT ");
+  });
+});
+
+describe("the header's rollback is executable as written (M-F1 / M-F4)", () => {
+  it("drops the table and its ledger row in ONE locked transaction, after the flag is off and redeployed", () => {
+    const entry = JOURNAL.entries.find((e) => e.tag === TAG)!;
+    const rollback = RAW.slice(RAW.indexOf("ROLLBACK, in this order"));
+    expect(rollback).toContain("PAYER_APPLICANT_STAGES_ENABLED=false and REDEPLOY");
+    const steps = [
+      "BEGIN;",
+      "SET LOCAL lock_timeout = '3s';",
+      'DROP TABLE "payer_applicant_stages";',
+      `DELETE FROM drizzle.__drizzle_migrations WHERE created_at = ${entry.when};`,
+      "COMMIT;",
+    ].map((step) => rollback.indexOf(step));
+    expect(steps.every((at) => at > 0)).toBe(true);
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps); // in that order
   });
 });
 

@@ -97,8 +97,9 @@ export class PayerApplicantsService {
     // THE BOARD IS READ FIRST, and only while PAYER_APPLICANT_STAGES_ENABLED is on (`null`, no
     // query, while off). The agency list below emits `feed.shown` as its last step, so reading
     // the stages before it keeps "a failed request emitted nothing" true: nothing fallible runs
-    // after the emit. The read is owner-scoped in its SQL, so for an unknown or foreign id it
-    // is empty, and the 404 below is unchanged.
+    // after the emit. The read resolves the posting through the ownership chokepoint first
+    // (`findOwnedJobRef`, ADR-0053 §4), so for an unknown or foreign id it reads no board at all
+    // and is empty, and the 404 below is unchanged.
     const stages = await this.stages.stagesForOwnedPosting(jobId, payerId);
     // ONE ownership read decides the source, whatever MATCH_V1_ENABLED says (#1898): an owned
     // `jobs` row lists its appliers; a miss (unknown or another payer's job) falls through to

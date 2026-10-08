@@ -10,7 +10,9 @@ import { workers } from "./worker";
 // ===========================================================================
 //
 // Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is SAVED SERVER-SIDE, so it
-// survives a reload and every teammate sees the same board. Until now it was local React state.
+// survives a reload and every session that owns the posting sees the same board — today the
+// posting's own payer; the whole org once PAY-DB-01 (ADR-0053) widens ownership. Until now it was
+// local React state.
 //
 // ONE ROW PER (posting kind, posting id, worker) — the composite primary key, which is also the
 // upsert target and the index every read uses:
@@ -30,16 +32,21 @@ import { workers } from "./worker";
 // a posting (closed is terminal), and every read joins FROM an owned posting, so a row whose
 // posting were ever removed (an ops seed/unseed script) is unreachable rather than wrong.
 //
-// `updated_by_payer_id` HAS NO FOREIGN KEY either — the faceless-rails convention of every payer
-// reference on a posting (`jobs.payer_id`, `job_postings.payer_id`). It records WHO last moved
-// the row; it is never an access rule. ACCESS IS POSTING OWNERSHIP, decided by the API with the
-// same check the feeds use, so when org tenancy (PAY-DB-01) widens ownership to the org, the
-// board becomes the org's with no change here.
+// NO TENANT COLUMN, BY ADR-0053 §4 (class C, "via parent"): the table carries no `payer_id`. ACCESS
+// IS POSTING OWNERSHIP, decided by the API through the posting-ownership chokepoint
+// (`findOwnedJobRef`) — the same check the feeds use — so when org tenancy (PAY-DB-01) moves that
+// chokepoint to the org's tenant key, the board becomes the org's with no change here.
+//
+// `actor_payer_id` records WHO last moved the row: the acting login (ADR-0053 §3.1 — an actor is
+// never a second `payer_id`). It is never an access rule. No foreign key — the faceless-rails
+// convention of every payer reference on a posting (`jobs.payer_id`, `job_postings.payer_id`).
 //
 // NOT PII: two opaque ids, a closed kind, a closed stage, a payer id, timestamps. Erasure is the
 // `worker_id` cascade.
 //
-// ADDITIVE. Rollback (after PAYER_APPLICANT_STAGES_ENABLED is off): DROP TABLE "payer_applicant_stages";
+// ADDITIVE. Rollback: the ordered procedure in migration 0134's header (flag off and redeploy
+// FIRST — the API reads the flag at boot — then drop the table and its ledger row in one locked
+// transaction).
 // ===========================================================================
 export const payerApplicantStages = pgTable(
   "payer_applicant_stages",
@@ -53,8 +60,8 @@ export const payerApplicantStages = pgTable(
       .references(() => workers.id, { onDelete: "cascade" }),
     /** One of `APPLICANT_STAGES`. `new` is stored only for a row moved back to New. */
     stage: text("stage").$type<ApplicantStage>().notNull(),
-    /** The session payer who made the CURRENT stage. Opaque, no FK; never an access rule. */
-    updatedByPayerId: uuid("updated_by_payer_id").notNull(),
+    /** The acting login who made the CURRENT stage (ADR-0053 §3.1). No FK; never an access rule. */
+    actorPayerId: uuid("actor_payer_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** When the CURRENT stage was set (stamped on every real change, never on a no-op). */
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
