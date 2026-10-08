@@ -29,7 +29,8 @@ import type { StageActionResult } from "./actions";
  *
  * Env is node. A STATEFUL `useState` model (cells persist, setState re-renders), as
  * applicant-actions-inbox.test.tsx; cells are positional — rows 0, confirmedUnlock 1, stages 2,
- * activeStage 3, confirmWorker 4, result 5, confirmContext 6, stageSaving 7, stageNotice 8.
+ * activeStage 3, confirmWorker 4, result 5, confirmContext 6, stageSaving 7, stageNotice 8,
+ * inFlight 9 (a live Set, mutated in place).
  */
 
 const unlockAction = vi.fn();
@@ -519,7 +520,59 @@ describe("FLAG ON — a move is optimistic, then reconciled or rolled back", () 
   });
 });
 
+describe("FLAG ON — after a `gone`, the re-read wins (review #2162 Low 2)", () => {
+  it("this session's SETTLED moves stop overriding the re-read; a move still in flight keeps its own", async () => {
+    const fresh = [
+      applicant(WA, 1, { stage: "new" }),
+      applicant(WB, 2, { stage: "new" }),
+      applicant(WC, 3, { stage: "new" }),
+    ];
+    let rows: FacelessApplicant[] = fresh;
+    mountBoard(() => rows);
+    // 1 · WA is kept, and saved.
+    setApplicantStageAction.mockResolvedValueOnce(ok("shortlist"));
+    button(cardOf(WA), "Keep")!.onClick!();
+    await flush();
+    expect(cells[STAGES]).toEqual({ [WA]: "shortlist" });
+    // 2 · WC's Keep is still in flight…
+    const pending = deferred<StageActionResult>();
+    setApplicantStageAction.mockReturnValueOnce(pending.promise);
+    button(cardOf(WC), "Keep")!.onClick!();
+    // 3 · …when WB's move answers `gone`: the page is re-read, and another session has since
+    //     passed WA. The re-read must win for WA (and WB); WC's optimistic move stands.
+    setApplicantStageAction.mockImplementationOnce(async () => {
+      rows = [
+        applicant(WA, 1, { stage: "passed" }),
+        applicant(WB, 2, { stage: "new" }),
+        applicant(WC, 3, { stage: "new" }),
+      ];
+      return { ok: false, reason: "gone" };
+    });
+    button(cardOf(WB), "Keep")!.onClick!();
+    await flush();
+    expect(cells[STAGES]).toEqual({ [WC]: "shortlist" });
+    expect(tabLabels()).toEqual(["New (1)", "Shortlist (1)", "Passed (1)"]);
+    showTab("passed");
+    expect(cardIds()).toEqual([`${WA.slice(0, 8)}…`]);
+    // WC's own answer still settles it.
+    pending.resolve(ok("shortlist"));
+    await flush();
+    expect(cells[STAGES]).toEqual({ [WC]: "shortlist" });
+    expect(cells[SAVING]).toEqual({});
+  });
+});
+
 describe("FLAG ON — no double-submit; the server's idempotent no-op is a quiet success", () => {
+  it("two presses of the SAME rendered button send once (the in-flight check is live, not the render's)", () => {
+    const answer = deferred<StageActionResult>();
+    setApplicantStageAction.mockReturnValueOnce(answer.promise);
+    mountBoard(SAVED_ROWS);
+    const keep = button(cardOf(WA), "Keep")!;
+    keep.onClick!();
+    keep.onClick!(); // a double click handled before the re-render reached the handler
+    expect(setApplicantStageAction).toHaveBeenCalledTimes(1);
+  });
+
   it("while a move is in flight the row's stage buttons are disabled and a second press sends nothing", async () => {
     const answer = deferred<StageActionResult>();
     setApplicantStageAction.mockReturnValueOnce(answer.promise);

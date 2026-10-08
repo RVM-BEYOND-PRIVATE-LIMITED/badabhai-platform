@@ -30,12 +30,14 @@ import type { ApplicantStage } from "../../../lib/applicant-stages";
 export const CANDIDATE_FILTER_SELECT_ID = "candidates-posting";
 export const CANDIDATE_STAGE_SELECT_ID = "candidates-stage";
 const UNAVAILABLE_NOTE_ID = "candidates-posting-note";
+const STAGE_REFUSED_NOTE_ID = "candidates-stage-note";
 
 export function CandidateFilter({
   options,
   selected,
   unavailable,
   stage = null,
+  stageRefused = false,
 }: {
   options: readonly PostingOption[];
   /** The selected posting id, or null for all postings. */
@@ -47,6 +49,12 @@ export function CandidateFilter({
    * Null/omitted = no stage filter on this page.
    */
   stage?: { selected: ApplicantStage | null } | null;
+  /**
+   * The address asked for a stage and the server refused it (it does not save stages right now),
+   * so the list below is every stage. Said once, calmly — it is not an outage, and nothing about
+   * any applicant.
+   */
+  stageRefused?: boolean;
 }) {
   return (
     <div className="candidates-filter">
@@ -94,6 +102,11 @@ export function CandidateFilter({
         <p className="candidates-filter__note" id={UNAVAILABLE_NOTE_ID}>
           Your postings list didn&rsquo;t load, so only All postings is offered — reload the
           page to pick one.
+        </p>
+      ) : null}
+      {stageRefused ? (
+        <p className="candidates-filter__note" id={STAGE_REFUSED_NOTE_ID}>
+          The stage filter isn&rsquo;t available right now, so every stage is shown.
         </p>
       ) : null}
     </div>

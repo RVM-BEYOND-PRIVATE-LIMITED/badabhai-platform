@@ -61,8 +61,8 @@ export const dynamic = "force-dynamic";
  * drawn only when an ANSWERED read showed stages are saved (`stagesOffered`): with the flag off the
  * API refuses `?stage=` with a 400, so a filter there could only ever fail. A `?stage=` in the
  * address the API refuses (a stale link, the flag since turned off) is not an error: the page reads
- * again WITHOUT it and shows the unfiltered list, with no stage filter. A new stage starts from the
- * first page (the form carries no cursor); paging keeps it.
+ * again WITHOUT it and shows the unfiltered list, with one calm line by the filter saying so. A new
+ * stage starts from the first page (the form carries no cursor); paging keeps it.
  *
  * READS — four, side by side, each with its own degraded state so none blanks another:
  *  - the inbox page (`GET /payer/reach/applicants`) — the page's content. A failure is an in-place
@@ -94,8 +94,12 @@ const HEAD = {
 };
 
 type InboxRead =
-  /** `stage`: the stage filter the SERVER applied — null when none was asked, or it refused one. */
-  | { kind: "ok"; inbox: CandidateInbox; stage: ApplicantStage | null }
+  /**
+   * `stage`: the stage filter the SERVER applied — null when none was asked, or it refused one.
+   * `stageRefused`: a stage WAS asked and the server refused it (stages not saved), so this page
+   * is the unfiltered re-read.
+   */
+  | { kind: "ok"; inbox: CandidateInbox; stage: ApplicantStage | null; stageRefused: boolean }
   | { kind: "rate-limited" }
   /** The server refused the page cursor (see `inboxRefusal`): no Retry, the first page instead. */
   | { kind: "cursor-refused" }
@@ -136,6 +140,7 @@ export default async function CandidatesPage({
         selected={selected}
         unavailable={options === null}
         stage={offerStages ? { selected: stage } : null}
+        stageRefused={read.kind === "ok" && read.stageRefused}
       />
     ),
   };
@@ -150,8 +155,11 @@ export default async function CandidatesPage({
     return (
       <div className="applicants-page candidates-page">
         <ApplicantActions
-          // One list per page of results: a new page or filter starts with no session state.
-          key={`${keep ?? "all"}|${stage ?? "all"}|${query.cursor ?? ""}`}
+          // One list per page of results: a new page or filter starts with no session state. The
+          // stage is the one the ADDRESS asked for, not the one the server applied: a failed
+          // move's re-read can come back refused (stages no longer saved) and re-read unfiltered,
+          // and that must not remount the list — its toast says why the move did not stick.
+          key={`${keep ?? "all"}|${query.stage ?? "all"}|${query.cursor ?? ""}`}
           header={header}
           applicants={rows}
           // An affordance only — an unread balance keeps Unlock enabled (the server decides).
@@ -218,7 +226,7 @@ export default async function CandidatesPage({
  */
 async function readInbox({ filter, cursor, stage }: CandidatesQuery): Promise<InboxRead> {
   if (filter.kind === "unknown") {
-    return { kind: "ok", inbox: { applicants: [], nextCursor: null }, stage: null };
+    return { kind: "ok", inbox: { applicants: [], nextCursor: null }, stage: null, stageRefused: false };
   }
   const base = {
     ...(filter.kind === "posting" ? { postingId: filter.postingId } : {}),
@@ -227,12 +235,18 @@ async function readInbox({ filter, cursor, stage }: CandidatesQuery): Promise<In
   try {
     if (stage !== null) {
       try {
-        return { kind: "ok", inbox: await getCandidateInbox({ ...base, stage }), stage };
+        const inbox = await getCandidateInbox({ ...base, stage });
+        return { kind: "ok", inbox, stage, stageRefused: false };
       } catch (e) {
         if (!isPayerBadRequest(e)) throw e;
       }
     }
-    return { kind: "ok", inbox: await getCandidateInbox(base), stage: null };
+    return {
+      kind: "ok",
+      inbox: await getCandidateInbox(base),
+      stage: null,
+      stageRefused: stage !== null,
+    };
   } catch (e) {
     if (isPayerRateLimited(e)) return { kind: "rate-limited" };
     return inboxRefusal(e, { cursor }) === "cursor" ? { kind: "cursor-refused" } : { kind: "error" };

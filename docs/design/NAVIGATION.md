@@ -385,7 +385,7 @@ toolbar. Top-level pages (rail or account menu) have no back link.
 | Company | `/postings/<id>/applicants` | Applicants         | the posting, by its title ("Posting details" if unread) | toolbar: New / Shortlist tabs (+ Passed when stages are saved)     | P; agent → `/postings/<id>`   |
 | Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status · Applicants · Edit posting (closed / suspended: Applicants) | A + F                         |
 | Agency  | `/agency/jobs/<id>/edit`    | Edit posting       | the posting, by its title                               | — (Save changes / Cancel in the form)                              | A + F; closed / suspended → `/agency/jobs/<id>` |
-| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | the posting, by its title                               | —                                                                  | A + F                         |
+| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | the posting, by its title                               | toolbar: New / Shortlist tabs (+ Passed when stages are saved)     | A + F                         |
 
 **An agency posting's applicants** are its own feed (`/agency/jobs/<id>/applicants`, #1956): since
 #1955 the applicant endpoint serves an agency's `jobs` rows — only the workers who applied — so the

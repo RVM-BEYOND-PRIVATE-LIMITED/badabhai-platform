@@ -799,9 +799,42 @@ describe("candidates page — SAVED stages (#2139): the Stage filter, and each c
     getCandidateInbox.mockResolvedValueOnce({ applicants: [staged(companyRow(W1), "passed")], nextCursor: null });
     const b = await tree({ stage: "passed" });
     expect(filterKey(a)).not.toBe(filterKey(b));
-    const listKey = (t: ReactElement) =>
-      ((t.props as { children: ReactElement[] }).children.find((c) => c?.type === ApplicantActions) as ReactElement)
-        .key;
     expect(listKey(a)).not.toBe(listKey(b));
+  });
+
+  /** The key React reconciles the ONE card list by (its session state lives as long as the key). */
+  const listKey = (t: ReactElement) =>
+    ((t.props as { children: ReactElement[] }).children.find((c) => c?.type === ApplicantActions) as ReactElement)
+      .key;
+  const refusedThenRead = (rows: CandidateInboxRow[]) =>
+    getCandidateInbox
+      .mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 400"))
+      .mockResolvedValueOnce({ applicants: rows, nextCursor: null });
+
+  it("a REFUSED stage keeps the same card list as the address it was asked from (review #2162 Low 1)", async () => {
+    // A failed move's `gone` re-reads this page; if stages stopped being saved meanwhile, the read
+    // of ?stage=passed is refused and re-read without it. The list must NOT remount — that would
+    // drop the move's toast — so it is keyed by the stage the ADDRESS asked for.
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [staged(companyRow(W1), "passed")], nextCursor: null });
+    const applied = await tree({ stage: "passed" });
+    refusedThenRead([companyRow(W1)]);
+    const refused = await tree({ stage: "passed" });
+    expect(listKey(refused)).toBe(listKey(applied));
+  });
+
+  it("a REFUSED stage says so, calmly, beside the filter — and only then", async () => {
+    const NOTE = "The stage filter isn\u2019t available right now, so every stage is shown.";
+    refusedThenRead([companyRow(W1)]);
+    const refused = await html({ stage: "passed" });
+    expect(textOf(refused)).toContain(NOTE);
+    expect(refused).toContain('<p class="candidates-filter__note" id="candidates-stage-note">');
+    expect(refused).not.toContain("data-retry"); // not an outage: nothing to retry
+    // Applied, or never asked: no note.
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [staged(companyRow(W1), "passed")], nextCursor: null });
+    expect(textOf(await html({ stage: "passed" }))).not.toContain(NOTE);
+    expect(textOf(await html())).not.toContain(NOTE);
+    // A refused stage on an empty answer says it too (the empty state is about every stage).
+    refusedThenRead([]);
+    expect(textOf(await html({ stage: "passed" }))).toContain(NOTE);
   });
 });

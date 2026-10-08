@@ -132,6 +132,11 @@ function withoutKey<T>(map: Record<string, T>, key: string): Record<string, T> {
   return next;
 }
 
+/** A copy of `map` with only the entries whose key is in `keep`. */
+function onlyKeys<T>(map: Record<string, T>, keep: ReadonlySet<string>): Record<string, T> {
+  return Object.fromEntries(Object.entries(map).filter(([k]) => keep.has(k)));
+}
+
 /** The stage toolbar a pressed stage button sits in (null outside a browser, or with no event). */
 function toolbarOf(e: { currentTarget: EventTarget | null } | undefined): Element | null {
   if (typeof Element === "undefined" || !e || !(e.currentTarget instanceof Element)) return null;
@@ -288,6 +293,12 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   const [stageSaving, setStageSaving] = useState<Record<string, boolean>>({});
   // The last failed move's toast (null = none). One at a time: a new move clears it.
   const [stageNotice, setStageNotice] = useState<StageNotice | null>(null);
+  // The cards whose move is in flight RIGHT NOW — a live registry, mutated in place (never
+  // replaced, so it is not a render input). `stageSaving` is the same fact for RENDERING; this is
+  // the one the logic reads, because a handler's copy of `stageSaving` is its render's: a double
+  // press handled before the re-render, or a `gone` answer deciding which moves are still
+  // pending, must see the present. Appended LAST, after `stageNotice`.
+  const [inFlight] = useState<Set<string>>(() => new Set());
 
   // A row's state before anything happened to it this session: granted when the payer already
   // holds a live grant on this worker (the page's unlock-history read), else locked. Derived from
@@ -324,13 +335,15 @@ export function ApplicantActions(props: ApplicantActionsProps) {
 
   // SAVED stages: move the row on the server's board. Optimistic — the row moves now — then
   // reconciled to the stage the server answered, or rolled back to where it was with one toast.
-  // One move per card at a time (its buttons are disabled meanwhile, and this re-checks). The
-  // posting it names is the row's own (`context`): a posting's feed, or the inbox row's posting.
+  // One move per card at a time (its buttons are disabled meanwhile, and the live `inFlight`
+  // registry refuses a second press however it arrives). The posting it names is the row's own
+  // (`context`): a posting's feed, or the inbox row's posting.
   async function moveStage(r: FeedRow, to: RowStage, toolbar: Element | null = null) {
     const key = r.key;
-    if (stageSaving[key]) return;
+    if (inFlight.has(key)) return;
     const from = stageOf(r);
     if (from === to) return;
+    inFlight.add(key);
     // What the map held before this move (undefined = nothing: the row's own stage showed).
     const prior = stages[key];
     setStages((prev) => ({ ...prev, [key]: to }));
@@ -347,6 +360,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
       // The action itself never arrived (offline, a dropped connection): nothing was saved.
       res = { ok: false, reason: "failed" };
     }
+    inFlight.delete(key);
     setStageSaving((prev) => withoutKey(prev, key));
     refocusToolbar(toolbar);
     if (res.ok) {
@@ -354,7 +368,16 @@ export function ApplicantActions(props: ApplicantActionsProps) {
       setStages((prev) => ({ ...prev, [key]: answered }));
       return;
     }
-    setStages((prev) => (prior === undefined ? withoutKey(prev, key) : { ...prev, [key]: prior }));
+    if (res.reason === "gone") {
+      // The neutral 404 re-read the page (the action revalidated it): the rows now carry the
+      // server's stages as they are — other sessions' moves included. Every SETTLED move of this
+      // session gives way to them (this row's too); only a move still in flight keeps its
+      // optimistic entry, for its own answer to settle.
+      const pending = new Set(inFlight);
+      setStages((prev) => onlyKeys(prev, pending));
+    } else {
+      setStages((prev) => (prior === undefined ? withoutKey(prev, key) : { ...prev, [key]: prior }));
+    }
     setStageNotice({ reason: res.reason, id: opaqueId(r.applicant.workerId), stage: from });
   }
 
