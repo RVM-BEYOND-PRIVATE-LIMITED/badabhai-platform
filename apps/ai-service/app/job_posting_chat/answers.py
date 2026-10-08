@@ -774,24 +774,36 @@ def _plus_addition_screen(
     SMALLER than the wage figure the "+" chain starts from ("18000 + 1500 + 2500" adds both
     to 18000). Only such a figure would lower the band; an equal or a larger one ("15000 +
     15000", "10k + 15k") is left as it was. The chain's first figure is never an addition,
-    so no answer gains or loses a band here; only a figure below the wage leaves it. "and" /
-    "aur" are not joiners: they separate ranges and split pairs (#2066, #2088). One pass over
-    the figures, O(1) per figure besides its slice."""
+    so no answer gains or loses a band here. "and" / "aur" are not joiners: they separate
+    ranges and split pairs (#2066, #2088).
+
+    The add-on screen reads one clause, so a chain's first figure can be the add-on whose
+    word sits in the clause BEFORE it: in "joining bonus, 25000 + 18000 salary" the comma
+    cuts "joining bonus" off the 25000, which passes, and dropping the 18000 would make the
+    bonus the whole pay. A chain whose lead-in (the text from the figure before it, or the
+    message start, up to its first figure) names an add-on drops nothing, and reads as it
+    did before #2142. One pass over the figures; the joiner slices and the lead-in slices
+    are each disjoint, so the whole screen is O(n)."""
     wage = {figure.start for figure in kept}
     additions: set[int] = set()
+    lead_start = 0  # where the text leading up to ``previous`` starts
     previous: _PayFigure | None = None
     base: _PayFigure | None = None
+    led_by_addon = False
     for figure in figures:
         if (
             previous is not None
             and previous.start in wage
             and _PAY_PLUS_JOINER_RE.fullmatch(message, previous.end, figure.start) is not None
         ):
-            base = previous if base is None else base
-            if figure.low < base.low:
+            if base is None:
+                base = previous
+                led_by_addon = _PAY_ADDON_RE.search(message, lead_start, base.start) is not None
+            if not led_by_addon and figure.low < base.low:
                 additions.add(figure.start)
         else:
             base = None
+        lead_start = previous.end if previous is not None else 0
         previous = figure
     return [figure for figure in kept if figure.start not in additions]
 

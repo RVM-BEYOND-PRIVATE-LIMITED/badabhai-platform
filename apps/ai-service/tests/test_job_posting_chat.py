@@ -4123,7 +4123,7 @@ def test_a_single_amount_span_holds_no_trailing_whitespace(text: str, figure: st
 # the NEXT clause: the 1500 passed the add-on screen and folded in as the band's MINIMUM, Rs
 # 1,500-18,000, in both the suffix-less and the suffixed form. A figure joined to the wage
 # figure right before it by "+" / "plus" (whitespace and a currency token aside) and SMALLER
-# than it never folds into the band.
+# than it never folds into the band, unless the text leading up to the chain names an add-on.
 _PLUS_ADDITION_CASES: list[tuple[str, dict | None]] = [
     # The issue's two rows ...
     ("18000 + 1500 and PF", _pay(18000)),
@@ -4153,8 +4153,25 @@ _PLUS_ADDITION_CASES: list[tuple[str, dict | None]] = [
     ("15000 + 15000", _pay(15000)),
     ("15k + 15-20k", _pay(15000, 20000)),
     ("10k + 15k", _pay(10000, 15000)),
-    # ... a figure after an ADD-ON figure is not added to a wage, so the wage is never dropped ...
+    # ... a chain that starts at an ADD-ON figure drops nothing. Here the add-on screen
+    # dropped the bonus, so the 18000 is the wage (in the "5000 or" row the chain's lead-in
+    # starts after the 5000 and names no add-on, so only the screen's verdict keeps it) ...
     ("joining bonus 25000 + 18000 salary", _pay(18000)),
+    ("joining bonus 5000 or 25000 + 18000 salary", _pay(18000)),
+    # ... and here a comma, a colon or a newline cuts the add-on word off the chain's first
+    # figure, so the screen (one clause) kept the bonus. The chain's lead-in names the add-on,
+    # so nothing is dropped and the wage stays the band minimum, as on main. Dropping the
+    # smaller figure made the bonus the whole pay (#2153 review: 2,160 of 4,860 templated
+    # inputs). The bonus as the band maximum is the add-on screen's own pre-existing miss.
+    ("joining bonus, 25000 + 18000 salary", _pay(18000, 25000)),
+    ("Joining bonus:\n25000 + 18000 salary", _pay(18000, 25000)),
+    ("joining\n bonus\n 25000\n +\n 18000\n salary", _pay(18000, 25000)),
+    ("Annual bonus\n30000 + 18000 monthly", _pay(18000, 30000)),
+    ("Incentive:\n30000 + 20000 fixed salary", _pay(20000, 30000)),
+    ("bonus -\n25k plus 18k", _pay(18000, 25000)),
+    # ... the lead-in starts where the figure before the chain ends, so an add-on figure in an
+    # earlier clause does not hold back the wage chain after it ...
+    ("bonus 3000, salary 18000 + 1500", _pay(18000)),
     # ... and the addition still counts as a figure for the different-bases rule (fail closed).
     ("in hand 18000 + 1500", None),
 ]
