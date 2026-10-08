@@ -890,20 +890,26 @@ class MockApiClient extends ApiClient {
   }
 
   @override
-  Future<List<FeedItem>> getFeed({
+  Future<FeedPage> getFeed({
     required String authToken,
     int limit = 50,
     String? tradeKey,
     String? city,
     String? shift,
     int? payMin,
+    String? cursor,
   }) async {
     await _delay();
     // Mirrors the real signature (incl. the optional shift/pay_min OUTBOUND
     // filters). The canned feed ignores the server-side narrowing params — like
     // tradeKey/city today — because the deck's client-side match (applyJobFilters)
     // is what visibly narrows the loaded queue in mock mode.
-    return _cannedFeed.take(limit).toList();
+    //
+    // ONE PAGE, so `next_cursor` is always null (#2068): the canned deck is
+    // shorter than `limit`, which on the real wire is the end of the deck
+    // anyway. `cursor` is accepted and IGNORED for the same reason — mock mode
+    // never mints one, so nothing can send one back.
+    return FeedPage(jobs: _cannedFeed.take(limit).toList(), nextCursor: null);
   }
 
   @override

@@ -45,12 +45,19 @@ class SwipeRepositoryImpl implements SwipeRepository {
   /// applied BEFORE this filter, so a worker whose applies fill the server page
   /// starves the deck, and the decisions read is itself capped — both are
   /// recorded as a mandatory backend follow-up.
+  ///
+  /// PAGING (#2068, ADR-0052): [cursor] is the previous page's
+  /// [FeedPage.nextCursor], handed back to the server untouched; null is page 1.
+  /// The response's own `next_cursor` rides back on the [FeedPage] — an absent
+  /// key reads as null, so an older API build (or a rollback of PR #2067) simply
+  /// serves one page, exactly as before.
   @override
-  Future<List<FeedItem>> getFeed({
+  Future<FeedPage> getFeed({
     String? tradeKey,
     String? city,
     String? shift,
     int? payMin,
+    String? cursor,
   }) async {
     final String token = _requireToken();
     try {
@@ -60,7 +67,16 @@ class SwipeRepositoryImpl implements SwipeRepository {
         city: city,
         shift: shift,
         payMin: payMin,
+        cursor: cursor,
       );
+    } on ApiException catch (error) {
+      // A 400 that NAMES the cursor is not a worker-visible error: the position
+      // we sent is void (malformed, or minted for a feed order a flag flip
+      // replaced), and the only valid move is to start the deck again from page
+      // 1. Typed so the bloc can do that silently; every other 400 keeps its
+      // generic [InvalidRequestFailure] mapping.
+      if (_namesCursor(error)) throw const FeedCursorRejectedFailure();
+      throw mapError(error);
     } catch (error) {
       throw mapError(error);
     }
@@ -105,4 +121,32 @@ class SwipeRepositoryImpl implements SwipeRepository {
     }
   }
 
+  /// Whether a failed `/feed` response blames the `cursor` param (#2068).
+  ///
+  /// The server's validation 400 is `{message: "Validation failed", issues:
+  /// [{path: "cursor", message}]}` — and app-wide `AllExceptionsFilter` nests
+  /// that payload under `error`, so the key is read in BOTH places: `error`
+  /// first (the real wire shape) and the top level second (the shape #2068
+  /// quotes, and any future envelope). Reads the PATH only: the two messages
+  /// ("cursor is malformed", "cursor was issued for a different feed order…")
+  /// are server copy and must not become a client-side match key.
+  static bool _namesCursor(ApiException error) {
+    if (error.statusCode != 400) return false;
+    final Map<String, dynamic>? body = error.body;
+    if (body == null) return false;
+    final dynamic nested = body['error'];
+    final dynamic nestedIssues =
+        nested is Map<String, dynamic> ? nested['issues'] : null;
+    return _issuesNameCursor(nestedIssues) || _issuesNameCursor(body['issues']);
+  }
+
+  /// True when a Zod `issues` list has an entry whose `path` is the cursor
+  /// param. Defensive about every level — a garbage error body must not throw
+  /// over the top of the failure it describes.
+  static bool _issuesNameCursor(dynamic issues) {
+    if (issues is! List<dynamic>) return false;
+    return issues.whereType<Map<String, dynamic>>().any(
+          (Map<String, dynamic> issue) => issue['path'] == 'cursor',
+        );
+  }
 }

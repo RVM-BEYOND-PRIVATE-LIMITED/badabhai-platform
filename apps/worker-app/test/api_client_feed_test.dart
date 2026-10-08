@@ -32,16 +32,56 @@ void main() {
         }),
       );
 
-      final List<FeedItem> jobs = await api.getFeed(authToken: 'tok', limit: 5);
+      final FeedPage page = await api.getFeed(authToken: 'tok', limit: 5);
 
       expect(captured.method, 'GET');
       expect(captured.url.path, '/feed');
       expect(captured.url.queryParameters['limit'], '5');
       expect(captured.headers['authorization'], 'Bearer tok');
-      expect(jobs, hasLength(1));
-      expect(jobs.first.jobId, 'j1');
-      expect(jobs.first.area, isNull);
-      expect(jobs.first.rank, 1);
+      // No cursor asked for ⇒ no cursor param: that request is byte-identical
+      // to the pre-paging call (#2068, ADR-0052 §2.2).
+      expect(captured.url.queryParameters.containsKey('cursor'), isFalse);
+      expect(page.jobs, hasLength(1));
+      expect(page.jobs.first.jobId, 'j1');
+      expect(page.jobs.first.area, isNull);
+      expect(page.jobs.first.rank, 1);
+      // A response WITHOUT the key reads as "end of deck" — an older API build
+      // or a rollback of PR #2067 must never look like "page 2 exists".
+      expect(page.nextCursor, isNull);
+    });
+
+    // #2068 — the cursor is OPAQUE: whatever the server minted goes back out
+    // verbatim, and whatever comes back is stored as-is. This test is the whole
+    // round trip; [FeedPage] parsing has its own suite.
+    test('getFeed sends the cursor it was given and returns the next one',
+        () async {
+      const String cursor =
+          'eyJ2IjoxLCJtIjoiam9icyIsIm8iOjUwLCJqIjp7InQiOiIyMDk5LTAxLTA1VDAwOjAw'
+          'OjAwLjEyMzQ1NloiLCJpZCI6ImQyOTBmMWVlLTZjNTQtNGIwMS05MGU2LWQ3MDE3NDhm'
+          'MDg1MSJ9fQ';
+      late http.Request captured;
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          captured = req;
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'jobs': <Map<String, dynamic>>[],
+              'next_cursor': 'PAGE-3-CURSOR',
+            }),
+            200,
+          );
+        }),
+      );
+
+      final FeedPage page =
+          await api.getFeed(authToken: 'tok', cursor: cursor);
+
+      // Byte-for-byte on the wire, and the raw query string carries it
+      // unescaped (base64url is all unreserved characters).
+      expect(captured.url.queryParameters['cursor'], cursor);
+      expect(captured.url.query, contains('cursor=$cursor'));
+      expect(page.nextCursor, 'PAGE-3-CURSOR');
     });
 
     test('applyToJob posts rank + source_surface with bearer token', () async {

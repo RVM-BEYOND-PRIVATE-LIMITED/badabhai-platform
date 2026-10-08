@@ -247,6 +247,55 @@ class FeedItem extends Equatable {
       ];
 }
 
+/// ONE PAGE of `GET /feed` — the cards plus the cursor for the page after them
+/// (#1961 / #2068, ADR-0052). The envelope is `{jobs, next_cursor}`; the card
+/// shape ([FeedItem]) is unchanged, and `rank` keeps counting across pages
+/// (page 2 starts at `limit + 1`), so the card's own `rank` still rides
+/// apply/skip untouched.
+class FeedPage extends Equatable {
+  const FeedPage({required this.jobs, required this.nextCursor});
+
+  final List<FeedItem> jobs;
+
+  /// The OPAQUE cursor for the NEXT page (base64url of a versioned server-minted
+  /// object, ADR-0052 §2.1). Store it and send it back BYTE-FOR-BYTE: never
+  /// parse it, never build one, never edit one — its contents are the server's
+  /// keyset position and the client has no business reading them.
+  ///
+  /// `null` means the END of the deck: stop fetching. A full page can be
+  /// followed by one final EMPTY page whose cursor is null (ADR-0052 §2.2), so
+  /// "null" is the only end signal — never "fewer cards than `limit`".
+  ///
+  /// A MISSING key reads as null too (see [FeedPage.fromJson]): that is an older
+  /// API build, or a rollback of PR #2067, and the app must then behave exactly
+  /// as it did before paging existed — one page, no cursor.
+  final String? nextCursor;
+
+  /// Parses the `/feed` envelope. An absent `jobs` key reads as no cards (the
+  /// pre-existing rule), and a `next_cursor` that is absent, explicitly null, or
+  /// not a String reads as null — a non-string cursor is a contract violation we
+  /// drop rather than stringify into a value the server never minted.
+  ///
+  /// An EMPTY string reads as null as well, and that one is not pedantry: the
+  /// server reads `?cursor=` as "no cursor" (ADR-0052 §2.1), so re-sending an
+  /// empty cursor would refetch page 1 forever.
+  factory FeedPage.fromJson(Map<String, dynamic> json) => FeedPage(
+        jobs: (json['jobs'] as List<dynamic>? ?? <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(FeedItem.fromJson)
+            .toList(),
+        nextCursor: _cursorOrNull(json['next_cursor']),
+      );
+
+  static String? _cursorOrNull(dynamic raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    return raw;
+  }
+
+  @override
+  List<Object?> get props => <Object?>[jobs, nextCursor];
+}
+
 /// A worker's apply/skip decision row from `GET /workers/me/applications` (the
 /// "Applied jobs" screen filters to `action == 'applied'`). Coarse, PII-free
 /// fields only — exactly the projection the ops service already returns. Parsing

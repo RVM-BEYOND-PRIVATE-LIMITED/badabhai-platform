@@ -516,6 +516,16 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
         itemCount: jobs.length,
         itemBuilder: (BuildContext context, int index) {
           final FeedItem item = jobs[index];
+          // #2068 — the list is the one view a worker empties by SCROLLING
+          // rather than by deciding, so building a card within
+          // [SwipeBloc.prefetchThreshold] of the bottom is what asks for the
+          // next page here (deck mode pages off each advance instead). Every
+          // guard — a live cursor, one page in flight, the end of the deck —
+          // lives in the bloc, so firing this on each near-the-end build is
+          // idempotent, and `add` only ever enqueues.
+          if (index >= jobs.length - SwipeBloc.prefetchThreshold) {
+            bloc.add(const SwipeNextPageRequested());
+          }
           return BbJobCard(
             data: feedItemCardData(item),
             // The title opens the FULL posting (an accessible ≥48px button,

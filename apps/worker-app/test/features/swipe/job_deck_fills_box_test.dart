@@ -51,8 +51,9 @@ SwipeBloc _bloc(List<FeedItem> jobs) {
       city: any(named: 'city'),
       shift: any(named: 'shift'),
       payMin: any(named: 'payMin'),
+      cursor: any(named: 'cursor'),
     ),
-  ).thenAnswer((_) async => jobs);
+  ).thenAnswer((_) async => FeedPage(jobs: jobs, nextCursor: null));
   return SwipeBloc(repo);
 }
 
