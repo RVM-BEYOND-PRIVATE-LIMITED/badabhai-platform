@@ -826,6 +826,6 @@ is `{tokenHash, ttlSeconds}` and nothing else.
   `deleted_phone` neutral 429 at OTP.
 - **`POST /auth/token/refresh` still answers 401, not 410**, for an erased worker. That path logs
   the user out rather than trapping them on the keypad. Parity is a follow-up.
-- **Pre-existing and logged, not fixed here:** risks-register R67 (`revokeAll` fails open during
-  erasure), R68 (`verifyPin` accepts `used:true` tokens) and R69 (no per-IP cap and no max length
+- **Pre-existing and logged, not fixed here:** risks-register R69 (`revokeAll` fails open during
+  erasure), R70 (`verifyPin` accepts `used:true` tokens) and R71 (no per-IP cap and no max length
   on `/auth/pin/verify`).

@@ -5,6 +5,7 @@ import { NotFoundException } from "@nestjs/common";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import { CREDIT_PACKS, createDbClient, type DbClient } from "@badabhai/db";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
+import { DEFAULT_CATALOG, parseCatalog } from "@badabhai/pricing";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsRepository } from "../events/events.repository";
@@ -35,6 +36,9 @@ import { UnlocksRepository } from "../unlocks/unlocks.repository";
 import { UnlockService } from "../unlocks/unlocks.service";
 import { PaymentGateway } from "../unlocks/payment-gateway";
 import { PayerOrgMembersService } from "../payer-portal/payer-org-members.service";
+import { PayerPostingPlansService } from "../payer-portal/payer-posting-plans.service";
+import { PostingPlansRepository } from "../posting-plans/posting-plans.repository";
+import { PostingPlansService } from "../posting-plans/posting-plans.service";
 import { PayersRepository } from "./payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "./payer-orgs.repository";
 import { PayerTenantScopeService } from "./payer-tenant-scope.service";
@@ -97,6 +101,9 @@ describe.skipIf(!RUN)(
     let postings!: JobPostingsService;
     let unlocks!: UnlockService;
     let gateway!: PaymentGateway;
+
+    /** The postings `actor`'s tenant lists — resolved the way every payer route resolves it. */
+    const listFor = async (actor: string) => postings.listInScope(await tenancy.resolve(actor), {});
 
     let payerA = "";
     let payerB = "";
@@ -214,7 +221,7 @@ describe.skipIf(!RUN)(
     it("control: the ANCHOR, through the same calls, sees its posting and credits, and its unlock debits its wallet", async () => {
       // Every call the team story makes, made by A. If this fails the harness is broken, and the
       // `it.fails` below would be passing for the wrong reason.
-      const list = await postings.listForPayer(payerA, {});
+      const list = await listFor(payerA);
       expect(list.map((p) => p.id)).toContain(postingOfA);
       expect((await unlocks.getCredits(payerA)).balance).toBe(PACK.credits);
 
@@ -249,7 +256,7 @@ describe.skipIf(!RUN)(
       "T0: B sees A's posting and A's credits, spends A's wallet, A sees B's unlock — and removal takes it all away",
       async () => {
         // 1. B lists postings and finds A's posting. ← THE FIRST TENANCY ASSERTION (fails in P1).
-        const listB = await postings.listForPayer(payerB, {});
+        const listB = await listFor(payerB);
         expect(listB.map((p) => p.id)).toContain(postingOfA);
 
         // 2. B's credits are the org wallet: A's balance.
@@ -268,7 +275,7 @@ describe.skipIf(!RUN)(
 
         // 4. A removes B. On the next call B sees none of A's rows.
         await members.remove(orgOfA, payerA, memberIdOfB, CTX);
-        expect((await postings.listForPayer(payerB, {})).map((p) => p.id)).not.toContain(
+        expect((await listFor(payerB)).map((p) => p.id)).not.toContain(
           postingOfA,
         );
         expect((await unlocks.getCredits(payerB)).balance).toBe(0);
@@ -453,7 +460,11 @@ describe.skipIf(!RUN)(
         stagesFlag,
         tenancy,
       );
-      return { postings, agency, applicants, inbox, stages };
+      /** The postings `actor`'s tenant lists / reads, through the resolver every route uses. */
+      const listOf = async (actor: string) => postings.listInScope(await tenancy.resolve(actor), {});
+      const getOf = async (id: string, actor: string) =>
+        postings.getOneInScope(id, await tenancy.resolve(actor));
+      return { postings, agency, applicants, inbox, stages, listOf, getOf };
     }
 
     async function signUp(label: string, role: "employer" | "agent"): Promise<string> {
@@ -615,17 +626,17 @@ describe.skipIf(!RUN)(
         const [evt] = await eventsOf(created.id, "job_posting.created");
         expect(evt).toMatchObject({ actor_id: ids.B, payload: { created_by: ids.B } });
         // The anchor sees the teammate's posting; the outsider does not.
-        expect((await on.postings.listForPayer(ids.A, {})).map((p) => p.id)).toContain(created.id);
-        expect((await on.postings.listForPayer(ids.C, {})).map((p) => p.id)).not.toContain(
+        expect((await on.listOf(ids.A)).map((p) => p.id)).toContain(created.id);
+        expect((await on.listOf(ids.C)).map((p) => p.id)).not.toContain(
           created.id,
         );
       });
 
       it("company postings: the teammate lists and reads the anchor's postings; the outsider lists none", async () => {
-        const listB = (await on.postings.listForPayer(ids.B, {})).map((p) => p.id);
+        const listB = (await on.listOf(ids.B)).map((p) => p.id);
         expect(listB).toEqual(expect.arrayContaining([PA, PL]));
-        expect((await on.postings.getOneForPayer(PA, ids.B)).id).toBe(PA);
-        const listC = (await on.postings.listForPayer(ids.C, {})).map((p) => p.id);
+        expect((await on.getOf(PA, ids.B)).id).toBe(PA);
+        const listC = (await on.listOf(ids.C)).map((p) => p.id);
         expect(listC).not.toContain(PA);
         expect(listC).not.toContain(PL);
       });
@@ -666,7 +677,7 @@ describe.skipIf(!RUN)(
         const unknown = randomUUID();
         const update = UpdateJobPostingSchema.parse({ role_title: "Fitter" });
         for (const [label, call] of [
-          ["get", (id: string) => on.postings.getOneForPayer(id, ids.C)],
+          ["get", (id: string) => on.getOf(id, ids.C)],
           ["update", (id: string) => on.postings.updateForPayer(id, ids.C, update, P2A_CTX)],
           ["close", (id: string) => on.postings.closeForPayer(id, ids.C, P2A_CTX)],
           ["pause", (id: string) => on.postings.pauseForPayer(id, ids.C, P2A_CTX)],
@@ -832,15 +843,15 @@ describe.skipIf(!RUN)(
 
     describe("mode off — today's behaviour exactly: the teammate is their own tenant", () => {
       it("company postings: the teammate lists none of the anchor's postings, reads them as 404, and a create is stamped with the login", async () => {
-        const listB = (await off.postings.listForPayer(ids.B, {})).map((p) => p.id);
+        const listB = (await off.listOf(ids.B)).map((p) => p.id);
         expect(listB).not.toContain(PA);
         expect(listB).not.toContain(PL);
-        expect(await notFound(off.postings.getOneForPayer(PA, ids.B))).toEqual(
-          await notFound(off.postings.getOneForPayer(randomUUID(), ids.B)),
+        expect(await notFound(off.getOf(PA, ids.B))).toEqual(
+          await notFound(off.getOf(randomUUID(), ids.B)),
         );
         const created = await off.postings.createForPayer(ids.B, postingDto(), P2A_CTX);
         expect(created).toMatchObject({ payer_id: ids.B, created_by: ids.B });
-        expect((await off.postings.listForPayer(ids.A, {})).map((p) => p.id)).not.toContain(
+        expect((await off.listOf(ids.A)).map((p) => p.id)).not.toContain(
           created.id,
         );
       });
@@ -868,6 +879,367 @@ describe.skipIf(!RUN)(
         await notFound(off.stages.setStage(ids.B, PA, W1, "passed", P2A_CTX));
         // …while the anchor's own view is unchanged by the mode.
         expect((await off.inbox.list(ids.A, { limit: 50 }, P2A_CTX)).applicants).toHaveLength(1);
+      });
+    });
+  },
+);
+
+/**
+ * ADR-0053 P2c (PAY-DB-01) — T2 + T7 for plans, boosts, quota top-ups, capacity and coupons,
+ * AGAINST A REAL POSTGRES, in BOTH modes, through the payer routes' one seam
+ * (`PayerPostingPlansService`) and the real `PostingPlansService` / repository.
+ *
+ * Payers (each a real payer with the solo org signup founds; memberships seeded as an accept
+ * writes them):
+ *  - A anchors a team, B is A's active recruiter, C is an outsider;
+ *  - D anchors a second team, E is D's recruiter — the concurrency case's org, so its counts are
+ *    its own.
+ *
+ *  - `on`: a teammate's plan / boost / top-up / capacity on the org's posting is stamped with the
+ *    TENANT key and counted against the org's ONE allowance; every event's actor is the acting
+ *    login and its payload `payer_id` the org; an outsider gets the same 404 an unknown id gets;
+ *    a coupon's per-payer limit is per org (O-4); two members buying at once serialize on the
+ *    org's capacity lock.
+ *  - `off`: today's behaviour — the teammate is their own tenant.
+ *
+ * No money moves (PAYMENTS_ENABLE_REAL is off): each purchase writes its receipt row, nothing
+ * else. Fixtures carry no PII; everything is deleted afterwards.
+ */
+describe.skipIf(!RUN)(
+  "ADR-0053 P2c — plans, boosts, quota top-ups, capacity and coupons follow the TENANT (Postgres)",
+  () => {
+    const P2C_TAG = randomUUID().slice(0, 8);
+    const P2C_CTX: RequestContext = {
+      correlationId: randomUUID(),
+      requestId: `tenancy-p2c-${P2C_TAG}`,
+    };
+    /** Per-run coupons, so a redemption from another run can never count (codes are lowercase). */
+    const COUPON = `org_${P2C_TAG}`;
+    const COUPON_2 = `org2_${P2C_TAG}`;
+    const coupon = (code: string) => ({
+      code,
+      scope: { productCode: "job_posting" },
+      kind: "percent" as const,
+      value: 10,
+      from: "2026-01-01T00:00:00.000Z",
+      until: "2099-01-01T00:00:00.000Z",
+      totalUsageCap: 100,
+      perPayerLimit: 1,
+    });
+    const CATALOG = parseCatalog({
+      ...DEFAULT_CATALOG,
+      coupons: [coupon(COUPON), coupon(COUPON_2)],
+    });
+    let client!: DbClient;
+    const payerIds: string[] = [];
+    const ids = { A: "", B: "", C: "", D: "", E: "" };
+    /** PA, PB: A's postings. PC: C's. PD: D's four postings for the concurrency case. */
+    let PA = "";
+    let PB = "";
+    let PC = "";
+    const PD: string[] = [];
+
+    type Services = ReturnType<typeof servicesFor>;
+    let on!: Services;
+    let onEnforced!: Services;
+    let off!: Services;
+
+    function servicesFor(config: ServerConfig) {
+      const events = new EventsService(new EventsRepository(client.db), config);
+      const tenancy = new PayerTenantScopeService(config, new PayerOrgsRepository(client.db));
+      const postings = new JobPostingsService(
+        new JobPostingsRepository(client.db),
+        events,
+        {} as never, // AiService — no skill phrases, so canonicalization returns before any call
+        {} as never, // AiCostRecorder — likewise
+        {} as never, // AiTraceRecorder — likewise
+        { materialize: async () => undefined } as never, // a draft never materializes reach
+        {} as never, // MatchSkillsService — no match_skill_ids
+        tenancy,
+      );
+      const plans = new PostingPlansService(
+        new PostingPlansRepository(client.db),
+        events,
+        // The catalog is fixed here (the per-run coupon); pricing is not what this suite measures.
+        { getActiveCatalog: async () => ({ catalog: CATALOG, revision: 1, source: "db" }) } as never,
+        config,
+        // The boost supply gate is off (floor 0), so no reach count is read.
+        { get: async () => ({ ...DEFAULT_MATCH_CONFIG, boostSupplyFloor: 0 }) } as never,
+        {} as never, // WorkerSkillsRepository — unread with the gate off
+        tenancy,
+      );
+      const postingPlans = new PayerPostingPlansService(postings, plans, tenancy);
+      return { postings, plans, postingPlans };
+    }
+
+    async function signUp(label: string): Promise<string> {
+      const config = loadServerConfig({ NODE_ENV: "test" });
+      const repo = new PayersRepository(client.db, new PiiCryptoService(config));
+      const { id } = await repo.createOrGet({
+        role: "employer",
+        email: `tenancy-p2c-${label}-${P2C_TAG}@e2e.badabhai.invalid`,
+        orgName: `Tenancy P2c ${P2C_TAG}`,
+        phone: undefined,
+      });
+      await new PayerOrgsRepository(client.db).ensureSoloOrg(id);
+      await repo.activate(id);
+      payerIds.push(id);
+      return id;
+    }
+
+    /** What a successful accept writes: `member`, an active recruiter in `anchor`'s org. */
+    async function joinTeam(anchor: string, member: string): Promise<void> {
+      await client.sql`
+        INSERT INTO payer_members (org_id, member_payer_id, email_enc, email_hash, org_role, status,
+                                   invited_by, invited_at, accepted_at)
+        SELECT o.id, m.id, m.email_enc, m.email_hash, 'recruiter', 'active', ${anchor}::uuid, now(), now()
+        FROM payer_orgs o, payers m
+        WHERE o.root_payer_id = ${anchor}::uuid AND m.id = ${member}::uuid`;
+    }
+
+    const postingDto = () =>
+      PayerCreateJobPostingSchema.parse({
+        org_label: "Tenancy Org",
+        role_title: "CNC Turner",
+        vacancy_band: "1",
+      });
+
+    async function eventsOf(subjectId: string, eventName: string) {
+      return client.sql<{ actor_id: string; payload: Record<string, unknown> }[]>`
+        SELECT actor_id, payload FROM events
+        WHERE correlation_id = ${P2C_CTX.correlationId}::uuid
+          AND subject_id = ${subjectId} AND event_name = ${eventName}
+        ORDER BY occurred_at`;
+    }
+
+    async function plansOwnedBy(payerId: string) {
+      return client.sql<{ id: string; status: string; job_posting_id: string }[]>`
+        SELECT id, status, job_posting_id FROM posting_plans WHERE payer_id = ${payerId}::uuid`;
+    }
+
+    beforeAll(async () => {
+      // Enough connections for the concurrent buys: each holds one while it waits on the lock,
+      // and the post-commit emits take another.
+      client = createDbClient(DATABASE_URL, { max: 10 });
+      const base = { NODE_ENV: "test", UNLOCK_LATENCY_TARGET_MS: "0" };
+      on = servicesFor(loadServerConfig({ ...base, PAYER_ORG_TENANCY_MODE: "on" }));
+      off = servicesFor(loadServerConfig({ ...base, PAYER_ORG_TENANCY_MODE: "off" }));
+      // ADR-0016 enforcement ON with the default allowance of 1, for the concurrency case.
+      onEnforced = servicesFor(
+        loadServerConfig({
+          ...base,
+          PAYER_ORG_TENANCY_MODE: "on",
+          CAPACITY_ENFORCEMENT_ENABLED: "true",
+          CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "1",
+        }),
+      );
+
+      ids.A = await signUp("a");
+      ids.B = await signUp("b");
+      ids.C = await signUp("c");
+      ids.D = await signUp("d");
+      ids.E = await signUp("e");
+      await joinTeam(ids.A, ids.B);
+      await joinTeam(ids.D, ids.E);
+
+      // An anchor is its own tenant in BOTH modes (solo identity).
+      PA = (await off.postings.createForPayer(ids.A, postingDto(), P2C_CTX)).id;
+      PB = (await off.postings.createForPayer(ids.A, postingDto(), P2C_CTX)).id;
+      PC = (await off.postings.createForPayer(ids.C, postingDto(), P2C_CTX)).id;
+      for (let i = 0; i < 4; i += 1) {
+        PD.push((await off.postings.createForPayer(ids.D, postingDto(), P2C_CTX)).id);
+      }
+    }, 60_000);
+
+    afterAll(async () => {
+      if (!client) return;
+      const { sql } = client;
+      await sql`DELETE FROM posting_boosts WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM posting_plans WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payer_capacity WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM events WHERE correlation_id = ${P2C_CTX.correlationId}::uuid`;
+      await sql`DELETE FROM job_postings WHERE payer_id = ANY(${payerIds}::uuid[]) OR created_by = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payer_orgs WHERE root_payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payers WHERE id = ANY(${payerIds}::uuid[])`;
+      await sql.end({ timeout: 5 });
+    });
+
+    describe("mode on", () => {
+      it("plans: a teammate's plan on the org's posting is the ORG's row; the events name the teammate as actor, the org as payer", async () => {
+        const owned = await on.postingPlans.forOwnedPosting(PA, ids.B);
+        const { plan } = await owned.buyPlan({ tier: "standard" }, P2C_CTX);
+        const [row] = await client.sql<{ payer_id: string }[]>`
+          SELECT payer_id FROM posting_plans WHERE id = ${plan.id}::uuid`;
+        expect(row).toEqual({ payer_id: ids.A });
+        for (const name of ["payment.authorized", "payment.captured", "job_posting.purchased"]) {
+          const [evt] = await eventsOf(PA, name);
+          expect(evt, name).toMatchObject({ actor_id: ids.B, payload: { payer_id: ids.A } });
+        }
+        // The anchor's read of its posting carries the teammate's plan, and so does the teammate's.
+        for (const reader of [ids.A, ids.B]) {
+          const { stats } = await on.postingPlans.getOneWithStats(PA, reader);
+          expect(stats, reader).toMatchObject({ plan_tier: "standard", applicant_visibility_quota: 10 });
+        }
+        const listed = await on.postingPlans.listWithStats(ids.B, {});
+        expect(listed.find((r) => r.posting.id === PA)?.stats.plan_tier).toBe("standard");
+      });
+
+      it("quota top-up: the teammate tops up the ORG's plan — the anchor's plan row carries it", async () => {
+        const [plan] = await plansOwnedBy(ids.A);
+        const owned = await on.postingPlans.forOwnedPosting(PA, ids.B);
+        const { plan: topped } = await owned.topUpQuota({ tier: "topup_10" }, P2C_CTX);
+        expect(topped.id).toBe(plan!.id);
+        const [row] = await client.sql<{ quota_topup_count: number; payer_id: string }[]>`
+          SELECT quota_topup_count, payer_id FROM posting_plans WHERE id = ${plan!.id}::uuid`;
+        expect(row).toEqual({ quota_topup_count: 10, payer_id: ids.A });
+        const [evt] = await eventsOf(plan!.id, "posting_plan.quota_topped");
+        expect(evt).toMatchObject({ actor_id: ids.B, payload: { payer_id: ids.A } });
+        const { stats } = await on.postingPlans.getOneWithStats(PA, ids.A);
+        expect(stats.applicant_visibility_quota).toBe(20);
+      });
+
+      it("boosts: the teammate's boost is the ORG's receipt; job_posting.boosted names the teammate and the org", async () => {
+        const owned = await on.postingPlans.forOwnedPosting(PA, ids.B);
+        const { boost } = await owned.buyBoost({ tier: "boost_7" }, P2C_CTX);
+        const [row] = await client.sql<{ payer_id: string }[]>`
+          SELECT payer_id FROM posting_boosts WHERE id = ${boost.id}::uuid`;
+        expect(row).toEqual({ payer_id: ids.A });
+        const [evt] = await eventsOf(PA, "job_posting.boosted");
+        expect(evt).toMatchObject({ actor_id: ids.B, payload: { payer_id: ids.A } });
+        expect((await on.postingPlans.getOneWithStats(PA, ids.A)).stats.boosted).toBe(true);
+      });
+
+      it("an outsider gets the SAME 404 for the org's posting as for an unknown id, and writes nothing", async () => {
+        const responseOf = async (work: Promise<unknown>) => {
+          const err = await work.then(
+            () => new Error("expected a 404, the request resolved"),
+            (e: unknown) => e,
+          );
+          expect(err).toBeInstanceOf(NotFoundException);
+          return (err as NotFoundException).getResponse();
+        };
+        const foreign = await responseOf(on.postingPlans.forOwnedPosting(PA, ids.C));
+        const unknown = await responseOf(on.postingPlans.forOwnedPosting(randomUUID(), ids.C));
+        expect(foreign).toEqual(unknown);
+        expect(await responseOf(on.postingPlans.getOneWithStats(PA, ids.C))).toEqual(unknown);
+        const [written] = await client.sql<{ n: number }[]>`
+          SELECT (SELECT count(*) FROM posting_plans WHERE payer_id = ${ids.C}::uuid)
+               + (SELECT count(*) FROM posting_boosts WHERE payer_id = ${ids.C}::uuid) AS n`;
+        expect(Number(written!.n)).toBe(0);
+      });
+
+      it("capacity: the teammate's purchase raises the ORG's one allowance; both read it, with the org's live count; payer_id echoes each caller", async () => {
+        const bought = await on.plans.buyCapacity(ids.B, { tier: "cap_5" }, P2C_CTX);
+        expect(bought).toMatchObject({ payer_id: ids.B, max_active_vacancies: 5 });
+        const rows = await client.sql<{ payer_id: string; max_active_vacancies: number }[]>`
+          SELECT payer_id, max_active_vacancies FROM payer_capacity
+          WHERE payer_id = ANY(${[ids.A, ids.B]}::uuid[])`;
+        expect(rows).toEqual([{ payer_id: ids.A, max_active_vacancies: 5 }]);
+        const [evt] = await eventsOf(ids.A, "capacity.purchased");
+        expect(evt).toMatchObject({ actor_id: ids.B, payload: { payer_id: ids.A } });
+
+        const active = (await plansOwnedBy(ids.A)).filter((p) => p.status === "active").length;
+        expect(active).toBeGreaterThan(0);
+        for (const reader of [ids.A, ids.B]) {
+          expect(await on.plans.getCapacity(reader), reader).toMatchObject({
+            payer_id: reader,
+            max_active_vacancies: 5,
+            active_plan_count: active,
+            source_tier: "cap_5",
+          });
+        }
+      });
+
+      it("coupons (O-4): the per-payer limit is per ORG — once the anchor has redeemed, the teammate cannot; another org still can", async () => {
+        const buy = async (posting: string, actor: string, coupon: string) =>
+          (await on.postingPlans.forOwnedPosting(posting, actor)).buyPlan(
+            { tier: "standard", coupon },
+            P2C_CTX,
+          );
+        const viaA = await buy(PB, ids.A, COUPON);
+        expect(viaA.quote.couponApplied).toBe(COUPON);
+
+        // The teammate is the same org: its limit of 1 is spent, though the teammate never used it.
+        const viaB = await buy(PB, ids.B, COUPON);
+        expect(viaB.quote.couponApplied).toBeNull();
+        expect(viaB.quote.finalInr).toBe(1000);
+
+        // Another org is untouched by it.
+        const viaC = await buy(PC, ids.C, COUPON);
+        expect(viaC.quote.couponApplied).toBe(COUPON);
+      });
+
+      it("coupons (O-4): a teammate's redemption is stamped with the ORG (actor = the teammate), so it spends the anchor's limit too", async () => {
+        const buy = async (actor: string) =>
+          (await on.postingPlans.forOwnedPosting(PB, actor)).buyPlan(
+            { tier: "standard", coupon: COUPON_2 },
+            P2C_CTX,
+          );
+        expect((await buy(ids.B)).quote.couponApplied).toBe(COUPON_2);
+        const redeemed = await client.sql<{ actor_id: string; payload: Record<string, unknown> }[]>`
+          SELECT actor_id, payload FROM events
+          WHERE event_name = 'coupon.redeemed' AND payload ->> 'coupon_code' = ${COUPON_2}`;
+        expect(redeemed).toEqual([
+          expect.objectContaining({ actor_id: ids.B, payload: expect.objectContaining({ payer_id: ids.A }) }),
+        ]);
+        expect((await buy(ids.A)).quote.couponApplied).toBeNull();
+      });
+
+      it("concurrency: the anchor and a teammate buying at once serialize on the ORG's capacity lock — exactly the allowance goes active", async () => {
+        // D's org has no capacity row: the default allowance (1) applies; enforcement is ON.
+        const buyers = [ids.D, ids.E, ids.D, ids.E];
+        await Promise.all(
+          buyers.map(async (actor, i) =>
+            (await onEnforced.postingPlans.forOwnedPosting(PD[i]!, actor)).buyPlan(
+              { tier: "standard" },
+              P2C_CTX,
+            ),
+          ),
+        );
+        const plans = await plansOwnedBy(ids.D);
+        expect(plans).toHaveLength(4);
+        expect(plans.filter((p) => p.status === "active")).toHaveLength(1);
+        expect(plans.filter((p) => p.status === "paused")).toHaveLength(3);
+        expect(await plansOwnedBy(ids.E)).toEqual([]);
+      });
+    });
+
+    describe("mode off — today's behaviour exactly: the teammate is their own tenant", () => {
+      it("the purchase seam 404s the anchor's posting for the teammate, as today; the anchor buys as before", async () => {
+        await expect(off.postingPlans.forOwnedPosting(PA, ids.B)).rejects.toBeInstanceOf(
+          NotFoundException,
+        );
+        const owned = await off.postingPlans.forOwnedPosting(PB, ids.A);
+        const { plan } = await owned.buyPlan({ tier: "standard" }, P2C_CTX);
+        expect(plan.payerId).toBe(ids.A);
+      });
+
+      it("capacity and coupons are the teammate's own: their own allowance row, their own redemption count", async () => {
+        const bought = await off.plans.buyCapacity(ids.B, { tier: "cap_15" }, P2C_CTX);
+        expect(bought).toMatchObject({ payer_id: ids.B, max_active_vacancies: 15 });
+        const rows = await client.sql<{ payer_id: string; max_active_vacancies: number }[]>`
+          SELECT payer_id, max_active_vacancies FROM payer_capacity
+          WHERE payer_id = ANY(${[ids.A, ids.B]}::uuid[]) ORDER BY max_active_vacancies`;
+        expect(rows).toEqual([
+          { payer_id: ids.A, max_active_vacancies: 5 },
+          { payer_id: ids.B, max_active_vacancies: 15 },
+        ]);
+        expect(await off.plans.getCapacity(ids.B)).toMatchObject({
+          payer_id: ids.B,
+          max_active_vacancies: 15,
+          active_plan_count: 0,
+        });
+
+        // The org spent the coupon in `on`; off, the teammate's count is their own (zero).
+        const ownPosting = (await off.postings.createForPayer(ids.B, postingDto(), P2C_CTX)).id;
+        const own = await (await off.postingPlans.forOwnedPosting(ownPosting, ids.B)).buyPlan(
+          { tier: "standard", coupon: COUPON },
+          P2C_CTX,
+        );
+        expect(own.plan.payerId).toBe(ids.B);
+        expect(own.quote.couponApplied).toBe(COUPON);
+        const [evt] = await eventsOf(ids.B, "coupon.redeemed");
+        expect(evt).toMatchObject({ actor_id: ids.B, payload: { payer_id: ids.B } });
       });
     });
   },

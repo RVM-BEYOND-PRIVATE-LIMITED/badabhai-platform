@@ -18,6 +18,11 @@ import { BuyPlanSchema, BuyBoostSchema, type BuyPlanDto, type BuyBoostDto } from
  * (`POST /payer/job-postings/:id/plan` | `/boost`), where `payer_id` is the verified session
  * payer and the posting is ownership-checked (no-oracle 404). Do not build new payer surface on
  * these routes; they are internal/ops-run support only.
+ *
+ * ADR-0053 (PAY-DB-01 P2c, §5.2 rule 4): the body `payer_id` goes through the payer TENANT
+ * resolver inside `PostingPlansService.buyPlan` / `buyBoost`, exactly like a session payer — the
+ * purchase is that payer's tenant's, and the events name the payer as the acting login. With
+ * `PAYER_ORG_TENANCY_MODE=on` an id that names no payer is a neutral 403 (R4/R7).
  */
 @Controller("job-postings")
 @UseGuards(InternalServiceGuard)

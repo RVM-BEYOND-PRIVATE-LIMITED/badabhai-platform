@@ -34,41 +34,41 @@ const POSTING = "cccccccc-0000-4000-8000-000000000003";
 /** A request carrying no `Idempotency-Key` — the unguarded path every legacy client takes. */
 const NO_KEY = { header: () => undefined } as unknown as Request;
 
+/** A plan-less posting's honest stats. */
+const NO_STATS: PostingStats = {
+  plan_tier: null,
+  applicant_visibility_quota: null,
+  applicants_viewed_count: null,
+  boosted: false,
+};
+
+/** A posting row with its stats, as `PayerPostingPlansService`'s reads return it. */
+type Row = { posting: { id: string; role_title?: string }; stats: PostingStats };
+
 function makeCtrl() {
   const jobPostings = {
     createForPayer: vi.fn(async (_payerId: string, _dto: unknown, _ctx: unknown) => ({
       id: POSTING,
     })),
-    listForPayer: vi.fn(async () => []),
-    getOneForPayer: vi.fn(async () => ({ id: POSTING })),
     updateForPayer: vi.fn(async () => ({ id: POSTING })),
     closeForPayer: vi.fn(async () => ({ id: POSTING })),
     pauseForPayer: vi.fn(async () => ({ id: POSTING })),
     resumeForPayer: vi.fn(async () => ({ id: POSTING })),
   };
-  const plans = {
-    buyPlanForPayer: vi.fn(
-      async (_id: string, _payerId: string, _dto: unknown, _ctx: unknown) => ({
-        plan: { id: "plan-1" },
-      }),
-    ),
-    buyBoostForPayer: vi.fn(
-      async (_id: string, _payerId: string, _dto: unknown, _ctx: unknown) => ({
-        boost: { id: "boost-1" },
-      }),
-    ),
-    topUpQuotaForPayer: vi.fn(
-      async (_id: string, _payerId: string, _dto: unknown, _ctx: unknown) => ({
-        plan: { id: "plan-1", quotaTopupCount: 10 },
-      }),
-    ),
-    getPostingStats: vi.fn(
-      async (_id: string, _payerId: string): Promise<PostingStats> => ({
-        plan_tier: null,
-        applicant_visibility_quota: null,
-        applicants_viewed_count: null,
-        boosted: false,
-      }),
+  // ADR-0053 P2c — the paid actions the seam hands back, ALREADY bound to the scope the posting's
+  // ownership was checked in. Each takes only the DTO and the context: no id, no payer.
+  const owned = {
+    buyPlan: vi.fn(async (_dto: unknown, _ctx: unknown) => ({ plan: { id: "plan-1" } })),
+    buyBoost: vi.fn(async (_dto: unknown, _ctx: unknown) => ({ boost: { id: "boost-1" } })),
+    topUpQuota: vi.fn(async (_dto: unknown, _ctx: unknown) => ({
+      plan: { id: "plan-1", quotaTopupCount: 10 },
+    })),
+  };
+  const postingPlans = {
+    forOwnedPosting: vi.fn(async (_id: string, _payerId: string) => owned),
+    listWithStats: vi.fn(async (_payerId: string, _query: unknown): Promise<Row[]> => []),
+    getOneWithStats: vi.fn(
+      async (id: string, _payerId: string): Promise<Row> => ({ posting: { id }, stats: NO_STATS }),
     ),
   };
   const disclosures = {
@@ -81,18 +81,19 @@ function makeCtrl() {
   };
   const ctrl = new PayerJobPostingsController(
     jobPostings as never,
-    plans as never,
+    postingPlans as never,
     disclosures as never,
     idempotency as never,
   );
-  return { ctrl, jobPostings, plans, disclosures };
+  return { ctrl, jobPostings, postingPlans, owned, disclosures };
 }
 
 /**
  * XB-A at the payer posting boundary: every action is bound to the SESSION payer
  * (`req.payer.id`); the body/query never supplies a `payer_id` or `created_by`. Proves
  * a payer cannot create-for / read / mutate another payer's postings from the edge —
- * the owner-scoped reads/writes + no-oracle 404 are proven in job-postings.service.test.ts.
+ * the owner-scoped reads/writes + no-oracle 404 are proven in job-postings.service.test.ts
+ * and payer-posting-plans.service.test.ts.
  */
 describe("PayerJobPostingsController — identity from the session, never the body (ADR-0019 XB-A)", () => {
   let d: ReturnType<typeof makeCtrl>;
@@ -111,18 +112,14 @@ describe("PayerJobPostingsController — identity from the session, never the bo
 
   it("list scopes to the SESSION payer", async () => {
     await d.ctrl.list({ status: "open" }, PAYER_B);
-    expect(d.jobPostings.listForPayer).toHaveBeenCalledWith(PAYER_B.id, { status: "open" });
-    expect(d.jobPostings.listForPayer).not.toHaveBeenCalledWith(PAYER_A.id, expect.anything());
+    expect(d.postingPlans.listWithStats).toHaveBeenCalledWith(PAYER_B.id, { status: "open" });
+    expect(d.postingPlans.listWithStats).not.toHaveBeenCalledWith(PAYER_A.id, expect.anything());
   });
 
-  it("getOne forwards the SESSION payer as the ownership key", async () => {
+  it("getOne reads the posting AND its stats through one seam call keyed on the SESSION payer", async () => {
     await d.ctrl.getOne(POSTING, PAYER_A);
-    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
-  });
-
-  it("getOne resolves stats with the SESSION payer id (not the body/route)", async () => {
-    await d.ctrl.getOne(POSTING, PAYER_A);
-    expect(d.plans.getPostingStats).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(d.postingPlans.getOneWithStats).toHaveBeenCalledTimes(1);
+    expect(d.postingPlans.getOneWithStats).toHaveBeenCalledWith(POSTING, PAYER_A.id);
   });
 
   it("update forwards the SESSION payer as the ownership key", async () => {
@@ -148,10 +145,10 @@ describe("PayerJobPostingsController — identity from the session, never the bo
 });
 
 /**
- * The My-jobs card shows HONEST per-posting stats: the list/getOne responses are
- * enriched with the active-plan quota + used + boosted flag (getPostingStats),
- * resolved per row against the SESSION payer's OWN plans. A plan-less posting
- * carries nulls/false — never a fabricated number.
+ * The My-jobs card shows HONEST per-posting stats: the list/getOne responses carry the
+ * active-plan quota + used + boosted flag the seam read with the posting (one tenant
+ * resolution per request, ADR-0053 P2c). A plan-less posting carries nulls/false — never a
+ * fabricated number.
  */
 describe("PayerJobPostingsController — postings enriched with honest per-posting stats", () => {
   let d: ReturnType<typeof makeCtrl>;
@@ -159,26 +156,19 @@ describe("PayerJobPostingsController — postings enriched with honest per-posti
     d = makeCtrl();
   });
 
-  it("list merges each posting's stats, keyed on the SESSION payer", async () => {
-    d.jobPostings.listForPayer.mockResolvedValueOnce([
-      { id: "p1", role_title: "CNC Operator" },
-      { id: "p2", role_title: "Fitter" },
-    ] as never);
-    d.plans.getPostingStats.mockImplementation(async (id: string) =>
-      id === "p1"
-        ? {
-            plan_tier: "pro",
-            applicant_visibility_quota: 40,
-            applicants_viewed_count: 12,
-            boosted: true,
-          }
-        : {
-            plan_tier: null,
-            applicant_visibility_quota: null,
-            applicants_viewed_count: null,
-            boosted: false,
-          },
-    );
+  it("list merges each posting's stats and résumé count, keyed on the SESSION payer", async () => {
+    d.postingPlans.listWithStats.mockResolvedValueOnce([
+      {
+        posting: { id: "p1", role_title: "CNC Operator" },
+        stats: {
+          plan_tier: "pro",
+          applicant_visibility_quota: 40,
+          applicants_viewed_count: 12,
+          boosted: true,
+        },
+      },
+      { posting: { id: "p2", role_title: "Fitter" }, stats: NO_STATS },
+    ]);
 
     d.disclosures.countDisclosuresForPosting.mockImplementation(async (id: string) =>
       id === "p1" ? 5 : 0,
@@ -186,8 +176,7 @@ describe("PayerJobPostingsController — postings enriched with honest per-posti
 
     const result = await d.ctrl.list({}, PAYER_A);
 
-    expect(d.plans.getPostingStats).toHaveBeenCalledWith("p1", PAYER_A.id);
-    expect(d.plans.getPostingStats).toHaveBeenCalledWith("p2", PAYER_A.id);
+    expect(d.postingPlans.listWithStats).toHaveBeenCalledTimes(1);
     expect(d.disclosures.countDisclosuresForPosting).toHaveBeenCalledWith("p1", PAYER_A.id);
     expect(result[0]).toMatchObject({
       id: "p1",
@@ -208,15 +197,14 @@ describe("PayerJobPostingsController — postings enriched with honest per-posti
   });
 
   it("getOne merges the posting's stats into the response", async () => {
-    d.jobPostings.getOneForPayer.mockResolvedValueOnce({
-      id: POSTING,
-      role_title: "VMC Operator",
-    } as never);
-    d.plans.getPostingStats.mockResolvedValueOnce({
-      plan_tier: "standard",
-      applicant_visibility_quota: 20,
-      applicants_viewed_count: 3,
-      boosted: false,
+    d.postingPlans.getOneWithStats.mockResolvedValueOnce({
+      posting: { id: POSTING, role_title: "VMC Operator" },
+      stats: {
+        plan_tier: "standard",
+        applicant_visibility_quota: 20,
+        applicants_viewed_count: 3,
+        boosted: false,
+      },
     });
     d.disclosures.countDisclosuresForPosting.mockResolvedValueOnce(3);
 
@@ -232,13 +220,20 @@ describe("PayerJobPostingsController — postings enriched with honest per-posti
       disclosures_count: 3,
     });
   });
+
+  it("getOne on an unknown OR foreign posting (the seam's 404) counts no résumés", async () => {
+    d.postingPlans.getOneWithStats.mockRejectedValueOnce(new Error("Job posting not found"));
+    await expect(d.ctrl.getOne(POSTING, PAYER_A)).rejects.toThrow("Job posting not found");
+    expect(d.disclosures.countDisclosuresForPosting).not.toHaveBeenCalled();
+  });
 });
 
 /**
- * B3 / LC-1: the payer-authed money routes (buy-plan / buy-boost). The `payer_id` is the
- * SESSION payer (never the body), and OWNERSHIP is asserted via `getOneForPayer` BEFORE any
- * purchase. Proves a payer can only buy against their OWN posting and can never inject another
- * payer's id — the IDOR guarantee the ops routes lacked.
+ * B3 / LC-1: the payer-authed money routes (buy-plan / buy-boost). The scope is the SESSION
+ * payer's (never the body), and OWNERSHIP is asserted via the seam's `forOwnedPosting` BEFORE
+ * any purchase. ADR-0053 P2c: the purchase is the handle that check returned, so it runs in the
+ * SAME tenant scope — the controller never passes an id or a payer to it. Proves a payer can only
+ * buy against their tenant's posting and can never inject another payer's id.
  */
 describe("PayerJobPostingsController — buy plan/boost is session-scoped + ownership-gated (B3/LC-1)", () => {
   let d: ReturnType<typeof makeCtrl>;
@@ -246,45 +241,46 @@ describe("PayerJobPostingsController — buy plan/boost is session-scoped + owne
     d = makeCtrl();
   });
 
-  it("buyPlan checks ownership FIRST, then buys with the SESSION payer id (no body payer_id)", async () => {
+  it("buyPlan checks ownership FIRST, then buys through the handle that check returned", async () => {
     const dto = { tier: "standard" as const };
     await d.ctrl.buyPlan(POSTING, dto, PAYER_A, NO_KEY, CTX);
-    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
-    expect(d.plans.buyPlanForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, dto, CTX);
-    // The service is only reached AFTER the ownership read resolves.
-    expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
-      d.plans.buyPlanForPayer.mock.invocationCallOrder[0]!,
+    expect(d.postingPlans.forOwnedPosting).toHaveBeenCalledTimes(1);
+    expect(d.postingPlans.forOwnedPosting).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(d.owned.buyPlan).toHaveBeenCalledWith(dto, CTX);
+    // The purchase is only reached AFTER the ownership read resolves.
+    expect(d.postingPlans.forOwnedPosting.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.owned.buyPlan.mock.invocationCallOrder[0]!,
     );
     // No payer_id is ever forwarded from the controller (it isn't in the payer DTO).
-    expect(d.plans.buyPlanForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
+    expect(d.owned.buyPlan.mock.calls[0]![0]).not.toHaveProperty("payer_id");
   });
 
-  it("buyBoost checks ownership FIRST, then buys with the SESSION payer id", async () => {
+  it("buyBoost checks ownership FIRST, then buys through the handle that check returned", async () => {
     const dto = { tier: "all_candidates" as const };
     await d.ctrl.buyBoost(POSTING, dto, PAYER_B, NO_KEY, CTX);
-    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id);
-    expect(d.plans.buyBoostForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, dto, CTX);
-    expect(d.plans.buyBoostForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
+    expect(d.postingPlans.forOwnedPosting).toHaveBeenCalledWith(POSTING, PAYER_B.id);
+    expect(d.owned.buyBoost).toHaveBeenCalledWith(dto, CTX);
+    expect(d.owned.buyBoost.mock.calls[0]![0]).not.toHaveProperty("payer_id");
   });
 
   it("buyPlan on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
-    d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    d.postingPlans.forOwnedPosting.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(d.ctrl.buyPlan(POSTING, { tier: "pro" }, PAYER_A, NO_KEY, CTX)).rejects.toThrow();
-    expect(d.plans.buyPlanForPayer).not.toHaveBeenCalled();
+    expect(d.owned.buyPlan).not.toHaveBeenCalled();
   });
 
   it("buyBoost on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
-    d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    d.postingPlans.forOwnedPosting.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(
       d.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, PAYER_A, NO_KEY, CTX),
     ).rejects.toThrow();
-    expect(d.plans.buyBoostForPayer).not.toHaveBeenCalled();
+    expect(d.owned.buyBoost).not.toHaveBeenCalled();
   });
 });
 
 /**
- * B2: quota top-up is session-scoped + ownership-gated. The `payer_id` is the SESSION payer
- * (never the body), and posting OWNERSHIP is asserted via `getOneForPayer` BEFORE the paid
+ * B2: quota top-up is session-scoped + ownership-gated. The scope is the SESSION payer's
+ * (never the body), and posting OWNERSHIP is asserted via `forOwnedPosting` BEFORE the paid
  * top-up — an unknown/foreign posting can never reach the money path.
  */
 describe("PayerJobPostingsController — quota top-up is session-scoped + ownership-gated (B2)", () => {
@@ -293,21 +289,21 @@ describe("PayerJobPostingsController — quota top-up is session-scoped + owners
     d = makeCtrl();
   });
 
-  it("checks ownership FIRST, then tops up with the SESSION payer id (no body payer_id)", async () => {
+  it("checks ownership FIRST, then tops up through the handle that check returned", async () => {
     const dto = { tier: "topup_10" as const };
     await d.ctrl.topUpQuota(POSTING, dto, PAYER_A, NO_KEY, CTX);
-    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
-    expect(d.plans.topUpQuotaForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, dto, CTX);
-    expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
-      d.plans.topUpQuotaForPayer.mock.invocationCallOrder[0]!,
+    expect(d.postingPlans.forOwnedPosting).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(d.owned.topUpQuota).toHaveBeenCalledWith(dto, CTX);
+    expect(d.postingPlans.forOwnedPosting.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.owned.topUpQuota.mock.invocationCallOrder[0]!,
     );
-    expect(d.plans.topUpQuotaForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
+    expect(d.owned.topUpQuota.mock.calls[0]![0]).not.toHaveProperty("payer_id");
   });
 
   it("on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
-    d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    d.postingPlans.forOwnedPosting.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(d.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_A, NO_KEY, CTX)).rejects.toThrow();
-    expect(d.plans.topUpQuotaForPayer).not.toHaveBeenCalled();
+    expect(d.owned.topUpQuota).not.toHaveBeenCalled();
   });
 });
 
@@ -345,17 +341,17 @@ describe("#2085 — one confirmed tap is one quota top-up", () => {
     // Each charge stamps a DISTINGUISHABLE running total, as the real atomic increment does, so
     // "second equals first" can only come from a replay — never from two identical charges.
     let charges = 0;
-    d.plans.topUpQuotaForPayer.mockImplementation(async () => {
+    d.owned.topUpQuota.mockImplementation(async () => {
       charges += 1;
       return { plan: { id: "plan-1", quotaTopupCount: 10 * charges } };
     });
     const ctrl = new PayerJobPostingsController(
       d.jobPostings as never,
-      d.plans as never,
+      d.postingPlans as never,
       d.disclosures as never,
       seam,
     );
-    return { ctrl, topUp: d.plans.topUpQuotaForPayer, jobPostings: d.jobPostings, store };
+    return { ctrl, topUp: d.owned.topUpQuota, postingPlans: d.postingPlans, store };
   }
 
   const TOPUP = { tier: "topup_10" };
@@ -439,7 +435,7 @@ describe("#2085 — one confirmed tap is one quota top-up", () => {
   });
 
   it("uses its OWN scope, never the raw header, and checks ownership before reserving", async () => {
-    const { ctrl, store, jobPostings, topUp } = ctrlWithRealSeam();
+    const { ctrl, store, postingPlans, topUp } = ctrlWithRealSeam();
     const raw = "raw-header-2085";
     await ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey(raw), CTX);
     const keys = [...store.keys()];
@@ -449,7 +445,7 @@ describe("#2085 — one confirmed tap is one quota top-up", () => {
     expect(keys[0]).not.toMatch(/capacity_purchase|credits_purchase/);
 
     // A foreign/unknown posting is a neutral 404 BEFORE any reservation or charge.
-    jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    postingPlans.forOwnedPosting.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(
       ctrl.topUpQuota(POSTING, TOPUP, PAYER_B, withKey("foreign"), CTX),
     ).rejects.toThrow();
@@ -487,25 +483,25 @@ function postingCtrlWithRealSeam() {
   const d = makeCtrl();
   // Distinguishable per-charge results, so "second equals first" can only be a replay.
   let charges = 0;
-  d.plans.buyPlanForPayer.mockImplementation(async () => {
+  d.owned.buyPlan.mockImplementation(async () => {
     charges += 1;
     return { plan: { id: `plan-${charges}` } };
   });
-  d.plans.buyBoostForPayer.mockImplementation(async () => {
+  d.owned.buyBoost.mockImplementation(async () => {
     charges += 1;
     return { boost: { id: `boost-${charges}` } };
   });
   const ctrl = new PayerJobPostingsController(
     d.jobPostings as never,
-    d.plans as never,
+    d.postingPlans as never,
     d.disclosures as never,
     seam,
   );
-  return { ctrl, plans: d.plans, jobPostings: d.jobPostings, store };
+  return { ctrl, owned: d.owned, postingPlans: d.postingPlans, store };
 }
 
 type SeamCtx = ReturnType<typeof postingCtrlWithRealSeam>;
-type ChargeMock = SeamCtx["plans"]["buyPlanForPayer"] | SeamCtx["plans"]["buyBoostForPayer"];
+type ChargeMock = SeamCtx["owned"]["buyPlan"] | SeamCtx["owned"]["buyBoost"];
 
 const keyed = (key: string): Request =>
   ({
@@ -523,13 +519,13 @@ const PLAN_ROUTE: PaidRoute = {
   name: "plan",
   scope: "plan_purchase",
   call: (c, payer, req) => c.ctrl.buyPlan(POSTING, { tier: "standard" }, payer, req, CTX),
-  charge: (c) => c.plans.buyPlanForPayer,
+  charge: (c) => c.owned.buyPlan,
 };
 const BOOST_ROUTE: PaidRoute = {
   name: "boost",
   scope: "boost_purchase",
   call: (c, payer, req) => c.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, payer, req, CTX),
-  charge: (c) => c.plans.buyBoostForPayer,
+  charge: (c) => c.owned.buyBoost,
 };
 
 describe.each([PLAN_ROUTE, BOOST_ROUTE])("#2103 — one confirmed tap is one $name purchase", (route) => {
@@ -593,7 +589,7 @@ describe.each([PLAN_ROUTE, BOOST_ROUTE])("#2103 — one confirmed tap is one $na
     expect(keys[0]).not.toContain(raw);
 
     // A foreign/unknown posting is a neutral 404 BEFORE any reservation or charge.
-    c.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    c.postingPlans.forOwnedPosting.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(route.call(c, PAYER_B, keyed("foreign"))).rejects.toThrow();
     expect(c.store.size).toBe(1);
     expect(route.charge(c)).toHaveBeenCalledTimes(1);
@@ -605,8 +601,8 @@ describe("#2103 — plan and boost never share a dedupe bucket", () => {
     const c = postingCtrlWithRealSeam();
     await PLAN_ROUTE.call(c, PAYER_B, keyed("one-key"));
     const boost = await BOOST_ROUTE.call(c, PAYER_B, keyed("one-key"));
-    expect(c.plans.buyPlanForPayer).toHaveBeenCalledTimes(1);
-    expect(c.plans.buyBoostForPayer).toHaveBeenCalledTimes(1);
+    expect(c.owned.buyPlan).toHaveBeenCalledTimes(1);
+    expect(c.owned.buyBoost).toHaveBeenCalledTimes(1);
     expect(boost).toHaveProperty("boost");
   });
 });
@@ -619,13 +615,13 @@ describe("#2103 — a replayed price_mismatch 409 carries the IDENTICAL structur
   }[] = [
     {
       name: "plan",
-      charge: (c) => c.plans.buyPlanForPayer as ReturnType<typeof vi.fn>,
+      charge: (c) => c.owned.buyPlan as ReturnType<typeof vi.fn>,
       call: (c, req) =>
         c.ctrl.buyPlan(POSTING, { tier: "standard", expected_price_inr: 1 }, PAYER_B, req, CTX),
     },
     {
       name: "boost",
-      charge: (c) => c.plans.buyBoostForPayer as ReturnType<typeof vi.fn>,
+      charge: (c) => c.owned.buyBoost as ReturnType<typeof vi.fn>,
       call: (c, req) =>
         c.ctrl.buyBoost(
           POSTING,
@@ -637,7 +633,7 @@ describe("#2103 — a replayed price_mismatch 409 carries the IDENTICAL structur
     },
     {
       name: "quota-topup",
-      charge: (c) => c.plans.topUpQuotaForPayer as ReturnType<typeof vi.fn>,
+      charge: (c) => c.owned.topUpQuota as ReturnType<typeof vi.fn>,
       call: (c, req) =>
         c.ctrl.topUpQuota(POSTING, { tier: "topup_10", expected_price_inr: 1 }, PAYER_B, req, CTX),
     },
@@ -682,21 +678,21 @@ describe("#2111 — the in-flight 409 says reason in_flight, message unchanged",
       name: "plan",
       message:
         "This plan purchase is already being processed; check the posting before trying again",
-      charge: (c) => c.plans.buyPlanForPayer as ReturnType<typeof vi.fn>,
+      charge: (c) => c.owned.buyPlan as ReturnType<typeof vi.fn>,
       call: (c, req) => c.ctrl.buyPlan(POSTING, { tier: "standard" }, PAYER_B, req, CTX),
     },
     {
       name: "boost",
       message:
         "This boost purchase is already being processed; check the posting before trying again",
-      charge: (c) => c.plans.buyBoostForPayer as ReturnType<typeof vi.fn>,
+      charge: (c) => c.owned.buyBoost as ReturnType<typeof vi.fn>,
       call: (c, req) => c.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, PAYER_B, req, CTX),
     },
     {
       name: "quota-topup",
       message:
         "This quota top-up is already being processed; check the posting before trying again",
-      charge: (c) => c.plans.topUpQuotaForPayer as ReturnType<typeof vi.fn>,
+      charge: (c) => c.owned.topUpQuota as ReturnType<typeof vi.fn>,
       call: (c, req) => c.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_B, req, CTX),
     },
   ];
@@ -730,7 +726,7 @@ describe("#2111 — quota top-up: no active plan is 409 reason no_active_plan, r
   it("the first answer and its replay under the same key carry the same reason and message", async () => {
     const c = postingCtrlWithRealSeam();
     // The REAL helper the service throws, so the body under test is what production sends.
-    c.plans.topUpQuotaForPayer.mockImplementationOnce(async () => {
+    c.owned.topUpQuota.mockImplementationOnce(async () => {
       throw noActivePlanToTopUp();
     });
     const first = await caught(
@@ -739,7 +735,7 @@ describe("#2111 — quota top-up: no active plan is 409 reason no_active_plan, r
     const replay = await caught(
       c.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_B, keyed("tap-np"), CTX),
     );
-    expect(c.plans.topUpQuotaForPayer).toHaveBeenCalledTimes(1);
+    expect(c.owned.topUpQuota).toHaveBeenCalledTimes(1);
     expect(renderedError(first)).toStrictEqual({
       statusCode: 409,
       error: "Conflict",

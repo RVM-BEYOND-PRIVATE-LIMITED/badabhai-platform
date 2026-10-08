@@ -1,6 +1,17 @@
+import type { WorkerConsent } from "@badabhai/db";
 import type { ConsentPurpose } from "@badabhai/types";
 
-import type { ConsentRepository } from "./consent.repository";
+/**
+ * What the rule reads: the worker's LATEST consent row, of which only `revokedAt` and `purposes`
+ * matter. `ConsentRepository` satisfies it with its full row; a reader that must not pull the other
+ * columns (the free-chat probe, ADR-0051 §10 R36) satisfies it with
+ * `ConsentRepository.findLatestStateByWorker`.
+ */
+export interface LatestConsentReader {
+  findLatestByWorker(
+    workerId: string,
+  ): Promise<Pick<WorkerConsent, "revokedAt" | "purposes"> | undefined>;
+}
 
 /**
  * Does this worker hold an ACTIVE consent right now — optionally one that names `purpose`?
@@ -16,7 +27,7 @@ import type { ConsentRepository } from "./consent.repository";
  * purpose, or a read that throws — every one of them is "no".
  */
 export async function hasActiveConsent(
-  consents: Pick<ConsentRepository, "findLatestByWorker"> | undefined,
+  consents: LatestConsentReader | undefined,
   workerId: string,
   purpose?: ConsentPurpose,
 ): Promise<boolean> {

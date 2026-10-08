@@ -31,6 +31,24 @@ export class ConsentRepository {
   }
 
   /**
+   * {@link findLatestByWorker}'s row with ONLY the two columns the consent rule reads — `purposes`
+   * and `revokedAt` — selected the same way (latest by `acceptedAt`). For a reader that must not pull
+   * the row's other columns (`ip_hash`, `user_agent`): the free-chat probe (ADR-0051 §10 R36), which
+   * hands it to `hasActiveConsent` through a `LatestConsentReader`.
+   */
+  async findLatestStateByWorker(
+    workerId: string,
+  ): Promise<Pick<WorkerConsent, "purposes" | "revokedAt"> | undefined> {
+    const rows = await this.db
+      .select({ purposes: workerConsents.purposes, revokedAt: workerConsents.revokedAt })
+      .from(workerConsents)
+      .where(eq(workerConsents.workerId, workerId))
+      .orderBy(desc(workerConsents.acceptedAt))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
    * Stamp `revokedAt` on the worker's latest consent row (append-only — the row
    * is never deleted). A re-consent inserts a fresh row, so this is a single-
    * touch invalidation of the CURRENT latest row only.

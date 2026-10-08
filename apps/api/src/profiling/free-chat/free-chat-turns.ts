@@ -571,7 +571,8 @@ export class FreeChatTurns {
   /**
    * A casual or career message (ADR-0051 §3.2, rules 6-7): the model's reply through the
    * deterministic gate, its refusal as reviewed copy, or the fallback line. The "Resume banayein"
-   * chip is always attached, and every third casual reply carries the nudge (R9).
+   * chip is always attached, and every third casual reply carries the nudge (R9) — except the reply
+   * right after a résumé offer (#2172, see {@link followsResumeOffer}).
    */
   private async serveReply(
     t: FreeChatTurn,
@@ -621,7 +622,14 @@ export class FreeChatTurns {
       );
     }
     const casualReplies = state.casualReplies + (category === "casual" ? 1 : 0);
-    const nudge = category === "casual" && casualReplies % FREE_CHAT_NUDGE_EVERY === 0;
+    // NEVER RIGHT AFTER AN OFFER (#2172): the classifier reads a "nahi" to the offer as `casual`
+    // (R38's lines), so a due nudge here would answer the worker's no with the same question. The
+    // count still moves and the nudge is not re-owed: the next one rides the next multiple, as if
+    // the counter had been reset — so a run with no offer in it keeps the cadence exactly.
+    const nudge =
+      category === "casual" &&
+      casualReplies % FREE_CHAT_NUDGE_EVERY === 0 &&
+      !followsResumeOffer(t.envelope);
     const lines = nudge
       ? [...screened.answer.lines, FREE_CHAT_COPY.CASUAL_NUDGE.latin]
       : [...screened.answer.lines];
@@ -997,6 +1005,29 @@ const RESUME_OPTION = chipOption(FREE_CHAT_RESUME_KEY, FREE_CHAT_RESUME_LABEL);
 const RESUME_CHIPS: readonly QuestionPackOption[] = [RESUME_OPTION];
 /** The persona's chip ceiling: the model's follow-ups plus "Resume banayein". */
 const FREE_CHAT_MAX_CHIPS = 4;
+
+/**
+ * The lines on which Bada Bhai OFFERS to make the résumé — ADR-0051 R38's list: JOBS, CASUAL_NUDGE
+ * and NEWS_CAP. The fourth case R38 names, "a reply ending with that offer", is a casual reply with
+ * the nudge appended, which {@link followsResumeOffer} reads by its last line.
+ */
+const RESUME_OFFER_LINES: ReadonlySet<string> = new Set([
+  FREE_CHAT_COPY.JOBS.latin,
+  FREE_CHAT_COPY.CASUAL_NUDGE.latin,
+  FREE_CHAT_COPY.NEWS_CAP.latin,
+]);
+
+/**
+ * Did the bot's previous reply END on a résumé offer (#2172)? Read off `lastTurn.reply`, which every
+ * aside stamps verbatim — a fixed line is served alone, and the nudge is always the last of a
+ * reply's `\n`-joined lines — so no new envelope field is needed. No `lastTurn` reads as no offer:
+ * today's behaviour.
+ */
+function followsResumeOffer(envelope: ProfilingEnvelope): boolean {
+  const reply = envelope.lastTurn?.reply;
+  if (reply === undefined) return false;
+  return RESUME_OFFER_LINES.has(reply.slice(reply.lastIndexOf("\n") + 1));
+}
 
 /**
  * The model's follow-up chips, then "Resume banayein". KEYED `fcq_a`, `fcq_b`… through

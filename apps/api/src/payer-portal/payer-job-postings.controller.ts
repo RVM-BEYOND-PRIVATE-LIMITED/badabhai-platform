@@ -19,9 +19,10 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerRoleGuard, PayerRoles } from "../payers/payer-role.guard";
 import { JobPostingsService } from "../job-postings/job-postings.service";
-import { PostingPlansService, type PostingStats } from "../posting-plans/posting-plans.service";
+import type { PostingStats } from "../posting-plans/posting-plans.service";
 import { ResumeDisclosureService } from "../disclosures/resume-disclosure.service";
 import type { JobPostingApi } from "../job-postings/job-postings.repository";
+import { PayerPostingPlansService, type PostingWithStats } from "./payer-posting-plans.service";
 
 /** The enriched shape of one posting on the payer surface: the row + its honest
  * per-posting stats (active-plan quota/used + boost) + the résumés-downloaded count. */
@@ -62,8 +63,10 @@ import {
  * neutral 404 (no-oracle horizontal authz).
  *
  * Mock payments + staging-only (PAYMENTS_ENABLE_REAL=false): posting itself is free-
- * through-launch. The paid actions (buy-plan / buy-boost, B3) reuse {@link PostingPlansService}
- * UNCHANGED (mock pay, real_call honest) — they are the payer-authed, session-scoped
+ * through-launch. The paid actions (buy-plan / buy-boost / quota top-up, B3) reuse
+ * `PostingPlansService` through {@link PayerPostingPlansService}, the ONE seam that resolves the
+ * session payer's tenancy once and both checks ownership and purchases in that scope (ADR-0053
+ * P2c) — mock pay, real_call honest. They are the payer-authed, session-scoped
  * REPLACEMENT for the ops {@link import("../posting-plans/posting-plans.controller").PostingPlansController}
  * routes, closing LC-1 for the plan/boost money surface (the `payer_id` is the verified
  * session payer, never a body value — XB-A, so a payer can never buy under another payer's id
@@ -82,20 +85,21 @@ import {
 export class PayerJobPostingsController {
   constructor(
     private readonly jobPostings: JobPostingsService,
-    private readonly plans: PostingPlansService,
+    // ADR-0053 P2c — the posting reads with their plan stats, and the three paid routes.
+    private readonly postingPlans: PayerPostingPlansService,
     private readonly disclosures: ResumeDisclosureService,
     private readonly idempotency: RequestIdempotency,
   ) {}
 
-  /** Merge a posting with its honest per-posting stats + résumés-downloaded count. */
+  /**
+   * Merge a posting (and the stats its tenant-scoped read already carries) with its
+   * résumés-downloaded count.
+   */
   private async enrich(
-    posting: JobPostingApi,
+    { posting, stats }: PostingWithStats,
     payerId: string,
   ): Promise<PayerJobPostingView> {
-    const [stats, disclosuresCount] = await Promise.all([
-      this.plans.getPostingStats(posting.id, payerId),
-      this.disclosures.countDisclosuresForPosting(posting.id, payerId),
-    ]);
+    const disclosuresCount = await this.disclosures.countDisclosuresForPosting(posting.id, payerId);
     return { ...posting, ...stats, disclosures_count: disclosuresCount };
   }
 
@@ -116,16 +120,16 @@ export class PayerJobPostingsController {
    * row is enriched with its HONEST per-posting stats (active-plan quota + used,
    * boosted flag) so the "My jobs" card shows real numbers instead of zeros — a
    * draft/plan-less posting simply carries nulls/false (never a fabricated count).
-   * Stats are resolved per row against the payer's own plans (already payer-scoped),
-   * so no cross-tenant data can leak.
+   * Stats are read per row with the tenant key the list itself used (one resolution per
+   * request, ADR-0053 §5.4), so no cross-tenant data can leak.
    */
   @Get()
   async list(
     @Query(new ZodValidationPipe(ListJobPostingsQuerySchema)) query: ListJobPostingsQueryDto,
     @CurrentPayer() payer: AuthenticatedPayer,
   ): Promise<PayerJobPostingView[]> {
-    const postings = await this.jobPostings.listForPayer(payer.id, query);
-    return Promise.all(postings.map((p) => this.enrich(p, payer.id)));
+    const rows = await this.postingPlans.listWithStats(payer.id, query);
+    return Promise.all(rows.map((row) => this.enrich(row, payer.id)));
   }
 
   /** Get one of the caller's OWN postings; no-oracle 404 for unknown OR foreign id. */
@@ -134,8 +138,7 @@ export class PayerJobPostingsController {
     @Param("id", new ParseUUIDPipe()) id: string,
     @CurrentPayer() payer: AuthenticatedPayer,
   ): Promise<PayerJobPostingView> {
-    const posting = await this.jobPostings.getOneForPayer(id, payer.id);
-    return this.enrich(posting, payer.id);
+    return this.enrich(await this.postingPlans.getOneWithStats(id, payer.id), payer.id);
   }
 
   /** Edit and/or publish (draft -> open) one of the caller's OWN postings. */
@@ -189,11 +192,12 @@ export class PayerJobPostingsController {
 
   /**
    * Buy a paid plan for one of the caller's OWN postings (B3 / LC-1 fix; ADR-0013 Decision B).
-   * OWNERSHIP is asserted FIRST via the no-oracle `getOneForPayer` — an unknown OR another
-   * payer's posting returns the SAME neutral 404, so this route can never be turned into an
-   * IDOR oracle nor buy a plan against a foreign posting. The `payer_id` is the SESSION payer
-   * (XB-A) — never a body value. Delegates to {@link PostingPlansService.buyPlanForPayer} (the
-   * mock-pay + capacity chokepoint + spine events, reused unchanged). 201 on purchase.
+   * OWNERSHIP is asserted FIRST via the no-oracle {@link PayerPostingPlansService.forOwnedPosting}
+   * — an unknown OR another tenant's posting returns the SAME neutral 404, so this route can
+   * never be turned into an IDOR oracle nor buy a plan against a foreign posting. The scope is
+   * the SESSION payer's (XB-A) — never a body value — resolved ONCE: the purchase runs in the
+   * very scope the ownership check passed in (ADR-0053 P2c), through the mock-pay + capacity
+   * chokepoint + spine events of `PostingPlansService`. 201 on purchase.
    *
    * IDEMPOTENT UNDER `Idempotency-Key` (#2103), configured exactly like quota top-up (#2085):
    * its own scope, keyed by the session payer, the same window, a 409 to a duplicate that lands
@@ -212,20 +216,22 @@ export class PayerJobPostingsController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
-    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    // One resolution: ownership checked (no-oracle 404, unknown OR foreign) and the purchase
+    // bound to the same tenant scope.
+    const owned = await this.postingPlans.forOwnedPosting(id, payer.id);
     return this.runPurchaseOnce(
       "plan_purchase",
       payer,
       req,
       "This plan purchase is already being processed; check the posting before trying again",
-      () => this.plans.buyPlanForPayer(id, payer.id, dto, ctx),
+      () => owned.buyPlan(dto, ctx),
     );
   }
 
   /**
    * Buy a booster for one of the caller's OWN postings (B3 / LC-1 fix; ADR-0013 Decision B).
-   * Same ownership-first no-oracle 404 + session `payer_id` (XB-A) as {@link buyPlan}. Delegates
-   * to {@link PostingPlansService.buyBoostForPayer} (reused unchanged; B-R3 no overlapping boost).
+   * Same ownership-first no-oracle 404 + session scope (XB-A), resolved once, as {@link buyPlan}
+   * (B-R3: no overlapping boost).
    *
    * IDEMPOTENT UNDER `Idempotency-Key` (#2103) for consistency with plan / quota top-up, under
    * its OWN scope. B-R3 already refuses a second boost while one is active; the key additionally
@@ -241,22 +247,23 @@ export class PayerJobPostingsController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
-    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    const owned = await this.postingPlans.forOwnedPosting(id, payer.id); // no-oracle 404
     return this.runPurchaseOnce(
       "boost_purchase",
       payer,
       req,
       "This boost purchase is already being processed; check the posting before trying again",
-      () => this.plans.buyBoostForPayer(id, payer.id, dto, ctx),
+      () => owned.buyBoost(dto, ctx),
     );
   }
 
   /**
    * Top up applicant-visibility quota on the caller's OWN active plan for this posting (B2 —
    * "view more → pay more"). OWNERSHIP of the posting is asserted FIRST via the no-oracle
-   * `getOneForPayer` (unknown OR foreign posting → the SAME neutral 404), and the plan lookup
-   * inside {@link PostingPlansService.topUpQuotaForPayer} is itself payer-scoped, so a payer
-   * can only top up their own plan. The `payer_id` is the SESSION payer (XB-A) — never a body
+   * {@link PayerPostingPlansService.forOwnedPosting} (unknown OR foreign posting → the SAME
+   * neutral 404), and the plan lookup inside the top-up is itself tenant-scoped IN THE SAME
+   * SCOPE, so a payer can only top up their tenant's plan. The scope is the SESSION payer's
+   * (XB-A), resolved once (ADR-0053 P2c) — never a body
    * value. Priced through the pricing engine + mock-paid. 201 on top-up; 409 if the posting has
    * no active plan to top up. Each 409 carries a machine-readable `reason` (#2111):
    * `no_active_plan`, `in_flight` (a duplicate under the same key, below) or `price_mismatch`.
@@ -281,13 +288,13 @@ export class PayerJobPostingsController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
-    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    const owned = await this.postingPlans.forOwnedPosting(id, payer.id); // no-oracle 404
     return this.runPurchaseOnce(
       "quota_topup_purchase",
       payer,
       req,
       "This quota top-up is already being processed; check the posting before trying again",
-      () => this.plans.topUpQuotaForPayer(id, payer.id, dto, ctx),
+      () => owned.topUpQuota(dto, ctx),
     );
   }
 

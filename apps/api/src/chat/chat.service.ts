@@ -9,6 +9,7 @@ import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { type KnownNameSource, onceRetrying } from "../common/redact-known-name";
+import { decryptWorkerName, type WorkerNameRead } from "../common/worker-name-read";
 import { ProfilesService } from "../profiles/profiles.service";
 import {
   ProfilingOrchestrator,
@@ -2594,20 +2595,20 @@ export class ChatService {
     };
   }
 
-  /** One read of `workers.full_name`: the name, nothing on file, or a decrypt that failed. */
+  /**
+   * One read of `workers.full_name`: the name, nothing on file, or a decrypt that failed. The
+   * decision is the shared `decryptWorkerName` (also the free-chat probe's); this adds the warning.
+   */
   private async readWorkerName(workerId: string): Promise<WorkerNameRead> {
     const worker = await this.workers.findById(workerId);
-    if (!worker?.fullName) return { ok: true, name: null };
-    try {
-      // full_name is encrypted at rest (TD21) — decrypt here, never log the value.
-      return { ok: true, name: this.pii.decrypt(worker.fullName) };
-    } catch {
+    const read = decryptWorkerName(worker?.fullName, this.pii);
+    if (!read.ok) {
       this.logger.warn(
         `could not decrypt full_name for worker ${workerId}; ` +
           `reply stays name-less, the outbound turn is not name-redacted, and no news search is made`,
       );
-      return { ok: false };
     }
+    return read;
   }
 
   /**
@@ -2762,9 +2763,6 @@ export class ChatService {
     }
   }
 }
-
-/** What one read of the worker's own name found (ADR-0054, security M1). */
-type WorkerNameRead = { readonly ok: true; readonly name: string | null } | { readonly ok: false };
 
 /** The two views of one name read — see `ChatService.workerNameSources`. */
 interface WorkerNameSources {

@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PricingModule } from "../pricing/pricing.module";
+import { PayersModule } from "../payers/payers.module";
 import { PostingPlansController } from "./posting-plans.controller";
 import { PostingPlansService } from "./posting-plans.service";
 import { PostingPlansRepository } from "./posting-plans.repository";
@@ -16,9 +17,13 @@ import { PostingPlansRepository } from "./posting-plans.repository";
  * the repo, its Flutter capacity-purchase UI was already removed, and it duplicated the
  * live payer-self route below. `PostingPlansService.buyCapacity` is unchanged and still
  * exported for that route.
+ *
+ * ADR-0053 (PAY-DB-01 P2c) — `PayersModule` is imported for `PayerTenantScopeService`, the tenant
+ * resolver `PostingPlansService` injects (every entry point resolves its caller once). One-
+ * directional: `PayersModule` imports nothing that reaches back here.
  */
 @Module({
-  imports: [PricingModule],
+  imports: [PricingModule, PayersModule],
   controllers: [PostingPlansController],
   providers: [PostingPlansService, PostingPlansRepository],
   // Export ONLY the service so the payer-portal route group (ADR-0019) can reuse the exact

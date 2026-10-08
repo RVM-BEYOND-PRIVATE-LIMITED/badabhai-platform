@@ -180,7 +180,7 @@
     and the ladder. There is nothing to repair; do not write tombstones by hand.
   - **Turning it off.** Set `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS=0` and redeploy. This stops new writes
     and makes the reader ignore keys already written; they expire by TTL.
-- **`revokeAll` fails open (risks-register R67, pre-existing).** If Redis errors while sessions are being revoked,
+- **`revokeAll` fails open (risks-register R69, pre-existing).** If Redis errors while sessions are being revoked,
   `revokeAll` logs `logout-all Redis error` and returns 0. The erasure then continues and records
   `sessions_revoked: 0`. Any `refresh:<hash>` record it failed to delete survives for up to `AUTH_REFRESH_TTL_DAYS`
   (90d), still carrying the opaque `worker_id`/`device_id`. Nobody can re-authenticate with it: every authed path
