@@ -20,7 +20,7 @@ import { PayerAccountService } from "./payer-account.service";
 import { PayerMeSchema, PayerUpdateSchema, type PayerUpdateDto } from "./payer-account.dto";
 import type { EventsService } from "../events/events.service";
 import type { PayerContact, PayersRepository } from "./payers.repository";
-import type { PayerOrgsRepository } from "./payer-orgs.repository";
+import type { PayerTenantScopeService } from "./payer-tenant-scope.service";
 
 /** A no-op EventsService stub for the read-only PROF-1 describes (no event is emitted there). */
 function noopEvents(): EventsService {
@@ -43,7 +43,7 @@ function makeOrgs(
     orgRole: "owner",
   }),
 ) {
-  return { resolveOrgForPayer: vi.fn(resolve) } as unknown as PayerOrgsRepository;
+  return { resolveActingOrg: vi.fn(resolve) } as unknown as PayerTenantScopeService;
 }
 
 /**
@@ -323,7 +323,7 @@ describe("PayerAccountController — own contact on GET /payer/me (PROF-1)", () 
 describe("PayerAccountController — org role on GET /payer/me (#2079)", () => {
   const SELF: AuthenticatedPayer = { id: PAYER_A, sid: "sid", role: "employer" };
 
-  function controllerWithOrgs(orgs: PayerOrgsRepository) {
+  function controllerWithOrgs(orgs: PayerTenantScopeService) {
     const { repo } = makeRepo();
     return new PayerAccountController(new PayerAccountService(repo, noopEvents(), orgs));
   }
@@ -333,7 +333,7 @@ describe("PayerAccountController — org role on GET /payer/me (#2079)", () => {
     const me = await controllerWithOrgs(orgs).me(SELF);
     expect(me).toMatchObject({ orgId: ORG_ID, orgRole: "owner" });
     // Resolved for the GUARD principal only.
-    expect(orgs.resolveOrgForPayer).toHaveBeenCalledExactlyOnceWith(PAYER_A);
+    expect(orgs.resolveActingOrg).toHaveBeenCalledExactlyOnceWith(PAYER_A);
   });
 
   it("a RECRUITER reads orgRole:'recruiter'", async () => {

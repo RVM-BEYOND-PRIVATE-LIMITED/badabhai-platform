@@ -47,10 +47,13 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     verify: vi.fn(async () => undefined),
   };
   const orgs = {
-    // Default: the payer already has an org (backfilled / prior signup) so login does NOT
-    // re-ensure. Tests override resolveOrgForPayer→null to exercise the gap-payer repair.
     ensureSoloOrg: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
-    resolveOrgForPayer: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
+  };
+  // ADR-0053 — the acting-org choice. Default: the payer already has an org (backfilled /
+  // prior signup) so login does NOT re-ensure. Tests override resolveActingOrg→null to
+  // exercise the gap-payer repair.
+  const tenancy = {
+    resolveActingOrg: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
   };
   const sessions = {
     create: vi.fn(async () => ({ token: "jwt-token", expiresInSeconds: 2592000 })),
@@ -76,8 +79,9 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     pii as never,
     // ADR-0036 §8 — the free-tier grant. `grantQuietly` is contractually never-throwing.
     freeTier as never,
+    tenancy as never,
   );
-  return { svc, payers, orgs, otp, sessions, events, freeTier };
+  return { svc, payers, orgs, tenancy, otp, sessions, events, freeTier };
 }
 
 /** Every string the raw contact PII could be — must NEVER appear in an emitted event. */
@@ -313,15 +317,15 @@ describe("PayerAuthService.verifyLogin", () => {
   });
 
   it("does NOT re-ensure the org when the payer already has one (cheap common path)", async () => {
-    const d = setup(); // resolveOrgForPayer defaults to an existing org
+    const d = setup(); // resolveActingOrg defaults to an existing org
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
-    expect(d.orgs.resolveOrgForPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(d.tenancy.resolveActingOrg).toHaveBeenCalledWith(PAYER_ID);
     expect(d.orgs.ensureSoloOrg).not.toHaveBeenCalled();
   });
 
   it("repairs a gap payer (no org yet) by ensuring the solo org on first login (B5.1→B5.2 gap)", async () => {
     const d = setup();
-    d.orgs.resolveOrgForPayer.mockResolvedValueOnce(null as never); // created before B5.2 shipped
+    d.tenancy.resolveActingOrg.mockResolvedValueOnce(null as never); // created before B5.2 shipped
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     expect(d.orgs.ensureSoloOrg).toHaveBeenCalledWith(PAYER_ID);
     // Still mints the session normally — carrying the freshly-ensured solo-org OWNER claim.
@@ -333,7 +337,7 @@ describe("PayerAuthService.verifyLogin", () => {
 
   it("#2079: a RECRUITER member's session carries org_role 'recruiter' (decided server-side)", async () => {
     const d = setup();
-    d.orgs.resolveOrgForPayer.mockResolvedValueOnce({ orgId: "org-9", orgRole: "recruiter" } as never);
+    d.tenancy.resolveActingOrg.mockResolvedValueOnce({ orgId: "org-9", orgRole: "recruiter" } as never);
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
       orgId: "org-9",
@@ -348,7 +352,7 @@ describe("PayerAuthService.refresh + logout", () => {
     const d = setup();
     const res = await d.svc.refresh(PAYER_ID, "sid-1");
     // #2079: the org claim is RE-DECIDED from the current membership (not copied from the token).
-    expect(d.orgs.resolveOrgForPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(d.tenancy.resolveActingOrg).toHaveBeenCalledWith(PAYER_ID);
     expect(d.sessions.mint).toHaveBeenCalledWith(PAYER_ID, "sid-1", undefined, {
       orgId: "org-1",
       orgRole: "owner",
@@ -358,7 +362,7 @@ describe("PayerAuthService.refresh + logout", () => {
 
   it("#2079: refresh after a DEMOTION carries 'recruiter', not the old 'owner'", async () => {
     const d = setup();
-    d.orgs.resolveOrgForPayer.mockResolvedValueOnce({ orgId: "org-1", orgRole: "recruiter" } as never);
+    d.tenancy.resolveActingOrg.mockResolvedValueOnce({ orgId: "org-1", orgRole: "recruiter" } as never);
     await d.svc.refresh(PAYER_ID, "sid-1");
     expect(d.sessions.mint).toHaveBeenCalledWith(PAYER_ID, "sid-1", undefined, {
       orgId: "org-1",
@@ -368,11 +372,11 @@ describe("PayerAuthService.refresh + logout", () => {
 
   it("#2079: refresh for a REMOVED member (no membership) or a resolve error omits the claim", async () => {
     const d = setup();
-    d.orgs.resolveOrgForPayer.mockResolvedValueOnce(null as never);
+    d.tenancy.resolveActingOrg.mockResolvedValueOnce(null as never);
     await d.svc.refresh(PAYER_ID, "sid-1");
     expect(d.sessions.mint).toHaveBeenLastCalledWith(PAYER_ID, "sid-1", undefined, undefined);
 
-    d.orgs.resolveOrgForPayer.mockRejectedValueOnce(new Error("pg blip"));
+    d.tenancy.resolveActingOrg.mockRejectedValueOnce(new Error("pg blip"));
     await expect(d.svc.refresh(PAYER_ID, "sid-1")).resolves.toMatchObject({ access_token: "fresh-jwt" });
     expect(d.sessions.mint).toHaveBeenLastCalledWith(PAYER_ID, "sid-1", undefined, undefined);
   });

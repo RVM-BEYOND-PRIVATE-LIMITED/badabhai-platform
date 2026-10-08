@@ -17,14 +17,14 @@ function ctxWith(payer: unknown) {
 
 function make(opts: { allowed?: string[]; org?: { orgId: string; orgRole: string } | null; resolveThrows?: boolean }) {
   const reflector = { getAllAndOverride: vi.fn(() => opts.allowed) };
-  const orgs = {
-    resolveOrgForPayer: vi.fn(async () => {
+  const tenancy = {
+    resolveActingOrg: vi.fn(async () => {
       if (opts.resolveThrows) throw new Error("db down");
       return opts.org === undefined ? { orgId: "org-1", orgRole: "owner" } : opts.org;
     }),
   };
-  const guard = new PayerOrgRoleGuard(reflector as never, orgs as never);
-  return { guard, orgs };
+  const guard = new PayerOrgRoleGuard(reflector as never, tenancy as never);
+  return { guard, tenancy };
 }
 
 describe("PayerOrgRoleGuard — org resolution + RBAC (ADR-0027 / B5.3)", () => {
@@ -33,7 +33,7 @@ describe("PayerOrgRoleGuard — org resolution + RBAC (ADR-0027 / B5.3)", () => 
     const { context, req } = ctxWith({ id: PAYER });
     await expect(d.guard.canActivate(context)).resolves.toBe(true);
     expect(req.payerOrg).toEqual({ orgId: "org-1", orgRole: "recruiter" });
-    expect(d.orgs.resolveOrgForPayer).toHaveBeenCalledWith(PAYER);
+    expect(d.tenancy.resolveActingOrg).toHaveBeenCalledWith(PAYER);
   });
 
   it("allows an owner on an @OrgRoles('owner') route", async () => {

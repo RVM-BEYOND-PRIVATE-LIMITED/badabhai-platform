@@ -7,6 +7,7 @@ import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { PayersRepository } from "./payers.repository";
 import { PayerOrgsRepository } from "./payer-orgs.repository";
+import { PayerTenantScopeService } from "./payer-tenant-scope.service";
 import { PayerSessionService } from "./payer-session.service";
 import { PayerAuthGuard } from "./payer-auth.guard";
 import { PayerRoleGuard } from "./payer-role.guard";
@@ -29,6 +30,11 @@ import { PayerAccountController } from "./payer-account.controller";
  * the upcoming agency controllers pair with `PayerAuthGuard` to gate agent-only routes
  * (`@UseGuards(PayerAuthGuard, PayerRoleGuard)` + `@PayerRoles("agent")`). It is NOT applied
  * to any existing route here (additive, no regression). `Reflector` is provided by Nest core.
+ *
+ * ADR-0053 (PAY-DB-01): provides AND exports `PayerTenantScopeService`, the payer tenant
+ * resolver. Exported because `PayerAuthGuard` and `PayerOrgRoleGuard` inject it, and a guard is
+ * instantiated in the module of the controller that mounts it — every such module imports this
+ * one, and resolves the guard's dependencies from its exports (`payers.module.boot.test.ts`).
  */
 @Module({
   imports: [
@@ -52,6 +58,7 @@ import { PayerAccountController } from "./payer-account.controller";
     PayerRoleGuard,
     PayerOrgRoleGuard,
     PayerAccountService,
+    PayerTenantScopeService,
   ],
   exports: [
     PayersRepository,
@@ -60,6 +67,7 @@ import { PayerAccountController } from "./payer-account.controller";
     PayerAuthGuard,
     PayerRoleGuard,
     PayerOrgRoleGuard,
+    PayerTenantScopeService,
   ],
 })
 export class PayersModule {}

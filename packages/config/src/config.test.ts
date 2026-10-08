@@ -834,6 +834,21 @@ describe("loadServerConfig", () => {
     ).toBe(true);
   });
 
+  it("PAYER_ORG_TENANCY_MODE (ADR-0053) is 'off' when unset or empty, and refuses anything but off/shadow/on", () => {
+    // Off is the pre-ADR behaviour: the tenant key is the login. An empty value must read as
+    // unset rather than stop the api booting (a `${VAR-}` pass-through or a box `export VAR=`).
+    const mode = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { PAYER_ORG_TENANCY_MODE: value })
+        .PAYER_ORG_TENANCY_MODE;
+    expect(mode()).toBe("off");
+    expect(mode("")).toBe("off");
+    for (const value of ["off", "shadow", "on"] as const) expect(mode(value)).toBe(value);
+    // Case and boolean spellings are refused, not coerced: a typo must not arm the switch.
+    for (const bad of ["ON", "true", "1", "enabled", " on"]) {
+      expect(() => loadServerConfig({ PAYER_ORG_TENANCY_MODE: bad }), bad).toThrow();
+    }
+  });
+
   it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
     // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old
     // value only so a bare local boot validates; the refinement keeps a redirect off plain http.

@@ -20,6 +20,7 @@ import { PayersRepository } from "../payers/payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { resolveSessionOrgClaim } from "../payers/payer-session-org-claim";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
 import { FreeTierService } from "../match/free-tier.service";
 import type {
@@ -62,6 +63,8 @@ export class PayerAuthService {
     private readonly pii: PiiCryptoService,
     // ADR-0036 §8 — the free-tier credit grant. MatchModule is @Global.
     private readonly freeTier: FreeTierService,
+    // ADR-0053 — the ONE acting-org choice (session claim + login), shared with the guards.
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   private get method(): PayerLoginMethodEnum {
@@ -285,7 +288,7 @@ export class PayerAuthService {
    * a refresh after a demotion/removal drops the stale `owner` hint.
    */
   async refresh(payerId: string, sid: string): Promise<PayerRefreshResponse> {
-    const org = await resolveSessionOrgClaim(this.orgs, payerId);
+    const org = await resolveSessionOrgClaim(this.tenancy, payerId);
     const fresh = await this.sessions.mint(payerId, sid, undefined, org);
     return {
       access_token: fresh.token,
@@ -302,17 +305,17 @@ export class PayerAuthService {
   // ---------------------------------------------------------------------------
 
   /**
-   * The payer's CURRENT active membership, repairing a gap payer (no org yet) with their solo
-   * org first. The membership is RE-READ after the repair rather than trusting
-   * `ensureSoloOrg`'s return: its owner-member insert is `ON CONFLICT DO NOTHING`, so the
-   * row it would report may not be the row that exists. Returns `undefined` (→ no session
-   * org claim, least privilege) if no active membership resolves even then.
+   * The payer's CURRENT acting org (ADR-0053 §3.2 — the choice the guards share), repairing a
+   * gap payer (no org yet) with their solo org first. The org is RE-RESOLVED after the repair
+   * rather than trusting `ensureSoloOrg`'s return: its owner-member insert is `ON CONFLICT DO
+   * NOTHING`, so the row it would report may not be the row that exists. Returns `undefined`
+   * (→ no session org claim, least privilege) if no acting org resolves even then.
    */
   private async resolveOrEnsureOrg(payerId: string): Promise<ResolvedOrg | undefined> {
-    const existing = await this.orgs.resolveOrgForPayer(payerId);
+    const existing = await this.tenancy.resolveActingOrg(payerId);
     if (existing) return existing;
     await this.orgs.ensureSoloOrg(payerId);
-    return (await this.orgs.resolveOrgForPayer(payerId)) ?? undefined;
+    return (await this.tenancy.resolveActingOrg(payerId)) ?? undefined;
   }
 
   /**
