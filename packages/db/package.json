@@ -73,6 +73,8 @@
     "db:seed:e4-fixture": "tsx src/seed-e4-reach-fixture.ts",
     "db:seed:demo-matching": "tsx src/seed-demo-matching.ts",
     "db:unseed:demo-matching": "tsx src/seed-demo-matching.ts --unseed",
+    "db:seed:synthetic-workforce": "tsx src/seed-synthetic-workforce.ts",
+    "db:unseed:synthetic-workforce": "tsx src/seed-synthetic-workforce.ts --unseed",
     "db:grant:free-tier": "tsx src/grant-free-tier.ts",
     "db:bootstrap:admin": "tsx src/bootstrap-admin.ts",
     "db:admin:reset-mfa": "tsx src/reset-admin-mfa.ts",
