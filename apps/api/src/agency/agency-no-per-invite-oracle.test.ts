@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
 import { AgencyService } from "./agency.service";
 import { AgencyInvitesController } from "./agency-invites.controller";
 import { AgencyWorkersController } from "./agency-workers.controller";
@@ -82,6 +83,7 @@ describe("AgencyInvitesController exposes NO per-invite readback (C10)", () => {
       {} as never,
       { emit } as never,
       {} as never,
+      defaultModeResolver(),
     );
     const res = await svc.createInviteBatch(PAYER_A, 3, {}, {
       correlationId: "c",
@@ -114,6 +116,7 @@ describe("referralsSummary stays AGGREGATE-ONLY with the k-anon floor (C10)", ()
       {} as never,
       { emit: vi.fn() } as never,
       {} as never,
+      defaultModeResolver(),
     );
     const summary = await svc.referralsSummary(PAYER_A);
 

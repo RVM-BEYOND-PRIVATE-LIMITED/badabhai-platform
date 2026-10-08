@@ -15,6 +15,8 @@ import { PayerApplicantsService } from "./payer-applicants.service";
 import { PayerApplicantInboxRepository } from "./payer-applicant-inbox.repository";
 import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
 import { stagesOff } from "./payer-applicant-stages.test-support";
+import type { PayerTenantScope } from "../payers/payer-tenant-scope";
+import { defaultModeResolver, ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 import { decodeInboxCursor } from "./payer-applicant-inbox.cursor";
 import type { InboxApplicantRowDto } from "./payer-applicant-inbox.dto";
 
@@ -270,22 +272,32 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
     const candidates = new MatchCandidatesService(new MatchFeedRepository(client.db), {
       get: async () => DEFAULT_MATCH_CONFIG,
     } as never);
-    // The per-posting route's own ownership seam for a posting, reduced to its WHERE.
+    // The per-posting route's own ownership seam for a posting, reduced to its WHERE (on the
+    // scope's TENANT key, ADR-0053).
     const jobPostings = {
-      getOneForPayer: async (postingId: string, payerId: string) => {
+      getOneInScope: async (postingId: string, scope: PayerTenantScope) => {
         const rows = await client.sql`
-          SELECT id FROM job_postings WHERE id = ${postingId}::uuid AND payer_id = ${payerId}::uuid`;
+          SELECT id FROM job_postings WHERE id = ${postingId}::uuid AND payer_id = ${scope.tenantKey}::uuid`;
         if (rows.length === 0) throw new NotFoundException("Job posting not found");
         return rows[0];
       },
     };
+    // ADR-0053 — the default mode (off): every payer is their own tenant.
+    const tenancy = defaultModeResolver();
     // Flag OFF (the default) — the flag-ON walk is payer-applicant-stages.db.test.ts.
-    perPosting = new PayerApplicantsService(reach, jobPostings as never, candidates, stagesOff());
+    perPosting = new PayerApplicantsService(
+      reach,
+      jobPostings as never,
+      candidates,
+      stagesOff(),
+      tenancy,
+    );
     inbox = new PayerApplicantInboxService(
       new PayerApplicantInboxRepository(client.db),
       reach,
       candidates,
       { PAYER_APPLICANT_STAGES_ENABLED: false },
+      tenancy,
     );
     await seed(client);
   }, 60_000);
@@ -427,15 +439,16 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
     const matchRepo = new MatchFeedRepository(client.db);
     const reachRepo = new ReachRepository(client.db);
     const floor = DEFAULT_MATCH_CONFIG.tierFloorMonths;
+    const [keyA, keyB] = [await ownTenantKey(PAYER_A), await ownTenantKey(PAYER_B)];
     expect(
-      await matchRepo.listRankedCandidatesByApplication(PAYER_A, [POST_B], [APP.a15!], floor),
+      await matchRepo.listRankedCandidatesByApplication(keyA, [POST_B], [APP.a15!], floor),
     ).toEqual([]);
-    expect(await reachRepo.findOwnedJobSignalRowsByIds([JOB_B], PAYER_A)).toEqual([]);
+    expect(await reachRepo.findOwnedJobSignalRowsByIds([JOB_B], keyA)).toEqual([]);
     // CONTROL: the owner gets them.
     expect(
-      await matchRepo.listRankedCandidatesByApplication(PAYER_B, [POST_B], [APP.a15!], floor),
+      await matchRepo.listRankedCandidatesByApplication(keyB, [POST_B], [APP.a15!], floor),
     ).toHaveLength(1);
-    expect(await reachRepo.findOwnedJobSignalRowsByIds([JOB_B], PAYER_B)).toHaveLength(1);
+    expect(await reachRepo.findOwnedJobSignalRowsByIds([JOB_B], keyB)).toHaveLength(1);
   });
 
   it("events: one validated feed.shown per AGENCY row shown, payer actor; none for company rows", async () => {

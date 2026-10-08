@@ -15,6 +15,7 @@ import type {
   TradeFormKindName,
 } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
  * API response shape for a job posting — snake_case keys, matching the
@@ -199,6 +200,14 @@ export type JobPostingUpdate = Partial<
   >
 > & { updatedAt: Date };
 
+/**
+ * A posting insert (ADR-0053 §5.2 rule 3, hand-converted: the Drizzle `NewJobPosting` types
+ * `payer_id` as a plain string, which the T5 scan cannot see). The OWNER is the resolved tenant
+ * key on a payer create, or NULL on an ops create (and a twin, which only its sync writes);
+ * never a raw id. `created_by` stays the acting login (or the ops actor).
+ */
+export type NewTenantJobPosting = Omit<NewJobPosting, "payerId"> & { payerId: TenantKey | null };
+
 export { toJobPostingApi, type JobPostingApi };
 
 @Injectable()
@@ -219,7 +228,7 @@ export class JobPostingsRepository {
    * Insert one posting. `executor` is the caller's transaction when the row must commit with
    * something else (its created event, #1928); it defaults to the injected db.
    */
-  async create(input: NewJobPosting, executor: Database = this.db): Promise<JobPostingApi> {
+  async create(input: NewTenantJobPosting, executor: Database = this.db): Promise<JobPostingApi> {
     const inserted = await executor.insert(jobPostings).values(input).returning();
     const row = inserted[0];
     if (!row) throw new Error("Failed to create job posting");
@@ -282,33 +291,34 @@ export class JobPostingsRepository {
   // ---------------------------------------------------------------------------
   // PAYER self-serve scope (ADR-0019 / ADR-0022 module 9). Every read/write is
   // guarded on `payer_id` IN THE QUERY, so tenancy is enforced at the data layer
-  // (XB-A horizontal authz), not just the service. `payer_id` is the SESSION payer
-  // the controller passes — never a body/route value.
+  // (XB-A horizontal authz), not just the service. The key is the TENANT KEY the
+  // service resolved (ADR-0053 §5.2): the session payer with tenancy off, the acting
+  // org's anchor with it on — never a body/route value (only the resolver mints one).
   // ---------------------------------------------------------------------------
 
   /**
    * Owner-scoped read (NO-ORACLE, F-3): the row ONLY if it exists AND belongs to
-   * `payerId`. A not-found id and another payer's id BOTH resolve to `undefined`, so
+   * `tenant`. A not-found id and another tenant's id BOTH resolve to `undefined`, so
    * the service maps both to the SAME neutral 404 (a payer cannot probe foreign ids).
    */
-  async findByIdAndPayer(id: string, payerId: string): Promise<JobPostingApi | undefined> {
+  async findByIdAndPayer(id: string, tenant: TenantKey): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .select()
       .from(jobPostings)
-      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, tenant)))
       .limit(1);
     return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 
-  /** A payer's OWN postings newest first, optionally filtered by status. */
+  /** A tenant's OWN postings newest first, optionally filtered by status. */
   async listByPayer(
-    payerId: string,
+    tenant: TenantKey,
     status?: JobPostingStatus,
     limit = 100,
   ): Promise<JobPostingApi[]> {
     const where = status
-      ? and(eq(jobPostings.payerId, payerId), eq(jobPostings.status, status))
-      : eq(jobPostings.payerId, payerId);
+      ? and(eq(jobPostings.payerId, tenant), eq(jobPostings.status, status))
+      : eq(jobPostings.payerId, tenant);
     const rows = await this.db
       .select()
       .from(jobPostings)
@@ -325,13 +335,13 @@ export class JobPostingsRepository {
    */
   async updateOwned(
     id: string,
-    payerId: string,
+    tenant: TenantKey,
     patch: JobPostingUpdate,
   ): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .update(jobPostings)
       .set(patch)
-      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, tenant)))
       .returning();
     return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
@@ -343,7 +353,7 @@ export class JobPostingsRepository {
    */
   async closeOwned(
     id: string,
-    payerId: string,
+    tenant: TenantKey,
     previousStatus: "draft" | "open",
     closedAt: Date,
   ): Promise<JobPostingApi | undefined> {
@@ -353,7 +363,7 @@ export class JobPostingsRepository {
       .where(
         and(
           eq(jobPostings.id, id),
-          eq(jobPostings.payerId, payerId),
+          eq(jobPostings.payerId, tenant),
           eq(jobPostings.status, previousStatus),
         ),
       )
@@ -369,7 +379,7 @@ export class JobPostingsRepository {
    */
   async transitionOwned(
     id: string,
-    payerId: string,
+    tenant: TenantKey,
     fromStatus: JobPostingStatus,
     toStatus: JobPostingStatus,
   ): Promise<JobPostingApi | undefined> {
@@ -379,7 +389,7 @@ export class JobPostingsRepository {
       .where(
         and(
           eq(jobPostings.id, id),
-          eq(jobPostings.payerId, payerId),
+          eq(jobPostings.payerId, tenant),
           eq(jobPostings.status, fromStatus),
         ),
       )

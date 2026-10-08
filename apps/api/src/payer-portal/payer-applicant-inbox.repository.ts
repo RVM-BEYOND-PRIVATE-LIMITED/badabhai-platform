@@ -3,6 +3,7 @@ import { sql as dsql, type SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import type { ApplicantStage } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { InboxCursor } from "./payer-applicant-inbox.cursor";
 import type { InboxPostingKind } from "./payer-applicant-inbox.dto";
 
@@ -43,15 +44,16 @@ export interface InboxPageQuery {
  * THE INBOX PAGE (`GET /payer/reach/applicants`) — one statement, both sources, newest first.
  *
  * ```sql
- * (agency arm)  jobs j ⋈ applications a ON a.job_id = j.id                 WHERE j.payer_id = :payer
+ * (agency)  jobs j ⋈ applications a ON a.job_id = j.id                 WHERE j.payer_id = :tenant
  * UNION ALL
- * (company arm) job_postings jp ⋈ applications a ON a.job_posting_id = jp.id WHERE jp.payer_id = :payer
+ * (company) job_postings jp ⋈ applications a ON a.job_posting_id = jp.id WHERE jp.payer_id = :tenant
  * ORDER BY created_at DESC, application_id DESC   LIMIT :limit
  * ```
  *
- * OWNERSHIP is the two WHEREs on the SESSION payer, the same two predicates
- * `PayerApplicantsService.listForOwned` resolves an id with (`jobs.payer_id`,
- * `job_postings.payer_id`). Another payer's rows cannot match, and a `postingId` the payer does
+ * OWNERSHIP is the two WHEREs on the TENANT KEY the service resolved for the session payer
+ * (ADR-0053: the session payer while org tenancy is off, the acting org's anchor when on) — the
+ * same two predicates `PayerApplicantsService.listForOwned` resolves an id with (`jobs.payer_id`,
+ * `job_postings.payer_id`). Another tenant's rows cannot match, and a `postingId` the tenant does
  * not own matches nothing in either arm. `payer_id` is never projected.
  *
  * MEMBERSHIP IS EACH PER-POSTING LIST'S, so every row here has a row on its posting's list:
@@ -87,7 +89,7 @@ export interface InboxPageQuery {
  * unchanged. One PK probe per candidate application; no new index is needed (the plan is driven
  * from the payer's own postings, as above). Without `query.stages` none of this is emitted.
  */
-export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL {
+export function inboxPageStatement(tenant: TenantKey, query: InboxPageQuery): SQL {
   const posting = (column: SQL) =>
     query.postingId === undefined ? dsql`` : dsql`AND ${column} = ${query.postingId}::uuid`;
   const keyset =
@@ -122,7 +124,7 @@ export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL 
       INNER JOIN applications a ON a.job_id = j.id
       INNER JOIN workers w ON w.id = a.worker_id
       ${stageJoin("agency_job", dsql`j.id`)}
-      WHERE j.payer_id = ${payerId}::uuid
+      WHERE j.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
         AND EXISTS (SELECT 1 FROM worker_profiles wp WHERE wp.worker_id = a.worker_id)
@@ -142,11 +144,11 @@ export function inboxPageStatement(payerId: string, query: InboxPageQuery): SQL 
       INNER JOIN applications a ON a.job_posting_id = jp.id
       INNER JOIN workers w ON w.id = a.worker_id
       ${stageJoin("company_posting", dsql`jp.id`)}
-      WHERE jp.payer_id = ${payerId}::uuid
+      WHERE jp.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
         AND NOT EXISTS (
-          SELECT 1 FROM jobs oj WHERE oj.id = a.job_id AND oj.payer_id = ${payerId}::uuid
+          SELECT 1 FROM jobs oj WHERE oj.id = a.job_id AND oj.payer_id = ${tenant}::uuid
         )
         ${posting(dsql`jp.id`)}
         ${keyset}
@@ -178,8 +180,8 @@ type InboxPageSqlRow = {
 export class PayerApplicantInboxRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  async listPage(payerId: string, query: InboxPageQuery): Promise<InboxPageRow[]> {
-    const rows = await this.db.execute<InboxPageSqlRow>(inboxPageStatement(payerId, query));
+  async listPage(tenant: TenantKey, query: InboxPageQuery): Promise<InboxPageRow[]> {
+    const rows = await this.db.execute<InboxPageSqlRow>(inboxPageStatement(tenant, query));
     return (rows as unknown as InboxPageSqlRow[]).map((r) => ({
       applicationId: r.application_id,
       workerId: r.worker_id,

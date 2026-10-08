@@ -19,6 +19,7 @@ import { EventsService } from "../../events/events.service";
 import { JobPostingsRepository } from "../../job-postings/job-postings.repository";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
 import { PayersRepository } from "../../payers/payers.repository";
+import { defaultModeResolver } from "../../payers/payer-tenant-scope.test-support";
 import { JobPostingChatRepository } from "./job-posting-chat.repository";
 import { JobPostingChatService } from "./job-posting-chat.service";
 
@@ -334,6 +335,8 @@ describe.skipIf(!RUN)(
       chat = new JobPostingChatRepository(client.db);
       eventsRepo = new EventsRepository(client.db);
       const eventsService = new EventsService(eventsRepo, { NODE_ENV: "test" } as never);
+      // ADR-0053 — the default mode (off): the publishing payer is the posting's tenant.
+      const tenancy = defaultModeResolver();
       const postings = new JobPostingsService(
         new JobPostingsRepository(client.db),
         eventsService,
@@ -342,6 +345,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         {} as never, // PublishReachService — a create never materializes reach
         {} as never, // MatchSkillsService — a chat publish sends no match_skill_ids
+        tenancy,
       );
       publisher = new JobPostingChatService(
         chat,
@@ -352,6 +356,7 @@ describe.skipIf(!RUN)(
         new PayersRepository(client.db, {} as never),
         { decrypt: () => "Lane Test Works" } as never,
         postings,
+        tenancy,
       );
     });
 

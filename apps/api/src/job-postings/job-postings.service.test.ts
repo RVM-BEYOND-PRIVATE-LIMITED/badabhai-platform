@@ -4,6 +4,9 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { EventsService } from "../events/events.service";
 import { JobPostingsService } from "./job-postings.service";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
+import type { ServerConfig } from "@badabhai/config";
 import { AGENCY_TWIN_READ_ONLY_MESSAGE } from "../common/agency-twin-fence";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import {
@@ -131,7 +134,14 @@ function toApi(r: Row) {
 
 type PostingApi = ReturnType<typeof toApi>;
 
-function make(existing?: Row, opts: { events?: unknown } = {}) {
+function make(
+  existing?: Row,
+  opts: {
+    events?: unknown;
+    /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
+    tenancy?: PayerTenantScopeService;
+  } = {},
+) {
   const emit = vi.fn().mockResolvedValue(undefined);
   // #1928 — A TRANSACTION THAT BEHAVES LIKE ONE. A posting written on the `tx` handed to the
   // `withTransaction` callback is returned at once but PERSISTS only when the callback
@@ -268,6 +278,7 @@ function make(existing?: Row, opts: { events?: unknown } = {}) {
     // default so the lifecycle cases stay about the lifecycle; the create-path cases
     // override it to assert that an unknown id 400s on the form rather than at publish.
     { resolveForPublish: resolveForPublish } as never,
+    opts.tenancy ?? defaultModeResolver(),
   );
   return {
     svc,
@@ -1837,5 +1848,163 @@ describe("ADR-0050 §4.3 — the ops write fences refuse an agency TWIN with one
     expect(d.update).toHaveBeenCalledTimes(1);
     await d.svc.opsWidenReach(POSTING_ID, ["mskill_cnc_turner"], CREATED_BY, CTX as never);
     expect(d.opsWiden).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) P2a — the payer path is keyed by the TENANT, the event by the LOGIN.
+// The REAL resolver over an in-memory membership table; the repository fakes below honour the
+// tenant key they are handed exactly as their WHERE does (`id = $1 AND payer_id = $2`).
+// ---------------------------------------------------------------------------
+describe("ADR-0053 P2a — JobPostingsService's payer path follows the TENANT", () => {
+  const ANCHOR = PAYER_ID;
+  const MEMBER = "66666666-6666-4666-8666-666666666666";
+  const OUTSIDER = "77777777-7777-4777-8777-777777777777";
+  const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+  const DTO = { org_label: ORG, role_title: ROLE, vacancy_band: "2-5" as const };
+
+  /** The ANCHOR's posting, behind owner-scoped fakes that match only the anchor's key. */
+  function teamWorld(status: Row["status"], tenancy: PayerTenantScopeService) {
+    const owned = (patch: Partial<Row> = {}) =>
+      toApi(row({ status, ...patch, payerId: ANCHOR } as Partial<Row>));
+    const d = make(row({ status }), { tenancy });
+    d.findByIdAndPayer.mockImplementation(async (_id: string, tenant: string) =>
+      tenant === ANCHOR ? owned() : undefined,
+    );
+    d.updateOwned.mockImplementation(async (_id: string, tenant: string, patch: Partial<Row>) =>
+      tenant === ANCHOR ? owned(patch) : undefined,
+    );
+    d.closeOwned.mockImplementation(async (_id: string, tenant: string) =>
+      tenant === ANCHOR ? owned({ status: "closed" }) : undefined,
+    );
+    d.transitionOwned.mockImplementation(
+      async (_id: string, tenant: string, from: Row["status"], to: Row["status"]) =>
+        tenant === ANCHOR && from === status ? owned({ status: to }) : undefined,
+    );
+    return { ...d, resolve: vi.spyOn(tenancy, "resolve") };
+  }
+
+  const actorsOf = (emit: ReturnType<typeof vi.fn>) =>
+    emit.mock.calls.map((c) => (c[0] as { actor: unknown }).actor);
+
+  it("on: a teammate's create is the ORG's row — payer_id = the anchor; created_by and the event actor = the login", async () => {
+    const d = make(undefined, { tenancy: resolverOver(ON, TEAM) });
+    await d.svc.createForPayer(MEMBER, DTO, CTX as never);
+    expect(d.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: ANCHOR, createdBy: MEMBER, status: "draft" }),
+      d.TX,
+    );
+    const arg = d.emit.mock.calls[0]![0] as { actor: unknown; payload: Record<string, unknown> };
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+    expect(arg.payload.created_by).toBe(MEMBER);
+    expect(arg.payload).not.toHaveProperty("payer_id"); // no event schema change (ADR-0053 §7)
+  });
+
+  it("on: createInScope (the chat publish's seam) stamps the scope it is handed and resolves nothing itself", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const scope = await tenancy.resolve(MEMBER);
+    const d = make(undefined, { tenancy });
+    const resolve = vi.spyOn(tenancy, "resolve");
+    await d.svc.createInScope(scope, DTO, CTX as never);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(d.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: ANCHOR, createdBy: MEMBER }),
+      d.TX,
+    );
+  });
+
+  it("on: a teammate lists and reads under the ANCHOR's key", async () => {
+    const d = teamWorld("open", resolverOver(ON, TEAM));
+    await d.svc.listForPayer(MEMBER, { status: "open" });
+    expect(d.listByPayer).toHaveBeenCalledWith(ANCHOR, "open");
+    await expect(d.svc.getOneForPayer(POSTING_ID, MEMBER)).resolves.toMatchObject({
+      id: POSTING_ID,
+    });
+    expect(d.findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, ANCHOR);
+  });
+
+  it("on: a teammate's edit, close, pause and resume write under the ANCHOR's key; every event names the LOGIN", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const draft = teamWorld("draft", tenancy);
+    await draft.svc.updateForPayer(
+      POSTING_ID,
+      MEMBER,
+      { role_title: "CNC Operator" },
+      CTX as never,
+    );
+    expect(draft.updateOwned).toHaveBeenCalledWith(POSTING_ID, ANCHOR, expect.anything());
+    const open = teamWorld("open", tenancy);
+    await open.svc.pauseForPayer(POSTING_ID, MEMBER, CTX as never);
+    expect(open.transitionOwned).toHaveBeenCalledWith(POSTING_ID, ANCHOR, "open", "paused");
+    await open.svc.closeForPayer(POSTING_ID, MEMBER, CTX as never);
+    expect(open.closeOwned).toHaveBeenCalledWith(POSTING_ID, ANCHOR, "open", expect.any(Date));
+    const paused = teamWorld("paused", tenancy);
+    await paused.svc.resumeForPayer(POSTING_ID, MEMBER, CTX as never);
+    expect(paused.transitionOwned).toHaveBeenCalledWith(POSTING_ID, ANCHOR, "paused", "open");
+    for (const d of [draft, open, paused]) {
+      expect(d.emit).toHaveBeenCalled();
+      for (const actor of actorsOf(d.emit)) {
+        expect(actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+      }
+    }
+  });
+
+  it("on: an outsider gets the SAME 404 as for an unknown id on every route; nothing is written or emitted", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    type World = ReturnType<typeof teamWorld>;
+    const routes: ((d: World) => Promise<unknown>)[] = [
+      (d) => d.svc.getOneForPayer(POSTING_ID, OUTSIDER),
+      (d) => d.svc.updateForPayer(POSTING_ID, OUTSIDER, { role_title: "X" }, CTX as never),
+      (d) => d.svc.closeForPayer(POSTING_ID, OUTSIDER, CTX as never),
+      (d) => d.svc.pauseForPayer(POSTING_ID, OUTSIDER, CTX as never),
+      (d) => d.svc.resumeForPayer(POSTING_ID, OUTSIDER, CTX as never),
+    ];
+    for (const call of routes) {
+      const d = teamWorld("open", tenancy);
+      const foreign = await call(d).catch((e: unknown) => e);
+      expect(foreign).toBeInstanceOf(NotFoundException);
+      expect(d.findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, OUTSIDER);
+      d.findByIdAndPayer.mockResolvedValueOnce(undefined); // an id nobody owns
+      const unknown = await call(d).catch((e: unknown) => e);
+      expect((foreign as NotFoundException).getResponse()).toEqual(
+        (unknown as NotFoundException).getResponse(),
+      );
+      for (const write of [d.updateOwned, d.closeOwned, d.transitionOwned, d.emit]) {
+        expect(write).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it("each entry point resolves the session payer exactly ONCE, though it reads and then writes", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const calls: ((d: ReturnType<typeof teamWorld>) => Promise<unknown>)[] = [
+      (d) => d.svc.updateForPayer(POSTING_ID, MEMBER, { role_title: "CNC Operator" }, CTX as never),
+      (d) => d.svc.closeForPayer(POSTING_ID, MEMBER, CTX as never),
+      (d) => d.svc.pauseForPayer(POSTING_ID, MEMBER, CTX as never),
+    ];
+    for (const call of calls) {
+      const d = teamWorld("open", tenancy);
+      d.resolve.mockClear();
+      await call(d);
+      expect(d.resolve).toHaveBeenCalledTimes(1);
+      expect(d.resolve).toHaveBeenCalledWith(MEMBER);
+    }
+  });
+
+  it("off (the default): the SAME teammate is their own tenant — today's stamps and predicates, byte for byte", async () => {
+    const d = teamWorld("open", defaultModeResolver(TEAM));
+    await d.svc.createForPayer(MEMBER, DTO, CTX as never);
+    expect(d.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: MEMBER, createdBy: MEMBER }),
+      d.TX,
+    );
+    await d.svc.listForPayer(MEMBER, {});
+    expect(d.listByPayer).toHaveBeenCalledWith(MEMBER, undefined);
+    // The anchor's posting is a 404 for the teammate, as it is on main today.
+    await expect(d.svc.getOneForPayer(POSTING_ID, MEMBER)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(d.findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, MEMBER);
   });
 });

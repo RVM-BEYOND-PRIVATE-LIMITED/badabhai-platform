@@ -1,8 +1,10 @@
 import "reflect-metadata";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { jobPostings, jobs, type Database } from "@badabhai/db";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 import {
   PayerApplicantStagesRepository,
   feedMembershipStatement,
@@ -20,6 +22,11 @@ import {
 
 const dialect = new PgDialect();
 const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
+/** The payer's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+let PAYER_KEY!: TenantKey;
+beforeAll(async () => {
+  PAYER_KEY = await ownTenantKey(PAYER);
+});
 const POSTING = "0c000000-0000-4000-8000-0000000000a1";
 const WORKER = "33333333-3333-4333-8333-000000000001";
 
@@ -186,7 +193,7 @@ describe("PayerApplicantStagesRepository — the drizzle statements", () => {
         }),
       }) as unknown as Database;
     const kind = (owned: { job: boolean; posting: boolean }) =>
-      new PayerApplicantStagesRepository(fake(owned)).findOwnedPostingKind(POSTING, PAYER);
+      new PayerApplicantStagesRepository(fake(owned)).findOwnedPostingKind(POSTING, PAYER_KEY);
     await expect(kind({ job: true, posting: false })).resolves.toBe("agency_job");
     await expect(kind({ job: false, posting: true })).resolves.toBe("company_posting");
     await expect(kind({ job: true, posting: true })).resolves.toBe("agency_job"); // jobs-first

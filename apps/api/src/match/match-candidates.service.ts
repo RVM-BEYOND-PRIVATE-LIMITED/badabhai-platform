@@ -4,6 +4,7 @@ import { matchSkillLabel } from "@badabhai/taxonomy";
 import { MatchConfigService } from "./match-config.service";
 import { MatchFeedRepository, type CandidateRow } from "./match-feed.repository";
 import { OPS_LIST_CAP } from "../common/pagination";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
  * One ranked candidate on the company's paid list. FACELESS: an opaque `workerId` and
@@ -85,22 +86,23 @@ export class MatchCandidatesService {
 
   /**
    * The cross-posting inbox's company rows (`GET /payer/reach/applicants`): for each named
-   * application on a posting the session payer owns, the row {@link listForPosting} would show
-   * for it — built by the SAME mapper, with the rank it holds on its own posting's list (the
-   * repository's `row_number()` over the shared rank keys). Keyed by application id.
+   * application on a posting the TENANT owns (the caller's resolved key, ADR-0053), the row
+   * {@link listForPosting} would show for it — built by the SAME mapper, with the rank it holds
+   * on its own posting's list (the repository's `row_number()` over the shared rank keys).
+   * Keyed by application id.
    *
-   * An application that is not (or no longer) on its posting's list — another payer's posting,
+   * An application that is not (or no longer) on its posting's list — another tenant's posting,
    * a skip, a worker who entered the deletion grace window since the page was read — is simply
    * absent from the map. Nothing here re-sorts or re-ranks.
    */
   async rowsForOwnedApplications(
-    payerId: string,
+    tenant: TenantKey,
     refs: ReadonlyArray<{ applicationId: string; postingId: string }>,
   ): Promise<Map<string, MatchCandidateRowDto>> {
     if (refs.length === 0) return new Map();
     const cfg = await this.config.get();
     const rows = await this.repo.listRankedCandidatesByApplication(
-      payerId,
+      tenant,
       [...new Set(refs.map((r) => r.postingId))],
       refs.map((r) => r.applicationId),
       cfg.tierFloorMonths,

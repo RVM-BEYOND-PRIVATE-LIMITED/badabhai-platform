@@ -9,6 +9,8 @@ import {
   type MatchCandidateRowDto,
 } from "../match/match-candidates.service";
 import { JobPostingsService } from "../job-postings/job-postings.service";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerTenantScope } from "../payers/payer-tenant-scope";
 import { PayerApplicantStagesService, withStages } from "./payer-applicant-stages.service";
 import { APPLICANT_NOT_FOUND } from "./payer-applicant-stage.dto";
 
@@ -30,9 +32,9 @@ export type PayerApplicantListDto =
   | { jobId: string; applicants: StagedRow<MatchCandidateRowDto>[] };
 
 /**
- * The ONE message every not-listable id gets — unknown, another payer's job, another payer's
- * posting. It is the message `ReachService.applicantsForOwnedJob` throws, so the error object
- * the client receives is identical for all three (F-3 no-oracle). Shared with the stage route.
+ * The ONE message every not-listable id gets — unknown, another tenant's job, another tenant's
+ * posting — so the error object the client receives is identical for all three (F-3
+ * no-oracle). Shared with the stage route.
  */
 const NOT_FOUND = APPLICANT_NOT_FOUND;
 
@@ -53,9 +55,12 @@ const NOT_FOUND = APPLICANT_NOT_FOUND;
  *
  * Both sources list only people who applied; neither ever lists a worker who did not.
  *
- * AUTHZ: `payerId` is the verified SESSION payer, never a route/body value, and it is consumed
- * only in the two ownership WHEREs (`jobs.payer_id`, `job_postings.payer_id`). A payer can list
- * applicants only for an id they own; a foreign id is indistinguishable from an unknown one.
+ * AUTHZ: the verified SESSION payer (never a route/body value) is resolved to its tenancy ONCE
+ * per request (ADR-0053, `PayerTenantScopeService`). The TENANT KEY is consumed only in the
+ * ownership WHEREs (`jobs.payer_id`, `job_postings.payer_id`, and the board's chokepoint); the
+ * ACTING LOGIN only as the agency list's `feed.shown` actor. A payer can list applicants only for
+ * an id their tenant owns; a foreign id is indistinguishable from an unknown one. With org
+ * tenancy off the tenant is the session payer, exactly as before.
  *
  * FAIL CLOSED: only `NotFoundException` is translated into the neutral 404. Any other error
  * (a dropped connection, a statement timeout) propagates as a 5xx. The controller this replaced
@@ -87,30 +92,33 @@ export class PayerApplicantsService {
     private readonly matchCandidates: MatchCandidatesService,
     // Owner ruling 2026-10-07 — the saved pipeline board (null reads while the flag is off).
     private readonly stages: PayerApplicantStagesService,
+    // ADR-0053 — the payer tenant resolver (PayersModule).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   async listForOwned(
     jobId: string,
-    payerId: string,
+    actorPayerId: string,
     ctx: RequestContext,
   ): Promise<PayerApplicantListDto> {
+    const scope = await this.tenancy.resolve(actorPayerId);
     // THE BOARD IS READ FIRST, and only while PAYER_APPLICANT_STAGES_ENABLED is on (`null`, no
     // query, while off). The agency list below emits `feed.shown` as its last step, so reading
     // the stages before it keeps "a failed request emitted nothing" true: nothing fallible runs
     // after the emit. The read resolves the posting through the ownership chokepoint first
     // (`findOwnedJobRef`, ADR-0053 §4), so for an unknown or foreign id it reads no board at all
     // and is empty, and the 404 below is unchanged.
-    const stages = await this.stages.stagesForOwnedPosting(jobId, payerId);
+    const stages = await this.stages.stagesForOwnedPosting(jobId, scope.tenantKey);
     // ONE ownership read decides the source, whatever MATCH_V1_ENABLED says (#1898): an owned
-    // `jobs` row lists its appliers; a miss (unknown or another payer's job) falls through to
+    // `jobs` row lists its appliers; a miss (unknown or another tenant's job) falls through to
     // the posting seam.
-    const jobList = await this.reach.tryApplicantsForOwnedJob(jobId, payerId, ctx);
+    const jobList = await this.reach.tryApplicantsForOwnedJob(jobId, scope, ctx);
     if (jobList) {
       return stages
         ? { ...jobList, applicants: withStages(jobList.applicants, stages.agency_job) }
         : jobList;
     }
-    const postingList = await this.listForOwnedPosting(jobId, payerId);
+    const postingList = await this.listForOwnedPosting(jobId, scope);
     return stages
       ? { ...postingList, applicants: withStages(postingList.applicants, stages.company_posting) }
       : postingList;
@@ -118,9 +126,9 @@ export class PayerApplicantsService {
 
   private async listForOwnedPosting(
     postingId: string,
-    payerId: string,
+    scope: PayerTenantScope,
   ): Promise<MatchCandidateListDto> {
-    await this.assertOwnsPosting(postingId, payerId);
+    await this.assertOwnsPosting(postingId, scope);
     return this.matchCandidates.listForPosting(postingId);
   }
 
@@ -129,9 +137,9 @@ export class PayerApplicantsService {
    * says "Job posting not found"; it is re-thrown as {@link NOT_FOUND} so a posting miss and a
    * job miss carry one body.
    */
-  private async assertOwnsPosting(postingId: string, payerId: string): Promise<void> {
+  private async assertOwnsPosting(postingId: string, scope: PayerTenantScope): Promise<void> {
     try {
-      await this.jobPostings.getOneForPayer(postingId, payerId);
+      await this.jobPostings.getOneInScope(postingId, scope);
     } catch (err) {
       if (err instanceof NotFoundException) throw new NotFoundException(NOT_FOUND);
       throw err;

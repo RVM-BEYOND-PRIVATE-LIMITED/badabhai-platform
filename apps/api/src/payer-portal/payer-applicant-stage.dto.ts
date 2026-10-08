@@ -5,7 +5,7 @@ import { APPLICANT_STAGES, type ApplicantPostingKind, type ApplicantStage } from
 /**
  * The ONE body every not-settable stage gets — an unknown posting, another payer's posting, and a
  * worker who is not on the posting's applicant feed. It is the body the feeds' own neutral 404
- * carries (`GET /payer/reach/jobs/:jobId/applicants`, `ReachService.applicantsForOwnedJob`), so
+ * carries (`GET /payer/reach/jobs/:jobId/applicants`, `PayerApplicantsService.listForOwned`), so
  * the route cannot be used to tell any of those cases apart (no existence oracle).
  */
 export const APPLICANT_NOT_FOUND = "Job not found";

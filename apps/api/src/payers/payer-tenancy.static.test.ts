@@ -17,7 +17,10 @@ import ts from "typescript";
  *      nothing reaches for the retired single-row `resolveOrgForPayer`.
  *  S-F1 Nothing forges the brand: no type assertion to TenantKey / PayerTenantScope /
  *      ActingOrgChoice (or an alias / interface built on one) outside payer-tenant-scope.ts, and
- *      `chooseActingOrg` is imported only by the resolver service and its test.
+ *      `chooseActingOrg` is imported only by the resolver service and its test. No cast to
+ *      `PayerTenantScopeService` outside tests and `*.test-support.ts` (a cast stand-in could
+ *      hand out any scope), and no production file imports a `*.test-support` module (the
+ *      support files mint keys through stub resolvers; security review of PR #2167, L1).
  *
  * WHAT T5 SEES. A callable — a method, a function declaration, or a class property / variable
  * initialised with an arrow function or function expression — is listed when (a) one of its
@@ -35,7 +38,8 @@ import ts from "typescript";
  *  3. `PostingPlansRepository.insertPlan`, 4. `insertBoost`, 5. `JobPostingsRepository.create` —
  *     their payer id rides a Drizzle insert type declared in packages/db (`New…`), which this
  *     scan does not read; the same holds for ANY parameter typed by a type from outside
- *     apps/api/src.
+ *     apps/api/src. (5 is hand-converted in P2a: it takes `NewTenantJobPosting`, whose
+ *     `payerId` is a `TenantKey | null`.)
  *  6. A raw id under a name outside PAYER_ID_NAME (e.g. `ownerId`, `tenantId`, `id`).
  *  7. A parameter typed `any` / `unknown` that carries a payer id.
  *  8. A callable that only DELEGATES to a listed helper (deliberate: retyping the helper forces
@@ -108,17 +112,12 @@ const NAMED_EXCEPTIONS: readonly string[] = [
  * before the flip (P3). Grouped by the Phase 2 PR that owns them (ORG_TENANCY_PLAN §3).
  */
 const UNCONVERTED: readonly string[] = [
-  // P2a — postings, applicants, Candidates inbox
-  "job-postings/job-postings.repository.ts JobPostingsRepository.closeOwned",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.findByIdAndPayer",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.listByPayer",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.transitionOwned",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.updateOwned",
-  "match/match-feed.repository.ts MatchFeedRepository.listRankedCandidatesByApplication",
-  "payer-portal/payer-applicant-inbox.repository.ts inboxPageStatement",
+  // P2a — postings, applicants, Candidates inbox, agency jobs: CONVERTED (PR "payer org tenancy
+  // phase 2a"). One shared helper is left, retyped by whichever of P2a / P2b lands second: its
+  // P2b callers (`UnlocksRepository.findOwnedJobRef`, `ResumeDisclosureRepository.findOwnedJobRef`)
+  // still pass a raw id until P2b gives them a TenantKey. P2a's own caller
+  // (`PayerApplicantStagesRepository.findOwnedPostingKind`) already passes the tenant key.
   "payers/owned-job-ref.ts findOwnedJobRef",
-  "reach/reach.repository.ts ReachRepository.findOwnedJobSignalRowById",
-  "reach/reach.repository.ts ReachRepository.findOwnedJobSignalRowsByIds",
   // P2b — unlocks, credits, ledger, payment orders, resume disclosures
   "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.countDisclosedForPosting",
   "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.findByPayerWorkerPosting",
@@ -143,16 +142,9 @@ const UNCONVERTED: readonly string[] = [
   "posting-plans/posting-plans.repository.ts PostingPlansRepository.getCapacity",
   "posting-plans/posting-plans.repository.ts PostingPlansRepository.listPausedPlansForPayer",
   "posting-plans/posting-plans.repository.ts PostingPlansRepository.upsertCapacity",
-  // P2d — agency jobs, invites, workers, KYC, payouts
+  // P2d — agency invites, workers, KYC, payouts (agency JOBS moved to P2a and are converted)
   "agency/agency-invites.repository.ts AgencyInvitesRepository.create",
   "agency/agency-invites.repository.ts AgencyInvitesRepository.stageCountsForOwner",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.closeOwnedIfLive",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.create",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.findOwnedById",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.listOwned",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.pauseOwnedIfOpen",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.resumeOwnedIfPaused",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.updateOwned",
   "agency/agency-kyc.repository.ts AgencyKycRepository.findByPayer",
   "agency/agency-kyc.repository.ts AgencyKycRepository.upsertPending",
   "agency/agency-payout.repository.ts AgencyPayoutRepository.aggregate",
@@ -359,10 +351,13 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
   const found = scanRawTenantKeyCallables();
 
   it("the scanner finds the known raw-id readers (a guard against a vacuous scan)", () => {
-    // One per detection path: a Drizzle table, a raw `sql` template, a same-file input type.
+    // One per detection path: a Drizzle table, a raw `sql` template, an inline input type. Each
+    // must name a callable that is STILL raw: a Phase 2 PR that converts one swaps in another.
     expect(found).toContain("unlocks/unlocks.repository.ts UnlocksRepository.getBalance");
-    expect(found).toContain("payer-portal/payer-applicant-inbox.repository.ts inboxPageStatement");
-    expect(found).toContain("agency/agency-jobs.repository.ts AgencyJobsRepository.create");
+    expect(found).toContain(
+      "agency/agency-workers.repository.ts AgencyWorkersRepository.listReferredWithConsent",
+    );
+    expect(found).toContain("agency/agency-invites.repository.ts AgencyInvitesRepository.create");
   });
 
   it("the two lists are disjoint and free of duplicates (a reviewable allowlist)", () => {
@@ -488,6 +483,25 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
     expect(found).toEqual(["fx/relational.repository.ts FxRepository.findOne"]);
   });
 
+  it("a property of a parameter typed INLINE — a type literal, alone or as an array element", () => {
+    // The only live example of this path is a P2d method; this fixture keeps the path pinned
+    // after P2d converts it (review of PR #2167, finding 5).
+    const found = scanRawTenantKeyCallables([
+      fixture(
+        "fx/inline.repository.ts",
+        `${TABLE_IMPORT}export class FxRepository {
+          async create(input: { inviterPayerId: string; code: string }) { return this.db.insert(unlocks).values(input); }
+          async accrue(rows: Array<{ agencyPayerId: string }>) { return this.db.insert(unlocks).values(rows); }
+          async count(input: { inviterPayerId: number }) { return this.db.select().from(unlocks); }
+        }`,
+      ),
+    ]);
+    expect(found).toEqual([
+      "fx/inline.repository.ts FxRepository.accrue",
+      "fx/inline.repository.ts FxRepository.create",
+    ]);
+  });
+
   it("a parameter typed by an interface declared in ANOTHER file", () => {
     const found = scanRawTenantKeyCallables([
       fixture("fx/types.ts", `export interface FxOwnedInput { agencyPayerId: string; n: number }`),
@@ -549,8 +563,11 @@ const lastName = (written: string): string => written.split(".").pop()!;
  * payer-tenant-scope.ts (`type K = TenantKey`, `interface In { tenant: TenantKey }`, `interface S
  * extends PayerTenantScope`), to a fixpoint — casting to any of those forges a key just the same.
  */
-function forgeableNames(sources: readonly ts.SourceFile[]): Set<string> {
-  const names = new Set(FORGEABLE);
+function forgeableNames(
+  sources: readonly ts.SourceFile[],
+  seed: readonly string[] = FORGEABLE,
+): Set<string> {
+  const names = new Set(seed);
   for (let grew = true; grew; ) {
     grew = false;
     for (const sf of sources) {
@@ -573,8 +590,11 @@ function forgeableNames(sources: readonly ts.SourceFile[]): Set<string> {
  * names a forgeable type, and every explicit CALL type argument that does (`launder<TenantKey>(id)`
  * through a generic `x as T`).
  */
-function forgedTenancyCasts(sources: readonly ts.SourceFile[]): string[] {
-  const names = forgeableNames(sources);
+function forgedTenancyCasts(
+  sources: readonly ts.SourceFile[],
+  seed: readonly string[] = FORGEABLE,
+): string[] {
+  const names = forgeableNames(sources, seed);
   const out: string[] = [];
   for (const sf of sources) {
     const report = (at: ts.Node, typeNode: ts.Node): void => {
@@ -629,12 +649,100 @@ function allSources(dir: string = SRC): ts.SourceFile[] {
   });
 }
 
+/** The resolver itself: a cast stand-in (`{ resolve: … } as PayerTenantScopeService`) forges scopes. */
+const RESOLVER = ["PayerTenantScopeService"];
+
+const isTestSupport = (sf: ts.SourceFile): boolean => sf.fileName.endsWith(".test-support.ts");
+
+/**
+ * `path` for every non-test, non-test-support file that imports, re-exports, `import()`s or
+ * `require`s a `*.test-support` module. Test support mints keys through stub resolvers and casts
+ * fakes to services; none of it may reach production code.
+ */
+function testSupportImporters(sources: readonly ts.SourceFile[]): string[] {
+  const out = new Set<string>();
+  const isSupport = (spec: string): boolean => /\.test-support(\.ts)?$/.test(spec);
+  for (const sf of sources) {
+    if (isTestSupport(sf)) continue;
+    const visit = (node: ts.Node): void => {
+      if (
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        isSupport(node.moduleSpecifier.text)
+      ) {
+        out.add(rel(sf.fileName));
+      }
+      if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
+        node.arguments[0] &&
+        ts.isStringLiteral(node.arguments[0]) &&
+        isSupport(node.arguments[0].text)
+      ) {
+        out.add(rel(sf.fileName));
+      }
+      node.forEachChild(visit);
+    };
+    visit(sf);
+  }
+  return [...out].sort();
+}
+
 describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-0053 §5.2 rule 2)", () => {
   it("no type assertion to TenantKey / PayerTenantScope / ActingOrgChoice outside payer-tenant-scope.ts", () => {
     const offenders = forgedTenancyCasts(parsedSources()).filter(
       (o) => !o.startsWith(`${SCOPE_FILE}:`),
     );
     expect(offenders, "mint a TenantKey only through the resolver").toEqual([]);
+  });
+
+  it("no cast to PayerTenantScopeService outside tests and *.test-support.ts (L1)", () => {
+    const production = parsedSources().filter((sf) => !isTestSupport(sf));
+    expect(forgedTenancyCasts(production, RESOLVER), "inject the real resolver").toEqual([]);
+  });
+
+  it("no production file imports a *.test-support module (L1)", () => {
+    expect(testSupportImporters(parsedSources())).toEqual([]);
+  });
+
+  it("the resolver-cast screen is not vacuous: a cast, an alias cast and a call type argument count", () => {
+    const found = forgedTenancyCasts(
+      [
+        fixture(
+          "fx/resolver.ts",
+          [
+            `const a = fake as unknown as PayerTenantScopeService;`,
+            `type R = PayerTenantScopeService;`,
+            `const b = fake as R;`,
+            `const c = make<PayerTenantScopeService>(fake);`,
+            `const d = fake as PayerOrgsRepository;`,
+          ].join("\n"),
+        ),
+      ],
+      RESOLVER,
+    );
+    expect(found).toEqual([
+      "fx/resolver.ts:1 PayerTenantScopeService",
+      "fx/resolver.ts:3 R",
+      "fx/resolver.ts:4 PayerTenantScopeService",
+    ]);
+  });
+
+  it("the test-support import screen is not vacuous: import, re-export, import() and require count; support files may import each other", () => {
+    const found = testSupportImporters([
+      fixture(
+        "fx/a.ts",
+        `import { resolverOver } from "../payers/payer-tenant-scope.test-support";`,
+      ),
+      fixture("fx/b.ts", `export * from "./x.test-support";`),
+      fixture("fx/c.ts", `const m = await import("./y.test-support");`),
+      fixture("fx/d.ts", `const m = require("./z.test-support.ts");`),
+      fixture("fx/e.ts", `import { x } from "./test-support-utils";`),
+      fixture("fx/f.test-support.ts", `import { y } from "./g.test-support";`),
+    ]);
+    expect(found).toEqual(["fx/a.ts", "fx/b.ts", "fx/c.ts", "fx/d.ts"]);
   });
 
   it("chooseActingOrg is imported only by the resolver service and its own test", () => {

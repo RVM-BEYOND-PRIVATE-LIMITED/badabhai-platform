@@ -1,8 +1,10 @@
 import "reflect-metadata";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 import {
   PayerApplicantInboxRepository,
   inboxPageStatement,
@@ -19,6 +21,11 @@ import {
 
 const dialect = new PgDialect();
 const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
+/** The payer's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+let PAYER_KEY!: TenantKey;
+beforeAll(async () => {
+  PAYER_KEY = await ownTenantKey(PAYER);
+});
 const POSTING = "0c000000-0000-4000-8000-0000000000a1";
 const AFTER = {
   appliedKey: "2026-10-01T10:00:00.000007Z",
@@ -26,7 +33,7 @@ const AFTER = {
 };
 
 function compile(query: InboxPageQuery) {
-  const q = dialect.sqlToQuery(inboxPageStatement(PAYER, query));
+  const q = dialect.sqlToQuery(inboxPageStatement(PAYER_KEY, query));
   return { sql: q.sql.replace(/\s+/g, " "), params: q.params };
 }
 
@@ -168,7 +175,7 @@ describe("PayerApplicantInboxRepository.listPage — row mapping", () => {
     new PayerApplicantInboxRepository({ execute: async () => rows } as unknown as Database);
 
   it("maps the page row through", async () => {
-    await expect(repo([raw()]).listPage(PAYER, { limit: 2 })).resolves.toEqual([
+    await expect(repo([raw()]).listPage(PAYER_KEY, { limit: 2 })).resolves.toEqual([
       {
         applicationId: "44444444-4444-4444-8444-000000000001",
         workerId: "33333333-3333-4333-8333-000000000001",
@@ -183,15 +190,18 @@ describe("PayerApplicantInboxRepository.listPage — row mapping", () => {
   it("executes exactly the pinned statement", async () => {
     let seen: SQL | undefined;
     const db = { execute: async (s: SQL) => ((seen = s), []) } as unknown as Database;
-    await new PayerApplicantInboxRepository(db).listPage(PAYER, { limit: 3, postingId: POSTING });
+    await new PayerApplicantInboxRepository(db).listPage(PAYER_KEY, {
+      limit: 3,
+      postingId: POSTING,
+    });
     expect(dialect.sqlToQuery(seen!)).toEqual(
-      dialect.sqlToQuery(inboxPageStatement(PAYER, { limit: 3, postingId: POSTING })),
+      dialect.sqlToQuery(inboxPageStatement(PAYER_KEY, { limit: 3, postingId: POSTING })),
     );
   });
 
   it("an unknown posting kind is a statement defect: it throws rather than guessing a shape", async () => {
     await expect(
-      repo([raw({ posting_kind: "other" })]).listPage(PAYER, { limit: 2 }),
+      repo([raw({ posting_kind: "other" })]).listPage(PAYER_KEY, { limit: 2 }),
     ).rejects.toThrow(/unexpected posting kind/);
   });
 });
@@ -291,12 +301,12 @@ describe("inboxPageStatement — the saved pipeline board (owner ruling 2026-10-
     };
     const repo = (rows: unknown[]) =>
       new PayerApplicantInboxRepository({ execute: async () => rows } as unknown as Database);
-    const [staged] = await repo([{ ...raw, stage: "passed" }]).listPage(PAYER, {
+    const [staged] = await repo([{ ...raw, stage: "passed" }]).listPage(PAYER_KEY, {
       limit: 2,
       stages: {},
     });
     expect(staged).toMatchObject({ stage: "passed" });
-    const [plain] = await repo([raw]).listPage(PAYER, { limit: 2 });
+    const [plain] = await repo([raw]).listPage(PAYER_KEY, { limit: 2 });
     expect(plain).not.toHaveProperty("stage");
   });
 });

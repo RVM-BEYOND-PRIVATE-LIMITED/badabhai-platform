@@ -358,3 +358,143 @@ describe.skipIf(!RUN)(
     );
   },
 );
+
+/**
+ * ADR-0053 (PAY-DB-01) P2a — T2 over live HTTP and the real guards: company postings, the
+ * per-posting applicant list and the Candidates inbox are the ORG's. Needs the api in
+ * PAYER_ORG_TENANCY_MODE=on, which the CI `e2e` job sets for the api and this runner alike; the
+ * block refuses to run against anything else rather than pass or skip vacuously.
+ *
+ * A anchors a team, B is A's active recruiter (seeded exactly as T0-HTTP seeds it), C is an
+ * outsider. One worker applies to A's posting (the application row is seeded through the suite's
+ * DB client, as the applicant-list suites do). Agency jobs are covered against Postgres in
+ * `payer-org-tenancy.db.test.ts`: the payer test-login seam mints employers only.
+ */
+describe.skipIf(!RUN)(
+  "Payer ORG tenancy P2a — postings, applicant list and inbox are the org's over HTTP (e2e, ADR-0053 T2)",
+  () => {
+    let client!: DbClient;
+    let A!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let B!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let C!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let posting = "";
+    let workerId = "";
+
+    beforeAll(async () => {
+      expect(
+        process.env.PAYER_ORG_TENANCY_MODE,
+        "this block asserts org tenancy: run the api AND this runner with PAYER_ORG_TENANCY_MODE=on",
+      ).toBe("on");
+      client = createDbClient(DATABASE_URL);
+      A = await mintPayerSession({ role: "employer" });
+      B = await mintPayerSession({ role: "employer" });
+      C = await mintPayerSession({ role: "employer" });
+      const [org] = await client.sql`
+      SELECT id FROM payer_orgs WHERE root_payer_id = ${A.payerId}::uuid`;
+      expect(org?.id, "A has no solo org after test-login").toBeTruthy();
+      await client.sql`
+      INSERT INTO payer_members (org_id, member_payer_id, email_enc, email_hash, org_role, status,
+                                 invited_by, invited_at, accepted_at)
+      SELECT ${String(org!.id)}::uuid, b.id, b.email_enc, b.email_hash, 'recruiter', 'active',
+             ${A.payerId}::uuid, now(), now()
+      FROM payers b WHERE b.id = ${B.payerId}::uuid`;
+
+      const created = await req("POST", "/payer/job-postings", {
+        token: A.token,
+        body: { org_label: "E2E Tenancy Works", role_title: "CNC Turner", vacancy_band: "1" },
+      });
+      expect(created.status).toBe(201);
+      posting = created.json.id as string;
+
+      const w = await loginWorker();
+      workerId = w.workerId;
+      await client.sql`
+      INSERT INTO applications (id, worker_id, job_posting_id, action, source_surface, match_tier,
+                                engine_version)
+      VALUES (gen_random_uuid(), ${workerId}::uuid, ${posting}::uuid, 'applied', 'feed', 1, 'v1.0')`;
+    });
+
+    afterAll(async () => {
+      await client?.sql.end({ timeout: 5 });
+    });
+
+    it("postings: B lists and reads A's posting; C's list lacks it and C's read is the unknown-id 404", async () => {
+      const listB = await req("GET", "/payer/job-postings", { token: B.token });
+      expect(listB.status).toBe(200);
+      expect((listB.json as { id: string }[]).map((p) => p.id)).toContain(posting);
+      const getB = await req("GET", `/payer/job-postings/${posting}`, { token: B.token });
+      expect(getB.status).toBe(200);
+      expect(getB.json).toMatchObject({ id: posting, payer_id: A.payerId });
+
+      const listC = await req("GET", "/payer/job-postings", { token: C.token });
+      expect((listC.json as { id: string }[]).map((p) => p.id)).not.toContain(posting);
+      const foreign = await req("GET", `/payer/job-postings/${posting}`, { token: C.token });
+      const unknown = await req("GET", `/payer/job-postings/${randomUUID()}`, { token: C.token });
+      expect(foreign.status).toBe(404);
+      expect(foreign.json?.error ?? foreign.json).toEqual(unknown.json?.error ?? unknown.json);
+    });
+
+    it("postings: B's edit lands on A's posting; C's edit is the unknown-id 404 and changes nothing", async () => {
+      const edit = await req("PATCH", `/payer/job-postings/${posting}`, {
+        token: B.token,
+        body: { role_title: "VMC Operator" },
+      });
+      expect(edit.status).toBe(200);
+      expect(edit.json).toMatchObject({ role_title: "VMC Operator", payer_id: A.payerId });
+      const foreign = await req("PATCH", `/payer/job-postings/${posting}`, {
+        token: C.token,
+        body: { role_title: "Fitter" },
+      });
+      const unknown = await req("PATCH", `/payer/job-postings/${randomUUID()}`, {
+        token: C.token,
+        body: { role_title: "Fitter" },
+      });
+      expect(foreign.status).toBe(404);
+      expect(foreign.json?.error ?? foreign.json).toEqual(unknown.json?.error ?? unknown.json);
+      const read = await req("GET", `/payer/job-postings/${posting}`, { token: A.token });
+      expect(read.json.role_title).toBe("VMC Operator");
+    });
+
+    it("postings: B's create is the org's — A lists it; payer_id is A, created_by is B", async () => {
+      const created = await req("POST", "/payer/job-postings", {
+        token: B.token,
+        body: { org_label: "E2E Tenancy Works", role_title: "Fitter", vacancy_band: "1" },
+      });
+      expect(created.status).toBe(201);
+      expect(created.json).toMatchObject({ payer_id: A.payerId, created_by: B.payerId });
+      const listA = await req("GET", "/payer/job-postings", { token: A.token });
+      expect((listA.json as { id: string }[]).map((p) => p.id)).toContain(created.json.id);
+    });
+
+    it("applicant list: B's list for A's posting is A's; C's is the unknown-id 404", async () => {
+      const asA = await req("GET", `/payer/reach/jobs/${posting}/applicants`, { token: A.token });
+      expect(asA.status).toBe(200);
+      expect((asA.json.applicants as { workerId: string }[]).map((r) => r.workerId)).toEqual([
+        workerId,
+      ]);
+      const asB = await req("GET", `/payer/reach/jobs/${posting}/applicants`, { token: B.token });
+      expect(asB.status).toBe(200);
+      expect(asB.json).toEqual(asA.json);
+      const foreign = await req("GET", `/payer/reach/jobs/${posting}/applicants`, {
+        token: C.token,
+      });
+      const unknown = await req("GET", `/payer/reach/jobs/${randomUUID()}/applicants`, {
+        token: C.token,
+      });
+      expect(foreign.status).toBe(404);
+      expect(foreign.json?.error ?? foreign.json).toEqual(unknown.json?.error ?? unknown.json);
+    });
+
+    it("Candidates inbox: B's inbox is A's; C's is empty", async () => {
+      const asA = await req("GET", "/payer/reach/applicants", { token: A.token });
+      expect(asA.status).toBe(200);
+      expect((asA.json.applicants as { workerId: string }[]).map((r) => r.workerId)).toEqual([
+        workerId,
+      ]);
+      const asB = await req("GET", "/payer/reach/applicants", { token: B.token });
+      expect(asB.json).toEqual(asA.json);
+      const asC = await req("GET", "/payer/reach/applicants", { token: C.token });
+      expect(asC.json).toMatchObject({ applicants: [], nextCursor: null });
+    });
+  },
+);

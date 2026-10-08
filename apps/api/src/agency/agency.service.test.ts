@@ -8,6 +8,9 @@ import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "./agency.dto";
 import { MatchSkillsService } from "../match/match-skills.service";
 import type { MatchConfigService } from "../match/match-config.service";
 import type { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
+import type { ServerConfig } from "@badabhai/config";
 
 const PAYER_A = "11111111-1111-4111-8111-111111111111";
 const PAYER_B = "22222222-2222-4222-8222-222222222222";
@@ -91,6 +94,8 @@ function make(opts?: {
   agencyJob?: JobRow | undefined;
   /** `match_config.max_skills_per_posting` for the REAL MatchSkillsService below. */
   maxSkillsPerPosting?: number;
+  /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
+  tenancy?: PayerTenantScopeService;
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
 
@@ -165,6 +170,7 @@ function make(opts?: {
     consent as never,
     { emit } as never,
     matchSkills,
+    opts?.tenancy ?? defaultModeResolver(),
   );
   return { svc, emit, jobsRepo, invitesRepo, consent };
 }
@@ -1199,5 +1205,154 @@ describe("#1983 — AgencyService.opsSetMatchSkills (ops, any agency job)", () =
       /at most 1/,
     );
     expect(jobsRepo.setMatchSkillIdsIfNotClosed).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) P2a — agency JOBS are the org's: the TENANT owns and scopes the rows and
+// is the `payer_id` the job.* payloads carry; the LOGIN is the event actor. The REAL resolver;
+// the repository fakes honour the tenant key they are handed exactly as their WHERE does.
+// ---------------------------------------------------------------------------
+describe("ADR-0053 P2a — AgencyService's job paths follow the TENANT", () => {
+  const ANCHOR = PAYER_A;
+  const MEMBER = "77777777-7777-4777-8777-777777777777";
+  const OUTSIDER = PAYER_B;
+  const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+
+  /** The ANCHOR's job behind owner-scoped fakes that match only the anchor's key. */
+  function teamWorld(status: JobStatus, tenancy: PayerTenantScopeService) {
+    const owned = jobRow({ payerId: ANCHOR, status });
+    const d = make({ ownedJob: owned, tenancy });
+    const mine = (tenant: string) => tenant === ANCHOR;
+    d.jobsRepo.findOwnedById.mockImplementation(async (_id: string, tenant: string) =>
+      mine(tenant) ? owned : undefined,
+    );
+    d.jobsRepo.listOwned.mockImplementation(async (tenant: string) =>
+      mine(tenant) ? [owned] : [],
+    );
+    for (const [method, to] of [
+      ["updateOwned", status],
+      ["closeOwnedIfLive", "closed"],
+      ["pauseOwnedIfOpen", "paused"],
+      ["resumeOwnedIfPaused", "open"],
+    ] as const) {
+      d.jobsRepo[method].mockImplementation(async (id: string, tenant: string) =>
+        mine(tenant) ? jobRow({ ...owned, id, status: to }) : undefined,
+      );
+    }
+    return { ...d, resolve: vi.spyOn(tenancy, "resolve") };
+  }
+
+  const emitted = (emit: ReturnType<typeof vi.fn>) =>
+    emit.mock.calls.map((c) => c[0] as { actor: unknown; payload: Record<string, unknown> });
+
+  it("on: a teammate's create is the ORG's job — the row's and the payload's payer_id = the anchor, the actor = the login", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    await d.svc.createJob(
+      MEMBER,
+      CreateAgencyJobSchema.parse({ trade_key: "cnc_operator", title: TITLE, city: CITY }),
+      CTX,
+    );
+    expect(d.jobsRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: ANCHOR }),
+      "open",
+    );
+    const [evt] = emitted(d.emit);
+    expect(evt!.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+    expect(evt!.payload.payer_id).toBe(ANCHOR);
+  });
+
+  it("on: a teammate lists, reads, edits, pauses, resumes and closes the anchor's job under the ANCHOR's key; every event names the anchor as owner and the login as actor", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const open = teamWorld("open", tenancy);
+    expect((await open.svc.listOwnJobs(MEMBER)).map((j) => j.id)).toEqual([JOB_ID]);
+    expect(open.jobsRepo.listOwned).toHaveBeenCalledWith(ANCHOR);
+    expect((await open.svc.getOwnJob(MEMBER, JOB_ID)).id).toBe(JOB_ID);
+    await open.svc.updateJob(MEMBER, JOB_ID, UpdateAgencyJobSchema.parse({ title: "Fitter" }), CTX);
+    expect(open.jobsRepo.updateOwned).toHaveBeenCalledWith(JOB_ID, ANCHOR, expect.anything());
+    await open.svc.pauseJob(MEMBER, JOB_ID, CTX);
+    expect(open.jobsRepo.pauseOwnedIfOpen).toHaveBeenCalledWith(JOB_ID, ANCHOR, expect.any(Date));
+    await open.svc.closeJob(MEMBER, JOB_ID, CTX);
+    expect(open.jobsRepo.closeOwnedIfLive).toHaveBeenCalledWith(JOB_ID, ANCHOR, expect.any(Date));
+    const paused = teamWorld("paused", tenancy);
+    await paused.svc.resumeJob(MEMBER, JOB_ID, CTX);
+    expect(paused.jobsRepo.resumeOwnedIfPaused).toHaveBeenCalledWith(
+      JOB_ID,
+      ANCHOR,
+      expect.any(Date),
+    );
+    const events = [...emitted(open.emit), ...emitted(paused.emit)];
+    expect(events).toHaveLength(4); // updated, paused (job.updated), closed, resumed (job.updated)
+    for (const e of events) {
+      expect(e.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+      expect(e.payload.payer_id).toBe(ANCHOR);
+    }
+  });
+
+  it("on: an outsider gets the SAME 404 as for an unknown id on every job route; nothing is written or emitted", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    type World = ReturnType<typeof teamWorld>;
+    const routes: ((d: World) => Promise<unknown>)[] = [
+      (d) => d.svc.getOwnJob(OUTSIDER, JOB_ID),
+      (d) => d.svc.updateJob(OUTSIDER, JOB_ID, UpdateAgencyJobSchema.parse({ title: "X" }), CTX),
+      (d) => d.svc.closeJob(OUTSIDER, JOB_ID, CTX),
+      (d) => d.svc.pauseJob(OUTSIDER, JOB_ID, CTX),
+      (d) => d.svc.resumeJob(OUTSIDER, JOB_ID, CTX),
+    ];
+    for (const call of routes) {
+      const d = teamWorld("open", tenancy);
+      const foreign = await call(d).catch((e: unknown) => e);
+      expect(foreign).toBeInstanceOf(NotFoundException);
+      expect(d.jobsRepo.findOwnedById).toHaveBeenCalledWith(JOB_ID, OUTSIDER);
+      d.jobsRepo.findOwnedById.mockResolvedValueOnce(undefined); // an id nobody owns
+      const unknown = await call(d).catch((e: unknown) => e);
+      expect((foreign as NotFoundException).getResponse()).toEqual(
+        (unknown as NotFoundException).getResponse(),
+      );
+      for (const write of [
+        d.jobsRepo.updateOwned,
+        d.jobsRepo.closeOwnedIfLive,
+        d.jobsRepo.pauseOwnedIfOpen,
+        d.jobsRepo.resumeOwnedIfPaused,
+        d.emit,
+      ]) {
+        expect(write).not.toHaveBeenCalled();
+      }
+    }
+    expect(await teamWorld("open", tenancy).svc.listOwnJobs(OUTSIDER)).toEqual([]);
+  });
+
+  it("each job entry point resolves the session payer exactly ONCE", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const calls: ((d: ReturnType<typeof teamWorld>) => Promise<unknown>)[] = [
+      (d) => d.svc.updateJob(MEMBER, JOB_ID, UpdateAgencyJobSchema.parse({ title: "Fitter" }), CTX),
+      (d) => d.svc.closeJob(MEMBER, JOB_ID, CTX),
+      (d) => d.svc.pauseJob(MEMBER, JOB_ID, CTX),
+      (d) => d.svc.listOwnJobs(MEMBER),
+    ];
+    for (const call of calls) {
+      const d = teamWorld("open", tenancy);
+      d.resolve.mockClear();
+      await call(d);
+      expect(d.resolve).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("off (the default): the SAME teammate is their own tenant — today's stamps, predicates and payloads", async () => {
+    const d = teamWorld("open", defaultModeResolver(TEAM));
+    await d.svc.createJob(
+      MEMBER,
+      CreateAgencyJobSchema.parse({ trade_key: "cnc_operator", title: TITLE, city: CITY }),
+      CTX,
+    );
+    expect(d.jobsRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: MEMBER }),
+      "open",
+    );
+    expect(emitted(d.emit)[0]!.payload.payer_id).toBe(MEMBER);
+    await expect(d.svc.getOwnJob(MEMBER, JOB_ID)).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.jobsRepo.findOwnedById).toHaveBeenCalledWith(JOB_ID, MEMBER);
+    expect(await d.svc.listOwnJobs(MEMBER)).toEqual([]);
   });
 });

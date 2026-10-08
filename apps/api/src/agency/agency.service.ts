@@ -20,6 +20,8 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { readOwnedById, assertOwnedRows } from "../payers/payer-scope";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerTenantScope } from "../payers/payer-tenant-scope";
 import { AgencyJobsRepository, type AgencyJobUpdate } from "./agency-jobs.repository";
 import { AgencyInvitesRepository, type AgencyInviteStageCounts } from "./agency-invites.repository";
 import type {
@@ -170,6 +172,12 @@ export interface OpsAgencyJobMatchSkillsResult {
  * INVARIANTS enforced here:
  *  - `payerId` is ALWAYS the SESSION payer (passed in by the controller from the verified
  *    session — XB-A); it is never read from a body/param.
+ *  - JOBS ARE TENANT-OWNED (ADR-0053, PAY-DB-01 P2a): every job entry point resolves the
+ *    session payer's tenancy ONCE. The TENANT KEY owns and scopes the `jobs` rows (and is the
+ *    `payer_id` the `job.*` payloads carry — the row's owner, as `opsSetMatchSkills` already
+ *    reports it); the ACTING LOGIN is the event actor. Org tenancy off: both are the session
+ *    payer, today's behaviour exactly. Invites, referrals and the funnel are not converted
+ *    yet (P2d) and stay keyed by the session payer.
  *  - No-oracle: an unknown job and another payer's job both surface the IDENTICAL neutral
  *    404 (`readOwnedById` returns undefined for both → 404 here).
  *  - Every write emits exactly one registry-validated event with the PAYER as actor.
@@ -198,16 +206,19 @@ export class AgencyService {
     // ADR-0050 C4 (#1983) — the posting form's closed-vocabulary + cap check, reused so the
     // agency job form can never accept a pick the posting form would refuse. @Global.
     private readonly matchSkills: MatchSkillsService,
+    // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   // ───────────────────────────── Demand CRUD on jobs ─────────────────────────────
 
-  /** Create an OWNED job (payer_id = session, status='open'). Emits job.created. */
+  /** Create an OWNED job (payer_id = the tenant key, status='open'). Emits job.created. */
   async createJob(
-    payerId: string,
+    actorPayerId: string,
     dto: CreateAgencyJobDto,
     ctx: RequestContext,
   ): Promise<AgencyJobView> {
+    const scope = await this.tenancy.resolve(actorPayerId);
     // ADR-0050 C4 — validated BEFORE the insert, so a bad id is a 400 and never a stored row.
     // Omitted means `[]` ("not chosen yet"), so a shipped client that never sends it is unchanged.
     const matchSkillIds =
@@ -216,7 +227,7 @@ export class AgencyService {
         : [];
     const row = await this.jobsRepo.create(
       {
-        payerId,
+        payerId: scope.tenantKey,
         tradeKey: dto.trade_key,
         title: dto.title,
         city: dto.city,
@@ -245,7 +256,7 @@ export class AgencyService {
 
     const payload: PayloadInputOf<"job.created"> = {
       job_id: row.id,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       status: "open",
       trade_key: row.tradeKey,
       city: row.city,
@@ -256,7 +267,7 @@ export class AgencyService {
       // Migration 0131 — a closed 21-slug enum (or null), PII-free like `trade_key`.
       role_kind: row.roleKind,
     };
-    await this.events.emit(this.jobEmitParams("job.created", row.id, payerId, payload, ctx));
+    await this.events.emit(this.jobEmitParams("job.created", row.id, scope, payload, ctx));
 
     // TD64 — emit job.available per matched worker. Deferred: requires a
     // worker-matching query (trade_key + city) that does not exist yet. The event
@@ -266,33 +277,36 @@ export class AgencyService {
     return AgencyService.toJobView(row);
   }
 
-  /** List the payer's OWN jobs (faceless projection). Defense-in-depth ownership re-check. */
-  async listOwnJobs(payerId: string): Promise<AgencyJobView[]> {
-    const rows = await this.jobsRepo.listOwned(payerId);
-    // Belt-and-braces: every returned row must belong to the payer (the WHERE already
+  /** List the tenant's OWN jobs (faceless projection). Defense-in-depth ownership re-check. */
+  async listOwnJobs(actorPayerId: string): Promise<AgencyJobView[]> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const rows = await this.jobsRepo.listOwned(scope.tenantKey);
+    // Belt-and-braces: every returned row must belong to the tenant (the WHERE already
     // scopes this, but assertOwnedRows is the cross-tenant guarantee on list reads).
     assertOwnedRows(
-      payerId,
+      scope.tenantKey,
       rows.map((r) => ({ ...r, payerId: r.payerId ?? "" })),
     );
     return rows.map(AgencyService.toJobView);
   }
 
   /** Get ONE owned job; neutral 404 for unknown-or-not-owned (no-oracle). */
-  async getOwnJob(payerId: string, jobId: string): Promise<AgencyJobView> {
-    const row = await this.readOwnedJob(payerId, jobId);
+  async getOwnJob(actorPayerId: string, jobId: string): Promise<AgencyJobView> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const row = await this.readOwnedJob(scope, jobId);
     if (!row) throw new NotFoundException("Job not found");
     return AgencyService.toJobView(row);
   }
 
   /** Edit an owned job. Neutral 404 if unknown-or-not-owned. Emits job.updated. */
   async updateJob(
-    payerId: string,
+    actorPayerId: string,
     jobId: string,
     dto: UpdateAgencyJobDto,
     ctx: RequestContext,
   ): Promise<AgencyJobView> {
-    const current = await this.readOwnedJob(payerId, jobId);
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const current = await this.readOwnedJob(scope, jobId);
     if (!current) throw new NotFoundException("Job not found");
     if (current.status === "closed") {
       // closed is terminal — no edits. (A neutral conflict, not a leak.)
@@ -438,16 +452,16 @@ export class AgencyService {
       throw new BadRequestException("max_experience_years must be >= min_experience_years");
     }
 
-    const updated = await this.jobsRepo.updateOwned(jobId, payerId, patch);
+    const updated = await this.jobsRepo.updateOwned(jobId, scope.tenantKey, patch);
     if (!updated) throw new NotFoundException("Job not found");
 
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: updated.id,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       status: updated.status,
       changed_fields: changedFields,
     };
-    await this.events.emit(this.jobEmitParams("job.updated", updated.id, payerId, payload, ctx));
+    await this.events.emit(this.jobEmitParams("job.updated", updated.id, scope, payload, ctx));
 
     return AgencyService.toJobView(updated);
   }
@@ -459,14 +473,15 @@ export class AgencyService {
    * reach here; now that a pause is reversible a job can sit in `paused`, and refusing to
    * close it would strand it in a state its owner can resume but never end.
    */
-  async closeJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
-    const current = await this.readOwnedJob(payerId, jobId);
+  async closeJob(actorPayerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const current = await this.readOwnedJob(scope, jobId);
     if (!current) throw new NotFoundException("Job not found");
     if (current.status === "closed") {
       throw new BadRequestException("Job is already closed");
     }
 
-    const closed = await this.jobsRepo.closeOwnedIfLive(jobId, payerId, new Date());
+    const closed = await this.jobsRepo.closeOwnedIfLive(jobId, scope.tenantKey, new Date());
     if (!closed) {
       // Raced to closed (or no longer owned-open) — neutral conflict, no oracle.
       throw new BadRequestException("Job is already closed");
@@ -474,14 +489,14 @@ export class AgencyService {
 
     const payload: PayloadInputOf<"job.closed"> = {
       job_id: closed.id,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       // The state it ACTUALLY left. Hardcoding "open" was correct only while `open` was the
       // one closable state; a job closed from `paused` would otherwise report a transition
       // that never happened, on the spine, permanently.
       previous_status: current.status,
       status: "closed",
     };
-    await this.events.emit(this.jobEmitParams("job.closed", closed.id, payerId, payload, ctx));
+    await this.events.emit(this.jobEmitParams("job.closed", closed.id, scope, payload, ctx));
 
     return AgencyService.toJobView(closed);
   }
@@ -506,8 +521,9 @@ export class AgencyService {
    * Emits `job.updated` with `changed_fields:["status"]` — a serving-state toggle, kept
    * deliberately distinct from the terminal `job.closed`.
    */
-  async pauseJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
-    const current = await this.readOwnedJob(payerId, jobId);
+  async pauseJob(actorPayerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const current = await this.readOwnedJob(scope, jobId);
     if (!current) throw new NotFoundException("Job not found");
     if (current.status !== "open") {
       // Neutral for every non-open state (closed, already paused, or system-suspended), so
@@ -515,18 +531,18 @@ export class AgencyService {
       throw new BadRequestException("Job is not open");
     }
 
-    const paused = await this.jobsRepo.pauseOwnedIfOpen(jobId, payerId, new Date());
+    const paused = await this.jobsRepo.pauseOwnedIfOpen(jobId, scope.tenantKey, new Date());
     if (!paused) {
       throw new BadRequestException("Job is not open");
     }
 
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: paused.id,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       status: paused.status,
       changed_fields: ["status"],
     };
-    await this.events.emit(this.jobEmitParams("job.updated", paused.id, payerId, payload, ctx));
+    await this.events.emit(this.jobEmitParams("job.updated", paused.id, scope, payload, ctx));
 
     return AgencyService.toJobView(paused);
   }
@@ -546,25 +562,30 @@ export class AgencyService {
    * appearing), and `published_at` lives on `job_postings`, not here. The company path's
    * re-materialisation on unpause (ADR-0036 moment 3) is a property of that other table.
    */
-  async resumeJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
-    const current = await this.readOwnedJob(payerId, jobId);
+  async resumeJob(
+    actorPayerId: string,
+    jobId: string,
+    ctx: RequestContext,
+  ): Promise<AgencyJobView> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const current = await this.readOwnedJob(scope, jobId);
     if (!current) throw new NotFoundException("Job not found");
     if (current.status !== "paused") {
       throw new BadRequestException("Job is not paused");
     }
 
-    const resumed = await this.jobsRepo.resumeOwnedIfPaused(jobId, payerId, new Date());
+    const resumed = await this.jobsRepo.resumeOwnedIfPaused(jobId, scope.tenantKey, new Date());
     if (!resumed) {
       throw new BadRequestException("Job is not paused");
     }
 
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: resumed.id,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       status: resumed.status,
       changed_fields: ["status"],
     };
-    await this.events.emit(this.jobEmitParams("job.updated", resumed.id, payerId, payload, ctx));
+    await this.events.emit(this.jobEmitParams("job.updated", resumed.id, scope, payload, ctx));
 
     return AgencyService.toJobView(resumed);
   }
@@ -993,30 +1014,33 @@ export class AgencyService {
   // ──────────────────────────────── helpers ────────────────────────────────
 
   /**
-   * The single-resource owned read chokepoint for jobs. The repo already scopes by payer
+   * The single-resource owned read chokepoint for jobs. The repo already scopes by tenant
    * in the WHERE; `readOwnedById` is the tenant chokepoint that re-asserts ownership on the
    * fetched row (defense-in-depth). Returns undefined for unknown-or-not-owned (no-oracle).
    */
-  private readOwnedJob(payerId: string, jobId: string): Promise<Job | undefined> {
-    return readOwnedById(payerId, async () => {
-      const row = await this.jobsRepo.findOwnedById(jobId, payerId);
+  private readOwnedJob(scope: PayerTenantScope, jobId: string): Promise<Job | undefined> {
+    return readOwnedById(scope.tenantKey, async () => {
+      const row = await this.jobsRepo.findOwnedById(jobId, scope.tenantKey);
       // `jobs.payerId` is nullable in the schema, but a row returned by the owner-scoped
-      // query always has it === payerId; normalize the type for the scope helper.
+      // query always has it === the tenant key; normalize the type for the scope helper.
       return row ? { ...row, payerId: row.payerId ?? "" } : undefined;
     });
   }
 
-  /** Common emit params for a job.* event: PAYER actor, `job` subject, tracing ids. */
+  /**
+   * Common emit params for a job.* event: the ACTING LOGIN as the payer actor (ADR-0053 §7 —
+   * the payload's `payer_id` is the tenant), `job` subject, tracing ids.
+   */
   private jobEmitParams<N extends "job.created" | "job.updated" | "job.closed">(
     event_name: N,
     jobId: string,
-    payerId: string,
+    scope: PayerTenantScope,
     payload: PayloadInputOf<N>,
     ctx: RequestContext,
   ): EmitParams<N> {
     return {
       event_name,
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: scope.actorPayerId },
       subject: { subject_type: "job", subject_id: jobId },
       payload,
       correlationId: ctx.correlationId,

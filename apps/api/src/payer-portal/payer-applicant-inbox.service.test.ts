@@ -12,6 +12,10 @@ import type { CandidateRow, RankedCandidateRow } from "../match/match-feed.repos
 import { PayerApplicantsService } from "./payer-applicants.service";
 import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
 import { stagesOff } from "./payer-applicant-stages.test-support";
+import type { PayerTenantScope } from "../payers/payer-tenant-scope";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
+import type { ServerConfig } from "@badabhai/config";
 import type { InboxPageQuery, InboxPageRow } from "./payer-applicant-inbox.repository";
 import { decodeInboxCursor } from "./payer-applicant-inbox.cursor";
 import type { InboxApplicantRowDto, PayerApplicantInboxDto } from "./payer-applicant-inbox.dto";
@@ -382,8 +386,11 @@ function world(
     page?: (payerId: string, q: InboxPageQuery) => InboxPageRow[];
     /** PAYER_APPLICANT_STAGES_ENABLED for the inbox service (off, the default, unless set). */
     stagesEnabled?: boolean;
+    /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
+    tenancy?: PayerTenantScopeService;
   } = {},
 ) {
+  const tenancy = opts.tenancy ?? defaultModeResolver();
   const inboxRepo = {
     listPage: vi.fn(async (payerId: string, q: InboxPageQuery) =>
       (opts.page ?? pageOf)(payerId, q),
@@ -429,9 +436,12 @@ function world(
   const config = { get: vi.fn(async () => DEFAULT_MATCH_CONFIG) };
   const candidates = new MatchCandidatesService(matchRepo as never, config as never);
 
+  // `findByIdAndPayer`'s WHERE on the scope's TENANT key (ADR-0053), never the login.
   const jobPostings = {
-    getOneForPayer: vi.fn(async (id: string, payerId: string) => {
-      if (POSTINGS.get(id)?.owner !== payerId) throw new NotFoundException("Job posting not found");
+    getOneInScope: vi.fn(async (id: string, scope: PayerTenantScope) => {
+      if (POSTINGS.get(id)?.owner !== scope.tenantKey) {
+        throw new NotFoundException("Job posting not found");
+      }
       return { id };
     }),
   };
@@ -441,10 +451,15 @@ function world(
     jobPostings as never,
     candidates,
     stagesOff(),
+    tenancy,
   );
-  const inbox = new PayerApplicantInboxService(inboxRepo as never, reach, candidates, {
-    PAYER_APPLICANT_STAGES_ENABLED: opts.stagesEnabled ?? false,
-  });
+  const inbox = new PayerApplicantInboxService(
+    inboxRepo as never,
+    reach,
+    candidates,
+    { PAYER_APPLICANT_STAGES_ENABLED: opts.stagesEnabled ?? false },
+    tenancy,
+  );
 
   const feedShown = (): Record<string, unknown>[] =>
     (emitMany.mock.calls as unknown as Record<string, unknown>[][][]).flatMap((c) => c[0]!);
@@ -969,5 +984,49 @@ describe("PayerApplicantInboxService — the saved pipeline board (owner ruling 
       w.inbox.list(PAYER_A, { ...query(), stage: "shortlist" }, CTX),
     ).rejects.toMatchObject({ status: 400 });
     expect(w.inboxRepo.listPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("ADR-0053 P2a — the Candidates inbox follows the TENANT", () => {
+  const MEMBER = "cccccccc-0000-4000-8000-00000000000c";
+  const TEAM = [{ anchor: PAYER_A, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+
+  it("on: a teammate's inbox IS the anchor's — every read on the anchor's key, every impression on the login", async () => {
+    const w = world({ tenancy: resolverOver(ON, TEAM) });
+    const asAnchor = await w.inbox.list(PAYER_A, query(), CTX);
+    const anchorShown = w.feedShown();
+    w.emitMany.mockClear();
+    const asMember = await w.inbox.list(MEMBER, query(), CTX);
+    expect(asMember).toEqual(asAnchor);
+    expect(asMember.applicants.map(applicationOf)).toEqual(EXPECTED_A);
+    expect(w.inboxRepo.listPage).toHaveBeenLastCalledWith(PAYER_A, expect.anything());
+    expect(w.reachRepo.findOwnedJobSignalRowsByIds.mock.calls.at(-1)![1]).toBe(PAYER_A);
+    expect(w.matchRepo.listRankedCandidatesByApplication.mock.calls.at(-1)![0]).toBe(PAYER_A);
+    const memberShown = w.feedShown();
+    expect(memberShown.map((e) => e.payload)).toEqual(anchorShown.map((e) => e.payload));
+    expect(memberShown.length).toBeGreaterThan(0);
+    for (const e of memberShown) expect(e.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+  });
+
+  it("on: an outsider's inbox is still only their own", async () => {
+    const w = world({ tenancy: resolverOver(ON, TEAM) });
+    const out = await w.inbox.list(PAYER_B, query(), CTX);
+    expect(out.applicants.map(applicationOf).sort()).toEqual([app(16), app(17)].sort());
+  });
+
+  it("resolves the session payer ONCE per page, though the page and both detail reads are scoped", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const resolve = vi.spyOn(tenancy, "resolve");
+    const w = world({ tenancy });
+    await w.inbox.list(MEMBER, query(), CTX);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("off (the default): the SAME teammate owns nothing, so their inbox is empty — today's behaviour", async () => {
+    const w = world({ tenancy: defaultModeResolver(TEAM) });
+    const out = await w.inbox.list(MEMBER, query(), CTX);
+    expect(out).toEqual({ applicants: [], nextCursor: null });
+    expect(w.inboxRepo.listPage).toHaveBeenCalledWith(MEMBER, expect.anything());
   });
 });

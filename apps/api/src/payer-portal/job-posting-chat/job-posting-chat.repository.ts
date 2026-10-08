@@ -181,7 +181,7 @@ export class JobPostingChatRepository {
    *
    * WHY THE ORDER MATTERS. A payer double-clicking "publish" fires two requests that
    * both pass the service's read-then-check on status. If the status flip came after
-   * `createForPayer`, both would have created a posting and only the second would have
+   * the posting create (`createInScope`), both would have created a posting and only the second would have
    * lost the write — two live vacancies from one conversation, each with its own
    * `job_posting.created` on the spine. Claiming first makes that structurally
    * impossible: the live-status predicate is evaluated by Postgres under row lock, so
@@ -237,14 +237,14 @@ export class JobPostingChatRepository {
 
   /**
    * Release a claim whose posting was never created (validation rejected the draft,
-   * or `createForPayer` threw), so the payer can fix the draft and publish again.
+   * or the posting create threw), so the payer can fix the draft and publish again.
    *
    * Guarded on `published_job_posting_id IS NULL` so it can only ever revert a claim
    * that produced nothing — it can never un-publish a session that really did create a
    * posting, even if called by mistake.
    *
    * "UNBOUND" MEANS "NOTHING WAS CREATED" ONLY BECAUSE THE CREATE IS ATOMIC (#1928). The bind
-   * runs after `createForPayer` returns, so a create that threw never binds. Before #1928 a
+   * runs after the posting create returns, so a create that threw never binds. Before #1928 a
    * create could throw AFTER its row committed (the `job_posting.created` emit ran outside the
    * transaction). This release then reopened a session whose posting existed, and the retry
    * created a second one. `JobPostingsService` now commits the row and its event in one

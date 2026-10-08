@@ -27,10 +27,10 @@ flag. A merge therefore never depends on the owner hand-applying SQL first.
 |---|---|---|---|---|---|---|
 | **P0** | this PR | ADR-0053, this plan, register updates | — | none | — | Chief Architect |
 | **P1** | 1 | resolver + `TenantKey` brand + mode flag + accept invariants A1–A3 + census script + **red tests** | `off` | accept refusals A1–A3 only | none (O-9 ruled 2026-10-08) | code-reviewer · security-reviewer · DevOps (ci.yml, compose, deploy bridge) · QA clean-env |
-| **P2a** | 1 | postings + applicants + Candidates inbox predicates | `off` | none | — | security-reviewer (tenant isolation) · code-reviewer |
+| **P2a** | 1 | postings + applicants + Candidates inbox predicates, **and agency jobs** (moved from P2d at build time, §3.1) | `off` | none | — | security-reviewer (tenant isolation) · code-reviewer |
 | **P2b** | 1 | unlocks, credits, ledger, payment orders, resume disclosures, relay. **Red test goes green once P2a and P2b are both on `main`** | `off` | none | none (O-1, O-3 ruled 2026-10-08) | security-reviewer · code-reviewer (money + event meaning, ADR §7) |
 | **P2c** | 1 | plans, boosts, quota top-up, capacity, coupons | `off` | none | none (O-4 ruled 2026-10-08) | security-reviewer · code-reviewer |
-| **P2d** | 1 | agency jobs, invites, workers, KYC, earnings, payouts (+ owner gates) | `off` | owner-only gate on agency KYC, earnings and payouts (O-5; flag-off surface) | none (O-5 ruled 2026-10-08) | security-reviewer · code-reviewer |
+| **P2d** | 1 | agency invites, workers, KYC, earnings, payouts (+ owner gates); agency jobs shipped in P2a | `off` | owner-only gate on agency KYC, earnings and payouts (O-5; flag-off surface) | none (O-5 ruled 2026-10-08) | security-reviewer · code-reviewer |
 | **P3** | 1 + 2 owner actions | completeness gate (T5 allowlist empty) → census → `shadow` → `on` | `shadow` → `on` | **the fix** | **O-8** (owner's call). O-2 and O-6 ruled 2026-10-08 | security-engineer pass on a seeded team org · owner sign-off |
 | **P4** | deferred | `actor_payer_id` columns · `org_id` + DB-enforced RLS · ownership transfer · multi-org | — | — | separate ADRs | migration-reviewer |
 
@@ -151,6 +151,60 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 | `apps/api/src/payers/payer-scope.ts` | retype `assertPayerOwns` / `assertOwnedRows` / `readOwnedById` to `(scope.tenantKey, row tenant-key column)` |
 | applicant-stage table (if merged) | verify it authorizes only through `getOneForPayer` / `findOwnedJobRef` |
 
+**As built (P2a PR, 2026-10-08).** Line numbers above are the plan's baseline; the shipped shape:
+
+- **Converted (T5 allowlist −16):** `JobPostingsRepository.{findByIdAndPayer, listByPayer,
+  updateOwned, closeOwned, transitionOwned}` · `ReachRepository.{findOwnedJobSignalRowById,
+  findOwnedJobSignalRowsByIds}` · `inboxPageStatement` (and `PayerApplicantInboxRepository.listPage`)
+  · `MatchFeedRepository.listRankedCandidatesByApplication` · `AgencyJobsRepository.{create,
+  findOwnedById, listOwned, updateOwned, closeOwnedIfLive, pauseOwnedIfOpen, resumeOwnedIfPaused}`.
+- **Hand-converted (T5 cannot see them):** `JobPostingsRepository.create` takes
+  `NewTenantJobPosting` (`payerId: TenantKey | null`; NULL = ops/twin), and the create content type
+  can no longer carry `payerId`/`createdBy` · `PayerApplicantStagesRepository.findOwnedPostingKind`
+  (a delegate, blind spot 8) takes the tenant key · `payer-scope.ts` (`assertPayerOwns`,
+  `assertOwnedRows`, `readOwnedById`) takes `TenantKey` · the services' internal seams
+  (`ReachService.tryApplicantsForOwnedJob` / `applicantsForOwnedJob` take the scope,
+  `appliersForOwnedJobs` and `MatchCandidatesService.rowsForOwnedApplications` the key).
+- **NOT converted here — `owned-job-ref.ts findOwnedJobRef` stays on the allowlist.** Its P2b
+  callers (`UnlocksRepository.findOwnedJobRef`, `ResumeDisclosureRepository.findOwnedJobRef`) still
+  pass a raw id, so retyping the helper would break them; whichever of P2a/P2b lands second
+  retypes it. P2a's own caller already passes the tenant key, so the board is org-scoped now.
+- **Agency jobs moved here from P2d** (the jobs are the agency's postings; `payer-scope.ts` could
+  not be retyped while its only callers, the agency job paths, still held a raw id).
+- **Resolution points:** each controller-facing entry point (`*ForPayer`, the agency job methods,
+  `PayerApplicantsService.listForOwned`, `PayerApplicantInboxService.list`,
+  `PayerApplicantStagesService.setStage`, the chat `publish`) resolves ONCE; composed callers take
+  the scope (`JobPostingsService.createInScope` / `getOneInScope`). The chat publish resolves
+  before it claims the session, so a refused resolution claims nothing. Controllers are unchanged.
+- **Event meaning:** `job_posting.*` — actor = the login, `created_by` = the login, no payer field
+  (unchanged schema). `job.*` (agency) — actor = the login, payload `payer_id` = the tenant key, by
+  ADR §7's general rule (on a tenant business event the envelope actor is the acting login and
+  the payload's payer-reference fields carry the tenant key); `job.*` is now on §7's list. It is
+  also what `opsSetMatchSkills` already reported (the job's owning agency). `feed.shown` and
+  `payer.applicant_stage_changed` — actor = the login; the stage row's `actor_payer_id` = the
+  login.
+- **O-10 (owner ruling 2026-10-08) — the posting carries the org's name.** A teammate's
+  chat-published posting is stamped with the FOUNDER's company name (`org_label` from the tenant
+  key's `payers.org_name_enc`); the teammate stays `created_by` and the event actor. Shipped here
+  for the AI chat publish (`JobPostingChatService.publish` reads the org name AFTER resolving the
+  scope; in `off` the tenant is the login, so byte-identical). **Not shipped here — on the P2
+  checklist: the manual posting form's prefill.** payer-web (`sessionOrgLabel`) and payer-app
+  stamp `org_label` client-side from `GET /payer/me` `orgName`, the person's own account field
+  (plan §4: the person, not the tenant). Proposed: an additive `GET /payer/me` field carrying
+  the tenant's org name (equal to `orgName` in `off`), then a Frontend issue to prefill from it.
+  The server never overrides a client-sent `org_label` (that would change `off`).
+- **Hazard for P2b/P2c (N+1):** `PayerJobPostingsController.enrich` calls `getPostingStats` and
+  `countDisclosuresForPosting` once PER POSTING with the raw session id. If those resolve inside,
+  `GET /payer/job-postings` resolves N+1 times (ADR §5.4 budget); give them a scope-taking seam.
+- **Hazard for P2c (split purchase, review of PR #2167):** the plan, boost and quota-top-up
+  routes (`POST /payer/job-postings/:id/plan` · `/boost` · `/quota-topup`) check ownership
+  through `getOneForPayer` — the ORG after P2a — but then purchase through
+  `PostingPlansService.*ForPayer(id, payer.id, …)` under the LOGIN until P2c. In `on` a
+  teammate would pass the org's ownership check and buy under their own login and wallet. P2c
+  must give these three routes ONE scope-taking seam (resolve once, check ownership and purchase
+  with the same scope). The deploy preflight refuses `on` until P3 (risk R66), so this cannot
+  be reached in production.
+
 ### 3.2 P2b — money: unlocks, credits, ledger, payment orders, disclosures, relay
 
 | File | Methods / predicates |
@@ -184,10 +238,12 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 
 ### 3.4 P2d — agency
 
+**Agency JOBS shipped in P2a** (`agency-jobs.repository.ts` and the `AgencyService` job methods,
+emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
+
 | File | Methods / predicates |
 |---|---|
-| `apps/api/src/agency/agency-jobs.repository.ts` | `create` `:90` · `findOwnedById` `:123` · `listOwned` `:133` · `updateOwned` `:145` · `closeOwnedIfLive` `:169` · `pauseOwnedIfOpen` `:191` · `resumeOwnedIfPaused` `:209` |
-| `apps/api/src/agency/agency.service.ts` | `listOwnJobs` `:270` (`assertOwnedRows` `:274`) · `getOwnJob` `:282` · `closeJob` `:462` · `pauseJob` `:509` · `resumeJob` `:549` · `createInvite` `:575` · `referralsSummary` `:924` · `readOwnedById` (~`:1001`) · emitters |
+| `apps/api/src/agency/agency.service.ts` | `createInvite` `:575` · `referralsSummary` `:924` · invite emitters |
 | `apps/api/src/agency/agency-invites.repository.ts` | `create` `:38` (`inviter_payer_id` = tenant key) · `stageCountsForOwner` `:101` |
 | `apps/api/src/agency/agency-workers.repository.ts` | `listReferredWithConsent` `:47` (raw SQL `:102`) |
 | `apps/api/src/agency/agency-kyc.repository.ts` · `agency-kyc.service.ts` | `upsertPending` `:34` · `findByPayer` `:67` · `submit` `:75` · `getOwnView` `:108` · `statusForGate` `:113` (**O-5**) |
@@ -225,7 +281,8 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
    2. `PostingPlansRepository.couponUsage` — counts `coupon.redeemed` in `events` (O-4).
    3. `PostingPlansRepository.insertPlan`, 4. `insertBoost`, 5. `JobPostingsRepository.create` —
       the payer id rides a Drizzle insert type (`New…`) from packages/db, which T5 does not read.
-      Same for any parameter typed by a type declared outside apps/api/src.
+      Same for any parameter typed by a type declared outside apps/api/src. *(5 hand-converted in
+      P2a: `NewTenantJobPosting`.)*
    6. A raw id under a name outside T5's pattern (`payerId` / `*PayerId` / `agencyId`) — e.g.
       `ownerId`, `tenantId`, a bare `id`.
    7. A parameter typed `any` / `unknown` carrying a payer id.
@@ -246,6 +303,12 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
    launderers (`launder<T>(x: unknown): T`), which no static test sees.
 8. **The owner confirms the R5 / O-6 amendment** (ADR-0053 R5, amended 2026-10-08 in PR #2155:
    the anchor-status check applies only when the actor is not the anchor).
+9. **The P3 PR lifts the preflight refusal.** Until P3, `scripts/deploy/staging-deploy.sh`
+   refuses `PAYER_ORG_TENANCY_MODE=on` (risk R66; `payer-org-tenancy-mode.guard.test.ts` pins
+   it). The P3 PR removes that arm and its test case in the same change that makes T5 assert
+   UNCONVERTED is empty.
+10. **O-10's manual-form prefill has shipped** (§3.1 as built): the posting form stamps the
+    org's name, not the member's own.
 
 **Owner actions (O-8), in order:**
 
@@ -419,4 +482,5 @@ no schema change.
 | O-7 chat drafts member-private | yes | ACCEPTED | nothing |
 | O-8 arm `shadow` then `on` | after §5 | **Open**: owner's call | P3 |
 | O-9 member role must equal the anchor's | yes, for now | ACCEPTED | A3 inside P1 |
+| O-10 a teammate's posting carries the founder's org name; the teammate is the creator | — | RULED (owner, 2026-10-08, relayed on PR #2167) | nothing; chat publish in P2a, the manual-form prefill on the P2 checklist (§3.1) |
 | Invite refusals A1–A3 | yes | ACCEPTED | P1 |

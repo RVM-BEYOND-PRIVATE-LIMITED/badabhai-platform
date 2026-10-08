@@ -9,6 +9,7 @@ import {
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import { ReachRepository, type JobSignalRow } from "./reach.repository";
 import {
   workerProfileRowToSignals,
@@ -51,7 +52,7 @@ export class ReachService {
    * console only). Resolves the job, scores the FULL eligible worker pool via the core, and
    * renders faceless ranked rows. Despite the route name these are SUGGESTED workers, not
    * applicants; no payer surface serves this read (#1898) — the payer list is
-   * {@link applicantsForOwnedJob}.
+   * {@link tryApplicantsForOwnedJob}.
    */
   async applicantsForJob(jobId: string, ctx: RequestContext): Promise<ApplicantListResponseDto> {
     const jobSpec = await this.jobs.getJobSpec(jobId);
@@ -93,48 +94,37 @@ export class ReachService {
 
   /**
    * PAYER-SELF applicant list for an owned legacy `jobs` row
-   * (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22; #1898).
+   * (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22; #1898): `undefined` when `jobId`
+   * is not a `jobs` row the tenant owns (unknown and another tenant's job alike), the ranked
+   * APPLIERS otherwise (possibly empty — a job nobody applied to is an empty list, not a 404).
+   * The payer applicant list (`PayerApplicantsService.listForOwned`, #1823) uses it to tell an
+   * agency job from a company posting in ONE ownership read, with no exception as control
+   * flow, and owns the neutral 404. A DB error propagates; it is never folded into `undefined`,
+   * so it can never become a 404.
    *
    * #1898 (owner ruling): an agency's applicants are the workers who APPLIED to that job —
    * `applications.job_id = jobId AND action = 'applied'` — never the ranked worker pool
    * (CLAUDE.md §2: never show irrelevant candidates). The appliers are ordered by the SAME
-   * deterministic RANK core as the ops view (no LLM, no new scoring, the row shape unchanged);
-   * the core orders, it never filters (count in == count out over the appliers). The whole-pool
-   * ranking stays ONLY on the ops view {@link applicantsForJob}.
+   * deterministic RANK core as the ops view (no LLM, no new scoring); the core orders, it never
+   * filters (count in == count out over the appliers). The whole-pool ranking stays ONLY on the
+   * ops view {@link applicantsForJob}.
    *
-   *  (1) OWNERSHIP: the job is resolved via the payer-scoped, no-oracle ownership read
-   *      (`findOwnedJobSignalRowById`) — a not-found job and another payer's job both
-   *      resolve to the SAME neutral 404, so a payer cannot enumerate jobs they do not
-   *      own (XB-A horizontal authz + F-3 no-oracle). `payer_id` is consumed only in the
-   *      ownership WHERE and NEVER enters the JobSpec/response/event.
-   *  (2) ACTOR: each `feed.shown` carries `{actor_type:"payer", actor_id: payerId}` (bound
-   *      to the verified session — never the body), vs the ops path's `system` actor.
-   */
-  async applicantsForOwnedJob(
-    jobId: string,
-    payerId: string,
-    ctx: RequestContext,
-  ): Promise<ApplicantListResponseDto> {
-    const list = await this.tryApplicantsForOwnedJob(jobId, payerId, ctx);
-    // Not-found AND not-owned both land here with the IDENTICAL body (no-oracle, F-3).
-    if (!list) throw new NotFoundException("Job not found");
-    return list;
-  }
-
-  /**
-   * {@link applicantsForOwnedJob} without the 404: `undefined` when `jobId` is not a `jobs`
-   * row the session payer owns (unknown and another payer's job alike), the ranked APPLIERS
-   * otherwise (possibly empty — a job nobody applied to is an empty list, not a 404). The payer
-   * applicant list (#1823) uses it to tell an agency job from a company posting in ONE
-   * ownership read, with no exception as control flow. A DB error propagates; it is never
-   * folded into `undefined`, so it can never become a 404.
+   *  (1) OWNERSHIP: the job is resolved via the tenant-scoped, no-oracle ownership read
+   *      (`findOwnedJobSignalRowById` on `scope.tenantKey`, ADR-0053). `payer_id` is consumed
+   *      only in the ownership WHERE and NEVER enters the JobSpec/response/event.
+   *  (2) ACTOR: each `feed.shown` carries `{actor_type:"payer", actor_id: scope.actorPayerId}`
+   *      (the verified session login — never the body), vs the ops path's `system` actor.
+   *
+   * `scope` is the caller's ONE resolution of the session payer (ADR-0053 §5.2 rule 1).
+   * (The 404-throwing wrapper `applicantsForOwnedJob` had no production caller and was removed
+   * in PR #2167.)
    */
   async tryApplicantsForOwnedJob(
     jobId: string,
-    payerId: string,
+    scope: PayerTenantScope,
     ctx: RequestContext,
   ): Promise<ApplicantListResponseDto | undefined> {
-    const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, payerId);
+    const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, scope.tenantKey);
     if (!ownedRow) return undefined;
 
     // #1898: ONLY the workers who applied to this job — read by the job id the ownership read
@@ -143,11 +133,11 @@ export class ReachService {
     const applicants = ReachService.rankAppliers(ownedRow, rows, new Date());
 
     // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
-    // verified session payer — never the route/body). payer_id stays opaque in the event.
-    // emitMany([]) is a no-op, so a job with no appliers writes nothing.
+    // verified session login — never the route/body, never the tenant). payer_id stays opaque
+    // in the event. emitMany([]) is a no-op, so a job with no appliers writes nothing.
     await this.emitPayerFeedShown(
       applicants.map((row) => ({ jobId: ownedRow.jobId, row })),
-      payerId,
+      scope.actorPayerId,
       ctx,
     );
 
@@ -156,21 +146,21 @@ export class ReachService {
 
   /**
    * The payer's cross-posting inbox (`GET /payer/reach/applicants`): the ranked applier rows of
-   * several legacy `jobs` rows the session payer OWNS, keyed by job id — each list exactly what
+   * several legacy `jobs` rows the TENANT owns (ADR-0053), keyed by job id — each list exactly what
    * {@link tryApplicantsForOwnedJob} renders for that job (same membership, same
    * {@link rankAppliers}), in TWO reads whatever the number of jobs.
    *
    * EMITS NOTHING. The inbox shows only some of these rows on a page, so it decides which
-   * impressions happened and records them through {@link emitPayerFeedShown}. A job id the payer
-   * does not own (or that does not exist) is absent from the map — the batched ownership read's
-   * no-oracle answer — and its appliers are never read.
+   * impressions happened and records them through {@link emitPayerFeedShown}. A job id the
+   * tenant does not own (or that does not exist) is absent from the map — the batched ownership
+   * read's no-oracle answer — and its appliers are never read.
    */
   async appliersForOwnedJobs(
     jobIds: readonly string[],
-    payerId: string,
+    tenant: TenantKey,
   ): Promise<Map<string, ApplicantRowDto[]>> {
     if (jobIds.length === 0) return new Map();
-    const owned = await this.repo.findOwnedJobSignalRowsByIds(jobIds, payerId);
+    const owned = await this.repo.findOwnedJobSignalRowsByIds(jobIds, tenant);
     if (owned.length === 0) return new Map();
 
     const appliers = await this.repo.listApplicantSignalRowsForJobs(owned.map((j) => j.jobId));
@@ -192,14 +182,14 @@ export class ReachService {
 
   /**
    * One `feed.shown` per payer-visible applier row, UNKEYED (D7), as ONE all-or-nothing batch,
-   * with the verified SESSION payer as the actor (`actor_id`, an opaque uuid — never the
-   * payload). The payload is the row's own `rank`/`score`/`hot` plus the worker and job ids:
+   * with the verified SESSION login as the actor (`actor_id`, an opaque uuid — never the
+   * payload, and never the tenant key: ADR-0053 §7 keeps the person on the envelope). The payload is the row's own `rank`/`score`/`hot` plus the worker and job ids:
    * the unchanged v1 `FeedShownPayload`. Used by the per-job list and by the inbox, so the two
    * surfaces write the identical impression for the identical row.
    */
   async emitPayerFeedShown(
     shown: ReadonlyArray<{ jobId: string; row: ApplicantRowDto }>,
-    payerId: string,
+    actorPayerId: string,
     ctx: RequestContext,
   ): Promise<void> {
     await this.events.emitMany(
@@ -213,7 +203,7 @@ export class ReachService {
             hot: row.hot,
           },
           ctx,
-          { actor_type: "payer", actor_id: payerId },
+          { actor_type: "payer", actor_id: actorPayerId },
         ),
       ),
     );

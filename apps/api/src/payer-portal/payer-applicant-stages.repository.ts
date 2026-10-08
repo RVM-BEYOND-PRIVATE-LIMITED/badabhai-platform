@@ -4,6 +4,7 @@ import { type Database, payerApplicantStages } from "@badabhai/db";
 import type { ApplicantPostingKind, ApplicantStage } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef } from "../payers/owned-job-ref";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /** One applicant on one posting — the table's primary key. */
 export interface ApplicantStageKey {
@@ -60,8 +61,8 @@ export function feedMembershipStatement(key: ApplicantStageKey): SQL {
  * NO PAYER PREDICATE ON THIS TABLE, ANYWHERE (ADR-0053 §4, class C "via parent"). The table has no
  * tenant column; every caller first resolves the posting through the posting-ownership chokepoint
  * ({@link findOwnedPostingKind} → `findOwnedJobRef`) and then addresses rows by the
- * `(posting_kind, posting_id)` that resolution returned. When PAY-DB-01 moves the chokepoint to the
- * org's tenant key, this repository needs no change.
+ * `(posting_kind, posting_id)` that resolution returned. The chokepoint takes the resolved
+ * TENANT KEY (ADR-0053, PAY-DB-01 P2a), so the board is the org's whenever the posting is.
  *
  * NOTHING HERE MAY RUN WHILE `PAYER_APPLICANT_STAGES_ENABLED` IS OFF. The table is 0134's, and
  * 0134 is apply-before-flag-on: every caller checks the flag first.
@@ -82,17 +83,18 @@ export class PayerApplicantStagesRepository {
   }
 
   /**
-   * Which kind of posting `postingId` is, if the SESSION payer owns it — `null` for an unknown id
-   * and for another payer's alike. THE posting-ownership chokepoint (`findOwnedJobRef`: both
-   * tables, concurrently, jobs-first), the one the unlock and disclosure writes use, mapped onto
-   * the board's vocabulary. Ownership, not status: a closed posting's board is still the payer's.
-   * The only ownership decision this repository makes.
+   * Which kind of posting `postingId` is, if the TENANT owns it — `null` for an unknown id and for
+   * another tenant's alike. `tenant` is the caller's resolved key (ADR-0053), never a raw id.
+   * THE posting-ownership chokepoint (`findOwnedJobRef`: both tables, concurrently, jobs-first),
+   * the one the unlock and disclosure writes use, mapped onto the board's vocabulary. Ownership,
+   * not status: a closed posting's board is still the tenant's. The only ownership decision this
+   * repository makes.
    */
   async findOwnedPostingKind(
     postingId: string,
-    payerId: string,
+    tenant: TenantKey,
   ): Promise<ApplicantPostingKind | null> {
-    const ref = await findOwnedJobRef(this.db, postingId, payerId);
+    const ref = await findOwnedJobRef(this.db, postingId, tenant);
     if (ref === null) return null;
     return ref.kind === "job" ? "agency_job" : "company_posting";
   }

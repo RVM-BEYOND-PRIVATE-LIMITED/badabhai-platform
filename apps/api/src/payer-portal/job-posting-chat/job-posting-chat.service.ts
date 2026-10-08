@@ -23,6 +23,8 @@ import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../../ai/ai-trace-recorder.service";
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import { PayersRepository } from "../../payers/payers.repository";
+import { PayerTenantScopeService } from "../../payers/payer-tenant-scope.service";
+import type { TenantKey } from "../../payers/payer-tenant-scope";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
 import {
   PayerCreateJobPostingSchema,
@@ -78,8 +80,8 @@ const SESSION_CLOSED_MESSAGE = "This conversation is closed";
  * THE ONE-LINE SUMMARY OF WHAT THIS IS: a conversational FRONT DOOR onto the
  * already-shipped job-posting create path. It is not a second way to create a job
  * posting. {@link publish} validates the collected draft against the SAME
- * `PayerCreateJobPostingSchema` the manual form uses and hands it to the SAME
- * `JobPostingsService.createForPayer`, which already emits `job_posting.created` with
+ * `PayerCreateJobPostingSchema` the manual form uses and hands it to the SAME create
+ * (`JobPostingsService.createInScope`), which already emits `job_posting.created` with
  * `actor_type: "payer"` — this service never writes a posting row and never emits that
  * event itself.
  *
@@ -115,6 +117,10 @@ export class JobPostingChatService {
     private readonly payers: PayersRepository,
     private readonly pii: PiiCryptoService,
     private readonly jobPostings: JobPostingsService,
+    // ADR-0053 — publish resolves the payer's tenancy once, before it claims the session, and
+    // hands the scope to the posting create. Every SESSION read/write stays keyed by the acting
+    // login (member-private drafts, O-7).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -503,16 +509,21 @@ export class JobPostingChatService {
    *  1. Own the session (no-oracle 404) and refuse a terminal one (409).
    *  2. Re-read the draft from jsonb through `JobPostingDraftSchema` — a stored draft
    *     is untrusted input like any other row.
-   *  3. Stamp `org_label` from `payers.orgNameEnc`. It could not have come from the
-   *     chat, because the chat never asks for it.
-   *  4. Validate against `PayerCreateJobPostingSchema`. THIS is the publish gate, not
+   *  3. Resolve the payer's tenancy (ADR-0053): the posting is created under the TENANT
+   *     key with the acting login as `created_by`. Before the claim, so a refused
+   *     resolution (`on` only, a neutral 403) claims nothing.
+   *  4. Stamp `org_label` from the TENANT's `payers.orgNameEnc` — the org founder's
+   *     company name (O-10, owner ruling 2026-10-08); with tenancy off that is the
+   *     login's own, as before. It could not have come from the chat, because the chat
+   *     never asks for it.
+   *  5. Validate against `PayerCreateJobPostingSchema`. THIS is the publish gate, not
    *     the engine's `draft_ready` flag — invariant #4 says the engine assists and does
    *     not decide, so a session may be published from `active` if the fields are
    *     genuinely there, and a `draft_ready` session is still rejected if they are not.
-   *  5. CLAIM the session, then create, then bind (see `claimForPublish` for why the
-   *     claim precedes the create).
+   *  6. CLAIM the session, then create, then bind (see `claimForPublish` for why the
+   *     claim precedes the create). The session itself stays the acting login's (O-7).
    *
-   * NO EVENT IS EMITTED HERE. `createForPayer` already emits `job_posting.created` with
+   * NO EVENT IS EMITTED HERE. `createInScope` already emits `job_posting.created` with
    * `actor_type: "payer"`; a second emit from this slice would double-count postings on
    * the spine.
    */
@@ -568,8 +579,10 @@ export class JobPostingChatService {
     // where the picker lives, so the flow is whole — but this path alone never makes a
     // posting live, and any future change that publishes straight from the chat has to
     // solve the skill pick first or it recreates #1645 by a different road.
+    const scope = await this.tenancy.resolve(payerId);
     const candidate = {
-      org_label: await this.resolveOrgLabel(payerId),
+      // O-10: the org's name (the founder's), not the teammate's own signup name.
+      org_label: await this.resolveOrgLabel(scope.tenantKey),
       role_title: draft.role_title ?? undefined,
       ...(draft.location_label ? { location_label: draft.location_label } : {}),
       ...(draft.description ? { description: draft.description } : {}),
@@ -614,13 +627,13 @@ export class JobPostingChatService {
 
     let posting: { id: string };
     try {
-      posting = await this.jobPostings.createForPayer(payerId, dto, ctx);
+      posting = await this.jobPostings.createInScope(scope, dto, ctx);
     } catch (err) {
       // Give the session back so the payer can fix the draft and try again. Guarded on
       // "no posting bound", so it can never un-publish a session that really produced
       // one. Best-effort: a failure here must not mask the original error.
       //
-      // A throw from `createForPayer` means NO posting exists (#1928): the row and its
+      // A throw from `createInScope` means NO posting exists (#1928): the row and its
       // `job_posting.created` commit in one transaction, so an emit that fails after the
       // insert rolls the insert back. That is what makes releasing here safe. Before #1928
       // the row could commit before the emit threw, and the retry made a second posting.
@@ -691,7 +704,9 @@ export class JobPostingChatService {
   }
 
   /**
-   * The payer's own organisation name, decrypted for THIS request only.
+   * The TENANT's organisation name, decrypted for THIS request only: the org founder's
+   * (`payers` row of the tenant key — O-10, owner ruling 2026-10-08). With tenancy off the
+   * tenant key is the login, so this is the payer's own name, exactly as before.
    *
    * Decrypts the ONE field it needs rather than reusing `decryptContact`, which would
    * also bring the payer's email and phone into memory for a call that has no use for
@@ -702,7 +717,8 @@ export class JobPostingChatService {
    * FAILS CLOSED: a missing row, an undecryptable token (rotated key), or an empty
    * name raises rather than publishing a posting under a blank or fabricated employer.
    */
-  private async resolveOrgLabel(payerId: string): Promise<string> {
+  private async resolveOrgLabel(tenant: TenantKey): Promise<string> {
+    const payerId: string = tenant;
     const row = await this.payers.findById(payerId);
     if (!row) {
       throw new InternalServerErrorException("Could not resolve your organisation details");
@@ -841,7 +857,7 @@ export class JobPostingChatService {
    * Which worker-card columns the created posting holds NULL for (#1726).
    *
    * MEASURED ON THE VALIDATED DTO THE CREATE CALL WAS HANDED — the same "measure what was
-   * sent" rule as `unmappedFields` — and `createForPayer` stores `dto[key] ?? null`, so a key
+   * sent" rule as `unmappedFields` — and `createInScope` stores `dto[key] ?? null`, so a key
    * is listed exactly when its column is NULL. Facts only; which absences matter is the
    * client's card rule. KEYS only, never values.
    */

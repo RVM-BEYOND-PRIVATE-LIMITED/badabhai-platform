@@ -26,7 +26,7 @@ describe("JobPostingChatModule wiring", () => {
     expect(getMeta("imports", JobPostingChatModule)).toContain(PayersModule);
   });
 
-  it("imports JobPostingsModule — publish REUSES createForPayer, it does not fork it", () => {
+  it("imports JobPostingsModule — publish REUSES the posting create (createInScope), it does not fork it", () => {
     // The load-bearing assertion of this whole slice: the publish step depends on the
     // shipped job-posting service, which is what keeps `job_posting.created` a
     // single-writer event (ADR-0035 §Decision 6).
