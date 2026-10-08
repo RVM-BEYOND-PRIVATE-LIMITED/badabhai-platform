@@ -109,6 +109,8 @@ vi.mock("../../../../postings/[id]/applicants/applicant-actions", async () => {
         "data-desc": props.header.description,
         // The worker ids whose rows start unlocked (none when the prop is absent).
         "data-unlocked": Object.keys(props.unlocked ?? {}).join(" "),
+        // Each row's saved stage as the board receives it ("-" = the row carries none).
+        "data-stages": (props.applicants as Array<{ stage?: string }>).map((a) => a.stage ?? "-").join(" "),
       }),
   };
 });
@@ -287,5 +289,22 @@ describe("agency applicants page — rows the agency already unlocked stay unloc
     const payload = JSON.stringify(props);
     expect(payload).not.toContain(OFF_FEED);
     expect(payload).not.toContain(unlock(OFF_FEED).unlockId);
+  });
+});
+
+describe("agency applicants page — SAVED stages (#2139) reach the board untouched", () => {
+  it("rows with a stage hand it to the board as the server sent it", async () => {
+    getApplicantFeed.mockResolvedValueOnce({
+      ...FEED,
+      applicants: [
+        { ...FEED.applicants[0]!, stage: "passed" },
+        { ...FEED.applicants[0]!, workerId: "b2c3d4e5-0000-4000-8000-000000000002", rank: 2, stage: "new" },
+      ],
+    });
+    expect(await html()).toContain('data-stages="passed new"');
+  });
+
+  it("rows without one hand the board none (the local board)", async () => {
+    expect(await html()).toContain('data-stages="-"');
   });
 });

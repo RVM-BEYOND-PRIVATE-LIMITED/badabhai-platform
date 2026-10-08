@@ -252,10 +252,10 @@ member, so Credits is P (with the nav item and the chip link for everyone).
 | Both    | —            | Dashboard        | `/dashboard`        | `dashboard/page.tsx`        | What needs you, position, quick actions, recent work       | P                                              |
 | Company | Hiring       | New posting      | `/postings/new`     | `postings/new/page.tsx`     | Create a company posting (`job_postings`)                  | P; agent → redirected to `/agency/jobs/new`    |
 | Company | Hiring       | Postings         | `/postings`         | `postings/page.tsx`         | List + pause / resume / add applicant slots / close        | P; agent → see "Agency on the company surface" |
-| Company | Hiring       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting; unlock | P                                  |
+| Company | Hiring       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting (and stage, when saved); unlock | P                                  |
 | Agency  | Demand       | New posting      | `/agency/jobs/new`  | `agency/jobs/new/page.tsx`  | Create an agency posting (`jobs`, the worker feed's table) | A + F; nav-F                                   |
 | Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + pause / resume / close; links details, applicants, edit | A + F; nav-F                               |
-| Agency  | Demand       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting; unlock | P + F (agent); nav-F               |
+| Agency  | Demand       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting (and stage, when saved); unlock | P + F (agent); nav-F               |
 | Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
@@ -276,9 +276,16 @@ dialog for the list and the balance as an affordance. Both personas, one route: 
 Hiring, an agency's in Demand beside Postings, behind F like the rest of Demand (the page checks it
 for an agent). Its head is H1 "Candidates" + one sentence, no back link and no primary action; the
 toolbar row is the posting filter — a plain GET form (`?postingId=`, "Show") over the payer's OWN
-postings (company postings, or an agency's jobs). There is no stage (New / Shortlist) filter:
-stages are a posting page's local state and nothing persists them. Paging is keyset — "Next page"
-carries the API's cursor and keeps the filter; a later page offers "First page". Each card names its
+postings (company postings, or an agency's jobs). A stage filter joins it only while the API saves
+stages (#2139, owner ruling 2026-10-07 — `PAYER_APPLICANT_STAGES_ENABLED`, which the portal cannot
+read): a "Stage" select (All stages / New / Shortlist / Passed, `?stage=`) in the same GET form,
+drawn only when an answered read showed stages are saved (rows carry `stage`, or the API applied
+one); a `?stage=` the API refuses (a 400 — stages not saved) is read again without it, so a stale
+link shows the unfiltered list, never an error. With stages saved each card shows its stage and the
+same Keep / Pass / Move to New as its posting's board (a moved card stays on the page until the next
+read); without them the cards have no stage at all. Paging is keyset — "Next page" carries the
+API's cursor and keeps the filters; a later page offers "First page"; a new stage starts from the
+first page. Each card names its
 posting ("Applied to …"): a company posting links `/postings/<id>`, an agency's job
 `/agency/jobs/<id>`; the applicant's rank on that posting reads on the same line ("· ranked #2") —
 the inbox is newest first, so its cards carry no rank badge. The unlock and the masked-resume
@@ -375,10 +382,10 @@ toolbar. Top-level pages (rail or account menu) have no back link.
 | Company | `/postings/ai/new`          | Post with AI       | New posting                                             | —                                                                  | P; agent → `/agency/jobs/new` |
 | Company | `/postings/<id>`            | the role title     | Postings                                                | status · View applicants · Edit posting (draft: Edit posting only) | P (owned posting)             |
 | Company | `/postings/<id>/edit`       | Edit posting       | the posting, by its title                               | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`   |
-| Company | `/postings/<id>/applicants` | Applicants         | the posting, by its title ("Posting details" if unread) | toolbar: New / Shortlist tabs                                      | P; agent → `/postings/<id>`   |
+| Company | `/postings/<id>/applicants` | Applicants         | the posting, by its title ("Posting details" if unread) | toolbar: New / Shortlist tabs (+ Passed when stages are saved)     | P; agent → `/postings/<id>`   |
 | Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status · Applicants · Edit posting (closed / suspended: Applicants) | A + F                         |
 | Agency  | `/agency/jobs/<id>/edit`    | Edit posting       | the posting, by its title                               | — (Save changes / Cancel in the form)                              | A + F; closed / suspended → `/agency/jobs/<id>` |
-| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | the posting, by its title                               | —                                                                  | A + F                         |
+| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | the posting, by its title                               | toolbar: New / Shortlist tabs (+ Passed when stages are saved)     | A + F                         |
 
 **An agency posting's applicants** are its own feed (`/agency/jobs/<id>/applicants`, #1956): since
 #1955 the applicant endpoint serves an agency's `jobs` rows — only the workers who applied — so the

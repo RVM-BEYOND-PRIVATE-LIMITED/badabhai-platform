@@ -13,6 +13,7 @@ import {
   agencyWorkerListWireSchema,
   agencyWorkerWireSchema,
   applicantFeedSchema,
+  applicantStageChangeWireSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
   candidateInboxQuerySchema,
@@ -60,6 +61,7 @@ import {
   type AgencyReferralsSummary,
   type AgencyWorker,
   type ApplicantFeed,
+  type ApplicantStageChange,
   type CandidateInbox,
   type CandidateInboxQuery,
   type Capacity,
@@ -91,6 +93,7 @@ import {
 } from "./contracts";
 import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
+import type { ApplicantStage } from "./applicant-stages";
 import { cardFieldsFromPostingWire, type CardFields } from "./job-card-view";
 import { payerFetch } from "./payer-http";
 import {
@@ -228,6 +231,7 @@ function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
     experienceBand: a.experienceBand ?? undefined,
     tradeLabel: a.tradeLabel ?? undefined,
     cityLabel: a.cityLabel ?? undefined,
+    ...savedStage(a),
   };
 }
 
@@ -255,7 +259,17 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
     matchedSkillLabel: a.matchedSkillLabel ?? undefined,
     skillMonths: a.skillMonths ?? undefined,
     industryMonths: a.industryMonths ?? undefined,
+    ...savedStage(a),
   };
+}
+
+/**
+ * The row's SAVED stage (owner ruling 2026-10-07), carried across only when the wire row has one:
+ * a row from a server that does not save stages maps to a row with NO `stage` key at all, exactly
+ * as before — `hasSavedStages` reads that absence as "keep the local board".
+ */
+function savedStage(a: { stage?: ApplicantStage }): { stage?: ApplicantStage } {
+  return a.stage !== undefined ? { stage: a.stage } : {};
 }
 
 /**
@@ -336,6 +350,10 @@ function isAgencyInboxRow(row: InboxAgencyRowWire | InboxCompanyRowWire): row is
  *  - `postingId` narrows to one posting; an unknown or another payer's id is the SAME empty page
  *    as an owned posting with no applicants (no 404, no existence oracle).
  *  - `cursor` is the previous page's `nextCursor`, passed back verbatim (never built here).
+ *  - `stage` narrows to one stage of the SAVED board — sent only when the caller names one. The API
+ *    answers it with a 400 while it does not save stages, which this seam throws like any 400
+ *    (`isPayerBadRequest`); the page decides what that means. Each row's own `stage` (present only
+ *    while stages are saved) is carried through the mappers untouched.
  *  - FACELESS, ENFORCED: the response crosses {@link assertNoAgencyPII} like every agency read —
  *    through a lenient transport, so a forbidden key is SEEN (throws in dev/test, stripped in prod).
  *  - SCRAPE BOUND: one page costs one unit of the per-payer hourly reach cap it shares with the
@@ -348,6 +366,7 @@ export async function getCandidateInbox(query: CandidateInboxQuery = {}): Promis
   if (q.postingId !== undefined) params.set("postingId", q.postingId);
   if (q.cursor !== undefined) params.set("cursor", q.cursor);
   if (q.limit !== undefined) params.set("limit", String(q.limit));
+  if (q.stage !== undefined) params.set("stage", q.stage);
   const search = params.toString();
   const wire = await payerFetch(`/payer/reach/applicants${search ? `?${search}` : ""}`, {
     schema: candidateInboxTransportSchema,
@@ -360,6 +379,48 @@ export async function getCandidateInbox(query: CandidateInboxQuery = {}): Promis
     })),
     nextCursor: safe.nextCursor,
   });
+}
+
+/**
+ * PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage — move one applicant on a posting's SAVED
+ * New / Shortlist / Passed board (owner ruling 2026-10-07; API #2137). Either persona: the board is
+ * governed by posting OWNERSHIP, which the server checks against the session (XB-A — the body is
+ * `{ stage }` and nothing else; there is no slot for a payer id, a posting kind or a note).
+ *
+ *  - `jobId` is the id the per-posting feed takes — a company posting's or an agency job's; the
+ *    server resolves which. Only ever called for a row whose feed carried a `stage` (the server
+ *    saves stages); with none the board is local and never reaches here.
+ *  - IDEMPOTENT: the same body twice is `changed: false` the second time, the same answer
+ *    otherwise — a retry is safe.
+ *  - NEUTRAL 404 → `null`: not the payer's posting, the worker no longer on its feed, or the server
+ *    no longer saving stages — one body for all three (no existence oracle), so nothing here tells
+ *    them apart. The caller re-reads the list.
+ *  - The answer must be about the row that asked: a response naming another posting or worker is
+ *    not reconciled into the board — it throws (fail closed; the caller rolls back).
+ *  - A 429 (the stage route's own hourly bucket, or Redis down) throws for `isPayerRateLimited`;
+ *    anything else throws too. No credit moves.
+ */
+export async function setApplicantStage(input: {
+  jobId: string;
+  workerId: string;
+  stage: ApplicantStage;
+}): Promise<ApplicantStageChange | null> {
+  const path = `/payer/reach/jobs/${input.jobId}/applicants/${input.workerId}/stage`;
+  let wire: ApplicantStageChange;
+  try {
+    wire = await payerFetch(path, {
+      method: "PUT",
+      body: { stage: input.stage },
+      schema: applicantStageChangeWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+  if (wire.postingId !== input.jobId || wire.workerId !== input.workerId) {
+    throw new Error(`payer API ${path} answered for another row`);
+  }
+  return wire;
 }
 
 /**

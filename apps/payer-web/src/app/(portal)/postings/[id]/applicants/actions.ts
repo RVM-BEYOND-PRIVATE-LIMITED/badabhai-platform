@@ -1,7 +1,16 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requestUnlock, reveal, revealMaskedResume } from "../../../../../lib/payer-api";
+import { requirePayer } from "../../../../../lib/auth";
+import {
+  requestUnlock,
+  reveal,
+  revealMaskedResume,
+  setApplicantStage,
+} from "../../../../../lib/payer-api";
+import { isPayerRateLimited } from "../../../../../lib/payer-errors";
+import { APPLICANT_STAGES, type ApplicantStage } from "../../../../../lib/applicant-stages";
 import {
   mapContactResult,
   mapRevealResult,
@@ -90,5 +99,54 @@ export async function maskedResumeAction(input: {
     return { ok: true, view: mapRevealResult(result) };
   } catch {
     return { ok: false, error: "Reveal failed (service unavailable). Please retry." };
+  }
+}
+
+/**
+ * SAVED STAGE (owner ruling 2026-10-07; API #2137): move one applicant on a posting's New /
+ * Shortlist / Passed board. The board (applicant-actions.tsx) calls this ONLY when its rows came
+ * with a `stage` — the server saves stages; without one the board is local and never calls it.
+ *
+ *  - SESSION FIRST: {@link requirePayer} before anything is read or sent (no session → /login).
+ *    XB-A: the client names only the posting (`jobId`, a company posting's or an agency job's id),
+ *    the opaque worker id and the stage — never a payer id; the server checks ownership.
+ *  - VALIDATED: ids are UUIDs and the stage one of the three (`.strict()`: an extra key is refused
+ *    here, as the API's body is strict) — a malformed call never reaches the API.
+ *  - THE ANSWER IS THE SERVER'S: success returns the stage the server now holds, which the board
+ *    reconciles to. A failure returns a REASON, never a message the API wrote:
+ *     · `gone` — the neutral 404 (not the payer's posting, the applicant no longer on its feed, or
+ *       stages no longer saved: one answer, no oracle). The list is out of date, so this
+ *       revalidates the portal's pages: the response carries the page re-rendered from fresh
+ *       reads, and the board rolls the move back on the list as it now is;
+ *     · `rate-limited` — the stage route's own hourly cap (or its fail-closed path);
+ *     · `failed` — anything else (a refused request, a 5xx, an unreadable answer).
+ *    Only `gone` revalidates: a saved move needs no re-read (the board already shows it), and
+ *    every re-read of a feed spends the payer's hourly reach budget.
+ */
+export type StageActionResult =
+  | { ok: true; stage: ApplicantStage; changed: boolean }
+  | { ok: false; reason: "gone" | "rate-limited" | "failed" };
+
+const stageInputSchema = z
+  .object({ jobId: uuid, workerId: uuid, stage: z.enum(APPLICANT_STAGES) })
+  .strict();
+
+export async function setApplicantStageAction(input: {
+  jobId: string;
+  workerId: string;
+  stage: ApplicantStage;
+}): Promise<StageActionResult> {
+  await requirePayer();
+  const parsed = stageInputSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, reason: "failed" };
+  try {
+    const change = await setApplicantStage(parsed.data);
+    if (change === null) {
+      revalidatePath("/", "layout");
+      return { ok: false, reason: "gone" };
+    }
+    return { ok: true, stage: change.stage, changed: change.changed };
+  } catch (e) {
+    return { ok: false, reason: isPayerRateLimited(e) ? "rate-limited" : "failed" };
   }
 }
