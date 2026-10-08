@@ -4138,6 +4138,13 @@ _SUFFIX_BOUNDARY_CASES: list[tuple[str, dict | None]] = [
     ("salary 15000 Kaur", _pay(15000)),
     ("8 kpa pressure", None),
     ("20 kgs", None),
+    # An allowed continuation counts only as a WHOLE word: "to" is not "total", "se" is not
+    # "seva" / "service", "per" is not "permanent", "month" is not "months" (#2141 review).
+    ("salary 8000 ktotal", _pay(8000)),
+    ("9 kpermanent workers", None),
+    ("salary 8000 kseva", _pay(8000)),
+    ("salary 8000 kservice", _pay(8000)),
+    ("salary 8000 kmonths", _pay(8000)),
 ]
 
 
@@ -4194,6 +4201,19 @@ _REAL_SUFFIX_CASES: list[tuple[str, dict]] = [
     ("25kper month", _pay(25000)),
     ("1.5lakhp.m.", _pay(150000)),
     ("20kmahina", _pay(20000)),
+    ("25kpermonth", _pay(25000)),
+    ("20ktoRs 25000", _pay(20000, 25000)),
+    ("1.5 lakhtoinr 2 lakh", _pay(150000, 200000)),
+    # The plural "thousands" and the common lakh misspellings main read by prefix (#2141 review).
+    ("15 thousands", _pay(15000)),
+    ("15 thousands per month", _pay(15000)),
+    ("Rs 18 thousands only", _pay(18000)),
+    ("15 thousands - 20 thousands", _pay(15000, 20000)),
+    ("between 15 thousands and 20 thousands", _pay(15000, 20000)),
+    ("18000 aur 2 thousands bonus", _pay(18000)),
+    ("2 lacks", _pay(200000)),
+    ("1.5 lack", _pay(150000)),
+    ("2 lakhh", _pay(200000)),
 ]
 
 
@@ -4201,6 +4221,13 @@ _REAL_SUFFIX_CASES: list[tuple[str, dict]] = [
 def test_a_real_suffix_still_scales(text: str, pay: dict) -> None:
     assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
     assert answers.detect_answers(f"salary {text}", None).get("pay_range") == pay
+
+
+def test_every_suffix_word_has_a_multiplier() -> None:
+    # A suffix word with no `_MULTIPLIERS` entry would raise a KeyError in `_scale` on a payer's
+    # turn; a multiplier with no suffix word is dead.
+    words = answers._SUFFIX_WORD.split(")", 1)[0].lstrip("(").split("|")
+    assert sorted(words) == sorted(answers._MULTIPLIERS)
 
 
 @pytest.mark.parametrize(
@@ -4251,6 +4278,21 @@ _NEXT_CLAUSE_ADDON_CASES: list[tuple[str, dict | None]] = [
     ("salary 18000\n1500\nbonus 2500", _pay(1500, 18000)),
     # ... a range is never an add-on's amount: "CTC 3 lakh" and an in-hand range are two bases ...
     ("CTC 3 lakh\n18000-22000\nPF ESI", None),
+    # ... nor is a smaller figure beside a CTC or gross one, wherever the message names that
+    # basis: it may be the in-hand pay, so the pair still records nothing (#2141 review) ...
+    ("CTC 3 lakh\n15000\nPF ESI", None),
+    ("CTC 2.4 lakh\n16000\nPF ESI cut", None),
+    ("ctc 3.6 lakh\n22000\npf esi deduction", None),
+    ("CTC 3 lakh + 15000 + PF", None),
+    ("CTC 3 lakh\n15000\nfood free", None),
+    ("gross 30000\n14000\nPF ESI", None),
+    ("salary 30000\n14000\nPF ESI\nabove is gross", None),
+    # ... a label clause holds add-on words and filler only: a worker category in it ("fresher")
+    # makes the figure that category's wage, as on main (#2141 review) ...
+    ("salary 30000\n15000\nfresher room free", _pay(15000, 30000)),
+    ("experienced 30000\n12000\nfresher ko bhi room milega", _pay(12000, 30000)),
+    ("salary 18000\n1500\nfood allowance alag se milega", _pay(18000)),
+    ("salary 18000\n1500\nPF ESI cut", _pay(18000)),
     # ... and a stated range is still one range.
     ("18000 - 22000\n1500\nfood allowance", _pay(18000, 22000)),
     ("salary 18000 - 22000 and PF", _pay(18000, 22000)),

@@ -64,8 +64,9 @@ _MAIN_FRAGMENTS = {
     "clause": r"(?<![A-Za-z])plus(?![A-Za-z])|\s+(?:and|aur)\s+",
     "range": (
         r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*"
-        r"(?:(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)"
-        r"(?!(?!to|se|upto|pm|p\.m|per|month|mahin)[A-Za-z]))?\s*"
+        r"(?:(k|thousand|thousands|hazar|hazaar|lakh|lakhs|lakhh|lac|lacs|lack|lacks)"
+        r"(?!(?!(?:(?:to|se|upto)(?:rs|inr)?|pm|p\.m|per|permonth|month|monthly|mahina|mahine)"
+        r"(?![A-Za-z]))[A-Za-z]))?\s*"
     ),
 }
 

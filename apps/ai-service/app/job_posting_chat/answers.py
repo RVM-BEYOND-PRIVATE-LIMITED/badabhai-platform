@@ -455,12 +455,21 @@ _MONEY_CUE_RE = re.compile(
 # became a Rs 20,000 figure, and "15000 ka hai" recorded nothing (over the ceiling). Anything
 # else may follow — punctuation, a dash, a slash, a digit, Devanagari, the end ("25k/month",
 # "25k-30k", "25k."). "lakhs" / "lacs" / "hazaar" still read: the alternation backtracks to them.
-# The one exception is a word typed glued to the suffix that is a range separator of
+# The one exception is a WHOLE word typed glued to the suffix that is a range separator of
 # `_PAY_RANGE_RE` or a pay period ("18kto22k", "15 hazaarse 20 hazaar", "20kpm", "25kmonthly"):
 # none of these continues a word after "k" / "lakh" / "thousand", and refusing them would lose a
-# figure that was read before ("ka", "km", "kg", "kiya", "kaur", "kpa" are still refused).
-_SUFFIX_END = r"(?!(?!to|se|upto|pm|p\.m|per|month|mahin)[A-Za-z])"
-_SUFFIX_WORD = r"(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)" + _SUFFIX_END
+# figure that was read before. Only the whole word: "ktotal", "kseva", "kpermanent", "kmonths"
+# are refused like "ka", "km", "kg", "kiya", "kaur" and "kpa" (#2141 review). A separator may
+# carry the currency `_PAY_RANGE_RE` reads after it, glued too ("20ktoRs 25000").
+_SUFFIX_END = (
+    r"(?!(?!(?:(?:to|se|upto)(?:rs|inr)?|pm|p\.m|per|permonth|month|monthly|mahina|mahine)"
+    r"(?![A-Za-z]))[A-Za-z])"
+)
+# The words main read by PREFIX that are pay words, kept now that the suffix is a whole word:
+# the plural "thousands" and the lakh misspellings "lack", "lacks", "lakhh" (#2141 review).
+_SUFFIX_WORD = (
+    r"(k|thousand|thousands|hazar|hazaar|lakh|lakhs|lakhh|lac|lacs|lack|lacks)" + _SUFFIX_END
+)
 # `_SUFFIX` wraps the word in a group of its own so that `?` applies to the boundary as well.
 _SUFFIX = "(?:" + _SUFFIX_WORD + ")?"
 # Decimals are allowed because "1.5 lakh" is how the amount is actually written here.
@@ -488,12 +497,16 @@ _PAY_RANGE_RE = re.compile(
 _MULTIPLIERS: dict[str, int] = {
     "k": 1000,
     "thousand": 1000,
+    "thousands": 1000,
     "hazar": 1000,
     "hazaar": 1000,
     "lakh": 100_000,
     "lakhs": 100_000,
+    "lakhh": 100_000,
     "lac": 100_000,
     "lacs": 100_000,
+    "lack": 100_000,
+    "lacks": 100_000,
 }
 # Monthly pay we are willing to record. Below the floor a bare number is almost
 # always something else ("8 hours", "2 years"); above the ceiling it is not a
@@ -549,6 +562,18 @@ _PAY_BARE_WORD_RE = re.compile(
     r"₹|" + _cue(r"rs|inr|rupees?|per\s+month|per\s+mahina|pm|p\.m|monthly|month|mahina"),
     re.IGNORECASE,
 )
+# What an add-on's LABEL clause may hold beside its add-on words and a currency or period word:
+# filler that says how the add-on is paid, never who it is for (#2141 review). "incentive alag",
+# "canteen free", "food allowance alag se milega", "PF ESI cut" are labels; "fresher room free"
+# is not — "fresher" makes the figure before it the fresher's wage, as on main.
+_PAY_LABEL_FILLER_RE = re.compile(
+    _cue(
+        r"alag|se|bhi|hai|hain|milega|milegi|milenge|milta|milti|free|only|also|and|aur|plus|"
+        r"included|including|separate(?:ly)?|seperate|cut|deduct(?:ion|ed)?|kat(?:ega|ta)?|"
+        r"diwali|festival|yearly|annual|attendance|wala|wali|ka|ki|ke|sath|saath"
+    ),
+    re.IGNORECASE,
+)
 # A bare four-digit YEAR is not pay ("Established 1998" became pay_min 1998, R34). It is
 # pay only with a currency word before it or a per-month / "/-" after it ("Rs 2000").
 _PAY_YEAR_RE = re.compile(r"19[5-9]\d|20\d\d")
@@ -564,6 +589,10 @@ _PAY_BASIS_KINDS: dict[str, re.Pattern[str]] = {
     "gross": re.compile(_cue(r"gross"), re.IGNORECASE),
     "ctc": re.compile(_cue(r"ctc|c\.?t\.?c\.?|cost\s+to\s+company"), re.IGNORECASE),
 }
+# A smaller figure beside a CTC or gross one is not that wage's add-on: it may be the in-hand pay
+# ("CTC 3 lakh\n15000\nPF ESI"). When a message names either basis ANYWHERE, the "wage, amount,
+# label" screen stays off, and two figures with a basis record nothing, as before (#2141 review).
+_PAY_GROSS_BASES: tuple[str, ...] = ("ctc", "gross")
 
 
 class _PayFigure(NamedTuple):
@@ -798,16 +827,18 @@ def _follows_a_wage(
     return any(_PAY_AND_SPLIT_RATIO * figure.low <= wage.low for wage in wages[first:last])
 
 
-def _labels_an_addon(
-    message: str, figure: _PayFigure, boundaries: _ClauseBoundaries, figure_starts: list[int]
-) -> bool:
+def _labels_an_addon(message: str, figure: _PayFigure, boundaries: _ClauseBoundaries) -> bool:
     """The clause after ``figure``'s that says anything is an add-on's LABEL: it names an add-on
-    and states no figure of its own."""
+    and holds nothing else but filler, a currency word or a period (`_PAY_LABEL_FILLER_RE`) — no
+    figure of its own and no worker category ("fresher room free")."""
     clause = _said_clause(message, boundaries, bisect_left(boundaries.starts, figure.end) + 1, 1)
     if clause is None:
         return False
-    holds_figure = bisect_left(figure_starts, clause[0]) != bisect_left(figure_starts, clause[1])
-    return not holds_figure and _PAY_ADDON_RE.search(message[clause[0] : clause[1]]) is not None
+    said = message[clause[0] : clause[1]]
+    if _PAY_ADDON_RE.search(said) is None:
+        return False
+    rest = _PAY_LABEL_FILLER_RE.sub(" ", _PAY_BARE_WORD_RE.sub(" ", _PAY_ADDON_RE.sub(" ", said)))
+    return _HAS_ALNUM_RE.search(rest) is None
 
 
 def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFigure]:
@@ -818,7 +849,9 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
     alone in its clause (`_is_bare`), the clause before it holds the wage (`_follows_a_wage`)
     and the clause after it is the add-on's label (`_labels_an_addon`). So a lone "25000 and PF"
     is the wage; "18000\\n20000\\nPF" is two wages; "salary\\n25000\\nPF" has its label before
-    it; and a range is never an add-on's amount, as before.
+    it; "salary 30000\\n15000\\nfresher room free" is the fresher's wage; a range is never an
+    add-on's amount; and nothing is screened in a message naming CTC or gross
+    (`_PAY_GROSS_BASES`), as before.
 
     The boundaries are found once and each distinct clause is screened once (figures in one
     clause share its verdict). The "wage, amount, label" test runs only for an amount alone in
@@ -833,12 +866,11 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
         if span not in verdicts:
             verdicts[span] = _PAY_ADDON_RE.search(message[span[0] : span[1]]) is not None
     kept = [(fig, span) for fig, span in zip(figures, spans, strict=True) if not verdicts[span]]
-    if len(kept) < 2:
+    if len(kept) < 2 or any(_PAY_BASIS_KINDS[basis].search(message) for basis in _PAY_GROSS_BASES):
         return [figure for figure, _ in kept]
     wages = [figure for figure, _ in kept]
     wage_starts = [figure.start for figure in wages]
     shared = Counter(spans)
-    figure_starts = [figure.start for figure in figures]
     return [
         figure
         for figure, span in kept
@@ -847,7 +879,7 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
             and shared[span] == 1
             and _is_bare(message, figure, span)
             and _follows_a_wage(message, figure, boundaries, wages, wage_starts)
-            and _labels_an_addon(message, figure, boundaries, figure_starts)
+            and _labels_an_addon(message, figure, boundaries)
         )
     ]
 
