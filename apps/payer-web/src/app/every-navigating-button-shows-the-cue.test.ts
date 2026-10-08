@@ -693,7 +693,9 @@ describe("the detector", () => {
   });
 });
 
-describe("every navigating button in the portal shows the pending cue", () => {
+// Each case parses the whole src/ tree: well under a second locally, but past vitest's 5 s
+// default on a loaded CI runner (as the Suspense fence's scan already allows for).
+describe("every navigating button in the portal shows the pending cue", { timeout: 30_000 }, () => {
   const sources = files(srcRoot)
     .filter((f) => /\.(tsx?|jsx?|mjs|cjs)$/.test(f) && !/\.test\.[jt]sx?$/.test(f))
     .map((f) => [rel(f), readFileSync(f, "utf8")] as const);
