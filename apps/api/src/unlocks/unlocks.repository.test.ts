@@ -13,6 +13,7 @@ import {
   type Database,
 } from "@badabhai/db";
 import { UnlocksRepository, RAZORPAY_PROVIDER } from "./unlocks.repository";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
  * STRUCTURAL tests for the Contact Unlock + Reveal repository (ADR-0010 Stream A), the
@@ -32,7 +33,12 @@ const compile = (cond: unknown) => dialect.sqlToQuery(cond as SQL);
 const text = (cond: unknown) => compile(cond).sql;
 const params = (cond: unknown) => compile(cond).params;
 
-const PAYER_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+/**
+ * The tenant key every tenant-row method takes (ADR-0053). Production code mints it ONLY through
+ * the resolver; these SQL-text tests stand one in directly (the brand is a compile-time device,
+ * and the static brand-forge screen covers non-test source).
+ */
+const PAYER_ID = "aaaaaaaa-0000-4000-8000-000000000001" as TenantKey;
 const WORKER_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 const JOB_ID = "cccccccc-0000-4000-8000-000000000003";
 const UNLOCK_ID = "dddddddd-0000-4000-8000-000000000004";
@@ -458,18 +464,6 @@ describe("UnlocksRepository.createRouting — PII-free routing-token mapping ins
   });
 });
 
-describe("UnlocksRepository.findCreditsForUpdate — locked balance read", () => {
-  it("scopes by payer_id, limits to one, and locks the row", async () => {
-    const { db, tx, captured } = makeDb({ rows: [{ balance: 10 }] });
-    await new UnlocksRepository(db).findCreditsForUpdate(tx, PAYER_ID);
-    expect(captured.selectTable).toBe(payerCredits);
-    expect(text(captured.where)).toBe('"payer_credits"."payer_id" = $1');
-    expect(params(captured.where)).toEqual([PAYER_ID]);
-    expect(captured.limit).toBe(1);
-    expect(captured.forMode).toBe("update");
-  });
-});
-
 describe("UnlocksRepository.getBalance — non-tx ops read", () => {
   it("projects ONLY balance, scoped by payer_id", async () => {
     const { db, captured } = makeDb({ rows: [{ balance: 42 }] });
@@ -560,8 +554,8 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
   });
 });
 
-describe("UnlocksRepository.creditPack / creditPackWithinTx — upsert balance + append ledger", () => {
-  it("creditPack opens its OWN transaction and delegates to creditPackWithinTx", async () => {
+describe("UnlocksRepository.creditPack — upsert balance + append ledger in ONE transaction", () => {
+  it("creditPack opens its OWN transaction and returns the new balance", async () => {
     const { db } = makeDb({ rows: [{ balance: 10 }] });
     const balance = await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
@@ -575,8 +569,8 @@ describe("UnlocksRepository.creditPack / creditPackWithinTx — upsert balance +
   });
 
   it("upserts payer_credits with a GREATEST-free additive balance bump on conflict", async () => {
-    const { db, tx, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
-    await new UnlocksRepository(db).creditPackWithinTx(tx, {
+    const { db, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
+    await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
       credits: 10,
       reason: "pack_purchase",
@@ -592,8 +586,8 @@ describe("UnlocksRepository.creditPack / creditPackWithinTx — upsert balance +
   });
 
   it("also appends the ledger movement in the SAME tx, with priceInr/idempotencyKey defaulted to null", async () => {
-    const { db, tx, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
-    await new UnlocksRepository(db).creditPackWithinTx(tx, {
+    const { db, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
+    await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
       credits: 10,
       reason: "pack_purchase",
@@ -613,8 +607,8 @@ describe("UnlocksRepository.creditPack / creditPackWithinTx — upsert balance +
   });
 
   it("stamps priceInr and idempotencyKey through when provided", async () => {
-    const { db, tx, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
-    await new UnlocksRepository(db).creditPackWithinTx(tx, {
+    const { db, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
+    await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
       credits: 10,
       reason: "pack_purchase",
@@ -628,9 +622,9 @@ describe("UnlocksRepository.creditPack / creditPackWithinTx — upsert balance +
   });
 
   it("throws when the balance upsert returns no row", async () => {
-    const { db, tx } = makeDb({ rows: [] });
+    const { db } = makeDb({ rows: [] });
     await expect(
-      new UnlocksRepository(db).creditPackWithinTx(tx, {
+      new UnlocksRepository(db).creditPack({
         payerId: PAYER_ID,
         credits: 10,
         reason: "pack_purchase",
@@ -638,6 +632,70 @@ describe("UnlocksRepository.creditPack / creditPackWithinTx — upsert balance +
         paymentRef: "order-1",
       }),
     ).rejects.toThrow("Failed to credit pack");
+  });
+});
+
+describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — settlement credits ONLY the wallet the claim RETURNED (ADR-0053 §6)", () => {
+  /** The row the compare-and-set returns: stamped, at intent, with a wallet that is NOT the test's usual payer. */
+  const STAMPED_WALLET = "99999999-0000-4000-8000-000000000009";
+  const claimedRow = {
+    id: "order-row-1",
+    payerId: STAMPED_WALLET,
+    packCode: "pack_50",
+    amountInr: 2000,
+    creditsGranted: 50,
+    provider: RAZORPAY_PROVIDER,
+    providerOrderId: "order_X",
+    status: "paid" as const,
+    providerPaymentRef: "pay_X",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  it("claims with the compare-and-set, then upserts the RETURNED row's wallet and ledgers its stamped ₹ on the SAME key", async () => {
+    // Call order: the UPDATE … RETURNING (the claim), the payer_credits upsert, the ledger insert.
+    const { db, tx, captured } = makeDb({ sequence: [[claimedRow], [{ balance: 50 }], []] });
+    const out = await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
+      providerOrderId: "order_X",
+      providerPaymentRef: "pay_X",
+    });
+    expect(out).toEqual({ order: claimedRow, balanceAfter: 50 });
+    expect(captured.updateTable).toBe(paymentOrders);
+    expect(params(captured.where)).toEqual([RAZORPAY_PROVIDER, "order_X", "paid"]);
+    const balanceInsert = captured.inserts.find((i) => i.table === payerCredits)!;
+    expect(balanceInsert.values).toEqual({ payerId: STAMPED_WALLET, balance: 50 });
+    const conflict = balanceInsert.conflict as { target: unknown; set: Record<string, unknown> };
+    expect(conflict.target).toBe(payerCredits.payerId);
+    expect(params(conflict.set.balance)).toEqual([50]);
+    const ledgerInsert = captured.inserts.find((i) => i.table === creditLedger)!;
+    expect(ledgerInsert.values).toEqual({
+      payerId: STAMPED_WALLET, // the same key as the balance it moved: Σ ledger = balance
+      delta: 50,
+      reason: "pack_purchase",
+      packCode: "pack_50",
+      paymentRef: "pay_X",
+      priceInr: 2000,
+      idempotencyKey: "payment_order:order-row-1", // layer 3: one ledger row per order row
+    });
+  });
+
+  it("a lost race (the compare-and-set returned no row) credits nothing", async () => {
+    const { db, tx, captured } = makeDb({ rows: [] });
+    expect(
+      await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
+        providerOrderId: "order_X",
+        providerPaymentRef: "pay_X",
+      }),
+    ).toBeUndefined();
+    expect(captured.inserts).toEqual([]);
+  });
+
+  it("no public method credits a caller-supplied order or wallet (type-level: the credit is private)", () => {
+    const repo = new UnlocksRepository(makeDb().db);
+    // @ts-expect-error — the wallet credit is private: a credited wallet comes only from a claim's RETURNING row.
+    expect(typeof repo.creditWalletWithinTx).toBe("function");
+    // The settlement-only credit that took a caller-built PaymentOrder is gone.
+    expect("creditClaimedOrderWithinTx" in repo).toBe(false);
   });
 });
 
@@ -710,10 +768,19 @@ describe("UnlocksRepository.findPaymentOrder — lookup by (provider, provider_o
   });
 });
 
-describe("UnlocksRepository.claimPaymentOrderPaidWithinTx — the compare-and-set race closure", () => {
+describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — the compare-and-set race closure", () => {
+  const paidRow = {
+    id: "order-1",
+    payerId: PAYER_ID,
+    packCode: "pack_10",
+    amountInr: 499,
+    creditsGranted: 10,
+    status: "paid",
+  };
+
   it("sets status='paid' + the payment ref, guarded on provider/providerOrderId/status<>'paid'", async () => {
-    const { db, tx, captured } = makeDb({ rows: [{ id: "order-1", status: "paid" }] });
-    const out = await new UnlocksRepository(db).claimPaymentOrderPaidWithinTx(tx, {
+    const { db, tx, captured } = makeDb({ sequence: [[paidRow], [{ balance: 10 }], []] });
+    const out = await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
       providerOrderId: "rzp_order_1",
       providerPaymentRef: "pay_1",
     });
@@ -724,27 +791,17 @@ describe("UnlocksRepository.claimPaymentOrderPaidWithinTx — the compare-and-se
       '("payment_orders"."provider" = $1 and "payment_orders"."provider_order_id" = $2 and "payment_orders"."status" <> $3)',
     );
     expect(p).toEqual([RAZORPAY_PROVIDER, "rzp_order_1", "paid"]);
-    expect(out).toEqual({ id: "order-1", status: "paid" });
+    expect(out?.order).toEqual(paidRow);
   });
 
   it("honours an explicit provider override", async () => {
     const { db, tx, captured } = makeDb({ rows: [] });
-    await new UnlocksRepository(db).claimPaymentOrderPaidWithinTx(tx, {
+    await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
       providerOrderId: "order_1",
       providerPaymentRef: "pay_1",
       provider: "other_provider",
     });
     expect(params(captured.where)).toEqual(["other_provider", "order_1", "paid"]);
-  });
-
-  it("returns undefined when the compare-and-set matched no row (already paid / not found — the race loser)", async () => {
-    const { db, tx } = makeDb({ rows: [] });
-    expect(
-      await new UnlocksRepository(db).claimPaymentOrderPaidWithinTx(tx, {
-        providerOrderId: "rzp_order_1",
-        providerPaymentRef: "pay_1",
-      }),
-    ).toBeUndefined();
   });
 });
 

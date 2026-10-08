@@ -51,8 +51,11 @@ import {
  * #2098 had added `PayerOrgRoleGuard` + `@OrgRoles("owner")` here; BOTH were removed, not just the
  * decorator: that guard refuses a payer with no active membership (403) before it ever reads
  * `@OrgRoles`, so leaving it mounted would still lock those payers out. These handlers never read
- * `@CurrentOrg()` — the purchase binds to the SESSION `payer_id` (XB-A), not an org. Team
- * management (`POST/DELETE /payer/org/members`) stays owner-only.
+ * `@CurrentOrg()` (the JWT org claim is a display hint, never authority). They hand the SESSION
+ * payer id (XB-A, never a body value) to {@link UnlockService}, which resolves it through the
+ * tenant resolver (ADR-0053): a purchase credits — and an unlock spends — the TENANT's wallet,
+ * which in mode `on` is the org wallet (the anchor's row) and in `off` the session payer's own.
+ * Team management (`POST/DELETE /payer/org/members`) stays owner-only.
  *
  * SECURITY GATE: this opens an external untrusted boundary — a `bb-security-review` PASS
  * (XB-A…XB-H) is required before merge. Mock + staging-only (PAYMENTS_ENABLE_REAL=false).
@@ -116,17 +119,20 @@ export class PayerUnlocksController {
     return this.unlocks.listOwnForPayer(payer.id);
   }
 
-  /** The caller's OWN credit balance (amounts + id only). */
+  /**
+   * The balance of the wallet the caller spends from — the TENANT's (the org wallet in mode `on`).
+   * `payer_id` echoes the caller (ADR-0053 §10). Amounts + id only.
+   */
   @Get("credits")
   ownCredits(@CurrentPayer() payer: AuthenticatedPayer) {
     return this.unlocks.getCredits(payer.id);
   }
 
   /**
-   * The caller's OWN credit ledger — the append-only movement history behind the balance
-   * (amounts + opaque ids only; PII-free by table design). Scoped to the SESSION `payer_id`
-   * (XB-A) — never a body/param value; a payer only ever sees their own rows. Newest first,
-   * bounded page size. Read-only: no event.
+   * The ledger of the wallet the caller spends from — the append-only movement history behind
+   * the balance (amounts + opaque ids only; PII-free by table design). Keyed by the tenant the
+   * SESSION `payer_id` resolves to (XB-A, ADR-0053) — never a body/param value; a payer only ever
+   * sees their own tenant's wallet. Newest first, bounded page size. Read-only: no event.
    */
   @Get("credits/ledger")
   creditsLedger(

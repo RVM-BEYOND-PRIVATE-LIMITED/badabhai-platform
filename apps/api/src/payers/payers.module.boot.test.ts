@@ -132,6 +132,10 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // PAY-DB-01 P2c: plans, boosts, capacity and coupons, and the payer posting seam.
       "PayerPostingPlansService",
       "PostingPlansService",
+      // P2b (ORG_TENANCY_PLAN §3.2): the money + disclosure + relay services resolve the tenant.
+      "RelayService",
+      "ResumeDisclosureService",
+      "UnlockService",
     ]);
   });
 

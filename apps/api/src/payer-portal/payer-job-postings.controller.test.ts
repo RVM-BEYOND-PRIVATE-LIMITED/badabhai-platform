@@ -42,8 +42,12 @@ const NO_STATS: PostingStats = {
   boosted: false,
 };
 
-/** A posting row with its stats, as `PayerPostingPlansService`'s reads return it. */
-type Row = { posting: { id: string; role_title?: string }; stats: PostingStats };
+/** A posting row with its stats and download count, as `PayerPostingPlansService`'s reads return it. */
+type Row = {
+  posting: { id: string; role_title?: string };
+  stats: PostingStats;
+  disclosuresCount: number;
+};
 
 function makeCtrl() {
   const jobPostings = {
@@ -68,11 +72,12 @@ function makeCtrl() {
     forOwnedPosting: vi.fn(async (_id: string, _payerId: string) => owned),
     listWithStats: vi.fn(async (_payerId: string, _query: unknown): Promise<Row[]> => []),
     getOneWithStats: vi.fn(
-      async (id: string, _payerId: string): Promise<Row> => ({ posting: { id }, stats: NO_STATS }),
+      async (id: string, _payerId: string): Promise<Row> => ({
+        posting: { id },
+        stats: NO_STATS,
+        disclosuresCount: 0,
+      }),
     ),
-  };
-  const disclosures = {
-    countDisclosuresForPosting: vi.fn(async (_id: string, _payerId: string) => 0),
   };
   // #2085 — a PASS-THROUGH double: these cases send NO Idempotency-Key, which is exactly the
   // path where runOnce runs the work unchanged. The keyed cases use the REAL seam (below).
@@ -82,10 +87,9 @@ function makeCtrl() {
   const ctrl = new PayerJobPostingsController(
     jobPostings as never,
     postingPlans as never,
-    disclosures as never,
     idempotency as never,
   );
-  return { ctrl, jobPostings, postingPlans, owned, disclosures };
+  return { ctrl, jobPostings, postingPlans, owned };
 }
 
 /**
@@ -166,18 +170,16 @@ describe("PayerJobPostingsController — postings enriched with honest per-posti
           applicants_viewed_count: 12,
           boosted: true,
         },
+        disclosuresCount: 5,
       },
-      { posting: { id: "p2", role_title: "Fitter" }, stats: NO_STATS },
+      { posting: { id: "p2", role_title: "Fitter" }, stats: NO_STATS, disclosuresCount: 0 },
     ]);
-
-    d.disclosures.countDisclosuresForPosting.mockImplementation(async (id: string) =>
-      id === "p1" ? 5 : 0,
-    );
 
     const result = await d.ctrl.list({}, PAYER_A);
 
+    // ONE seam call carries the stats AND the download counts (ADR-0053 §5.4 — the controller
+    // reads nothing per posting; payer-job-postings.single-resolution.test.ts pins the resolve).
     expect(d.postingPlans.listWithStats).toHaveBeenCalledTimes(1);
-    expect(d.disclosures.countDisclosuresForPosting).toHaveBeenCalledWith("p1", PAYER_A.id);
     expect(result[0]).toMatchObject({
       id: "p1",
       role_title: "CNC Operator",
@@ -205,8 +207,8 @@ describe("PayerJobPostingsController — postings enriched with honest per-posti
         applicants_viewed_count: 3,
         boosted: false,
       },
+      disclosuresCount: 3,
     });
-    d.disclosures.countDisclosuresForPosting.mockResolvedValueOnce(3);
 
     const result = await d.ctrl.getOne(POSTING, PAYER_A);
 
@@ -221,10 +223,9 @@ describe("PayerJobPostingsController — postings enriched with honest per-posti
     });
   });
 
-  it("getOne on an unknown OR foreign posting (the seam's 404) counts no résumés", async () => {
+  it("getOne on an unknown OR foreign posting (the seam's 404) surfaces the 404 unchanged", async () => {
     d.postingPlans.getOneWithStats.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(d.ctrl.getOne(POSTING, PAYER_A)).rejects.toThrow("Job posting not found");
-    expect(d.disclosures.countDisclosuresForPosting).not.toHaveBeenCalled();
   });
 });
 
@@ -348,7 +349,6 @@ describe("#2085 — one confirmed tap is one quota top-up", () => {
     const ctrl = new PayerJobPostingsController(
       d.jobPostings as never,
       d.postingPlans as never,
-      d.disclosures as never,
       seam,
     );
     return { ctrl, topUp: d.owned.topUpQuota, postingPlans: d.postingPlans, store };
@@ -494,7 +494,6 @@ function postingCtrlWithRealSeam() {
   const ctrl = new PayerJobPostingsController(
     d.jobPostings as never,
     d.postingPlans as never,
-    d.disclosures as never,
     seam,
   );
   return { ctrl, owned: d.owned, postingPlans: d.postingPlans, store };

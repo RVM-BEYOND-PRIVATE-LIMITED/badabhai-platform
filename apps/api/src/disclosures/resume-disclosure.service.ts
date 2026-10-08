@@ -29,6 +29,8 @@ import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
 import { GeneralRoadReader, type GeneralRoadMarker } from "../resume/general-road.reader";
 import { ownBriefUsable } from "../resume/resume-brief";
 import type { JobRefPolicy } from "../payers/job-ref-policy";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -77,6 +79,13 @@ type DisclosurePlan =
  *       the name, or the signed URL (B-E).
  *
  * NO bulk/list disclosure endpoint exists (B-F): one (payer, worker, posting) per call.
+ *
+ * ORG TENANCY (ADR-0053, PAY-DB-01). Each entry point resolves the tenant ONCE through
+ * {@link PayerTenantScopeService} — the payer route and the ops route alike (§5.2 rules 1, 4) —
+ * and keys every `resume_disclosures` predicate and stamp by the branded `tenantKey`.
+ * `resume.disclosed` names the acting login on its envelope and the tenant in `payer_id` (§7).
+ * In mode `off` the key is the caller itself, so nothing changes; in `on` a team shares its
+ * disclosures, and the shared worker cap counts distinct ORGS (O-3).
  */
 @Injectable()
 export class ResumeDisclosureService {
@@ -103,6 +112,8 @@ export class ResumeDisclosureService {
     private readonly occupations: WorkerOccupationsRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // ADR-0053 — the ONE tenant resolver (PayersModule, imported by ResumeDisclosureModule).
+    private readonly tenancy: PayerTenantScopeService,
     // TIERED PROFILING — the employer's copy prints the worker's tier exactly as his own copy
     // does (same reader, same transform). Optional so its absence is today's disclosure.
     @Optional() private readonly tierScopes?: ResumeTierScopeReader,
@@ -117,7 +128,14 @@ export class ResumeDisclosureService {
     ctx: RequestContext,
     jobRefPolicy: JobRefPolicy = "normalise",
   ): Promise<DisclosureOutcome> {
-    const { payerId, workerId } = input;
+    const { workerId } = input;
+
+    // ---- ADR-0053: resolve the tenant ONCE, before anything is read or written ---------------
+    // `input.payerId` is the ACTING login (session payer, or the ops body's payer); every row
+    // below is keyed by `tenant`. In `off` tenant === actor; in `on` a refusal is the
+    // resolver's neutral 403 (it depends on the caller's memberships only — no worker oracle).
+    const scope = await this.tenancy.resolve(input.payerId);
+    const tenant = scope.tenantKey;
 
     // ---- #1898 context normalisation (the #1903 approach), BEFORE any lock or write ----------
     // `job_posting_id` is an FK to `job_postings`. A disclosure requested from an agency's
@@ -126,12 +144,12 @@ export class ResumeDisclosureService {
     // stored and evented as null. Every row (deny, grant, reuse lookup) and the
     // `resume.disclosed` payload carry the resolved value, never the raw input. A failed lookup
     // fails the request before any lock or write (fail closed). No migration, no event change.
-    // #1899 — on the payer-session route a reference the payer does not own is REFUSED here with
+    // #1899 — on the payer-session route a reference the TENANT does not own is REFUSED here with
     // the one neutral body: no consent read, no row, no event.
-    const resolved = await this.resolvePostingContext(input.jobPostingId, payerId, jobRefPolicy);
+    const resolved = await this.resolvePostingContext(input.jobPostingId, tenant, jobRefPolicy);
     if (!resolved.ok) {
       // Ops visibility only (ids, no PII): repeated hits from one payer are tenant probing.
-      this.logger.warn(`disclosure refused: posting ref not owned by payer=${payerId}`);
+      this.logger.warn(`disclosure refused: posting ref not owned by payer=${scope.actorPayerId}`);
       return neutralUnavailable();
     }
     const { jobPostingId } = resolved;
@@ -165,7 +183,7 @@ export class ResumeDisclosureService {
         // worker, writing a row would violate the worker_id FK → a 500 oracle, so we
         // write NOTHING and return the IDENTICAL neutral body (no_consent ≡ unknown).
         if (workerPresent) {
-          await this.recordDeny(tx, payerId, workerId, jobPostingId, "no_consent");
+          await this.recordDeny(tx, tenant, workerId, jobPostingId, "no_consent");
         }
         return { kind: "neutral" };
       }
@@ -181,7 +199,7 @@ export class ResumeDisclosureService {
 
       // ---- [2] SHARED worker-protection cap (atomic, under the lock) --------------
       if (await this.isOverSharedCap(tx, workerId)) {
-        await this.recordDeny(tx, payerId, workerId, jobPostingId, "capped");
+        await this.recordDeny(tx, tenant, workerId, jobPostingId, "capped");
         return { kind: "neutral" };
       }
 
@@ -189,14 +207,10 @@ export class ResumeDisclosureService {
       // consented worker with no resume looks identical to capped/no-consent/unknown).
       if (!source) return { kind: "neutral" };
 
-      // Idempotency: a LIVE disclosure for (payer, worker, posting) → reuse it; re-mint
-      // its link below WITHOUT a second grant or a second resume.disclosed event.
-      const existing = await this.repo.findByPayerWorkerPosting(
-        tx,
-        payerId,
-        workerId,
-        jobPostingId,
-      );
+      // Idempotency: a LIVE disclosure for (tenant, worker, posting) → reuse it; re-mint
+      // its link below WITHOUT a second grant or a second resume.disclosed event. Per ORG in
+      // mode `on`: a teammate's request reuses the org's live disclosure.
+      const existing = await this.repo.findByPayerWorkerPosting(tx, tenant, workerId, jobPostingId);
       if (
         existing &&
         existing.status === "disclosed" &&
@@ -214,7 +228,12 @@ export class ResumeDisclosureService {
       // ---- [4] GRANT (status=granted; clears any prior deny). -----------------------
       const row = existing
         ? await this.repo.updateStatus(tx, existing.id, { status: "granted", denyReason: null })
-        : await this.repo.insertRow(tx, { payerId, workerId, jobPostingId, status: "granted" });
+        : await this.repo.insertRow(tx, {
+            payerId: tenant,
+            workerId,
+            jobPostingId,
+            status: "granted",
+          });
       return { kind: "render", disclosureId: row.id };
     });
 
@@ -238,23 +257,47 @@ export class ResumeDisclosureService {
 
     // plan.kind === "render": [5] CONTROLLED DISCLOSURE — render the MASKED resume.
     // `source` is non-undefined on this path (we returned neutral above when absent).
-    return this.renderAndDisclose(plan.disclosureId, payerId, workerId, jobPostingId, source!, ctx);
-  }
-
-  /** Ops: a payer's disclosures (PII-free projection). */
-  async listByPayer(
-    payerId: string,
-  ): Promise<{ disclosures: Awaited<ReturnType<ResumeDisclosureRepository["listByPayer"]>> }> {
-    return { disclosures: await this.repo.listByPayer(payerId) };
+    return this.renderAndDisclose(plan.disclosureId, scope, workerId, jobPostingId, source!, ctx);
   }
 
   /**
-   * How many résumés the payer has downloaded for one of their OWN postings — the
-   * truthful per-posting engagement count the My-jobs card shows. Payer + posting
-   * scoped; PII-free (a count only).
+   * The disclosures of the tenant `payerId` acts in (PII-free projection) — the payer route's
+   * own list and the ops list alike (ADR-0053 §5.2 rule 4). In `off`, `payerId`'s own rows.
    */
-  async countDisclosuresForPosting(jobPostingId: string, payerId: string): Promise<number> {
-    return this.repo.countDisclosedForPosting(jobPostingId, payerId);
+  async listByPayer(
+    payerId: string,
+  ): Promise<{ disclosures: Awaited<ReturnType<ResumeDisclosureRepository["listByPayer"]>> }> {
+    const scope = await this.tenancy.resolve(payerId);
+    return { disclosures: await this.repo.listByPayer(scope.tenantKey) };
+  }
+
+  /**
+   * How many résumés the tenant has downloaded for one of its OWN postings — the truthful
+   * engagement count the My-jobs card shows — in the scope its CALLER already resolved: this
+   * reads, it never resolves (ADR-0053 §5.2 rule 1; the posting seam,
+   * `PayerPostingPlansService.getOneWithStats`, resolves once for the whole request). Tenant +
+   * posting scoped; PII-free (a count only).
+   */
+  async countDownloadsForPostingInScope(
+    jobPostingId: string,
+    scope: PayerTenantScope,
+  ): Promise<number> {
+    return this.repo.countDisclosedForPosting(jobPostingId, scope.tenantKey);
+  }
+
+  /**
+   * {@link countDownloadsForPostingInScope} for a whole page of postings: ONE grouped query in
+   * the caller's scope, so `GET /payer/job-postings` neither resolves nor counts once per row
+   * (ADR-0053 §5.4; the N+1 hazard of P2a's and P2c's reviews). Every id gets an entry; a posting
+   * with no completed disclosure is 0. Only the scope's tenant's rows are counted, so an id the
+   * tenant does not own reads 0 (no oracle).
+   */
+  async countDownloadsInScope(
+    jobPostingIds: readonly string[],
+    scope: PayerTenantScope,
+  ): Promise<ReadonlyMap<string, number>> {
+    const counted = await this.repo.countDisclosedForPostings(jobPostingIds, scope.tenantKey);
+    return new Map(jobPostingIds.map((id) => [id, counted.get(id) ?? 0]));
   }
 
   // ---------------------------------------------------------------------------
@@ -262,7 +305,7 @@ export class ResumeDisclosureService {
   // ---------------------------------------------------------------------------
   private async renderAndDisclose(
     disclosureId: string,
-    payerId: string,
+    scope: PayerTenantScope,
     workerId: string,
     jobPostingId: string | null,
     source: NonNullable<Awaited<ReturnType<ResumeDisclosureRepository["findResumeSource"]>>>,
@@ -559,9 +602,10 @@ export class ResumeDisclosureService {
     });
 
     // emit resume.disclosed — the FACT only (B-E). NEVER the bytes/name/url.
+    // ADR-0053 §7: `payer_id` is the tenant (the row's owner); the envelope actor is the login.
     const payload: PayloadInputOf<"resume.disclosed"> = {
       disclosure_id: disclosureId,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       worker_id: workerId,
       job_posting_id: jobPostingId,
       resume_ref: source.resumeId,
@@ -569,7 +613,7 @@ export class ResumeDisclosureService {
     try {
       await this.events.emit({
         event_name: "resume.disclosed",
-        actor: { actor_type: "payer", actor_id: payerId },
+        actor: { actor_type: "payer", actor_id: scope.actorPayerId },
         subject: { subject_type: "worker", subject_id: workerId },
         payload,
         idempotencyKey: `resume.disclosed:${disclosureId}`,
@@ -608,17 +652,17 @@ export class ResumeDisclosureService {
 
   private async recordDeny(
     tx: Tx,
-    payerId: string,
+    tenant: TenantKey,
     workerId: string,
     jobPostingId: string | null,
     reason: DisclosureDenyReason,
   ): Promise<void> {
-    const existing = await this.repo.findByPayerWorkerPosting(tx, payerId, workerId, jobPostingId);
+    const existing = await this.repo.findByPayerWorkerPosting(tx, tenant, workerId, jobPostingId);
     if (existing) {
       await this.repo.updateStatus(tx, existing.id, { status: "denied", denyReason: reason });
     } else {
       await this.repo.insertRow(tx, {
-        payerId,
+        payerId: tenant,
         workerId,
         jobPostingId,
         status: "denied",
@@ -653,13 +697,13 @@ export class ResumeDisclosureService {
    * into null, so a DB outage cannot silently strip a real posting context.
    *
    * That is the `"normalise"` policy (the ops route). #1899 `"payer_owned"` (the payer-session
-   * route): the reference must be a posting or `jobs` row the SESSION payer owns — an owned
-   * posting is kept, an owned agency `jobs` id is stored as null exactly as above, and unknown
-   * and foreign are the same refusal (no id oracle). See {@link JobRefPolicy}.
+   * route): the reference must be a posting or `jobs` row the SESSION payer's TENANT owns — an
+   * owned posting is kept, an owned agency `jobs` id is stored as null exactly as above, and
+   * unknown and foreign are the same refusal (no id oracle). See {@link JobRefPolicy}.
    */
   private async resolvePostingContext(
     jobPostingId: string | null,
-    payerId: string,
+    tenant: TenantKey,
     policy: JobRefPolicy,
   ): Promise<PostingContextResolution> {
     if (jobPostingId === null) return { ok: true, jobPostingId: null };
@@ -667,7 +711,7 @@ export class ResumeDisclosureService {
       const exists = await this.repo.jobPostingExists(jobPostingId);
       return { ok: true, jobPostingId: exists ? jobPostingId : null };
     }
-    const owned = await this.repo.findOwnedJobRef(jobPostingId, payerId);
+    const owned = await this.repo.findOwnedJobRef(jobPostingId, tenant);
     if (owned === null) return { ok: false };
     return { ok: true, jobPostingId: owned.kind === "posting" ? owned.id : null };
   }

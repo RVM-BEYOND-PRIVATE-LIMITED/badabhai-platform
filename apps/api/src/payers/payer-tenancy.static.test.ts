@@ -120,33 +120,20 @@ const NAMED_EXCEPTIONS: readonly string[] = [
  * before the flip (P3). Grouped by the Phase 2 PR that owns them (ORG_TENANCY_PLAN §3).
  */
 const UNCONVERTED: readonly string[] = [
-  // P2a — postings, applicants, Candidates inbox, agency jobs: CONVERTED (PR "payer org tenancy
-  // phase 2a"). One shared helper is left, retyped by whichever of P2a / P2b lands second: its
-  // P2b callers (`UnlocksRepository.findOwnedJobRef`, `ResumeDisclosureRepository.findOwnedJobRef`)
-  // still pass a raw id until P2b gives them a TenantKey. P2a's own caller
-  // (`PayerApplicantStagesRepository.findOwnedPostingKind`) already passes the tenant key.
-  "payers/owned-job-ref.ts findOwnedJobRef",
-  // P2b — unlocks, credits, ledger, payment orders, resume disclosures
-  "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.countDisclosedForPosting",
-  "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.findByPayerWorkerPosting",
-  "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.insertRow",
-  "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.listByPayer",
-  "unlocks/unlocks.repository.ts UnlocksRepository.appendLedger",
-  "unlocks/unlocks.repository.ts UnlocksRepository.createPaymentOrder",
-  "unlocks/unlocks.repository.ts UnlocksRepository.creditPackWithinTx",
-  "unlocks/unlocks.repository.ts UnlocksRepository.findByPayerWorker",
-  "unlocks/unlocks.repository.ts UnlocksRepository.findCreditsForUpdate",
-  "unlocks/unlocks.repository.ts UnlocksRepository.getBalance",
-  "unlocks/unlocks.repository.ts UnlocksRepository.listByPayer",
-  "unlocks/unlocks.repository.ts UnlocksRepository.listByPayerWithStatus",
-  "unlocks/unlocks.repository.ts UnlocksRepository.listCreditLedgerByPayer",
-  "unlocks/unlocks.repository.ts UnlocksRepository.recordDeny",
-  "unlocks/unlocks.repository.ts UnlocksRepository.tryDebit",
-  "unlocks/unlocks.repository.ts UnlocksRepository.upsertGrant",
-  // P2c — plans, boosts, quota top-up, capacity, coupons: CONVERTED (PR "payer org tenancy
-  // phase 2c"), including the blind spots 1–4 below, which it converted by hand.
-  // P2d — agency invites, workers, KYC, payouts: CONVERTED (PR "payer org tenancy phase 2d").
-  // The ops KYC verify / reject stay literal (NAMED_EXCEPTIONS above).
+  // P2a — postings, applicants, Candidates inbox, agency jobs: CONVERTED (PR #2167). Its shared
+  // helper `payers/owned-job-ref.ts findOwnedJobRef` was retyped by P2b, which landed after it.
+  // P2b — unlocks, credits, ledger, payment orders, resume disclosures: CONVERTED (PR #2171, all
+  // 16). Hand-converted beside them (T5 cannot see these — blind spots 7/8 and raw compares):
+  // UnlocksRepository.findOwnedJobRef / .creditPack, ResumeDisclosureRepository.findOwnedJobRef,
+  // PaymentGateway.debitOneCreditWithinTx / .purchasePackMock / .createRealOrder /
+  // .settleOrder(expectedTenantKey) — whose credit is UnlocksRepository.
+  // claimAndCreditPaymentOrderWithinTx, keyed by the claim's RETURNING row — UnlockService.reveal's
+  // owner compare (+ an in-tx re-check) and .resolveRelayForPayer's. `countDistinctPayersSince`
+  // (both repos) keeps its SQL: it counts distinct ORGS in `on` (O-3).
+  // P2c — plans, boosts, quota top-up, capacity, coupons: CONVERTED (PR #2174), including the
+  // blind spots 1–4 below, which it converted by hand.
+  // P2d — agency invites, workers, KYC, payouts: CONVERTED (PR #2175). The ops KYC verify /
+  // reject stay literal (NAMED_EXCEPTIONS above).
 ];
 
 // ---------------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 /**
  * ADR-0053 (PAY-DB-01) — the payer org tenancy CENSUS. READ-ONLY, ₹0.
  *
- * Runs ORG_TENANCY_PLAN §6's queries C1–C8 and prints counts plus opaque ids. It is the first
+ * Runs ORG_TENANCY_PLAN §6's queries C1–C9 and prints counts plus opaque ids. It is the first
  * step of the flip (plan §5, owner action O-8 step 1): before `PAYER_ORG_TENANCY_MODE` goes to
  * `shadow`, this must show C2 = C3 = C4 = C6 = 0, and C1 and C5 recorded.
  *
@@ -23,6 +23,11 @@
  *      0 to flip cleanly (R4 heals the first kind on the next request).
  *  C7  team orgs R5 would block at the flip (org or anchor not active). Record it (O-6).
  *  C8  informational: tenant rows whose key names no `payers` row (unreachable today and after).
+ *  C9  team members' UNSETTLED payment orders (any status but `paid`: a `failed` order can
+ *      still be captured on a provider retry) stamped with their OWN wallet. Record it:
+ *      after the flip the member's browser verify of such an order is refused (it compares with
+ *      the org), while the Razorpay webhook still settles it into the member's personal wallet
+ *      (ADR-0053 §6, the plan's support runbook). Tell those members before `on`.
  *
  * ===========================================================================================
  * READ-ONLY BY CONSTRUCTION
@@ -218,6 +223,20 @@ export const CENSUS_QUERIES: readonly CensusQuery[] = [
         WHERE NOT EXISTS (SELECT 1 FROM payers p WHERE p.id = c.payer_id)
       UNION ALL SELECT 'job_postings', count(*) FROM job_postings j
         WHERE j.payer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM payers p WHERE p.id = j.payer_id)`,
+  },
+  {
+    // PR #2171 review (security L2): an order stamped with a member's personal wallet before the
+    // flip cannot be browser-verified by that member after it; the webhook still settles it.
+    id: "C9",
+    title: "team members' unsettled payment orders stamped with their own wallet (record; runbook)",
+    rule: "record",
+    sql: `
+      WITH ${TEAM_MEMBERS_CTE}
+      SELECT po.id AS order_id, po.payer_id, po.created_at
+      FROM payment_orders po
+      WHERE po.status <> 'paid'
+        AND po.payer_id IN (SELECT id FROM team_members)
+      ORDER BY po.created_at`,
   },
 ];
 

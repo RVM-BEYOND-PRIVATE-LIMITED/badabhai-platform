@@ -1,8 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { jobs, jobPostings, type Database } from "@badabhai/db";
 import { findOwnedJobRef } from "./owned-job-ref";
+import type { TenantKey } from "./payer-tenant-scope";
+import { ownTenantKey } from "./payer-tenant-scope.test-support";
 
 /**
  * #1899 — STRUCTURAL test for the shared ownership query (the `unlocks.repository.test.ts`
@@ -45,9 +47,16 @@ function makeDb(rows: { jobs?: unknown[]; postings?: unknown[] }) {
 }
 
 describe("findOwnedJobRef — #1899 payer-scoped job / posting ownership", () => {
+  // ADR-0053: the helper takes the TENANT key a service resolved — here the default mode's key
+  // for PAYER (PAYER itself), minted by the real resolver rather than cast.
+  let TENANT!: TenantKey;
+  beforeAll(async () => {
+    TENANT = await ownTenantKey(PAYER);
+  });
+
   it("scopes BOTH reads by id AND payer_id, projects the id only, limit 1", async () => {
     const { db, calls } = makeDb({});
-    await findOwnedJobRef(db, REF, PAYER);
+    await findOwnedJobRef(db, REF, TENANT);
 
     expect(calls.map((c) => c.table)).toEqual([jobs, jobPostings]);
     const [jobCall, postingCall] = calls;
@@ -69,17 +78,17 @@ describe("findOwnedJobRef — #1899 payer-scoped job / posting ownership", () =>
 
   it("an owned jobs row resolves to kind 'job'", async () => {
     const { db } = makeDb({ jobs: [{ id: REF }] });
-    expect(await findOwnedJobRef(db, REF, PAYER)).toEqual({ kind: "job", id: REF });
+    expect(await findOwnedJobRef(db, REF, TENANT)).toEqual({ kind: "job", id: REF });
   });
 
   it("an owned posting resolves to kind 'posting'", async () => {
     const { db } = makeDb({ postings: [{ id: REF }] });
-    expect(await findOwnedJobRef(db, REF, PAYER)).toEqual({ kind: "posting", id: REF });
+    expect(await findOwnedJobRef(db, REF, TENANT)).toEqual({ kind: "posting", id: REF });
   });
 
   it("no owned row (unknown or another payer's — the query cannot tell) is null", async () => {
     const { db } = makeDb({});
-    expect(await findOwnedJobRef(db, REF, PAYER)).toBeNull();
+    expect(await findOwnedJobRef(db, REF, TENANT)).toBeNull();
   });
 
   it("a read error propagates (fail closed)", async () => {
@@ -88,6 +97,6 @@ describe("findOwnedJobRef — #1899 payer-scoped job / posting ownership", () =>
         from: () => ({ where: () => ({ limit: async () => Promise.reject(new Error("db down")) }) }),
       }),
     } as unknown as Database;
-    await expect(findOwnedJobRef(db, REF, PAYER)).rejects.toThrow("db down");
+    await expect(findOwnedJobRef(db, REF, TENANT)).rejects.toThrow("db down");
   });
 });

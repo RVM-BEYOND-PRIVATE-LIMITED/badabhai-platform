@@ -22,6 +22,12 @@ import {
 import { signCheckoutForTest } from "./razorpay-signature";
 import type { Queue } from "bullmq";
 import type { ReferralBonusJobData } from "../queue/queue.constants";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import type {
+  ActiveMembershipFacts,
+  PayerOrgTenancyMode,
+} from "../payers/payer-tenant-scope";
 
 /**
  * REAL-MONEY IDEMPOTENCY — the properties that must hold when Razorpay retries a webhook
@@ -57,6 +63,23 @@ const LIVE_CONFIG = {
   UNLOCK_LATENCY_TARGET_MS: 0,
 } as unknown as ServerConfig;
 
+/**
+ * The REAL tenant resolver (ADR-0053) over a fake membership read: `memberships` maps a payer id
+ * to its ACTIVE memberships. Default `off` with none — every caller is their own tenant.
+ */
+function tenancyService(
+  mode: PayerOrgTenancyMode = "off",
+  memberships: Record<string, ActiveMembershipFacts[]> = {},
+): PayerTenantScopeService {
+  return new PayerTenantScopeService(
+    { PAYER_ORG_TENANCY_MODE: mode } as unknown as ServerConfig,
+    {
+      listActiveMembershipsWithAnchor: vi.fn(async (id: string) => memberships[id] ?? []),
+      ensureSoloOrg: vi.fn(async () => null),
+    } as unknown as PayerOrgsRepository,
+  );
+}
+
 /** Yield to the microtask queue so two in-flight settles genuinely interleave. */
 const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
 
@@ -71,7 +94,7 @@ interface LedgerRow {
 
 /**
  * An in-memory stand-in for UnlocksRepository that preserves the DB's concurrency
- * semantics. `claimPaymentOrderPaidWithinTx` performs its compare-and-set SYNCHRONOUSLY,
+ * semantics. `claimAndCreditPaymentOrderWithinTx` performs its compare-and-set SYNCHRONOUSLY,
  * which is what makes a single-statement conditional UPDATE atomic in Postgres.
  */
 function makeFakeRepo() {
@@ -101,6 +124,37 @@ function makeFakeRepo() {
     orders.set(key(row.provider, row.providerOrderId), row);
     return row;
   };
+
+  /** The fake ledger movement (the real one is one upsert + one insert in a transaction). */
+  async function creditPackWithinTx(
+    _tx: Tx,
+    input: {
+      payerId: string;
+      credits: number;
+      packCode: string | null;
+      paymentRef: string | null;
+      priceInr?: number | null;
+      idempotencyKey?: string | null;
+    },
+  ): Promise<number> {
+    const k = input.idempotencyKey ?? null;
+    // The partial UNIQUE index: a second insert with the same key ABORTS the tx.
+    if (k !== null && ledgerKeys.has(k)) {
+      throw new Error("duplicate key value violates unique constraint");
+    }
+    if (k !== null) ledgerKeys.add(k);
+    ledger.push({
+      payerId: input.payerId,
+      delta: input.credits,
+      packCode: input.packCode,
+      paymentRef: input.paymentRef,
+      priceInr: input.priceInr ?? null,
+      idempotencyKey: k,
+    });
+    const next = (balances.get(input.payerId) ?? 0) + input.credits;
+    balances.set(input.payerId, next);
+    return next;
+  }
 
   const repo = {
     // A transaction is just "run the callback"; the atomicity that matters is inside the CAS.
@@ -148,22 +202,32 @@ function makeFakeRepo() {
       return orders.get(key(provider, providerOrderId));
     }),
 
-    // THE RACE CLOSURE. Synchronous check-and-set = one statement in Postgres.
-    claimPaymentOrderPaidWithinTx: vi.fn(
+    // THE RACE CLOSURE + the grant, as ONE call (ADR-0053 §6). The check-and-set is SYNCHRONOUS
+    // (one statement in Postgres); the credit then uses ONLY the claimed row — its stamped wallet,
+    // credits and ₹ (the real mapping is pinned in unlocks.repository.test.ts).
+    claimAndCreditPaymentOrderWithinTx: vi.fn(
       async (
-        _tx: Tx,
+        tx: Tx,
         input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
       ) => {
         const row = orders.get(key(input.provider ?? "razorpay", input.providerOrderId));
         if (!row || row.status === "paid") return undefined; // `status <> 'paid'` matched nothing
-        const next: PaymentOrder = {
+        const claimed: PaymentOrder = {
           ...row,
           status: "paid",
           providerPaymentRef: input.providerPaymentRef,
           updatedAt: new Date(),
         };
-        orders.set(key(next.provider, next.providerOrderId), next);
-        return next;
+        orders.set(key(claimed.provider, claimed.providerOrderId), claimed);
+        const balanceAfter = await creditPackWithinTx(tx, {
+          payerId: claimed.payerId,
+          credits: claimed.creditsGranted,
+          packCode: claimed.packCode,
+          paymentRef: input.providerPaymentRef,
+          priceInr: claimed.amountInr,
+          idempotencyKey: `payment_order:${claimed.id}`,
+        });
+        return { order: claimed, balanceAfter };
       },
     ),
 
@@ -175,38 +239,6 @@ function makeFakeRepo() {
       return next;
     }),
 
-    creditPackWithinTx: vi.fn(
-      async (
-        _tx: Tx,
-        input: {
-          payerId: string;
-          credits: number;
-          packCode: string | null;
-          paymentRef: string | null;
-          priceInr?: number | null;
-          idempotencyKey?: string | null;
-        },
-      ) => {
-        const k = input.idempotencyKey ?? null;
-        // The partial UNIQUE index: a second insert with the same key ABORTS the tx.
-        if (k !== null && ledgerKeys.has(k)) {
-          throw new Error("duplicate key value violates unique constraint");
-        }
-        if (k !== null) ledgerKeys.add(k);
-        ledger.push({
-          payerId: input.payerId,
-          delta: input.credits,
-          packCode: input.packCode,
-          paymentRef: input.paymentRef,
-          priceInr: input.priceInr ?? null,
-          idempotencyKey: k,
-        });
-        const next = (balances.get(input.payerId) ?? 0) + input.credits;
-        balances.set(input.payerId, next);
-        return next;
-      },
-    ),
-
     creditPack: vi.fn(async () => 0),
     getBalance: vi.fn(async (payerId: string) => balances.get(payerId) ?? 0),
   };
@@ -214,7 +246,13 @@ function makeFakeRepo() {
   return { repo, orders, ledger, balances, seedOrder, key };
 }
 
-function makeService(opts: { payerStatus?: "pending" | "active" | "suspended" } = {}) {
+function makeService(
+  opts: {
+    payerStatus?: "pending" | "active" | "suspended";
+    /** ADR-0053: the tenant resolver (default: mode `off`, every caller its own tenant). */
+    tenancy?: PayerTenantScopeService;
+  } = {},
+) {
   const fake = makeFakeRepo();
   // ADR-0037 Decision 6 — the payer's lifecycle status at capture time.
   const payers = {
@@ -265,6 +303,7 @@ function makeService(opts: { payerStatus?: "pending" | "active" | "suspended" } 
     // undefined dependency here would be swallowed by its catch and every assertion below
     // would still pass while the alert silently never worked.
     payers as never,
+    opts.tenancy ?? tenancyService("off"),
   );
   return { svc, payments, events, razorpay, pricing, payers, ...fake };
 }
@@ -779,6 +818,7 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
       { add: vi.fn(async () => undefined) } as unknown as Queue<ReferralBonusJobData>,
       { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
       { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
+      tenancyService("off"),
     );
     return { svc, events, razorpay, repo: fake.repo };
   }
@@ -902,5 +942,139 @@ describe("a capture for a SUSPENDED payer (ADR-0037 Decision 6)", () => {
     expect(out).toEqual({ result: "granted" });
     expect(d.balances.get(PAYER)).toBe(50);
     expect(emitted(d.events)).toEqual(["payment.captured"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) §6 — the ORG wallet on the real-payment path
+// ---------------------------------------------------------------------------
+
+describe("ADR-0053 — real orders are stamped with the org wallet at intent; settlement never re-resolves", () => {
+  const ANCHOR = PAYER; // A — the org's founder; their existing wallet IS the org wallet
+  const MEMBER = "cccccccc-0000-4000-8000-000000000003"; // B — an active recruiter in A's org
+  const OUTSIDER = OTHER_PAYER; // C — a solo payer
+  const signature = signCheckoutForTest(PROVIDER_ORDER, PAYMENT_ID, KEY_SECRET);
+
+  const facts = (anchor: string, orgRole: "owner" | "recruiter"): ActiveMembershipFacts => ({
+    orgId: `0${anchor.slice(1)}`,
+    orgRole,
+    acceptedAt: new Date(orgRole === "owner" ? "2026-05-01" : "2026-07-01"),
+    orgStatus: "active",
+    anchorPayerId: anchor,
+    anchorRole: "employer",
+    anchorStatus: "active",
+    memberRole: "employer",
+  });
+  const on = () =>
+    tenancyService("on", {
+      [ANCHOR]: [facts(ANCHOR, "owner")],
+      [MEMBER]: [facts(MEMBER, "owner"), facts(ANCHOR, "recruiter")],
+      [OUTSIDER]: [facts(OUTSIDER, "owner")],
+    });
+
+  type Emitted = { event_name: string; actor: { actor_id: string }; payload: { payer_id: string } };
+  const sent = (d: ReturnType<typeof makeService>): Emitted[] =>
+    d.events.emit.mock.calls.map((c) => c[0] as Emitted);
+
+  it("a teammate's order is stamped with the ORG's wallet; payment.authorized names the teammate and the org", async () => {
+    const d = makeService({ tenancy: on() });
+    await d.svc.createCreditOrder(MEMBER, "pack_50", CTX);
+    expect(d.repo.createPaymentOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: ANCHOR, creditsGranted: 50, amountInr: 2000 }),
+    );
+    const [authorized] = sent(d);
+    expect(authorized?.event_name).toBe("payment.authorized");
+    expect(authorized?.actor.actor_id).toBe(MEMBER);
+    expect(authorized?.payload.payer_id).toBe(ANCHOR);
+  });
+
+  it("the teammate verifies it: the credits land in the ORG wallet, the body echoes the caller", async () => {
+    const d = makeService({ tenancy: on() });
+    d.seedOrder({ payerId: ANCHOR }); // what the stamp above writes
+    const out = await d.svc.verifyCheckoutPayment(
+      MEMBER,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+      CTX,
+    );
+    expect(out).toEqual({
+      verified: true,
+      payer_id: MEMBER,
+      balance: 50,
+      credits: 50,
+      pack_code: "pack_50",
+    });
+    expect(d.balances.get(ANCHOR)).toBe(50);
+    expect(d.balances.get(MEMBER)).toBeUndefined(); // the personal wallet is untouched (O-2)
+    expect(d.ledger).toEqual([expect.objectContaining({ payerId: ANCHOR, delta: 50 })]);
+    const [captured] = sent(d);
+    expect(captured?.event_name).toBe("payment.captured");
+    expect(captured?.actor.actor_id).toBe(MEMBER); // who verified
+    expect(captured?.payload.payer_id).toBe(ANCHOR); // the wallet credited
+  });
+
+  it("any member may verify the org's order — the anchor settles one a teammate created", async () => {
+    const d = makeService({ tenancy: on() });
+    d.seedOrder({ payerId: ANCHOR });
+    const out = await d.svc.verifyCheckoutPayment(
+      ANCHOR,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+      CTX,
+    );
+    expect(out).toMatchObject({ verified: true, payer_id: ANCHOR, balance: 50 });
+    expect(d.balances.get(ANCHOR)).toBe(50);
+  });
+
+  it("an outsider cannot verify the org's order — the byte-identical refusal, and nothing moves", async () => {
+    const d = makeService({ tenancy: on() });
+    d.seedOrder({ payerId: ANCHOR });
+    const out = await d.svc.verifyCheckoutPayment(
+      OUTSIDER,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+      CTX,
+    );
+    expect(out).toEqual({ verified: false });
+    expect(d.ledger).toHaveLength(0);
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("created");
+    expect(d.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("an order stamped BEFORE the flip settles into the wallet it was created for — the webhook never re-resolves", async () => {
+    const d = makeService({ tenancy: on() });
+    d.seedOrder({ payerId: MEMBER }); // B bought for their OWN wallet while the mode was off
+    // B's browser verify after the flip is refused: B's tenant is now A, and the stamped wallet
+    // is not A (ADR-0053 §6 compares with the tenant). The webhook — the source of truth — is
+    // what settles it, and it credits the STAMPED wallet.
+    const verify = await d.svc.verifyCheckoutPayment(
+      MEMBER,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+      CTX,
+    );
+    expect(verify).toEqual({ verified: false });
+    expect(d.ledger).toHaveLength(0);
+
+    expect(await d.svc.handleRazorpayEvent(captureEvent(), CTX)).toEqual({ result: "granted" });
+    expect(d.balances.get(MEMBER)).toBe(50);
+    expect(d.balances.get(ANCHOR)).toBeUndefined();
+    const [captured] = sent(d);
+    expect(captured?.actor.actor_id).toBe(MEMBER); // no login acted: the stamped wallet
+    expect(captured?.payload.payer_id).toBe(MEMBER);
+  });
+
+  it("the webhook ⇄ verify race on an ORG order still grants exactly once, into the org wallet", async () => {
+    const d = makeService({ tenancy: on() });
+    d.seedOrder({ payerId: ANCHOR });
+    const [webhook, verify] = await Promise.all([
+      d.svc.handleRazorpayEvent(captureEvent(), CTX),
+      d.svc.verifyCheckoutPayment(
+        MEMBER,
+        { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+        CTX,
+      ),
+    ]);
+    expect(d.ledger).toHaveLength(1);
+    expect(d.balances.get(ANCHOR)).toBe(50);
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
+    expect(["granted", "no_op"]).toContain(webhook.result);
+    expect(verify).toMatchObject({ verified: true, payer_id: MEMBER, balance: 50 });
   });
 });
