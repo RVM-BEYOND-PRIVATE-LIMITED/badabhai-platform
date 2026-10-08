@@ -4360,10 +4360,20 @@ def test_a_comma_before_a_basis_still_attaches_it() -> None:
     assert answers.detect_answers("salary 25000, in hand", None).get("pay_type") == "in_hand"
 
 
-# A comma-joined digit run reads as ONE number ("1,1,1,..." is 111...), and the pay gateway lets
-# it through (only a plain digit run is a residual numeric sequence). Past ~309 digits `float()`
-# is infinite and `int()` raised OverflowError on the payer's turn: such a figure is not pay.
-@pytest.mark.parametrize("text", ["1," * 330 + "x", "salary " + "1," * 330, "1" * 400 + " salary"])
+# A comma-joined digit run reads as ONE number ("1,1,1,..." is 111...). Past ~309 digits `float()`
+# is infinite — and a figure just under that limit becomes infinite once its suffix multiplies it —
+# so `int()` raised OverflowError inside the parser: such a figure is not pay. A function-level
+# guard: through the route the gateway masks these runs as phone tokens before the engine reads.
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1," * 330 + "x",
+        "salary " + "1," * 330,
+        "1" * 400 + " salary",
+        "1," * 305 + "1 lakh",
+        "salary " + "1," * 306 + "1 thousand",
+    ],
+)
 def test_a_figure_too_long_for_a_float_is_not_pay(text: str) -> None:
     assert answers.detect_answers(text, "pay_range").get("pay_range") is None
     assert answers.detect_answers(text, None).get("pay_range") is None

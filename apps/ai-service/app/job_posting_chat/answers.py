@@ -529,15 +529,16 @@ def _scale(digits: str, suffix: str | None, partner: str | None) -> int | None:
         amount = float(digits.replace(",", ""))
     except ValueError:  # pragma: no cover - the regex only ever yields digits
         return None
-    if not math.isfinite(amount):
-        # Past ~309 digits `float()` is infinite and `int()` raised OverflowError on the payer's
-        # turn. The gateway blocks a plain digit run that long but not a comma-joined one
-        # ("1,1,1,..." is ONE number); either way it is no wage (#2143).
-        return None
     if suffix:
         amount *= _MULTIPLIERS[suffix.lower()]
     elif partner and amount < 1000:
         amount *= _MULTIPLIERS[partner.lower()]
+    if not math.isfinite(amount):
+        # A comma-joined run is ONE number ("1,1,1,..." is 111...): past ~309 digits `float()` is
+        # infinite, and a figure just under that becomes infinite once its suffix multiplies it,
+        # so `int()` raised OverflowError. Checked AFTER the multiply. It is no wage (#2143). A
+        # function-level guard: through the route the gateway masks such runs as phone tokens.
+        return None
     value = int(amount)  # whole rupees — jobs.pay_min / jobs.pay_max are integers
     return value if _PAY_MIN_INR <= value <= _PAY_MAX_INR else None
 
