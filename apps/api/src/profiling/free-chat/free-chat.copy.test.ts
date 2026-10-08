@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { checkPersonaTokens, personaCorpus } from "@badabhai/profiling-lexicon";
-import { FREE_CHAT_REFUSAL_TOPICS } from "@badabhai/types";
+import { FREE_CHAT_REFUSAL_TOPICS, FREE_CHAT_REPLY_LANGUAGES } from "@badabhai/types";
 
 import { CONSTANT_REPLIES } from "../reply-closure";
 import { ttsTextFor } from "../question-tts-text";
 import {
   FREE_CHAT_COPY,
   FREE_CHAT_COPY_ENTRIES,
+  FREE_CHAT_FIXED_LINE_ENTRIES,
+  FREE_CHAT_LANG_NO_KEY,
+  FREE_CHAT_LANG_NO_LABEL,
+  FREE_CHAT_LANG_NO_LINE,
+  FREE_CHAT_LANG_YES_KEY,
+  FREE_CHAT_LANGUAGE_LINE_ENTRIES,
+  FREE_CHAT_LANGUAGE_NAMES,
+  FREE_CHAT_LANGUAGE_TEMPLATES,
   FREE_CHAT_LATER_KEY,
   FREE_CHAT_LATER_LABEL,
   FREE_CHAT_REFUSAL_LINES,
@@ -15,6 +23,10 @@ import {
   FREE_CHAT_RESUME_LABEL,
   FREE_CHAT_START_KEY,
   FREE_CHAT_START_LABEL,
+  FREE_CHAT_TTS_ENTRIES,
+  languageAskLine,
+  languageYesLabel,
+  languageYesLine,
 } from "./free-chat.copy";
 
 /**
@@ -32,11 +44,14 @@ const persona = personaCorpus();
 
 describe("free-chat copy is on-persona (persona v3.2)", () => {
   const shown: ReadonlyArray<readonly [string, string]> = [
-    ...FREE_CHAT_COPY_ENTRIES.map(([name, line]) => [name, line.latin] as const),
+    // ADR-0051 §11 — every reply-language variant too (LANG_ASK.marathi, LANG_YES.tamil, …).
+    ...FREE_CHAT_FIXED_LINE_ENTRIES.map(([name, line]) => [name, line.latin] as const),
     // The chips' labels are posted back as text, so they are copy too.
     ["chip", FREE_CHAT_START_LABEL],
     ["chip", FREE_CHAT_LATER_LABEL],
     ["chip", FREE_CHAT_RESUME_LABEL],
+    ...FREE_CHAT_REPLY_LANGUAGES.map((language) => ["chip", languageYesLabel(language)] as const),
+    ["chip", FREE_CHAT_LANG_NO_LABEL],
   ];
 
   it.each(shown)("%s — %j carries no banned token", (_name, text) => {
@@ -66,7 +81,7 @@ describe("free-chat copy is on-persona (persona v3.2)", () => {
   );
 
   it("is name-free — no placeholder, so a pre-rendered clip is the same for every worker", () => {
-    for (const [, line] of FREE_CHAT_COPY_ENTRIES) {
+    for (const [, line] of FREE_CHAT_FIXED_LINE_ENTRIES) {
       expect(line.latin).not.toMatch(/\{\{|\}\}/);
       expect(line.dev).not.toMatch(/\{\{|\}\}/);
     }
@@ -74,7 +89,7 @@ describe("free-chat copy is on-persona (persona v3.2)", () => {
 });
 
 describe("every line has a Devanagari twin a voice can read", () => {
-  it.each(FREE_CHAT_COPY_ENTRIES)(
+  it.each(FREE_CHAT_FIXED_LINE_ENTRIES)(
     "%s — the twin is Devanagari, with no Latin word left in it",
     (_name, line) => {
       expect(line.dev).toMatch(DEVANAGARI);
@@ -88,7 +103,9 @@ describe("every line has a Devanagari twin a voice can read", () => {
   });
 
   it("the sidecar serves each twin — and composes the twin of a deflection + a known question", () => {
-    for (const [, line] of FREE_CHAT_COPY_ENTRIES) expect(ttsTextFor(line.latin)).toBe(line.dev);
+    for (const [, line] of FREE_CHAT_FIXED_LINE_ENTRIES) {
+      expect(ttsTextFor(line.latin)).toBe(line.dev);
+    }
     const question = "Shukriya. Aap kaun sa kaam karte hain, aur kitna tajurba hai?";
     expect(ttsTextFor(`${FREE_CHAT_COPY.LOCK_DEFLECT.latin} ${question}`)).toBe(
       `${FREE_CHAT_COPY.LOCK_DEFLECT.dev} ${ttsTextFor(question)}`,
@@ -110,7 +127,13 @@ describe("every line has a Devanagari twin a voice can read", () => {
 
 describe("the chips and the refusal map", () => {
   it("keys are digit-free slugs the option schema accepts, clear of the app-reserved keys", () => {
-    for (const key of [FREE_CHAT_START_KEY, FREE_CHAT_LATER_KEY, FREE_CHAT_RESUME_KEY]) {
+    for (const key of [
+      FREE_CHAT_START_KEY,
+      FREE_CHAT_LATER_KEY,
+      FREE_CHAT_RESUME_KEY,
+      FREE_CHAT_LANG_YES_KEY,
+      FREE_CHAT_LANG_NO_KEY,
+    ]) {
       expect(key).toMatch(/^[a-z_]+$/);
       expect(key).not.toMatch(/^(llm_|section_|companion_)/);
       expect([
@@ -159,5 +182,90 @@ describe("ADR-0054 §5 — the two live-news lines, as approved on 2026-10-08", 
       expect(CONSTANT_REPLIES).toContain(line.latin);
       expect(ttsTextFor(line.latin)).toBe(line.dev);
     }
+  });
+});
+
+describe("ADR-0051 §11 — the reply-language lines, as approved on 2026-10-08", () => {
+  it("the templates are the approved copy verbatim, one {Language} slot where a language is named", () => {
+    expect(FREE_CHAT_LANGUAGE_TEMPLATES).toEqual({
+      LANG_ASK: {
+        latin: "Kya aage ki saari baat {Language} mein karein?",
+        dev: "क्या आगे की सारी बात {Language} में करें?",
+      },
+      LANG_YES: {
+        latin: "Theek hai, ab se {Language} mein baat karenge.",
+        dev: "ठीक है, अब से {Language} में बात करेंगे।",
+      },
+      LANG_NO: {
+        latin: "Theek hai. Aap jis bhasha mein likhenge, usi mein jawab dunga.",
+        dev: "ठीक है। आप जिस भाषा में लिखेंगे, उसी में जवाब दूँगा।",
+      },
+    });
+  });
+
+  it("names every reply language, in the closed set's order — Hindi for hinglish, in both scripts", () => {
+    expect(Object.keys(FREE_CHAT_LANGUAGE_NAMES)).toEqual([...FREE_CHAT_REPLY_LANGUAGES]);
+    expect(FREE_CHAT_LANGUAGE_NAMES).toEqual({
+      english: { latin: "English", dev: "अंग्रेज़ी" },
+      hinglish: { latin: "Hindi", dev: "हिंदी" },
+      marathi: { latin: "Marathi", dev: "मराठी" },
+      gujarati: { latin: "Gujarati", dev: "गुजराती" },
+      kannada: { latin: "Kannada", dev: "कन्नड़" },
+      telugu: { latin: "Telugu", dev: "तेलुगु" },
+      tamil: { latin: "Tamil", dev: "तमिल" },
+    });
+  });
+
+  it("fills each half with its own script's name", () => {
+    expect(languageAskLine("marathi")).toEqual({
+      latin: "Kya aage ki saari baat Marathi mein karein?",
+      dev: "क्या आगे की सारी बात मराठी में करें?",
+    });
+    expect(languageYesLine("hinglish")).toEqual({
+      latin: "Theek hai, ab se Hindi mein baat karenge.",
+      dev: "ठीक है, अब से हिंदी में बात करेंगे।",
+    });
+    expect(languageYesLine("english").dev).toBe("ठीक है, अब से अंग्रेज़ी में बात करेंगे।");
+    expect(FREE_CHAT_LANG_NO_LINE).toBe(FREE_CHAT_LANGUAGE_TEMPLATES.LANG_NO);
+  });
+
+  it("enumerates seven asks, seven yeses and one no — every slot filled", () => {
+    expect(FREE_CHAT_LANGUAGE_LINE_ENTRIES).toHaveLength(2 * FREE_CHAT_REPLY_LANGUAGES.length + 1);
+    for (const [, line] of FREE_CHAT_LANGUAGE_LINE_ENTRIES) {
+      expect(line.latin).not.toContain("{");
+      expect(line.dev).not.toContain("{");
+    }
+    expect(new Set(FREE_CHAT_LANGUAGE_LINE_ENTRIES.map(([, line]) => line.latin)).size).toBe(
+      FREE_CHAT_LANGUAGE_LINE_ENTRIES.length,
+    );
+  });
+
+  it("the chips: 'Haan, {Language} mein' and 'Nahi'", () => {
+    expect(languageYesLabel("marathi")).toBe("Haan, Marathi mein");
+    expect(languageYesLabel("hinglish")).toBe("Haan, Hindi mein");
+    expect(FREE_CHAT_LANG_NO_LABEL).toBe("Nahi");
+    expect([FREE_CHAT_LANG_YES_KEY, FREE_CHAT_LANG_NO_KEY]).toEqual([
+      "free_chat_lang_yes",
+      "free_chat_lang_no",
+    ]);
+  });
+
+  it("every variant is in the reply closure and the read-aloud sidecar", () => {
+    const sidecar = new Map(FREE_CHAT_TTS_ENTRIES);
+    for (const [, line] of FREE_CHAT_LANGUAGE_LINE_ENTRIES) {
+      expect(CONSTANT_REPLIES).toContain(line.latin);
+      expect(sidecar.get(line.latin)).toBe(line.dev);
+      expect(ttsTextFor(line.latin)).toBe(line.dev);
+    }
+  });
+
+  it("the §5.1 table itself is unchanged — the language lines are listed beside it, not in it", () => {
+    expect(FREE_CHAT_COPY_ENTRIES.map(([key]) => key)).not.toContain("LANG_ASK");
+    expect(FREE_CHAT_FIXED_LINE_ENTRIES.slice(0, FREE_CHAT_COPY_ENTRIES.length)).toEqual(
+      FREE_CHAT_COPY_ENTRIES,
+    );
+    expect(FREE_CHAT_COPY.GREETING.latin).toBe(
+      "Namaste, main Bada Bhai hoon. Aapka resume banane mein madad karunga. Shuru karein?",
+    );
   });
 });

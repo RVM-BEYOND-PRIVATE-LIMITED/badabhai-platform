@@ -14,8 +14,10 @@ import {
   type WorkerPackAnswer,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
-// TYPE-ONLY: the stored summary's shape is defined once, beside its readers. No runtime edge.
+// TYPE-ONLY: the stored summary's and kept language's shapes are defined once, beside their
+// readers. No runtime edge.
 import type { FreeChatSummary } from "../profiling/free-chat/free-chat-summary";
+import type { FreeChatLanguageRecord } from "../profiling/free-chat/free-chat.state";
 
 /**
  * Safety bound for the per-session message-history read (the chat loop +
@@ -54,6 +56,26 @@ export type Tx = Database;
 function keepLiveFreeChatSummary(): SQL {
   const live = sql`${chatSessions.conversationState} -> 'free_chat_summary'`;
   return sql`CASE WHEN ${live} IS NOT NULL THEN jsonb_build_object('free_chat_summary', ${live}) ELSE '{}'::jsonb END`;
+}
+
+/**
+ * ADR-0051 §11 — THE LIVE ROW'S KEPT REPLY LANGUAGE, {@link keepLiveFreeChatSummary}'s operand for
+ * the `free_chat_language` key, for its reasons: the key is merge-written AFTER a turn's CAS
+ * (`mergeFreeChatLanguage`), so a checkpoint, flush or abandon that read the row before it landed
+ * would otherwise revert it. A CASE again, never `jsonb_strip_nulls`: a declined ask stores
+ * `language: null`, a SET value that must survive.
+ */
+function keepLiveFreeChatLanguage(): SQL {
+  const live = sql`${chatSessions.conversationState} -> 'free_chat_language'`;
+  return sql`CASE WHEN ${live} IS NOT NULL THEN jsonb_build_object('free_chat_language', ${live}) ELSE '{}'::jsonb END`;
+}
+
+/**
+ * Every free-chat key a whole-column write must keep from the LIVE row — the rolling summary (§8)
+ * and the kept reply language (§11) — as the right-hand operands of `state || …`.
+ */
+function keepLiveFreeChatKeys(): SQL {
+  return sql`${keepLiveFreeChatSummary()} || ${keepLiveFreeChatLanguage()}`;
 }
 
 @Injectable()
@@ -381,8 +403,9 @@ export class ChatRepository {
     const updated = await tx
       .update(chatSessions)
       .set({
-        // ADR-0051 §8 — the live row's summary survives the replace (`keepLiveFreeChatSummary`).
-        conversationState: sql`${JSON.stringify(state)}::jsonb || ${keepLiveFreeChatSummary()}`,
+        // ADR-0051 §8 / §11 — the live row's summary and kept language survive the replace
+        // (`keepLiveFreeChatKeys`).
+        conversationState: sql`${JSON.stringify(state)}::jsonb || ${keepLiveFreeChatKeys()}`,
         status: "abandoned",
         endedAt: at,
       })
@@ -423,9 +446,9 @@ export class ChatRepository {
    * lastMessageAt in the same write). Stored as loose JSONB; the caller owns the
    * shape (ai-contracts ConversationState). Profile signals only — never PII.
    *
-   * ADR-0051 §8 — THE ONE KEY THE CALLER DOES NOT OWN is kept from the live row: the rolling
-   * free-chat summary (`keepLiveFreeChatSummary`). The mid-interview checkpoint and the review
-   * screen's correction both replace the column through here.
+   * ADR-0051 §8 / §11 — THE KEYS THE CALLER DOES NOT OWN are kept from the live row: the rolling
+   * free-chat summary and the kept reply language (`keepLiveFreeChatKeys`). The mid-interview
+   * checkpoint and the review screen's correction both replace the column through here.
    */
   async saveConversationState(
     sessionId: string,
@@ -436,7 +459,7 @@ export class ChatRepository {
     await (tx ?? this.db)
       .update(chatSessions)
       .set({
-        conversationState: sql`${JSON.stringify(state)}::jsonb || ${keepLiveFreeChatSummary()}`,
+        conversationState: sql`${JSON.stringify(state)}::jsonb || ${keepLiveFreeChatKeys()}`,
         lastMessageAt: at,
       })
       .where(eq(chatSessions.id, sessionId));
@@ -478,8 +501,9 @@ export class ChatRepository {
     const updated = await tx
       .update(chatSessions)
       .set({
-        // TD145's mark, then ADR-0051 §8's rolling summary — each the LIVE row's, never erased.
-        conversationState: sql`${JSON.stringify(state)}::jsonb || jsonb_strip_nulls(jsonb_build_object('general_form_completed_at', ${chatSessions.conversationState} -> 'general_form_completed_at')) || ${keepLiveFreeChatSummary()}`,
+        // TD145's mark, then ADR-0051 §8's rolling summary and §11's kept language — each the LIVE
+        // row's, never erased.
+        conversationState: sql`${JSON.stringify(state)}::jsonb || jsonb_strip_nulls(jsonb_build_object('general_form_completed_at', ${chatSessions.conversationState} -> 'general_form_completed_at')) || ${keepLiveFreeChatKeys()}`,
         lastMessageAt: at,
         status: "ended",
         endedAt: at,
@@ -732,6 +756,75 @@ export class ChatRepository {
           eq(chatSessions.id, sessionId),
           eq(chatSessions.workerId, workerId),
           sql`(${stored} IS NULL OR ${stored} ->> 'session_id' IS DISTINCT FROM ${summary.session_id}::text OR CASE WHEN jsonb_typeof(${stored} -> 'folded_lines') = 'number' THEN (${stored} ->> 'folded_lines')::numeric < ${summary.folded_lines}::int ELSE true END)`,
+        ),
+      )
+      .returning({ id: chatSessions.id });
+    return updated.length > 0;
+  }
+
+  /**
+   * ADR-0051 §11 — the worker's LATEST SET reply language, as the session's id and the raw
+   * `free_chat_language` value, or undefined. The caller parses the value
+   * (`readFreeChatLanguageValue`, strict, fails soft). Read once per new free chat, at its greeting.
+   *
+   * THE LATEST SET VALUE, A DECLINE INCLUDED: a record whose `language` is null ("Nahi") is a choice
+   * too, and must shadow an older session's kept language — so the predicate tests the KEY, not the
+   * language. Ordered by the record's own `set_at` (written by `freeChatLanguageRecord` as
+   * `toISOString()`, so its byte order — `COLLATE "C"`, never the database's locale — is its time
+   * order), then `started_at`, so a session that opened earlier but was answered later still wins.
+   *
+   * IN THE WHERE CLAUSE, for {@link findFreeChatLockDecider}'s reason. ONE INDEXED READ:
+   * `chat_sessions_worker_id_idx` narrows to one worker's handful of rows; the jsonb test and the
+   * sort run over those only.
+   */
+  async findLatestFreeChatLanguage(
+    workerId: string,
+  ): Promise<{ id: string; language: unknown } | undefined> {
+    const stored = sql`${chatSessions.conversationState} -> 'free_chat_language'`;
+    const rows = await this.db
+      .select({ id: chatSessions.id, language: sql<unknown>`${stored}` })
+      .from(chatSessions)
+      .where(and(eq(chatSessions.workerId, workerId), sql`${stored} IS NOT NULL`))
+      .orderBy(
+        sql`(${stored} ->> 'set_at') COLLATE "C" DESC NULLS LAST`,
+        desc(chatSessions.startedAt),
+      )
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * ADR-0051 §11 — write the worker's answered ask onto THIS session's row: a sibling key,
+   * `free_chat_language: {v: 1, language, set_at, session_id}`, merged into `conversation_state`.
+   *
+   * THE {@link mergeFreeChatSummary} SHAPE: a JSONB MERGE (`||`), `last_message_at` UNTOUCHED,
+   * scoped to the session AND its owner, every value a bound parameter (a null `language` binds as
+   * JSON null — the decline). The three REPLACING writers keep the live row's key in their own
+   * statement (`keepLiveFreeChatKeys`), so none of them reverts it.
+   *
+   * MONOTONIC, IN THE STATEMENT: it writes only over no record, or one set EARLIER — so a slow write
+   * that outlived a later answer never overwrites it, and a retried write of the same answer (the
+   * same `set_at`) is a no-op. A stored `set_at` that is not a JSON string reads as earlier. Not
+   * conditional on `active`, like the summary: the worker's choice belongs to the worker's record.
+   *
+   * Returns whether it wrote.
+   */
+  async mergeFreeChatLanguage(
+    sessionId: string,
+    workerId: string,
+    record: FreeChatLanguageRecord,
+  ): Promise<boolean> {
+    const stored = sql`${chatSessions.conversationState} -> 'free_chat_language'`;
+    const updated = await this.db
+      .update(chatSessions)
+      .set({
+        conversationState: sql`coalesce(${chatSessions.conversationState}, '{}'::jsonb) || jsonb_build_object('free_chat_language', jsonb_build_object('v', 1, 'language', ${record.language}::text, 'set_at', ${record.set_at}::text, 'session_id', ${record.session_id}::text))`,
+      })
+      .where(
+        and(
+          eq(chatSessions.id, sessionId),
+          eq(chatSessions.workerId, workerId),
+          sql`(${stored} IS NULL OR CASE WHEN jsonb_typeof(${stored} -> 'set_at') = 'string' THEN (${stored} ->> 'set_at') COLLATE "C" < ${record.set_at}::text COLLATE "C" ELSE true END)`,
         ),
       )
       .returning({ id: chatSessions.id });

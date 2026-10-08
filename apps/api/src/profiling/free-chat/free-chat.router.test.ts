@@ -18,6 +18,7 @@ import {
   preClassifyFree,
   preClassifyResume,
   readGreetingChoice,
+  readLanguageAnswer,
   UNAVAILABLE_VERDICT,
   type FreeChatVerdict,
   type ResumeSkipFacts,
@@ -341,5 +342,48 @@ describe("the confidence buckets — the companion's, unchanged", () => {
     [1, "gte90"],
   ] as const)("%d → %s", (confidence, bucket) => {
     expect(confidenceBucketOf(confidence)).toBe(bucket);
+  });
+});
+
+describe("ADR-0051 §11 — the language ask's answer, read deterministically (R41)", () => {
+  it.each([
+    // The chips: the key a client may post, and the label the app posts.
+    ["free_chat_lang_yes", "marathi", "yes"],
+    ["Haan, Marathi mein", "marathi", "yes"],
+    ["haan, marathi mein", "marathi", "yes"],
+    ["Haan, Hindi mein", "hinglish", "yes"],
+    ["Haan, English mein", "english", "yes"],
+    ["free_chat_lang_no", "marathi", "no"],
+    ["Nahi", "tamil", "no"],
+    // The typed yes / no, in the chat's languages.
+    ["haan", "tamil", "yes"],
+    ["aam", "tamil", "yes"],
+    ["avunu", "telugu", "yes"],
+    ["haudu", "kannada", "yes"],
+    ["ho", "marathi", "yes"],
+    ["nako", "marathi", "no"],
+    ["vendam", "tamil", "no"],
+  ] as const)("%j to a %s ask is %s", (text, offer, answer) => {
+    expect(readLanguageAnswer(text, offer)).toBe(answer);
+  });
+
+  it.each([
+    // Another language's yes-chip: the ask offered Tamil, the label names Marathi.
+    ["Haan, Marathi mein", "tamil"],
+    // Another language typed beside a yes.
+    ["haan, tamil mein", "marathi"],
+    // A message, not an answer.
+    ["welder ki salary kitni hai", "marathi"],
+    // The greeting's and the résumé chip's KEYS are not this ask's.
+    ["free_chat_start", "marathi"],
+    ["free_chat_resume", "marathi"],
+  ] as const)("%j to a %s ask is neither — the offer lapses", (text, offer) => {
+    expect(readLanguageAnswer(text, offer)).toBeNull();
+  });
+
+  it("the ask's chips are no greeting or résumé chip — a résumé-mode double tap is not absorbed", () => {
+    expect(isFreeChatChip("Haan, Marathi mein")).toBe(false);
+    expect(isFreeChatChip("free_chat_lang_yes")).toBe(false);
+    expect(isResumeChip("Nahi")).toBe(false);
   });
 });

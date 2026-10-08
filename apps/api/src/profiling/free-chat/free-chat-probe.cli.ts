@@ -131,7 +131,7 @@ export function samplePiiCrypto(env: NodeJS.ProcessEnv): PiiCryptoService {
   }
 }
 
-/** Part A's reads — five event names, each narrowed through the registry. */
+/** Part A's reads — six event names, each narrowed through the registry. */
 async function readAggregates(
   repo: FreeChatProbeRepository,
   args: FreeChatProbeArgs,
@@ -152,6 +152,10 @@ async function readAggregates(
     news: readProbeEvents(
       "chat.free_chat_news_served",
       await repo.eventsInWindow("chat.free_chat_news_served", args),
+    ),
+    languages: readProbeEvents(
+      "chat.free_chat_language_changed",
+      await repo.eventsInWindow("chat.free_chat_language_changed", args),
     ),
     costs: readProbeEvents(
       "ai.cost_recorded",
