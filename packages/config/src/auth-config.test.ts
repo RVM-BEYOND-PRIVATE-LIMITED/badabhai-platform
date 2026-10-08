@@ -219,6 +219,57 @@ describe("account-deletion grace knobs (ADR-0031)", () => {
   });
 });
 
+// #2113 (owner ruling 2026-10-08) — the erased-credential tombstone horizon: default 7d, a 30-day
+// schema ceiling, 0 as the kill switch, and a boot guard that it never exceeds the refresh TTL.
+describe("ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS (#2113)", () => {
+  it("defaults to 604800 (7 days) and coerces", () => {
+    expect(cfg().ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS).toBe(604800);
+    expect(
+      cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "3600" })
+        .ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS,
+    ).toBe(3600);
+  });
+
+  it("accepts 0 — the kill switch — and boots with it", () => {
+    const c = cfg({ ...FAST2SMS_CREDS, ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "0" });
+    expect(c.ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS).toBe(0);
+    expect(() => assertAuthConfig(c, "development")).not.toThrow();
+  });
+
+  it("the schema ceiling is 30 days: 2592000 parses, 2592001 is a parse error; negative and fractional are too", () => {
+    expect(
+      cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "2592000" })
+        .ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS,
+    ).toBe(2592000);
+    expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "2592001" })).toThrow();
+    expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "-1" })).toThrow();
+    expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "1.5" })).toThrow();
+  });
+
+  it("boot REFUSES a horizon longer than the refresh token's own life (AUTH_REFRESH_TTL_DAYS*86400)", () => {
+    // 1-day refresh TTL (absolute cap lowered too, so only the #2113 guard can fire) vs the 7d default.
+    const c = cfg({
+      ...FAST2SMS_CREDS,
+      AUTH_REFRESH_TTL_DAYS: "1",
+      AUTH_SESSION_ABSOLUTE_MAX_DAYS: "1",
+    });
+    expect(() => assertAuthConfig(c, "development")).toThrow(
+      /ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS \(604800\) must be <= AUTH_REFRESH_TTL_DAYS\*86400 \(86400\)/,
+    );
+  });
+
+  it("boot accepts a horizon EQUAL to the refresh TTL, and the 30d ceiling under the 90d default", () => {
+    const equal = cfg({
+      ...FAST2SMS_CREDS,
+      AUTH_REFRESH_TTL_DAYS: "7",
+      AUTH_SESSION_ABSOLUTE_MAX_DAYS: "7",
+    });
+    expect(() => assertAuthConfig(equal, "development")).not.toThrow();
+    const ceiling = cfg({ ...FAST2SMS_CREDS, ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "2592000" });
+    expect(() => assertAuthConfig(ceiling, "development")).not.toThrow();
+  });
+});
+
 // ===========================================================================
 // #1187 — TEST_IMMEDIATE_DELETE_ENABLED: the QA-only immediate hard-delete seam.
 //

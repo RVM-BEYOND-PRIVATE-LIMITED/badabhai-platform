@@ -29,7 +29,9 @@ import {
  *   NEVER a body field. 204 on success.
  * - POST /auth/pin/verify — NO guard: the device-bound refresh token in the body IS the
  *   credential (the access JWT may have expired). Returns the login-shape session on success,
- *   a NEUTRAL 401 on every failure (the service throws it — no oracle).
+ *   a NEUTRAL 401 on every failure (the service throws it — no oracle), except the reserved 410
+ *   WORKER_ACCOUNT_DELETED for a once-valid token whose worker was erased (ADR-0026 Phase-3
+ *   Finding-3 addendum; #1176, #2113).
  * - POST /auth/pin/reset/request|confirm — OTP-gated reset reusing the existing OTP path.
  *   `confirm` returns the SAME login-shape session /auth/otp/verify does (#994), so a reset
  *   recovers a worker whose stored refresh token is dead instead of leaving them on it.
@@ -60,7 +62,8 @@ export class PinController {
 
   /**
    * Verify a device-bound PIN. NO guard — the refresh token IS the credential. Returns the
-   * login-shape session on success; the service throws a neutral 401 on any failure.
+   * login-shape session on success; the service throws a neutral 401 on any failure, or the
+   * reserved 410 WORKER_ACCOUNT_DELETED when a once-valid token's worker has been erased.
    */
   @Post("verify")
   @HttpCode(200)

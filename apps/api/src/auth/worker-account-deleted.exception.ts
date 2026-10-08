@@ -19,11 +19,23 @@ export const WORKER_ACCOUNT_DELETED_CODE = "WORKER_ACCOUNT_DELETED" as const;
 const WORKER_ACCOUNT_DELETED_MESSAGE = "This account no longer exists.";
 
 /**
- * Thrown by {@link WorkerAuthGuard} (and the in-controller equivalent on the unguarded
- * `POST /auth/token/refresh` path) when a token VALIDATES but the resolved worker row has been
- * deleted out of band (e.g. a backend dev removed the row directly, bypassing
- * `AccountDeletionService` — which revokes every session first, so a normally-deleted worker
- * would already fail auth with a 401, never reach here).
+ * Thrown at three sites, all meaning "this account no longer exists":
+ *
+ *   1. {@link WorkerAuthGuard} (and the in-controller equivalent on the unguarded
+ *      `POST /auth/token/refresh` path) when a token VALIDATES but the resolved worker row has
+ *      been deleted out of band (e.g. a backend dev removed the row directly, bypassing
+ *      `AccountDeletionService` — which revokes every session first, so a normally-deleted
+ *      worker fails these with a 401 and never reaches here).
+ *   2. `PinService.verifyPin` (a2, #1176) — the same probe, straight off a refresh token that
+ *      still resolves.
+ *   3. `PinService.verifyPin` (a0, #2113) — a NORMAL erasure: the presented refresh token no
+ *      longer resolves (the erasure revoked it), but it was a live device-bound tip when the
+ *      erasure COMPLETED, so a `refresh_erased:<sha256(token)>` tombstone written after the hard
+ *      delete says so. Keyed only on the credential; a hit implies the row is definitively gone.
+ *
+ * Sites 2 and 3 are the ratified exceptions to /auth/pin/verify's neutral 401 (ADR-0026 Phase-3
+ * Finding-3 addendum, owner ruling 2026-10-08). The 410-exclusivity invariant above holds at
+ * every site: each fires only once the row is known to be gone.
  *
  * Maps to HTTP 410 Gone with the structured body `{ code, message }`. The global
  * `AllExceptionsFilter` nests that under `error`, so the wire shape is

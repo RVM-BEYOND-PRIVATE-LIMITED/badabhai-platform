@@ -13,15 +13,18 @@ destroy it** (spoiler: no — and the deploy now proves it).
 
 Entirely in the box-local Redis. There is **no Postgres mirror**.
 
-| Key                          | What it is                                                            |
-| ---------------------------- | --------------------------------------------------------------------- |
-| `session:<sid>`              | the session record (worker, family, bound device, tier, absolute cap) |
-| `refresh:<sha256(token)>`    | one opaque rotating refresh token. The token VALUE is never stored    |
-| `refresh_family:<familyId>`  | the rotation lineage, for reuse detection + revocation                |
-| `worker_sessions:<workerId>` | the worker's live sids, so logout-all can find them                   |
-| `worker_families:<workerId>` | the worker's live refresh families, same reason                       |
+| Key                              | What it is                                                                                                                                                                                                                                         |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session:<sid>`                  | the session record (worker, family, bound device, tier, absolute cap)                                                                                                                                                                              |
+| `refresh:<sha256(token)>`        | one opaque rotating refresh token. The token VALUE is never stored                                                                                                                                                                                 |
+| `refresh_family:<familyId>`      | the rotation lineage, for reuse detection + revocation                                                                                                                                                                                             |
+| `worker_sessions:<workerId>`     | the worker's live sids, so logout-all can find them                                                                                                                                                                                                |
+| `worker_families:<workerId>`     | the worker's live refresh families, same reason                                                                                                                                                                                                    |
+| `refresh_erased:<sha256(token)>` | #2113: `"1"` for a refresh tip whose worker was ERASED. Written only after the hard delete; TTL ≤ `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS` (7d). It is never a credential: only `/auth/pin/verify` reads it, and only to return the reserved 410 |
 
 Written by [`apps/api/src/auth/session.service.ts`](../../apps/api/src/auth/session.service.ts).
+Losing `refresh_erased:*` with the rest of the keyspace costs only the PIN-screen 410 for
+recently-erased workers, who then get the neutral 401. It never logs anyone out.
 
 **The blast radius of losing that keyspace is total and instant.** Every worker's
 `POST /auth/token/refresh` 401s, so every app force-reauths. Worse, PIN unlock is _only_ a

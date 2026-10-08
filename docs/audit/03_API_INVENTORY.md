@@ -90,7 +90,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /auth/account/delete/cancel | WAG | A | |
 | GET/PATCH/DELETE | /auth/devices, /auth/devices/me/push-token, /auth/devices/:id | WAG | B | no controller test (service-tested) |
 | POST | /auth/pin/set | WAG | B | |
-| POST | /auth/pin/verify | none (refresh token = credential, ADR-0026) | A | |
+| POST | /auth/pin/verify | none (refresh token = credential, ADR-0026) | A | Neutral 401 on every failure, EXCEPT the reserved **410 `WORKER_ACCOUNT_DELETED`** for a once-valid token whose worker was erased: (a2) the token resolves but the row is gone (#1176); (a0) the token no longer resolves but has a `refresh_erased:*` tombstone (#2113). Ratified 2026-10-08 (ADR-0026 Finding-3 addendum). Events: worker.pin_verified / pin_verify_failed / pin_locked |
 | POST | /auth/pin/reset/request | none (IP-capped, shared `otp_request` bucket) | B | |
 | POST | /auth/pin/reset/confirm | none (the verified OTP is the credential) | B | **NOT IP-capped** — bounded by the per-phone send caps + per-code attempt counter in `OtpService`, same posture as `/auth/otp/verify`. **Mints a session** and returns the login-shape body since #994 (ADR-0026 A6) |
 

@@ -173,10 +173,18 @@ function makePins(initial: ReturnType<typeof makeCred> | null) {
 }
 
 /** A SessionService double that mints a deterministic login-shape session. */
-function makeSessions(resolved: { workerId: string; deviceId: string } | null) {
+function makeSessions(
+  resolved: { workerId: string; deviceId: string } | null,
+  tombstone: { erased?: boolean; erasedRejects?: boolean } = {},
+) {
   const ABSOLUTE_MS = Date.UTC(2026, 8, 25);
   return {
     resolveRefreshToken: vi.fn().mockResolvedValue(resolved),
+    // #2113 — the erased-credential tombstone read (a0). Default: no tombstone. `erasedRejects`
+    // models the read itself failing, which must land on the neutral 401, never the 410.
+    isErasedRefreshToken: tombstone.erasedRejects
+      ? vi.fn().mockRejectedValue(new Error("redis down"))
+      : vi.fn().mockResolvedValue(tombstone.erased ?? false),
     create: vi.fn().mockResolvedValue({
       access: { token: "jwt.token.value", expiresInSeconds: 2592000 },
       refresh: { token: "rt_new_value", expiresInSeconds: 7776000 },
@@ -207,6 +215,10 @@ interface BuildOpts {
   workerExists?: boolean;
   /** Make the existence probe THROW (a DB blip) — must fail SAFE to the neutral path, no 410. */
   existsByIdThrows?: boolean;
+  /** #2113 — an erased-credential tombstone exists for the presented refresh token. */
+  erased?: boolean;
+  /** #2113 — the tombstone read REJECTS (a Redis blip) — must fail SAFE to the neutral 401. */
+  erasedRejects?: boolean;
 }
 
 function build(opts: BuildOpts = {}) {
@@ -222,7 +234,10 @@ function build(opts: BuildOpts = {}) {
 
   const resolved =
     opts.resolved === undefined ? { workerId: WORKER, deviceId: DEVICE } : opts.resolved;
-  const sessions = makeSessions(resolved);
+  const sessions = makeSessions(resolved, {
+    erased: opts.erased,
+    erasedRejects: opts.erasedRejects,
+  });
 
   const device = opts.device === undefined ? { id: DEVICE } : opts.device;
   const devices = { findActiveById: vi.fn().mockResolvedValue(device) };
@@ -530,16 +545,16 @@ describe("PinService.verifyPin — untrusted / unknown device (neutral, scrypt N
 // `DELETE FROM workers`), while worker_devices + worker_credentials FK-CASCADE away — so the
 // probe MUST sit ahead of those cascade-emptied gates or the deletion masks as a neutral 401.
 // ===========================================================================
-describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () => {
-  /** Assert a thrown failure is the reserved 410 WORKER_ACCOUNT_DELETED (NOT the neutral 401). */
-  async function expect410(p: Promise<unknown>) {
-    await expect(p).rejects.toBeInstanceOf(WorkerAccountDeletedException);
-    await p.catch((e: WorkerAccountDeletedException) => {
-      expect(e.getStatus()).toBe(410);
-      expect(e.getResponse()).toMatchObject({ code: WORKER_ACCOUNT_DELETED_CODE });
-    });
-  }
+/** Assert a thrown failure is the reserved 410 WORKER_ACCOUNT_DELETED (NOT the neutral 401). */
+async function expect410(p: Promise<unknown>) {
+  await expect(p).rejects.toBeInstanceOf(WorkerAccountDeletedException);
+  await p.catch((e: WorkerAccountDeletedException) => {
+    expect(e.getStatus()).toBe(410);
+    expect(e.getResponse()).toMatchObject({ code: WORKER_ACCOUNT_DELETED_CODE });
+  });
+}
 
+describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () => {
   it("(a) valid refresh token but the worker row is GONE → 410 WORKER_ACCOUNT_DELETED", async () => {
     // The exact cold-start scenario: the Redis refresh token still resolves the workerId, but a
     // raw DELETE FROM workers removed the row. device:null models the CASCADE-deleted
@@ -595,6 +610,91 @@ describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () 
   it("(e') a DB blip on the probe + a WRONG pin → the neutral 401 (fail-safe, still no 410)", async () => {
     const { svc } = build({ existsByIdThrows: true });
     await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+  });
+});
+
+// ===========================================================================
+// CASE 4d — #2113: a NORMAL erasure → the reserved 410 via the erased-credential tombstone (a0)
+//
+// A normal erasure revokes every session first, so the deleted worker's token no longer
+// resolves and (a2) above can never fire. (a0) consults `refresh_erased:<sha256(token)>` — written
+// only after the hard delete — on the UNRESOLVED branch only. A hit is the 410 without the PIN
+// being evaluated and without touching Postgres, the throttle or the event spine; a miss or a
+// read error is the unchanged neutral 401.
+// ===========================================================================
+describe("PinService.verifyPin — erased-credential tombstone (a0, #2113)", () => {
+  it("(f) unresolved + tombstone → 410 WORKER_ACCOUNT_DELETED; no PIN evaluated, no Postgres, no throttle, no event", async () => {
+    const { svc, sessions, workers, devices, pins, hasher, redis, emit, consents } = build({
+      resolved: null,
+      erased: true,
+    });
+    await expect410(svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx));
+
+    expect(sessions.isErasedRefreshToken).toHaveBeenCalledTimes(1);
+    expect(sessions.isErasedRefreshToken).toHaveBeenCalledWith(REFRESH);
+    // Nothing past the branch ran.
+    expect(workers.existsById).not.toHaveBeenCalled();
+    expect(devices.findActiveById).not.toHaveBeenCalled();
+    expect(pins.repo.findByWorkerId).not.toHaveBeenCalled();
+    expect(consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(hasher.verify).not.toHaveBeenCalled();
+    expect(hasher.hash).not.toHaveBeenCalled();
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+    // The throttle store was never read or written, and no durable throttle write happened.
+    expect(redis.calls).toEqual([]);
+    for (const fn of Object.values(pins.repo)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("(f') the 410 does not depend on the PIN — a WRONG pin gets the identical 410", async () => {
+    const { svc, hasher } = build({ resolved: null, erased: true });
+    await expect410(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+    expect(hasher.verify).not.toHaveBeenCalled();
+  });
+
+  it("(g) unresolved + NO tombstone → the neutral 401, unchanged", async () => {
+    const { svc, sessions, workers } = build({ resolved: null, erased: false });
+    await expectNeutral401(svc.verifyPin(verifyInput(), ctx));
+    expect(sessions.isErasedRefreshToken).toHaveBeenCalledWith(REFRESH);
+    expect(workers.existsById).not.toHaveBeenCalled();
+  });
+
+  it("(h) unresolved + the tombstone read REJECTS → the neutral 401, never a 410 (fail closed)", async () => {
+    const { svc, sessions } = build({ resolved: null, erasedRejects: true });
+    await expectNeutral401(svc.verifyPin(verifyInput(), ctx));
+    expect(sessions.isErasedRefreshToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("(i) a token that RESOLVES never consults the tombstone — the normal path wins, even if one exists", async () => {
+    // erased:true models an inconsistent store (a live record AND a tombstone): the live record
+    // must win, so a tombstone can never deny a live credential.
+    const ok = build({ erased: true });
+    const res = await ok.svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx);
+    expect(res.worker_id).toBe(WORKER);
+    expect(ok.sessions.isErasedRefreshToken).not.toHaveBeenCalled();
+
+    const wrong = build({ erased: true });
+    await expectNeutral401(wrong.svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+    expect(wrong.sessions.isErasedRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it("(j) a token that resolves WITHOUT a deviceId → the neutral 401 and the tombstone is never consulted", async () => {
+    const { svc, sessions } = build({
+      resolved: { workerId: WORKER, deviceId: "" as unknown as string },
+      erased: true,
+    });
+    await expectNeutral401(svc.verifyPin(verifyInput(), ctx));
+    expect(sessions.isErasedRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it("(k) a body device_id changes nothing — the tombstone is keyed on the refresh token alone", async () => {
+    const hit = build({ resolved: null, erased: true });
+    await expect410(hit.svc.verifyPin(verifyInput({ deviceId: "attacker-chosen-device" }), ctx));
+    expect(hit.sessions.isErasedRefreshToken).toHaveBeenCalledWith(REFRESH);
+    expect(hit.sessions.isErasedRefreshToken.mock.calls[0]).toHaveLength(1);
+
+    const miss = build({ resolved: null, erased: false });
+    await expectNeutral401(miss.svc.verifyPin(verifyInput({ deviceId: DEVICE }), ctx));
   });
 });
 
@@ -935,8 +1035,22 @@ describe("PinService.verifyPin — NO-ORACLE (identical neutral failure on every
     const noPin = await captureFailure({ cred: null });
     const forceOtp = await captureFailure({ cred: makeCred({ otpCycleCount: 1 }) });
     const unresolved = await captureFailure({ resolved: null });
+    // #2113 — an unresolved token whose tombstone READ fails must be byte-identical to a wrong
+    // PIN too: a Redis blip on the (a0) read can never become an oracle (or a 410).
+    const unresolvedTombstoneReadError = await captureFailure({
+      resolved: null,
+      erasedRejects: true,
+    });
 
-    const all = [wrongPin, locked, untrusted, noPin, forceOtp, unresolved];
+    const all = [
+      wrongPin,
+      locked,
+      untrusted,
+      noPin,
+      forceOtp,
+      unresolved,
+      unresolvedTombstoneReadError,
+    ];
     for (const f of all) {
       expect(f.status).toBe(401);
       expect(f.message).toBe("Could not verify PIN");

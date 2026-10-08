@@ -6,7 +6,7 @@ import { createEvent } from "@badabhai/event-schema";
 import { AccountDeletionService } from "./account-deletion.service";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { RequestContext } from "../common/request-context";
-import type { SessionService } from "./session.service";
+import type { ErasableRefreshCapture, SessionService } from "./session.service";
 import type { StorageService } from "../storage/storage.service";
 import type { ErasureAuditRepository } from "./erasure-audit.repository";
 import type { EventsService } from "../events/events.service";
@@ -23,6 +23,15 @@ const OTP_CODE = "482915";
 const RESUME_KEY = "a1b2c3d4-resume-object-key.pdf";
 // A worker-scoped audio object path (PII-adjacent) — must never reach a log/event either.
 const VOICE_KEY = "worker9876512345/sess-7/voice-note-v1.ogg";
+// #2113 — a captured refresh-token hash. A credential derivative: it may be written as a
+// tombstone KEY, but must never appear in a log line or the event.
+const TOKEN_HASH = "ab".repeat(32);
+/** What the sessions double's capture returns by default: one tombstone to write. */
+const DEFAULT_CAPTURE: ErasableRefreshCapture = {
+  entries: [{ tokenHash: TOKEN_HASH, ttlSeconds: 604800 }],
+  candidates: 2,
+  dropped: 1,
+};
 
 interface Harness {
   svc: AccountDeletionService;
@@ -37,7 +46,11 @@ interface Harness {
     scheduleDeletion: ReturnType<typeof vi.fn>;
     cancelDeletion: ReturnType<typeof vi.fn>;
   };
-  sessions: { revokeAll: ReturnType<typeof vi.fn> };
+  sessions: {
+    revokeAll: ReturnType<typeof vi.fn>;
+    captureErasableRefreshTokens: ReturnType<typeof vi.fn>;
+    markRefreshTokensErased: ReturnType<typeof vi.fn>;
+  };
   storage: { deletePdf: ReturnType<typeof vi.fn>; deleteByPrefix: ReturnType<typeof vi.fn> };
   events: { emit: ReturnType<typeof vi.fn> };
   erasureAudit: { record: ReturnType<typeof vi.fn> };
@@ -66,6 +79,8 @@ function make(
     cooldown?: number;
     // ADR-0031 — a pending-deletion row (the grace marker already set).
     deletionScheduledAt?: Date;
+    /** #2113 — what the read-only capture returns (default: one tombstone to write). */
+    capture?: ErasableRefreshCapture;
   } = {},
 ): Harness {
   const redisSet = vi.fn(async () => "OK");
@@ -99,7 +114,16 @@ function make(
     ),
   };
 
-  const sessions = { revokeAll: vi.fn(async () => opts.sessions ?? 0) };
+  const sessions = {
+    revokeAll: vi.fn(async () => opts.sessions ?? 0),
+    // #2113 — the read-only capture before revokeAll, and the tombstone write after hardDelete.
+    captureErasableRefreshTokens: vi.fn(
+      async (): Promise<ErasableRefreshCapture> => opts.capture ?? DEFAULT_CAPTURE,
+    ),
+    markRefreshTokensErased: vi.fn(
+      async (entries: readonly unknown[]): Promise<number> => entries.length,
+    ),
+  };
   const storage = {
     deletePdf: vi.fn(async () => undefined),
     deleteByPrefix: vi.fn(async () => 0),
@@ -335,17 +359,24 @@ describe("AccountDeletionService", () => {
     const h = make({ resumeKeys: ["k1.pdf"], sessions: 1, devices: 1, hadPin: true });
     await h.svc.execute(WORKER_ID);
 
+    // #2113: the read-only capture precedes revokeAll (it reads what revokeAll deletes), and the
+    // credential tombstones are written only after hardDelete, before the cool-down + event.
+    const captureOrder = h.sessions.captureErasableRefreshTokens.mock.invocationCallOrder[0]!;
     const revokeOrder = h.sessions.revokeAll.mock.invocationCallOrder[0]!;
     const deletePdfOrder = h.storage.deletePdf.mock.invocationCallOrder[0]!;
     const hardDeleteOrder = h.workers.hardDelete.mock.invocationCallOrder[0]!;
+    const markOrder = h.sessions.markRefreshTokensErased.mock.invocationCallOrder[0]!;
     const tombstoneOrder = h.redisSet.mock.invocationCallOrder[0]!;
     const emitOrder = h.events.emit.mock.invocationCallOrder[0]!;
 
-    // revoke is the very first side-effecting step; the storage erase + DB delete + tombstone
-    // + event all follow it, in that order.
+    // revoke is the very first side-effecting step (the capture before it only reads); the
+    // storage erase + DB delete + credential tombstones + cool-down + event all follow it, in
+    // that order.
+    expect(captureOrder).toBeLessThan(revokeOrder);
     expect(revokeOrder).toBeLessThan(deletePdfOrder);
     expect(deletePdfOrder).toBeLessThan(hardDeleteOrder);
-    expect(hardDeleteOrder).toBeLessThan(tombstoneOrder);
+    expect(hardDeleteOrder).toBeLessThan(markOrder);
+    expect(markOrder).toBeLessThan(tombstoneOrder);
     expect(tombstoneOrder).toBeLessThan(emitOrder);
   });
 
@@ -641,6 +672,129 @@ describe("AccountDeletionService", () => {
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
+  });
+});
+
+// ---- #2113 — erased-credential tombstones (owner ruling 2026-10-08; ADR-0026 D2 amendment) ----
+//
+// capture (read-only) → revokeAll (unchanged) → … → hardDelete → MARK → cool-down → emit. The
+// tombstone says "this account no longer exists" on /auth/pin/verify, so it may only be written
+// once the row is gone — and nothing about it may abort, reorder or reshape the erasure.
+
+describe("AccountDeletionService — #2113 erased-credential tombstones", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("writes EXACTLY the captured entries, after the hard delete", async () => {
+    const h = make({ sessions: 1 });
+    await h.svc.execute(WORKER_ID);
+    expect(h.sessions.captureErasableRefreshTokens).toHaveBeenCalledWith(WORKER_ID);
+    expect(h.sessions.markRefreshTokensErased).toHaveBeenCalledTimes(1);
+    expect(h.sessions.markRefreshTokensErased).toHaveBeenCalledWith(DEFAULT_CAPTURE.entries);
+  });
+
+  it("hardDelete THROWING means no tombstone is ever written (never one for a present row)", async () => {
+    const h = make({ sessions: 1 });
+    h.workers.hardDelete.mockRejectedValueOnce(new Error("could not serialize access"));
+    await expect(h.svc.execute(WORKER_ID)).rejects.toThrow();
+    expect(h.sessions.captureErasableRefreshTokens).toHaveBeenCalled(); // read-only, harmless
+    expect(h.sessions.markRefreshTokensErased).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("hardDelete returning FALSE (a concurrent run took the row) still writes them — the row is absent either way", async () => {
+    const h = make({ sessions: 1 });
+    h.workers.hardDelete.mockResolvedValueOnce(false);
+    await h.svc.execute(WORKER_ID);
+    expect(h.sessions.markRefreshTokensErased).toHaveBeenCalledWith(DEFAULT_CAPTURE.entries);
+  });
+
+  it("setReregistrationCooldown:false (the QA immediate seam) STILL writes them, while deleted_phone stays skipped", async () => {
+    const h = make({ sessions: 1 });
+    await h.svc.execute(WORKER_ID, { setReregistrationCooldown: false });
+    expect(h.sessions.markRefreshTokensErased).toHaveBeenCalledWith(DEFAULT_CAPTURE.entries);
+    expect(h.redisSet).not.toHaveBeenCalled();
+  });
+
+  it("a no-op re-run (row already gone) calls neither capture nor mark", async () => {
+    const h = make({ missingWorker: true });
+    await h.svc.execute(WORKER_ID);
+    expect(h.sessions.captureErasableRefreshTokens).not.toHaveBeenCalled();
+    expect(h.sessions.markRefreshTokensErased).not.toHaveBeenCalled();
+  });
+
+  it("mark resolving 0 still completes, and worker.account_deleted keeps its EXACT existing shape", async () => {
+    const h = make({
+      sessions: 2,
+      devices: 1,
+      hadPin: true,
+      capture: { entries: [], candidates: 0, dropped: 0 },
+    });
+    h.sessions.markRefreshTokensErased.mockResolvedValueOnce(0);
+    await h.svc.execute(WORKER_ID);
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    expect(h.events.emit.mock.calls[0]![0].payload).toEqual({
+      worker_id: WORKER_ID,
+      sessions_revoked: 2,
+      devices_revoked: 1,
+      storage_objects_deleted: 0,
+      storage_objects_failed: 0,
+      had_pin: true,
+    });
+  });
+
+  it("a capture that REJECTS never skips the revocation or aborts the erasure (D4, belt-and-braces)", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const h = make({ sessions: 1 });
+      h.sessions.captureErasableRefreshTokens.mockRejectedValueOnce(new Error("ECONNRESET"));
+      await h.svc.execute(WORKER_ID);
+      expect(h.sessions.revokeAll).toHaveBeenCalledWith(WORKER_ID);
+      expect(h.workers.hardDelete).toHaveBeenCalledWith(WORKER_ID);
+      expect(h.sessions.markRefreshTokensErased).toHaveBeenCalledWith([]);
+      expect(h.events.emit).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a mark that REJECTS never stops the cool-down or the event", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const h = make({ sessions: 1 });
+      h.sessions.markRefreshTokensErased.mockRejectedValueOnce(new Error("OOM"));
+      await h.svc.execute(WORKER_ID);
+      expect(h.redisSet).toHaveBeenCalledWith(`deleted_phone:${PHONE_HASH}`, "1", "EX", 604800);
+      expect(h.events.emit).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("logs counts only — captured/written/dropped and credential_tombstones=, never a token hash", async () => {
+    const logged: string[] = [];
+    const spies = (["log", "warn", "error"] as const).map((m) =>
+      vi.spyOn(Logger.prototype, m).mockImplementation((...args: unknown[]) => {
+        logged.push(args.map(String).join(" "));
+      }),
+    );
+    try {
+      const h = make({ sessions: 1 });
+      await h.svc.execute(WORKER_ID);
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+    const prefix = WORKER_ID.slice(0, 8);
+    expect(logged).toContain(
+      `account deletion refresh tombstones worker=${prefix} captured=1 written=1 dropped=1`,
+    );
+    expect(
+      logged.some(
+        (l) => l.includes("account deletion complete") && l.endsWith("credential_tombstones=1"),
+      ),
+    ).toBe(true);
+    const all = logged.join("\n");
+    expect(all).not.toContain(TOKEN_HASH);
+    expect(all).not.toContain("refresh_erased:");
   });
 });
 

@@ -22,7 +22,10 @@ import { PinHasher } from "./pin-hasher.service";
 import { PinRepository } from "./pin.repository";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
-import { throwIfWorkerDeleted } from "./worker-account-deleted.exception";
+import {
+  throwIfWorkerDeleted,
+  WorkerAccountDeletedException,
+} from "./worker-account-deleted.exception";
 import type { DeviceInfoDto } from "./devices.dto";
 import type { PinResetConfirmResponse, PinVerifyResponse } from "./pin.dto";
 
@@ -60,10 +63,17 @@ export interface VerifyPinInput {
  * + durable per-worker force-OTP escalation in `worker_credentials` (otp_cycle_count +
  * lockout_cycles), so a Redis flush cannot wipe the force-OTP state.
  *
- * NEUTRAL NO-ORACLE: wrong-PIN / locked / untrusted-device / invalidated-PIN ALL return the
- * IDENTICAL failure to the client (one 401, one generic body). Internally we still emit
- * distinct PII-FREE events for ops. The raw PIN, the pin_hash, the device fingerprint, and
+ * NEUTRAL NO-ORACLE: wrong-PIN / locked / untrusted-device / invalidated-PIN / unresolvable token
+ * ALL return the IDENTICAL failure to the client (one 401, one generic body). Internally we still
+ * emit distinct PII-FREE events for ops. The raw PIN, the pin_hash, the device fingerprint, and
  * the phone NEVER enter an event/log (CLAUDE.md §2) — logs carry only static reasons + ids.
+ *
+ * THE ONE EXCEPTION is the reserved 410 WORKER_ACCOUNT_DELETED (ADR-0026 Phase-3 Finding-3
+ * addendum, owner ruling 2026-10-08), and it fires only for the holder of a once-valid credential:
+ *   (a0) the presented refresh token no longer resolves, but it was a live device-bound tip of a
+ *        worker whose erasure COMPLETED (#2113 — the `refresh_erased:*` tombstone);
+ *   (a2) the presented refresh token resolves, but the worker's row is gone (#1176).
+ * The PIN is never evaluated on either branch, so neither is a PIN oracle.
  */
 @Injectable()
 export class PinService {
@@ -270,16 +280,44 @@ export class PinService {
 
   /**
    * Verify a device-bound PIN and, on success, mint a fresh login-shape session. Every
-   * negative path returns the IDENTICAL neutral 401 (no oracle); ops still gets a distinct
-   * PII-free event. See the class doc for the throttle + identity model.
+   * negative path returns the IDENTICAL neutral 401 (no oracle) EXCEPT the reserved 410
+   * WORKER_ACCOUNT_DELETED — (a0) an erased-credential tombstone, (a2) a valid token whose
+   * worker row is gone; both only for a once-valid credential, neither evaluates the PIN. Ops
+   * still gets a distinct PII-free event. See the class doc for the throttle + identity model.
    */
   async verifyPin(input: VerifyPinInput, ctx: RequestContext): Promise<PinVerifyResponse> {
     // (a) Identity from the device-bound refresh token — NEVER a body worker_id. A missing/
-    // unresolvable token has no identity to even emit against → neutral failure, no event.
+    // unresolvable token has no identity to even emit against → no event.
     const resolved = await this.sessions.resolveRefreshToken(input.refreshToken);
-    if (!resolved || !resolved.deviceId) {
-      // No trusted refresh token (or an unbound legacy one) ⇒ this is not a trusted device;
-      // the worker must OTP. Nothing to emit (no resolved identity / device).
+    if (!resolved) {
+      // (a0) #2113 — the token resolves to nothing. The common reason a deleted worker lands
+      // here is that a NORMAL erasure revoked every session first (D4), which deleted exactly the
+      // record (a2) below needs. So consult the erased-credential tombstone: written ONLY after
+      // the hard delete returned, keyed ONLY on sha256 of this credential, and only for a token
+      // that was a live device-bound tip at that moment. A hit is therefore the same fact (a2)
+      // answers — this account is gone — told to the same party: the holder of a once-valid
+      // credential.
+      //
+      // Read ONLY on this branch, AFTER the resolve: a live record always wins and never reaches
+      // the tombstone. Nothing else happens here — no PIN evaluated (not a PIN oracle), no
+      // Postgres, no throttle write, no event. A miss, the kill switch, or a Redis error all
+      // read as false (`.catch` too, belt-and-braces over a method that already never throws),
+      // which is the unchanged neutral 401 — so an outage cannot become a 410 storm. The device
+      // id in the body is still never read.
+      const erased = await this.sessions
+        .isErasedRefreshToken(input.refreshToken)
+        .catch(() => false);
+      if (erased) {
+        this.logger.log(
+          "pin verify: erased-account refresh token presented -> reserved 410 (#2113)",
+        );
+        throw new WorkerAccountDeletedException();
+      }
+      // No trusted refresh token ⇒ this is not a trusted device; the worker must OTP.
+      throw PinService.neutralFailure();
+    }
+    if (!resolved.deviceId) {
+      // An unbound legacy token cannot PIN-unlock: the worker must OTP. Nothing to emit.
       throw PinService.neutralFailure();
     }
     const { workerId, deviceId } = resolved;
@@ -306,7 +344,8 @@ export class PinService {
     // (handled above, no worker to probe), and a correct PIN are ALL unchanged — only
     // (valid token → real workerId) + (row absent) becomes the 410.
     //
-    // SECURITY (relaxes ADR-0026's strict no-oracle 401 for this ONE case — see the PR body): a
+    // SECURITY (relaxes ADR-0026's strict no-oracle 401 for this case — RATIFIED by the owner
+    // 2026-10-08, recorded in ADR-0026's Phase-3 Finding-3 addendum together with (a0) above): a
     // deleted account is a TERMINAL, unguessable state, not a PIN secret, and the 410 fires only
     // when the credential (the refresh token) is itself VALID — so it reveals nothing a wrong-PIN
     // guesser could probe for. `existsById` is a PK point-lookup projecting the id only (no PII).
