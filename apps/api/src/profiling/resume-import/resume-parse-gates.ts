@@ -189,15 +189,22 @@ export const CONTROL_CHARACTER_REFUSAL = "control_character";
 // was one character. Three additive tokens, the far side's exact text: `\.?` straight after the
 // cue word, "regn", and `-?` after the separator. None is whitespace, so the rules stay linear;
 // the language only grows, so nothing that was refused is admitted.
+//
+// A TWO-WORD LABEL IS READ, in both patterns (issue #2091, risks-register R56). The connector read
+// one number word, so "Voter ID No: XYZ9876543", "IFSC code HDFC0004321" and (the credential rule
+// had no "id" word) "Registration ID 123456" were admitted. In front of the number word it now
+// reads up to two label words, in a fixed order: "id", then "card" or "code" ("ID No", "Card No",
+// "ID Card No", "Code"), the far side's exact text. Each word keeps its own trailing `\s*`, so the
+// rules stay linear; the "id" word moved from the number-word slot, so a lone "ID" reads as before.
 export const RESUME_CUED_ID_RE =
-  /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/i;
+  /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/i;
 const EMAIL_RE =
   /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 // Masked on their CUE rather than their shape — a roll or registration number has no shape
 // that an ordinary alphanumeric token does not also have. The bounded lookahead mirrors the
 // far side's 64-character ceiling, which bounds work per character rather than input size.
 export const CREDENTIAL_ID_RE =
-  /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/i;
+  /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/i;
 
 /**
  * Which class of hard identifier appears in `text`, or null. Never throws.

@@ -1471,12 +1471,27 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # `tests/test_pseudonymize_cued_id_dot.py` pins the shapes, the near misses and the measurement.
 # "Reg . No" (a SPACED dot), "Num.", "No: -", an en dash, "No #" and "No.=" are still not read;
 # see the doc.
+#
+# A TWO-WORD LABEL IS READ (issue #2091, risks-register R56). The connector read ONE number word,
+# so a label written as two words never reached its value: "Voter ID No: XYZ9876543" and "IFSC
+# Code: SBIN0001234" passed G1/G2 under both postures and their digits were recorded as pay. This
+# rule had no "id" word at all, so "Registration ID 123456" and "Licence ID DL04201100" stayed raw
+# and were admitted too. In front of the number word the connector now reads up to two label words,
+# in a fixed order: "id", then "card" or "code". So "ID No", "ID Number", "Card No", "ID Card No",
+# "Code" and "ID" read (owner ruling 2026-10-08: these three words, in all five copies). Each word
+# is its own optional token with its own trailing `\s*`, #1933's fold, and none starts with
+# whitespace, so a run still has one reading and the rule stays linear. The language only grows,
+# so every verdict only grows. Over the repo corpus (#1875's method,
+# `scripts/measure_cued_id_two_word.py`) no string changes; the test file
+# `tests/test_pseudonymize_cued_id_two_word.py` pins the shapes, the near misses and the
+# measurement. "Voter Card ID" (the words out of order), "EPIC No" and "PF No" (no cue) are still
+# not read; see the doc.
 _CREDENTIAL_ID_LOOKAHEAD_MAX = 64
 _CREDENTIAL_ID_RE = re.compile(
     r"(?i:\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)"
     r"\b\.?"
     r"(?:\s+(?:ka|ki|ke|mera|meri))?"
-    r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?)"
+    r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?)"
     r"(?=[A-Za-z0-9/\-]{0," + str(_CREDENTIAL_ID_LOOKAHEAD_MAX) + r"}\d)"
     r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
 )
@@ -2714,10 +2729,14 @@ _INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 #: input.
 #: THE DOT AFTER THE CUE AND THE ":-" SEPARATOR ARE READ, as in `_CREDENTIAL_ID_RE` (issue #1950,
 #: R56; the note there): "Passport.No: K1234567" and "A/c. No. 12345678" were admitted.
+#: A TWO-WORD LABEL IS READ, as in `_CREDENTIAL_ID_RE` (issue #2091, R56; the note there): "Voter
+#: ID No: XYZ9876543", the label printed on the EPIC card, and "IFSC code HDFC0004321" were
+#: admitted. The "id" word moved from the number-word slot to the first label slot, so a lone "ID"
+#: ("Voter ID ABC1234567") reads as before.
 _RESUME_CUED_ID_RE = re.compile(
     r"\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|"
     r"a/c|account|dob|date\s+of\s+birth)\b\.?"
-    r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]-?\s*)?"
+    r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?"
     r"(?=[A-Za-z0-9/\-]{0,24}\d)"
     r"[A-Za-z0-9][A-Za-z0-9/\-]{4,}",
     re.IGNORECASE,

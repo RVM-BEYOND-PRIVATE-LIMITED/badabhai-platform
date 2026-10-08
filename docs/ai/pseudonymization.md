@@ -765,8 +765,8 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
     right before a real wage ("salary account 25000 aata hai", "ESIC 15000 milta hai"), and none
     protects anything, because a full account, ESIC or UAN number is never read as pay. No
     lexicon utterance changes its salary, and "dob 1995, salary 18000" now records 18000 instead
-    of 1995. **Still unread by both rules alike:** a two-word connector ("Voter ID No: …",
-    "IFSC code …"): G1/G2 admits the text and its digits are pay (#2091).
+    of 1995. A two-word connector ("Voter ID No: …", "IFSC code …") was read by neither rule;
+    fixed by #2091, see "The connector reads a two-word label" below.
 
 ### The gateway masks every cue's value (issue #2049, risks-register R62)
 
@@ -835,6 +835,64 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
   "/" or "-" to a LATER rule's cue takes that cue into the ID. `"Cert ABC123/naam Ramesh"` gives
   `"Cert [ID_1] Ramesh"`, while `"ABC123/naam Ramesh"` masks the name: the rules after the scan
   read its output. G1/G2 reads no names (ruled 2026-09-11). No such string is in the corpus.
+
+### The connector reads a two-word label (issue #2091, risks-register R56)
+
+- **The defect.** The connector read ONE number word after the cue: "no", "number", "num" or "#"
+  (the résumé rule and the salary guard also read "id"). So a label written as two words never
+  reached its value.
+  - `"Voter ID No: XYZ9876543"` (the label printed on the EPIC card) and `"IFSC code
+    HDFC0004321"` (how a résumé writes bank details) passed G1/G2 under both
+    `AI_RAW_PII_ENABLED` postures. The salary detector recorded 9876543 and 4321 as pay.
+  - `_CREDENTIAL_ID_RE` had no "id" word at all. `"Registration ID 123456"` stayed raw in the
+    at-rest copies and the embedding input, and G1/G2 admitted it. `"Enrollment ID No:
+    2019AB12345"` also recorded 12345 as pay.
+- **The fix, in all five copies.** Owner ruling 2026-10-08: all five copies, and these three
+  words. In front of the number word the connector reads up to two label words, in a fixed order:
+  "id", then "card" or "code".
+  `\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?`
+  So "ID No", "ID Number", "Card No", "ID Card No", "Code" and "ID" are read. In the résumé rule
+  and the guard, "id" moved from the "no"-word group to the first label slot, so a lone "ID"
+  reads as before.
+- **Still linear (R54).** Each word is its own optional token with its own trailing `\s*`
+  (#1933's fold), and none starts with whitespace, so a whitespace run still has one reading.
+  #1933's harnesses carry the label words folded, as shipped, so they still compare the fold
+  alone. Written unfolded, the oracle would put five whitespace quantifiers in a row, which its
+  timing run could not finish.
+- **Every verdict only grows.** The accepted language is a superset, so no G1/G2 refusal,
+  certifier refusal or salary-guard drop is lost. The masked text loses only connector text the
+  old rule swallowed into a value: `"cert code123456"` masked `code123456`, and now masks
+  `123456`.
+- **Decided consequence** (pinned as `DECIDED`): a block can become a mask.
+  `"Licence ID DL04201100"` was blocked by the residual net, because its eight digits stayed raw.
+  It is now `"Licence ID [ID_1]"` and the turn goes on, as #2049 decided for a run that a value
+  grows through. The digits never egress either way.
+- **Measured** (`scripts/measure_cued_id_two_word.py`, 2026-10-08). PRE is each rule as it
+  shipped before #2091.
+  - `overmask` (#1875's method): 39,283 distinct corpus strings, 2,713 of them cue-bearing, in
+    #1950's four views. 0 change in `pseudonymize`, `contains_hard_identifier` or
+    `signals.detect`, and 0 of 5,035 certifier labels change outcome. The corpus holds none of
+    the new shapes. The first run moved one string, the new lexicon comment, which quoted the
+    issue's example; it now writes `<id>`, as #1950's comment does.
+  - `fuzz`: 60,000 seeded cue lines, with the "no"-word slot holding a label phrase half of the
+    time. 0 decide less than PRE and 0 break #1933's fold. Every one of the 4,860 lines that move
+    holds a label word, and 153 blocks became masks.
+  - `timing 3` (minimum of 3 runs, local, Python 3.14): at 20,000 characters on the label words'
+    worst shapes (a whitespace run after each word, and many-cue strings such as
+    `"Reg ID-" * 2800`), `pseudonymize` takes 5.6–15.0 ms, `contains_hard_identifier` 3.8–5.3 ms
+    and the salary guard 2.0–4.3 ms. `profile_extractor.extract` is unchanged at 1,000
+    characters: 4.4–4.9 ms under PRE, 4.4–4.8 ms shipped.
+- **Pinned** by `tests/test_pseudonymize_cued_id_two_word.py`, and on V8 by
+  `resume-parse-gates.linear.test.ts` and `salary-credential-guard.test.ts`. The former
+  `KNOWN_RESIDUAL` in `tests/test_salary_guard_resume_cues.py` now asserts the refusal.
+- **Still open** (`KNOWN_RESIDUAL`; none of these is in the corpus):
+  - the words out of order (`"Voter Card ID No. …"`);
+  - a dotted `"I.D."`;
+  - a label with no cue (`"EPIC No: …"`, `"PF No: …"`).
+
+  Each is admitted and its digits are pay, before #2091 and after it. The gateway still leaves a
+  résumé cue's ID to its other rules, as it always has, because the résumé cues belong to G1/G2
+  alone: `"Voter ID No: XYZ9876543"` masks only the amount-shaped `9876543`.
 
 ## Input policy switch (ADR-0047)
 
