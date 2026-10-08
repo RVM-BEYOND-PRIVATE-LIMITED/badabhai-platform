@@ -42,7 +42,8 @@ import ts from "typescript";
  *     `payerId` is a `TenantKey | null`. 1–4 are hand-converted in P2c: the lock and the coupon
  *     count take a `TenantKey`; the inserts take `NewTenantPostingPlan` / `NewTenantPostingBoost`,
  *     whose `payerId` is a `TenantKey`. The "T5 blind spots 1–5" case pins all five.)
- *  6. A raw id under a name outside PAYER_ID_NAME (e.g. `ownerId`, `tenantId`, `id`).
+ *  6. A raw id under a name outside PAYER_ID_NAME (e.g. `ownerId`, `tenantId`, `id`). (`tenant`
+ *     and `tenantKey` are inside it since the P2c review: a de-branded `tenant: string` is seen.)
  *  7. A parameter typed `any` / `unknown` that carries a payer id.
  *  8. A callable that only DELEGATES to a listed helper (deliberate: retyping the helper forces
  *     its callers through the type system — but only once the helper is retyped).
@@ -77,8 +78,12 @@ const SQL_TABLE = new RegExp(
   `\\b(?:from|join|into|update)\\s+(?:public\\.)?(${Object.values(TENANT_TABLES).join("|")})\\b`,
   "i",
 );
-/** `payerId`, `inviterPayerId`, `agencyPayerId`, … and the payout module's `agencyId`. */
-const PAYER_ID_NAME = /^(?:[a-z][A-Za-z]*PayerId|payerId|agencyId)$/;
+/**
+ * `payerId`, `inviterPayerId`, `agencyPayerId`, … the payout module's `agencyId`, and the
+ * tenancy vocabulary itself — `tenant` / `tenantKey` — so a converted parameter that loses its
+ * brand but keeps its name (`tenant: string`) is caught (review of PR #2174, security L1).
+ */
+const PAYER_ID_NAME = /^(?:[a-z][A-Za-z]*PayerId|payerId|agencyId|tenant|tenantKey)$/;
 
 /**
  * Stay actor- or literal-keyed through the flip (ORG_TENANCY_PLAN §4). Each needs a reason a
@@ -589,6 +594,28 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
       ),
     ]);
     expect(found).toEqual(["fx/raw.repository.ts stmt"]);
+  });
+
+  it("a raw id under the tenancy vocabulary itself — `tenant` / `tenantKey` typed `string` (review of PR #2174, L1)", () => {
+    // The converted repositories name the parameter `tenant`; a revert that keeps the name but
+    // drops the brand (`tenant: string`) must not slip past the scan. Typed `TenantKey`, it is fine.
+    const found = scanRawTenantKeyCallables([
+      fixture(
+        "fx/tenant.repository.ts",
+        `${TABLE_IMPORT}import type { TenantKey } from "../payers/payer-tenant-scope";
+        export class FxRepository {
+          async count(tx: Tx, tenant: string) { return tx.select().from(unlocks); }
+          async find(id: string, tenantKey: string | undefined) { return this.db.select().from(jobPostings); }
+          async create(input: { tenant: string }) { return this.db.insert(unlocks).values(input); }
+          async ok(tx: Tx, tenant: TenantKey) { return tx.select().from(unlocks); }
+        }`,
+      ),
+    ]);
+    expect(found).toEqual([
+      "fx/tenant.repository.ts FxRepository.count",
+      "fx/tenant.repository.ts FxRepository.create",
+      "fx/tenant.repository.ts FxRepository.find",
+    ]);
   });
 });
 

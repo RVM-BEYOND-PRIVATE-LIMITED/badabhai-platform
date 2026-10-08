@@ -102,6 +102,9 @@ describe.skipIf(!RUN)(
     let unlocks!: UnlockService;
     let gateway!: PaymentGateway;
 
+    /** The postings `actor`'s tenant lists — resolved the way every payer route resolves it. */
+    const listFor = async (actor: string) => postings.listInScope(await tenancy.resolve(actor), {});
+
     let payerA = "";
     let payerB = "";
     let orgOfA!: ResolvedOrg;
@@ -218,7 +221,7 @@ describe.skipIf(!RUN)(
     it("control: the ANCHOR, through the same calls, sees its posting and credits, and its unlock debits its wallet", async () => {
       // Every call the team story makes, made by A. If this fails the harness is broken, and the
       // `it.fails` below would be passing for the wrong reason.
-      const list = await postings.listForPayer(payerA, {});
+      const list = await listFor(payerA);
       expect(list.map((p) => p.id)).toContain(postingOfA);
       expect((await unlocks.getCredits(payerA)).balance).toBe(PACK.credits);
 
@@ -253,7 +256,7 @@ describe.skipIf(!RUN)(
       "T0: B sees A's posting and A's credits, spends A's wallet, A sees B's unlock — and removal takes it all away",
       async () => {
         // 1. B lists postings and finds A's posting. ← THE FIRST TENANCY ASSERTION (fails in P1).
-        const listB = await postings.listForPayer(payerB, {});
+        const listB = await listFor(payerB);
         expect(listB.map((p) => p.id)).toContain(postingOfA);
 
         // 2. B's credits are the org wallet: A's balance.
@@ -272,7 +275,7 @@ describe.skipIf(!RUN)(
 
         // 4. A removes B. On the next call B sees none of A's rows.
         await members.remove(orgOfA, payerA, memberIdOfB, CTX);
-        expect((await postings.listForPayer(payerB, {})).map((p) => p.id)).not.toContain(
+        expect((await listFor(payerB)).map((p) => p.id)).not.toContain(
           postingOfA,
         );
         expect((await unlocks.getCredits(payerB)).balance).toBe(0);
@@ -457,7 +460,11 @@ describe.skipIf(!RUN)(
         stagesFlag,
         tenancy,
       );
-      return { postings, agency, applicants, inbox, stages };
+      /** The postings `actor`'s tenant lists / reads, through the resolver every route uses. */
+      const listOf = async (actor: string) => postings.listInScope(await tenancy.resolve(actor), {});
+      const getOf = async (id: string, actor: string) =>
+        postings.getOneInScope(id, await tenancy.resolve(actor));
+      return { postings, agency, applicants, inbox, stages, listOf, getOf };
     }
 
     async function signUp(label: string, role: "employer" | "agent"): Promise<string> {
@@ -619,17 +626,17 @@ describe.skipIf(!RUN)(
         const [evt] = await eventsOf(created.id, "job_posting.created");
         expect(evt).toMatchObject({ actor_id: ids.B, payload: { created_by: ids.B } });
         // The anchor sees the teammate's posting; the outsider does not.
-        expect((await on.postings.listForPayer(ids.A, {})).map((p) => p.id)).toContain(created.id);
-        expect((await on.postings.listForPayer(ids.C, {})).map((p) => p.id)).not.toContain(
+        expect((await on.listOf(ids.A)).map((p) => p.id)).toContain(created.id);
+        expect((await on.listOf(ids.C)).map((p) => p.id)).not.toContain(
           created.id,
         );
       });
 
       it("company postings: the teammate lists and reads the anchor's postings; the outsider lists none", async () => {
-        const listB = (await on.postings.listForPayer(ids.B, {})).map((p) => p.id);
+        const listB = (await on.listOf(ids.B)).map((p) => p.id);
         expect(listB).toEqual(expect.arrayContaining([PA, PL]));
-        expect((await on.postings.getOneForPayer(PA, ids.B)).id).toBe(PA);
-        const listC = (await on.postings.listForPayer(ids.C, {})).map((p) => p.id);
+        expect((await on.getOf(PA, ids.B)).id).toBe(PA);
+        const listC = (await on.listOf(ids.C)).map((p) => p.id);
         expect(listC).not.toContain(PA);
         expect(listC).not.toContain(PL);
       });
@@ -670,7 +677,7 @@ describe.skipIf(!RUN)(
         const unknown = randomUUID();
         const update = UpdateJobPostingSchema.parse({ role_title: "Fitter" });
         for (const [label, call] of [
-          ["get", (id: string) => on.postings.getOneForPayer(id, ids.C)],
+          ["get", (id: string) => on.getOf(id, ids.C)],
           ["update", (id: string) => on.postings.updateForPayer(id, ids.C, update, P2A_CTX)],
           ["close", (id: string) => on.postings.closeForPayer(id, ids.C, P2A_CTX)],
           ["pause", (id: string) => on.postings.pauseForPayer(id, ids.C, P2A_CTX)],
@@ -836,15 +843,15 @@ describe.skipIf(!RUN)(
 
     describe("mode off — today's behaviour exactly: the teammate is their own tenant", () => {
       it("company postings: the teammate lists none of the anchor's postings, reads them as 404, and a create is stamped with the login", async () => {
-        const listB = (await off.postings.listForPayer(ids.B, {})).map((p) => p.id);
+        const listB = (await off.listOf(ids.B)).map((p) => p.id);
         expect(listB).not.toContain(PA);
         expect(listB).not.toContain(PL);
-        expect(await notFound(off.postings.getOneForPayer(PA, ids.B))).toEqual(
-          await notFound(off.postings.getOneForPayer(randomUUID(), ids.B)),
+        expect(await notFound(off.getOf(PA, ids.B))).toEqual(
+          await notFound(off.getOf(randomUUID(), ids.B)),
         );
         const created = await off.postings.createForPayer(ids.B, postingDto(), P2A_CTX);
         expect(created).toMatchObject({ payer_id: ids.B, created_by: ids.B });
-        expect((await off.postings.listForPayer(ids.A, {})).map((p) => p.id)).not.toContain(
+        expect((await off.listOf(ids.A)).map((p) => p.id)).not.toContain(
           created.id,
         );
       });

@@ -105,6 +105,22 @@ export interface BuyCapacityResult {
 }
 
 /**
+ * Read-only per-posting stats derived from the ACTIVE plan + boost — the honest
+ * numbers the payer's "My jobs" card renders instead of hardcoded zeros. PII-free
+ * (counts / a tier enum / a boolean only). All fields are `null`/`false` when the
+ * posting has no active plan/boost (a draft, or one whose plan expired) — there is
+ * NO fabricated figure. `applicant_visibility_quota` here is the EFFECTIVE quota
+ * (the immutable receipt + every top-up); `applicants_viewed_count` is the amount
+ * used. snake_case to match the job-postings API response.
+ */
+export interface PostingStats {
+  plan_tier: PostingPlanTier | null;
+  applicant_visibility_quota: number | null;
+  applicants_viewed_count: number | null;
+  boosted: boolean;
+}
+
+/**
  * Paid job-posting plans + boosters (ADR-0013 Decision B) + per-payer hiring capacity
  * (ADR-0016). The buy flow: resolve the price through the ONE pricing engine → mock
  * payment (PAYMENTS_ENABLE_REAL=false; `real_call` stamped honestly) → write the
@@ -152,22 +168,6 @@ export interface BuyCapacityResult {
  * In mode `off` the tenant is the caller itself, so rows, events and responses are unchanged.
  * No money moves: a purchase writes a new row (or raises the allowance) under the key.
  */
-/**
- * Read-only per-posting stats derived from the ACTIVE plan + boost — the honest
- * numbers the payer's "My jobs" card renders instead of hardcoded zeros. PII-free
- * (counts / a tier enum / a boolean only). All fields are `null`/`false` when the
- * posting has no active plan/boost (a draft, or one whose plan expired) — there is
- * NO fabricated figure. `applicant_visibility_quota` here is the EFFECTIVE quota
- * (the immutable receipt + every top-up); `applicants_viewed_count` is the amount
- * used. snake_case to match the job-postings API response.
- */
-export interface PostingStats {
-  plan_tier: PostingPlanTier | null;
-  applicant_visibility_quota: number | null;
-  applicants_viewed_count: number | null;
-  boosted: boolean;
-}
-
 @Injectable()
 export class PostingPlansService {
   private readonly logger = new Logger(PostingPlansService.name);
@@ -601,7 +601,8 @@ export class PostingPlansService {
    *
    * THE ERROR IS HONEST, not neutral: it names the actual reach and the floor. This is
    * NOT an ownership oracle — the caller already proved ownership of the posting to get
-   * here (the payer path via `getOneForPayer`, the ops path via the service guard), and
+   * here (the payer path via `PayerPostingPlansService.forOwnedPosting`, the ops path via the
+   * service guard), and
    * the numbers are about the platform's supply for a trade the payer themselves chose,
    * not about another tenant. Hiding them would mean refusing a payer's money without
    * telling them why, which is the exact failure the fence exists to prevent.

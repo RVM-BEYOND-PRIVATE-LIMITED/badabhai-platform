@@ -309,6 +309,11 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
     purchase/boost/plan events, `unlock.*`, `payment.*`, `coupon.redeemed`, `capacity.purchased`,
     `posting_plan.*`, `payer.credits_exhausted`, `profile.viewed_v2`, `agency_invite.*`,
     `agency_kyc.*` and `agency_payout.*`.
+  - **System-actor events keep the system actor.** `posting_plan.paused` and
+    `posting_plan.resumed` are emitted by the capacity chokepoint, not by a person: their envelope
+    actor stays `system`, and their payload `payer_id` carries the tenant key (as built in P2c,
+    PR #2174). The same goes for a payer-keyed `pricing_plan` subject (`capacity.purchased`,
+    `coupon.redeemed`, a capacity `payment.*`): its `subject_id` is the tenant key.
   - Every historical event has actor = tenant. In mode `off` every value is unchanged.
   - **Person-level events** keep the person: `payer.*` lifecycle and auth events,
     `payer.account_updated`, `payer_member.*` and `job_posting_chat.*` (member-private).

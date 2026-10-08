@@ -300,12 +300,21 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
         .values({ createdBy: randomUUID(), orgLabel: PII_SENTINEL, roleTitle: "VMC Operator", vacancyBand: "1", status: "open" })
         .returning({ id: jobPostings.id })
     )[0]!.id;
-    await req("POST", `/job-postings/${p1}/plan`, { ops: true, body: { payer_id: payer, tier: "standard" } });
-    await req("POST", `/job-postings/${p2}/plan`, { ops: true, body: { payer_id: payer, tier: "standard" } }); // paused
+    // Both buys must SUCCEED: a refused buy writes nothing, and a scan over nothing would pass
+    // vacuously (it did, against `on`, while these used bare random payer ids — PR #2174 review M-2).
+    for (const posting of [p1, p2]) {
+      const r = await req("POST", `/job-postings/${posting}/plan`, {
+        ops: true,
+        body: { payer_id: payer, tier: "standard" },
+      });
+      expect(r.status, `plan on ${posting}`).toBe(201); // the second is over cap (paused under enforcement)
+    }
 
     // The faceless rails (capacity + plan rows) never carry the sentinel or any PII key.
     const capRows = (await client.db.select().from(payerCapacity)).filter((c) => c.payerId === payer);
     const planRows = await plansForPayer(payer);
+    expect(planRows).toHaveLength(2);
+    expect(capRows).toHaveLength(1);
     const rowsSerialized = JSON.stringify([capRows, planRows]);
     expect(rowsSerialized).not.toContain(PII_SENTINEL);
     for (const k of PII_KEYS) expect(rowsSerialized).not.toContain(`"${k}"`);

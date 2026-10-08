@@ -8,7 +8,11 @@
  *      ranks in the masked applicant feed) + a worker_consents row INCLUDING the
  *      `employer_sharing` purpose (so the unlock consent gate passes);
  *   2. one OPEN job_posting (the subject of the plan purchase);
- *   3. one CREDITED payer_credits row (so the unlock debit succeeds).
+ *   3. a REAL payer account — the `payers` row, its solo org and owner membership, as signup
+ *      writes them (`seed-demand-payer.ts`) — so the ops routes' tenant resolver reads it as a
+ *      solo payer in every PAYER_ORG_TENANCY_MODE (ADR-0053; review of PR #2174, L3). A bare id
+ *      is refused in `on`;
+ *   4. one CREDITED payer_credits row for it (so the unlock debit succeeds).
  *
  * GUARDED: refuses to run when NODE_ENV === "production" (mirrors seed.ts).
  * IDEMPOTENT: stable UUIDs + ON CONFLICT — re-runs are safe; payer credits are
@@ -27,8 +31,19 @@
  */
 import { config } from "dotenv";
 import { createDbClient } from "./client";
-import { workers, workerProfiles, workerConsents, jobPostings, payerCredits } from "./schema";
+import { eq } from "drizzle-orm";
+import {
+  workers,
+  workerProfiles,
+  workerConsents,
+  jobPostings,
+  payerCredits,
+  payers,
+  payerOrgs,
+  payerMembers,
+} from "./schema";
 import { encryptPii, hashPhone } from "./crypto";
+import { DEMAND_PAYER_ID, demandOwnerRow, demandPayerRows } from "./seed-demand-payer";
 
 // Load the repo-root .env (CWD is packages/db when run via the package script).
 config({ path: "../../.env" });
@@ -39,7 +54,7 @@ config({ path: "../../.env" });
 const WORKER_ID = "5eeded00-0001-4a00-8000-000000000001";
 const PROFILE_ID = "5eeded00-0002-4a00-8000-000000000002";
 const CONSENT_ID = "5eeded00-0003-4a00-8000-000000000003";
-const PAYER_ID = "5eeded00-0004-4a00-8000-000000000004";
+const PAYER_ID = DEMAND_PAYER_ID;
 const CREDITS_ID = "5eeded00-0005-4a00-8000-000000000005";
 const JOB_POSTING_ID = "5eeded00-0006-4a00-8000-000000000006";
 const OPS_ACTOR_ID = "5eeded00-0007-4a00-8000-000000000007";
@@ -123,7 +138,24 @@ async function main(): Promise<void> {
       })
       .onConflictDoNothing({ target: jobPostings.id });
 
-    // 5) Credited payer_credits — so the unlock debit (balance >= 1) succeeds. Re-top
+    // 5a) The payer ACCOUNT — the rows signup writes (payers → solo org → owner membership),
+    //     idempotent like ensureSoloOrg. The ops routes resolve `payer_id` through the tenant
+    //     resolver; in `on` an id that names no payer is refused (ADR-0053 R4 → R7).
+    const account = demandPayerRows(key, pepper);
+    await db.insert(payers).values(account.payer).onConflictDoNothing();
+    await db.insert(payerOrgs).values(account.org).onConflictDoNothing({ target: payerOrgs.rootPayerId });
+    const [org] = await db
+      .select({ id: payerOrgs.id })
+      .from(payerOrgs)
+      .where(eq(payerOrgs.rootPayerId, PAYER_ID))
+      .limit(1);
+    if (!org) throw new Error("[seed:demand] the payer's solo org was not written");
+    await db
+      .insert(payerMembers)
+      .values(demandOwnerRow(org.id, account.payer, now))
+      .onConflictDoNothing({ target: [payerMembers.orgId, payerMembers.emailHash] });
+
+    // 5b) Credited payer_credits — so the unlock debit (balance >= 1) succeeds. Re-top
     //    on re-run so a prior verify (which spends one credit) doesn't drain the fixture.
     await db
       .insert(payerCredits)
@@ -135,7 +167,7 @@ async function main(): Promise<void> {
 
     console.log("[seed:demand] synthetic demand fixture ready:");
     console.log(`  worker_id      = ${WORKER_ID}`);
-    console.log(`  payer_id       = ${PAYER_ID}  (credits=${STARTING_CREDITS})`);
+    console.log(`  payer_id       = ${PAYER_ID}  (an active employer + solo org; credits=${STARTING_CREDITS})`);
     console.log(`  job_posting_id = ${JOB_POSTING_ID}  (status=open)`);
     console.log(`  seed_job_id    = ${SEED_JOB_ID}  (run db:seed:jobs first; used for /reach applicants)`);
     console.log("Drive the loop with: pnpm db:verify:demand");

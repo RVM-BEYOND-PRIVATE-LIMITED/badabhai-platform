@@ -25,8 +25,11 @@ export interface PostingWithStats {
 
 /**
  * The three paid actions on ONE posting the caller's tenant owns, bound to the scope its
- * ownership was checked in. Holding one is proof the ownership check passed; it cannot be built
- * any other way, and it carries no id a caller could swap.
+ * ownership was checked in; it carries no id or scope a caller could swap. It is the payer
+ * routes' only way to the scope-taking purchases: `PostingPlansService.*InScope` trust the scope
+ * they are handed, and `payer-posting-plans.static.test.ts` limits their callers to
+ * {@link PayerPostingPlansService.forOwnedPosting} and the service's own ops wrappers. (The type
+ * itself is a plain interface — the guarantee is that caller list, not the type system.)
  */
 export interface OwnedPostingPurchases {
   readonly buyPlan: (dto: PayerBuyPlanDto, ctx: RequestContext) => Promise<BuyPlanResult>;

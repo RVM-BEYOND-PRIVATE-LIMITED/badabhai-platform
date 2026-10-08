@@ -1,13 +1,22 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
 import { DEFAULT_CATALOG, parseCatalog, type Catalog } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { PostingPlansService } from "./posting-plans.service";
 import { PricingService } from "../pricing/pricing.service";
 import { AGENCY_TWIN_READ_ONLY_MESSAGE } from "../common/agency-twin-fence";
 import type { ServerConfig } from "@badabhai/config";
-import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import {
+  PayerTenantScopeService,
+  TENANCY_DENIED_MESSAGE,
+} from "../payers/payer-tenant-scope.service";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import {
   defaultModeResolver,
   ownScope,
@@ -135,6 +144,7 @@ function make(
     addQuotaTopup,
     listPausedPlansForPayer,
     findActiveBoost,
+    findPostingSyncSource,
   };
 }
 
@@ -1187,5 +1197,74 @@ describe("ADR-0053 P2c — PostingPlansService follows the TENANT", () => {
     await d.service.topUpQuotaInScope(POSTING, scope, { tier: "topup_10" }, CTX);
     await d.service.getPostingStats(POSTING, scope.tenantKey);
     expect(d.resolve).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0053 §5.2 rule 4 + R7 (security review of PR #2174, L4) — the ops plan / boost routes
+// pass their body `payer_id` through the resolver BEFORE anything else, and a refusal there is a
+// neutral 403 with nothing written: no plan or boost row, no lock taken, no `payment.*` event.
+// ---------------------------------------------------------------------------
+describe("ADR-0053 P2c — the ops purchases fail CLOSED when the resolver refuses the body payer_id (mode on)", () => {
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+  const NOBODY = "99999999-9999-4999-8999-999999999999";
+  const TWO_TEAMS = "88888888-8888-4888-8888-888888888888";
+
+  /**
+   * The REAL resolver over a world where `NOBODY` names no payer: it has no membership, and the
+   * R4 heal (`ensureSoloOrg`) fails the way Postgres fails it — `payer_orgs.root_payer_id`
+   * references `payers`.
+   */
+  function noPayerResolver(): PayerTenantScopeService {
+    const orgs = {
+      listActiveMembershipsWithAnchor: async () => [],
+      ensureSoloOrg: async () => {
+        throw new Error('insert on table "payer_orgs" violates foreign key constraint');
+      },
+    };
+    return new PayerTenantScopeService(ON, orgs as unknown as PayerOrgsRepository);
+  }
+
+  const REFUSALS: readonly { label: string; payer: string; tenancy: () => PayerTenantScopeService }[] = [
+    { label: "an id that names no payer (R4 heal fails → R7)", payer: NOBODY, tenancy: noPayerResolver },
+    {
+      label: "a payer in two teams (R3)",
+      payer: TWO_TEAMS,
+      tenancy: () =>
+        resolverOver(ON, [
+          { anchor: "aaaaaaaa-0000-4000-8000-0000000000a1", members: [TWO_TEAMS] },
+          { anchor: "aaaaaaaa-0000-4000-8000-0000000000a2", members: [TWO_TEAMS] },
+        ]),
+    },
+  ];
+
+  it.each(REFUSALS)("buyPlan, $label: a neutral 403 — no row, no lock, no payment event", async ({ payer, tenancy }) => {
+    const d = make({ tenancy: tenancy() });
+    const err = await d.service
+      .buyPlan(POSTING, { payer_id: payer, tier: "standard" }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as ForbiddenException).message).toBe(TENANCY_DENIED_MESSAGE);
+    for (const untouched of [d.findPostingSyncSource, d.withTransaction, d.lockPayer, d.insertPlan, d.emit]) {
+      expect(untouched).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(REFUSALS)("buyBoost, $label: a neutral 403 — no receipt, no window, no payment event", async ({ payer, tenancy }) => {
+    const d = make({ tenancy: tenancy() });
+    const err = await d.service
+      .buyBoost(POSTING, { payer_id: payer, tier: "boost_7" }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as ForbiddenException).message).toBe(TENANCY_DENIED_MESSAGE);
+    for (const untouched of [d.findPostingSyncSource, d.insertBoost, d.extendPostingBoostWindow, d.emit]) {
+      expect(untouched).not.toHaveBeenCalled();
+    }
+  });
+
+  it("the same ids in `off` buy exactly as before (the resolver never fails a request there)", async () => {
+    const d = make({ tenancy: defaultModeResolver() });
+    await d.service.buyPlan(POSTING, { payer_id: NOBODY, tier: "standard" }, CTX);
+    expect(d.insertPlan).toHaveBeenCalledWith(expect.objectContaining({ payerId: NOBODY }), expect.anything());
   });
 });

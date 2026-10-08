@@ -5,7 +5,11 @@ import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { EventsService } from "../events/events.service";
 import { JobPostingsService } from "./job-postings.service";
 import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
-import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
+import {
+  defaultModeResolver,
+  ownScope,
+  resolverOver,
+} from "../payers/payer-tenant-scope.test-support";
 import type { ServerConfig } from "@badabhai/config";
 import { AGENCY_TWIN_READ_ONLY_MESSAGE } from "../common/agency-twin-fence";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
@@ -914,18 +918,19 @@ describe("JobPostingsService — payer self-serve (*ForPayer)", () => {
     assertNoFreeText(payload); // org/role/location free text never leaves the row
   });
 
-  it("listForPayer + getOneForPayer scope to the session payer", async () => {
+  it("listInScope + getOneInScope key the session payer's own scope", async () => {
     const { svc, listByPayer, findByIdAndPayer } = make(row({ payerId: PAYER_ID } as Partial<Row>));
-    await svc.listForPayer(PAYER_ID, { status: "open" });
+    const scope = await ownScope(PAYER_ID);
+    await svc.listInScope(scope, { status: "open" });
     expect(listByPayer).toHaveBeenCalledWith(PAYER_ID, "open");
-    await svc.getOneForPayer(POSTING_ID, PAYER_ID);
+    await svc.getOneInScope(POSTING_ID, scope);
     expect(findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, PAYER_ID);
   });
 
-  it("getOneForPayer 404s (no-oracle) for an unknown OR another payer's posting", async () => {
+  it("getOneInScope 404s (no-oracle) for an unknown OR another payer's posting", async () => {
     const { svc, findByIdAndPayer } = make();
     findByIdAndPayer.mockResolvedValueOnce(undefined); // not found OR not owned — same result
-    await expect(svc.getOneForPayer(POSTING_ID, PAYER_ID)).rejects.toBeInstanceOf(
+    await expect(svc.getOneInScope(POSTING_ID, await ownScope(PAYER_ID))).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
@@ -1915,10 +1920,12 @@ describe("ADR-0053 P2a — JobPostingsService's payer path follows the TENANT", 
   });
 
   it("on: a teammate lists and reads under the ANCHOR's key", async () => {
-    const d = teamWorld("open", resolverOver(ON, TEAM));
-    await d.svc.listForPayer(MEMBER, { status: "open" });
+    const tenancy = resolverOver(ON, TEAM);
+    const d = teamWorld("open", tenancy);
+    const scope = await tenancy.resolve(MEMBER);
+    await d.svc.listInScope(scope, { status: "open" });
     expect(d.listByPayer).toHaveBeenCalledWith(ANCHOR, "open");
-    await expect(d.svc.getOneForPayer(POSTING_ID, MEMBER)).resolves.toMatchObject({
+    await expect(d.svc.getOneInScope(POSTING_ID, scope)).resolves.toMatchObject({
       id: POSTING_ID,
     });
     expect(d.findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, ANCHOR);
@@ -1954,7 +1961,7 @@ describe("ADR-0053 P2a — JobPostingsService's payer path follows the TENANT", 
     const tenancy = resolverOver(ON, TEAM);
     type World = ReturnType<typeof teamWorld>;
     const routes: ((d: World) => Promise<unknown>)[] = [
-      (d) => d.svc.getOneForPayer(POSTING_ID, OUTSIDER),
+      async (d) => d.svc.getOneInScope(POSTING_ID, await tenancy.resolve(OUTSIDER)),
       (d) => d.svc.updateForPayer(POSTING_ID, OUTSIDER, { role_title: "X" }, CTX as never),
       (d) => d.svc.closeForPayer(POSTING_ID, OUTSIDER, CTX as never),
       (d) => d.svc.pauseForPayer(POSTING_ID, OUTSIDER, CTX as never),
@@ -1993,16 +2000,18 @@ describe("ADR-0053 P2a — JobPostingsService's payer path follows the TENANT", 
   });
 
   it("off (the default): the SAME teammate is their own tenant — today's stamps and predicates, byte for byte", async () => {
-    const d = teamWorld("open", defaultModeResolver(TEAM));
+    const tenancy = defaultModeResolver(TEAM);
+    const d = teamWorld("open", tenancy);
     await d.svc.createForPayer(MEMBER, DTO, CTX as never);
     expect(d.create).toHaveBeenCalledWith(
       expect.objectContaining({ payerId: MEMBER, createdBy: MEMBER }),
       d.TX,
     );
-    await d.svc.listForPayer(MEMBER, {});
+    const scope = await tenancy.resolve(MEMBER);
+    await d.svc.listInScope(scope, {});
     expect(d.listByPayer).toHaveBeenCalledWith(MEMBER, undefined);
     // The anchor's posting is a 404 for the teammate, as it is on main today.
-    await expect(d.svc.getOneForPayer(POSTING_ID, MEMBER)).rejects.toBeInstanceOf(
+    await expect(d.svc.getOneInScope(POSTING_ID, scope)).rejects.toBeInstanceOf(
       NotFoundException,
     );
     expect(d.findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, MEMBER);

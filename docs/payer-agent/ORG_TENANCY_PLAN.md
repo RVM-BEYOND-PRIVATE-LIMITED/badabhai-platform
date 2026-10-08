@@ -276,11 +276,23 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 - **Response meaning (ADR §10):** `GET`/`POST /payer/capacity` `payer_id` ECHOES THE CALLER (as
   `GET /payer/credits` does); the allowance, the live `active_plan_count` and the resumed plans
   are the tenant's. A plan / boost row's `payerId` is the stored tenant key.
+- **Coupon caps race (risk register R68, security review L2):** the per-org limit is checked by
+  counting `coupon.redeemed` and written after commit, so members redeeming at the same instant can
+  exceed it (and any payers, `totalUsageCap`). Mock money today; fix before real payments
+  (GAP-PAY-05): check and record under the org's lock, or a redemption table with a DB-enforced cap.
 - **Ops routes with an opaque `payer_id`:** in `on` the resolver refuses an id that names no payer
   (R4, then R7: a neutral 403). `tests/e2e/payer-capacity.e2e.test.ts` drove the ops plan route
   with bare `randomUUID()` payers (the alpha "opaque rail"); it now mints real payers through the
   test-login seam — the same change P2b made to `contact-unlock.e2e`. Under `on` the old suite
   had every buy 403 and its faceless case passed with nothing bought.
+- **Review fixes (PR #2174):** `JobPostingsService.listForPayer` / `getOneForPayer` are DELETED
+  (no caller after the seam; tests use `listInScope` / `getOneInScope`). The `*InScope` purchases
+  trust their scope, so `payer-posting-plans.static.test.ts` pins their callers to
+  `forOwnedPosting` and the ops `buyPlan` / `buyBoost`. T5's `PAYER_ID_NAME` now also matches
+  `tenant` / `tenantKey`, so a de-branded `tenant: string` is caught. `db:seed:demand` writes a
+  real payer (the `payers` row, solo org and owner membership — `seed-demand-payer.ts`), so
+  `db:verify:demand` passes in `on` (it got a 403 on the plan step before). The ops routes' 403
+  in `on` is documented in `docs/api/payer-agency-api-reference.md` §3.2.
 - **Tests:** unit on/off per converted path (`posting-plans.service.test.ts`), the seam
   (`payer-posting-plans.service.test.ts`), Postgres T2/T7 + the concurrency case
   (`payer-org-tenancy.db.test.ts` "P2c": a teammate's plan / top-up / boost / capacity is the
