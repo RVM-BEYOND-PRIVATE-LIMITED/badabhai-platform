@@ -4290,11 +4290,11 @@ _NEXT_CLAUSE_ADDON_CASES: list[tuple[str, dict | None]] = [
     ("gross 30000\n14000\nPF ESI", None),
     ("salary 30000\n14000\nPF ESI\nabove is gross", None),
     # ... nor beside a wage of a lakh or more: that is the annual package and the monthly pay,
-    # typed without "CTC" — the pair folds or records nothing, as on main ...
+    # typed without "CTC" — the pair records nothing (#2159; it folded into one band before) ...
     ("in hand 3 lac and ₹ 20000 and ESI", None),
     ("in hand 1.5 lakh and 20K and ESI", None),
-    ("salary 3 lakh\n20000\nPF ESI", _pay(20000, 300000)),
-    ("1.5 lakh and\n20K; food free", _pay(20000, 150000)),
+    ("salary 3 lakh\n20000\nPF ESI", None),
+    ("1.5 lakh and\n20K; food free", None),
     # ... a label clause holds add-on words and filler only: a worker category in it ("fresher")
     # makes the figure that category's wage, as on main (#2141 review) ...
     ("salary 30000\n15000\nfresher room free", _pay(15000, 30000)),
@@ -4317,3 +4317,91 @@ def test_an_add_on_labelled_in_the_next_clause_is_not_the_pay_minimum(
     # The money cue for the cross-topic read goes in a clause of its own at the END: a leading
     # "salary " would be a word in the first figure's clause, which is then not bare.
     assert answers.detect_answers(f"{text}\nmonthly", None).get("pay_range") == pay
+
+
+# --- #2143: a comma ends a pay figure -----------------------------------------------------------
+# A suffix-less figure kept the comma after it in its span ("25000," — `\d[\d,]*`), so the comma
+# boundary sat INSIDE the figure and its clause ran on into the next one: "salary 25000, PF ESI"
+# was dropped with the PF clause and recorded nothing, while "25k, PF ESI" read 25,000.
+_COMMA_CASES: list[tuple[str, dict | None]] = [
+    ("salary 25000, PF ESI", _pay(25000)),
+    ("25000, PF ESI", _pay(25000)),
+    ("salary 25000,PF", _pay(25000)),
+    ("25,000, PF ESI", _pay(25000)),
+    ("salary 2,50,000, PF", _pay(250000)),
+    ("Rs 18000, food free", _pay(18000)),
+    ("18000-22000, PF", _pay(18000, 22000)),
+    ("18,000 - 22,000, PF ESI extra", _pay(18000, 22000)),
+    # Unchanged: the suffixed twin, a comma inside a figure, a comma before a basis ...
+    ("25k, PF ESI", _pay(25000)),
+    ("salary 25,000 per month", _pay(25000)),
+    ("salary 25000, in hand", _pay(25000)),
+    # ... and an add-on in the figure's own clause still drops it.
+    ("25000 bonus, PF", None),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _COMMA_CASES)
+def test_a_comma_ends_a_pay_figure(text: str, pay: dict | None) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"salary {text}", None).get("pay_range") == pay
+
+
+@pytest.mark.parametrize(
+    ("text", "figure"),
+    [("25000, PF", "25000"), ("2,50,000, PF", "2,50,000"), ("18000-22000, PF", "18000-22000")],
+)
+def test_a_figure_span_holds_no_trailing_comma(text: str, figure: str) -> None:
+    (found,) = answers._pay_figures(text)
+    assert text[found.start : found.end] == figure
+
+
+def test_a_comma_before_a_basis_still_attaches_it() -> None:
+    assert answers.detect_answers("salary 25000, in hand", None).get("pay_type") == "in_hand"
+
+
+# A comma-joined digit run reads as ONE number ("1,1,1,..." is 111...), and the pay gateway lets
+# it through (only a plain digit run is a residual numeric sequence). Past ~309 digits `float()`
+# is infinite and `int()` raised OverflowError on the payer's turn: such a figure is not pay.
+@pytest.mark.parametrize("text", ["1," * 330 + "x", "salary " + "1," * 330, "1" * 400 + " salary"])
+def test_a_figure_too_long_for_a_float_is_not_pay(text: str) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") is None
+    assert answers.detect_answers(text, None).get("pay_range") is None
+
+
+# --- #2159: a monthly wage and an annual package never form one band ----------------------------
+# "salary 18000 and 3 lakh ctc" read as Rs 18,000-3,00,000 tagged CTC, and "salary 3 lakh\n20000\n
+# PF ESI" as Rs 20,000-3,00,000: a monthly wage and an annual package on different bases, folded
+# into one band. A band whose top is a lakh or more and its bottom below a lakh, the top more than
+# 5x the bottom, records nothing — the two-bases rule, with no basis word needed.
+_TWO_BASES_BAND_CASES: list[tuple[str, dict | None]] = [
+    ("salary 18000 and 3 lakh ctc", None),
+    ("salary 3 lakh\n20000\nPF ESI", None),
+    ("salary 18000 - 3 lakh", None),
+    ("18k to 3 lakh", None),
+    ("in hand 15 hazar - 2 lakhs", None),
+    ("salary 20000\n3 lakh", None),
+    ("salary 18000 and 1.2 lakh", None),
+    # Unchanged: a band within 5x across the lakh line ...
+    ("salary 1 lakh and 20k", _pay(20000, 100000)),
+    ("salary 50000 - 1 lakh", _pay(50000, 100000)),
+    ("salary 80000 to 1.2 lakh", _pay(80000, 120000)),
+    # ... a wide band on ONE side of it ...
+    ("fresher 8000\nexperienced 45000", _pay(8000, 45000)),
+    ("1 - 6 lakh ctc", _pay(100000, 600000)),
+    # ... and a monthly range still wins outright over a lakh figure beside it.
+    ("salary 18-22k\n3 lakh", _pay(18000, 22000)),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _TWO_BASES_BAND_CASES)
+def test_a_monthly_wage_and_an_annual_package_never_form_one_band(
+    text: str, pay: dict | None
+) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"{text}\nmonthly", None).get("pay_range") == pay
+
+
+@pytest.mark.parametrize("text", ["salary 18000 and 3 lakh ctc", "in hand 15 hazar - 2 lakhs"])
+def test_a_band_on_two_bases_tags_no_pay_type(text: str) -> None:
+    assert "pay_type" not in answers.detect_answers(text, None)
