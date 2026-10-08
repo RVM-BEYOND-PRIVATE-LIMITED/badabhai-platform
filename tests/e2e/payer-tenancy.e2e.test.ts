@@ -498,3 +498,138 @@ describe.skipIf(!RUN)(
     });
   },
 );
+
+/**
+ * ADR-0053 (PAY-DB-01) P2c — T2 over live HTTP and the real guards: plans, quota top-ups and
+ * capacity bought by a teammate are the ORG's. Needs the api in PAYER_ORG_TENANCY_MODE=on (the CI
+ * `e2e` job sets it for the api and this runner alike); the block refuses to run against anything
+ * else rather than pass or skip vacuously.
+ *
+ * A anchors a team, B is A's active recruiter (seeded exactly as T0-HTTP seeds it), C is an
+ * outsider. Boosts and coupons are covered against Postgres in `payer-org-tenancy.db.test.ts`:
+ * here a fresh posting reaches no workers, so the boost supply gate (ADR-0036 §7) refuses the
+ * sale, and the live catalog carries no coupon.
+ */
+describe.skipIf(!RUN)(
+  "Payer ORG tenancy P2c — a teammate's plan, top-up and capacity are the org's over HTTP (e2e, ADR-0053 T2)",
+  () => {
+    let client!: DbClient;
+    let A!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let B!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let C!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let posting = "";
+
+    async function postingPlanOwners(id: string): Promise<string[]> {
+      const rows = await client.sql<{ payer_id: string }[]>`
+        SELECT payer_id FROM posting_plans WHERE job_posting_id = ${id}::uuid`;
+      return rows.map((r) => r.payer_id);
+    }
+
+    beforeAll(async () => {
+      expect(
+        process.env.PAYER_ORG_TENANCY_MODE,
+        "this block asserts org tenancy: run the api AND this runner with PAYER_ORG_TENANCY_MODE=on",
+      ).toBe("on");
+      client = createDbClient(DATABASE_URL);
+      A = await mintPayerSession({ role: "employer" });
+      B = await mintPayerSession({ role: "employer" });
+      C = await mintPayerSession({ role: "employer" });
+      const [org] = await client.sql`
+      SELECT id FROM payer_orgs WHERE root_payer_id = ${A.payerId}::uuid`;
+      expect(org?.id, "A has no solo org after test-login").toBeTruthy();
+      await client.sql`
+      INSERT INTO payer_members (org_id, member_payer_id, email_enc, email_hash, org_role, status,
+                                 invited_by, invited_at, accepted_at)
+      SELECT ${String(org!.id)}::uuid, b.id, b.email_enc, b.email_hash, 'recruiter', 'active',
+             ${A.payerId}::uuid, now(), now()
+      FROM payers b WHERE b.id = ${B.payerId}::uuid`;
+
+      const created = await req("POST", "/payer/job-postings", {
+        token: A.token,
+        body: { org_label: "E2E Tenancy Works", role_title: "CNC Turner", vacancy_band: "1" },
+      });
+      expect(created.status).toBe(201);
+      posting = created.json.id as string;
+    });
+
+    afterAll(async () => {
+      await client?.sql.end({ timeout: 5 });
+    });
+
+    it("plan: B buys a plan on A's posting — the row is A's, A's posting shows it; an Idempotency-Key retry replays it", async () => {
+      const key = `p2c-plan-${randomUUID()}`;
+      const buy = () =>
+        fetch(`${API_URL}/payer/job-postings/${posting}/plan`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${B.token}`,
+            "idempotency-key": key,
+          },
+          body: JSON.stringify({ tier: "standard" }),
+        }).then(async (r) => ({ status: r.status, json: await r.json() }));
+      const first = await buy();
+      expect(first.status).toBe(201);
+      const replay = await buy();
+      expect(replay.status).toBe(201);
+      expect(replay.json).toEqual(first.json);
+      expect(await postingPlanOwners(posting)).toEqual([A.payerId]);
+
+      for (const reader of [A, B]) {
+        const read = await req("GET", `/payer/job-postings/${posting}`, { token: reader.token });
+        expect(read.status).toBe(200);
+        expect(read.json).toMatchObject({ plan_tier: "standard", applicant_visibility_quota: 10 });
+      }
+    });
+
+    it("quota top-up: B tops up the ORG's plan — A's posting shows the larger quota", async () => {
+      const topped = await req("POST", `/payer/job-postings/${posting}/quota-topup`, {
+        token: B.token,
+        body: { tier: "topup_10" },
+      });
+      expect(topped.status).toBe(201);
+      const read = await req("GET", `/payer/job-postings/${posting}`, { token: A.token });
+      expect(read.json.applicant_visibility_quota).toBe(20);
+    });
+
+    it("the outsider: every paid route on A's posting is the unknown-id 404, and buys nothing", async () => {
+      for (const [route, body] of [
+        ["plan", { tier: "standard" }],
+        ["boost", { tier: "boost_7" }],
+        ["quota-topup", { tier: "topup_10" }],
+      ] as const) {
+        const foreign = await req("POST", `/payer/job-postings/${posting}/${route}`, {
+          token: C.token,
+          body,
+        });
+        const unknown = await req("POST", `/payer/job-postings/${randomUUID()}/${route}`, {
+          token: C.token,
+          body,
+        });
+        expect(foreign.status, route).toBe(404);
+        expect(foreign.json?.error ?? foreign.json, route).toEqual(unknown.json?.error ?? unknown.json);
+      }
+      expect(await postingPlanOwners(posting)).toEqual([A.payerId]);
+    });
+
+    it("capacity: B's purchase is the ORG's one allowance — A and B read it; payer_id echoes each caller", async () => {
+      const bought = await req("POST", "/payer/capacity", { token: B.token, body: { tier: "cap_5" } });
+      expect(bought.status).toBe(201);
+      expect(bought.json).toMatchObject({ payer_id: B.payerId, max_active_vacancies: 5 });
+      const rows = await client.sql<{ payer_id: string }[]>`
+        SELECT payer_id FROM payer_capacity WHERE payer_id IN (${A.payerId}::uuid, ${B.payerId}::uuid)`;
+      expect(rows.map((r) => r.payer_id)).toEqual([A.payerId]);
+      for (const reader of [A, B]) {
+        const view = await req("GET", "/payer/capacity", { token: reader.token });
+        expect(view.status).toBe(200);
+        expect(view.json).toMatchObject({
+          payer_id: reader.payerId,
+          max_active_vacancies: 5,
+          active_plan_count: 1,
+        });
+      }
+      const outsider = await req("GET", "/payer/capacity", { token: C.token });
+      expect(outsider.json).toMatchObject({ payer_id: C.payerId, active_plan_count: 0 });
+    });
+  },
+);

@@ -6,6 +6,14 @@ import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { PostingPlansService } from "./posting-plans.service";
 import { PricingService } from "../pricing/pricing.service";
 import { AGENCY_TWIN_READ_ONLY_MESSAGE } from "../common/agency-twin-fence";
+import type { ServerConfig } from "@badabhai/config";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import {
+  defaultModeResolver,
+  ownScope,
+  ownTenantKey,
+  resolverOver,
+} from "../payers/payer-tenant-scope.test-support";
 
 const POSTING = "33333333-3333-4333-8333-333333333333";
 const PAYER = "44444444-4444-4444-8444-444444444444";
@@ -32,6 +40,8 @@ function make(
     boostSupplyFloor?: number; // 0 (the default here) disables the gate
     reachTotal?: number; // what `job_reach` reports for the posting
     reachThrows?: boolean; // an unreadable reach count must FAIL OPEN (sale proceeds)
+    /** ADR-0053 — the REAL resolver; the default mode (`off`) keys every payer to themself. */
+    tenancy?: PayerTenantScopeService;
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
@@ -103,6 +113,7 @@ function make(
       }),
     } as never,
     { countReachForPosting: countReachForPosting } as never,
+    opts.tenancy ?? defaultModeResolver(),
   );
   const names = () => emit.mock.calls.map((c) => c[0].event_name);
   return {
@@ -122,6 +133,8 @@ function make(
     countActivePlansForPayer,
     findActivePlanForPostingAndPayer,
     addQuotaTopup,
+    listPausedPlansForPayer,
+    findActiveBoost,
   };
 }
 
@@ -443,14 +456,14 @@ describe("PostingPlansService.buyBoost", () => {
   });
 });
 
-describe("PostingPlansService payer-authed wrappers (B3/LC-1 — session payer_id stamped)", () => {
+describe("PostingPlansService payer seams (B3/LC-1 — the session scope is stamped)", () => {
   const SESSION_PAYER = "55555555-5555-4555-8555-555555555555";
 
-  it("buyPlanForPayer stamps the SESSION payer_id onto the plan + the purchased event", async () => {
+  it("buyPlanInScope stamps the SESSION scope's tenant onto the plan + the purchased event", async () => {
     const { service, insertPlan, emit } = make();
-    const { plan, quote } = await service.buyPlanForPayer(
+    const { plan, quote } = await service.buyPlanInScope(
       POSTING,
-      SESSION_PAYER,
+      await ownScope(SESSION_PAYER),
       { tier: "standard" },
       CTX,
     );
@@ -466,11 +479,11 @@ describe("PostingPlansService payer-authed wrappers (B3/LC-1 — session payer_i
     expect(quote.finalInr).toBeGreaterThanOrEqual(0);
   });
 
-  it("buyBoostForPayer stamps the SESSION payer_id onto the boost", async () => {
+  it("buyBoostInScope stamps the SESSION scope's tenant onto the boost", async () => {
     const { service, insertBoost, emit } = make();
-    const { boost } = await service.buyBoostForPayer(
+    const { boost } = await service.buyBoostInScope(
       POSTING,
-      SESSION_PAYER,
+      await ownScope(SESSION_PAYER),
       { tier: "all_candidates" },
       CTX,
     );
@@ -483,12 +496,12 @@ describe("PostingPlansService payer-authed wrappers (B3/LC-1 — session payer_i
   });
 });
 
-describe("PostingPlansService.topUpQuotaForPayer (B2 — pricing-engine refill on an active plan)", () => {
+describe("PostingPlansService.topUpQuotaInScope (B2 — pricing-engine refill on an active plan)", () => {
   const SESSION_PAYER = "55555555-5555-4555-8555-555555555555";
 
   it("resolves the top-up price, atomically increments quota_topup_count, and emits payment + quota_topped", async () => {
     const { service, emit, names, addQuotaTopup } = make();
-    const { plan, quote } = await service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX);
+    const { plan, quote } = await service.topUpQuotaInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "topup_10" }, CTX);
     expect(quote.finalInr).toBe(1000);
     // Atomic increment called with the SESSION payer + the catalog grant (10 views).
     expect(addQuotaTopup).toHaveBeenCalledWith("p-1", SESSION_PAYER, 10, expect.any(Date));
@@ -511,14 +524,14 @@ describe("PostingPlansService.topUpQuotaForPayer (B2 — pricing-engine refill o
 
   it("accumulates on top of prior top-ups (quota_topup_total reflects the running total)", async () => {
     const { service } = make({ activeTopupPlan: { id: "p-1", quotaTopupCount: 30 } });
-    const { plan } = await service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_30" }, CTX);
+    const { plan } = await service.topUpQuotaInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "topup_30" }, CTX);
     expect(plan.quotaTopupCount).toBe(60); // 30 prior + 30 added
   });
 
   it("409s when the posting has no active plan to top up (no payment emitted)", async () => {
     const { service, names } = make({ activeTopupPlan: null });
     await expect(
-      service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX),
+      service.topUpQuotaInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "topup_10" }, CTX),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(names()).not.toContain("payment.authorized");
     expect(names()).not.toContain("posting_plan.quota_topped");
@@ -527,7 +540,7 @@ describe("PostingPlansService.topUpQuotaForPayer (B2 — pricing-engine refill o
   it("409s (no phantom grant/payment) when the plan raced to expiry between read and increment", async () => {
     const { service, names } = make({ topupRaced: true });
     await expect(
-      service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX),
+      service.topUpQuotaInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "topup_10" }, CTX),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(names()).not.toContain("payment.authorized");
     expect(names()).not.toContain("posting_plan.quota_topped");
@@ -539,7 +552,7 @@ describe("PostingPlansService.topUpQuotaForPayer (B2 — pricing-engine refill o
   ] as const)("#2111: %s → 409 reason no_active_plan, message unchanged", async (_label, opts) => {
     const { service } = make(opts);
     const err = await service
-      .topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX)
+      .topUpQuotaInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "topup_10" }, CTX)
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
     expect((err as ConflictException).getResponse()).toStrictEqual({
@@ -553,7 +566,7 @@ describe("PostingPlansService.topUpQuotaForPayer (B2 — pricing-engine refill o
   it("rejects an unknown top-up tier fail-closed (unavailable → 400)", async () => {
     const { service } = make();
     await expect(
-      service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "nope" }, CTX),
+      service.topUpQuotaInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "nope" }, CTX),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
@@ -603,6 +616,7 @@ describe("PostingPlansService.getPostingStats", () => {
       // Irrelevant to this read (it touches neither the supply gate nor reach).
       { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
       { countReachForPosting: vi.fn() } as never,
+      defaultModeResolver(),
     );
     return { service, findActivePlanForPostingAndPayer, findActiveBoost };
   }
@@ -612,7 +626,7 @@ describe("PostingPlansService.getPostingStats", () => {
       { tier: "pro", applicantVisibilityQuota: 30, quotaTopupCount: 10, applicantsViewedCount: 12 },
       { id: "b-1" },
     );
-    const stats = await service.getPostingStats(POSTING, PAYER);
+    const stats = await service.getPostingStats(POSTING, await ownTenantKey(PAYER));
     expect(stats).toEqual({
       plan_tier: "pro",
       applicant_visibility_quota: 40, // immutable receipt 30 + 10 topped up
@@ -623,7 +637,7 @@ describe("PostingPlansService.getPostingStats", () => {
 
   it("a plan-less posting is honest: nulls + not boosted (no fabricated numbers)", async () => {
     const { service } = makeStats(undefined, undefined);
-    const stats = await service.getPostingStats(POSTING, PAYER);
+    const stats = await service.getPostingStats(POSTING, await ownTenantKey(PAYER));
     expect(stats).toEqual({
       plan_tier: null,
       applicant_visibility_quota: null,
@@ -637,17 +651,17 @@ describe("PostingPlansService.getPostingStats", () => {
       { tier: "standard", applicantVisibilityQuota: 10, quotaTopupCount: 0, applicantsViewedCount: 0 },
       undefined,
     );
-    const stats = await service.getPostingStats(POSTING, PAYER);
+    const stats = await service.getPostingStats(POSTING, await ownTenantKey(PAYER));
     expect(stats.boosted).toBe(false);
     expect(stats.applicant_visibility_quota).toBe(10);
   });
 
-  it("resolves the plan payer-scoped and the boost posting-scoped", async () => {
+  it("resolves the plan tenant-scoped and the boost posting-scoped", async () => {
     const { service, findActivePlanForPostingAndPayer, findActiveBoost } = makeStats(
       undefined,
       undefined,
     );
-    await service.getPostingStats(POSTING, PAYER);
+    await service.getPostingStats(POSTING, await ownTenantKey(PAYER));
     expect(findActivePlanForPostingAndPayer).toHaveBeenCalledWith(POSTING, PAYER, expect.any(Date));
     expect(findActiveBoost).toHaveBeenCalledWith(POSTING, expect.any(Date));
   });
@@ -684,9 +698,9 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
 
   it("quota top-up: a matching expected price is charged exactly as before", async () => {
     const { service, names, addQuotaTopup } = make();
-    const { quote } = await service.topUpQuotaForPayer(
+    const { quote } = await service.topUpQuotaInScope(
       POSTING,
-      SESSION_PAYER,
+      await ownScope(SESSION_PAYER),
       { tier: "topup_10", expected_price_inr: 1000 },
       CTX,
     );
@@ -698,9 +712,9 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
   it("quota top-up: a mismatched expected price is refused — no grant, no payment event", async () => {
     const { service, emit, addQuotaTopup, findActivePlanForPostingAndPayer } = make();
     await expectMismatch(
-      service.topUpQuotaForPayer(
+      service.topUpQuotaInScope(
         POSTING,
-        SESSION_PAYER,
+        await ownScope(SESSION_PAYER),
         { tier: "topup_10", expected_price_inr: 900 },
         CTX,
       ),
@@ -733,10 +747,10 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
     expect(ok.upsertCapacity).toHaveBeenCalledOnce();
   });
 
-  it("plan: the payer wrapper forwards expected_price_inr; mismatch writes no plan", async () => {
+  it("plan: the payer seam forwards expected_price_inr; mismatch writes no plan", async () => {
     const { service, insertPlan, emit } = make();
     await expectMismatch(
-      service.buyPlanForPayer(POSTING, SESSION_PAYER, { tier: "standard", expected_price_inr: 1 }, CTX),
+      service.buyPlanInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "standard", expected_price_inr: 1 }, CTX),
       1,
       1000,
     );
@@ -744,10 +758,10 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("boost: the payer wrapper forwards expected_price_inr; mismatch writes no boost", async () => {
+  it("boost: the payer seam forwards expected_price_inr; mismatch writes no boost", async () => {
     const { service, insertBoost, emit, extendPostingBoostWindow } = make();
     await expectMismatch(
-      service.buyBoostForPayer(POSTING, SESSION_PAYER, { tier: "boost_7", expected_price_inr: 500 }, CTX),
+      service.buyBoostInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "boost_7", expected_price_inr: 500 }, CTX),
       500,
       499,
     );
@@ -773,9 +787,9 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
       ],
     });
     const { service } = make({ catalog: cat });
-    const { quote } = await service.topUpQuotaForPayer(
+    const { quote } = await service.topUpQuotaInScope(
       POSTING,
-      SESSION_PAYER,
+      await ownScope(SESSION_PAYER),
       { tier: "topup_10", coupon: "save10", expected_price_inr: 900 },
       CTX,
     );
@@ -817,9 +831,9 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
 
     // The web sends the price it showed; the charge accepts it and takes exactly that.
     const { service, emit } = make({ catalog: cat });
-    const { quote } = await service.topUpQuotaForPayer(
+    const { quote } = await service.topUpQuotaInScope(
       POSTING,
-      SESSION_PAYER,
+      await ownScope(SESSION_PAYER),
       { tier: "topup_10", expected_price_inr: shown.price_inr },
       CTX,
     );
@@ -831,9 +845,9 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
     // A client still showing the LIST price is refused rather than silently charged ₹750.
     const stale = make({ catalog: cat });
     await expectMismatch(
-      stale.service.topUpQuotaForPayer(
+      stale.service.topUpQuotaInScope(
         POSTING,
-        SESSION_PAYER,
+        await ownScope(SESSION_PAYER),
         { tier: "topup_10", expected_price_inr: 1000 },
         CTX,
       ),
@@ -841,5 +855,337 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
       750,
     );
     expect(stale.addQuotaTopup).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) P2c — plans, boosts, quota top-ups, capacity and coupons follow the
+// TENANT; every event names the acting LOGIN. The REAL resolver over an in-memory membership
+// table; the repository fakes below answer by the tenant key they are handed, exactly as their
+// WHERE does (`payer_id = $tenant`), so a call keyed by the wrong id reads the wrong world.
+// ---------------------------------------------------------------------------
+describe("ADR-0053 P2c — PostingPlansService follows the TENANT", () => {
+  const ANCHOR = PAYER;
+  const MEMBER = "66666666-6666-4666-8666-666666666666";
+  const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+  const PAUSED = { id: "old-1", jobPostingId: "jp-1", expiresAt: null };
+  const SAVE10 = parseCatalog({
+    ...DEFAULT_CATALOG,
+    coupons: [
+      {
+        code: "save10",
+        scope: { productCode: "job_posting" },
+        kind: "percent",
+        value: 10,
+        from: "2026-01-01T00:00:00.000Z",
+        until: "2099-01-01T00:00:00.000Z",
+        totalUsageCap: 100,
+        perPayerLimit: 1,
+      },
+    ],
+  });
+
+  /**
+   * The ANCHOR owns everything: one active plan on POSTING (which also uses the org's whole
+   * allowance of 1), a paused plan, a capacity row of 1, and one redemption of `save10`. The
+   * teammate owns nothing under their own key.
+   */
+  function teamWorld(tenancy: PayerTenantScopeService, opts: Parameters<typeof make>[0] = {}) {
+    const d = make({ capacityDefault: 1, ...opts, tenancy });
+    const theOrg = (tenant: string) => tenant === ANCHOR;
+    d.countActivePlansForPayer.mockImplementation(async (_tx: unknown, tenant: string) =>
+      theOrg(tenant) ? 1 : 0,
+    );
+    d.getCapacity.mockImplementation(async (tenant: string) =>
+      theOrg(tenant) ? { maxActiveVacancies: 1, sourceTier: "cap_1", expiresAt: null } : undefined,
+    );
+    d.listPausedPlansForPayer.mockImplementation(async (_tx: unknown, tenant: string) =>
+      theOrg(tenant) ? [PAUSED] : [],
+    );
+    d.findActivePlanForPostingAndPayer.mockImplementation(async (_p: string, tenant: string) =>
+      theOrg(tenant) ? { id: "p-1", quotaTopupCount: 0 } : undefined,
+    );
+    d.addQuotaTopup.mockImplementation(async (id: string, tenant: string, delta: number) =>
+      theOrg(tenant) ? { id, quotaTopupCount: delta } : undefined,
+    );
+    d.couponUsage.mockImplementation(async (_code: string, tenant: string) => ({
+      total: 1,
+      perPayer: theOrg(tenant) ? 1 : 0,
+    }));
+    return { ...d, resolve: vi.spyOn(tenancy, "resolve") };
+  }
+
+  type Emitted = {
+    event_name: string;
+    actor: unknown;
+    subject: unknown;
+    payload: Record<string, unknown>;
+  };
+  const emitted = (emit: ReturnType<typeof vi.fn>): Emitted[] =>
+    emit.mock.calls.map((c) => c[0] as Emitted);
+  const asMember = { actor_type: "payer", actor_id: MEMBER };
+
+  it("on: a teammate's plan on the org's posting is the ORG's — locked, counted and capped by the anchor's allowance, stamped with the anchor", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const d = teamWorld(tenancy, { enforceCapacity: true });
+    const res = await d.service.buyPlanInScope(
+      POSTING,
+      await tenancy.resolve(MEMBER),
+      { tier: "standard" },
+      CTX,
+    );
+
+    expect(d.lockPayer).toHaveBeenCalledWith(expect.anything(), ANCHOR);
+    expect(d.getCapacity).toHaveBeenCalledWith(ANCHOR, expect.anything());
+    expect(d.countActivePlansForPayer).toHaveBeenCalledWith(
+      expect.anything(),
+      ANCHOR,
+      expect.any(Date),
+    );
+    // The org already uses its whole allowance (1 of 1), so the teammate's plan is paused.
+    expect(res.paused).toBe(true);
+    expect(d.insertPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ jobPostingId: POSTING, payerId: ANCHOR, status: "paused" }),
+      expect.anything(),
+    );
+    const events = emitted(d.emit);
+    expect(events.map((e) => e.event_name)).toEqual([
+      "payment.authorized",
+      "payment.captured",
+      "job_posting.purchased",
+      "posting_plan.paused",
+    ]);
+    for (const e of events) expect(e.payload.payer_id, e.event_name).toBe(ANCHOR);
+    for (const e of events.slice(0, 3)) expect(e.actor, e.event_name).toEqual(asMember);
+    expect(events[3]!.actor).toEqual({ actor_type: "system" });
+  });
+
+  it("off (the default): the SAME teammate buys under their own key — own lock, own count, own stamp, as today", async () => {
+    const tenancy = defaultModeResolver(TEAM);
+    const d = teamWorld(tenancy, { enforceCapacity: true });
+    const res = await d.service.buyPlanInScope(
+      POSTING,
+      await tenancy.resolve(MEMBER),
+      { tier: "standard" },
+      CTX,
+    );
+
+    expect(d.lockPayer).toHaveBeenCalledWith(expect.anything(), MEMBER);
+    expect(d.countActivePlansForPayer).toHaveBeenCalledWith(
+      expect.anything(),
+      MEMBER,
+      expect.any(Date),
+    );
+    expect(res.paused).toBe(false); // the teammate's own (empty) allowance
+    expect(d.insertPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: MEMBER, status: "active" }),
+      expect.anything(),
+    );
+    for (const e of emitted(d.emit)) {
+      expect(e.payload.payer_id).toBe(MEMBER);
+      expect(e.actor).toEqual(asMember);
+    }
+  });
+
+  it("on: the ops routes resolve the body payer_id through the SAME resolver, once (§5.2 rule 4)", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const plan = teamWorld(tenancy);
+    await plan.service.buyPlan(POSTING, { payer_id: MEMBER, tier: "standard" }, CTX);
+    expect(plan.resolve).toHaveBeenCalledTimes(1);
+    expect(plan.resolve).toHaveBeenCalledWith(MEMBER);
+    expect(plan.insertPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: ANCHOR }),
+      expect.anything(),
+    );
+    const purchased = emitted(plan.emit).find((e) => e.event_name === "job_posting.purchased")!;
+    expect(purchased.actor).toEqual(asMember);
+
+    const boost = teamWorld(tenancy);
+    boost.resolve.mockClear();
+    await boost.service.buyBoost(POSTING, { payer_id: MEMBER, tier: "boost_7" }, CTX);
+    expect(boost.resolve).toHaveBeenCalledTimes(1);
+    expect(boost.insertBoost).toHaveBeenCalledWith(expect.objectContaining({ payerId: ANCHOR }));
+  });
+
+  it("on: a teammate's boost is the ORG's receipt; job_posting.boosted and a refusal name the org as payer, the login as actor", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const d = teamWorld(tenancy);
+    await d.service.buyBoostInScope(POSTING, await tenancy.resolve(MEMBER), { tier: "boost_7" }, CTX);
+    expect(d.insertBoost).toHaveBeenCalledWith(
+      expect.objectContaining({ jobPostingId: POSTING, payerId: ANCHOR }),
+    );
+    const boosted = emitted(d.emit).find((e) => e.event_name === "job_posting.boosted")!;
+    expect(boosted).toMatchObject({ actor: asMember, payload: { payer_id: ANCHOR } });
+
+    const refused = teamWorld(tenancy, { boostSupplyFloor: 25, reachTotal: 4 });
+    await expect(
+      refused.service.buyBoostInScope(
+        POSTING,
+        await tenancy.resolve(MEMBER),
+        { tier: "boost_7" },
+        CTX,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(emitted(refused.emit)).toEqual([
+      expect.objectContaining({
+        event_name: "job_posting.boost_refused",
+        actor: asMember,
+        payload: expect.objectContaining({ payer_id: ANCHOR }),
+      }),
+    ]);
+  });
+
+  it("on: a teammate tops up the ORG's plan — found and incremented under the anchor's key; off: the org's plan is not theirs (409)", async () => {
+    const on = resolverOver(ON, TEAM);
+    const d = teamWorld(on);
+    const { plan } = await d.service.topUpQuotaInScope(
+      POSTING,
+      await on.resolve(MEMBER),
+      { tier: "topup_10" },
+      CTX,
+    );
+    expect(d.findActivePlanForPostingAndPayer).toHaveBeenCalledWith(
+      POSTING,
+      ANCHOR,
+      expect.any(Date),
+    );
+    expect(d.addQuotaTopup).toHaveBeenCalledWith("p-1", ANCHOR, 10, expect.any(Date));
+    expect(plan.quotaTopupCount).toBe(10);
+    const topped = emitted(d.emit).find((e) => e.event_name === "posting_plan.quota_topped")!;
+    expect(topped).toMatchObject({ actor: asMember, payload: { payer_id: ANCHOR, plan_id: "p-1" } });
+
+    const offTenancy = defaultModeResolver(TEAM);
+    const off = teamWorld(offTenancy);
+    const err = await off.service
+      .topUpQuotaInScope(POSTING, await offTenancy.resolve(MEMBER), { tier: "topup_10" }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ reason: "no_active_plan" });
+    expect(off.findActivePlanForPostingAndPayer).toHaveBeenCalledWith(
+      POSTING,
+      MEMBER,
+      expect.any(Date),
+    );
+    expect(off.emit).not.toHaveBeenCalled();
+  });
+
+  it("on: a teammate's capacity purchase raises the ORG's allowance and resumes the org's paused plan; the response echoes the caller", async () => {
+    const d = teamWorld(resolverOver(ON, TEAM));
+    const res = await d.service.buyCapacity(MEMBER, { tier: "cap_5" }, CTX);
+
+    expect(d.resolve).toHaveBeenCalledTimes(1);
+    expect(d.lockPayer).toHaveBeenCalledWith(expect.anything(), ANCHOR);
+    expect(d.upsertCapacity).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: ANCHOR, maxActiveVacancies: 5 }),
+      expect.anything(),
+    );
+    expect(d.countActivePlansForPayer).toHaveBeenCalledWith(
+      expect.anything(),
+      ANCHOR,
+      expect.any(Date),
+    );
+    expect(d.listPausedPlansForPayer).toHaveBeenCalledWith(expect.anything(), ANCHOR);
+    expect(res).toMatchObject({ payer_id: MEMBER, resumed_plan_ids: ["old-1"] });
+
+    const events = emitted(d.emit);
+    for (const e of events) expect(e.payload.payer_id, e.event_name).toBe(ANCHOR);
+    const purchased = events.find((e) => e.event_name === "capacity.purchased")!;
+    expect(purchased).toMatchObject({
+      actor: asMember,
+      subject: { subject_type: "pricing_plan", subject_id: ANCHOR },
+    });
+    for (const e of events.filter((x) => x.event_name.startsWith("payment."))) {
+      expect(e).toMatchObject({
+        actor: asMember,
+        subject: { subject_type: "pricing_plan", subject_id: ANCHOR },
+      });
+    }
+    const resumed = events.find((e) => e.event_name === "posting_plan.resumed")!;
+    expect(resumed.actor).toEqual({ actor_type: "system" });
+  });
+
+  it("on: a teammate's capacity view is the ORG's allowance and live count; payer_id echoes the caller (§10)", async () => {
+    const d = teamWorld(resolverOver(ON, TEAM));
+    const view = await d.service.getCapacity(MEMBER);
+    expect(d.resolve).toHaveBeenCalledTimes(1);
+    expect(d.getCapacity).toHaveBeenCalledWith(ANCHOR, expect.anything());
+    expect(d.countActivePlansForPayer).toHaveBeenCalledWith(
+      expect.anything(),
+      ANCHOR,
+      expect.any(Date),
+    );
+    expect(view).toMatchObject({
+      payer_id: MEMBER,
+      max_active_vacancies: 1,
+      active_plan_count: 1,
+      source_tier: "cap_1",
+    });
+
+    const off = teamWorld(defaultModeResolver(TEAM));
+    expect(await off.service.getCapacity(MEMBER)).toMatchObject({
+      payer_id: MEMBER,
+      max_active_vacancies: 1, // the config default: the teammate has no row of their own
+      active_plan_count: 0,
+      source_tier: null,
+    });
+  });
+
+  it("O-4: a coupon's per-payer limit is per ORG in `on` — the org has used it, so the teammate pays full price", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const d = teamWorld(tenancy, { catalog: SAVE10 });
+    const { quote } = await d.service.buyPlanInScope(
+      POSTING,
+      await tenancy.resolve(MEMBER),
+      { tier: "standard", coupon: "save10" },
+      CTX,
+    );
+    expect(d.couponUsage).toHaveBeenCalledWith("save10", ANCHOR);
+    expect(quote.couponApplied).toBeNull();
+    expect(quote.finalInr).toBe(1000);
+    expect(emitted(d.emit).map((e) => e.event_name)).not.toContain("coupon.redeemed");
+  });
+
+  it("O-4: a redemption is stamped with the ORG (so it counts against the org), the login as actor; in `off` it is the login's own", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const d = teamWorld(tenancy, { catalog: SAVE10 });
+    d.couponUsage.mockResolvedValue({ total: 0, perPayer: 0 }); // nobody has used it yet
+    const { quote } = await d.service.buyPlanInScope(
+      POSTING,
+      await tenancy.resolve(MEMBER),
+      { tier: "standard", coupon: "save10" },
+      CTX,
+    );
+    expect(quote.couponApplied).toBe("save10");
+    expect(emitted(d.emit).find((e) => e.event_name === "coupon.redeemed")).toMatchObject({
+      actor: asMember,
+      subject: { subject_type: "pricing_plan", subject_id: ANCHOR },
+      payload: { coupon_code: "save10", payer_id: ANCHOR },
+    });
+
+    const offTenancy = defaultModeResolver(TEAM);
+    const off = teamWorld(offTenancy, { catalog: SAVE10 });
+    const own = await off.service.buyPlanInScope(
+      POSTING,
+      await offTenancy.resolve(MEMBER),
+      { tier: "standard", coupon: "save10" },
+      CTX,
+    );
+    expect(off.couponUsage).toHaveBeenCalledWith("save10", MEMBER);
+    expect(own.quote.couponApplied).toBe("save10"); // the org's redemption is not the teammate's
+    const redeemed = emitted(off.emit).find((e) => e.event_name === "coupon.redeemed")!;
+    expect(redeemed.payload.payer_id).toBe(MEMBER);
+  });
+
+  it("the *InScope seams never resolve: they use the scope their caller already resolved", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const scope = await tenancy.resolve(MEMBER);
+    const d = teamWorld(tenancy);
+    d.resolve.mockClear();
+    await d.service.buyPlanInScope(POSTING, scope, { tier: "standard" }, CTX);
+    await d.service.buyBoostInScope(POSTING, scope, { tier: "boost_7" }, CTX);
+    await d.service.topUpQuotaInScope(POSTING, scope, { tier: "topup_10" }, CTX);
+    await d.service.getPostingStats(POSTING, scope.tenantKey);
+    expect(d.resolve).not.toHaveBeenCalled();
   });
 });

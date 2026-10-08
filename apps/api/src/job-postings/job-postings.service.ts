@@ -411,7 +411,17 @@ export class JobPostingsService {
     actorPayerId: string,
     query: ListJobPostingsQueryDto,
   ): Promise<JobPostingApi[]> {
-    const scope = await this.tenancy.resolve(actorPayerId);
+    return this.listInScope(await this.tenancy.resolve(actorPayerId), query);
+  }
+
+  /**
+   * {@link listForPayer} for a caller that already resolved the scope (the payer postings
+   * list, which reads each row's plan stats in the same scope — one resolution per request).
+   */
+  async listInScope(
+    scope: PayerTenantScope,
+    query: ListJobPostingsQueryDto,
+  ): Promise<JobPostingApi[]> {
     return this.repo.listByPayer(scope.tenantKey, query.status);
   }
 

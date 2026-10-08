@@ -196,6 +196,10 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 - **Hazard for P2b/P2c (N+1):** `PayerJobPostingsController.enrich` calls `getPostingStats` and
   `countDisclosuresForPosting` once PER POSTING with the raw session id. If those resolve inside,
   `GET /payer/job-postings` resolves N+1 times (ADR §5.4 budget); give them a scope-taking seam.
+  *P2c half CLOSED (§3.3 as built):* the stats now come from `PayerPostingPlansService`
+  (`listWithStats` / `getOneWithStats`), read with the key the posting read used — one
+  resolution per request. `countDisclosuresForPosting` is P2b's: it should take the same scope
+  (count inside the seam, or a scope-taking variant) rather than resolve per posting.
 - **Hazard for P2c (split purchase, review of PR #2167):** the plan, boost and quota-top-up
   routes (`POST /payer/job-postings/:id/plan` · `/boost` · `/quota-topup`) check ownership
   through `getOneForPayer` — the ORG after P2a — but then purchase through
@@ -203,7 +207,8 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
   teammate would pass the org's ownership check and buy under their own login and wallet. P2c
   must give these three routes ONE scope-taking seam (resolve once, check ownership and purchase
   with the same scope). The deploy preflight refuses `on` until P3 (risk R66), so this cannot
-  be reached in production.
+  be reached in production. *CLOSED in P2c (§3.3 as built): `PayerPostingPlansService
+  .forOwnedPosting`.*
 
 ### 3.2 P2b — money: unlocks, credits, ledger, payment orders, disclosures, relay
 
@@ -235,6 +240,54 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 | `apps/api/src/posting-plans/posting-plans.service.ts` | `getPostingStats` `:161` · plan purchase `:186-241` · boost · quota top-up · `buyCapacity` `:440` · `getCapacity` `:510` · emitters (`payment.*`, `coupon.redeemed`, `capacity.purchased`, `posting_plan.*`) per ADR §7 |
 | `apps/api/src/payer-portal/payer-capacity.controller.ts` · `payer-job-postings.controller.ts` (`:205`, `:234`, `:273`) | verify only |
 | `apps/api/src/posting-plans/posting-plans.controller.ts` (ops `POST /job-postings/:id/plan` and `/boost`, body `payer_id`) | resolves through the service (rule 4) |
+
+**As built (P2c PR, 2026-10-08).** Line numbers above are the plan's baseline; the shipped shape:
+
+- **Converted (T5 allowlist −6, exactly the six P2c entries):** `PostingPlansRepository.{addQuotaTopup,
+  countActivePlansForPayer, findActivePlanForPostingAndPayer, getCapacity, listPausedPlansForPayer,
+  upsertCapacity}` take a `TenantKey`.
+- **Hand-converted (T5 blind spots 1–4):** `lockPayer` (the capacity advisory lock — per tenant, so
+  two members of one org serialize on one lock) and `couponUsage` (**O-4**) take a `TenantKey`;
+  `insertPlan` / `insertBoost` take `NewTenantPostingPlan` / `NewTenantPostingBoost` (`payerId:
+  TenantKey`). A `TenantKey` is assignable to `string`, so a revert of any of them would still
+  compile: `payer-tenancy.static.test.ts` now pins blind spots 1–5 by their written signatures
+  (5 is P2a's `JobPostingsRepository.create`).
+- **The split-purchase hazard (§3.1) — ONE seam:** `apps/api/src/payer-portal/payer-posting-plans
+  .service.ts` (`PayerPostingPlansService`). `forOwnedPosting(id, sessionPayer)` resolves ONCE,
+  checks ownership with `JobPostingsService.getOneInScope` in that scope (the same no-oracle 404),
+  and returns the three purchases bound to that scope and posting. The controller checks
+  ownership BEFORE the `Idempotency-Key` reservation (an unknown/foreign id still mints no Redis
+  key) and runs the bound purchase inside it; the reservation subject stays the login.
+  `PostingPlansService.{buyPlanForPayer, buyBoostForPayer, topUpQuotaForPayer}` are REMOVED (each
+  re-derived the payer from a raw id); the composed seams are `buyPlanInScope` /
+  `buyBoostInScope` / `topUpQuotaInScope`.
+- **Correction to the table above:** `payer-job-postings.controller.ts` is NOT "verify only". Its
+  three paid routes and its two reads changed (the reads take `listWithStats` /
+  `getOneWithStats` from the seam, closing the P2c half of the N+1 hazard). Controllers still
+  pass only `payer.id`. A new `JobPostingsService.listInScope` serves the list.
+- **Resolution points:** the seam's three entry points; `PostingPlansService.buyCapacity` /
+  `getCapacity` (session payer); the ops `buyPlan` / `buyBoost` (body `payer_id`, rule 4).
+  `getPostingStats` takes the key its caller resolved.
+- **Event meaning (ADR §7):** `payment.authorized/captured`, `job_posting.purchased`,
+  `job_posting.boosted`, `job_posting.boost_refused` (a boost event), `posting_plan.quota_topped`,
+  `capacity.purchased`, `coupon.redeemed` — envelope actor = the login, payload `payer_id` = the
+  tenant; a payer-keyed `pricing_plan` subject (capacity, coupon, a capacity `payment.*`) = the
+  tenant. `posting_plan.paused/resumed` stay system-actor with the tenant in the payload.
+- **Response meaning (ADR §10):** `GET`/`POST /payer/capacity` `payer_id` ECHOES THE CALLER (as
+  `GET /payer/credits` does); the allowance, the live `active_plan_count` and the resumed plans
+  are the tenant's. A plan / boost row's `payerId` is the stored tenant key.
+- **Ops routes with an opaque `payer_id`:** in `on` the resolver refuses an id that names no payer
+  (R4, then R7: a neutral 403). `tests/e2e/payer-capacity.e2e.test.ts` drove the ops plan route
+  with bare `randomUUID()` payers (the alpha "opaque rail"); it now mints real payers through the
+  test-login seam — the same change P2b made to `contact-unlock.e2e`. Under `on` the old suite
+  had every buy 403 and its faceless case passed with nothing bought.
+- **Tests:** unit on/off per converted path (`posting-plans.service.test.ts`), the seam
+  (`payer-posting-plans.service.test.ts`), Postgres T2/T7 + the concurrency case
+  (`payer-org-tenancy.db.test.ts` "P2c": a teammate's plan / top-up / boost / capacity is the
+  org's; an outsider gets the unknown-id 404 and writes nothing; per-org coupon limit; the anchor
+  and a teammate buying at once leave exactly the org's allowance active), and e2e in mode `on`
+  (`payer-tenancy.e2e.test.ts` "P2c"; boosts and coupons only against Postgres — a fresh posting
+  fails the boost supply gate and the live catalog has no coupon).
 
 ### 3.4 P2d — agency
 
@@ -282,7 +335,9 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
    3. `PostingPlansRepository.insertPlan`, 4. `insertBoost`, 5. `JobPostingsRepository.create` —
       the payer id rides a Drizzle insert type (`New…`) from packages/db, which T5 does not read.
       Same for any parameter typed by a type declared outside apps/api/src. *(5 hand-converted in
-      P2a: `NewTenantJobPosting`.)*
+      P2a: `NewTenantJobPosting`. 1–4 hand-converted in P2c: `TenantKey` parameters and
+      `NewTenantPostingPlan` / `NewTenantPostingBoost`. 1–5 are pinned by their signatures in
+      `payer-tenancy.static.test.ts`.)*
    6. A raw id under a name outside T5's pattern (`payerId` / `*PayerId` / `agencyId`) — e.g.
       `ownerId`, `tenantId`, a bare `id`.
    7. A parameter typed `any` / `unknown` carrying a payer id.

@@ -17,6 +17,8 @@ import { PricingService } from "../pricing/pricing.service";
 import { assertExpectedPrice, chargeQuote } from "../pricing/charge-price";
 import { MatchConfigService } from "../match/match-config.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import { PostingPlansRepository } from "./posting-plans.repository";
 import { noActivePlanToTopUp } from "./no-active-plan-conflict";
 import { assertNotAgencyTwin } from "../common/agency-twin-fence";
@@ -60,12 +62,26 @@ export interface BuyPlanResult {
   wouldPause: boolean;
 }
 
+/** A boost purchase's result (the receipt row + the charged quote). */
+export interface BuyBoostResult {
+  boost: PostingBoost;
+  quote: Quote;
+}
+
+/** A quota top-up's result (the topped-up plan + the charged quote). */
+export interface TopUpQuotaResult {
+  plan: PostingPlan;
+  quote: Quote;
+}
+
 /**
  * The payer-self capacity read (GET /payer/capacity). PII-free: opaque payer_id, counts,
  * a catalog tier code, and a window timestamp only. `active_plan_count` is the DERIVED
- * live count of the AUTHENTICATED payer's currently-active plans (status='active', not
- * expired) — added additively (ADR-0016 / payer-portal hardening A3): the allowance
+ * live count of the TENANT's currently-active plans (status='active', not expired) —
+ * added additively (ADR-0016 / payer-portal hardening A3): the allowance
  * (`max_active_vacancies`) vs how much of it is in use, so the portal can show headroom.
+ * `payer_id` ECHOES THE CALLER (the session login), like `GET /payer/credits` (ADR-0053 §10);
+ * the allowance and the count are the tenant's.
  */
 export interface CapacityView {
   payer_id: string;
@@ -77,6 +93,7 @@ export interface CapacityView {
 }
 
 export interface BuyCapacityResult {
+  /** Echoes the caller (the session login), as {@link CapacityView.payer_id} does. */
   payer_id: string;
   quote: Quote;
   /** The allowance after this purchase (the catalog grant, raised). */
@@ -120,6 +137,20 @@ export interface BuyCapacityResult {
  * key fails CLOSED at boot (assertPaymentsConfig). No PayerAuthGuard in alpha (launch
  * gate, LC-1): the capacity endpoint is InternalServiceGuard-only and the `payer_id` it
  * acts on is ADVISORY (caller-supplied route param), documented on the controller + DTO.
+ *
+ * ORG TENANCY (ADR-0053, PAY-DB-01 P2c). Every entry point resolves the caller ONCE through
+ * {@link PayerTenantScopeService} — the session payer and the ops body's `payer_id` alike
+ * (§5.2 rules 1, 4) — or takes the scope its composed caller already resolved (`*InScope`,
+ * the payer posting routes' one seam: `PayerPostingPlansService`). From there:
+ *  - every `posting_plans` / `posting_boosts` / `payer_capacity` predicate and stamp, the
+ *    capacity advisory lock and the coupon count use the TENANT key: the org buys, counts
+ *    against and is capped by ONE allowance, and a coupon's per-payer limit is per org (O-4);
+ *  - every event's envelope actor is the ACTING LOGIN, and its payload `payer_id` (and a
+ *    payer-keyed subject) the tenant (§7). `posting_plan.paused/resumed` stay system-actor;
+ *  - a response field that echoes the caller (`payer_id` on the capacity views) stays the
+ *    caller (§10).
+ * In mode `off` the tenant is the caller itself, so rows, events and responses are unchanged.
+ * No money moves: a purchase writes a new row (or raises the allowance) under the key.
  */
 /**
  * Read-only per-posting stats derived from the ACTIVE plan + boost — the honest
@@ -150,19 +181,24 @@ export class PostingPlansService {
     // reach count from `job_reach`. MatchModule is @Global, so no new import edge.
     private readonly matchConfig: MatchConfigService,
     private readonly matchReach: WorkerSkillsRepository,
+    // ADR-0053 — the ONE payer tenant resolver (PayersModule, imported by PostingPlansModule).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   /**
-   * The honest per-posting stats for `jobPostingId` OWNED by `payerId`. Reuses the
+   * The honest per-posting stats for `jobPostingId` OWNED by the tenant `tenant`. Reuses the
    * exact active-plan + active-boost predicates the top-up/boost writers use (no
-   * SQL duplication, no divergence). Both reads are payer-scoped (plan) / posting-
+   * SQL duplication, no divergence). Both reads are tenant-scoped (plan) / posting-
    * scoped (boost); a foreign or unknown posting simply yields the empty stats, so
    * this can never become an ownership oracle. Read-only, emits no event.
+   *
+   * Takes the key its caller ALREADY resolved (ADR-0053 §5.4): the payer postings list reads
+   * one stats row per posting, so resolving in here would cost one resolution per posting.
    */
-  async getPostingStats(jobPostingId: string, payerId: string): Promise<PostingStats> {
+  async getPostingStats(jobPostingId: string, tenant: TenantKey): Promise<PostingStats> {
     const now = new Date();
     const [plan, boost] = await Promise.all([
-      this.repo.findActivePlanForPostingAndPayer(jobPostingId, payerId, now),
+      this.repo.findActivePlanForPostingAndPayer(jobPostingId, tenant, now),
       this.repo.findActiveBoost(jobPostingId, now),
     ]);
     return {
@@ -177,14 +213,36 @@ export class PostingPlansService {
     };
   }
 
+  /**
+   * Ops buy-a-plan (`POST /job-postings/:id/plan`, InternalServiceGuard; the body `payer_id` is
+   * ADVISORY). ADR-0053 §5.2 rule 4: that id goes through the SAME resolver as a session payer,
+   * so the plan is its TENANT's and the events name it as the acting login. No posting-ownership
+   * check here, exactly as before (the ops route never had one).
+   */
   async buyPlan(jobPostingId: string, dto: BuyPlanDto, ctx: RequestContext): Promise<BuyPlanResult> {
+    const { payer_id: actorPayerId, ...purchase } = dto;
+    return this.buyPlanInScope(jobPostingId, await this.tenancy.resolve(actorPayerId), purchase, ctx);
+  }
+
+  /**
+   * Buy a plan in a scope the caller already resolved: the ops route above, or the payer
+   * route's one seam (`PayerPostingPlansService.forOwnedPosting`), which checked the posting's
+   * ownership IN THIS SAME SCOPE before handing it here — never a second resolution.
+   */
+  async buyPlanInScope(
+    jobPostingId: string,
+    scope: PayerTenantScope,
+    dto: PayerBuyPlanDto,
+    ctx: RequestContext,
+  ): Promise<BuyPlanResult> {
     const syncSource = await this.repo.findPostingSyncSource(jobPostingId);
     if (syncSource === undefined) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
     }
     // ADR-0050 §4.3 — no plan is ever sold against a system-owned agency twin.
     assertNotAgencyTwin(syncSource);
-    const quote = await this.resolve("job_posting", dto.tier, dto.coupon, dto.payer_id, dto.expected_price_inr);
+    const tenant = scope.tenantKey;
+    const quote = await this.resolve("job_posting", dto.tier, dto.coupon, tenant, dto.expected_price_inr);
     if (quote.grants.kind !== "posting") {
       throw new BadRequestException("resolved product is not a posting plan");
     }
@@ -196,18 +254,19 @@ export class PostingPlansService {
     const now = new Date();
 
     // The whole [count active vacancies → decide status → insertPlan] is ONE transaction
-    // holding the per-payer advisory lock (ADR-0016 / F-2: count-and-write atomic, never
-    // read-then-write). It does NOT emit (deadlock fix) — it returns deferred thunks.
+    // holding the per-TENANT advisory lock (ADR-0016 / F-2: count-and-write atomic, never
+    // read-then-write; ADR-0053 §6: two members of one org serialize on the org's lock).
+    // It does NOT emit (deadlock fix) — it returns deferred thunks.
     const { plan, paused, wouldPause, deferred } = await this.repo.withTransaction(async (tx) => {
       const deferred: DeferredEmit[] = [];
-      await this.repo.lockPayer(tx, dto.payer_id);
+      await this.repo.lockPayer(tx, tenant);
 
-      // allowed = the payer's row, else the config default (NO hard-coded number here).
+      // allowed = the tenant's row, else the config default (NO hard-coded number here).
       // Read on `tx` so it rides the advisory-locked connection — NEVER a second pool
       // connection while the lock is held (ADR-0016 / F-2 deadlock discipline).
-      const capacityRow = await this.repo.getCapacity(dto.payer_id, tx);
+      const capacityRow = await this.repo.getCapacity(tenant, tx);
       const allowed = capacityRow?.maxActiveVacancies ?? this.config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES;
-      const activeNow = await this.repo.countActivePlansForPayer(tx, dto.payer_id, now);
+      const activeNow = await this.repo.countActivePlansForPayer(tx, tenant, now);
       // Decision computed the SAME way under the lock for accuracy; whether it PAUSES
       // depends on the enforcement flag (posture B). A real pause only when enforce && over.
       const overCapacity = activeNow + 1 > allowed;
@@ -216,7 +275,7 @@ export class PostingPlansService {
       const plan = await this.repo.insertPlan(
         {
           jobPostingId,
-          payerId: dto.payer_id,
+          payerId: tenant,
           tier: dto.tier,
           applicantVisibilityQuota: grants.applicantVisibilityQuota,
           status,
@@ -228,18 +287,18 @@ export class PostingPlansService {
 
       // Payment is collected (mock) regardless of paused/active — the receipt is real;
       // a paused plan simply does not serve until capacity frees up (ADR-0016 D3).
-      deferred.push(() => this.emitPayment("payment.authorized", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx));
-      deferred.push(() => this.emitPayment("payment.captured", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx));
-      deferred.push(() => this.emitPurchased(plan.id, jobPostingId, dto, grants, quote, realCall, ctx));
+      deferred.push(() => this.emitPayment("payment.authorized", jobPostingId, scope, quote.finalInr, realCall, ctx));
+      deferred.push(() => this.emitPayment("payment.captured", jobPostingId, scope, quote.finalInr, realCall, ctx));
+      deferred.push(() => this.emitPurchased(plan.id, jobPostingId, scope, dto.tier, grants, quote, realCall, ctx));
       if (enforce && overCapacity) {
         // ENFORCING + over cap → a REAL pause: emit the spine event (event↔state honest).
-        deferred.push(() => this.emitPlanPaused(plan.id, jobPostingId, dto.payer_id, ctx));
+        deferred.push(() => this.emitPlanPaused(plan.id, jobPostingId, tenant, ctx));
       } else if (overCapacity) {
         // SHADOW + over cap → nothing paused, so NO posting_plan.paused (that would assert
         // a pause that did not happen). Record a PII-free would-pause log line instead:
         // opaque ids + counts only — never a name/phone (faceless invariant).
         this.logger.log(
-          `capacity shadow: plan WOULD pause under enforcement — payer_id=${dto.payer_id} plan_id=${plan.id} ` +
+          `capacity shadow: plan WOULD pause under enforcement — payer_id=${tenant} plan_id=${plan.id} ` +
             `job_posting_id=${jobPostingId} activeNow=${activeNow} allowed=${allowed}`,
         );
       }
@@ -249,42 +308,28 @@ export class PostingPlansService {
     // COMMITTED — advisory lock + connection released. Emit the audit events now, then
     // the (PII-free) coupon redemption if one applied.
     await this.flushEvents(deferred);
-    await this.emitCouponIfApplied(quote, dto.payer_id, "job_posting", dto.tier, ctx);
+    await this.emitCouponIfApplied(quote, scope, "job_posting", dto.tier, ctx);
 
     return { plan, quote, paused, wouldPause };
   }
 
   /**
-   * Payer self-serve buy-a-plan (B3 / LC-1 fix). The `payerId` is the VERIFIED SESSION payer
-   * (never a body value — XB-A), stamped into the internal {@link BuyPlanDto} and then run
-   * through {@link buyPlan} UNCHANGED (same price-resolve → mock pay → capacity chokepoint →
-   * spine events). OWNERSHIP of the posting is asserted by the caller (the payer controller's
-   * no-oracle `getOneForPayer`) BEFORE this runs, so a payer can only buy a plan for their own
-   * posting. This is a thin authz-narrowing wrapper — no new payment/event logic.
+   * Ops buy-a-boost (`POST /job-postings/:id/boost`, InternalServiceGuard; ADVISORY body
+   * `payer_id`). Resolved through the same resolver as a session payer (ADR-0053 §5.2 rule 4),
+   * exactly as {@link buyPlan}.
    */
-  buyPlanForPayer(
-    jobPostingId: string,
-    payerId: string,
-    dto: PayerBuyPlanDto,
-    ctx: RequestContext,
-  ): Promise<BuyPlanResult> {
-    return this.buyPlan(jobPostingId, { ...dto, payer_id: payerId }, ctx);
+  async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<BuyBoostResult> {
+    const { payer_id: actorPayerId, ...purchase } = dto;
+    return this.buyBoostInScope(jobPostingId, await this.tenancy.resolve(actorPayerId), purchase, ctx);
   }
 
-  /**
-   * Payer self-serve buy-a-boost (B3 / LC-1 fix). Session `payerId` (XB-A) → {@link buyBoost}
-   * unchanged. Ownership asserted by the caller before this runs (see {@link buyPlanForPayer}).
-   */
-  buyBoostForPayer(
+  /** Buy a boost in a scope the caller already resolved (see {@link buyPlanInScope}). */
+  async buyBoostInScope(
     jobPostingId: string,
-    payerId: string,
+    scope: PayerTenantScope,
     dto: PayerBuyBoostDto,
     ctx: RequestContext,
-  ): Promise<{ boost: PostingBoost; quote: Quote }> {
-    return this.buyBoost(jobPostingId, { ...dto, payer_id: payerId }, ctx);
-  }
-
-  async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<{ boost: PostingBoost; quote: Quote }> {
+  ): Promise<BuyBoostResult> {
     const syncSource = await this.repo.findPostingSyncSource(jobPostingId);
     if (syncSource === undefined) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
@@ -296,7 +341,8 @@ export class PostingPlansService {
     if (await this.repo.findActiveBoost(jobPostingId, now)) {
       throw new ConflictException("an active boost already exists for this posting");
     }
-    const quote = await this.resolve("job_boost", dto.tier, dto.coupon, dto.payer_id, dto.expected_price_inr);
+    const tenant = scope.tenantKey;
+    const quote = await this.resolve("job_boost", dto.tier, dto.coupon, tenant, dto.expected_price_inr);
     if (quote.grants.kind !== "boost") {
       throw new BadRequestException("resolved product is not a boost");
     }
@@ -310,14 +356,14 @@ export class PostingPlansService {
     //
     // BEFORE ANY PAYMENT EVENT, deliberately: a refusal must not leave a
     // `payment.authorized` on the spine for money that was never taken.
-    await this.assertBoostSupply(jobPostingId, dto.payer_id, dto.tier, ctx);
+    await this.assertBoostSupply(jobPostingId, scope, dto.tier, ctx);
 
     const realCall = areRealPaymentsEnabled(this.config);
 
-    await this.emitPayment("payment.authorized", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx);
+    await this.emitPayment("payment.authorized", jobPostingId, scope, quote.finalInr, realCall, ctx);
     const boost = await this.repo.insertBoost({
       jobPostingId,
-      payerId: dto.payer_id,
+      payerId: tenant,
       tier: dto.tier,
       status: "active",
       boostStartsAt: now,
@@ -333,12 +379,12 @@ export class PostingPlansService {
     // to N days from today — that would be selling a man time he already owns and
     // taking some away.
     await this.repo.extendPostingBoostWindow(jobPostingId, quote.grants.boostDays);
-    await this.emitPayment("payment.captured", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx);
+    await this.emitPayment("payment.captured", jobPostingId, scope, quote.finalInr, realCall, ctx);
 
     const boosted: PayloadInputOf<"job_posting.boosted"> = {
       boost_id: boost.id,
       job_posting_id: jobPostingId,
-      payer_id: dto.payer_id,
+      payer_id: tenant,
       tier: dto.tier,
       boost_days: quote.grants.boostDays,
       price_inr: quote.finalInr,
@@ -346,38 +392,40 @@ export class PostingPlansService {
     };
     await this.events.emit({
       event_name: "job_posting.boosted",
-      actor: { actor_type: "payer", actor_id: dto.payer_id },
+      actor: payerActor(scope),
       subject: { subject_type: "job_posting", subject_id: jobPostingId },
       payload: boosted,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
-    await this.emitCouponIfApplied(quote, dto.payer_id, "job_boost", dto.tier, ctx);
+    await this.emitCouponIfApplied(quote, scope, "job_boost", dto.tier, ctx);
 
     return { boost, quote };
   }
 
   /**
    * Payer self-serve quota top-up (B2). Buys additional applicant-visibility views for one of
-   * the payer's OWN active posting plans ("view more → pay more"), resolved through the ONE
-   * pricing engine (ADR-0013 — a `quota_topup` catalog product). The `payerId` is the verified
-   * SESSION payer (never a body value — XB-A). Posting ownership is asserted by the caller
-   * (the payer controller's no-oracle `getOneForPayer`) BEFORE this runs.
+   * the tenant's OWN active posting plans ("view more → pay more"), resolved through the ONE
+   * pricing engine (ADR-0013 — a `quota_topup` catalog product). The scope is the verified
+   * SESSION payer's, resolved ONCE by the payer route's seam (`PayerPostingPlansService`), which
+   * asserted the posting's ownership IN THAT SAME SCOPE before handing it here (no body value —
+   * XB-A; no second resolution — ADR-0053 §5.2 rule 1).
    *
    * Flow (mirrors buyBoost — a single atomic write, no advisory lock needed): resolve price →
-   * find the payer's ACTIVE, unexpired plan for the posting (409 if none) → mock payment
+   * find the tenant's ACTIVE, unexpired plan for the posting (409 if none) → mock payment
    * (`real_call` honest) → ATOMIC increment quota_topup_count (re-asserting active+owned in the
    * WHERE, so a plan that expired since the read yields a 409, never a phantom grant) → emit
    * posting_plan.quota_topped + payment.* + coupon (all PII-free). The ORIGINAL stamped
    * `applicant_visibility_quota` receipt is never mutated; the top-up accumulates separately.
    */
-  async topUpQuotaForPayer(
+  async topUpQuotaInScope(
     jobPostingId: string,
-    payerId: string,
+    scope: PayerTenantScope,
     dto: PayerTopUpQuotaDto,
     ctx: RequestContext,
-  ): Promise<{ plan: PostingPlan; quote: Quote }> {
-    const quote = await this.resolve(QUOTA_TOPUP_PRODUCT, dto.tier, dto.coupon, payerId, dto.expected_price_inr);
+  ): Promise<TopUpQuotaResult> {
+    const tenant = scope.tenantKey;
+    const quote = await this.resolve(QUOTA_TOPUP_PRODUCT, dto.tier, dto.coupon, tenant, dto.expected_price_inr);
     if (quote.grants.kind !== "quota_topup") {
       throw new BadRequestException("resolved product is not a quota top-up");
     }
@@ -385,9 +433,10 @@ export class PostingPlansService {
     const realCall = areRealPaymentsEnabled(this.config);
     const now = new Date();
 
-    // The plan to top up: the payer's active, unexpired plan for this posting (payer-scoped;
+    // The plan to top up: the tenant's active, unexpired plan for this posting (tenant-scoped;
     // a foreign/absent plan is invisible → 409, no oracle). You must own an active plan first.
-    const target = await this.repo.findActivePlanForPostingAndPayer(jobPostingId, payerId, now);
+    // In `on` a teammate tops up the ORG's plan — whichever member bought it.
+    const target = await this.repo.findActivePlanForPostingAndPayer(jobPostingId, tenant, now);
     // 409 `reason: "no_active_plan"` (#2111) — the same message as before, plus the reason.
     if (!target) throw noActivePlanToTopUp();
 
@@ -395,19 +444,19 @@ export class PostingPlansService {
     // that raced to expiry yields a clean 409 and NO payment event is recorded for a no-op.
     const updated = await this.repo.addQuotaTopup(
       target.id,
-      payerId,
+      tenant,
       grants.additionalVisibilityQuota,
       now,
     );
     if (!updated) throw noActivePlanToTopUp();
 
-    await this.emitPayment("payment.authorized", jobPostingId, payerId, quote.finalInr, realCall, ctx);
-    await this.emitPayment("payment.captured", jobPostingId, payerId, quote.finalInr, realCall, ctx);
+    await this.emitPayment("payment.authorized", jobPostingId, scope, quote.finalInr, realCall, ctx);
+    await this.emitPayment("payment.captured", jobPostingId, scope, quote.finalInr, realCall, ctx);
 
     const payload: PayloadInputOf<"posting_plan.quota_topped"> = {
       plan_id: updated.id,
       job_posting_id: jobPostingId,
-      payer_id: payerId,
+      payer_id: tenant,
       tier: dto.tier,
       quota_added: grants.additionalVisibilityQuota,
       quota_topup_total: updated.quotaTopupCount,
@@ -418,29 +467,34 @@ export class PostingPlansService {
     };
     await this.events.emit({
       event_name: "posting_plan.quota_topped",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: payerActor(scope),
       subject: { subject_type: "posting_plan", subject_id: updated.id },
       payload,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
-    await this.emitCouponIfApplied(quote, payerId, QUOTA_TOPUP_PRODUCT, dto.tier, ctx);
+    await this.emitCouponIfApplied(quote, scope, QUOTA_TOPUP_PRODUCT, dto.tier, ctx);
 
     return { plan: updated, quote };
   }
 
   /**
-   * Buy/upgrade per-payer hiring capacity (ADR-0016) + AUTO-RESUME paused plans.
+   * Buy/upgrade the tenant's hiring capacity (ADR-0016) + AUTO-RESUME paused plans.
    * Flow: resolve the capacity tier price → mock payment (real_call honest) →
    * upsertCapacity (RAISE the allowance, stamp source_tier + expires_at from
-   * validityDays) → emit capacity.purchased + payment.* → under a per-payer advisory
+   * validityDays) → emit capacity.purchased + payment.* → under a per-tenant advisory
    * lock, recompute the allowance and flip paused→active oldest-first up to
    * (allowed − currentActive), deferring a posting_plan.resumed per resumed plan, fired
    * post-commit. Idempotency: the advisory-locked recompute is naturally safe and the
    * upsert is keyed on payer_id with a GREATEST guard (a replay never lowers the grant).
+   *
+   * `actorPayerId` is the SESSION payer, resolved ONCE here (ADR-0053): in `on` a member's
+   * purchase raises the ORG's one allowance and resumes the org's paused plans.
    */
-  async buyCapacity(payerId: string, dto: BuyCapacityDto, ctx: RequestContext): Promise<BuyCapacityResult> {
-    const quote = await this.resolve(CAPACITY_PRODUCT, dto.tier, dto.coupon, payerId, dto.expected_price_inr);
+  async buyCapacity(actorPayerId: string, dto: BuyCapacityDto, ctx: RequestContext): Promise<BuyCapacityResult> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const tenant = scope.tenantKey;
+    const quote = await this.resolve(CAPACITY_PRODUCT, dto.tier, dto.coupon, tenant, dto.expected_price_inr);
     if (quote.grants.kind !== "capacity") {
       throw new BadRequestException("resolved product is not a capacity grant");
     }
@@ -449,15 +503,20 @@ export class PostingPlansService {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + grants.validityDays * MS_PER_DAY);
 
-    // Auto-resume runs under the per-payer advisory lock so it cannot race a concurrent
+    // Auto-resume runs under the per-tenant advisory lock so it cannot race a concurrent
     // buyPlan (count-and-write atomic; ADR-0016 / F-2). The upsert is performed INSIDE
     // the same locked tx so the recompute sees the raised allowance. NO emit in the tx.
     const { resumedPlanIds, deferred } = await this.repo.withTransaction(async (tx) => {
       const deferred: DeferredEmit[] = [];
-      await this.repo.lockPayer(tx, payerId);
+      await this.repo.lockPayer(tx, tenant);
 
       await this.repo.upsertCapacity(
-        { payerId, maxActiveVacancies: grants.maxActiveVacancies, sourceTier: dto.tier, expiresAt },
+        {
+          payerId: tenant,
+          maxActiveVacancies: grants.maxActiveVacancies,
+          sourceTier: dto.tier,
+          expiresAt,
+        },
         tx,
       );
 
@@ -466,12 +525,12 @@ export class PostingPlansService {
       // upsert guard means the live allowance is at least this), avoiding a re-read of
       // our own in-tx write. The active count IS read tx-scoped under the advisory lock.
       const allowed = grants.maxActiveVacancies;
-      const activeNow = await this.repo.countActivePlansForPayer(tx, payerId, now);
+      const activeNow = await this.repo.countActivePlansForPayer(tx, tenant, now);
       let headroom = allowed - activeNow;
 
       const resumedPlanIds: string[] = [];
       if (headroom > 0) {
-        const paused = await this.repo.listPausedPlansForPayer(tx, payerId);
+        const paused = await this.repo.listPausedPlansForPayer(tx, tenant);
         for (const plan of paused) {
           if (headroom <= 0) break;
           // Skip a paused plan whose own validity window has expired — it should not
@@ -479,22 +538,23 @@ export class PostingPlansService {
           if (plan.expiresAt && plan.expiresAt.getTime() <= now.getTime()) continue;
           await this.repo.setPlanStatus(tx, plan.id, "active");
           resumedPlanIds.push(plan.id);
-          deferred.push(() => this.emitPlanResumed(plan.id, plan.jobPostingId, payerId, ctx));
+          deferred.push(() => this.emitPlanResumed(plan.id, plan.jobPostingId, tenant, ctx));
           headroom -= 1;
         }
       }
 
-      deferred.push(() => this.emitPayment("payment.authorized", null, payerId, quote.finalInr, realCall, ctx));
-      deferred.push(() => this.emitPayment("payment.captured", null, payerId, quote.finalInr, realCall, ctx));
-      deferred.push(() => this.emitCapacityPurchased(payerId, dto.tier, grants.maxActiveVacancies, quote.finalInr, realCall, ctx));
+      deferred.push(() => this.emitPayment("payment.authorized", null, scope, quote.finalInr, realCall, ctx));
+      deferred.push(() => this.emitPayment("payment.captured", null, scope, quote.finalInr, realCall, ctx));
+      deferred.push(() => this.emitCapacityPurchased(scope, dto.tier, grants.maxActiveVacancies, quote.finalInr, realCall, ctx));
       return { resumedPlanIds, deferred };
     });
 
     await this.flushEvents(deferred);
-    await this.emitCouponIfApplied(quote, payerId, CAPACITY_PRODUCT, dto.tier, ctx);
+    await this.emitCouponIfApplied(quote, scope, CAPACITY_PRODUCT, dto.tier, ctx);
 
     return {
-      payer_id: payerId,
+      // Echoes the caller (ADR-0053 §10); the allowance is the tenant's.
+      payer_id: scope.actorPayerId,
       quote,
       max_active_vacancies: grants.maxActiveVacancies,
       source_tier: dto.tier,
@@ -504,26 +564,29 @@ export class PostingPlansService {
   }
 
   /**
-   * The payer's current hiring-capacity allowance (ADR-0016) — a PII-free read for the
+   * The tenant's current hiring-capacity allowance (ADR-0016) — a PII-free read for the
    * payer-self portal. Returns the catalog grant + window only (opaque payer_id, codes,
-   * counts; no name/phone). When the payer has no row yet, reports the config default
+   * counts; no name/phone). When the tenant has no row yet, reports the config default
    * allowance so the portal always shows a coherent capacity (no NULL hole).
    */
-  async getCapacity(payerId: string): Promise<CapacityView> {
+  async getCapacity(actorPayerId: string): Promise<CapacityView> {
+    // ADR-0053: the SESSION payer resolved once; the allowance and the count are the tenant's.
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const tenant = scope.tenantKey;
     const now = new Date();
     // Read the allowance row AND the derived live count on ONE tx so the portal sees a
     // consistent snapshot (`active_plan_count` vs `max_active_vacancies`). countActive…
     // is tx-scoped by signature; this is a plain read tx (no advisory lock — display only,
     // not the buy chokepoint). Both reads are PII-free (counts/codes/timestamps only) and
-    // scoped to the AUTHENTICATED payerId (XB-A: never a body/param id).
+    // keyed by the RESOLVED tenant (XB-A: never a body/param id).
     const { row, activePlanCount } = await this.repo.withTransaction(async (tx) => ({
-      row: await this.repo.getCapacity(payerId, tx),
-      activePlanCount: await this.repo.countActivePlansForPayer(tx, payerId, now),
+      row: await this.repo.getCapacity(tenant, tx),
+      activePlanCount: await this.repo.countActivePlansForPayer(tx, tenant, now),
     }));
     const maxActiveVacancies =
       row?.maxActiveVacancies ?? this.config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES;
     return {
-      payer_id: payerId,
+      payer_id: scope.actorPayerId,
       max_active_vacancies: maxActiveVacancies,
       active_plan_count: activePlanCount,
       source_tier: row?.sourceTier ?? null,
@@ -550,7 +613,7 @@ export class PostingPlansService {
    */
   private async assertBoostSupply(
     jobPostingId: string,
-    payerId: string,
+    scope: PayerTenantScope,
     tier: string,
     ctx: RequestContext,
   ): Promise<void> {
@@ -572,7 +635,7 @@ export class PostingPlansService {
 
     const payload: PayloadInputOf<"job_posting.boost_refused"> = {
       job_posting_id: jobPostingId,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       tier,
       reason: "supply_below_floor",
       reach_total: reachTotal,
@@ -580,7 +643,7 @@ export class PostingPlansService {
     };
     await this.events.emit({
       event_name: "job_posting.boost_refused",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: payerActor(scope),
       subject: { subject_type: "job_posting", subject_id: jobPostingId },
       payload,
       correlationId: ctx.correlationId,
@@ -601,16 +664,19 @@ export class PostingPlansService {
    * #2085: when the payer sent the ₹ they confirmed, a different charge price is a 409
    * `price_mismatch`. Every caller resolves BEFORE its first write or payment event, so a
    * refusal charges nothing and leaves no ledger/receipt row behind.
+   *
+   * The coupon's usage is counted for the TENANT (ADR-0053 O-4): a coupon's `perPayerLimit`
+   * is per org once the flag is on, and per login (the login is the tenant) while it is off.
    */
   private async resolve(
     product: string,
     tier: string,
     coupon: string | undefined,
-    payerId: string,
+    tenant: TenantKey,
     expectedPriceInr?: number,
   ): Promise<Quote> {
     const { catalog } = await this.pricing.getActiveCatalog();
-    const usage = coupon ? await this.repo.couponUsage(coupon, payerId) : undefined;
+    const usage = coupon ? await this.repo.couponUsage(coupon, tenant) : undefined;
     const result = chargeQuote(catalog, { productCode: product, tierCode: tier, couponCode: coupon, couponUsage: usage });
     if (!result.ok) throw new BadRequestException(`${product}/${tier} is not available`);
     assertExpectedPrice(expectedPriceInr, result.quote.finalInr);
@@ -637,11 +703,15 @@ export class PostingPlansService {
   }
 
   // ---- Event emitters (all PII-free; ids + codes + enums + counts only) -------
+  // ADR-0053 §7: these are TENANT business events. The envelope actor is the ACTING LOGIN
+  // (`scope.actorPayerId`); every payload `payer_id`, and a payer-keyed subject, is the TENANT
+  // key. No schema changes shape; in mode `off` every value is the caller, exactly as before.
 
   private async emitPurchased(
     planId: string,
     jobPostingId: string,
-    dto: BuyPlanDto,
+    scope: PayerTenantScope,
+    tier: PayerBuyPlanDto["tier"],
     grants: { applicantVisibilityQuota: number; validityDays: number },
     quote: Quote,
     realCall: boolean,
@@ -650,8 +720,8 @@ export class PostingPlansService {
     const purchased: PayloadInputOf<"job_posting.purchased"> = {
       plan_id: planId,
       job_posting_id: jobPostingId,
-      payer_id: dto.payer_id,
-      tier: dto.tier,
+      payer_id: scope.tenantKey,
+      tier,
       applicant_visibility_quota: grants.applicantVisibilityQuota,
       validity_days: grants.validityDays,
       price_inr: quote.finalInr,
@@ -661,7 +731,7 @@ export class PostingPlansService {
     };
     await this.events.emit({
       event_name: "job_posting.purchased",
-      actor: { actor_type: "payer", actor_id: dto.payer_id },
+      actor: payerActor(scope),
       subject: { subject_type: "job_posting", subject_id: jobPostingId },
       payload: purchased,
       correlationId: ctx.correlationId,
@@ -672,13 +742,13 @@ export class PostingPlansService {
   private async emitPlanPaused(
     planId: string,
     jobPostingId: string,
-    payerId: string,
+    tenant: TenantKey,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"posting_plan.paused"> = {
       plan_id: planId,
       job_posting_id: jobPostingId,
-      payer_id: payerId,
+      payer_id: tenant,
       reason: "capacity_exceeded",
     };
     await this.events.emit({
@@ -695,13 +765,13 @@ export class PostingPlansService {
   private async emitPlanResumed(
     planId: string,
     jobPostingId: string,
-    payerId: string,
+    tenant: TenantKey,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"posting_plan.resumed"> = {
       plan_id: planId,
       job_posting_id: jobPostingId,
-      payer_id: payerId,
+      payer_id: tenant,
       reason: "capacity_restored",
     };
     await this.events.emit({
@@ -719,7 +789,7 @@ export class PostingPlansService {
   }
 
   private async emitCapacityPurchased(
-    payerId: string,
+    scope: PayerTenantScope,
     tier: string,
     maxActiveVacancies: number,
     priceInr: number,
@@ -727,7 +797,7 @@ export class PostingPlansService {
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"capacity.purchased"> = {
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       tier,
       max_active_vacancies: maxActiveVacancies,
       price_inr: priceInr,
@@ -735,9 +805,10 @@ export class PostingPlansService {
     };
     await this.events.emit({
       event_name: "capacity.purchased",
-      actor: { actor_type: "payer", actor_id: payerId },
-      // Payer-scoped subject (subject_id = payer_id), matching the coupon.redeemed precedent.
-      subject: { subject_type: "pricing_plan", subject_id: payerId },
+      actor: payerActor(scope),
+      // Tenant-scoped subject (subject_id = the allowance's payer_id), matching the
+      // coupon.redeemed precedent.
+      subject: { subject_type: "pricing_plan", subject_id: scope.tenantKey },
       payload,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
@@ -747,32 +818,37 @@ export class PostingPlansService {
   private async emitPayment(
     name: "payment.authorized" | "payment.captured",
     jobPostingId: string | null,
-    payerId: string,
+    scope: PayerTenantScope,
     amountInr: number,
     realCall: boolean,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.authorized"> = {
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       amount_inr: amountInr,
       real_call: realCall,
     };
     await this.events.emit({
       event_name: name,
-      actor: { actor_type: "payer", actor_id: payerId },
-      // Capacity purchases are not tied to a posting → payer-scoped pricing_plan subject.
+      actor: payerActor(scope),
+      // Capacity purchases are not tied to a posting → tenant-scoped pricing_plan subject.
       subject: jobPostingId
         ? { subject_type: "job_posting", subject_id: jobPostingId }
-        : { subject_type: "pricing_plan", subject_id: payerId },
+        : { subject_type: "pricing_plan", subject_id: scope.tenantKey },
       payload,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
   }
 
+  /**
+   * `coupon.redeemed` — its payload `payer_id` is the TENANT, which is exactly what
+   * {@link PostingPlansRepository.couponUsage} counts: a coupon's per-payer limit is per org
+   * once the flag is on (O-4).
+   */
   private async emitCouponIfApplied(
     quote: Quote,
-    payerId: string,
+    scope: PayerTenantScope,
     product: string,
     tier: string,
     ctx: RequestContext,
@@ -780,18 +856,23 @@ export class PostingPlansService {
     if (quote.couponApplied === null) return;
     const payload: PayloadInputOf<"coupon.redeemed"> = {
       coupon_code: quote.couponApplied,
-      payer_id: payerId,
+      payer_id: scope.tenantKey,
       product,
       tier,
       discount_inr: quote.discountInr,
     };
     await this.events.emit({
       event_name: "coupon.redeemed",
-      actor: { actor_type: "payer", actor_id: payerId },
-      subject: { subject_type: "pricing_plan", subject_id: payerId },
+      actor: payerActor(scope),
+      subject: { subject_type: "pricing_plan", subject_id: scope.tenantKey },
       payload,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
   }
+}
+
+/** The event actor on a purchase: the ACTING LOGIN, never the tenant (ADR-0053 §7). */
+function payerActor(scope: PayerTenantScope): { actor_type: "payer"; actor_id: string } {
+  return { actor_type: "payer", actor_id: scope.actorPayerId };
 }

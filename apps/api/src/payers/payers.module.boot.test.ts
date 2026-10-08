@@ -126,6 +126,9 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       "PayerAuthGuard",
       "PayerAuthService",
       "PayerOrgRoleGuard",
+      // PAY-DB-01 P2c: plans, boosts, capacity and coupons, and the payer posting seam.
+      "PayerPostingPlansService",
+      "PostingPlansService",
     ]);
   });
 

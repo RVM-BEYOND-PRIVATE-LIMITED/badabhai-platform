@@ -304,6 +304,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Auth:** `PayerAuthGuard` (Bearer). `payer_id` from session.
 - **Response:** `{ payer_id, max_active_vacancies: int, active_plan_count: int (REAL, from enforcement engine), source_tier: string|null, expires_at: ISO8601|null }`.
 - **Mobile gotchas:** `active_plan_count` is the live count. Enforcement is **INERT by default** (`CAPACITY_ENFORCEMENT_ENABLED=false`) — over-cap does not pause anything in Phase 1. Use this endpoint as the source of truth for the capacity banner.
+- **Org tenancy (PAY-DB-01 P2c, inert while `PAYER_ORG_TENANCY_MODE=off`):** with the mode `on`, the allowance and `active_plan_count` are the **org's** (one allowance per team, its plans counted whichever member bought them); `payer_id` still echoes the caller. Shapes unchanged.
 
 #### `POST /payer/capacity`
 - **Auth:** `PayerAuthGuard` (Bearer). `payer_id` from session.
@@ -320,6 +321,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** plan `{ tier: 'standard'|'pro', coupon?, expected_price_inr? }` · boost `{ tier: 'boost_7'|'boost_15'|'boost_30'|'all_candidates', coupon?, expected_price_inr? }`.
 - **Errors:** `400` unknown tier · `409 price_mismatch` (#2085) — refused before the plan/boost row or any payment event · boost: `409` an active boost already exists (no `reason`) · `409 in_flight` (#2111) — same key still in flight (`"This plan purchase is already being processed; check the posting before trying again"` / `"This boost purchase is already being processed; …"`). The reason is `error.reason` (§3.2).
 - A replay under the same key emits no event and charges nothing.
+- **Org tenancy (PAY-DB-01 P2c, inert while `PAYER_ORG_TENANCY_MODE=off`):** with the mode `on`, a teammate may buy a plan / boost / quota top-up on any of the org's postings; the receipt is the org's (`payerId` = the org owner's id), counted against the org's capacity, and a coupon's per-payer limit is per org. Ownership is checked and the purchase made in one tenant resolution. Same routes, bodies and error model (`in_flight` / `no_active_plan` / `price_mismatch`).
 
 #### `POST /payer/job-postings/:id/quota-topup`
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).

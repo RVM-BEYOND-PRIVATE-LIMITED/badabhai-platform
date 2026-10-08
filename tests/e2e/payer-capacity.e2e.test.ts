@@ -10,6 +10,7 @@ import {
   type PostingPlan,
 } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
+import { mintPayerSession } from "./helpers/payer-session";
 
 /**
  * Per-payer hiring capacity (ADR-0016) end-to-end against a LIVE API + DB. This is the
@@ -106,14 +107,27 @@ async function req(
 // BL-18: this suite was hard-`describe.skip`ped as "mints an authenticated payer session
 // via OTP login" — that claim was STALE even before OTP went real-only. Read the whole file:
 // every case drives `POST /job-postings/:id/plan` through `InternalServiceGuard` (the ops
-// `x-internal-service-token` header) against a bare `randomUUID()` `payer_id`, never a
-// Bearer payer session. That is by design — `payer_capacity` and `posting_plans` are the
-// deliberately FK-less "opaque rail" (see packages/db/src/schema/payer.ts's own comment on
-// `payerCapacity`/`postingPlans`): no `payers` row is required to exercise this surface at
-// all, so there was never a payer login to unblock here. Opt-in via `RUN` (RUN_E2E) same as
-// every other e2e file; `describe.skipIf` (not a hard skip) so the suite actually executes
-// wherever RUN is set, CI included. (#1166: the ops `/payers/:payerId/capacity` route this
-// comment used to also name was retired — see the file header.)
+// `x-internal-service-token` header), never a Bearer payer session. Opt-in via `RUN` (RUN_E2E)
+// same as every other e2e file; `describe.skipIf` (not a hard skip) so the suite actually
+// executes wherever RUN is set, CI included. (#1166: the ops `/payers/:payerId/capacity` route
+// this comment used to also name was retired — see the file header.)
+//
+// ADR-0053 (PAY-DB-01 P2c): the body `payer_id` NAMES A REAL PAYER now ({@link opsPayer}). The
+// ops route resolves it through the payer TENANT resolver (§5.2 rule 4), and in mode `on` — the
+// CI `e2e` job's mode — the resolver refuses an id that names no payer (R4, then R7: a neutral
+// 403). These cases used bare `randomUUID()`s, the alpha-era "opaque rail" shortcut
+// (`payer_capacity` / `posting_plans` carry no FK to `payers`); against `on` every buy was a 403
+// and the faceless case below passed with nothing bought. Same change as P2b's
+// contact-unlock.e2e. Needs the payer test-login seam armed (PAYER_TEST_LOGIN_*), as CI arms it.
+
+/**
+ * A REAL payer id for the ops plan route, minted through `POST /payer/test-login` (a solo
+ * payer, so its tenant is itself and every capacity count below is its own). Only the id is
+ * used — no session token reaches the InternalServiceGuard route.
+ */
+async function opsPayer(): Promise<string> {
+  return (await mintPayerSession()).payerId;
+}
 describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   let client!: DbClient;
 
@@ -151,7 +165,7 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   // ENFORCED-ONLY: these assert plans REALLY pause, so they require the API started with
   // CAPACITY_ENFORCEMENT_ENABLED=true. They SKIP against a default/shadow API (E2E_CAPACITY_ENFORCED unset).
   it.skipIf(!ENFORCED)("ATOMICITY: M>N concurrent buyPlan for ONE payer never exceed the cap (advisory-lock proof)", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     const N = 3;
     // M is deliberately > the postgres.js pool max (default 10, client.ts) AND > N. The
     // > N part proves the cap; the > pool-size part guards the in-lock deadlock fix
@@ -186,7 +200,7 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   });
 
   it.skipIf(!ENFORCED)("pause-at-limit: a buyPlan over the cap returns paused=true and emits posting_plan.paused", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     await setCapacity(payer, 1);
     const first = await req("POST", `/job-postings/${await seedPosting()}/plan`, {
       ops: true,
@@ -219,7 +233,7 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   // counterpart to pause-at-limit; the two are mutually gated so they never contradict on
   // one running config.
   it.skipIf(ENFORCED)("SHADOW (enforcement OFF, default): over-cap buyPlan stays active (paused=false, wouldPause=true) and emits no posting_plan.paused", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     await setCapacity(payer, 1);
 
     // First plan: within cap (0+1 ≤ 1) → active, not a would-pause.
@@ -272,7 +286,7 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   it("faceless: the PII sentinel + PII keys never appear in capacity rows or in posting_plan.* / payment.* events", async () => {
     // A purchase + pause cycle, with the PII sentinel attached only to the (PII-bearing)
     // job_posting org label — it must NOT leak into the faceless rails.
-    const payer = randomUUID();
+    const payer = await opsPayer();
     await setCapacity(payer, 1);
     const p1 = (
       await client.db
