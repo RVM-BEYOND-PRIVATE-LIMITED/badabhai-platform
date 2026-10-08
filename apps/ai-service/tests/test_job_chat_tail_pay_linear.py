@@ -373,3 +373,52 @@ def test_the_pay_parsers_are_linear_on_a_comma_joined_digit_run(unit: str, k: in
     assert _best_of_3(answers._PAY_RANGE_RE.findall, text) < _budget_s(k)
     assert _best_of_3(answers._AMOUNT_RE.findall, text) < _budget_s(k)
     assert _best_of_3(lambda t: answers.detect_answers(t, "pay_range"), text) < _budget_s(k)
+
+
+# --- 7. a "+"-added amount (#2142) ---------------------------------------------------------------
+#: name -> (crowd, head, unit): ``crowd`` repeats over the first half of the message, then ``head``,
+#: then ``unit`` repeats to k. "one long chain" adds every amount to one wage, so every amount reads
+#: the spaces after it and walks to the next clause. "a chain from a crowded clause" starts its
+#: chain at the last of many figures in one clause: reading that clause once per amount (the first
+#: figure's add-on test, unmemoised) is O(n^2). "one chain per line" and "runs of empty clauses"
+#: start a chain on every line, and walk a run of empty clauses after each one.
+_PLUS_CHAIN_SHAPES = {
+    "one long chain": ("", "salary 20000", " + 1000"),
+    "a chain from a crowded clause": ("1000 ", "20000", " + 1000"),
+    "one chain per line": ("", "", "salary 20000 + 1000 + 1500\n"),
+    "runs of empty clauses": ("", "", "salary 20000 + 1000" + "\n" * 8),
+}
+
+
+def _plus_chain_text(shape: str, k: int) -> str:
+    crowd, head, unit = _PLUS_CHAIN_SHAPES[shape]
+    lead = crowd * (k // 2 // len(crowd)) + head if crowd else head
+    return lead + unit * (max(k - len(lead), 0) // len(unit))
+
+
+def test_the_plus_chain_timing_inputs_reach_the_screen() -> None:
+    # Guards the guard: every chain drops all its amounts, so every amount ran the whole "+" test;
+    # the crowded clause keeps only its own 1000s, which share a clause with the wage.
+    expected = {
+        "one long chain": {"pay_min": 20000, "pay_max": None},
+        "a chain from a crowded clause": {"pay_min": 1000, "pay_max": 20000},
+        "one chain per line": {"pay_min": 20000, "pay_max": None},
+        "runs of empty clauses": {"pay_min": 20000, "pay_max": None},
+    }
+    for shape, pay in expected.items():
+        text = _plus_chain_text(shape, 4_000)
+        assert len(answers._pay_figures(text)) > 100
+        assert answers.detect_answers(text, "pay_range")["pay_range"] == pay
+    crowded = _plus_chain_text("a chain from a crowded clause", 4_000)
+    crowd = 4_000 // 2 // len("1000 ")
+    assert len(answers._addon_figure_screen(crowded, answers._pay_figures(crowded))) == crowd + 1
+
+
+@pytest.mark.parametrize("k", _RUNS)
+@pytest.mark.parametrize("topic", [None, "pay_range"])
+@pytest.mark.parametrize("shape", list(_PLUS_CHAIN_SHAPES))
+def test_the_plus_addition_screen_is_linear_in_the_figure_count(
+    shape: str, topic: str | None, k: int
+) -> None:
+    text = _plus_chain_text(shape, k)
+    assert _best_of_3(lambda t: answers.detect_answers(t, topic), text) < _budget_s(k)
