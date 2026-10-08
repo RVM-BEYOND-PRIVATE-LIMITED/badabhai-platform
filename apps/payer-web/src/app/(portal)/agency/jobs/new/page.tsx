@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { requireAgent } from "../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../lib/config";
+import { listMatchSkills } from "../../../../../lib/payer-api";
+import type { MatchSkillWire } from "../../../../../lib/contracts";
 import { PageHeader } from "../../../../../components/page-header";
 import { NewAgencyPosting } from "./new-agency-posting";
 
@@ -25,8 +27,22 @@ export default async function NewAgencyPostingPage() {
   await requireAgent();
   if (!agencyFlags().agencyPortalEnabled) notFound();
 
+  // ADR-0050 §6.1 step 2 (#2104) — the closed match vocabulary, read SERVER-side so the session
+  // Bearer never reaches the browser (the company form's page does the same). A FAILED read is
+  // NOT swallowed into "carry on": `[]` is the form's signal to say so and refuse the save,
+  // because a job with no match pick gets a `paused` twin and reaches nobody. `[]` is
+  // distinguishable from a real empty vocabulary only because a real one is never empty (the
+  // seed is checked in).
+  let matchSkills: MatchSkillWire[] = [];
+  try {
+    matchSkills = await listMatchSkills();
+  } catch {
+    matchSkills = [];
+  }
+
   return (
     <NewAgencyPosting
+      matchSkills={matchSkills}
       lead={
         <PageHeader
           title="New posting"

@@ -552,7 +552,15 @@ describe("credits page — #2085: the panel's packs are priced from prices[]", (
     const { panelPacks } = await render({ balance: 50 });
     expect(panelPacks).toEqual([
       { code: "pack_50", priceInr: 2000, credits: 50 },
-      { code: "pack_200", priceInr: 6000, listPriceInr: 8000, credits: 200 },
+      // #2102 — the offered pack carries its deadline too, so its tile can state when the
+      // struck price comes back.
+      {
+        code: "pack_200",
+        priceInr: 6000,
+        listPriceInr: 8000,
+        offerEndsAt: "2026-11-01T00:00:00.000Z",
+        credits: 200,
+      },
       { code: "pack_1000", priceInr: 32000, credits: 1000 },
     ]);
   });

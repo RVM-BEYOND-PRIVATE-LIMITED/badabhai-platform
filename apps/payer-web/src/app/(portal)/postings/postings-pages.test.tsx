@@ -468,10 +468,15 @@ describe("/postings — #2085: the slot offer is the charged price", () => {
       code: "topup_10",
       priceInr: 750,
       listPriceInr: 1000,
+      // #2102 — the deadline rides with the struck price, so the note states when it comes back.
+      offerEndsAt: "2026-11-01T00:00:00.000Z",
       additionalViews: 10,
     });
     expect(struck(tree)).toEqual(["₹1,000"]);
     expect(text(tree)).toContain("₹750");
+    // The note is PROSE, so the deadline stays mid-sentence (no tile container to drop below).
+    // `text` joins element fragments with a space, hence the tolerant gap.
+    expect(text(tree)).toMatch(/offer ends\s+2026-11-01/);
   });
 
   it("no prices[] (an older API): the catalog price, nothing struck", async () => {

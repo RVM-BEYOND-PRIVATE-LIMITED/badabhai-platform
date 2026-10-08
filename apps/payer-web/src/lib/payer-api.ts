@@ -782,6 +782,10 @@ const CLEARABLE_AGENCY_JOB_FIELDS = [
   ["benefits", "benefits"],
   ["requirements", "requirements"],
   ["role_kind", "roleKind"],
+  // `match_skill_ids` is DELIBERATELY ABSENT, though the backend's own list does hold it. An
+  // omitted `match_skill_ids` means UNCHANGED (ADR-0050 §6.1 step 2) and the form omits it on
+  // every edit that did not touch the pick — a name here would turn each of those into a `clear`
+  // and wipe a pick nobody edited. The form requires a pick (Q9), so it never needs to clear one.
 ] as const;
 
 /**
@@ -809,6 +813,11 @@ function toAgencyJobBody(input: AgencyJobInput, initial?: AgencyJob | null): Rec
   if (input.description !== undefined) body.description = input.description;
   if (input.requirements !== undefined) body.requirements = input.requirements;
   if (input.benefits !== undefined) body.benefits = input.benefits;
+  // ADR-0050 §6.1 step 2 — the explicit match pick, the only matching input (`trade_key` is never
+  // read for it). Sent when the caller supplies it; OMITTED otherwise, which the backend reads as
+  // `[]` on create and UNCHANGED on edit — so the form sends it on every create and only on an
+  // edit that changed it, and a client older than this never disturbs a stored pick.
+  if (input.matchSkillIds !== undefined) body.match_skill_ids = input.matchSkillIds;
   if (initial) {
     const clear: string[] = [];
     for (const [snake, camel] of CLEARABLE_AGENCY_JOB_FIELDS) {

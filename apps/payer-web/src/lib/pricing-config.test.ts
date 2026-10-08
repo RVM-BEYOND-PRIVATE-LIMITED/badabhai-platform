@@ -72,13 +72,15 @@ describe("baseApplicantQuotaForBand — scales the (server-resolved) config step
  * is not on offer — the portal never invents a price for it.
  */
 describe("chargedPrice + the price readers — #2085 effective prices", () => {
+  // #2102 — the fixture's NAMED offer ends here, and every below-list expectation cites it.
+  const ENDS_AT = "2026-11-01T00:00:00.000Z";
   const row = (productCode: string, tierCode: string, base: number, price: number): TierPrice => ({
     productCode,
     tierCode,
     basePriceInr: base,
     priceInr: price,
     discountInr: base - price,
-    offer: price < base ? { code: "DIWALI", endsAt: "2026-11-01T00:00:00.000Z" } : null,
+    offer: price < base ? { code: "DIWALI", endsAt: ENDS_AT } : null,
   });
   // Every DEFAULT_CATALOG tier priced at list, except the offers set per test.
   const allAtList = (): TierPrice[] =>
@@ -110,12 +112,40 @@ describe("chargedPrice + the price readers — #2085 effective prices", () => {
     });
   });
 
-  it("an active offer: the offer price is charged, the list price rides along to be struck", () => {
+  it("an active offer: the offer price is charged, the list price and the DEADLINE ride along", () => {
+    // #2102 — a struck list price with no end date asks the payer to decide against an unstated
+    // deadline, so `offerEndsAt` travels with it and the tile prints it.
     const catalog = { products: [], prices: [row("quota_topup", "topup_10", 1000, 750)] };
     expect(chargedPrice(catalog, "quota_topup", { code: "topup_10", priceInr: 1000 })).toEqual({
       priceInr: 750,
       listPriceInr: 1000,
+      offerEndsAt: ENDS_AT,
     });
+  });
+
+  it("#2102 below list with NO named offer: the list price is struck, no date is invented", () => {
+    // The API may price a row below list without naming an offer; there is then no end date to
+    // state, and the reader must not substitute one.
+    const unnamed: TierPrice = { ...row("quota_topup", "topup_10", 1000, 750), offer: null };
+    expect(
+      chargedPrice({ products: [], prices: [unnamed] }, "quota_topup", {
+        code: "topup_10",
+        priceInr: 1000,
+      }),
+    ).toEqual({ priceInr: 750, listPriceInr: 1000 });
+  });
+
+  it("#2102 at list with a named offer: no deadline — nothing was lowered to put a date on", () => {
+    const atList: TierPrice = {
+      ...row("quota_topup", "topup_10", 1000, 1000),
+      offer: { code: "DIWALI", endsAt: ENDS_AT },
+    };
+    expect(
+      chargedPrice({ products: [], prices: [atList] }, "quota_topup", {
+        code: "topup_10",
+        priceInr: 1000,
+      }),
+    ).toEqual({ priceInr: 1000 });
   });
 
   it("a tier missing from a PRESENT prices[] is not on offer (null) — never an invented price", () => {
@@ -135,6 +165,7 @@ describe("chargedPrice + the price readers — #2085 effective prices", () => {
       code: "topup_10",
       priceInr: 750,
       listPriceInr: 1000,
+      offerEndsAt: ENDS_AT,
       additionalViews: 10,
     });
   });
@@ -157,7 +188,13 @@ describe("chargedPrice + the price readers — #2085 effective prices", () => {
     const catalog = { products: DEFAULT_CATALOG.products, prices };
     expect(hiringCapacityTiers(catalog)).toEqual([
       { code: "cap_5", priceInr: 5000, maxActiveVacancies: expect.any(Number) },
-      { code: "cap_15", priceInr: 9000, listPriceInr: 12000, maxActiveVacancies: expect.any(Number) },
+      {
+        code: "cap_15",
+        priceInr: 9000,
+        listPriceInr: 12000,
+        offerEndsAt: ENDS_AT,
+        maxActiveVacancies: expect.any(Number),
+      },
     ]);
     expect(offeredCreditPacks(catalog).map((p) => p.code)).toEqual(["pack_50", "pack_200"]);
     expect(postingPaidTiers(catalog).map((t) => [t.code, t.priceInr])).toEqual([

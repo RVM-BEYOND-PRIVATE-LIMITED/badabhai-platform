@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-import type { AgencyJob } from "../../../../lib/contracts";
+import type { AgencyJob, MatchSkillWire } from "../../../../lib/contracts";
 import type { PayerSession } from "../../../../lib/auth/types";
 import type * as ConfigModule from "../../../../lib/config";
 
@@ -31,6 +31,16 @@ const notFound = vi.fn(() => {
 });
 const listAgencyJobs = vi.fn<() => Promise<AgencyJob[]>>();
 const getAgencyJob = vi.fn<(id: string) => Promise<AgencyJob | null>>();
+/** #2104 — the closed match vocabulary the two FORM pages read server-side for the picker. */
+const listMatchSkills = vi.fn<() => Promise<MatchSkillWire[]>>();
+const VOCAB: MatchSkillWire[] = [
+  {
+    skill_id: "mskill_cnc_turning",
+    label: "CNC turning",
+    industry_id: "ind_manufacturing",
+    related_skill_ids: [],
+  },
+];
 
 vi.mock("../../../../lib/auth/roles", () => ({ requireAgent: () => requireAgent() }));
 vi.mock("../../../../lib/config", async (importOriginal) => {
@@ -47,6 +57,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("../../../../lib/payer-api", () => ({
   listAgencyJobs: () => listAgencyJobs(),
   getAgencyJob: (id: string) => getAgencyJob(id),
+  listMatchSkills: () => listMatchSkills(),
 }));
 vi.mock("../dashboard/agency-jobs-manager", () => ({ AgencyJobsManager: () => null }));
 const NewAgencyPostingStub = vi.fn(() => null);
@@ -106,6 +117,8 @@ beforeEach(() => {
   EditAgencyPostingStub.mockClear();
   listAgencyJobs.mockReset().mockResolvedValue([JOB]);
   getAgencyJob.mockReset().mockImplementation(async (id) => (id === JOB.id ? JOB : null));
+  listMatchSkills.mockReset().mockResolvedValue(VOCAB);
+  NewAgencyPostingStub.mockClear();
 });
 
 const PAGES = [
@@ -122,6 +135,8 @@ describe("agency posting pages — requireAgent, then the flag, both before any 
       await expect(run()).rejects.toThrow("NEXT_NOT_FOUND");
       expect(listAgencyJobs).not.toHaveBeenCalled();
       expect(getAgencyJob).not.toHaveBeenCalled();
+      // #2104 — the vocabulary read is behind the gates too (nothing is read for a refused page).
+      expect(listMatchSkills).not.toHaveBeenCalled();
     });
 
     it(`${name}: agency portal OFF → 404 before any read`, async () => {
@@ -130,6 +145,7 @@ describe("agency posting pages — requireAgent, then the flag, both before any 
       expect(notFound).toHaveBeenCalledTimes(1);
       expect(listAgencyJobs).not.toHaveBeenCalled();
       expect(getAgencyJob).not.toHaveBeenCalled();
+      expect(listMatchSkills).not.toHaveBeenCalled();
     });
 
     it(`${name}: an agent with the portal on gets the page`, async () => {
@@ -162,6 +178,22 @@ describe("the heads — Posting naming, one door each", () => {
     const lead = tree.props.lead as ReactElement<{ title: string }>;
     expect(lead.type).toBe(PageHeader);
     expect(lead.props.title).toBe("New posting");
+  });
+
+  it("New posting (#2104): the match vocabulary is read SERVER-side and handed to the form", async () => {
+    // The picker never fetches it: the session Bearer must stay out of the browser.
+    const tree = (await create.default()) as ReactElement<{ matchSkills: MatchSkillWire[] }>;
+    expect(listMatchSkills).toHaveBeenCalledTimes(1);
+    expect(tree.props.matchSkills).toEqual(VOCAB);
+  });
+
+  it("New posting (#2104): a FAILED vocabulary read hands down [] — the form says so, not the page", async () => {
+    // Unlike the capacity read on the company form, this is not swallowed into "carry on": `[]`
+    // is the form's signal to refuse the save, since a job with no pick reaches nobody.
+    listMatchSkills.mockRejectedValueOnce(new Error("api down"));
+    const tree = (await create.default()) as ReactElement<{ matchSkills: MatchSkillWire[] }>;
+    expect(tree.type).toBe(NewAgencyPostingStub);
+    expect(tree.props.matchSkills).toEqual([]);
   });
 
   it("Posting details (F14): status · primary Applicants (#1956) · secondary Edit posting", async () => {
@@ -202,7 +234,7 @@ describe("the heads — Posting naming, one door each", () => {
 });
 
 describe("/agency/jobs/<id>/edit — the dedicated edit page (F02, replaces the inline row editor)", () => {
-  type FormProps = { job: AgencyJob; lead: ReactNode };
+  type FormProps = { job: AgencyJob; matchSkills: MatchSkillWire[]; lead: ReactNode };
   async function form(): Promise<ReactElement<FormProps>> {
     const tree = (await edit.default(params(JOB.id))) as ReactElement<FormProps>;
     expect(tree.type).toBe(EditAgencyPostingStub);
@@ -213,6 +245,12 @@ describe("/agency/jobs/<id>/edit — the dedicated edit page (F02, replaces the 
     const el = await form();
     expect(el.props.job).toEqual(JOB);
     expect((el.props.lead as ReactElement).type).toBe(PageHeader);
+  });
+
+  it("hands the form the match vocabulary too (#2104); a failed read hands down []", async () => {
+    expect((await form()).props.matchSkills).toEqual(VOCAB);
+    listMatchSkills.mockRejectedValueOnce(new Error("api down"));
+    expect((await form()).props.matchSkills).toEqual([]);
   });
 
   it("keys the form on the saved revision — a newer copy of the posting is a NEW form", async () => {

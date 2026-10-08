@@ -1,8 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
-import { getAgencyJob } from "../../../../../../lib/payer-api";
+import { getAgencyJob, listMatchSkills } from "../../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../../lib/config";
+import type { MatchSkillWire } from "../../../../../../lib/contracts";
 import { isEditableJob } from "../../../../../../lib/agency-view";
 import { PageHeader } from "../../../../../../components/page-header";
 import { EditAgencyPosting } from "./edit-agency-posting";
@@ -42,6 +43,17 @@ export default async function EditAgencyPostingPage({
   const detailHref = `/agency/jobs/${jobId}`;
   if (!isEditableJob(job)) redirect(detailHref);
 
+  // ADR-0050 §6.1 step 2 (#2104) — the closed match vocabulary, read SERVER-side (the Bearer
+  // never reaches the browser) AFTER the gates, as New posting does. A failed read hands the form
+  // `[]`, which it reports and refuses to save on: the picker's chips are what the pick is made
+  // from, so without them an edit could only erase or misstate it.
+  let matchSkills: MatchSkillWire[] = [];
+  try {
+    matchSkills = await listMatchSkills();
+  } catch {
+    matchSkills = [];
+  }
+
   // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
   // Back to the posting by its own name — its details page's H1, and the applicants page's back
   // label: one label per destination.
@@ -57,6 +69,6 @@ export default async function EditAgencyPostingPage({
     // KEYED ON THE SAVED REVISION: a form seeded from an older copy of this posting (a cached page
     // restored by Back after a save, a refresh after a concurrent edit) remounts from the current
     // one instead of keeping stale values — and a stale `initial` for the clear diff.
-    <EditAgencyPosting key={job.updatedAt} job={job} lead={lead} />
+    <EditAgencyPosting key={job.updatedAt} job={job} matchSkills={matchSkills} lead={lead} />
   );
 }
