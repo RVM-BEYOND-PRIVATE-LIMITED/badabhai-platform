@@ -1356,3 +1356,100 @@ describe("ADR-0053 P2a — AgencyService's job paths follow the TENANT", () => {
     expect(await d.svc.listOwnJobs(MEMBER)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) P2d — agency INVITES and the referrals funnel are the org's: the TENANT
+// is `inviter_payer_id` (the row's and the `agency_invite.created` payload's); the LOGIN is the
+// event actor. Resolved ONCE per request — once for a whole batch. The REAL resolver.
+// ---------------------------------------------------------------------------
+describe("ADR-0053 P2d — AgencyService's invite paths follow the TENANT", () => {
+  const ANCHOR = PAYER_A;
+  const MEMBER = "77777777-7777-4777-8777-777777777777";
+  const OUTSIDER = PAYER_B;
+  const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+
+  type Created = {
+    event_name: string;
+    actor: { actor_type: string; actor_id: string | null };
+    payload: Record<string, unknown>;
+  };
+  const created = (emit: ReturnType<typeof vi.fn>) =>
+    emit.mock.calls
+      .map((c) => c[0] as Created)
+      .filter((e) => e.event_name === "agency_invite.created");
+  const stamped = (invitesRepo: ReturnType<typeof make>["invitesRepo"]) =>
+    invitesRepo.create.mock.calls.map((c) => (c[0] as { inviterPayerId: string }).inviterPayerId);
+
+  it("off (the default): byte-identical — a teammate's mint is stamped with, and evented as, the login", async () => {
+    const d = make({ tenancy: defaultModeResolver(TEAM) });
+    await d.svc.createInvite(MEMBER, { campaign: "c1" }, CTX);
+    expect(stamped(d.invitesRepo)).toEqual([MEMBER]);
+    const [evt] = created(d.emit);
+    expect(evt!.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+    expect(evt!.payload.inviter_payer_id).toBe(MEMBER);
+    await d.svc.referralsSummary(MEMBER);
+    expect(d.invitesRepo.stageCountsForOwner).toHaveBeenCalledWith(MEMBER);
+  });
+
+  it("on: a teammate's mint is the ORG's invite — the row and the payload name the anchor; the actor is the login", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    await d.svc.createInvite(MEMBER, { campaign: "c1" }, CTX);
+    expect(stamped(d.invitesRepo)).toEqual([ANCHOR]);
+    const [evt] = created(d.emit);
+    expect(evt!.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+    expect(evt!.payload.inviter_payer_id).toBe(ANCHOR);
+  });
+
+  it("on: a teammate's BATCH is resolved once, and every one of its N rows and events names the anchor", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const resolve = vi.spyOn(tenancy, "resolve");
+    const d = make({ tenancy });
+    const { invites } = await d.svc.createInviteBatch(MEMBER, 3, {}, CTX);
+    expect(invites).toHaveLength(3);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(stamped(d.invitesRepo)).toEqual([ANCHOR, ANCHOR, ANCHOR]);
+    const events = created(d.emit);
+    expect(events).toHaveLength(3);
+    for (const e of events) {
+      expect(e.actor.actor_id).toBe(MEMBER);
+      expect(e.payload.inviter_payer_id).toBe(ANCHOR);
+    }
+  });
+
+  it("on: the teammate reads the ORG's funnel; an outsider reads only their own", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    await d.svc.referralsSummary(MEMBER);
+    expect(d.invitesRepo.stageCountsForOwner).toHaveBeenLastCalledWith(ANCHOR);
+    await d.svc.referralsSummary(OUTSIDER);
+    expect(d.invitesRepo.stageCountsForOwner).toHaveBeenLastCalledWith(OUTSIDER);
+  });
+
+  it("on: a refused resolution mints nothing — a 403 (not the batch's neutral 503), no row, no event", async () => {
+    const twoTeams = [TEAM[0]!, { anchor: OUTSIDER, members: [MEMBER] }];
+    const d = make({ tenancy: resolverOver(ON, twoTeams) });
+    await expect(d.svc.createInvite(MEMBER, {}, CTX)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(d.svc.createInviteBatch(MEMBER, 2, {}, CTX)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(d.svc.referralsSummary(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(d.invitesRepo.create).not.toHaveBeenCalled();
+    expect(d.invitesRepo.stageCountsForOwner).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("the click and the consent-gated attribution keep the STORED owner (code-keyed, no resolution)", async () => {
+    const d = make({
+      tenancy: resolverOver(ON, TEAM),
+      invite: { id: INVITE_ID, inviterPayerId: ANCHOR, invitedWorkerId: null, status: "created" },
+      consent: { revokedAt: null },
+    });
+    await d.svc.recordInviteClick("c0de");
+    await d.svc.attributeWorkerToInvite("c0de", WORKER_ID);
+    const payloads = d.emit.mock.calls.map((c) => (c[0] as Created).payload);
+    expect(payloads.filter((p) => "inviter_payer_id" in p).map((p) => p.inviter_payer_id)).toEqual([
+      ANCHOR,
+      ANCHOR,
+    ]);
+  });
+});

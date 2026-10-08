@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { ForbiddenException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { AgencyKycStatus } from "@badabhai/db";
 import { AgencyPayoutService } from "./agency-payout.service";
@@ -11,6 +12,12 @@ import {
 } from "./agency-payout.repository";
 import { AgencyKycService } from "./agency-kyc.service";
 import { EventsService } from "../events/events.service";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import {
+  defaultModeResolver,
+  ownTenantKey,
+  resolverOver,
+} from "../payers/payer-tenant-scope.test-support";
 
 const AGENCY = "11111111-1111-4111-8111-111111111111";
 const UNLOCK_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -48,6 +55,8 @@ function make(opts?: {
   inserted?: QualifyingUnlock[]; // which of the qualifying were NEW (idempotency)
   agg?: Partial<AgencyEarningsAgg>;
   claimThrows?: Error;
+  /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a suite passes `on`. */
+  tenancy?: PayerTenantScopeService;
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
   const events = { emit } as unknown as EventsService;
@@ -94,10 +103,13 @@ function make(opts?: {
     statusForGate: vi.fn().mockResolvedValue(opts?.kycStatus ?? null),
   } as unknown as AgencyKycService;
 
-  const svc = new AgencyPayoutService(repo, kyc, events, {
-    ...CONFIG,
-    ...(opts?.config ?? {}),
-  } as ServerConfig);
+  const svc = new AgencyPayoutService(
+    repo,
+    kyc,
+    events,
+    { ...CONFIG, ...(opts?.config ?? {}) } as ServerConfig,
+    opts?.tenancy ?? defaultModeResolver(),
+  );
   return { svc, repo, kyc, emit };
 }
 
@@ -108,7 +120,7 @@ function emittedNames(emit: ReturnType<typeof vi.fn>): string[] {
 describe("AgencyPayoutService — accrual math (25% × ₹40 per granted unlock)", () => {
   it("accrues ₹10 per qualifying unlock and emits agency_payout.accrued for each NEW accrual", async () => {
     const { svc, repo, emit } = make({ qualifying: [qualifying(UNLOCK_A), qualifying(UNLOCK_B)] });
-    const n = await svc.recomputeAccruals(AGENCY);
+    const n = await svc.recomputeAccruals(await ownTenantKey(AGENCY));
 
     expect(n).toBe(2);
     const rows = ((repo.insertAccruals as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] ??
@@ -133,14 +145,14 @@ describe("AgencyPayoutService — accrual math (25% × ₹40 per granted unlock)
       qualifying: [qualifying(UNLOCK_A), qualifying(UNLOCK_B)],
       inserted: [qualifying(UNLOCK_A)], // only A is new this run
     });
-    const n = await svc.recomputeAccruals(AGENCY);
+    const n = await svc.recomputeAccruals(await ownTenantKey(AGENCY));
     expect(n).toBe(1);
     expect(emittedNames(emit)).toEqual(["agency_payout.accrued"]);
   });
 
   it("passes the CONFIGURED window to the repo (90d) — the accrual source is real unlock data", async () => {
     const { svc, repo } = make({});
-    await svc.recomputeAccruals(AGENCY);
+    await svc.recomputeAccruals(await ownTenantKey(AGENCY));
     expect(repo.findQualifyingUnlocks).toHaveBeenCalledWith(AGENCY, 90);
   });
 });
@@ -181,7 +193,7 @@ describe("AgencyPayoutService — the ₹500 threshold gate", () => {
     // callback (undefined in this passthrough mock; the real Database in production/atomicity
     // coverage), which is what makes the claim + its emit commit together.
     expect(repo.createRequestClaiming).toHaveBeenCalledWith(
-      expect.objectContaining({ agencyId: AGENCY, kycStatus: "verified", thresholdInr: 500 }),
+      expect.objectContaining({ tenant: AGENCY, kycStatus: "verified", thresholdInr: 500 }),
       undefined,
     );
     expect(emittedNames(emit)).toContain("agency_payout.requested");
@@ -243,5 +255,136 @@ describe("AgencyPayoutService — earnings analytics off real accrual data", () 
     expect(view.canRequest).toBe(false);
     expect(view.blockedReason).toBe("kyc_not_verified");
     expect(view.kycStatus).toBe("pending");
+  });
+});
+
+/**
+ * ADR-0053 (PAY-DB-01 P2d, owner ruling O-5) — earnings and payouts are ORG-level: each entry
+ * point resolves the session payer's tenancy ONCE and keys the accruals, the requests and the KYC
+ * gate read by the TENANT key; the acting login is the actor of `.blocked` / `.requested`. Who may
+ * reach them is the ROUTE's decision (owner only — agency-payouts-owner-only.test.ts).
+ */
+describe("AgencyPayoutService — the tenant key keys the org's money (ADR-0053 P2d)", () => {
+  const ANCHOR = AGENCY;
+  const MEMBER = "77777777-7777-4777-8777-777777777777";
+  const OUTSIDER = "88888888-8888-4888-8888-888888888888";
+  const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+
+  type Emitted = {
+    event_name: string;
+    actor: { actor_id: string | null };
+    subject: { subject_id: string };
+    payload: Record<string, unknown>;
+  };
+  const emitted = (emit: ReturnType<typeof vi.fn>) => emit.mock.calls.map((c) => c[0] as Emitted);
+
+  /** Every repo + KYC-gate read the three entry points make, with the key each was given. */
+  function keysRead(d: ReturnType<typeof make>): unknown[] {
+    return [
+      ...(d.repo.findQualifyingUnlocks as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
+      ...(d.repo.aggregate as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
+      ...(d.repo.listRequests as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
+      ...(d.kyc.statusForGate as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
+    ];
+  }
+
+  async function everyEntryPoint(d: ReturnType<typeof make>, actor: string) {
+    await d.svc.getEarnings(actor);
+    const out = await d.svc.requestPayout(actor);
+    await d.svc.listRequests(actor);
+    return out;
+  }
+
+  it("off: byte-identical — a team member is their own tenant on every read, write and event", async () => {
+    const d = make({
+      tenancy: defaultModeResolver(TEAM),
+      kycStatus: "verified",
+      qualifying: [qualifying(UNLOCK_A)],
+      agg: { requestableInr: 500 },
+    });
+    expect(await everyEntryPoint(d, MEMBER)).toMatchObject({ ok: true });
+    const keys = keysRead(d);
+    expect(keys.length).toBeGreaterThan(0);
+    expect(new Set(keys)).toEqual(new Set([MEMBER]));
+    const rows = (d.repo.insertAccruals as ReturnType<typeof vi.fn>).mock.calls.flatMap(
+      (c) => c[0] as { agencyPayerId: string }[],
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(new Set(rows.map((r) => r.agencyPayerId))).toEqual(new Set([MEMBER]));
+    expect(d.repo.createRequestClaiming).toHaveBeenCalledWith(
+      expect.objectContaining({ tenant: MEMBER }),
+      undefined,
+    );
+    const requested = emitted(d.emit).find((e) => e.event_name === "agency_payout.requested");
+    expect(requested).toMatchObject({
+      actor: { actor_id: MEMBER },
+      payload: { agency_payer_id: MEMBER },
+    });
+    const accrued = emitted(d.emit).find((e) => e.event_name === "agency_payout.accrued");
+    expect(accrued?.payload.agency_payer_id).toBe(MEMBER);
+  });
+
+  it("on: the org's money — every read and stamp is the ANCHOR's key; the login is the actor", async () => {
+    const d = make({
+      tenancy: resolverOver(ON, TEAM),
+      kycStatus: "verified",
+      qualifying: [qualifying(UNLOCK_A)],
+      agg: { requestableInr: 500 },
+    });
+    expect(await everyEntryPoint(d, MEMBER)).toMatchObject({ ok: true });
+    expect(new Set(keysRead(d))).toEqual(new Set([ANCHOR]));
+    const rows = (d.repo.insertAccruals as ReturnType<typeof vi.fn>).mock.calls.flatMap(
+      (c) => c[0] as { agencyPayerId: string }[],
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(new Set(rows.map((r) => r.agencyPayerId))).toEqual(new Set([ANCHOR]));
+    expect(d.repo.createRequestClaiming).toHaveBeenCalledWith(
+      expect.objectContaining({ tenant: ANCHOR }),
+      undefined,
+    );
+    const requested = emitted(d.emit).find((e) => e.event_name === "agency_payout.requested");
+    expect(requested).toMatchObject({
+      actor: { actor_id: MEMBER },
+      payload: { agency_payer_id: ANCHOR },
+    });
+    // The accrual is a system fact owned by the org.
+    const accrued = emitted(d.emit).find((e) => e.event_name === "agency_payout.accrued");
+    expect(accrued).toMatchObject({
+      actor: { actor_id: null },
+      payload: { agency_payer_id: ANCHOR },
+    });
+  });
+
+  it("on: a blocked request names the login as actor and the ORG as agency_payer_id and subject", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM), kycStatus: "pending" });
+    expect(await d.svc.requestPayout(MEMBER)).toMatchObject({ reason: "kyc_not_verified" });
+    const blocked = emitted(d.emit).find((e) => e.event_name === "agency_payout.blocked");
+    expect(blocked).toMatchObject({
+      actor: { actor_id: MEMBER },
+      subject: { subject_id: ANCHOR },
+      payload: { agency_payer_id: ANCHOR, reason: "kyc_not_verified" },
+    });
+  });
+
+  it("on: an outsider's reads are keyed to the outsider alone, never the team's org", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    await everyEntryPoint(d, OUTSIDER);
+    expect(new Set(keysRead(d))).toEqual(new Set([OUTSIDER]));
+  });
+
+  it("on: a refused resolution is a 403 before any read, claim or event — on all three entry points", async () => {
+    const twoTeams = [TEAM[0]!, { anchor: OUTSIDER, members: [MEMBER] }];
+    const d = make({
+      tenancy: resolverOver(ON, twoTeams),
+      kycStatus: "verified",
+      agg: { requestableInr: 500 },
+    });
+    await expect(d.svc.getEarnings(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(d.svc.requestPayout(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(d.svc.listRequests(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(keysRead(d)).toEqual([]);
+    expect(d.repo.createRequestClaiming).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
   });
 });

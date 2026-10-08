@@ -9,6 +9,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { AdminRepository } from "../admin/admin.repository";
 import { AgencyKycRepository } from "../agency/agency-kyc.repository";
 import { AgencyKycService } from "../agency/agency-kyc.service";
+import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
 import { isUniqueViolation, sqlStateOf } from "./db-error";
 import { PiiCryptoService } from "./pii-crypto.service";
 
@@ -193,6 +194,7 @@ describe.skipIf(!RUN)("unique violations against a real database (#1811)", () =>
       pii,
       { emit: async () => undefined } as never,
       {} as never,
+      defaultModeResolver(), // ADR-0053: the default mode keys each agency to itself
     );
     const dto = {
       pan: `PAN${TAG}`,

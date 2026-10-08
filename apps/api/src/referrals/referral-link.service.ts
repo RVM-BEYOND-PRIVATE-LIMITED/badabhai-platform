@@ -123,6 +123,13 @@ export class ReferralLinkService {
    * the measurement spine and are all exercised; this is the one seam without a caller. If a
    * campaign or worker-share link ever needs its own space, this is where it starts — wire a
    * controller, do not quietly repoint the agency mint at it.
+   *
+   * ⚠️ ORG TENANCY (ADR-0053 PAY-DB-01 §4, plan §3.4): `referral_links.agent_payer_id` is a
+   * TENANT-KEY column, exactly like `agency_invites.inviter_payer_id`. Whoever wires an agent
+   * caller must pass the agency session's resolved `scope.tenantKey` (PayerTenantScopeService),
+   * never the login's id: a member's link belongs to the org. Nothing passes it today, which is
+   * why the type is still a raw string — T5 (`payer-tenancy.static.test.ts`) cannot see it,
+   * because this method only delegates to `createLink` (a packages/db insert type).
    */
   async mintLink(input: {
     // A `resume_qr` link is minted ONLY by `ResumeQrLinkService.codeFor`: one per worker, get-or-create,

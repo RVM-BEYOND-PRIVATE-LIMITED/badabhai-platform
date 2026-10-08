@@ -7,6 +7,7 @@ import type { AgencyPayoutRepository, QualifyingUnlock } from "./agency-payout.r
 import { PayoutBelowThresholdError } from "./agency-payout.repository";
 import type { AgencyKycService } from "./agency-kyc.service";
 import type { EventsService } from "../events/events.service";
+import { defaultModeResolver, ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 
 /**
  * ATOMICITY (#1129 item 3) — proves the ledger write (`insertAccruals` / `createRequestClaiming`)
@@ -122,7 +123,7 @@ function makeHarness(
     listRequests: async () => [],
     // Claims every unclaimed accrual on the STAGED world into a new request row.
     createRequestClaiming: async (
-      input: { agencyId: string; thresholdInr: number },
+      input: { tenant: string; thresholdInr: number },
       tx: World | undefined,
     ) => {
       const w = tx!;
@@ -171,7 +172,7 @@ function makeHarness(
           ...CONFIG,
           AGENCY_PAYOUT_MIN_THRESHOLD_INR: opts.thresholdInr,
         } as unknown as ServerConfig);
-  const service = new AgencyPayoutService(repo, kyc, events, config);
+  const service = new AgencyPayoutService(repo, kyc, events, config, defaultModeResolver());
   return { service, world };
 }
 
@@ -179,7 +180,9 @@ describe("AgencyPayoutService.recomputeAccruals atomicity (#1129 item 3) — ins
   it("an emit that throws AFTER insertAccruals rolls back the WHOLE batch (no accrual rows, no events committed)", async () => {
     const h = makeHarness({ failEmitOnce: true });
 
-    await expect(h.service.recomputeAccruals(AGENCY)).rejects.toThrow(/emit failure/);
+    await expect(h.service.recomputeAccruals(await ownTenantKey(AGENCY))).rejects.toThrow(
+      /emit failure/,
+    );
 
     // ROLLBACK: neither accrual survived, even though the first one's INSERT ran inside the
     // staged tx before the emit threw — this is exactly the gap #1129 item 3 closes.
@@ -190,9 +193,9 @@ describe("AgencyPayoutService.recomputeAccruals atomicity (#1129 item 3) — ins
   it("a retry after an emit failure re-inserts BOTH accruals and emits exactly one event each", async () => {
     const h = makeHarness({ failEmitOnce: true });
 
-    await expect(h.service.recomputeAccruals(AGENCY)).rejects.toThrow();
+    await expect(h.service.recomputeAccruals(await ownTenantKey(AGENCY))).rejects.toThrow();
     // Retry (emit no longer armed to fail): the whole batch commits together.
-    const n = await h.service.recomputeAccruals(AGENCY);
+    const n = await h.service.recomputeAccruals(await ownTenantKey(AGENCY));
 
     expect(n).toBe(2);
     expect(h.world.accruals.map((a) => a.sourceUnlockId).sort()).toEqual(
@@ -203,7 +206,7 @@ describe("AgencyPayoutService.recomputeAccruals atomicity (#1129 item 3) — ins
 
   it("a successful recompute commits the accrual rows AND their events together (one transaction)", async () => {
     const h = makeHarness({ failEmitOnce: false });
-    const n = await h.service.recomputeAccruals(AGENCY);
+    const n = await h.service.recomputeAccruals(await ownTenantKey(AGENCY));
     expect(n).toBe(2);
     expect(h.world.accruals).toHaveLength(2);
     expect(h.world.events.filter((e) => e.event_name === "agency_payout.accrued")).toHaveLength(2);

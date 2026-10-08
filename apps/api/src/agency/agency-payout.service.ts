@@ -5,6 +5,8 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { AgencyKycStatus, AgencyPayoutRequest, Database } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import { AgencyKycService } from "./agency-kyc.service";
 import {
   AgencyPayoutRepository,
@@ -42,6 +44,14 @@ export type PayoutRequestOutcome =
  *    is ON, (b) KYC status is `verified`, and (c) the requestable total ≥ the ₹ threshold. Any
  *    failure emits `agency_payout.blocked` and changes NO state. Success claims the accruals
  *    into a `requested` (MOCK — no disbursement) row and emits `agency_payout.requested`.
+ *
+ * ORG-LEVEL (ADR-0053 PAY-DB-01 P2d, owner ruling O-5): the agency is the ORG. Each entry point
+ * ({@link getEarnings}, {@link requestPayout}, {@link listRequests}) resolves the session payer's
+ * tenancy ONCE; the TENANT KEY keys the accruals, the requests and the KYC gate read (so a
+ * teammate's referral earns for the org), and the acting login is the event actor
+ * (`agency_payout.blocked` / `.requested`). Who may reach them is the route's decision:
+ * `AgencyPayoutsController` admits the org's OWNER only. Org tenancy off: the key is the session
+ * payer, today's behaviour exactly.
  */
 @Injectable()
 export class AgencyPayoutService {
@@ -50,6 +60,8 @@ export class AgencyPayoutService {
     private readonly kyc: AgencyKycService,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   /** ₹ accrued per qualifying unlock (floor of basis × rate). Owner-ratified default = ₹10. */
@@ -71,13 +83,17 @@ export class AgencyPayoutService {
    * retry would skip them (`ON CONFLICT DO NOTHING`) and never re-attempt the emit. Now either
    * the whole batch (every new accrual row + every one of its events) commits, or none of it
    * does, and a retry after a rollback re-inserts + re-emits the full batch cleanly.
+   *
+   * Takes the TENANT KEY its caller resolved (never re-resolved here): the accruals belong to
+   * the org whose invites referred the worker. `agency_payout.accrued` is a system fact
+   * (actor `system`), so it needs no acting login.
    */
-  async recomputeAccruals(agencyId: string): Promise<number> {
+  async recomputeAccruals(tenant: TenantKey): Promise<number> {
     const basisInr = this.config.AGENCY_PAYOUT_UNLOCK_BASIS_INR;
     const rateBps = this.config.AGENCY_PAYOUT_RATE_BPS;
     const amountInr = this.accrualAmountInr();
     const qualifying = await this.repo.findQualifyingUnlocks(
-      agencyId,
+      tenant,
       this.config.AGENCY_PAYOUT_WINDOW_DAYS,
     );
     if (qualifying.length === 0) return 0; // nothing to insert — no transaction needed
@@ -85,7 +101,7 @@ export class AgencyPayoutService {
     return this.repo.withTransaction(async (tx) => {
       const inserted = await this.repo.insertAccruals(
         qualifying.map((q) => ({
-          agencyPayerId: agencyId,
+          agencyPayerId: tenant,
           sourceUnlockId: q.unlockId,
           basisInr,
           rateBps,
@@ -97,7 +113,7 @@ export class AgencyPayoutService {
       );
       for (const a of inserted) {
         const payload: PayloadInputOf<"agency_payout.accrued"> = {
-          agency_payer_id: agencyId,
+          agency_payer_id: tenant,
           unlock_id: a.sourceUnlockId,
           amount_inr: a.amountInr,
           basis_inr: a.basisInr,
@@ -116,11 +132,12 @@ export class AgencyPayoutService {
     });
   }
 
-  /** Earnings analytics off REAL accrual data + the current gate state. Recomputes first. */
-  async getEarnings(agencyId: string): Promise<AgencyEarningsView> {
-    await this.recomputeAccruals(agencyId);
-    const agg = await this.repo.aggregate(agencyId);
-    const kycStatus = await this.kyc.statusForGate(agencyId);
+  /** The org's earnings off REAL accrual data + the current gate state. Recomputes first. */
+  async getEarnings(actorPayerId: string): Promise<AgencyEarningsView> {
+    const { tenantKey } = await this.tenancy.resolve(actorPayerId);
+    await this.recomputeAccruals(tenantKey);
+    const agg = await this.repo.aggregate(tenantKey);
+    const kycStatus = await this.kyc.statusForGate(tenantKey);
     const thresholdInr = this.config.AGENCY_PAYOUT_MIN_THRESHOLD_INR;
     const payoutsEnabled = this.config.AGENCY_PAYOUTS_ENABLED;
 
@@ -153,32 +170,34 @@ export class AgencyPayoutService {
    * request row with no audit event. Now an emit failure rolls the claim back too — the request
    * row and its claimed accruals revert to unclaimed, exactly as if the request never happened.
    */
-  async requestPayout(agencyId: string): Promise<PayoutRequestOutcome> {
+  async requestPayout(actorPayerId: string): Promise<PayoutRequestOutcome> {
+    const scope = await this.tenancy.resolve(actorPayerId);
     // Defense-in-depth: the controller already 404s when the flag is OFF, but never proceed.
     if (!this.config.AGENCY_PAYOUTS_ENABLED) {
-      return this.blocked(agencyId, "disabled", 0);
+      return this.blocked(scope, "disabled", 0);
     }
-    await this.recomputeAccruals(agencyId);
-    const kycStatus = await this.kyc.statusForGate(agencyId);
-    const agg = await this.repo.aggregate(agencyId);
+    const tenant = scope.tenantKey;
+    await this.recomputeAccruals(tenant);
+    const kycStatus = await this.kyc.statusForGate(tenant);
+    const agg = await this.repo.aggregate(tenant);
 
     // GATE 1 — KYC must be verified. This is the bypass-tested chokepoint.
     if (kycStatus !== "verified") {
-      return this.blocked(agencyId, "kyc_not_verified", agg.requestableInr);
+      return this.blocked(scope, "kyc_not_verified", agg.requestableInr);
     }
     // GATE 2 — requestable total must clear the ₹ threshold.
     const thresholdInr = this.config.AGENCY_PAYOUT_MIN_THRESHOLD_INR;
     if (agg.requestableInr < thresholdInr) {
-      return this.blocked(agencyId, "below_threshold", agg.requestableInr);
+      return this.blocked(scope, "below_threshold", agg.requestableInr);
     }
 
     try {
       const request = await this.repo.withTransaction(async (tx) => {
         const claimed = await this.repo.createRequestClaiming(
-          { agencyId, kycStatus, thresholdInr, idempotencyKey: randomUUID() },
+          { tenant, kycStatus, thresholdInr, idempotencyKey: randomUUID() },
           tx,
         );
-        await this.emitRequested(agencyId, claimed, tx);
+        await this.emitRequested(scope, claimed, tx);
         return claimed;
       });
       return {
@@ -191,46 +210,50 @@ export class AgencyPayoutService {
       // A concurrent request claimed everything between the pre-check and the tx → treat as
       // below-threshold (the tx rolled back; nothing changed).
       if (err instanceof PayoutBelowThresholdError) {
-        return this.blocked(agencyId, "below_threshold", err.pendingInr);
+        return this.blocked(scope, "below_threshold", err.pendingInr);
       }
       throw err;
     }
   }
 
+  /** ADR-0053 §7: actor = the acting login; `agency_payer_id` and the subject = the tenant. */
   private async blocked(
-    agencyId: string,
+    scope: PayerTenantScope,
     reason: BlockedReason,
     pendingInr: number,
   ): Promise<PayoutRequestOutcome> {
     const payload: PayloadInputOf<"agency_payout.blocked"> = {
-      agency_payer_id: agencyId,
+      agency_payer_id: scope.tenantKey,
       reason,
       amount_inr: pendingInr,
     };
     await this.events.emit({
       event_name: "agency_payout.blocked",
-      actor: { actor_type: "agent", actor_id: agencyId },
-      subject: { subject_type: "payer", subject_id: agencyId },
+      actor: { actor_type: "agent", actor_id: scope.actorPayerId },
+      subject: { subject_type: "payer", subject_id: scope.tenantKey },
       payload,
     });
     return { ok: false, blocked: true, reason };
   }
 
-  /** `tx` (#1129 item 3): rides the SAME transaction as the claim — see {@link requestPayout}. */
+  /**
+   * `tx` (#1129 item 3): rides the SAME transaction as the claim — see {@link requestPayout}.
+   * ADR-0053 §7: actor = the acting login; `agency_payer_id` = the tenant.
+   */
   private async emitRequested(
-    agencyId: string,
+    scope: PayerTenantScope,
     request: AgencyPayoutRequest,
     tx: Database,
   ): Promise<void> {
     const payload: PayloadInputOf<"agency_payout.requested"> = {
-      agency_payer_id: agencyId,
+      agency_payer_id: scope.tenantKey,
       payout_request_id: request.id,
       amount_inr: request.amountInr,
       accrual_count: request.accrualCount,
     };
     await this.events.emit({
       event_name: "agency_payout.requested",
-      actor: { actor_type: "agent", actor_id: agencyId },
+      actor: { actor_type: "agent", actor_id: scope.actorPayerId },
       subject: { subject_type: "agency_payout_request", subject_id: request.id },
       payload,
       idempotencyKey: `agency_payout.requested:${request.id}`,
@@ -238,8 +261,9 @@ export class AgencyPayoutService {
     });
   }
 
-  /** The agency's OWN payout request history (ids / ₹ / status). */
-  async listRequests(agencyId: string): Promise<AgencyPayoutRequest[]> {
-    return this.repo.listRequests(agencyId);
+  /** The org's OWN payout request history (ids / ₹ / status). */
+  async listRequests(actorPayerId: string): Promise<AgencyPayoutRequest[]> {
+    const { tenantKey } = await this.tenancy.resolve(actorPayerId);
+    return this.repo.listRequests(tenantKey);
   }
 }

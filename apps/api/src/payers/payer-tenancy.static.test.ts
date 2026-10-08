@@ -144,17 +144,8 @@ const UNCONVERTED: readonly string[] = [
   "unlocks/unlocks.repository.ts UnlocksRepository.upsertGrant",
   // P2c — plans, boosts, quota top-up, capacity, coupons: CONVERTED (PR "payer org tenancy
   // phase 2c"), including the blind spots 1–4 below, which it converted by hand.
-  // P2d — agency invites, workers, KYC, payouts (agency JOBS moved to P2a and are converted)
-  "agency/agency-invites.repository.ts AgencyInvitesRepository.create",
-  "agency/agency-invites.repository.ts AgencyInvitesRepository.stageCountsForOwner",
-  "agency/agency-kyc.repository.ts AgencyKycRepository.findByPayer",
-  "agency/agency-kyc.repository.ts AgencyKycRepository.upsertPending",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.aggregate",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.createRequestClaiming",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.findQualifyingUnlocks",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.insertAccruals",
-  "agency/agency-payout.repository.ts AgencyPayoutRepository.listRequests",
-  "agency/agency-workers.repository.ts AgencyWorkersRepository.listReferredWithConsent",
+  // P2d — agency invites, workers, KYC, payouts: CONVERTED (PR "payer org tenancy phase 2d").
+  // The ops KYC verify / reject stay literal (NAMED_EXCEPTIONS above).
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -355,11 +346,15 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
   it("the scanner finds the known raw-id readers (a guard against a vacuous scan)", () => {
     // One per detection path: a Drizzle table, a raw `sql` template, an inline input type. Each
     // must name a callable that is STILL raw: a Phase 2 PR that converts one swaps in another.
+    // The `sql` and inline-type examples are NAMED_EXCEPTIONS (P2d converted the agency ones),
+    // which stay raw through the flip, so those two never need swapping again.
     expect(found).toContain("unlocks/unlocks.repository.ts UnlocksRepository.getBalance");
+    // Its only table reference is a `dsql` template (the file imports no Drizzle table).
+    expect(found).toContain("match/free-tier.service.ts FreeTierService.grantForPayer");
+    // Its raw id is `filter.payerId` in an INLINE type literal (the parameter is `filter`).
     expect(found).toContain(
-      "agency/agency-workers.repository.ts AgencyWorkersRepository.listReferredWithConsent",
+      "admin/admin-entities.repository.ts AdminEntitiesRepository.listJobPostings",
     );
-    expect(found).toContain("agency/agency-invites.repository.ts AgencyInvitesRepository.create");
   });
 
   it("the two lists are disjoint and free of duplicates (a reviewable allowlist)", () => {
@@ -554,8 +549,8 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
   });
 
   it("a property of a parameter typed INLINE — a type literal, alone or as an array element", () => {
-    // The only live example of this path is a P2d method; this fixture keeps the path pinned
-    // after P2d converts it (review of PR #2167, finding 5).
+    // Pinned by a fixture as well as by the live example above (review of PR #2167, finding 5):
+    // P2d converted the agency methods that were this path's only live examples then.
     const found = scanRawTenantKeyCallables([
       fixture(
         "fx/inline.repository.ts",

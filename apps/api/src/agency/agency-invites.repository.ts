@@ -8,6 +8,7 @@ import {
   type AgencyInviteStatus,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /** Funnel counts by stage for one agency's OWN invites (aggregate-only, k-anon floored). */
 export interface AgencyInviteStageCounts {
@@ -18,16 +19,19 @@ export interface AgencyInviteStageCounts {
 
 /**
  * Data access for `agency_invites` (ADR-0022). FACELESS: opaque code + payer/worker ids +
- * enums + an optional non-PII campaign tag only. Owner-scoped reads pass the SESSION
- * `inviterPayerId`; the click/accept lookups go by the opaque `code`. NO phone/name/email
- * column exists. The referrals summary returns ONLY aggregate stage counts — never rows.
+ * enums + an optional non-PII campaign tag only. Owner-scoped reads and the mint's stamp take
+ * the session payer's TENANT KEY (ADR-0053 PAY-DB-01 P2d: `inviter_payer_id` is the agency
+ * ORG's anchor, the branded {@link TenantKey} only the resolver mints); the click/accept
+ * lookups go by the opaque `code`. NO phone/name/email column exists. The referrals summary
+ * returns ONLY aggregate stage counts — never rows.
  */
 @Injectable()
 export class AgencyInvitesRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
-   * Mint an owned invite. `inviterPayerId` is the SESSION payer (stamped server-side).
+   * Mint an owned invite. `inviterPayerId` is the session payer's TENANT KEY (stamped
+   * server-side; ADR-0053) — the org owns the invite, whichever member minted it.
    *
    * `medium` and `payload` are the W1 link metadata. Both are validated at the HTTP
    * boundary (`InviteMediumSchema` / `InviteContextSchema`) — this method takes them as
@@ -37,7 +41,7 @@ export class AgencyInvitesRepository {
    */
   async create(input: {
     code: string;
-    inviterPayerId: string;
+    inviterPayerId: TenantKey;
     campaign?: string;
     medium?: AgencyInviteMedium;
     payload?: Record<string, unknown>;
@@ -93,16 +97,16 @@ export class AgencyInvitesRepository {
   }
 
   /**
-   * Aggregate funnel counts for ONE agency's OWN invites, scoped by `inviterPayerId`. A
+   * Aggregate funnel counts for ONE agency's OWN invites, scoped by the tenant key. A
    * GROUP BY status over the owner's rows — returns COUNTS ONLY (never invite/worker rows),
    * so it can never resolve a single named invitee. The k-anon floor is applied by the
    * service on top of these raw counts.
    */
-  async stageCountsForOwner(inviterPayerId: string): Promise<AgencyInviteStageCounts> {
+  async stageCountsForOwner(tenant: TenantKey): Promise<AgencyInviteStageCounts> {
     const rows = await this.db
       .select({ status: agencyInvites.status, n: count() })
       .from(agencyInvites)
-      .where(eq(agencyInvites.inviterPayerId, inviterPayerId))
+      .where(eq(agencyInvites.inviterPayerId, tenant))
       .groupBy(agencyInvites.status);
 
     const counts: AgencyInviteStageCounts = { created: 0, clicked: 0, accepted: 0 };

@@ -1,10 +1,16 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, ForbiddenException } from "@nestjs/common";
 import { DrizzleQueryError } from "drizzle-orm";
 import type { ServerConfig } from "@badabhai/config";
 import type { AgencyKyc } from "@badabhai/db";
 import type { PayersRepository } from "../payers/payers.repository";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import {
+  defaultModeResolver,
+  ownTenantKey,
+  resolverOver,
+} from "../payers/payer-tenant-scope.test-support";
 import { AgencyKycService } from "./agency-kyc.service";
 import { AgencyKycRepository, type AgencyKycCiphertext } from "./agency-kyc.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -54,6 +60,8 @@ function make(opts?: {
   rejected?: boolean;
   /** ADR-0037 Decision 7 — the owning agency's lifecycle status. Defaults to `active`. */
   payerStatus?: "pending" | "active" | "suspended";
+  /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a suite passes `on`. */
+  tenancy?: PayerTenantScopeService;
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
   const events = { emit } as unknown as EventsService;
@@ -74,7 +82,13 @@ function make(opts?: {
       .fn()
       .mockResolvedValue({ role: "agent", status: opts?.payerStatus ?? "active" }),
   } as unknown as PayersRepository;
-  const svc = new AgencyKycService(repo, pii, events, payers);
+  const svc = new AgencyKycService(
+    repo,
+    pii,
+    events,
+    payers,
+    opts?.tenancy ?? defaultModeResolver(),
+  );
   return { svc, repo, emit, payers, captured: () => captured };
 }
 
@@ -151,12 +165,87 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
 
   it("statusForGate returns the raw status (verified) with NO decrypt", async () => {
     const { svc } = make({ row: kycRow({ status: "verified" }) });
-    expect(await svc.statusForGate(AGENCY)).toBe("verified");
+    expect(await svc.statusForGate(await ownTenantKey(AGENCY))).toBe("verified");
   });
 
   it("statusForGate returns null when never submitted", async () => {
     const { svc } = make({ row: undefined });
-    expect(await svc.statusForGate(AGENCY)).toBeNull();
+    expect(await svc.statusForGate(await ownTenantKey(AGENCY))).toBeNull();
+  });
+});
+
+/**
+ * ADR-0053 (PAY-DB-01 P2d, owner ruling O-5) — KYC is ORG-level: the agency-facing entry points
+ * key the row by the session payer's TENANT key, resolved once; the acting login is the actor.
+ * Who may reach these entry points is the ROUTE's decision (owner only, `PayerOrgRoleGuard` —
+ * agency-payouts-owner-only.test.ts); this suite pins what the service keys by.
+ */
+describe("AgencyKycService — the tenant key keys the org's KYC (ADR-0053 P2d)", () => {
+  const ANCHOR = AGENCY;
+  const MEMBER = "77777777-7777-4777-8777-777777777777";
+  const OUTSIDER = "88888888-8888-4888-8888-888888888888";
+  const TEAM = [{ anchor: ANCHOR, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+  const DTO = { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER };
+
+  const submitted = (emit: ReturnType<typeof vi.fn>) =>
+    emit.mock.calls
+      .map(
+        (c) => c[0] as { event_name: string; actor: unknown; subject: unknown; payload: unknown },
+      )
+      .find((evt) => evt.event_name === "agency_kyc.submitted");
+
+  it("off: byte-identical — the session payer keys the row, and is the event's actor, subject and payer_id", async () => {
+    const { svc, repo, emit } = make({ tenancy: defaultModeResolver(TEAM) });
+    await svc.submit(MEMBER, DTO);
+    expect(repo.upsertPending).toHaveBeenCalledWith(MEMBER, expect.anything());
+    expect(submitted(emit)).toMatchObject({
+      actor: { actor_type: "agent", actor_id: MEMBER },
+      subject: { subject_type: "payer", subject_id: MEMBER },
+      payload: { payer_id: MEMBER, status: "pending" },
+    });
+    await svc.getOwnView(MEMBER);
+    expect(repo.findByPayer).toHaveBeenCalledWith(MEMBER);
+  });
+
+  it("on: the owner (the anchor) keys its own org — every field is the anchor", async () => {
+    const { svc, repo, emit } = make({ tenancy: resolverOver(ON, TEAM) });
+    await svc.submit(ANCHOR, DTO);
+    expect(repo.upsertPending).toHaveBeenCalledWith(ANCHOR, expect.anything());
+    expect(submitted(emit)).toMatchObject({
+      actor: { actor_type: "agent", actor_id: ANCHOR },
+      payload: { payer_id: ANCHOR },
+    });
+  });
+
+  it("on: the row is the ORG's — a teammate's call keys the anchor's row; the login stays the actor", async () => {
+    const { svc, repo, emit } = make({ tenancy: resolverOver(ON, TEAM) });
+    await svc.submit(MEMBER, DTO);
+    expect(repo.upsertPending).toHaveBeenCalledWith(ANCHOR, expect.anything());
+    expect(submitted(emit)).toMatchObject({
+      actor: { actor_type: "agent", actor_id: MEMBER },
+      subject: { subject_type: "payer", subject_id: ANCHOR },
+      payload: { payer_id: ANCHOR, status: "pending" },
+    });
+    await svc.getOwnView(MEMBER);
+    expect(repo.findByPayer).toHaveBeenCalledWith(ANCHOR);
+  });
+
+  it("on: an outsider reads only their own org's KYC, never the team's", async () => {
+    const { svc, repo } = make({ tenancy: resolverOver(ON, TEAM), row: undefined });
+    expect(await svc.getOwnView(OUTSIDER)).toMatchObject({ status: "not_submitted" });
+    expect(repo.findByPayer).toHaveBeenCalledWith(OUTSIDER);
+    expect(repo.findByPayer).not.toHaveBeenCalledWith(ANCHOR);
+  });
+
+  it("on: a refused resolution (two team memberships, R3) is a 403 that reads, writes and emits nothing", async () => {
+    const twoTeams = [TEAM[0]!, { anchor: OUTSIDER, members: [MEMBER] }];
+    const { svc, repo, emit } = make({ tenancy: resolverOver(ON, twoTeams) });
+    await expect(svc.submit(MEMBER, DTO)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.getOwnView(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.upsertPending).not.toHaveBeenCalled();
+    expect(repo.findByPayer).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
   });
 });
 

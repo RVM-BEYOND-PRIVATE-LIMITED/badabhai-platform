@@ -454,16 +454,20 @@ const CONTRACT: ControllerContract[] = [
   },
   // Agency supply-money surface (ADR-0022 Amendment 2): agent-only [PayerAuthGuard,
   // PayerRoleGuard] PLUS the AgencyPayoutsEnabledGuard launch gate (neutral 404 while
-  // AGENCY_PAYOUTS_ENABLED is OFF, the default). Tenant isolation is the session payer_id.
+  // AGENCY_PAYOUTS_ENABLED is OFF, the default) PLUS PayerOrgRoleGuard with a class-level
+  // @OrgRoles("owner") — ADR-0053 owner ruling O-5: KYC, earnings and payouts are org-level and
+  // OWNER-ONLY (a recruiter member gets the team routes' 403). The flag gate must run BEFORE the
+  // org-role gate (the ORDER block below). Tenant isolation: the services key every row by the
+  // session payer's tenant key.
   {
     name: "AgencyPayouts",
     ctor: AgencyPayoutsController,
     routes: {
-      submitKyc: [P, R, PE],
-      getKyc: [P, R, PE],
-      getEarnings: [P, R, PE],
-      requestPayout: [P, R, PE],
-      listPayouts: [P, R, PE],
+      submitKyc: [P, R, PE, POR],
+      getKyc: [P, R, PE, POR],
+      getEarnings: [P, R, PE, POR],
+      requestPayout: [P, R, PE, POR],
+      listPayouts: [P, R, PE, POR],
     },
   },
   // OPS agency-KYC verify queue (ADR-0022 Amendment 2) — the apps/web ops console surface,
@@ -938,5 +942,25 @@ describe("API authz contract — guards on every controller route", () => {
     it("WorkerAiJobsController carries NO class-level guard (never InternalServiceGuard)", () => {
       expect(guardNames(WorkerAiJobsController)).toEqual([]);
     });
+  });
+
+  // ADR-0053 O-5 — the agency money surface. `effectiveGuards` sorts, so it cannot see order;
+  // here the ORDER is the control twice over: PayerAuthGuard must attach `req.payer` before
+  // PayerOrgRoleGuard reads it, and the AGENCY_PAYOUTS_ENABLED gate must run BEFORE the org-role
+  // gate, so that while the flag is off an owner and a recruiter get the SAME neutral 404 (the
+  // AdminAiTraces precedent above). No route may carry a method-level guard that reorders it.
+  it("AgencyPayoutsController runs [PayerAuth, PayerRole, AgencyPayoutsEnabled, PayerOrgRole] in order", () => {
+    expect(guardNames(AgencyPayoutsController)).toEqual([
+      "PayerAuthGuard",
+      "PayerRoleGuard",
+      "AgencyPayoutsEnabledGuard",
+      "PayerOrgRoleGuard",
+    ]);
+    for (const route of ["submitKyc", "getKyc", "getEarnings", "requestPayout", "listPayouts"]) {
+      const handler = (AgencyPayoutsController.prototype as unknown as Record<string, object>)[
+        route
+      ];
+      expect(guardNames(handler), route).toEqual([]);
+    }
   });
 });
