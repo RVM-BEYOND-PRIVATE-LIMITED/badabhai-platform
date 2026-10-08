@@ -195,3 +195,108 @@ describe("PayerApplicantInboxRepository.listPage — row mapping", () => {
     ).rejects.toThrow(/unexpected posting kind/);
   });
 });
+
+describe("inboxPageStatement — the saved pipeline board (owner ruling 2026-10-07)", () => {
+  it("WITHOUT `stages` (the flag off) the statement never names the table and binds nothing new", () => {
+    for (const q of [
+      { limit: 21 },
+      { limit: 21, postingId: POSTING },
+      { limit: 21, after: AFTER },
+    ] satisfies InboxPageQuery[]) {
+      const { sql, params } = compile(q);
+      expect(sql).not.toContain("payer_applicant_stages");
+      expect(sql).not.toContain("stage");
+      expect(params).not.toContain("new");
+    }
+    // Byte-for-byte the pre-stage parameter list.
+    expect(compile({ limit: 21 }).params).toEqual([PAYER, PAYER, PAYER, 21]);
+  });
+
+  it("WITH `stages`: each arm LEFT JOINs the board on its full primary key, with its OWN kind literal", () => {
+    const { sql } = compile({ limit: 21, stages: {} });
+    const { agency, company } = arms(sql);
+    expect(agency).toContain(
+      "LEFT JOIN payer_applicant_stages s ON s.posting_kind = 'agency_job' AND s.posting_id = j.id AND s.worker_id = a.worker_id",
+    );
+    expect(company).toContain(
+      "LEFT JOIN payer_applicant_stages s ON s.posting_kind = 'company_posting' AND s.posting_id = jp.id AND s.worker_id = a.worker_id",
+    );
+    // A LEFT join: an applicant nobody moved is still listed.
+    expect(sql).not.toContain("INNER JOIN payer_applicant_stages");
+  });
+
+  it("the board join keys on the arm's OWNED posting row — no payer predicate of its own (ADR-0053 §4)", () => {
+    const { sql, params } = compile({ limit: 21, stages: { only: "passed" } });
+    for (const arm of Object.values(arms(sql))) {
+      const join = arm.slice(
+        arm.indexOf("LEFT JOIN payer_applicant_stages"),
+        arm.indexOf(" WHERE "),
+      );
+      expect(join).toMatch(/^LEFT JOIN payer_applicant_stages s ON /);
+      const on = join.slice(join.indexOf(" ON ") + 4);
+      expect(on).toMatch(
+        /^s\.posting_kind = '[a-z_]+' AND s\.posting_id = jp?\.id AND s\.worker_id = a\.worker_id$/,
+      );
+      expect(on).not.toMatch(/payer_id|\$\d/); // no payer column, no bound value: owned rows only
+    }
+    // Ownership is still exactly the two arms' WHEREs plus the precedence probe.
+    expect(placeholdersOf(params, PAYER)).toHaveLength(3);
+  });
+
+  it("projects COALESCE(stage, 'new') in each arm and `p.stage` outside — no row reads as new", () => {
+    const { sql } = compile({ limit: 21, stages: {} });
+    for (const arm of Object.values(arms(sql))) {
+      expect(arm).toContain("COALESCE(s.stage, 'new') AS stage");
+    }
+    expect(sql.slice(0, sql.indexOf(" FROM (")).trim()).toBe(
+      "SELECT p.application_id, p.worker_id, p.applied_key, p.posting_kind, p.posting_id, p.posting_title, p.stage",
+    );
+  });
+
+  it("no `only` → no filter; `only` → the same predicate in EACH arm, bound once per arm", () => {
+    expect(compile({ limit: 21, stages: {} }).sql).not.toContain("AND COALESCE(s.stage, 'new') =");
+    const { sql, params } = compile({ limit: 21, stages: { only: "shortlist" } });
+    const p = placeholdersOf(params, "shortlist");
+    expect(p).toHaveLength(2);
+    expect(arms(sql).agency).toContain(`AND COALESCE(s.stage, 'new') = ${p[0]}`);
+    expect(arms(sql).company).toContain(`AND COALESCE(s.stage, 'new') = ${p[1]}`);
+  });
+
+  it("the filter composes with the posting filter and the keyset, all INSIDE the arms (below the LIMIT)", () => {
+    const { sql, params } = compile({
+      limit: 21,
+      postingId: POSTING,
+      after: AFTER,
+      stages: { only: "new" },
+    });
+    for (const arm of Object.values(arms(sql))) {
+      expect(arm).toContain("AND (a.created_at, a.id) <");
+      expect(arm).toContain("AND COALESCE(s.stage, 'new') =");
+    }
+    expect(sql.slice(sql.lastIndexOf("ORDER BY")).trim()).toBe(
+      `ORDER BY p.created_at DESC, p.application_id DESC LIMIT $${params.length}`,
+    );
+    // Ownership is untouched by the board: still the session payer, three times.
+    expect(placeholdersOf(params, PAYER)).toHaveLength(3);
+  });
+
+  it("listPage maps `stage` through when projected, and adds no key when it is not", async () => {
+    const raw = {
+      application_id: "44444444-4444-4444-8444-000000000001",
+      worker_id: "33333333-3333-4333-8333-000000000001",
+      applied_key: "2026-10-01T10:00:00.000001Z",
+      posting_kind: "agency_job",
+      posting_id: POSTING,
+      posting_title: "VMC Setter",
+    };
+    const repo = (rows: unknown[]) =>
+      new PayerApplicantInboxRepository({ execute: async () => rows } as unknown as Database);
+    const [staged] = await repo([{ ...raw, stage: "passed" }]).listPage(PAYER, {
+      limit: 2,
+      stages: {},
+    });
+    expect(staged).toMatchObject({ stage: "passed" });
+    const [plain] = await repo([raw]).listPage(PAYER, { limit: 2 });
+    expect(plain).not.toHaveProperty("stage");
+  });
+});

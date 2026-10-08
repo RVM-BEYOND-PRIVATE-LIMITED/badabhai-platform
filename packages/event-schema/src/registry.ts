@@ -1413,6 +1413,16 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatFreeChatNewsServedPayload,
   },
+
+  // OWNER RULING 2026-10-07 — the payer applicant pipeline board, saved server-side (migration
+  // 0134). One persisted stage change (New / Shortlist / Passed) of one applicant on one posting:
+  // actor the session payer, subject the worker; ids + closed enums only. A NEW event — no shipped
+  // schema could carry a stage. Appended at the tail per protocol. v1.
+  "payer.applicant_stage_changed": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerApplicantStageChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

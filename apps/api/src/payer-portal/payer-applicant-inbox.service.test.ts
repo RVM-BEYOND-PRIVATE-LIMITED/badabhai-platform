@@ -11,6 +11,7 @@ import { MatchCandidatesService } from "../match/match-candidates.service";
 import type { CandidateRow, RankedCandidateRow } from "../match/match-feed.repository";
 import { PayerApplicantsService } from "./payer-applicants.service";
 import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
+import { stagesOff } from "./payer-applicant-stages.test-support";
 import type { InboxPageQuery, InboxPageRow } from "./payer-applicant-inbox.repository";
 import { decodeInboxCursor } from "./payer-applicant-inbox.cursor";
 import type { InboxApplicantRowDto, PayerApplicantInboxDto } from "./payer-applicant-inbox.dto";
@@ -376,7 +377,13 @@ function pageOf(payerId: string, q: InboxPageQuery): InboxPageRow[] {
     .slice(0, q.limit);
 }
 
-function world(opts: { page?: (payerId: string, q: InboxPageQuery) => InboxPageRow[] } = {}) {
+function world(
+  opts: {
+    page?: (payerId: string, q: InboxPageQuery) => InboxPageRow[];
+    /** PAYER_APPLICANT_STAGES_ENABLED for the inbox service (off, the default, unless set). */
+    stagesEnabled?: boolean;
+  } = {},
+) {
   const inboxRepo = {
     listPage: vi.fn(async (payerId: string, q: InboxPageQuery) =>
       (opts.page ?? pageOf)(payerId, q),
@@ -428,8 +435,16 @@ function world(opts: { page?: (payerId: string, q: InboxPageQuery) => InboxPageR
       return { id };
     }),
   };
-  const perPosting = new PayerApplicantsService(reach, jobPostings as never, candidates);
-  const inbox = new PayerApplicantInboxService(inboxRepo as never, reach, candidates);
+  // Flag OFF (the default): the stages suite (payer-applicant-stages.*.test.ts) runs it ON.
+  const perPosting = new PayerApplicantsService(
+    reach,
+    jobPostings as never,
+    candidates,
+    stagesOff(),
+  );
+  const inbox = new PayerApplicantInboxService(inboxRepo as never, reach, candidates, {
+    PAYER_APPLICANT_STAGES_ENABLED: opts.stagesEnabled ?? false,
+  });
 
   const feedShown = (): Record<string, unknown>[] =>
     (emitMany.mock.calls as unknown as Record<string, unknown>[][][]).flatMap((c) => c[0]!);
@@ -832,5 +847,127 @@ describe("PayerApplicantInboxService — bounded reads, fail closed", () => {
     const out = await w.inbox.list(PAYER_A, query({ postingId: POST_A1, limit: 2 }), CTX);
     expect(out.applicants).toEqual([]);
     expect(decodeInboxCursor(out.nextCursor!)!.applicationId).toBe(app(10));
+  });
+});
+
+describe("PayerApplicantInboxService — the saved pipeline board (owner ruling 2026-10-07)", () => {
+  /** The stored board: `${postingId}|${workerId}` → stage. Everyone else reads `new`. */
+  const BOARD = new Map<string, string>([
+    [`${JOB_A1}|${worker(2)}`, "shortlist"],
+    [`${POST_A1}|${worker(3)}`, "passed"],
+    [`${POST_A2}|${worker(1)}`, "new"], // moved back to New: stored explicitly
+  ]);
+
+  /** The page read with the board joined, answering the way the staged statement is written. */
+  function stagedPage(payerId: string, q: InboxPageQuery): InboxPageRow[] {
+    if (q.stages === undefined) return pageOf(payerId, q);
+    const all = pageOf(payerId, { ...q, limit: Number.MAX_SAFE_INTEGER }).map((r) => ({
+      ...r,
+      stage: BOARD.get(`${r.postingId}|${r.workerId}`) ?? "new",
+    }));
+    const only = q.stages.only;
+    return all.filter((r) => only === undefined || r.stage === only).slice(0, q.limit);
+  }
+
+  it("flag ON: the page read asks for the board, and every row carries its stage", async () => {
+    const w = world({ stagesEnabled: true, page: stagedPage });
+    const out = await w.inbox.list(PAYER_A, query({ limit: 50 }), CTX);
+    expect(w.inboxRepo.listPage).toHaveBeenCalledWith(
+      PAYER_A,
+      expect.objectContaining({ stages: { only: undefined } }),
+    );
+    expect(out.applicants.length).toBeGreaterThan(5);
+    for (const row of out.applicants) {
+      expect(row.stage).toBe(BOARD.get(`${row.posting.id}|${row.workerId}`) ?? "new");
+    }
+    expect(
+      out.applicants
+        .filter((r) => r.stage !== "new")
+        .map((r) => r.stage)
+        .sort(),
+    ).toEqual(["passed", "shortlist"]);
+  });
+
+  it("flag ON: the row is the per-posting row + posting + stage — nothing else is added", async () => {
+    const w = world({ stagesEnabled: true, page: stagedPage });
+    const out = await w.inbox.list(PAYER_A, query({ limit: 50 }), CTX);
+    const shortlisted = out.applicants.find((r) => r.stage === "shortlist")!;
+    const { posting: _p, stage: _s, ...rest } = shortlisted;
+    const plain = (await world().inbox.list(PAYER_A, query({ limit: 50 }), CTX)).applicants.find(
+      (r) => r.posting.id === shortlisted.posting.id && r.workerId === shortlisted.workerId,
+    )!;
+    const { posting: _p2, ...plainRest } = plain;
+    expect(rest).toStrictEqual(plainRest);
+  });
+
+  it.each(["new", "shortlist", "passed"] as const)(
+    "flag ON: ?stage=%s is handed to the page read and only that stage comes back",
+    async (stage) => {
+      const w = world({ stagesEnabled: true, page: stagedPage });
+      const out = await w.inbox.list(PAYER_A, { ...query({ limit: 50 }), stage }, CTX);
+      expect(w.inboxRepo.listPage).toHaveBeenCalledWith(
+        PAYER_A,
+        expect.objectContaining({ stages: { only: stage } }),
+      );
+      expect(out.applicants.length).toBeGreaterThan(0);
+      expect(out.applicants.every((r) => r.stage === stage)).toBe(true);
+    },
+  );
+
+  it("flag ON: `new` includes the explicitly stored `new` AND the never-moved", async () => {
+    const w = world({ stagesEnabled: true, page: stagedPage });
+    const out = await w.inbox.list(PAYER_A, { ...query({ limit: 50 }), stage: "new" }, CTX);
+    const keys = out.applicants.map((r) => `${r.posting.id}|${r.workerId}`);
+    expect(keys).toContain(`${POST_A2}|${worker(1)}`); // stored `new`
+    expect(keys).toContain(`${JOB_A1}|${worker(1)}`); // no row
+    expect(keys).not.toContain(`${JOB_A1}|${worker(2)}`); // shortlisted
+  });
+
+  it("flag ON: a filtered walk is keyset-exact — every match once, in inbox order", async () => {
+    const w = world({ stagesEnabled: true, page: stagedPage });
+    const everyNew = (
+      await w.inbox.list(PAYER_A, { ...query({ limit: 50 }), stage: "new" }, CTX)
+    ).applicants.map((r) => `${r.posting.id}|${r.workerId}`);
+    const walked: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 50; i += 1) {
+      const page = await w.inbox.list(
+        PAYER_A,
+        { ...query({ limit: 2, cursor }), stage: "new" },
+        CTX,
+      );
+      walked.push(...page.applicants.map((r) => `${r.posting.id}|${r.workerId}`));
+      if (page.nextCursor === null) break;
+      cursor = page.nextCursor;
+    }
+    expect(walked).toEqual(everyNew);
+    expect(everyNew.length).toBeGreaterThan(2); // more than one page: not vacuous
+  });
+
+  it("a stored stage this build does not know reads as `new` (never an unknown value on the wire)", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const w = world({
+      stagesEnabled: true,
+      page: (payerId, q) => pageOf(payerId, q).map((r) => ({ ...r, stage: "hired" })),
+    });
+    const out = await w.inbox.list(PAYER_A, query({ limit: 3 }), CTX);
+    expect(out.applicants.map((r) => r.stage)).toEqual(["new", "new", "new"]);
+    warn.mockRestore();
+  });
+
+  it("flag OFF: the page read is NOT asked for the board, and no row carries `stage`", async () => {
+    const w = world({ page: stagedPage });
+    const out = await w.inbox.list(PAYER_A, query({ limit: 50 }), CTX);
+    expect(w.inboxRepo.listPage.mock.calls[0]![1]).not.toHaveProperty("stages");
+    expect(out.applicants.length).toBeGreaterThan(0);
+    for (const row of out.applicants) expect(row).not.toHaveProperty("stage");
+  });
+
+  it("flag OFF: a stage filter that reached the service is REFUSED (400), never silently ignored", async () => {
+    const w = world({ page: stagedPage });
+    await expect(
+      w.inbox.list(PAYER_A, { ...query(), stage: "shortlist" }, CTX),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(w.inboxRepo.listPage).not.toHaveBeenCalled();
   });
 });

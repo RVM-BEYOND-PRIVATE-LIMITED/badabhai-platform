@@ -48,6 +48,8 @@ import {
   FREE_CHAT_SUMMARY_OUTCOMES,
   FREE_CHAT_NEWS_KINDS,
   FREE_CHAT_NEWS_OUTCOMES,
+  APPLICANT_POSTING_KINDS,
+  APPLICANT_STAGES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -5380,3 +5382,34 @@ export const ChatFreeChatNewsServedPayload = z
     message: "a capped request made no search",
   });
 export type ChatFreeChatNewsServedPayload = z.infer<typeof ChatFreeChatNewsServedPayload>;
+
+/**
+ * OWNER RULING 2026-10-07 — A PAYER MOVED AN APPLICANT ON A POSTING'S PIPELINE BOARD (payer-web's
+ * New / Shortlist / Passed), saved server-side in `payer_applicant_stages` (migration 0134).
+ *
+ * EMITTED ONLY FOR A PERSISTED REAL CHANGE, in the SAME transaction as the write, so the spine and
+ * the board cannot disagree. Re-sending the stage already held (a retry, a double tap) writes
+ * nothing and emits nothing — hence the refine: `stage` never equals `previous_stage`.
+ * `previous_stage` is never null: an applicant nobody has moved is `new`.
+ *
+ * THE ACTOR IS THE SESSION PAYER (`actor_type: payer`, `actor_id` = the payer who moved the row),
+ * the SUBJECT is the worker. No `payer_id` in the payload: the actor carries it, and ACCESS is
+ * posting ownership, decided by the API — not a payer recorded here.
+ *
+ * IDS AND CLOSED ENUMS ONLY, `.strict()`: the posting kind (which table `posting_id` names) and
+ * id, the worker id, two stages. Never a posting title, a note or anything a payer typed. BECAUSE
+ * A SHIPPED PAYLOAD IS FROZEN, a new stage or posting kind is a new event version.
+ */
+export const PayerApplicantStageChangedPayload = z
+  .object({
+    posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+    posting_id: uuidSchema,
+    worker_id: uuidSchema,
+    stage: z.enum(APPLICANT_STAGES),
+    previous_stage: z.enum(APPLICANT_STAGES),
+  })
+  .strict()
+  .refine((v) => v.stage !== v.previous_stage, {
+    message: "a stage change must change the stage (an unchanged stage emits nothing)",
+  });
+export type PayerApplicantStageChangedPayload = z.infer<typeof PayerApplicantStageChangedPayload>;

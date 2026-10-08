@@ -2,14 +2,13 @@ import { Controller, Get, Inject, Query, UseGuards } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
-import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
-import {
-  PayerApplicantInboxQuerySchema,
-  type PayerApplicantInboxDto,
-  type PayerApplicantInboxQueryDto,
+import { PayerApplicantInboxQueryPipe } from "./payer-applicant-inbox-query.pipe";
+import type {
+  PayerApplicantInboxDto,
+  PayerApplicantInboxQueryDto,
 } from "./payer-applicant-inbox.dto";
 
 /**
@@ -42,8 +41,8 @@ export class PayerApplicantInboxController {
 
   @Get("applicants")
   async list(
-    @Query(new ZodValidationPipe(PayerApplicantInboxQuerySchema))
-    query: PayerApplicantInboxQueryDto,
+    // The base query, plus `stage` while PAYER_APPLICANT_STAGES_ENABLED is on (the pipe picks).
+    @Query(PayerApplicantInboxQueryPipe) query: PayerApplicantInboxQueryDto,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ): Promise<PayerApplicantInboxDto> {
