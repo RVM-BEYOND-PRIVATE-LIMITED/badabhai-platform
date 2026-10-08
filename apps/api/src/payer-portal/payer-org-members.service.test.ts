@@ -6,12 +6,14 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { PayerOrgMembersService } from "./payer-org-members.service";
+import { INVITE_NOT_ACCEPTABLE_MESSAGE, PayerOrgMembersService } from "./payer-org-members.service";
 import type { ResolvedOrg } from "../payers/payer-orgs.repository";
+import type { ActiveMembershipFacts } from "../payers/payer-tenant-scope";
 
 const ORG: ResolvedOrg = { orgId: "org-1", orgRole: "owner" };
 const OWNER = "aaaaaaaa-0000-4000-8000-000000000001";
 const ACCEPTER = "bbbbbbbb-0000-4000-8000-000000000002";
+const OWNER_ELSEWHERE = "cccccccc-0000-4000-8000-000000000003";
 const CTX = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req-1" };
 const EMAIL = "hire@acmestaffing.example";
 const RAW_TOKEN = "tok-raw-0123456789abcdef";
@@ -44,8 +46,28 @@ function memberRow(over: Record<string, unknown> = {}) {
   };
 }
 
+/** An ACTIVE membership of the accepter, as the tenancy read returns it (ADR-0053 R1). */
+function membershipOf(anchorPayerId: string, over: Partial<ActiveMembershipFacts> = {}): ActiveMembershipFacts {
+  return {
+    orgId: `org-of-${anchorPayerId}`,
+    orgRole: anchorPayerId === ACCEPTER ? "owner" : "recruiter",
+    acceptedAt: new Date("2026-06-01T00:00:00.000Z"),
+    orgStatus: "active",
+    anchorPayerId,
+    anchorRole: "employer",
+    anchorStatus: "active",
+    memberRole: "employer",
+    ...over,
+  };
+}
+
 function make(configOver: Record<string, unknown> = {}) {
   const orgs = {
+    // ADR-0053 §3.5 reads. Default: the accepter has only their own solo org, anchors no team,
+    // and the inviting org's anchor shares their vertical role — every invariant holds.
+    listActiveMembershipsWithAnchor: vi.fn(async (_payerId: string) => [membershipOf(ACCEPTER)]),
+    anchorsTeamOrg: vi.fn(async (_payerId: string) => false),
+    findAnchorRole: vi.fn(async (_orgId: string): Promise<"employer" | "agent" | null> => "employer"),
     listMembers: vi.fn(async () => [memberRow()]),
     findMember: vi.fn(async () => memberRow({ orgRole: "recruiter", status: "invited" })),
     findActiveOrInvitedByEmail: vi.fn(async () => undefined),
@@ -64,7 +86,11 @@ function make(configOver: Record<string, unknown> = {}) {
   };
   const payers = {
     // The accepting payer's verified email hash matches the invite by default.
-    findById: vi.fn(async (_id: string) => ({ id: ACCEPTER, emailHash: `hmac<${EMAIL}>` })),
+    findById: vi.fn(async (_id: string) => ({
+      id: ACCEPTER,
+      emailHash: `hmac<${EMAIL}>`,
+      role: "employer",
+    })),
   };
   const mailer = { send: vi.fn(async (_input: { email: string; acceptUrl: string }) => undefined) };
   const config = { MEMBER_INVITE_MAX_PER_ORG: 25, MEMBER_INVITE_ACCEPT_URL: undefined, ...configOver };
@@ -195,6 +221,113 @@ describe("PayerOrgMembersService.accept (any authed payer, single-use token)", (
     await expect(d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX)).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+});
+
+describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants", () => {
+  let d: ReturnType<typeof make>;
+  beforeEach(() => {
+    d = make();
+  });
+
+  /** Accept, expecting the ONE neutral refusal; returns the body for byte comparison. */
+  async function refused(): Promise<unknown> {
+    const err = await d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    const body = (err as ConflictException).getResponse();
+    expect(JSON.stringify(body)).toContain(INVITE_NOT_ACCEPTABLE_MESSAGE);
+    // A refusal writes nothing: the token is consumed ONLY by the guarded accept write, which
+    // never ran, and nothing reached the spine (an accept is evented only on success).
+    expect(d.orgs.acceptInvite).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalled();
+    return body;
+  }
+
+  it("the happy path reads all three facts for the ACCEPTER and the inviting org", async () => {
+    await d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX);
+    expect(d.orgs.listActiveMembershipsWithAnchor).toHaveBeenCalledWith(ACCEPTER);
+    expect(d.orgs.anchorsTeamOrg).toHaveBeenCalledWith(ACCEPTER);
+    expect(d.orgs.findAnchorRole).toHaveBeenCalledWith("org-1");
+    expect(d.orgs.acceptInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it("A1: an active member of another org's team cannot accept a second team invite", async () => {
+    d.orgs.listActiveMembershipsWithAnchor.mockResolvedValueOnce([
+      membershipOf(ACCEPTER),
+      membershipOf(OWNER_ELSEWHERE),
+    ]);
+    await refused();
+  });
+
+  it("A1 counts only TEAM memberships: the accepter's own solo org is not one", async () => {
+    // The default read is exactly the solo org; a recruiter role on it (never real) or a second
+    // solo-anchored row must not read as "already in a team".
+    d.orgs.listActiveMembershipsWithAnchor.mockResolvedValueOnce([
+      membershipOf(ACCEPTER, { orgRole: "recruiter" }),
+    ]);
+    await expect(d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX)).resolves.toMatchObject({
+      status: "active",
+    });
+  });
+
+  it("A2: the anchor of a team org (another non-removed member) cannot join another org", async () => {
+    d.orgs.anchorsTeamOrg.mockResolvedValueOnce(true);
+    await refused();
+  });
+
+  it("A3 (O-9): the accepter's vertical role must equal the inviting org's anchor role", async () => {
+    d.orgs.findAnchorRole.mockResolvedValueOnce("agent");
+    await refused();
+  });
+
+  it("A3 fails CLOSED when the inviting org's anchor role cannot be read", async () => {
+    d.orgs.findAnchorRole.mockResolvedValueOnce(null);
+    await refused();
+  });
+
+  it("an agent accepting an agency org's invite is admitted (A3 compares, it does not pin employer)", async () => {
+    d.payers.findById.mockResolvedValueOnce({
+      id: ACCEPTER,
+      emailHash: `hmac<${EMAIL}>`,
+      role: "agent",
+    } as never);
+    d.orgs.listActiveMembershipsWithAnchor.mockResolvedValueOnce([
+      membershipOf(ACCEPTER, { anchorRole: "agent", memberRole: "agent" }),
+    ]);
+    d.orgs.findAnchorRole.mockResolvedValueOnce("agent");
+    await expect(d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX)).resolves.toMatchObject({
+      status: "active",
+    });
+  });
+
+  it("all three refusals are the SAME body (no rule-name oracle)", async () => {
+    d.orgs.listActiveMembershipsWithAnchor.mockResolvedValueOnce([membershipOf(OWNER_ELSEWHERE)]);
+    const a1 = await refused();
+    d = make();
+    d.orgs.anchorsTeamOrg.mockResolvedValueOnce(true);
+    const a2 = await refused();
+    d = make();
+    d.orgs.findAnchorRole.mockResolvedValueOnce("agent");
+    const a3 = await refused();
+    expect(a2).toEqual(a1);
+    expect(a3).toEqual(a1);
+  });
+
+  it("the invariants are read only AFTER the invite is proven the caller's (token + email)", async () => {
+    // A caller holding someone else's token learns nothing about the invariants: they get the
+    // existing 403, and the tenancy facts are never read on their behalf.
+    d.payers.findById.mockResolvedValueOnce({
+      id: ACCEPTER,
+      emailHash: "hmac<someone@else.example>",
+      role: "employer",
+    } as never);
+    d.orgs.anchorsTeamOrg.mockResolvedValueOnce(true);
+    await expect(d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(d.orgs.listActiveMembershipsWithAnchor).not.toHaveBeenCalled();
+    expect(d.orgs.anchorsTeamOrg).not.toHaveBeenCalled();
+    expect(d.orgs.findAnchorRole).not.toHaveBeenCalled();
   });
 });
 

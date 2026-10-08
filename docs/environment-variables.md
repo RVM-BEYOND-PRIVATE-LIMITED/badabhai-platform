@@ -83,6 +83,18 @@ NestJS boot assertion).
   refuses, before a container moves, both an unknown method and `email_otp` with any of the four
   empty (names only in the error). Locally, the base compose `api` carries dummy ZeptoMail values
   so it boots; with no `ZEPTOMAIL_API_URL` it sends nothing (use `mailpit` for a readable code).
+- **Payer org tenancy** — `PAYER_ORG_TENANCY_MODE` (`off` | `shadow` | `on`; ADR-0053,
+  PAY-DB-01). `off` (the default, and what an empty value reads as) keys every payer read to the
+  login, the pre-ADR behaviour; `shadow` serves `off` and logs what `on` would decide
+  (`payer tenancy shadow: actor=… would_key=… would_differ=… outcome=… ms=…`, ids only); `on`
+  keys a team member to their org's founder (`payer_orgs.root_payer_id`). Its one reader is
+  `apps/api/src/payers/payer-tenant-scope.service.ts` (a static test pins it). Declared on the
+  `api` service only, as `${PAYER_ORG_TENANCY_MODE:-off}` in `docker-compose.staging.yml`, and
+  bridged from the GitHub `production` secret of the same name (`ci.yml` `env:` + `envs:`);
+  **absent = `off`**. `scripts/deploy/staging-deploy.sh` refuses any other value (e.g. `ON`,
+  `true`) before a container moves, because the api's config would refuse to boot. The CI `e2e`
+  job runs `on`. Arming it in production is owner decision O-8, after the
+  `db:audit:org-tenancy` census (`docs/payer-agent/ORG_TENANCY_PLAN.md` §5).
 - **PIN unlock** — `PIN_PEPPER` (ADR-0026 Phase 3).
 - **Admin auth** — `ADMIN_JWT_SECRET` (ADR-0025, must differ from `JWT_SECRET`).
 - **AI routing** — `GEMINI_FLASH_API_KEY`, `AI_ENABLE_REAL_CALLS` (master kill-switch, default

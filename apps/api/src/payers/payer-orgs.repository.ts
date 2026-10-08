@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, ne, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   type Database,
   payers,
@@ -7,8 +8,10 @@ import {
   payerMembers,
   type OrgRole,
   type PayerMember,
+  type PayerRole,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { ActiveMembershipFacts } from "./payer-tenant-scope";
 
 /** A payer's resolved org membership — the org they act within + their role in it. */
 export interface ResolvedOrg {
@@ -85,19 +88,70 @@ export class PayerOrgsRepository {
   }
 
   /**
-   * Resolve the org a payer acts within + their role — their single ACTIVE membership (B5:
-   * one org per member; most-recently-accepted wins if that ever changes). Returns null when
-   * the payer has no active membership yet (the caller then falls back to {@link ensureSoloOrg}
-   * or treats it fail-closed). PII-free (opaque ids + the org_role enum).
+   * Every ACTIVE membership of a payer, joined to its org and to the org's anchor payer
+   * (ADR-0053 rule R1). DB access only: WHICH membership the payer acts in is decided by
+   * `chooseActingOrg` (payer-tenant-scope.ts), called through `PayerTenantScopeService` — the
+   * one choice the Team page, the session org claim, `GET /payer/me` and the tenant predicates
+   * share. Do not pick a row here.
+   *
+   * One round trip: `payer_members_member_payer_id_idx`, then primary-key joins. Every join
+   * follows a NOT NULL foreign key (org_id → payer_orgs, root_payer_id → payers) or the
+   * payer's own row, so it keeps exactly the rows the WHERE selects. Ordered newest-accepted
+   * first, the order the pre-ADR single-row read used. PII-free: ids and enums only.
    */
-  async resolveOrgForPayer(payerId: string): Promise<ResolvedOrg | null> {
-    const [row] = await this.db
-      .select({ orgId: payerMembers.orgId, orgRole: payerMembers.orgRole })
+  async listActiveMembershipsWithAnchor(payerId: string): Promise<ActiveMembershipFacts[]> {
+    const anchor = alias(payers, "anchor");
+    const member = alias(payers, "member");
+    return this.db
+      .select({
+        orgId: payerMembers.orgId,
+        orgRole: payerMembers.orgRole,
+        acceptedAt: payerMembers.acceptedAt,
+        orgStatus: payerOrgs.status,
+        anchorPayerId: payerOrgs.rootPayerId,
+        anchorRole: anchor.role,
+        anchorStatus: anchor.status,
+        memberRole: member.role,
+      })
       .from(payerMembers)
+      .innerJoin(payerOrgs, eq(payerOrgs.id, payerMembers.orgId))
+      .innerJoin(anchor, eq(anchor.id, payerOrgs.rootPayerId))
+      .innerJoin(member, eq(member.id, payerMembers.memberPayerId))
       .where(and(eq(payerMembers.memberPayerId, payerId), eq(payerMembers.status, "active")))
-      .orderBy(desc(payerMembers.acceptedAt))
+      .orderBy(desc(payerMembers.acceptedAt));
+  }
+
+  /**
+   * Does this payer anchor a TEAM org — their own org has at least one non-removed member
+   * (invited or active) other than themselves? Invite rule A2 (ADR-0053 §3.5). An invited row
+   * has no member_payer_id yet, so NULL counts as "someone else" (IS DISTINCT FROM, spelled
+   * out because a bare `<>` drops the NULL).
+   */
+  async anchorsTeamOrg(payerId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: payerMembers.id })
+      .from(payerMembers)
+      .innerJoin(payerOrgs, eq(payerOrgs.id, payerMembers.orgId))
+      .where(
+        and(
+          eq(payerOrgs.rootPayerId, payerId),
+          ne(payerMembers.status, "removed"),
+          or(isNull(payerMembers.memberPayerId), ne(payerMembers.memberPayerId, payerId)),
+        ),
+      )
       .limit(1);
-    return row ?? null;
+    return row !== undefined;
+  }
+
+  /** The vertical role of an org's anchor payer — invite rule A3 (ADR-0053 §3.5, O-9). */
+  async findAnchorRole(orgId: string): Promise<PayerRole | null> {
+    const [row] = await this.db
+      .select({ role: payers.role })
+      .from(payerOrgs)
+      .innerJoin(payers, eq(payers.id, payerOrgs.rootPayerId))
+      .where(eq(payerOrgs.id, orgId))
+      .limit(1);
+    return row?.role ?? null;
   }
 
   /**
