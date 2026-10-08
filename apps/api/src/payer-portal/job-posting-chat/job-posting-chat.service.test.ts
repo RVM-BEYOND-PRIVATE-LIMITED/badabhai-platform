@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
@@ -13,6 +14,10 @@ import { fakeAiTraceRecorder } from "../../ai/ai-trace-recorder.fake";
 import { EventsService } from "../../events/events.service";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
 import { JobPostingChatService } from "./job-posting-chat.service";
+import type { PayerTenantScope } from "../../payers/payer-tenant-scope";
+import type { PayerTenantScopeService } from "../../payers/payer-tenant-scope.service";
+import { defaultModeResolver, resolverOver } from "../../payers/payer-tenant-scope.test-support";
+import type { ServerConfig } from "@badabhai/config";
 
 const PAYER_A = "aaaaaaaa-0000-4000-8000-000000000001";
 const PAYER_B = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -87,6 +92,8 @@ function make(
     /** `false` models a turn that lost the race to a publish: `saveTurn` wrote no row (#1922). */
     turnStored?: boolean;
     createThrows?: Error;
+    /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
+    tenancy?: PayerTenantScopeService;
   } = {},
 ) {
   const session =
@@ -204,8 +211,8 @@ function make(
     }),
   };
   const jobPostings = {
-    createForPayer: vi.fn(
-      async (_payerId: string, _dto: Record<string, unknown>, _ctx: RequestContext) => {
+    createInScope: vi.fn(
+      async (_scope: PayerTenantScope, _dto: Record<string, unknown>, _ctx: RequestContext) => {
         if (opts.createThrows) throw opts.createThrows;
         return { id: POSTING, status: "draft" };
       },
@@ -242,6 +249,7 @@ function make(
     payers as never,
     pii as never,
     jobPostings as never,
+    opts.tenancy ?? defaultModeResolver(),
   );
   return { svc, chat, events, emitted, ai, aiCost, traces, payers, pii, jobPostings };
 }
@@ -586,7 +594,7 @@ describe("JobPostingChatService — ownership is a no-oracle 404 (IDOR)", () => 
 
     expect(d.chat.insertMessage).not.toHaveBeenCalled();
     expect(d.chat.claimForPublish).not.toHaveBeenCalled();
-    expect(d.jobPostings.createForPayer).not.toHaveBeenCalled();
+    expect(d.jobPostings.createInScope).not.toHaveBeenCalled();
     expect(d.ai.jobPostingChatRespond).not.toHaveBeenCalled();
     expect(d.emitted).toHaveLength(0);
   });
@@ -667,16 +675,17 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     d = make(publishable);
   });
 
-  it("calls createForPayer with the SESSION payer and the mapped draft", async () => {
+  it("calls the posting create with the SESSION payer's resolved scope and the mapped draft", async () => {
     const res = await d.svc.publish(PAYER_A, SESSION, CTX);
 
-    expect(d.jobPostings.createForPayer).toHaveBeenCalledTimes(1);
-    const [payerId, dto, ctx] = d.jobPostings.createForPayer.mock.calls[0]! as unknown as [
-      string,
+    expect(d.jobPostings.createInScope).toHaveBeenCalledTimes(1);
+    const [scope, dto, ctx] = d.jobPostings.createInScope.mock.calls[0]! as unknown as [
+      PayerTenantScope,
       Record<string, unknown>,
       RequestContext,
     ];
-    expect(payerId).toBe(PAYER_A);
+    // The default mode (off): the session payer is both the actor and the tenant (ADR-0053).
+    expect(scope).toMatchObject({ actorPayerId: PAYER_A, tenantKey: PAYER_A });
     expect(ctx).toBe(CTX);
     // #1650 — THE WHOLE DRAFT. This asserted six keys and the other five rode back as
     // `unmapped_fields`, which is why the most guided posting path in the product produced
@@ -714,9 +723,9 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
 
   it("never sends role_kind — the interview does not ask for a role, so the posting stores NULL (0131)", async () => {
     // Owner ruling 2026-09-29: chat publish leaves `role_kind` NULL. The create DTO's field is
-    // optional with no default, so an absent key is what makes `createForPayer` store NULL.
+    // optional with no default, so an absent key is what makes `createInScope` store NULL.
     await d.svc.publish(PAYER_A, SESSION, CTX);
-    const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
     expect("role_kind" in dto).toBe(false);
   });
 
@@ -727,12 +736,12 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
 
   it("sends the BANDED vacancy and never a raw count (ADR-0012)", async () => {
     await d.svc.publish(PAYER_A, SESSION, CTX);
-    const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
     expect(dto.vacancy_band).toBe("2-5");
     expect("vacancies" in dto).toBe(false);
   });
 
-  it("does NOT emit job_posting.created itself — createForPayer is the single writer", async () => {
+  it("does NOT emit job_posting.created itself — the posting create (createInScope) is the single writer", async () => {
     await d.svc.publish(PAYER_A, SESSION, CTX);
     expect(d.emitted.map((e) => e.event_name)).not.toContain("job_posting.created");
     // Publish adds NO event of its own at all (ADR-0035 §Decision 6).
@@ -780,7 +789,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       },
     });
     await d.svc.publish(PAYER_A, SESSION, CTX);
-    const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
     for (const key of [
       "pay_min",
       "pay_max",
@@ -804,7 +813,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       session: { ...publishable.session, draft: { ...FULL_DRAFT, city: "   " } },
     });
     const res = await d.svc.publish(PAYER_A, SESSION, CTX);
-    const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
     expect("city" in dto).toBe(false);
     // Measured on what was SENT: the draft held a (blank) string, the posting holds NULL.
     expect(res.unset_card_fields).toEqual(["city"]);
@@ -816,7 +825,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       expect(res.unset_card_fields).toEqual([]);
       // VACUITY GUARD: [] is also what a report that never looked would say, so pin that
       // the create DTO really carried all eleven.
-      const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+      const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
       for (const key of [
         "city",
         "pay_min",
@@ -848,7 +857,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
         },
       });
       const res = await thin.svc.publish(PAYER_A, SESSION, CTX);
-      expect(thin.jobPostings.createForPayer).toHaveBeenCalledTimes(1);
+      expect(thin.jobPostings.createInScope).toHaveBeenCalledTimes(1);
       expect(res.job_posting_id).toBe(POSTING);
       expect(res.unset_card_fields).toEqual([
         "city",
@@ -895,7 +904,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       order.push("claim");
       return publishable.session;
     });
-    d.jobPostings.createForPayer.mockImplementation(async () => {
+    d.jobPostings.createInScope.mockImplementation(async () => {
       order.push("create");
       return { id: POSTING, status: "draft" };
     });
@@ -907,7 +916,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
   it("the loser of a concurrent publish gets a 409 and creates NOTHING", async () => {
     const race = make({ ...publishable, claimWins: false });
     await expect(race.svc.publish(PAYER_A, SESSION, CTX)).rejects.toBeInstanceOf(ConflictException);
-    expect(race.jobPostings.createForPayer).not.toHaveBeenCalled();
+    expect(race.jobPostings.createInScope).not.toHaveBeenCalled();
   });
 
   it("an already-published session is a 409, not a second posting", async () => {
@@ -916,7 +925,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     });
     await expect(done.svc.publish(PAYER_A, SESSION, CTX)).rejects.toBeInstanceOf(ConflictException);
     expect(done.chat.claimForPublish).not.toHaveBeenCalled();
-    expect(done.jobPostings.createForPayer).not.toHaveBeenCalled();
+    expect(done.jobPostings.createInScope).not.toHaveBeenCalled();
   });
 
   it("releases the claim when the create fails, so the payer can fix the draft and retry", async () => {
@@ -939,7 +948,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     expect(JSON.stringify(body)).not.toContain("Machining shop floor");
     // Nothing was claimed or created on the rejected path.
     expect(partial.chat.claimForPublish).not.toHaveBeenCalled();
-    expect(partial.jobPostings.createForPayer).not.toHaveBeenCalled();
+    expect(partial.jobPostings.createInScope).not.toHaveBeenCalled();
   });
 
   it("rejects publishing a session that has collected nothing yet", async () => {
@@ -947,7 +956,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     await expect(empty.svc.publish(PAYER_A, SESSION, CTX)).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(empty.jobPostings.createForPayer).not.toHaveBeenCalled();
+    expect(empty.jobPostings.createInScope).not.toHaveBeenCalled();
   });
 
   it("FAILS CLOSED rather than posting under a blank employer when the org name cannot be resolved", async () => {
@@ -958,7 +967,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     ]) {
       const broken = make(opts);
       await expect(broken.svc.publish(PAYER_A, SESSION, CTX)).rejects.toThrow();
-      expect(broken.jobPostings.createForPayer).not.toHaveBeenCalled();
+      expect(broken.jobPostings.createInScope).not.toHaveBeenCalled();
     }
   });
 });
@@ -967,7 +976,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
 /**
  * #1928 — ONE PUBLISH, AT MOST ONE POSTING, WHEN `job_posting.created` FAILS.
  *
- * The stubbed `createForPayer` above cannot show this, because the defect lived between the
+ * The stubbed `createInScope` above cannot show this, because the defect lived between the
  * two services: `JobPostingsService` committed the posting row and only then emitted, outside
  * any transaction. A failed emit threw into `publish`, which released the claim (correctly
  * guarded on "nothing bound", but the row WAS committed), and the retry created a second
@@ -1044,6 +1053,7 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
     };
     const traces = fakeAiTraceRecorder();
     const aiCost = { record: vi.fn(async () => {}) };
+    const tenancy = defaultModeResolver();
     const jobPostings = new JobPostingsService(
       postingsRepo as never,
       new EventsService(eventsRepo as never, { NODE_ENV: "test" } as never),
@@ -1061,6 +1071,7 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
       // A create never materializes reach and a chat publish sends no match_skill_ids.
       {} as never,
       {} as never,
+      tenancy,
     );
 
     const session = {
@@ -1104,6 +1115,7 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
       { findById: async () => ({ id: PAYER_A, orgNameEnc: "ENC_ORG_TOKEN" }) } as never,
       { decrypt: () => ORG_NAME } as never,
       jobPostings,
+      tenancy,
     );
     return { svc, committed, session };
   }
@@ -1838,7 +1850,7 @@ describe("JobPostingChatService — a refused title or description is re-asked d
         expect(JSON.stringify(body)).not.toContain(value);
         for (const line of logged) expect(line).not.toContain(value);
         expect(d.chat.claimForPublish).not.toHaveBeenCalled();
-        expect(d.jobPostings.createForPayer).not.toHaveBeenCalled();
+        expect(d.jobPostings.createInScope).not.toHaveBeenCalled();
       });
     }
 
@@ -1863,7 +1875,7 @@ describe("JobPostingChatService — a refused title or description is re-asked d
         expect(JSON.stringify(body)).not.toContain(value);
         for (const line of logged) expect(line).not.toContain(value);
         expect(d.chat.claimForPublish).not.toHaveBeenCalled();
-        expect(d.jobPostings.createForPayer).not.toHaveBeenCalled();
+        expect(d.jobPostings.createInScope).not.toHaveBeenCalled();
       });
     }
   });
@@ -2049,5 +2061,63 @@ describe("JobPostingChatService — the frozen response key sets", () => {
       "unmapped_fields",
       "unset_card_fields",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) P2a — publish creates the posting under the TENANT; the session stays
+// the acting login's (member-private drafts, O-7). The REAL resolver over in-memory memberships.
+// ---------------------------------------------------------------------------
+describe("ADR-0053 P2a — publish: the posting is the org's, the conversation stays the login's", () => {
+  const ANCHOR = "bbbbbbbb-0000-4000-8000-0000000000aa";
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+  const session = {
+    id: SESSION,
+    payerId: PAYER_A,
+    status: "draft_ready",
+    conversationState: ENGINE_STATE,
+    draft: FULL_DRAFT,
+    publishedJobPostingId: null,
+    startedAt: new Date(),
+    lastMessageAt: null,
+    endedAt: null,
+  };
+
+  it("on: a teammate's publish hands the create the ORG's scope; the claim and the bind stay keyed by the login", async () => {
+    const d = make({
+      session,
+      tenancy: resolverOver(ON, [{ anchor: ANCHOR, members: [PAYER_A] }]),
+    });
+    await d.svc.publish(PAYER_A, SESSION, CTX);
+    const [scope] = d.jobPostings.createInScope.mock.calls[0]! as unknown as [PayerTenantScope];
+    expect(scope).toMatchObject({ actorPayerId: PAYER_A, tenantKey: ANCHOR, mode: "on" });
+    expect(d.chat.claimForPublish).toHaveBeenCalledWith(SESSION, PAYER_A, expect.any(Date));
+    expect(d.chat.bindPublishedPosting).toHaveBeenCalledWith(SESSION, PAYER_A, POSTING);
+  });
+
+  it("on: a refused resolution (R3, two team memberships) is the neutral 403 BEFORE the claim — nothing is claimed or created", async () => {
+    const d = make({
+      session,
+      tenancy: resolverOver(ON, [
+        { anchor: ANCHOR, members: [PAYER_A] },
+        { anchor: "bbbbbbbb-0000-4000-8000-0000000000bb", members: [PAYER_A] },
+      ]),
+    });
+    const quiet = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const err = await d.svc.publish(PAYER_A, SESSION, CTX).catch((e: unknown) => e);
+    quiet.mockRestore();
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect(d.chat.claimForPublish).not.toHaveBeenCalled();
+    expect(d.jobPostings.createInScope).not.toHaveBeenCalled();
+  });
+
+  it("off (the default): the SAME teammate's publish is their own posting — today's behaviour", async () => {
+    const d = make({
+      session,
+      tenancy: defaultModeResolver([{ anchor: ANCHOR, members: [PAYER_A] }]),
+    });
+    await d.svc.publish(PAYER_A, SESSION, CTX);
+    const [scope] = d.jobPostings.createInScope.mock.calls[0]! as unknown as [PayerTenantScope];
+    expect(scope).toMatchObject({ actorPayerId: PAYER_A, tenantKey: PAYER_A, mode: "off" });
   });
 });

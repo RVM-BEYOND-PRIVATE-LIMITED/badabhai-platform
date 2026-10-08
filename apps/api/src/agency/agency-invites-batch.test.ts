@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Logger, ServiceUnavailableException } from "@nestjs/common";
@@ -105,6 +106,7 @@ function make(
     {} as never,
     { emit } as never,
     {} as never,
+    defaultModeResolver(),
   );
   return { svc, emit, invitesRepo, createdCount: () => createCalls };
 }
@@ -379,6 +381,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       {} as never,
       { emit } as never,
       {} as never,
+      defaultModeResolver(),
     );
     const res = await svc.createInvite(PAYER_A, {}, CTX as never);
 
@@ -399,6 +402,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       {} as never,
       { emit } as never,
       {} as never,
+      defaultModeResolver(),
     );
 
     const err = (await svc

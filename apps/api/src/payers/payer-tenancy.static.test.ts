@@ -35,7 +35,8 @@ import ts from "typescript";
  *  3. `PostingPlansRepository.insertPlan`, 4. `insertBoost`, 5. `JobPostingsRepository.create` —
  *     their payer id rides a Drizzle insert type declared in packages/db (`New…`), which this
  *     scan does not read; the same holds for ANY parameter typed by a type from outside
- *     apps/api/src.
+ *     apps/api/src. (5 is hand-converted in P2a: it takes `NewTenantJobPosting`, whose
+ *     `payerId` is a `TenantKey | null`.)
  *  6. A raw id under a name outside PAYER_ID_NAME (e.g. `ownerId`, `tenantId`, `id`).
  *  7. A parameter typed `any` / `unknown` that carries a payer id.
  *  8. A callable that only DELEGATES to a listed helper (deliberate: retyping the helper forces
@@ -108,17 +109,12 @@ const NAMED_EXCEPTIONS: readonly string[] = [
  * before the flip (P3). Grouped by the Phase 2 PR that owns them (ORG_TENANCY_PLAN §3).
  */
 const UNCONVERTED: readonly string[] = [
-  // P2a — postings, applicants, Candidates inbox
-  "job-postings/job-postings.repository.ts JobPostingsRepository.closeOwned",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.findByIdAndPayer",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.listByPayer",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.transitionOwned",
-  "job-postings/job-postings.repository.ts JobPostingsRepository.updateOwned",
-  "match/match-feed.repository.ts MatchFeedRepository.listRankedCandidatesByApplication",
-  "payer-portal/payer-applicant-inbox.repository.ts inboxPageStatement",
+  // P2a — postings, applicants, Candidates inbox, agency jobs: CONVERTED (PR "payer org tenancy
+  // phase 2a"). One shared helper is left, retyped by whichever of P2a / P2b lands second: its
+  // P2b callers (`UnlocksRepository.findOwnedJobRef`, `ResumeDisclosureRepository.findOwnedJobRef`)
+  // still pass a raw id until P2b gives them a TenantKey. P2a's own caller
+  // (`PayerApplicantStagesRepository.findOwnedPostingKind`) already passes the tenant key.
   "payers/owned-job-ref.ts findOwnedJobRef",
-  "reach/reach.repository.ts ReachRepository.findOwnedJobSignalRowById",
-  "reach/reach.repository.ts ReachRepository.findOwnedJobSignalRowsByIds",
   // P2b — unlocks, credits, ledger, payment orders, resume disclosures
   "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.countDisclosedForPosting",
   "disclosures/resume-disclosure.repository.ts ResumeDisclosureRepository.findByPayerWorkerPosting",
@@ -143,16 +139,9 @@ const UNCONVERTED: readonly string[] = [
   "posting-plans/posting-plans.repository.ts PostingPlansRepository.getCapacity",
   "posting-plans/posting-plans.repository.ts PostingPlansRepository.listPausedPlansForPayer",
   "posting-plans/posting-plans.repository.ts PostingPlansRepository.upsertCapacity",
-  // P2d — agency jobs, invites, workers, KYC, payouts
+  // P2d — agency invites, workers, KYC, payouts (agency JOBS moved to P2a and are converted)
   "agency/agency-invites.repository.ts AgencyInvitesRepository.create",
   "agency/agency-invites.repository.ts AgencyInvitesRepository.stageCountsForOwner",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.closeOwnedIfLive",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.create",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.findOwnedById",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.listOwned",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.pauseOwnedIfOpen",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.resumeOwnedIfPaused",
-  "agency/agency-jobs.repository.ts AgencyJobsRepository.updateOwned",
   "agency/agency-kyc.repository.ts AgencyKycRepository.findByPayer",
   "agency/agency-kyc.repository.ts AgencyKycRepository.upsertPending",
   "agency/agency-payout.repository.ts AgencyPayoutRepository.aggregate",
@@ -359,10 +348,13 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
   const found = scanRawTenantKeyCallables();
 
   it("the scanner finds the known raw-id readers (a guard against a vacuous scan)", () => {
-    // One per detection path: a Drizzle table, a raw `sql` template, a same-file input type.
+    // One per detection path: a Drizzle table, a raw `sql` template, an inline input type. Each
+    // must name a callable that is STILL raw: a Phase 2 PR that converts one swaps in another.
     expect(found).toContain("unlocks/unlocks.repository.ts UnlocksRepository.getBalance");
-    expect(found).toContain("payer-portal/payer-applicant-inbox.repository.ts inboxPageStatement");
-    expect(found).toContain("agency/agency-jobs.repository.ts AgencyJobsRepository.create");
+    expect(found).toContain(
+      "agency/agency-workers.repository.ts AgencyWorkersRepository.listReferredWithConsent",
+    );
+    expect(found).toContain("agency/agency-invites.repository.ts AgencyInvitesRepository.create");
   });
 
   it("the two lists are disjoint and free of duplicates (a reviewable allowlist)", () => {

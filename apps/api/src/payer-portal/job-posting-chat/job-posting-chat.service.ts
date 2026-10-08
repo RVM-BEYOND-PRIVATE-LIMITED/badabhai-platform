@@ -23,6 +23,7 @@ import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../../ai/ai-trace-recorder.service";
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import { PayersRepository } from "../../payers/payers.repository";
+import { PayerTenantScopeService } from "../../payers/payer-tenant-scope.service";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
 import {
   PayerCreateJobPostingSchema,
@@ -78,8 +79,8 @@ const SESSION_CLOSED_MESSAGE = "This conversation is closed";
  * THE ONE-LINE SUMMARY OF WHAT THIS IS: a conversational FRONT DOOR onto the
  * already-shipped job-posting create path. It is not a second way to create a job
  * posting. {@link publish} validates the collected draft against the SAME
- * `PayerCreateJobPostingSchema` the manual form uses and hands it to the SAME
- * `JobPostingsService.createForPayer`, which already emits `job_posting.created` with
+ * `PayerCreateJobPostingSchema` the manual form uses and hands it to the SAME create
+ * (`JobPostingsService.createInScope`), which already emits `job_posting.created` with
  * `actor_type: "payer"` — this service never writes a posting row and never emits that
  * event itself.
  *
@@ -115,6 +116,10 @@ export class JobPostingChatService {
     private readonly payers: PayersRepository,
     private readonly pii: PiiCryptoService,
     private readonly jobPostings: JobPostingsService,
+    // ADR-0053 — publish resolves the payer's tenancy once, before it claims the session, and
+    // hands the scope to the posting create. Every SESSION read/write stays keyed by the acting
+    // login (member-private drafts, O-7).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -509,10 +514,13 @@ export class JobPostingChatService {
    *     the engine's `draft_ready` flag — invariant #4 says the engine assists and does
    *     not decide, so a session may be published from `active` if the fields are
    *     genuinely there, and a `draft_ready` session is still rejected if they are not.
-   *  5. CLAIM the session, then create, then bind (see `claimForPublish` for why the
-   *     claim precedes the create).
+   *  5. Resolve the payer's tenancy (ADR-0053): the posting is created under the TENANT
+   *     key with the acting login as `created_by`. Before the claim, so a refused
+   *     resolution (`on` only, a neutral 403) claims nothing.
+   *  6. CLAIM the session, then create, then bind (see `claimForPublish` for why the
+   *     claim precedes the create). The session itself stays the acting login's (O-7).
    *
-   * NO EVENT IS EMITTED HERE. `createForPayer` already emits `job_posting.created` with
+   * NO EVENT IS EMITTED HERE. `createInScope` already emits `job_posting.created` with
    * `actor_type: "payer"`; a second emit from this slice would double-count postings on
    * the spine.
    */
@@ -605,6 +613,7 @@ export class JobPostingChatService {
     }
     const dto: PayerCreateJobPostingDto = validated.data;
 
+    const scope = await this.tenancy.resolve(payerId);
     const claimed = await this.chat.claimForPublish(sessionId, payerId, new Date());
     if (!claimed) {
       // Lost the race with a concurrent publish — and, because the claim runs before
@@ -614,13 +623,13 @@ export class JobPostingChatService {
 
     let posting: { id: string };
     try {
-      posting = await this.jobPostings.createForPayer(payerId, dto, ctx);
+      posting = await this.jobPostings.createInScope(scope, dto, ctx);
     } catch (err) {
       // Give the session back so the payer can fix the draft and try again. Guarded on
       // "no posting bound", so it can never un-publish a session that really produced
       // one. Best-effort: a failure here must not mask the original error.
       //
-      // A throw from `createForPayer` means NO posting exists (#1928): the row and its
+      // A throw from `createInScope` means NO posting exists (#1928): the row and its
       // `job_posting.created` commit in one transaction, so an emit that fails after the
       // insert rolls the insert back. That is what makes releasing here safe. Before #1928
       // the row could commit before the emit threw, and the retry made a second posting.
@@ -841,7 +850,7 @@ export class JobPostingChatService {
    * Which worker-card columns the created posting holds NULL for (#1726).
    *
    * MEASURED ON THE VALIDATED DTO THE CREATE CALL WAS HANDED — the same "measure what was
-   * sent" rule as `unmappedFields` — and `createForPayer` stores `dto[key] ?? null`, so a key
+   * sent" rule as `unmappedFields` — and `createInScope` stores `dto[key] ?? null`, so a key
    * is listed exactly when its column is NULL. Facts only; which absences matter is the
    * client's card rule. KEYS only, never values.
    */

@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Logger, NotFoundException } from "@nestjs/common";
 import { validateEvent } from "@badabhai/event-schema";
 import type { ApplicantPostingKind } from "@badabhai/types";
@@ -17,6 +17,14 @@ import {
   STAGES_TABLE_READ_WHILE_OFF,
 } from "./payer-applicant-stages.test-support";
 import { APPLICANT_NOT_FOUND } from "./payer-applicant-stage.dto";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import {
+  defaultModeResolver,
+  ownTenantKey,
+  resolverOver,
+} from "../payers/payer-tenant-scope.test-support";
+import type { ServerConfig } from "@badabhai/config";
 
 /**
  * The payer applicant pipeline board at the service seam (owner ruling 2026-10-07).
@@ -31,6 +39,11 @@ import { APPLICANT_NOT_FOUND } from "./payer-applicant-stage.dto";
 
 const PAYER_A = "aaaaaaaa-0000-4000-8000-00000000000a";
 const PAYER_B = "bbbbbbbb-0000-4000-8000-00000000000b";
+/** A's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+let KEY_A!: TenantKey;
+beforeAll(async () => {
+  KEY_A = await ownTenantKey(PAYER_A);
+});
 const POSTING_A = "0c000000-0000-4000-8000-0000000000a1"; // company posting, A
 const JOB_A = "0a000000-0000-4000-8000-0000000000a1"; // agency job, A
 const POSTING_B = "0c000000-0000-4000-8000-0000000000b1"; // company posting, B
@@ -57,7 +70,13 @@ const MEMBERS = new Set([
   `${POSTING_B}|${APPLICANT}`,
 ]);
 
-function make(over: { enabled?: boolean } = {}) {
+function make(
+  over: {
+    enabled?: boolean;
+    /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
+    tenancy?: PayerTenantScopeService;
+  } = {},
+) {
   const repo = memoryStagesRepo({
     postings: POSTINGS,
     isMember: (k: ApplicantStageKey) => MEMBERS.has(`${k.postingId}|${k.workerId}`),
@@ -89,9 +108,12 @@ function make(over: { enabled?: boolean } = {}) {
     if (!result.success) throw new Error(`invalid event: ${JSON.stringify(result.error)}`);
     emitted.push(params);
   });
-  const svc = new PayerApplicantStagesService(repo as never, { emit } as never, {
-    PAYER_APPLICANT_STAGES_ENABLED: over.enabled ?? true,
-  });
+  const svc = new PayerApplicantStagesService(
+    repo as never,
+    { emit } as never,
+    { PAYER_APPLICANT_STAGES_ENABLED: over.enabled ?? true },
+    over.tenancy ?? defaultModeResolver(),
+  );
   return { svc, repo, spied, emit, emitted };
 }
 
@@ -364,7 +386,7 @@ describe("flag OFF — the route's last line of defence, and no table is ever na
   });
 
   it("stagesForOwnedPosting answers null and touches no repository method", async () => {
-    await expect(stagesOff().stagesForOwnedPosting(POSTING_A, PAYER_A)).resolves.toBeNull();
+    await expect(stagesOff().stagesForOwnedPosting(POSTING_A, KEY_A)).resolves.toBeNull();
   });
 
   it("`enabled` is true only for a literal true", () => {
@@ -378,7 +400,7 @@ describe("stagesForOwnedPosting — the per-posting feed's read", () => {
     const d = make();
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT_2, "passed", CTX, NOW);
-    const board = await d.svc.stagesForOwnedPosting(POSTING_A, PAYER_A);
+    const board = await d.svc.stagesForOwnedPosting(POSTING_A, KEY_A);
     expect(board).not.toBeNull();
     expect([...board!.company_posting]).toEqual([
       [APPLICANT, "shortlist"],
@@ -390,7 +412,7 @@ describe("stagesForOwnedPosting — the per-posting feed's read", () => {
   it("another payer's posting reads as an empty board — its board is never even read", async () => {
     const d = make();
     await d.svc.setStage(PAYER_B, POSTING_B, APPLICANT, "shortlist", CTX, NOW);
-    const board = await d.svc.stagesForOwnedPosting(POSTING_B, PAYER_A);
+    const board = await d.svc.stagesForOwnedPosting(POSTING_B, KEY_A);
     expect(board!.company_posting.size).toBe(0);
     expect(board!.agency_job.size).toBe(0);
     // The ownership chokepoint said "not yours", so the stages table was not touched (ADR-0053 §4).
@@ -411,7 +433,7 @@ describe("stagesForOwnedPosting — the per-posting feed's read", () => {
       updatedAt: NOW,
     });
     d.spied.findOwnedPostingKind.mockClear();
-    const board = await d.svc.stagesForOwnedPosting(JOB_A, PAYER_A);
+    const board = await d.svc.stagesForOwnedPosting(JOB_A, KEY_A);
     expect([...board!.agency_job]).toEqual([[APPLICANT, "passed"]]);
     expect(board!.company_posting.size).toBe(0);
     expect(d.spied.findOwnedPostingKind).toHaveBeenCalledWith(JOB_A, PAYER_A);
@@ -446,5 +468,54 @@ describe("readStoredStage / withStages", () => {
       { workerId: APPLICANT_2, rank: 2, stage: "passed" },
     ]);
     expect(rows[0]).not.toHaveProperty("stage"); // no mutation of the input rows
+  });
+});
+
+describe("ADR-0053 P2a — the saved board follows the TENANT; the row and the event name the LOGIN", () => {
+  const MEMBER = "cccccccc-0000-4000-8000-00000000000c";
+  const TEAM = [{ anchor: PAYER_A, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+
+  it("on: a teammate moves an applicant on the anchor's posting — ownership on the anchor's key, actor_payer_id and the event actor = the login", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    const out = await d.svc.setStage(MEMBER, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(out).toMatchObject({
+      postingKind: "company_posting",
+      stage: "shortlist",
+      changed: true,
+    });
+    expect(d.spied.findOwnedPostingKind).toHaveBeenCalledWith(POSTING_A, PAYER_A);
+    expect([...d.repo.rows.values()]).toEqual([
+      expect.objectContaining({ postingId: POSTING_A, stage: "shortlist", actorPayerId: MEMBER }),
+    ]);
+    expect(d.emitted).toHaveLength(1);
+    expect(d.emitted[0]!.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+    // The anchor's board shows the teammate's move (one board per org).
+    const board = await d.svc.stagesForOwnedPosting(POSTING_A, KEY_A);
+    expect([...board!.company_posting]).toEqual([[APPLICANT, "shortlist"]]);
+  });
+
+  it("on: an outsider gets the feeds' own 404 on the org's posting, and nothing is written", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    const err = await rejection(d.svc.setStage(PAYER_B, POSTING_A, APPLICANT, "passed", CTX, NOW));
+    expect(httpOutcome(err)).toEqual(httpOutcome(new NotFoundException(APPLICANT_NOT_FOUND)));
+    expect(d.repo.rows.size).toBe(0);
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("off (the default): the SAME teammate gets the 404 on the anchor's posting — today's behaviour", async () => {
+    const d = make({ tenancy: defaultModeResolver(TEAM) });
+    const err = await rejection(d.svc.setStage(MEMBER, POSTING_A, APPLICANT, "passed", CTX, NOW));
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect(d.spied.findOwnedPostingKind).toHaveBeenCalledWith(POSTING_A, MEMBER);
+    expect(d.repo.rows.size).toBe(0);
+  });
+
+  it("flag off answers before any tenancy is resolved (no membership read while the board is dark)", async () => {
+    const tenancy = resolverOver(ON, TEAM);
+    const resolve = vi.spyOn(tenancy, "resolve");
+    const d = make({ enabled: false, tenancy });
+    await rejection(d.svc.setStage(MEMBER, POSTING_A, APPLICANT, "passed", CTX, NOW));
+    expect(resolve).not.toHaveBeenCalled();
   });
 });

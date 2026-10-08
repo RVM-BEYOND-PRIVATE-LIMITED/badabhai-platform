@@ -4,6 +4,7 @@ import type { RequestContext } from "../common/request-context";
 import { ReachService } from "../reach/reach.service";
 import type { ApplicantRowDto } from "../reach/reach.dto";
 import { MatchCandidatesService } from "../match/match-candidates.service";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import {
   PayerApplicantInboxRepository,
   type InboxPageRow,
@@ -37,8 +38,11 @@ import type {
  * (one statement). No per-posting fan-out. The agency detail ranks each page job's WHOLE applier
  * set, because `rank`/`hot` are positions within it — the same work the per-job list does.
  *
- * AUTHZ: `payerId` is the verified session payer, consumed only in ownership WHEREs — the page
- * read's and, again, each detail read's. A `postingId` the payer does not own (or that does not
+ * AUTHZ: the verified session payer's tenancy is resolved ONCE per request (ADR-0053,
+ * `PayerTenantScopeService`); its TENANT KEY is consumed only in ownership WHEREs — the page
+ * read's and, again, each detail read's — and its ACTING LOGIN is the `feed.shown` actor. With
+ * org tenancy off the two are the session payer, exactly as before; on, a team member's inbox is
+ * the org's. A `postingId` the payer does not own (or that does not
  * exist) gives the SAME `{ applicants: [], nextCursor: null }` as an owned posting nobody has
  * applied to: a filter on a collection, not a resource lookup, so there is no 404 to tell the
  * cases apart, and every case costs the same one page read (no existence oracle, and no timing
@@ -71,10 +75,11 @@ export class PayerApplicantInboxService {
     private readonly reach: ReachService,
     private readonly candidates: MatchCandidatesService,
     @Inject(SERVER_CONFIG) private readonly config: ApplicantStagesConfig,
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   async list(
-    payerId: string,
+    actorPayerId: string,
     query: PayerApplicantInboxQueryDto,
     ctx: RequestContext,
   ): Promise<PayerApplicantInboxDto> {
@@ -84,8 +89,9 @@ export class PayerApplicantInboxService {
       // Refused rather than ignored: a filter that silently does nothing is a wrong answer.
       throw new BadRequestException("stage filter is not available");
     }
+    const scope = await this.tenancy.resolve(actorPayerId);
     // One row past the page says whether there is a next one, without a COUNT.
-    const read = await this.repo.listPage(payerId, {
+    const read = await this.repo.listPage(scope.tenantKey, {
       postingId: query.postingId,
       after: query.cursor,
       limit: query.limit + 1,
@@ -101,9 +107,9 @@ export class PayerApplicantInboxService {
     const agency = page.filter((r) => r.postingKind === "agency_job");
     const company = page.filter((r) => r.postingKind === "company_posting");
     const [appliersByJob, candidateByApplication] = await Promise.all([
-      this.reach.appliersForOwnedJobs(uniquePostingIds(agency), payerId),
+      this.reach.appliersForOwnedJobs(uniquePostingIds(agency), scope.tenantKey),
       this.candidates.rowsForOwnedApplications(
-        payerId,
+        scope.tenantKey,
         company.map((r) => ({ applicationId: r.applicationId, postingId: r.postingId })),
       ),
     ]);
@@ -130,7 +136,7 @@ export class PayerApplicantInboxService {
       this.logger.warn(`payer inbox: ${dropped} page row(s) had no detail row; left out`);
     }
 
-    if (shown.length > 0) await this.reach.emitPayerFeedShown(shown, payerId, ctx);
+    if (shown.length > 0) await this.reach.emitPayerFeedShown(shown, scope.actorPayerId, ctx);
 
     return { applicants, nextCursor };
   }

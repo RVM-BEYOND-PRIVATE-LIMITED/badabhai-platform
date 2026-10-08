@@ -1,9 +1,11 @@
 import "reflect-metadata";
-import { describe, it, expect, vi } from "vitest";
+import { beforeAll, describe, it, expect, vi } from "vitest";
 import { DEFAULT_MATCH_CONFIG, rankKeyCompare, type MatchConfig } from "@badabhai/match-engine";
 import { MatchCandidatesService } from "./match-candidates.service";
 import type { CandidateRow } from "./match-feed.repository";
 import { OPS_LIST_CAP } from "../common/pagination";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 
 /**
  * MOMENT ⑥ — the company's paid candidate list (ADR-0036 §2, E16/E18).
@@ -266,6 +268,12 @@ describe("MatchCandidatesService.toRankInputs — the null semantics the SQL enc
 describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's company rows", () => {
   const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
 
+  /** The payer's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+  let PAYER_KEY!: TenantKey;
+  beforeAll(async () => {
+    PAYER_KEY = await ownTenantKey(PAYER);
+  });
+
   function inboxSetup(rows: Array<CandidateRow & { jobPostingId: string; rank: number }>) {
     const repo = {
       listCandidates: vi.fn(async () => rows),
@@ -280,7 +288,7 @@ describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's 
     const b = { ...candidate("b"), jobPostingId: JOB, rank: 2 };
     const { svc } = inboxSetup([a, b]);
     const list = await svc.listForPosting(JOB);
-    const byApp = await svc.rowsForOwnedApplications(PAYER, [
+    const byApp = await svc.rowsForOwnedApplications(PAYER_KEY, [
       { applicationId: "b", postingId: JOB },
       { applicationId: "a", postingId: JOB },
     ]);
@@ -291,7 +299,7 @@ describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's 
 
   it("the rank is the repository's posting rank, never the order the rows came back in", async () => {
     const { svc } = inboxSetup([{ ...candidate("z"), jobPostingId: JOB, rank: 417 }]);
-    const byApp = await svc.rowsForOwnedApplications(PAYER, [
+    const byApp = await svc.rowsForOwnedApplications(PAYER_KEY, [
       { applicationId: "z", postingId: JOB },
     ]);
     expect(byApp.get("z")!.rank).toBe(417);
@@ -299,7 +307,7 @@ describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's 
 
   it("scopes the read to the payer, de-duplicates postings, binds the configured floor", async () => {
     const { svc, repo } = inboxSetup([]);
-    await svc.rowsForOwnedApplications(PAYER, [
+    await svc.rowsForOwnedApplications(PAYER_KEY, [
       { applicationId: "a", postingId: JOB },
       { applicationId: "b", postingId: JOB },
     ]);
@@ -313,7 +321,7 @@ describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's 
 
   it("no refs → no config read and no query", async () => {
     const { svc, repo, config } = inboxSetup([]);
-    expect((await svc.rowsForOwnedApplications(PAYER, [])).size).toBe(0);
+    expect((await svc.rowsForOwnedApplications(PAYER_KEY, [])).size).toBe(0);
     expect(config.get).not.toHaveBeenCalled();
     expect(repo.listRankedCandidatesByApplication).not.toHaveBeenCalled();
   });

@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
 import { HttpStatus, type HttpException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
@@ -76,6 +77,7 @@ function setup(opts: { cap?: number; redisDown?: boolean } = {}) {
     {} as never,
     { emit } as never,
     {} as never,
+    defaultModeResolver(),
   );
   const controller = new AgencyInvitesController(svc, rateLimit, config);
   const payer = { id: PAYER, sid: "s", role: "agent" as const };

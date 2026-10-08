@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { sql as dsql } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /** One candidate feed card, straight off the `job_reach ⋈ job_postings` join. */
 export interface MatchFeedRow {
@@ -403,13 +404,14 @@ export class MatchFeedRepository {
    * withholding rule); this read is page-bounded by the caller instead, so a 501st applicant
    * gets rank 501 rather than vanishing.
    *
-   * OWNERSHIP, AGAIN, HERE: `job_postings.payer_id = payerId` is re-asserted in the SQL even
+   * OWNERSHIP, AGAIN, HERE: `job_postings.payer_id = tenant` (the resolved tenant key, ADR-0053)
+   * is re-asserted in the SQL even
    * though the caller only names postings its own ownership-scoped page read returned —
    * defence in depth, at the cost of one PK join. It filters whole postings, so within an owned
    * posting the window's membership is exactly the per-posting list's.
    */
   async listRankedCandidatesByApplication(
-    payerId: string,
+    tenant: TenantKey,
     jobPostingIds: readonly string[],
     applicationIds: readonly string[],
     tierFloorMonths: number,
@@ -432,7 +434,7 @@ export class MatchFeedRepository {
         LEFT JOIN job_reach jr
           ON jr.job_posting_id = a.job_posting_id AND jr.worker_id = a.worker_id
         WHERE a.job_posting_id = ANY(${dsql.param([...jobPostingIds])}::uuid[])
-          AND jp.payer_id = ${payerId}::uuid
+          AND jp.payer_id = ${tenant}::uuid
           AND a.action = 'applied'
           AND w.deletion_scheduled_at IS NULL
       ) r

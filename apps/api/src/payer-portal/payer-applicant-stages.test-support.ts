@@ -1,4 +1,5 @@
 import type { ApplicantPostingKind } from "@badabhai/types";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PayerApplicantStagesService } from "./payer-applicant-stages.service";
 import type {
   ApplicantStageKey,
@@ -29,9 +30,18 @@ export function stagesOff(): PayerApplicantStagesService {
       },
     },
   ) as unknown as PayerApplicantStagesRepository;
-  return new PayerApplicantStagesService(repo, {} as never, {
-    PAYER_APPLICANT_STAGES_ENABLED: false,
-  });
+  // Off answers before it resolves anyone's tenancy, so a resolve here is a defect too.
+  const tenancy = {
+    resolve: () => {
+      throw new Error("the stages service must not resolve tenancy while its flag is off");
+    },
+  } as unknown as PayerTenantScopeService;
+  return new PayerApplicantStagesService(
+    repo,
+    {} as never,
+    { PAYER_APPLICANT_STAGES_ENABLED: false },
+    tenancy,
+  );
 }
 
 /** One row of the in-memory board. */
@@ -48,7 +58,7 @@ export interface MemoryStageRow extends ApplicantStageKey {
  * one row per key, an insert that finds one returns `false`.
  */
 export function memoryStagesRepo(world: {
-  /** posting id → [owner payer id, kind]. Mirrors `findOwnedJobRef` (jobs-first). */
+  /** posting id → [owner tenant key, kind]. Mirrors `findOwnedJobRef` (jobs-first). */
   postings: ReadonlyMap<string, { owner: string; kind: ApplicantPostingKind }>;
   /** Whether (kind, posting, worker) is on that posting's feed. */
   isMember: (key: ApplicantStageKey) => boolean;
@@ -59,9 +69,9 @@ export function memoryStagesRepo(world: {
   const repo = {
     rows,
     withTransaction: async <T>(cb: (t: never) => Promise<T>): Promise<T> => cb(tx),
-    findOwnedPostingKind: async (postingId: string, payerId: string) => {
+    findOwnedPostingKind: async (postingId: string, tenant: string) => {
       const p = world.postings.get(postingId);
-      return p && p.owner === payerId ? p.kind : null;
+      return p && p.owner === tenant ? p.kind : null;
     },
     isFeedApplicant: async (key: ApplicantStageKey) => world.isMember(key),
     lockStage: async (key: ApplicantStageKey) => rows.get(id(key))?.stage ?? null,

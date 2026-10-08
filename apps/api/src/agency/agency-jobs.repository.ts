@@ -14,6 +14,7 @@ import {
 } from "@badabhai/db";
 import type { TradeFormKindName } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
  * The patch shape for an agency job edit — coarse, non-PII columns only, plus the
@@ -49,9 +50,13 @@ export type AgencyJobUpdate = Partial<
   >
 > & { updatedAt: Date };
 
-/** Input for creating an owned job. `payerId` is the SESSION payer (stamped server-side). */
+/**
+ * Input for creating an owned job. `payerId` is the resolved TENANT KEY (ADR-0053 §5.2 rule 3):
+ * the session payer while org tenancy is off, the acting org's anchor when on — stamped
+ * server-side, never a body value.
+ */
 export interface CreateAgencyJobInput {
-  payerId: string;
+  payerId: TenantKey;
   tradeKey: TradeKey;
   title: string;
   city: string;
@@ -78,9 +83,10 @@ export interface CreateAgencyJobInput {
 /**
  * Data access for the `jobs` ENTITY write path (ADR-0022 — the FIRST jobs-write service;
  * distinct from `job_postings`). Every read is OWNER-SCOPED: an `:jobId` is always fetched
- * with the payer-id in the WHERE so a cross-tenant row is never even returned (the
+ * with the TENANT KEY in the WHERE so a cross-tenant row is never even returned (the
  * app-layer tenant chokepoint, defense-in-depth with the row's `payer_id` re-check via
- * `readOwnedById`/`assertOwnedRows` in the service). NO PII columns exist on `jobs`.
+ * `readOwnedById`/`assertOwnedRows` in the service). The key is the branded `TenantKey`
+ * only the resolver mints (ADR-0053). NO PII columns exist on `jobs`.
  */
 @Injectable()
 export class AgencyJobsRepository {
@@ -116,37 +122,41 @@ export class AgencyJobsRepository {
   }
 
   /**
-   * Fetch a job by id, OWNER-SCOPED (payer in the WHERE). Returns undefined for both an
-   * unknown id and another payer's job — so the service surfaces the IDENTICAL neutral 404
+   * Fetch a job by id, OWNER-SCOPED (tenant in the WHERE). Returns undefined for both an
+   * unknown id and another tenant's job — so the service surfaces the IDENTICAL neutral 404
    * (no-oracle). The service additionally re-asserts ownership via `readOwnedById`.
    */
-  async findOwnedById(jobId: string, payerId: string): Promise<Job | undefined> {
+  async findOwnedById(jobId: string, tenant: TenantKey): Promise<Job | undefined> {
     const [row] = await this.db
       .select()
       .from(jobs)
-      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId)))
+      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, tenant)))
       .limit(1);
     return row;
   }
 
-  /** List the payer's OWN jobs, newest first. Full rows; the service projects facelessly. */
-  async listOwned(payerId: string): Promise<Job[]> {
+  /** List the tenant's OWN jobs, newest first. Full rows; the service projects facelessly. */
+  async listOwned(tenant: TenantKey): Promise<Job[]> {
     return this.db
       .select()
       .from(jobs)
-      .where(eq(jobs.payerId, payerId))
+      .where(eq(jobs.payerId, tenant))
       .orderBy(desc(jobs.createdAt));
   }
 
   /**
-   * Apply a patch to an OWNED job (payer in the WHERE — a cross-tenant id updates nothing
+   * Apply a patch to an OWNED job (tenant in the WHERE — a cross-tenant id updates nothing
    * and returns undefined). Returns the updated row or undefined if no owned row matched.
    */
-  async updateOwned(jobId: string, payerId: string, patch: AgencyJobUpdate): Promise<Job | undefined> {
+  async updateOwned(
+    jobId: string,
+    tenant: TenantKey,
+    patch: AgencyJobUpdate,
+  ): Promise<Job | undefined> {
     const [row] = await this.db
       .update(jobs)
       .set(patch)
-      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId)))
+      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, tenant)))
       .returning();
     return row;
   }
@@ -162,18 +172,18 @@ export class AgencyJobsRepository {
    * `suspended` is deliberately NOT closable through this path: it is SYSTEM-owned
    * (ADR-0037) and only the reinstate cascade may move it.
    *
-   * Payer + the expected from-states are both in the WHERE, so a concurrent transition (or a
+   * Tenant + the expected from-states are both in the WHERE, so a concurrent transition (or a
    * cross-tenant id) updates nothing and returns undefined — the service maps that to the
    * right response without a second read.
    */
-  async closeOwnedIfLive(jobId: string, payerId: string, now: Date): Promise<Job | undefined> {
+  async closeOwnedIfLive(jobId: string, tenant: TenantKey, now: Date): Promise<Job | undefined> {
     const [row] = await this.db
       .update(jobs)
       .set({ status: "closed", updatedAt: now })
       .where(
         and(
           eq(jobs.id, jobId),
-          eq(jobs.payerId, payerId),
+          eq(jobs.payerId, tenant),
           inArray(jobs.status, ["open", "paused"]),
         ),
       )
@@ -188,11 +198,11 @@ export class AgencyJobsRepository {
    *
    * Guarded on `open` so a double-tap, or a pause racing a close, updates nothing.
    */
-  async pauseOwnedIfOpen(jobId: string, payerId: string, now: Date): Promise<Job | undefined> {
+  async pauseOwnedIfOpen(jobId: string, tenant: TenantKey, now: Date): Promise<Job | undefined> {
     const [row] = await this.db
       .update(jobs)
       .set({ status: "paused", updatedAt: now })
-      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId), eq(jobs.status, "open")))
+      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, tenant), eq(jobs.status, "open")))
       .returning();
     return row;
   }
@@ -206,11 +216,15 @@ export class AgencyJobsRepository {
    * reach this route anyway (PayerAuthGuard admits `active` only), but the guard belongs in
    * the WHERE rather than resting on that.
    */
-  async resumeOwnedIfPaused(jobId: string, payerId: string, now: Date): Promise<Job | undefined> {
+  async resumeOwnedIfPaused(
+    jobId: string,
+    tenant: TenantKey,
+    now: Date,
+  ): Promise<Job | undefined> {
     const [row] = await this.db
       .update(jobs)
       .set({ status: "open", updatedAt: now })
-      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId), eq(jobs.status, "paused")))
+      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, tenant), eq(jobs.status, "paused")))
       .returning();
     return row;
   }

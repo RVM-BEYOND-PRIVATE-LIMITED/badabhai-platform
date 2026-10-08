@@ -10,6 +10,8 @@ import {
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { applicantStagesEnabled, type ApplicantStagesConfig } from "./payer-applicant-stages.flag";
 import {
   PayerApplicantStagesRepository,
@@ -44,18 +46,17 @@ export function readStoredStage(stored: string | null | undefined): ApplicantSta
 /**
  * THE PAYER APPLICANT PIPELINE BOARD (owner ruling 2026-10-07) — payer-web's New / Shortlist /
  * Passed stages, saved server-side so they survive a reload and are the same in every session that
- * owns the posting. Today that is the posting's own payer; teammates share the board only once
- * PAY-DB-01 (ADR-0053) moves posting ownership to the org. Business rules only: the rows are
- * {@link PayerApplicantStagesRepository}'s.
+ * owns the posting. Ownership is the TENANT's (ADR-0053): the posting's own payer while org tenancy
+ * is off; the whole org once it is on, so teammates share one board. Business rules only: the rows
+ * are {@link PayerApplicantStagesRepository}'s.
  *
  * ACCESS IS POSTING OWNERSHIP, through THE chokepoint (ADR-0053 §4, class C "via parent"): every
  * read and write first resolves the posting with `findOwnedPostingKind` (`findOwnedJobRef` — the
  * check the unlock and disclosure writes use), and the table is then addressed only by the
  * `(posting_kind, posting_id)` that resolution returned; nothing here has a payer predicate of its
  * own. A stage can be set only on an owned posting, and only for a worker on that posting's
- * applicant feed. `actor_payer_id` only records the acting login that moved the row. When
- * PAY-DB-01 retypes the chokepoint to the org's tenant key, the board becomes the org's with no
- * change here.
+ * applicant feed. `actor_payer_id` only records the acting login that moved the row (and the
+ * event's envelope actor is that login too); the posting check uses the resolved tenant key.
  *
  * NO ORACLE: an unknown posting, another payer's posting and a worker who is not an applicant all
  * get the SAME 404 body the feeds use ({@link APPLICANT_NOT_FOUND}).
@@ -70,6 +71,8 @@ export class PayerApplicantStagesService {
     private readonly repo: PayerApplicantStagesRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ApplicantStagesConfig,
+    // ADR-0053 — the payer tenant resolver (PayersModule). `setStage` is a route entry point.
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   /** `PAYER_APPLICANT_STAGES_ENABLED`, read through the one shared reader. */
@@ -94,8 +97,9 @@ export class PayerApplicantStagesService {
    * from it (last write wins, every event exact).
    */
   async setStage(
-    // The SESSION payer: the ownership chokepoint's input and the row's/event's actor.
-    payerId: string,
+    // The SESSION payer: resolved to the tenant key for the ownership chokepoint; the login
+    // itself is the row's `actor_payer_id` and the event's actor.
+    actorPayerId: string,
     postingId: string,
     workerId: string,
     stage: ApplicantStage,
@@ -105,7 +109,8 @@ export class PayerApplicantStagesService {
     // Defence in depth: the route's guard already refused, and no query may run while off.
     if (!this.enabled) throw new NotFoundException();
 
-    const postingKind = await this.repo.findOwnedPostingKind(postingId, payerId);
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const postingKind = await this.repo.findOwnedPostingKind(postingId, scope.tenantKey);
     if (postingKind === null) throw new NotFoundException(APPLICANT_NOT_FOUND);
     const key: ApplicantStageKey = { postingKind, postingId, workerId };
 
@@ -120,8 +125,8 @@ export class PayerApplicantStagesService {
         if (stage === DEFAULT_APPLICANT_STAGE) {
           return { previous: DEFAULT_APPLICANT_STAGE, changed: false } as const;
         }
-        if (await this.repo.insertStage(key, stage, payerId, now, tx)) {
-          await this.emitChanged(key, stage, DEFAULT_APPLICANT_STAGE, payerId, ctx, tx);
+        if (await this.repo.insertStage(key, stage, actorPayerId, now, tx)) {
+          await this.emitChanged(key, stage, DEFAULT_APPLICANT_STAGE, actorPayerId, ctx, tx);
           return { previous: DEFAULT_APPLICANT_STAGE, changed: true } as const;
         }
         // A concurrent FIRST move won the insert (ours waited on it, so it is committed). Lock
@@ -131,8 +136,8 @@ export class PayerApplicantStagesService {
 
       const previous = readStoredStage(held);
       if (previous === stage) return { previous, changed: false } as const;
-      await this.repo.updateStage(key, stage, payerId, now, tx);
-      await this.emitChanged(key, stage, previous, payerId, ctx, tx);
+      await this.repo.updateStage(key, stage, actorPayerId, now, tx);
+      await this.emitChanged(key, stage, previous, actorPayerId, ctx, tx);
       return { previous, changed: true } as const;
     });
 
@@ -147,24 +152,25 @@ export class PayerApplicantStagesService {
   }
 
   /**
-   * The stored board of ONE posting the payer owns, for the per-posting feed to annotate its rows
-   * with — `null` while the flag is off (no query).
+   * The stored board of ONE posting the tenant owns, for the per-posting feed to annotate its rows
+   * with — `null` while the flag is off (no query). `tenant` is the CALLER's one resolution of the
+   * session payer (ADR-0053 §5.2 rule 1), never re-resolved here.
    *
    * OWNERSHIP FIRST, THROUGH THE CHOKEPOINT (ADR-0053 §4): the posting is resolved with
    * `findOwnedPostingKind` — jobs-first, exactly the resolution the feed itself makes — and only
-   * then is the board read, by the resolved `(posting_kind, posting_id)`. Another payer's posting
+   * then is the board read, by the resolved `(posting_kind, posting_id)`. Another tenant's posting
    * (or an unknown id) resolves to nothing, so its board is never read and the answer is empty.
    */
   async stagesForOwnedPosting(
     postingId: string,
-    payerId: string,
+    tenant: TenantKey,
   ): Promise<OwnedPostingStages | null> {
     if (!this.enabled) return null;
     const byKind: Record<ApplicantPostingKind, Map<string, ApplicantStage>> = {
       agency_job: new Map(),
       company_posting: new Map(),
     };
-    const postingKind = await this.repo.findOwnedPostingKind(postingId, payerId);
+    const postingKind = await this.repo.findOwnedPostingKind(postingId, tenant);
     if (postingKind === null) return byKind;
     for (const row of await this.repo.listPostingStages(postingKind, postingId)) {
       byKind[postingKind].set(row.workerId, readStoredStage(row.stage));
@@ -176,14 +182,15 @@ export class PayerApplicantStagesService {
     key: ApplicantStageKey,
     stage: ApplicantStage,
     previous: ApplicantStage,
-    payerId: string,
+    actorPayerId: string,
     ctx: RequestContext,
     tx: Database,
   ): Promise<void> {
     await this.events.emit({
       event_name: "payer.applicant_stage_changed",
-      // The VERIFIED session payer who moved the row — never a body value (XB-A).
-      actor: { actor_type: "payer", actor_id: payerId },
+      // The VERIFIED session login who moved the row — never a body value (XB-A), never the
+      // tenant (ADR-0053 §7: the person rides the envelope).
+      actor: { actor_type: "payer", actor_id: actorPayerId },
       // The applicant is what moved; the posting rides the payload.
       subject: { subject_type: "worker", subject_id: key.workerId },
       payload: {

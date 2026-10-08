@@ -1,9 +1,11 @@
 import "reflect-metadata";
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import { MatchFeedRepository } from "./match-feed.repository";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 
 /**
  * MOMENTS ④ AND ⑥ — the two READ paths of Matching V1 (ADR-0036 §2/§4/§7).
@@ -589,6 +591,12 @@ describe("listFeed — ADR-0050 §4.4 read fences for an agency TWIN", () => {
 
 describe("listRankedCandidatesByApplication — the posting rank, from the ONE rank-key spelling", () => {
   const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
+
+  /** The payer's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+  let PAYER_KEY!: TenantKey;
+  beforeAll(async () => {
+    PAYER_KEY = await ownTenantKey(PAYER);
+  });
   const APP = "33333333-3333-4333-8333-333333333333";
 
   /** The `ORDER BY …` inside `OVER (…)`, normalised to one line. */
@@ -604,7 +612,7 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
     // rank tuple from `candidateRankKeys`; a hand-copied key list here would drift silently.
     const { repo, statements } = makeDb();
     await repo.listCandidates(POSTING, 24, 500);
-    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 24);
+    await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 24);
     const listOrder = orderByOf(statements[0]!.sql).replace(/\$\d+/g, "$n");
     const windowOrder = windowOrderOf(statements[1]!.sql).replace(/\$\d+/g, "$n");
     expect(windowOrder).toBe(listOrder);
@@ -613,7 +621,7 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
 
   it("partitions by posting and has the list's membership: applied, not pending deletion, badge LEFT-joined", async () => {
     const { repo, statements } = makeDb();
-    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 36);
     const { sql } = statements[0]!;
     expect(sql).toContain("row_number() OVER (PARTITION BY a.job_posting_id ORDER BY");
     expect(sql).toContain("AND a.action = 'applied'");
@@ -624,7 +632,7 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
 
   it("re-asserts ownership: the postings must be the SESSION payer's", async () => {
     const { repo, statements } = makeDb();
-    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 36);
     const { sql, params } = statements[0]!;
     expect(sql).toContain("INNER JOIN job_postings jp ON jp.id = a.job_posting_id");
     const p = params.indexOf(PAYER);
@@ -634,7 +642,7 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
 
   it("windows over the WHOLE posting, then keeps only the named applications", async () => {
     const { repo, statements } = makeDb();
-    await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 36);
     const { sql, params } = statements[0]!;
     // The application filter must sit OUTSIDE the window — inside it, every rank would be 1.
     const inner = sql.indexOf("WHERE a.job_posting_id = ANY(");
@@ -648,8 +656,8 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
 
   it("reads nothing for an empty page", async () => {
     const { repo, statements } = makeDb();
-    expect(await repo.listRankedCandidatesByApplication(PAYER, [], [APP], 36)).toEqual([]);
-    expect(await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [], 36)).toEqual([]);
+    expect(await repo.listRankedCandidatesByApplication(PAYER_KEY, [], [APP], 36)).toEqual([]);
+    expect(await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [], 36)).toEqual([]);
     expect(statements).toHaveLength(0);
   });
 
@@ -669,7 +677,7 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
         candidate_rank: "7",
       },
     ]);
-    const [row] = await repo.listRankedCandidatesByApplication(PAYER, [POSTING], [APP], 36);
+    const [row] = await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 36);
     expect(row).toEqual({
       applicationId: APP,
       workerId: "44444444-4444-4444-8444-444444444444",

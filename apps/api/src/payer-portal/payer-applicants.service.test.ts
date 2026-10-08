@@ -12,13 +12,17 @@ import type { MatchCandidateListDto } from "../match/match-candidates.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
 import { memoryStagesRepo, stagesOff } from "./payer-applicant-stages.test-support";
 import { PayerApplicantStagesService } from "./payer-applicant-stages.service";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
+import type { ServerConfig } from "@badabhai/config";
 
 /**
  * #1823 PR-5 — the payer applicant list's source selection (owner decision O8), and #1898 —
  * an agency's own job lists ONLY the workers who applied to it, whatever MATCH_V1_ENABLED says.
  *
  * The two ownership seams are the REAL services: `ReachService.tryApplicantsForOwnedJob` and
- * `JobPostingsService.getOneForPayer`. Only their repositories are
+ * `JobPostingsService.getOneInScope`, fed by the REAL tenant resolver (ADR-0053). Only their
+ * repositories are
  * faked, and each fake mirrors its SQL's WHERE — `id = $1 AND payer_id = $2` — so a payer
  * asking for another payer's id gets exactly what the database would give him: nothing. The
  * SQL itself is pinned in reach.repository.test.ts and job-postings.repository.test.ts.
@@ -103,7 +107,14 @@ const FLAG_STATES = [
   { MATCH_V1_ENABLED: true, label: "on" },
 ] as const;
 
-function make(opts: { stages?: PayerApplicantStagesService } = {}) {
+function make(
+  opts: {
+    stages?: PayerApplicantStagesService;
+    /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
+    tenancy?: PayerTenantScopeService;
+  } = {},
+) {
+  const tenancy = opts.tenancy ?? defaultModeResolver();
   // jobs: id → owner. Mirrors `findOwnedJobSignalRowById`'s `id = $1 AND payer_id = $2`.
   const jobsTable = new Map<string, string>([
     [JOB_A, PAYER_A],
@@ -147,7 +158,7 @@ function make(opts: { stages?: PayerApplicantStagesService } = {}) {
       postingsTable.get(id) === payerId ? { id, payer_id: payerId } : undefined,
     ),
   };
-  // Only the repository is reachable from getOneForPayer; every other dep is inert.
+  // Only the repository is reachable from getOneInScope; every other dep is inert.
   const jobPostings = new JobPostingsService(
     postingsRepo as never,
     {} as never,
@@ -156,8 +167,10 @@ function make(opts: { stages?: PayerApplicantStagesService } = {}) {
     {} as never,
     {} as never,
     {} as never,
+    tenancy,
   );
-  const getOneForPayer = vi.spyOn(jobPostings, "getOneForPayer");
+  const getOneInScope = vi.spyOn(jobPostings, "getOneInScope");
+  const resolve = vi.spyOn(tenancy, "resolve");
 
   const matchCandidates = {
     listForPosting: vi.fn(async (postingId: string) => candidates(postingId)),
@@ -169,6 +182,7 @@ function make(opts: { stages?: PayerApplicantStagesService } = {}) {
     jobPostings,
     matchCandidates as never,
     opts.stages ?? stagesOff(),
+    tenancy,
   );
   const feedShown = (): Record<string, unknown>[] =>
     (emitMany.mock.calls as unknown as Record<string, unknown>[][][]).flatMap((c) => c[0]!);
@@ -176,7 +190,8 @@ function make(opts: { stages?: PayerApplicantStagesService } = {}) {
     svc,
     reachRepo,
     postingsRepo,
-    getOneForPayer,
+    getOneInScope,
+    resolve,
     matchCandidates,
     emit,
     emitMany,
@@ -268,7 +283,7 @@ describe("PayerApplicantsService — an owned agency job lists ONLY its appliers
   it("never reaches the posting seam", async () => {
     const d = make();
     await d.svc.listForOwned(JOB_A, PAYER_A, CTX);
-    expect(d.getOneForPayer).not.toHaveBeenCalled();
+    expect(d.getOneInScope).not.toHaveBeenCalled();
     expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
   });
 
@@ -291,7 +306,9 @@ describe("PayerApplicantsService — the result does not depend on MATCH_V1_ENAB
     // Constructor arity is the structural pin — the flag read was the id-space flip (#1898).
     // The 4th dependency (2026-10-07) is the pipeline-board service, which reads only
     // PAYER_APPLICANT_STAGES_ENABLED — never MATCH_V1_ENABLED; it is not a config object.
-    expect(PayerApplicantsService.length).toBe(4);
+    // The 5th (ADR-0053, P2a) is the tenant resolver, whose only config read is the tenancy
+    // mode — never MATCH_V1_ENABLED either.
+    expect(PayerApplicantsService.length).toBe(5);
   });
 
   it.each(FLAG_STATES)(
@@ -327,9 +344,12 @@ describe("PayerApplicantsService — an owned company posting (O8)", () => {
     const d = make();
     await d.svc.listForOwned(POSTING_A, PAYER_A, CTX);
     expect(d.reachRepo.findOwnedJobSignalRowById).toHaveBeenCalledWith(POSTING_A, PAYER_A);
-    expect(d.getOneForPayer).toHaveBeenCalledWith(POSTING_A, PAYER_A);
+    expect(d.getOneInScope).toHaveBeenCalledWith(
+      POSTING_A,
+      expect.objectContaining({ actorPayerId: PAYER_A, tenantKey: PAYER_A }),
+    );
     expect(d.reachRepo.findOwnedJobSignalRowById.mock.invocationCallOrder[0]!).toBeLessThan(
-      d.getOneForPayer.mock.invocationCallOrder[0]!,
+      d.getOneInScope.mock.invocationCallOrder[0]!,
     );
   });
 
@@ -359,7 +379,10 @@ describe("PayerApplicantsService — no existence oracle, no IDOR", () => {
     const d = make();
     const err = await rejection(d.svc.listForOwned(POSTING_A, PAYER_B, CTX));
     expect(httpOutcome(err)).toEqual(NEUTRAL_404);
-    expect(d.getOneForPayer).toHaveBeenCalledWith(POSTING_A, PAYER_B);
+    expect(d.getOneInScope).toHaveBeenCalledWith(
+      POSTING_A,
+      expect.objectContaining({ actorPayerId: PAYER_B, tenantKey: PAYER_B }),
+    );
     expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
   });
 
@@ -407,7 +430,7 @@ describe("PayerApplicantsService — fail closed: a DB error is a 500, never a 4
     const err = await rejection(d.svc.listForOwned(POSTING_A, PAYER_A, CTX));
     expect(err).toBe(boom);
     expect(httpOutcome(err).status).toBe(500);
-    expect(d.getOneForPayer).not.toHaveBeenCalled();
+    expect(d.getOneInScope).not.toHaveBeenCalled();
     expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
   });
 
@@ -452,9 +475,12 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       ]),
       isMember: () => true,
     });
-    const svc = new PayerApplicantStagesService(repo as never, { emit: vi.fn() } as never, {
-      PAYER_APPLICANT_STAGES_ENABLED: true,
-    });
+    const svc = new PayerApplicantStagesService(
+      repo as never,
+      { emit: vi.fn() } as never,
+      { PAYER_APPLICANT_STAGES_ENABLED: true },
+      defaultModeResolver(),
+    );
     return {
       repo,
       svc,
@@ -563,5 +589,58 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       expect(out.applicants.length).toBeGreaterThan(0);
       for (const row of out.applicants) expect(row).not.toHaveProperty("stage");
     }
+  });
+});
+
+describe("ADR-0053 P2a — the per-posting applicant list follows the TENANT", () => {
+  const MEMBER = "cccccccc-0000-4000-8000-00000000000c";
+  const TEAM = [{ anchor: PAYER_A, members: [MEMBER] }];
+  const ON = { PAYER_ORG_TENANCY_MODE: "on" } as unknown as ServerConfig;
+
+  it("on: a teammate's list for the anchor's job AND posting IS the anchor's; ownership reads use the anchor's key, the impression the login", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    const anchorJob = await d.svc.listForOwned(JOB_A, PAYER_A, CTX);
+    const anchorShown = d.feedShown();
+    d.emitMany.mockClear();
+    expect(await d.svc.listForOwned(JOB_A, MEMBER, CTX)).toEqual(anchorJob);
+    expect(d.reachRepo.findOwnedJobSignalRowById).toHaveBeenLastCalledWith(JOB_A, PAYER_A);
+    // The same impression rows, but each names the LOGIN that looked (ADR-0053 §7).
+    const memberShown = d.feedShown();
+    expect(memberShown.map((e) => e.payload)).toEqual(anchorShown.map((e) => e.payload));
+    for (const e of memberShown) expect(e.actor).toEqual({ actor_type: "payer", actor_id: MEMBER });
+
+    await expect(d.svc.listForOwned(POSTING_A, MEMBER, CTX)).resolves.toEqual(
+      candidates(POSTING_A),
+    );
+    expect(d.getOneInScope).toHaveBeenLastCalledWith(
+      POSTING_A,
+      expect.objectContaining({ actorPayerId: MEMBER, tenantKey: PAYER_A }),
+    );
+  });
+
+  it("on: an outsider still gets the byte-identical neutral 404 for the org's job and posting", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    for (const ref of [JOB_A, POSTING_A, UNKNOWN]) {
+      expect(httpOutcome(await rejection(d.svc.listForOwned(ref, PAYER_B, CTX)))).toEqual(
+        NEUTRAL_404,
+      );
+    }
+    expect(d.emitMany).not.toHaveBeenCalled();
+  });
+
+  it("resolves the session payer ONCE per list, though the board, the job and the posting are each checked", async () => {
+    const d = make({ tenancy: resolverOver(ON, TEAM) });
+    await d.svc.listForOwned(POSTING_A, MEMBER, CTX);
+    expect(d.resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("off (the default): the SAME teammate gets the anchor's ids as the neutral 404 — today's behaviour", async () => {
+    const d = make({ tenancy: defaultModeResolver(TEAM) });
+    for (const ref of [JOB_A, POSTING_A]) {
+      expect(httpOutcome(await rejection(d.svc.listForOwned(ref, MEMBER, CTX)))).toEqual(
+        NEUTRAL_404,
+      );
+    }
+    expect(d.reachRepo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, MEMBER);
   });
 });

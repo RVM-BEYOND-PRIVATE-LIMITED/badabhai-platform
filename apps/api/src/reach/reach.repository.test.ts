@@ -1,5 +1,7 @@
 import "reflect-metadata";
-import { describe, it, expect } from "vitest";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
+import { beforeAll, describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import type { SQL } from "drizzle-orm";
@@ -202,11 +204,17 @@ describe("ReachRepository.findOwnedJobSignalRowById — payer ownership lives in
   const JOB = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
   const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
 
+  /** The payer's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+  let PAYER_KEY!: TenantKey;
+  beforeAll(async () => {
+    PAYER_KEY = await ownTenantKey(PAYER);
+  });
+
   it("reads jobs by id AND the session payer, binding exactly those two values", async () => {
     // The payer applicant list (#1823) branches on this read: a foreign job must miss here,
     // or another payer's weighted pool is one request away.
     const { db, captured } = makeDb([]);
-    await new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER);
+    await new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER_KEY);
     const q = dialect.sqlToQuery(captured.where as SQL);
     expect(q.sql).toBe('("jobs"."id" = $1 and "jobs"."payer_id" = $2)');
     expect(q.params).toEqual([JOB, PAYER]);
@@ -214,7 +222,7 @@ describe("ReachRepository.findOwnedJobSignalRowById — payer ownership lives in
 
   it("payer_id is consumed in the WHERE only — never projected", async () => {
     const { db, captured } = makeDb([]);
-    await new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER);
+    await new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER_KEY);
     expect(captured.selection).not.toHaveProperty("payerId");
     expect(captured.selection).not.toHaveProperty("title");
   });
@@ -222,7 +230,7 @@ describe("ReachRepository.findOwnedJobSignalRowById — payer ownership lives in
   it("no row (unknown OR another payer's job) → undefined", async () => {
     const { db } = makeDb([]);
     await expect(
-      new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER),
+      new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER_KEY),
     ).resolves.toBeUndefined();
   });
 });
@@ -286,6 +294,12 @@ describe("ReachRepository.findOwnedJobSignalRowsByIds — the inbox's batched ow
   const JOB_2 = "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e";
   const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
 
+  /** The payer's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+  let PAYER_KEY!: TenantKey;
+  beforeAll(async () => {
+    PAYER_KEY = await ownTenantKey(PAYER);
+  });
+
   function capture(rows: unknown[] = []) {
     const seen: { selection?: Record<string, unknown>; where?: unknown } = {};
     const db = {
@@ -301,7 +315,7 @@ describe("ReachRepository.findOwnedJobSignalRowsByIds — the inbox's batched ow
 
   it("reads jobs by id list AND the session payer, binding exactly those values", async () => {
     const { repo, seen } = capture();
-    await repo.findOwnedJobSignalRowsByIds([JOB_1, JOB_2], PAYER);
+    await repo.findOwnedJobSignalRowsByIds([JOB_1, JOB_2], PAYER_KEY);
     const q = dialect.sqlToQuery(seen.where as SQL);
     expect(q.sql).toBe('("jobs"."id" in ($1, $2) and "jobs"."payer_id" = $3)');
     expect(q.params).toEqual([JOB_1, JOB_2, PAYER]);
@@ -309,7 +323,7 @@ describe("ReachRepository.findOwnedJobSignalRowsByIds — the inbox's batched ow
 
   it("projects the faceless signal columns — never payer_id or title", async () => {
     const { repo, seen } = capture();
-    await repo.findOwnedJobSignalRowsByIds([JOB_1], PAYER);
+    await repo.findOwnedJobSignalRowsByIds([JOB_1], PAYER_KEY);
     expect(seen.selection).not.toHaveProperty("payerId");
     expect(seen.selection).not.toHaveProperty("title");
     expect(Object.keys(seen.selection!).sort()).toEqual([
@@ -326,7 +340,7 @@ describe("ReachRepository.findOwnedJobSignalRowsByIds — the inbox's batched ow
 
   it("an empty id list reads nothing", async () => {
     const { repo, seen } = capture();
-    await expect(repo.findOwnedJobSignalRowsByIds([], PAYER)).resolves.toEqual([]);
+    await expect(repo.findOwnedJobSignalRowsByIds([], PAYER_KEY)).resolves.toEqual([]);
     expect(seen.where).toBeUndefined();
   });
 });

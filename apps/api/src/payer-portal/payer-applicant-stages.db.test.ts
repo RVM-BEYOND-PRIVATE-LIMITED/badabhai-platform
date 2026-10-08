@@ -20,6 +20,8 @@ import type { InboxApplicantRowDto } from "./payer-applicant-inbox.dto";
 import { PayerApplicantStagesRepository } from "./payer-applicant-stages.repository";
 import { PayerApplicantStagesService } from "./payer-applicant-stages.service";
 import { APPLICANT_NOT_FOUND } from "./payer-applicant-stage.dto";
+import type { PayerTenantScope } from "../payers/payer-tenant-scope";
+import { defaultModeResolver, ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 
 /**
  * THE PAYER APPLICANT PIPELINE BOARD AGAINST A REAL POSTGRES (owner ruling 2026-10-07; migration
@@ -106,10 +108,13 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
       NODE_ENV: "test",
     } as never);
     const on = { PAYER_APPLICANT_STAGES_ENABLED: true };
+    // ADR-0053 — the default tenancy mode (off): A2 is a separate payer, as before.
+    const tenancy = defaultModeResolver();
     stages = new PayerApplicantStagesService(
       new PayerApplicantStagesRepository(client.db),
       events,
       on,
+      tenancy,
     );
     const reach = new ReachService(new ReachRepository(client.db), events, {} as never);
     const candidates = new MatchCandidatesService(new MatchFeedRepository(client.db), {
@@ -117,19 +122,26 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
     } as never);
     // The per-posting route's ownership seam for a posting, reduced to its WHERE.
     const jobPostings = {
-      getOneForPayer: async (postingId: string, payerId: string) => {
+      getOneInScope: async (postingId: string, scope: PayerTenantScope) => {
         const rows = await client.sql`
-          SELECT id FROM job_postings WHERE id = ${postingId}::uuid AND payer_id = ${payerId}::uuid`;
+          SELECT id FROM job_postings WHERE id = ${postingId}::uuid AND payer_id = ${scope.tenantKey}::uuid`;
         if (rows.length === 0) throw new NotFoundException("Job posting not found");
         return rows[0];
       },
     };
-    perPosting = new PayerApplicantsService(reach, jobPostings as never, candidates, stages);
+    perPosting = new PayerApplicantsService(
+      reach,
+      jobPostings as never,
+      candidates,
+      stages,
+      tenancy,
+    );
     inbox = new PayerApplicantInboxService(
       new PayerApplicantInboxRepository(client.db),
       reach,
       candidates,
       on,
+      tenancy,
     );
     await seed(client);
   }, 60_000);
@@ -303,13 +315,13 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
   it("the board read goes through the ownership chokepoint: B's stored board never reaches A (ADR-0053 §4)", async () => {
     // Not vacuous: B's posting DOES have a stored stage.
     expect((await rowsFor(POST_B)).map((r) => r.stage)).toEqual(["shortlist"]);
-    const asA = await stages.stagesForOwnedPosting(POST_B, PAYER_A);
+    const asA = await stages.stagesForOwnedPosting(POST_B, await ownTenantKey(PAYER_A));
     expect(asA!.company_posting.size).toBe(0);
     expect(asA!.agency_job.size).toBe(0);
-    const asB = await stages.stagesForOwnedPosting(POST_B, PAYER_B);
+    const asB = await stages.stagesForOwnedPosting(POST_B, await ownTenantKey(PAYER_B));
     expect([...asB!.company_posting]).toEqual([[W.w2, "shortlist"]]);
     // An unknown id reads nothing either.
-    const unknown = await stages.stagesForOwnedPosting(randomUUID(), PAYER_A);
+    const unknown = await stages.stagesForOwnedPosting(randomUUID(), await ownTenantKey(PAYER_A));
     expect(unknown!.company_posting.size + unknown!.agency_job.size).toBe(0);
   });
 

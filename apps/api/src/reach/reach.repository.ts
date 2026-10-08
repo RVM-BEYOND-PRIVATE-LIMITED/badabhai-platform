@@ -10,6 +10,7 @@ import {
   type JobNeededBy,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { WorkerProfileSignalRow } from "./reach.mappers";
 
 /**
@@ -257,8 +258,9 @@ export class ReachRepository {
   }
 
   /**
-   * PAYER-SCOPED ownership read (ADR-0019 R22 / PR2). Returns the FACELESS signal row
-   * ONLY when the job exists AND `jobs.payer_id == payerId` — otherwise `undefined`.
+   * TENANT-SCOPED ownership read (ADR-0019 R22 / PR2; ADR-0053). Returns the FACELESS signal row
+   * ONLY when the job exists AND `jobs.payer_id == tenant` — otherwise `undefined`. `tenant` is
+   * the key the service's resolver produced (the session payer while org tenancy is off).
    *
    * NO-ORACLE (F-3): a not-found job and an other-payer's job both resolve to
    * `undefined`, so the caller maps both to the SAME neutral response (a payer cannot
@@ -271,30 +273,30 @@ export class ReachRepository {
    */
   async findOwnedJobSignalRowById(
     jobId: string,
-    payerId: string,
+    tenant: TenantKey,
   ): Promise<JobSignalRow | undefined> {
     const rows = await this.db
       .select(ReachRepository.JOB_SIGNAL_COLUMNS)
       .from(jobs)
-      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId)))
+      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, tenant)))
       .limit(1);
     return rows[0];
   }
 
   /**
    * {@link findOwnedJobSignalRowById} for several ids at once (the payer inbox): the faceless
-   * signal rows of exactly those `jobIds` the session payer owns. An unknown id and another
-   * payer's id are both simply absent — the same no-oracle answer, and the same discipline:
+   * signal rows of exactly those `jobIds` the tenant owns. An unknown id and another
+   * tenant's id are both simply absent — the same no-oracle answer, and the same discipline:
    * `payer_id` is consumed only in the WHERE, never projected. An empty id list reads nothing.
    */
   async findOwnedJobSignalRowsByIds(
     jobIds: readonly string[],
-    payerId: string,
+    tenant: TenantKey,
   ): Promise<JobSignalRow[]> {
     if (jobIds.length === 0) return [];
     return this.db
       .select(ReachRepository.JOB_SIGNAL_COLUMNS)
       .from(jobs)
-      .where(and(inArray(jobs.id, [...jobIds]), eq(jobs.payerId, payerId)));
+      .where(and(inArray(jobs.id, [...jobIds]), eq(jobs.payerId, tenant)));
   }
 }

@@ -19,10 +19,13 @@ import { PublishReachService } from "../match/publish-reach.service";
 import { MatchSkillsService } from "../match/match-skills.service";
 import { clearedSet } from "../common/clearable-fields";
 import { assertNotAgencyTwin } from "../common/agency-twin-fence";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerTenantScope } from "../payers/payer-tenant-scope";
 import {
   JobPostingsRepository,
   type JobPostingApi,
   type JobPostingUpdate,
+  type NewTenantJobPosting,
 } from "./job-postings.repository";
 import type {
   ClearablePostingField,
@@ -79,12 +82,16 @@ interface PreparedUpdate {
  *   - OPS path (`create`/`list`/`getOne`/`update`/`close`) — no ops auth in alpha;
  *     `created_by` arrives on the DTO as an opaque ops-actor uuid, `payer_id` stays
  *     NULL, and the events carry the OPS actor. Behaviour is unchanged.
- *   - PAYER path (`*ForPayer`) — behind PayerAuthGuard; the SESSION `payer_id` is
- *     stamped on the row and used as BOTH the `created_by` and the event ACTOR
- *     (actor_type:"payer"). Every read/write is owner-scoped (payer_id in the WHERE,
- *     no-oracle 404 for an unknown OR foreign id — XB-A horizontal authz). `payer_id`
- *     is consumed only as the ownership key + the opaque actor_id; it never enters a
- *     payload (the event stays PII-free, no schema change).
+ *   - PAYER path (`*ForPayer`) — behind PayerAuthGuard. Each entry point resolves the
+ *     SESSION payer's tenancy ONCE (ADR-0053 §5.2 rule 1, `PayerTenantScopeService`):
+ *     the TENANT KEY is stamped on the row's `payer_id` and scopes every read/write
+ *     (payer_id in the WHERE, no-oracle 404 for an unknown OR foreign id — XB-A
+ *     horizontal authz); the ACTING LOGIN is the `created_by` and the event ACTOR
+ *     (actor_type:"payer"). With org tenancy off the two are the same id — today's
+ *     behaviour exactly; on, a team member acts on the org's postings. Neither id
+ *     enters a payload (no event schema change; ADR-0053 §7). The `*InScope` variants
+ *     are the same operations for a caller that already resolved the scope (one
+ *     resolve per request).
  *
  * Lifecycle (ADR open-item b), enforced for both surfaces:
  *   draft -> open    (via PATCH status="open")
@@ -111,6 +118,9 @@ export class JobPostingsService {
     // #1645 — closed-set + cap validation for `match_skill_ids` AT CREATE, so a bad id is
     // a 400 on the form rather than at publish. Same @Global module, no new import edge.
     private readonly matchSkills: MatchSkillsService,
+    // ADR-0053 — the payer tenant resolver (PayersModule). The ONLY source of the tenant key
+    // every payer-path predicate and stamp below uses.
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   /**
@@ -358,17 +368,30 @@ export class JobPostingsService {
 
   // ----- PAYER self-serve surface (ADR-0019 / ADR-0022 module 9) -------------
   // Identity is the SESSION payer (XB-A); the body never carries payer_id/created_by.
+  // Each `*ForPayer` entry point resolves the session payer's tenancy once (ADR-0053).
 
   async createForPayer(
-    payerId: string,
+    actorPayerId: string,
+    dto: PayerCreateJobPostingDto,
+    ctx: RequestContext,
+  ): Promise<JobPostingApi> {
+    return this.createInScope(await this.tenancy.resolve(actorPayerId), dto, ctx);
+  }
+
+  /**
+   * {@link createForPayer} for a caller that already resolved the scope (the AI posting-chat
+   * publish, which resolves before it claims its session). The TENANT owns the row; the ACTING
+   * LOGIN is its `created_by` and the event actor (ADR-0053 §3.1).
+   */
+  async createInScope(
+    scope: PayerTenantScope,
     dto: PayerCreateJobPostingDto,
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
     return this.insertAndEmit(
       {
-        // The payer is BOTH the owner and the (only) creator identity we have.
-        createdBy: payerId,
-        payerId,
+        createdBy: scope.actorPayerId,
+        payerId: scope.tenantKey,
         orgLabel: dto.org_label,
         roleTitle: dto.role_title,
         locationLabel: dto.location_label ?? null,
@@ -379,29 +402,39 @@ export class JobPostingsService {
         skillIds: await this.canonicalizeSkills(dto.skills, ctx, null),
         ...(await this.resolveCreateContent(dto)),
       },
-      { actor_type: "payer", actor_id: payerId },
+      payerActor(scope),
       ctx,
     );
   }
 
-  listForPayer(payerId: string, query: ListJobPostingsQueryDto): Promise<JobPostingApi[]> {
-    return this.repo.listByPayer(payerId, query.status);
+  async listForPayer(
+    actorPayerId: string,
+    query: ListJobPostingsQueryDto,
+  ): Promise<JobPostingApi[]> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    return this.repo.listByPayer(scope.tenantKey, query.status);
   }
 
-  /** One of the caller's OWN postings; no-oracle 404 for an unknown OR foreign id. */
-  async getOneForPayer(id: string, payerId: string): Promise<JobPostingApi> {
-    const row = await this.repo.findByIdAndPayer(id, payerId);
+  /** One of the caller's tenant's postings; no-oracle 404 for an unknown OR foreign id. */
+  async getOneForPayer(id: string, actorPayerId: string): Promise<JobPostingApi> {
+    return this.getOneInScope(id, await this.tenancy.resolve(actorPayerId));
+  }
+
+  /** {@link getOneForPayer} for a caller that already resolved the scope. */
+  async getOneInScope(id: string, scope: PayerTenantScope): Promise<JobPostingApi> {
+    const row = await this.repo.findByIdAndPayer(id, scope.tenantKey);
     if (!row) throw new NotFoundException("Job posting not found");
     return row;
   }
 
   async updateForPayer(
     id: string,
-    payerId: string,
+    actorPayerId: string,
     dto: UpdateJobPostingDto,
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
-    const current = await this.getOneForPayer(id, payerId); // no-oracle 404
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const current = await this.getOneInScope(id, scope); // no-oracle 404
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
       // Owner-scoped read, so the domain is the CALLER'S OWN posting's — never a
@@ -413,28 +446,27 @@ export class JobPostingsService {
       );
     }
 
-    const updated = await this.repo.updateOwned(id, payerId, prepared.patch);
+    const updated = await this.repo.updateOwned(id, scope.tenantKey, prepared.patch);
     if (!updated) throw new NotFoundException("Job posting not found");
 
-    await this.emitUpdated(updated, { actor_type: "payer", actor_id: payerId }, prepared, ctx);
-    await this.materializeIfNeeded(
-      current,
-      updated,
-      dto,
-      { actor_type: "payer", actor_id: payerId },
-      ctx,
-    );
+    await this.emitUpdated(updated, payerActor(scope), prepared, ctx);
+    await this.materializeIfNeeded(current, updated, dto, payerActor(scope), ctx);
     return updated;
   }
 
-  async closeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPostingApi> {
-    const current = await this.getOneForPayer(id, payerId); // no-oracle 404
+  async closeForPayer(
+    id: string,
+    actorPayerId: string,
+    ctx: RequestContext,
+  ): Promise<JobPostingApi> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const current = await this.getOneInScope(id, scope); // no-oracle 404
     const previousStatus = assertCloseable(current);
 
-    const closed = await this.repo.closeOwned(id, payerId, previousStatus, new Date());
+    const closed = await this.repo.closeOwned(id, scope.tenantKey, previousStatus, new Date());
     if (!closed) throw new ConflictException("Job posting is already closed");
 
-    await this.emitClosed(closed, { actor_type: "payer", actor_id: payerId }, previousStatus, ctx);
+    await this.emitClosed(closed, payerActor(scope), previousStatus, ctx);
     return closed;
   }
 
@@ -444,12 +476,17 @@ export class JobPostingsService {
    * → 409 (without leaking which). A paused posting is excluded from any open-filtered feed
    * until resumed. Emits the PII-free `job_posting.paused`.
    */
-  async pauseForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPostingApi> {
-    await this.getOneForPayer(id, payerId); // no-oracle 404 (unknown OR foreign id)
-    const paused = await this.repo.transitionOwned(id, payerId, "open", "paused");
+  async pauseForPayer(
+    id: string,
+    actorPayerId: string,
+    ctx: RequestContext,
+  ): Promise<JobPostingApi> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    await this.getOneInScope(id, scope); // no-oracle 404 (unknown OR foreign id)
+    const paused = await this.repo.transitionOwned(id, scope.tenantKey, "open", "paused");
     if (!paused) throw new ConflictException("Only an open job posting can be paused");
 
-    const actor: JobPostingActor = { actor_type: "payer", actor_id: payerId };
+    const actor = payerActor(scope);
     const payload: PayloadInputOf<"job_posting.paused"> = {
       job_posting_id: paused.id,
       previous_status: "open",
@@ -464,12 +501,17 @@ export class JobPostingsService {
    * payer_id + status='paused' (non-paused / gone / not-owned → 409). Emits the PII-free
    * `job_posting.resumed`.
    */
-  async resumeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPostingApi> {
-    await this.getOneForPayer(id, payerId); // no-oracle 404
-    const resumed = await this.repo.transitionOwned(id, payerId, "paused", "open");
+  async resumeForPayer(
+    id: string,
+    actorPayerId: string,
+    ctx: RequestContext,
+  ): Promise<JobPostingApi> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    await this.getOneInScope(id, scope); // no-oracle 404
+    const resumed = await this.repo.transitionOwned(id, scope.tenantKey, "paused", "open");
     if (!resumed) throw new ConflictException("Only a paused job posting can be resumed");
 
-    const actor: JobPostingActor = { actor_type: "payer", actor_id: payerId };
+    const actor = payerActor(scope);
     const payload: PayloadInputOf<"job_posting.resumed"> = {
       job_posting_id: resumed.id,
       previous_status: "paused",
@@ -634,7 +676,7 @@ export class JobPostingsService {
    */
   private async resolveCreateContent(
     dto: CreateJobPostingDto | PayerCreateJobPostingDto,
-  ): Promise<Partial<NewJobPosting>> {
+  ): Promise<CreateContent> {
     if (dto.match_skill_ids !== undefined) {
       // Closed-set + cap check. Throws a 400 naming the offending ids (public closed-set
       // values — no PII can appear, the DTO regex-constrains them). The resolved reach is
@@ -689,7 +731,8 @@ export class JobPostingsService {
   private async insertAndEmit(
     input: {
       createdBy: string;
-      payerId: string | null;
+      // ADR-0053: the resolved tenant key (payer path) or NULL (ops path) — never a raw id.
+      payerId: NewTenantJobPosting["payerId"];
       orgLabel: string;
       roleTitle: string;
       locationLabel: string | null;
@@ -698,7 +741,7 @@ export class JobPostingsService {
       // ADR-0030 / TAX-6: poster phrases + their vector-assigned closed-set ids.
       skillPhrases: string[];
       skillIds: string[];
-    } & Partial<NewJobPosting>,
+    } & CreateContent,
     actor: JobPostingActor,
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
@@ -981,6 +1024,18 @@ export class JobPostingsService {
       requestId: ctx.requestId,
     } as EmitParams<N>;
   }
+}
+
+/**
+ * The card content a create may set, and nothing that says who OWNS or CREATED the row: those
+ * two come only from the caller's identity (ADR-0053 §5.2 rules 2–3), so a content object can
+ * never override them.
+ */
+type CreateContent = Partial<Omit<NewJobPosting, "payerId" | "createdBy">>;
+
+/** The event actor on a payer-path write: the ACTING LOGIN, never the tenant (ADR-0053 §7). */
+function payerActor(scope: PayerTenantScope): JobPostingActor {
+  return { actor_type: "payer", actor_id: scope.actorPayerId };
 }
 
 /**

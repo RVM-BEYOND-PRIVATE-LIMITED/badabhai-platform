@@ -1,9 +1,11 @@
 import "reflect-metadata";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { jobPostings, type Database } from "@badabhai/db";
 import { JobPostingsRepository } from "./job-postings.repository";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 
 /**
  * STRUCTURAL pin for the payer owner-scoped posting read (XB-A horizontal authz).
@@ -16,6 +18,12 @@ import { JobPostingsRepository } from "./job-postings.repository";
  */
 
 const dialect = new PgDialect();
+
+/** The session payer's tenant key, minted by the REAL resolver in the default mode (ADR-0053). */
+let PAYER_KEY: TenantKey;
+beforeAll(async () => {
+  PAYER_KEY = await ownTenantKey(PAYER);
+});
 
 const POSTING = "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e";
 const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
@@ -46,7 +54,7 @@ function makeDb(rows: unknown[]) {
 describe("JobPostingsRepository.findByIdAndPayer — ownership lives in the WHERE", () => {
   it("reads job_postings by id AND the session payer, binding exactly those two values", async () => {
     const { db, captured } = makeDb([]);
-    await new JobPostingsRepository(db).findByIdAndPayer(POSTING, PAYER);
+    await new JobPostingsRepository(db).findByIdAndPayer(POSTING, PAYER_KEY);
     expect(captured.from).toBe(jobPostings);
     const q = dialect.sqlToQuery(captured.where as SQL);
     expect(q.sql).toBe('("job_postings"."id" = $1 and "job_postings"."payer_id" = $2)');
@@ -56,7 +64,7 @@ describe("JobPostingsRepository.findByIdAndPayer — ownership lives in the WHER
 
   it("no row (unknown id OR another payer's id) → undefined, the input to the neutral 404", async () => {
     const { db } = makeDb([]);
-    await expect(new JobPostingsRepository(db).findByIdAndPayer(POSTING, PAYER)).resolves.toBe(
+    await expect(new JobPostingsRepository(db).findByIdAndPayer(POSTING, PAYER_KEY)).resolves.toBe(
       undefined,
     );
   });
@@ -70,14 +78,14 @@ describe("JobPostingsRepository.findByIdAndPayer — ownership lives in the WHER
  * proof is in `job-posting-chat.repository.db.test.ts`; these pins run in the database-free suite.
  */
 describe("JobPostingsRepository.create / withTransaction — the #1928 transaction seam", () => {
-  const INPUT = {
+  const input = () => ({
     createdBy: PAYER,
-    payerId: PAYER,
+    payerId: PAYER_KEY,
     orgLabel: "Org",
     roleTitle: "Role",
     vacancyBand: "2-5" as const,
     status: "draft" as const,
-  };
+  });
 
   function executor(label: string) {
     const written: { table: unknown; values: unknown }[] = [];
@@ -98,16 +106,16 @@ describe("JobPostingsRepository.create / withTransaction — the #1928 transacti
     const injected = executor("injected");
     const tx = executor("tx");
 
-    const created = await new JobPostingsRepository(injected.db).create(INPUT, tx.db);
+    const created = await new JobPostingsRepository(injected.db).create(input(), tx.db);
 
     expect(created.id).toBe("tx-row");
-    expect(tx.written).toEqual([{ table: jobPostings, values: INPUT }]);
+    expect(tx.written).toEqual([{ table: jobPostings, values: input() }]);
     expect(injected.written).toEqual([]);
   });
 
   it("create with no executor writes on the injected db, as every caller outside a transaction expects", async () => {
     const injected = executor("injected");
-    await new JobPostingsRepository(injected.db).create(INPUT);
+    await new JobPostingsRepository(injected.db).create(input());
     expect(injected.written).toHaveLength(1);
   });
 

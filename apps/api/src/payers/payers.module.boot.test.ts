@@ -115,7 +115,14 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
 
   it("finds the resolver's injectors in source (a guard against a vacuous scan)", () => {
     expect([...injectors].sort()).toEqual([
+      // PAY-DB-01 P2a: the services whose payer paths resolve the tenant key.
+      "AgencyService",
+      "JobPostingChatService",
+      "JobPostingsService",
       "PayerAccountService",
+      "PayerApplicantInboxService",
+      "PayerApplicantStagesService",
+      "PayerApplicantsService",
       "PayerAuthGuard",
       "PayerAuthService",
       "PayerOrgRoleGuard",
