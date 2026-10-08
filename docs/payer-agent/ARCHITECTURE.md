@@ -217,6 +217,10 @@ their own empty tenant.
 > sequence above no longer applies to Credits. Each member sees and buys onto their own
 > `payer_id` wallet; the org-scoped data model is still `PAY-DB-01`, OPEN and now being planned.
 
+**Design (2026-10-07):** [ADR-0053](../decisions/0053-payer-org-tenancy-anchor-key.md). The tenant
+key is the org's anchor, held in the existing `payer_id` columns, behind one resolver plus one flag. No
+migration. Plan: [`ORG_TENANCY_PLAN.md`](ORG_TENANCY_PLAN.md).
+
 ---
 
 ## 7. Test, CI and deploy posture
