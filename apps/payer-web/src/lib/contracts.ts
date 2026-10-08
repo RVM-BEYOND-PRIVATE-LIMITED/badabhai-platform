@@ -2,6 +2,7 @@ import { z } from "zod";
 import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
 import { roleKindInputSchema } from "./job-roles";
 import type { OrgRole } from "./auth/types";
+import { APPLICANT_STAGES } from "./applicant-stages";
 
 /**
  * Typed contracts (Zod) for every payer-portal data boundary (invariant #7 / §HARD
@@ -519,6 +520,13 @@ export const facelessApplicantSchema = z.object({
   matchedSkillLabel: z.string().optional(),
   skillMonths: z.number().int().optional(),
   industryMonths: z.number().int().optional(),
+
+  /**
+   * The applicant's SAVED place on the payer's New / Shortlist / Passed board for this posting
+   * (owner ruling 2026-10-07). Present on every row while the server saves stages, absent on
+   * every row while it does not — the board reads which from the rows (`hasSavedStages`).
+   */
+  stage: z.enum(APPLICANT_STAGES).optional(),
 });
 export type FacelessApplicant = z.infer<typeof facelessApplicantSchema>;
 
@@ -940,6 +948,15 @@ export const buyCapacityWireSchema = z.object({
 });
 
 /**
+ * `stage` on an applicant-feed row (owner ruling 2026-10-07, API #2137): the applicant's place on
+ * the payer's SAVED New / Shortlist / Passed board for that posting, appended to every row of both
+ * row shapes (and of the Candidates inbox) while `PAYER_APPLICANT_STAGES_ENABLED` is on, and absent
+ * from every row while it is off. OPTIONAL so both are a parse; a CLOSED enum, so a value this
+ * client does not know is a parse failure (an honest error state), never a stage guessed at.
+ */
+export const applicantStageWireSchema = z.enum(APPLICANT_STAGES);
+
+/**
  * GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII).
  *
  * The backend reach projection (ApplicantRowDto) now also returns coarse, PII-free
@@ -960,6 +977,7 @@ export const reachApplicantWireSchema = z.object({
   experienceBand: z.string().nullable().optional(),
   tradeLabel: z.string().nullable().optional(),
   cityLabel: z.string().nullable().optional(),
+  stage: applicantStageWireSchema.optional(),
 });
 
 /**
@@ -984,6 +1002,7 @@ export const matchCandidateWireSchema = z.object({
   lastWorkedAt: z.string().nullable(),
   matchedSkillLabel: z.string().nullable(),
   engineVersion: z.string().nullable(),
+  stage: applicantStageWireSchema.optional(),
 });
 
 /**
@@ -1044,15 +1063,22 @@ export const candidateInboxWireSchema = z.object({
 });
 
 /**
- * The inbox query the seam sends — the backend `PayerApplicantInboxQuerySchema` minus what the
- * server owns: NO payer id (the session is the payer, XB-A) and NO stage (nothing persists one).
- * The cursor is the previous page's `nextCursor`, passed back untouched (≤256 chars).
+ * The inbox query the seam sends — the backend `PayerApplicantInboxStagedQuerySchema` minus what
+ * the server owns: NO payer id (the session is the payer, XB-A). The cursor is the previous page's
+ * `nextCursor`, passed back untouched (≤256 chars).
+ *
+ * `stage` narrows the page to one stage of the saved board — ONLY while the server saves stages:
+ * with `PAYER_APPLICANT_STAGES_ENABLED` off the API refuses `?stage=` with a 400 (never a filter
+ * that silently does nothing), so a caller sends it only for a stage the payer chose, and reads a
+ * 400 as "stages are not saved here" (the Candidates page re-reads without it). A cursor is a
+ * position, not a filter: a new stage starts again from the first page.
  */
 export const candidateInboxQuerySchema = z
   .object({
     postingId: z.string().uuid().optional(),
     cursor: z.string().min(1).max(256).optional(),
     limit: z.number().int().min(1).max(50).optional(),
+    stage: applicantStageWireSchema.optional(),
   })
   .strict();
 export type CandidateInboxQuery = z.infer<typeof candidateInboxQuerySchema>;
@@ -1076,6 +1102,23 @@ export const candidateInboxSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type CandidateInbox = z.infer<typeof candidateInboxSchema>;
+
+/* ── Saved applicant stage — PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage ───────── */
+
+/**
+ * The stage route's `200` (API #2137): the same body for a change and for a no-op, so a retry
+ * reads exactly like the first success — `changed: false` means he already held `stage` (nothing
+ * written, no event). Ids and closed enums only: nothing here is worker data.
+ */
+export const applicantStageChangeWireSchema = z.object({
+  postingId: z.string().uuid(),
+  postingKind: inboxPostingKindSchema,
+  workerId: z.string().uuid(),
+  stage: applicantStageWireSchema,
+  previousStage: applicantStageWireSchema,
+  changed: z.boolean(),
+});
+export type ApplicantStageChange = z.infer<typeof applicantStageChangeWireSchema>;
 
 /**
  * GET/POST/PATCH /payer/job-postings(/:id) — the EMPLOYER self-serve posting row, exactly

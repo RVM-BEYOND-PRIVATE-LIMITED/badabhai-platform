@@ -40,7 +40,7 @@ export function isPayerUnauthorized(err: unknown): boolean {
 }
 
 interface RequestOptions<T> {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Request body (JSON). NEVER include a payer_id — the session token carries it. */
   body?: unknown;
   /**

@@ -2412,6 +2412,17 @@ textarea.input {
     flex: 1;
     justify-content: center;
   }
+  /* SAVED stages (#2139) add a third segment, Passed. Three counted labels at the DS segment's
+     inset ran the track ~9px past the gutter at 375 (and further at 320, or with 3-digit
+     counts), so on a phone a saved board's segment may shrink below its label: a tighter inset,
+     and the count wraps under its name rather than the track widening. Page-scoped, like every
+     rule here that sizes a shared control (w2b-page-polish.css.test.ts). */
+  .applicants-page .applicants-pipeline--saved .bb-tab {
+    min-width: 0;
+    padding-inline: var(--space-2);
+    white-space: normal;
+    text-align: center;
+  }
   /* The result toast spans the phone rail instead of hugging the left edge. */
   .applicants-page .unlock-toast-region {
     left: var(--gutter);
@@ -4870,6 +4881,14 @@ img.agency-qr__code,
   z-index: var(--z-toast);
   display: flex;
   justify-content: flex-end;
+}
+/* SAVED applicant stages (#2139): the region is mounted for the page's life and can hold the
+   unlock toast AND a failed stage move's toast at once — stacked, each at its own width, against
+   the same right edge (one toast sits exactly where it sits in the plain region). */
+.unlock-toast-region--stack {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
 }
 
 /* Inline per-action loading spinner (unlock / reveal / resume). Decorative — the button's

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import type { AgencyJob, CandidateInboxRow, InboxPostingRef, PostingSummary } from "./contracts";
 import { isPayerBadRequest } from "./payer-errors";
+import {
+  APPLICANT_STAGES,
+  isApplicantStage,
+  STAGE_LABEL,
+  type ApplicantStage,
+} from "./applicant-stages";
 
 /**
  * PURE reads for the Candidates tab (`/candidates`, the cross-posting applicant inbox) — no I/O,
@@ -16,8 +22,13 @@ import { isPayerBadRequest } from "./payer-errors";
 /** The route. Labels only — the per-posting page stays "Applicants". */
 export const CANDIDATES_PATH = "/candidates";
 
-/** The one query key the filter writes. */
+/** The posting filter's query key. */
 export const POSTING_FILTER_PARAM = "postingId";
+/**
+ * The stage filter's query key (owner ruling 2026-10-07) — offered only while the server saves
+ * stages (see {@link stagesOffered}); the API refuses it otherwise.
+ */
+export const STAGE_FILTER_PARAM = "stage";
 /** The previous page's `nextCursor`, carried verbatim. */
 export const CURSOR_PARAM = "cursor";
 
@@ -36,6 +47,8 @@ export interface CandidatesQuery {
   filter: CandidateFilter;
   /** The page's cursor, or null for the newest page. */
   cursor: string | null;
+  /** The saved-board stage asked for, or null for every stage. */
+  stage: ApplicantStage | null;
 }
 
 /** The SHAPE of a cursor the server mints: base64url, at most 256 characters (its own bound). */
@@ -45,9 +58,13 @@ const uuid = z.string().uuid();
 type SearchParams = Record<string, string | string[] | undefined>;
 
 /**
- * Read `/candidates?postingId=&cursor=`. An empty `postingId` is "all" (the filter form's "All
- * postings" option submits it). A posting id is lowercased — the form of every id the payer's
+ * Read `/candidates?postingId=&stage=&cursor=`. An empty `postingId` is "all" (the filter form's
+ * "All postings" option submits it). A posting id is lowercased — the form of every id the payer's
  * own data carries — so an uppercase spelling selects its option rather than adding a second one.
+ *
+ * `stage` is one of the board's three or nothing: an empty value ("All stages"), a repeated one or
+ * any other word is no stage filter — every stage is listed, and the page never sends the API a
+ * stage it would refuse for its spelling.
  *
  * A cursor of any other shape is dropped: the page reads the newest page. A cursor OF that shape
  * is sent as it is — only the server can tell whether it minted one (it is opaque) — so a
@@ -63,7 +80,9 @@ export function parseCandidatesQuery(params: SearchParams): CandidatesQuery {
     filter = { kind: "posting", postingId: rawPosting.toLowerCase() };
   else filter = { kind: "unknown", raw: Array.isArray(rawPosting) ? rawPosting.join(",") : rawPosting };
   const cursor = typeof rawCursor === "string" && CURSOR_SHAPE.test(rawCursor) ? rawCursor : null;
-  return { filter, cursor };
+  const rawStage = params[STAGE_FILTER_PARAM];
+  const stage = isApplicantStage(rawStage) ? rawStage : null;
+  return { filter, cursor, stage };
 }
 
 /**
@@ -92,16 +111,22 @@ export function selectedPosting(filter: CandidateFilter): string | null {
   return null;
 }
 
-/** `/candidates` with only the keys that are set — never an empty `postingId=` or `cursor=`. */
+/**
+ * `/candidates` with only the keys that are set — never an empty `postingId=`, `stage=` or
+ * `cursor=`.
+ */
 export function candidatesHref({
   postingId,
+  stage,
   cursor,
 }: {
   postingId?: string | null;
+  stage?: ApplicantStage | null;
   cursor?: string | null;
 }): string {
   const q = new URLSearchParams();
   if (postingId) q.set(POSTING_FILTER_PARAM, postingId);
+  if (stage) q.set(STAGE_FILTER_PARAM, stage);
   if (cursor) q.set(CURSOR_PARAM, cursor);
   const qs = q.toString();
   return qs ? `${CANDIDATES_PATH}?${qs}` : CANDIDATES_PATH;
@@ -193,4 +218,30 @@ export function withSelectedOption(
   if (selected === null || options.some((o) => o.id === selected)) return [...options];
   const named = rows.find((r) => r.posting.id === selected)?.posting.title;
   return [...options, { id: selected, label: named ?? "Selected posting" }];
+}
+
+/** One option of the stage filter: the board's stages, in board order, by their tab names. */
+export interface StageOption {
+  id: ApplicantStage;
+  label: string;
+}
+export const STAGE_OPTIONS: readonly StageOption[] = APPLICANT_STAGES.map((id) => ({
+  id,
+  label: STAGE_LABEL[id],
+}));
+
+/**
+ * Does this page offer the stage filter? Only when an answered read SHOWED the server saves
+ * stages — the flag that decides it is server-side, and a filter the API would refuse (a 400 while
+ * it is off) is never drawn:
+ *  - the server APPLIED a stage filter (`appliedStage` — it answers `?stage=` only while it saves
+ *    stages), even when nothing matched; or
+ *  - every row it returned carries a `stage` (`hasSavedStages`).
+ * An empty, unfiltered page cannot say, so it offers none (there is nothing to filter yet).
+ */
+export function stagesOffered(
+  appliedStage: ApplicantStage | null,
+  savedRows: boolean,
+): boolean {
+  return appliedStage !== null || savedRows;
 }

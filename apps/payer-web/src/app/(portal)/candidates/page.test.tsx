@@ -638,3 +638,170 @@ describe("candidates page — the filter shows the posting the list is filtered 
     expect(filterKey(await tree({ postingId: P1.toUpperCase() }))).toBe(onP1);
   });
 });
+
+describe("candidates page — SAVED stages (#2139): the Stage filter, and each card's stage", () => {
+  type Stage = "new" | "shortlist" | "passed";
+  const staged = (row: CandidateInboxRow, stage: Stage): CandidateInboxRow => ({ ...row, stage });
+  const STAGED = {
+    applicants: [staged(companyRow(W1), "new"), staged(companyRow(W2, P2, "VMC Operator"), "shortlist")],
+    nextCursor: null,
+  };
+  /** The Stage select's markup (its options), or null when the page draws none. */
+  const stageSelect = (markup: string) =>
+    /<select id="candidates-stage" class="[^"]*" name="stage"[^>]*>([\s\S]*?)<\/select>/.exec(markup)?.[1] ?? null;
+  const selectedStage = (markup: string) =>
+    /<option value="([^"]*)" selected="">/.exec(stageSelect(markup) ?? "")?.[1] ?? null;
+  const filterKey = (node: unknown, seen = new Set<unknown>()): string | null | undefined => {
+    if (node === null || typeof node !== "object" || seen.has(node)) return undefined;
+    seen.add(node);
+    if (isValidElement(node)) {
+      if (node.type === CandidateFilter) return node.key;
+      return filterKey(node.props, seen);
+    }
+    for (const v of Object.values(node)) {
+      const k = filterKey(v, seen);
+      if (k !== undefined) return k;
+    }
+    return undefined;
+  };
+
+  it("FLAG OFF (no row carries a stage): no Stage select and no stage on a card — the page as before", async () => {
+    const out = await html();
+    expect(stageSelect(out)).toBeNull();
+    expect(out).not.toContain('name="stage"');
+    expect(out).toContain('aria-label="Filter candidates by posting"');
+    expect(textOf(out)).not.toMatch(/Shortlisted|Move to New|\bKeep\b/);
+  });
+
+  it("FLAG ON: the filter gains a labelled Stage select — All stages, then New / Shortlist / Passed", async () => {
+    getCandidateInbox.mockResolvedValueOnce(STAGED);
+    const out = await html();
+    expect(out).toContain('<label class="bb-field__label" for="candidates-stage">Stage</label>');
+    const options = Array.from(
+      (stageSelect(out) ?? "").matchAll(/<option value="([^"]*)"[^>]*>([^<]*)</g),
+      (m) => [m[1], m[2]],
+    );
+    expect(options).toEqual([
+      ["", "All stages"],
+      ["new", "New"],
+      ["shortlist", "Shortlist"],
+      ["passed", "Passed"],
+    ]);
+    expect(selectedStage(out)).toBe("");
+    // Still ONE plain GET form, with no cursor in it (a new stage starts from the first page).
+    const toolbar = out.slice(out.indexOf('<div class="page-head__toolbar">'));
+    expect(toolbar.match(/<form /g)).toHaveLength(1);
+    expect(toolbar).not.toContain('name="cursor"');
+    expect(out).toContain('aria-label="Filter candidates"');
+  });
+
+  it("FLAG ON: each card shows its stage and offers its moves (still no stage tabs)", async () => {
+    getCandidateInbox.mockResolvedValueOnce(STAGED);
+    const out = await html();
+    const text = textOf(out);
+    expect(text).toMatch(/\bNew\b[\s\S]*Keep[\s\S]*Pass/);
+    expect(text).toContain("Shortlisted");
+    expect(text).toContain("Move to New");
+    expect(out).not.toContain("applicants-pipeline");
+  });
+
+  it("?stage= reaches the seam beside postingId; it is selected, and paging keeps it", async () => {
+    getCandidateInbox.mockResolvedValueOnce({
+      applicants: [staged(companyRow(W1), "shortlist")],
+      nextCursor: NEXT,
+    });
+    const out = await html({ postingId: P1, stage: "shortlist" });
+    expect(getCandidateInbox).toHaveBeenCalledTimes(1);
+    expect(getCandidateInbox).toHaveBeenCalledWith({ postingId: P1, stage: "shortlist" });
+    expect(selectedStage(out)).toBe("shortlist");
+    expect(out).toContain(`href="/candidates?postingId=${P1}&amp;stage=shortlist&amp;cursor=${NEXT}"`);
+
+    getCandidateInbox.mockResolvedValueOnce({
+      applicants: [staged(companyRow(W2), "shortlist")],
+      nextCursor: null,
+    });
+    const page2 = await html({ stage: "shortlist", cursor: NEXT });
+    expect(getCandidateInbox).toHaveBeenLastCalledWith({ cursor: NEXT, stage: "shortlist" });
+    expect(page2).toContain('<a href="/candidates?stage=shortlist" class="bb-btn bb-btn--secondary">');
+  });
+
+  it("a stage the API REFUSES (a 400 — the flag is off) is read again WITHOUT it: the unfiltered list, no Stage select", async () => {
+    const refusals = [
+      new PayerValidationError("/payer/reach/applicants?stage=passed", [
+        { path: "", message: "Unrecognized key(s) in object: 'stage'" },
+      ]),
+      new Error("payer API /payer/reach/applicants?stage=passed returned 400"),
+    ];
+    for (const refusal of refusals) {
+      getCandidateInbox.mockReset();
+      getCandidateInbox
+        .mockRejectedValueOnce(refusal)
+        .mockResolvedValueOnce({ applicants: [companyRow(W1)], nextCursor: NEXT });
+      const out = await html({ postingId: P1, stage: "passed" });
+      expect(getCandidateInbox.mock.calls.map((c) => c[0])).toEqual([
+        { postingId: P1, stage: "passed" },
+        { postingId: P1 },
+      ]);
+      expect(stageSelect(out)).toBeNull();
+      expect(out).not.toContain("couldn’t load");
+      expect(textOf(out)).toContain("Applied to");
+      // The pager no longer carries the refused stage.
+      expect(out).toContain(`href="/candidates?postingId=${P1}&amp;cursor=${NEXT}"`);
+    }
+  });
+
+  it("a refused stage AND a refused cursor is the cursor's refusal — First page (stage kept, to re-ask), never Retry", async () => {
+    getCandidateInbox
+      .mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 400"))
+      .mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 400"));
+    const out = await html({ stage: "passed", cursor: "abc" });
+    expect(textOf(stateOf(out))).toContain("This page link isn’t valid");
+    expect(Array.from(stateOf(out).matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual([
+      "/candidates?stage=passed",
+    ]);
+    expect(out).not.toContain("data-retry");
+  });
+
+  it("any OTHER failure on a stage read is the page's own state — no second read", async () => {
+    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 502"));
+    expect(stateOf(await html({ stage: "new" }))).toContain("We couldn’t load candidates");
+    expect(getCandidateInbox).toHaveBeenCalledTimes(1);
+    getCandidateInbox.mockRejectedValueOnce(new Error("payer API /payer/reach/applicants returned 429"));
+    expect(textOf(stateOf(await html({ stage: "new" })))).toContain("Too many requests");
+    expect(getCandidateInbox).toHaveBeenCalledTimes(2);
+  });
+
+  it("a stage filter that matches nothing: its own state, a way to All stages (posting kept), the select kept", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
+    const out = await html({ postingId: P1, stage: "passed" });
+    const state = stateOf(out);
+    expect(textOf(state)).toContain("No applicants in Passed");
+    expect(textOf(state)).not.toContain("one of your postings");
+    expect(linkCue(state)).toEqual(new Map([[`/candidates?postingId=${P1}`, true]]));
+    expect(textOf(state)).toContain("All stages");
+    expect(selectedStage(out)).toBe("passed");
+  });
+
+  it("an empty UNFILTERED page cannot say stages are saved: no Stage select", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
+    expect(stageSelect(await html())).toBeNull();
+  });
+
+  it("a value that is not a stage is no stage filter — never sent to the API", async () => {
+    getCandidateInbox.mockResolvedValueOnce(STAGED);
+    await html({ stage: "archived" });
+    expect(getCandidateInbox).toHaveBeenCalledWith({});
+  });
+
+  it("a new stage remounts the filter and starts a fresh card list (no session state carried over)", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [staged(companyRow(W1), "new")], nextCursor: null });
+    const a = await tree({ stage: "new" });
+    getCandidateInbox.mockResolvedValueOnce({ applicants: [staged(companyRow(W1), "passed")], nextCursor: null });
+    const b = await tree({ stage: "passed" });
+    expect(filterKey(a)).not.toBe(filterKey(b));
+    const listKey = (t: ReactElement) =>
+      ((t.props as { children: ReactElement[] }).children.find((c) => c?.type === ApplicantActions) as ReactElement)
+        .key;
+    expect(listKey(a)).not.toBe(listKey(b));
+  });
+});
