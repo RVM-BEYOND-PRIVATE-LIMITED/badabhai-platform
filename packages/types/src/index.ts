@@ -426,6 +426,29 @@ export const FREE_CHAT_NEWS_DOMAINS = [
   "iocl.com",
 ] as const;
 export type FreeChatNewsDomain = (typeof FREE_CHAT_NEWS_DOMAINS)[number];
+// ADR-0051 §11 (#2181) — THE LANGUAGE A FREE-CHAT REPLY IS WRITTEN IN (owner rulings R39–R41,
+// 2026-10-08). CODE detects each worker message's language from word lists (Latin and the
+// scripts) and the model follows (R39). Every reply mirrors the message (R40): English in, English
+// out; Hindi or Hinglish in either script, `hinglish` (one member covers both); Marathi, Gujarati,
+// Kannada, Telugu or Tamil, that language mixed with English; unsure, `hinglish`. Always Latin
+// letters, and the fixed lines stay Hinglish (R27). An explicit request ("marathi mai jawab do")
+// can hold one language for the whole chat (R41). The reply and news AI inputs' optional
+// `reply_language` and the `chat.free_chat_language_changed` event read this one list.
+export const FREE_CHAT_REPLY_LANGUAGES = [
+  "english",
+  "hinglish",
+  "marathi",
+  "gujarati",
+  "kannada",
+  "telugu",
+  "tamil",
+] as const;
+export type FreeChatReplyLanguage = (typeof FREE_CHAT_REPLY_LANGUAGES)[number];
+// HOW A WORKER ANSWERED THE R41 ASK "Kya aage ki saari baat {Language} mein karein?".
+// `accepted` ("Haan, {Language} mein") the language now holds for the whole chat, across returns,
+// until another request; `declined` ("Nahi") each reply follows the worker's message again.
+export const FREE_CHAT_LANGUAGE_TRIGGERS = ["accepted", "declined"] as const;
+export type FreeChatLanguageTrigger = (typeof FREE_CHAT_LANGUAGE_TRIGGERS)[number];
 
 // ---- Consent ----
 export const CONSENT_PURPOSES = [

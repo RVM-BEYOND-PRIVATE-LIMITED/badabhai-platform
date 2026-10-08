@@ -7,6 +7,8 @@
  * `POST /free-chat/reply` (one casual or career message -> 1-4 Hinglish lines, or a closed
  * refusal topic), `POST /free-chat/summarize` (Release 2, the rolling notes) and
  * `POST /free-chat/news` (ADR-0054: a news question -> a searched summary with its sources).
+ * The reply and the news input take an optional `reply_language` (ADR-0051 §11): the language
+ * CODE detected or the worker chose, which the model writes in.
  *
  * PRIVACY: `text`, `pending_question` and the recent turns are worker-facing text; the
  * AI-service applies the masking policy in force (ADR-0047) before `AIRouter`, and the API
@@ -25,6 +27,7 @@ import {
   FREE_CHAT_NEWS_KINDS,
   FREE_CHAT_REFUSAL_TOPICS,
   FREE_CHAT_REPLY_CATEGORIES,
+  FREE_CHAT_REPLY_LANGUAGES,
 } from "@badabhai/types";
 
 import { AICallMetadataSchema } from "./common";
@@ -45,6 +48,21 @@ const REPLY_CHIP_MAX = 60;
 const SUMMARY_MAX = 1200;
 const SUMMARY_OUTPUT_MAX = 2000;
 const SUMMARY_TURNS_MAX = 24;
+
+/**
+ * ADR-0051 §11 (R39–R41) — the language the model writes a reply in, from the closed
+ * `FREE_CHAT_REPLY_LANGUAGES`. CODE decides it, never the model (R39): the language the API
+ * detected in the worker's message (R40), or the one the worker chose to keep for the whole chat
+ * (R41). Always Latin letters; `hinglish` covers Hindi in either script.
+ */
+export const FreeChatReplyLanguageSchema = z.enum(FREE_CHAT_REPLY_LANGUAGES);
+
+/**
+ * The optional `reply_language` the reply and the news input carry. Additive and defaulted: null,
+ * or a caller that omits it, leaves the prompt's own language rules in force, exactly as before the
+ * field existed.
+ */
+const ReplyLanguageFieldSchema = FreeChatReplyLanguageSchema.nullable().default(null);
 
 /**
  * The modes a message can be classified IN. `greeting` is never sent: the greeting's Haan /
@@ -97,6 +115,8 @@ export const FreeChatReplyInputSchema = z.object({
    * by the API before it was stored; never shown to the worker. Additive and defaulted.
    */
   summary: z.string().min(1).max(SUMMARY_MAX).nullable().default(null),
+  /** ADR-0051 §11 — the language to reply in; null = the prompt's own rules, as before. */
+  reply_language: ReplyLanguageFieldSchema,
 });
 export type FreeChatReplyInput = z.infer<typeof FreeChatReplyInputSchema>;
 
@@ -184,6 +204,8 @@ export const FreeChatNewsInputSchema = z.object({
    * and defaulted: a caller that omits it is charged to the global caps only.
    */
   worker_ref: z.string().min(1).nullable().default(null),
+  /** ADR-0051 §11 — the language to answer in, as for the reply; null = the prompt's own rules. */
+  reply_language: ReplyLanguageFieldSchema,
 });
 export type FreeChatNewsInput = z.infer<typeof FreeChatNewsInputSchema>;
 

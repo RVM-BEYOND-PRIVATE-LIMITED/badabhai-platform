@@ -2124,7 +2124,8 @@ class CompanionCareerRefuse(BaseModel):
 # summary before it stores one (§8).
 #
 # The closed sets are the ones `packages/types` declares (`FREE_CHAT_CATEGORIES`,
-# `FREE_CHAT_REPLY_CATEGORIES`, `FREE_CHAT_REFUSAL_TOPICS`); the parity suite reads that source.
+# `FREE_CHAT_REPLY_CATEGORIES`, `FREE_CHAT_REFUSAL_TOPICS`, `FREE_CHAT_REPLY_LANGUAGES`); the
+# parity suite reads that source.
 # The recent-turn and worker-context shapes are the companion's: one shape, not two.
 
 #: The modes a message is classified IN. `greeting` is never sent: the API reads the greeting's
@@ -2161,6 +2162,19 @@ FreeChatReplyChip = Annotated[str, Field(min_length=1, max_length=60)]
 #: of its own) rather than failing at the transport as "unavailable".
 FreeChatSummaryText = Annotated[str, Field(min_length=1, max_length=1200)]
 FreeChatSummaryOutputText = Annotated[str, Field(min_length=1, max_length=2000)]
+#: ADR-0051 §11 (R39-R41): the language a reply is written in (`FREE_CHAT_REPLY_LANGUAGES` in
+#: packages/types; the parity suite reads that source). CODE decides it, never the model: the
+#: language the API detected in the worker's message, or the one the worker chose to keep for the
+#: whole chat. Always Latin letters; `hinglish` covers Hindi in either script.
+FreeChatReplyLanguage = Literal[
+    "english",
+    "hinglish",
+    "marathi",
+    "gujarati",
+    "kannada",
+    "telugu",
+    "tamil",
+]
 
 
 class FreeChatClassifyInput(BaseModel):
@@ -2206,6 +2220,9 @@ class FreeChatReplyInput(BaseModel):
     # across returns. Model-written, validated by the API before it was stored, never shown to the
     # worker, and still gated here like every other model input. Additive and defaulted.
     summary: FreeChatSummaryText | None = None
+    # ADR-0051 §11 (R39, R40): the language to reply in, decided by the API. Additive and
+    # defaulted: None (or a caller that omits it) leaves the prompt's own language rules in force.
+    reply_language: FreeChatReplyLanguage | None = None
 
 
 class FreeChatAnswer(BaseModel):
@@ -2292,6 +2309,9 @@ class FreeChatNewsInput(BaseModel):
     # the router's `user_ref`, like /profile/parse). Never a name or a phone; never sent to the
     # model. Nullable and defaulted: a caller that omits it is charged to the global caps only.
     worker_ref: str | None = Field(default=None, min_length=1)
+    # ADR-0051 §11: the language to answer in, as for the reply. Additive and defaulted: None
+    # leaves the prompt's own language rules in force.
+    reply_language: FreeChatReplyLanguage | None = None
 
 
 class FreeChatNewsSource(BaseModel):

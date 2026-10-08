@@ -62,6 +62,7 @@ describe("freeChatClassify / freeChatReply", () => {
       recent_turns: [],
       worker_context: { trade_label: null, experience_bucket: null },
       summary: null,
+      reply_language: null,
     };
     expect(await ai.freeChatReply(input)).toMatchObject({
       status: "answer",
@@ -93,6 +94,7 @@ describe("freeChatClassify / freeChatReply", () => {
         recent_turns: [],
         worker_context: { trade_label: null, experience_bucket: null },
         summary: null,
+        reply_language: null,
       }),
     ).toBeNull();
   });
@@ -124,6 +126,7 @@ describe("freeChatClassify / freeChatReply", () => {
         recent_turns: [],
         worker_context: { trade_label: null, experience_bucket: null },
         summary: null,
+        reply_language: null,
       });
       await vi.advanceTimersByTimeAsync(2_400);
       expect(signals[0]?.aborted).toBe(false);
@@ -219,6 +222,7 @@ describe("freeChatNews — ADR-0054 live news", () => {
     recent_turns: [],
     worker_context: { trade_label: null, experience_bucket: null },
     worker_ref: "11111111-1111-4111-8111-111111111111",
+    reply_language: null,
   };
 
   it("posts to /free-chat/news and parses an answer, no_results or a refusal", async () => {

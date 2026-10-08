@@ -63,6 +63,7 @@ from app.contracts import (
     FreeChatRefuse,
     FreeChatReplyCategory,
     FreeChatReplyInput,
+    FreeChatReplyLanguage,
     FreeChatReplyOutput,
     FreeChatSummarizeInput,
     FreeChatSummarizeOutput,
@@ -816,9 +817,14 @@ def test_free_chat_closed_sets_match_the_shared_types_source():
     )
     # ADR-0054: the news kinds, read from the same shared source.
     assert _string_union_in(_TYPES_TS, "FREE_CHAT_NEWS_KINDS") == list(get_args(FreeChatNewsKind))
+    # ADR-0051 §11: the reply languages, read from the same shared source.
+    assert _string_union_in(_TYPES_TS, "FREE_CHAT_REPLY_LANGUAGES") == list(
+        get_args(FreeChatReplyLanguage)
+    )
     # Non-vacuous: the regex found real members, not an empty list on both sides.
     assert "off_limits" in _string_union_in(_TYPES_TS, "FREE_CHAT_CATEGORIES")
     assert "news" in _string_union_in(_TYPES_TS, "FREE_CHAT_REFUSAL_TOPICS")
+    assert "tamil" in _string_union_in(_TYPES_TS, "FREE_CHAT_REPLY_LANGUAGES")
     # The reply categories are a subset of the categories: the model only ever answers for a
     # category the classifier can return.
     assert set(get_args(FreeChatReplyCategory)) <= set(get_args(FreeChatCategory))
@@ -932,6 +938,8 @@ def test_free_chat_defaults_match_the_zod_source():
     assert reply.recent_turns == []
     assert reply.worker_context.model_dump() == {"trade_label": None, "experience_bucket": None}
     assert reply.summary is None  # Release 2: additive, so a Release 1 caller parses unchanged
+    assert reply.reply_language is None  # §11: additive, the prompt's own rules apply
+    assert FreeChatNewsInput(text="x").reply_language is None
     answer = FreeChatAnswer(status="answer", lines=["x"])
     assert answer.followup_chips == []
     assert answer.ai_metadata is None
@@ -1026,3 +1034,26 @@ def test_free_chat_news_output_is_a_three_way_union_on_status():
             adapter.validate_python(bad)
     assert FreeChatNewsInput(text="aaj ka mausam").recent_turns == []
     assert FreeChatNewsSource.model_fields.keys() == {"url", "title", "site"}
+
+
+@pytest.mark.parametrize(
+    ("model", "base"),
+    [
+        (FreeChatReplyInput, {"category": "casual", "text": "kaise ho"}),
+        (FreeChatNewsInput, {"text": "aaj ka mausam"}),
+    ],
+    ids=["FreeChatReplyInput", "FreeChatNewsInput"],
+)
+def test_the_reply_language_is_optional_nullable_and_closed(model, base):
+    """ADR-0051 §11 (R39-R41), mirroring the Zod `z.enum(...).nullable().default(null)`: absent or
+    null is None (the prompt's own rules, as before); every shared member parses; nothing else does
+    — `hinglish` covers Hindi in either script, so there is no `hindi`."""
+    assert model(**base).reply_language is None
+    assert model(**base, reply_language=None).reply_language is None
+    languages = _string_union_in(_TYPES_TS, "FREE_CHAT_REPLY_LANGUAGES")
+    assert len(languages) == 7  # non-vacuous
+    for language in languages:
+        assert model(**base, reply_language=language).reply_language == language
+    for bad in ("hindi", "devanagari", "English", "bengali", "", "reply in Tamil", 1):
+        with pytest.raises(ValidationError):
+            model(**base, reply_language=bad)

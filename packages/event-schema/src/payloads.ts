@@ -48,6 +48,8 @@ import {
   FREE_CHAT_SUMMARY_OUTCOMES,
   FREE_CHAT_NEWS_KINDS,
   FREE_CHAT_NEWS_OUTCOMES,
+  FREE_CHAT_REPLY_LANGUAGES,
+  FREE_CHAT_LANGUAGE_TRIGGERS,
   APPLICANT_POSTING_KINDS,
   APPLICANT_STAGES,
 } from "@badabhai/types";
@@ -5414,3 +5416,33 @@ export const PayerApplicantStageChangedPayload = z
     message: "a stage change must change the stage (an unchanged stage emits nothing)",
   });
 export type PayerApplicantStageChangedPayload = z.infer<typeof PayerApplicantStageChangedPayload>;
+
+/**
+ * ADR-0051 §11 (#2181, R41) — A WORKER ANSWERED "Kya aage ki saari baat {Language} mein karein?"
+ * AND THE FREE CHAT'S HELD REPLY LANGUAGE CHANGED. After an explicit request ("marathi mai jawab
+ * do", "reply in Tamil"), the worker either chose to keep that language for the whole chat, across
+ * returns, until another request (`accepted`), or declined and went back to having each reply
+ * follow the language of their own message (`declined`).
+ *
+ * `from` / `to` are the held language before and after; null means none is held, so each reply
+ * follows the message (R40). An answer that changes nothing (accepting the language already held,
+ * declining with none held) is not a change and emits nothing — hence the refine.
+ *
+ * NEVER THE WORKER'S WORDS. Ids and closed enums only; `.strict()` keeps it that way.
+ */
+export const ChatFreeChatLanguageChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    from: z.enum(FREE_CHAT_REPLY_LANGUAGES).nullable(),
+    to: z.enum(FREE_CHAT_REPLY_LANGUAGES).nullable(),
+    trigger: z.enum(FREE_CHAT_LANGUAGE_TRIGGERS),
+  })
+  .strict()
+  .refine((v) => v.from !== v.to, { message: "a language change changes the held language" })
+  // R41: "Haan" keeps a language, so `accepted` always lands on one; "Nahi" returns to following each
+  // message, so `declined` always lands on null.
+  .refine((v) => (v.trigger === "accepted") === (v.to !== null), {
+    message: "accepted sets a language (to non-null); declined clears it (to null)",
+  });
+export type ChatFreeChatLanguageChangedPayload = z.infer<typeof ChatFreeChatLanguageChangedPayload>;
