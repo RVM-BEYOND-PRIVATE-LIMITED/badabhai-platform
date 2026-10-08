@@ -177,6 +177,13 @@ export const FreeChatNewsInputSchema = z.object({
     trade_label: null,
     experience_bucket: null,
   }),
+  /**
+   * The worker's OPAQUE spend ref (the D-2 attribution the parse and transcription contracts
+   * carry), so the ai-service charges this paid, searched call to the per-worker daily spend cap
+   * as well as the global ones. Never a name or a phone, and never sent to the model. Nullable
+   * and defaulted: a caller that omits it is charged to the global caps only.
+   */
+  worker_ref: z.string().min(1).nullable().default(null),
 });
 export type FreeChatNewsInput = z.infer<typeof FreeChatNewsInputSchema>;
 

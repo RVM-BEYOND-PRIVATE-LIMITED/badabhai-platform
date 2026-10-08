@@ -11,7 +11,7 @@ status are observable. ``httpx`` is the only transport.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -104,6 +104,19 @@ class LlmResult:
     content: str
     input_tokens: int
     output_tokens: int
+    # ADR-0054 — SERVER-TOOL FIELDS, filled only for a call that carried ``tools`` (today the
+    # Anthropic web search) and left at their defaults by every other call, so the three-field
+    # construction above is unchanged everywhere. Model-independent facts read off the response:
+    # how many searches the provider billed, which results the answer text cited, and which
+    # results the searches returned, each as ``(url, title)`` in response order (title "" when
+    # the provider gave none). Nothing here is validated: the caller builds and checks sources.
+    search_requests: int = 0
+    citations: list[tuple[str, str]] = field(default_factory=list)
+    search_results: list[tuple[str, str]] = field(default_factory=list)
+    # Anthropic bills cache writes and reads in their own buckets, outside ``input_tokens``.
+    # Read for tool calls only (search results are input), so the search call's cost is whole.
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
 
 def _bare_model_id(model: str) -> str:

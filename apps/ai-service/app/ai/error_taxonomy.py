@@ -32,7 +32,10 @@ from .errors import (
     REASON_MISSING_KEY,
     REASON_NO_CANDIDATES,
     REASON_NO_TEXT_CONTENT,
+    REASON_PAUSE_TURN,
     REASON_SDK_ERROR,
+    REASON_TIMEOUT,
+    REASON_TOOLS_UNSUPPORTED,
 )
 
 # --- The closed category set ------------------------------------------------
@@ -86,6 +89,13 @@ _TRANSPORT: dict[str, str] = {
     # A missing credential is a deployment mistake, not a provider incident. It is
     # the one transport reason that will NEVER clear on a retry or a fallback.
     REASON_MISSING_KEY: AUTHENTICATION_ERROR,
+    # ADR-0054. A tool-carrying call routed to a provider that cannot run the tool is a
+    # routing mistake (a model setting pointed at the wrong provider), never a provider incident.
+    REASON_TOOLS_UNSUPPORTED: CONFIG_ERROR,
+    # A paused server-tool turn is a response with no usable answer in it, like no_text_content.
+    REASON_PAUSE_TURN: INVALID_OUTPUT,
+    # The route's own deadline, raised by the router: the same story as an SDK read timeout.
+    REASON_TIMEOUT: TIMEOUT,
 }
 
 # Exception CLASS NAMES, for the untyped failures the router reduces to `type(exc).__name__`.

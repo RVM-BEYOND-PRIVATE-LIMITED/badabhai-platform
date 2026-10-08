@@ -978,8 +978,22 @@ def test_only_the_reply_reads_the_summary():
 
 def test_the_free_chat_contracts_carry_no_identity_pii_field():
     banned = {"worker_id", "worker_ref", "worker_name", "name", "phone", "address", "city"}
+    # THE ONE CARVE-OUT (ADR-0054 security review, H2), mirrored in the Zod suite: the news
+    # input's OPAQUE spend ref, so a paid, searched call is charged to the per-worker daily cap.
+    allowed = {"FreeChatNewsInput": {"worker_ref"}}
     for model_name, model in _FREE_CHAT_MODELS.items():
-        assert banned.isdisjoint(set(model.model_fields)), model_name
+        declared = set(model.model_fields) - allowed.get(model_name, set())
+        assert banned.isdisjoint(declared), model_name
+
+
+def test_the_news_input_worker_ref_is_an_optional_nullable_non_empty_spend_ref():
+    """ADR-0054 H2, mirroring the Zod `.min(1).nullable().default(null)`."""
+    assert FreeChatNewsInput(text="aaj ka mausam").worker_ref is None
+    assert FreeChatNewsInput(text="x", worker_ref=None).worker_ref is None
+    assert FreeChatNewsInput(text="x", worker_ref="w-ref-1").worker_ref == "w-ref-1"
+    with pytest.raises(ValidationError):
+        FreeChatNewsInput(text="x", worker_ref="")
+    assert "worker_ref" not in FreeChatReplyInput.model_fields  # the news input's alone
 
 
 def test_free_chat_news_output_is_a_three_way_union_on_status():

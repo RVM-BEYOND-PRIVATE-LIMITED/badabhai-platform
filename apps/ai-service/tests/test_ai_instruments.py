@@ -59,11 +59,12 @@ def _gated_task_strings() -> set[str]:
 
     for path in app.rglob("*.py"):
         src = path.read_text(encoding="utf8")
-        literals.update(re.findall(r"""\.run\(\s*["']([a-z_]+)["']""", src))
+        # `.run(` and ADR-0054's `.run_with_result(`: the same router entry, the same gate.
+        literals.update(re.findall(r"""\.run(?:_with_result)?\(\s*["']([a-z_]+)["']""", src))
         literals.update(re.findall(r"""task_type\s*=\s*["']([a-z_]+)["']""", src))
         literals.update(re.findall(r"""real_call_enabled_for\(\s*["']([a-z_]+)["']""", src))
         consts.update(re.findall(r"real_call_enabled_for\(\s*([A-Z][A-Z_]*)\s*\)", src))
-        consts.update(re.findall(r"\.run\(\s*([A-Z][A-Z_]*)\s*,", src))
+        consts.update(re.findall(r"\.run(?:_with_result)?\(\s*([A-Z][A-Z_]*)\s*,", src))
         for name, value in re.findall(
             r"""^([A-Z][A-Z_]*)\s*[:=][^=\n]*?["']([a-z_]+)["']""", src, re.M
         ):
