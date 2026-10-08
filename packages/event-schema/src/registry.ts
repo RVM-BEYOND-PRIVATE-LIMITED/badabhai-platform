@@ -1405,6 +1405,14 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatFreeChatSummaryUpdatedPayload,
   },
+
+  // ADR-0054 (#2127) — one live-news request in the free chat: answered with sources, or which
+  // fixed line it fell back to. Counts and closed enums only; never the question or a URL. v1.
+  "chat.free_chat_news_served": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatNewsServedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

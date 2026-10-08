@@ -52,6 +52,13 @@ from app.contracts import (
     FreeChatClassifyInput,
     FreeChatClassifyMode,
     FreeChatClassifyOutput,
+    FreeChatNewsAnswer,
+    FreeChatNewsInput,
+    FreeChatNewsKind,
+    FreeChatNewsNoResults,
+    FreeChatNewsOutput,
+    FreeChatNewsRefuse,
+    FreeChatNewsSource,
     FreeChatRefusalTopic,
     FreeChatRefuse,
     FreeChatReplyCategory,
@@ -772,6 +779,12 @@ _FREE_CHAT_MODELS = {
     # Release 2 (§8): the rolling summary's fold.
     "FreeChatSummarizeInput": FreeChatSummarizeInput,
     "FreeChatSummarizeOutput": FreeChatSummarizeOutput,
+    # ADR-0054: live news — the input, one source and the three members of the output union.
+    "FreeChatNewsInput": FreeChatNewsInput,
+    "FreeChatNewsSource": FreeChatNewsSource,
+    "FreeChatNewsAnswer": FreeChatNewsAnswer,
+    "FreeChatNewsNoResults": FreeChatNewsNoResults,
+    "FreeChatNewsRefuse": FreeChatNewsRefuse,
 }
 
 
@@ -801,6 +814,8 @@ def test_free_chat_closed_sets_match_the_shared_types_source():
     assert _string_union_in(_FREE_CHAT_TS, "FREE_CHAT_CLASSIFY_MODES") == list(
         get_args(FreeChatClassifyMode)
     )
+    # ADR-0054: the news kinds, read from the same shared source.
+    assert _string_union_in(_TYPES_TS, "FREE_CHAT_NEWS_KINDS") == list(get_args(FreeChatNewsKind))
     # Non-vacuous: the regex found real members, not an empty list on both sides.
     assert "off_limits" in _string_union_in(_TYPES_TS, "FREE_CHAT_CATEGORIES")
     assert "news" in _string_union_in(_TYPES_TS, "FREE_CHAT_REFUSAL_TOPICS")
@@ -965,3 +980,35 @@ def test_the_free_chat_contracts_carry_no_identity_pii_field():
     banned = {"worker_id", "worker_ref", "worker_name", "name", "phone", "address", "city"}
     for model_name, model in _FREE_CHAT_MODELS.items():
         assert banned.isdisjoint(set(model.model_fields)), model_name
+
+
+def test_free_chat_news_output_is_a_three_way_union_on_status():
+    """ADR-0054: answer | no_results | refuse, discriminated like the Zod union; a news answer
+    carries 1-3 sources and at most 3 charged searches."""
+    adapter = TypeAdapter(FreeChatNewsOutput)
+    source = {"url": "https://www.thehindu.com/a", "title": "Headline", "site": "thehindu.com"}
+    answer = {
+        "status": "answer",
+        "kind": "work",
+        "lines": ["Ek line"],
+        "sources": [source],
+        "search_count": 1,
+    }
+    assert isinstance(adapter.validate_python(answer), FreeChatNewsAnswer)
+    assert isinstance(
+        adapter.validate_python({"status": "no_results", "search_count": 0}), FreeChatNewsNoResults
+    )
+    assert isinstance(
+        adapter.validate_python({"status": "refuse", "topic": "off_limits"}), FreeChatNewsRefuse
+    )
+    for bad in (
+        {**answer, "sources": []},
+        {**answer, "sources": [source] * 4},
+        {**answer, "search_count": 4},
+        {**answer, "kind": "politics"},
+        {"status": "gossip"},
+    ):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(bad)
+    assert FreeChatNewsInput(text="aaj ka mausam").recent_turns == []
+    assert FreeChatNewsSource.model_fields.keys() == {"url", "title", "site"}
