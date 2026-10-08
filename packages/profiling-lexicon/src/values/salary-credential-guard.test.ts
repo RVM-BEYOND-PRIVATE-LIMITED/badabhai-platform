@@ -27,9 +27,11 @@ import { loadUtteranceFixtures } from "../internal/fixtures.js";
 import { compilePattern, loadLexicon, type PatternSpec } from "../internal/regex.js";
 import { detectSalaries } from "./salary.js";
 
-// The "id" word since #2043 ("Voter ID ABC1234567"), as in the G1/G2 résumé rule's connector.
-const UNFOLDED_CONNECTOR = String.raw`\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*`;
-const LINEAR_CONNECTOR = String.raw`\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?`;
+// #2091's label words in front of the "no" word ("id", then "card" or "code"; "id" was in the
+// "no"-word group from #2043 until then). They never existed unfolded, so the oracle carries them
+// folded, as shipped, and still differs from the guard by #1933's folding alone.
+const UNFOLDED_CONNECTOR = String.raw`\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*`;
+const LINEAR_CONNECTOR = String.raw`\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?`;
 const VALUE_TAIL = String.raw`[A-Za-z0-9/-]{0,20}$`;
 
 const SPEC = loadLexicon<{ credentialBefore: PatternSpec }>("salary").credentialBefore;
@@ -280,8 +282,25 @@ describe("the identifier-only résumé cues and a leading word boundary (issue #
   ])("a real wage is kept: %s", (text, value) => {
     expect(detectSalaries(text).current?.value).toBe(value);
   });
+});
 
-  it("KNOWN_RESIDUAL (#2091): a two-word connector ('ID No') is not read, so its digits are pay", () => {
-    expect(detectSalaries("Voter ID No: XYZ9876543").current?.value).toBe(9876543);
+describe("a two-word label (issue #2091)", () => {
+  // The Python half (`test_pseudonymize_cued_id_two_word.py`) pins the same cases and the
+  // measurement. Each was recorded as pay before #2091.
+  it.each([
+    "Voter ID No: XYZ9876543",
+    "Voter ID Card No. ABC1234567",
+    "IFSC code HDFC0004321",
+    "Enrollment ID No: 2019AB12345",
+  ])("an identifier after a two-word label is not pay: %s", (text) => {
+    expect(detectSalaries(text).current).toBeNull();
+  });
+
+  it("a wage after a label with words in between is kept", () => {
+    expect(detectSalaries("IFSC code ke saath 25000 salary aati hai").current?.value).toBe(25000);
+  });
+
+  it("KNOWN_RESIDUAL: the label words out of order are not read, so the digits are pay", () => {
+    expect(detectSalaries("Voter Card ID No. ABC1234567").current?.value).toBe(1234567);
   });
 });
