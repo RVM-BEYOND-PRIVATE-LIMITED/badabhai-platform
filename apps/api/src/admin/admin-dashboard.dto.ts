@@ -208,6 +208,9 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   // Release 2 — the rolling free-chat summary: continuity for the casual/career reply, `false`
   // for the same reason as the reply itself; it builds nothing in the profile.
   profiling_free_summary: false,
+  // ADR-0054 — live news in the free chat: an answer to a worker's news question, which builds
+  // nothing in the profile. `false`, same side as the reply it stands in for.
+  profiling_free_news: false,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

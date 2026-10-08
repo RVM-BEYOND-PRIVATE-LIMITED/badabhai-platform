@@ -46,6 +46,8 @@ import {
   FREE_CHAT_OUTCOMES,
   FREE_CHAT_MODE_TRIGGERS,
   FREE_CHAT_SUMMARY_OUTCOMES,
+  FREE_CHAT_NEWS_KINDS,
+  FREE_CHAT_NEWS_OUTCOMES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -1214,6 +1216,10 @@ const aiTaskType = z.enum([
   // and charged once per fold (turns aging out of the reply's window). Added in the SAME change
   // that routes it.
   "profiling_free_summary",
+  // ADR-0054 (#2127) — LIVE NEWS: one Claude call with the server-side web search tool, routed in
+  // `model_config._ROUTE_SHAPES` and charged per call (tokens plus each search). Added in the SAME
+  // change that names its contract.
+  "profiling_free_news",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -5337,3 +5343,40 @@ export const ChatFreeChatSummaryUpdatedPayload = z
     message: "summary_chars is set iff outcome is 'updated'",
   });
 export type ChatFreeChatSummaryUpdatedPayload = z.infer<typeof ChatFreeChatSummaryUpdatedPayload>;
+
+/**
+ * ADR-0054 (#2127) — ONE LIVE-NEWS REQUEST ENDED. A casual or career reply refused on `news`, and
+ * the free chat tried the searched answer instead. `outcome` is what the worker got: a summary
+ * with "read more" tiles (`answered`), or a fixed line because the search found nothing
+ * (`no_results`), the news model declined (`refused`), the API's validation threw the answer away
+ * (`rejected`), no real answer came back (`unavailable`) or the daily cap was spent (`capped`).
+ *
+ * `kind` is set exactly for `answered`; `source_count` is the number of tiles served (1-3 for
+ * `answered`, 0 otherwise); `search_count` is how many charged searches ran (null when no call was
+ * made: `capped`); `daily_count` is the worker's news answers today including this one (null when
+ * the cap store could not be read).
+ *
+ * NEVER THE QUESTION, THE ANSWER, A URL OR A TITLE. Counts and closed enums only; `.strict()`.
+ */
+export const ChatFreeChatNewsServedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    outcome: z.enum(FREE_CHAT_NEWS_OUTCOMES),
+    kind: z.enum(FREE_CHAT_NEWS_KINDS).nullable(),
+    search_count: z.number().int().min(0).max(3).nullable(),
+    source_count: z.number().int().min(0).max(3),
+    daily_count: z.number().int().nonnegative().nullable(),
+    submission_id: uuidSchema.nullable(),
+  })
+  .strict()
+  .refine((v) => (v.kind !== null) === (v.outcome === "answered"), {
+    message: "kind is set exactly when outcome is 'answered'",
+  })
+  .refine((v) => (v.source_count > 0) === (v.outcome === "answered"), {
+    message: "tiles are served exactly when outcome is 'answered'",
+  })
+  .refine((v) => v.outcome !== "capped" || v.search_count === null, {
+    message: "a capped request made no search",
+  });
+export type ChatFreeChatNewsServedPayload = z.infer<typeof ChatFreeChatNewsServedPayload>;
