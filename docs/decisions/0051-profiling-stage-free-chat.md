@@ -250,10 +250,22 @@ any line is the helpline.
 | DISTRESS | Aap akele nahi hain. Tele-MANAS 14416 par abhi baat kijiye, yeh muft hai. | आप अकेले नहीं हैं। टेली-मानस 14416 पर अभी बात कीजिए, यह मुफ़्त है। | — |
 | ASIDE_CAP | Bahut baatein ho gayin. Ab aapka resume bana lete hain? | बहुत बातें हो गईं। अब आपका रिज़्यूमे बना लेते हैं? | Resume banayein |
 
+**Reply-language lines (approved 2026-10-08, §11 R41).** `{Language}` is the requested language's display name:
+English, Hindi, Marathi, Gujarati, Kannada, Telugu or Tamil. The Devanagari twins use अंग्रेज़ी, हिंदी, मराठी,
+गुजराती, कन्नड़, तेलुगु, तमिल.
+
+| Key | Latin (served) | Devanagari (read aloud) | Chips |
+|---|---|---|---|
+| LANG_ASK | Kya aage ki saari baat {Language} mein karein? | क्या आगे की सारी बात {Language} में करें? | Haan, {Language} mein · Nahi |
+| LANG_YES | Theek hai, ab se {Language} mein baat karenge. | ठीक है, अब से {Language} में बात करेंगे। | — |
+| LANG_NO | Theek hai. Aap jis bhasha mein likhenge, usi mein jawab dunga. | ठीक है। आप जिस भाषा में लिखेंगे, उसी में जवाब दूँगा। | — |
+
 **Chips and their keys:**
 - "Haan, shuru karein" → `free_chat_start`
 - "Baad mein" → `free_chat_later`
 - "Resume banayein" → `free_chat_resume`
+- "Haan, {Language} mein" → `free_chat_lang_yes`, and "Nahi" → `free_chat_lang_no`. These are read only while an
+  ask is pending (§11).
 
 The app posts the label, so readers match the key or the label. Typed variants are also read: haan / ha / yes /
 shuru / ok, and baad mein / baad me / later / abhi nahi.
@@ -365,7 +377,7 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 | # | Ruling |
 |---|---|
 | **R25** | **Input.** The worker may write in **Marathi, Gujarati, Kannada, Telugu or Tamil** as well as Hindi, Hinglish and English, in the language's own script or in Latin letters. Every category, mode and guardrail behaves the same whatever the language. |
-| **R26** | **Reply language.** A casual or career reply comes back in the worker's language **mixed with English, in Latin letters**: the way Hinglish mixes Hindi and English (Tamil + English, Telugu + English, and so on). Hindi, Hinglish, English and anything unsure keep today's Hinglish. |
+| **R26** | **Reply language.** A casual or career reply comes back in the worker's language **mixed with English, in Latin letters**: the way Hinglish mixes Hindi and English (Tamil + English, Telugu + English, and so on). Hindi, Hinglish, English and anything unsure keep today's Hinglish. **Superseded for English by R40 (§11): English in, English out.** |
 | **R27** | **Everything else is unchanged:** the fixed lines (§5.1, still Hinglish), the résumé lock and interview, the English résumé, the English conversation notes (§8) and every guardrail. |
 | **R28** | **Distress list.** §5.2 is widened with phrases in the five languages, in both scripts, reviewed and approved by the owner like the copy. |
 
@@ -476,10 +488,56 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 - **No privacy notice yet** tells workers their chats help improve the bot (owner action, alongside the §8 note;
   risks register R67).
 
+## 11. Reply language (owner rulings 2026-10-08, #2181)
+
+§9 asked the reply model to choose its own language, and on the production model it would not. Before this change,
+on `claude-haiku-4-5`, which serves every box call (#2170):
+- Marathi (Latin and Devanagari), Tamil and Gujarati questions got Hinglish replies in 9 of 10 runs.
+- "marathi mai jawab do" got the previous Hinglish answer repeated word for word.
+- Replies slipped into "tum" verb forms ("karo", "jaao", "sakte ho") against R17.
+
+Understanding was never the problem: the Marathi question was classified and answered correctly.
+
+| # | Ruling |
+|---|---|
+| **R39** | **Code detects the language, the model follows.** The API decides each reply's language with word lists, in Latin letters and in each language's script. It passes the result to the reply and news calls as `reply_language`, and the prompt follows it. The model no longer chooses. |
+| **R40** | **Every reply mirrors the worker's message.** English in, English out: plain, simple English (this supersedes R26 for English). Hindi or Hinglish, in either script, gets Hinglish. Marathi, Gujarati, Kannada, Telugu or Tamil gets that language mixed with English. Anything unsure gets Hinglish. Always Latin letters (R26). The fixed lines stay Hinglish (R27). The worker should feel they are chatting with someone who speaks every language they do. |
+| **R41** | **An explicit language request.** For example "marathi mai jawab do" or "reply in Tamil". That one reply comes in the requested language. Then the fixed ask "Kya aage ki saari baat {Language} mein karein?" follows, with the chips "Haan, {Language} mein" and "Nahi". **Haan:** "Theek hai, ab se {Language} mein baat karenge." Every reply then uses that language for the whole chat, across returns, until another request. **Nahi:** "Theek hai. Aap jis bhasha mein likhenge, usi mein jawab dunga." Each reply follows the message again. Copy approved as drafted. |
+
+**How it works:**
+- **Free mode only.** The résumé lock and interview are unchanged (R27). So are the classifier, which still reads the
+  meaning in any language, and the conversation notes, which stay in English (§8).
+- **Detection (API, pure, literal regexes):**
+  - A Gujarati, Tamil, Telugu or Kannada script decides the language.
+  - Devanagari is Marathi when Marathi markers outweigh Hindi ones, otherwise Hinglish.
+  - Latin text is scored against per-language marker words. Examples: Marathi "aahe", "mala", "kay"; Gujarati "chhe",
+    "mare", "kem"; Tamil "enakku", "eppadi"; Telugu "naaku", "ela"; Kannada "nanage", "hege". English is told apart
+    from Hinglish by Hindi markers.
+  - A tie, or too little evidence, is Hinglish.
+- **Precedence for one reply:** an explicit request in the message, then the kept language, then the message's own
+  language.
+- **The kept language** is stored as a `free_chat_language {v:1, language, set_at, session_id}` sibling key in
+  `chat_sessions.conversation_state`. It is written by jsonb merge, with no migration, and read at session open
+  (the latest set value), like the §8 summary. Account erasure removes it with the session rows.
+- **The ask** is served after the requested-language reply, with its two chips. Only the next message can answer
+  it. A tapped chip, or its typed label, is read deterministically. Anything else lets the offer lapse with no
+  change.
+- **Prompts:**
+  - The reply and news prompts carry one hard line, "Reply language: …". English answers are in plain, simple
+    English.
+  - Every language uses its respectful forms: in Hinglish "kariye / seekhiye / sakte hain", never
+    "karo / jaao / sakte ho".
+  - An earlier reply is never repeated word for word. A bare language request re-answers the worker's previous
+    question in that language.
+- **Event:** `chat.free_chat_language_changed` v1 (`from`, `to`, `trigger` accepted | declined; ids and enums
+  only). It fires when the kept language changes.
+- **No app release.** Chips are drawn by the server.
+
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.
 Signed (Divyanshu): Divyanshu          Date: 2026-10-06
 Release 2 rulings R21–R24 taken 2026-10-07 (§8).
 Regional-language rulings R25–R28 taken 2026-10-07 (§9).
 Improvement-loop rulings R29–R38 taken 2026-10-08 (§10).
+Reply-language rulings R39–R41 taken 2026-10-08 (§11).
 ```

@@ -1423,6 +1423,17 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerApplicantStageChangedPayload,
   },
+
+  // ADR-0051 §11 (#2181, R41) — the free chat's held reply language changed: after an explicit
+  // language request, a worker chose to keep that language for the whole chat ("accepted"), or
+  // declined and went back to following each message's own language ("declined"). `from` / `to`
+  // are closed languages or null (follow the message). Ids + closed enums only; never the
+  // worker's words. Appended at the tail per protocol. v1.
+  "chat.free_chat_language_changed": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatLanguageChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
