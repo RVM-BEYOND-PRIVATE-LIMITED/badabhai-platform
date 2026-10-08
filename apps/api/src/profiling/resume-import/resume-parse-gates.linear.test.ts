@@ -24,19 +24,25 @@ import { CREDENTIAL_ID_RE, RESUME_CUED_ID_RE, containsHardIdentifier } from "./r
  * word, the "regn" cue) sit outside the connector, so the swap keeps them. What #1950 itself
  * changed is pinned below in "a dot after the cue and a ':-' separator", and measured in the
  * Python half (`test_pseudonymize_cued_id_dot.py`).
+ *
+ * SINCE #2091 (R56) THE ORACLE CARRIES THE LABEL WORDS. #2091 put up to two label words in
+ * front of the "no" word ("id", then "card" or "code"), each folded with its own `\s*`, and
+ * took "id" out of the "no"-word group. They never existed unfolded, so the oracle carries them
+ * exactly as shipped and still isolates #1933's folding. What #2091 changed is pinned below in
+ * "a two-word label", and measured in the Python half (`test_pseudonymize_cued_id_two_word.py`).
  */
 
 const RULES = {
   credential: {
     shipped: CREDENTIAL_ID_RE,
-    unfolded: String.raw`\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*`,
-    linear: String.raw`\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?`,
+    unfolded: String.raw`\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*`,
+    linear: String.raw`\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?`,
     value: String.raw`(?=[A-Za-z0-9/-]{0,64}\d)`,
   },
   resume: {
     shipped: RESUME_CUED_ID_RE,
-    unfolded: String.raw`\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*`,
-    linear: String.raw`\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?`,
+    unfolded: String.raw`\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*`,
+    linear: String.raw`\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?`,
     value: String.raw`(?=[A-Za-z0-9/-]{0,24}\d)`,
   },
 } as const;
@@ -56,19 +62,19 @@ const looseConnector = (name: RuleName): string =>
 const LITERALS: Record<RuleName, { shipped: RegExp; unfolded: RegExp; loose: RegExp }> = {
   credential: {
     shipped:
-      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
     unfolded:
-      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
     loose:
-      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#))?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+      /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#))?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
   },
   resume: {
     shipped:
-      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
     unfolded:
-      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
     loose:
-      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:(?:no\.?|number|num|id|#))?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#))?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
   },
 };
 
@@ -129,6 +135,15 @@ const NUMBER_WORDS = [
   "ID",
   "n",
   "numb",
+  // #2091's label words, so the differential reads a whitespace run after each of them too.
+  "id no",
+  "ID  No.",
+  "id number",
+  "code",
+  "Code:",
+  "card no",
+  "ID Card No.",
+  "id\tcard",
 ];
 const SEPARATORS = ["", "", "", ":", "-", "::", "--", ":-", ".", ";"];
 const SPACES = [" ", " ", " ", "\t", "\n", "\u00a0", "\u3000", "\r"];
@@ -283,4 +298,43 @@ describe("a dot after the cue and a ':-' separator (issue #1950, R56)", () => {
     // Recorded in R56's resolution; the Python half pins the same shape through the gateway.
     expect(containsHardIdentifier("Reg . No . 123456")).toBeNull();
   });
+});
+
+describe("a two-word label (issue #2091, R56)", () => {
+  // The connector read one number word, so these were admitted, and the credential rule had no
+  // "id" word at all. It now reads "id", then "card" or "code", then the number word. The
+  // ai-service's copies read the same shapes (`test_pseudonymize_cued_id_two_word.py`).
+  it.each([
+    "Voter ID No: XYZ9876543",
+    "voter id no XYZ9876543",
+    "Voter ID Number ABC1234567",
+    "Voter Card No. ABC1234567",
+    "Voter ID Card No. ABC1234567",
+    "IFSC code HDFC0004321",
+    "IFSC Code: SBIN0001234",
+    "Passport ID No. M1234567",
+    "Registration ID 123456",
+    "Licence ID DL04201100",
+    "Enrollment ID No: 2019AB12345",
+    "Reg. Code: MH2019CN4471",
+  ])("%s is a credential identifier", (text) => {
+    expect(containsHardIdentifier(text)).toBe("credential_id");
+  });
+
+  it.each([
+    "Voter ID card banwana hai",
+    "IFSC code ke saath 25000 salary aati hai",
+    "Account Code Manager",
+    "registration id 2019",
+  ])("a label with no identifier after it is still permitted: %s", (text) => {
+    expect(containsHardIdentifier(text)).toBeNull();
+  });
+
+  it.each(["Voter Card ID No. ABC1234567", "EPIC No: XYZ9876543"])(
+    "KNOWN_RESIDUAL: the words out of order, or a label with no cue, is not read: %s",
+    (text) => {
+      // Recorded in R56's resolution; the Python half pins the same shapes.
+      expect(containsHardIdentifier(text)).toBeNull();
+    },
+  );
 });
