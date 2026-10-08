@@ -13,6 +13,8 @@ import { agencyJobInputSchema } from "../../../../lib/contracts";
  *     and over-bound pay/experience are rejected; a complete valid input is accepted.
  *  2. FORM RENDER (UX parity, DS3.1): with hooks mocked to inject field state, assert that
  *     - a BLANK form (empty title/city) renders the submit button DISABLED (disable-until-valid),
+ *       as does a form with no MATCH PICK (#2104 / ADR-0050 Q9 — the pick is required by the
+ *       form, so every "valid form" case below seeds one),
  *     - an injected field error sets `aria-invalid` on the DS Input host AND surfaces the error
  *       TEXT in the DS Input's `.bb-field__error` slot (no id'd error element — the DS Input
  *       owns its error slot, mirroring the employer posting-form re-skin),
@@ -95,16 +97,63 @@ describe("agencyJobInputSchema — the C9 validation authority", () => {
       false,
     );
   });
+
+  /**
+   * #2104 / ADR-0050 §6.1 step 2 — `matchSkillIds` mirrors the backend field exactly: optional
+   * (omitted == `[]` on create, unchanged on edit), `.min(1)` (an empty pick is NEVER sent as
+   * `[]`, or it would erase a stored one), closed-form ids, and a request bound that is NOT the
+   * business cap. The FORM's own "required" rule is tested in §4, not here.
+   */
+  describe("matchSkillIds (#2104)", () => {
+    it("accepts an omitted pick, and one or more closed-form ids", () => {
+      expect(agencyJobInputSchema.safeParse(VALID).success).toBe(true);
+      expect(
+        agencyJobInputSchema.safeParse({ ...VALID, matchSkillIds: ["mskill_cnc_turning"] }).success,
+      ).toBe(true);
+      expect(
+        agencyJobInputSchema.safeParse({
+          ...VALID,
+          matchSkillIds: ["mskill_cnc_turning", "mskill_vmc_operation"],
+        }).success,
+      ).toBe(true);
+    });
+
+    it("rejects an EMPTY pick — omitting the key is how 'none' is said", () => {
+      expect(agencyJobInputSchema.safeParse({ ...VALID, matchSkillIds: [] }).success).toBe(false);
+    });
+
+    it("rejects an id outside the closed `mskill_` form (no free text reaches the match input)", () => {
+      for (const bad of ["cnc_turning", "skill_cnc_turning", "mskill_CNC", ""]) {
+        expect(
+          agencyJobInputSchema.safeParse({ ...VALID, matchSkillIds: [bad] }).success,
+          bad,
+        ).toBe(false);
+      }
+    });
+
+    it("rejects an over-bound request (anti-abuse size, NOT the business cap)", () => {
+      // The business cap is `match_config.max_skills_per_posting` — enforced by the server and
+      // surfaced by the picker's live preview, never restated as a number here.
+      const many = Array.from({ length: 51 }, (_, i) => `mskill_s${i}`);
+      expect(agencyJobInputSchema.safeParse({ ...VALID, matchSkillIds: many }).success).toBe(false);
+      expect(
+        agencyJobInputSchema.safeParse({ ...VALID, matchSkillIds: many.slice(0, 50) }).success,
+      ).toBe(true);
+    });
+  });
 });
 
 /* ── 2. FORM RENDER — disable-until-valid + aria wiring (C9 UX parity) ──────────── */
 
-// Injected per-render state queue; each useState() call pops the next seed in order.
+// Injected per-render state queue; each useState() call pops the next seed in order. A HOLE
+// (`undefined`, from a sparse index) falls back to the state's own initial value, so a late slot
+// — `selection`, index 10 — can be seeded without restating the eight before it. `null` is a
+// real seed (error, gap) and is never a hole.
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
-  const seeded = i < stateQueue.length ? stateQueue[i] : initial;
+  const seeded = stateQueue[i] === undefined ? initial : stateQueue[i];
   return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
@@ -125,15 +174,56 @@ vi.mock("react", async () => {
   };
 });
 
+/**
+ * #2104 — the match-skill picker is STUBBED. It is the company form's component, with its own
+ * tests there, and it is a hooked client component (useEffect/useRef, which the walkers below
+ * would call outside React). What this file owns is the AGENCY form's wiring to it: the props it
+ * hands over, the required rule, and what the submit sends.
+ */
+const MatchSkillPickerStub = vi.fn(() => null);
+vi.mock("../../postings/new/match-skill-picker", () => ({
+  MatchSkillPicker: MatchSkillPickerStub,
+}));
+
 const { AgencyJobForm } = await import("./agency-job-form");
 
+/** The closed vocabulary the host page reads server-side and hands down. */
+const VOCAB = [
+  {
+    skill_id: "mskill_cnc_turning",
+    label: "CNC turning",
+    industry_id: "ind_manufacturing",
+    related_skill_ids: ["mskill_vmc_operation"],
+  },
+  {
+    skill_id: "mskill_vmc_operation",
+    label: "VMC operation",
+    industry_id: "ind_manufacturing",
+    related_skill_ids: [],
+  },
+];
+/** The `selection` state slot (useState index 10), and a seeded pick for a VALID form. */
+const SELECTION = 10;
+const PICKED = ["mskill_cnc_turning"];
+const selected = (matchSkillIds: string[] = PICKED) => ({
+  matchSkillIds,
+  untickedRelatedIds: [],
+});
+
 // The form calls useState in source order: fields, fieldErrors, error, requirements, benefits,
-// reqDraft, benDraft, gap, revealed (then useTransition; the preview rail's sheet state after).
-function render(seed: { fields: Record<string, string>; fieldErrors: Record<string, unknown> }) {
+// reqDraft, benDraft, gap, revealed, navigating, selection (then useTransition; the preview rail's
+// sheet state after). A pick is seeded by default: since #2104 the form refuses a save without one.
+function render(seed: {
+  fields: Record<string, string>;
+  fieldErrors: Record<string, unknown>;
+  matchSkillIds?: string[];
+}) {
   stateQueue = [seed.fields, seed.fieldErrors, null];
+  stateQueue[SELECTION] = selected(seed.matchSkillIds);
   stateCursor = 0;
   return AgencyJobForm({
     mode: "create",
+    matchSkills: VOCAB,
     submitLabel: "Post vacancy",
     onSubmit: async () => ({ ok: true }),
   }) as ReactElement;
@@ -301,6 +391,9 @@ const JOB = {
   description: null,
   requirements: [],
   benefits: [],
+  // #2104 — the STORED pick an edit prefills from (and compares against to decide whether to
+  // send it at all). The same ids `PICKED`/`selected()` seed, so an untouched edit is unchanged.
+  matchSkillIds: ["mskill_cnc_turning"],
   applicantsReceived: 3,
   createdAt: "2026-06-22T00:00:00.000Z",
   updatedAt: "2026-06-22T00:00:00.000Z",
@@ -331,18 +424,49 @@ function renderWith(
     gap?: { title: string; message: string; field: string } | null;
     lead?: ReactNode;
     error?: string | null;
+    /** #2104 — the pick, seeded; `[]` is the no-pick case the form refuses. */
+    matchSkillIds?: string[];
+    /** `[]` stands for a FAILED vocabulary read (the page's signal). */
+    matchSkills?: typeof VOCAB;
+    job?: typeof JOB;
+    fieldErrors?: Record<string, unknown>;
   } = {},
 ) {
-  // fields, fieldErrors, error, requirements, benefits, reqDraft, benDraft, gap
-  stateQueue = [fields, {}, opts.error ?? null, ...(opts.chips ?? [[], [], "", ""]), opts.gap ?? null];
+  // fields, fieldErrors, error, requirements, benefits, reqDraft, benDraft, gap, …, selection
+  stateQueue = [
+    fields,
+    opts.fieldErrors ?? {},
+    opts.error ?? null,
+    ...(opts.chips ?? [[], [], "", ""]),
+    opts.gap ?? null,
+  ];
+  stateQueue[SELECTION] = selected(opts.matchSkillIds);
   stateCursor = 0;
   return AgencyJobForm({
     mode: opts.mode ?? "create",
-    job: opts.mode === "edit" ? (JOB as never) : undefined,
+    job: opts.mode === "edit" ? ((opts.job ?? JOB) as never) : undefined,
+    matchSkills: opts.matchSkills ?? VOCAB,
     submitLabel: opts.mode === "edit" ? "Save changes" : "Post vacancy",
     onSubmit: (opts.onSubmit ?? (async () => ({ ok: true }))) as never,
     lead: opts.lead,
   }) as ReactElement;
+}
+
+/** The picker element as the form drew it — NOT rendered; its props are what we assert. */
+function pickerOf(node: ReactNode): ReactElement<Record<string, unknown>> | null {
+  if (node === null || node === undefined || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const c of node) {
+      const hit = pickerOf(c);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (el.type === MatchSkillPickerStub) return el;
+  // Plain hosts only: the picker sits in the form's own divs, never inside a DS primitive.
+  if (typeof el.type === "function") return null;
+  return el.props && "children" in el.props ? pickerOf(el.props.children) : null;
 }
 
 function formOf(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => void }> | null {
@@ -547,10 +671,13 @@ describe("AgencyJobForm — a saved form stays busy while its page navigates awa
 
   it("while navigating, every submit button is disabled and reads 'Saving…'", () => {
     stateQueue = [FULL_AGENCY, {}, null, ["Fanuc control"], ["Canteen"], "", "", null, {}, true];
+    // A pick is seeded so `navigating` is the ONLY reason the button is refused (#2104).
+    stateQueue[SELECTION] = selected();
     stateCursor = 0;
     const tree = AgencyJobForm({
       mode: "edit",
       job: JOB as never,
+      matchSkills: VOCAB,
       submitLabel: "Save changes",
       onSubmit: async () => ({ ok: true }),
       onCancel: () => undefined,
@@ -564,5 +691,126 @@ describe("AgencyJobForm — a saved form stays busy while its page navigates awa
     const cancels = collect(tree).buttons.filter((b) => b.text === "Cancel");
     expect(cancels.length).toBeGreaterThan(0);
     for (const b of cancels) expect(b.disabled).toBe(true);
+  });
+});
+
+/* ── 4. MATCH SKILLS (#2104 / ADR-0050 §6.1 step 2) ──────────────────────────────
+ *
+ * The skill half of the agency form: the company form's own picker, the one rule the API does not
+ * enforce (a pick is REQUIRED here, Q9), and what the save sends — a create always carries the
+ * pick; an edit carries it only when it CHANGED, because an omitted `match_skill_ids` means
+ * unchanged. Also the two ADR-0050 Q2 consequences: no untick is offered, and none is ever sent.
+ */
+describe("AgencyJobForm — the match-skill picker is the company form's (#2104)", () => {
+  it("hands the picker the page's vocabulary, the current pick, and NO untick affordance", () => {
+    const picker = pickerOf(renderWith(FULL_AGENCY));
+    expect(picker).not.toBeNull();
+    expect(picker!.props.vocabulary).toBe(VOCAB);
+    expect(picker!.props.selection).toEqual(selected());
+    // ADR-0050 Q2 — the twin's reach is `match ∪ related(match)` with no unticks, and `jobs` has
+    // nowhere to store one, so the affordance is OFF (the related chips are shown locked instead).
+    expect(picker!.props.relatedUnticks).toBe(false);
+  });
+
+  it("sits inside the group the refusal and the focus move address (#matchSkillIds)", () => {
+    expect(collect(renderWith(FULL_AGENCY)).ids).toContain("matchSkillIds");
+  });
+
+  it("the CAP stays the picker's own (from its live preview) — the form restates none", () => {
+    // The business cap is `match_config.max_skills_per_posting`, which only the server knows, so
+    // the form passes no max and an ops change to it needs no release here.
+    const picker = pickerOf(renderWith(FULL_AGENCY))!;
+    expect(Object.keys(picker.props).sort()).toEqual([
+      "onChange",
+      "relatedUnticks",
+      "selection",
+      "vocabulary",
+    ]);
+  });
+
+  it("a FAILED vocabulary read says so and keeps the save refused (never a silent publish)", () => {
+    const tree = renderWith(FULL_AGENCY, { matchSkills: [], matchSkillIds: [] });
+    expect(pickerOf(tree)).toBeNull();
+    expect(collect(tree).texts.join(" ").replace(/\s+/g, " ")).toContain(
+      "Could not load the skill list",
+    );
+    expect(collect(tree).buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+  });
+});
+
+describe("AgencyJobForm — a pick is REQUIRED by the form (ADR-0050 Q9)", () => {
+  it("no pick keeps the submit DISABLED, on CREATE and on EDIT alike", () => {
+    // Not a worker-card gap (those are highlighted, never blocking, on edit): with no pick the
+    // V1 twin is `paused` and the vacancy reaches nobody, so the form refuses in both modes.
+    for (const mode of ["create", "edit"] as const) {
+      const tree = renderWith(FULL_AGENCY, { mode, matchSkillIds: [] });
+      expect(collect(tree).buttons.find((b) => b.type === "submit")!.disabled, mode).toBe(true);
+    }
+  });
+
+  it("a refused submit says WHY at the group and takes focus there — never a bare 'required'", async () => {
+    focusControl.mockClear();
+    const message = "Pick at least one skill — without one, no worker can see this posting.";
+    const tree = renderWith(FULL_AGENCY, {
+      matchSkillIds: [],
+      chips: [["Fanuc control"], ["Canteen"], "", ""],
+      // The refusal as the form re-renders with it (handleSubmit's own setFieldErrors).
+      fieldErrors: { matchSkillIds: message },
+    });
+    expect(collect(tree).texts).toContain(message);
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(focusControl).toHaveBeenCalledWith("matchSkillIds");
+  });
+
+  it("a submit with no pick never reaches the action", async () => {
+    const onSubmit = vi.fn(async (_i: unknown) => ({ ok: true as const }));
+    const tree = renderWith(FULL_AGENCY, {
+      matchSkillIds: [],
+      chips: [["Fanuc control"], ["Canteen"], "", ""],
+      onSubmit,
+    });
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("AgencyJobForm — what the save sends (#2104)", () => {
+  async function submitted(opts: Parameters<typeof renderWith>[1]) {
+    const onSubmit = vi.fn(async (_i: unknown) => ({ ok: true as const }));
+    const tree = renderWith(FULL_AGENCY, {
+      chips: [["Fanuc control"], ["Canteen"], "", ""],
+      ...opts,
+      onSubmit,
+    });
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    return onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+  }
+
+  it("CREATE always carries the pick — and there is no untick field to carry", async () => {
+    const input = await submitted({
+      matchSkillIds: ["mskill_cnc_turning", "mskill_vmc_operation"],
+    });
+    expect(input.matchSkillIds).toEqual(["mskill_cnc_turning", "mskill_vmc_operation"]);
+    expect(Object.keys(input)).not.toContain("untickedRelatedIds");
+  });
+
+  it("EDIT omits an UNCHANGED pick (omitted == unchanged), in any order", async () => {
+    // Same SET as the stored pick ⇒ absent, so the patch neither re-writes the column nor
+    // re-syncs the twin nor reports a `match_skills` edit that did not happen.
+    for (const pick of [["mskill_cnc_turning"], [...JOB.matchSkillIds].reverse()]) {
+      const input = await submitted({ mode: "edit", matchSkillIds: pick });
+      expect(Object.keys(input), pick.join(",")).not.toContain("matchSkillIds");
+    }
+  });
+
+  it("EDIT carries a CHANGED pick — widened or swapped", async () => {
+    for (const pick of [
+      ["mskill_cnc_turning", "mskill_vmc_operation"],
+      ["mskill_vmc_operation"],
+    ]) {
+      const input = await submitted({ mode: "edit", matchSkillIds: pick });
+      expect(input.matchSkillIds, pick.join(",")).toEqual(pick);
+    }
   });
 });

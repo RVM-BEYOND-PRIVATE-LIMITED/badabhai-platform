@@ -43,7 +43,12 @@ type FormProps = {
   onCancel: () => void;
 };
 function form(): FormProps {
-  const el = NewAgencyPosting({ lead: <h1>New posting</h1> }) as ReactElement<FormProps>;
+  // #2104 — the match vocabulary is handed down by the page's server read; this
+  // suite is about navigation, so an empty list is enough to satisfy the prop.
+  const el = NewAgencyPosting({
+    matchSkills: [],
+    lead: <h1>New posting</h1>,
+  }) as ReactElement<FormProps>;
   expect(el.type).toBe(AgencyJobFormStub);
   return el.props;
 }

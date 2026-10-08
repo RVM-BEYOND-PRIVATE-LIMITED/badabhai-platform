@@ -46,12 +46,25 @@ export function MatchSkillPicker({
   selection,
   onChange,
   onPreviewChange,
+  relatedUnticks = true,
 }: {
   vocabulary: MatchSkillWire[];
   selection: MatchSelection;
   onChange: (next: MatchSelection) => void;
   /** Lifted so the submit button can refuse a zero-reach publish (E13). */
   onPreviewChange?: (preview: ReachPreview | null) => void;
+  /**
+   * Whether point 2 above — unticking a related skill to narrow — is OFFERED. Default true (the
+   * company posting form, unchanged).
+   *
+   * FALSE for the AGENCY job form (#2104): an agency job's reach is its system-owned V1 twin's,
+   * and the twin's `reach_skill_ids` is `match ∪ related(match)` with NO unticks (ADR-0050 Q2 —
+   * `jobs` has no column to store one in). A toggle here could not take effect, so the related
+   * chips are shown ON and LOCKED (`aria-pressed` + `disabled`) rather than offered: the breadth
+   * stays visible and honest, and nothing promises a narrowing the sync would drop. The reach
+   * number is then exactly the twin's, since the preview is read with no unticks either.
+   */
+  relatedUnticks?: boolean;
 }) {
   const [preview, setPreview] = useState<ReachPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -138,7 +151,7 @@ export function MatchSkillPicker({
           <h2 className="panel__title">Which skill are you hiring for?</h2>
           <p className="panel__sub">
             Pick up to {maxSkills}. Only workers who have one of these — or a closely related skill
-            you keep ticked — will see this posting.
+            {relatedUnticks ? " you keep ticked" : ""} — will see this posting.
           </p>
         </div>
       </div>
@@ -179,18 +192,29 @@ export function MatchSkillPicker({
             s.related.length === 0 ? null : (
               <div key={s.skill_id} className="match-picker__related">
                 <p className="match-picker__related-label">
-                  Also show to workers with these, near <strong>{s.label}</strong>:
+                  {relatedUnticks ? "Also show to" : "Also shown to"} workers with these, near{" "}
+                  <strong>{s.label}</strong>
+                  {relatedUnticks ? ":" : " — always included:"}
                 </p>
                 <div role="group" aria-label={`Related to ${s.label}`}>
-                  {s.related.map((r) => (
-                    <Chip
-                      key={r.skill_id}
-                      selected={r.ticked}
-                      onClick={() => toggleRelated(r.skill_id)}
-                    >
-                      {r.label} · +{r.reach_count}
-                    </Chip>
-                  ))}
+                  {s.related.map((r) =>
+                    // LOCKED when unticks are not offered (ADR-0050 Q2): on, and not changeable —
+                    // which is the truth for an agency job, instead of a control that would be
+                    // ignored. `selected` + `disabled` says exactly that to a screen reader.
+                    relatedUnticks ? (
+                      <Chip
+                        key={r.skill_id}
+                        selected={r.ticked}
+                        onClick={() => toggleRelated(r.skill_id)}
+                      >
+                        {r.label} · +{r.reach_count}
+                      </Chip>
+                    ) : (
+                      <Chip key={r.skill_id} selected disabled>
+                        {r.label} · +{r.reach_count}
+                      </Chip>
+                    ),
+                  )}
                 </div>
               </div>
             ),
@@ -228,9 +252,11 @@ export function MatchSkillPicker({
                 <p className="alert__title">No worker matches this yet</p>
                 <p className="alert__body">
                   Nobody on BadaBhai currently has these skills, so this posting will not
-                  appear in anyone&apos;s feed. Try ticking more related skills above, or pick
-                  a broader skill. You can still post — we will show it as soon as a matching
-                  worker joins.
+                  appear in anyone&apos;s feed.{" "}
+                  {relatedUnticks
+                    ? "Try ticking more related skills above, or pick a broader skill."
+                    : "Try a broader skill."}{" "}
+                  You can still post — we will show it as soon as a matching worker joins.
                 </p>
               </div>
             </div>

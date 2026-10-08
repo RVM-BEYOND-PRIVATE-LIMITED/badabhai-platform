@@ -9,6 +9,10 @@
  * Consumers: `seed-demo-matching.ts` (`--reset-live-worker`), and any view that must show demo
  * workers only (e.g. the W4 engine view). Import from `@badabhai/db` — never re-declare the range.
  *
+ * `WORKFORCE_SEED_PHONE_PATTERN` below is a SEPARATE carve-out of the same reserved range, owned
+ * by `seed-synthetic-workforce.ts` — not a "demo worker" per this file's ruling, and not consumed
+ * by anything here.
+ *
  * ALLOW-LIST FILE FORMAT: UTF-8 text, one E.164 number per line (`+` then 8–15 digits, no spaces);
  * blank lines ignored; `#` starts a comment (whole line or trailing). Any other content is an
  * error — a malformed allow-list fails closed rather than silently allowing less or more.
@@ -27,6 +31,20 @@ export const DEMO_PHONE_PATTERN = /^\+910000026\d{3}$/;
 
 /** The demo block's fixed prefix (`DEMO_PHONE_PATTERN` = this + exactly 3 digits). */
 export const DEMO_PHONE_PREFIX = "+910000026";
+
+/**
+ * THE SYNTHETIC-WORKFORCE SEED block of the reserved range: `+910000050` + three digits
+ * (1000 slots). Reserved for `seed-synthetic-workforce.ts` — the 250-worker / ~140-posting
+ * synthetic cohort minted 2026-10-07 to repopulate production's Matching V1 engine after
+ * `workers`/`worker_profiles`/`worker_skill`/`applications` were found wiped (unrelated
+ * incident). Disjoint from every other carve-out of the reserved range: `DEMO_PHONE_PATTERN`
+ * (`026xxx`, owned by `seed-demo-matching.ts`), the E4 fixture (`19844`), and the smoke
+ * worker (`00000`).
+ */
+export const WORKFORCE_SEED_PHONE_PATTERN = /^\+910000050\d{3}$/;
+
+/** The workforce-seed block's fixed prefix (`WORKFORCE_SEED_PHONE_PATTERN` = this + exactly 3 digits). */
+export const WORKFORCE_SEED_PHONE_PREFIX = "+910000050";
 
 /** E.164: `+`, a non-zero country digit, 8–15 digits in all. */
 export const E164_PATTERN = /^\+[1-9]\d{7,14}$/;

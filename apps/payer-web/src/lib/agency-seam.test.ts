@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgencyJob } from "./contracts";
 import type * as AssertModule from "./assert-no-agency-pii";
 
 /**
@@ -43,7 +44,8 @@ vi.mock("./assert-no-agency-pii", async (importOriginal) => {
 
 const fetchMock = vi.fn();
 
-const JOB = {
+// Typed, because the `clear`-diff tests below pass it as `updateAgencyJob`'s `initial`.
+const JOB: AgencyJob = {
   id: "00000001-0000-4000-8000-000000000001",
   status: "open",
   tradeKey: "cnc_operator",
@@ -197,6 +199,72 @@ describe("agency jobs seam — create body is snake_case + Bearer-only (XB-A)", 
     // XB-A: there is nowhere for a client payer_id to ride.
     expect(body).not.toHaveProperty("payer_id");
     expect(body).not.toHaveProperty("payerId");
+  });
+});
+
+/**
+ * ADR-0050 §6.1 step 2 (#2104) — `match_skill_ids` on the agency job bodies. The property that
+ * would fail SILENTLY: the backend reads an OMITTED key as `[]` on create and UNCHANGED on edit,
+ * so a body that sends it when it should not (or names it in `clear`) erases or re-syncs a pick
+ * nobody edited, and still answers 200.
+ */
+describe("agency jobs seam — match_skill_ids (#2104): sent when given, absent when not", () => {
+  const INPUT = {
+    tradeKey: "cnc_operator",
+    roleKind: "cnc_turner",
+    title: "CNC Operator",
+    city: "Pune",
+  } as const;
+  const bodyOf = (): Record<string, unknown> =>
+    JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+
+  it("CREATE carries the pick as snake_case `match_skill_ids`", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(JOB, 201));
+    const { createAgencyJob } = await import("./payer-api");
+    await createAgencyJob({ ...INPUT, matchSkillIds: ["mskill_cnc_turning"] });
+    expect(bodyOf().match_skill_ids).toEqual(["mskill_cnc_turning"]);
+  });
+
+  it("CREATE without a pick omits the key — never `[]` (which the DTO's .min(1) refuses)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(JOB, 201));
+    const { createAgencyJob } = await import("./payer-api");
+    await createAgencyJob(INPUT);
+    expect(bodyOf()).not.toHaveProperty("match_skill_ids");
+  });
+
+  it("EDIT carries a changed pick", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(JOB));
+    const { updateAgencyJob } = await import("./payer-api");
+    await updateAgencyJob(JOB.id, { ...INPUT, matchSkillIds: ["mskill_vmc_operation"] }, JOB);
+    expect(bodyOf().match_skill_ids).toEqual(["mskill_vmc_operation"]);
+  });
+
+  it("EDIT without the pick omits it AND never names it in `clear` (omitted == unchanged)", async () => {
+    // The clear diff is built from a MIRRORED allowlist that deliberately leaves
+    // `match_skill_ids` out: a stored pick the form did not touch must survive the patch.
+    fetchMock.mockResolvedValue(jsonResponse(JOB));
+    const { updateAgencyJob } = await import("./payer-api");
+    await updateAgencyJob(JOB.id, INPUT, { ...JOB, matchSkillIds: ["mskill_cnc_turning"] });
+    const body = bodyOf();
+    expect(body).not.toHaveProperty("match_skill_ids");
+    expect((body.clear as string[] | undefined) ?? []).not.toContain("match_skill_ids");
+  });
+
+  it("the pick comes BACK on the row, so an edit form can prefill it", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...JOB, matchSkillIds: ["mskill_cnc_turning"] }));
+    const { getAgencyJob } = await import("./payer-api");
+    await expect(getAgencyJob(JOB.id)).resolves.toMatchObject({
+      matchSkillIds: ["mskill_cnc_turning"],
+    });
+  });
+
+  it("a row from an API older than #2069 (no key at all) still parses — the pick reads absent", async () => {
+    // Migration 0132 is apply-before-deploy, so the column exists before the projection does.
+    fetchMock.mockResolvedValue(jsonResponse(JOB));
+    const { getAgencyJob } = await import("./payer-api");
+    const job = await getAgencyJob(JOB.id);
+    expect(job).not.toBeNull();
+    expect(job!.matchSkillIds).toBeUndefined();
   });
 });
 

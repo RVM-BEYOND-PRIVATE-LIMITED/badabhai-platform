@@ -57,9 +57,20 @@ const INPUT = {
   city: "Pune",
 };
 
+/** The vocabulary the page read, handed straight through to the form (#2104). */
+const VOCAB = [
+  {
+    skill_id: "mskill_cnc_turning",
+    label: "CNC turning",
+    industry_id: "ind_manufacturing",
+    related_skill_ids: [],
+  },
+];
+
 type FormProps = {
   mode: string;
   job: AgencyJob;
+  matchSkills: typeof VOCAB;
   lead: ReactNode;
   submitLabel: string;
   onSubmit: (input: unknown) => Promise<{ ok: boolean; error?: string }>;
@@ -68,6 +79,7 @@ type FormProps = {
 function form(): FormProps {
   const el = EditAgencyPosting({
     job: JOB,
+    matchSkills: VOCAB,
     lead: <h1 className="lead-probe">Edit posting</h1>,
   }) as ReactElement<FormProps>;
   expect(el.type).toBe(AgencyJobFormStub);
@@ -84,6 +96,9 @@ describe("EditAgencyPosting — the shared form, in EDIT mode, headed by the pag
     const p = form();
     expect(p.mode).toBe("edit");
     expect(p.job).toBe(JOB);
+    // #2104 — the page's server-read vocabulary reaches the picker unchanged (the client never
+    // fetches it: the session Bearer stays server-side).
+    expect(p.matchSkills).toBe(VOCAB);
     expect(p.submitLabel).toBe("Save changes");
     expect((p.lead as ReactElement<{ className: string }>).props.className).toBe("lead-probe");
   });

@@ -3542,6 +3542,18 @@ textarea.input {
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--space-4) var(--space-5);
 }
+/* #2104 — the match-skill picker's group: the panel, then its refusal line. A column so the
+   message sits under the panel like a DS field's error sits under its control, and no focus ring
+   of its own (the ring belongs to the chip the payer then presses; this box is only a scroll/focus
+   target for a refused submit). Tokens only. */
+.agency-job-form__match {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.agency-job-form__match:focus {
+  outline: none;
+}
 .agency-job-form__actions {
   display: flex;
   gap: var(--space-3);
@@ -4910,6 +4922,23 @@ img.agency-qr__code,
 .capacity-tier__price .price-was,
 .plan-card__price .price-was {
   font-size: var(--text-lg);
+}
+
+/* #2102 — WHEN the struck offer above ends (`priceFigure`). Muted and stepped down so the
+   charged figure stays the one to read. INLINE by default: the one prose site (the Postings
+   applicant-quota note) carries it mid-sentence. On a tile it drops BELOW the figure — the three
+   price containers below, the same list the struck figure steps down in. Tokens only. */
+.price-offer {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  margin-inline-start: var(--space-1);
+}
+.credit-pack__price .price-offer,
+.capacity-tier__price .price-offer,
+.plan-card__price .price-offer {
+  display: block;
+  margin-inline-start: 0;
 }
 
 /* ------------------------------------------------------------------

@@ -2,12 +2,14 @@
 
 import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
+import { Icon } from "@badabhai/icons";
 import {
   NEEDED_BY,
   PAY_TYPES,
   SHIFTS,
   TRADE_KEYS,
   type AgencyJob,
+  type MatchSkillWire,
   type NeededBy,
 } from "../../../../lib/contracts";
 import { tradeLabel } from "../../../../lib/agency-view";
@@ -33,16 +35,32 @@ import {
   workerCardGaps,
   type WorkerCardGap,
 } from "../../../../lib/worker-card-gap";
-import { Button, Input, Select, Textarea } from "../../../../components/ds";
+import { Button, Input, Select, Textarea, fieldFeedbackId } from "../../../../components/ds";
 import { ChipEditor } from "../../../../components/chip-editor";
 import { PostingActions, PostingPreviewRail } from "../../../../components/posting-preview-rail";
+// The COMPANY form's picker, reused verbatim (#2104): one closed vocabulary, one cap, one set of
+// chips. It lives beside the company form it was built for; nothing about it is company-specific
+// but the untick affordance, which this form turns off (`relatedUnticks`).
+import { MatchSkillPicker, type MatchSelection } from "../../postings/new/match-skill-picker";
 
 /**
  * Shared CREATE/EDIT form for an agency posting (ADR-0022, LIVE) — an agency job traces to the
  * SAME Job Card as a company posting. It collects the role (one of the 21 — display), the trade
- * (its 15-trade matching classifier), the city/area, pay band + pay type, experience, shift,
- * timing, description and requirement/benefit chips, beside the {@link PostingPreviewRail}: the
- * worker's card built from the SAME `readCardForm` values the submit sends.
+ * (its 15-trade classifier), the city/area, pay band + pay type, experience, shift, timing,
+ * description and requirement/benefit chips, then the MATCH SKILLS, beside the
+ * {@link PostingPreviewRail}: the worker's card built from the SAME `readCardForm` values the
+ * submit sends.
+ *
+ * MATCH SKILLS (ADR-0050 §6.1 step 2, #2104). The skill half is the company form's own
+ * {@link MatchSkillPicker} — one closed vocabulary, one cap, one set of chips — and it is what
+ * decides who sees this vacancy: `jobs.match_skill_ids` is copied to the system-owned V1 twin,
+ * and a trade is NEVER read for matching (ADR-0050 C4). Required by this form (Q9) although
+ * optional at the API, through the same disable-until-valid + inline-error path as the title and
+ * city: an agency job with no pick gets a `paused` twin and reaches nobody. Unticks are NOT
+ * offered — the twin's reach is `match ∪ related(match)` with no unticks (Q2) — so the related
+ * chips are shown locked and `untickedRelatedIds` is never sent (there is no field for it).
+ * On EDIT the pick is sent ONLY when it changed, because an omitted `match_skill_ids` means
+ * unchanged.
  *
  * The workerCardGap rule fires on CREATE (an agency job goes live immediately — create == publish),
  * blocking a thin card. On EDIT of a live job the gaps are HIGHLIGHTED, never blocked (owner ruling).
@@ -71,6 +89,12 @@ interface AgencyJobInputValues {
   description?: string;
   requirements: string[];
   benefits: string[];
+  /**
+   * ADR-0050 §6.1 step 2 — the match pick. ABSENT means "unchanged": the form omits it on an
+   * EDIT whose pick the payer did not touch, and the seam then omits `match_skill_ids`. Always
+   * present on a CREATE (the form requires a pick, Q9).
+   */
+  matchSkillIds?: string[];
 }
 
 export type AgencyJobFormSubmitResult = { ok: true } | { ok: false; error: string };
@@ -91,7 +115,12 @@ interface FormFields {
   description: string;
 }
 
-type FieldKey = "title" | "city";
+/**
+ * The non-card controls this form validates ITSELF. `matchSkillIds` is the picker's GROUP, not a
+ * DS field: it refuses through the same two steps (disable-until-valid, then its message at the
+ * control with focus) because it is required exactly as hard (#2104 / ADR-0050 Q9).
+ */
+type FieldKey = "title" | "city" | "matchSkillIds";
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 /**
@@ -137,17 +166,41 @@ const BLANK: FormFields = {
   description: "",
 };
 
-/** The non-card checks (the card numbers are `readCardForm`'s issues). UX parity with the schema. */
-function validate(fields: FormFields): FieldErrors {
+/**
+ * The non-card checks (the card numbers are `readCardForm`'s issues). UX parity with the schema,
+ * plus the one rule the schema deliberately does NOT carry: a match pick is required by the FORM
+ * (ADR-0050 Q9) while it stays optional at the API, because an edit that did not touch the pick
+ * omits it legitimately.
+ */
+function validate(fields: FormFields, matchSkillIds: readonly string[]): FieldErrors {
   const errs: FieldErrors = {};
   if (fields.title.trim().length < 1) errs.title = "Enter a role title.";
   if (fields.city.trim().length < 1) errs.city = "Enter a city.";
+  // No pick ⇒ the V1 twin of this job is `paused` and the vacancy reaches nobody (ADR-0050 §3
+  // status rule 5). Say that, rather than "required".
+  if (matchSkillIds.length < 1) {
+    errs.matchSkillIds = "Pick at least one skill — without one, no worker can see this posting.";
+  }
   return errs;
+}
+
+/**
+ * ORDER-FREE equality for a match pick (ADR-0050): a pick is a SET, so the same ids in another
+ * order are the same pick and an edit must not re-send them. Mirrors the API's own `sameSkillSet`
+ * (agency.service.ts), which is what decides whether a patch changes the row and emits
+ * `match_skills`. De-duplicated on both sides for the same reason it is there: so the comparison
+ * is of the SETS, not of two lists that happen to be the same length.
+ */
+function sameMatchPick(a: readonly string[], b: readonly string[]): boolean {
+  const left = [...new Set(a)].sort();
+  const right = [...new Set(b)].sort();
+  return left.length === right.length && left.every((id, i) => id === right[i]);
 }
 
 export function AgencyJobForm({
   mode,
   job,
+  matchSkills = [],
   onSubmit,
   onCancel,
   submitLabel,
@@ -155,6 +208,13 @@ export function AgencyJobForm({
 }: {
   mode: "create" | "edit";
   job?: AgencyJob;
+  /**
+   * The closed match vocabulary, read SERVER-side by the host page (`listMatchSkills()`) so the
+   * session Bearer never reaches the browser. `[]` is the page's signal that the read FAILED —
+   * the form then says so and keeps the submit refused, rather than saving a vacancy no worker
+   * can see. Same rule, same copy as the company posting form (#2104).
+   */
+  matchSkills?: MatchSkillWire[];
   onSubmit: (input: AgencyJobInputValues) => Promise<AgencyJobFormSubmitResult>;
   onCancel?: () => void;
   submitLabel: string;
@@ -164,8 +224,9 @@ export function AgencyJobForm({
    */
   lead?: ReactNode;
 }) {
-  // useState call order (mirrored by agency-job-form.test.tsx): fields, fieldErrors, error,
-  // requirements, benefits, reqDraft, benDraft, gap, revealed, navigating. APPEND new state only.
+  // useState call order (mirrored POSITIONALLY by agency-job-form.test.tsx): fields, fieldErrors,
+  // error, requirements, benefits, reqDraft, benDraft, gap, revealed, navigating, selection.
+  // APPEND new state only.
   const [fields, setFields] = useState<FormFields>(job ? fromJob(job) : BLANK);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
@@ -177,6 +238,14 @@ export function AgencyJobForm({
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   // Set once a save SUCCEEDED: the host is navigating away, so the form stays busy until it unmounts.
   const [navigating, setNavigating] = useState(false);
+  // ADR-0050 §6.1 step 2 — the match pick, prefilled on EDIT from the stored `match_skill_ids`
+  // (absent / `[]` on a job created before the picker ⇒ nothing picked, which the form then
+  // requires). `untickedRelatedIds` stays `[]` for its whole life: an agency twin has no unticks
+  // (Q2), so the picker is drawn with none offered and none is ever sent.
+  const [selection, setSelection] = useState<MatchSelection>({
+    matchSkillIds: job?.matchSkillIds ?? [],
+    untickedRelatedIds: [],
+  });
   const [pending, startTransition] = useTransition();
   const busy = pending || navigating;
 
@@ -187,7 +256,16 @@ export function AgencyJobForm({
   // THE ONE READ — the preview, the inline errors, the gap rule and the submit all use it.
   const read = readCardForm(fields, { requirements, benefits, reqDraft, benDraft });
   const hasCardIssue = Object.keys(read.issues).length > 0;
-  const isValid = Object.keys(validate(fields)).length === 0 && !hasCardIssue;
+  const isValid =
+    Object.keys(validate(fields, selection.matchSkillIds)).length === 0 && !hasCardIssue;
+
+  /** A pick clears its refusal the moment one is made — as typing clears a field's (`set`). */
+  function pick(next: MatchSelection) {
+    setSelection(next);
+    if (next.matchSkillIds.length > 0 && fieldErrors.matchSkillIds !== undefined) {
+      setFieldErrors((p) => ({ ...p, matchSkillIds: undefined }));
+    }
+  }
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -235,7 +313,7 @@ export function AgencyJobForm({
     setReqDraft("");
     setBenDraft("");
 
-    const errs = validate(fields);
+    const errs = validate(fields, selection.matchSkillIds);
     setFieldErrors(errs);
     if (hasCardIssue) setRevealed(ALL_NUMBERS_REVEALED);
     const firstBad =
@@ -257,6 +335,12 @@ export function AgencyJobForm({
     }
 
     const v = read.values;
+    // ADR-0050 §6.1 step 2 — a CREATE always carries the pick; an EDIT carries it only when it
+    // CHANGED, because an omitted `match_skill_ids` means unchanged. Order-free (`sameMatchPick`),
+    // so re-ticking the same skills in another order is not a change: the twin is not re-synced
+    // and `job.updated` does not claim a `match_skills` edit that did not happen.
+    const pickUnchanged =
+      mode === "edit" && sameMatchPick(selection.matchSkillIds, job?.matchSkillIds ?? []);
     startTransition(async () => {
       const res = await onSubmit({
         tradeKey: fields.tradeKey,
@@ -274,6 +358,7 @@ export function AgencyJobForm({
         description: fields.description.trim() || undefined,
         requirements: v.requirements,
         benefits: v.benefits,
+        ...(pickUnchanged ? {} : { matchSkillIds: selection.matchSkillIds }),
       });
       if (!res.ok) {
         setError(res.error);
@@ -418,6 +503,58 @@ export function AgencyJobForm({
             onAdd={() => addChip("ben")}
             onRemove={(i) => setBenefits((p) => p.filter((_, j) => j !== i))}
           />
+
+          {/*
+            MATCH SKILLS (#2104) — last, as on the company form: every card field first, then who
+            sees it. The wrapper is this group's focus target and carries its refusal, since the
+            picker is a panel of chips, not a DS field with its own error slot. `tabIndex={-1}`
+            makes it focusable only PROGRAMMATICALLY, so a refused submit can take the payer here
+            (`focusControl`) without adding a stop to the Tab order; `aria-describedby` points at
+            the same `${id}-msg` line every DS field uses (M3), so the reason is read with it.
+          */}
+          <div
+            id={controlId("matchSkillIds")}
+            className="agency-job-form__match"
+            tabIndex={-1}
+            aria-describedby={
+              fieldErrors.matchSkillIds ? fieldFeedbackId(controlId("matchSkillIds")) : undefined
+            }
+          >
+            {matchSkills.length > 0 ? (
+              <MatchSkillPicker
+                vocabulary={matchSkills}
+                selection={selection}
+                onChange={pick}
+                // ADR-0050 Q2 — the twin's reach is `match ∪ related(match)`; `jobs` has nowhere
+                // to store an untick, so none is offered here (see the picker's own note).
+                relatedUnticks={false}
+              />
+            ) : (
+              // The vocabulary read FAILED (the page hands down `[]`). Nothing is picked, so the
+              // submit stays refused by `validate` — this says why, as the company form does.
+              <div className="alert alert--danger">
+                <Icon name="warning-circle" className="alert__icon" />
+                <div className="alert__text">
+                  <p className="alert__title">Could not load the skill list</p>
+                  <p className="alert__body">
+                    Reload the page — a posting needs at least one skill before workers can find
+                    it.
+                  </p>
+                </div>
+              </div>
+            )}
+            {fieldErrors.matchSkillIds ? (
+              <span
+                id={fieldFeedbackId(controlId("matchSkillIds"))}
+                className="bb-field__error"
+                // Not a live region: focus lands here on a refusal and the description is read
+                // with it, so an alert would say the same thing twice (the DS M3 contract).
+              >
+                <Icon name="warning-circle" />
+                {fieldErrors.matchSkillIds}
+              </span>
+            ) : null}
+          </div>
 
           <div className="posting-layout__end">
             <PostingActions>{buttons}</PostingActions>

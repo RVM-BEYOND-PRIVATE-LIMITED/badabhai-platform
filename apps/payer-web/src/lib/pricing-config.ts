@@ -48,6 +48,17 @@ export interface ChargedPrice {
   priceInr: number;
   /** The catalog list price, present ONLY when an active offer lowers the charge below it. */
   listPriceInr?: number;
+  /**
+   * When the offer that lowered the charge ENDS — the row's `offer.ends_at`, present only beside
+   * {@link listPriceInr} and only when the API named an offer (#2102).
+   *
+   * A struck list price says the charge is below the catalog's; this says how long it stays
+   * there, so a payer deciding on an offer price is not deciding against an unstated deadline.
+   * A row priced below list with NO named `offer` keeps the struck figure and says nothing —
+   * an expiry is never guessed, and this is the only date the catalog authorizes (`priced_at`
+   * is provenance, not a promise: live-catalog.ts validates it and surfaces nothing).
+   */
+  offerEndsAt?: string;
 }
 
 /**
@@ -64,9 +75,13 @@ export function chargedPrice(
   if (prices === undefined || prices === null) return { priceInr: tier.priceInr };
   const row = prices.find((p) => p.productCode === productCode && p.tierCode === tier.code);
   if (!row) return null;
-  return row.priceInr < row.basePriceInr
+  if (row.priceInr >= row.basePriceInr) return { priceInr: row.priceInr };
+  // Below list ⇒ the list price rides along to be struck. The DEADLINE rides along only when the
+  // API NAMED the offer (#2102): a discount with no `offer` row has no end date to state, and
+  // inventing one would put a date on the tile the charge does not honour.
+  return row.offer === null
     ? { priceInr: row.priceInr, listPriceInr: row.basePriceInr }
-    : { priceInr: row.priceInr };
+    : { priceInr: row.priceInr, listPriceInr: row.basePriceInr, offerEndsAt: row.offer.endsAt };
 }
 
 /** The contact-unlock credit packs OFFERED for purchase, at the price each is charged. */
