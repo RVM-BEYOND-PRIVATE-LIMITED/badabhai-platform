@@ -225,3 +225,136 @@ describe.skipIf(!RUN)("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB
     expect(aCredits.json.balance).toBe(9);
   });
 });
+
+/**
+ * ADR-0053 (PAY-DB-01) T0-HTTP — "A invites B; B sees A's postings + credits", over live HTTP,
+ * through the real guards. The e2e job runs the api with PAYER_ORG_TENANCY_MODE=on.
+ *
+ * B's membership is SEEDED through this suite's DB client rather than by the accept route: the
+ * invite mailer is the MOCK in CI, and it never lets the raw accept token leave the api process
+ * (only its hash is stored). The seeded row is exactly what a successful accept writes — an
+ * `active` recruiter row in A's org bound to B's payer id, with B's own encrypted email.
+ *
+ * THE TEAM STORY IS `it.fails` — RED BY DESIGN IN PHASE 1. P1 ships the resolver but no tenant
+ * predicate, so every posting / credit / unlock read is still keyed by the caller and B sees none
+ * of A's rows. Flip it to `it` in the PR that lands the second of P2a and P2b.
+ *
+ * It cannot pass for the wrong reason: the ordinary `it`s before it prove the seeded membership
+ * resolves (B's `GET /payer/me` reports A's org as recruiter), that every route the story calls
+ * answers 200 for B, and that the same calls made by A see A's posting and credits. The story's
+ * first assertion is the tenancy one.
+ */
+describe.skipIf(!RUN)(
+  "Payer ORG tenancy — A invites B; B sees A's postings + credits (e2e, ADR-0053 T0-HTTP)",
+  () => {
+    let client!: DbClient;
+    let A!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let B!: Awaited<ReturnType<typeof mintPayerSession>>;
+    let orgOfA = "";
+    let memberIdOfB = "";
+    let postingOfA = "";
+
+    beforeAll(async () => {
+      client = createDbClient(DATABASE_URL);
+      expect(OPS_TOKEN, "set INTERNAL_SERVICE_TOKEN to seed credits via the ops route").not.toBe(
+        "",
+      );
+
+      A = await mintPayerSession({ role: "employer" });
+      B = await mintPayerSession({ role: "employer" });
+      expect(A.payerId).not.toBe(B.payerId);
+
+      // A's solo org (test-login founds it, as signup does).
+      const [org] = await client.sql`
+      SELECT id FROM payer_orgs WHERE root_payer_id = ${A.payerId}::uuid`;
+      orgOfA = String(org?.id ?? "");
+      expect(orgOfA, "A has no solo org after test-login").not.toBe("");
+
+      // What a successful accept writes: B, active recruiter in A's org (see the block comment).
+      const [member] = await client.sql`
+      INSERT INTO payer_members (org_id, member_payer_id, email_enc, email_hash, org_role, status,
+                                 invited_by, invited_at, accepted_at)
+      SELECT ${orgOfA}::uuid, b.id, b.email_enc, b.email_hash, 'recruiter', 'active',
+             ${A.payerId}::uuid, now(), now()
+      FROM payers b WHERE b.id = ${B.payerId}::uuid
+      RETURNING id`;
+      memberIdOfB = String(member?.id ?? "");
+      expect(memberIdOfB).not.toBe("");
+
+      // A posts a job and gets credits.
+      const created = await req("POST", "/payer/job-postings", {
+        token: A.token,
+        body: { org_label: "E2E Tenancy Works", role_title: "CNC Turner", vacancy_band: "1" },
+      });
+      expect(created.status).toBe(201);
+      postingOfA = created.json.id as string;
+      const seeded = await req("POST", `/payers/${A.payerId}/credits`, {
+        ops: true,
+        body: { pack_code: "pack_10" },
+      });
+      expect(seeded.json.balance).toBe(10);
+    });
+
+    afterAll(async () => {
+      await client?.sql.end({ timeout: 5 });
+    });
+
+    it("setup: the seeded membership resolves — B's GET /payer/me reports A's org, as recruiter", async () => {
+      const me = await req("GET", "/payer/me", { token: B.token });
+      expect(me.status).toBe(200);
+      expect(me.json).toMatchObject({ id: B.payerId, orgId: orgOfA, orgRole: "recruiter" });
+    });
+
+    it("setup: every route the story calls answers 200 for B (so the story can only fail on content)", async () => {
+      for (const path of ["/payer/job-postings", "/payer/credits", "/payer/unlocks"]) {
+        expect((await req("GET", path, { token: B.token })).status, path).toBe(200);
+      }
+    });
+
+    it("control: A, through the same routes, sees A's posting and A's credits", async () => {
+      const list = await req("GET", "/payer/job-postings", { token: A.token });
+      expect(list.status).toBe(200);
+      expect((list.json as { id: string }[]).map((p) => p.id)).toContain(postingOfA);
+      const credits = await req("GET", "/payer/credits", { token: A.token });
+      expect(credits.json.balance).toBe(10);
+    });
+
+    // RED IN PHASE 1 (ADR-0053 / ORG_TENANCY_PLAN §2.5). Flip to `it` with the second of P2a/P2b.
+    it.fails(
+      "T0-HTTP: B lists A's posting, reads A's wallet, spends it on an unlock A can see — and removal ends it",
+      async () => {
+        // 1. B lists postings and finds A's. ← THE FIRST TENANCY ASSERTION (fails in P1).
+        const listB = await req("GET", "/payer/job-postings", { token: B.token });
+        expect((listB.json as { id: string }[]).map((p) => p.id)).toContain(postingOfA);
+
+        // 2. B reads the org wallet (A's balance). `payer_id` echoes the caller (ADR-0053 §10).
+        const walletBefore = (await req("GET", "/payer/credits", { token: A.token })).json.balance;
+        const creditsB = await req("GET", "/payer/credits", { token: B.token });
+        expect(creditsB.json).toMatchObject({ payer_id: B.payerId, balance: walletBefore });
+
+        // 3. B unlocks a worker: A's wallet pays, and A sees the unlock.
+        const w = await loginWorker();
+        await consent(w.token, ["profiling", "employer_sharing"]);
+        const grant = await req("POST", "/payer/unlocks", {
+          token: B.token,
+          body: { worker_id: w.workerId },
+        });
+        expect(grant.json).toMatchObject({ ok: true, status: "granted" });
+        expect((await req("GET", "/payer/credits", { token: A.token })).json.balance).toBe(
+          walletBefore - 1,
+        );
+        const listA = await req("GET", "/payer/unlocks", { token: A.token });
+        expect(JSON.stringify(listA.json)).toContain(grant.json.unlock_id as string);
+
+        // 4. A removes B; on the next request B sees none of A's rows.
+        const removed = await req("DELETE", `/payer/org/members/${memberIdOfB}`, {
+          token: A.token,
+        });
+        expect(removed.status).toBe(200);
+        const after = await req("GET", "/payer/job-postings", { token: B.token });
+        expect((after.json as { id: string }[]).map((p) => p.id)).not.toContain(postingOfA);
+        expect((await req("GET", "/payer/credits", { token: B.token })).json.balance).toBe(0);
+      },
+    );
+  },
+);

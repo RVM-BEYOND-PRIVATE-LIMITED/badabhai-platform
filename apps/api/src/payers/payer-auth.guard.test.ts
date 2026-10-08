@@ -10,7 +10,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { PayerRole, PayerStatus } from "@badabhai/db";
 import type { PayerSessionService } from "./payer-session.service";
 import type { PayersRepository } from "./payers.repository";
-import type { PayerOrgsRepository } from "./payer-orgs.repository";
+import type { PayerTenantScopeService } from "./payer-tenant-scope.service";
 import {
   PayerAccountDeletedException,
   PAYER_ACCOUNT_DELETED_CODE,
@@ -42,7 +42,7 @@ function makeRepo(
 const ORG_ID = "11111111-1111-4111-8111-111111111111";
 
 /**
- * #2079 — org-membership stub for the rolling-token org claim. `resolveOrgForPayer` is read
+ * #2079 — org-membership stub for the rolling-token org claim. `resolveActingOrg` is read
  * ONLY on the rolling-refresh branch (past the half-life), never on the hot path.
  */
 function makeOrgs(
@@ -51,8 +51,8 @@ function makeOrgs(
     orgRole: "owner",
   }),
 ) {
-  return { resolveOrgForPayer: vi.fn(resolve) } as unknown as PayerOrgsRepository & {
-    resolveOrgForPayer: ReturnType<typeof vi.fn>;
+  return { resolveActingOrg: vi.fn(resolve) } as unknown as PayerTenantScopeService & {
+    resolveActingOrg: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -139,7 +139,7 @@ describe("PayerAuthGuard — rolling-token org claim (#2079)", () => {
     const orgs = makeOrgs();
     const guard = new PayerAuthGuard(makeSession(VALID), config, makeRepo(), orgs);
     await expect(guard.canActivate(makeCtx("Bearer good.token").ctx)).resolves.toBe(true);
-    expect(orgs.resolveOrgForPayer).not.toHaveBeenCalled();
+    expect(orgs.resolveActingOrg).not.toHaveBeenCalled();
   });
 
   it("a DEMOTED owner's rolling token carries the CURRENT role (recruiter), not the old one", async () => {
@@ -147,7 +147,7 @@ describe("PayerAuthGuard — rolling-token org claim (#2079)", () => {
     const orgs = makeOrgs(async () => ({ orgId: ORG_ID, orgRole: "recruiter" }));
     const guard = new PayerAuthGuard(session, config, makeRepo(), orgs);
     await expect(guard.canActivate(makeCtx("Bearer aging.token").ctx)).resolves.toBe(true);
-    expect(orgs.resolveOrgForPayer).toHaveBeenCalledExactlyOnceWith("p1");
+    expect(orgs.resolveActingOrg).toHaveBeenCalledExactlyOnceWith("p1");
     expect(session.mint).toHaveBeenCalledWith("p1", "s1", "employer", {
       orgId: ORG_ID,
       orgRole: "recruiter",

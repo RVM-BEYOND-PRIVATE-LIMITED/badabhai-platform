@@ -14,7 +14,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { PayerAccountDeletedException } from "./payer-account-deleted.exception";
 import { PayerSessionService } from "./payer-session.service";
 import { PayersRepository } from "./payers.repository";
-import { PayerOrgsRepository } from "./payer-orgs.repository";
+import { PayerTenantScopeService } from "./payer-tenant-scope.service";
 import { resolveSessionOrgClaim } from "./payer-session-org-claim";
 
 /**
@@ -91,7 +91,7 @@ export class PayerAuthGuard implements CanActivate {
     private readonly session: PayerSessionService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly payers: PayersRepository,
-    private readonly orgs: PayerOrgsRepository,
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -146,7 +146,7 @@ export class PayerAuthGuard implements CanActivate {
       // #2079 — the org claim is RE-DECIDED from the current membership on every rolling mint
       // (one extra read, only past the half-life), never copied from the old token. Fail-safe:
       // an unresolvable membership mints WITHOUT the claim (least privilege), never a 5xx.
-      const org = await resolveSessionOrgClaim(this.orgs, validated.payerId);
+      const org = await resolveSessionOrgClaim(this.tenancy, validated.payerId);
       const fresh = await this.session.mint(
         validated.payerId,
         validated.sid,

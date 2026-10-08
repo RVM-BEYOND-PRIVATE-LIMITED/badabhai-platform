@@ -593,6 +593,13 @@ services:
       # ADR-0050 (#1957) — the agency-job V1 twin sync. OFF is the kill switch (every twin is
       # paused, no field copied); `:-false` so an unset or empty secret is off.
       AGENCY_TWIN_SYNC_ENABLED: ${AGENCY_TWIN_SYNC_ENABLED:-false}
+      # ADR-0053 (PAY-DB-01) — payer org tenancy. `off` keys every payer read to the login, which
+      # is how the api behaved before the ADR; `shadow` serves `off` and logs what `on` would
+      # decide; `on` keys a team member to the org's anchor. `:-off` so an unset or empty secret
+      # is off. Bridged from the `production` secret of the same name; staging-deploy.sh's
+      # preflight rejects anything but off|shadow|on|empty before a container moves. Arming it
+      # is owner decision O-8, after the plan §5 census.
+      PAYER_ORG_TENANCY_MODE: ${PAYER_ORG_TENANCY_MODE:-off}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}

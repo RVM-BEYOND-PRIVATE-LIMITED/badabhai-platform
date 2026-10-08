@@ -121,6 +121,19 @@ if [ "${PAYER_LOGIN_METHOD:-email_otp}" = "email_otp" ] &&
   fi
 fi
 
+# ADR-0053: PAYER_ORG_TENANCY_MODE — payer org tenancy (off | shadow | on). The api's config is a
+# z.enum that throws at boot on anything else (empty reads as unset, and compose's
+# `${PAYER_ORG_TENANCY_MODE:-off}` resolves it to off). The api `up` has no automatic rollback
+# and the secret cannot be read back, so a typo ("ON", "true") would take the api down. Checked
+# here, before any prune, pull or recreate. The value is never echoed.
+case "${PAYER_ORG_TENANCY_MODE-}" in
+  "" | off | shadow | on) ;;
+  *)
+    echo "::error::PAYER_ORG_TENANCY_MODE must be exactly off, shadow, on or empty (lowercase; empty means off). Fix the production secret (gh secret set PAYER_ORG_TENANCY_MODE --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.

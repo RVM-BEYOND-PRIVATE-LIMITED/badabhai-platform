@@ -47,6 +47,11 @@ class TaskRoute:
     #: fallback, O7). `None` = the router's existing `default_fallback_model` rule. Still
     #: subject to the router's provider-differs and transport-available gates.
     fallback_model: str | None = None
+    #: A per-ATTEMPT deadline the router enforces around the provider call (ADR-0054), for a
+    #: task whose caller waits a fixed time and whose provider call has no tight bound of its own
+    #: (the Anthropic SDK's default timeout is ten minutes). `None` = no router deadline, which
+    #: is every route but the news answer's: their calls run exactly as before the field existed.
+    timeout_seconds: float | None = None
 
 
 # Routing rules. The SHAPE of a route is code (which tasks exist, whether each
@@ -142,7 +147,18 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # well, it runs once per fold OFF the worker's critical path, and its output is re-validated by
     # the API before it is stored. `json_mode` because the answer is `{"summary": ...}`.
     "profiling_free_summary": ("cheap", True),
+    # ADR-0054 - the free chat's live news answer (Claude + the web search tool). The tier is a
+    # placeholder like the reply's: the route names Claude explicitly, with NO fallback, because
+    # the web search is an Anthropic server tool and no other provider can run it. `json_mode`
+    # because the answer is a discriminated object (answer / no_results / refuse).
+    "profiling_free_news": ("cheap", True),
 }
+
+#: ADR-0054 - the news answer's per-attempt deadline. The API waits 25 s for `/free-chat/news`;
+#: 22 s leaves ~3 s for the gate, the parse and the response, so the worker's wait is bounded by
+#: the API's timeout and never by a provider call it has stopped waiting for. One attempt only
+#: (the route's `max_retries` is 0), so this is also the call's whole budget.
+FREE_NEWS_TIMEOUT_SECONDS = 22.0
 
 
 def _chat_tier(settings: Settings) -> ModelTier:
@@ -417,6 +433,31 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # no worker waits on.
             max_retries=settings.ai_chat_max_retries,
         )
+    if task_type == "profiling_free_news":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # ADR-0054 §3.2: 700 tokens. The answer is at most 4 lines of 20 words in JSON, and the
+            # output count ALSO carries the model's search queries and any text it writes around
+            # the tool calls, so this is the reply's 512 plus room for two searches. A truncated
+            # turn fails the call (`max_tokens_truncated`), never serves half a JSON object.
+            max_output_tokens=700,
+            # 0.3: the lines restate what the search results say. Lower than the reply's 0.5,
+            # because sampling buys nothing when the content is the sources', and not zero, so a
+            # repeated question does not read like a form.
+            temperature=0.3,
+            json_mode=json_mode,
+            # NO RETRY. A retry re-runs paid searches, and two 22 s attempts cannot fit inside
+            # the API's 25 s wait: a second attempt would only spend money on an answer nobody
+            # is left to receive.
+            max_retries=0,
+            # Claude primary (R1: the free chat's Anthropic key and Haiku model) and NO fallback
+            # named. The global `default_fallback_model` is Claude too, so the router drops it as
+            # same-provider; if a deploy ever pointed it at another provider, that candidate
+            # fails at dispatch with `tools_unsupported` rather than answering without a search.
+            model=settings.default_career_model,
+            timeout_seconds=FREE_NEWS_TIMEOUT_SECONDS,
+        )
     if task_type == "work_history_polish":
         return TaskRoute(
             task_type,
@@ -523,6 +564,33 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     # 2026-07-14). Same $0.15/1M-input list price ~= Rs 0.0125/1k; embeddings have no output.
     "gemini-embedding-001": (0.0125, 0.0),
 }
+
+
+# --- Server-tool charges (ADR-0054) ----------------------------------------
+# The Anthropic web search bills PER SEARCH on top of tokens: $10 per 1,000 searches (checked
+# 2026-10-08, ADR-0054 §1) = $0.01 a search = Rs 0.83 at the ~Rs 83/USD every row above uses.
+# Its results are billed as input tokens, which the provider's usage already reports, so only the
+# per-search fee needs adding to a measured call's cost.
+WEB_SEARCH_COST_INR = 0.83
+
+# THE WORST-CASE RESERVATION'S ALLOWANCE for one search's result tokens, which the router cannot
+# estimate from the prompt (they are not in it yet). AN UNMEASURED PLANNING FIGURE, set high on
+# purpose: the results land as input tokens, and every further sampling pass of the server-side
+# loop re-reads them and the prompt. Over-reserving is refunded to the measured cost on success
+# and in full on failure; under-reserving would let one call run past a spend cap by the
+# difference. 10,000 tokens at Haiku's input rate is ~Rs 0.83, so a 2-search call reserves ~Rs 3.3
+# for its searches, inside the Rs 10 per-call ceiling. Replace with the box's measured
+# `ai.cost_recorded` input tokens once news is armed.
+WEB_SEARCH_RESULT_TOKENS_ALLOWANCE = 10_000
+
+# A web search tool with no `max_uses` is unbounded; it is reserved as this many searches, which
+# prices it past the per-call ceiling, so an unbounded search is skipped rather than run.
+WEB_SEARCH_UNBOUNDED_USES = 10
+
+# Anthropic's prompt-cache multipliers on the base input rate (5-minute cache): a cache write
+# bills 1.25x, a cache read 0.1x. Applied only to a tool call's own cache buckets.
+ANTHROPIC_CACHE_WRITE_MULTIPLIER = 1.25
+ANTHROPIC_CACHE_READ_MULTIPLIER = 0.1
 
 
 # --- Prompt-cache thresholds (COST-2) --------------------------------------

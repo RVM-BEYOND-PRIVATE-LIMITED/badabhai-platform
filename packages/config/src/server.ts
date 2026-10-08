@@ -1322,6 +1322,21 @@ export const serverEnvSchema = z.object({
   // Reaching it rejects further invites (409) until a seat frees up. Config-driven, tunable
   // without a migration.
   MEMBER_INVITE_MAX_PER_ORG: z.coerce.number().int().positive().default(25),
+  // ADR-0053 (PAY-DB-01): the payer org tenancy switch.
+  //   "off"    — DEFAULT. The tenant key is the authenticated login, which is how every payer
+  //              read behaved before this ADR.
+  //   "shadow" — serves exactly what "off" serves, and also runs the "on" resolution and logs
+  //              what it would have decided (ids only). It proves the resolver on real data.
+  //   "on"     — the tenant key is the acting org's anchor (`payer_orgs.root_payer_id`).
+  // Its ONE reader is apps/api/src/payers/payer-tenant-scope.service.ts, and a static test
+  // pins that. A preprocess turns "" into "unset": compose's `${VAR:-off}` already does, but
+  // `${VAR-}` or a box-level `export VAR=` would hand a bare enum "" and it would refuse to
+  // boot. Any other value still fails the parse. Arming it in production (secret + redeploy)
+  // is owner decision O-8.
+  PAYER_ORG_TENANCY_MODE: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.enum(["off", "shadow", "on"]).default("off"),
+  ),
 
   // ADMIN invites — the accept-link onboarding for a new admin (ADR-0025 OQ-2 finally wired).
   // The invite flow has ALWAYS created a `pending` admin row; until now nothing could turn it

@@ -8,7 +8,7 @@ import { withinRedisDeadline } from "../queue/redis-deadline";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { type KnownNameSource, knownNameOnce } from "../common/redact-known-name";
+import { type KnownNameSource, onceRetrying } from "../common/redact-known-name";
 import { ProfilesService } from "../profiles/profiles.service";
 import {
   ProfilingOrchestrator,
@@ -42,6 +42,11 @@ import {
   readFreeChatSummaryValue,
   summaryTextOf,
 } from "../profiling/free-chat/free-chat-summary";
+import {
+  toWireNewsLinks,
+  type FreeChatNewsLink,
+  type FreeChatNewsLinkWire,
+} from "../profiling/free-chat/free-chat-news-links";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -53,8 +58,9 @@ import { resolveResumeMenu } from "./resume-menu";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
-  FREE_CHAT_METADATA,
+  freeChatMetadataOf,
   IDENTITY_INTAKE_METADATA,
+  newsLinksOfMetadata,
   type BufferedMessage,
   type TranscriptBuffer,
 } from "./chat-transcript.buffer";
@@ -669,6 +675,21 @@ export class ChatService {
     }
   }
 
+  /**
+   * ADR-0054 — `{ news_links }` for an answered news turn's tiles, or `{}`: ABSENT, never null or
+   * empty, when there are none and under the kill switch (`CHAT_FREE_CHAT_DISABLED`, so every body
+   * stays byte-identical — a replay or a reload included). Mapped field by field, so an internal
+   * field can never leak onto the wire.
+   */
+  private wireNewsLinks(links: readonly FreeChatNewsLink[] | undefined): {
+    news_links?: FreeChatNewsLinkWire[];
+  } {
+    if (this.config.CHAT_FREE_CHAT_DISABLED === true || links === undefined || links.length === 0) {
+      return {};
+    }
+    return { news_links: toWireNewsLinks(links) };
+  }
+
   /** {@link liveFreeChatModeField} for an envelope already in hand — the same kill-switch rule. */
   private freeChatModeOf(envelope: ProfilingEnvelope | undefined): {
     free_chat_mode?: FreeChatMode;
@@ -701,6 +722,7 @@ export class ChatService {
     session: { readonly conversationState: unknown },
     sessionId: string,
     workerId: string,
+    ownName: KnownNameSource,
   ): FreeChatTurnInput {
     const enabled = this.config.CHAT_FREE_CHAT_DISABLED !== true;
     const sessionLocked = carriesFreeChatLock(session.conversationState);
@@ -711,6 +733,7 @@ export class ChatService {
     return {
       enabled,
       sessionLocked,
+      ownName,
       foldedLines: foldWatermarkOf(ownSummary, sessionId),
       summary: () =>
         (pendingSummary ??= !enabled
@@ -775,7 +798,9 @@ export class ChatService {
   ): Promise<PostMessageResponse> {
     // ONE name lookup for the whole request: the model's egress (if this turn calls one) and the
     // reply's vocative read the same memoised value.
-    const knownName = knownNameOnce(() => this.workerFullName(workerId));
+    // ADR-0054 (security M1) — and the live-news view of that SAME read, which fails closed.
+    const names = this.workerNameSources(workerId);
+    const knownName = names.knownName;
     // `?? null` AND NOT `?? undefined`: absent on the wire is the supported legacy case — an app
     // build that predates the field — and it has to arrive at the replay gate as the explicit
     // "this submission carries no id" that makes it take the hash + window path (#931).
@@ -791,7 +816,7 @@ export class ChatService {
       null,
       // ADR-0045: the chat is the ONE surface that may arm a new session for the general road.
       // ADR-0051: and the ONE surface the profiling-stage free chat runs on.
-      { armGeneralRoad: true, knownName, freeChat: true },
+      { armGeneralRoad: true, knownName, ownName: names.ownName, freeChat: true },
     );
     switch (outcome.kind) {
       case "session_over":
@@ -905,6 +930,8 @@ export class ChatService {
             // ADR-0051 (#2030) — a replay changes no mode, so the envelope this request loaded is
             // the one the response it repeats carried. No second Redis read.
             ...this.freeChatModeOf(outcome.envelope),
+            // ADR-0054 — a replayed news answer shows its tiles again, as the response it repeats did.
+            ...this.wireNewsLinks(outcome.turn.newsLinks),
           },
           dto.session_id,
         );
@@ -972,6 +999,12 @@ export class ChatService {
       readonly armGeneralRoad?: boolean;
       readonly knownName?: KnownNameSource;
       /**
+       * ADR-0054 (security M1) — the live-news view of the same name read: it REJECTS when the name
+       * could not be read or decrypted, where `knownName` reads null. Absent, this method builds
+       * its own from one fresh read.
+       */
+      readonly ownName?: KnownNameSource;
+      /**
        * ADR-0051 — the profiling-stage free chat. Set by `postMessage` alone; ABSENT for the voice
        * form, whose turns never meet it (the `armGeneralRoad` rule).
        */
@@ -979,6 +1012,10 @@ export class ChatService {
     },
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
+    // The worker's name sources when the caller passed none — built lazily, and READ only by an
+    // egress that awaits one (see `workerNameSources`).
+    let ownSources: WorkerNameSources | null = null;
+    const names = (): WorkerNameSources => (ownSources ??= this.workerNameSources(workerId));
     const session = await this.chat.findSession(dto.session_id);
     // Ownership: a worker may only post to their OWN session. 404 (not 403) so a
     // session id is never an existence oracle for another worker's session.
@@ -1082,10 +1119,17 @@ export class ChatService {
       voiceNoteId,
       ...(opts?.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
       ...(opts?.freeChat === true
-        ? { freeChat: this.freeChatTurnInput(session, dto.session_id, workerId) }
+        ? {
+            freeChat: this.freeChatTurnInput(
+              session,
+              dto.session_id,
+              workerId,
+              opts.ownName ?? names().ownName,
+            ),
+          }
         : {}),
       // Read only if this turn calls a model — see `TurnInput.knownName`.
-      knownName: opts?.knownName ?? knownNameOnce(() => this.workerFullName(workerId)),
+      knownName: opts?.knownName ?? names().knownName,
       ctx,
     });
 
@@ -1375,6 +1419,8 @@ export class ChatService {
         : null,
       // ADR-0051 (#2030) — the free-chat mode AFTER this turn, off the envelope that landed.
       ...this.freeChatModeOf(buffered.profiling),
+      // ADR-0054 — an answered news turn's "read more" tiles. ABSENT on every other turn.
+      ...this.wireNewsLinks(turn.newsLinks),
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -2200,11 +2246,12 @@ export class ChatService {
       // ADR-0048 (D10) — an identity-intake line is stored verbatim for the worker's own redraw
       // and flagged, so the extraction and the résumé's quote/veto reader leave it out. SPREAD,
       // so every other row is inserted exactly as before and takes the column's `{}` default.
-      // ADR-0051 §3.5 — a free-chat line likewise, with its own closed flag.
+      // ADR-0051 §3.5 — a free-chat line likewise, with its own closed flag; ADR-0054 — an answered
+      // news reply's tiles ride beside it, so the session replay redraws them after the flush.
       ...(m.intake === true
         ? { metadata: IDENTITY_INTAKE_METADATA }
         : m.aside === true
-          ? { metadata: FREE_CHAT_METADATA }
+          ? { metadata: freeChatMetadataOf(m) }
           : {}),
       // `created_at` is EXPLICIT: these rows are written at flush but happened over the
       // preceding minutes, and defaulting would stamp a thirty-turn interview as thirty
@@ -2479,6 +2526,8 @@ export class ChatService {
           // script they typed, and nothing reads those back to them.
           ...(m.role === "worker" ? {} : this.ttsField(m.text, null)),
           created_at: m.at,
+          // ADR-0054 — an answered news reply's tiles, on that bubble only.
+          ...this.wireNewsLinks(m.role === "worker" ? undefined : m.newsLinks),
         })),
         ...liveGeneralRoadFields(buffered.profiling),
       };
@@ -2501,37 +2550,63 @@ export class ChatService {
         // sidecar is keyed by reply text rather than by key.
         ...(row.direction === "inbound" ? {} : this.ttsField(row.bodyText ?? "", null)),
         created_at: row.createdAt.toISOString(),
+        // ADR-0054 — the durable half: the tiles the flush kept in the row's metadata, re-checked.
+        ...this.wireNewsLinks(
+          row.direction === "inbound"
+            ? undefined
+            : (newsLinksOfMetadata(row.metadata) ?? undefined),
+        ),
       })),
       ...durableGeneralRoadFields(session.conversationState),
     };
   }
 
   /**
-   * The worker's DECRYPTED `full_name`, or `null` when there is none / it cannot be
-   * decrypted. ONE read per chat turn, through `knownNameOnce`; both consumers (the R32
-   * redaction at the interview model's egress, `redactedTurnText`, and the AI-PERSONA-2
-   * vocative) take the same value.
+   * The worker's name for one request, as TWO VIEWS OF ONE READ (at most one lookup and one
+   * decrypt, memoised by `onceRetrying`; a rejected read is retried by the next caller):
+   *
+   *   - `knownName` — the DECRYPTED `full_name`, or `null` when there is none OR it cannot be
+   *     decrypted. Every existing consumer reads this one, unchanged: the R32 redaction at the
+   *     interview model's egress (`redactedTurnText`), the free chat's classify and reply, and the
+   *     AI-PERSONA-2 vocative. A malformed / rotated-key / tampered token degrades to `null` — a key
+   *     rotation must not break every worker's chat at once.
+   *   - `ownName` — the same value, except that a name that could not be DECRYPTED REJECTS instead
+   *     of reading as "no name on file" (ADR-0054, security M1). Live news reads this one and fails
+   *     closed on it: a question that cannot be name-redacted never reaches a third-party search.
    *
    * The plaintext never leaves the request: it is used to REMOVE text on the way out
-   * (`redactKnownName`) and to interpolate the vocative in the client-facing reply
-   * only. It is never logged, evented, stored, or sent to the ai-service/LLM.
-   *
-   * A decrypt never throws. A malformed / rotated-key / tampered token degrades to `null` —
-   * a key rotation must not break every worker's chat at once — and the warning
-   * carries the opaque worker id ONLY, never the token or the decrypted value.
+   * (`redactKnownName`) and to interpolate the vocative in the client-facing reply only. It is never
+   * logged, evented, stored, or sent to the ai-service/LLM. The warning carries the opaque worker id
+   * ONLY, never the token or the decrypted value.
    */
-  private async workerFullName(workerId: string): Promise<string | null> {
+  private workerNameSources(workerId: string): WorkerNameSources {
+    const read = onceRetrying(() => this.readWorkerName(workerId));
+    return {
+      knownName: async () => {
+        const result = await read();
+        return result.ok ? result.name : null;
+      },
+      ownName: async () => {
+        const result = await read();
+        if (!result.ok) throw new Error("the worker's own name could not be decrypted");
+        return result.name;
+      },
+    };
+  }
+
+  /** One read of `workers.full_name`: the name, nothing on file, or a decrypt that failed. */
+  private async readWorkerName(workerId: string): Promise<WorkerNameRead> {
     const worker = await this.workers.findById(workerId);
-    if (!worker?.fullName) return null;
+    if (!worker?.fullName) return { ok: true, name: null };
     try {
       // full_name is encrypted at rest (TD21) — decrypt here, never log the value.
-      return this.pii.decrypt(worker.fullName);
+      return { ok: true, name: this.pii.decrypt(worker.fullName) };
     } catch {
       this.logger.warn(
         `could not decrypt full_name for worker ${workerId}; ` +
-          `reply stays name-less and the outbound turn is not name-redacted`,
+          `reply stays name-less, the outbound turn is not name-redacted, and no news search is made`,
       );
-      return null;
+      return { ok: false };
     }
   }
 
@@ -2686,6 +2761,15 @@ export class ChatService {
       );
     }
   }
+}
+
+/** What one read of the worker's own name found (ADR-0054, security M1). */
+type WorkerNameRead = { readonly ok: true; readonly name: string | null } | { readonly ok: false };
+
+/** The two views of one name read — see `ChatService.workerNameSources`. */
+interface WorkerNameSources {
+  readonly knownName: KnownNameSource;
+  readonly ownName: KnownNameSource;
 }
 
 // ---------------------------------------------------------------------------

@@ -85,6 +85,10 @@ export function stampLastTurn(
       inputMode: result.inputMode ?? "text",
       // ADR-0051 — a model-written reply is not read aloud on its replay either. ABSENT otherwise.
       ...(result.readAloud === false ? { readAloud: false as const } : {}),
+      // ADR-0054 — an answered news reply's tiles, so its replay shows them. ABSENT otherwise.
+      ...(result.newsLinks !== undefined && result.newsLinks.length > 0
+        ? { newsLinks: [...result.newsLinks] }
+        : {}),
       // A FRESH STAMP. This reply has not been served as a replay yet, so it gets the whole
       // budget — see `LastTurn.replays`.
       replays: 0,
