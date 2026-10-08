@@ -1507,7 +1507,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatCompanionChipTapped event,
     Emitter<ChatState> emit,
   ) {
-    if (!state.companion) return;
+    // #2145 — a JOB opened from the PROFILING chat is counted too (ADR-0051 R8
+    // lets that chat offer jobs). Everything else stays companion-only: the
+    // chip-class counter describes the companion's own menu, and firing it for
+    // an interview chip would put résumé-menu and intake keys into a series
+    // that has never held them.
+    if (!state.companion) {
+      if (event.openedJob) _analytics(BbAnalytics.companionJobOpened());
+      return;
+    }
     _analytics(BbAnalytics.companionChipTapped(keyClass: event.keyClass));
     if (event.openedJob) _analytics(BbAnalytics.companionJobOpened());
   }

@@ -677,12 +677,21 @@ class _ChatViewState extends State<_ChatView>
     // posted; every other key (interview chips, the résumé menu, the companion's
     // server-answered chips) falls through to exactly the routing below.
     final CompanionAction companionAction = companionActionFor(option.optionKey);
-    // #1753 — counts only, by key CLASS, and only while the tab is the companion.
+    // #1753 — counts only, by key CLASS, while the tab is the companion.
+    //
+    // #2145 — AND on the PROFILING chat when the chip opens a JOB. ADR-0051 R8
+    // lets the profiling chat offer jobs, and the routing below was already
+    // ungated, so a job chip served there already opened the detail — silently.
+    // "Send the events the backend contract asks for on anything shown or
+    // applied to" is the half that was missing, so an opened job is now counted
+    // wherever it was offered from. Nothing else about the profiling chat is
+    // measured here: a non-job chip outside the companion still emits nothing.
     final ChatBloc bloc = context.read<ChatBloc>();
-    if (bloc.state.companion) {
+    final bool opensJob = companionAction == CompanionAction.openJob;
+    if (bloc.state.companion || opensJob) {
       bloc.add(ChatCompanionChipTapped(
         companionChipKeyClass(option.optionKey),
-        openedJob: companionAction == CompanionAction.openJob,
+        openedJob: opensJob,
       ));
     }
     switch (companionAction) {
