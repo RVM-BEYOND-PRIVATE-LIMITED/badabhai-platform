@@ -157,6 +157,19 @@ describe("vetOwnBrief — may the worker's stored line still print?", () => {
     expect(vetOwnBrief("Rampur mein wiring", "Ram Singh")).toBe(true);
   });
 
+  it("reads a dotted, hyphenated, apostrophe or invisible-character name as the redactor does (#2166)", () => {
+    expect(vetOwnBrief("Suresh, 8 saal se electrician", "K.Suresh")).toBe(false);
+    expect(vetOwnBrief("Ram Prasad, wiring ka kaam", "Ram-Prasad")).toBe(false);
+    expect(vetOwnBrief("Anil Souza, plumber", "Anil D'Souza")).toBe(false);
+    expect(vetOwnBrief("Suresh, wiring ka kaam", "Sur\u00ADesh Kumar")).toBe(false);
+    expect(vetOwnBrief("Sur\u200Besh, wiring ka kaam", "Suresh Kumar")).toBe(false);
+    // An invisible between a word and the name is a break, not glue: the re-check reads the stored
+    // text as it is (no collapse), and the matcher folds the invisible as a boundary (#2166 L1).
+    expect(vetOwnBrief("main\u200BSuresh, wiring ka kaam", "Suresh Kumar")).toBe(false);
+    // ...and still word-anchored: an initial is never glued on ("S.Aman" is not "saman").
+    expect(vetOwnBrief("Saman ki loading karta hoon", "S.Aman")).toBe(true);
+  });
+
   it("fails money — the write wall's own predicate", () => {
     expect(vetOwnBrief("Wiring karta hoon, 15k chahiye", null)).toBe(false);
     expect(vetOwnBrief("Salary achhi ho", null)).toBe(false);

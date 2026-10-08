@@ -26,9 +26,13 @@ import {
  * keeps reading its own `text`/`history` for everything that is not the request (the gate reply,
  * skill grounding, the repeat check).
  *
- * FAIL SAFE, exactly as the extraction's redaction: no name on record, an undecryptable one (the
- * source logs that and yields `null`) or a lookup that throws — the text goes out as typed, and the
- * turn is never failed for it. The warning carries the opaque ids only.
+ * FAIL SAFE FOR THE NAME LOOKUP ONLY, exactly as the extraction's: no name on record, an
+ * undecryptable one (the source logs that and yields `null`) or a lookup that throws — the text goes
+ * out as typed, and the turn is not failed for it. The warning carries the opaque ids only.
+ *
+ * THE REDACTION ITSELF FAILS CLOSED (#2166 security H1): a throw from `redactKnownName` /
+ * `redactKnownNameLines` propagates and fails the turn before the request is built. Never wrap them
+ * in a catch that sends the text as typed — that is a silent leak on the ADR-0047 G2 floor.
  */
 export async function redactedTurnText(
   text: string,

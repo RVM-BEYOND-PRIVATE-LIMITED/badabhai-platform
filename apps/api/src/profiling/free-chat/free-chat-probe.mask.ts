@@ -6,17 +6,18 @@
  * it is not shown — never half-masked. Every check below can only DROP more; a check that throws
  * counts as a hit. Only the REASON a line was dropped is returned; its text goes nowhere.
  *
- * WHY THIS DOES MORE THAN `redactKnownName`. The shared redaction (R32) splits the stored name on
- * whitespace and matches the tokens word-anchored. That is enough for a model's input, where the
- * ai-service's own gates still stand behind it; it is NOT enough for a line a person reads. The
- * security reviews reproduced it failing open on a dotted (`K.Suresh`), hyphenated (`Ram-Prasad`),
- * apostrophe (`D'Souza`, `DʼSouza`), digit-glued (`Raju007`) or invisible-character (`Suresh<ZWSP>`,
- * a soft hyphen, U+034F) stored name, on compatibility forms (fullwidth `Ｓｕｒｅｓｈ`, math bold
- * `𝐒𝐮𝐫𝐞𝐬𝐡`), and on a name stored precomposed but typed decomposed (`ज़` U+095B vs `ज` + nukta).
- * The probe therefore normalises the NAME exactly as it normalises the TEXT (invisibles out, NFKC),
- * splits it into sub-tokens of letters, masks with those, and then drops the line if any of them is
- * still there. The shared helper is unchanged (its own gap is tracked separately, G2).
+ * WHY THIS DOES MORE THAN `redactKnownName`. The security reviews reproduced the shared redaction
+ * (R32) failing open on a dotted (`K.Suresh`), hyphenated (`Ram-Prasad`), apostrophe (`D'Souza`,
+ * `DʼSouza`), digit-glued (`Raju007`) or invisible-character (`Suresh<ZWSP>`, a soft hyphen, U+034F)
+ * stored name, on compatibility forms (fullwidth `Ｓｕｒｅｓｈ`, math bold `𝐒𝐮𝐫𝐞𝐬𝐡`), and on a name
+ * stored precomposed but typed decomposed (`ज़` U+095B vs `ज` + nukta). #2166 closed those in the
+ * shared helper, which now reads the name with the same separators and invisibles as this file
+ * (`name-fold.ts`). A line a person reads still gets more than a model's input does: the probe
+ * normalises the NAME exactly as it normalises the TEXT (invisibles out, NFKC), splits it into
+ * sub-tokens of letters, masks with those, and then DROPS the line if any of them is still there in
+ * any form — including spellings that differ only in a mark the redaction keeps (a virama).
  */
+import { codePointCount, INVISIBLE, NAME_SEPARATORS } from "../../common/name-fold";
 import {
   MIN_TOKEN_LENGTH,
   REDACTED_NAME_PLACEHOLDER,
@@ -44,12 +45,8 @@ export type MaskedLine =
 // Normalisation — the same for the text and the name
 // ---------------------------------------------------------------------------
 
-/**
- * Invisible characters: every format character (zero-width joiners, soft hyphen, bidi overrides) and
- * every default-ignorable code point (U+034F, variation selectors, the Hangul fillers U+115F, U+3164).
- * Invisible, able to split a name, and able to reorder a terminal line.
- */
-const INVISIBLE = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
+// `INVISIBLE` (name-fold.ts): every format character and every default-ignorable code point —
+// invisible, able to split a name, and able to reorder a terminal line. Shared with the redaction.
 const WHITESPACE_RUNS = /\s+/gu;
 
 /**
@@ -93,12 +90,10 @@ function folded(value: string): string {
   return value.toLowerCase().normalize("NFKC");
 }
 
-/**
- * Where a name (or a word of the text, for the whole-word rule) splits: anything that is not a letter
- * or a combining mark, AND every digit and modifier letter — `Raju007` → `Raju`; `DʼSouza` (U+02BC,
- * a modifier letter) → `D`, `Souza`; `98765 43210` → nothing at all.
- */
-const NAME_SEPARATORS = /(?:[^\p{L}\p{M}]|\p{Lm})+/u;
+// `NAME_SEPARATORS` (name-fold.ts): where a name (or a word of the text, for the whole-word rule)
+// splits — anything that is not a letter or a combining mark, AND every digit and modifier letter:
+// `Raju007` → `Raju`; `DʼSouza` (U+02BC, a modifier letter) → `D`, `Souza`; `98765 43210` → nothing
+// at all. The SAME split the redaction reads the stored name with.
 
 /** The stored name's sub-tokens: `K.Suresh` → `K`, `Suresh`; `Suresh2 Kumar` → `Suresh`, `Kumar`. */
 export function nameSubTokens(name: string): string[] {
@@ -108,13 +103,12 @@ export function nameSubTokens(name: string): string[] {
 }
 
 /**
- * How many LETTERS a sub-token has: its code points, each a letter or a combining mark — so the
- * Devanagari राम (र, the vowel sign ा, म) counts three, as its Latin twin "Ram" does. A token is
- * built only of those (see {@link NAME_SEPARATORS}), so no digit or modifier letter ever counts.
+ * How many LETTERS a sub-token has: its code points (`codePointCount`, shared with the redaction),
+ * each a letter or a combining mark — so the Devanagari राम (र, the vowel sign ा, म) counts three, as
+ * its Latin twin "Ram" does. A token is built only of those (see {@link NAME_SEPARATORS}), so no digit
+ * or modifier letter ever counts.
  */
-function letterCount(token: string): number {
-  return Array.from(token).length;
-}
+const letterCount = codePointCount;
 
 /** A sub-token the line can be masked with: {@link MIN_TOKEN_LENGTH}+ letters. */
 const isMaskable = (token: string) => letterCount(token) >= MIN_TOKEN_LENGTH;
@@ -208,7 +202,8 @@ const SHORT_TOKEN_LETTERS = 2;
  *   2. A NAME CUE ({@link NAME_CUE}), with invisibles removed and as spaces.
  *   3. AN UNREADABLE NAME: none on file, blank, a failed decrypt (the caller reads all three as null),
  *      or a name with no sub-token of 3+ letters to mask with — `98765 43210` is not a name.
- *   4. MASK: `redactKnownName` with the normalised sub-tokens, and the stored vocative → `[NAME]`.
+ *   4. MASK: `redactKnownName` with the STORED name — the shared reading keeps its words, its
+ *      apostrophe joins ("DSouza") and its dotted initials (#2166) — and the stored vocative → `[NAME]`.
  *   5. NAME TOKENS FOUND: any sub-token of 3+ letters still ANYWHERE in the case-folded text (glued to
  *      a word, or an ordinary word that contains it — a false drop costs a line, never a name), or a
  *      two-letter sub-token as a WHOLE word ("Om" for "Om Prakash"); a one-letter token never. Checked
@@ -222,7 +217,7 @@ export function maskSampleLine(raw: string, knownName: string | null): MaskedLin
   if (carriesNameCue(raw, text)) return { kind: "dropped", reason: "name_cue" };
   const tokens = knownName === null ? [] : nameSubTokens(knownName);
   if (!tokens.some(isMaskable)) return { kind: "dropped", reason: "name_unreadable" };
-  const masked = redactKnownName(text, tokens.join(" ")).replace(
+  const masked = redactKnownName(text, knownName).replace(
     WORKER_NAME_TOKEN,
     () => REDACTED_NAME_PLACEHOLDER,
   );
@@ -244,9 +239,10 @@ function leftIn(needle: string, text: string, words: ReadonlySet<string>): boole
  * Rule 5 of {@link maskSampleLine}, over the masked text with its placeholders taken out — AS
  * NORMALISED, and again with every combining mark STRIPPED from the text and the token alike.
  *
- * WHY THE SECOND PASS. Workers routinely leave marks out: a stored `ज़ाकिर` (nukta) typed `जाकिर`, a
- * stored `ओम्` (virama) typed `ओम`, Tamil `ஓம்` typed `ஓம`. The masking cannot match those spellings,
- * so the line must be dropped — and only a comparison without marks sees them. The stripped token
+ * WHY THE SECOND PASS. Workers routinely leave marks out: a stored `ओम्` (virama) typed `ओम`, Tamil
+ * `ஓம்` typed `ஓம`. The masking folds away only the nukta and the Latin diacritics (#2166: a stored
+ * `ज़ाकिर` typed `जाकिर` is now masked), so it cannot match those spellings and the line must be
+ * dropped — and only a comparison without marks sees them. The stripped token
  * is judged by what is left: 3+ letters anywhere, 2 letters as a whole word (`ओम्` → `ओम`), 1 never.
  * The first pass is kept, unchanged, so nothing it caught before is lost (a glued `रामकुमार` for a
  * stored `राम`: three letters with its vowel sign, but only two once stripped).

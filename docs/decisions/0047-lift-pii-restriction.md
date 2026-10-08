@@ -353,3 +353,21 @@ ratifies the decision.
 
 Signed: Divyanshu (Backend Platform; relayed the owner's decision)          Date: 2026-10-01
 ```
+
+---
+
+## Post-signature corrections (2026-10-08)
+
+**THE SIGNED TEXT ABOVE IS UNCHANGED.** One identifier in §6 went stale when #2166 replaced the
+helper it names. Dated, signed records stay as signed (the precedent in
+`E0_RELAY_DECISION_2026-09.md`, "Post-signature corrections (2026-09-21)"), so this footnote is the
+fix, not a rewrite:
+
+| cited above                                                                                               | actual                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §6, G2, "What G2 does not reach" — "the `knownNamePattern` screens on the résumé and general-form briefs" | `knownNameMatcher` (`apps/api/src/common/redact-known-name.ts`, #2166): the briefs read the worker's own name through the same matcher as `redactKnownName`. The decision is unchanged. |
+
+Also recorded post-signature: #2166 changed how G2 READS the name — dotted, hyphenated, apostrophe,
+invisible-character and non-NFC names now redact, and a throw fails closed — and its accepted
+limits are in the [risks register](../registers/risks-register.md) (the ADR-0047 section). Neither
+changes the rulings above.

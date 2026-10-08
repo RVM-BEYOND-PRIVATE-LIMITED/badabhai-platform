@@ -92,16 +92,27 @@ describe("H1 — names the shared redaction misses are masked fully or dropped (
 
 describe("name tokens found in text — dropped, fail closed", () => {
   it("drops a line where a 3+ letter name token survives glued to another word", () => {
-    expect(maskSampleLine("main sureshkumar hoon", NAME)).toEqual(dropped("name_tokens_found"));
+    expect(maskSampleLine("main sureshbhai hoon", NAME)).toEqual(dropped("name_tokens_found"));
+  });
+
+  it("masks the whole name glued together — the shared redaction reads it since #2166", () => {
+    expect(maskSampleLine("main sureshkumar hoon", NAME)).toEqual(shown("main [NAME] hoon"));
   });
 
   it("drops a line where a TWO-letter name token appears as a whole word (M1)", () => {
+    // The redaction never takes a two-letter part (it would shred "ji", "Md"); the probe drops instead.
     expect(maskSampleLine("main Om hoon, welder", "Om Prakash")).toEqual(
       dropped("name_tokens_found"),
     );
     // …but not where those two letters are only part of a word.
     expect(maskSampleLine("roz kaam karta hoon", "Om Prakash")).toEqual(
       shown("roz kaam karta hoon"),
+    );
+  });
+
+  it("masks an apostrophe-joined surname typed without its apostrophe (the stored name is passed)", () => {
+    expect(maskSampleLine("DSouza sahab se baat hui", "Anil D'Souza")).toEqual(
+      shown("[NAME] sahab se baat hui"),
     );
   });
 });
@@ -215,12 +226,40 @@ describe("spelling variants that differ only in combining marks (final review L2
   const TAMIL_OM = "ஓம்"; // ஓம்
 
   it.each([
-    [`${ZAKIR} खान`, "main जाकिर hoon"], // typed without the nukta
-    [ZAR, "main जर hoon"], // typed without the nukta
     [OM_VIRAMA, "main ओम hoon"], // typed without the virama
     [TAMIL_OM, "main ஓம hoon"], // typed without the pulli
   ])("stored %j, typed without the mark (%j): dropped", (stored, line) => {
     expect(maskSampleLine(line, stored)).toEqual(dropped("name_tokens_found"));
+  });
+
+  it.each([
+    [`${ZAKIR} खान`, "main जाकिर hoon"], // typed without the nukta
+    // ज़र folds to the two letters जर: the redaction masks it as a WHOLE word only (#2166 review).
+    [ZAR, "main जर hoon"], // typed without the nukta
+  ])(
+    "stored %j, typed without the NUKTA (%j): masked — the redaction folds it (#2166)",
+    (stored, line) => {
+      expect(maskSampleLine(line, stored)).toEqual(shown("main [NAME] hoon"));
+    },
+  );
+
+  it("a mark the redaction keeps, typed INSIDE the name (#2166 I3): only this probe sees it, and drops", () => {
+    expect(
+      maskSampleLine(
+        "main \u0930\u0951\u093E\u092E hoon",
+        "\u0930\u093E\u092E \u0915\u0941\u092E\u093E\u0930",
+      ),
+    ).toEqual(dropped("name_tokens_found"));
+    expect(maskSampleLine("main Sur\u20D0esh hoon", NAME)).toEqual(dropped("name_tokens_found"));
+  });
+
+  it("a stored ज़र does not mask जरा — and the probe's mark-stripped check drops that line", () => {
+    // The redaction leaves "जरा" alone (a whole-word rule, #2166 review), so nothing is masked; the
+    // probe's stricter second pass strips the vowel sign, finds the two letters जर as a word, and
+    // drops the line — a false drop costs a line, never a name.
+    expect(maskSampleLine("\u091C\u0930\u093E \u0930\u0941\u0915\u094B", ZAR)).toEqual(
+      dropped("name_tokens_found"),
+    );
   });
 
   it("still masks the exact spelling to [NAME], as before", () => {
@@ -299,7 +338,9 @@ describe("L4 — more name-cue words, and cues split by invisible characters", (
 
 describe("what a shown line looks like", () => {
   it("collapses whitespace and strips format characters", () => {
-    expect(maskSampleLine("kaam\u200D  chahiye\n\nabhi\u202E", NAME)).toEqual(shown("kaam chahiye abhi"));
+    expect(maskSampleLine("kaam\u200D  chahiye\n\nabhi\u202E", NAME)).toEqual(
+      shown("kaam chahiye abhi"),
+    );
   });
 
   it("is cut AFTER masking, so a cut never exposes part of the name", () => {

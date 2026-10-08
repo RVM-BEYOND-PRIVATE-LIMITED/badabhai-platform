@@ -171,6 +171,31 @@ describe("screenBrief — the worker's OWN name (the employer copy prints only i
     expect(reasonOf(raw, NAME)).toBe("name");
   });
 
+  it("reads a dotted, hyphenated or apostrophe name, and a nukta variant, as the redactor does (#2166)", () => {
+    expect(reasonOf("Suresh, 8 saal se welder", "K.Suresh")).toBe("name");
+    expect(reasonOf("Ram Prasad, 8 saal se welder", "Ram-Prasad")).toBe("name");
+    expect(reasonOf("Anil Souza, plumber hoon", "Anil D'Souza")).toBe("name");
+    // Stored with the precomposed nukta letter, typed without the nukta.
+    expect(
+      reasonOf(
+        "\u091C\u093E\u0915\u093F\u0930, \u0935\u0947\u0932\u094D\u0921\u0930",
+        "\u095B\u093E\u0915\u093F\u0930 \u0916\u093E\u0928",
+      ),
+    ).toBe("name");
+    expect(reasonOf("Saman ki loading, 5 saal", "S.Aman")).toBeNull();
+  });
+
+  it("finds the name an invisible glues to the word before it, which collapsing would hide (#2166 L1)", () => {
+    // `collapse` deletes the invisible, so the stored text would read "mainSuresh welder hoon".
+    for (const invisible of ["\u200B", "\u200D", "\u00AD", "\u2060"]) {
+      expect(reasonOf(`main${invisible}Suresh welder hoon`, "Suresh Kumar")).toBe("name");
+    }
+    // ...and the identifier walls still lead.
+    expect(reasonOf("main\u200BSuresh, call 9876543210", "Suresh Kumar")).toBe("identifier");
+    // A brief with no name in it, invisible or not, still passes.
+    expect(reasonOf("main\u200Bwelder hoon, 8 saal", "Suresh Kumar")).toBeNull();
+  });
+
   it("a Devanagari-stored name is matched in Devanagari", () => {
     expect(reasonOf("मैं रमेश हूँ, वेल्डर", "रमेश यादव")).toBe("name");
   });

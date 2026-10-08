@@ -28,12 +28,13 @@
  *   identifier    a hard identifier (`containsHardIdentifier`: PAN, Aadhaar, phone, email,
  *                 credential ids, GSTIN, long digit runs), a PAN in lower case, a phone- or
  *                 email-shaped run (`looksLikePii`), or TEN OR MORE digits in total.
- *   name          the worker's OWN stored name — the whole name or any token of 3+ characters,
- *                 matched exactly as `redactKnownName` matches it — or a self-introduction cue
- *                 ("mera naam", "my name is", "मेरा नाम"). The employer copy prints only the
- *                 name's initials (`resume-disclosure.service.ts`); a brief that repeated it
- *                 would un-mask the worker on the one surface built to hide him. No gazetteer
- *                 (the R32 lesson): only the name we hold is looked for.
+ *   name          the worker's OWN stored name — the whole name or any part of 3+ letters (one
+ *                 only a nukta made three: as a whole word), matched exactly as `redactKnownName`
+ *                 matches it (in the RAW input too, where an invisible may part it from the word
+ *                 before) — or a self-introduction cue ("mera naam", "my name is", "मेरा नाम").
+ *                 The employer copy prints only the name's initials (`resume-disclosure.service.ts`);
+ *                 a brief that repeated it would un-mask the worker on the one surface built to
+ *                 hide him. No gazetteer (the R32 lesson): only the name we hold is looked for.
  *   contact      an "@" in any width (a UPI id, a handle, an email with no TLD) or an email spelled
  *                 out ("ramesh at gmail dot com").
  *   link          a URL (`looksLikeUrl`), a host followed by a path ("t.me/ramesh"), or a
@@ -94,7 +95,7 @@ import { z } from "zod";
 import { looksLikeOrgName, looksLikePii, looksLikeUrl } from "@badabhai/validators";
 import { GENERAL_FORM_BRIEF_MAX_CHARS, GENERAL_FORM_BRIEF_MIN_CHARS } from "@badabhai/types";
 
-import { knownNamePattern } from "../../common/redact-known-name";
+import { knownNameMatcher, type KnownNameMatcher } from "../../common/redact-known-name";
 import { containsHardIdentifier } from "../resume-import/resume-parse-gates";
 
 /**
@@ -519,8 +520,8 @@ function looksLikeOrganisation(text: string): boolean {
 const NAME_CUE_RE =
   /(?<![\p{L}\p{N}])(?:mera\s+naa?m|my\s+name|naa?m\s+hai)(?![\p{L}\p{N}])|^myself(?![\p{L}\p{N}])|मेरा\s+नाम|नाम\s+है/iu;
 
-function looksLikeOwnName(text: string, knownName: RegExp | null): boolean {
-  return NAME_CUE_RE.test(text) || (knownName !== null && text.search(knownName) !== -1);
+function looksLikeOwnName(text: string, knownName: KnownNameMatcher | null): boolean {
+  return NAME_CUE_RE.test(text) || (knownName?.test(text) ?? false);
 }
 
 /**
@@ -534,7 +535,7 @@ function looksLikeOwnName(text: string, knownName: RegExp | null): boolean {
  */
 const WALLS: readonly {
   readonly reason: BriefRefusalReason;
-  readonly test: (text: string, knownName: RegExp | null) => boolean;
+  readonly test: (text: string, knownName: KnownNameMatcher | null) => boolean;
 }[] = Object.freeze([
   { reason: "identifier", test: looksLikeIdentifier },
   { reason: "contact", test: looksLikeContactRoute },
@@ -562,7 +563,7 @@ const WALLS: readonly {
 export function screenBrief(raw: string, knownName: string | null): BriefScreenResult {
   if (raw.length > BRIEF_RAW_MAX_UNITS) return { ok: false, reason: "too_long" };
   try {
-    const namePattern = knownNamePattern(knownName?.normalize("NFKC"));
+    const nameMatcher = knownNameMatcher(knownName);
     const text = collapse(raw);
     const length = codePointLength(text);
     if (length < GENERAL_FORM_BRIEF_MIN_CHARS) return { ok: false, reason: "empty" };
@@ -573,9 +574,13 @@ export function screenBrief(raw: string, knownName: string | null): BriefScreenR
     const scan = scanForm(text);
     const forms = scan === text ? [text] : [text, scan];
     for (const wall of WALLS) {
-      if (forms.some((form) => wall.test(form, namePattern))) {
+      if (forms.some((form) => wall.test(form, nameMatcher))) {
         return { ok: false, reason: wall.reason };
       }
+      // The known name is ALSO looked for in the RAW input (#2166 security L1): `collapse` deletes
+      // invisibles, so "main<ZWSP>Suresh" would be stored as "mainSuresh" — glued, no name left to
+      // anchor on — while the matcher's own fold reads that invisible as the word break it was.
+      if (wall.reason === "name" && nameMatcher?.test(raw)) return { ok: false, reason: "name" };
     }
     // LAST, so a letterless phone number is reported as the identifier it is, not as "empty".
     if (!LETTER_RE.test(text)) return { ok: false, reason: "empty" };

@@ -1,6 +1,6 @@
 import { GENERAL_FORM_BRIEF_MAX_CHARS } from "@badabhai/types";
 
-import { knownNamePattern } from "../common/redact-known-name";
+import { knownNameMatcher } from "../common/redact-known-name";
 import { looksLikeMoney, readStoredBrief } from "../profiling/general-form/general-form-brief";
 import { cleanScalar } from "./resume-clean";
 import { knownYearsPhrase } from "./resume-sheet-rows";
@@ -44,9 +44,10 @@ export const FALLBACK_BRIEF_MAX_SKILLS = 3;
  *     written by the form);
  *   - no MONEY shape — the write wall's own predicate, `looksLikeMoney`, so the render can never
  *     pass a figure the write would refuse;
- *   - not the worker's CURRENT name — the whole name or any 3+ character token, matched exactly as
- *     `redactKnownName` matches it (`knownNamePattern`, read with `.search`, which ignores the
- *     pattern's global `lastIndex`).
+ *   - not the worker's CURRENT name — the whole name or any part of 3+ letters (one only a nukta made
+ *     three: as a whole word), matched exactly as `redactKnownName` matches it (`knownNameMatcher`,
+ *     the same reading of the name and the text: dotted, hyphenated, apostrophe, invisible-character
+ *     and non-NFC names alike, #2166).
  *
  * `knownName` IS THE DECRYPTED NAME, OR NULL WHEN NONE IS STORED. A caller that could not DECRYPT
  * a stored name must not call this with null — it must treat the brief as unusable, because a
@@ -61,8 +62,8 @@ export function vetOwnBrief(text: string, knownName: string | null): boolean {
     if (cleanScalar(text) !== text) return false;
     if ([...text].length > GENERAL_FORM_BRIEF_MAX_CHARS) return false;
     if (looksLikeMoney(text)) return false;
-    const name = knownNamePattern(knownName?.normalize("NFKC"));
-    return name === null || text.search(name) === -1;
+    const name = knownNameMatcher(knownName);
+    return name === null || !name.test(text);
   } catch {
     // A check that did not finish is not a check that passed.
     return false;
