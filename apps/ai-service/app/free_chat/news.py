@@ -157,6 +157,11 @@ _LINK_TLDS = (
     "co.in", "gov.in", "org.in", "ac.in",
     "in", "com", "org", "net", "gov", "edu", "info", "co", "io", "ac", "nic",
     "xyz", "online", "site", "app", "biz", "me", "us", "uk",
+    # Shorteners and scam-heavy TLDs the security re-check found walking past (2026-10-08):
+    # rb.gy, youtu.be, amzn.to, shorturl.at, s.id, bit.ly, goo.gl, and the free/cheap TLDs.
+    # Common English words ("live", "shop", "top") are left off: the path rule below catches
+    # "x.live/abc" anyway, and a bare "match.live" is likelier a missing space than a link.
+    "gy", "be", "to", "at", "id", "ru", "news", "ly", "gl", "su", "cn", "tk", "ml", "ga", "cf",
 )  # fmt: skip
 
 #: A link or a domain in a model-written LINE (security review M1). The tiles carry the links; a
@@ -167,6 +172,9 @@ _LINK_TLDS = (
 _LINE_LINK_RES: tuple[re.Pattern[str], ...] = (
     re.compile(r"https?://", re.IGNORECASE),
     re.compile(r"www\.", re.IGNORECASE),
+    # TLD-AGNOSTIC: any dotted host followed by a path ("evil.ru/x", "jobs.news/form") is a link
+    # whatever its TLD; ordinary Hinglish never writes "word.word/…".
+    re.compile(r"(?<![a-z0-9-])[a-z0-9-]+\.[a-z]{2,}/\S", re.IGNORECASE),
     re.compile(
         r"(?<![a-z0-9-])[a-z0-9-]+\.(?:"
         + "|".join(re.escape(tld) for tld in _LINK_TLDS)

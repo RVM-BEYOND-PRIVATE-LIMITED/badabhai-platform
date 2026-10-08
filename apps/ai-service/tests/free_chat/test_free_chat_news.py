@@ -1906,6 +1906,17 @@ def test_a_text_only_http_error_keeps_todays_reason_and_refund(
         # The scheme and www. are UNCONDITIONAL: no TLD needed.
         "Link https://x par hai.",
         "Dekho www.kuchbhi par.",
+        # The security re-check's shorteners and off-list TLDs (2026-10-08): caught by the added
+        # TLDs, or by the TLD-agnostic "host/path" rule.
+        "Form yahan bharein: rb.gy/3xk9",
+        "Video youtu.be/abc par dekhiye.",
+        "Offer amzn.to/x par hai.",
+        "Register shorturl.at/x par karein.",
+        "Details s.id/x par milenge.",
+        "Bharti evil.ru/x par hai.",
+        "Apply jobs.news/x par karein.",
+        "Link bit.ly/abc par hai.",
+        "Form kuchbhi.store/apply par hai.",
     ],
 )
 def test_a_line_naming_a_link_or_a_domain_refuses_the_answer(line: str) -> None:
