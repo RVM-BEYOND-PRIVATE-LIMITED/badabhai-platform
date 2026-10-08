@@ -17,7 +17,7 @@
  * sub-tokens of letters, masks with those, and then DROPS the line if any of them is still there in
  * any form — including spellings that differ only in a mark the redaction keeps (a virama).
  */
-import { INVISIBLE, NAME_SEPARATORS } from "../../common/name-fold";
+import { codePointCount, INVISIBLE, NAME_SEPARATORS } from "../../common/name-fold";
 import {
   MIN_TOKEN_LENGTH,
   REDACTED_NAME_PLACEHOLDER,
@@ -103,13 +103,12 @@ export function nameSubTokens(name: string): string[] {
 }
 
 /**
- * How many LETTERS a sub-token has: its code points, each a letter or a combining mark — so the
- * Devanagari राम (र, the vowel sign ा, म) counts three, as its Latin twin "Ram" does. A token is
- * built only of those (see {@link NAME_SEPARATORS}), so no digit or modifier letter ever counts.
+ * How many LETTERS a sub-token has: its code points (`codePointCount`, shared with the redaction),
+ * each a letter or a combining mark — so the Devanagari राम (र, the vowel sign ा, म) counts three, as
+ * its Latin twin "Ram" does. A token is built only of those (see {@link NAME_SEPARATORS}), so no digit
+ * or modifier letter ever counts.
  */
-function letterCount(token: string): number {
-  return Array.from(token).length;
-}
+const letterCount = codePointCount;
 
 /** A sub-token the line can be masked with: {@link MIN_TOKEN_LENGTH}+ letters. */
 const isMaskable = (token: string) => letterCount(token) >= MIN_TOKEN_LENGTH;
@@ -203,7 +202,8 @@ const SHORT_TOKEN_LETTERS = 2;
  *   2. A NAME CUE ({@link NAME_CUE}), with invisibles removed and as spaces.
  *   3. AN UNREADABLE NAME: none on file, blank, a failed decrypt (the caller reads all three as null),
  *      or a name with no sub-token of 3+ letters to mask with — `98765 43210` is not a name.
- *   4. MASK: `redactKnownName` with the normalised sub-tokens, and the stored vocative → `[NAME]`.
+ *   4. MASK: `redactKnownName` with the STORED name — the shared reading keeps its words, its
+ *      apostrophe joins ("DSouza") and its dotted initials (#2166) — and the stored vocative → `[NAME]`.
  *   5. NAME TOKENS FOUND: any sub-token of 3+ letters still ANYWHERE in the case-folded text (glued to
  *      a word, or an ordinary word that contains it — a false drop costs a line, never a name), or a
  *      two-letter sub-token as a WHOLE word ("Om" for "Om Prakash"); a one-letter token never. Checked
@@ -217,7 +217,7 @@ export function maskSampleLine(raw: string, knownName: string | null): MaskedLin
   if (carriesNameCue(raw, text)) return { kind: "dropped", reason: "name_cue" };
   const tokens = knownName === null ? [] : nameSubTokens(knownName);
   if (!tokens.some(isMaskable)) return { kind: "dropped", reason: "name_unreadable" };
-  const masked = redactKnownName(text, tokens.join(" ")).replace(
+  const masked = redactKnownName(text, knownName).replace(
     WORKER_NAME_TOKEN,
     () => REDACTED_NAME_PLACEHOLDER,
   );

@@ -185,6 +185,17 @@ describe("screenBrief — the worker's OWN name (the employer copy prints only i
     expect(reasonOf("Saman ki loading, 5 saal", "S.Aman")).toBeNull();
   });
 
+  it("finds the name an invisible glues to the word before it, which collapsing would hide (#2166 L1)", () => {
+    // `collapse` deletes the invisible, so the stored text would read "mainSuresh welder hoon".
+    for (const invisible of ["\u200B", "\u200D", "\u00AD", "\u2060"]) {
+      expect(reasonOf(`main${invisible}Suresh welder hoon`, "Suresh Kumar")).toBe("name");
+    }
+    // ...and the identifier walls still lead.
+    expect(reasonOf("main\u200BSuresh, call 9876543210", "Suresh Kumar")).toBe("identifier");
+    // A brief with no name in it, invisible or not, still passes.
+    expect(reasonOf("main\u200Bwelder hoon, 8 saal", "Suresh Kumar")).toBeNull();
+  });
+
   it("a Devanagari-stored name is matched in Devanagari", () => {
     expect(reasonOf("मैं रमेश हूँ, वेल्डर", "रमेश यादव")).toBe("name");
   });

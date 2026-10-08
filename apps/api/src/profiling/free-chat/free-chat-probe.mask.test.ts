@@ -99,13 +99,19 @@ describe("name tokens found in text — dropped, fail closed", () => {
     expect(maskSampleLine("main sureshkumar hoon", NAME)).toEqual(shown("main [NAME] hoon"));
   });
 
-  it("drops a line where a TWO-letter name token appears as a whole word (M1)", () => {
+  it("a TWO-letter name token as a whole word (M1) is masked — the redaction's short rule (#2166)", () => {
     expect(maskSampleLine("main Om hoon, welder", "Om Prakash")).toEqual(
-      dropped("name_tokens_found"),
+      shown("main [NAME] hoon, welder"),
     );
     // …but not where those two letters are only part of a word.
     expect(maskSampleLine("roz kaam karta hoon", "Om Prakash")).toEqual(
       shown("roz kaam karta hoon"),
+    );
+  });
+
+  it("masks an apostrophe-joined surname typed without its apostrophe (the stored name is passed)", () => {
+    expect(maskSampleLine("DSouza sahab se baat hui", "Anil D'Souza")).toEqual(
+      shown("[NAME] sahab se baat hui"),
     );
   });
 });
@@ -227,6 +233,7 @@ describe("spelling variants that differ only in combining marks (final review L2
 
   it.each([
     [`${ZAKIR} खान`, "main जाकिर hoon"], // typed without the nukta
+    // ज़र folds to the two letters जर: the redaction masks it as a WHOLE word only (#2166 review).
     [ZAR, "main जर hoon"], // typed without the nukta
   ])(
     "stored %j, typed without the NUKTA (%j): masked — the redaction folds it (#2166)",
@@ -234,6 +241,15 @@ describe("spelling variants that differ only in combining marks (final review L2
       expect(maskSampleLine(line, stored)).toEqual(shown("main [NAME] hoon"));
     },
   );
+
+  it("a stored ज़र does not mask जरा — and the probe's mark-stripped check drops that line", () => {
+    // The redaction leaves "जरा" alone (a whole-word rule, #2166 review), so nothing is masked; the
+    // probe's stricter second pass strips the vowel sign, finds the two letters जर as a word, and
+    // drops the line — a false drop costs a line, never a name.
+    expect(maskSampleLine("\u091C\u0930\u093E \u0930\u0941\u0915\u094B", ZAR)).toEqual(
+      dropped("name_tokens_found"),
+    );
+  });
 
   it("still masks the exact spelling to [NAME], as before", () => {
     expect(maskSampleLine(`main ${OM_VIRAMA} hoon`, OM_VIRAMA)).toEqual(shown("main [NAME] hoon"));

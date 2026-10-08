@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { codePointCount, foldText, MAX_FOLDED_MARKS } from "./name-fold";
 import {
   knownNameMatcher,
   knownNameOnce,
@@ -270,9 +271,12 @@ describe("#2166 — no over-masking: ordinary words that CONTAIN a name part are
     expect(redactKnownName("sur mein gaana", `Sur${SOFT_HYPHEN}esh Kumar`)).toBe("sur mein gaana");
   });
 
-  it("parts under three characters never match on their own", () => {
-    expect(redactKnownName("om shanti, ab chalo", "Om Prakash")).toBe("om shanti, ab chalo");
+  it("a two-letter part goes only as a WHOLE word; a one-letter initial never on its own", () => {
+    expect(redactKnownName("om shanti, Omkar, som, roz kaam", "Om Prakash")).toBe(
+      `${P} shanti, Omkar, som, roz kaam`,
+    );
     expect(redactKnownName("ab Ramesh bolega", "A B Ramesh")).toBe(`ab ${P} bolega`);
+    expect(redactKnownName("R K se mila", "R K Ramesh")).toBe("R K se mila");
   });
 
   it("Devanagari: आराम and रामपुर are not राम", () => {
@@ -301,14 +305,105 @@ describe("#2166 — known limits, pinned so nobody is surprised", () => {
     );
   });
 
-  it("a stored name joined ONLY by an invisible is one word", () => {
-    expect(redactKnownName("main Suresh hoon", `Suresh${ZWSP}Kumar`)).toBe("main Suresh hoon");
-    expect(redactKnownName("main SureshKumar hoon", `Suresh${ZWSP}Kumar`)).toBe(`main ${P} hoon`);
+  it("a stored name joined ONLY by an in-word invisible (a joiner, a soft hyphen) is one word", () => {
+    expect(redactKnownName("main Suresh hoon", `Suresh${ZWJ}Kumar`)).toBe("main Suresh hoon");
+    expect(redactKnownName("main SureshKumar hoon", `Suresh${ZWJ}Kumar`)).toBe(`main ${P} hoon`);
   });
 
   it("parts out of stored order are separate placeholders", () => {
     expect(redactKnownName("Kumar Suresh", "Suresh Kumar")).toBe(`${P} ${P}`);
   });
+
+  it("a name glued with an underscore (a handle) is not matched", () => {
+    expect(redactKnownName("id suresh_kumar hai", "Suresh Kumar")).toBe("id suresh_kumar hai");
+  });
+
+  it("KNOWN COST: a two-letter part that is also a word goes as that word, for that worker", () => {
+    expect(redactKnownName("haan ji, kal aaunga", "Ram Ji")).toBe(`haan ${P}, kal aaunga`);
+    expect(redactKnownName("haan ji, kal aaunga", "Ram Kumar")).toBe("haan ji, kal aaunga");
+  });
+});
+
+describe("#2166 review — a ZERO-WIDTH SPACE in the stored name separates words (security L2)", () => {
+  it("yields both parts", () => {
+    expect(redactKnownName("main Suresh hoon, Kumar bhi", `Suresh${ZWSP}Kumar`)).toBe(
+      `main ${P} hoon, ${P} bhi`,
+    );
+    expect(redactKnownName("main Suresh Kumar hoon", `Suresh${ZWSP}Kumar`)).toBe(`main ${P} hoon`);
+    expect(redactKnownName("main SureshKumar hoon", `Suresh${ZWSP}Kumar`)).toBe(`main ${P} hoon`);
+  });
+});
+
+describe("#2166 review — a part is measured AFTER the fold (code M1: short nukta names)", () => {
+  const ZAR_PRECOMPOSED = "\u095B\u0930"; // ज़र, the nukta letter precomposed
+  const ZAR_DECOMPOSED = "\u091C\u093C\u0930"; // ज + nukta + र
+  const ZAR_BARE = "\u091C\u0930"; // जर
+  const JARA_RUKO = "\u091C\u0930\u093E \u0930\u0941\u0915\u094B"; // जरा रुको
+  const JARA_WITH_NUKTA = "\u091C\u093C\u0930\u093E"; // ज़रा
+  const ROY = "\u09B0\u09DF"; // রয়, U+09DF precomposed
+  // আমার অভিজ্ঞতা রয়েছে — "I have experience".
+  const ROYECHE =
+    "\u0986\u09AE\u09BE\u09B0 \u0985\u09AD\u09BF\u099C\u09CD\u099E\u09A4\u09BE " +
+    "\u09B0\u09DF\u09C7\u099B\u09C7";
+
+  it("a stored ज़र never shreds जरा, and a stored রয় never shreds রয়েছে", () => {
+    for (const stored of [ZAR_PRECOMPOSED, ZAR_DECOMPOSED]) {
+      expect(redactKnownName(JARA_RUKO, stored)).toBe(JARA_RUKO);
+      expect(redactKnownName(JARA_WITH_NUKTA, stored)).toBe(JARA_WITH_NUKTA);
+    }
+    expect(redactKnownName(ROYECHE, ROY)).toBe(ROYECHE);
+  });
+
+  it("...and still redacts the name standing alone, with or without its nukta", () => {
+    for (const stored of [ZAR_PRECOMPOSED, ZAR_DECOMPOSED]) {
+      for (const typed of [ZAR_PRECOMPOSED, ZAR_DECOMPOSED, ZAR_BARE]) {
+        expect(redactKnownName(`main ${typed} hoon`, stored)).toBe(`main ${P} hoon`);
+      }
+    }
+    const HERE = "\u098F\u0996\u09BE\u09A8\u09C7"; // এখানে
+    expect(redactKnownName(`${ROY} ${HERE}`, ROY)).toBe(`${P} ${HERE}`);
+  });
+
+  it("the Devanagari जय and the Bengali জয় read alike: a whole word only", () => {
+    const JAY = "\u091C\u092F"; // जय, no nukta
+    const JAYKAR = "\u091C\u092F\u0915\u093E\u0930"; // जयकार
+    const JOY = "\u099C\u09DF"; // জয়, a nukta letter
+    const JOYI = "\u099C\u09DF\u09C0"; // জয়ী (winner)
+    expect(redactKnownName(`main ${JAY} hoon, ${JAYKAR}`, JAY)).toBe(`main ${P} hoon, ${JAYKAR}`);
+    expect(redactKnownName(`main ${JOY} hoon, ${JOYI}`, JOY)).toBe(`main ${P} hoon, ${JOYI}`);
+  });
+});
+
+describe("#2166 review — a long run of combining marks stays cheap (security M1)", () => {
+  // Descending combining classes (230, 220, 1), repeated: canonical reordering must sort the whole
+  // run, which ICU does in quadratic time — 11-14 ms a pass on 4,000 marks before the cap, and the
+  // interview re-redacts up to 600 buffered lines on every turn. These marks are not folded away,
+  // so the cap shows in the shadow itself, not only in the clock: that first test is the
+  // deterministic guard. The clock: ~50 ms for the 600-line buffer locally, 3.4 s with the cap
+  // removed (2026-10-08). The budget leaves room for a CI runner ~20x slower than that.
+  const MARKS = "\u20D0\u20E8\u20D2";
+  const RUN = `a${MARKS.repeat(1_334)}`;
+  const BUDGET_MS = 1_500;
+
+  it("folds at most the base and its first 16 marks, and maps the whole unit back", () => {
+    expect(RUN.length).toBeGreaterThanOrEqual(4_000);
+    const folded = foldText(RUN);
+    expect(codePointCount(folded.shadow)).toBe(1 + MAX_FOLDED_MARKS);
+    expect(folded.originalSpan(0, 1)).toEqual([0, RUN.length]);
+    // The marks past the cap still go with a name they follow.
+    expect(redactKnownName(`Suresh${MARKS.repeat(1_334)} hoon`, "Suresh Kumar")).toBe(`${P} hoon`);
+  });
+
+  it("a 4,000-mark message, and a 600-line buffer of them, each well under budget", () => {
+    let started = performance.now();
+    expect(redactKnownName(RUN, "Suresh Kumar")).toBe(RUN);
+    expect(performance.now() - started).toBeLessThan(BUDGET_MS);
+
+    const buffer = Array.from({ length: 600 }, (_, i) => ({ i, text: RUN }));
+    started = performance.now();
+    expect(redactKnownNameLines(buffer, "Suresh Kumar")).toEqual(buffer);
+    expect(performance.now() - started).toBeLessThan(BUDGET_MS);
+  }, 30_000);
 });
 
 describe("knownNameMatcher — one compiled reading of the name", () => {

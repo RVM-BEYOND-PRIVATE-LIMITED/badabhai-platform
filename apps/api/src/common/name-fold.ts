@@ -29,11 +29,17 @@
  *     "José" and "Jose" read alike. Every other mark is KEPT: a vowel sign or a virama tells words
  *     apart, and folding them away would make "राम" read as "रम", and so match "रीमा" and "रोम".
  *
- * Decomposing unit by unit equals decomposing the whole text: a unit always starts at a character
- * that is not a combining mark, and canonical reordering never crosses one.
+ * Decomposing unit by unit equals decomposing the whole text (up to the mark cap below): every unit
+ * boundary sits next to a character of combining class 0 — before a base, or on either side of an
+ * invisible — and canonical reordering only moves marks between two such characters, never across
+ * one.
  *
- * LINEAR: one pass over the code points and one small `normalize` per non-ASCII unit. Pure ASCII text
- * is its own shadow, with no map at all.
+ * LINEAR, AND BOUNDED PER UNIT. One regex scan cuts the units; pure ASCII text is its own shadow with
+ * no map at all. A unit's fold normalises at most its base and its first {@link MAX_FOLDED_MARKS}
+ * marks: ICU's canonical reordering is quadratic in a run of marks, and a worker can type thousands
+ * of them on one base (measured: 11–14 ms per pass on a 4,000-mark message, re-redacted on every
+ * line of a 600-line buffer). The marks past the cap fold to nothing but still belong to the unit, so
+ * the map back to the original stays exact and a replacement still takes them with the name.
  */
 
 /**
@@ -53,13 +59,28 @@ export const NAME_SEPARATORS = /(?:[^\p{L}\p{M}]|\p{Lm})+/gu;
 
 /**
  * What one invisible unit folds to. U+FFFF is a noncharacter, so no text should carry it; one that
- * does is read as an invisible too (see {@link IS_INVISIBLE}), so it can never mean anything else.
+ * does is read as an invisible too, so it can never mean anything else. The literal classes below
+ * spell it out (a regex literal cannot interpolate); `name-fold.test.ts` pins that they agree.
  */
 export const FOLD_SENTINEL = "\uFFFF";
 
-const IS_INVISIBLE = /^[\p{Cf}\p{Default_Ignorable_Code_Point}\uFFFF]$/u;
+/** The most marks after a base that a unit's fold normalises (see the module header). */
+export const MAX_FOLDED_MARKS = 16;
+
+/**
+ * One UNIT per match: an invisible on its own (group 1), or one character that is not invisible
+ * followed by every visible combining mark after it (group 2). A mark with nothing before it — at
+ * the start, or after an invisible — is its own base. Every code point falls in exactly one match,
+ * and the second alternative's star has nothing after it to backtrack for.
+ */
+const UNITS =
+  /([\p{Cf}\p{Default_Ignorable_Code_Point}\uFFFF])|([^\p{Cf}\p{Default_Ignorable_Code_Point}\uFFFF][^\P{M}\p{Cf}\p{Default_Ignorable_Code_Point}\uFFFF]*)/gu;
 const INVISIBLE_OR_SENTINEL = /[\p{Cf}\p{Default_Ignorable_Code_Point}\uFFFF]/gu;
-const IS_MARK = /^\p{M}$/u;
+/**
+ * A STORED name's invisible that is a word break, not a break inside a word: the zero-width space
+ * (Unicode's word separator). The soft hyphen and the zero-width (non-)joiners stay inside a word.
+ */
+const STORED_WORD_BREAK = /\u200B/gu;
 const STARTS_WITH_LETTER = /^\p{L}/u;
 const WORD_CHAR = /[\p{L}\p{N}_]/u;
 /**
@@ -104,18 +125,35 @@ export function foldText(text: string): FoldedText {
 }
 
 /**
- * A stored name folded as {@link foldText} folds the text, with two differences: its invisibles are
- * DELETED rather than kept as sentinels (a soft hyphen in a stored "Sur<SHY>esh" is a typo inside one
- * word), and its marks are all KEPT, so a part's length is counted as written. Fold the marks away
- * with {@link foldAwayMarks} before matching.
+ * A stored name folded as {@link foldText} folds the text, with three differences: a zero-width
+ * space becomes a SPACE (it separates words: a stored "Suresh<ZWSP>Kumar" is two); every other
+ * invisible is DELETED rather than kept as a sentinel (a soft hyphen in a stored "Sur<SHY>esh" is a
+ * break inside one word); and its marks are all KEPT. Fold the marks away with
+ * {@link foldAwayMarks} before matching.
  */
 export function foldName(name: string): string {
-  return fold(name.replace(INVISIBLE_OR_SENTINEL, ""), false).shadow;
+  return fold(name.replace(STORED_WORD_BREAK, " ").replace(INVISIBLE_OR_SENTINEL, ""), false)
+    .shadow;
 }
 
 /** `value` without the marks {@link foldText} folds away (the nuktas, the Latin diacritics). */
 export function foldAwayMarks(value: string): string {
   return value.replace(FOLDED_AWAY_MARKS, "");
+}
+
+/** Code points, not UTF-16 units: an astral letter counts one. */
+export function codePointCount(value: string): number {
+  let count = 0;
+  for (let i = 0; i < value.length; i++) {
+    const unit = value.charCodeAt(i);
+    // A high surrogate followed by a low one is ONE code point; a lone surrogate counts as one.
+    if (unit >= 0xd800 && unit <= 0xdbff && i + 1 < value.length) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) i++;
+    }
+    count++;
+  }
+  return count;
 }
 
 /** One part of a whitespace-delimited word of a stored name, and the separator run before it. */
@@ -133,7 +171,9 @@ export function nameWordParts(word: string): NameWordPart[] {
   for (const run of word.matchAll(NAME_SEPARATORS)) {
     const part = word.slice(cursor, run.index);
     if (part.length > 0) parts.push({ part, separatorBefore: parts.length > 0 ? separator : "" });
-    separator = part.length > 0 ? run[0] : separator + run[0];
+    // Runs are maximal, so two never touch: the only empty part is before a leading run, whose
+    // separator nothing reads (the first part's `separatorBefore` is "").
+    separator = run[0];
     cursor = run.index + run[0].length;
   }
   const tail = word.slice(cursor);
@@ -150,31 +190,25 @@ function fold(
   const unitStarts: number[] = [];
   const shadowStarts: number[] = [];
   let shadow = "";
-  let open = -1; // where the unit that can still take marks starts; -1 when none is open
-  const close = (end: number) => {
-    if (open < 0) return;
-    unitStarts.push(open);
+  for (const unit of text.matchAll(UNITS)) {
+    unitStarts.push(unit.index);
     shadowStarts.push(shadow.length);
-    shadow += foldUnit(text.slice(open, end), stripMarks);
-    open = -1;
-  };
-  let offset = 0;
-  for (const char of text) {
-    if (IS_INVISIBLE.test(char)) {
-      close(offset);
-      unitStarts.push(offset);
-      shadowStarts.push(shadow.length);
-      shadow += FOLD_SENTINEL;
-    } else if (open < 0 || !IS_MARK.test(char)) {
-      close(offset);
-      open = offset;
-    }
-    offset += char.length;
+    shadow += unit[1] === undefined ? foldUnit(capped(unit[0]), stripMarks) : FOLD_SENTINEL;
   }
-  close(offset);
-  unitStarts.push(offset);
+  unitStarts.push(text.length);
   shadowStarts.push(shadow.length);
   return { shadow, unitStarts, shadowStarts };
+}
+
+/** The unit's base and its first {@link MAX_FOLDED_MARKS} marks — what its fold may normalise. */
+function capped(unit: string): string {
+  const keep = 1 + MAX_FOLDED_MARKS;
+  if (unit.length <= keep) return unit; // never more code points than UTF-16 units
+  let end = 0;
+  for (let kept = 0; kept < keep && end < unit.length; kept++) {
+    end += (unit.codePointAt(end) ?? 0) > 0xffff ? 2 : 1;
+  }
+  return unit.slice(0, end);
 }
 
 function foldUnit(unit: string, stripMarks: boolean): string {

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  codePointCount,
   FOLD_SENTINEL,
   foldAwayMarks,
   foldName,
   foldText,
+  MAX_FOLDED_MARKS,
   nameWordParts,
   NAME_SEPARATORS,
 } from "./name-fold";
@@ -17,6 +19,7 @@ import {
 
 const ZWSP = "\u200B";
 const SOFT_HYPHEN = "\u00AD";
+const ZWJ = "\u200D";
 
 describe("foldText — the shadow", () => {
   it("is the text itself for pure ASCII, with an identity map", () => {
@@ -87,9 +90,40 @@ describe("foldText — the way back to the original", () => {
   });
 });
 
+describe("the sentinel and the mark cap", () => {
+  it("reads a U+FFFF already in the text as an invisible, so it cannot mean anything else", () => {
+    // The literal classes spell U+FFFF out; this pins that they agree with FOLD_SENTINEL.
+    expect(FOLD_SENTINEL).toBe("\uFFFF");
+    expect(foldText(`a${FOLD_SENTINEL}b\u00E9`).shadow).toBe(`a${FOLD_SENTINEL}be`);
+    expect(foldName(`Sur${FOLD_SENTINEL}esh`)).toBe("Suresh");
+  });
+
+  it("folds a base and at most its first MAX_FOLDED_MARKS marks, and maps the whole unit back", () => {
+    const marks = "\u20D0".repeat(MAX_FOLDED_MARKS + 50);
+    const text = `x a${marks} y`;
+    const folded = foldText(text);
+    expect(folded.shadow).toBe(`x a${"\u20D0".repeat(MAX_FOLDED_MARKS)} y`);
+    const start = folded.shadow.indexOf("a");
+    expect(text.slice(...folded.originalSpan(start, start + 1))).toBe(`a${marks}`);
+    // The unit after it maps exactly: the dropped marks shift nothing.
+    const y = folded.shadow.indexOf("y");
+    expect(folded.originalSpan(y, y + 1)).toEqual([text.length - 1, text.length]);
+  });
+
+  it("counts code points, an astral letter and a lone surrogate as one each", () => {
+    expect(codePointCount("Suresh")).toBe(6);
+    expect(codePointCount("\u{1D412}\u{1D42E}")).toBe(2);
+    expect(codePointCount("a\uD800b")).toBe(3);
+    expect(codePointCount("")).toBe(0);
+  });
+});
+
 describe("foldName and the name's parts", () => {
-  it("deletes a stored name's invisibles and keeps its marks", () => {
-    expect(foldName(`Sur${SOFT_HYPHEN}esh${ZWSP} Kumar`)).toBe("Suresh Kumar");
+  it("deletes a stored name's in-word invisibles, spaces its zero-width space, keeps its marks", () => {
+    expect(foldName(`Sur${SOFT_HYPHEN}esh Ku${ZWJ}mar`)).toBe("Suresh Kumar");
+    // A zero-width space is a word separator (#2166 review L2): two words, not one.
+    expect(foldName(`Suresh${ZWSP}Kumar`)).toBe("Suresh Kumar");
+    expect(foldName(`Suresh${ZWSP} Kumar`)).toBe("Suresh  Kumar");
     expect(foldName("\u095B")).toBe("\u091C\u093C");
     expect(foldAwayMarks(foldName("\u095B"))).toBe("\u091C");
   });
@@ -107,8 +141,11 @@ describe("foldName and the name's parts", () => {
 
   it("NAME_SEPARATORS splits the same way through `split`, whatever its lastIndex", () => {
     NAME_SEPARATORS.lastIndex = 3;
-    expect("Anil D'Souza".split(NAME_SEPARATORS)).toEqual(["Anil", "D", "Souza"]);
-    expect("Raju007".split(NAME_SEPARATORS)).toEqual(["Raju", ""]);
-    NAME_SEPARATORS.lastIndex = 0;
+    try {
+      expect("Anil D'Souza".split(NAME_SEPARATORS)).toEqual(["Anil", "D", "Souza"]);
+      expect("Raju007".split(NAME_SEPARATORS)).toEqual(["Raju", ""]);
+    } finally {
+      NAME_SEPARATORS.lastIndex = 0;
+    }
   });
 });

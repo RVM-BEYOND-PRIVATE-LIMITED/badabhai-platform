@@ -408,10 +408,27 @@ switch, `AI_RAW_PII_ENABLED`, default off. The rows above are not reworded.
   `primary_role`) and the skills stage (`SkillsTurnService`) redact the known name from the
   message and history whatever the flag says — the recommendation of R32 residual (2) above.
 - **Residual, while armed: a bare name in other model output.** Beyond those three paths and the
-  `knownNamePattern` screens on the résumé and general-form briefs, no wall detects a bare
-  person name in model output (the certifiers refuse hard identifiers only, ruled 2026-09-11),
+  `knownNameMatcher` screens on the résumé and general-form briefs (`knownNamePattern` until
+  #2166), no wall detects a bare person name in model output (the certifiers refuse hard
+  identifiers only, ruled 2026-09-11),
   and armed, the other routes send the model names the gateway would have masked by cue. G2
   does not reach them. Recorded so it is not rediscovered as a leak; not ruled on.
+- **#2166 (2026-10-08): how G2 reads the worker's own name.** The redaction split the stored
+  name on whitespace only and normalised neither side, so a dotted (`K.Suresh`), hyphenated,
+  apostrophe, invisible-character or non-NFC name reached the model unredacted. Fixed in
+  `apps/api/src/common/redact-known-name.ts` + `name-fold.ts`: the name splits on dots, hyphens,
+  apostrophes, digits and modifier letters (and a stored zero-width space); the text is folded
+  unit by unit (invisibles, compatibility forms, NFC/NFD, the nukta and Latin diacritics) and only
+  the matched span of the original is replaced; a throw fails the turn or job CLOSED; a long run
+  of combining marks is capped per unit. **Short parts:** a part is measured after the fold, so a
+  two-letter part (`Om`, `ज़र` folded to `जर`) is redacted only as a whole word — never inside
+  `जरा` or `রয়েছে` — and a one-letter initial never on its own; the cost is that a stored
+  two-letter part that is also a word (`Ram Ji` → every standalone `ji`) goes for that worker.
+  **Known limits, accepted:** an initial glued to a dotted name (`KSuresh` for `K.Suresh`);
+  virama, anusvara and chandrabindu spelling variants; parts out of stored order (`Kumar Suresh`
+  is two placeholders); a name typed in another script than the one stored; an
+  underscore-glued handle (`suresh_kumar`); a stored name joined only by an in-word invisible
+  (`Suresh<ZWJ>Kumar`). Pinned by tests in `redact-known-name.test.ts`.
 - **Residual, flag on or off: a name inside a captured value.** No model is involved: a trade
   settled from the worker's own sentence (`settleWorkerTrade`) is stored verbatim, so "main
   Ramesh hoon, CNC operator" is projected onto `primary_role` as typed and reaches the employer
