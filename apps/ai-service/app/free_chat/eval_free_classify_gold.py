@@ -55,16 +55,43 @@ Q_WELDING = "Welding ka kaam karte hain?"
 Q_CERT = "Koi certificate hai, jaise ITI?"
 Q_CONTROL = "Fanuc ya Siemens?"
 Q_LEFT_JOB = "Pichli naukri kyun chhodi?"
-
-#: The bot's own memory role in a recent turn (`CompanionMemoryRole`), and the free-mode JOBS line
-#: (ADR-0051 §5.1) a worker's next message answers.
-BOT = "bada_bhai"
-JOBS_LINE = (
-    "Jab aapki profile ban jayegi, tab aapke kaam ki jobs dikhayenge. Resume banayein?"
-)
+Q_SHIFT = "Night shift mein kaam kar lenge?"
 
 #: One recent turn as the API sends it: (role, text), role "worker" or "bada_bhai".
 Turn = tuple[str, str]
+
+#: The two memory roles in a recent turn (`CompanionMemoryRole`), and the free-mode JOBS line
+#: (ADR-0051 §5.1) a worker's next message answers.
+BOT = "bada_bhai"
+WORKER = "worker"
+JOBS_LINE = (
+    "Jab aapki profile ban jayegi, tab aapke kaam ki jobs dikhayenge. Resume banayein?"
+)
+#: The every-third casual reply's résumé offer (ADR-0051 §5.1, R9). The API appends it to the
+#: model's casual lines, so the bot turn a worker answers is "<casual lines>\n<this line>".
+CASUAL_NUDGE_LINE = "Waise, aapka resume bana dein? Kaam dhoondhne mein kaam aayega."
+#: More fixed lines a worker's next message may answer, verbatim from the API's copy file
+#: (`apps/api/src/profiling/free-chat/free-chat.copy.ts`, pinned by a test). NEWS_CAP offers to
+#: MAKE the résumé (ADR-0054); the other three do not (owner ruling R38, ADR-0051 §10).
+NEWS_CAP_LINE = "Aaj ki khabrein ho gayin. Kal phir poochhiye. Tab tak resume bana lete hain?"
+OFF_LIMITS_LINE = "Is baare mein main baat nahi karta. Kaam ya resume ki baat karein?"
+LATER_ACK_LINE = "Theek hai. Jab mann ho, resume bana lenge. Tab tak kuch bhi poochhiye."
+FREE_CLARIFY_LINE = "Samajh nahi aaya. Aap kya karna chahte hain?"
+
+
+def after_jobs(worker_ask: str) -> tuple[Turn, ...]:
+    """The two recent turns after a jobs verdict: the worker's ask, then the JOBS line."""
+    return ((WORKER, worker_ask), (BOT, JOBS_LINE))
+
+
+def after_nudge(worker_line: str, casual_reply: str) -> tuple[Turn, ...]:
+    """The two recent turns after a nudged casual reply, built as the API builds that turn."""
+    return ((WORKER, worker_line), (BOT, f"{casual_reply}\n{CASUAL_NUDGE_LINE}"))
+
+
+def after_bot(worker_line: str, bot_line: str) -> tuple[Turn, ...]:
+    """The two recent turns after any other bot line: the worker's line, then the bot's."""
+    return ((WORKER, worker_line), (BOT, bot_line))
 
 
 class Case(NamedTuple):
@@ -157,7 +184,8 @@ _ROWS: list[tuple] = [
     ("cricket kaun jeeta", "resume", Q_YEARS, "casual"),
     ("koi job hai kya", "resume", Q_CITY, "jobs"),
     ("welding ke baad kaun sa course karun", "resume", Q_YEARS, "career"),
-    ("bakwas sawal mat pucho, bewakoof", "resume", Q_SALARY, "trash"),
+    # A mild insult is not clear abuse (owner ruling R37, ADR-0051 §10): casual, no strike.
+    ("bakwas sawal mat pucho, bewakoof", "resume", Q_SALARY, "casual"),
     ("BJP ya Congress, kisko vote dun", "resume", Q_CITY, "off_limits"),
     ("ab sab khatam karna chahta hoon, kuch accha nahi lagta", "resume", Q_YEARS, "distress"),
     ("asdf qwer", "resume", Q_TRADE, "unclear"),
@@ -190,7 +218,7 @@ _ROWS: list[tuple] = [
     ("app pe apply kaise karte hain", "free", None, "jobs"),
     ("नौकरी दिलाओ", "free", None, "jobs"),
 
-    # ── free mode: casual (8) ──
+    # ── free mode: casual (10) ──
     ("namaste", "free", None, "casual"),
     ("kaise ho aap", "free", None, "casual"),
     ("aaj bahut thak gaya hoon", "free", None, "casual"),
@@ -201,10 +229,12 @@ _ROWS: list[tuple] = [
     ("kal ka match kaun jeeta", "free", None, "casual"),
     # A "not now" to the JOBS line's offer is talk, not a résumé start.
     ("nahi abhi nahi", "free", None, "casual", ((BOT, JOBS_LINE),)),
+    # Owner ruling R37 (ADR-0051 §10): ONLY clear abuse is trash, because trash is a strike
+    # in free mode. A mild insult or a rude brush-off gets a normal polite reply: casual.
+    ("chup kar bakwas mat kar", "free", None, "casual"),
+    ("tu pagal hai kya", "free", None, "casual"),
 
-    # ── free mode: trash (4) ──
-    ("chup kar bakwas mat kar", "free", None, "trash"),
-    ("tu pagal hai kya", "free", None, "trash"),
+    # ── free mode: trash, clear abuse only (2) ──
     ("nangi photo bhejo", "free", None, "trash"),
     ("fuck off", "free", None, "trash"),
 
@@ -255,6 +285,87 @@ REGIONAL_ROWS: list[tuple] = [
     ("electrician no pagar ketlo hoy", "free", None, "career"),
     ("મને લોન જોઈએ છે", "free", None, "off_limits"),
 ]
+
+# ── ADR-0051 §10 round 1 (#2128): held-out lines for the weak spots the round-1 baseline showed ──
+# The baseline missed one line of each pattern below. These are DIFFERENT sentences of the same
+# kinds, so a prompt revision is measured on lines it was not written against. Fabricated. Owner
+# rulings R37 (only clear abuse is trash) and R38 (a bare acknowledgement after an offer to make
+# the résumé is a yes) are labelled here as the owner gave them, 2026-10-08.
+ROUND1_ROWS: list[tuple] = [
+    # A yes to the bot's own résumé offer (the JOBS line, or the casual nudge) is `resume`...
+    ("bilkul, bana dijiye", "free", None, "resume", after_jobs("koi vacancy hai kya")),
+    ("theek hai bana do", "free", None, "resume",
+     after_nudge("aaj garmi bahut hai", "Garmi mein paani peete rahiye aur thoda aaram kijiye.")),
+    ("chalo, kar lete hain", "free", None, "resume", after_jobs("naukri milegi kya")),
+    ("சரி, பண்ணலாம்", "free", None, "resume", after_jobs("Chennai la velai venum")),
+    # ...and a no, a not-now or a later is talk, never the résumé lock (casual).
+    ("nahi ji", "free", None, "casual", after_jobs("kahin kaam mil sakta hai")),
+    ("pehle thoda soch lun", "free", None, "casual",
+     after_nudge("ghar ki yaad aa rahi hai",
+                 "Ghar se door rehna mushkil hota hai. Kabhi phone kar liya kijiye.")),
+    ("baad mein karenge", "free", None, "casual", after_jobs("factory mein job hai kya")),
+    ("rehne do", "free", None, "casual",
+     after_nudge("kal chhutti hai", "Chhutti mein aaram kijiye, parivaar ke saath samay bitaiye.")),
+    ("vaddu, tarvata chuddam", "free", None, "casual",
+     after_nudge("ivala chala bore ga undi",
+                 "Konni rojulu ilaage untayi. Konchem bayata nadichi randi.")),
+    # A yes to a casual line that offered nothing is talk, not a résumé start.
+    ("haan wahi soch raha hoon", "free", None, "casual",
+     after_bot("aaj chhutti thi", "Chhutti ka din aaram se bitaiye, parivaar ke saath.")),
+    # In résumé mode a "not now" that answers the question on screen is still an answer.
+    ("abhi nahi, do mahine baad", "resume", Q_JOIN, "resume"),
+
+    # R38: a BARE acknowledgement right after a line that offers to MAKE the résumé is a yes...
+    ("theek hai", "free", None, "resume", after_jobs("Nagpur mein kuch kaam hai kya")),
+    ("thik hai", "free", None, "resume", after_bot("aaj ki aur khabar batao", NEWS_CAP_LINE)),
+    ("achha", "free", None, "resume",
+     after_nudge("aaj bahut thakaan hai",
+                 "Thakaan mein thoda aaram zaroori hai, paani peete rahiye.")),
+    ("okay", "free", None, "resume",
+     after_nudge("kal shaadi mein jaana hai", "Shaadi mein khoob maza kijiye, sabse milna hoga.")),
+    # ...and after any other line, including OFF_LIMITS (which offers to TALK, not to make it),
+    # it gives nothing to act on: unclear.
+    ("theek hai", "free", None, "unclear", after_bot("kaunsi party jeetegi", OFF_LIMITS_LINE)),
+    ("achha", "free", None, "unclear", after_bot("Baad mein", LATER_ACK_LINE)),
+    ("thik hai", "free", None, "unclear",
+     after_bot("aaj baarish ho rahi hai", "Baarish mein aana-jaana dhyan se kijiye.")),
+    ("okay", "free", None, "unclear", after_bot("😅", FREE_CLARIFY_LINE)),
+    # In résumé mode a bare acknowledgement that answers the question on screen is an answer.
+    ("achha", "resume", Q_SHIFT, "resume"),
+    # With no line before it, a bare acknowledgement gives nothing to act on.
+    ("accha", "free", None, "unclear"),
+
+    # A CV, a biodata or a printed résumé is the résumé, even when it is wanted for a job.
+    ("job ke liye biodata banwana hai", "free", None, "resume"),
+    ("factory mein dene ke liye resume ka print chahiye", "free", None, "resume"),
+    ("कंपनी के लिए बायोडाटा बनवाना है", "free", None, "resume"),
+
+    # R37: a mild insult, teasing, a complaint about the app or exasperation at a misread gets a
+    # normal polite reply (casual, no strike)...
+    ("tu toh ekdum gadha hai", "free", None, "casual"),
+    ("dimaag hai ki nahi tere paas", "free", None, "casual"),
+    ("hans hans ke pagal ho gaya", "free", None, "casual"),
+    ("arre Bada Bhai, aap toh pure buddhu nikle, haha", "free", None, "casual"),
+    ("yeh app kisi kaam ka nahi, bas resume resume karta rehta hai", "free", None, "casual",
+     after_jobs("koi job dikhao na")),
+    ("arre kitni baar bataun, aap samajhte hi nahi", "free", None, "casual",
+     after_bot("Ludhiana mein fitter ki vacancy?", FREE_CLARIFY_LINE)),
+    # ...and clear abuse is trash: a threat, or plain abuse, in either mode and any language.
+    ("ek aur sawal poocha toh sar phod dunga", "resume", Q_SALARY, "trash"),
+    ("tula ghari yeun maarin", "free", None, "trash"),
+    ("you useless piece of shit", "free", None, "trash"),
+
+    # "Is there a job?" in each regional language, the script the set did not have yet: with the
+    # §9 rows, every language now asks it in its own script AND in Latin letters.
+    ("Chennai la velai irukka", "free", None, "jobs"),
+    ("எனக்கு ஏதாவது வேலை கிடைக்குமா", "free", None, "jobs"),
+    ("naaku edaina job dorukutunda", "free", None, "jobs"),
+    ("ಬೆಂಗಳೂರಿನಲ್ಲಿ ಕೆಲಸ ಖಾಲಿ ಇದೆಯಾ", "free", None, "jobs"),
+    ("mala kuthe naukri milel ka", "free", None, "jobs"),
+    ("पुण्यात काही काम आहे का", "free", None, "jobs"),
+    ("Surat ma koi nokri chhe", "free", None, "jobs"),
+    ("મને નોકરી જોઈએ છે", "free", None, "jobs"),
+]
 # fmt: on
 
-CASES: list[Case] = [Case(*row) for row in _ROWS + REGIONAL_ROWS]
+CASES: list[Case] = [Case(*row) for row in _ROWS + REGIONAL_ROWS + ROUND1_ROWS]
