@@ -46,7 +46,7 @@
       the moment of a **completed** erasure. It is written only after the hard delete, at most
       2 per device and 64 per worker, on every erasure path including the QA immediate seam.
     - **How long it lives.** TTL = min(the token's natural remaining life,
-      `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`). The setting defaults to 7d, has a 30d ceiling,
+      `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`). The setting defaults to 7d, which is also its ceiling (it can only be shortened),
       and boot refuses a value above `AUTH_REFRESH_TTL_DAYS*86400`. **`0` disables both the write
       and the read.**
     - **What it holds.** The key and `"1"`, nothing else: no worker id, phone, `phone_hash` or

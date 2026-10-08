@@ -219,8 +219,9 @@ describe("account-deletion grace knobs (ADR-0031)", () => {
   });
 });
 
-// #2113 (owner ruling 2026-10-08) — the erased-credential tombstone horizon: default 7d, a 30-day
-// schema ceiling, 0 as the kill switch, and a boot guard that it never exceeds the refresh TTL.
+// #2113 (owner ruling 2026-10-08, "Allow, 7-day max") — the erased-credential tombstone horizon:
+// default 7d, which is also the schema ceiling, 0 as the kill switch, and a boot guard that it
+// never exceeds the refresh TTL.
 describe("ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS (#2113)", () => {
   it("defaults to 604800 (7 days) and coerces", () => {
     expect(cfg().ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS).toBe(604800);
@@ -236,12 +237,13 @@ describe("ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS (#2113)", () => {
     expect(() => assertAuthConfig(c, "development")).not.toThrow();
   });
 
-  it("the schema ceiling is 30 days: 2592000 parses, 2592001 is a parse error; negative and fractional are too", () => {
+  it("the schema ceiling is 7 days: 604800 parses, 604801 and 30 days are parse errors; negative and fractional are too", () => {
     expect(
-      cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "2592000" })
+      cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "604800" })
         .ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS,
-    ).toBe(2592000);
-    expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "2592001" })).toThrow();
+    ).toBe(604800);
+    expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "604801" })).toThrow();
+    expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "2592000" })).toThrow();
     expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "-1" })).toThrow();
     expect(() => cfg({ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "1.5" })).toThrow();
   });
@@ -258,14 +260,14 @@ describe("ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS (#2113)", () => {
     );
   });
 
-  it("boot accepts a horizon EQUAL to the refresh TTL, and the 30d ceiling under the 90d default", () => {
+  it("boot accepts a horizon EQUAL to the refresh TTL, and the 7d ceiling under the 90d default", () => {
     const equal = cfg({
       ...FAST2SMS_CREDS,
       AUTH_REFRESH_TTL_DAYS: "7",
       AUTH_SESSION_ABSOLUTE_MAX_DAYS: "7",
     });
     expect(() => assertAuthConfig(equal, "development")).not.toThrow();
-    const ceiling = cfg({ ...FAST2SMS_CREDS, ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "2592000" });
+    const ceiling = cfg({ ...FAST2SMS_CREDS, ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: "604800" });
     expect(() => assertAuthConfig(ceiling, "development")).not.toThrow();
   });
 });

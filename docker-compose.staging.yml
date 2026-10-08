@@ -693,7 +693,7 @@ services:
       # switch rather than "stop minting new tombstones". It does NOT clear keys already in Redis —
       # that is the separate ops step in docs/otp-throttles-runbook.md.
       ACCOUNT_DELETION_COOLDOWN_SECONDS: ${ACCOUNT_DELETION_COOLDOWN_SECONDS:-604800}
-      # #2113 — the erased-credential tombstone horizon (defined, with its 30d ceiling and boot
+      # #2113 — the erased-credential tombstone horizon (defined, with its 7d ceiling and boot
       # guard, in packages/config/src/server.ts; the default here MIRRORS the zod default). 0 is
       # the KILL SWITCH for both the write (erasure mints no `refresh_erased:*`) and the read
       # (PIN verify consults none), and the deletion runbook §7/§9 send operators to it. Without

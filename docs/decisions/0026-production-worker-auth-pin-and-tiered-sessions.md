@@ -412,7 +412,8 @@ PII-free `worker.account_deleted` event (D5).
 >   credential.
 > - **How long it lives.** Each key's TTL is min(floor(that token's natural remaining life),
 >   `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`). The setting defaults to **604800 (7d)**, the
->   same horizon as the cool-down. The schema ceiling is **2592000 (30d)**, and boot refuses a
+>   same horizon as the cool-down. The schema ceiling is also **604800 (7d)** (owner: "7-day max"), so the setting can only
+>   shorten retention; boot also refuses a
 >   value above `AUTH_REFRESH_TTL_DAYS*86400`. **`0` is the kill switch**: it stops the write
 >   and the read. Expiry is by TTL only, so no erasure step is needed.
 > - **Who reads it.** `PinService.verifyPin`, on the unresolved branch only (the (a0) exception
@@ -802,7 +803,7 @@ resolves.
 1. **(a2) is ratified.** The reserved 410 on `/auth/pin/verify` for a resolving token whose
    worker row is gone stays. It had been live without a recorded ruling since #1176.
 2. **Credential-keyed tombstones are approved.** The setting is
-   `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`: default 604800 (7d), schema ceiling 2592000,
+   `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`: default 604800 (7d), which is also the schema ceiling ("7-day max"),
    `0` as the kill switch, and a boot guard of ≤ `AUTH_REFRESH_TTL_DAYS*86400`. This amends D2;
    the artefact is named in the deletion runbook.
 3. **The QA immediate-delete seam writes tombstones too.**

@@ -679,14 +679,15 @@ export const serverEnvSchema = z.object({
   // phone or device id.
   //   - 0 = KILL SWITCH: disables BOTH the write (erasure mints nothing) and the read (verifyPin
   //     consults nothing), so flipping it to 0 takes effect for keys already written too.
-  //   - max(2592000) = the 30-day schema ceiling the owner ruled.
+  //   - max(604800) = the 7-day ceiling the owner ruled ("Allow, 7-day max", 2026-10-08): the
+  //     setting can only SHORTEN retention below the default, never lengthen it.
   //   - assertAuthConfig additionally refuses a value above AUTH_REFRESH_TTL_DAYS*86400: a
   //     tombstone must never be able to outlive the credential it stands in for.
   ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: z.coerce
     .number()
     .int()
     .nonnegative()
-    .max(2592000)
+    .max(604800)
     .default(604800),
 
   // D-3 — GATED test-login (worker session-mint) seam for staging smoke / e2e ONLY.
