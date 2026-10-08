@@ -1,9 +1,11 @@
 # ADR-0053: Payer org tenancy — the org's anchor payer is the tenant key (PAY-DB-01)
 
-- **Status:** **Proposed.** The owner ruled org-as-tenant on 2026-08-11 (`DATABASE_AUDIT.md` line 9) and
-  ordered the start on 2026-10-07. Not yet signed. The owner decisions in §11 gate specific phases. None
-  of them gates Phase 1.
-- **Date:** 2026-10-07
+- **Status:** **Accepted — owner rulings 2026-10-08 (§11).** The owner (Prakash) accepted the tenancy key
+  and every decision except O-8, as recommended (PR #2136 comment, 2026-10-08). O-8, arming `shadow` and
+  then `on` in production, stays the owner's call after the Phase 3 checklist. **The signature on the
+  foot is blank and awaits the owner.** History: org-as-tenant ruled 2026-08-11 (`DATABASE_AUDIT.md`
+  line 9); start ordered 2026-10-07; proposed 2026-10-07.
+- **Date:** 2026-10-07 (proposed) · 2026-10-08 (owner rulings)
 - **Owner:** Prakash (Backend Platform). Architecture: Chief Software Architect.
 - **Tracking:** `PAY-DB-01` (P0), `GAP-AUTHZ-01`, `GAP-FE-01` in
   [`GAP_REGISTER.md`](../payer-agent/GAP_REGISTER.md). Phased plan, predicate inventory, census SQL and
@@ -108,8 +110,8 @@ For actor `P` in mode `on`:
 - **R4 (heal, then fail closed):** if `P` has no active membership at all, call `ensureSoloOrg(P)`
   once (idempotent, the existing login pattern) and re-resolve. If that still fails, return 403.
 - **R5 (org liveness):** if the acting org's `status` ≠ `active`, or its anchor's `payers.status` ≠
-  `active`, return 403 (subject to O-6).
-- **R6 (vertical role):** if `P`'s `payers.role` ≠ the anchor's role, return 403 (subject to O-9).
+  `active`, return 403 (O-6, ruled 2026-10-08).
+- **R6 (vertical role):** if `P`'s `payers.role` ≠ the anchor's role, return 403 (O-9, ruled 2026-10-08).
 - **R7:** a resolve error is a 403, never an allow.
 
 In mode `off`, the tenant key is `P` and the resolver never fails a request. It still reports the org
@@ -128,8 +130,8 @@ today's tie-break (most recently accepted).
 | Unlock, reveal, relay, resume disclosure (spends the org wallet) | ✅ | ✅ | D3 |
 | Buy credits or capacity (credits the org wallet) | ✅ | ✅ | owner ruling 2026-10-07 (#2109) |
 | Invite, list and remove members | ✅ | ❌ list-self only | D3, `@OrgRoles("owner")` |
-| Agency KYC, earnings and payout requests | ✅ | **O-5** | flag-gated off today |
-| AI posting-chat drafts | own only | own only | O-7 (member-private) |
+| Agency KYC, earnings and payout requests | ✅ | ❌ (O-5, ruled) | flag-gated off today |
+| AI posting-chat drafts | own only | own only | O-7 (member-private, ruled) |
 
 The JWT `org_id` / `org_role` claim stays a **display hint** (`payer-session-org-claim.ts`). It never
 decides scope or role.
@@ -143,13 +145,14 @@ Phase 2 PR safe (§5.3).
 ### 3.5 Membership invariants enforced at invite accept
 
 Phase 1 adds these checks to `PayerOrgMembersService.accept`. Each refusal is a neutral 409 with no
-new event, matching the existing pattern that emits only on success.
+new event, matching the existing pattern that emits only on success. **A1–A3 were accepted by the owner
+on 2026-10-08.**
 
 - **A1:** a payer who already holds an active **team** membership cannot accept a second one. This
   resolves ADR-0027 Q3 with its recommended default: one org per member. Multi-org is a later ADR.
 - **A2:** the anchor of a team org (any non-removed member besides itself) cannot accept another
   org's invite. Accepting would strand the team without an owner (D3 guardrail).
-- **A3 (O-9):** the invitee's `payers.role` must equal the anchor's role. An employer login cannot
+- **A3 (O-9, ruled):** the invitee's `payers.role` must equal the anchor's role. An employer login cannot
   act inside an agency org, and an agent login cannot act inside an employer org (GAP-FE-06 split).
 
 ## 4. Scoping key per table
@@ -167,7 +170,7 @@ new event, matching the existing pattern that emits only on success.
 | | `payment_orders` | `payer_id` | the wallet credited; stamped at intent |
 | | `agency_invites` | `inviter_payer_id` (FK) | org roster |
 | | `referral_links` (agent kind) | `agent_payer_id` (FK) | no live writer today (`mintLink` has no caller); same rule when wired |
-| **A — agency money** | `agency_kyc`, `agency_payout_requests`, `agency_payout_accruals` | `payer_id` / `agency_payer_id` | per **O-5**; behind `AGENCY_PAYOUTS_ENABLED` (off) |
+| **A — agency money** | `agency_kyc`, `agency_payout_requests`, `agency_payout_accruals` | `payer_id` / `agency_payer_id` | org-level, owner-only (**O-5**, ruled); behind `AGENCY_PAYOUTS_ENABLED` (off) |
 | **B — member-private** | `payer_job_posting_chat_sessions`, `…_messages`, `payer_form_drafts` | `payer_id` = **actor** | unchanged (O-7); publish writes the posting under the tenant key |
 | **C — via parent** | `applications`, `job_reach`, `job_reach_widen` (posting) · `unlock_routing`, `relay_messages` (unlock) · the in-flight applicant-stage table (posting) | none | follows the parent |
 | **D — out of scope** | `payers`, `payer_orgs`, `payer_members` · the four modelled GAP-DB-21 tables (`agency_profiles`, `employer_profiles`, `payer_capabilities`, `payer_member_invites`; zero consumers) · `pricing_catalog`, `match_config`, `events`, `audit_logs` | — | — |
@@ -245,7 +248,7 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
 
 ## 6. Credits and wallet semantics (resolves ADR-0027 Q2)
 
-- **W1 (recommended; O-1):** an org has **one wallet**, the anchor's existing `payer_credits` row.
+- **W1 (O-1, ruled 2026-10-08):** an org has **one wallet**, the anchor's existing `payer_credits` row.
   Any member spends from it and any member's purchase credits it, per D3 and the 2026-10-07 ruling.
   Because the wallet row already belongs to the anchor, **no balance moves at any phase.**
 - **Concurrency:** members spending concurrently debit one row through the existing atomic
@@ -264,7 +267,7 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
 - **Free tier:** the signup grant goes to the new payer's own solo wallet. This is unchanged, keyed
   per account (`free_tier_grant:<payerId>`). Inviting more people cannot farm free credits into a
   team wallet.
-- **A joining member's personal balance (O-2):** it stays in their solo wallet. It is not visible
+- **A joining member's personal balance (O-2, ruled 2026-10-08):** it stays in their solo wallet. It is not visible
   while they act in the team, and becomes visible again if they are removed. Nothing is merged
   automatically.
   This is live today: since #2109 and #2110, a member can buy credits, and those credits land on
@@ -273,10 +276,10 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
 - **Admin grants:** `POST /admin/payers/:id/credits` stays literal and credits the wallet keyed by
   that id. Ops target the anchor to credit an org. Follow-up for admin-web: show the anchor next to
   the member.
-- **Worker-protection caps (O-3):** "max distinct payers per worker per week" (ADR-0010 D4) counts
+- **Worker-protection caps (O-3, ruled 2026-10-08):** "max distinct payers per worker per week" (ADR-0010 D4) counts
   distinct `payer_id`. After the flip that means distinct **orgs**. The per-unlock reveal-attempt cap
   becomes shared by the team.
-- **Coupons (O-4):** `couponUsage` counts `coupon.redeemed` by payload `payer_id`
+- **Coupons (O-4, ruled 2026-10-08):** `couponUsage` counts `coupon.redeemed` by payload `payer_id`
   (`posting-plans.repository.ts:290-299`). Under §7 that becomes per org.
 
 ## 7. Events
@@ -337,19 +340,33 @@ UPDATE <t> SET org_id = o.id FROM payer_orgs o WHERE o.root_payer_id = <t>.<tena
 - **Events:** §7.
 - **Old and new builds:** both run against the same database in any order.
 
-## 11. Owner decisions
+## 11. Owner decisions — ruled 2026-10-08
 
-| # | Decision | Recommendation | Blocks |
-|---|---|---|---|
-| **O-1** | The org wallet is the anchor's existing wallet; every member spends from it; every member's purchase credits it | **Yes.** It is what D3 says, and nothing moves | Merge of P2b |
-| **O-2** | A joining member's own pre-team rows and balance stay in their solo tenant (born-where); no automatic merge | **Yes.** Reversible. Census C5 sizes it; it can be non-zero because members have been able to buy onto their own wallet since #2109 | The flip, only if C5 is non-zero |
-| **O-3** | Worker-protection caps count distinct **orgs** after the flip, not logins; a team shares the per-unlock reveal attempts | **Yes.** The cap protects the worker from distinct *companies*. Counting logins would need a new column and would cap a team at fewer companies | Merge of P2b |
-| **O-4** | Coupon `perPayerLimit` becomes per org | **Yes.** Mock money today (`GAP-PAY-05`) | Merge of P2c |
-| **O-5** | Agency KYC, earnings and payouts are org-level and **owner-only** (`@OrgRoles("owner")`) | **Yes.** KYC describes the legal entity | Merge of P2d; must also be decided before `AGENCY_PAYOUTS_ENABLED` flips |
-| **O-6** | Suspending an org's anchor (ADR-0037) blocks the whole org: resolver R5 reads the anchor's `payers.status`, so every member gets a 403 on tenant routes. No new write and no new event; the existing cascade already suspends the org's inventory because it keys on `payer_id`. Suspending a non-anchor member blocks only that login | **Yes** | The flip (R5 behaviour) |
-| **O-7** | AI posting-chat drafts stay member-private | **Yes.** Current behaviour; the published posting is shared | Nothing |
-| **O-8** | Arm `shadow`, then `on`, in production (secret plus redeploy) | after the P3 checklist | P3 |
-| **O-9** | A member's vertical role must equal the anchor's role (A3, R6). The alternative is members acting under the anchor's role | **Must match** for now: fail-closed and reversible. Revisit if agencies hit it | A3 in P1 (P1 ships A1 and A2 without it) |
+**Owner rulings, 2026-10-08 (Prakash; recorded on PR #2136):**
+
+- **Tenancy key: ACCEPTED.** `payer_orgs.root_payer_id`, the founder's payer id (§2). No migration.
+  One flag, `PAYER_ORG_TENANCY_MODE` (`off` / `shadow` / `on`, default `off`).
+- **O-1 and O-2: ACCEPTED.** One org wallet, the founder's credits row, which every member spends from
+  and tops up. A member's pre-team personal balance stays in their personal account, with no automatic
+  merge.
+- **O-3, O-4, O-5, O-6, O-7, O-9, and invite refusals A1–A3: ACCEPTED as recommended.**
+- **O-8 is not ruled.** Arming `shadow`, then `on`, in production stays the owner's call after the
+  Phase 3 checklist (plan §5).
+
+**Effect on phases:** no owner decision blocks P1, P2a, P2b, P2c or P2d any more. P1 ships A1–A3
+together. P3's owner actions wait only on O-8.
+
+| # | Decision | Recommendation | Ruling 2026-10-08 | Was blocking |
+|---|---|---|---|---|
+| **O-1** | The org wallet is the anchor's existing wallet; every member spends from it; every member's purchase credits it | **Yes.** It is what D3 says, and nothing moves | ACCEPTED | Merge of P2b |
+| **O-2** | A joining member's own pre-team rows and balance stay in their solo tenant (born-where); no automatic merge | **Yes.** Reversible. Census C5 sizes it; it can be non-zero because members have been able to buy onto their own wallet since #2109 | ACCEPTED | The flip, only if C5 is non-zero |
+| **O-3** | Worker-protection caps count distinct **orgs** after the flip, not logins; a team shares the per-unlock reveal attempts | **Yes.** The cap protects the worker from distinct *companies*. Counting logins would need a new column and would cap a team at fewer companies | ACCEPTED | Merge of P2b |
+| **O-4** | Coupon `perPayerLimit` becomes per org | **Yes.** Mock money today (`GAP-PAY-05`) | ACCEPTED | Merge of P2c |
+| **O-5** | Agency KYC, earnings and payouts are org-level and **owner-only** (`@OrgRoles("owner")`) | **Yes.** KYC describes the legal entity | ACCEPTED | Merge of P2d; must also be decided before `AGENCY_PAYOUTS_ENABLED` flips |
+| **O-6** | Suspending an org's anchor (ADR-0037) blocks the whole org: resolver R5 reads the anchor's `payers.status`, so every member gets a 403 on tenant routes. No new write and no new event; the existing cascade already suspends the org's inventory because it keys on `payer_id`. Suspending a non-anchor member blocks only that login | **Yes** | ACCEPTED | The flip (R5 behaviour) |
+| **O-7** | AI posting-chat drafts stay member-private | **Yes.** Current behaviour; the published posting is shared | ACCEPTED | Nothing |
+| **O-8** | Arm `shadow`, then `on`, in production (secret plus redeploy) | after the P3 checklist | **Open**: owner's call after the P3 checklist | P3 |
+| **O-9** | A member's vertical role must equal the anchor's role (A3, R6). The alternative is members acting under the anchor's role | **Must match** for now: fail-closed and reversible. Revisit if agencies hit it | ACCEPTED (P1 ships A3) | A3 in P1 (P1 ships A1 and A2 without it) |
 
 ## 12. Alternatives considered
 
@@ -400,9 +417,18 @@ UPDATE <t> SET org_id = o.id FROM payer_orgs o WHERE o.root_payer_id = <t>.<tena
 
 Plan: [`ORG_TENANCY_PLAN.md`](../payer-agent/ORG_TENANCY_PLAN.md).
 
-- **P1:** resolver, mode flag, invariants A1 and A2, census script, red tests. No behaviour change.
+- **P1:** resolver, mode flag, invite refusals A1–A3, census script, red tests. No behaviour change.
 - **P2a–P2d:** predicate switch, one domain per PR. Each is a no-op in `off`.
-- **P3:** completeness gate, census, then `shadow`, then `on`.
+- **P3:** completeness gate, census, then `shadow`, then `on`. Arming each mode is the owner's call (O-8).
 - **P4 (deferred):** actor columns, `org_id` plus RLS.
 
 Required gates per phase are listed in the plan.
+
+---
+
+```
+Accepted 2026-10-08. The tenancy key (payer_orgs.root_payer_id, no migration, PAYER_ORG_TENANCY_MODE) and
+decisions O-1 to O-7 and O-9, with invite refusals A1 to A3, are the owner's rulings of 2026-10-08
+(PR #2136). O-8, arming shadow and then on in production, remains the owner's call after the Phase 3 checklist.
+Signed: ______________________ (product owner)          Date: ____________
+```

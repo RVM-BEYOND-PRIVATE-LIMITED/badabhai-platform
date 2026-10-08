@@ -165,13 +165,13 @@ Nothing here changes product behaviour; everything here makes behaviour checkabl
 
 ### Phase 3 — Tenancy (P0) — ✅ RULED: ORG-AS-TENANT, gated on Phase 0.1
 
-> **2026-10-07 — design settled in [ADR-0053](../decisions/0053-payer-org-tenancy-anchor-key.md) (Proposed);
+> **2026-10-07 — design settled in [ADR-0053](../decisions/0053-payer-org-tenancy-anchor-key.md) (Accepted with owner rulings 2026-10-08);
 > build plan in [`ORG_TENANCY_PLAN.md`](ORG_TENANCY_PLAN.md). The owner ordered the start on 2026-10-07.**
 > 3.2 and 3.3 below are **superseded as written**. There is no `org_id` migration and no backfill:
 > the tenant key is the org's anchor (`payer_orgs.root_payer_id`), already held in every
 > `payer_id` column. The "one coordinated change" rule is now enforced by one resolver plus one flag
 > (`PAYER_ORG_TENANCY_MODE`), so the predicate PRs (P2a–P2d) can merge separately. 3.1 is P1's red
-> test. 3.4 stays superseded by the 2026-10-07 credits ruling; agency money is O-5. The rows are
+> test. 3.4 stays superseded by the 2026-10-07 credits ruling; agency money is O-5 (ruled: org-level, owner-only). The rows are
 > kept for the record.
 
 **Land as one coordinated sequence.** 3.2, 3.3 and 3.4 must ship together — see the

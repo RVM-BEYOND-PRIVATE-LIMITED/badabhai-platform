@@ -4,6 +4,13 @@
 the build plan for that ADR: phases, file-level scope, every predicate to rewrite, tests, rollback,
 census SQL, and which owner decisions block which phase.
 
+**Owner rulings 2026-10-08 (ADR-0053 §11; PR #2136):**
+
+- **Accepted:** the tenancy key, O-1 to O-7, O-9, and invite refusals A1–A3.
+- **Not ruled:** O-8, arming `shadow` and then `on` in production. It stays the owner's call after
+  the §5 checklist.
+- **Effect:** **P1 and P2a–P2d are now unblocked.** P1 ships A1–A3 together.
+
 **Baseline:** `origin/main` at `c9b1237a` (2026-10-07). Line numbers are against that commit.
 Re-derive them at build time; do not trust them blindly.
 
@@ -19,12 +26,12 @@ flag. A merge therefore never depends on the owner hand-applying SQL first.
 | Phase | PR | What ships | Mode in prod | Behaviour change | Owner decisions that block it | Gates |
 |---|---|---|---|---|---|---|
 | **P0** | this PR | ADR-0053, this plan, register updates | — | none | — | Chief Architect |
-| **P1** | 1 | resolver + `TenantKey` brand + mode flag + accept invariants A1/A2 + census script + **red tests** | `off` | accept refusals A1/A2 only (A3 if O-9 is ruled) | none (O-9 only for A3) | code-reviewer · security-reviewer · DevOps (ci.yml, compose, deploy bridge) · QA clean-env |
+| **P1** | 1 | resolver + `TenantKey` brand + mode flag + accept invariants A1–A3 + census script + **red tests** | `off` | accept refusals A1–A3 only | none (O-9 ruled 2026-10-08) | code-reviewer · security-reviewer · DevOps (ci.yml, compose, deploy bridge) · QA clean-env |
 | **P2a** | 1 | postings + applicants + Candidates inbox predicates | `off` | none | — | security-reviewer (tenant isolation) · code-reviewer |
-| **P2b** | 1 | unlocks, credits, ledger, payment orders, resume disclosures, relay. **Red test goes green once P2a and P2b are both on `main`** | `off` | none | **O-1**, **O-3** | security-reviewer · code-reviewer (money + event meaning, ADR §7) |
-| **P2c** | 1 | plans, boosts, quota top-up, capacity, coupons | `off` | none | **O-4** | security-reviewer · code-reviewer |
-| **P2d** | 1 | agency jobs, invites, workers, KYC, earnings, payouts (+ owner gates) | `off` | owner gate on agency money only if O-5 is ruled (flag-off surface) | **O-5** | security-reviewer · code-reviewer |
-| **P3** | 1 + 2 owner actions | completeness gate (T5 allowlist empty) → census → `shadow` → `on` | `shadow` → `on` | **the fix** | **O-2** (only if census C5 ≠ 0), **O-6**, **O-8** | security-engineer pass on a seeded team org · owner sign-off |
+| **P2b** | 1 | unlocks, credits, ledger, payment orders, resume disclosures, relay. **Red test goes green once P2a and P2b are both on `main`** | `off` | none | none (O-1, O-3 ruled 2026-10-08) | security-reviewer · code-reviewer (money + event meaning, ADR §7) |
+| **P2c** | 1 | plans, boosts, quota top-up, capacity, coupons | `off` | none | none (O-4 ruled 2026-10-08) | security-reviewer · code-reviewer |
+| **P2d** | 1 | agency jobs, invites, workers, KYC, earnings, payouts (+ owner gates) | `off` | owner-only gate on agency KYC, earnings and payouts (O-5; flag-off surface) | none (O-5 ruled 2026-10-08) | security-reviewer · code-reviewer |
+| **P3** | 1 + 2 owner actions | completeness gate (T5 allowlist empty) → census → `shadow` → `on` | `shadow` → `on` | **the fix** | **O-8** (owner's call). O-2 and O-6 ruled 2026-10-08 | security-engineer pass on a seeded team org · owner sign-off |
 | **P4** | deferred | `actor_payer_id` columns · `org_id` + DB-enforced RLS · ownership transfer · multi-org | — | — | separate ADRs | migration-reviewer |
 
 **Order:**
@@ -75,7 +82,7 @@ program takes **no** migration number, so the two cannot collide. That branch mu
 
 | File | Change |
 |---|---|
-| `apps/api/src/payer-portal/payer-org-members.service.ts` (`accept`, `:149`) | before `acceptInvite`: **A1** refuse if the accepter holds an active team membership; **A2** refuse if the accepter anchors an org with any other non-removed member; **A3** (only if O-9 is ruled) refuse on role mismatch. Neutral 409, logged, no event. |
+| `apps/api/src/payer-portal/payer-org-members.service.ts` (`accept`, `:149`) | before `acceptInvite`: **A1** refuse if the accepter holds an active team membership; **A2** refuse if the accepter anchors an org with any other non-removed member; **A3** (O-9, ruled 2026-10-08) refuse on role mismatch. Neutral 409, logged, no event. |
 | `apps/api/src/payer-portal/payer-org-members.service.test.ts` | each refusal; the happy path; a refusal consumes no token |
 
 ### 2.4 Census (read-only, production-safe)
@@ -103,7 +110,7 @@ program takes **no** migration number, so the two cannot collide. That branch mu
 - any migration
 - `apps/payer-web` or `apps/payer-app`
 
-The accept page should explain an A1/A2 refusal; raise that as a Frontend issue (CLAUDE.md §6).
+The accept page should explain an A1–A3 refusal; raise that as a Frontend issue (CLAUDE.md §6).
 
 ---
 
@@ -209,7 +216,7 @@ The accept page should explain an A1/A2 refusal; raise that as a Frontend issue 
 
 | Step | Action | Pass condition |
 |---|---|---|
-| 1 | Run `pnpm --filter @badabhai/db db:audit:org-tenancy` against production (read-only) | C2 = C3 = C4 = C6 = 0. C1 and C5 recorded. If C5 ≠ 0, **O-2** must be ruled first. |
+| 1 | Run `pnpm --filter @badabhai/db db:audit:org-tenancy` against production (read-only) | C2 = C3 = C4 = C6 = 0. C1 and C5 recorded. A non-zero C5 is expected and needs no further ruling: O-2 (ruled 2026-10-08) keeps those rows and balances personal. Tell the affected members before `on`. |
 | 2 | Set the `production` secret `PAYER_ORG_TENANCY_MODE=shadow` and redeploy | — |
 | 3 | Observe `shadow` for at least 48 h of payer traffic | zero resolver errors; `would_differ` only for C1 actors; resolver p95 ≤ 5 ms; tenant-route p95 regression ≤ 5 ms (ADR §5.4) |
 | 4 | security-engineer pass in a non-production environment with mode `on` and a seeded team org | no Critical or High findings |
@@ -263,7 +270,7 @@ WHERE pm.status = 'active'
   AND po.root_payer_id <> pm.member_payer_id
   AND pm.member_payer_id IN (SELECT id FROM team_anchors);
 
--- C4  Invariant A3 / R6: member role differs from the anchor's role. MUST be 0 (or O-9 ruled otherwise).
+-- C4  Invariant A3 / R6: member role differs from the anchor's role. MUST be 0 (O-9 ruled 2026-10-08).
 SELECT pm.member_payer_id, m.role AS member_role, r.role AS anchor_role
 FROM payer_members pm
 JOIN payer_orgs po ON po.id = pm.org_id
@@ -348,7 +355,7 @@ T0's `it.fails` → `it` flip is itself the proof that T0 can observe the fix.
 
 | Phase | Rollback | Data effect |
 |---|---|---|
-| P1 | revert the PR | none; A1/A2 refusals stop |
+| P1 | revert the PR | none; A1–A3 refusals stop |
 | P2a–P2d | revert the PR | none: in `off`, tenant key = actor, so old and new code write identical rows |
 | `shadow` | secret back to `off` + redeploy | none (logging only) |
 | `on` | secret back to `off` + redeploy | Rows a member wrote in `on` stay under the anchor: the owner keeps seeing them, and the member returns to today's empty view. The wallet and ledger stay reconcilable (same key). No repair needed. Re-flipping later is clean. |
@@ -359,16 +366,18 @@ no schema change.
 
 ---
 
-## 9. Owner decisions → phase map
+## 9. Owner decisions → phase map (ruled 2026-10-08)
 
-| Decision (ADR §11) | Recommendation | Blocks |
-|---|---|---|
-| O-1 org wallet = the anchor's wallet | yes | P2b merge |
-| O-2 born-where for a member's pre-team data | yes (no merge) | flip, only if C5 ≠ 0 |
-| O-3 caps count orgs | yes | P2b merge |
-| O-4 coupon limit per org | yes | P2c merge |
-| O-5 agency money org-level, owner-only | yes | P2d merge; and before `AGENCY_PAYOUTS_ENABLED` |
-| O-6 anchor suspension blocks the org | yes | flip |
-| O-7 chat drafts member-private | yes | nothing |
-| O-8 arm `shadow` then `on` | after §5 | P3 |
-| O-9 member role must equal the anchor's | yes, for now | only A3 inside P1 |
+| Decision (ADR §11) | Recommendation | Ruling 2026-10-08 | Was blocking |
+|---|---|---|---|
+| Tenancy key = `root_payer_id`, no migration, one flag | — | ACCEPTED | P2a onward |
+| O-1 org wallet = the anchor's wallet | yes | ACCEPTED | P2b merge |
+| O-2 born-where for a member's pre-team data | yes (no merge) | ACCEPTED | flip, only if C5 ≠ 0 |
+| O-3 caps count orgs | yes | ACCEPTED | P2b merge |
+| O-4 coupon limit per org | yes | ACCEPTED | P2c merge |
+| O-5 agency money org-level, owner-only | yes | ACCEPTED | P2d merge; and before `AGENCY_PAYOUTS_ENABLED` |
+| O-6 anchor suspension blocks the org | yes | ACCEPTED | flip |
+| O-7 chat drafts member-private | yes | ACCEPTED | nothing |
+| O-8 arm `shadow` then `on` | after §5 | **Open**: owner's call | P3 |
+| O-9 member role must equal the anchor's | yes, for now | ACCEPTED | A3 inside P1 |
+| Invite refusals A1–A3 | yes | ACCEPTED | P1 |
