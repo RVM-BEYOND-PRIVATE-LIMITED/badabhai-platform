@@ -92,6 +92,23 @@ export class WorkersRepository {
   }
 
   /**
+   * The worker's ENCRYPTED `full_name` token alone, or null (no row, or no name on file).
+   *
+   * EXPLICIT projection, deliberately NOT `findById` (`select()` = SELECT *, which also hands back
+   * the encrypted phone and its hash): a caller that needs only the name to MASK it — the free-chat
+   * probe (ADR-0051 §10) — never pulls another PII column into its process. Decrypt it with the
+   * shared `decryptWorkerName`. `ChatService.readWorkerName` still reads through `findById`.
+   */
+  async findFullNameToken(id: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ fullName: workers.fullName })
+      .from(workers)
+      .where(eq(workers.id, id))
+      .limit(1);
+    return rows[0]?.fullName ?? null;
+  }
+
+  /**
    * True iff a worker row with this id currently EXISTS. The cheapest possible existence
    * probe: a PK point-lookup projecting the id ONLY (`SELECT id ... WHERE id = $1 LIMIT 1`),
    * riding the `workers` primary-key index.

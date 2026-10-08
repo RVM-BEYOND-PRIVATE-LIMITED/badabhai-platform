@@ -303,7 +303,7 @@ Any widening of this list follows the same review as the copy.
 4. **Owner:** append `profiling_free_classify,profiling_free_reply` to the box's `AI_REAL_CALL_TASKS` and
    redeploy.
 5. PR B merges. **The feature is live.**
-6. Device test, then the improvement loop: event probes → labelled set → prompt revisions.
+6. Device test, then the improvement loop: event probes → labelled set → prompt revisions (§10).
 7. **Rollback:** set the `production` environment secret `CHAT_FREE_CHAT_DISABLED=true` and redeploy.
    The switch writes nothing; sessions started while it was on keep their mode and lock.
 
@@ -405,9 +405,81 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 - The Hindi/English walls also apply to a regional reply. For example, the career gate's `pakka` is also Telugu for
   "beside", so a Telugu line using it that way serves the fallback.
 
+## 10. The improvement loop (owner rulings 2026-10-08, #2128)
+
+§7 step 6 promised "event probes → labelled set → prompt revisions". This section says how a round runs.
+
+| # | Ruling |
+|---|---|
+| **R29** | **Real messages, masked sample.** A round may read up to 50 recent free-chat messages the bot struggled with, read-only, with the owner's approval each time. A message carrying a hard identifier, a name cue, or a name that cannot be looked up is left out whole. The worker's own name is masked. Only fabricated rewrites enter the repo; no real text is stored anywhere new. |
+| **R30** | **Cadence.** Round 1 runs now; later rounds run when the owner asks. |
+| **R31** | **Ship bar for a prompt revision.** The overall score on the labelled set goes up, **distress, trash and off_limits lose no line**, and every other category drops by at most one line. |
+| **R32** | **Eval runs use the live model.** The classifier eval runs on the paid key, with `--expect-model` naming the model that production actually serves. The route's primary is `gemini-2.5-flash-lite`. On 2026-10-08 every box call was served by `claude-haiku-4-5` (#2170), so Haiku is the live model until #2170 is resolved. A Haiku-only run is a re-run owed on flash-lite before the box switches. A run answered by a model other than the one named is not evidence. |
+| **R33** | **Own name in another script or as a nickname: accepted limit.** The probe masks the name as stored. "सुरेश" for a stored "Suresh", or "Raju" for "Rajesh", is shown. Only the worker's own first name gets through this way, never an id or a phone, and regional-script lines stay in the sample. |
+| **R34** | **The sample runs on the box only.** `--sample` refuses unless `NODE_ENV=production` and the real PII keys are loaded. The production key is never copied to a laptop. The owner runs it in the api container and pastes the masked output. |
+| **R35** | **The pasted copy is named and deleted.** The output pasted into the operator's Claude Code session is kept in that session's local transcript, a store outside DPDP erasure (risks register R67). Once the round's labelled lines are written, the session transcript is deleted. |
+| **R36** | **Whose lines may be sampled.** Checking the bot's quality is treated as part of running the profiling chat the worker agreed to. A line is eligible only when its worker's latest consent is active and includes `profiling`, and no deletion is scheduled. A withdrawn or erasure-pending worker is never sampled. ADR-0018's `model_training` purpose governs a training corpus and is not required here. No worker has given it, because the app does not ask. |
+| **R37** | **Only clear abuse is `trash`.** Gaali, slurs and clear abuse are strikes. A mild insult at the bot ("tu pagal hai kya"), teasing, a complaint about the app, or exasperation at a misread is `casual`: a polite reply, no strike. This matches the abuse word list, which leaves mild words out on purpose. A strike leads to a 30-minute block (R13). |
+| **R38** | **A bare acknowledgement after a résumé offer is a yes.** In free mode, "ok", "accha" or "theek hai" right after a line where Bada Bhai offers to make the résumé is `resume`. Those lines are JOBS, CASUAL_NUDGE, NEWS_CAP, and a reply ending with that offer. After any other line, a bare acknowledgement is `unclear`. |
+
+**One round:**
+1. **Probe (read-only, owner approval).** `node apps/api/dist/profiling/free-chat/free-chat-probe.cli.js
+   --since=<date> [--sample=N]` runs inside one read-only transaction. Without `--sample` it prints counts only,
+   and runs anywhere the database is reachable:
+   - turns by mode × decided_by × category × outcome, with the classifier's confidence buckets;
+   - clarify loops, in greeting and free mode, where every message records an event;
+   - sessions with repeated deflections. The order is unknown, because a résumé-mode message that goes to the
+     interview records no event;
+   - mode changes, summary outcomes and news outcomes;
+   - `ai.cost_recorded` for the four free-chat tasks.
+
+   With `--sample`, on the box only (R34), it adds the masked struggled messages (R29): clarify, fallback or
+   deflected turns, and classifier verdicts acted on at 0.5–0.7 confidence, from eligible workers only (R36). A turn
+   the bot handled as distress is never sampled. A turn whose line cannot be told apart from a neighbour's (overlapping sends) is left out. Each line
+   is printed quoted, under an "untrusted worker text" header, with an ordinal and never an id:
+
+   ```bash
+   docker exec badabhai-api node apps/api/dist/profiling/free-chat/free-chat-probe.cli.js --since=<date> --sample=50
+   ```
+
+   `badabhai-api` is the container name fixed in `docker-compose.yml`. A bare `docker compose … exec` stops on the
+   staging file's required `API_IMAGE` / `AI_SERVICE_IMAGE` variables.
+2. **Grow the labelled set.** Each weak spot becomes fabricated lines in `eval_free_classify_gold.py`, written fresh
+   rather than copied from the sample.
+3. **Score the baseline** on the current prompt (R32), on the model production actually serves: read the served
+   `model` from `ai.cost_recorded`. On 2026-10-08 that was `claude-haiku-4-5` for every call, because the box's
+   Gemini calls all fall back (#2170).
+4. **Revise the prompt.** Bump its registry version and score again in the same sitting. Ship only past R31.
+5. **Delete the pasted copy** (R35).
+
+**Known limits (accepted):**
+- **The sample sees flushed sessions only.** An in-flight conversation lives in the box's Redis. It reaches
+  `chat_messages` only at the completion flush, or when the idle sweep closes an abandoned session whose buffer is
+  still there. A worker whose buffer expired first is visible in the counts but not in the sample. The probe does
+  not read Redis.
+- **Masking is fail-closed but not complete.** A line is dropped whole if it has:
+  - a hard identifier;
+  - 9 or more digits;
+  - a name cue (the common Hindi, English and §9-language forms; spoken variants such as Tamil "per" are not all
+    covered);
+  - an unreadable name;
+  - or a stored-name token still in it after masking. A token of 3 or more letters counts anywhere in the
+    line, checked as written and again with combining marks (nukta, virama, vowel signs) stripped from both
+    the line and the token. A 2-letter token counts only as a whole word. A 1-letter token (an initial)
+    never counts.
+
+  R29 covers identifiers, name cues and the worker's own name only. So these still get through:
+  - the R33 cases;
+  - another person's name with no cue ("mere bhai Ramesh ko…");
+  - place and employer names;
+  - numbers written in words.
+- **No privacy notice yet** tells workers their chats help improve the bot (owner action, alongside the §8 note;
+  risks register R67).
+
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.
 Signed (Divyanshu): Divyanshu          Date: 2026-10-06
 Release 2 rulings R21–R24 taken 2026-10-07 (§8).
 Regional-language rulings R25–R28 taken 2026-10-07 (§9).
+Improvement-loop rulings R29–R38 taken 2026-10-08 (§10).
 ```
