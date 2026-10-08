@@ -24,6 +24,7 @@ import { AiTraceRecorder } from "../../ai/ai-trace-recorder.service";
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import { PayersRepository } from "../../payers/payers.repository";
 import { PayerTenantScopeService } from "../../payers/payer-tenant-scope.service";
+import type { TenantKey } from "../../payers/payer-tenant-scope";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
 import {
   PayerCreateJobPostingSchema,
@@ -508,15 +509,17 @@ export class JobPostingChatService {
    *  1. Own the session (no-oracle 404) and refuse a terminal one (409).
    *  2. Re-read the draft from jsonb through `JobPostingDraftSchema` — a stored draft
    *     is untrusted input like any other row.
-   *  3. Stamp `org_label` from `payers.orgNameEnc`. It could not have come from the
-   *     chat, because the chat never asks for it.
-   *  4. Validate against `PayerCreateJobPostingSchema`. THIS is the publish gate, not
+   *  3. Resolve the payer's tenancy (ADR-0053): the posting is created under the TENANT
+   *     key with the acting login as `created_by`. Before the claim, so a refused
+   *     resolution (`on` only, a neutral 403) claims nothing.
+   *  4. Stamp `org_label` from the TENANT's `payers.orgNameEnc` — the org founder's
+   *     company name (O-10, owner ruling 2026-10-08); with tenancy off that is the
+   *     login's own, as before. It could not have come from the chat, because the chat
+   *     never asks for it.
+   *  5. Validate against `PayerCreateJobPostingSchema`. THIS is the publish gate, not
    *     the engine's `draft_ready` flag — invariant #4 says the engine assists and does
    *     not decide, so a session may be published from `active` if the fields are
    *     genuinely there, and a `draft_ready` session is still rejected if they are not.
-   *  5. Resolve the payer's tenancy (ADR-0053): the posting is created under the TENANT
-   *     key with the acting login as `created_by`. Before the claim, so a refused
-   *     resolution (`on` only, a neutral 403) claims nothing.
    *  6. CLAIM the session, then create, then bind (see `claimForPublish` for why the
    *     claim precedes the create). The session itself stays the acting login's (O-7).
    *
@@ -576,8 +579,10 @@ export class JobPostingChatService {
     // where the picker lives, so the flow is whole — but this path alone never makes a
     // posting live, and any future change that publishes straight from the chat has to
     // solve the skill pick first or it recreates #1645 by a different road.
+    const scope = await this.tenancy.resolve(payerId);
     const candidate = {
-      org_label: await this.resolveOrgLabel(payerId),
+      // O-10: the org's name (the founder's), not the teammate's own signup name.
+      org_label: await this.resolveOrgLabel(scope.tenantKey),
       role_title: draft.role_title ?? undefined,
       ...(draft.location_label ? { location_label: draft.location_label } : {}),
       ...(draft.description ? { description: draft.description } : {}),
@@ -613,7 +618,6 @@ export class JobPostingChatService {
     }
     const dto: PayerCreateJobPostingDto = validated.data;
 
-    const scope = await this.tenancy.resolve(payerId);
     const claimed = await this.chat.claimForPublish(sessionId, payerId, new Date());
     if (!claimed) {
       // Lost the race with a concurrent publish — and, because the claim runs before
@@ -700,7 +704,9 @@ export class JobPostingChatService {
   }
 
   /**
-   * The payer's own organisation name, decrypted for THIS request only.
+   * The TENANT's organisation name, decrypted for THIS request only: the org founder's
+   * (`payers` row of the tenant key — O-10, owner ruling 2026-10-08). With tenancy off the
+   * tenant key is the login, so this is the payer's own name, exactly as before.
    *
    * Decrypts the ONE field it needs rather than reusing `decryptContact`, which would
    * also bring the payer's email and phone into memory for a call that has no use for
@@ -711,7 +717,8 @@ export class JobPostingChatService {
    * FAILS CLOSED: a missing row, an undecryptable token (rotated key), or an empty
    * name raises rather than publishing a posting under a blank or fabricated employer.
    */
-  private async resolveOrgLabel(payerId: string): Promise<string> {
+  private async resolveOrgLabel(tenant: TenantKey): Promise<string> {
+    const payerId: string = tenant;
     const row = await this.payers.findById(payerId);
     if (!row) {
       throw new InternalServerErrorException("Could not resolve your organisation details");

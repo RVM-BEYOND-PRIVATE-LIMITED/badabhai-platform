@@ -304,7 +304,8 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
 - **Meaning, stated once:**
   - On a **tenant business event**, the envelope `actor.actor_id` is the acting login, and the
     payload's payer-reference fields (`payer_id`, `inviter_payer_id`, `agency_payer_id`,
-    `viewer_payer_id`) carry the **tenant key**. Tenant business events are the `job_posting.*`
+    `viewer_payer_id`) carry the **tenant key**. Tenant business events are the agency `job.*`
+    events (`job.created`, `job.updated`, `job.closed`; added 2026-10-08, PR #2167), the `job_posting.*`
     purchase/boost/plan events, `unlock.*`, `payment.*`, `coupon.redeemed`, `capacity.purchased`,
     `posting_plan.*`, `payer.credits_exhausted`, `profile.viewed_v2`, `agency_invite.*`,
     `agency_kyc.*` and `agency_payout.*`.
@@ -366,6 +367,9 @@ UPDATE <t> SET org_id = o.id FROM payer_orgs o WHERE o.root_payer_id = <t>.<tena
   and tops up. A member's pre-team personal balance stays in their personal account, with no automatic
   merge.
 - **O-3, O-4, O-5, O-6, O-7, O-9, and invite refusals A1–A3: ACCEPTED as recommended.**
+- **O-10 (owner ruling 2026-10-08, relayed on PR #2167): RULED.** When a teammate publishes a
+  posting, it carries the org founder's company name (the anchor's `payers.org_name_enc`), and
+  the teammate is recorded as the creator (`created_by`, event actor). See the O-10 row below.
 - **O-8 is not ruled.** Arming `shadow`, then `on`, in production stays the owner's call after the
   Phase 3 checklist (plan §5).
 
@@ -383,6 +387,7 @@ together. P3's owner actions wait only on O-8.
 | **O-7** | AI posting-chat drafts stay member-private | **Yes.** Current behaviour; the published posting is shared | ACCEPTED | Nothing |
 | **O-8** | Arm `shadow`, then `on`, in production (secret plus redeploy) | after the P3 checklist | **Open**: owner's call after the P3 checklist | P3 |
 | **O-9** | A member's vertical role must equal the anchor's role (A3, R6). The alternative is members acting under the anchor's role | **Must match** for now: fail-closed and reversible. Revisit if agencies hit it | ACCEPTED (P1 ships A3) | A3 in P1 (P1 ships A1 and A2 without it) |
+| **O-10** | A teammate's posting carries the org FOUNDER's company name (`org_label` from the anchor's `payers.org_name_enc`), not the teammate's own signup name; the teammate stays the creator (`created_by`, event actor) | — (raised in review of PR #2167) | **RULED by the owner 2026-10-08** (relayed on PR #2167) | Nothing. The AI chat publish ships it in P2a; the manual form's prefill (client-side from `GET /payer/me`) is on the P2 checklist (plan §3.1) |
 
 ## 12. Alternatives considered
 
@@ -439,6 +444,9 @@ Plan: [`ORG_TENANCY_PLAN.md`](../payer-agent/ORG_TENANCY_PLAN.md).
 - **P1:** resolver, mode flag, invite refusals A1–A3, census script, red tests. No behaviour change.
 - **P2a–P2d:** predicate switch, one domain per PR. Each is a no-op in `off`.
 - **P3:** completeness gate, census, then `shadow`, then `on`. Arming each mode is the owner's call (O-8).
+  Until P3 the deploy preflight refuses `on` (risk R66, added 2026-10-08 by the security review of
+  PR #2167): `on` before every predicate is converted would be the partial switch of §1
+  constraint 2. **The P3 PR lifts the preflight refusal.**
 - **P4 (deferred):** actor columns, `org_id` plus RLS.
 
 Required gates per phase are listed in the plan.

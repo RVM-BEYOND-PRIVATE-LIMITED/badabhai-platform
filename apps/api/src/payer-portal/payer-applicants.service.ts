@@ -32,9 +32,9 @@ export type PayerApplicantListDto =
   | { jobId: string; applicants: StagedRow<MatchCandidateRowDto>[] };
 
 /**
- * The ONE message every not-listable id gets — unknown, another payer's job, another payer's
- * posting. It is the message `ReachService.applicantsForOwnedJob` throws, so the error object
- * the client receives is identical for all three (F-3 no-oracle). Shared with the stage route.
+ * The ONE message every not-listable id gets — unknown, another tenant's job, another tenant's
+ * posting — so the error object the client receives is identical for all three (F-3
+ * no-oracle). Shared with the stage route.
  */
 const NOT_FOUND = APPLICANT_NOT_FOUND;
 

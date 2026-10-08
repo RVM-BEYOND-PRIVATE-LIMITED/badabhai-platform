@@ -177,13 +177,33 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
   the scope (`JobPostingsService.createInScope` / `getOneInScope`). The chat publish resolves
   before it claims the session, so a refused resolution claims nothing. Controllers are unchanged.
 - **Event meaning:** `job_posting.*` — actor = the login, `created_by` = the login, no payer field
-  (unchanged schema). `job.*` (agency) — actor = the login, payload `payer_id` = the tenant key
-  (the row's owner, as `opsSetMatchSkills` already reported it; ADR §10 "a field that describes a
-  row's owner"). `feed.shown` and `payer.applicant_stage_changed` — actor = the login; the stage
-  row's `actor_payer_id` = the login. ADR §7's enumerated list omits `job.*`: Architect to confirm.
-- **Hazard for P2b/P2c:** `PayerJobPostingsController.enrich` calls `getPostingStats` and
+  (unchanged schema). `job.*` (agency) — actor = the login, payload `payer_id` = the tenant key, by
+  ADR §7's general rule (on a tenant business event the envelope actor is the acting login and
+  the payload's payer-reference fields carry the tenant key); `job.*` is now on §7's list. It is
+  also what `opsSetMatchSkills` already reported (the job's owning agency). `feed.shown` and
+  `payer.applicant_stage_changed` — actor = the login; the stage row's `actor_payer_id` = the
+  login.
+- **O-10 (owner ruling 2026-10-08) — the posting carries the org's name.** A teammate's
+  chat-published posting is stamped with the FOUNDER's company name (`org_label` from the tenant
+  key's `payers.org_name_enc`); the teammate stays `created_by` and the event actor. Shipped here
+  for the AI chat publish (`JobPostingChatService.publish` reads the org name AFTER resolving the
+  scope; in `off` the tenant is the login, so byte-identical). **Not shipped here — on the P2
+  checklist: the manual posting form's prefill.** payer-web (`sessionOrgLabel`) and payer-app
+  stamp `org_label` client-side from `GET /payer/me` `orgName`, the person's own account field
+  (plan §4: the person, not the tenant). Proposed: an additive `GET /payer/me` field carrying
+  the tenant's org name (equal to `orgName` in `off`), then a Frontend issue to prefill from it.
+  The server never overrides a client-sent `org_label` (that would change `off`).
+- **Hazard for P2b/P2c (N+1):** `PayerJobPostingsController.enrich` calls `getPostingStats` and
   `countDisclosuresForPosting` once PER POSTING with the raw session id. If those resolve inside,
   `GET /payer/job-postings` resolves N+1 times (ADR §5.4 budget); give them a scope-taking seam.
+- **Hazard for P2c (split purchase, review of PR #2167):** the plan, boost and quota-top-up
+  routes (`POST /payer/job-postings/:id/plan` · `/boost` · `/quota-topup`) check ownership
+  through `getOneForPayer` — the ORG after P2a — but then purchase through
+  `PostingPlansService.*ForPayer(id, payer.id, …)` under the LOGIN until P2c. In `on` a
+  teammate would pass the org's ownership check and buy under their own login and wallet. P2c
+  must give these three routes ONE scope-taking seam (resolve once, check ownership and purchase
+  with the same scope). The deploy preflight refuses `on` until P3 (risk R66), so this cannot
+  be reached in production.
 
 ### 3.2 P2b — money: unlocks, credits, ledger, payment orders, disclosures, relay
 
@@ -283,6 +303,12 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
    launderers (`launder<T>(x: unknown): T`), which no static test sees.
 8. **The owner confirms the R5 / O-6 amendment** (ADR-0053 R5, amended 2026-10-08 in PR #2155:
    the anchor-status check applies only when the actor is not the anchor).
+9. **The P3 PR lifts the preflight refusal.** Until P3, `scripts/deploy/staging-deploy.sh`
+   refuses `PAYER_ORG_TENANCY_MODE=on` (risk R66; `payer-org-tenancy-mode.guard.test.ts` pins
+   it). The P3 PR removes that arm and its test case in the same change that makes T5 assert
+   UNCONVERTED is empty.
+10. **O-10's manual-form prefill has shipped** (§3.1 as built): the posting form stamps the
+    org's name, not the member's own.
 
 **Owner actions (O-8), in order:**
 
@@ -456,4 +482,5 @@ no schema change.
 | O-7 chat drafts member-private | yes | ACCEPTED | nothing |
 | O-8 arm `shadow` then `on` | after §5 | **Open**: owner's call | P3 |
 | O-9 member role must equal the anchor's | yes, for now | ACCEPTED | A3 inside P1 |
+| O-10 a teammate's posting carries the founder's org name; the teammate is the creator | — | RULED (owner, 2026-10-08, relayed on PR #2167) | nothing; chat publish in P2a, the manual-form prefill on the P2 checklist (§3.1) |
 | Invite refusals A1–A3 | yes | ACCEPTED | P1 |

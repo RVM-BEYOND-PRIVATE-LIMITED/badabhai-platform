@@ -787,6 +787,47 @@ describe.skipIf(!RUN)(
         const foreign = await notFound(on.stages.setStage(ids.C, PA, W1, "passed", P2A_CTX));
         expect(foreign).toMatchObject({ message: APPLICANT_NOT_FOUND });
       });
+
+      // Security review of PR #2167, L2: the outsider's FILTERED reads are no oracle either.
+      it("the outsider's inbox filtered to the anchor's posting is the same empty page as for an unknown posting", async () => {
+        const empty = { applicants: [], nextCursor: null };
+        const foreign = await on.inbox.list(ids.C, { limit: 50, postingId: PA }, P2A_CTX);
+        const unknown = await on.inbox.list(ids.C, { limit: 50, postingId: randomUUID() }, P2A_CTX);
+        expect(foreign).toEqual(empty);
+        expect(unknown).toEqual(empty);
+        // Not vacuous: the same filter is a real row for the org (the teammate sees W1).
+        const asB = await on.inbox.list(ids.B, { limit: 50, postingId: PA }, P2A_CTX);
+        expect(asB.applicants.map((r) => r.workerId)).toEqual([W1]);
+      });
+
+      it("the outsider's inbox filtered by a stage the org's board holds is empty, as for any stage", async () => {
+        const empty = { applicants: [], nextCursor: null };
+        for (const stage of ["shortlist", "passed", "new"] as const) {
+          expect(await on.inbox.list(ids.C, { limit: 50, stage }, P2A_CTX), stage).toEqual(empty);
+        }
+        // Not vacuous: the org's board holds W1 at `shortlist` (the previous case moved him).
+        const asB = await on.inbox.list(ids.B, { limit: 50, stage: "shortlist" }, P2A_CTX);
+        expect(asB.applicants.map((r) => r.workerId)).toEqual([W1]);
+      });
+
+      it("the outsider's stage PUT on the anchor's posting is BYTE-equal to the unknown-posting one", async () => {
+        const foreign = await on.stages
+          .setStage(ids.C, PA, W1, "passed", P2A_CTX)
+          .catch((e: unknown) => e);
+        const unknown = await on.stages
+          .setStage(ids.C, randomUUID(), W1, "passed", P2A_CTX)
+          .catch((e: unknown) => e);
+        for (const err of [foreign, unknown]) expect(err).toBeInstanceOf(NotFoundException);
+        const body = (e: unknown) => {
+          const ex = e as NotFoundException;
+          return JSON.stringify({ status: ex.getStatus(), body: ex.getResponse() });
+        };
+        expect(body(foreign)).toBe(body(unknown));
+        const [row] = await client.sql<{ stage: string }[]>`
+          SELECT stage FROM payer_applicant_stages
+          WHERE posting_id = ${PA}::uuid AND worker_id = ${W1}::uuid`;
+        expect(row!.stage).toBe("shortlist"); // the outsider changed nothing
+      });
     });
 
     describe("mode off — today's behaviour exactly: the teammate is their own tenant", () => {

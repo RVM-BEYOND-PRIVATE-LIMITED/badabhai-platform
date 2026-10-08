@@ -33,8 +33,9 @@ import {
  * A new route group under `/payer/job-posting-chat`, a sibling of
  * {@link import("../payer-job-postings.controller").PayerJobPostingsController} and
  * class-guarded exactly like it. It is an INPUT SURFACE, not a second job-creation
- * path: `publish` calls the same `JobPostingsService.createForPayer` the manual form
- * uses, which already emits `job_posting.created`.
+ * path: `publish` calls the same posting create the manual form uses
+ * (`JobPostingsService.createInScope`, behind the form's `createForPayer`), which already
+ * emits `job_posting.created`.
  *
  * Every `:id` route returns the SAME neutral 404 for an unknown session and for
  * another payer's session, so none of them can be used to probe for valid ids.
@@ -134,7 +135,8 @@ export class JobPostingChatController {
 
   /**
    * Publish the collected draft as a real job posting. 201 — a row is created (by the
-   * existing `createForPayer`, which owns the `job_posting.created` event).
+   * existing posting create, `JobPostingsService.createInScope`, which owns the
+   * `job_posting.created` event).
    */
   @Post("sessions/:id/publish")
   @HttpCode(201)

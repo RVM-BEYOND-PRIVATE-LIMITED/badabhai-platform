@@ -17,7 +17,10 @@ import ts from "typescript";
  *      nothing reaches for the retired single-row `resolveOrgForPayer`.
  *  S-F1 Nothing forges the brand: no type assertion to TenantKey / PayerTenantScope /
  *      ActingOrgChoice (or an alias / interface built on one) outside payer-tenant-scope.ts, and
- *      `chooseActingOrg` is imported only by the resolver service and its test.
+ *      `chooseActingOrg` is imported only by the resolver service and its test. No cast to
+ *      `PayerTenantScopeService` outside tests and `*.test-support.ts` (a cast stand-in could
+ *      hand out any scope), and no production file imports a `*.test-support` module (the
+ *      support files mint keys through stub resolvers; security review of PR #2167, L1).
  *
  * WHAT T5 SEES. A callable — a method, a function declaration, or a class property / variable
  * initialised with an arrow function or function expression — is listed when (a) one of its
@@ -480,6 +483,25 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
     expect(found).toEqual(["fx/relational.repository.ts FxRepository.findOne"]);
   });
 
+  it("a property of a parameter typed INLINE — a type literal, alone or as an array element", () => {
+    // The only live example of this path is a P2d method; this fixture keeps the path pinned
+    // after P2d converts it (review of PR #2167, finding 5).
+    const found = scanRawTenantKeyCallables([
+      fixture(
+        "fx/inline.repository.ts",
+        `${TABLE_IMPORT}export class FxRepository {
+          async create(input: { inviterPayerId: string; code: string }) { return this.db.insert(unlocks).values(input); }
+          async accrue(rows: Array<{ agencyPayerId: string }>) { return this.db.insert(unlocks).values(rows); }
+          async count(input: { inviterPayerId: number }) { return this.db.select().from(unlocks); }
+        }`,
+      ),
+    ]);
+    expect(found).toEqual([
+      "fx/inline.repository.ts FxRepository.accrue",
+      "fx/inline.repository.ts FxRepository.create",
+    ]);
+  });
+
   it("a parameter typed by an interface declared in ANOTHER file", () => {
     const found = scanRawTenantKeyCallables([
       fixture("fx/types.ts", `export interface FxOwnedInput { agencyPayerId: string; n: number }`),
@@ -541,8 +563,11 @@ const lastName = (written: string): string => written.split(".").pop()!;
  * payer-tenant-scope.ts (`type K = TenantKey`, `interface In { tenant: TenantKey }`, `interface S
  * extends PayerTenantScope`), to a fixpoint — casting to any of those forges a key just the same.
  */
-function forgeableNames(sources: readonly ts.SourceFile[]): Set<string> {
-  const names = new Set(FORGEABLE);
+function forgeableNames(
+  sources: readonly ts.SourceFile[],
+  seed: readonly string[] = FORGEABLE,
+): Set<string> {
+  const names = new Set(seed);
   for (let grew = true; grew; ) {
     grew = false;
     for (const sf of sources) {
@@ -565,8 +590,11 @@ function forgeableNames(sources: readonly ts.SourceFile[]): Set<string> {
  * names a forgeable type, and every explicit CALL type argument that does (`launder<TenantKey>(id)`
  * through a generic `x as T`).
  */
-function forgedTenancyCasts(sources: readonly ts.SourceFile[]): string[] {
-  const names = forgeableNames(sources);
+function forgedTenancyCasts(
+  sources: readonly ts.SourceFile[],
+  seed: readonly string[] = FORGEABLE,
+): string[] {
+  const names = forgeableNames(sources, seed);
   const out: string[] = [];
   for (const sf of sources) {
     const report = (at: ts.Node, typeNode: ts.Node): void => {
@@ -621,12 +649,100 @@ function allSources(dir: string = SRC): ts.SourceFile[] {
   });
 }
 
+/** The resolver itself: a cast stand-in (`{ resolve: … } as PayerTenantScopeService`) forges scopes. */
+const RESOLVER = ["PayerTenantScopeService"];
+
+const isTestSupport = (sf: ts.SourceFile): boolean => sf.fileName.endsWith(".test-support.ts");
+
+/**
+ * `path` for every non-test, non-test-support file that imports, re-exports, `import()`s or
+ * `require`s a `*.test-support` module. Test support mints keys through stub resolvers and casts
+ * fakes to services; none of it may reach production code.
+ */
+function testSupportImporters(sources: readonly ts.SourceFile[]): string[] {
+  const out = new Set<string>();
+  const isSupport = (spec: string): boolean => /\.test-support(\.ts)?$/.test(spec);
+  for (const sf of sources) {
+    if (isTestSupport(sf)) continue;
+    const visit = (node: ts.Node): void => {
+      if (
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        isSupport(node.moduleSpecifier.text)
+      ) {
+        out.add(rel(sf.fileName));
+      }
+      if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
+        node.arguments[0] &&
+        ts.isStringLiteral(node.arguments[0]) &&
+        isSupport(node.arguments[0].text)
+      ) {
+        out.add(rel(sf.fileName));
+      }
+      node.forEachChild(visit);
+    };
+    visit(sf);
+  }
+  return [...out].sort();
+}
+
 describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-0053 §5.2 rule 2)", () => {
   it("no type assertion to TenantKey / PayerTenantScope / ActingOrgChoice outside payer-tenant-scope.ts", () => {
     const offenders = forgedTenancyCasts(parsedSources()).filter(
       (o) => !o.startsWith(`${SCOPE_FILE}:`),
     );
     expect(offenders, "mint a TenantKey only through the resolver").toEqual([]);
+  });
+
+  it("no cast to PayerTenantScopeService outside tests and *.test-support.ts (L1)", () => {
+    const production = parsedSources().filter((sf) => !isTestSupport(sf));
+    expect(forgedTenancyCasts(production, RESOLVER), "inject the real resolver").toEqual([]);
+  });
+
+  it("no production file imports a *.test-support module (L1)", () => {
+    expect(testSupportImporters(parsedSources())).toEqual([]);
+  });
+
+  it("the resolver-cast screen is not vacuous: a cast, an alias cast and a call type argument count", () => {
+    const found = forgedTenancyCasts(
+      [
+        fixture(
+          "fx/resolver.ts",
+          [
+            `const a = fake as unknown as PayerTenantScopeService;`,
+            `type R = PayerTenantScopeService;`,
+            `const b = fake as R;`,
+            `const c = make<PayerTenantScopeService>(fake);`,
+            `const d = fake as PayerOrgsRepository;`,
+          ].join("\n"),
+        ),
+      ],
+      RESOLVER,
+    );
+    expect(found).toEqual([
+      "fx/resolver.ts:1 PayerTenantScopeService",
+      "fx/resolver.ts:3 R",
+      "fx/resolver.ts:4 PayerTenantScopeService",
+    ]);
+  });
+
+  it("the test-support import screen is not vacuous: import, re-export, import() and require count; support files may import each other", () => {
+    const found = testSupportImporters([
+      fixture(
+        "fx/a.ts",
+        `import { resolverOver } from "../payers/payer-tenant-scope.test-support";`,
+      ),
+      fixture("fx/b.ts", `export * from "./x.test-support";`),
+      fixture("fx/c.ts", `const m = await import("./y.test-support");`),
+      fixture("fx/d.ts", `const m = require("./z.test-support.ts");`),
+      fixture("fx/e.ts", `import { x } from "./test-support-utils";`),
+      fixture("fx/f.test-support.ts", `import { y } from "./g.test-support";`),
+    ]);
+    expect(found).toEqual(["fx/a.ts", "fx/b.ts", "fx/c.ts", "fx/d.ts"]);
   });
 
   it("chooseActingOrg is imported only by the resolver service and its own test", () => {

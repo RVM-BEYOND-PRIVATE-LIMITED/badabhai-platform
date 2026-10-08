@@ -92,9 +92,12 @@ NestJS boot assertion).
   `api` service only, as `${PAYER_ORG_TENANCY_MODE:-off}` in `docker-compose.staging.yml`, and
   bridged from the GitHub `production` secret of the same name (`ci.yml` `env:` + `envs:`);
   **absent = `off`**. `scripts/deploy/staging-deploy.sh` refuses any other value (e.g. `ON`,
-  `true`) before a container moves, because the api's config would refuse to boot. The CI `e2e`
-  job runs `on`. Arming it in production is owner decision O-8, after the
-  `db:audit:org-tenancy` census (`docs/payer-agent/ORG_TENANCY_PLAN.md` §5).
+  `true`) before a container moves, because the api's config would refuse to boot. **It also
+  refuses `on` until PAY-DB-01 Phase 3** (risk R66): before every tenant predicate is converted,
+  `on` would scope some payer routes by org and the rest by login. The P3 PR lifts that refusal.
+  The api's config still accepts `on`, and the CI `e2e` job runs `on`. Arming it in production
+  is owner decision O-8, after the `db:audit:org-tenancy` census
+  (`docs/payer-agent/ORG_TENANCY_PLAN.md` §5).
 - **PIN unlock** — `PIN_PEPPER` (ADR-0026 Phase 3).
 - **Admin auth** — `ADMIN_JWT_SECRET` (ADR-0025, must differ from `JWT_SECRET`).
 - **AI routing** — `GEMINI_FLASH_API_KEY`, `AI_ENABLE_REAL_CALLS` (master kill-switch, default

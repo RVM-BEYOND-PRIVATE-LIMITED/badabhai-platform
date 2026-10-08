@@ -95,7 +95,7 @@ import {
     // fail-closed engine) unchanged — a read-only products projection, no write path.
     PricingModule,
     // The AI job-posting chat (ADR-0035) — a conversational FRONT DOOR onto the same
-    // JobPostingsService.createForPayer path PayerJobPostingsController already uses.
+    // JobPostingsService create path PayerJobPostingsController already uses.
     // Its own feature module (controller + service + repository) rather than another
     // controller here, because it owns state (sessions/messages) and therefore a
     // repository; it rides the same PayerAuthGuard and adds no new principal.

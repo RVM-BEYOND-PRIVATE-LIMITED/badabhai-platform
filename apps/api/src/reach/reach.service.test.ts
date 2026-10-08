@@ -218,7 +218,7 @@ describe("ReachService — View A (applicants for a job)", () => {
   });
 });
 
-describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R22)", () => {
+describe("ReachService — Payer-self View A (tryApplicantsForOwnedJob, ADR-0019 R22)", () => {
   const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
 
   /** The payer's own scope, minted by the REAL resolver in the default mode (ADR-0053). */
@@ -244,16 +244,14 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
   it("resolves the job via the PAYER-SCOPED ownership read (jobId + session payer)", async () => {
     const { svc, repo } = make([row(1)], []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
-    await svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
+    await svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
     expect(repo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, PAYER);
   });
 
-  it("an unknown OR not-owned job → IDENTICAL neutral 404, emits nothing (XB-A + no-oracle)", async () => {
+  it("an unknown OR not-owned job → the SAME undefined (the caller's neutral 404), emits nothing", async () => {
     const { svc, emit, emitMany, repo } = make([row(1), row(2)], []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(undefined); // absent OR other-payer
-    await expect(svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never)).resolves.toBeUndefined();
     expect(emit).not.toHaveBeenCalled();
     expect(emitMany).not.toHaveBeenCalled();
   });
@@ -263,7 +261,7 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
     const { svc, emitted, repo } = make(appliers, []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
 
-    const res = await svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
+    const res = (await svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never))!;
 
     expect(res.jobId).toBe(JOB_A);
     // The core orders the appliers, never filters them — even blank + off-trade appliers stay.
@@ -293,7 +291,7 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
     repo.listApplicantSignalRowsForJob.mockResolvedValue([applier]);
 
-    const res = await svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
+    const res = (await svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never))!;
 
     expect(res.applicants.map((a) => a.workerId)).toEqual([applier.workerId]);
     // The pool is never read on the payer path, and no impression names a non-applier.
@@ -309,7 +307,7 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
     repo.listApplicantSignalRowsForJob.mockResolvedValue([]);
 
-    const res = await svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
+    const res = (await svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never))!;
 
     expect(res).toEqual({ jobId: JOB_A, applicants: [] });
     expect(emitted()).toHaveLength(0);
@@ -319,7 +317,7 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
   it("#1898: the appliers are read by the job id the OWNERSHIP read returned", async () => {
     const { svc, repo } = make([row(1)], []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
-    await svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
+    await svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
     expect(repo.listApplicantSignalRowsForJob).toHaveBeenCalledOnce();
     expect(repo.listApplicantSignalRowsForJob).toHaveBeenCalledWith(JOB_A);
   });
@@ -328,7 +326,7 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
     const { svc, emitted, repo } = make([row(1), row(2), row(3)], []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
 
-    await svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
+    await svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never);
 
     const params = emitted();
     expect(params.length).toBe(3);
@@ -364,7 +362,7 @@ describe("ReachService — tryApplicantsForOwnedJob (the #1823 payer-list source
     neededBy: null,
   };
 
-  it("an owned job → the SAME list applicantsForOwnedJob serves, from ONE ownership read", async () => {
+  it("an owned job → the ranked appliers from ONE ownership read, the same list every time", async () => {
     // Recency is scored against "now"; pin the clock so the two lists are comparable.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-07-01T00:00:00.000Z"));
@@ -378,7 +376,7 @@ describe("ReachService — tryApplicantsForOwnedJob (the #1823 payer-list source
 
       const b = make(pool, []);
       b.repo.findOwnedJobSignalRowById.mockResolvedValue(OWNED);
-      expect(tried).toEqual(await b.svc.applicantsForOwnedJob(JOB_A, SCOPE, CTX as never));
+      expect(tried).toEqual(await b.svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never));
     } finally {
       vi.useRealTimers();
     }

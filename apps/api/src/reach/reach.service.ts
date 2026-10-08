@@ -52,7 +52,7 @@ export class ReachService {
    * console only). Resolves the job, scores the FULL eligible worker pool via the core, and
    * renders faceless ranked rows. Despite the route name these are SUGGESTED workers, not
    * applicants; no payer surface serves this read (#1898) — the payer list is
-   * {@link applicantsForOwnedJob}.
+   * {@link tryApplicantsForOwnedJob}.
    */
   async applicantsForJob(jobId: string, ctx: RequestContext): Promise<ApplicantListResponseDto> {
     const jobSpec = await this.jobs.getJobSpec(jobId);
@@ -94,43 +94,30 @@ export class ReachService {
 
   /**
    * PAYER-SELF applicant list for an owned legacy `jobs` row
-   * (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22; #1898).
+   * (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22; #1898): `undefined` when `jobId`
+   * is not a `jobs` row the tenant owns (unknown and another tenant's job alike), the ranked
+   * APPLIERS otherwise (possibly empty — a job nobody applied to is an empty list, not a 404).
+   * The payer applicant list (`PayerApplicantsService.listForOwned`, #1823) uses it to tell an
+   * agency job from a company posting in ONE ownership read, with no exception as control
+   * flow, and owns the neutral 404. A DB error propagates; it is never folded into `undefined`,
+   * so it can never become a 404.
    *
    * #1898 (owner ruling): an agency's applicants are the workers who APPLIED to that job —
    * `applications.job_id = jobId AND action = 'applied'` — never the ranked worker pool
    * (CLAUDE.md §2: never show irrelevant candidates). The appliers are ordered by the SAME
-   * deterministic RANK core as the ops view (no LLM, no new scoring, the row shape unchanged);
-   * the core orders, it never filters (count in == count out over the appliers). The whole-pool
-   * ranking stays ONLY on the ops view {@link applicantsForJob}.
+   * deterministic RANK core as the ops view (no LLM, no new scoring); the core orders, it never
+   * filters (count in == count out over the appliers). The whole-pool ranking stays ONLY on the
+   * ops view {@link applicantsForJob}.
    *
    *  (1) OWNERSHIP: the job is resolved via the tenant-scoped, no-oracle ownership read
-   *      (`findOwnedJobSignalRowById` on `scope.tenantKey`, ADR-0053) — a not-found job and
-   *      another tenant's job both resolve to the SAME neutral 404, so a payer cannot
-   *      enumerate jobs they do not own (XB-A horizontal authz + F-3 no-oracle). `payer_id`
-   *      is consumed only in the ownership WHERE and NEVER enters the JobSpec/response/event.
+   *      (`findOwnedJobSignalRowById` on `scope.tenantKey`, ADR-0053). `payer_id` is consumed
+   *      only in the ownership WHERE and NEVER enters the JobSpec/response/event.
    *  (2) ACTOR: each `feed.shown` carries `{actor_type:"payer", actor_id: scope.actorPayerId}`
    *      (the verified session login — never the body), vs the ops path's `system` actor.
    *
    * `scope` is the caller's ONE resolution of the session payer (ADR-0053 §5.2 rule 1).
-   */
-  async applicantsForOwnedJob(
-    jobId: string,
-    scope: PayerTenantScope,
-    ctx: RequestContext,
-  ): Promise<ApplicantListResponseDto> {
-    const list = await this.tryApplicantsForOwnedJob(jobId, scope, ctx);
-    // Not-found AND not-owned both land here with the IDENTICAL body (no-oracle, F-3).
-    if (!list) throw new NotFoundException("Job not found");
-    return list;
-  }
-
-  /**
-   * {@link applicantsForOwnedJob} without the 404: `undefined` when `jobId` is not a `jobs`
-   * row the tenant owns (unknown and another tenant's job alike), the ranked APPLIERS
-   * otherwise (possibly empty — a job nobody applied to is an empty list, not a 404). The payer
-   * applicant list (#1823) uses it to tell an agency job from a company posting in ONE
-   * ownership read, with no exception as control flow. A DB error propagates; it is never
-   * folded into `undefined`, so it can never become a 404.
+   * (The 404-throwing wrapper `applicantsForOwnedJob` had no production caller and was removed
+   * in PR #2167.)
    */
   async tryApplicantsForOwnedJob(
     jobId: string,

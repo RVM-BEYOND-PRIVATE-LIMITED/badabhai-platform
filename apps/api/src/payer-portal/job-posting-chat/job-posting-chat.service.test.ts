@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
@@ -2119,5 +2120,67 @@ describe("ADR-0053 P2a — publish: the posting is the org's, the conversation s
     await d.svc.publish(PAYER_A, SESSION, CTX);
     const [scope] = d.jobPostings.createInScope.mock.calls[0]! as unknown as [PayerTenantScope];
     expect(scope).toMatchObject({ actorPayerId: PAYER_A, tenantKey: PAYER_A, mode: "off" });
+  });
+
+  /**
+   * O-10 (owner ruling 2026-10-08): a teammate's posting carries the FOUNDER's company name —
+   * the anchor's `payers.org_name_enc` — while the teammate stays the creator. Each payer row
+   * below decrypts to its own name, so a read of the wrong row shows up as the wrong label.
+   */
+  function namedPayers(d: ReturnType<typeof make>) {
+    d.payers.findById.mockImplementation(async (id: string) => ({ id, orgNameEnc: `ENC:${id}` }));
+    d.pii.decrypt.mockImplementation((token: string) =>
+      token === `ENC:${ANCHOR}` ? "Anchor Founders Works" : "Teammate Own Works",
+    );
+  }
+
+  it("O-10 on: a teammate's chat-published posting carries the FOUNDER's org name; the teammate stays the creator", async () => {
+    const d = make({
+      session,
+      tenancy: resolverOver(ON, [{ anchor: ANCHOR, members: [PAYER_A] }]),
+    });
+    namedPayers(d);
+    await d.svc.publish(PAYER_A, SESSION, CTX);
+    expect(d.payers.findById).toHaveBeenCalledWith(ANCHOR);
+    expect(d.payers.findById).not.toHaveBeenCalledWith(PAYER_A);
+    const [scope, dto] = d.jobPostings.createInScope.mock.calls[0]! as unknown as [
+      PayerTenantScope,
+      Record<string, unknown>,
+    ];
+    expect(dto.org_label).toBe("Anchor Founders Works");
+    expect(scope).toMatchObject({ actorPayerId: PAYER_A, tenantKey: ANCHOR });
+  });
+
+  it("O-10 off (the default): the same teammate's posting carries their OWN org name, as today", async () => {
+    const d = make({
+      session,
+      tenancy: defaultModeResolver([{ anchor: ANCHOR, members: [PAYER_A] }]),
+    });
+    namedPayers(d);
+    await d.svc.publish(PAYER_A, SESSION, CTX);
+    expect(d.payers.findById).toHaveBeenCalledWith(PAYER_A);
+    const [, dto] = d.jobPostings.createInScope.mock.calls[0]! as unknown as [
+      PayerTenantScope,
+      Record<string, unknown>,
+    ];
+    expect(dto.org_label).toBe("Teammate Own Works");
+  });
+
+  it("O-10: an undecryptable founder name blocks the publish with the neutral 500 and logs ids only", async () => {
+    const d = make({
+      session,
+      tenancy: resolverOver(ON, [{ anchor: ANCHOR, members: [PAYER_A] }]),
+    });
+    d.payers.findById.mockImplementation(async (id: string) => ({ id, orgNameEnc: `ENC:${id}` }));
+    d.pii.decrypt.mockImplementation(() => {
+      throw new Error("rotated key");
+    });
+    const logged = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const err = await d.svc.publish(PAYER_A, SESSION, CTX).catch((e: unknown) => e);
+    const lines = logged.mock.calls.map((c) => String(c[0]));
+    logged.mockRestore();
+    expect(err).toBeInstanceOf(InternalServerErrorException);
+    expect(d.chat.claimForPublish).not.toHaveBeenCalled();
+    expect(lines.join("\n")).not.toContain("ENC:");
   });
 });
