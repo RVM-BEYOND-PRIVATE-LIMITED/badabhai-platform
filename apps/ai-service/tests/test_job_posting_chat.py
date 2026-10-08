@@ -4116,3 +4116,84 @@ def test_a_single_amount_span_holds_no_trailing_whitespace(text: str, figure: st
     (found,) = answers._pay_figures(text)
     assert not found.from_range
     assert text[found.start : found.end] == figure
+
+
+# --- #2142: a figure added to the wage with "+" / "plus" is not the band minimum ----------
+# "+" / "plus" is a clause boundary, so in "salary 18000 + 1500 and PF" the add-on word sits in
+# the NEXT clause: the 1500 passed the add-on screen and folded in as the band's MINIMUM, Rs
+# 1,500-18,000, in both the suffix-less and the suffixed form. A figure joined to the wage
+# figure right before it by "+" / "plus" (whitespace and a currency token aside) and SMALLER
+# than it never folds into the band.
+_PLUS_ADDITION_CASES: list[tuple[str, dict | None]] = [
+    # The issue's two rows ...
+    ("18000 + 1500 and PF", _pay(18000)),
+    ("18k + 1.5k and PF", _pay(18000)),
+    # ... and the same addition without the trailing benefit, spelled every way.
+    ("18000 + 1500", _pay(18000)),
+    ("18k+1.5k", _pay(18000)),
+    ("18000 plus 1500", _pay(18000)),
+    ("18K PLUS 1.5K", _pay(18000)),
+    ("rs 18000 + rs 1500", _pay(18000)),
+    ("18000\n+ 1500", _pay(18000)),
+    # A chain adds every figure to the wage it starts from.
+    ("18000 + 1500 + 1000", _pay(18000)),
+    ("18000 + 1500 + 2500", _pay(18000)),
+    # An added range does not displace the wage either (a range otherwise wins outright).
+    ("20k + 2-3k", _pay(20000)),
+    # Controls: ranges, single amounts and already-dropped add-ons read as before ...
+    ("15k-20k", _pay(15000, 20000)),
+    ("between 18000 and 22000", _pay(18000, 22000)),
+    ("20k and 25k", _pay(20000, 25000)),
+    ("20k to 25k", _pay(20000, 25000)),
+    ("18000", _pay(18000)),
+    ("in hand 20k, OT extra 2000", _pay(20000)),
+    ("12000 + 1500 HRA", _pay(12000)),
+    ("15-20k + 2k", _pay(15000, 20000)),
+    # ... an equal or a larger joined figure cannot lower the band and is left as it was ...
+    ("15000 + 15000", _pay(15000)),
+    ("15k + 15-20k", _pay(15000, 20000)),
+    ("10k + 15k", _pay(10000, 15000)),
+    # ... a figure after an ADD-ON figure is not added to a wage, so the wage is never dropped ...
+    ("joining bonus 25000 + 18000 salary", _pay(18000)),
+    # ... and the addition still counts as a figure for the different-bases rule (fail closed).
+    ("in hand 18000 + 1500", None),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _PLUS_ADDITION_CASES)
+def test_a_plus_joined_addition_is_not_the_band_minimum(text: str, pay: dict | None) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"salary {text}", None).get("pay_range") == pay
+
+
+@pytest.mark.parametrize(
+    "text", ["salary 18000 + 1500 and PF", "salary 18k + 1.5k", "in hand 18000 + 1500 and PF"]
+)
+def test_a_plus_joined_addition_moves_no_pay_type(text: str) -> None:
+    # The addition is still a pay figure, so the type read in passing (exactly one figure)
+    # records nothing, as before.
+    for topic in ("pay_range", None):
+        assert "pay_type" not in answers.detect_answers(text, topic)
+
+
+@pytest.mark.parametrize(
+    ("text", "joined"),
+    [
+        ("18000 + 1500", True),
+        ("18000plus1500", True),
+        ("18000  PLUS\n rs. 1500", True),
+        ("18000 + ₹1500", True),
+        # Only whitespace and a currency token may sit beside the "+" / "plus".
+        ("18000 surplus 1500", False),
+        ("18000 + 91 1500", False),
+        ("18000/- + 1500", False),
+        ("18000 pm + 1500", False),
+        # "and" / "aur" are range and split-pair separators (#2066, #2088), not additions.
+        ("18000 and 1500", False),
+        ("18000 aur 1500", False),
+    ],
+)
+def test_only_plus_and_a_currency_join_two_figures(text: str, joined: bool) -> None:
+    first, second = answers._pay_figures(text)[-2:]
+    found = answers._PAY_PLUS_JOINER_RE.fullmatch(text, first.end, second.start)
+    assert (found is not None) is joined

@@ -755,11 +755,54 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
     return kept
 
 
+# "+" / "plus" JOINING two figures, with nothing else between them but whitespace and a
+# currency token: "18000 + 1500", "18k plus 1.5k", "Rs 18000 + Rs 1500". Fullmatched on the
+# slice between two adjacent figures only, so it costs O(slice), and the slices are disjoint.
+_PAY_PLUS_JOINER_RE = re.compile(r"\s*(?:\+|plus)\s*(?:(?:₹|rs\.?|inr)\s*)?", re.IGNORECASE)
+
+
+def _plus_addition_screen(
+    message: str, figures: list[_PayFigure], kept: list[_PayFigure]
+) -> list[_PayFigure]:
+    """``kept`` without each figure stated as an ADDITION to a wage figure (#2142). "+" /
+    "plus" is a clause boundary, so in "salary 18000 + 1500 and PF" the add-on word sits in
+    the NEXT clause, the 1500 passed the add-on screen and became the band's MINIMUM: Rs
+    1,500-18,000 (and "18k + 1.5k" the same).
+
+    A figure is an addition when it is joined (`_PAY_PLUS_JOINER_RE`) to the figure right
+    before it, that figure passed the add-on screen (a wage figure, not a bonus), and it is
+    SMALLER than the wage figure the "+" chain starts from ("18000 + 1500 + 2500" adds both
+    to 18000). Only such a figure would lower the band; an equal or a larger one ("15000 +
+    15000", "10k + 15k") is left as it was. The chain's first figure is never an addition,
+    so no answer gains or loses a band here; only a figure below the wage leaves it. "and" /
+    "aur" are not joiners: they separate ranges and split pairs (#2066, #2088). One pass over
+    the figures, O(1) per figure besides its slice."""
+    wage = {figure.start for figure in kept}
+    additions: set[int] = set()
+    previous: _PayFigure | None = None
+    base: _PayFigure | None = None
+    for figure in figures:
+        if (
+            previous is not None
+            and previous.start in wage
+            and _PAY_PLUS_JOINER_RE.fullmatch(message, previous.end, figure.start) is not None
+        ):
+            base = previous if base is None else base
+            if figure.low < base.low:
+                additions.add(figure.start)
+        else:
+            base = None
+        previous = figure
+    return [figure for figure in kept if figure.start not in additions]
+
+
 def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
     """Parse a monthly pay answer into ``{"pay_min": int, "pay_max": int | None}``.
 
     An amount in an ADD-ON clause (bonus, OT, allowance, PF...) is dropped, and so is a
-    bare year; two figures on different bases record nothing (see the regexes above).
+    bare year; two figures on different bases record nothing (see the regexes above). A
+    smaller figure added to the wage with "+" / "plus" still counts as a figure there, and
+    then never folds into the band (`_plus_addition_screen`).
     """
     message = text or ""
     if require_cue and not _MONEY_CUE_RE.search(message):
@@ -768,6 +811,7 @@ def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
     kept = _addon_figure_screen(message, figures)
     if len(kept) > 1 and any(basis.search(message) for basis in _PAY_BASIS_KINDS.values()):
         return None
+    kept = _plus_addition_screen(message, figures, kept)
 
     # 1. A RANGE wins outright — it is the one place a multiplier may travel.
     for figure in kept:

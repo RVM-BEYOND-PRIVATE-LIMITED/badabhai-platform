@@ -289,7 +289,19 @@ _MANY_FIGURES = {
     "aur pairs": "20 hazaar aur 2 hazaar ",
     "dashed ranges": "15-20k ",
     "bare years": "1998 ",
+    # #2142: a "+" chain is one slice per adjacent pair, each read once.
+    "plus chain": "18000 + 1500 + ",
+    "plus pairs": "18k plus 1.5k ",
 }
+
+
+@pytest.mark.parametrize("run", [" ", "\t", " \n", "\n ", "　"])
+def test_the_plus_joiner_is_linear_on_a_whitespace_run(run: str) -> None:
+    # #2142: the slice between two figures is fullmatched once, joined or not.
+    k = 20_000
+    ws = run * (k // len(run))
+    for text in ("salary 18000" + ws + "+" + ws + "1500", "salary 18000" + ws + "x 1500"):
+        assert _best_of_3(lambda t: answers.detect_answers(t, "pay_range"), text) < _budget_s(k)
 
 
 @pytest.mark.parametrize("k", _RUNS)
