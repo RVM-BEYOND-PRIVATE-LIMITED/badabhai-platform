@@ -40,6 +40,11 @@ import { PayerOrgMembersService } from "./payer-org-members.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
 import { PayerApplicantInboxService } from "./payer-applicant-inbox.service";
 import { PayerApplicantInboxRepository } from "./payer-applicant-inbox.repository";
+import { PayerApplicantStageController } from "./payer-applicant-stage.controller";
+import { PayerApplicantStagesService } from "./payer-applicant-stages.service";
+import { PayerApplicantStagesRepository } from "./payer-applicant-stages.repository";
+import { PayerApplicantStagesEnabledGuard } from "./payer-applicant-stages.flag";
+import { PayerApplicantInboxQueryPipe } from "./payer-applicant-inbox-query.pipe";
 import {
   MEMBER_INVITE_MAILER,
   MockMemberInviteMailer,
@@ -106,6 +111,9 @@ import {
     // The cross-posting applicant inbox (`GET /payer/reach/applicants`, the "Candidates" tab):
     // the same route group, guard and reach cap as PayerReachController.
     PayerApplicantInboxController,
+    // The saved pipeline board (owner ruling 2026-10-07): PUT …/applicants/:workerId/stage, the
+    // same route group and PayerAuthGuard, behind PAYER_APPLICANT_STAGES_ENABLED.
+    PayerApplicantStageController,
     PayerDisclosureController,
     PayerJobPostingsController,
     PayerPricingController,
@@ -125,6 +133,13 @@ import {
     // (ReachService via ReachModule, MatchCandidatesService via the @Global MatchModule).
     PayerApplicantInboxService,
     PayerApplicantInboxRepository,
+    // The pipeline board: its flag guard, the inbox's flag-aware query pipe, and the board's
+    // service + repository (EventsService, DATABASE and SERVER_CONFIG are @Global). The
+    // per-posting list and the inbox read it; nothing outside this module does.
+    PayerApplicantStagesEnabledGuard,
+    PayerApplicantInboxQueryPipe,
+    PayerApplicantStagesService,
+    PayerApplicantStagesRepository,
     PayerOtpService,
     // Org-invite mailer seam (ADR-0027 / B5.4). Mirrors the WhatsApp/login-channel factory:
     // the MOCK mailer (no send — the raw token/link never leaves the process) is the alpha

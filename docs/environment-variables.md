@@ -216,6 +216,18 @@ NestJS boot assertion).
   the api booting, so `scripts/deploy/staging-deploy.sh` refuses any other value before a
   container moves. In CI tests, only the `e2e` job's union step sets it, on a restarted API process that
   runs `tests/e2e/feed-postings-union.e2e.test.ts` alone.
+- **Payer applicant pipeline board (owner ruling 2026-10-07)** — `PAYER_APPLICANT_STAGES_ENABLED`,
+  api only (`booleanFromString`, default off). Off is today's API byte for byte: the stage route
+  `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` is a neutral 404, neither applicant
+  feed carries `stage`, `GET /payer/reach/applicants?stage=` is a 400, and nothing reads
+  `payer_applicant_stages`. On saves the New / Shortlist / Passed board server-side and adds
+  `stage` to both feeds plus the inbox filter. **Apply migration 0134 BEFORE turning it on** — on
+  without the table, both payer applicant feeds 500. Bridged through the GitHub `production`
+  environment secret of the same name (compose `${PAYER_APPLICANT_STAGES_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`). Arming is the
+  secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only. Its write
+  cap `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600 per payer per UTC hour, its own Redis
+  bucket) runs on its default; neither compose file forwards it.
 - **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
   `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
   DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed

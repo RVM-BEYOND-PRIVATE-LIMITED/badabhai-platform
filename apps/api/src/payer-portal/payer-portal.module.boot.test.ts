@@ -5,6 +5,10 @@ import { PayerAuthController } from "./payer-auth.controller";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerApplicantInboxController } from "./payer-applicant-inbox.controller";
+import { PayerApplicantStageController } from "./payer-applicant-stage.controller";
+import { PayerApplicantStagesEnabledGuard } from "./payer-applicant-stages.flag";
+import { EventsModule } from "../events/events.module";
+import { EventsService } from "../events/events.service";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import { PayerPricingController } from "./payer-pricing.controller";
@@ -119,6 +123,26 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(providerTokens()).toContain("PayerApplicantInboxService");
     expect(providerTokens()).toContain("PayerApplicantInboxRepository");
     expect(getMeta("__guards__", PayerApplicantInboxController)).toContain(PayerAuthGuard);
+  });
+
+  it("declares the pipeline-board stage route with its guard chain, service, repository and query pipe", () => {
+    // Owner ruling 2026-10-07. The service injects EventsService (the @Global EventsModule) and
+    // its own repository on DATABASE; the guard and the inbox query pipe read SERVER_CONFIG.
+    expect(getMeta("controllers", PayerPortalModule)).toContain(PayerApplicantStageController);
+    for (const token of [
+      "PayerApplicantStagesService",
+      "PayerApplicantStagesRepository",
+      "PayerApplicantStagesEnabledGuard",
+      "PayerApplicantInboxQueryPipe",
+    ]) {
+      expect(providerTokens()).toContain(token);
+    }
+    expect(getMeta("__guards__", PayerApplicantStageController)).toEqual([
+      PayerAuthGuard,
+      PayerApplicantStagesEnabledGuard,
+    ]);
+    expect(Reflect.getMetadata("__module:global__", EventsModule)).toBe(true);
+    expect(getMeta("exports", EventsModule)).toContain(EventsService);
   });
 
   it("provides the config-selected channel + WhatsApp provider tokens (the factory seams)", () => {
