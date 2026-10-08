@@ -499,8 +499,8 @@ def test_r62_the_masked_text_is_monotone_across_cues_since_2049(
 def test_the_script_restores_the_shipped_rules():
     shipped = {name: measure.linear.shipped(name) for name in measure.linear.RULES}
     with pytest.raises(RuntimeError), measure.pre_rules():
-        assert gateway._CREDENTIAL_ID_RE.pattern == measure.PRE_1950["credential_id"]
-        assert gateway._RESUME_CUED_ID_RE.pattern == measure.PRE_1950["resume_cued_id"]
+        assert gateway._CREDENTIAL_ID_RE.pattern == measure.pre_source("credential_id")
+        assert gateway._RESUME_CUED_ID_RE.pattern == measure.pre_source("resume_cued_id")
         assert "regn" not in signals._CREDENTIAL_BEFORE_RE.pattern
         raise RuntimeError
     assert {name: measure.linear.shipped(name) for name in measure.linear.RULES} == shipped

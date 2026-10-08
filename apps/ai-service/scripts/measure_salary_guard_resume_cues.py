@@ -68,10 +68,27 @@ def with_cues(extra: list[str], *, boundary: bool, id_word: bool = True) -> str:
     return ("{WB}" if boundary else "") + source
 
 
+#: Edits LATER issues made to the guard on top of #2043's, as (old, new) pairs: #2091 put the
+#: label words ("id", then "card" or "code") in front of the "no" word, taking "id" out of its
+#: group. The variants below measure #2043's edits alone, against #2043's own text.
+EDITS_LATER: tuple[tuple[str, str], ...] = (
+    (
+        r"(?:(?:no\.?|number|num|id|#)\s*)?",
+        r"(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?",
+    ),
+)
+
+
 def shipped_source() -> str:
-    """The guard #2043 ships, which must be BEFORE with exactly #2043's edits."""
-    source = lexicon.load("salary")["credentialBefore"]["source"]
-    assert source == with_cues(SHIPPED_CUES, boundary=True), source
+    """The guard #2043 shipped: BEFORE with exactly #2043's edits. The lexicon's source must be
+    that text with the later issues' edits (`EDITS_LATER`) and nothing else."""
+    source = with_cues(SHIPPED_CUES, boundary=True)
+    live = source
+    for old, new in EDITS_LATER:
+        assert live.count(old) == 1, old
+        live = live.replace(old, new)
+    shipped = lexicon.load("salary")["credentialBefore"]["source"]
+    assert shipped == live, shipped
     return source
 
 
@@ -79,7 +96,7 @@ def variants() -> dict[str, str]:
     out = {
         "boundary only ({WB})": with_cues([], boundary=True, id_word=False),
         "boundary + the id word": with_cues([], boundary=True),
-        "shipped (#2043): boundary + id word + the identifier cues": shipped_source(),
+        "#2043: boundary + id word + the identifier cues": shipped_source(),
         "shipped + esic, account, a/c (rejected)": with_cues(
             SHIPPED_CUES + LEFT_OUT, boundary=True
         ),
