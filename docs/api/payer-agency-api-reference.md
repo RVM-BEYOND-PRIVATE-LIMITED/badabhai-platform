@@ -164,6 +164,7 @@ Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_pla
 | Per-payer disclosure / hour | `PAYER_DISCLOSURE_MAX_PER_HOUR` (default 30) | `POST /payer/unlocks` + reveal (shared cap) |
 | Per-payer reach / hour | `PAYER_REACH_MAX_PER_HOUR` (default 60) | applicant feed reads + `GET /payer/reach/applicants` pages (one shared bucket) |
 | Per-payer invite-mint / hour | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60) | agency invite mint |
+| Per-payer applicant-stage writes / hour | `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600) | `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` (its own bucket — never the reach read budget) |
 | Global OTP sends / day | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends |
 
 Per-worker protection caps also gate unlocks server-side (`UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY` default 5, `UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK` default 10, `UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` default 3) — these surface to you only as a neutral `unavailable`. The per-payer disclosure cap is **shared** across unlock + reveal + resume-disclosure.
@@ -443,6 +444,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   2. Otherwise an owned company posting → that posting's **actual applicants** (the V1 shape). Not gated by `FEED_POSTINGS_UNION_ENABLED`, so disarming the worker-feed union never hides people who already applied. Applications without a rank snapshot sort last.
   3. Otherwise → neutral `404` in the §3.2 envelope with `error.message = "Job not found"`. The `error` object is identical for an unknown id, another payer's job and another payer's posting (no existence oracle); only the per-request `path`, `requestId` and `timestamp` differ.
 - **Membership:** neither list ever includes a worker inside the account-deletion grace window (ADR-0031 ruling (b)); a cancelled deletion puts him back.
+- **`stage` (owner ruling 2026-10-07 — behind `PAYER_APPLICANT_STAGES_ENABLED`, default off):** while the flag is on, **every row in both shapes below also carries `stage: 'new' | 'shortlist' | 'passed'`**, appended as the row's last key — the applicant's place on the payer's saved New / Shortlist / Passed board for this posting (`new` when nobody has moved him). Every other key and value is unchanged, and the board never filters or reorders the list: a `passed` applicant is still listed, labelled `passed`; which tab shows him is the client's call. While the flag is off **no row carries `stage`** — treat its absence as "the server does not persist stages" and keep the local board. Set it with `PUT …/applicants/:workerId/stage` below.
 - **Response (agency `jobs` row — its appliers):**
   ```
   { jobId, applicants: [ {
@@ -479,11 +481,11 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `GET /payer/reach/applicants` — every applicant across the payer's own postings (Candidates tab)
 - **Auth:** `PayerAuthGuard` (Bearer), either role. The **same** per-payer hourly reach bucket as the per-posting list (`payer_reach`, `PAYER_REACH_MAX_PER_HOUR`, default 60): **one unit per page**, checked before any read, shared with `GET /payer/reach/jobs/:jobId/applicants` (not a second budget). Fails closed: Redis down → the same `429`.
 - **Scope:** every worker who **applied** to a posting the **session** payer owns — agency `jobs` rows (`jobs.payer_id`) and company `job_postings` (`job_postings.payer_id`), the same two ownership rules the per-posting list resolves an id with, all statuses. `payer_id` comes from the session only; the query has no slot for one.
-- **Query** (all optional; any other key, including `payer_id` and `stage`, is a `400`):
+- **Query** (all optional; any other key, including `payer_id`, is a `400` — and so is `stage` while `PAYER_APPLICANT_STAGES_ENABLED` is off):
   - `postingId` (UUID) — only that posting's applicants; matches an agency job id or a company posting id. **Neutral result:** an unknown id and another payer's id return `200 { applicants: [], nextCursor: null }` — byte-identical to an owned posting nobody has applied to (no existence oracle, one read in every case).
   - `limit` — integer `1..50`, default `20`.
   - `cursor` — the previous response's `nextCursor`, passed back untouched (≤256 chars). Empty = first page. Anything the server did not mint is a `400`, including a cursor whose timestamp is not a real instant (e.g. 30 February, year 0000). Opaque is not secret: it decodes to the last row's application `created_at` and id.
-  - **No `stage` filter.** The per-posting feed exposes no stage: payer-web's New / Shortlist / Passed board is client-local and nothing persists a stage, so there is nothing to filter on server-side.
+  - `stage` — `new` | `shortlist` | `passed` (owner ruling 2026-10-07). **Only while `PAYER_APPLICANT_STAGES_ENABLED` is on**; off, `?stage=` is the same `400` it always was (never a filter that silently does nothing). Keeps only applicants in that stage of the saved board; `new` matches an applicant nobody has moved **and** one moved back to New. Composes with `postingId` and with paging: the filter narrows the same order without changing it, so pages under a filter never skip or repeat a row. A cursor is a position, not a filter — when you change `stage`, start again from the first page (no cursor). An applicant moved between two of your page reads is shown or skipped by the stage he holds when his page is read, never twice.
 - **Order:** newest application first — `applications.created_at DESC`, then `applications.id DESC` as the tiebreak (a total order, so pages never skip or repeat a row). Keyset pagination; the cursor is opaque base64url of `{ v: 1, t: <created_at, microsecond UTC>, id: <application id> }`.
 - **Response:**
   ```
@@ -501,11 +503,29 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   ```
   - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
   - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows.
+  - `stage` — present on every row **only while `PAYER_APPLICANT_STAGES_ENABLED` is on**: the same value the per-posting route shows for him on that posting (a worker's two rows have two independent stages, one per posting). Absent while off.
 - **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.
 - **Faceless:** the rows carry exactly the per-posting projection — opaque ids, banded chips and rank inputs; no name, phone, employer or contact. Identity is still bought through `/payer/unlocks`.
 - **Events:** the per-posting posture, row for row: each **agency** row on the page emits the same `feed.shown` the per-job list emits for it (actor `payer`, payload `worker_id`/`job_id`/`rank`/`score`/`hot`, one all-or-nothing batch); **company** rows emit nothing. A company-only page is therefore rate-limited but not durably audited (the per-posting list's existing residual).
 - **Errors:** `400` bad query / cursor; `429` reach cap (or Redis down); a DB failure is a `5xx`. No `404` — a filter that matches nothing is an empty page.
 - **Mobile/web gotchas:** FREE (no credit debit). Pass `nextCursor` back verbatim; never build one. New applications arriving mid-scroll appear on the next first page, not mid-list. An agent account's older company postings are included, as on the per-posting route.
+
+#### `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` — move an applicant on the pipeline board
+Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved server-side (it survives a reload and every session with access to the posting sees the same board). **Behind `PAYER_APPLICANT_STAGES_ENABLED` (default off): while off this route is a neutral `404` for every caller** (after the `401` for no session) and the feeds carry no `stage`.
+- **Auth:** `PayerAuthGuard` (Bearer), either role. No role gate: like the feed it annotates, the board is governed by **posting ownership** alone — an agent's agency job and an employer's company posting alike. Own per-payer hourly bucket (`payer_applicant_stage`, `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`, default 600), one unit per request (a no-op and a `404` count too), charged before any read; fails closed (Redis down → the same `429`).
+- **Path:** `jobId` — the id `GET /payer/reach/jobs/:jobId/applicants` takes: an agency `jobs` id **or** a company `job_postings` id; the server resolves which, exactly as the feed does (jobs first). `workerId` — the row's `workerId`. Both UUIDs (malformed → `400`).
+- **Body:** `{ "stage": "new" | "shortlist" | "passed" }` — strict; any other key (`payer_id`, a note, a posting kind) is a `400`. `new` moves the applicant back to New.
+- **Who may set it:** the session payer must **own** the posting (`jobs.payer_id` / `job_postings.payer_id` — the same check the feed uses), **and** the worker must be on that posting's applicant feed (applied, not withdrawn/skipped, not inside the deletion grace window, and — on an agency job — with a profile, exactly the feed's membership). Otherwise → `404` with `error.message = "Job not found"`, **identical** to the feed's 404 for an unknown id, another payer's posting, or a worker who is not an applicant (no existence oracle). When org tenancy lands (PAY-DB-01) ownership widens to the org and so does the board — the route does not change.
+- **Response `200`** (the same shape for a change and for a no-op):
+  ```
+  { postingId, postingKind: 'company_posting' | 'agency_job', workerId,
+    stage, previousStage, changed: boolean }
+  ```
+  `previousStage` is what the board held before this request (`new` if nobody had moved him). `changed: false` = he already held `stage`: nothing written, no event.
+- **Idempotent:** retrying the same body is safe (`changed: false`, same body otherwise). Two sessions moving the same applicant at once serialise; the last write wins, and each response's `previousStage` is the stage it actually replaced.
+- **Events:** one `payer.applicant_stage_changed` v1 per **real** change, in the same transaction as the write — actor `payer` (the session payer), subject `worker`, payload `{ posting_kind, posting_id, worker_id, stage, previous_stage }` (ids + closed enums only). A no-op emits nothing.
+- **Errors:** `400` bad ids / body; `401` no session; `404` flag off, or not settable (above); `429` cap or Redis down; a DB failure is a `5xx`, never folded into the `404`.
+- **Web gotchas:** read `stage` from the feed rows (absent ⇒ the flag is off ⇒ keep the local board and do not call this route). Update the row optimistically, then reconcile with the response's `stage`; on `404` re-fetch the feed (the applicant left it). Stages are per posting: the same worker on two postings has two independent stages.
 
 ### 4.6 Agency (role `agent` only)
 

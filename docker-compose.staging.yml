@@ -380,6 +380,11 @@ services:
       # badabhai.ai `/r/*` 302 rule points at this api. `:-false` because this bool rejects "".
       RESUME_QR_SCAN_ENABLED: ${RESUME_QR_SCAN_ENABLED:-false}
 
+      # THE PAYER APPLICANT PIPELINE BOARD (owner ruling 2026-10-07). Off is today's API exactly:
+      # no `stage` on either applicant feed, the stage route a 404, and nothing reads migration
+      # 0134's table. Turn on only after 0134 is applied. `:-false` because this bool rejects "".
+      PAYER_APPLICANT_STAGES_ENABLED: ${PAYER_APPLICANT_STAGES_ENABLED:-false}
+
       # ---- THE REFERRAL RESOLVER'S DESTINATION (#1800).
       #
       # `GET /r/<code>` 302s to `<this>/i/<code>`, so this must be the origin that SERVES payer-web's

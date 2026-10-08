@@ -723,6 +723,31 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ RESUME_SKINS_ENABLED: "true" }).RESUME_SKINS_ENABLED).toBe(true);
   });
 
+  it("PAYER_APPLICANT_STAGES_ENABLED (owner ruling 2026-10-07) is OFF by default and for the empty string", () => {
+    // Off means nothing touches `payer_applicant_stages` (migration 0134), which is what makes a
+    // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.
+    expect(loadServerConfig({}).PAYER_APPLICANT_STAGES_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ PAYER_APPLICANT_STAGES_ENABLED: "" }).PAYER_APPLICANT_STAGES_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ PAYER_APPLICANT_STAGES_ENABLED: "false" }).PAYER_APPLICANT_STAGES_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ PAYER_APPLICANT_STAGES_ENABLED: "true" }).PAYER_APPLICANT_STAGES_ENABLED,
+    ).toBe(true);
+  });
+
+  it("PAYER_APPLICANT_STAGE_MAX_PER_HOUR defaults to 600 and refuses a non-positive cap", () => {
+    expect(loadServerConfig({}).PAYER_APPLICANT_STAGE_MAX_PER_HOUR).toBe(600);
+    expect(
+      loadServerConfig({ PAYER_APPLICANT_STAGE_MAX_PER_HOUR: "120" })
+        .PAYER_APPLICANT_STAGE_MAX_PER_HOUR,
+    ).toBe(120);
+    // 0 would uncap nothing and refuse everything; a typo must fail the boot, not silently lock.
+    expect(() => loadServerConfig({ PAYER_APPLICANT_STAGE_MAX_PER_HOUR: "0" })).toThrow();
+  });
+
   it("RESUME_QR_SCAN_ENABLED (#1800) is OFF by default and for the empty string", () => {
     // Off means the render worker mints no `resume_qr` link (migration 0129) and the résumé QR
     // encodes the homepage exactly as before — which is what makes a deploy ahead of 0129 safe.

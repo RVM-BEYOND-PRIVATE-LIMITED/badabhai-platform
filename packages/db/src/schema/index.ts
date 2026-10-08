@@ -41,6 +41,7 @@ import { workerCertificates, workerEducations, workerTrainings } from "./qualifi
 import { profileCorrections } from "./profile-correction";
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
+import { payerApplicantStages } from "./payer-applicant-stage";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
 import {
@@ -121,6 +122,7 @@ export * from "./profile";
 export * from "./profile-correction";
 export * from "./worker-profiling-tier";
 export * from "./worker-resume-skin";
+export * from "./payer-applicant-stage";
 export * from "./job";
 export * from "./payer";
 export * from "./match";
@@ -302,6 +304,8 @@ export const schema = {
   workerProfilingTiers,
   // #1801 — the résumé skin each worker chose (migration 0128).
   workerResumeSkins,
+  // Owner ruling 2026-10-07 — the payer applicant pipeline board (migration 0134).
+  payerApplicantStages,
   chatSessions,
   voiceNotes,
   chatMessages,

@@ -147,6 +147,10 @@ const LOCKED_TABLES = [
   // 0128: the résumé skin each worker chose (#1801) — an opaque worker id, a closed skin,
   // a timestamp. Deny-by-default, FORCE, no policy.
   "worker_resume_skin",
+  // 0134: the payer applicant pipeline board (owner ruling 2026-10-07) — a closed posting kind, an
+  // opaque posting id, an opaque worker id, a closed stage, an opaque payer id, timestamps.
+  // Deny-by-default, FORCE, no policy.
+  "payer_applicant_stages",
   // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
   // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
   // FORCE, no policy.

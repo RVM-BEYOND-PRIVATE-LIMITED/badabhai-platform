@@ -1236,6 +1236,39 @@ export function isCommissionedLinkKind(kind: ReferralLinkKind): boolean {
   return !isNonCommissionedLinkKind(kind);
 }
 
+// ---- Payer applicant pipeline stages (owner ruling 2026-10-07; migration 0134) ----
+//
+// HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK
+// constraints on `payer_applicant_stages`, `packages/event-schema` puts them on the spine
+// (`payer.applicant_stage_changed`), and `apps/api` validates the stage route and the inbox filter
+// with them. Declared once so the four cannot drift.
+
+/**
+ * Which table an applicant's posting lives in — the two sources the payer applicant feeds serve
+ * (`GET /payer/reach/jobs/:jobId/applicants`, `GET /payer/reach/applicants` `posting.kind`): an
+ * agency's legacy `jobs` row, or a company `job_postings` row.
+ */
+export const APPLICANT_POSTING_KINDS = Object.freeze(["company_posting", "agency_job"] as const);
+export type ApplicantPostingKind = (typeof APPLICANT_POSTING_KINDS)[number];
+
+/**
+ * Where an applicant sits on a posting's New / Shortlist / Passed board in payer-web.
+ *
+ * `new` IS THE DEFAULT: an applicant nobody has moved has no stored row and reads `new`. A row
+ * moved back to New stores `new` explicitly (it records who moved it and when), so "no row" and
+ * "`new`" mean the same thing to every reader. A stage is the payer's own triage — never a match,
+ * rank or visibility input.
+ */
+export const APPLICANT_STAGES = Object.freeze(["new", "shortlist", "passed"] as const);
+export type ApplicantStage = (typeof APPLICANT_STAGES)[number];
+
+/** The stage of an applicant with no stored row. */
+export const DEFAULT_APPLICANT_STAGE: ApplicantStage = "new";
+
+export function isApplicantStage(value: unknown): value is ApplicantStage {
+  return typeof value === "string" && (APPLICANT_STAGES as readonly string[]).includes(value);
+}
+
 // ---- Résumé import (ADR-0041) ----
 //
 // THESE LIVE HERE RATHER THAN IN THE SCHEMA because two packages that cannot import each other

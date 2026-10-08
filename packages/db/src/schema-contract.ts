@@ -819,6 +819,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "superset); new builds on an unmigrated one are not, which is why this is " +
       "APPLY-BEFORE-DEPLOY",
   },
+  // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
+  // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
+  // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
+  // table is. APPLY BEFORE THE FLAG (migration header).
+  {
+    id: "0134-payer-applicant-stages-rls",
+    migration: "0134_payer_applicant_stages",
+    kind: "rls",
+    table: "payer_applicant_stages",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which applicants each payer shortlisted or passed on which " +
+      "posting, keyed by worker id; an open grant exposes every payer's hiring triage to every " +
+      "PostgREST role while every surface keeps working",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",
