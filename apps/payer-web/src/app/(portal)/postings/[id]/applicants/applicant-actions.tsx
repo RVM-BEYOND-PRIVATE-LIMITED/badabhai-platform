@@ -6,10 +6,11 @@ import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
-import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
+import { Avatar, Badge, Button, Card, Tabs, Toast } from "../../../../../components/ds";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
+import { hasSavedStages, STAGE_LABEL } from "../../../../../lib/applicant-stages";
 import {
   ConfirmSpendDialog,
   MaskedResumeCard,
@@ -17,7 +18,13 @@ import {
   UnlockResultToast,
   type UnlockResultKind,
 } from "../../../../../components/unlock";
-import { maskedResumeAction, revealContactAction, unlockAction } from "./actions";
+import {
+  maskedResumeAction,
+  revealContactAction,
+  setApplicantStageAction,
+  unlockAction,
+  type StageActionResult,
+} from "./actions";
 
 /**
  * Client interactivity for the faceless applicant pipeline + unlock + reveal (ADR-0019
@@ -27,11 +34,23 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
  * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind to
  * the server-held payer (the payer JWT, XB-A) and return only PII-free, already-mapped views.
  *
- * PIPELINE (LOCAL ONLY): a two-stage New → Shortlist board over the existing faceless feed.
- * Keep (New→Shortlist), Pass (dismiss), and "Mark as contacted" are pure CLIENT transitions —
- * NO network call, no event, nothing persisted. The backend's best-first order is preserved
- * (we only filter the already-sorted feed by stage) and the engine's `hot` boolean is rendered
- * AS-IS — we NEVER recompute a percentile or re-sort client-side (ranking is backend-owned).
+ * PIPELINE — LOCAL or SAVED, decided by the ROWS (owner ruling 2026-10-07; API #2137). The server
+ * saves stages behind a flag the portal cannot read; while it is on, every row arrives with a
+ * `stage`, and while it is off none does (`hasSavedStages`). Either way the backend's best-first
+ * order is preserved (we only filter the already-sorted feed by stage) and the engine's `hot`
+ * boolean is rendered AS-IS — we NEVER recompute a percentile or re-sort client-side (ranking is
+ * backend-owned), and nothing here decides who may move whom (the server checks ownership).
+ *  - LOCAL (no `stage` on the rows — exactly the board this has always been): a two-stage
+ *    New → Shortlist board. Keep (New→Shortlist), Pass (dismiss), and "Mark as contacted" are pure
+ *    CLIENT transitions — NO network call, no event, nothing persisted; a reload starts over.
+ *  - SAVED (every row carries `stage`): the board is SEEDED from the rows and a third tab, Passed,
+ *    lists the passed (the server still lists them; which tab shows whom is ours). Keep (→
+ *    shortlist), Pass (→ passed) and Move to New (→ new) go through `setApplicantStageAction`:
+ *    OPTIMISTIC — the row moves at once — then reconciled to the stage the server answered, or
+ *    ROLLED BACK to where it was with ONE polite toast (the cause in plain words: failed, too many
+ *    changes, or the list changed — that last one, the neutral 404, also brings the page back
+ *    re-read from the server). While a row's move is in flight its stage buttons are disabled (no
+ *    double-submit; the server is idempotent anyway). "Mark as contacted" stays LOCAL in both.
  *
  * CONTACT: the routed-contact card (relay handle · channel · access until) is the row's ONE
  * contact read-out — NEVER a phone (ADR-0010 F-4: ContactView has no phone/number field; the
@@ -75,9 +94,14 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
  *  - the card names its posting ("Applied to …"), linked to its details when this session has one,
  *    and the applicant's rank on THAT posting reads on the same line ("· ranked #2") — not as the
  *    rank badge, which in a newest-first list would look like a place in this list;
- *  - there is NO board: no stage tabs, no Keep / Pass / Mark as contacted. Stages are this page's
- *    local state and nothing persists them, so over a paged, filtered inbox they would be a filter
- *    that silently forgets — the head's toolbar is the caller's posting filter instead;
+ *  - there are NO stage tabs and no Mark as contacted — the head's toolbar is the caller's filter.
+ *    With LOCAL stages there is no board at all: over a paged, filtered inbox a stage nothing
+ *    persists would be a filter that silently forgets. With SAVED stages each card shows its stage
+ *    and the same Keep / Pass / Move to New as its posting's board, saved the same way, keyed by
+ *    the CARD (one worker on two postings holds two independent stages). A move never removes the
+ *    card: the inbox is the server's page (its `?stage=` filter is the page's, read server-side),
+ *    so a moved card stays where it is with its new stage until the next read. A `viewOnly`
+ *    posting's card shows its stage and offers no move, as it offers no unlock;
  *  - a row whose posting is `viewOnly` (its own Applicants page offers this session no unlock)
  *    offers none here either.
  * Row state stays keyed by worker id in both modes: an unlock is one grant per (payer, worker), so
@@ -89,6 +113,59 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
 
 type Stage = "new" | "shortlist";
 type RowStage = Stage | "passed";
+
+/**
+ * The ONE toast a failed saved move raises (SAVED stages only): why, in plain words, and where the
+ * row is now. `id` is the card's own opaque id (what the card shows); `stage` is the stage the row
+ * was rolled back to. No server message is ever shown — the action returns a reason, not text.
+ */
+interface StageNotice {
+  reason: Extract<StageActionResult, { ok: false }>["reason"];
+  id: string;
+  stage: RowStage;
+}
+
+/** A copy of `map` without `key`. */
+function withoutKey<T>(map: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...map };
+  delete next[key];
+  return next;
+}
+
+/** A copy of `map` with only the entries whose key is in `keep`. */
+function onlyKeys<T>(map: Record<string, T>, keep: ReadonlySet<string>): Record<string, T> {
+  return Object.fromEntries(Object.entries(map).filter(([k]) => keep.has(k)));
+}
+
+/** The stage toolbar a pressed stage button sits in (null outside a browser, or with no event). */
+function toolbarOf(e: { currentTarget: EventTarget | null } | undefined): Element | null {
+  if (typeof Element === "undefined" || !e || !(e.currentTarget instanceof Element)) return null;
+  return e.currentTarget.closest(".applicant__pipeline");
+}
+
+/**
+ * After a SAVED move settles, give keyboard focus back to the card the move came from — when that
+ * card is still on screen and focus fell to the page. The inbox keeps a moved card, but the
+ * pressed button is replaced (Keep becomes the Shortlisted badge), which would drop a keyboard
+ * user to the top of the document; this puts them on the card's first stage button instead.
+ * Hook-free, like the DS Tabs' arrow keys: the live DOM is read once the move has settled — and,
+ * since the settled render may land a frame or two later, re-read for a few frames until a stage
+ * button is enabled again. On a posting's board the moved card has left its tab, so its toolbar
+ * is gone and nothing happens — focus there is what it always was. Focus the user has since put
+ * elsewhere is never taken.
+ */
+const REFOCUS_FRAMES = 10;
+function refocusToolbar(toolbar: Element | null, framesLeft = REFOCUS_FRAMES): void {
+  if (!toolbar || typeof requestAnimationFrame !== "function") return;
+  requestAnimationFrame(() => {
+    if (!toolbar.isConnected) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const next = toolbar.querySelector<HTMLButtonElement>("button:not([disabled])");
+    if (next) next.focus();
+    else if (framesLeft > 0) refocusToolbar(toolbar, framesLeft - 1);
+  });
+}
 
 /** A Candidates row: the faceless applicant plus the posting it applied to (see candidate-inbox). */
 export type CandidateRow = FacelessApplicant & { posting: ApplicantPosting };
@@ -182,6 +259,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   const feed = feedRows(props);
   // ONE posting's feed carries the New / Shortlist board; the inbox does not (see the top).
   const board = props.postingId !== undefined;
+  // SAVED stages: every row came with one (the server saves them). Read from the rows — the flag
+  // that decides it is server-side; no `stage` on the rows keeps the LOCAL board, exactly as before.
+  const saved = hasSavedStages(feed.map((r) => r.applicant));
   const [rows, setRows] = useState<Record<string, RowState>>({});
   // Confirm-on-spend (C11): confirm only the FIRST unlock per row this session — a retry
   // after a transient failure (or a later reveal) does not re-prompt. Reveal/resume are
@@ -189,9 +269,11 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // a posting's feed, posting + worker in the inbox — so another row of the same worker confirms
   // for itself.
   const [confirmedUnlock, setConfirmedUnlock] = useState<Record<string, boolean>>({});
-  // Pipeline stage per row (LOCAL ONLY). A worker absent from the map is "new".
+  // Pipeline stage per row, keyed by the card's key (`rowKey`: the worker on a posting's feed).
+  // LOCAL: the whole board — a row absent from the map is "new". SAVED: this session's moves over
+  // the rows' own `stage` — optimistic while one is in flight, then the stage the server answered.
   const [stages, setStages] = useState<Record<string, RowStage>>({});
-  const [activeStage, setActiveStage] = useState<Stage>("new");
+  const [activeStage, setActiveStage] = useState<RowStage>("new");
   // The worker whose first unlock is awaiting confirmation (DS Dialog open ⇔ non-null). The
   // confirm is a pure UI gate in the SCREEN — it sends nothing and names no candidate detail.
   const [confirmWorker, setConfirmWorker] = useState<string | null>(null);
@@ -205,6 +287,18 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // can sit on two rows, so the worker id alone cannot say which posting the spend names. Added
   // LAST, after `result`, so every upstream useState keeps its position.
   const [confirmContext, setConfirmContext] = useState<string | null>(null);
+  // SAVED stages only — appended AFTER `confirmContext`, so every upstream cell keeps its position.
+  // The cards whose stage move is in flight (keyed like `stages`): their stage buttons are
+  // disabled until the server answers — no double-submit.
+  const [stageSaving, setStageSaving] = useState<Record<string, boolean>>({});
+  // The last failed move's toast (null = none). One at a time: a new move clears it.
+  const [stageNotice, setStageNotice] = useState<StageNotice | null>(null);
+  // The cards whose move is in flight RIGHT NOW — a live registry, mutated in place (never
+  // replaced, so it is not a render input). `stageSaving` is the same fact for RENDERING; this is
+  // the one the logic reads, because a handler's copy of `stageSaving` is its render's: a double
+  // press handled before the re-render, or a `gone` answer deciding which moves are still
+  // pending, must see the present. Appended LAST, after `stageNotice`.
+  const [inFlight] = useState<Set<string>>(() => new Set());
 
   // A row's state before anything happened to it this session: granted when the payer already
   // holds a live grant on this worker (the page's unlock-history read), else locked. Derived from
@@ -225,8 +319,10 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     }));
   }
 
-  function stageOf(workerId: string): RowStage {
-    return stages[workerId] ?? "new";
+  // The row's stage: this session's move, else (SAVED) the row's own, else "new". On a posting's
+  // feed the key IS the worker id, so the LOCAL board reads exactly the map it always read.
+  function stageOf(r: FeedRow): RowStage {
+    return stages[r.key] ?? (saved ? r.applicant.stage : undefined) ?? "new";
   }
 
   // Keep / Pass are LOCAL stage transitions — no network, no event, nothing persisted.
@@ -235,6 +331,54 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   }
   function onPass(workerId: string) {
     setStages((prev) => ({ ...prev, [workerId]: "passed" }));
+  }
+
+  // SAVED stages: move the row on the server's board. Optimistic — the row moves now — then
+  // reconciled to the stage the server answered, or rolled back to where it was with one toast.
+  // One move per card at a time (its buttons are disabled meanwhile, and the live `inFlight`
+  // registry refuses a second press however it arrives). The posting it names is the row's own
+  // (`context`): a posting's feed, or the inbox row's posting.
+  async function moveStage(r: FeedRow, to: RowStage, toolbar: Element | null = null) {
+    const key = r.key;
+    if (inFlight.has(key)) return;
+    const from = stageOf(r);
+    if (from === to) return;
+    inFlight.add(key);
+    // What the map held before this move (undefined = nothing: the row's own stage showed).
+    const prior = stages[key];
+    setStages((prev) => ({ ...prev, [key]: to }));
+    setStageSaving((prev) => ({ ...prev, [key]: true }));
+    setStageNotice(null);
+    let res: StageActionResult;
+    try {
+      res = await setApplicantStageAction({
+        jobId: r.context,
+        workerId: r.applicant.workerId,
+        stage: to,
+      });
+    } catch {
+      // The action itself never arrived (offline, a dropped connection): nothing was saved.
+      res = { ok: false, reason: "failed" };
+    }
+    inFlight.delete(key);
+    setStageSaving((prev) => withoutKey(prev, key));
+    refocusToolbar(toolbar);
+    if (res.ok) {
+      const answered = res.stage;
+      setStages((prev) => ({ ...prev, [key]: answered }));
+      return;
+    }
+    if (res.reason === "gone") {
+      // The neutral 404 re-read the page (the action revalidated it): the rows now carry the
+      // server's stages as they are — other sessions' moves included. Every SETTLED move of this
+      // session gives way to them (this row's too); only a move still in flight keeps its
+      // optimistic entry, for its own answer to settle.
+      const pending = new Set(inFlight);
+      setStages((prev) => onlyKeys(prev, pending));
+    } else {
+      setStages((prev) => (prior === undefined ? withoutKey(prev, key) : { ...prev, [key]: prior }));
+    }
+    setStageNotice({ reason: res.reason, id: opaqueId(r.applicant.workerId), stage: from });
   }
 
   // Mark-as-contacted: a LOCAL visual transition (the sibling of Keep→Shortlist). It is reachable
@@ -314,41 +458,100 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     else patch(workerId, { resumeBusy: false, resumeError: res.error });
   }
 
+  // The tab on show. Passed is a SAVED board's tab only: should the rows stop carrying a stage
+  // while it is open (the server stopped saving them), the LOCAL board opens on New.
+  const tab: RowStage = !saved && activeStage === "passed" ? "new" : activeStage;
   // Filter the ALREADY best-first feed by the active stage (order preserved; never re-sorted).
   // The inbox has no board: every row it was given is shown, in the server's order.
-  const visible = board
-    ? feed.filter((r) => stageOf(r.applicant.workerId) === activeStage)
-    : feed;
+  const visible = board ? feed.filter((r) => stageOf(r) === tab) : feed;
   const counts = feed.reduce(
     (acc, r) => {
-      acc[stageOf(r.applicant.workerId)] += 1;
+      acc[stageOf(r)] += 1;
       return acc;
     },
     { new: 0, shortlist: 0, passed: 0 } as Record<RowStage, number>,
   );
 
-  // Two-stage pipeline tabs. Keep moves New→Shortlist; Pass dismisses (both LOCAL). They are the
+  // Pipeline tabs. LOCAL: two (Keep moves New→Shortlist; Pass dismisses, counted beside them).
+  // SAVED: three — the passed have their own tab, since Move to New brings one back. They are the
   // screen's filter, so they sit in the page head's toolbar row. The inbox has no board: its
   // toolbar row is the caller's own (the posting filter).
   const pipeline = board ? (
-    <div className="applicants-pipeline">
+    // `--saved` lets the three counted segments fit a phone's track (globals.css "APPLICANT FEED").
+    <div className={saved ? "applicants-pipeline applicants-pipeline--saved" : "applicants-pipeline"}>
       <Tabs
         variant="segmented"
         aria-label="Applicant pipeline"
-        value={activeStage}
-        onChange={(id) => setActiveStage(id as Stage)}
+        value={tab}
+        onChange={(id) => setActiveStage(id as RowStage)}
         tabs={[
           { id: "new", label: `New (${counts.new})` },
           { id: "shortlist", label: `Shortlist (${counts.shortlist})` },
+          ...(saved ? [{ id: "passed", label: `Passed (${counts.passed})` }] : []),
         ]}
       />
-      {counts.passed > 0 ? (
+      {!saved && counts.passed > 0 ? (
         <span className="applicants-pipeline__note">{counts.passed} passed</span>
       ) : null}
     </div>
   ) : (
     header.toolbar
   );
+
+  // SAVED stages: a card's stage read-out and moves (the board's toolbar, and the inbox card's).
+  // On the board the tab already says which stage a row is in, so a New row wears no badge there.
+  // A `viewOnly` inbox posting offers no move (as it offers no unlock) — its stage still shows.
+  function savedStageControls(r: FeedRow, stage: RowStage) {
+    const saving = stageSaving[r.key] === true;
+    const canMove = !r.posting?.viewOnly;
+    return (
+      <>
+        {stage === "shortlist" ? (
+          <Badge tone="success">Shortlisted</Badge>
+        ) : stage === "passed" ? (
+          <Badge tone="neutral">Passed</Badge>
+        ) : board ? null : (
+          <Badge tone="neutral">New</Badge>
+        )}
+        {canMove && stage === "new" ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            iconLeft="bookmark-simple"
+            disabled={saving}
+            aria-busy={saving}
+            onClick={(e) => void moveStage(r, "shortlist", toolbarOf(e))}
+          >
+            Keep
+          </Button>
+        ) : null}
+        {canMove && stage !== "passed" ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            iconLeft={ACTION_ICON.reject}
+            disabled={saving}
+            aria-busy={saving}
+            onClick={(e) => void moveStage(r, "passed", toolbarOf(e))}
+          >
+            Pass
+          </Button>
+        ) : null}
+        {canMove && stage !== "new" ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            iconLeft="tray"
+            disabled={saving}
+            aria-busy={saving}
+            onClick={(e) => void moveStage(r, "new", toolbarOf(e))}
+          >
+            Move to New
+          </Button>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <>
@@ -382,20 +585,26 @@ export function ApplicantActions(props: ApplicantActionsProps) {
       </div>
 
       {board && visible.length === 0 ? (
-        // Per-stage empty copy: New and Shortlist each show their OWN neutral message (the
-        // page-level "no applicants on this posting yet" lives in page.tsx). Faceless — no PII.
-        // The recovery action is the OTHER stage: it is a LOCAL tab switch (the same state the
-        // segmented control above writes) — no network, no event, nothing persisted.
+        // Per-stage empty copy: each stage shows its OWN neutral message (the page-level "no
+        // applicants on this posting yet" lives in page.tsx). Faceless — no PII. The recovery
+        // action is another stage: it is a LOCAL tab switch (the same state the segmented control
+        // above writes) — no network, no event, nothing persisted.
         <Card>
           <div className="state">
             <span className="state__icon">
-              <Icon name={activeStage === "new" ? "tray" : "bookmark-simple"} />
+              <Icon
+                name={
+                  tab === "new" ? "tray" : tab === "shortlist" ? "bookmark-simple" : ACTION_ICON.reject
+                }
+              />
             </span>
-            {activeStage === "new" ? (
+            {tab === "new" ? (
               <>
                 <h3 className="state__title">No applicants in New</h3>
                 <p className="state__body">
-                  Anything you Kept is under Shortlist; anything you Passed is hidden.
+                  {saved
+                    ? "Anything you Kept is under Shortlist; anything you Passed is under Passed."
+                    : "Anything you Kept is under Shortlist; anything you Passed is hidden."}
                 </p>
                 <div className="state__actions">
                   <Button
@@ -407,11 +616,23 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   </Button>
                 </div>
               </>
-            ) : (
+            ) : tab === "shortlist" ? (
               <>
                 <h3 className="state__title">No shortlisted applicants yet</h3>
                 <p className="state__body">
                   Use Keep on a New applicant to move them here.
+                </p>
+                <div className="state__actions">
+                  <Button variant="secondary" size="sm" onClick={() => setActiveStage("new")}>
+                    View New
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="state__title">No passed applicants</h3>
+                <p className="state__body">
+                  Anyone you Pass is listed here, and Move to New brings them back.
                 </p>
                 <div className="state__actions">
                   <Button variant="secondary" size="sm" onClick={() => setActiveStage("new")}>
@@ -429,7 +650,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
             const row = rowOf(a.workerId);
             const granted = row.unlock?.kind === "granted" ? row.unlock : null;
             const routed = row.contact?.kind === "routed" ? row.contact : null;
-            const stage = stageOf(a.workerId);
+            const stage = stageOf(r);
             // A failed unlock's "Retry" (which never re-prompts) and its error line are the row's
             // that confirmed it. On a posting's feed that is the worker's one card; in the inbox a
             // row of the same worker that has not confirmed shows a plain Unlock, which opens the
@@ -548,34 +769,42 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                 {/* The row's SECONDARY actions — the triage toolbar (Keep / Pass, then "Mark as
                     contacted" once a routed handle exists). The PRIMARY action (Unlock) is the
                     footer band below, the card's one focal point. No Call / WhatsApp: see the
-                    CONTACT note at the top of this file. The board is a posting's feed's own:
-                    the inbox has none (see TWO CALLERS at the top). */}
-                {board ? (
+                    CONTACT note at the top of this file. A posting's feed always has it; the
+                    inbox only with SAVED stages, and only the stage moves (see TWO CALLERS). */}
+                {board || saved ? (
                   <div className="applicant__actions">
                     <div className="applicant__pipeline">
-                      {/* Keep/Pass are LOCAL; "Mark as contacted" shows only after a routed
-                          reveal and rides the already-spent unlock (no network). */}
-                      {stage === "shortlist" ? (
-                        <Badge tone="success">Shortlisted</Badge>
+                      {/* LOCAL: Keep/Pass are client-only. SAVED: the row's stage and its
+                          moves, saved (see PIPELINE at the top). "Mark as contacted" shows only
+                          on a posting's board, after a routed reveal, and rides the already-spent
+                          unlock (no network). */}
+                      {saved ? (
+                        savedStageControls(r, stage)
                       ) : (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          iconLeft="bookmark-simple"
-                          onClick={() => onKeep(a.workerId)}
-                        >
-                          Keep
-                        </Button>
+                        <>
+                          {stage === "shortlist" ? (
+                            <Badge tone="success">Shortlisted</Badge>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              iconLeft="bookmark-simple"
+                              onClick={() => onKeep(a.workerId)}
+                            >
+                              Keep
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            iconLeft={ACTION_ICON.reject}
+                            onClick={() => onPass(a.workerId)}
+                          >
+                            Pass
+                          </Button>
+                        </>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        iconLeft={ACTION_ICON.reject}
-                        onClick={() => onPass(a.workerId)}
-                      >
-                        Pass
-                      </Button>
-                      {routed ? (
+                      {board && routed ? (
                         row.contacted ? (
                           <Badge tone="brand" variant="solid">
                             Contacted
@@ -755,12 +984,54 @@ export function ApplicantActions(props: ApplicantActionsProps) {
       />
 
       {/* Transient unlock-RESULT toast — granted vs. the ONE neutral no-cause failure (XB-C).
-          Dismissible; faceless; never logged. Lives in a fixed bottom-right region. */}
-      {result ? (
-        <div className="unlock-toast-region" aria-live="polite">
-          <UnlockResultToast kind={result} onClose={() => setResult(null)} />
+          Dismissible; faceless; never logged. Lives in a fixed bottom-right region. With SAVED
+          stages the region is always mounted (fixed: it takes no room), so a failed move's toast
+          is announced into a live region that already exists; the two toasts stack. A move's
+          toast outlives the stages themselves: when the server stops saving them mid-session,
+          the "gone" answer's re-read brings rows with no stage (the board turns LOCAL) — and the
+          toast saying why must still show. */}
+      {result || saved || stageNotice ? (
+        <div
+          className={
+            saved || stageNotice ? "unlock-toast-region unlock-toast-region--stack" : "unlock-toast-region"
+          }
+          aria-live="polite"
+        >
+          {result ? <UnlockResultToast kind={result} onClose={() => setResult(null)} /> : null}
+          {stageNotice ? (
+            <StageNoticeToast notice={stageNotice} onClose={() => setStageNotice(null)} />
+          ) : null}
         </div>
       ) : null}
     </>
+  );
+}
+
+/**
+ * A failed SAVED move, said once and politely: what happened and where the row is now. Never a
+ * server message (the action returns a reason only) and never a cause about the applicant — the
+ * neutral 404 ("gone") is one sentence for every reason the server had, and the page behind it has
+ * already been re-read.
+ */
+function StageNoticeToast({ notice, onClose }: { notice: StageNotice; onClose: () => void }) {
+  const where = `${notice.id} is back in ${STAGE_LABEL[notice.stage]}.`;
+  if (notice.reason === "gone") {
+    return (
+      <Toast tone="danger" title="Couldn’t save that move" onClose={onClose}>
+        This list changed since it loaded, so it has been refreshed.
+      </Toast>
+    );
+  }
+  if (notice.reason === "rate-limited") {
+    return (
+      <Toast tone="danger" title="Too many changes" onClose={onClose}>
+        {where} Try again in a few minutes.
+      </Toast>
+    );
+  }
+  return (
+    <Toast tone="danger" title="Couldn’t save that move" onClose={onClose}>
+      {where} Please try again.
+    </Toast>
   );
 }

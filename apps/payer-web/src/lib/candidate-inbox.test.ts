@@ -8,6 +8,8 @@ import {
   inboxRefusal,
   parseCandidatesQuery,
   selectedPosting,
+  STAGE_OPTIONS,
+  stagesOffered,
   withSelectedOption,
 } from "./candidate-inbox";
 import { PayerValidationError } from "./payer-errors";
@@ -23,7 +25,7 @@ const CURSOR = "eyJ2IjoxLCJ0IjoiMjAyNi0xMC0wNyIsImlkIjoiYSJ9";
 
 describe("parseCandidatesQuery — what the URL asks for", () => {
   it("no filter, or the form's empty 'All postings', is every posting", () => {
-    expect(parseCandidatesQuery({})).toEqual({ filter: { kind: "all" }, cursor: null });
+    expect(parseCandidatesQuery({})).toEqual({ filter: { kind: "all" }, cursor: null, stage: null });
     expect(parseCandidatesQuery({ postingId: "" }).filter).toEqual({ kind: "all" });
   });
 
@@ -61,6 +63,22 @@ describe("parseCandidatesQuery — what the URL asks for", () => {
     expect(parseCandidatesQuery({ cursor: "x".repeat(257) }).cursor).toBeNull();
     expect(parseCandidatesQuery({ cursor: "x".repeat(256) }).cursor).toBe("x".repeat(256));
     expect(parseCandidatesQuery({ cursor: [CURSOR, CURSOR] }).cursor).toBeNull();
+  });
+
+  it("reads a saved-board stage (#2139); anything else — empty, another word, repeated — is no stage", () => {
+    expect(parseCandidatesQuery({ stage: "new" }).stage).toBe("new");
+    expect(parseCandidatesQuery({ stage: "shortlist" }).stage).toBe("shortlist");
+    expect(parseCandidatesQuery({ stage: "passed" }).stage).toBe("passed");
+    expect(parseCandidatesQuery({ stage: "" }).stage).toBeNull(); // the form's "All stages"
+    expect(parseCandidatesQuery({ stage: "Shortlist" }).stage).toBeNull();
+    expect(parseCandidatesQuery({ stage: "archived" }).stage).toBeNull();
+    expect(parseCandidatesQuery({ stage: ["new", "passed"] }).stage).toBeNull();
+    // It composes with the other two keys, each read on its own.
+    expect(parseCandidatesQuery({ postingId: P1, stage: "passed", cursor: CURSOR })).toEqual({
+      filter: { kind: "posting", postingId: P1 },
+      cursor: CURSOR,
+      stage: "passed",
+    });
   });
 
   it("the filter's selected value: the id, the raw non-id, or none", () => {
@@ -113,6 +131,33 @@ describe("candidatesHref — the pager's and the states' links", () => {
     expect(candidatesHref({ postingId: P1, cursor: CURSOR })).toBe(
       `/candidates?postingId=${P1}&cursor=${CURSOR}`,
     );
+  });
+
+  it("a stage rides along only when set — never an empty stage= (#2139)", () => {
+    expect(candidatesHref({ stage: null })).toBe("/candidates");
+    expect(candidatesHref({ stage: "shortlist" })).toBe("/candidates?stage=shortlist");
+    expect(candidatesHref({ postingId: P1, stage: "passed", cursor: CURSOR })).toBe(
+      `/candidates?postingId=${P1}&stage=passed&cursor=${CURSOR}`,
+    );
+  });
+});
+
+describe("the stage filter (#2139) — offered only when an answered read showed stages are saved", () => {
+  it("offers the board's three stages, in board order, by their tab names", () => {
+    expect(STAGE_OPTIONS).toEqual([
+      { id: "new", label: "New" },
+      { id: "shortlist", label: "Shortlist" },
+      { id: "passed", label: "Passed" },
+    ]);
+  });
+
+  it("a stage the server APPLIED offers it (even on an empty page); rows with stages offer it", () => {
+    expect(stagesOffered("passed", false)).toBe(true);
+    expect(stagesOffered(null, true)).toBe(true);
+  });
+
+  it("no applied stage and no saved rows (the flag off, or an empty page) offers none", () => {
+    expect(stagesOffered(null, false)).toBe(false);
   });
 });
 

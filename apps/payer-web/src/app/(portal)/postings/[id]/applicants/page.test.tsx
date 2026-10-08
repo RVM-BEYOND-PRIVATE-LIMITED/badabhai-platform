@@ -473,3 +473,29 @@ describe("applicants page — Reached N workers (a fresh publish lands here)", (
     expect(textOf(await landed({ reached: "18" }))).not.toContain("Reached");
   });
 });
+
+describe("applicants page — SAVED stages (#2139): the board is seeded from the feed's rows", () => {
+  const cardCount = (markup: string) => (markup.match(/class="bb-mono applicant__id-code"/g) ?? []).length;
+
+  it("rows WITH a stage (the server saves them): three tabs counted from the rows; New lists only its own", async () => {
+    getApplicantFeed.mockResolvedValueOnce({
+      ...FEED,
+      applicants: [
+        { ...A, stage: "shortlist" },
+        { ...B, stage: "new" },
+      ],
+    });
+    const out = await html();
+    expect(textOf(out)).toMatch(/New \(1\)\s+Shortlist \(1\)\s+Passed \(0\)/);
+    expect(cardCount(out)).toBe(1);
+    expect(textOf(out)).toContain(B.workerId.slice(0, 8));
+    expect(textOf(out)).not.toContain(A.workerId.slice(0, 8));
+  });
+
+  it("rows WITHOUT a stage (the flag off): today's two tabs, every applicant under New", async () => {
+    const out = await html();
+    expect(textOf(out)).toMatch(/New \(2\)\s+Shortlist \(0\)/);
+    expect(textOf(out)).not.toContain("Passed (");
+    expect(cardCount(out)).toBe(2);
+  });
+});
