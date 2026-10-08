@@ -33,13 +33,19 @@ const JOURNAL = JSON.parse(
   readFileSync(join(__dirname, "..", "migrations", "meta", "_journal.json"), "utf8"),
 ) as { entries: { idx: number; when: number; tag: string }[] };
 
-/** The values an `IN (...)` CHECK on `column` admits, in order. */
+/**
+ * The values an `IN (...)` CHECK on `column` admits, in order — located by plain string search
+ * (no regex built from input), from the constraint's opening to the first `))` after it.
+ */
 function checkValues(constraint: string, column: string): string[] | null {
-  const re = new RegExp(
-    `CONSTRAINT "${constraint}" CHECK \\("${TABLE}"\\."${column}" IN \\(([^)]*)\\)\\)`,
-  );
-  const m = re.exec(FLAT);
-  return m ? m[1]!.split(",").map((v) => v.trim().replace(/^'|'$/g, "")) : null;
+  const head = `CONSTRAINT "${constraint}" CHECK ("${TABLE}"."${column}" IN (`;
+  const start = FLAT.indexOf(head);
+  if (start < 0) return null;
+  const end = FLAT.indexOf("))", start + head.length);
+  if (end < 0) return null;
+  return FLAT.slice(start + head.length, end)
+    .split(",")
+    .map((v) => v.trim().replace(/^'|'$/g, ""));
 }
 
 describe("the fixture is real (no assertion below is vacuous)", () => {
@@ -65,7 +71,7 @@ describe("0134 is additive", () => {
     );
     expect(altered).toHaveLength(3); // ENABLE, the FK, FORCE
     for (const statement of altered) {
-      expect(statement).toMatch(new RegExp(`^${TABLE} (ENABLE|FORCE|ADD CONSTRAINT)`));
+      expect(statement).toMatch(/^payer_applicant_stages (ENABLE|FORCE|ADD CONSTRAINT)/);
     }
   });
 
