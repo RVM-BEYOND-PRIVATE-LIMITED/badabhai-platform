@@ -299,7 +299,7 @@ describe("L4 — more name-cue words, and cues split by invisible characters", (
 
 describe("what a shown line looks like", () => {
   it("collapses whitespace and strips format characters", () => {
-    expect(maskSampleLine("kaam‍  chahiye\n\nabhi‮", NAME)).toEqual(shown("kaam chahiye abhi"));
+    expect(maskSampleLine("kaam\u200D  chahiye\n\nabhi\u202E", NAME)).toEqual(shown("kaam chahiye abhi"));
   });
 
   it("is cut AFTER masking, so a cut never exposes part of the name", () => {
