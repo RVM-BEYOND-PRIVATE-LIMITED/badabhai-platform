@@ -489,10 +489,17 @@ ROUTE_CASES: list[tuple[str, str, dict[str, Any], tuple[str, ...]]] = [
         ("Ramesh Kumar", "Tata Motors"),
     ),
     (
+        # The turn's carrier has no phone either: R9 in depth DROPS a turn carrying a hard
+        # identifier under both postures (pinned in tests/free_chat/test_free_chat_news.py).
         "free-chat-news-memory",
         "/free-chat/news",
-        {"text": "aur batao", "recent_turns": [{"role": "worker", "text": PROBE}]},
-        RAW_PIECES,
+        {
+            "text": "aur batao",
+            "recent_turns": [
+                {"role": "worker", "text": "mera naam Ramesh Kumar hai, Tata Motors mein tha"}
+            ],
+        },
+        ("Ramesh Kumar", "Tata Motors"),
     ),
     (
         "free-chat-news-trade-label",

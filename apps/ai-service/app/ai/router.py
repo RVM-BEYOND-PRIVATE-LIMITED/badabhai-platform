@@ -650,13 +650,14 @@ class AIRouter:
                             last_failure_reason = reason
                             status = transport.status_code if transport is not None else None
                             # H1: a server-tool attempt that may have been billed KEEPS its
-                            # cost on the ledger (measured when a response existed, else the
-                            # worst case); only a pre-network failure refunds. A text-only
-                            # attempt keeps nothing, exactly as before.
+                            # cost on the ledger (measured when a refused 200 came back, else a
+                            # bound for the ambiguous after-send case); a pre-network failure
+                            # or an HTTP error status refunds. A text-only attempt keeps
+                            # nothing, exactly as before.
                             kept_inr = 0.0
                             if tools is not None:
                                 kept_inr = cost_tracker.server_tool_failure_charge_inr(
-                                    model, exc, worst_case_inr
+                                    model, exc, tools, cost_tracker.estimate_tokens(input_text)
                                 )
                                 candidate_billed_inr += kept_inr
                                 tool_billed_inr += kept_inr

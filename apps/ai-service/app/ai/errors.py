@@ -84,6 +84,10 @@ class LlmTransportError(RuntimeError):
     - ``billed`` — the measured usage (tokens, searches, cache buckets) when the provider DID
       return a response that was then refused (a paused or truncated turn, no text). Counts
       only: its ``content`` is always empty, so no model text rides an exception.
+    - ``provider_rejected`` — the provider answered with an HTTP error status (4xx or 5xx,
+      429 and 529 included). Such a response is not billed, so a tool call refunds it. Set
+      without touching ``reason_code`` or ``status_code``, so a text-only call's retry,
+      cooldown and log behaviour is exactly what it was.
     """
 
     def __init__(
@@ -93,9 +97,11 @@ class LlmTransportError(RuntimeError):
         status_code: int | None = None,
         request_sent: bool = True,
         billed: LlmResult | None = None,
+        provider_rejected: bool = False,
     ) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
         self.status_code = status_code
         self.request_sent = request_sent
         self.billed = billed
+        self.provider_rejected = provider_rejected

@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 from ..ai.gemini_client import LlmResult
 from ..contracts import (
+    CompanionRecentTurn,
     FreeChatNewsAnswer,
     FreeChatNewsNoResults,
     FreeChatNewsRefuse,
@@ -148,16 +149,30 @@ _HOST_RE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*")
 #: delimiter some parsers split on. Neither belongs in a news link.
 _AMBIGUOUS_URL_CHARS = frozenset("\\;")
 
+#: The TLDs a domain-shaped token in a LINE must end in to count as a link (M1 refinement). A
+#: CLOSED list, so a sentence missing the space after its full stop ("Govt.ne kaha", "ITI.ka")
+#: is not read as a domain. India's second-level forms come first, so `.co.in` / `.gov.in` /
+#: `.org.in` / `.ac.in` match whole. Every listed news host ends in one of these.
+_LINK_TLDS = (
+    "co.in", "gov.in", "org.in", "ac.in",
+    "in", "com", "org", "net", "gov", "edu", "info", "co", "io", "ac", "nic",
+    "xyz", "online", "site", "app", "biz", "me", "us", "uk",
+)  # fmt: skip
+
 #: A link or a domain in a model-written LINE (security review M1). The tiles carry the links; a
 #: line carrying one could send the worker to a page no search returned (a prompt-injected page
-#: naming its own site, say). Literal patterns: a scheme, a "www.", or any `name.tld` token (a
-#: label, a dot, two or more letters), which covers every listed host. KNOWN FALSE POSITIVE,
-#: accepted: a sentence with no space after its full stop ("Govt.ne kaha") reads as a domain and
-#: the answer is refused, the fail-closed direction.
+#: naming its own site, say). Literal patterns: a scheme or a "www." ALWAYS hits; otherwise a
+#: `label.tld` token whose TLD is on `_LINK_TLDS`. KNOWN FALSE POSITIVE, accepted: a missing
+#: space before a word that IS one of those TLDs ("kaam.me") still refuses, the fail-closed way.
 _LINE_LINK_RES: tuple[re.Pattern[str], ...] = (
     re.compile(r"https?://", re.IGNORECASE),
     re.compile(r"www\.", re.IGNORECASE),
-    re.compile(r"(?<![a-z0-9-])[a-z0-9-]+\.[a-z]{2,}(?![a-z0-9-])", re.IGNORECASE),
+    re.compile(
+        r"(?<![a-z0-9-])[a-z0-9-]+\.(?:"
+        + "|".join(re.escape(tld) for tld in _LINK_TLDS)
+        + r")(?![a-z0-9-])",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -198,6 +213,20 @@ def question_identifier(text: str) -> str | None:
     "scanner_error", which refuses too (fail closed). The class is a closed vocabulary, safe to log.
     """
     return contains_hard_identifier(text)
+
+
+def turns_without_identifiers(
+    turns: list[CompanionRecentTurn],
+) -> tuple[list[CompanionRecentTurn], int]:
+    """The recent turns that carry no hard identifier, in order, and how many were dropped.
+
+    R9's defence in depth (2026-10-08): the question carrying an identifier is refused outright,
+    and a TURN carrying one is dropped before the model, so a search query cannot be built from
+    it either, whatever `AI_RAW_PII_ENABLED` says. Read off each turn's own text, before masking;
+    a scanner error drops the turn (fail closed). A dropped turn costs continuity, never safety.
+    """
+    kept = [turn for turn in turns if contains_hard_identifier(turn.text) is None]
+    return kept, len(turns) - len(kept)
 
 
 def line_carries_link(line: str) -> bool:

@@ -272,11 +272,20 @@ async def free_chat_news(
         )
         return FreeChatNewsRefuse(status="refuse", topic="unsafe_other", ai_metadata=None)
 
+    # R9 in depth: a recent turn carrying a hard identifier is DROPPED before masking (the
+    # question's refusal above stays), so no search query can be built from it. Count only.
+    turns, dropped = news_logic.turns_without_identifiers(body.recent_turns)
+    if dropped:
+        logger.warning(
+            "free chat news dropped turns: hard identifier",
+            extra={"extra": {"field": "recent_turns", "dropped": dropped}},
+        )
+
     resolved = resolve_prompt(prompt_registry.FREE_CHAT_NEWS)
     system_prompt = resolved.text if resolved is not None else NEWS_SYSTEM_PROMPT
     messages = build_free_news_messages(
         result.text,
-        mask_recent_turns(body.recent_turns, raw=raw_pii),
+        mask_recent_turns(turns, raw=raw_pii),
         reply_logic.mask_worker_context(body.worker_context, raw=raw_pii),
         # The day in India, computed here: never a value from the request.
         news_logic.ist_today(),

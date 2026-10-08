@@ -1350,17 +1350,84 @@ def test_a_question_without_an_identifier_still_reaches_the_router(
     assert len(captured) == 1
 
 
-def test_the_r9_log_names_the_class_never_the_text(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize(
+    ("text", "identifier_class"),
+    [
+        ("mera number 9876543210 hai", "phone"),
+        ("Aadhaar 1234 5678 9012 ki khabar", "aadhaar"),
+        ("PAN ABCDE1234F wali scheme", "pan"),
+        ("ramesh.k99@example.com pe bhejo", "email"),
+    ],
+    ids=["phone", "aadhaar", "pan", "email"],
+)
+def test_the_r9_log_carries_only_the_identifier_type_and_no_digit(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    text: str,
+    identifier_class: str,
 ) -> None:
+    """The refusal's log line is the TYPE alone: no digit of the identifier (or of anything
+    else) reaches the message or the structured fields."""
     monkeypatch.setattr(free_chat_router.router, "run_with_result", _boom)
     caplog.set_level("WARNING")
-    client.post("/free-chat/news", json={"text": "mera number 9876543210 hai"})
+    client.post("/free-chat/news", json={"text": text})
     records = [r for r in caplog.records if "hard identifier" in r.getMessage()]
     assert records, "the R9 refusal logged nothing"
-    extra = records[-1].__dict__["extra"]
-    assert extra == {"reason": "hard_identifier", "class": "phone"}
-    assert "9876543210" not in json.dumps(extra) and "9876543210" not in records[-1].getMessage()
+    record = records[-1]
+    extra = record.__dict__["extra"]
+    assert extra == {"reason": "hard_identifier", "class": identifier_class}
+    logged = json.dumps(extra) + record.getMessage()
+    assert not re.search(r"\d", logged), logged
+    assert "@" not in logged and "example" not in logged
+
+
+# --- R9 in depth: a recent turn carrying an identifier is dropped ---
+
+
+@pytest.mark.parametrize("armed", [False, True], ids=["masked", "raw"])
+def test_a_recent_turn_carrying_an_identifier_is_dropped_before_the_model(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, armed: bool
+) -> None:
+    if armed:
+        monkeypatch.setattr(get_settings(), "ai_raw_pii_enabled", True)
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        free_chat_router.router,
+        "run_with_result",
+        _fake_run_with_result(news_logic.MOCK_RESPONSE, None, captured=captured),
+    )
+    caplog.set_level("WARNING")
+    turns = [
+        {"role": "worker", "text": "mera number 9876543210 hai"},
+        {"role": "bada_bhai", "text": "Theek hai, main batata hoon."},
+        {"role": "worker", "text": "ramesh.k@example.com pe bhejna"},
+        {"role": "worker", "text": "PAN ABCDE1234F"},
+    ]
+    client.post("/free-chat/news", json={"text": "aur batao", "recent_turns": turns})
+    messages = captured[0]["messages"]
+    sent = "\n".join(m["content"] for m in messages)
+    for leaked in ("9876543210", "example.com", "ABCDE1234F", "[PHONE_1]", "[EMAIL_1]"):
+        assert leaked not in sent, leaked
+    # The clean turn survives, as a prior message between the system prompt and the question.
+    assert messages[1] == {"role": "assistant", "content": "Theek hai, main batata hoon."}
+    assert len(messages) == 3
+    records = [r for r in caplog.records if r.getMessage().startswith("free chat news dropped")]
+    assert records and records[-1].__dict__["extra"] == {"field": "recent_turns", "dropped": 3}
+
+
+def test_a_turn_scanner_error_drops_the_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail closed: the scanner's own error class reads as a hit, so the turn is dropped."""
+    monkeypatch.setattr(news_logic, "contains_hard_identifier", lambda _text: "scanner_error")
+    turns = [CompanionRecentTurn(role="worker", text="kal ka match")]
+    assert news_logic.turns_without_identifiers(turns) == ([], 1)
+
+
+def test_clean_turns_are_all_kept_in_order() -> None:
+    turns = [
+        CompanionRecentTurn(role="worker", text="kal ka match"),
+        CompanionRecentTurn(role="bada_bhai", text="Achha."),
+    ]
+    assert news_logic.turns_without_identifiers(turns) == (turns, 0)
 
 
 def test_the_prompt_keeps_identifiers_and_names_out_of_search_queries() -> None:
@@ -1464,22 +1531,43 @@ def test_a_refused_response_keeps_its_measured_cost(monkeypatch: pytest.MonkeyPa
     assert meta.estimated_cost_inr == measured
 
 
+def _news_ambiguous_bound() -> float:
+    prompt_tokens = cost_tracker.estimate_tokens("\n".join(m["content"] for m in _NEWS_MESSAGES))
+    return round(
+        2 * WEB_SEARCH_COST_INR
+        + cost_tracker.estimate_cost_inr("claude-haiku-4-5", prompt_tokens, 0),
+        4,
+    )
+
+
 @pytest.mark.parametrize(
     "exc",
     [
         LlmTransportError(REASON_TIMEOUT),  # the route's deadline: cancelled after dispatch
-        LlmTransportError(REASON_SDK_ERROR),  # the SDK raised after the request left
-        RuntimeError("an untyped failure"),  # unknown is treated as billed
+        LlmTransportError(REASON_SDK_ERROR),  # e.g. a connection reset after the request left
+        RuntimeError("an untyped failure"),  # unknown is treated as possibly billed
     ],
     ids=["timeout", "sdk-error-after-send", "untyped"],
 )
 @pytest.mark.usefixtures("_fresh_ledger")
-def test_a_failure_after_dispatch_without_a_response_keeps_the_worst_case(
+def test_an_ambiguous_after_send_failure_keeps_the_smaller_bound(
     monkeypatch: pytest.MonkeyPatch, exc: BaseException
 ) -> None:
+    """The request left and nothing came back: keep `max_uses x fee + one prompt read`, never
+    the full reservation (no result-token allowance), and never zero."""
     meta, spent = _failing_news_call(monkeypatch, exc)
-    assert spent == _news_worst_case() > 0
-    assert meta.estimated_cost_inr == _news_worst_case()
+    bound = _news_ambiguous_bound()
+    assert (
+        cost_tracker.server_tool_ambiguous_charge_inr(
+            "claude-haiku-4-5",
+            news_logic.news_search_tools(),
+            cost_tracker.estimate_tokens("\n".join(m["content"] for m in _NEWS_MESSAGES)),
+        )
+        == bound
+    )
+    assert 0 < bound < _news_worst_case()  # non-vacuous: smaller than the reservation
+    assert spent == bound
+    assert meta.estimated_cost_inr == bound
 
 
 @pytest.mark.parametrize(
@@ -1488,16 +1576,29 @@ def test_a_failure_after_dispatch_without_a_response_keeps_the_worst_case(
         LlmTransportError(REASON_TOOLS_UNSUPPORTED, request_sent=False),
         LlmTransportError(REASON_MISSING_KEY, request_sent=False),
         LlmTransportError(REASON_SDK_ERROR, request_sent=False),  # the SDK absent
+        # An HTTP error STATUS (any 4xx/5xx, 429 and 529 included): sent, but not billed.
+        LlmTransportError(REASON_SDK_ERROR, provider_rejected=True),
     ],
-    ids=["tools-unsupported", "missing-key", "sdk-absent"],
+    ids=["tools-unsupported", "missing-key", "sdk-absent", "http-error-status"],
 )
 @pytest.mark.usefixtures("_fresh_ledger")
-def test_only_a_pre_network_failure_refunds_a_tool_call(
+def test_a_pre_network_failure_or_an_http_error_status_refunds_a_tool_call(
     monkeypatch: pytest.MonkeyPatch, exc: BaseException
 ) -> None:
     meta, spent = _failing_news_call(monkeypatch, exc)
     assert spent == 0.0
     assert meta.estimated_cost_inr == 0.0
+
+
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_an_anthropic_outage_cannot_drain_the_daily_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """THE REFINEMENT'S POINT: a run of 529 overloaded responses leaves the ledger where it was,
+    so the global cap every other AI task shares is untouched."""
+    for _ in range(25):
+        _meta_, spent = _failing_news_call(
+            monkeypatch, LlmTransportError(REASON_SDK_ERROR, provider_rejected=True)
+        )
+        assert spent == 0.0
 
 
 @pytest.mark.parametrize(
@@ -1538,8 +1639,8 @@ def test_a_text_only_failure_still_refunds_in_full(
 def test_a_retried_tool_call_charges_the_billed_attempt_and_the_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Generic accounting for a tool route WITH retries (the news route has none): the failed
-    attempt keeps its worst case, the success adds its measured cost, and the cost event
+    """Generic accounting for a tool route WITH retries (the news route has none): the timed-out
+    attempt keeps the ambiguous bound, the success adds its measured cost, and the cost event
     carries both."""
     real_get_route = router_module.get_route
 
@@ -1571,7 +1672,7 @@ def test_a_retried_tool_call_charges_the_billed_attempt_and_the_success(
     call_cost = cost_tracker.server_tool_call_cost_inr(
         "claude-haiku-4-5", result, input_tokens=1000, output_tokens=100
     )
-    expected = round(call_cost + _news_worst_case(), 4)
+    expected = round(call_cost + _news_ambiguous_bound(), 4)  # the timeout kept the bound
     assert meta.estimated_cost_inr == expected
     assert _daily_spend(settings) == expected
 
@@ -1663,6 +1764,126 @@ def test_an_sdk_error_after_the_request_left_counts_as_sent(
         _acomplete(tools=news_logic.news_search_tools())
     assert (raised.value.reason_code, raised.value.request_sent) == ("sdk_error", True)
     assert raised.value.billed is None
+    assert raised.value.provider_rejected is False  # a stub without the class: never a refund
+
+
+class _FakeAPIStatusError(Exception):
+    """The SDK's `APIStatusError` shape: the provider answered with an HTTP error status."""
+
+
+class _FakeRateLimitError(_FakeAPIStatusError):  # 429
+    pass
+
+
+class _FakeOverloadedError(_FakeAPIStatusError):  # 529
+    pass
+
+
+class _FakeInternalServerError(_FakeAPIStatusError):  # 500
+    pass
+
+
+class _FakeAPIConnectionError(Exception):
+    """NOT a status error: the connection broke, maybe after the request was written."""
+
+
+class _FakeAPITimeoutError(_FakeAPIConnectionError):
+    pass
+
+
+def _install_raising_sdk(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
+    class _Messages:
+        async def create(self, **_kwargs: Any) -> Any:
+            raise error
+
+    class _Client:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.messages = _Messages()
+
+    fake = types.ModuleType("anthropic")
+    fake.AsyncAnthropic = _Client  # type: ignore[attr-defined]
+    fake.APIStatusError = _FakeAPIStatusError  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+
+
+@pytest.mark.parametrize(
+    ("error", "rejected"),
+    [
+        (_FakeAPIStatusError("400 bad request"), True),
+        (_FakeRateLimitError("429"), True),
+        (_FakeInternalServerError("500"), True),
+        (_FakeOverloadedError("529 overloaded"), True),
+        (_FakeAPIConnectionError("connection reset"), False),
+        (_FakeAPITimeoutError("read timed out"), False),
+        (ValueError("anything else"), False),
+    ],
+    ids=["400", "429", "500", "529", "connection", "sdk-timeout", "other"],
+)
+def test_only_an_http_error_status_is_marked_provider_rejected(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, rejected: bool
+) -> None:
+    """The client marks a status error (the SDK's `APIStatusError` and its subclasses) so the
+    router refunds it, and leaves the reason code at `sdk_error` so nothing else moves."""
+    _install_raising_sdk(monkeypatch, error)
+    with pytest.raises(LlmTransportError) as raised:
+        _acomplete(tools=news_logic.news_search_tools())
+    assert raised.value.reason_code == REASON_SDK_ERROR
+    assert raised.value.status_code is None
+    assert raised.value.request_sent is True
+    assert raised.value.provider_rejected is rejected
+
+
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_end_to_end_a_529_refunds_and_a_connection_reset_keeps_the_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Through the REAL providers and Anthropic client, only the SDK faked: the ledger after a
+    529 is untouched; after a connection reset it holds the ambiguous bound."""
+    settings = _armed()
+
+    def _news_call() -> AICallMetadata:
+        _c, meta, _r = _run(
+            AIRouter(settings).run_with_result(
+                "profiling_free_news",
+                messages=_NEWS_MESSAGES,
+                mock_response=news_logic.MOCK_RESPONSE,
+                tools=news_logic.news_search_tools(),
+            )
+        )
+        return meta
+
+    _install_raising_sdk(monkeypatch, _FakeOverloadedError("529 overloaded"))
+    assert _news_call().estimated_cost_inr == 0.0
+    assert _daily_spend(settings) == 0.0
+
+    _install_raising_sdk(monkeypatch, _FakeAPIConnectionError("connection reset"))
+    assert _news_call().estimated_cost_inr == _news_ambiguous_bound()
+    assert _daily_spend(settings) == _news_ambiguous_bound()
+
+
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_a_text_only_http_error_keeps_todays_reason_and_refund(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The marker is invisible to a call without tools: same reason, no status, full refund.
+    (The route's Gemini fallback is pointed at Claude, so the same-provider rule drops it and
+    the Anthropic attempt is the one the metadata reports.)"""
+    _install_raising_sdk(monkeypatch, _FakeOverloadedError("529 overloaded"))
+    settings = _armed(
+        ai_real_call_tasks="companion_career_answer", default_capable_model="claude-haiku-4-5"
+    )
+    _c, meta = _run(
+        AIRouter(settings).run(
+            "companion_career_answer", messages=_NEWS_MESSAGES, mock_response="m"
+        )
+    )
+    assert meta.candidates_tried == ["claude-haiku-4-5"]
+    assert (meta.success, meta.failure_reason, meta.error_code) == (
+        False,
+        REASON_SDK_ERROR,
+        "llm_call_failed",
+    )
+    assert _daily_spend(settings) == 0.0
 
 
 # --- M1: a line naming a link or a domain refuses the answer ---
@@ -1678,6 +1899,13 @@ def test_an_sdk_error_after_the_request_left_counts_as_sent(
         "PIB.GOV.IN ne nayi scheme batayi.",
         "Details jobs-portal.xyz par milenge.",
         "Form apply-now.in par bharna hai.",
+        "Admission iti-admission.ac.in par hoga.",
+        "Divyabhaskar.co.in ne likha hai.",
+        "Bharti careers.org.in par hai.",
+        "Scheme ki site msde.gov.in hai.",
+        # The scheme and www. are UNCONDITIONAL: no TLD needed.
+        "Link https://x par hai.",
+        "Dekho www.kuchbhi par.",
     ],
 )
 def test_a_line_naming_a_link_or_a_domain_refuses_the_answer(line: str) -> None:
@@ -1696,6 +1924,12 @@ def test_a_line_naming_a_link_or_a_domain_refuses_the_answer(line: str) -> None:
         "Chaliye, ab apna resume bhi bana lete hain, naya kaam dhoondhna aasaan hoga.",
         "Minimum wage ab ₹1,50,000 saal ki hui, 2025 se 2026 ke liye.",
         "PIB ke mutabik nayi skill scheme aayi hai.",
+        # M1 refinement: a missing space after a full stop is not a domain unless the word
+        # after it is a real TLD from the closed list.
+        "Govt.ne kaha ki bharti jaldi hogi.",
+        "ITI.ka form kal se milega.",
+        "Pune.mein aaj dhoop rahegi.",
+        "Sarkar.ki nayi scheme aayi hai.",
     ],
 )
 def test_ordinary_news_lines_are_not_read_as_links(line: str) -> None:

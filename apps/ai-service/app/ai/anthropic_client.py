@@ -24,6 +24,7 @@ turn as a failure rather than an answer.
 from __future__ import annotations
 
 import dataclasses
+import sys
 from typing import Any
 
 from ..config import Settings
@@ -205,6 +206,17 @@ def _with_server_tool_fields(result: LlmResult, resp: Any) -> LlmResult:
     )
 
 
+def _is_http_status_error(exc: BaseException) -> bool:
+    """``exc`` is the SDK's ``APIStatusError`` (or a subclass): the provider answered 4xx/5xx.
+
+    Read off the SDK module ``acomplete`` already imported, so no second import can fail here,
+    and an SDK without the class (a stub) reads as False: an ambiguous failure, never a refund
+    granted by accident. ``APIConnectionError`` and ``APITimeoutError`` are not status errors.
+    """
+    status_error = getattr(sys.modules.get("anthropic"), "APIStatusError", None)
+    return isinstance(status_error, type) and isinstance(exc, status_error)
+
+
 def _measured_usage(resp: Any) -> LlmResult:
     """What a tool-carrying response BILLED, with no text: tokens, searches and cache buckets.
 
@@ -321,9 +333,12 @@ async def acomplete(
         # Never include the body (may echo pseudonymized content) — a PII-free
         # reason code only. Chained via ``from exc`` for local tracebacks (the
         # router logs only reason_code, never this chain). `request_sent` stays at its
-        # default True: the request may have reached the provider, so a tool call keeps
-        # its spend reservation (H1).
-        raise LlmTransportError(REASON_SDK_ERROR) from exc
+        # default True: the request may have reached the provider. An HTTP error STATUS
+        # is marked `provider_rejected` (not billed, so a tool call refunds it, H1); the
+        # reason code is unchanged either way, so a text-only call behaves as before.
+        raise LlmTransportError(
+            REASON_SDK_ERROR, provider_rejected=_is_http_status_error(exc)
+        ) from exc
 
     if tools is None:
         return _parse_anthropic_response(resp)

@@ -126,24 +126,44 @@ def server_tool_call_cost_inr(
     return round(tokens + result.search_requests * WEB_SEARCH_COST_INR, 4)
 
 
-def server_tool_failure_charge_inr(model: str, exc: BaseException, worst_case_inr: float) -> float:
+def server_tool_ambiguous_charge_inr(
+    model: str, tools: list[dict[str, Any]], prompt_tokens: int
+) -> float:
+    """The bound kept for a tool attempt that may or may not have been billed (H1 refinement).
+
+    Every permitted search at its fee plus ONE read of the prompt. Deliberately smaller than the
+    reservation (no result-token allowance, no re-reads, no output): this is the charge for "the
+    request left and nothing came back", which is mostly a cancelled or broken connection, and
+    keeping the full worst case for it would let a run of them drain the global daily cap.
+    """
+    searches = web_search_max_uses(tools)
+    return round(
+        searches * WEB_SEARCH_COST_INR + estimate_cost_inr(model, prompt_tokens, 0), 4
+    )
+
+
+def server_tool_failure_charge_inr(
+    model: str, exc: BaseException, tools: list[dict[str, Any]], prompt_tokens: int
+) -> float:
     """What a FAILED attempt of a server-tool call keeps on the spend ledger (security review H1).
 
-    A failure the provider may have billed must not refund to zero: a paused or truncated turn,
-    a response with no text, the route's deadline, or an SDK error after the request left all
-    can carry tokens AND searches.
+    Four classes, by what the provider can have billed:
 
     - Raised before any network I/O (``request_sent`` False: tools on the wrong provider, a
-      missing key, the SDK absent) -> 0.0, the only case that may refund.
-    - A response existed and was refused (``billed`` set) -> its MEASURED cost: tokens, cache
-      buckets and every billed search, priced like a success.
-    - Anything else (a timeout, an SDK or network error after dispatch, an untyped exception)
-      -> ``worst_case_inr``, the whole reservation: unknown is treated as billed.
+      missing key, the SDK absent or unbuildable) -> 0.0: nothing reached the provider.
+    - The provider answered with an HTTP ERROR STATUS (``provider_rejected``: any 4xx or 5xx,
+      429 and 529 overloaded included) -> 0.0: Anthropic does not bill an error response. This
+      is what keeps an Anthropic outage from draining the global daily cap.
+    - A 200 response that was refused HERE (``billed`` set: paused, truncated, no text) -> its
+      MEASURED cost: tokens, cache buckets and every billed search, priced like a success.
+    - Anything else, the ambiguous after-send failure with no response (the route's deadline, a
+      connection reset after the request was written, an untyped exception) ->
+      :func:`server_tool_ambiguous_charge_inr`, a bound smaller than the reservation.
 
     Only the router's tool path calls this; a text-only call refunds on failure as before.
     """
     if isinstance(exc, LlmTransportError):
-        if not exc.request_sent:
+        if not exc.request_sent or exc.provider_rejected:
             return 0.0
         if exc.billed is not None:
             return server_tool_call_cost_inr(
@@ -152,7 +172,7 @@ def server_tool_failure_charge_inr(model: str, exc: BaseException, worst_case_in
                 input_tokens=exc.billed.input_tokens,
                 output_tokens=exc.billed.output_tokens,
             )
-    return worst_case_inr
+    return server_tool_ambiguous_charge_inr(model, tools, prompt_tokens)
 
 
 def build_call_metadata(
