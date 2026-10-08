@@ -250,7 +250,7 @@ REGIONAL_RESPECTFUL_VERBS = {
 }
 #: The Hinglish forms the LANGUAGE block asks for, and the "tum" forms it bans (persona v3.2).
 HINGLISH_RESPECTFUL = ("kariye", "seekhiye", "dekhiye", "lijiye", "sakte hain")
-HINGLISH_BANNED = ("karo", "jaao", "seekho", "jaoge", "sakte ho", "lo", "lelo", "karunga")
+HINGLISH_BANNED = ("karo", "jaao", "seekho", "jaoge", "sakte ho", "lo", "lelo")
 
 
 @pytest.mark.parametrize("category", sorted(REPLY_PROMPTS))
@@ -286,6 +286,9 @@ def test_every_language_is_respectful_and_hinglish_never_slips_into_tum(category
         assert f'"{form}"' in allowed, form
     for form in HINGLISH_BANNED:
         assert f'"{form}"' in banned, form
+    # First person is not a tum form: "karunga" is "I will do", and the reviewed GREETING itself
+    # says "madad karunga" (ADR-0051 §5.1). Banning it was a brief's mistake, corrected 2026-10-08.
+    assert '"karunga"' not in folded
     for language, verb in REGIONAL_RESPECTFUL_VERBS.items():
         asked_for = folded.split(f"- {language.casefold()}:")[1].split("never")[0]
         assert f'"{verb}"' in asked_for, (category, language)
@@ -360,7 +363,7 @@ def test_each_lines_example_is_respectful_latin_and_clear_of_every_wall(language
         assert not words & set(_regional_list(const)), (language, const)
     for word in _validator_alternation("SENSITIVE") + _validator_alternation("PROMISE"):
         assert not re.search(rf"\b{re.escape(word)}\b", example, re.I), (language, word)
-    assert not words & {"karo", "jaao", "seekho", "jaoge", "lo", "lelo", "karunga", "tum"}
+    assert not words & {"karo", "jaao", "seekho", "jaoge", "lo", "lelo", "tum"}
     respectful = {"english": "please", "hinglish": "aap"} | {
         name.casefold(): REGIONAL_LANGUAGES[name][0] for name in REGIONAL_LANGUAGES
     }

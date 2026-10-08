@@ -224,7 +224,7 @@ def test_latin_letters_only_reads_the_scripts_and_the_danda() -> None:
     assert gold.non_latin(["ITI course kariye"]) is False
     assert gold.non_latin(["₹15,000 se ₹25,000, 0.02 µm, 4 Ω"]) is False  # the API strips units
     assert gold.non_latin(["Café résumé"]) is False
-    for text in ("काम करिए", "வேலை", "ಕೆಲಸ", "పని", "કામ", "Theek hai।"):
+    for text in ("काम करिए", "வேலை", "ಕೆಲಸ", "పని", "કામ", "Theek hai\u0964"):
         assert gold.non_latin(["ok", text]) is True, text
 
 
@@ -274,6 +274,39 @@ def test_a_repeat_is_word_for_word_or_one_word_swapped_never_a_paraphrase() -> N
     assert gold.verbatim_repeat([gold.WELD_Q], turns) is False
 
 
+def test_first_person_is_not_a_slip() -> None:
+    """ "karunga" is "I will do", not a tum form: the reviewed GREETING says "madad karunga"."""
+    assert "karunga" not in gold.HINGLISH_TUM_WORDS
+    assert "madad karunga" in gold.GREETING_LINE
+    assert gold.persona_slips(["Main aapki madad karunga."], hinglish=True) == []
+
+
+def test_every_language_has_an_example_and_a_copy_is_three_words_in_a_row() -> None:
+    for language in gold.LANGUAGES:
+        example = gold.line_example(language)
+        assert example and example in free_prompts.REPLY_LANGUAGE_LINES[language], language
+    assert gold.line_example("bengali") is None
+    marathi = gold.line_example("marathi")
+    assert gold.example_copy([f"ITI course chan aahe. {marathi}"], marathi) is True
+    # Three of its words in a row is a copy (the 2026-10-08 run's mr-3 closed on "sab kaam sope
+    # vatel"); two ("sope vatel") is not counted, as two-word runs are ordinary talk.
+    assert gold.example_copy(["Kal fresh houn, sab kaam sope vatel."], marathi) is True
+    assert gold.example_copy(["Paaus kam hote, tab phir sope vatel."], marathi) is False
+    assert gold.example_copy(["anything"], None) is False
+
+
+def test_a_copy_is_scored_reported_and_counted() -> None:
+    example = gold.line_example("english")
+    case = next(c for c in gold.CASES if c.reply_language == "english")
+    copied = {"status": "answer", "lines": ["You can learn it at an ITI.", example]}
+    result = gold.score_reply(case, copied)
+    assert result.adhered and result.copy
+    score = gold.evaluate(lambda c: copied if c is case else _perfect(c))
+    assert score.overall.copied == 1
+    assert any(case.id in miss and "copies the line's example" in miss for miss in score.misses)
+    assert gold.evaluate(_perfect).overall.copied == 0
+
+
 def test_a_refusal_or_no_answer_is_counted_apart_never_as_a_language_miss() -> None:
     case = gold.CASES[0]
     assert gold.score_reply(case, {"status": "refuse", "topic": "news"}).status == gold.REFUSE
@@ -289,6 +322,7 @@ def test_a_perfect_replier_scores_every_case() -> None:
     score = gold.evaluate(_perfect)
     assert score.overall.cases == score.overall.answered == score.overall.adhered == len(gold.CASES)
     assert score.overall.slipped == score.overall.repeated == score.overall.non_latin == 0
+    assert score.overall.copied == 0
     assert score.misses == []
     for language, tally in score.per_language.items():
         assert tally.adhered == tally.cases > 0, language
@@ -452,6 +486,7 @@ def test_the_dump_carries_every_reply_and_rescores_without_a_call(
     assert [row["id"] for row in rows] == [case.id for case in gold.CASES]
     assert rows[0]["lines"] == SAMPLES["hinglish"] and rows[0]["adhered"] is False
     assert rows[1]["adhered"] is True and rows[1]["model"] == _MODEL
+    assert rows[1]["copy"] is False
     capsys.readouterr()
 
     def no_call(*_args, **_kwargs):

@@ -30,6 +30,8 @@ over both):
 (d) A VERBATIM REPEAT: a sentence of :data:`REPEAT_MIN_WORDS` or more words that an earlier
     assistant turn already said, word for word or with a word or two swapped
     (:data:`REPEAT_MIN_RATIO`).
+(e) AN EXAMPLE COPY: :data:`COPY_MIN_WORDS` words in a row from the reply-language line's
+    example, whose words a reply should not reuse.
 
 A HEURISTIC, AND STATED AS ONE. Marker words are the frequent function words, pronouns and verb
 endings of each language as romanized by a model; a word two languages share ("kaam", "nahi",
@@ -50,7 +52,7 @@ from difflib import SequenceMatcher
 from typing import Literal, get_args
 
 from ..contracts import FreeChatReplyCategory, FreeChatReplyLanguage
-from .prompts import REGIONAL_PERSONA_TOKENS
+from .prompts import REGIONAL_PERSONA_TOKENS, REPLY_LANGUAGE_LINES
 
 #: Every reply language, in the contract's order (`FREE_CHAT_REPLY_LANGUAGES`, pinned by a test).
 LANGUAGES: tuple[str, ...] = get_args(FreeChatReplyLanguage)
@@ -415,8 +417,8 @@ def detect_language(text: str) -> str:
 
 # ── (b) Latin letters only ───────────────────────────────────────────────────────────────────
 
-#: The unit symbols the API's `non_latin` wall strips before it looks (µ μ Ω Ω).
-_UNIT_SYMBOLS = re.compile("[µμΩΩ]")
+#: The unit symbols the API's `non_latin` wall strips before it looks (micro, mu, ohm, omega).
+_UNIT_SYMBOLS = re.compile("[\u00b5\u03bc\u2126\u03a9]")
 
 
 def non_latin(texts: Iterable[str]) -> bool:
@@ -424,7 +426,7 @@ def non_latin(texts: Iterable[str]) -> bool:
     API's `non_latin` wall reads it (unit symbols aside)."""
     for text in texts:
         for ch in _UNIT_SYMBOLS.sub("", text):
-            if ch in "।॥":
+            if ch in "\u0964\u0965":
                 return True
             kind = unicodedata.category(ch)[0]
             name = unicodedata.name(ch, "")
@@ -438,16 +440,16 @@ def non_latin(texts: Iterable[str]) -> bool:
 # ── (c) persona slips ────────────────────────────────────────────────────────────────────────
 
 #: The Hinglish "tum" (and "tu") forms (R17 is always "aap"), a CLOSED list: the imperatives, the
-#: tum future in "-oge", the informal pronouns, the familiar address persona v3.2 bans, and
-#: "karunga", which a reply cannot keep (the bot does nothing after it answers). "Chalo" is
-#: persona-sanctioned and absent.
+#: tum future in "-oge", the informal pronouns and the familiar address persona v3.2 bans. First
+#: person ("karunga", "I will do") is not a tum form: the GREETING itself says "madad karunga".
+#: "Chalo" is persona-sanctioned and absent.
 HINGLISH_TUM_WORDS = frozenset(
     {
         "karo", "jao", "jaao", "seekho", "sikho", "dekho", "lo", "lelo", "rakho", "suno",
         "bolo", "batao", "socho", "padho", "likho", "banao", "dhundho", "dhoondho", "poocho",
         "pucho", "milo", "aao", "ruko", "bhejo", "chalao", "pehno", "lagao", "kamao", "raho",
         "karoge", "jaoge", "seekhoge", "sikhoge", "paoge", "kamaoge", "lagoge", "banoge",
-        "rahoge", "sakoge", "doge", "loge", "dekhoge", "badhaoge", "samjhoge", "karunga",
+        "rahoge", "sakoge", "doge", "loge", "dekhoge", "badhaoge", "samjhoge",
         "tu", "tum", "tera", "tere", "teri", "tumhara", "tumhare", "tumhari", "tumhe", "tumko",
         "yaar", "beta", "bhaiya",
     }
@@ -481,7 +483,7 @@ def persona_slips(texts: Iterable[str], *, hinglish: bool) -> list[str]:
 
 # ── (d) verbatim repeats ─────────────────────────────────────────────────────────────────────
 
-_SENTENCE_END = re.compile(r"[.?!।\n]+")
+_SENTENCE_END = re.compile("[.?!\u0964\n]+")
 
 
 def _sentences(text: str) -> set[str]:
@@ -512,6 +514,35 @@ def verbatim_repeat(lines: Iterable[str], turns: Iterable[Turn]) -> bool:
     )
 
 
+# ── (e) copies of the line's example ────────────────────────────────────────────────────────
+
+#: A reply copies the example when it carries a run of this many of the example's words in a row.
+#: Three, not two: two-word runs ("mala sanga", "tell me") are ordinary talk in any reply.
+COPY_MIN_WORDS = 3
+_EXAMPLE = re.compile(r'for example: "([^"]+)"$')
+
+
+def line_example(language: str) -> str | None:
+    """The example sentence the reply-language line for ``language`` shows, or None."""
+    line = REPLY_LANGUAGE_LINES.get(language)  # type: ignore[call-overload]
+    match = _EXAMPLE.search(line) if line is not None else None
+    return match.group(1) if match else None
+
+
+def _runs(text: str, size: int) -> set[tuple[str, ...]]:
+    words = _tokens(text)
+    return {tuple(words[i : i + size]) for i in range(len(words) - size + 1)}
+
+
+def example_copy(lines: Iterable[str], example: str | None) -> bool:
+    """True when a reply line carries :data:`COPY_MIN_WORDS` of the example's words in a row.
+    The example only shows the style, and the prompt says never to reuse its words."""
+    if not example:
+        return False
+    shown = _runs(example, COPY_MIN_WORDS)
+    return any(_runs(line, COPY_MIN_WORDS) & shown for line in lines)
+
+
 # ── scoring ──────────────────────────────────────────────────────────────────────────────────
 
 ANSWER = "answer"
@@ -529,6 +560,9 @@ class CaseResult:
     non_latin: bool = False
     slips: tuple[str, ...] = ()
     repeat: bool = False
+    #: The reply reused words of the line's example (scored on every run; a baseline that
+    #: never sent the line can only match by chance).
+    copy: bool = False
     counts: Mapping[str, int] = field(default_factory=dict)
 
 
@@ -537,7 +571,7 @@ def _strings(value: object) -> list[str]:
 
 
 def score_reply(case: Case, payload: Mapping | None) -> CaseResult:
-    """One case's reply, scored on (a)-(d). ``payload`` is the route's body, or None."""
+    """One case's reply, scored on (a)-(e). ``payload`` is the route's body, or None."""
     if not isinstance(payload, Mapping) or payload.get("status") not in (ANSWER, REFUSE):
         return CaseResult(case, UNAVAILABLE)
     if payload["status"] == REFUSE:
@@ -557,6 +591,7 @@ def score_reply(case: Case, payload: Mapping | None) -> CaseResult:
         non_latin=non_latin(lines + chips),
         slips=tuple(persona_slips(lines + chips, hinglish=hinglish)),
         repeat=verbatim_repeat(lines, case.turns),
+        copy=example_copy(lines, line_example(case.reply_language)),
         counts=marker_counts(text),
     )
 
@@ -572,6 +607,7 @@ class Tally:
     #: Answers with at least one persona slip.
     slipped: int = 0
     repeated: int = 0
+    copied: int = 0
 
     def add(self, result: CaseResult) -> None:
         self.cases += 1
@@ -585,6 +621,7 @@ class Tally:
             self.non_latin += result.non_latin
             self.slipped += bool(result.slips)
             self.repeated += result.repeat
+            self.copied += result.copy
 
 
 @dataclass(frozen=True)
@@ -612,6 +649,8 @@ def _miss(result: CaseResult) -> str | None:
         reasons.append("slips " + ", ".join(result.slips))
     if result.repeat:
         reasons.append("verbatim repeat")
+    if result.copy:
+        reasons.append("copies the line's example")
     if not reasons:
         return None
     case = result.case

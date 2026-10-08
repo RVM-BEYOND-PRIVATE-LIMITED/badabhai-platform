@@ -111,6 +111,7 @@ def _tally_line(name: str, tally: gold.Tally) -> str:
     return (
         f"  {name:<9} language {_rate(tally.adhered, tally.answered):<12} "
         f"non-Latin {tally.non_latin}  slips {tally.slipped}  repeats {tally.repeated}  "
+        f"example copies {tally.copied}  "
         f"(cases {tally.cases}, refused {tally.refused}, unavailable {tally.unavailable})"
     )
 
@@ -188,6 +189,7 @@ def write_dump(path: Path, run: ReplyLanguageRun) -> None:
                 "non_latin": result.non_latin,
                 "slips": list(result.slips),
                 "repeat": result.repeat,
+                "copy": result.copy,
                 "markers": dict(result.counts),
             }
         )

@@ -209,7 +209,7 @@ Latin letters.
   the way Hinglish mixes Hindi and English. Hindi, Hinglish or English, or when unsure: Hinglish.
 Always respectful, in every language:
 - Hinglish: always using "aap", with "kariye", "seekhiye", "dekhiye", "lijiye", "sakte hain";
-  never "karo", "jaao", "seekho", "jaoge", "sakte ho", "lo", "lelo" or "karunga".
+  never "karo", "jaao", "seekho", "jaoge", "sakte ho", "lo" or "lelo".
 - Marathi: Marathi with English, using "tumhi" and "kara", never "tu", "tula" or "tujha".
 - Gujarati: Gujarati with English, using "tame" or "aap" and "karjo", never "tu", "tane" or
   "taru".
@@ -234,6 +234,14 @@ Every rule below holds in every language, and the chips follow the reply's langu
 #: earlier Hinglish answer. The example rides the request, not the system prompt, so only the one
 #: language asked for is shown and the system prompt stays one constant. Each example is clear of
 #: every API wall (pinned by a test).
+#:
+#: KNOWN COST: replies sometimes reuse the example's tail as their own line (5 of 40 by the eval's
+#: three-words-in-a-row rule, "sope vatel", "sulabha anisuttade"). A NEUTRAL example ("please
+#: check this once, then tell me"), labelled style-only with "never reuse its words", was measured
+#: on the full set on 2026-10-08 and NOT kept. Copies fell from 5 to 1 and adherence held (27/40
+#: against 28/40), but persona slips rose from 5 to 9 replies and verbatim repeats returned on bare
+#: language requests (0 to 2: "marathi mai jawab do", "kannadadalli heli"). Advice in the
+#: language gives a bare request something to say; a neutral sentence did not.
 REPLY_LANGUAGE_LINES: Mapping[FreeChatReplyLanguage, str] = MappingProxyType(
     {
         "english": (
