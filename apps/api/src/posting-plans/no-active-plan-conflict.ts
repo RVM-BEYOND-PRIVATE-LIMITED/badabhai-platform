@@ -8,7 +8,10 @@ import { ConflictException } from "@nestjs/common";
  */
 export const NO_ACTIVE_PLAN_REASON = "no_active_plan" as const;
 
-/** The unchanged message — payer-web matches it today, so it must not be reworded. */
+/**
+ * The unchanged message. payer-web does not match this text (it reads any 409 that is not the
+ * in-flight copy as "no plan"), but it is pinned by the API tests; clients branch on `reason`.
+ */
 export const NO_ACTIVE_PLAN_MESSAGE = "no active plan to top up for this posting";
 
 /**

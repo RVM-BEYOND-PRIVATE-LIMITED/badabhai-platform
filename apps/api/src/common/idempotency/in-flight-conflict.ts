@@ -27,6 +27,10 @@ export interface InFlightConflictBody {
  * which stays unchanged: it carries NO number or field of the result shape, because the first
  * attempt has not computed one yet (a guessed balance/allowance would render state that never
  * existed). The client's answer to `reason: "in_flight"` is to RE-READ state, never to re-post.
+ *
+ * DO NOT REWORD a route's in-flight message: payer-web builds older than its `reason` support tell
+ * this 409 apart from "no active plan" by that text (`/already being processed/i`), so a reworded
+ * copy would tell a payer whose top-up is mid-flight to buy a plan.
  */
 export function inFlightConflict(message: string): ConflictException {
   return new ConflictException({
