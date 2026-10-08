@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { looksLikePii } from "@badabhai/validators";
 import type {
   JobPostingChatSessionSummary,
@@ -12,6 +11,7 @@ import { Badge, Button, Card, Textarea } from "../../../../../components/ds";
 // interactive pill while rendering the other hookless DS primitives for real.
 import { Chip } from "../../../../../components/ds/chip";
 import { PortalLink } from "../../../../../components/portal-link";
+import { usePortalNavigation } from "../../../../../components/portal-navigation";
 import { DraftPreview } from "./draft-preview";
 import {
   publishJobPostingChatAction,
@@ -108,7 +108,6 @@ export interface JobPostingChatProps {
 }
 
 export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChatProps) {
-  const router = useRouter();
   // useState order (mirrored by job-posting-chat.test.tsx): convo, text, error, navigating.
   const [convo, setConvo] = useState<Conversation | null>(null);
   const [text, setText] = useState("");
@@ -117,6 +116,8 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   // re-clicked (no double publish) — the same latch the manual posting form uses.
   const [navigating, setNavigating] = useState(false);
   const [pending, startTransition] = useTransition();
+  // The publish lands on the posting's edit page with the shell's "Opening Edit posting…" cue.
+  const { navigate } = usePortalNavigation();
 
   const busy = pending || navigating;
 
@@ -212,8 +213,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
       // rather than landing on a read-only detail that hides what is still missing. Latch BEFORE
       // navigating so the CTA can never be re-clicked across the success→navigation window.
       setNavigating(true);
-      router.push(`/postings/${res.postingId}/edit`);
-      router.refresh();
+      navigate(`/postings/${res.postingId}/edit`, { pendingLabel: "Edit posting", refresh: true });
     });
   }
 
@@ -361,7 +361,10 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
       <aside className="ai-chat__side">
         <DraftPreview draft={convo.draft} draftReady={convo.draftReady} />
         <div className="ai-chat__publish">
+          {/* BLOCK: it fills the draft column whatever it reads. Content-sized, it shrank 29px
+              under the click (the rocket became the spinner, the label "Publishing…"). */}
           <Button
+            block
             size="lg"
             iconRight="rocket-launch"
             loading={busy}

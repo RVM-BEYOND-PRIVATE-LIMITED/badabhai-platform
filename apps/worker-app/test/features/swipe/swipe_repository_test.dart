@@ -62,19 +62,118 @@ void main() {
       onRequest: (http.Request req) => byPath[req.url.path] = req,
     ));
 
-    final result = await repo.getFeed();
+    final FeedPage result = await repo.getFeed();
     expect(byPath['/feed']?.headers['authorization'], 'Bearer tok');
-    
-    
-    expect(result, hasLength(1));
-    expect(result.first.jobId, 'j1');
+
+
+    expect(result.jobs, hasLength(1));
+    expect(result.jobs.first.jobId, 'j1');
   });
 
   test('a worker with no decisions sees the whole feed', () async {
     final SwipeRepositoryImpl repo = _repo(_feedClient(
       jobs: <Map<String, dynamic>>[_feedJob('j1'), _feedJob('j2')],
     ));
-    expect(await repo.getFeed(), hasLength(2));
+    expect((await repo.getFeed()).jobs, hasLength(2));
+  });
+
+  // ── #2068 / ADR-0052 — paging ───────────────────────────────────────────────
+
+  test('the cursor rides GET /feed untouched and next_cursor comes back',
+      () async {
+    const String cursor = 'eyJ2IjoxLCJtIjoidjEiLCJvIjo1MH0';
+    late http.Request captured;
+    final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+      captured = req;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'jobs': <Map<String, dynamic>>[_feedJob('j51')],
+          'next_cursor': 'CURSOR-3',
+        }),
+        200,
+      );
+    }));
+
+    final FeedPage page = await repo.getFeed(cursor: cursor);
+
+    expect(captured.url.queryParameters['cursor'], cursor);
+    expect(page.jobs.single.jobId, 'j51');
+    expect(page.nextCursor, 'CURSOR-3');
+  });
+
+  // The two cursor 400s (malformed / wrong feed order) are the ONLY 400s the
+  // deck answers by restarting instead of surfacing, so they get their own
+  // type. The path is what identifies them — never the message.
+  test('a 400 naming the cursor maps to FeedCursorRejectedFailure', () {
+    final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'statusCode': 400,
+          'error': <String, dynamic>{
+            'message': 'Validation failed',
+            'issues': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'path': 'cursor',
+                'message':
+                    'cursor was issued for a different feed order; refetch '
+                    'without a cursor',
+              },
+            ],
+          },
+        }),
+        400,
+      );
+    }));
+    expect(
+      repo.getFeed(cursor: 'stale'),
+      throwsA(isA<FeedCursorRejectedFailure>()),
+    );
+  });
+
+  // The server nests the validation payload under `error`; #2068 quotes it
+  // bare. Both shapes must be read, or a rejected cursor would surface as an
+  // error screen on one of them.
+  test('a 400 naming the cursor is recognised in the UNNESTED body too', () {
+    final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'message': 'Validation failed',
+          'issues': <Map<String, dynamic>>[
+            <String, dynamic>{'path': 'cursor', 'message': 'cursor is malformed'},
+          ],
+        }),
+        400,
+      );
+    }));
+    expect(
+      repo.getFeed(cursor: 'bad'),
+      throwsA(isA<FeedCursorRejectedFailure>()),
+    );
+  });
+
+  test('a 400 about ANY OTHER field stays an InvalidRequestFailure', () {
+    final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'statusCode': 400,
+          'error': <String, dynamic>{
+            'message': 'Validation failed',
+            'issues': <Map<String, dynamic>>[
+              <String, dynamic>{'path': 'pay_min', 'message': 'too big'},
+            ],
+          },
+        }),
+        400,
+      );
+    }));
+    expect(repo.getFeed(), throwsA(isA<InvalidRequestFailure>()));
+  });
+
+  test('a 400 with no parsable body stays an InvalidRequestFailure', () {
+    final SwipeRepositoryImpl repo = _repo(
+      MockClient((http.Request req) async => http.Response('nonsense', 400)),
+    );
+    expect(repo.getFeed(cursor: 'c'), throwsA(isA<InvalidRequestFailure>()));
   });
 
   test('a 403 maps to ConsentRequiredFailure', () {

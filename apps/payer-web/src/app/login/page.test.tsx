@@ -41,6 +41,7 @@ vi.mock("./login-form", () => ({ LoginForm: () => LoginFormMock() }));
 
 const { default: LoginPage } = await import("./page");
 const { LoginForm: MockedLoginForm } = await import("./login-form");
+const { NavPendingStatus } = await import("../../components/nav-pending");
 
 function textOf(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
@@ -98,6 +99,16 @@ describe("login page — auth shell", () => {
     // The <LoginForm /> element is present (its .type is the mock); exactly one card holds it.
     expect(findAll(tree, MockedLoginForm).length).toBe(1);
     expect(findByClass(tree, "login-card").length).toBe(1);
+  });
+
+  it("renders the navigation cue's bar + status line ONCE — there is no portal shell to", async () => {
+    // A verified code navigates to the dashboard (login-form → usePortalNavigation): its "Opening
+    // Dashboard…" line and bar need a NavPendingStatus on THIS page, outside the card.
+    currentSession.mockResolvedValue(null);
+    const tree = (await LoginPage()) as ReactElement;
+    expect(findAll(tree, NavPendingStatus)).toHaveLength(1);
+    const card = findByClass(tree, "login-card")[0]!;
+    expect(findAll(card, NavPendingStatus)).toHaveLength(0);
   });
 });
 

@@ -4,6 +4,7 @@ import { payerServerConfig } from "./server-config";
 import { readApiToken } from "./auth/session-cookie";
 import {
   PayerConflictError,
+  PayerHttpError,
   PayerValidationError,
   PriceMismatchError,
   type ApiFieldIssue,
@@ -19,7 +20,9 @@ import {
  *    transport NEVER sends a client-supplied `payer_id`; a body never carries one
  *    (the backend derives it from `req.payer.id`). Callers pass only worker/job ids.
  *  - Every response is parsed with a Zod schema (invariant #7, no `any`); a parse
- *    failure or a non-2xx throws so the page renders an honest error state.
+ *    failure or a non-2xx throws so the page renders an honest error state. A non-2xx is a
+ *    {@link PayerHttpError} carrying its TYPED `status` (a seam branches on
+ *    `isPayerStatus(e, 404)`, never on the message), or one of its 400 / 409 subclasses.
  *
  * The API base URL is the SERVER-side `payerServerConfig().apiBaseUrl` — not a
  * `NEXT_PUBLIC_*` value — so the browser never learns the internal API origin.
@@ -97,8 +100,8 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
     // changed", and must never be read as a purchase seam's other 409s. Nothing from the
     // body is rendered except the API's current price.
     if (res.status === 409) throw await readConflict(path, res);
-    // Body may carry a deny reason — do NOT surface it (no-oracle / no PII). Class only.
-    throw new Error(`payer API ${path} returned ${res.status}`);
+    // Body may carry a deny reason — do NOT surface it (no-oracle / no PII). Status only.
+    throw new PayerHttpError(path, res.status);
   }
 
   // 204 / empty body (e.g. logout) → parse against an empty object.
@@ -112,8 +115,9 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
  * Classify a 409 body, defensively. The API's exception filter nests the thrown payload under
  * `error` (`{ statusCode, error: { reason, message, current_price_inr, … }, requestId, … }`); a
  * flat body is accepted too. `reason: "price_mismatch"` → {@link PriceMismatchError}; anything
- * else (including an unreadable body) → {@link PayerConflictError}, whose message is the
- * historic `returned 409` shape.
+ * else (including an unreadable body) → {@link PayerConflictError}, a status-409
+ * {@link PayerHttpError} carrying the API's `reason` (#2135 — `in_flight`, `no_active_plan`) when
+ * the body names one, else null (an API before #2135), and its `message`.
  */
 async function readConflict(path: string, res: Response): Promise<Error> {
   let fields: Record<string, unknown> = {};
@@ -134,7 +138,11 @@ async function readConflict(path: string, res: Response): Promise<Error> {
     const usable = typeof current === "number" && Number.isInteger(current) && current >= 0;
     return new PriceMismatchError(path, usable ? current : null);
   }
-  return new PayerConflictError(path, typeof fields.message === "string" ? fields.message : null);
+  return new PayerConflictError(
+    path,
+    typeof fields.message === "string" ? fields.message : null,
+    typeof fields.reason === "string" && fields.reason.length > 0 ? fields.reason : null,
+  );
 }
 
 /**

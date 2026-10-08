@@ -11,15 +11,19 @@ import type { AgencyJob } from "../../../../../../lib/contracts";
  *  - the save is `updateAgencyJobAction(job id, input, the loaded posting)` — the posting is the
  *    `initial` the seam diffs into `clear`, so a blanked card field is unset;
  *  - a refused save hands the reason back to the form (no navigation); a saved one lands on the
- *    posting's details, refreshed; Cancel returns there too.
+ *    posting's details, refreshed; Cancel returns there too — each through the shared navigation
+ *    helper, naming the posting for the shell's "Opening <title>…" cue.
  * (The inline editor's focus hand-back between a row's Edit/Cancel toggle and its rebuilt header,
  * and "a save closes only ITS editor", have no counterpart: one page holds one form, and leaving it
  * is a navigation.)
  */
 
-const push = vi.fn();
-const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }));
+// Navigation goes through components/portal-navigation.ts (its router mechanics — push, the
+// refresh, the cue — are that module's own suite); here: where to, named what, refreshed or not.
+const navigate = vi.fn();
+vi.mock("../../../../../../components/portal-navigation", () => ({
+  usePortalNavigation: () => ({ pending: false, navigate }),
+}));
 const updateAgencyJobAction = vi.fn();
 vi.mock("../../../dashboard/jobs-actions", () => ({
   updateAgencyJobAction: (...a: unknown[]) => updateAgencyJobAction(...a),
@@ -71,8 +75,7 @@ function form(): FormProps {
 }
 
 beforeEach(() => {
-  push.mockClear();
-  refresh.mockClear();
+  navigate.mockClear();
   updateAgencyJobAction.mockReset();
 });
 
@@ -95,10 +98,11 @@ describe("EditAgencyPosting — the save", () => {
   });
 
   it("a saved posting lands on its details, refreshed (a later Back never restores the old form)", async () => {
-    updateAgencyJobAction.mockResolvedValueOnce({ ok: true, job: JOB });
+    // The cue names the SAVED posting (its title may be the edit's new one).
+    updateAgencyJobAction.mockResolvedValueOnce({ ok: true, job: { ...JOB, title: "CNC Setter" } });
     await expect(form().onSubmit(INPUT)).resolves.toEqual({ ok: true });
-    expect(push).toHaveBeenCalledWith(DETAIL);
-    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(DETAIL, { pendingLabel: "CNC Setter", refresh: true });
   });
 
   it("a refused save hands the server's reason back to the form and stays on the page", async () => {
@@ -110,13 +114,12 @@ describe("EditAgencyPosting — the save", () => {
       ok: false,
       error: "That posting could not be found.",
     });
-    expect(push).not.toHaveBeenCalled();
-    expect(refresh).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("Cancel returns to the posting's details without saving", () => {
     form().onCancel();
-    expect(push).toHaveBeenCalledWith(DETAIL);
+    expect(navigate).toHaveBeenCalledWith(DETAIL, { pendingLabel: JOB.title });
     expect(updateAgencyJobAction).not.toHaveBeenCalled();
   });
 });

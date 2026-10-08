@@ -190,7 +190,7 @@ void main() {
       'the canned feed pay/shift stay in PARITY with the canned details — '
       'like the real feed and detail routes reading the same jobs row',
       () async {
-    final List<FeedItem> feed = await api.getFeed(authToken: 'mock');
+    final List<FeedItem> feed = (await api.getFeed(authToken: 'mock')).jobs;
     expect(feed, isNotEmpty);
     for (final FeedItem item in feed) {
       final JobDetail detail =

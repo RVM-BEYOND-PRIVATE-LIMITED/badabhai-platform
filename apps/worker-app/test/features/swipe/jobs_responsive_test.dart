@@ -101,20 +101,23 @@ SwipeBloc _feedBloc({
   bool pending = false,
 }) {
   final _MockSwipeRepository repo = _MockSwipeRepository();
-  final When<Future<List<FeedItem>>> stub = when(
+  final When<Future<FeedPage>> stub = when(
     () => repo.getFeed(
       tradeKey: any(named: 'tradeKey'),
       city: any(named: 'city'),
       shift: any(named: 'shift'),
       payMin: any(named: 'payMin'),
+      cursor: any(named: 'cursor'),
     ),
   );
   if (pending) {
-    stub.thenAnswer((_) => Completer<List<FeedItem>>().future);
+    stub.thenAnswer((_) => Completer<FeedPage>().future);
   } else if (error != null) {
     stub.thenThrow(error);
   } else {
-    stub.thenAnswer((_) async => jobs ?? <FeedItem>[]);
+    // One page, no cursor (#2068) — paging has its own suite.
+    stub.thenAnswer((_) async =>
+        FeedPage(jobs: jobs ?? <FeedItem>[], nextCursor: null));
   }
   return SwipeBloc(repo);
 }
