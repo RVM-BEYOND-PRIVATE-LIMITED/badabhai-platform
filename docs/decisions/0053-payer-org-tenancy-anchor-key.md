@@ -109,8 +109,15 @@ For actor `P` in mode `on`:
   (§3.5) prevents new cases.
 - **R4 (heal, then fail closed):** if `P` has no active membership at all, call `ensureSoloOrg(P)`
   once (idempotent, the existing login pattern) and re-resolve. If that still fails, return 403.
-- **R5 (org liveness):** if the acting org's `status` ≠ `active`, or its anchor's `payers.status` ≠
-  `active`, return 403 (O-6, ruled 2026-10-08).
+- **R5 (org liveness):** if the acting org's `status` ≠ `active`, return 403. When `P` is not the
+  acting org's anchor, if the anchor's `payers.status` ≠ `active`, return 403 (O-6, ruled
+  2026-10-08). `P`'s own status is judged by `PayerAuthGuard`, not here.
+  *Amended 2026-10-08 (PR #2155; a correction to keep the owner's solo-identity ruling — **pending the owner's own confirmation**, a P3 entry criterion):* as first written, R5
+  checked the anchor's status on every acting org, including a solo org, whose anchor is `P`.
+  Login resolves the org **before** a first-time payer is activated (`PayerAuthService.testLogin`
+  and `verifyLogin` resolve the org, then call `payers.activate`), so in `on` every first login was
+  refused and got a session with no org claim. That broke solo identity (§5.3: "a payer with no
+  team is unaffected").
 - **R6 (vertical role):** if `P`'s `payers.role` ≠ the anchor's role, return 403 (O-9, ruled 2026-10-08).
 - **R7:** a resolve error is a 403, never an allow.
 
@@ -188,7 +195,7 @@ Backend Platform owns the file layout. The shape is fixed here:
 
 ```ts
 declare const tenantKeyBrand: unique symbol;
-/** The acting org's anchor (payer_orgs.root_payer_id). Constructible ONLY by the resolver. */
+/** The acting org's anchor (payer_orgs.root_payer_id). Constructible ONLY by the resolver (§5.2 rule 2). */
 export type TenantKey = string & { readonly [tenantKeyBrand]: true };
 
 export interface PayerTenantScope {
@@ -207,8 +214,17 @@ resolve(actorPayerId: string): Promise<PayerTenantScope>;
 1. **Resolve once per request, at the service entry point.** Tenancy is business logic (CLAUDE.md §4),
    so it is never resolved in a controller or a repository. The scope object is passed down. It is
    never re-resolved inside a transaction.
-2. **Repositories take `TenantKey`, not `string`,** for every tenant-row predicate and stamp. A body,
-   path or JWT value cannot reach a predicate because the type does not exist outside the resolver.
+2. **Repositories take `TenantKey`, not `string`,** for every tenant-row predicate and stamp. A typed
+   body, path or JWT value cannot reach a predicate, because only the resolver produces the type:
+   its one constructor is private to `payer-tenant-scope.ts`, and `payer-tenancy.static.test.ts`
+   fails on any type assertion to `TenantKey` / `PayerTenantScope` / `ActingOrgChoice` (or an alias
+   or interface built on one) elsewhere, and on any import of `chooseActingOrg` outside the resolver
+   service. The brand is a compile-time device: a value typed `any` assigns to it without a cast,
+   and the lint config has no type-aware `no-unsafe-argument`. A type predicate (`x is TenantKey`),
+   an assertion function (`asserts x is TenantKey`) or a generic helper whose return type is
+   inferred (`launder<T>(x: unknown): T`) also mints one with no visible cast; the static test does
+   not see these yet (closing the first two is Phase 2 work). Inputs therefore reach payer
+   services only as Zod-parsed DTOs and the session id, and Phase 2 review must keep it so.
 3. **Writes stamp the tenant key** into the tenant-key column. Actor columns get the actor.
 4. **Trusted internal routes that take a payer id** (`InternalServiceGuard`: `/unlocks`,
    `/payers/:payerId/credits`, `/job-postings/:id/plan` and `/boost`, `/resume-disclosures`) pass that id through
@@ -363,7 +379,7 @@ together. P3's owner actions wait only on O-8.
 | **O-3** | Worker-protection caps count distinct **orgs** after the flip, not logins; a team shares the per-unlock reveal attempts | **Yes.** The cap protects the worker from distinct *companies*. Counting logins would need a new column and would cap a team at fewer companies | ACCEPTED | Merge of P2b |
 | **O-4** | Coupon `perPayerLimit` becomes per org | **Yes.** Mock money today (`GAP-PAY-05`) | ACCEPTED | Merge of P2c |
 | **O-5** | Agency KYC, earnings and payouts are org-level and **owner-only** (`@OrgRoles("owner")`) | **Yes.** KYC describes the legal entity | ACCEPTED | Merge of P2d; must also be decided before `AGENCY_PAYOUTS_ENABLED` flips |
-| **O-6** | Suspending an org's anchor (ADR-0037) blocks the whole org: resolver R5 reads the anchor's `payers.status`, so every member gets a 403 on tenant routes. No new write and no new event; the existing cascade already suspends the org's inventory because it keys on `payer_id`. Suspending a non-anchor member blocks only that login | **Yes** | ACCEPTED | The flip (R5 behaviour) |
+| **O-6** | Suspending an org's anchor (ADR-0037) blocks the whole org: resolver R5 reads the anchor's `payers.status` for every member who is not the anchor, so each of them gets a 403 on tenant routes; the anchor's own login is blocked by `PayerAuthGuard`, as before. No new write and no new event; the existing cascade already suspends the org's inventory because it keys on `payer_id`. Suspending a non-anchor member blocks only that login. *(R5 wording amended 2026-10-08, §3.2: the anchor-status check never applies to the anchor themself.)* | **Yes** | ACCEPTED | The flip (R5 behaviour) |
 | **O-7** | AI posting-chat drafts stay member-private | **Yes.** Current behaviour; the published posting is shared | ACCEPTED | Nothing |
 | **O-8** | Arm `shadow`, then `on`, in production (secret plus redeploy) | after the P3 checklist | **Open**: owner's call after the P3 checklist | P3 |
 | **O-9** | A member's vertical role must equal the anchor's role (A3, R6). The alternative is members acting under the anchor's role | **Must match** for now: fail-closed and reversible. Revisit if agencies hit it | ACCEPTED (P1 ships A3) | A3 in P1 (P1 ships A1 and A2 without it) |
@@ -406,8 +422,11 @@ together. P3's owner actions wait only on O-8.
 - **Risks:**
   - **A missed call site.** A write keyed by the actor in `on` strands the row under the member.
     Mitigation: the `TenantKey` brand, plus the architecture test T5 (plan §5) whose allowlist must
-    be empty before the flip.
-  - **Stranded personal data** (O-2): sized by census C5 before the flip.
+    be empty before the flip, plus a hand check of the call sites T5 cannot see (plan §5 lists
+    them; an empty allowlist alone is not proof of completeness).
+  - **Accept-rule race** (risk register R65): A1/A2 are check-then-write. Fail-closed (R3) and
+    counted by census C2/C3; closing it is a P3 entry criterion.
+  - **Stranded personal data** (O-2): sized by census C5 (rows) and C5b (credits) before the flip.
   - **Event meaning** (§7): every emitter is reviewed per PR by `code-reviewer`.
 - **Rollback:** set the mode back to `off` and redeploy. Rows a member wrote in `on` remain under the
   anchor. The owner still sees them, and the member returns to the pre-ADR empty view. No data repair

@@ -3,7 +3,8 @@ import type { Payer } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "./payers.repository";
-import { PayerOrgsRepository, type ResolvedOrg } from "./payer-orgs.repository";
+import type { ResolvedOrg } from "./payer-orgs.repository";
+import { PayerTenantScopeService } from "./payer-tenant-scope.service";
 import { PayerMeSchema, type PayerMeDto, type PayerUpdateDto } from "./payer-account.dto";
 
 /**
@@ -27,20 +28,21 @@ export class PayerAccountService {
   constructor(
     private readonly payers: PayersRepository,
     private readonly events: EventsService,
-    private readonly orgs: PayerOrgsRepository,
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   /**
    * The authenticated payer's own `{ id, role, status, orgName, email, phoneLast4, orgId,
    * orgRole }`. `orgId`/`orgRole` (#2079) are read from `payer_members` on EVERY call, so this
    * is the always-current org-role read for payer-web (a JWT claim can be up to a half-life
-   * stale; this cannot).
+   * stale; this cannot). They are the ACTING org (ADR-0053 §3.2) — the same choice the tenant
+   * scope and `PayerOrgRoleGuard` make.
    */
   async getOwnAccount(authPayerId: string): Promise<PayerMeDto> {
     const row = await this.payers.findById(authPayerId);
     // A valid session whose payer row is gone → neutral not-found (no oracle).
     if (!row) throw new NotFoundException("Payer account not found");
-    return this.toMaskedDto(row, await this.orgs.resolveOrgForPayer(authPayerId));
+    return this.toMaskedDto(row, await this.tenancy.resolveActingOrg(authPayerId));
   }
 
   /**
@@ -83,7 +85,7 @@ export class PayerAccountService {
       requestId: ctx.requestId,
     });
 
-    return this.toMaskedDto(updated, await this.orgs.resolveOrgForPayer(authPayerId));
+    return this.toMaskedDto(updated, await this.tenancy.resolveActingOrg(authPayerId));
   }
 
   /**

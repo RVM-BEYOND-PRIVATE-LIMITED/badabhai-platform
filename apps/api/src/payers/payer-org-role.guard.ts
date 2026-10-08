@@ -10,7 +10,8 @@ import {
 import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 import type { OrgRole } from "@badabhai/db";
-import { PayerOrgsRepository, type ResolvedOrg } from "./payer-orgs.repository";
+import type { ResolvedOrg } from "./payer-orgs.repository";
+import { PayerTenantScopeService } from "./payer-tenant-scope.service";
 
 /** Reflector metadata key for the allowed org-roles declared by {@link OrgRoles}. */
 export const ORG_ROLES_KEY = "org_roles";
@@ -47,9 +48,11 @@ declare global {
  * Org-tenant RBAC + org resolution for payer routes (ADR-0027 / B5). Runs AFTER
  * {@link import("./payer-auth.guard").PayerAuthGuard} (which authenticates WHO the payer is)
  * and:
- *   1. resolves the caller's ACTIVE org membership (`org_id` + `org_role`) from the DB via
- *      {@link PayerOrgsRepository.resolveOrgForPayer} and attaches it to `req.payerOrg` (so the
- *      handler reads it via {@link CurrentOrg} with no re-query), and
+ *   1. resolves the caller's ACTING org (`org_id` + `org_role`) from the DB via
+ *      {@link PayerTenantScopeService.resolveActingOrg} — the same choice the tenant scope makes
+ *      (ADR-0053 §3.2), so the Team page can never show a different org from the one the data
+ *      is scoped to — and attaches it to `req.payerOrg` (so the handler reads it via
+ *      {@link CurrentOrg} with no re-query), and
  *   2. if the route declares {@link OrgRoles}, rejects (403) unless the caller's `org_role` is
  *      in the allowed set.
  *
@@ -65,7 +68,7 @@ declare global {
 export class PayerOrgRoleGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly orgs: PayerOrgsRepository,
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -77,7 +80,7 @@ export class PayerOrgRoleGuard implements CanActivate {
     // Resolve the caller's active org membership fail-closed (a resolve error is never allowed).
     let org: ResolvedOrg | null;
     try {
-      org = await this.orgs.resolveOrgForPayer(payer.id);
+      org = await this.tenancy.resolveActingOrg(payer.id);
     } catch {
       org = null;
     }

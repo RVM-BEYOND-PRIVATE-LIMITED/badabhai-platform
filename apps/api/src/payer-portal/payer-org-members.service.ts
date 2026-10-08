@@ -3,24 +3,38 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
-import type { OrgRole, PayerMember, PayerMemberStatus } from "@badabhai/db";
+import type { OrgRole, PayerMember, PayerMemberStatus, PayerRole } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "../payers/payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
+import { isTeamMembership } from "../payers/payer-tenant-scope";
 import type { InviteMemberDto, AcceptInviteDto } from "./payer-org-members.dto";
 import { MEMBER_INVITE_MAILER, type MemberInviteMailer } from "./member-invite.mailer";
 
 /** Days an org invite token stays valid before it must be re-issued. */
 const INVITE_TTL_DAYS = 7;
 const MS_PER_DAY = 86_400_000;
+
+/**
+ * The ONE body for every ADR-0053 §3.5 accept refusal (A1, A2, A3). It names no rule and no
+ * org, so the response says nothing beyond "not with this account"; the rule is in the log.
+ */
+export const INVITE_NOT_ACCEPTABLE_MESSAGE = "This invite can't be accepted with this account";
+
+/** ADR-0053 §3.5 — the membership invariant an accept would break. */
+export type AcceptRefusalRule =
+  | "A1_already_in_a_team" // already an active member of another org's team
+  | "A2_anchors_a_team" // anchors their own team (another non-removed member)
+  | "A3_role_mismatch"; // vertical role differs from the inviting org's anchor (O-9)
 
 /**
  * A member as shown to the team list — FACELESS by default: opaque `member_id` + role +
@@ -53,6 +67,8 @@ export interface OrgMemberView {
  */
 @Injectable()
 export class PayerOrgMembersService {
+  private readonly logger = new Logger(PayerOrgMembersService.name);
+
   constructor(
     private readonly orgs: PayerOrgsRepository,
     private readonly pii: PiiCryptoService,
@@ -145,6 +161,12 @@ export class PayerOrgMembersService {
    * to the caller's OWN verified email (defense-in-depth on a leaked link) — an email mismatch is
    * 403. Activates the member in one guarded write (consumes the token), then emits
    * payer_member.accepted (PII-free). Returns the masked view of the now-active membership.
+   *
+   * ADR-0053 §3.5 — then refuses (one neutral 409, logged, no event) an accept that would break
+   * a membership invariant the tenant resolver relies on: A1 one team per payer, A2 a team's
+   * anchor cannot join another org, A3 the vertical role must match the anchor's (O-9). Checked
+   * only AFTER the caller has proved the invite is theirs, and BEFORE the write, so a refusal
+   * consumes no token. Only NEW accepts are refused; an existing membership is never touched.
    */
   async accept(
     payerId: string,
@@ -162,6 +184,14 @@ export class PayerOrgMembersService {
     const payer = await this.payers.findById(payerId);
     if (!payer || payer.emailHash !== member.emailHash) {
       throw new ForbiddenException("This invite is for a different account");
+    }
+
+    const refusal = await this.acceptRefusal(payerId, payer.role, member.orgId);
+    if (refusal) {
+      this.logger.warn(
+        `payer invite accept refused: rule=${refusal} payer=${payerId} member=${member.id}`,
+      );
+      throw new ConflictException(INVITE_NOT_ACCEPTABLE_MESSAGE);
     }
 
     const accepted = await this.orgs.acceptInvite({
@@ -182,6 +212,22 @@ export class PayerOrgMembersService {
     });
 
     return this.toView(accepted, payerId);
+  }
+
+  /**
+   * The ADR-0053 §3.5 rule this accept would break, or null. Reads only; decides in order A1, A2,
+   * A3 so the log names the first breach. A missing anchor role fails CLOSED as A3.
+   */
+  private async acceptRefusal(
+    payerId: string,
+    payerRole: PayerRole,
+    orgId: string,
+  ): Promise<AcceptRefusalRule | null> {
+    const memberships = await this.orgs.listActiveMembershipsWithAnchor(payerId);
+    if (memberships.some((m) => isTeamMembership(m, payerId))) return "A1_already_in_a_team";
+    if (await this.orgs.anchorsTeamOrg(payerId)) return "A2_anchors_a_team";
+    if ((await this.orgs.findAnchorRole(orgId)) !== payerRole) return "A3_role_mismatch";
+    return null;
   }
 
   /**

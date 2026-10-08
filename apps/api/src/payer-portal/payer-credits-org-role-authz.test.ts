@@ -9,7 +9,8 @@ import type { OrgRole } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { PayerAuthGuard, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerOrgRoleGuard, ORG_ROLES_KEY } from "../payers/payer-org-role.guard";
-import type { PayerOrgsRepository, ResolvedOrg } from "../payers/payer-orgs.repository";
+import type { ResolvedOrg } from "../payers/payer-orgs.repository";
+import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerSessionService } from "../payers/payer-session.service";
 import type { PayersRepository } from "../payers/payers.repository";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
@@ -56,11 +57,11 @@ const member =
 
 /** A guard whose membership read is driven by `resolve` (called once per request). */
 function guardWith(resolve: Membership) {
-  const resolveOrgForPayer = vi.fn(resolve);
+  const resolveActingOrg = vi.fn(resolve);
   const guard = new PayerOrgRoleGuard(new Reflector(), {
-    resolveOrgForPayer,
-  } as unknown as PayerOrgsRepository);
-  return { guard, resolveOrgForPayer };
+    resolveActingOrg,
+  } as unknown as PayerTenantScopeService);
+  return { guard, resolveActingOrg };
 }
 
 function ctxFor(controller: Ctor, method: string) {
@@ -126,14 +127,14 @@ describe("team management stays org-OWNER-only (#2079)", () => {
 
       it("a DEMOTED owner loses access on the very next request (current role, per request)", async () => {
         let role: OrgRole = "owner";
-        const { guard, resolveOrgForPayer } = guardWith(async () => ({ orgId: ORG_ID, orgRole: role }));
+        const { guard, resolveActingOrg } = guardWith(async () => ({ orgId: ORG_ID, orgRole: role }));
         await expect(guard.canActivate(ctxFor(controller, method).ctx)).resolves.toBe(true);
         role = "recruiter"; // demoted between two requests on the SAME session
         await expect(guard.canActivate(ctxFor(controller, method).ctx)).rejects.toBeInstanceOf(
           ForbiddenException,
         );
-        expect(resolveOrgForPayer).toHaveBeenCalledTimes(2);
-        expect(resolveOrgForPayer).toHaveBeenLastCalledWith(PAYER.id);
+        expect(resolveActingOrg).toHaveBeenCalledTimes(2);
+        expect(resolveActingOrg).toHaveBeenLastCalledWith(PAYER.id);
       });
     });
   }
@@ -157,7 +158,7 @@ interface GuardInstance {
  */
 async function runGuardChain(method: string, membership: Membership): Promise<Request> {
   const handler = handlerOf(PayerUnlocksController, method);
-  const orgs = { resolveOrgForPayer: vi.fn(membership) } as unknown as PayerOrgsRepository;
+  const tenancy = { resolveActingOrg: vi.fn(membership) } as unknown as PayerTenantScopeService;
   const session = {
     // A fresh session (full TTL) → no rolling re-mint, so PayerAuthGuard makes no org read.
     validateAndTouch: vi.fn(async () => ({
@@ -174,8 +175,8 @@ async function runGuardChain(method: string, membership: Membership): Promise<Re
   } as unknown as PayersRepository;
 
   const build = (guard: unknown): GuardInstance => {
-    if (guard === PayerAuthGuard) return new PayerAuthGuard(session, CONFIG, payers, orgs);
-    if (guard === PayerOrgRoleGuard) return new PayerOrgRoleGuard(new Reflector(), orgs);
+    if (guard === PayerAuthGuard) return new PayerAuthGuard(session, CONFIG, payers, tenancy);
+    if (guard === PayerOrgRoleGuard) return new PayerOrgRoleGuard(new Reflector(), tenancy);
     throw new Error(
       `unmodelled guard ${(guard as { name?: string }).name ?? String(guard)} on ${method}`,
     );
