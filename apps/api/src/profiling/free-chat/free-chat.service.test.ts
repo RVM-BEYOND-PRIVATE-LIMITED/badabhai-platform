@@ -537,6 +537,8 @@ describe("news — G2, R9 and the ledger (ADR-0054 §3.2, §8)", () => {
         { role: "worker", text: "main [NAME], theek" },
       ],
       worker_context: { trade_label: "[NAME] welding", experience_bucket: "3-7" },
+      // §8 H2: the worker's id rides along for the ai-service's per-worker spend limit.
+      worker_ref: ctx.workerId,
     });
     // No summary on the news input — the reply alone reads it (R24).
     expect("summary" in sent).toBe(false);

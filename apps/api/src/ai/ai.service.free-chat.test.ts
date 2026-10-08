@@ -218,6 +218,7 @@ describe("freeChatNews — ADR-0054 live news", () => {
     text: "aaj ka mausam kaisa hai",
     recent_turns: [],
     worker_context: { trade_label: null, experience_bucket: null },
+    worker_ref: "11111111-1111-4111-8111-111111111111",
   };
 
   it("posts to /free-chat/news and parses an answer, no_results or a refusal", async () => {

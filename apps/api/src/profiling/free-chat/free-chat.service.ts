@@ -259,6 +259,10 @@ export class FreeChatService {
       text: clip(redactKnownName(req.text, knownName), REPLY_TEXT_MAX),
       recent_turns: newsTurnsOf(req.messages, knownName),
       worker_context: workerContextFor(req.workerContext, knownName),
+      // ADR-0054 §8 (H2): the worker's id, so the ai-service's per-worker daily AI spend limit
+      // (`ai_max_user_daily_cost_inr`) bounds news on top of the API's daily attempt cap. The
+      // ai-service uses it for the spend ledger only; it never reaches the model.
+      worker_ref: ctx.workerId,
     });
     if (!input.success) {
       this.logger.warn(
