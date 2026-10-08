@@ -385,6 +385,9 @@ class AIRouter:
         last_failure_reason: str | None = None
         attempt_count = 0  # every dispatch to providers.complete across candidates
         candidates_tried: list[str] = []  # each candidate that reached the network
+        # ADR-0054 security review (H1): what FAILED attempts of a server-tool call kept on the
+        # ledger, across every candidate. Always 0.0 for a text-only call, whose failures refund.
+        tool_billed_inr = 0.0
         for model in candidates:
             # 0. Rate-limit cooldown: this provider told us to stop recently enough that
             # the window has not reopened. Skip it WITHOUT a network call and let the
@@ -407,11 +410,16 @@ class AIRouter:
                 model, cost_tracker.estimate_tokens(input_text), route.max_output_tokens
             )
             if tools is not None:
-                # ADR-0054: a server-tool call can also spend every permitted search and read
-                # its results. Both belong in the worst case BEFORE the ceiling and the ledger
-                # see it, or a searched call would reserve less than it can cost.
+                # ADR-0054: a server-tool call can also spend every permitted search, read its
+                # results and re-read the prompt on every pass of the server-side loop (L2). All
+                # of it belongs in the worst case BEFORE the ceiling and the ledger see it, or a
+                # searched call would reserve less than it can cost.
                 worst_case_inr = round(
-                    worst_case_inr + cost_tracker.server_tool_reserve_inr(model, tools), 4
+                    worst_case_inr
+                    + cost_tracker.server_tool_reserve_inr(
+                        model, tools, cost_tracker.estimate_tokens(input_text)
+                    ),
+                    4,
                 )
             # 1. Per-call ceiling: a single call whose worst case is too pricey.
             if worst_case_inr > self._settings.ai_max_call_cost_inr:
@@ -466,6 +474,8 @@ class AIRouter:
             # candidate (all attempts failed, or the retry budget broke the loop)
             # falls through to the full refund below.
             reconciled = False
+            # H1: what this candidate's failed tool attempts kept (0.0 for a text-only call).
+            candidate_billed_inr = 0.0
             any_attempted = True
             candidates_tried.append(model)  # once per candidate that reaches network
             try:
@@ -542,15 +552,17 @@ class AIRouter:
                                 result.content
                             )
                             # ADR-0054: a server-tool call's measured cost adds the searches the
-                            # provider billed (and any cache buckets) to the token cost. `None`
-                            # for every other call: priced from the tokens, exactly as before.
-                            cost_inr = (
-                                cost_tracker.server_tool_call_cost_inr(
+                            # provider billed (and any cache buckets) to the token cost, and the
+                            # metadata carries every billed attempt of the call (H1), so the
+                            # cost event is whole. `None` for every other call: priced from the
+                            # tokens, exactly as before.
+                            call_cost_inr: float | None = None
+                            cost_inr: float | None = None
+                            if tools is not None:
+                                call_cost_inr = cost_tracker.server_tool_call_cost_inr(
                                     model, result, input_tokens=in_tok, output_tokens=out_tok
                                 )
-                                if tools is not None
-                                else None
-                            )
+                                cost_inr = call_cost_inr + tool_billed_inr
                             meta = cost_tracker.build_call_metadata(
                                 task_type=task_type,
                                 model=model,
@@ -565,9 +577,15 @@ class AIRouter:
                                 cost_inr=cost_inr,
                             )
                             # Reconcile the reservation: refund worst_case - actual so
-                            # the net recorded spend is the ACTUAL estimated cost.
+                            # the net recorded spend is the ACTUAL estimated cost. A tool call's
+                            # actual is this success plus THIS candidate's billed failed
+                            # attempts (an earlier candidate's were recorded in its own `finally`).
                             await ledger.record_spend(
-                                worst_case_inr, meta.estimated_cost_inr, user_ref=user_ref
+                                worst_case_inr,
+                                meta.estimated_cost_inr
+                                if call_cost_inr is None
+                                else round(call_cost_inr + candidate_billed_inr, 4),
+                                user_ref=user_ref,
                             )
                             reconciled = True
                             generation_metadata: dict[str, Any] = {
@@ -631,6 +649,17 @@ class AIRouter:
                             )
                             last_failure_reason = reason
                             status = transport.status_code if transport is not None else None
+                            # H1: a server-tool attempt that may have been billed KEEPS its
+                            # cost on the ledger (measured when a response existed, else the
+                            # worst case); only a pre-network failure refunds. A text-only
+                            # attempt keeps nothing, exactly as before.
+                            kept_inr = 0.0
+                            if tools is not None:
+                                kept_inr = cost_tracker.server_tool_failure_charge_inr(
+                                    model, exc, worst_case_inr
+                                )
+                                candidate_billed_inr += kept_inr
+                                tool_billed_inr += kept_inr
                             logger.warning(
                                 _attempt_failure_message(
                                     task_type=task_type,
@@ -660,19 +689,23 @@ class AIRouter:
                             # `error_category` is the coarse axis a dashboard groups by.
                             # Collapsing to one loses either the diagnosis or the ability
                             # to ask "how often does any provider rate-limit us?".
+                            failure_metadata: dict[str, Any] = {
+                                "status_code": status,
+                                "typed_transport_error": (transport is not None),
+                                "error_category": error_taxonomy.categorize_transport(reason),
+                                # Says whether the NEXT loop iteration will happen, so
+                                # a trace shows the retry DECISION and not just its
+                                # consequence. `http_429`/`max_tokens_no_parts` break
+                                # the loop; everything else retries if budget remains.
+                                "retryable": reason not in _NO_RETRY_REASONS,
+                            }
+                            if tools is not None:
+                                # What this failed attempt left on the ledger (H1): an amount.
+                                failure_metadata["kept_on_ledger_inr"] = kept_inr
                             generation.update(
                                 level="ERROR",
                                 status_message=reason,
-                                metadata={
-                                    "status_code": status,
-                                    "typed_transport_error": (transport is not None),
-                                    "error_category": error_taxonomy.categorize_transport(reason),
-                                    # Says whether the NEXT loop iteration will happen, so
-                                    # a trace shows the retry DECISION and not just its
-                                    # consequence. `http_429`/`max_tokens_no_parts` break
-                                    # the loop; everything else retries if budget remains.
-                                    "retryable": reason not in _NO_RETRY_REASONS,
-                                },
+                                metadata=failure_metadata,
                             )
                             # ARM THE COOLDOWN, so the NEXT request skips this provider
                             # instead of rediscovering the same rate limit. Awaited rather
@@ -689,8 +722,15 @@ class AIRouter:
                 # real success, fully refund it (actual=0.0) before moving on. This
                 # runs on EVERY non-success exit from the candidate — all attempts
                 # failed, the retry-budget break, or the outer break below.
+                #
+                # EXCEPT WHAT A TOOL CALL MAY HAVE BEEN BILLED (ADR-0054 security review,
+                # H1): `candidate_billed_inr` is what its failed attempts kept, so the ledger
+                # records that and refunds the rest. Always 0.0 for a text-only call, whose
+                # failures still refund in full.
                 if not reconciled:
-                    await ledger.record_spend(worst_case_inr, 0.0, user_ref=user_ref)
+                    await ledger.record_spend(
+                        worst_case_inr, round(candidate_billed_inr, 4), user_ref=user_ref
+                    )
             if retry_budget_hit:
                 break
 
@@ -746,6 +786,10 @@ class AIRouter:
             attempt_count=attempt_count,
             candidates_tried=candidates_tried,
             failure_reason=last_failure_reason,
+            # H1: a failed tool call reports what its attempts kept on the ledger, so the cost
+            # event matches the ledger (0.0 when every failure was pre-network). `None` for a
+            # text-only call: its failure estimate is unchanged.
+            cost_inr=tool_billed_inr if tools is not None else None,
         )
         self._finish_task(
             task,

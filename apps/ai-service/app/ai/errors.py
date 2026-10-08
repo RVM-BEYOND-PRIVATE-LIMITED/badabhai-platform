@@ -17,6 +17,11 @@ any text derived from an exception body or response payload.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .gemini_client import LlmResult
+
 # --- Closed set of PII-free transport reason codes -------------------------
 # A fixed enum -> provably PII-free. NEVER add a value derived from an exception
 # body, a response payload, or any worker text.
@@ -69,9 +74,28 @@ class LlmTransportError(RuntimeError):
 
     The router logs only ``reason_code`` (and ``status_code``) — NEVER the
     exception body.
+
+    TWO BILLING FACTS (ADR-0054 security review, H1), read by the router for calls that carry
+    server tools and ignored for every other call:
+
+    - ``request_sent`` — False ONLY when the failure was raised before any network I/O (a
+      missing key, the SDK absent, tools on a provider that cannot run them). The default is
+      True because "unknown" must be treated as "possibly billed".
+    - ``billed`` — the measured usage (tokens, searches, cache buckets) when the provider DID
+      return a response that was then refused (a paused or truncated turn, no text). Counts
+      only: its ``content`` is always empty, so no model text rides an exception.
     """
 
-    def __init__(self, reason_code: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        status_code: int | None = None,
+        request_sent: bool = True,
+        billed: LlmResult | None = None,
+    ) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
         self.status_code = status_code
+        self.request_sent = request_sent
+        self.billed = billed

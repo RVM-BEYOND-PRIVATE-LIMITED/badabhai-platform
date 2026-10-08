@@ -205,19 +205,42 @@ def _with_server_tool_fields(result: LlmResult, resp: Any) -> LlmResult:
     )
 
 
+def _measured_usage(resp: Any) -> LlmResult:
+    """What a tool-carrying response BILLED, with no text: tokens, searches and cache buckets.
+
+    Read before any check that can refuse the response, so a refused response still reports its
+    cost (ADR-0054 security review, H1): Anthropic bills a paused, truncated or textless turn,
+    searches included, and the spend ledger must record that rather than refund it.
+    """
+    usage = _field(resp, "usage")
+    tokens = LlmResult(
+        content="",
+        input_tokens=_count(_field(usage, "input_tokens")),
+        output_tokens=_count(_field(usage, "output_tokens")),
+    )
+    return _with_server_tool_fields(tokens, resp)
+
+
 def _parse_tool_response(resp: Any) -> LlmResult:
     """A tool-carrying call's response: the stop reason first, then the text and the tool fields.
 
     ``pause_turn`` means Anthropic paused the server-tool loop mid-turn; v1 makes no continuation
     request, so the partial turn is a failure. ``max_tokens`` means the answer was cut off inside
-    its JSON. Both raise a closed reason so the router fails the call instead of serving a fragment.
+    its JSON. Both, and a response with no text, raise a closed reason so the router fails the
+    call instead of serving a fragment, and each carries the response's measured usage
+    (``billed``) so the router records what the provider charged for it.
     """
+    measured = _measured_usage(resp)
     stop_reason = _field(resp, "stop_reason")
     if stop_reason == "pause_turn":
-        raise LlmTransportError(REASON_PAUSE_TURN)
+        raise LlmTransportError(REASON_PAUSE_TURN, billed=measured)
     if stop_reason == "max_tokens":
-        raise LlmTransportError(REASON_MAX_TOKENS_TRUNCATED)
-    return _with_server_tool_fields(_parse_anthropic_response(resp), resp)
+        raise LlmTransportError(REASON_MAX_TOKENS_TRUNCATED, billed=measured)
+    try:
+        text = _parse_anthropic_response(resp)
+    except LlmTransportError as exc:
+        raise LlmTransportError(exc.reason_code, billed=measured) from exc
+    return dataclasses.replace(measured, content=text.content)
 
 
 async def acomplete(
@@ -243,15 +266,18 @@ async def acomplete(
 
     ``tools`` (ADR-0054) rides ``messages.create`` only when given; without it the request
     and the parse are exactly what they were before the argument existed.
+
+    Every failure raised BEFORE ``messages.create`` (no key, no SDK, a client that cannot be
+    built) says ``request_sent=False``: nothing reached the provider, so nothing was billed.
     """
     api_key = settings.anthropic_api_key
     if not api_key:
-        raise LlmTransportError(REASON_MISSING_KEY)
+        raise LlmTransportError(REASON_MISSING_KEY, request_sent=False)
 
     try:
         from anthropic import AsyncAnthropic
     except ImportError as exc:  # SDK not installed -> treat as a failed provider.
-        raise LlmTransportError(REASON_SDK_ERROR) from exc
+        raise LlmTransportError(REASON_SDK_ERROR, request_sent=False) from exc
 
     system_texts, anthropic_messages = _to_anthropic_request(messages, json_mode=json_mode)
     system_param = _anthropic_system_param(system_texts)
@@ -269,6 +295,13 @@ async def acomplete(
         # that can see all of them at once. A second, hidden policy underneath it can
         # only disagree.
         client = AsyncAnthropic(api_key=api_key, max_retries=0)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        # Built no client, so sent nothing. The same reason code as before.
+        raise LlmTransportError(REASON_SDK_ERROR, request_sent=False) from exc
+
+    try:
         request: dict[str, Any] = {
             "model": model,
             "max_tokens": max(max_output_tokens, _MAX_TOKENS_FLOOR),
@@ -287,7 +320,9 @@ async def acomplete(
     except Exception as exc:
         # Never include the body (may echo pseudonymized content) — a PII-free
         # reason code only. Chained via ``from exc`` for local tracebacks (the
-        # router logs only reason_code, never this chain).
+        # router logs only reason_code, never this chain). `request_sent` stays at its
+        # default True: the request may have reached the provider, so a tool call keeps
+        # its spend reservation (H1).
         raise LlmTransportError(REASON_SDK_ERROR) from exc
 
     if tools is None:

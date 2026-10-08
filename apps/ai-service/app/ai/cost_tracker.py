@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from ..config import ConfigError, Settings
 from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
+from .errors import LlmTransportError
 from .model_config import (
     ANTHROPIC_CACHE_READ_MULTIPLIER,
     ANTHROPIC_CACHE_WRITE_MULTIPLIER,
@@ -80,15 +81,28 @@ def web_search_max_uses(tools: list[dict[str, Any]]) -> int:
     return searches
 
 
-def server_tool_reserve_inr(model: str, tools: list[dict[str, Any]]) -> float:
-    """What ``tools`` can add to a call's WORST case, on top of its prompt and output tokens.
+def server_tool_reserve_inr(model: str, tools: list[dict[str, Any]], prompt_tokens: int) -> float:
+    """What ``tools`` can add to a call's WORST case, on top of ONE read of the prompt and the
+    output tokens (which the router already prices).
 
-    Every permitted search at the per-search fee, plus ``WEB_SEARCH_RESULT_TOKENS_ALLOWANCE``
-    result tokens each at ``model``'s input rate (see that constant for why the number is high).
+    THE SERVER-SIDE LOOP RE-READS EVERYTHING ON EVERY PASS (ADR-0054 security review, L2). With
+    ``m`` permitted searches the model is sampled up to ``m + 1`` times, and pass ``k`` re-reads
+    the prompt plus the results of the ``k - 1`` searches before it. With ``P`` prompt tokens and
+    ``R = WEB_SEARCH_RESULT_TOKENS_ALLOWANCE`` result tokens per search, the input billed is at
+    most::
+
+        (m + 1) * P  +  R * m * (m + 1) / 2
+
+    of which the router's base estimate already holds one ``P``; this returns the rest, priced
+    at ``model``'s input rate, plus ``m`` searches at the per-search fee. For the news call
+    (``m = 2``, ``P`` ~2,500): 5,000 + 30,000 extra input tokens and 2 fees, ~Rs 4.6 on top of the
+    ~Rs 0.5 base, inside the Rs 10 per-call ceiling. An unbounded search prices far past it.
     """
     searches = web_search_max_uses(tools)
-    result_tokens = estimate_cost_inr(model, searches * WEB_SEARCH_RESULT_TOKENS_ALLOWANCE, 0)
-    return round(result_tokens + searches * WEB_SEARCH_COST_INR, 4)
+    extra_input = searches * prompt_tokens + (
+        WEB_SEARCH_RESULT_TOKENS_ALLOWANCE * searches * (searches + 1) // 2
+    )
+    return round(estimate_cost_inr(model, extra_input, 0) + searches * WEB_SEARCH_COST_INR, 4)
 
 
 def server_tool_call_cost_inr(
@@ -110,6 +124,35 @@ def server_tool_call_cost_inr(
     ) * (in_rate / 1000.0)
     tokens = estimate_cost_inr(model, input_tokens, output_tokens) + cached
     return round(tokens + result.search_requests * WEB_SEARCH_COST_INR, 4)
+
+
+def server_tool_failure_charge_inr(model: str, exc: BaseException, worst_case_inr: float) -> float:
+    """What a FAILED attempt of a server-tool call keeps on the spend ledger (security review H1).
+
+    A failure the provider may have billed must not refund to zero: a paused or truncated turn,
+    a response with no text, the route's deadline, or an SDK error after the request left all
+    can carry tokens AND searches.
+
+    - Raised before any network I/O (``request_sent`` False: tools on the wrong provider, a
+      missing key, the SDK absent) -> 0.0, the only case that may refund.
+    - A response existed and was refused (``billed`` set) -> its MEASURED cost: tokens, cache
+      buckets and every billed search, priced like a success.
+    - Anything else (a timeout, an SDK or network error after dispatch, an untyped exception)
+      -> ``worst_case_inr``, the whole reservation: unknown is treated as billed.
+
+    Only the router's tool path calls this; a text-only call refunds on failure as before.
+    """
+    if isinstance(exc, LlmTransportError):
+        if not exc.request_sent:
+            return 0.0
+        if exc.billed is not None:
+            return server_tool_call_cost_inr(
+                model,
+                exc.billed,
+                input_tokens=exc.billed.input_tokens,
+                output_tokens=exc.billed.output_tokens,
+            )
+    return worst_case_inr
 
 
 def build_call_metadata(

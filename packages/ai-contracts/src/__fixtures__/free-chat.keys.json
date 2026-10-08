@@ -7,7 +7,7 @@
   "FreeChatRefuse": ["status", "topic", "ai_metadata"],
   "FreeChatSummarizeInput": ["previous_summary", "turns"],
   "FreeChatSummarizeOutput": ["summary", "ai_metadata"],
-  "FreeChatNewsInput": ["text", "recent_turns", "worker_context"],
+  "FreeChatNewsInput": ["text", "recent_turns", "worker_context", "worker_ref"],
   "FreeChatNewsSource": ["url", "title", "site"],
   "FreeChatNewsAnswer": ["status", "kind", "lines", "sources", "search_count", "ai_metadata"],
   "FreeChatNewsNoResults": ["status", "search_count", "ai_metadata"],

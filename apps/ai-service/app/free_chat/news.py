@@ -17,14 +17,22 @@ fail-closed refusal on ``unsafe_other``. A refusal topic outside the news prompt
 ``unsafe_other`` too; that includes ``news`` itself, which the contract's shared topic set holds
 for the REPLY and which would make the API serve "coming soon" from an armed news call.
 
-WHAT THIS MODULE DOES NOT DO. It does not judge the lines: the API runs the free chat's whole reply
-gate over them (§3.3), and re-checks every tile (https, listed host, title G1). The source checks
-here are this service's half of the same rule, so a bad URL never crosses the seam at all.
+THE SECURITY REVIEW'S WALLS (2026-10-08), each fail-closed: a question carrying a hard identifier
+is never searched (owner ruling R9, :func:`question_identifier`, enforced by the route); a line
+naming a link or a domain refuses the answer (M1); a title carrying a hard identifier drops its
+source (M3, G1); a host must be plain lowercase LDH labels, and a URL with a backslash or ``;``
+is dropped (L1); and the LAST JSON object in the content is the one read (L3).
+
+WHAT THIS MODULE DOES NOT DO. It does not judge the lines' wording: the API runs the free chat's
+whole reply gate over them (§3.3), and re-checks every tile (https, listed host, title G1). The
+source and link checks here are this service's half of the same rules, so a bad URL never
+crosses the seam at all.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
@@ -39,7 +47,8 @@ from ..contracts import (
     FreeChatNewsRefuse,
     FreeChatNewsSource,
 )
-from ..profiling.canonical_roles import coerce_json_text
+from ..output_floor import carries_hard_identifier
+from ..pseudonymize import contains_hard_identifier
 
 #: THE SITES A NEWS SEARCH MAY READ FROM, AND THE ONLY HOSTS A TILE MAY POINT AT. Mirrors
 #: `FREE_CHAT_NEWS_DOMAINS` in `packages/types/src/index.ts` (owner-approved 2026-10-08, R4);
@@ -129,6 +138,28 @@ NEWS_REFUSAL_TOPICS = frozenset(
     {"off_limits", "distress", "legal_medical_financial", "unsafe_other"}
 )
 
+#: A tile host after parsing (security review L1): lowercase LDH labels joined by dots, nothing
+#: else. No `%`, no backslash, no `@`, no port, no trailing dot can survive it.
+_HOST_RE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*")
+
+#: Characters that make a URL ambiguous between parsers (security review L1). A backslash is read
+#: as a path separator by browsers and as host text by `urlsplit`, which is how
+#: `https://evil.com\.pib.gov.in/x` looked like a pib.gov.in subdomain; `;` is a parameter
+#: delimiter some parsers split on. Neither belongs in a news link.
+_AMBIGUOUS_URL_CHARS = frozenset("\\;")
+
+#: A link or a domain in a model-written LINE (security review M1). The tiles carry the links; a
+#: line carrying one could send the worker to a page no search returned (a prompt-injected page
+#: naming its own site, say). Literal patterns: a scheme, a "www.", or any `name.tld` token (a
+#: label, a dot, two or more letters), which covers every listed host. KNOWN FALSE POSITIVE,
+#: accepted: a sentence with no space after its full stop ("Govt.ne kaha") reads as a domain and
+#: the answer is refused, the fail-closed direction.
+_LINE_LINK_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"https?://", re.IGNORECASE),
+    re.compile(r"www\.", re.IGNORECASE),
+    re.compile(r"(?<![a-z0-9-])[a-z0-9-]+\.[a-z]{2,}(?![a-z0-9-])", re.IGNORECASE),
+)
+
 
 def news_search_tools() -> list[dict[str, Any]]:
     """The web search tool for one news call: a fresh list, so no caller can mutate a shared one.
@@ -157,6 +188,50 @@ def ist_today(now: datetime | None = None) -> date:
     return (now or datetime.now(UTC)).astimezone(IST).date()
 
 
+def question_identifier(text: str) -> str | None:
+    """The hard-identifier class in the worker's question, or None (owner ruling R9, 2026-10-08).
+
+    A news question carrying a phone, an email, a PAN, an Aadhaar or another ID is NEVER
+    searched: the route refuses it before any model call, whatever `AI_RAW_PII_ENABLED` says,
+    because a search query leaves for the web. The G1 scanner (`contains_hard_identifier`, the
+    gateway's email pattern included) never raises; its own error comes back as the class
+    "scanner_error", which refuses too (fail closed). The class is a closed vocabulary, safe to log.
+    """
+    return contains_hard_identifier(text)
+
+
+def line_carries_link(line: str) -> bool:
+    """A model-written line that names a link or a domain (security review M1)."""
+    folded = line.casefold()
+    if any(domain in folded for domain in FREE_CHAT_NEWS_DOMAINS):
+        return True
+    return any(pattern.search(line) for pattern in _LINE_LINK_RES)
+
+
+def last_json_object(text: str) -> dict[str, Any] | None:
+    """The LAST top-level JSON object in ``text``, or None (security review L3).
+
+    A searched turn arrives as joined text blocks, and the model may write a guess BEFORE it
+    searches; the answer that counts is the one written after the results, so the last object
+    wins, never the first. Each candidate is decoded with the JSON decoder itself (string-aware,
+    so a brace inside a string never miscounts), and a decoded object's interior is skipped, so
+    a nested object is never mistaken for a top-level one. A fence or prose around it is fine.
+    """
+    decoder = json.JSONDecoder()
+    found: dict[str, Any] | None = None
+    start = text.find("{")
+    while start != -1:
+        try:
+            value, end = decoder.raw_decode(text, start)
+        except ValueError:
+            start = text.find("{", start + 1)
+            continue
+        if isinstance(value, dict):
+            found = value
+        start = text.find("{", end)
+    return found
+
+
 def listed_host(host: str) -> bool:
     """``host`` is an approved domain, or a subdomain of one (a dot boundary, never a suffix).
 
@@ -169,13 +244,14 @@ def listed_host(host: str) -> bool:
 def _url_host(url: str) -> str | None:
     """The host of an acceptable tile URL, or None.
 
-    Acceptable: at most ``NEWS_URL_MAX`` characters, ASCII with no whitespace or control
-    character, scheme exactly ``https``, no user info and no explicit port, and an ASCII host on
-    the list. Anything else is dropped rather than repaired: a source is evidence, not input.
+    Acceptable: at most ``NEWS_URL_MAX`` characters, ASCII with no whitespace, control
+    character, backslash or ``;``; scheme exactly ``https``; no user info and no explicit port;
+    a host of lowercase LDH labels only (``_HOST_RE``, so no ``%``) that is on the list. Anything
+    else is dropped rather than repaired: a source is evidence, not input.
     """
     if not url or len(url) > NEWS_URL_MAX or not url.isascii():
         return None
-    if any(ch.isspace() or not ch.isprintable() for ch in url):
+    if any(ch.isspace() or not ch.isprintable() or ch in _AMBIGUOUS_URL_CHARS for ch in url):
         return None
     try:
         parts = urlsplit(url)
@@ -186,6 +262,8 @@ def _url_host(url: str) -> str | None:
     if parts.scheme != "https" or host is None or port is not None:
         return None
     if parts.username is not None or parts.password is not None:
+        return None
+    if not _HOST_RE.fullmatch(host):
         return None
     return host if listed_host(host) else None
 
@@ -210,6 +288,10 @@ def _source(url: str, title: str) -> FreeChatNewsSource | None:
     text = clean_title(title)
     site = host.removeprefix("www.")
     if not text or not site or len(site) > NEWS_SITE_MAX:
+        return None
+    # G1 on the title the worker would read (security review M3): a headline carrying a phone, an
+    # email or an ID number drops its source. A scanner error reads as a hit (fail closed).
+    if carries_hard_identifier(text):
         return None
     try:
         return FreeChatNewsSource(url=url, title=text, site=site)
@@ -260,14 +342,15 @@ def parse_news_output(
     Reads ``status``, and only the fields that status owns: ``kind`` and ``lines`` for an
     answer, ``topic`` for a refusal. Any other key the model writes — sources, a search count,
     chips, ``ai_metadata`` — is ignored: sources and the count come from ``result``, never from
-    the model. Order of verdicts for an answer: an answer that fails the contract is
-    ``unsafe_other``; a valid answer with no surviving source is ``no_results``.
+    the model. Order of verdicts for an answer: a line carrying a link or a domain (M1), or an
+    answer that fails the contract, is ``unsafe_other``; a valid answer with no surviving source
+    is ``no_results``.
+
+    The LAST JSON object in the content is the one read (L3): an answer the model wrote before
+    it searched must not win over the one it wrote after.
     """
-    try:
-        raw = json.loads(coerce_json_text(content))
-    except (TypeError, ValueError):
-        return REFUSED_FALLBACK
-    if not isinstance(raw, dict):
+    raw = last_json_object(content) if isinstance(content, str) else None
+    if raw is None:
         return REFUSED_FALLBACK
     status = raw.get("status")
     count = search_count(result)
@@ -281,13 +364,18 @@ def parse_news_output(
         return FreeChatNewsRefuse(status="refuse", topic=topic)
     if status != "answer":
         return REFUSED_FALLBACK
+    lines = raw.get("lines")
+    if isinstance(lines, list) and any(
+        isinstance(line, str) and line_carries_link(line) for line in lines
+    ):
+        return REFUSED_FALLBACK
     sources = build_sources(result)
     try:
         return FreeChatNewsAnswer.model_validate(
             {
                 "status": "answer",
                 "kind": raw.get("kind"),
-                "lines": raw.get("lines"),
+                "lines": lines,
                 "sources": sources,
                 "search_count": count,
             }

@@ -243,8 +243,10 @@ async def free_chat_news(
 
     THE REPLY'S PRIVACY ORDER, AND ITS FAIL-CLOSED SHAPE: the message, the recent turns and the
     trade label pass the masking policy in force before the model; a blocked message reaches no
-    provider and returns ``refuse/unsafe_other`` with ``ai_metadata`` None. The search tool is
-    attached here and nowhere else, so this is the only route whose call can read the web.
+    provider and returns ``refuse/unsafe_other`` with ``ai_metadata`` None. So does a question
+    carrying a hard identifier (owner ruling R9), whatever the posture. The search tool is
+    attached here and nowhere else, so this is the only route whose call can read the web, and
+    the call is charged to the worker's daily spend cap through ``worker_ref``.
 
     WHAT THE API READS (ADR-0054 §3.1). ``ai_metadata`` rides back exactly as the router measured
     it. ``real_call`` false is the unarmed mock (``no_results``, ``search_count`` 0): the API keeps
@@ -257,6 +259,17 @@ async def free_chat_news(
     if result.blocked:
         logger.warning("free chat news blocked", extra={"extra": {"reason": result.blocked_reason}})
         # Fail closed: reviewed refusal copy, no provider call, so no cost to record.
+        return FreeChatNewsRefuse(status="refuse", topic="unsafe_other", ai_metadata=None)
+    # OWNER RULING R9 (2026-10-08): a question carrying a hard identifier is NEVER searched,
+    # under either posture, because a search query leaves for the web. Read off the worker's own
+    # text (the masked copy would hide the identifier behind a placeholder), after the gate and
+    # before any model call; the same fail-closed shape as a blocked input.
+    identifier = news_logic.question_identifier(body.text)
+    if identifier is not None:
+        logger.warning(
+            "free chat news refused: hard identifier in the question",
+            extra={"extra": {"reason": "hard_identifier", "class": identifier}},
+        )
         return FreeChatNewsRefuse(status="refuse", topic="unsafe_other", ai_metadata=None)
 
     resolved = resolve_prompt(prompt_registry.FREE_CHAT_NEWS)
@@ -274,6 +287,9 @@ async def free_chat_news(
         messages=messages,
         mock_response=news_logic.MOCK_RESPONSE,
         real_call_allowed=True,
+        # H2: the per-worker daily spend cap applies to this paid, searched call, as on
+        # /profile/parse. The opaque ref keys the ledger only; it is never in the messages.
+        user_ref=body.worker_ref,
         prompt=resolved,
         tools=news_logic.news_search_tools(),
     )

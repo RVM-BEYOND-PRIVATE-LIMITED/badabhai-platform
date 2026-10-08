@@ -478,8 +478,16 @@ ROUTE_CASES: list[tuple[str, str, dict[str, Any], tuple[str, ...]]] = [
         RAW_PIECES,
     ),
     # ADR-0054: the news answer — the question, the recent turns and the trade label, each gated
-    # like the reply's, because this call also carries the web search tool.
-    ("free-chat-news", "/free-chat/news", {"text": PROBE}, RAW_PIECES),
+    # like the reply's, because this call also carries the web search tool. The QUESTION's
+    # carrier has no phone: owner ruling R9 refuses a question with a hard identifier before any
+    # call under either posture (pinned in tests/free_chat/test_free_chat_news.py), so the
+    # masking switch is proven here on the name and the employer.
+    (
+        "free-chat-news",
+        "/free-chat/news",
+        {"text": "mera naam Ramesh Kumar hai, Tata Motors mein welder tha"},
+        ("Ramesh Kumar", "Tata Motors"),
+    ),
     (
         "free-chat-news-memory",
         "/free-chat/news",

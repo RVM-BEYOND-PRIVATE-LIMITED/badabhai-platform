@@ -2287,6 +2287,11 @@ class FreeChatNewsInput(BaseModel):
     worker_context: CompanionCareerWorkerContext = Field(
         default_factory=CompanionCareerWorkerContext
     )
+    # ADR-0054 security review (H2): the worker's OPAQUE spend ref, so this paid, searched call is
+    # charged to `ai_max_user_daily_cost_inr` as well as the global caps (the route passes it as
+    # the router's `user_ref`, like /profile/parse). Never a name or a phone; never sent to the
+    # model. Nullable and defaulted: a caller that omits it is charged to the global caps only.
+    worker_ref: str | None = Field(default=None, min_length=1)
 
 
 class FreeChatNewsSource(BaseModel):

@@ -46,6 +46,11 @@ async def complete(
     reaches either client exactly as before the argument existed.
     """
     provider = provider_for_model(model)
+    # A tool call is refused BEFORE the transport lookup, so every non-Anthropic model (an
+    # unknown one included) fails the same closed, pre-network way: nothing was sent, so the
+    # router may refund its reservation (ADR-0054 security review, H1).
+    if tools is not None and provider != "anthropic":
+        raise LlmTransportError(REASON_TOOLS_UNSUPPORTED, request_sent=False)
     if provider == "google":
         client = gemini_client
     elif provider == "anthropic":
@@ -62,8 +67,6 @@ async def complete(
             temperature=temperature,
             json_mode=json_mode,
         )
-    if provider != "anthropic":
-        raise LlmTransportError(REASON_TOOLS_UNSUPPORTED)
     return await anthropic_client.acomplete(
         settings=settings,
         model=model,

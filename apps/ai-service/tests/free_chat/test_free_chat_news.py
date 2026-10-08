@@ -26,6 +26,7 @@ THE CONTRACT UNDER TEST, in order of importance:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import re
 import sys
@@ -33,15 +34,24 @@ import types
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.routers.free_chat as free_chat_router
+from app import output_floor
 from app.ai import anthropic_client, cost_tracker, gemini_client, model_config, prompt_registry
 from app.ai import providers as providers_module
 from app.ai import router as router_module
-from app.ai.errors import REASON_TOOLS_UNSUPPORTED, LlmTransportError
+from app.ai.errors import (
+    REASON_MISSING_KEY,
+    REASON_PAUSE_TURN,
+    REASON_SDK_ERROR,
+    REASON_TIMEOUT,
+    REASON_TOOLS_UNSUPPORTED,
+    LlmTransportError,
+)
 from app.ai.gemini_client import LlmResult
 from app.ai.langfuse_tracing import _trace_identity
 from app.ai.model_config import (
@@ -324,21 +334,42 @@ def test_without_citations_the_search_results_order_is_used() -> None:
         "https://user@pib.gov.in/a",  # user info
         "https://pib.gov.in:8443/a",  # an explicit port
         "https://pib.gov.in/a b",  # whitespace
-        "https://pib.gov.in/​a",  # a format character
+        "https://pib.gov.in/\u200ba",  # a format character
         "https://pib.gov.in/" + "a" * 500,  # over 500 characters
         "https://xn--pib-gov.in/a",  # not on the list
         "javascript:alert(1)",
         "ftp://pib.gov.in/a",
         "https:///nohost",
         "",
+        # L1 (security review): parser-confusion shapes.
+        "https://evil.com\\.pib.gov.in/x",  # the reviewer's case: a browser goes to evil.com
+        "https://pib.gov.in\\@evil.com/x",
+        "https://pib.gov.in/a;b",  # a `;` anywhere
+        "https://pib%2egov.in/x",  # `%` in the host
+        "https://pib.gov.in%2f@evil.com/x",
+        "https://pib.gov.in./x",  # a trailing dot
+        "https://pib_x.gov.in/x",  # not an LDH label
+        # Under a LISTED domain, so only the strict host rule stops them.
+        "https://a_b.pib.gov.in/x",
+        "https://a%41.pib.gov.in/x",
+        "https://pib.gov.in\x07/x",  # a control character
     ],
 )
 def test_an_unacceptable_url_is_dropped(url: str) -> None:
     assert news_logic.build_sources(_result(citations=[(url, "Title")])) == []
 
 
+def test_the_reviewers_backslash_case_is_the_one_the_old_check_admitted() -> None:
+    """THE FIXTURE CONTAINS WHAT THE DETECTOR DETECTS: `urlsplit` reads this host as a pib.gov.in
+    subdomain, so the suffix check alone admits it; the strict host rule is what drops it."""
+    url = "https://evil.com\\.pib.gov.in/x"
+    host = urlsplit(url).hostname
+    assert host is not None and news_logic.listed_host(host)  # premise: the old check passed
+    assert news_logic.build_sources(_result(citations=[(url, "Title")])) == []
+
+
 def test_a_title_is_cleaned_collapsed_and_truncated_to_200() -> None:
-    dirty = "  Rain\talert\n in​ Pune\x00 ‮update  "
+    dirty = "  Rain\talert\n in\u200b Pune\x00 \u202eupdate  "
     assert news_logic.clean_title(dirty) == "Rain alert in Pune update"
     long = "word " * 100
     cleaned = news_logic.clean_title(long)
@@ -353,7 +384,7 @@ def test_a_citation_without_a_title_borrows_its_search_result_title() -> None:
 
 
 def test_a_source_with_no_usable_title_anywhere_is_dropped() -> None:
-    result = _result(citations=[(TOI, " ​ ")], search_results=[(PIB, "PIB release")])
+    result = _result(citations=[(TOI, " \u200b ")], search_results=[(PIB, "PIB release")])
     assert [s.url for s in news_logic.build_sources(result)] == [PIB]
 
 
@@ -933,14 +964,29 @@ def test_a_call_without_tools_is_priced_and_dispatched_exactly_as_before(
     assert meta.estimated_cost_inr == cost_tracker.estimate_cost_inr("claude-haiku-4-5", 1000, 100)
 
 
-def test_the_worst_case_reserves_every_permitted_search_and_its_result_tokens() -> None:
+def test_the_worst_case_reserves_every_pass_of_the_search_loop() -> None:
+    """L2: with m searches the model is sampled up to m + 1 times, each pass re-reading the
+    prompt and every earlier result. Input = (m + 1) * P + R * m * (m + 1) / 2; the router's base
+    estimate holds one P, so the reserve is the rest plus m search fees."""
     tools = news_logic.news_search_tools()
     assert cost_tracker.web_search_max_uses(tools) == 2
-    allowance = cost_tracker.estimate_cost_inr(
-        "claude-haiku-4-5", 2 * model_config.WEB_SEARCH_RESULT_TOKENS_ALLOWANCE, 0
+    prompt_tokens = 2500
+    r = model_config.WEB_SEARCH_RESULT_TOKENS_ALLOWANCE
+    assert r == 10_000
+    total_input = 3 * prompt_tokens + r * 2 * 3 // 2  # (m + 1) * P + R * m * (m + 1) / 2
+    assert total_input == 37_500
+    extra_input = total_input - prompt_tokens
+    expected = round(
+        cost_tracker.estimate_cost_inr("claude-haiku-4-5", extra_input, 0)
+        + 2 * WEB_SEARCH_COST_INR,
+        4,
     )
-    expected = round(allowance + 2 * WEB_SEARCH_COST_INR, 4)
-    assert cost_tracker.server_tool_reserve_inr("claude-haiku-4-5", tools) == expected
+    assert (
+        cost_tracker.server_tool_reserve_inr("claude-haiku-4-5", tools, prompt_tokens) == expected
+    )
+    # Inside the Rs 10 per-call ceiling with the base estimate (prompt + 700 output tokens).
+    base = cost_tracker.estimate_cost_inr("claude-haiku-4-5", prompt_tokens, 700)
+    assert base + expected < get_settings().ai_max_call_cost_inr
     # An unbounded search is reserved as many searches, and other tool types add nothing.
     unbounded = [{"type": "web_search_20250305", "name": "web_search"}]
     assert cost_tracker.web_search_max_uses(unbounded) == model_config.WEB_SEARCH_UNBOUNDED_USES
@@ -1248,7 +1294,457 @@ def test_the_number_rule_and_the_prompts_own_examples_pass_the_validator_shapes(
 
 def test_the_prompt_stays_bounded() -> None:
     """Every word is input tokens on a call that also reads search results. 7,713 chars / 1,172
-    words measured 2026-10-08 (most of it the walls the API enforces); a budget keeps it from
-    growing unnoticed."""
+    words measured 2026-10-08 (most of it the walls the API enforces); the R9 search-query rule
+    took it to 7,804 / 1,191 the same day. A budget keeps it from growing unnoticed."""
     assert len(PROMPT) < 8200
     assert len(PROMPT.split()) < 1250
+
+
+# ── 10. the security review's fixes (2026-10-08) ─────────────────────────────────────────────
+
+# --- R9: a question carrying a hard identifier is never searched ---
+
+
+@pytest.mark.parametrize("armed", [False, True], ids=["masked", "raw"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "mera number 9876543210 hai, naukri ki khabar batao",
+        "ramesh.k@example.com pe aaj ki khabar bhejo",
+        "PAN ABCDE1234F wali scheme ki news",
+        "Aadhaar 1234 5678 9012 ki taaza khabar",
+    ],
+    ids=["phone", "email", "pan", "aadhaar"],
+)
+def test_a_question_with_a_hard_identifier_is_never_searched(
+    monkeypatch: pytest.MonkeyPatch, armed: bool, text: str
+) -> None:
+    """Owner ruling R9: refused before ANY model call, under either posture, with the blocked
+    input's shape (no metadata, so no cost)."""
+    if armed:
+        monkeypatch.setattr(get_settings(), "ai_raw_pii_enabled", True)
+    monkeypatch.setattr(free_chat_router.router, "run_with_result", _boom)
+    monkeypatch.setattr(free_chat_router.router, "run", _boom)
+    resp = client.post("/free-chat/news", json={"text": text})
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "refuse", "topic": "unsafe_other", "ai_metadata": None}
+
+
+def test_a_scanner_error_on_the_question_refuses_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(news_logic, "contains_hard_identifier", lambda _text: "scanner_error")
+    monkeypatch.setattr(free_chat_router.router, "run_with_result", _boom)
+    body = client.post("/free-chat/news", json={"text": "aaj ka mausam"}).json()
+    assert body == {"status": "refuse", "topic": "unsafe_other", "ai_metadata": None}
+
+
+def test_a_question_without_an_identifier_still_reaches_the_router(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        free_chat_router.router,
+        "run_with_result",
+        _fake_run_with_result(news_logic.MOCK_RESPONSE, None, captured=captured),
+    )
+    client.post("/free-chat/news", json={"text": "Pune mein petrol ka rate kya hai"})
+    assert len(captured) == 1
+
+
+def test_the_r9_log_names_the_class_never_the_text(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(free_chat_router.router, "run_with_result", _boom)
+    caplog.set_level("WARNING")
+    client.post("/free-chat/news", json={"text": "mera number 9876543210 hai"})
+    records = [r for r in caplog.records if "hard identifier" in r.getMessage()]
+    assert records, "the R9 refusal logged nothing"
+    extra = records[-1].__dict__["extra"]
+    assert extra == {"reason": "hard_identifier", "class": "phone"}
+    assert "9876543210" not in json.dumps(extra) and "9876543210" not in records[-1].getMessage()
+
+
+def test_the_prompt_keeps_identifiers_and_names_out_of_search_queries() -> None:
+    rule = (
+        "never put a phone number, an email, an id number or a person's name into a search query."
+    )
+    assert rule in _folded(PROMPT)
+
+
+# --- H2: the per-worker daily spend cap ---
+
+
+def test_the_route_charges_the_call_to_the_workers_ref_and_never_sends_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        free_chat_router.router,
+        "run_with_result",
+        _fake_run_with_result(news_logic.MOCK_RESPONSE, None, captured=captured),
+    )
+    client.post("/free-chat/news", json={"text": "aaj ka mausam", "worker_ref": "w-ref-77"})
+    assert captured[0]["user_ref"] == "w-ref-77"
+    assert "w-ref-77" not in json.dumps(captured[0]["messages"])
+    captured.clear()
+    client.post("/free-chat/news", json={"text": "aaj ka mausam"})
+    assert captured[0]["user_ref"] is None  # an older caller: the global caps only
+
+
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_the_per_worker_cap_blocks_a_searched_call_before_the_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = _stub_complete(monkeypatch, _result(citations=[(PIB, "PIB")]))
+    settings = _armed(ai_max_user_daily_cost_inr=1.0)  # below the searched call's worst case
+    _c, meta, returned = _run(
+        AIRouter(settings).run_with_result(
+            "profiling_free_news",
+            messages=_NEWS_MESSAGES,
+            mock_response=news_logic.MOCK_RESPONSE,
+            user_ref="w-ref-77",
+            tools=news_logic.news_search_tools(),
+        )
+    )
+    assert (meta.error_code, meta.real_call, returned, seen) == (
+        "user_daily_cap_exceeded",
+        False,
+        None,
+        [],
+    )
+
+
+# --- H1: a billed failure keeps its cost on the ledger ---
+
+
+def _daily_spend(settings: Settings) -> float:
+    return _run(cost_tracker.get_ledger().snapshot(settings))["daily_spend_inr"]
+
+
+def _news_worst_case() -> float:
+    prompt_tokens = cost_tracker.estimate_tokens("\n".join(m["content"] for m in _NEWS_MESSAGES))
+    base = cost_tracker.estimate_cost_inr("claude-haiku-4-5", prompt_tokens, 700)
+    reserve = cost_tracker.server_tool_reserve_inr(
+        "claude-haiku-4-5", news_logic.news_search_tools(), prompt_tokens
+    )
+    return round(base + reserve, 4)
+
+
+def _failing_news_call(monkeypatch: pytest.MonkeyPatch, exc: BaseException):
+    async def _raise() -> LlmResult:
+        raise exc
+
+    _stub_complete(monkeypatch, _raise)
+    settings = _armed()
+    content, meta, returned = _run(
+        AIRouter(settings).run_with_result(
+            "profiling_free_news",
+            messages=_NEWS_MESSAGES,
+            mock_response=news_logic.MOCK_RESPONSE,
+            tools=news_logic.news_search_tools(),
+        )
+    )
+    assert content == news_logic.MOCK_RESPONSE and returned is None
+    assert (meta.real_call, meta.success) == (True, False)
+    return meta, _daily_spend(settings)
+
+
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_a_refused_response_keeps_its_measured_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A paused, truncated or textless turn came back billed, searches included: the ledger and
+    the cost event record the MEASURED usage, not zero and not the worst case."""
+    billed = LlmResult(content="", input_tokens=4000, output_tokens=300, search_requests=2)
+    meta, spent = _failing_news_call(
+        monkeypatch, LlmTransportError(REASON_PAUSE_TURN, billed=billed)
+    )
+    measured = cost_tracker.server_tool_call_cost_inr(
+        "claude-haiku-4-5", billed, input_tokens=4000, output_tokens=300
+    )
+    assert measured > 2 * WEB_SEARCH_COST_INR  # non-vacuous: the searches are in it
+    assert spent == measured
+    assert meta.estimated_cost_inr == measured
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        LlmTransportError(REASON_TIMEOUT),  # the route's deadline: cancelled after dispatch
+        LlmTransportError(REASON_SDK_ERROR),  # the SDK raised after the request left
+        RuntimeError("an untyped failure"),  # unknown is treated as billed
+    ],
+    ids=["timeout", "sdk-error-after-send", "untyped"],
+)
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_a_failure_after_dispatch_without_a_response_keeps_the_worst_case(
+    monkeypatch: pytest.MonkeyPatch, exc: BaseException
+) -> None:
+    meta, spent = _failing_news_call(monkeypatch, exc)
+    assert spent == _news_worst_case() > 0
+    assert meta.estimated_cost_inr == _news_worst_case()
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        LlmTransportError(REASON_TOOLS_UNSUPPORTED, request_sent=False),
+        LlmTransportError(REASON_MISSING_KEY, request_sent=False),
+        LlmTransportError(REASON_SDK_ERROR, request_sent=False),  # the SDK absent
+    ],
+    ids=["tools-unsupported", "missing-key", "sdk-absent"],
+)
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_only_a_pre_network_failure_refunds_a_tool_call(
+    monkeypatch: pytest.MonkeyPatch, exc: BaseException
+) -> None:
+    meta, spent = _failing_news_call(monkeypatch, exc)
+    assert spent == 0.0
+    assert meta.estimated_cost_inr == 0.0
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        LlmTransportError(REASON_PAUSE_TURN, billed=LlmResult("", 4000, 300, search_requests=2)),
+        LlmTransportError(REASON_SDK_ERROR),
+        RuntimeError("an untyped failure"),
+    ],
+    ids=["billed-shape", "sdk-error", "untyped"],
+)
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_a_text_only_failure_still_refunds_in_full(
+    monkeypatch: pytest.MonkeyPatch, exc: BaseException
+) -> None:
+    """Non-tool tasks keep today's behaviour EXACTLY: every failure refunds the reservation, and
+    the failure metadata keeps its token estimate, whatever the exception carries."""
+
+    async def _raise() -> LlmResult:
+        raise exc
+
+    _stub_complete(monkeypatch, _raise)
+    settings = _armed()
+    content, meta = _run(
+        AIRouter(settings).run("profiling_free_reply", messages=_NEWS_MESSAGES, mock_response="m")
+    )
+    assert content == "m" and meta.success is False
+    assert _daily_spend(settings) == 0.0
+    expected = cost_tracker.estimate_cost_inr(
+        meta.model_name,
+        cost_tracker.estimate_tokens("\n".join(m["content"] for m in _NEWS_MESSAGES)),
+        cost_tracker.estimate_tokens("m"),
+    )
+    assert meta.estimated_cost_inr == expected
+
+
+@pytest.mark.usefixtures("_fresh_ledger")
+def test_a_retried_tool_call_charges_the_billed_attempt_and_the_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generic accounting for a tool route WITH retries (the news route has none): the failed
+    attempt keeps its worst case, the success adds its measured cost, and the cost event
+    carries both."""
+    real_get_route = router_module.get_route
+
+    def _one_retry(task_type: str, settings: Settings | None = None):
+        route = real_get_route(task_type, settings)
+        return dataclasses.replace(route, max_retries=1)
+
+    monkeypatch.setattr(router_module, "get_route", _one_retry)
+    result = _result(content=_answer(), citations=[(PIB, "PIB")], search_requests=1)
+    outcomes: list[Any] = [LlmTransportError(REASON_TIMEOUT), result]
+
+    async def _next() -> LlmResult:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    _stub_complete(monkeypatch, _next)
+    settings = _armed()
+    _c, meta, returned = _run(
+        AIRouter(settings).run_with_result(
+            "profiling_free_news",
+            messages=_NEWS_MESSAGES,
+            mock_response="m",
+            tools=news_logic.news_search_tools(),
+        )
+    )
+    assert returned is result and meta.success is True and meta.attempt_count == 2
+    call_cost = cost_tracker.server_tool_call_cost_inr(
+        "claude-haiku-4-5", result, input_tokens=1000, output_tokens=100
+    )
+    expected = round(call_cost + _news_worst_case(), 4)
+    assert meta.estimated_cost_inr == expected
+    assert _daily_spend(settings) == expected
+
+
+# --- H1, the transport half: who says "sent" and who carries "billed" ---
+
+
+def test_a_refused_tool_response_carries_its_measured_usage() -> None:
+    with pytest.raises(LlmTransportError) as raised:
+        anthropic_client._parse_tool_response(_tool_response(stop_reason="pause_turn"))
+    billed = raised.value.billed
+    assert billed is not None and raised.value.request_sent is True
+    assert (billed.input_tokens, billed.output_tokens, billed.search_requests) == (5200, 180, 2)
+    assert billed.content == ""  # counts only: no model text rides an exception
+
+
+def test_a_tool_response_with_no_text_carries_its_measured_usage() -> None:
+    resp = _tool_response()
+    resp.content = [block for block in resp.content if getattr(block, "type", None) != "text"]
+    with pytest.raises(LlmTransportError) as raised:
+        anthropic_client._parse_tool_response(resp)
+    assert raised.value.reason_code == "no_text_content"
+    assert raised.value.billed is not None and raised.value.billed.search_requests == 2
+
+
+def test_failures_before_the_request_say_nothing_was_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = news_logic.news_search_tools()
+    with pytest.raises(LlmTransportError) as no_key:
+        _run(
+            anthropic_client.acomplete(
+                settings=Settings(_env_file=None),
+                model="claude-haiku-4-5",
+                messages=[{"role": "user", "content": "q"}],
+                max_output_tokens=700,
+                temperature=0.3,
+                json_mode=True,
+                tools=tools,
+            )
+        )
+    assert (no_key.value.reason_code, no_key.value.request_sent) == ("missing_key", False)
+
+    monkeypatch.setitem(sys.modules, "anthropic", None)  # the SDK absent: the import raises
+    with pytest.raises(LlmTransportError) as no_sdk:
+        _acomplete(tools=tools)
+    assert (no_sdk.value.reason_code, no_sdk.value.request_sent) == ("sdk_error", False)
+
+    class _CannotBuild:
+        def __init__(self, **_kwargs: Any) -> None:
+            raise ValueError("bad client config")
+
+    fake = types.ModuleType("anthropic")
+    fake.AsyncAnthropic = _CannotBuild  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+    with pytest.raises(LlmTransportError) as no_client:
+        _acomplete(tools=tools)
+    assert (no_client.value.reason_code, no_client.value.request_sent) == ("sdk_error", False)
+
+    with pytest.raises(LlmTransportError) as wrong_provider:
+        _run(
+            providers_module.complete(
+                settings=Settings(_env_file=None),
+                model="mystery-model",  # no transport at all: still the closed, pre-network refusal
+                messages=[{"role": "user", "content": "q"}],
+                max_output_tokens=10,
+                temperature=0.0,
+                json_mode=True,
+                tools=tools,
+            )
+        )
+    assert wrong_provider.value.reason_code == REASON_TOOLS_UNSUPPORTED
+    assert wrong_provider.value.request_sent is False
+
+
+def test_an_sdk_error_after_the_request_left_counts_as_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BoomMessages:
+        async def create(self, **_kwargs: Any) -> Any:
+            raise ValueError("connection reset")
+
+    class _Client:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.messages = _BoomMessages()
+
+    fake = types.ModuleType("anthropic")
+    fake.AsyncAnthropic = _Client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+    with pytest.raises(LlmTransportError) as raised:
+        _acomplete(tools=news_logic.news_search_tools())
+    assert (raised.value.reason_code, raised.value.request_sent) == ("sdk_error", True)
+    assert raised.value.billed is None
+
+
+# --- M1: a line naming a link or a domain refuses the answer ---
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Poori khabar https://www.thehindu.com/a par hai.",
+        "Update http://example.org par dekhiye.",
+        "Update www.ndtv.com par hai.",
+        "Thehindu.com ke mutabik kal baarish hogi.",
+        "PIB.GOV.IN ne nayi scheme batayi.",
+        "Details jobs-portal.xyz par milenge.",
+        "Form apply-now.in par bharna hai.",
+    ],
+)
+def test_a_line_naming_a_link_or_a_domain_refuses_the_answer(line: str) -> None:
+    parsed = news_logic.parse_news_output(
+        _answer("work", [line]), _result(citations=[(PIB, "PIB release")])
+    )
+    assert parsed == news_logic.REFUSED_FALLBACK
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Pune mein petrol ₹94.72 litre hai.",
+        "Kal subah 10 a.m. tak baarish ho sakti hai.",
+        "India ne 287 run banaye, 5 wicket gire.",
+        "Chaliye, ab apna resume bhi bana lete hain, naya kaam dhoondhna aasaan hoga.",
+        "Minimum wage ab ₹1,50,000 saal ki hui, 2025 se 2026 ke liye.",
+        "PIB ke mutabik nayi skill scheme aayi hai.",
+    ],
+)
+def test_ordinary_news_lines_are_not_read_as_links(line: str) -> None:
+    parsed = news_logic.parse_news_output(
+        _answer("work", [line]), _result(citations=[(PIB, "PIB release")])
+    )
+    assert isinstance(parsed, FreeChatNewsAnswer), line
+
+
+# --- M3: G1 on every tile title ---
+
+
+def test_a_title_carrying_a_hard_identifier_drops_its_source() -> None:
+    result = _result(
+        citations=[(TOI, "Bharti ke liye 9876543210 par call karein"), (PIB, "PIB release")]
+    )
+    assert [s.url for s in news_logic.build_sources(result)] == [PIB]
+
+
+def test_when_every_title_carries_an_identifier_the_answer_is_no_results() -> None:
+    result = _result(citations=[(TOI, "Resume bhejein jobs.desk@example.com par")])
+    parsed = news_logic.parse_news_output(_answer(), result)
+    assert isinstance(parsed, FreeChatNewsNoResults)
+
+
+def test_a_title_scanner_error_drops_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail closed: the floor reads the scanner's own error class as a hit."""
+    monkeypatch.setattr(output_floor, "contains_hard_identifier", lambda _text: "scanner_error")
+    assert news_logic.build_sources(_result(citations=[(PIB, "PIB release")])) == []
+
+
+# --- L3: the LAST JSON object is the one read ---
+
+
+def test_an_answer_written_before_the_search_never_wins() -> None:
+    result = _result(citations=[(PIB, "PIB release")])
+    guess = _answer("work", ["Shayad nayi bharti hai."])
+    content = f"{guess} Let me search for that. " + '{"status": "no_results"}'
+    assert isinstance(news_logic.parse_news_output(content, result), FreeChatNewsNoResults)
+    content = '{"status": "refuse", "topic": "off_limits"}\nSearching...\n' + _answer()
+    assert isinstance(news_logic.parse_news_output(content, result), FreeChatNewsAnswer)
+
+
+def test_the_last_object_is_top_level_and_string_aware() -> None:
+    text = 'pre {"a": {"b": 1}, "s": "x } {"} mid {"c": 2} tail {broken'
+    assert news_logic.last_json_object(text) == {"c": 2}
+    assert news_logic.last_json_object('{"a": {"b": 1}}') == {"a": {"b": 1}}
+    assert news_logic.last_json_object('```json\n{"status": "no_results"}\n```') == {
+        "status": "no_results"
+    }
+    assert news_logic.last_json_object("no json here") is None
+    assert news_logic.last_json_object("[1, 2]") is None
