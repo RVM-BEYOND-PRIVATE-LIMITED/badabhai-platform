@@ -43,9 +43,12 @@ def test_the_categories_and_modes_are_the_contracts() -> None:
 
 
 def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
-    # About sixty Hindi/Hinglish/English lines, plus the regional lines (ADR-0051 §9).
-    assert 55 <= len(gold.CASES) - len(gold.REGIONAL_ROWS) <= 70
+    # About sixty Hindi/Hinglish/English lines, plus the regional lines (ADR-0051 §9) and the
+    # improvement loop's held-out round-1 lines (§10, #2128).
+    blocks = (gold.REGIONAL_ROWS, gold.ROUND1_ROWS)
+    assert 55 <= len(gold.CASES) - sum(len(block) for block in blocks) <= 70
     assert 15 <= len(gold.REGIONAL_ROWS) <= 25
+    assert 20 <= len(gold.ROUND1_ROWS) <= 30
     assert all(isinstance(case, gold.Case) for case in gold.CASES)
     counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(gold.CATEGORIES)
@@ -57,7 +60,8 @@ def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
 
 def test_resume_mode_is_about_twenty_lines_with_answers_and_off_topic() -> None:
     resume_mode = [case for case in gold.CASES if case.mode == "resume"]
-    assert 18 <= len(resume_mode) <= 25
+    # About twenty, plus the regional and round-1 guards (a "not now" that answers the question).
+    assert 18 <= len(resume_mode) <= 28
     answers = [case for case in resume_mode if case.category == "resume"]
     off_topic = {case.category for case in resume_mode if case.category != "resume"}
     assert len(answers) >= 10
@@ -103,11 +107,64 @@ def test_recent_turns_are_well_formed_and_carry_the_jobs_line() -> None:
         for role, text in case.turns:
             assert role in ("worker", "bada_bhai"), case.text
             assert text.strip(), case.text
-    # The bot line is the reviewed JOBS copy (ADR-0051 §5.1), verbatim.
+    # The bot's offer lines are the reviewed JOBS and CASUAL_NUDGE copy (ADR-0051 §5.1), verbatim.
     adr = (_REPO / "docs" / "decisions" / "0051-profiling-stage-free-chat.md").read_text(
         encoding="utf-8"
     )
     assert f"| JOBS | {gold.JOBS_LINE} |" in adr
+    assert f"| CASUAL_NUDGE | {gold.CASUAL_NUDGE_LINE} |" in adr
+
+
+def test_round1_replies_to_a_resume_offer_follow_the_offer() -> None:
+    """ADR-0051 §10 round 1 (#2128): a yes to the bot's own résumé offer is `resume`, a no or a
+    later is `casual` (the lock must never close on a "no"), after BOTH offer lines, and a yes to
+    a casual line that offered nothing stays casual. Held-out lines, never the baseline's misses."""
+    offers = {gold.JOBS_LINE, gold.CASUAL_NUDGE_LINE}
+    after_offer: dict[str, set[str]] = {"resume": set(), "casual": set()}
+    for row in gold.ROUND1_ROWS:
+        case = gold.Case(*row)
+        if not case.turns:
+            continue
+        bot_line = case.turns[-1][1]
+        assert case.turns[-1][0] == gold.BOT, case.text
+        offered = bot_line.splitlines()[-1] in offers
+        if not offered:
+            assert case.category == "casual", case.text
+            continue
+        assert case.category in after_offer, case.text
+        after_offer[case.category].add(bot_line.splitlines()[-1])
+    # Yes and no are both measured after both offers.
+    assert after_offer == {"resume": offers, "casual": offers}
+    # The reviewed labels, line by line: a flipped yes or no fails here, not only in a live run.
+    labels = {gold.Case(*row).text: gold.Case(*row).category for row in gold.ROUND1_ROWS}
+    yes = {"ji haan", "theek hai bana do", "chalo, kar lete hain", "சரி, பண்ணலாம்"}
+    no = {"nahi ji", "abhi nahi", "baad mein karenge", "rehne do", "vaddu, tarvata chuddam"}
+    assert {text: labels[text] for text in yes} == dict.fromkeys(yes, "resume")
+    assert {text: labels[text] for text in no} == dict.fromkeys(no, "casual")
+    baseline_misses = {"haan ji", "nahi abhi nahi", "ok", "tu pagal hai kya"}
+    assert not baseline_misses & {row[0] for row in gold.ROUND1_ROWS}
+
+
+def test_every_regional_language_asks_for_a_job_in_both_scripts() -> None:
+    """Round 1 (#2128): the jobs question in each §9 language, own script AND Latin letters."""
+    jobs = [case.text for case in gold.CASES if case.category == "jobs" and case.mode == "free"]
+    for language, block in {
+        "Tamil": "[஀-௿]",
+        "Telugu": "[ఀ-౿]",
+        "Kannada": "[ಀ-೿]",
+        "Gujarati": "[઀-૿]",
+    }.items():
+        assert any(re.search(block, text) for text in jobs), language
+    # Marathi shares Devanagari with Hindi, so its line is named rather than found by script.
+    assert "पुण्यात काही काम आहे का" in jobs
+    latin_regional = {
+        "Chennai la velai irukka",
+        "naaku edaina job dorukutunda",
+        "yaavudadru kelasa ide na",
+        "mala kuthe naukri milel ka",
+        "Surat ma koi nokri chhe",
+    }
+    assert latin_regional <= set(jobs)
 
 
 def test_the_set_mixes_hinglish_devanagari_and_english() -> None:

@@ -61,24 +61,33 @@ from ..contracts import (
 #: The classifier's system prompt, kept short for p95 (the companion's classifier was shrunk for
 #: the same reason, WP5 2026-10-05): it runs on every typed résumé-mode answer the API's skip
 #: list does not settle, so every word is input tokens paid on the live interview path.
+#: Round 1 of the improvement loop (ADR-0051 §10, #2128) named the assistant turns as Bada Bhai's
+#: and made a reply to the bot's own résumé offer follow the offer; the eval set's round-1 block
+#: holds the held-out lines it was scored on. A prompt edit moves the registry version by itself
+#: (``local:<sha12>``), and ships only past the R31 bar.
 CLASSIFY_SYSTEM_PROMPT = """\
-BadaBhai profiling chat category router. Classify ONE worker message into exactly one category.
+BadaBhai profiling chat router. Classify ONE worker message into exactly one category.
 The user message gives "Mode: free" or "Mode: resume", the question on screen (resume mode
 only) and the message: Hinglish, Hindi, English, Marathi, Gujarati, Kannada, Telugu or Tamil,
-in any script, often mixed with English. Classify the meaning, whatever the language.
+any script, often mixed with English. Classify the meaning, whatever the language. Earlier
+assistant turns are Bada Bhai, the app's bot.
 - resume: wants to make or start a resume or profile, OR tells you about their own work
-  (trade, years, past jobs, skills, city, salary, documents). In resume mode, ANY answer to the
-  question on screen, however short ("5 saal", "Pune mein", "haan", "welding"), a detail that
-  answers a different resume question, a correction, "pata nahi", or a question about it.
+  (trade, years, past jobs, skills, city, salary, documents).
+  In resume mode, ANY answer to the question on screen, however short ("5 saal", "Pune mein",
+  "haan", "welding"), a detail that answers a different resume question, a correction,
+  "pata nahi", or a question about it. In free mode, a yes or agreement when Bada Bhai's last
+  turn offered to make the resume.
 - career: general questions about work: trade, skills, learning, courses, certificates, safety,
   salary, growth, industry.
-- jobs: asking for jobs, openings, vacancies, hiring, or applying on the app.
-- casual: greetings, mood, small talk, feelings (not a crisis), jokes, news, sports.
-- trash: abuse, threats or sexual content aimed at Bada Bhai, the app or the reader. A message
-  describing something bad that happened to the worker is not trash.
+- jobs: asking for a job or if any work is available, openings, hiring, or applying on the app.
+- casual: greetings, mood, small talk, feelings (not a crisis), jokes, teasing, news, sports;
+  a no, not now or later to Bada Bhai's resume offer.
+- trash: abuse, threats or sexual content aimed at Bada Bhai, the app or the reader, even a mild
+  insult. A message describing something bad that happened to the worker is not trash.
 - off_limits: politics, religion, caste, romance, dating, loans, money lending, health, medical.
-- distress: self-harm, suicide, wanting to die, a hopelessness crisis.
-- unclear: gibberish, emoji only, or cannot place it.
+- distress: self-harm, suicide, wanting to die or to end it all, a hopelessness crisis, in
+  either mode.
+- unclear: gibberish, emoji only, a bare acknowledgement, or cannot place it.
 If several fit, take the first of: distress, trash, resume, career, off_limits, casual, jobs.
 "confidence" is 0..1; use below 0.6 when unsure.
 Reply with JSON only: {"category": "<category>", "confidence": <number>}

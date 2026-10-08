@@ -353,14 +353,40 @@ def test_news_and_sports_are_casual() -> None:
     assert "news, sports" in _label_rule("casual")
 
 
+def test_a_reply_to_the_bots_resume_offer_follows_the_offer() -> None:
+    """ADR-0051 §10 round 1 (#2128): "haan ji" to "Resume banayein?" was small talk, and a "no"
+    could enter the résumé LOCK. The model is told the assistant turns are Bada Bhai's, which is
+    what made the rule work (without it, no yes moved on Haiku), and each half of the rule lives
+    in its category's label."""
+    folded = _folded(free_prompts.CLASSIFY_SYSTEM_PROMPT)
+    assert "earlier assistant turns are bada bhai, the app's bot." in folded
+    resume = _label_rule("resume")
+    assert "in free mode, a yes or agreement when bada bhai's last turn offered to make" in resume
+    assert "a no, not now or later to bada bhai's resume offer" in _label_rule("casual")
+
+
+def test_round1_widenings_of_trash_unclear_and_distress() -> None:
+    """Round 1 (#2128): a mild insult aimed at us is trash (teasing stays casual), a bare
+    acknowledgement is unclear, and distress wins mid-interview too."""
+    assert "even a mild insult" in _label_rule("trash")
+    assert "jokes, teasing, news, sports" in _label_rule("casual")
+    assert "a bare acknowledgement" in _label_rule("unclear")
+    distress = _label_rule("distress")
+    assert "wanting to die or to end it all" in distress
+    assert "in either mode" in distress
+
+
 def test_the_classify_prompt_stays_short_for_p95() -> None:
     """It runs on the live interview path; the companion's classifier was shrunk to ~790 chars
     for p95. This one carries eight labels, the résumé-mode rule, the self-description rule and
     the narrowed trash rule, so it is larger (1,647 chars / 251 words, measured 2026-10-06; the
     five regional languages, ADR-0051 §9, took it to 1,740 / 264 on 2026-10-07), and a budget
-    keeps it from growing unnoticed."""
-    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT) < 1800
-    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT.split()) < 280
+    keeps it from growing unnoticed. Round 1 of the improvement loop (§10, #2128) took it to
+    2,034 / 321 for the reply-to-the-offer rule; measured on claude-haiku-4-5 over the 112-line
+    set, two runs each, p50 stayed flat (796-802 ms -> 804-809 ms) and p95 rose about 100 ms
+    (871-912 ms -> 983-1009 ms), well inside the API's 2.5 s classify timeout."""
+    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT) < 2100
+    assert len(free_prompts.CLASSIFY_SYSTEM_PROMPT.split()) < 330
 
 
 # ── 5. the routes ────────────────────────────────────────────────────────────────────────────
