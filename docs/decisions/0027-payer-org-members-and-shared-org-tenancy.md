@@ -45,6 +45,14 @@ recipients + a bearer accept-link token. This ADR fixes the design so each incre
 **backward-compatible and independently shippable**, and both escalations (§7) are
 explicit.
 
+> **Amended 2026-10-07 by [ADR-0053](0053-payer-org-tenancy-anchor-key.md).** The header's
+> "BUILT + MERGED" holds for B5.1's `payer_orgs` + `payer_members`, B5.3, B5.4 and B5.5. It never held
+> for D1's re-scope: no business table carries `org_id`, and no business read was ever org-scoped
+> (`PAY-DB-01`). ADR-0053 keeps the model (D1–D3) and replaces D1's **mechanism**. The tenant key is
+> the org's anchor (`root_payer_id`), held in the existing `payer_id` columns, behind one resolver and
+> one flag. There is no `org_id` column and no backfill. Open questions 1–4 are answered in ADR-0053
+> §2, §6, §3.5 and §9.
+
 ## Decision
 
 Build the full feature on the **primitives we already have** — the payer login seam,
