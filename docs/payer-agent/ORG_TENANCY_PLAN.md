@@ -317,6 +317,51 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
 | `apps/api/src/referrals/referral-link.service.ts` `mintLink` | no caller today; document the rule only (`agent_payer_id` = tenant key when wired) |
 | `apps/api/src/agency/agency-kyc-ops.controller.ts` (ops, `:payerId`) | literal: ops verify the anchor's KYC |
 
+**As built (P2d PR, 2026-10-08).** Line numbers above are the plan's baseline; the shipped shape:
+
+- **Converted (T5 allowlist −10):** `AgencyInvitesRepository.{create, stageCountsForOwner}` ·
+  `AgencyKycRepository.{upsertPending, findByPayer}` · `AgencyPayoutRepository.{findQualifyingUnlocks,
+  insertAccruals, aggregate, listRequests, createRequestClaiming}` ·
+  `AgencyWorkersRepository.listReferredWithConsent`. `AgencyKycRepository.{markVerified,
+  markRejected}` stay literal (NAMED_EXCEPTIONS): ops act on the queue row, whose `payer_id`
+  already is the tenant key.
+- **Resolution points (once each):** `AgencyService.{createInvite, createInviteBatch, referralsSummary}`
+  (the batch resolves once, BEFORE its loop: N rows, one key; a refusal mints nothing and is the
+  resolver's 403, not the batch's 503) · `AgencyKycService.{submit, getOwnView}` ·
+  `AgencyPayoutService.{getEarnings, requestPayout, listRequests}` · `AgencyWorkersService.listReferred`.
+  Composed callers take the key: `AgencyKycService.statusForGate(TenantKey)`,
+  `AgencyPayoutService.recomputeAccruals(TenantKey)`. The invite click and the consent-gated
+  attribution are code-keyed and keep the STORED owner (no resolution).
+- **Referred-worker handle:** the per-agency pseudonym (`ref`) is keyed by the tenant, so one
+  agency's members see one handle per man; `off` keeps every handle byte-identical.
+- **Event meaning (ADR §7):** `agency_invite.created` — actor = the login, `inviter_payer_id` = the
+  tenant. `agency_kyc.submitted` — actor = the login, `payer_id` and subject = the tenant.
+  `agency_payout.blocked` / `.requested` — actor = the login, `agency_payer_id` = the tenant;
+  `.accrued` stays a `system` fact carrying the tenant. `agency_invite.clicked` / `.accepted`
+  carry the stored `inviter_payer_id`. Ops `agency_kyc.verified` / `.rejected` unchanged.
+- **O-5, the owner gate:** `AgencyPayoutsController` (all five KYC / earnings / payout routes)
+  mounts `PayerOrgRoleGuard` with a class-level `@OrgRoles("owner")`, AFTER
+  `AgencyPayoutsEnabledGuard`: while the flag is off every caller gets the same 404 (no org-role
+  oracle); when on, a recruiter gets the team routes' own 403 and a payer with no membership a
+  403. `guard-contract.test.ts` pins the guard set and the order;
+  `agency-payouts-owner-only.test.ts` drives the real guard over the real resolver in both modes.
+  **This is P2d's one change in `off`:** the gate decides on the acting org in every mode (in
+  `off`, the most-recently-accepted membership), so a team member is refused even though `off`
+  would key them to themself. The surface is a 404 in production while
+  `AGENCY_PAYOUTS_ENABLED` is off, so nothing observable changes there.
+- **Cost:** the money routes make two membership reads per request (the guard's
+  `resolveActingOrg` and the service's `resolve`). Accepted on a low-frequency, flag-gated
+  surface; §5.4's budget is the tenant routes' p95.
+- **Not converted — rule documented only:** `ReferralLinkService.mintLink` (`agent_payer_id`) has
+  no caller. Its doc now says the wiring PR must pass the resolved tenant key. T5 cannot see it
+  (it delegates to `createLink`, typed by `NewReferralLink` from packages/db: blind spots 3 and 8),
+  so it joins the §5 item 4 hand-check list.
+- **T5 vacuity guard:** the two live examples P2a pointed at P2d methods (the raw-`sql` path and
+  the inline-type path) now name NAMED_EXCEPTIONS that stay raw through the flip —
+  `FreeTierService.grantForPayer` (a `dsql` template, no Drizzle table import) and
+  `AdminEntitiesRepository.listJobPostings` (`filter: { payerId?: string }`) — so they never need
+  swapping again. The fixtures still pin both paths.
+
 ---
 
 ## 4. Explicit exceptions (stay actor- or literal-keyed; T5 allowlist entries that survive P3)
@@ -354,6 +399,9 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
       `ownerId`, `tenantId`, a bare `id`.
    7. A parameter typed `any` / `unknown` carrying a payer id.
    8. A callable that only delegates to a listed helper (safe once the helper is retyped).
+
+   *Known instance of 3 + 8 (P2d): `ReferralLinkService.mintLink`'s `agentPayerId`. No caller
+   today; its doc states the rule (the wiring PR passes the resolved tenant key).*
    Closed by the PR #2155 scanner, with fixture tests: arrow-function class properties, top-level
    const arrows, Drizzle relational `this.db.query.<table>`, and parameter types declared in
    another apps/api file.

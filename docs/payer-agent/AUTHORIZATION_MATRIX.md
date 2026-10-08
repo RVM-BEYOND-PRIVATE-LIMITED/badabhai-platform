@@ -56,7 +56,7 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 | `GET /payer/org/members` | `P`,`ORG` | any active org member |
 | `POST /payer/org/members`, `DELETE /payer/org/members/:id` | `P`,`ORG` | **`@OrgRoles("owner")`** |
 | `/payer/agency/*` | `P`,`R` | **`@PayerRoles("agent")`** (class level) |
-| `/payer/agency/{kyc,earnings,payouts}` | `P`,`R`,`PE` | agent + flag → else neutral 404 |
+| `/payer/agency/{kyc,earnings,payouts}` | `P`,`R`,`PE`,`ORG` (in that order) | agent + flag → else neutral 404; then **`@OrgRoles("owner")`** (class level, ADR-0053 O-5, PAY-DB-01 P2d): a recruiter gets the team routes' 403. The flag gate runs first, so while the flag is off owner and recruiter get the same 404 |
 | `/ops/agency-kyc/*` | `I` | internal service token |
 
 ### The Owner gap on money
