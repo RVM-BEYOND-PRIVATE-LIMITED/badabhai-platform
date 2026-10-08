@@ -45,7 +45,13 @@
  * loses "steel". The collision is bounded to that ONE worker's own turns and to
  * their own name, and the extraction the loss could degrade is theirs alone. Privacy
  * wins: it is their name, and leaking it is the thing R32 exists to stop.
+ *
+ * HOW THE NAME IS READ (#2166) is {@link knownNameMatcher}'s doc: dotted, hyphenated, apostrophe,
+ * digit-glued, invisible-character, compatibility-form and non-NFC names, and what is deliberately
+ * NOT matched.
  */
+
+import { foldAwayMarks, foldName, foldText, nameWordParts } from "./name-fold";
 
 /**
  * What a redacted name token becomes. Deliberately NOT `[PERSON_1]`: the
@@ -69,36 +75,17 @@ export const REDACTED_NAME_PLACEHOLDER = "[NAME]";
  */
 export const MIN_TOKEN_LENGTH = 3;
 
-/** Escape a literal so it can be embedded in a RegExp source. */
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
- * Redact every occurrence of `fullName` — as a whole, and each of its tokens
- * independently — from `text`.
+ * Redact every occurrence of `fullName` — as a whole, and each of its parts
+ * independently — from `text`. The rules are {@link knownNameMatcher}'s.
  *
- * - CASE-INSENSITIVE: workers type "suresh", the DB holds "Suresh".
- * - TOKEN-WISE: "Suresh Kumar" also removes a bare "Suresh" and a bare "Kumar",
- *   because a worker introduces themselves either way across turns.
- * - WORD-ANCHORED with Unicode lookarounds (not `\b`, which is ASCII-only and would
- *   mis-anchor on Devanagari): "Ram" never matches inside "Rampur" or "programme".
- * - WHITESPACE-TOLERANT on the full-name alternative: a stored "Suresh  Kumar" (or
- *   one carrying a newline/tab) still matches the single-spaced form the worker types.
- * - REPEATED occurrences all go (global match).
- *
- * FAIL SAFE, NOT CLOSED: a null/blank/unusable name returns `text` UNCHANGED. A
- * decrypt failure upstream must never break a chat turn — the ai-service's
- * pseudonymize gate is still in front of the LLM, so the un-redacted path is the
- * status quo, not a new exposure. Callers log the failure WITHOUT the value.
+ * FAIL SAFE, NOT CLOSED: a null/blank/unusable name returns `text` UNCHANGED, and so
+ * does a name the matcher cannot be built for; this never throws. A decrypt failure
+ * upstream must never break a chat turn. Callers log the failure WITHOUT the value.
  */
 export function redactKnownName(text: string, fullName: string | null | undefined): string {
   if (typeof text !== "string" || text.length === 0) return text;
-  const pattern = knownNamePattern(fullName);
-  if (pattern === null) return text;
-  // Function replacement (never a string) so a placeholder containing `$&`-style
-  // patterns could never be reinterpreted — same discipline as `renderWorkerName`.
-  return text.replace(pattern, () => REDACTED_NAME_PLACEHOLDER);
+  return redactSafely(safeMatcher(fullName), text);
 }
 
 /**
@@ -110,7 +97,8 @@ export function redactKnownNameLines<T extends { readonly text: string }>(
   lines: readonly T[],
   fullName: string | null | undefined,
 ): T[] {
-  return lines.map((line) => ({ ...line, text: redactKnownName(line.text, fullName) }));
+  const matcher = safeMatcher(fullName);
+  return lines.map((line) => ({ ...line, text: redactSafely(matcher, line.text) }));
 }
 
 /**
@@ -122,13 +110,18 @@ export function redactKnownNameLines<T extends { readonly text: string }>(
  * reason the parse gates' `stringsIn` reads keys. JSON has no cycles, so the recursion is bounded.
  */
 export function redactKnownNameDeep(value: unknown, fullName: string | null | undefined): unknown {
-  if (typeof value === "string") return redactKnownName(value, fullName);
-  if (Array.isArray(value)) return value.map((item) => redactKnownNameDeep(item, fullName));
+  const matcher = safeMatcher(fullName);
+  return matcher === null ? value : redactDeep(value, matcher);
+}
+
+function redactDeep(value: unknown, matcher: KnownNameMatcher): unknown {
+  if (typeof value === "string") return redactSafely(matcher, value);
+  if (Array.isArray(value)) return value.map((item) => redactDeep(item, matcher));
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
-        redactKnownName(key, fullName),
-        redactKnownNameDeep(item, fullName),
+        redactSafely(matcher, key),
+        redactDeep(item, matcher),
       ]),
     );
   }
@@ -171,43 +164,241 @@ export function onceRetrying<T>(read: () => Promise<T>): () => Promise<T> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// The matcher
+// ---------------------------------------------------------------------------
+
+/** The worker's own name, compiled once, for every surface that must keep it out of its text. */
+export interface KnownNameMatcher {
+  /**
+   * `text` with every occurrence of the name replaced by {@link REDACTED_NAME_PLACEHOLDER}. Every
+   * character outside a replaced span comes back exactly as it went in — nothing is normalised.
+   */
+  redact(text: string): string;
+  /** Does `text` carry the name anywhere {@link redact} would replace it? */
+  test(text: string): boolean;
+}
+
 /**
- * The matcher {@link redactKnownName} redacts with — the whole name and each token of
- * {@link MIN_TOKEN_LENGTH}+ characters, case-insensitive, word-anchored — or `null` when
- * the name has no usable token. Shared so that every surface that must keep the
- * worker's own name out of its text (the redaction here, the general form's brief
- * screen) reads the name the same way. GLOBAL, for the replace: a caller that only asks
- * "is it there?" uses `String.prototype.search`, which ignores `lastIndex`.
+ * The matcher {@link redactKnownName} redacts with, or `null` when the name has no usable part.
+ * Shared so that every surface that must keep the worker's own name out of its text (the redaction
+ * here, the general form's brief screen, the résumé's brief re-check) reads the name the same way.
+ * It throws only if the matcher cannot be built at all: the redaction catches that (fail safe), the
+ * brief screens let it reach their own `catch` (fail closed).
+ *
+ * WHAT COUNTS AS THE NAME (#2166). The stored name and the text are both read through
+ * `name-fold.ts`: invisibles, compatibility forms, NFC/NFD and the nukta/Latin-diacritic variants
+ * read alike, and the text itself is never rewritten outside a matched span. The stored name splits
+ * on whitespace into WORDS, and each word into PARTS on anything that is not a letter or a mark
+ * (`NAME_SEPARATORS`: a dot, a hyphen, an apostrophe, a digit, a modifier letter). A part of
+ * {@link MIN_TOKEN_LENGTH}+ characters (counted NFC, marks included, as written) is LONG. What is
+ * matched, first alternative first — JS alternation is first-match-wins at a position, so the order
+ * is the whole mechanism that collapses a name to ONE placeholder:
+ *
+ *   1. the WHOLE name, every part in stored order ("R.K. Ramesh" typed "R K Ramesh");
+ *   2. its LONG parts in stored order ("Anil D'Souza" typed "Anil Souza");
+ *   3. each multi-part WORD with a long part ("D'Souza", "K.Suresh");
+ *   4. each WORD as stored, if it has 3+ characters and a letter or digit ("Raju007", "R.K.") —
+ *      the pre-#2166 whitespace token, kept so nothing matched before stops matching;
+ *   5. each LONG part on its own ("Suresh", "Prasad").
+ *
+ * Between two parts of 1–3 a typed name may carry whitespace, an invisible, or the punctuation
+ * names are written with ({@link SEPARATOR}). Between two LONG parts, or two parts the stored name
+ * joins with an apostrophe, the separator may also be missing ("SureshKumar", "DSouza"). Next to an
+ * initial it may not: "S.Aman" must never eat "saman".
+ *
+ * - CASE-INSENSITIVE: workers type "suresh", the DB holds "Suresh".
+ * - WORD-ANCHORED with Unicode lookarounds, unchanged by #2166 (not `\b`, which is ASCII-only):
+ *   "Ram" never matches inside "Rampur", "aaram" or "programme", nor "Kumar" inside "kumari". The
+ *   lookarounds read letters, digits and `_` only, so a vowel sign after a part does not end the
+ *   match: the Bengali "রামের" (Ram's) is redacted, and so is "कुमारी" for a stored "कुमार" — the
+ *   whole akshara goes, never half of it.
+ * - REPEATED occurrences all go (global match); overlapping spans become one placeholder.
+ * - LINEAR: every alternative is a fixed run of literal characters separated by single-class
+ *   stars over classes that cannot match the literal after them — no nested quantifier, so no
+ *   catastrophic backtracking. The cost is O(text × name); the name DTO caps the name at 100.
+ *
+ * KNOWN LIMITS (deliberate):
+ *   - Mark variants other than the nukta and the Latin diacritics are different words: a stored
+ *     "ओम्" (virama) does not match a typed "ओम", nor an anusvara a chandrabindu.
+ *   - An initial glued to the name with no separator, when the stored name separates them with a
+ *     dot or a hyphen ("KSuresh" for "K.Suresh") is not one placeholder: "Suresh" alone is not
+ *     matched either, since "K" precedes it. Gluing an initial would turn "S.Aman" into "saman".
+ *   - A stored name whose only separator is an invisible ("Suresh<ZWSP>Kumar", no space) is one
+ *     word: typed whole it is redacted, "Suresh" alone is not. A stored invisible is read as what a
+ *     soft hyphen is — a break INSIDE a word — or "Sur<SHY>esh" would shred every "sur".
+ *   - The parts must come in stored order to collapse: "Kumar Suresh" is two placeholders.
+ *   - A name typed in another script than the one it is stored in (the R32 transliteration line).
  */
-export function knownNamePattern(fullName: string | null | undefined): RegExp | null {
+export function knownNameMatcher(fullName: string | null | undefined): KnownNameMatcher | null {
   if (typeof fullName !== "string") return null;
+  const regex = knownNameRegExp(fullName);
+  if (regex === null) return null;
+  return {
+    redact: (text) => redactWith(regex, text),
+    test: (text) =>
+      typeof text === "string" && text.length > 0 && foldText(text).shadow.search(regex) !== -1,
+  };
+}
 
-  const tokens = fullName
-    .trim()
-    .split(/\s+/)
-    .filter((token) => token.length >= MIN_TOKEN_LENGTH);
-  if (tokens.length === 0) return null;
-
-  // The FULL name first so a multi-token name collapses to ONE placeholder
-  // ("Suresh Kumar" -> "[NAME]", not "[NAME] [NAME]"). Alternation is first-match-
-  // wins in JS, so ordering here is the whole mechanism; the remaining tokens are
-  // sorted longest-first for the same reason (a surname that contains a shorter
-  // token must not be eaten by it).
-  const alternatives: string[] = [];
-  if (tokens.length > 1) {
-    alternatives.push(tokens.map(escapeRegExp).join("\\s+"));
+/**
+ * The FAIL-SAFE redaction every `redactKnownName*` caller gets: no matcher, or one that throws while
+ * being built or run, leaves the text exactly as it was. `knownNameMatcher` itself does NOT swallow a
+ * throw, so the fail-CLOSED screens (the briefs) still see one in their own `catch`.
+ */
+function safeMatcher(fullName: string | null | undefined): KnownNameMatcher | null {
+  try {
+    return knownNameMatcher(fullName);
+  } catch {
+    return null;
   }
+}
+
+function redactSafely(matcher: KnownNameMatcher | null, text: string): string {
+  if (matcher === null) return text;
+  try {
+    return matcher.redact(text);
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * What may sit between two parts of a typed name: whitespace, an invisible (folded to the
+ * sentinel), a dot, a hyphen (ASCII, U+2010, U+2011), an apostrophe (ASCII, U+2018, U+2019, the
+ * modifier letters U+02BB and U+02BC). Fullwidth forms arrive here already folded. A comma is NOT a
+ * separator: "Suresh, Kumar" stays two placeholders, as before.
+ */
+const SEPARATOR = "[\\s\\uFFFF.'\\u2018\\u2019\\u02BB\\u02BC\\u2010\\u2011-]";
+const SEPARATED = `${SEPARATOR}+`;
+const SEPARATED_OR_GLUED = `${SEPARATOR}*`;
+/** An invisible typed inside a name ("Sur<ZWSP>esh") — the sentinel, between any two characters. */
+const INSIDE_A_PART = "\\uFFFF*";
+/** A stored separator a typed name commonly drops: "DSouza" for "D'Souza". */
+const APOSTROPHES_ONLY = /^['\u2018\u2019\u02BB\u02BC]+$/u;
+const WHITESPACE = /\s+/u;
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+
+/** One part of the stored name, folded for matching. */
+interface NamePart {
+  readonly needle: string;
+  readonly long: boolean;
+  readonly word: number;
+  /** Joined to the previous part of the SAME word by apostrophes only. */
+  readonly glued: boolean;
+}
+
+/** Escape a literal so it can be embedded in a RegExp source. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Code points once composed — the length a part has as written. */
+function isLong(value: string): boolean {
+  return Array.from(value.normalize("NFC")).length >= MIN_TOKEN_LENGTH;
+}
+
+/** A literal, escaped code point by code point, that tolerates an invisible between any two. */
+function literal(needle: string): string {
+  return Array.from(needle, (char) => escapeRegExp(char)).join(INSIDE_A_PART);
+}
+
+/** Parts in order, each joined to the one before by what may separate them in typed text. */
+function sequence(parts: readonly NamePart[]): string {
+  let source = "";
+  let previous: NamePart | null = null;
+  for (const part of parts) {
+    if (previous !== null) {
+      source += (previous.long && part.long) || part.glued ? SEPARATED_OR_GLUED : SEPARATED;
+    }
+    source += literal(part.needle);
+    previous = part;
+  }
+  return source;
+}
+
+function letters(value: string): number {
+  return Array.from(value).length;
+}
+
+function knownNameRegExp(fullName: string): RegExp | null {
+  const words = foldName(fullName)
+    .split(WHITESPACE)
+    .filter((word) => word.length > 0);
+  const parts: NamePart[] = [];
+  const storedWords: string[] = [];
+  words.forEach((word, index) => {
+    if (isLong(word) && LETTER_OR_DIGIT.test(word)) storedWords.push(foldAwayMarks(word));
+    for (const { part, separatorBefore } of nameWordParts(word)) {
+      const needle = foldAwayMarks(part);
+      if (needle.length === 0) continue;
+      const previous = parts.at(-1);
+      parts.push({
+        needle,
+        long: isLong(part),
+        word: index,
+        glued: previous?.word === index && APOSTROPHES_ONLY.test(separatorBefore),
+      });
+    }
+  });
+  const long = parts.filter((part) => part.long);
+  if (long.length === 0 && storedWords.length === 0) return null;
+
+  const ordered: string[] = [];
+  if (long.length > 0 && parts.length > 1) ordered.push(sequence(parts));
+  if (long.length > 1 && long.length < parts.length) ordered.push(sequence(long));
+  const rest: { readonly source: string; readonly length: number }[] = [];
+  words.forEach((_, index) => {
+    const wordParts = parts.filter((part) => part.word === index);
+    if (wordParts.length > 1 && wordParts.some((part) => part.long)) {
+      const length = wordParts.reduce((sum, part) => sum + letters(part.needle), 0);
+      rest.push({ source: sequence(wordParts), length });
+    }
+  });
+  for (const word of storedWords) rest.push({ source: literal(word), length: letters(word) });
+  for (const part of long)
+    rest.push({ source: literal(part.needle), length: letters(part.needle) });
+  // Longest first, so a word is never cut short by a part it contains ("Ram-Prasad" before "Ram").
+  ordered.push(...rest.sort((a, b) => b.length - a.length).map(({ source }) => source));
+
   const seen = new Set<string>();
-  for (const token of [...tokens].sort((a, b) => b.length - a.length)) {
-    const key = token.toLowerCase();
-    if (seen.has(key)) continue; // repeated token in the stored name
+  const alternatives = ordered.filter((source) => {
+    const key = source.toLowerCase(); // a repeated part in the stored name
+    if (seen.has(key)) return false;
     seen.add(key);
-    alternatives.push(escapeRegExp(token));
-  }
+    return true;
+  });
 
   // Unicode-aware word anchoring. `\b` is defined on ASCII `\w`, so `\bराम\b` and
   // `\bRam\b` behave inconsistently across the scripts this product actually sees.
   // The lookarounds say exactly what is meant: not adjacent to another letter,
-  // digit, or underscore.
+  // digit, or underscore. Matched against the FOLDED text, never the original.
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the stored name is data here, never pattern syntax: every character of it is escaped one code point at a time (`literal` -> `escapeRegExp`), and the only unescaped source is this module's own constant classes and quantifiers. No alternative carries a nested quantifier, so the pattern cannot backtrack catastrophically (pinned by a 20,000-character timing test).
   return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`, "giu");
+}
+
+/**
+ * Replace each match of `pattern` in `text`'s fold with the placeholder, mapping it back onto whole
+ * units of the original. Spans that overlap (two matches folded from one unit) become one placeholder.
+ */
+function redactWith(pattern: RegExp, text: string): string {
+  if (typeof text !== "string" || text.length === 0) return text;
+  const folded = foldText(text);
+  let out = "";
+  let cursor = 0;
+  let span: readonly [number, number] | null = null;
+  for (const match of folded.shadow.matchAll(pattern)) {
+    const [start, end] = folded.originalSpan(match.index, match.index + match[0].length);
+    if (span !== null && start <= span[1]) {
+      span = [span[0], Math.max(span[1], end)];
+      continue;
+    }
+    if (span !== null) {
+      out += text.slice(cursor, span[0]) + REDACTED_NAME_PLACEHOLDER;
+      cursor = span[1];
+    }
+    span = [start, end];
+  }
+  if (span === null) return text;
+  return out + text.slice(cursor, span[0]) + REDACTED_NAME_PLACEHOLDER + text.slice(span[1]);
 }

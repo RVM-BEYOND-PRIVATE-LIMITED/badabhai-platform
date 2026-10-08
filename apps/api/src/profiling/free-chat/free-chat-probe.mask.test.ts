@@ -92,7 +92,11 @@ describe("H1 — names the shared redaction misses are masked fully or dropped (
 
 describe("name tokens found in text — dropped, fail closed", () => {
   it("drops a line where a 3+ letter name token survives glued to another word", () => {
-    expect(maskSampleLine("main sureshkumar hoon", NAME)).toEqual(dropped("name_tokens_found"));
+    expect(maskSampleLine("main sureshbhai hoon", NAME)).toEqual(dropped("name_tokens_found"));
+  });
+
+  it("masks the whole name glued together — the shared redaction reads it since #2166", () => {
+    expect(maskSampleLine("main sureshkumar hoon", NAME)).toEqual(shown("main [NAME] hoon"));
   });
 
   it("drops a line where a TWO-letter name token appears as a whole word (M1)", () => {
@@ -215,13 +219,21 @@ describe("spelling variants that differ only in combining marks (final review L2
   const TAMIL_OM = "ஓம்"; // ஓம்
 
   it.each([
-    [`${ZAKIR} खान`, "main जाकिर hoon"], // typed without the nukta
-    [ZAR, "main जर hoon"], // typed without the nukta
     [OM_VIRAMA, "main ओम hoon"], // typed without the virama
     [TAMIL_OM, "main ஓம hoon"], // typed without the pulli
   ])("stored %j, typed without the mark (%j): dropped", (stored, line) => {
     expect(maskSampleLine(line, stored)).toEqual(dropped("name_tokens_found"));
   });
+
+  it.each([
+    [`${ZAKIR} खान`, "main जाकिर hoon"], // typed without the nukta
+    [ZAR, "main जर hoon"], // typed without the nukta
+  ])(
+    "stored %j, typed without the NUKTA (%j): masked — the redaction folds it (#2166)",
+    (stored, line) => {
+      expect(maskSampleLine(line, stored)).toEqual(shown("main [NAME] hoon"));
+    },
+  );
 
   it("still masks the exact spelling to [NAME], as before", () => {
     expect(maskSampleLine(`main ${OM_VIRAMA} hoon`, OM_VIRAMA)).toEqual(shown("main [NAME] hoon"));
@@ -299,7 +311,9 @@ describe("L4 — more name-cue words, and cues split by invisible characters", (
 
 describe("what a shown line looks like", () => {
   it("collapses whitespace and strips format characters", () => {
-    expect(maskSampleLine("kaam\u200D  chahiye\n\nabhi\u202E", NAME)).toEqual(shown("kaam chahiye abhi"));
+    expect(maskSampleLine("kaam\u200D  chahiye\n\nabhi\u202E", NAME)).toEqual(
+      shown("kaam chahiye abhi"),
+    );
   });
 
   it("is cut AFTER masking, so a cut never exposes part of the name", () => {

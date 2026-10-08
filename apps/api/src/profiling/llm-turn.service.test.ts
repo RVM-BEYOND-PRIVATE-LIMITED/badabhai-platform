@@ -129,7 +129,7 @@ describe("the flag and the fallback", () => {
 });
 
 describe("the caps — the API owns termination, never the model", () => {
-  it("refuses the model's own `stage: \"done\"` on a turn that is still asking (§3)", async () => {
+  it('refuses the model\'s own `stage: "done"` on a turn that is still asking (§3)', async () => {
     // THE FOURTH WRITER OF `done`, and the only one with nothing deterministic behind it.
     // `"done"` is a legal member of LLM_INTERVIEW_STAGES, so the model can return it while also
     // returning a question to ask — and this service used to write it straight into the envelope.
@@ -645,7 +645,11 @@ describe("#1016 — what actually decides whether the worker sees the experience
 
     const out = await svc.take(env(withEntries(1)), "aur bhi kuch tha", [], CTX);
 
-    expect(out).toMatchObject({ kind: "ask", reply: EXPERIENCE_GATE_PROMPT, inputMode: "options_only" });
+    expect(out).toMatchObject({
+      kind: "ask",
+      reply: EXPERIENCE_GATE_PROMPT,
+      inputMode: "options_only",
+    });
     expect(out?.kind === "ask" && out.chips).toEqual(["Haan", "Nahi"]);
     expect(out?.patch.llmGateOpen).toBe(true);
     expect(out?.patch.llmGateAsked).toBe(true);
@@ -823,6 +827,38 @@ describe("the worker's own name never reaches the model (R32, ADR-0047 G2)", () 
       expect(JSON.stringify(sent)).not.toMatch(/suresh|kumar/i);
       // The turn itself is unchanged: the model's question is served as it always was.
       expect(out?.kind).toBe("ask");
+    },
+  );
+
+  // #2166 — the issue's table through the real egress: a name stored with a dot, a hyphen, an
+  // apostrophe, an invisible character or a precomposed nukta letter, and the text-side variants.
+  it.each([
+    ["K.Suresh", "main Suresh hoon", "main [NAME] hoon"],
+    ["R.K.Ramesh", "Ramesh bol raha", "[NAME] bol raha"],
+    ["Ram-Prasad", "Ram Prasad bol raha hoon", "[NAME] bol raha hoon"],
+    ["Anil D'Souza", "main Anil Souza", "main [NAME]"],
+    ["Mohd. Salim", "main Mohd Salim hoon", "main [NAME] hoon"],
+    ["Suresh\u200B Kumar", "main Suresh hoon", "main [NAME] hoon"],
+    ["Sur\u00ADesh Kumar", "main Suresh hoon", "main [NAME] hoon"],
+    [
+      "\u095B\u093E\u0915\u093F\u0930",
+      "main \u091C\u093C\u093E\u0915\u093F\u0930 hoon",
+      "main [NAME] hoon",
+    ],
+    ["Suresh Kumar", "main \uFF33\uFF55\uFF52\uFF45\uFF53\uFF48 hoon", "main [NAME] hoon"],
+    ["Suresh Kumar", "main Sur\u200Besh hoon, 5m\u00B2", "main [NAME] hoon, 5m\u00B2"],
+    ["Suresh Kumar", "main Sur\u00ADesh hoon", "main [NAME] hoon"],
+  ])(
+    "stored %j: %j goes out as %j, in the message and the history (#2166)",
+    async (stored, typed, sent) => {
+      const { svc, ai } = make();
+      const history: TranscriptLine[] = [{ i: 0, role: "worker", text: typed }];
+      await svc.take(env(), typed, history, withName(stored));
+
+      expect(sentOf(ai).message_text).toBe(sent);
+      expect(sentOf(ai).history).toEqual([{ i: 0, role: "worker", text: sent }]);
+      // The caller's line keeps what the worker typed.
+      expect(history[0]?.text).toBe(typed);
     },
   );
 
