@@ -211,6 +211,12 @@ their own empty tenant.
 > before the gate is opened. See `DATABASE_AUDIT.md` ambiguity 1 for the three options and the
 > recommended ruling.
 
+> **UPDATE 2026-10-07.** The stub is gone: `getOrgRole()` reads `GET /payer/me` `orgRole`
+> (#2098, #2110), `/team` is owner-only and reachable by owners, and `/credits` is open to every
+> member by owner ruling 2026-10-07 — made before tenancy, so the "settle the data model first"
+> sequence above no longer applies to Credits. Each member sees and buys onto their own
+> `payer_id` wallet; the org-scoped data model is still `PAY-DB-01`, OPEN and now being planned.
+
 ---
 
 ## 7. Test, CI and deploy posture

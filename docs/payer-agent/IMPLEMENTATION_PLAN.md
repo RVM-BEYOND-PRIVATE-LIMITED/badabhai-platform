@@ -19,6 +19,12 @@ drive it:
    not. `PAY-DB-01` means opening the gate yields empty pages. And `GAP-AUTHZ-01` means the
    backend money routes lack an Owner gate — so org tenancy landing *without* that fix converts a
    latent issue into a live P0. These three move together or not at all.
+   → **UPDATE 2026-10-07.** The owner ruled, **before** tenancy, that every member may view and
+   buy credits (*"Any user for now can buy it for now without any limitations."*). Task 3.5 has
+   shipped ahead of 3.2–3.4: the org role is on the session via `GET /payer/me` `orgRole`
+   (#2098, #2110), `/team` is owner-only and reachable, `/credits` is `requirePayer()`, and the
+   credit routes carry no Owner gate (#2109). `GAP-FE-01` is resolved; `PAY-DB-01` (3.2–3.3) is
+   still OPEN and now being planned.
 2. **Login before anything verifiable.** `GAP-LOCAL-01` blocks every local E2E. Until a developer
    can log in as a payer, no flow can be checked by anyone.
 

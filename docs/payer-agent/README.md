@@ -67,6 +67,11 @@ Still outstanding: `SHIPPING_CHECKLIST.md`, the Flutter `apps/payer-app` deep-di
 2. **`/credits` and `/team` are 404 for every real user.** `getOrgRole()` hard-returns
    `"recruiter"` outside dev, and the nav still links to both. **Do not fix this first** — opening
    the gate would show empty pages instead of not-found pages. *(`GAP-FE-01`)*
+   → ✅ **RESOLVED 2026-10-07 (#2098, #2109, #2110).** The org role comes from `GET /payer/me`
+   `orgRole`; `/team` is owner-only and reachable by owners. The owner ruled on 2026-10-07,
+   **before** tenancy, that every member may view and buy credits — so `/credits` is
+   `requirePayer()` and each member sees their own `payer_id` wallet. `PAY-DB-01` (item 1) is
+   still OPEN and now being planned.
 
 3. **`apps/payer-web` is deployed by nothing.** No workflow builds or ships it;
    `staging-cd.yml` explicitly skips the Next apps. There is no hosting config. *(`GAP-XC-06`)*
