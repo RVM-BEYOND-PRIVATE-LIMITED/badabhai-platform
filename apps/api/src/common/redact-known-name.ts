@@ -54,6 +54,7 @@
 import {
   codePointCount,
   FOLD_SENTINEL,
+  foldAwayLatinDiacritics,
   foldAwayMarks,
   foldName,
   foldText,
@@ -203,12 +204,14 @@ export interface KnownNameMatcher {
  * A part is measured in code points once composed (NFC), as STORED and again after the fold:
  *
  *   - {@link MIN_TOKEN_LENGTH}+ after the fold is LONG: matched on its own, word-anchored (below);
- *   - {@link MIN_TOKEN_LENGTH}+ as stored but shorter after the fold is NUKTA-SHORTENED: matched on
- *     its own only as a WHOLE word — no letter, MARK, digit or `_` after it. The nukta letters are
- *     composition exclusions (U+0958–095F, U+09DC/DD/DF), so NFC keeps the nukta as a third code
- *     point, and the fold then removes it: a stored "ज़र" folds to "जर". Matched word-anchored, that
- *     two-letter needle shredded every word it began ("जरा"); as a whole word it still redacts a
- *     standalone "ज़र" or "जर", and a Bengali "রয়" never touches "রয়েছে";
+ *   - {@link MIN_TOKEN_LENGTH}+ as stored (Latin diacritics not counted) but two letters after the
+ *     fold is NUKTA-SHORTENED: matched on its own, and as the last part of a sequence, only as a WHOLE
+ *     word — no letter, MARK, digit or `_` after it. The nukta letters are composition
+ *     exclusions (U+0958–095F, U+09DC/DD/DF), so NFC keeps the nukta as a third code point, and the
+ *     fold then removes it: a stored "ज़र" folds to "जर". Matched word-anchored, that two-letter
+ *     needle shredded every word it began ("जरा"); as a whole word it still redacts a
+ *     standalone "ज़र" or "जर", and a Bengali "রয়" never touches "রয়েছে" — nor, therefore, its
+ *     genitive "রয়ের" (a known limit, below);
  *   - shorter than {@link MIN_TOKEN_LENGTH} as stored ("Om", "Ji", "Md", "जय") is never matched on
  *     its own, exactly as before #2166 — a two-letter part matched even as a whole word would take
  *     every "ji" from a worker stored as "Ram Ji". So the Devanagari "जय" (two code points) is never
@@ -259,6 +262,11 @@ export interface KnownNameMatcher {
  *   - A name typed in another script than the one it is stored in (the R32 transliteration line).
  *   - A part of one or two letters as stored is never redacted on its own ("Om" in "main Om
  *     hoon"), as before #2166: the initials rule, kept so short parts never shred ordinary text.
+ *   - A nukta-shortened part directly followed by a vowel sign is not redacted: the Bengali "রয়ের"
+ *     for a stored "রয়" cannot be told apart from "রয়েছে" (accepted, owner, 2026-10-08).
+ *   - A combining mark outside the folded families (a Vedic accent U+0951, a symbol mark U+20D0)
+ *     typed INSIDE a name breaks the match, here and in both brief screens; only the free-chat probe,
+ *     which strips every mark, still sees the name.
  */
 export function knownNameMatcher(fullName: string | null | undefined): KnownNameMatcher | null {
   if (typeof fullName !== "string") return null;
@@ -287,6 +295,8 @@ const WHOLE_WORD_END = "(?![\\p{L}\\p{M}\\p{N}_])";
 /** A stored separator a typed name commonly drops: "DSouza" for "D'Souza". */
 const APOSTROPHES_ONLY = /^['\u2018\u2019\u02BB\u02BC]+$/u;
 const WHITESPACE = /\s+/u;
+/** The fewest letters a nukta-shortened part may fold to and still be matched on its own. */
+const NUKTA_SHORTENED_MIN_LETTERS = 2;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /** One part of the stored name, folded for matching. */
@@ -294,7 +304,7 @@ interface NamePart {
   readonly needle: string;
   /** Code points of the FOLDED needle, once composed. */
   readonly letters: number;
-  /** Code points of the part AS STORED (marks kept), once composed. */
+  /** Code points of the part AS STORED (nuktas kept, Latin diacritics left out), once composed. */
   readonly stored: number;
   readonly word: number;
   /** Joined to the previous part of the SAME word by apostrophes only. */
@@ -320,9 +330,16 @@ function isLong(part: NamePart): boolean {
   return part.letters >= MIN_TOKEN_LENGTH;
 }
 
-/** Long enough as stored; short only because the fold removed a mark NFC kept apart (a nukta). */
+/**
+ * Long enough as stored; short only because the fold removed a mark NFC kept apart (a nukta). Two
+ * letters must remain (#2166 re-review I2): a stored "ज़़" folds to one letter and would otherwise
+ * take every standalone "ज". The stored count leaves out the Latin diacritics, which NFC composes
+ * whenever it can, so a stored "Om" with two stacked acute accents stays a two-letter part.
+ */
 function isNuktaShortened(part: NamePart): boolean {
-  return !isLong(part) && part.stored >= MIN_TOKEN_LENGTH;
+  return (
+    !isLong(part) && part.letters >= NUKTA_SHORTENED_MIN_LETTERS && part.stored >= MIN_TOKEN_LENGTH
+  );
 }
 
 /** A literal, escaped code point by code point, that tolerates an invisible between any two. */
@@ -330,7 +347,12 @@ function literal(needle: string): string {
   return Array.from(needle, (char) => escapeRegExp(char)).join(INSIDE_A_PART);
 }
 
-/** Parts in order, each joined to the one before by what may separate them in typed text. */
+/**
+ * Parts in order, each joined to the one before by what may separate them in typed text. A LAST part
+ * shorter than {@link MIN_TOKEN_LENGTH} after the fold must end the word ({@link WHOLE_WORD_END}):
+ * the outer anchor lets a vowel sign follow, so a stored "Amit রয়" would take "Amit রয়েছে" as
+ * "[NAME]ছে" (#2166 re-review I1), and a trailing Indic initial would split the word after it.
+ */
 function sequence(parts: readonly NamePart[]): string {
   let source = "";
   let previous: NamePart | null = null;
@@ -341,7 +363,7 @@ function sequence(parts: readonly NamePart[]): string {
     source += literal(part.needle);
     previous = part;
   }
-  return source;
+  return previous !== null && !isLong(previous) ? source + WHOLE_WORD_END : source;
 }
 
 function knownNameRegExp(fullName: string): RegExp | null {
@@ -362,7 +384,7 @@ function knownNameRegExp(fullName: string): RegExp | null {
       parts.push({
         needle,
         letters: lettersOf(needle),
-        stored: lettersOf(part),
+        stored: lettersOf(foldAwayLatinDiacritics(part)),
         word: index,
         glued: previous?.word === index && APOSTROPHES_ONLY.test(separatorBefore),
       });

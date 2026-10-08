@@ -39,7 +39,12 @@
  * marks: ICU's canonical reordering is quadratic in a run of marks, and a worker can type thousands
  * of them on one base (measured: 11–14 ms per pass on a 4,000-mark message, re-redacted on every
  * line of a 600-line buffer). The marks past the cap fold to nothing but still belong to the unit, so
- * the map back to the original stays exact and a replacement still takes them with the name.
+ * the map back to the original stays exact and a replacement still takes them with the name. The
+ * marks the fold DELETES (the nuktas, the Latin diacritics) are removed from the text BEFORE the cap
+ * and never count against it: otherwise sixteen nuktas typed after "र" would push the vowel sign of
+ * "राम" past the cap and hide the name (#2166 re-review L1). Removing them first is the same fold —
+ * NFKD only decomposes, and canonical reordering is a stable sort, so dropping marks before or after
+ * it leaves the rest in the same order — and it is linear (one regex replace).
  */
 
 /**
@@ -87,6 +92,7 @@ const WORD_CHAR = /[\p{L}\p{N}_]/u;
  * The marks folded away: the Latin combining diacritics, and the nukta of Devanagari, Bengali,
  * Gurmukhi, Gujarati, Oriya, Telugu and Kannada.
  */
+const LATIN_DIACRITICS = /[\u0300-\u036F]/gu;
 const FOLDED_AWAY_MARKS = /[\u0300-\u036F\u093C\u09BC\u0A3C\u0ABC\u0B3C\u0C3C\u0CBC]/gu;
 
 /** Text folded for name matching, with the way back to the original. */
@@ -141,6 +147,11 @@ export function foldAwayMarks(value: string): string {
   return value.replace(FOLDED_AWAY_MARKS, "");
 }
 
+/** `value` without the Latin combining diacritics only — every folded-away mark but the nuktas. */
+export function foldAwayLatinDiacritics(value: string): string {
+  return value.replace(LATIN_DIACRITICS, "");
+}
+
 /** Code points, not UTF-16 units: an astral letter counts one. */
 export function codePointCount(value: string): number {
   let count = 0;
@@ -193,14 +204,19 @@ function fold(
   for (const unit of text.matchAll(UNITS)) {
     unitStarts.push(unit.index);
     shadowStarts.push(shadow.length);
-    shadow += unit[1] === undefined ? foldUnit(capped(unit[0]), stripMarks) : FOLD_SENTINEL;
+    // The marks the fold deletes go BEFORE the cap, so they never count against it (L1).
+    const kept = unit[1] === undefined && stripMarks ? foldAwayMarks(unit[0]) : unit[0];
+    shadow += unit[1] === undefined ? foldUnit(capped(kept), stripMarks) : FOLD_SENTINEL;
   }
   unitStarts.push(text.length);
   shadowStarts.push(shadow.length);
   return { shadow, unitStarts, shadowStarts };
 }
 
-/** The unit's base and its first {@link MAX_FOLDED_MARKS} marks — what its fold may normalise. */
+/**
+ * The unit's first code point and the {@link MAX_FOLDED_MARKS} after it — what its fold may
+ * normalise. On the text side the unit arrives with its folded-away marks already removed.
+ */
 function capped(unit: string): string {
   const keep = 1 + MAX_FOLDED_MARKS;
   if (unit.length <= keep) return unit; // never more code points than UTF-16 units

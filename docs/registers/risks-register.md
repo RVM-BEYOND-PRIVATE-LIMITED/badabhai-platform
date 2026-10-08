@@ -423,14 +423,21 @@ switch, `AI_RAW_PII_ENABLED`, default off. The rows above are not reworded.
   of combining marks is capped per unit. **Short parts:** a part of one or two letters as stored
   (`Om`, `Ji`, `Md`, `जय`) is never redacted on its own, as before #2166, so short parts never
   shred ordinary text. The one exception is NUKTA-ONLY: a part three code points long as stored
-  that the fold shortens (a nukta letter NFC cannot recompose — `ज़र` folds to `जर`, Bengali `রয়`,
-  `জয়`) is redacted only as a whole word, so never inside `जरा` or `রয়েছে`. The Devanagari `जय`
-  (never alone) and the Bengali `জয়` (whole word) therefore differ, deliberately.
+  (Latin diacritics not counted) that the fold shortens to two letters (a nukta letter NFC cannot
+  recompose — `ज़र` folds to `जर`, Bengali `রয়`, `জয়`) is redacted only as a whole word, alone or
+  as the last part of the full name. A whole word means no letter or mark may follow, so `जरा` and
+  `রয়েছে` are left alone — and so is the genitive `রয়ের` (below). The Devanagari `जय` (never alone)
+  and the Bengali `জয়` (whole word) therefore differ, deliberately.
   **Known limits, accepted:** an initial glued to a dotted name (`KSuresh` for `K.Suresh`);
   virama, anusvara and chandrabindu spelling variants; parts out of stored order (`Kumar Suresh`
   is two placeholders); a name typed in another script than the one stored; an
   underscore-glued handle (`suresh_kumar`); a stored name joined only by an in-word invisible
-  (`Suresh<ZWJ>Kumar`). Pinned by tests in `redact-known-name.test.ts`.
+  (`Suresh<ZWJ>Kumar`); a combining mark outside the folded families (a Vedic accent U+0951, a
+  symbol mark U+20D0) typed INSIDE a name, which defeats the redaction and both brief screens —
+  only the free-chat probe, which strips every mark, still catches it. **Accepted (owner,
+  2026-10-08):** a nukta-shortened part directly followed by a vowel sign (the Bengali `রয়ের` for a
+  stored `রয়`) is not redacted, because it cannot be told apart from `রয়েছে`. Pinned by tests in
+  `redact-known-name.test.ts`.
 - **Residual, flag on or off: a name inside a captured value.** No model is involved: a trade
   settled from the worker's own sentence (`settleWorkerTrade`) is stored verbatim, so "main
   Ramesh hoon, CNC operator" is projected onto `primary_role` as typed and reaches the employer

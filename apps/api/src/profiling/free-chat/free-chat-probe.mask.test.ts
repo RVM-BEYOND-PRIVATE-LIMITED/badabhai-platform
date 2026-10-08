@@ -243,6 +243,16 @@ describe("spelling variants that differ only in combining marks (final review L2
     },
   );
 
+  it("a mark the redaction keeps, typed INSIDE the name (#2166 I3): only this probe sees it, and drops", () => {
+    expect(
+      maskSampleLine(
+        "main \u0930\u0951\u093E\u092E hoon",
+        "\u0930\u093E\u092E \u0915\u0941\u092E\u093E\u0930",
+      ),
+    ).toEqual(dropped("name_tokens_found"));
+    expect(maskSampleLine("main Sur\u20D0esh hoon", NAME)).toEqual(dropped("name_tokens_found"));
+  });
+
   it("a stored ज़र does not mask जरा — and the probe's mark-stripped check drops that line", () => {
     // The redaction leaves "जरा" alone (a whole-word rule, #2166 review), so nothing is masked; the
     // probe's stricter second pass strips the vowel sign, finds the two letters जर as a word, and

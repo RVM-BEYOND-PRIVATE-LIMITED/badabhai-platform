@@ -308,6 +308,23 @@ describe("#2166 — known limits, pinned so nobody is surprised", () => {
     );
   });
 
+  it("L2, accepted (owner, 2026-10-08): a nukta-shortened name with a vowel sign after it", () => {
+    // রয়ের (Roy's) cannot be told apart from রয়েছে ("is there") for a stored রয়.
+    const ROY = "\u09B0\u09DF";
+    const ROYER = "\u09B0\u09DF\u09C7\u09B0 \u09AC\u09BE\u09DC\u09BF"; // রয়ের বাড়ি
+    expect(redactKnownName(ROYER, ROY)).toBe(ROYER);
+  });
+
+  it("I3: a combining mark outside the folded families typed INSIDE the name breaks the match", () => {
+    const RAM_WITH_UDATTA = "\u0930\u0951\u093E\u092E"; // र + U+0951 + ाम
+    expect(redactKnownName(`main ${RAM_WITH_UDATTA} hoon`, "\u0930\u093E\u092E")).toBe(
+      `main ${RAM_WITH_UDATTA} hoon`,
+    );
+    expect(redactKnownName("main Sur\u20D0esh hoon", "Suresh Kumar")).toBe(
+      "main Sur\u20D0esh hoon",
+    );
+  });
+
   it("a stored name joined ONLY by an in-word invisible (a joiner, a soft hyphen) is one word", () => {
     expect(redactKnownName("main Suresh hoon", `Suresh${ZWJ}Kumar`)).toBe("main Suresh hoon");
     expect(redactKnownName("main SureshKumar hoon", `Suresh${ZWJ}Kumar`)).toBe(`main ${P} hoon`);
@@ -378,6 +395,81 @@ describe("#2166 review — a part is measured AFTER the fold (code M1: short nuk
     const JOYI = "\u099C\u09DF\u09C0"; // জয়ী (winner)
     expect(redactKnownName(`main ${JAY} hoon, ${JAYKAR}`, JAY)).toBe(`main ${JAY} hoon, ${JAYKAR}`);
     expect(redactKnownName(`main ${JOY} hoon, ${JOYI}`, JOY)).toBe(`main ${P} hoon, ${JOYI}`);
+  });
+});
+
+describe("#2166 re-review — folded-away marks never count against the mark cap (L1)", () => {
+  const RA = "\u0930"; // र
+  const AA_MA = "\u093E\u092E"; // ा म
+  const NUKTA_DEVANAGARI = "\u093C";
+  const ACUTE = "\u0301";
+
+  it.each([
+    ["16 nuktas", NUKTA_DEVANAGARI.repeat(16)],
+    ["16 acute accents", ACUTE.repeat(16)],
+    ["4,000 nuktas", NUKTA_DEVANAGARI.repeat(4_000)],
+  ])(
+    "\u0930\u093E\u092E typed with %s after \u0930 is still redacted, and nothing else moves",
+    (_, marks) => {
+      expect(
+        redactKnownName(
+          `main ${RA}${marks}${AA_MA} hoon`,
+          `${RA}${AA_MA} \u092F\u093E\u0926\u0935`,
+        ),
+      ).toBe(`main ${P} hoon`);
+    },
+  );
+
+  it("holds for Bengali and through a virama", () => {
+    const BENGALI_RAM = "\u09B0\u09BE\u09AE"; // রাম
+    expect(redactKnownName(`main \u09B0${"\u09BC".repeat(16)}\u09BE\u09AE hoon`, BENGALI_RAM)).toBe(
+      `main ${P} hoon`,
+    );
+    const KRISHNA = "\u0915\u0943\u0937\u094D\u0923"; // कृष्ण
+    expect(
+      redactKnownName(
+        `main \u0915${NUKTA_DEVANAGARI.repeat(16)}\u0943\u0937\u094D\u0923 hoon`,
+        KRISHNA,
+      ),
+    ).toBe(`main ${P} hoon`);
+  });
+
+  it("a 600-line buffer of alternating ccc-230/7 marks stays fast (they are removed before the cap)", () => {
+    const line = `a${`${ACUTE}${NUKTA_DEVANAGARI}`.repeat(2_000)}`;
+    const buffer = Array.from({ length: 600 }, (_, i) => ({ i, text: line }));
+    const started = performance.now();
+    expect(redactKnownNameLines(buffer, "Suresh Kumar")).toEqual(buffer);
+    expect(performance.now() - started).toBeLessThan(1_500);
+  }, 30_000);
+});
+
+describe("#2166 re-review — a short LAST part of a sequence ends the word (I1)", () => {
+  const ROY = "\u09B0\u09DF"; // রয়
+  const ROYECHE = "\u09B0\u09DF\u09C7\u099B\u09C7"; // রয়েছে
+
+  it("stored 'Amit রয়' does not shred 'Amit রয়েছে'", () => {
+    expect(redactKnownName(`Amit ${ROYECHE}`, `Amit ${ROY}`)).toBe(`${P} ${ROYECHE}`);
+    expect(redactKnownName(`main Amit ${ROY} hoon`, `Amit ${ROY}`)).toBe(`main ${P} hoon`);
+  });
+
+  it("nor does a trailing Indic initial split the word after it", () => {
+    const RA = "\u0930"; // र
+    const RAM = "\u0930\u093E\u092E"; // राम
+    expect(redactKnownName(`Amit ${RAM} se mila`, `Amit ${RA}`)).toBe(`${P} ${RAM} se mila`);
+    expect(redactKnownName(`main Amit ${RA} hoon`, `Amit ${RA}`)).toBe(`main ${P} hoon`);
+  });
+});
+
+describe("#2166 re-review — a nukta-shortened part keeps two letters, or is not one (I2)", () => {
+  it("a stored ज़़ (one letter after the fold) never takes a standalone ज", () => {
+    const JA = "\u091C"; // ज
+    expect(redactKnownName(`main ${JA} hoon`, `${JA}\u093C\u093C`)).toBe(`main ${JA} hoon`);
+  });
+
+  it("stacked Latin accents do not make a two-letter part three ('Om' + two acutes)", () => {
+    expect(redactKnownName("main om hoon, om shanti", "Om\u0301\u0301 Prakash")).toBe(
+      "main om hoon, om shanti",
+    );
   });
 });
 
