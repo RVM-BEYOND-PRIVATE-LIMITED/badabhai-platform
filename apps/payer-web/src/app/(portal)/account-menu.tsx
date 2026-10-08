@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, useTransition } from "
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Avatar, Badge } from "../../components/ds";
+import { useNavigationCue } from "../../components/nav-pending";
 import { PortalLink } from "../../components/portal-link";
 import { logoutAction } from "./logout-action";
 
@@ -61,6 +62,10 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
   const panelId = `account-menu-${reactId}`;
   const [open, setOpen] = useState(false);
   const [signingOut, startSignOut] = useTransition();
+  // Sign out ends in the action's `redirect("/login")`: a navigation with no router call. The
+  // menu closes as it starts, so its "Signing out…" is out of sight — the shell's bar and its
+  // "Opening Sign in…" line say it from the action's own transition until /login has rendered.
+  useNavigationCue(signingOut, "Sign in");
 
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

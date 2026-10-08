@@ -94,6 +94,7 @@ import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import { cardFieldsFromPostingWire, type CardFields } from "./job-card-view";
 import { payerFetch } from "./payer-http";
 import {
+  isPayerStatus,
   PayerConflictError,
   PriceMismatchError,
   PurchaseOptionChangedError,
@@ -280,7 +281,7 @@ export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | n
   } catch (e) {
     // A neutral 404 (unknown OR not-owned job) is the no-oracle not-found, NOT an
     // error state. The backend returns 404 for both, so treat 404 as null.
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
   const applicants: FacelessApplicant[] = wire.applicants.map((a) =>
@@ -452,13 +453,13 @@ export async function topUp(input: {
   } catch (e) {
     // An unknown pack returns a real 404 (catalog item, not a per-tenant resource) →
     // a neutral not-found, NOT an error state.
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     // A 409 is a DUPLICATE of THIS purchase landing while the first is still in flight — the
     // body carries NO renderable balance (asserted server-side), so this is NOT a failure to
     // retry: the caller must RE-READ the real balance. Distinct typed error (never re-post).
-    if (e instanceof Error && /returned 409/.test(e.message)) throw new PurchaseConflictError();
+    if (isInFlightPurchase(e)) throw new PurchaseConflictError();
     // A 403 is the API refusing this account (see PurchaseForbiddenError) — typed, never retried.
-    if (e instanceof Error && /returned 403/.test(e.message)) throw new PurchaseForbiddenError();
+    if (isPayerStatus(e, 403)) throw new PurchaseForbiddenError();
     // Anything else propagates.
     throw e;
   }
@@ -502,9 +503,9 @@ export async function createCreditOrder(input: {
       schema: creditOrderWireSchema,
     });
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     // The API refused this account: no order was created, so no money moved.
-    if (e instanceof Error && /returned 403/.test(e.message)) throw new PurchaseForbiddenError();
+    if (isPayerStatus(e, 403)) throw new PurchaseForbiddenError();
     throw e;
   }
 }
@@ -536,10 +537,10 @@ export async function verifyCreditPayment(input: {
       schema: verifyPaymentWireSchema,
     });
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     // The API refused the CONFIRM call — the checkout may still have charged; the webhook
     // settles independently of this route.
-    if (e instanceof Error && /returned 403/.test(e.message)) throw new PurchaseForbiddenError();
+    if (isPayerStatus(e, 403)) throw new PurchaseForbiddenError();
     throw e;
   }
 }
@@ -693,7 +694,7 @@ export async function buyCapacity({
     // (never re-posts, never guesses). This must be checked BEFORE the neutral collapse below,
     // or a double-charge-prevention 409 would masquerade as a generic "retry" (a re-tap = a
     // second purchase attempt the server already deduped).
-    if (e instanceof Error && /returned 409/.test(e.message)) throw new PurchaseConflictError();
+    if (isInFlightPurchase(e)) throw new PurchaseConflictError();
     // A refused confirmed price (#2085) is not a retryable failure either: nothing was bought,
     // and the payer must see the new price and confirm again — never a "retry" at the old one.
     if (e instanceof PriceMismatchError) throw e;
@@ -717,6 +718,23 @@ export class PurchaseConflictError extends Error {
     super("duplicate purchase in flight");
     this.name = "PurchaseConflictError";
   }
+}
+
+/** The 409 `reason` a purchase route names for its in-flight duplicate (#2135, all five routes). */
+const IN_FLIGHT_REASON = "in_flight";
+
+/**
+ * Is `e` a purchase's in-flight duplicate (→ {@link PurchaseConflictError})? On the credit-pack
+ * and capacity routes (#2111):
+ *  - the API NAMES it (#2135): `reason: "in_flight"`. A 409 naming any OTHER reason is not one —
+ *    it is never guessed into "still processing";
+ *  - an API from before #2135 names no reason, and on these routes its only 409 (other than a
+ *    price mismatch, which is never a {@link PayerConflictError}) was the in-flight duplicate —
+ *    so a bare 409 still reads as one. payer-web may deploy ahead of the API.
+ */
+function isInFlightPurchase(e: unknown): boolean {
+  if (e instanceof PayerConflictError && e.reason !== null) return e.reason === IN_FLIGHT_REASON;
+  return isPayerStatus(e, 409);
 }
 
 /**
@@ -817,7 +835,7 @@ export async function getAgencyJob(jobId: string): Promise<AgencyJob | null> {
     const wire = await payerFetch(`/payer/agency/jobs/${jobId}`, { schema: agencyJobWireSchema });
     return assertNoAgencyPII(wire, "payer/agency/jobs/:id");
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -846,7 +864,7 @@ export async function updateAgencyJob(
     });
     return assertNoAgencyPII(wire, "payer/agency/jobs/:id (update)");
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -861,7 +879,7 @@ export async function pauseAgencyJob(jobId: string): Promise<AgencyJob | null> {
     });
     return assertNoAgencyPII(wire, "payer/agency/jobs/:id/pause");
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -880,7 +898,7 @@ export async function resumeAgencyJob(jobId: string): Promise<AgencyJob | null> 
     });
     return assertNoAgencyPII(wire, "payer/agency/jobs/:id/resume");
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -895,7 +913,7 @@ export async function closeAgencyJob(jobId: string): Promise<AgencyJob | null> {
     });
     return assertNoAgencyPII(wire, "payer/agency/jobs/:id/close");
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -978,7 +996,7 @@ export async function createAgencyInvite(
     return { ok: true, code: wire.code, link: wire.link };
   } catch (e) {
     // 429 = mint cap reached OR Redis fail-closed (identical 429, no leaked reason).
-    if (e instanceof Error && /returned 429/.test(e.message)) return { ok: false };
+    if (isPayerStatus(e, 429)) return { ok: false };
     throw e;
   }
 }
@@ -1022,7 +1040,7 @@ export async function createAgencyInviteBatch(
     return { ok: true, invites: wire.invites.map((i) => ({ code: i.code, link: i.link })) };
   } catch (e) {
     // 429 = mint cap reached OR Redis fail-closed (identical 429, no leaked reason).
-    if (e instanceof Error && /returned 429/.test(e.message)) return { ok: false };
+    if (isPayerStatus(e, 429)) return { ok: false };
     throw e;
   }
 }
@@ -1089,7 +1107,7 @@ export async function listAgencyWorkers(): Promise<AgencyWorker[]> {
  * error. Reused by every gated agency-money seam fn.
  */
 function isPayoutsDisabled(e: unknown): boolean {
-  return e instanceof Error && /returned 404/.test(e.message);
+  return isPayerStatus(e, 404);
 }
 
 /**
@@ -1352,7 +1370,7 @@ export async function getPostingDetail(postingId: string): Promise<PostingDetail
       updatedAt: wire.updated_at,
     };
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -1369,7 +1387,7 @@ export async function getPosting(postingId: string): Promise<PostingSummary | nu
     });
     return toPostingSummary(wire);
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -1517,7 +1535,7 @@ export async function updatePosting(
     });
     return toPostingSummary(wire);
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -1585,7 +1603,7 @@ export async function publishPostingWithMatchSkills(
     });
     return toPostingSummary(wire);
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -1604,7 +1622,7 @@ export async function closePosting(postingId: string): Promise<PostingSummary | 
     });
     return toPostingSummary(wire);
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -1664,7 +1682,7 @@ export async function pausePosting(input: { postingId: string }): Promise<Postin
     });
     return toPostingSummary(wire);
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -1683,7 +1701,7 @@ export async function resumePosting(input: { postingId: string }): Promise<Posti
     });
     return toPostingSummary(wire);
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (isPayerStatus(e, 404)) return null;
     throw e;
   }
 }
@@ -1704,12 +1722,16 @@ export async function resumePosting(input: { postingId: string }): Promise<Posti
  * longer adds the slots the payer saw, {@link PurchaseOptionChangedError} is thrown BEFORE any
  * request. Another tier is never substituted.
  *
- * THREE 409s, three answers:
+ * THREE 409s, three answers — told apart by the API's `reason` (#2135), or, from an API before
+ * #2135 (no `reason`), by its documented message:
  *  - `price_mismatch` → {@link PriceMismatchError} (nothing bought; the payer re-confirms);
- *  - the in-flight duplicate of an `Idempotency-Key` (#2085, the same seam as capacity) →
- *    {@link PurchaseConflictError} (still processing, outcome unknown — never re-post);
- *  - anything else — no ACTIVE PLAN to top up → `QuotaTopUpNoPlanError`, so the action can
- *    say "buy a plan first" without weakening the not-found neutrality.
+ *  - the in-flight duplicate of an `Idempotency-Key` (#2085, the same seam as capacity) —
+ *    `reason: "in_flight"` → {@link PurchaseConflictError} (still processing, outcome unknown —
+ *    never re-post);
+ *  - no ACTIVE PLAN to top up — `reason: "no_active_plan"` → `QuotaTopUpNoPlanError`, so the
+ *    action can say "buy a plan first" without weakening the not-found neutrality.
+ * A `reason` outside those is neither: it propagates (the action's retryable failure), never
+ * guessed into one of them.
  * The wire returns the topped-up plan `{ plan, quote }`; the fresh posting row is re-read
  * so the action keeps its PostingSummary contract.
  */
@@ -1753,13 +1775,19 @@ export async function topUpPostingQuota(input: {
       schema: quotaTopUpWireSchema,
     });
   } catch (e) {
-    if (e instanceof Error && /returned 404/.test(e.message)) return null;
-    // The in-flight duplicate is told apart from "no active plan" by the API's documented
-    // message (payer-agency-api-reference.md) — the 409 carries no machine-readable reason.
+    if (isPayerStatus(e, 404)) return null;
+    // The API names the 409 (#2135): the in-flight duplicate vs no active plan.
+    if (e instanceof PayerConflictError && e.reason !== null) {
+      if (e.reason === IN_FLIGHT_REASON) throw new PurchaseConflictError();
+      if (e.reason === QUOTA_TOPUP_NO_PLAN_REASON) throw new QuotaTopUpNoPlanError();
+      throw e; // a reason this seam does not know — never guessed into either answer.
+    }
+    // An API before #2135 names no reason: the in-flight duplicate is told apart from "no active
+    // plan" by its documented message (payer-agency-api-reference.md).
     if (e instanceof PayerConflictError && QUOTA_TOPUP_IN_FLIGHT.test(e.detail ?? "")) {
       throw new PurchaseConflictError();
     }
-    if (e instanceof Error && /returned 409/.test(e.message)) {
+    if (isPayerStatus(e, 409)) {
       throw new QuotaTopUpNoPlanError();
     }
     throw e; // incl. PriceMismatchError — the action tells the payer the new price.
@@ -1776,10 +1804,14 @@ export async function topUpPostingQuota(input: {
 
 /**
  * The quota top-up's in-flight 409 message (#2085): "This quota top-up is already being
- * processed; check the posting before trying again". Matched on its stable phrase; a reworded
- * message degrades to the no-active-plan answer, which is what every 409 here meant before.
+ * processed; check the posting before trying again". The FALLBACK for an API before #2135, whose
+ * 409 names no `reason`: matched on its stable phrase; a reworded message degrades to the
+ * no-active-plan answer, which is what every 409 here meant before.
  */
 const QUOTA_TOPUP_IN_FLIGHT = /already being processed/i;
+
+/** The quota top-up's "no active plan" 409 `reason` (#2135). */
+const QUOTA_TOPUP_NO_PLAN_REASON = "no_active_plan";
 
 /** 409 from quota-topup: the posting has no ACTIVE PLAN to top up (buy a plan first). */
 export class QuotaTopUpNoPlanError extends Error {
@@ -1811,7 +1843,7 @@ export class QuotaTopUpNoPlanError extends Error {
 
 /** Map the shared neutral-404 contract to `null` (no cross-tenant existence oracle). */
 function nullOnNeutral404<T>(e: unknown): T | null {
-  if (e instanceof Error && /returned 404/.test(e.message)) return null;
+  if (isPayerStatus(e, 404)) return null;
   throw e;
 }
 

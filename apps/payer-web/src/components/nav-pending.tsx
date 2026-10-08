@@ -30,6 +30,11 @@ import {
  *  - `NavPendingStatus` is rendered ONCE by the shell, outside the region that goes `inert` behind
  *    the open drawer: a bar along the top of the viewport — the cue a phone sees, since the drawer
  *    closes as its link is followed — and one polite status line naming where the navigation goes.
+ *    The sign-in page, which has no shell, renders it once too (the verified code navigates).
+ *  - `useNavigationCue` is what feeds that bar and line: a link's cue uses it, and so does a BUTTON
+ *    that navigates (components/portal-navigation.ts — `router.push` / `replace` after a save, or a
+ *    server action that redirects), so a button's navigation shows the same bar and the same ONE
+ *    status line as a link's.
  *
  * Nothing shows for the first {@link import("./nav-pending-store").NAV_PENDING_DELAY_MS}ms: a
  * prefetched navigation lands sooner and must not flash (the store delays the bar and the line;
@@ -37,18 +42,23 @@ import {
  */
 export function NavPendingCue({ label }: { label: string }) {
   const { pending } = useLinkStatus();
-
-  // Announce while pending; withdraw when the navigation ends (pending flips) or the link
-  // unmounts — so the status line and bar can never outlive the navigation.
-  useEffect(() => {
-    if (!pending) return;
-    const token = announceNavigation(label);
-    return () => withdrawNavigation(token);
-  }, [pending, label]);
-
+  useNavigationCue(pending, label);
   return (
     <span className={pending ? "nav-pending nav-pending--on" : "nav-pending"} aria-hidden="true" />
   );
+}
+
+/**
+ * Feed the shell's bar and status line ("Opening {label}…") while `pending` — after the store's
+ * delay, so a navigation that lands sooner never flashes — and withdraw when `pending` ends or the
+ * caller unmounts, so neither can outlive the navigation. `label` null announces nothing.
+ */
+export function useNavigationCue(pending: boolean, label: string | null): void {
+  useEffect(() => {
+    if (!pending || label === null) return;
+    const token = announceNavigation(label);
+    return () => withdrawNavigation(token);
+  }, [pending, label]);
 }
 
 export function NavPendingStatus() {

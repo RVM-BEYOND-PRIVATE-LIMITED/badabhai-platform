@@ -9,8 +9,8 @@ import type * as ReactModule from "react";
  * payer's OWN org / email / role / status; and NO worker PII (name/phone) reaches the DOM.
  *
  * Env is node (no DOM). The component's open/closed state is injected via a mocked
- * `useState` so the panel can be exercised without a click. The other hooks
- * (`useEffect`/`useRef`/`useId`/`useCallback`) pass through to real React.
+ * `useState` so the panel can be exercised without a click. The other hooks are inert
+ * stand-ins (`useEffect` records its effects, run by hand where a test needs one).
  */
 
 let openState = false;
@@ -32,16 +32,23 @@ const useState = vi.fn(
 // `useTransition` returns [isPending, startTransition]; the stand-in runs the callback
 // synchronously so the Sign-out onClick path can be exercised in the node env.
 const startTransition = vi.fn((cb: () => void) => cb());
+/** The sign-out transition's pending flag (the action, and the redirect it ends in, in flight). */
+let signingOut = false;
+/** Effects are RECORDED, never run by the mock — a test runs the one it is about by hand. */
+type Effect = { run: () => void | (() => void); deps: readonly unknown[] | undefined };
+let effects: Effect[] = [];
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   return {
     ...actual,
     useState: () => useState(),
-    useEffect: () => undefined,
+    useEffect: (run: Effect["run"], deps?: readonly unknown[]) => {
+      effects.push({ run, deps });
+    },
     useRef: () => ({ current: null }),
     useId: () => "test-id",
     useCallback: (fn: unknown) => fn,
-    useTransition: () => [false, startTransition] as [boolean, (cb: () => void) => void],
+    useTransition: () => [signingOut, startTransition] as [boolean, (cb: () => void) => void],
   };
 });
 // The server logout action — mocked so the menu's Sign-out click can be asserted without a
@@ -58,6 +65,9 @@ vi.mock("next/link", () => ({
 }));
 
 const { AccountMenu } = await import("./account-menu");
+const { NAV_PENDING_DELAY_MS, resetNavigationForTests, shownNavigation } = await import(
+  "../../components/nav-pending-store"
+);
 
 interface Props {
   orgName?: string;
@@ -122,9 +132,12 @@ function collect(tree: ReactNode): {
 
 beforeEach(() => {
   openState = false;
+  signingOut = false;
+  effects = [];
   useState.mockClear();
   startTransition.mockClear();
   logoutAction.mockClear();
+  resetNavigationForTests();
 });
 
 describe("AccountMenu — collapsed trigger (a11y)", () => {
@@ -244,6 +257,33 @@ describe("AccountMenu — Sign out menu item", () => {
     (signOut!["onClick"] as () => void)();
     expect(startTransition).toHaveBeenCalledTimes(1);
     expect(logoutAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("while signing out — the action ends in redirect('/login') — the shell says 'Opening Sign in…'", () => {
+    // The menu closes as sign-out starts, so its own "Signing out…" is out of sight: the shell's
+    // bar and status line carry it, from the action's transition, until /login has rendered.
+    vi.useFakeTimers();
+    try {
+      signingOut = true;
+      render();
+      const cue = effects.find((e) => e.deps?.[1] === "Sign in");
+      expect(cue?.deps).toEqual([true, "Sign in"]);
+      const cleanup = cue!.run();
+      vi.advanceTimersByTime(NAV_PENDING_DELAY_MS);
+      expect(shownNavigation()).toBe("Sign in");
+      (cleanup as () => void)(); // the redirect landed (or the menu unmounted)
+      expect(shownNavigation()).toBeNull();
+
+      // Idle: nothing is announced.
+      signingOut = false;
+      effects = [];
+      render();
+      expect(effects.find((e) => e.deps?.[1] === "Sign in")!.run()).toBeUndefined();
+      vi.advanceTimersByTime(NAV_PENDING_DELAY_MS * 10);
+      expect(shownNavigation()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

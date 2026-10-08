@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { AgencyJobForm } from "../../dashboard/agency-job-form";
+import { usePortalNavigation } from "../../../../../components/portal-navigation";
 import { createAgencyJobAction } from "../../dashboard/jobs-actions";
 
 /**
@@ -13,21 +13,22 @@ import { createAgencyJobAction } from "../../dashboard/jobs-actions";
  *
  * Runs in the browser and sees no secret: the Server Action binds to the server-held session
  * (XB-A) and re-checks the role and the card rule itself. On success the payer lands on the
- * posting they just published; Cancel returns to the list. `lead` is the page head, drawn at the
- * top of the form column so the preview rail starts level with it.
+ * posting they just published; Cancel returns to the list — each with the shell's "Opening …"
+ * cue while the page renders. `lead` is the page head, drawn at the top of the form column so the
+ * preview rail starts level with it.
  */
 export function NewAgencyPosting({ lead }: { lead: ReactNode }) {
-  const router = useRouter();
+  const { navigate } = usePortalNavigation();
   return (
     <AgencyJobForm
       mode="create"
       lead={lead}
       submitLabel="Publish posting"
-      onCancel={() => router.push("/agency/jobs")}
+      onCancel={() => navigate("/agency/jobs", { pendingLabel: "Postings" })}
       onSubmit={async (input) => {
         const res = await createAgencyJobAction(input);
         if (!res.ok) return { ok: false, error: res.error };
-        router.push(`/agency/jobs/${res.job.id}`);
+        navigate(`/agency/jobs/${res.job.id}`, { pendingLabel: res.job.title });
         return { ok: true };
       }}
     />

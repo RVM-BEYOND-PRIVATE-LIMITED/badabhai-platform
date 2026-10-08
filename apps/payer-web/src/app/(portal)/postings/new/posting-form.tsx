@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { looksLikePii } from "@badabhai/validators";
 import {
@@ -37,6 +36,7 @@ import { ChipEditor } from "../../../../components/chip-editor";
 import { PostingActions, PostingPreviewRail, zeroReachLabel } from "../../../../components/posting-preview-rail";
 import { createPostingAction } from "./actions";
 import { withPublishedReach } from "../../../../lib/published-reach";
+import { usePortalNavigation } from "../../../../components/portal-navigation";
 import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
 
 /**
@@ -139,7 +139,6 @@ export function PostingForm({
   /** The page head + notices, drawn at the top of the form column (the rail starts beside it). */
   lead?: ReactNode;
 } = {}) {
-  const router = useRouter();
   // useState call order (mirrored positionally by posting-form.test.tsx): fields, fieldErrors,
   // error, navigating, selection, preview, requirements, benefits, reqDraft, benDraft, gap,
   // revealed. NEW state is APPENDED, never inserted, so the positional seeding keeps working.
@@ -159,6 +158,9 @@ export function PostingForm({
   const [gap, setGap] = useState<WorkerCardGap | null>(null);
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   const [pending, startTransition] = useTransition();
+  // The publish lands on the new posting's Applicants with the shell's "Opening Applicants…" cue
+  // (the button stays "Publishing…" — `navigating` — until the page is gone).
+  const { navigate } = usePortalNavigation();
 
   // THE ONE READ — the preview, the inline errors, the gap rule and the submit all use it.
   const read = readCardForm(
@@ -263,8 +265,10 @@ export function PostingForm({
       });
       if (res.ok) {
         setNavigating(true);
-        router.push(withPublishedReach(`/postings/${res.postingId}/applicants`, res.reached));
-        router.refresh();
+        navigate(withPublishedReach(`/postings/${res.postingId}/applicants`, res.reached), {
+          pendingLabel: "Applicants",
+          refresh: true,
+        });
       } else {
         // #1912 — the server refused a field (it re-runs the PII screen); show its
         // message ON that input, not only in the banner.
