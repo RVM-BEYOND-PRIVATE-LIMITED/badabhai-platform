@@ -134,6 +134,13 @@ class RecordingRouter:
         self.calls.append(messages)
         return self.reply, _meta(task_type, real_call=self.real_call)
 
+    async def run_with_result(
+        self, task_type: str, *, messages: list[dict[str, str]], **_kwargs: Any
+    ):
+        """`AIRouter.run_with_result` (ADR-0054's news route): the same record, no result."""
+        content, meta = await self.run(task_type, messages=messages)
+        return content, meta, None
+
     @property
     def prompt(self) -> str:
         assert self.calls, "the router was never called — this test would prove nothing"
@@ -149,8 +156,10 @@ class RecordingRouter:
 
 def _record(monkeypatch: pytest.MonkeyPatch, reply: str = "{}", **kwargs: Any) -> RecordingRouter:
     recorder = RecordingRouter(reply, **kwargs)
-    # The ONE router object every route module imported from `_shared`.
+    # The ONE router object every route module imported from `_shared`, at BOTH entry points:
+    # a route that calls `run_with_result` must be recorded, not served by the real router.
     monkeypatch.setattr(main_module.router, "run", recorder.run)
+    monkeypatch.setattr(main_module.router, "run_with_result", recorder.run_with_result)
     return recorder
 
 
@@ -467,6 +476,24 @@ ROUTE_CASES: list[tuple[str, str, dict[str, Any], tuple[str, ...]]] = [
         "/free-chat/summarize",
         {"previous_summary": PROBE, "turns": [{"role": "worker", "text": "theek hai"}]},
         RAW_PIECES,
+    ),
+    # ADR-0054: the news answer — the question, the recent turns and the trade label, each gated
+    # like the reply's, because this call also carries the web search tool.
+    ("free-chat-news", "/free-chat/news", {"text": PROBE}, RAW_PIECES),
+    (
+        "free-chat-news-memory",
+        "/free-chat/news",
+        {"text": "aur batao", "recent_turns": [{"role": "worker", "text": PROBE}]},
+        RAW_PIECES,
+    ),
+    (
+        "free-chat-news-trade-label",
+        "/free-chat/news",
+        {
+            "text": "aaj ki khabar",
+            "worker_context": {"trade_label": "Welder at Tata Motors, phone 9876543210"},
+        },
+        ("Tata Motors", "9876543210"),
     ),
     (
         # `shift` is a free-text field the résumé boundary does not certify, so the payload
@@ -1068,7 +1095,9 @@ def test_the_router_posture_stamp_covers_exactly_the_switched_callers() -> None:
         if module != "ai/router.py"
         and any(
             isinstance(node, ast.Call)
-            and _referenced_name(node.func) == "run"
+            # Both entry points: `run_with_result` (ADR-0054) opens the same task span, and a
+            # caller using only it must not escape this review list.
+            and _referenced_name(node.func) in {"run", "run_with_result"}
             and any(kw.arg == "messages" for kw in node.keywords)
             for node in ast.walk(tree)
         )

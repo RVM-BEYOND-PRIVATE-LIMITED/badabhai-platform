@@ -157,7 +157,10 @@ NestJS boot assertion).
   the compose default (#1843), so widening means appending to that list on the box. The
   profiling-stage free chat's three tasks (`profiling_free_classify`, `profiling_free_reply`,
   ADR-0051, and Release 2's rolling summary `profiling_free_summary`, §8) are appended the same
-  way; see its kill-switch entry below.
+  way; see its kill-switch entry below. So is its live news answer, `profiling_free_news`
+  (ADR-0054: Claude + the web search tool, billed per search), appended only after the app
+  release that renders the news tiles (R7); unarmed, it returns its mock and workers keep the
+  "coming soon" news line.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per

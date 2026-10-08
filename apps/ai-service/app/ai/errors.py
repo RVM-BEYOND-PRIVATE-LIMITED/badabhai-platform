@@ -31,6 +31,16 @@ REASON_HTTP_ERROR = "http_error"
 REASON_NO_TEXT_CONTENT = "no_text_content"
 REASON_MISSING_KEY = "missing_key"
 REASON_SDK_ERROR = "sdk_error"
+#: ADR-0054. A call that carries server tools (the web search) was dispatched to a provider
+#: whose transport cannot run them. Raised BEFORE any network I/O: sending the request without
+#: the tool would return an ungrounded answer that looks exactly like a grounded one.
+REASON_TOOLS_UNSUPPORTED = "tools_unsupported"
+#: ADR-0054. Anthropic paused a long server-tool turn (`stop_reason: "pause_turn"`). v1 does not
+#: continue a paused turn, so the partial response is a failure, never an answer.
+REASON_PAUSE_TURN = "pause_turn"
+#: ADR-0054. The route's own per-attempt deadline (`TaskRoute.timeout_seconds`) expired. Raised
+#: by the router, not a client, so a caller's wait is never outlived by the provider call.
+REASON_TIMEOUT = "timeout"
 
 TRANSPORT_REASON_CODES: frozenset[str] = frozenset(
     {
@@ -42,6 +52,9 @@ TRANSPORT_REASON_CODES: frozenset[str] = frozenset(
         REASON_NO_TEXT_CONTENT,
         REASON_MISSING_KEY,
         REASON_SDK_ERROR,
+        REASON_TOOLS_UNSUPPORTED,
+        REASON_PAUSE_TURN,
+        REASON_TIMEOUT,
     }
 )
 

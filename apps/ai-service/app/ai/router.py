@@ -38,6 +38,7 @@ INVARIANTS:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -49,8 +50,12 @@ from .errors import (
     REASON_HTTP_429,
     REASON_MAX_TOKENS_NO_PARTS,
     REASON_MAX_TOKENS_TRUNCATED,
+    REASON_PAUSE_TURN,
+    REASON_TIMEOUT,
+    REASON_TOOLS_UNSUPPORTED,
     LlmTransportError,
 )
+from .gemini_client import LlmResult
 from .langfuse_tracing import (
     LLM_CALL,
     LangfuseTracer,
@@ -59,7 +64,7 @@ from .langfuse_tracing import (
     get_tracer,
     masked_trace_text,
 )
-from .model_config import get_route, provider_for_model, resolve_model
+from .model_config import TaskRoute, get_route, provider_for_model, resolve_model
 from .provider_cooldown import get_cooldown
 from .trace_metadata import AS_GENERATION
 
@@ -93,6 +98,10 @@ _NO_RETRY_REASONS: frozenset[str] = frozenset(
         # again for an identical half-object.
         REASON_MAX_TOKENS_TRUNCATED,
         REASON_HTTP_429,
+        # ADR-0054. A tool call on a provider that cannot run the tool fails identically on
+        # every attempt, and a paused server-tool turn would re-run (and re-bill) its searches.
+        REASON_TOOLS_UNSUPPORTED,
+        REASON_PAUSE_TURN,
     }
 )
 
@@ -189,8 +198,49 @@ class AIRouter:
         real_call_allowed: bool = True,
         user_ref: str | None = None,
         prompt: Any = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> tuple[str, AICallMetadata]:
+        """One unit of AI work: :meth:`run_with_result` without the provider's parsed result.
+
+        Every text-only caller wants ``(content, metadata)`` and nothing else. A caller that
+        passes ``tools`` and needs what the tools returned (the news answer's citations) calls
+        :meth:`run_with_result` instead.
+        """
+        content, meta, _result = await self.run_with_result(
+            task_type,
+            messages=messages,
+            mock_response=mock_response,
+            real_call_allowed=real_call_allowed,
+            user_ref=user_ref,
+            prompt=prompt,
+            tools=tools,
+        )
+        return content, meta
+
+    async def run_with_result(
+        self,
+        task_type: str,
+        *,
+        messages: list[Message],
+        mock_response: str,
+        real_call_allowed: bool = True,
+        user_ref: str | None = None,
+        prompt: Any = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, AICallMetadata, LlmResult | None]:
         """One unit of AI work, and therefore ONE Langfuse trace.
+
+        Returns ``(content, metadata, result)``: ``result`` is the provider's parsed
+        :class:`LlmResult` when a real call succeeded, and ``None`` whenever ``content`` is
+        ``mock_response`` (mock posture, a spend gate, every candidate failed). The server-tool
+        fields a caller reads (citations, search results, the search count) live only there.
+
+        ``tools`` (ADR-0054) are SERVER tools the provider runs inside the call (the Anthropic
+        web search). They are forwarded to the provider unchanged, only Anthropic can run them
+        (another candidate fails at dispatch with ``tools_unsupported``), the worst-case spend
+        reservation adds every permitted search and its result tokens, and a successful call's
+        cost adds every search the provider billed. ``None`` (every caller but the news answer)
+        changes nothing about the call.
 
         The trace root is opened here rather than inside :meth:`_dispatch` so that a
         call which never reaches a provider — mock posture, a spend cap, the kill
@@ -213,6 +263,17 @@ class AIRouter:
         # ONE role go real. Computed BEFORE the span so the posture can be a tag.
         real = self._settings.real_call_enabled_for(task_type) and real_call_allowed
         workflow = current_workflow()
+        extra: dict[str, Any] = {
+            "real_call_allowed": real_call_allowed,
+            # WHICH INPUT POSTURE THIS CALL RAN UNDER. Every caller of `run` is a route
+            # that reads the same flag for its prompt, so this is the per-call audit
+            # record of whether the provider was handed unmasked text — without it the
+            # answer lives only in the history of a deploy secret. A closed boolean.
+            "ai_raw_pii_enabled": self._settings.ai_raw_pii_enabled,
+        }
+        if tools is not None:
+            # Which server tools the call carried, by declared type: config ids, never content.
+            extra["server_tools"] = [str(tool.get("type")) for tool in tools]
         with self._tracer.task(
             task_type=task_type,
             input=messages,
@@ -226,14 +287,7 @@ class AIRouter:
                 prompt_version=getattr(prompt, "version", None),
                 prompt_source=getattr(prompt, "source", None),
                 real_call=real,
-                extra={
-                    "real_call_allowed": real_call_allowed,
-                    # WHICH INPUT POSTURE THIS CALL RAN UNDER. Every caller of `run` is a route
-                    # that reads the same flag for its prompt, so this is the per-call audit
-                    # record of whether the provider was handed unmasked text — without it the
-                    # answer lives only in the history of a deploy secret. A closed boolean.
-                    "ai_raw_pii_enabled": self._settings.ai_raw_pii_enabled,
-                },
+                extra=extra,
             ),
         ) as task:
             return await self._dispatch(
@@ -244,7 +298,41 @@ class AIRouter:
                 real=real,
                 user_ref=user_ref,
                 prompt=prompt,
+                tools=tools,
             )
+
+    async def _complete(
+        self,
+        route: TaskRoute,
+        *,
+        model: str,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None,
+    ) -> LlmResult:
+        """One provider attempt, under the route's own deadline when it has one.
+
+        ``tools`` is forwarded only when given, so a text-only call reaches
+        ``providers.complete`` with exactly the arguments it always had. ``timeout_seconds``
+        (ADR-0054, the news answer only) bounds the attempt: an expiry cancels the provider
+        call and raises the closed ``timeout`` reason, which the attempt loop handles like any
+        other transport failure. A route without one awaits the provider as before.
+        """
+        kwargs: dict[str, Any] = {
+            "settings": self._settings,
+            "model": model,
+            "messages": messages,
+            "max_output_tokens": route.max_output_tokens,
+            "temperature": route.temperature,
+            "json_mode": route.json_mode,
+        }
+        if tools is not None:
+            kwargs["tools"] = tools
+        if route.timeout_seconds is None:
+            return await providers.complete(**kwargs)
+        try:
+            return await asyncio.wait_for(providers.complete(**kwargs), route.timeout_seconds)
+        except TimeoutError as exc:
+            raise LlmTransportError(REASON_TIMEOUT) from exc
 
     async def _dispatch(
         self,
@@ -256,7 +344,8 @@ class AIRouter:
         real: bool,
         user_ref: str | None,
         prompt: Any = None,
-    ) -> tuple[str, AICallMetadata]:
+        tools: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, AICallMetadata, LlmResult | None]:
         route = get_route(task_type, self._settings)
         primary_model = resolve_model(task_type, self._settings)
         input_text = "\n".join(m.get("content", "") for m in messages)
@@ -317,6 +406,13 @@ class AIRouter:
             worst_case_inr = cost_tracker.estimate_cost_inr(
                 model, cost_tracker.estimate_tokens(input_text), route.max_output_tokens
             )
+            if tools is not None:
+                # ADR-0054: a server-tool call can also spend every permitted search and read
+                # its results. Both belong in the worst case BEFORE the ceiling and the ledger
+                # see it, or a searched call would reserve less than it can cost.
+                worst_case_inr = round(
+                    worst_case_inr + cost_tracker.server_tool_reserve_inr(model, tools), 4
+                )
             # 1. Per-call ceiling: a single call whose worst case is too pricey.
             if worst_case_inr > self._settings.ai_max_call_cost_inr:
                 logger.warning(
@@ -437,18 +533,23 @@ class AIRouter:
                         ),
                     ) as generation:
                         try:
-                            result = await providers.complete(
-                                settings=self._settings,
-                                model=model,
-                                messages=messages,
-                                max_output_tokens=route.max_output_tokens,
-                                temperature=route.temperature,
-                                json_mode=route.json_mode,
+                            result = await self._complete(
+                                route, model=model, messages=messages, tools=tools
                             )
                             latency = int((time.perf_counter() - start) * 1000)
                             in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
                             out_tok = result.output_tokens or cost_tracker.estimate_tokens(
                                 result.content
+                            )
+                            # ADR-0054: a server-tool call's measured cost adds the searches the
+                            # provider billed (and any cache buckets) to the token cost. `None`
+                            # for every other call: priced from the tokens, exactly as before.
+                            cost_inr = (
+                                cost_tracker.server_tool_call_cost_inr(
+                                    model, result, input_tokens=in_tok, output_tokens=out_tok
+                                )
+                                if tools is not None
+                                else None
                             )
                             meta = cost_tracker.build_call_metadata(
                                 task_type=task_type,
@@ -461,6 +562,7 @@ class AIRouter:
                                 settings=self._settings,
                                 attempt_count=attempt_count,
                                 candidates_tried=candidates_tried,
+                                cost_inr=cost_inr,
                             )
                             # Reconcile the reservation: refund worst_case - actual so
                             # the net recorded spend is the ACTUAL estimated cost.
@@ -468,18 +570,33 @@ class AIRouter:
                                 worst_case_inr, meta.estimated_cost_inr, user_ref=user_ref
                             )
                             reconciled = True
+                            generation_metadata: dict[str, Any] = {
+                                "tokens_reported_by_provider": bool(
+                                    result.input_tokens and result.output_tokens
+                                ),
+                                "estimated_cost_inr": meta.estimated_cost_inr,
+                            }
+                            if tools is not None:
+                                # Counts only: what the searches cost and returned, never a
+                                # URL, a title or a query.
+                                generation_metadata.update(
+                                    {
+                                        "search_requests": result.search_requests,
+                                        "citation_count": len(result.citations),
+                                        "search_result_count": len(result.search_results),
+                                        "cache_creation_input_tokens": (
+                                            result.cache_creation_input_tokens
+                                        ),
+                                        "cache_read_input_tokens": result.cache_read_input_tokens,
+                                    }
+                                )
                             generation.update(
                                 output=result.content,
                                 # Model id + token buckets are all Langfuse needs to
                                 # price the call from its own table. `estimated_cost_inr`
                                 # stays in metadata — `cost_details` is USD.
                                 usage_details={"input": in_tok, "output": out_tok},
-                                metadata={
-                                    "tokens_reported_by_provider": bool(
-                                        result.input_tokens and result.output_tokens
-                                    ),
-                                    "estimated_cost_inr": meta.estimated_cost_inr,
-                                },
+                                metadata=generation_metadata,
                             )
                             self._finish_task(
                                 task,
@@ -498,7 +615,7 @@ class AIRouter:
                                     "fell_back_to_another_provider": model != primary_model,
                                 },
                             )
-                            return result.content, meta
+                            return result.content, meta, result
                         except Exception as exc:
                             # NEVER log the exception body (may echo pseudonymized
                             # content). A LlmTransportError carries a PII-free
@@ -657,7 +774,7 @@ class AIRouter:
                 "error_category": error_taxonomy.categorize_terminal(error_code),
             },
         )
-        return mock_response, meta
+        return mock_response, meta, None
 
     def _candidate_models(self, primary_model: str, fallback_model: str | None = None) -> list[str]:
         """Ordered provider-fallback chain for a real call.

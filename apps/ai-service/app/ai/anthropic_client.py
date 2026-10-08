@@ -12,13 +12,30 @@ Unlike the Gemini client (raw ``httpx``), Anthropic is reached via the OFFICIAL
 
 Callers MUST pass already-pseudonymized ``messages``. This module NEVER logs the
 request or response bodies — only the router observes counts/status.
+
+SERVER TOOLS (ADR-0054). ``acomplete`` takes an optional ``tools`` list, passed to
+``messages.create`` only when given (today: the web search tool for the free chat's
+news answer). A call without tools sends and parses exactly what it did before; a call
+with tools additionally reads the search count, the citations and the search results
+off the response (:func:`_with_server_tool_fields`), and treats a paused or truncated
+turn as a failure rather than an answer.
 """
 
 from __future__ import annotations
 
+import dataclasses
+from typing import Any
+
 from ..config import Settings
 from ..logging_config import get_logger
-from .errors import REASON_MISSING_KEY, REASON_NO_TEXT_CONTENT, REASON_SDK_ERROR, LlmTransportError
+from .errors import (
+    REASON_MAX_TOKENS_TRUNCATED,
+    REASON_MISSING_KEY,
+    REASON_NO_TEXT_CONTENT,
+    REASON_PAUSE_TURN,
+    REASON_SDK_ERROR,
+    LlmTransportError,
+)
 
 # Reuse the SAME result shape as the Gemini client so the router/cost tracker
 # treat every provider identically.
@@ -119,6 +136,90 @@ def _parse_anthropic_response(resp) -> LlmResult:
     return LlmResult(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
 
 
+def _field(obj: Any, name: str) -> Any:
+    """``obj.name`` or ``obj[name]``, else None.
+
+    BOTH SHAPES, because the SDK's typed models only know the block types its version shipped
+    with: an SDK older than the web search tool keeps an unknown block or usage field as a plain
+    dict. Reading either shape means the parse does not depend on which SDK the box installed.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def _count(value: Any) -> int:
+    """A provider count as a non-negative int; anything else (None, a junk type) is 0."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _url_title(item: Any) -> tuple[str, str] | None:
+    """``(url, title)`` off a citation or a search result, or None without a string URL."""
+    url = _field(item, "url")
+    if not isinstance(url, str) or not url:
+        return None
+    title = _field(item, "title")
+    return url, title if isinstance(title, str) else ""
+
+
+def _with_server_tool_fields(result: LlmResult, resp: Any) -> LlmResult:
+    """``result`` plus what a server-tool turn adds: searches billed, citations, results.
+
+    - ``search_requests``: ``usage.server_tool_use.web_search_requests`` — what is billed.
+    - ``citations``: every ``web_search_result_location`` on a text block, in order. Citations
+      are always on for web search; they name the results the answer text drew on.
+    - ``search_results``: every ``web_search_result`` inside a ``web_search_tool_result`` block.
+      That block's ``content`` is a LIST on success and an error OBJECT
+      (``web_search_tool_result_error``) on failure; an error contributes nothing.
+    - the cache buckets, which Anthropic bills apart from ``input_tokens``.
+
+    Only called for a call that carried tools, so no other call's result changes shape.
+    """
+    citations: list[tuple[str, str]] = []
+    search_results: list[tuple[str, str]] = []
+    for block in _field(resp, "content") or []:
+        kind = _field(block, "type")
+        if kind == "text":
+            for citation in _field(block, "citations") or []:
+                if _field(citation, "type") == "web_search_result_location":
+                    pair = _url_title(citation)
+                    if pair is not None:
+                        citations.append(pair)
+        elif kind == "web_search_tool_result":
+            content = _field(block, "content")
+            if not isinstance(content, list):  # the error object: the search failed
+                continue
+            for item in content:
+                if _field(item, "type") == "web_search_result":
+                    pair = _url_title(item)
+                    if pair is not None:
+                        search_results.append(pair)
+    usage = _field(resp, "usage")
+    return dataclasses.replace(
+        result,
+        search_requests=_count(_field(_field(usage, "server_tool_use"), "web_search_requests")),
+        citations=citations,
+        search_results=search_results,
+        cache_creation_input_tokens=_count(_field(usage, "cache_creation_input_tokens")),
+        cache_read_input_tokens=_count(_field(usage, "cache_read_input_tokens")),
+    )
+
+
+def _parse_tool_response(resp: Any) -> LlmResult:
+    """A tool-carrying call's response: the stop reason first, then the text and the tool fields.
+
+    ``pause_turn`` means Anthropic paused the server-tool loop mid-turn; v1 makes no continuation
+    request, so the partial turn is a failure. ``max_tokens`` means the answer was cut off inside
+    its JSON. Both raise a closed reason so the router fails the call instead of serving a fragment.
+    """
+    stop_reason = _field(resp, "stop_reason")
+    if stop_reason == "pause_turn":
+        raise LlmTransportError(REASON_PAUSE_TURN)
+    if stop_reason == "max_tokens":
+        raise LlmTransportError(REASON_MAX_TOKENS_TRUNCATED)
+    return _with_server_tool_fields(_parse_anthropic_response(resp), resp)
+
+
 async def acomplete(
     *,
     settings: Settings,
@@ -127,6 +228,7 @@ async def acomplete(
     max_output_tokens: int,
     temperature: float,
     json_mode: bool,
+    tools: list[dict[str, Any]] | None = None,
 ) -> LlmResult:
     """Call Claude (Anthropic) via the official SDK. Raises on failure.
 
@@ -138,6 +240,9 @@ async def acomplete(
 
     The ``anthropic`` SDK is imported HERE (lazily) so module import succeeds even
     when the package is not installed (mock-only mode).
+
+    ``tools`` (ADR-0054) rides ``messages.create`` only when given; without it the request
+    and the parse are exactly what they were before the argument existed.
     """
     api_key = settings.anthropic_api_key
     if not api_key:
@@ -164,14 +269,18 @@ async def acomplete(
         # that can see all of them at once. A second, hidden policy underneath it can
         # only disagree.
         client = AsyncAnthropic(api_key=api_key, max_retries=0)
+        request: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max(max_output_tokens, _MAX_TOKENS_FLOOR),
+            "system": system_param,
+            "messages": anthropic_messages,
+            "temperature": temperature,
+        }
+        # Only when given: a call without tools must send the request it always sent.
+        if tools is not None:
+            request["tools"] = tools
         # Do NOT set thinking/effort — unsupported on Haiku 4.5.
-        resp = await client.messages.create(
-            model=model,
-            max_tokens=max(max_output_tokens, _MAX_TOKENS_FLOOR),
-            system=system_param,
-            messages=anthropic_messages,
-            temperature=temperature,
-        )
+        resp = await client.messages.create(**request)
     except RuntimeError:
         # Includes LlmTransportError (a RuntimeError) -> re-raise unchanged.
         raise
@@ -181,4 +290,6 @@ async def acomplete(
         # router logs only reason_code, never this chain).
         raise LlmTransportError(REASON_SDK_ERROR) from exc
 
-    return _parse_anthropic_response(resp)
+    if tools is None:
+        return _parse_anthropic_response(resp)
+    return _parse_tool_response(resp)

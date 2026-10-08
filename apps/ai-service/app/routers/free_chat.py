@@ -5,6 +5,8 @@
 refusal topic. Both mirror the companion routes (ADR-0046), on a different surface.
 ``POST /free-chat/summarize`` (Release 2, §8): the free-chat turns that aged out of the reply's
 window, folded with the previous notes into the rolling summary the reply reads (R21-R24).
+``POST /free-chat/news`` (ADR-0054): a news question the reply refused on ``news``, answered by
+Claude with the web search tool on the approved sites, with sources built from the response.
 
 THE PRIVACY ORDER IS THE COMPANION'S, AND IT FAILS CLOSED: the masking policy in force
 (`AI_RAW_PII_ENABLED`, ADR-0047) BEFORE the model, through `app/llm_input_policy.py`, for every
@@ -24,8 +26,8 @@ provider failed and the router served the mock, and ``ai_metadata`` None when th
 the input and no provider was reached at all.
 
 MODEL OUTPUT IS UNTRUSTED AND THE ROUTES RETURN IT AS PARSED: the parsers in ``app.free_chat``
-validate and fall back, and the API re-validates every reply line before a worker reads it.
-Nothing here decides or writes anything.
+validate and fall back, and the API re-validates every reply and news line before a worker reads
+it. Nothing here decides or writes anything.
 """
 
 from __future__ import annotations
@@ -39,6 +41,11 @@ from ..contracts import (
     FreeChatAnswer,
     FreeChatClassifyInput,
     FreeChatClassifyOutput,
+    FreeChatNewsAnswer,
+    FreeChatNewsInput,
+    FreeChatNewsNoResults,
+    FreeChatNewsOutput,
+    FreeChatNewsRefuse,
     FreeChatRefuse,
     FreeChatReplyInput,
     FreeChatReplyOutput,
@@ -46,12 +53,15 @@ from ..contracts import (
     FreeChatSummarizeOutput,
 )
 from ..free_chat import classify as classify_logic
+from ..free_chat import news as news_logic
 from ..free_chat import reply as reply_logic
 from ..free_chat import summary as summary_logic
 from ..free_chat.prompts import (
     CLASSIFY_SYSTEM_PROMPT,
+    NEWS_SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     build_free_classify_messages,
+    build_free_news_messages,
     build_free_reply_messages,
     build_free_summary_messages,
 )
@@ -67,6 +77,7 @@ api_router = APIRouter()
 FREE_CLASSIFY_TASK_TYPE = "profiling_free_classify"
 FREE_REPLY_TASK_TYPE = "profiling_free_reply"
 FREE_SUMMARY_TASK_TYPE = "profiling_free_summary"
+FREE_NEWS_TASK_TYPE = "profiling_free_news"
 
 
 def _first_refusal(**gated: PseudonymizationResult | None) -> tuple[str, str | None] | None:
@@ -221,4 +232,57 @@ async def free_chat_summarize(body: FreeChatSummarizeInput) -> FreeChatSummarize
         prompt=resolved,
     )
     parsed = summary_logic.parse_summary_output(content)
+    return parsed.model_copy(update={"ai_metadata": meta})
+
+
+@api_router.post("/free-chat/news", response_model=FreeChatNewsOutput)
+async def free_chat_news(
+    body: FreeChatNewsInput,
+) -> FreeChatNewsAnswer | FreeChatNewsNoResults | FreeChatNewsRefuse:
+    """One news question to a searched answer with its sources, ``no_results``, or a refusal.
+
+    THE REPLY'S PRIVACY ORDER, AND ITS FAIL-CLOSED SHAPE: the message, the recent turns and the
+    trade label pass the masking policy in force before the model; a blocked message reaches no
+    provider and returns ``refuse/unsafe_other`` with ``ai_metadata`` None. The search tool is
+    attached here and nowhere else, so this is the only route whose call can read the web.
+
+    WHAT THE API READS (ADR-0054 §3.1). ``ai_metadata`` rides back exactly as the router measured
+    it. ``real_call`` false is the unarmed mock (``no_results``, ``search_count`` 0): the API keeps
+    today's NEWS line. ``real_call`` true with ``success`` false is a failed call (timeout, error)
+    wearing the same mock: unavailable. Only ``real_call`` AND ``success`` make the status a real
+    verdict. Every failure here is a value, never an exception: the API waits on this call.
+    """
+    raw_pii = get_settings().ai_raw_pii_enabled
+    result = llm_input_gate(body.text, raw=raw_pii)
+    if result.blocked:
+        logger.warning("free chat news blocked", extra={"extra": {"reason": result.blocked_reason}})
+        # Fail closed: reviewed refusal copy, no provider call, so no cost to record.
+        return FreeChatNewsRefuse(status="refuse", topic="unsafe_other", ai_metadata=None)
+
+    resolved = resolve_prompt(prompt_registry.FREE_CHAT_NEWS)
+    system_prompt = resolved.text if resolved is not None else NEWS_SYSTEM_PROMPT
+    messages = build_free_news_messages(
+        result.text,
+        mask_recent_turns(body.recent_turns, raw=raw_pii),
+        reply_logic.mask_worker_context(body.worker_context, raw=raw_pii),
+        # The day in India, computed here: never a value from the request.
+        news_logic.ist_today(),
+        system_prompt,
+    )
+    content, meta, llm_result = await router.run_with_result(
+        FREE_NEWS_TASK_TYPE,
+        messages=messages,
+        mock_response=news_logic.MOCK_RESPONSE,
+        real_call_allowed=True,
+        prompt=resolved,
+        tools=news_logic.news_search_tools(),
+    )
+    try:
+        parsed = news_logic.parse_news_output(content, llm_result)
+    except Exception as exc:  # pragma: no cover - the parser is total; this is the seam's belt
+        # The class name only: an exception here could carry a URL, a title or model text.
+        logger.warning(
+            "free chat news parse failed", extra={"extra": {"error_class": type(exc).__name__}}
+        )
+        parsed = news_logic.REFUSED_FALLBACK
     return parsed.model_copy(update={"ai_metadata": meta})

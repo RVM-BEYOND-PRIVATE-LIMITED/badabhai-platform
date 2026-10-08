@@ -25,11 +25,23 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from ..config import ConfigError, Settings
 from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
-from .model_config import provider_for_model, rate_inr_per_1k
+from .model_config import (
+    ANTHROPIC_CACHE_READ_MULTIPLIER,
+    ANTHROPIC_CACHE_WRITE_MULTIPLIER,
+    WEB_SEARCH_COST_INR,
+    WEB_SEARCH_RESULT_TOKENS_ALLOWANCE,
+    WEB_SEARCH_UNBOUNDED_USES,
+    provider_for_model,
+    rate_inr_per_1k,
+)
+
+if TYPE_CHECKING:
+    from .gemini_client import LlmResult
 
 logger = get_logger("ai.cost")
 
@@ -46,6 +58,58 @@ def estimate_cost_inr(model: str, input_tokens: int, output_tokens: int) -> floa
     in_rate, out_rate = rate_inr_per_1k(model)
     cost = (input_tokens / 1000.0) * in_rate + (output_tokens / 1000.0) * out_rate
     return round(cost, 4)
+
+
+# --- Server tools (ADR-0054): the web search's per-search fee ---------------
+
+
+def web_search_max_uses(tools: list[dict[str, Any]]) -> int:
+    """The most searches ``tools`` permits: the sum of every web search tool's ``max_uses``.
+
+    A web search tool without a positive integer ``max_uses`` is unbounded and counts as
+    ``WEB_SEARCH_UNBOUNDED_USES``, which prices the call past the per-call ceiling (fail closed:
+    an unbounded search is skipped, never run). Tools of any other type add nothing.
+    """
+    searches = 0
+    for tool in tools:
+        if not str(tool.get("type", "")).startswith("web_search"):
+            continue
+        uses = tool.get("max_uses")
+        bounded = isinstance(uses, int) and not isinstance(uses, bool) and uses > 0
+        searches += uses if bounded else WEB_SEARCH_UNBOUNDED_USES
+    return searches
+
+
+def server_tool_reserve_inr(model: str, tools: list[dict[str, Any]]) -> float:
+    """What ``tools`` can add to a call's WORST case, on top of its prompt and output tokens.
+
+    Every permitted search at the per-search fee, plus ``WEB_SEARCH_RESULT_TOKENS_ALLOWANCE``
+    result tokens each at ``model``'s input rate (see that constant for why the number is high).
+    """
+    searches = web_search_max_uses(tools)
+    result_tokens = estimate_cost_inr(model, searches * WEB_SEARCH_RESULT_TOKENS_ALLOWANCE, 0)
+    return round(result_tokens + searches * WEB_SEARCH_COST_INR, 4)
+
+
+def server_tool_call_cost_inr(
+    model: str, result: LlmResult, *, input_tokens: int, output_tokens: int
+) -> float:
+    """The MEASURED cost of a call that carried tools: its tokens plus every billed search.
+
+    ``input_tokens`` / ``output_tokens`` are the router's counts for the call (the provider's,
+    or the estimate when it reported none), priced at ``model``'s rate. The cache buckets
+    Anthropic reports apart from ``input_tokens`` are priced at its write/read multipliers (zero
+    on a call that cached nothing). The search fee is ``result.search_requests`` (what the
+    provider says it billed) times ``WEB_SEARCH_COST_INR``. Passed to
+    :func:`build_call_metadata` as ``cost_inr``, so ``ai.cost_recorded`` carries the fees too.
+    """
+    in_rate, _ = rate_inr_per_1k(model)
+    cached = (
+        result.cache_creation_input_tokens * ANTHROPIC_CACHE_WRITE_MULTIPLIER
+        + result.cache_read_input_tokens * ANTHROPIC_CACHE_READ_MULTIPLIER
+    ) * (in_rate / 1000.0)
+    tokens = estimate_cost_inr(model, input_tokens, output_tokens) + cached
+    return round(tokens + result.search_requests * WEB_SEARCH_COST_INR, 4)
 
 
 def build_call_metadata(
