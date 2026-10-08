@@ -501,6 +501,7 @@ export const TASK_TYPE_LABELS = {
   profiling_free_classify: "Free chat classification",
   profiling_free_reply: "Free chat reply",
   profiling_free_summary: "Free chat summary",
+  profiling_free_news: "Free chat live news",
   stt_transcription: "Speech-to-text",
   tts_synthesis: "Text-to-speech",
   skill_embedding: "Skill embedding",

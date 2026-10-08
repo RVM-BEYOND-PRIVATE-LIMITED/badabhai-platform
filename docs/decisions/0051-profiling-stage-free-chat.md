@@ -46,7 +46,7 @@ The owner wants a chat we control, like ChatGPT but scoped to BadaBhai, for the 
 | **R9** | **Casual:** model-written and checked by code. The résumé chip is always shown, and a nudge is added every 3rd casual turn. |
 | **R10** | **Distress:** a fixed line plus a helpline (Tele-MANAS 14416, checked 2026-10-06: toll-free, 24×7, Ministry of Health). The model never writes this reply. |
 | **R11** | **Career:** model-written and checked by code. Refuses legal/medical/financial. **Typical ₹ ranges are allowed. Company names are allowed freely.** Encourage the worker but never rank them. Never promise a job; stay hopeful. |
-| **R12** | **Live news:** phase 2 (web search, its own ADR). Until then a news request gets a fixed line. |
+| **R12** | **Live news:** phase 2 (web search, its own ADR). Until then a news request gets a fixed line. **Now [ADR-0054](0054-free-chat-live-news.md) (2026-10-08).** |
 | **R13** | **Trash outside the lock:** 3 strikes in a day → a 30-minute block on typing. Chips still work. |
 | **R14** | **Off-limits topics** (politics, religion, caste, romance, loans, health): a polite fixed deflect, with no strike. |
 | **R15** | **Gibberish / unsure in free chat:** clarify plus chips, with no strike. |
