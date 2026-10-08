@@ -897,7 +897,12 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
 # "+" / "plus" JOINING two figures, with nothing else between them but whitespace and a
 # currency token: "18000 + 1500", "18k plus 1.5k", "Rs 18000 + Rs 1500". Fullmatched on the
 # slice between two adjacent figures only, so it costs O(slice), and the slices are disjoint.
-_PAY_PLUS_JOINER_RE = re.compile(r"\s*(?:\+|plus)\s*(?:(?:₹|rs\.?|inr)\s*)?", re.IGNORECASE)
+# The "+" and the figure it adds share a line: a "+" at the END of a line is the "or more"
+# idiom ("experienced 25000+\n12000 fresher ko"), and the figure on the next line is a second
+# wage, not an addition (#2153 review). A line break BEFORE the "+" ("18000\n+ 1500") joins.
+_PAY_PLUS_JOINER_RE = re.compile(
+    r"\s*(?:\+|plus)[^\S\n]*(?:(?:₹|rs\.?|inr)[^\S\n]*)?", re.IGNORECASE
+)
 
 
 def _plus_addition_screen(
@@ -916,19 +921,35 @@ def _plus_addition_screen(
     so no answer gains or loses a band here. "and" / "aur" are not joiners: they separate
     ranges and split pairs (#2066, #2088).
 
+    An addition is also BARE (`_is_bare`): its clause holds nothing but the figure, a currency
+    word or a period. A figure with words of its own is a second wage, not an addition: "25000+"
+    is "25000 or more", so in "experienced 25000+ 12000 fresher ko" the 12000 is the fresher's
+    wage, and in "25000 + 18000 salary" the 18000 is labelled the salary (#2153 review). Both
+    fold as they did before #2142.
+
     The add-on screen reads one clause, so a chain's first figure can be the add-on whose
     word sits in the clause BEFORE it: in "joining bonus, 25000 + 18000 salary" the comma
     cuts "joining bonus" off the 25000, which passes, and dropping the 18000 would make the
     bonus the whole pay. A chain whose lead-in (the text from the figure before it, or the
     message start, up to its first figure) names an add-on drops nothing, and reads as it
-    did before #2142. One pass over the figures; the joiner slices and the lead-in slices
-    are each disjoint, so the whole screen is O(n)."""
+    did before #2142.
+
+    Nor does a chain whose first figure is `_PAY_ADDON_WAGE_LIMIT` or more: "salary 3 lakh +
+    20000 and PF ESI" is the annual package and the monthly pay, typed without "CTC", as
+    `_follows_a_wage` rules for the "wage, amount, label" screen. Dropping the 20000 made the
+    lakh the whole monthly pay; the pair folds as it did before #2142 (#2153 review).
+
+    One pass over the figures; the joiner slices and the lead-in slices are each disjoint, so
+    the whole screen is O(n). The clause boundaries are found once, and only if some figure
+    is a candidate. A "+" / "plus" is itself a boundary, so the clauses of two joined figures
+    are disjoint too: each is read by `_is_bare` once."""
     wage = {figure.start for figure in kept}
     additions: set[int] = set()
+    boundaries: _ClauseBoundaries | None = None
     lead_start = 0  # where the text leading up to ``previous`` starts
     previous: _PayFigure | None = None
     base: _PayFigure | None = None
-    led_by_addon = False
+    drops_nothing = False
     for figure in figures:
         if (
             previous is not None
@@ -937,9 +958,16 @@ def _plus_addition_screen(
         ):
             if base is None:
                 base = previous
-                led_by_addon = _PAY_ADDON_RE.search(message, lead_start, base.start) is not None
-            if not led_by_addon and figure.low < base.low:
-                additions.add(figure.start)
+                drops_nothing = (
+                    base.low >= _PAY_ADDON_WAGE_LIMIT
+                    or _PAY_ADDON_RE.search(message, lead_start, base.start) is not None
+                )
+            if not drops_nothing and figure.low < base.low:
+                if boundaries is None:
+                    boundaries = _clause_boundaries(message)
+                span = _pay_clause_span(message, figure, boundaries)
+                if _is_bare(message, figure, span):
+                    additions.add(figure.start)
         else:
             base = None
         lead_start = previous.end if previous is not None else 0

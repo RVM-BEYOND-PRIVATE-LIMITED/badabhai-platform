@@ -4355,17 +4355,20 @@ _PLUS_ADDITION_CASES: list[tuple[str, dict | None]] = [
     ("15k + 15-20k", _pay(15000, 20000)),
     ("10k + 15k", _pay(10000, 15000)),
     # ... a chain that starts at an ADD-ON figure drops nothing. Here the add-on screen
-    # dropped the bonus, so the 18000 is the wage (in the "5000 or" row the chain's lead-in
-    # starts after the 5000 and names no add-on, so only the screen's verdict keeps it) ...
+    # dropped the bonus, so the 18000 is the wage (in the bare "5000 or" row the chain's
+    # lead-in starts after the 5000 and names no add-on, so only the screen's verdict keeps it)
     ("joining bonus 25000 + 18000 salary", _pay(18000)),
     ("joining bonus 5000 or 25000 + 18000 salary", _pay(18000)),
+    ("joining bonus 5000 or 25000 + 18000", _pay(18000)),
     # ... and here a comma, a colon or a newline cuts the add-on word off the chain's first
     # figure, so the screen (one clause) kept the bonus. The chain's lead-in names the add-on,
     # so nothing is dropped and the wage stays the band minimum, as on main. Dropping the
     # smaller figure made the bonus the whole pay (#2153 review: 2,160 of 4,860 templated
     # inputs). The bonus as the band maximum is the add-on screen's own pre-existing miss.
     ("joining bonus, 25000 + 18000 salary", _pay(18000, 25000)),
+    ("joining bonus, 25000 + 18000", _pay(18000, 25000)),
     ("Joining bonus:\n25000 + 18000 salary", _pay(18000, 25000)),
+    ("Joining bonus:\n25000 + Rs 18000 per month", _pay(18000, 25000)),
     ("joining\n bonus\n 25000\n +\n 18000\n salary", _pay(18000, 25000)),
     ("Annual bonus\n30000 + 18000 monthly", _pay(18000, 30000)),
     ("Incentive:\n30000 + 20000 fixed salary", _pay(20000, 30000)),
@@ -4373,6 +4376,31 @@ _PLUS_ADDITION_CASES: list[tuple[str, dict | None]] = [
     # ... the lead-in starts where the figure before the chain ends, so an add-on figure in an
     # earlier clause does not hold back the wage chain after it ...
     ("bonus 3000, salary 18000 + 1500", _pay(18000)),
+    # ... a "+" at the END of a line is the "or more" idiom, not a joiner: the figure on the next
+    # line is a second wage (here the fresher's), as on main (#2153 review). Only the "wage,
+    # amount, label" screen (#2133) drops it, when its label names an add-on and nothing else ...
+    ("experienced 25000+\n12000 fresher ko", _pay(12000, 25000)),
+    ("salary 25000+\n12000 fresher", _pay(12000, 25000)),
+    ("salary 30000+\n15000\nfresher room free", _pay(15000, 30000)),
+    ("salary 30000 +\r\n15000\nfresher room free", _pay(15000, 30000)),
+    ("salary 30000 plus\n15000\nfresher room free", _pay(15000, 30000)),
+    ("salary 18000+\n1500\nfood allowance", _pay(18000)),
+    ("salary 18000+\n1500", _pay(1500, 18000)),
+    # ... and on one line an addition is BARE: a figure with words of its own is a second wage,
+    # as on main, while a currency word or a period beside an addition is not a word of its own.
+    ("experienced 25000+ 12000 fresher ko", _pay(12000, 25000)),
+    ("salary 25000 + 12000 helper", _pay(12000, 25000)),
+    ("25000 + 18000 salary", _pay(18000, 25000)),
+    ("salary 18k + 1.5k per month", _pay(18000)),
+    ("18000 + Rs 1500/-", _pay(18000)),
+    # ... a chain whose first figure is a lakh or more drops nothing: that is the annual package
+    # beside the monthly pay, typed without "CTC", and the pair folds as on main, the same as its
+    # newline spelling "salary 3 lakh\n20000\nPF ESI" (#2141, #2153 review) ...
+    ("salary 3 lakh + 20000 and PF ESI", _pay(20000, 300000)),
+    ("salary 2.4 lakh + 18000", _pay(18000, 240000)),
+    ("1.5 lakh plus 20K; food free", _pay(20000, 150000)),
+    ("1 lakh + 20000", _pay(20000, 100000)),
+    ("99k + 1.5k", _pay(99000)),
     # ... and the addition still counts as a figure for the different-bases rule (fail closed).
     ("in hand 18000 + 1500", None),
 ]
@@ -4399,8 +4427,14 @@ def test_a_plus_joined_addition_moves_no_pay_type(text: str) -> None:
     [
         ("18000 + 1500", True),
         ("18000plus1500", True),
-        ("18000  PLUS\n rs. 1500", True),
+        ("18000\n PLUS  rs. 1500", True),
         ("18000 + ₹1500", True),
+        ("18000\n+\t1500", True),
+        # A line break AFTER the "+" / "plus" ends the joiner: "25000+" is "25000 or more".
+        ("18000 +\n1500", False),
+        ("18000+\r\n1500", False),
+        ("18000  PLUS\n rs. 1500", False),
+        ("18000 + rs\n1500", False),
         # Only whitespace and a currency token may sit beside the "+" / "plus".
         ("18000 surplus 1500", False),
         ("18000 + 91 1500", False),

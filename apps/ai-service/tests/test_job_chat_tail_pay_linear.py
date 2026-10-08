@@ -300,17 +300,24 @@ _MANY_FIGURES = {
     "plus pairs": "18k plus 1.5k ",
     # Each chain's lead-in (the text since the figure before it) is searched once.
     "led plus pairs": "joining bonus, 25000 + 18000 salary, ",
+    # Each candidate addition's clause is read once by the bare test (#2153 review).
+    "worded plus pairs": "25000+ 12000 fresher ko, ",
 }
 
 
 @pytest.mark.parametrize("run", [" ", "\t", " \n", "\n ", "　"])
 def test_the_plus_joiner_is_linear_on_a_whitespace_run(run: str) -> None:
     # #2142: the slice between two figures is fullmatched once, joined or not, and a chain's
-    # lead-in is searched once.
+    # lead-in is searched once. A run after the "+" that ends at a line break (no joiner,
+    # #2153 review) is given up once, not retried from every position, and an addition's
+    # clause is read once to test that it is bare.
     k = 20_000
     ws = run * (k // len(run))
     for text in (
         "salary 18000" + ws + "+" + ws + "1500",
+        "salary 18000 +" + ws + "\n1500",
+        "salary 18000 + rs" + ws + "\n1500",
+        "salary 18000 + 1500" + ws + "fresher",
         "salary 18000" + ws + "x 1500",
         "joining bonus," + ws + "25000 + 18000 salary",
     ):
