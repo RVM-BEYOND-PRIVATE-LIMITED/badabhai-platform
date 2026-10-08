@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'chat_news_link.dart';
+
 /// Delivery state of a WORKER message (#343).
 ///
 /// Bada bhai's own messages are always [sent] — they exist because the server
@@ -24,6 +26,7 @@ class ChatMessage extends Equatable {
     this.submissionId,
     this.ttsText,
     this.canReadAloud = true,
+    this.newsLinks = const <ChatNewsLink>[],
   });
 
   final String text;
@@ -61,6 +64,11 @@ class ChatMessage extends Equatable {
   /// and interview questions carry a reviewed twin and are read aloud exactly as
   /// before. Only a turn that explicitly says `read_aloud: false` opts out.
   final bool canReadAloud;
+
+  /// ADR-0054 §3.4 (#2148) — the "read more" tiles drawn under THIS bubble.
+  /// Empty on a worker bubble and on every bot turn that served none, so the
+  /// transcript needs no second list to know which bubble owns which tiles.
+  final List<ChatNewsLink> newsLinks;
 
   ChatMessage copyWith({ChatSendStatus? status}) => ChatMessage(
         text: text,

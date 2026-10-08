@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'chat_news_link.dart';
+
 import '../../../core/api/api_models.dart'
     show
         ChatAnswerType,
@@ -44,6 +46,7 @@ class ChatTurn extends Equatable {
     this.editProposal,
     this.cooldownUntil,
     this.readAloud,
+    this.newsLinks = const <ChatNewsLink>[],
   });
 
   final String reply;
@@ -190,6 +193,10 @@ class ChatTurn extends Equatable {
   /// automatically.
   final bool? readAloud;
 
+  /// ADR-0054 §3.4 (#2148) — the "read more" tiles this turn served. Empty on
+  /// every turn but an answered news one.
+  final List<ChatNewsLink> newsLinks;
+
   @override
   List<Object?> get props => <Object?>[
         reply,
@@ -217,5 +224,6 @@ class ChatTurn extends Equatable {
         editProposal,
         cooldownUntil,
         readAloud,
+        newsLinks,
       ];
 }

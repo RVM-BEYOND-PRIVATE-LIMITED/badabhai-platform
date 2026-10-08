@@ -6,6 +6,7 @@ import '../../../core/session/session_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_repository.dart';
 import '../domain/chat_session_opening.dart';
+import '../domain/chat_news_link.dart';
 import '../domain/chat_turn.dart';
 
 /// Reports a caught, NON-FATAL error to the app's observability sink.
@@ -298,6 +299,9 @@ class ChatRepositoryImpl implements ChatRepository {
         // hi-IN voice. And a trash cool-down the server had already declared
         // never reached the composer.
         readAloud: reply.readAloud,
+        // ADR-0054 §3.4 (#2148) — carried on BOTH paths: a news turn can be
+        // answered in the profiling chat and replayed by the companion.
+        newsLinks: reply.newsLinks,
         cooldownUntil: reply.cooldownUntil,
         // #761 — carried for the optimistic-lookahead reconcile in ChatBloc:
         // asked_question_id attributes THIS turn, lookahead predicts the next.
@@ -500,6 +504,9 @@ class ChatRepositoryImpl implements ChatRepository {
         editProposal: reply.editProposal,
         cooldownUntil: reply.cooldownUntil,
         readAloud: reply.readAloud,
+        // ADR-0054 §3.4 (#2148) — carried on BOTH paths: a news turn can be
+        // answered in the profiling chat and replayed by the companion.
+        newsLinks: reply.newsLinks,
         companion: true,
         digestKey: digestKey,
       );
@@ -533,6 +540,12 @@ class ChatRepositoryImpl implements ChatRepository {
           // exactly as the body is stripped (the client holds no name, §2), and
           // treat a name-only strip as absent → read-aloud falls back to `text`.
           ttsText: row.fromWorker ? null : _hydratedTts(row.ttsText),
+          // ADR-0054 §3.4 (#2148) — a bot row's tiles come back on the replay,
+          // so a restart redraws them under the summary they belong to. A
+          // worker row never has any.
+          newsLinks: row.fromWorker
+              ? const <ChatNewsLink>[]
+              : row.newsLinks,
         ));
       }
       return messages;

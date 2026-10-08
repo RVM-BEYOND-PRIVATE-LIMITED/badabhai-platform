@@ -54,9 +54,11 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
+import '../domain/chat_news_link.dart';
 import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
 import 'widgets/chat_location_card.dart';
+import 'widgets/chat_news_tiles.dart';
 import 'widgets/flying_name.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
@@ -1725,6 +1727,12 @@ class _ChatViewState extends State<_ChatView>
                                   key: i == lastWorkerIndex
                                       ? _lastWorkerBubbleKey
                                       : null,
+                                  // ADR-0054 §3.4 (#2148) — the news turn's
+                                  // "read more" tiles, drawn UNDER this bubble
+                                  // and inside its width cap so they read as
+                                  // part of the same answer. Empty on every
+                                  // other turn, which draws nothing.
+                                  newsLinks: m.newsLinks,
                                   text: m.text,
                                   fromWorker: m.fromWorker,
                                   maxWidth: bubbleMaxWidth,
@@ -3282,10 +3290,15 @@ class _ChatBubble extends StatelessWidget {
     this.failed = false,
     this.onRetry,
     this.trailing,
+    this.newsLinks = const <ChatNewsLink>[],
   });
 
   final String text;
   final bool fromWorker;
+
+  /// ADR-0054 §3.4 (#2148) — this bubble's "read more" tiles. Empty on a worker
+  /// bubble and on every bot turn that served none.
+  final List<ChatNewsLink> newsLinks;
 
   /// The bubble never spans the full column, so the speaker side stays legible.
   final double maxWidth;
@@ -3342,6 +3355,10 @@ class _ChatBubble extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(text, style: OnboardingTypography.body(color: textColor)),
+          // INSIDE the bubble's column, so the tiles inherit its width cap and
+          // sit visibly under the summary they belong to rather than floating
+          // in the transcript as separate bubbles.
+          ChatNewsTiles(links: newsLinks),
           if (failed) ...<Widget>[
             const SizedBox(height: AppSpacing.s2),
             Row(
