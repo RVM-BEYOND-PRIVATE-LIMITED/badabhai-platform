@@ -7,6 +7,13 @@ import { RelayService } from "./relay.service";
 import type { RelayRepository } from "./relay.repository";
 import type { UnlockService } from "../unlocks/unlocks.service";
 import type { EventsService } from "../events/events.service";
+import type { ServerConfig } from "@badabhai/config";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import type {
+  ActiveMembershipFacts,
+  PayerOrgTenancyMode,
+} from "../payers/payer-tenant-scope";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
 const PAYER = "11111111-1111-4111-8111-111111111111";
@@ -31,11 +38,30 @@ function messageRow(overrides: Record<string, unknown> = {}): RelayMessage {
   } as unknown as RelayMessage;
 }
 
+/**
+ * The REAL tenant resolver (ADR-0053) over a fake membership read: `memberships` maps a payer id
+ * to its ACTIVE memberships. Default `off` with none — every caller is their own tenant.
+ */
+function tenancyService(
+  mode: PayerOrgTenancyMode = "off",
+  memberships: Record<string, ActiveMembershipFacts[]> = {},
+): PayerTenantScopeService {
+  return new PayerTenantScopeService(
+    { PAYER_ORG_TENANCY_MODE: mode } as unknown as ServerConfig,
+    {
+      listActiveMembershipsWithAnchor: vi.fn(async (id: string) => memberships[id] ?? []),
+      ensureSoloOrg: vi.fn(async () => null),
+    } as unknown as PayerOrgsRepository,
+  );
+}
+
 interface SetupOpts {
   /** `null` simulates a failed resolution (the neutral path). */
   resolvePayer?: unknown;
   resolveWorker?: unknown;
   hasReply?: boolean;
+  /** ADR-0053: the tenant resolver the service is built with (default: mode `off`). */
+  tenancy?: PayerTenantScopeService;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -59,6 +85,7 @@ function setup(opts: SetupOpts = {}) {
     relay as unknown as RelayRepository,
     unlocks as unknown as UnlockService,
     events as unknown as EventsService,
+    opts.tenancy ?? tenancyService("off"),
   );
   return { svc, relay, unlocks, events };
 }
@@ -250,5 +277,49 @@ describe("RelayService — the template catalogue", () => {  it("serves the clos
         ],
       },
     ]);
+  });
+});
+
+describe("RelayService — ADR-0053 org tenancy: the thread belongs to the unlock's TENANT", () => {
+  const ANCHOR = PAYER; // A — the org's founder, whose key the org's unlocks carry
+  const MEMBER = "66666666-6666-4666-8666-666666666666"; // B — an active recruiter in A's org
+
+  const facts = (anchor: string, orgRole: "owner" | "recruiter"): ActiveMembershipFacts => ({
+    orgId: `0${anchor.slice(1)}`,
+    orgRole,
+    acceptedAt: new Date(orgRole === "owner" ? "2026-05-01" : "2026-07-01"),
+    orgStatus: "active",
+    anchorPayerId: anchor,
+    anchorRole: "employer",
+    anchorStatus: "active",
+    memberRole: "employer",
+  });
+  const MEMBERSHIPS = {
+    [ANCHOR]: [facts(ANCHOR, "owner")],
+    [MEMBER]: [facts(MEMBER, "owner"), facts(ANCHOR, "recruiter")],
+  };
+
+  it("on: a teammate's send and read resolve the handle against the ORG's key; the envelope names the teammate", async () => {
+    const { svc, unlocks, events } = setup({ tenancy: tenancyService("on", MEMBERSHIPS) });
+    await svc.sendFromPayer(
+      MEMBER,
+      HANDLE,
+      { kind: "template", template_id: "availability", params: {} },
+      CTX,
+    );
+    await svc.readThreadForPayer(MEMBER, HANDLE);
+    expect(unlocks.resolveRelayForPayer.mock.calls).toEqual([
+      [HANDLE, ANCHOR],
+      [HANDLE, ANCHOR],
+    ]);
+    for (const call of events.emit.mock.calls) {
+      expect((call[0] as { actor: { actor_id: string } }).actor.actor_id).toBe(MEMBER);
+    }
+  });
+
+  it("off: the same teammate resolves against their OWN key — identical to before ADR-0053", async () => {
+    const { svc, unlocks } = setup({ tenancy: tenancyService("off", MEMBERSHIPS) });
+    await svc.readThreadForPayer(MEMBER, HANDLE);
+    expect(unlocks.resolveRelayForPayer).toHaveBeenCalledWith(HANDLE, MEMBER);
   });
 });

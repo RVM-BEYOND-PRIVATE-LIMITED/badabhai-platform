@@ -61,9 +61,19 @@ const PII_KEYS = [
 async function req(
   method: string,
   path: string,
-  opts: { body?: unknown; token?: string; ops?: boolean; testLogin?: boolean } = {},
+  opts: {
+    body?: unknown;
+    token?: string;
+    ops?: boolean;
+    testLogin?: boolean;
+    /** Extra request headers, e.g. `{ "idempotency-key": … }`. */
+    headers?: Record<string, string>;
+  } = {},
 ): Promise<{ status: number; json: any }> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...(opts.headers ?? {}),
+  };
   if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
   if (opts.ops) headers["x-internal-service-token"] = OPS_TOKEN;
   if (opts.testLogin) headers["x-test-login-token"] = TEST_LOGIN_TOKEN;
@@ -235,11 +245,11 @@ describe.skipIf(!RUN)("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB
  * (only its hash is stored). The seeded row is exactly what a successful accept writes — an
  * `active` recruiter row in A's org bound to B's payer id, with B's own encrypted email.
  *
- * THE TEAM STORY IS `it.fails` — RED BY DESIGN IN PHASE 1. P1 ships the resolver but no tenant
- * predicate, so every posting / credit / unlock read is still keyed by the caller and B sees none
- * of A's rows. Flip it to `it` in the PR that lands the second of P2a and P2b.
+ * THE TEAM STORY IS GREEN SINCE P2b. It landed as `it.fails` in P1 (resolver, no tenant
+ * predicate: B saw none of A's rows) and was flipped to `it` in the PR that put the second of P2a
+ * (postings, #2167) and P2b (money) on `main`.
  *
- * It cannot pass for the wrong reason: the ordinary `it`s before it prove the seeded membership
+ * A failure names the right cause: the ordinary `it`s before it prove the seeded membership
  * resolves (B's `GET /payer/me` reports A's org as recruiter), that every route the story calls
  * answers 200 for B, and that the same calls made by A see A's posting and credits. The story's
  * first assertion is the tenancy one.
@@ -319,43 +329,40 @@ describe.skipIf(!RUN)(
       expect(credits.json.balance).toBe(10);
     });
 
-    // RED IN PHASE 1 (ADR-0053 / ORG_TENANCY_PLAN §2.5). Flip to `it` with the second of P2a/P2b.
-    it.fails(
-      "T0-HTTP: B lists A's posting, reads A's wallet, spends it on an unlock A can see — and removal ends it",
-      async () => {
-        // 1. B lists postings and finds A's. ← THE FIRST TENANCY ASSERTION (fails in P1).
-        const listB = await req("GET", "/payer/job-postings", { token: B.token });
-        expect((listB.json as { id: string }[]).map((p) => p.id)).toContain(postingOfA);
+    // RED IN P1 as `it.fails`; GREEN since P2b landed beside P2a (ORG_TENANCY_PLAN §1, §2.5).
+    it("T0-HTTP: B lists A's posting, reads A's wallet, spends it on an unlock A can see — and removal ends it", async () => {
+      // 1. B lists postings and finds A's. ← THE FIRST TENANCY ASSERTION (failed in P1).
+      const listB = await req("GET", "/payer/job-postings", { token: B.token });
+      expect((listB.json as { id: string }[]).map((p) => p.id)).toContain(postingOfA);
 
-        // 2. B reads the org wallet (A's balance). `payer_id` echoes the caller (ADR-0053 §10).
-        const walletBefore = (await req("GET", "/payer/credits", { token: A.token })).json.balance;
-        const creditsB = await req("GET", "/payer/credits", { token: B.token });
-        expect(creditsB.json).toMatchObject({ payer_id: B.payerId, balance: walletBefore });
+      // 2. B reads the org wallet (A's balance). `payer_id` echoes the caller (ADR-0053 §10).
+      const walletBefore = (await req("GET", "/payer/credits", { token: A.token })).json.balance;
+      const creditsB = await req("GET", "/payer/credits", { token: B.token });
+      expect(creditsB.json).toMatchObject({ payer_id: B.payerId, balance: walletBefore });
 
-        // 3. B unlocks a worker: A's wallet pays, and A sees the unlock.
-        const w = await loginWorker();
-        await consent(w.token, ["profiling", "employer_sharing"]);
-        const grant = await req("POST", "/payer/unlocks", {
-          token: B.token,
-          body: { worker_id: w.workerId },
-        });
-        expect(grant.json).toMatchObject({ ok: true, status: "granted" });
-        expect((await req("GET", "/payer/credits", { token: A.token })).json.balance).toBe(
-          walletBefore - 1,
-        );
-        const listA = await req("GET", "/payer/unlocks", { token: A.token });
-        expect(JSON.stringify(listA.json)).toContain(grant.json.unlock_id as string);
+      // 3. B unlocks a worker: A's wallet pays, and A sees the unlock.
+      const w = await loginWorker();
+      await consent(w.token, ["profiling", "employer_sharing"]);
+      const grant = await req("POST", "/payer/unlocks", {
+        token: B.token,
+        body: { worker_id: w.workerId },
+      });
+      expect(grant.json).toMatchObject({ ok: true, status: "granted" });
+      expect((await req("GET", "/payer/credits", { token: A.token })).json.balance).toBe(
+        walletBefore - 1,
+      );
+      const listA = await req("GET", "/payer/unlocks", { token: A.token });
+      expect(JSON.stringify(listA.json)).toContain(grant.json.unlock_id as string);
 
-        // 4. A removes B; on the next request B sees none of A's rows.
-        const removed = await req("DELETE", `/payer/org/members/${memberIdOfB}`, {
-          token: A.token,
-        });
-        expect(removed.status).toBe(200);
-        const after = await req("GET", "/payer/job-postings", { token: B.token });
-        expect((after.json as { id: string }[]).map((p) => p.id)).not.toContain(postingOfA);
-        expect((await req("GET", "/payer/credits", { token: B.token })).json.balance).toBe(0);
-      },
-    );
+      // 4. A removes B; on the next request B sees none of A's rows.
+      const removed = await req("DELETE", `/payer/org/members/${memberIdOfB}`, {
+        token: A.token,
+      });
+      expect(removed.status).toBe(200);
+      const after = await req("GET", "/payer/job-postings", { token: B.token });
+      expect((after.json as { id: string }[]).map((p) => p.id)).not.toContain(postingOfA);
+      expect((await req("GET", "/payer/credits", { token: B.token })).json.balance).toBe(0);
+    });
   },
 );
 
@@ -633,3 +640,155 @@ describe.skipIf(!RUN)(
     });
   },
 );
+
+/**
+ * ADR-0053 Phase 2b over live HTTP — ONE ORG WALLET (the e2e job runs PAYER_ORG_TENANCY_MODE=on).
+ *
+ * Everything here is P2b's own surface (credits, ledger, unlocks, reveal, the purchase seam), so
+ * these are ordinary `it`s — they do not wait on P2a's posting predicates. B is seeded into A's
+ * org exactly as T0-HTTP seeds it (the mock mailer never lets the accept token out), AFTER B
+ * bought a personal pack while still solo: owner ruling O-2 keeps that balance B's own and out of
+ * view, and it makes every "the org wallet paid" assertion discriminating — B's own wallet could
+ * have paid too. C is a solo outsider.
+ */
+describe.skipIf(!RUN)("Payer ORG tenancy P2b — one org wallet over HTTP (e2e, ADR-0053 §6)", () => {
+  let client!: DbClient;
+  let A!: Awaited<ReturnType<typeof mintPayerSession>>;
+  let B!: Awaited<ReturnType<typeof mintPayerSession>>;
+  let C!: Awaited<ReturnType<typeof mintPayerSession>>;
+
+  async function walletRow(payerId: string): Promise<number> {
+    const [row] =
+      await client.sql`SELECT balance FROM payer_credits WHERE payer_id = ${payerId}::uuid`;
+    return Number(row?.balance ?? 0);
+  }
+
+  beforeAll(async () => {
+    // Same refusal as the P2a block: these stories assert org tenancy, so run them only against
+    // an api (and runner) in mode `on` — never pass or skip vacuously against anything else.
+    expect(
+      process.env.PAYER_ORG_TENANCY_MODE,
+      "this block asserts org tenancy: run the api AND this runner with PAYER_ORG_TENANCY_MODE=on",
+    ).toBe("on");
+    client = createDbClient(DATABASE_URL);
+    expect(OPS_TOKEN, "set INTERNAL_SERVICE_TOKEN to seed credits via the ops route").not.toBe("");
+    A = await mintPayerSession({ role: "employer" });
+    B = await mintPayerSession({ role: "employer" });
+    C = await mintPayerSession({ role: "employer" });
+
+    // B's PERSONAL pack, bought while B is still solo (the ops route resolves B to B here).
+    expect(
+      (
+        await req("POST", `/payers/${B.payerId}/credits`, {
+          ops: true,
+          body: { pack_code: "pack_10" },
+        })
+      ).json.balance,
+    ).toBe(10);
+    // The org wallet: A's existing row — a DIFFERENT size from B's pack, so reading one where the
+    // other was meant can never pass by coincidence.
+    expect(
+      (
+        await req("POST", `/payers/${A.payerId}/credits`, {
+          ops: true,
+          body: { pack_code: "pack_25" },
+        })
+      ).json.balance,
+    ).toBe(25);
+
+    // What a successful accept writes: B, active recruiter in A's org.
+    const [org] =
+      await client.sql`SELECT id FROM payer_orgs WHERE root_payer_id = ${A.payerId}::uuid`;
+    const [member] = await client.sql`
+      INSERT INTO payer_members (org_id, member_payer_id, email_enc, email_hash, org_role, status,
+                                 invited_by, invited_at, accepted_at)
+      SELECT ${String(org?.id)}::uuid, b.id, b.email_enc, b.email_hash, 'recruiter', 'active',
+             ${A.payerId}::uuid, now(), now()
+      FROM payers b WHERE b.id = ${B.payerId}::uuid
+      RETURNING id`;
+    expect(member?.id, "seeded B's membership").toBeTruthy();
+  });
+
+  afterAll(async () => {
+    await client?.sql.end({ timeout: 5 });
+  });
+
+  it("B reads the ORG wallet (A's balance), never B's personal pack; `payer_id` echoes B", async () => {
+    const credits = await req("GET", "/payer/credits", { token: B.token });
+    expect(credits.status).toBe(200);
+    expect(credits.json).toEqual({ payer_id: B.payerId, balance: await walletRow(A.payerId) });
+    expect(await walletRow(B.payerId)).toBe(10); // still there, still B's (O-2)
+    // The outsider reads only their own (empty) wallet.
+    expect((await req("GET", "/payer/credits", { token: C.token })).json).toEqual({
+      payer_id: C.payerId,
+      balance: 0,
+    });
+  });
+
+  it("B's purchase credits the ORG wallet, once per Idempotency-Key — a replay is the same answer and no second grant", async () => {
+    const before = await walletRow(A.payerId);
+    const key = `p2b-${randomUUID()}`;
+    const buy = () =>
+      req("POST", "/payer/credits", {
+        token: B.token,
+        headers: { "idempotency-key": key },
+        body: { pack_code: "pack_50" },
+      });
+
+    const first = await buy();
+    expect(first.status).toBe(201);
+    expect(first.json).toMatchObject({ payer_id: B.payerId, balance: before + 50, credits: 50 });
+    const replay = await buy();
+    expect(replay).toEqual(first);
+    expect(await walletRow(A.payerId)).toBe(before + 50);
+    expect(await walletRow(B.payerId)).toBe(10);
+
+    // The ledger B reads is the org wallet's, and it reconciles with the balance.
+    const ledger = await req("GET", "/payer/credits/ledger?limit=50", { token: B.token });
+    const sum = (ledger.json.ledger as { delta: number }[]).reduce((s, l) => s + l.delta, 0);
+    expect(sum).toBe(await walletRow(A.payerId));
+  });
+
+  it("B unlocks a worker on the ORG wallet; A lists it, the outsider does not; B and A may reveal it, the outsider gets the neutral body", async () => {
+    const w = await loginWorker();
+    await consent(w.token, ["profiling", "employer_sharing"]);
+    const before = await walletRow(A.payerId);
+
+    const grant = await req("POST", "/payer/unlocks", {
+      token: B.token,
+      body: { worker_id: w.workerId },
+    });
+    expect(grant.json).toMatchObject({ ok: true, status: "granted" });
+    const unlockId = grant.json.unlock_id as string;
+    expect(await walletRow(A.payerId)).toBe(before - 1);
+    expect(await walletRow(B.payerId)).toBe(10);
+
+    expect(JSON.stringify((await req("GET", "/payer/unlocks", { token: A.token })).json)).toContain(
+      unlockId,
+    );
+    expect(
+      JSON.stringify((await req("GET", "/payer/unlocks", { token: C.token })).json),
+    ).not.toContain(unlockId);
+
+    const outsider = await req("POST", `/payer/unlocks/${unlockId}/reveal`, { token: C.token });
+    expect(outsider.status).toBe(200);
+    expect(outsider.json).toEqual({ status: "unavailable" });
+    // The teammate who unlocked reveals the ORG's unlock over HTTP, and so may the anchor.
+    const teammate = await req("POST", `/payer/unlocks/${unlockId}/reveal`, { token: B.token });
+    expect(teammate.status).toBe(200);
+    expect(teammate.json.channel).toBe("in_app_relay");
+    expect(teammate.json.relay_handle).not.toContain(w.phone);
+    const anchor = await req("POST", `/payer/unlocks/${unlockId}/reveal`, { token: A.token });
+    expect(anchor.json.channel).toBe("in_app_relay");
+    // One routing row per unlock (P-021): every member gets the SAME handle.
+    expect(anchor.json.relay_handle).toBe(teammate.json.relay_handle);
+
+    // A re-requesting the worker B already unlocked gets the ORG's grant and pays nothing.
+    const again = await req("POST", "/payer/unlocks", {
+      token: A.token,
+      body: { worker_id: w.workerId },
+    });
+    expect(again.json.unlock_id).toBe(unlockId);
+    expect(await walletRow(A.payerId)).toBe(before - 1);
+  });
+});

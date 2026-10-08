@@ -283,9 +283,15 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
   the event envelope (§7).
 - **Payment orders are stamped at intent.** `payment_orders.payer_id` = the tenant key when the order
   is created. Settlement (webhook or verify) credits that wallet and never re-resolves. The
-  `expectedPayerId` check (`payment-gateway.ts:275`) compares with `scope.tenantKey`, so any member
+  `expectedTenantKey` check (`PaymentGateway.settleOrder`) compares with `scope.tenantKey`, so any member
   of the org may verify the org's order. An order created before the flip settles into the wallet it
   was created for.
+  *As built in P2b (PR #2171).* The claim and the credit are one repository call
+  (`claimAndCreditPaymentOrderWithinTx`): the credited wallet is read only off the claim's `RETURNING` row,
+  and no public method credits a caller-supplied order or wallet. One consequence: an order a member
+  created for their **own** wallet before the flip cannot be browser-verified by that member in `on`
+  (their tenant is now the org). The webhook, which is the source of truth, still settles it into the
+  member's wallet. Census C9 sizes these orders, and the plan's support runbook covers them.
 - **Free tier:** the signup grant goes to the new payer's own solo wallet. This is unchanged, keyed
   per account (`free_tier_grant:<payerId>`). Inviting more people cannot farm free credits into a
   team wallet.
@@ -312,14 +318,28 @@ in `on` equals `P`. The flip therefore changes behaviour **only** for team membe
     payload's payer-reference fields (`payer_id`, `inviter_payer_id`, `agency_payer_id`,
     `viewer_payer_id`) carry the **tenant key**. Tenant business events are the agency `job.*`
     events (`job.created`, `job.updated`, `job.closed`; added 2026-10-08, PR #2167), the `job_posting.*`
-    purchase/boost/plan events, `unlock.*`, `payment.*`, `coupon.redeemed`, `capacity.purchased`,
-    `posting_plan.*`, `payer.credits_exhausted`, `profile.viewed_v2`, `agency_invite.*`,
-    `agency_kyc.*` and `agency_payout.*`.
+    purchase/boost/plan events, `unlock.*`, `contact.revealed`, `resume.disclosed` (both added
+    2026-10-08, PR #2171: they describe an unlock and a disclosure row, which the tenant owns),
+    `payment.*`, `coupon.redeemed`, `capacity.purchased`, `posting_plan.*`,
+    `payer.credits_exhausted`, `profile.viewed_v2`, `agency_invite.*`, `agency_kyc.*` and
+    `agency_payout.*`.
+  - **The wallet is the subject when the wallet is what changed.** `payer.credits_exhausted` keeps
+    `subject_type: payer`; its `subject_id` is the wallet that ran dry, which is the tenant key. The
+    envelope actor is still the member whose debit emptied it (PR #2171).
+  - **A capture with no acting login names the wallet.** A `payment.captured` or `payment.failed`
+    emitted from the Razorpay **webhook** has no member behind it. Its envelope actor (type `payer`, as
+    before) is the order's stamped wallet, and so is its payload `payer_id`. A capture settled through
+    **verify** names the verifying member as actor. `payment.captured` is keyed per order row, so
+    exactly one of the two is recorded (PR #2171).
   - **System-actor events keep the system actor.** `posting_plan.paused` and
     `posting_plan.resumed` are emitted by the capacity chokepoint, not by a person: their envelope
     actor stays `system`, and their payload `payer_id` carries the tenant key (as built in P2c,
     PR #2174). The same goes for a payer-keyed `pricing_plan` subject (`capacity.purchased`,
     `coupon.redeemed`, a capacity `payment.*`): its `subject_id` is the tenant key.
+    `payer.suspended_payment_captured` (the Finance alert on a capture for a suspended account) is a
+    system-actor event of the same kind. It is not a person-level event: its `subject_id` and payload
+    `payer_id` are the order's stamped wallet, i.e. the tenant key, and that wallet's status is what
+    is checked (PR #2171).
   - Every historical event has actor = tenant. In mode `off` every value is unchanged.
   - **Person-level events** keep the person: `payer.*` lifecycle and auth events,
     `payer.account_updated`, `payer_member.*` and `job_posting_chat.*` (member-private).

@@ -6,6 +6,7 @@ import { PaymentGateway } from "./payment-gateway";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { RazorpayClient } from "./razorpay.client";
 import type { PricingService } from "../pricing/pricing.service";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
  * D-6 MEDIUM-1 — display/charge coupling at the credit-pack seam.
@@ -22,6 +23,8 @@ import type { PricingService } from "../pricing/pricing.service";
  */
 
 const CONFIG = { PAYMENTS_ENABLE_REAL: false } as unknown as ServerConfig;
+/** The wallet the service resolved (ADR-0053) — the gateway never resolves one itself. */
+const WALLET = "payer-1" as TenantKey;
 
 /** A catalog whose `contact_unlock` tiers are replaced wholesale. */
 function catalogWithUnlockTiers(
@@ -149,10 +152,10 @@ describe("PaymentGateway.purchasePackMock — stamps the CHARGED ₹ on the ledg
       catalogWithUnlockTiers([{ code: "pack_50", priceInr: 1500, credits: 60, windowDays: 14 }]),
     );
     const pack = (await gw.resolvePack("pack_50"))!;
-    const res = await gw.purchasePackMock("payer-1", pack);
+    const res = await gw.purchasePackMock(WALLET, pack);
 
     expect(repo.creditPack).toHaveBeenCalledWith({
-      payerId: "payer-1",
+      payerId: WALLET, // the resolved tenant's wallet, exactly as handed in
       credits: 60, // the LIVE grant
       reason: "pack_purchase",
       packCode: "pack_50",
@@ -165,6 +168,6 @@ describe("PaymentGateway.purchasePackMock — stamps the CHARGED ₹ on the ledg
   it("money stays MOCK — real_call is the honest false", async () => {
     const { gw } = makeGateway();
     const pack = (await gw.resolvePack("pack_50"))!;
-    await expect(gw.purchasePackMock("payer-1", pack)).resolves.toMatchObject({ realCall: false });
+    await expect(gw.purchasePackMock(WALLET, pack)).resolves.toMatchObject({ realCall: false });
   });
 });

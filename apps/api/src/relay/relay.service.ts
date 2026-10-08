@@ -3,6 +3,7 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RelayMessage } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { UnlockService, type RelayResolution } from "../unlocks/unlocks.service";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { RelayRepository } from "./relay.repository";
@@ -41,6 +42,13 @@ import {
  * about the WORKER (the payer owns this unlock and the thread is theirs); it is a fact about
  * the shape the §B ruling allows at this point in the thread. A neutral body here would make
  * the UI unable to tell "the worker has not replied yet" from "your access is gone".
+ *
+ * ── ORG TENANCY (ADR-0053) ────────────────────────────────────────────────────────────────
+ *
+ * The payer methods resolve the tenant ONCE at their entry point and hand the branded key to
+ * `resolveRelayForPayer`: an unlock belongs to its tenant, so in mode `on` any member of the
+ * org may read and write the org's unlock's thread. The acting login stays the envelope actor
+ * of every relay event. In mode `off` the key is the caller itself.
  */
 @Injectable()
 export class RelayService {
@@ -50,6 +58,8 @@ export class RelayService {
     private readonly relay: RelayRepository,
     private readonly unlocks: UnlockService,
     private readonly events: EventsService,
+    // ADR-0053 — the ONE tenant resolver (PayersModule is already imported by RelayModule).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   /** The closed opening-template catalogue, for the payer's composer (one source of truth). */
@@ -72,7 +82,8 @@ export class RelayService {
   ): Promise<
     { message_id: string; created_at: string } | NeutralUnavailableResponse
   > {
-    const resolved = await this.unlocks.resolveRelayForPayer(handle, payerId);
+    const scope = await this.tenancy.resolve(payerId);
+    const resolved = await this.unlocks.resolveRelayForPayer(handle, scope.tenantKey);
     if (resolved === null) return neutralUnavailable();
 
     if (dto.kind === "text" && !(await this.relay.hasWorkerReply(resolved.unlockId))) {
@@ -187,7 +198,8 @@ export class RelayService {
     payerId: string,
     handle: string,
   ): Promise<{ messages: RelayMessageWire[] } | NeutralUnavailableResponse> {
-    const resolved = await this.unlocks.resolveRelayForPayer(handle, payerId);
+    const scope = await this.tenancy.resolve(payerId);
+    const resolved = await this.unlocks.resolveRelayForPayer(handle, scope.tenantKey);
     if (resolved === null) return neutralUnavailable();
     const rows = await this.relay.listByUnlock(resolved.unlockId);
     return { messages: rows.map((row) => this.toWire(row)) };

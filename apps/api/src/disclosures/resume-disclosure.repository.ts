@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, isNull, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import {
   type Database,
   type DisclosureStatus,
@@ -12,6 +12,7 @@ import {
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { NEWEST_RESUME_FIRST } from "../resume/resume-order";
 
 /**
@@ -54,6 +55,10 @@ export interface ResumeSource {
  * per-worker "PII disclosed to payers" ceiling that spans unlock reveals AND resume
  * disclosures (B-B), so a worker cannot be harvested past the cap by splitting across
  * the two SKUs. The raw phone is NEVER read or written here.
+ *
+ * TENANCY (ADR-0053, PAY-DB-01). `resume_disclosures.payer_id` holds the tenant key: every
+ * predicate and stamp on it takes a {@link TenantKey} from `PayerTenantScopeService` (via the
+ * service), never a raw payer id. In mode `off` that is the session payer — byte-identical SQL.
  */
 @Injectable()
 export class ResumeDisclosureRepository {
@@ -112,18 +117,18 @@ export class ResumeDisclosureRepository {
   }
 
   /**
-   * #1899 — `refId` as a `job_postings` or `jobs` row the payer OWNS, or null (unknown and
+   * #1899 — `refId` as a `job_postings` or `jobs` row the TENANT owns, or null (unknown and
    * foreign alike). A NON-tx global-pool read like {@link jobPostingExists}: called BEFORE the
    * advisory-locked transaction.
    */
-  async findOwnedJobRef(refId: string, payerId: string): Promise<OwnedJobRef | null> {
-    return findOwnedJobRef(this.db, refId, payerId);
+  async findOwnedJobRef(refId: string, tenant: TenantKey): Promise<OwnedJobRef | null> {
+    return findOwnedJobRef(this.db, refId, tenant);
   }
 
-  /** The existing disclosure row for (payer, worker, posting), or undefined. Tx-scoped. */
+  /** The existing disclosure row for (tenant, worker, posting), or undefined. Tx-scoped. */
   async findByPayerWorkerPosting(
     tx: Tx,
-    payerId: string,
+    tenant: TenantKey,
     workerId: string,
     jobPostingId: string | null,
   ): Promise<typeof resumeDisclosures.$inferSelect | undefined> {
@@ -132,7 +137,7 @@ export class ResumeDisclosureRepository {
       .from(resumeDisclosures)
       .where(
         and(
-          eq(resumeDisclosures.payerId, payerId),
+          eq(resumeDisclosures.payerId, tenant),
           eq(resumeDisclosures.workerId, workerId),
           jobPostingId === null
             ? isNull(resumeDisclosures.jobPostingId)
@@ -169,7 +174,11 @@ export class ResumeDisclosureRepository {
     return (reveals[0]?.total ?? 0) + (disclosures[0]?.count ?? 0);
   }
 
-  /** Distinct payers who got a contact OR a resume for a worker since `since` (shared weekly). */
+  /**
+   * Distinct payers who got a contact OR a resume for a worker since `since` (shared weekly).
+   * Both `payer_id` columns hold the tenant key, so in mode `on` this counts distinct ORGS
+   * (owner ruling O-3, ADR-0053 §6). The SQL is unchanged.
+   */
   async countDistinctPayersSince(tx: Tx, workerId: string, since: Date): Promise<number> {
     const rows = await tx.execute(sql`
       select count(distinct payer_id)::int as count from (
@@ -192,11 +201,11 @@ export class ResumeDisclosureRepository {
 
   // ---- Grant / deny / disclose writes -------------------------------------------
 
-  /** Insert a fresh disclosure row. Tx-scoped. */
+  /** Insert a fresh disclosure row. Tx-scoped. `payerId` is the tenant key stamped on the row. */
   async insertRow(
     tx: Tx,
     input: {
-      payerId: string;
+      payerId: TenantKey;
       workerId: string;
       jobPostingId: string | null;
       status: DisclosureStatus;
@@ -287,19 +296,19 @@ export class ResumeDisclosureRepository {
   }
 
   /**
-   * How many résumés the payer has DOWNLOADED (disclosed) for one of their OWN
+   * How many résumés the tenant has DOWNLOADED (disclosed) for one of its OWN
    * postings — a truthful per-posting engagement count for the My-jobs card. Only
    * COMPLETED disclosures (`disclosed_at` set) count; a pending/denied request is
-   * not a download. PAYER-SCOPED + posting-scoped in the WHERE (no cross-tenant
+   * not a download. TENANT-SCOPED + posting-scoped in the WHERE (no cross-tenant
    * leak). PII-free (a count only).
    */
-  async countDisclosedForPosting(jobPostingId: string, payerId: string): Promise<number> {
+  async countDisclosedForPosting(jobPostingId: string, tenant: TenantKey): Promise<number> {
     const rows = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(resumeDisclosures)
       .where(
         and(
-          eq(resumeDisclosures.payerId, payerId),
+          eq(resumeDisclosures.payerId, tenant),
           eq(resumeDisclosures.jobPostingId, jobPostingId),
           isNotNull(resumeDisclosures.disclosedAt),
         ),
@@ -307,12 +316,45 @@ export class ResumeDisclosureRepository {
     return rows[0]?.count ?? 0;
   }
 
-  /** Ops: a payer's disclosures (PII-free projection — NO bytes / name / link). */
-  async listByPayer(payerId: string): Promise<DisclosureProjection[]> {
+  /**
+   * {@link countDisclosedForPosting} for a whole page of the tenant's postings in ONE grouped
+   * query — the postings list's enrichment, which used to issue one count per posting. A posting
+   * with no completed disclosure is simply absent from the map (the caller reads it as 0). Same
+   * predicates: tenant-scoped, posting-scoped, completed only. PII-free (counts only).
+   */
+  async countDisclosedForPostings(
+    jobPostingIds: readonly string[],
+    tenant: TenantKey,
+  ): Promise<Map<string, number>> {
+    // An empty IN () is invalid SQL and would mean "nothing" anyway.
+    if (jobPostingIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({
+        jobPostingId: resumeDisclosures.jobPostingId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(resumeDisclosures)
+      .where(
+        and(
+          eq(resumeDisclosures.payerId, tenant),
+          inArray(resumeDisclosures.jobPostingId, [...jobPostingIds]),
+          isNotNull(resumeDisclosures.disclosedAt),
+        ),
+      )
+      .groupBy(resumeDisclosures.jobPostingId);
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      if (row.jobPostingId !== null) counts.set(row.jobPostingId, row.count);
+    }
+    return counts;
+  }
+
+  /** A tenant's disclosures (PII-free projection — NO bytes / name / link). */
+  async listByPayer(tenant: TenantKey): Promise<DisclosureProjection[]> {
     const rows = await this.db
       .select()
       .from(resumeDisclosures)
-      .where(eq(resumeDisclosures.payerId, payerId))
+      .where(eq(resumeDisclosures.payerId, tenant))
       .orderBy(desc(resumeDisclosures.createdAt))
       .limit(500);
     return rows.map((r) => ({

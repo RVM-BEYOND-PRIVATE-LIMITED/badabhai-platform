@@ -20,7 +20,6 @@ import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers
 import { PayerRoleGuard, PayerRoles } from "../payers/payer-role.guard";
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import type { PostingStats } from "../posting-plans/posting-plans.service";
-import { ResumeDisclosureService } from "../disclosures/resume-disclosure.service";
 import type { JobPostingApi } from "../job-postings/job-postings.repository";
 import { PayerPostingPlansService, type PostingWithStats } from "./payer-posting-plans.service";
 
@@ -87,19 +86,14 @@ export class PayerJobPostingsController {
     private readonly jobPostings: JobPostingsService,
     // ADR-0053 P2c — the posting reads with their plan stats, and the three paid routes.
     private readonly postingPlans: PayerPostingPlansService,
-    private readonly disclosures: ResumeDisclosureService,
     private readonly idempotency: RequestIdempotency,
   ) {}
 
   /**
-   * Merge a posting (and the stats its tenant-scoped read already carries) with its
-   * résumés-downloaded count.
+   * The wire shape of a posting read: the row, the stats and the résumés-downloaded count its
+   * tenant-scoped read already carries (ADR-0053 §5.4: nothing here reads or resolves again).
    */
-  private async enrich(
-    { posting, stats }: PostingWithStats,
-    payerId: string,
-  ): Promise<PayerJobPostingView> {
-    const disclosuresCount = await this.disclosures.countDisclosuresForPosting(posting.id, payerId);
+  private view({ posting, stats, disclosuresCount }: PostingWithStats): PayerJobPostingView {
     return { ...posting, ...stats, disclosures_count: disclosuresCount };
   }
 
@@ -129,7 +123,7 @@ export class PayerJobPostingsController {
     @CurrentPayer() payer: AuthenticatedPayer,
   ): Promise<PayerJobPostingView[]> {
     const rows = await this.postingPlans.listWithStats(payer.id, query);
-    return Promise.all(rows.map((row) => this.enrich(row, payer.id)));
+    return rows.map((row) => this.view(row));
   }
 
   /** Get one of the caller's OWN postings; no-oracle 404 for unknown OR foreign id. */
@@ -138,7 +132,7 @@ export class PayerJobPostingsController {
     @Param("id", new ParseUUIDPipe()) id: string,
     @CurrentPayer() payer: AuthenticatedPayer,
   ): Promise<PayerJobPostingView> {
-    return this.enrich(await this.postingPlans.getOneWithStats(id, payer.id), payer.id);
+    return this.view(await this.postingPlans.getOneWithStats(id, payer.id));
   }
 
   /** Edit and/or publish (draft -> open) one of the caller's OWN postings. */

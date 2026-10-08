@@ -4,6 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
 import { CREDIT_PACKS, type CreditPack, type PaymentOrder } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
 import { chargeQuote } from "../pricing/charge-price";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
@@ -33,6 +34,11 @@ const CREDIT_PACK_PRODUCT = "contact_unlock";
  * with the grant write in the chokepoint's single transaction (F-6: no
  * debit-without-grant / grant-without-debit). The DB CHECK (balance >= 0) + the atomic
  * conditional decrement make a negative balance impossible.
+ *
+ * THE WALLET IS A TENANT KEY (ADR-0053 §6). Every method that moves or stamps money takes the
+ * {@link TenantKey} the service resolved — the org wallet in mode `on` (the anchor's existing
+ * `payer_credits` row), the session payer's own wallet in `off`. No method here resolves a
+ * tenant itself, and settlement never re-resolves: it credits the wallet the order row names.
  */
 /** A real Razorpay order, ready to hand to the browser checkout. Carries NO secret. */
 export interface RealOrderHandoff {
@@ -109,9 +115,9 @@ export class PaymentGateway {
    */
   async debitOneCreditWithinTx(
     tx: Tx,
-    payerId: string,
+    tenant: TenantKey,
   ): Promise<{ ok: true; balanceAfter: number } | { ok: false }> {
-    const balanceAfter = await this.repo.tryDebit(tx, payerId, 1);
+    const balanceAfter = await this.repo.tryDebit(tx, tenant, 1);
     if (balanceAfter === undefined) return { ok: false };
     return { ok: true, balanceAfter };
   }
@@ -168,11 +174,11 @@ export class PaymentGateway {
    * second, possibly-drifted lookup.
    */
   async purchasePackMock(
-    payerId: string,
+    tenant: TenantKey,
     pack: CreditPack,
   ): Promise<{ balanceAfter: number; credits: number; priceInr: number; realCall: false }> {
     const balanceAfter = await this.repo.creditPack({
-      payerId,
+      payerId: tenant,
       credits: pack.credits,
       reason: "pack_purchase",
       packCode: pack.code,
@@ -203,7 +209,7 @@ export class PaymentGateway {
    * provider call leaves an unpaid provider order the payer never sees a checkout for,
    * which expires harmlessly. The reverse order would risk a paid order we cannot match.
    */
-  async createRealOrder(payerId: string, pack: CreditPack): Promise<RealOrderHandoff> {
+  async createRealOrder(tenant: TenantKey, pack: CreditPack): Promise<RealOrderHandoff> {
     const keyId = this.razorpay.keyId;
     if (!this.razorpay.isLive || keyId === null) {
       // Unreachable through the gated controller; a hard stop keeps it unreachable if a
@@ -221,7 +227,8 @@ export class PaymentGateway {
     });
 
     const row = await this.repo.createPaymentOrder({
-      payerId,
+      // The wallet this order will credit, stamped at INTENT (ADR-0053 §6).
+      payerId: tenant,
       packCode: pack.code,
       // BOTH sides of the transaction are stamped, from ONE catalog read, at this instant.
       // The settle path reads them back off the row and never re-resolves the pack.
@@ -251,7 +258,7 @@ export class PaymentGateway {
    * THREE LAYERS OF EXACTLY-ONCE, deliberately redundant because this is money:
    *  1. UNIQUE (provider, provider_order_id) — one order id can only ever be one row.
    *  2. The conditional `status <> 'paid' → 'paid'` UPDATE (see
-   *     {@link UnlocksRepository.claimPaymentOrderPaidWithinTx}) — a single statement, so
+   *     {@link UnlocksRepository.claimAndCreditPaymentOrderWithinTx}) — a single statement, so
    *     there is no read-then-write window; concurrent settlers serialize on the row lock
    *     and exactly one gets a row back.
    *  3. `credit_ledger.idempotency_key = payment_order:<row id>` — a partial UNIQUE index.
@@ -261,18 +268,20 @@ export class PaymentGateway {
    * The claim and the grant run in ONE transaction, so "order marked paid" and "credits
    * granted" are inseparable — no crash window can produce one without the other.
    *
-   * @param expectedPayerId when set (the verify path), the order must belong to this payer;
-   *        a mismatch returns the SAME `unknown_order` as a non-existent order — a payer
-   *        cannot use this endpoint to probe another tenant's order ids (no-oracle).
+   * @param expectedTenantKey when set (the verify path), the order must belong to the caller's
+   *        TENANT — the wallet stamped on the row at intent, so in mode `on` any member of the
+   *        org may verify the org's order (ADR-0053 §6). A mismatch returns the SAME
+   *        `unknown_order` as a non-existent order — a payer cannot use this endpoint to probe
+   *        another tenant's order ids (no-oracle). Settlement never re-resolves the tenant.
    */
   async settleOrder(input: {
     providerOrderId: string;
     providerPaymentRef: string;
-    expectedPayerId?: string;
+    expectedTenantKey?: TenantKey;
   }): Promise<SettleResult> {
     const existing = await this.repo.findPaymentOrder(input.providerOrderId);
     if (!existing) return { outcome: "unknown_order" };
-    if (input.expectedPayerId !== undefined && existing.payerId !== input.expectedPayerId) {
+    if (input.expectedTenantKey !== undefined && existing.payerId !== input.expectedTenantKey) {
       return { outcome: "unknown_order" }; // byte-identical to "no such order" (no-oracle)
     }
     // Fast path: already settled by the other channel. Skips the write entirely.
@@ -286,27 +295,16 @@ export class PaymentGateway {
     // checkout tab stays open.
     await this.warnOnCatalogDrift(existing);
 
-    const settled = await this.repo.withTransaction(async (tx) => {
-      const claimed = await this.repo.claimPaymentOrderPaidWithinTx(tx, {
+    // Claim + grant in ONE repository call and ONE transaction. The wallet, the credits and the
+    // ₹ are all the CLAIMED row's stamped values — what this order was sold as and the wallet it
+    // was sold to (ADR-0053 §6, never re-resolved), not what the pack or the caller's tenancy is
+    // today. `undefined` = lost the race: the winner granted, so we must not.
+    const settled = await this.repo.withTransaction((tx) =>
+      this.repo.claimAndCreditPaymentOrderWithinTx(tx, {
         providerOrderId: input.providerOrderId,
         providerPaymentRef: input.providerPaymentRef,
-      });
-      if (!claimed) return null; // lost the race — the winner granted; we must not.
-      const balanceAfter = await this.repo.creditPackWithinTx(tx, {
-        payerId: claimed.payerId,
-        // The STAMPED grant — what this order was sold as, not what the pack is today.
-        credits: claimed.creditsGranted,
-        reason: "pack_purchase",
-        packCode: claimed.packCode,
-        // OPAQUE provider payment id only (`pay_*`) — never a card/UPI/contact value.
-        paymentRef: input.providerPaymentRef,
-        // The STAMPED receipt amount, not the current catalog price.
-        priceInr: claimed.amountInr,
-        // Layer 3: one ledger row per order row, enforced by a unique index.
-        idempotencyKey: `payment_order:${claimed.id}`,
-      });
-      return { claimed, balanceAfter };
-    });
+      }),
+    );
 
     if (!settled) {
       // Someone else claimed it inside the race window. Re-read for the caller's response
@@ -319,10 +317,10 @@ export class PaymentGateway {
 
     return {
       outcome: "granted",
-      order: settled.claimed,
+      order: settled.order,
       balanceAfter: settled.balanceAfter,
-      credits: settled.claimed.creditsGranted,
-      priceInr: settled.claimed.amountInr,
+      credits: settled.order.creditsGranted,
+      priceInr: settled.order.amountInr,
     };
   }
 

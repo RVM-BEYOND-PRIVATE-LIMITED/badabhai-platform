@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConsentModule } from "../consent/consent.module";
+import { PayersModule } from "../payers/payers.module";
 import { StorageModule } from "../storage/storage.module";
 import { ResumeDisclosureController } from "./resume-disclosure.controller";
 import { ResumeDisclosureService } from "./resume-disclosure.service";
@@ -45,9 +46,14 @@ import { GeneralRoadReader } from "../resume/general-road.reader";
  * ciphertext, so it does not even need PiiCryptoService — which is why providing it here is
  * strictly cheaper than importing ProfilesModule and is what keeps this surface's boot
  * independent of the profiles subtree.
+ *
+ * `PayersModule` (ADR-0053) — for `PayerTenantScopeService`, the ONE tenant resolver the service
+ * keys every disclosure by. It is IMPORTED, never provided here: a second provider would be a
+ * second resolver instance outside the single-reader pin. A one-way edge — PayersModule imports
+ * nothing from disclosures — so it cannot form a cycle.
  */
 @Module({
-  imports: [ConsentModule, StorageModule],
+  imports: [ConsentModule, StorageModule, PayersModule],
   controllers: [ResumeDisclosureController],
   providers: [
     ResumeDisclosureService,

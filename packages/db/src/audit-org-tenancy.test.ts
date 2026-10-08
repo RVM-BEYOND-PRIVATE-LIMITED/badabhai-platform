@@ -35,7 +35,19 @@ describe("db:audit:org-tenancy — read-only by construction", () => {
       "C6b",
       "C7",
       "C8",
+      "C9",
     ]);
+  });
+
+  it("C9 lists team members' OPEN payment orders stamped with their own wallet (PR #2171 review, security L2)", () => {
+    const c9 = CENSUS_QUERIES.find((q) => q.id === "C9")!;
+    expect(c9.rule).toBe("record");
+    expect(c9.sql).toMatch(/FROM payment_orders/);
+    // Any unsettled order, not only `created`: the settle claim matches every status but `paid`, so
+    // a `failed` order can still be captured on a provider retry (PR #2171 re-review).
+    expect(c9.sql).toMatch(/status <> 'paid'/);
+    expect(c9.sql).not.toMatch(/status = 'created'/);
+    expect(c9.sql).toMatch(/payer_id IN \(SELECT id FROM team_members\)/);
   });
 
   it.each(CENSUS_QUERIES.map((q) => [q.id, q] as const))(
@@ -136,9 +148,9 @@ describe("db:audit:org-tenancy — counting and the flip gate", () => {
     expect(flipGate(results)).toEqual({ pass: false, failing: [id] });
   });
 
-  it("does NOT fail on C1, C5, C7 or C8: those are recorded (C5 is what O-2 ruled on)", () => {
+  it("does NOT fail on C1, C5, C7, C8 or C9: those are recorded (C5 is what O-2 ruled on)", () => {
     const results = clean().map((r) =>
-      ["C1", "C7"].includes(r.query.id)
+      ["C1", "C7", "C9"].includes(r.query.id)
         ? { ...r, rows: [{ x: 1 }] }
         : ["C5", "C8"].includes(r.query.id)
           ? { ...r, rows: [{ t: "unlocks", n: 9 }] }

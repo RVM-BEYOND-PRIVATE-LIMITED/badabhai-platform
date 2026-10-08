@@ -56,8 +56,24 @@ function make(tenancy: PayerTenantScopeService) {
     topUpQuotaInScope: vi.fn<Purchase>(async () => ({ plan: { id: "plan-1" } })),
     getPostingStats: vi.fn(async (_id: string, _tenant: string) => STATS),
   };
-  const svc = new PayerPostingPlansService(jobPostings as never, plans as never, tenancy);
-  return { svc, jobPostings, plans, resolve: vi.spyOn(tenancy, "resolve") };
+  // ADR-0053 P2b — the résumé-download counts ride the same scope as the stats (M-3): the page
+  // in ONE grouped read, the single posting in one count. POSTING has 3 downloads, OTHER none.
+  const disclosures = {
+    countDownloadsInScope: vi.fn(
+      async (ids: readonly string[], _scope: PayerTenantScope) =>
+        new Map(ids.map((id) => [id, id === POSTING ? 3 : 0])),
+    ),
+    countDownloadsForPostingInScope: vi.fn(
+      async (_id: string, _scope: PayerTenantScope) => 7,
+    ),
+  };
+  const svc = new PayerPostingPlansService(
+    jobPostings as never,
+    plans as never,
+    disclosures as never,
+    tenancy,
+  );
+  return { svc, jobPostings, plans, disclosures, resolve: vi.spyOn(tenancy, "resolve") };
 }
 
 /** The scope a recorder was called with, by argument position. */
@@ -137,6 +153,14 @@ describe("PayerPostingPlansService — the posting reads carry their stats from 
       [POSTING, ANCHOR],
       [OTHER, ANCHOR],
     ]);
+    // P2b (M-3): the page's download counts are ONE grouped read in the SAME scope object.
+    expect(rows.map((r) => r.disclosuresCount)).toEqual([3, 0]);
+    expect(d.disclosures.countDownloadsInScope).toHaveBeenCalledTimes(1);
+    expect(d.disclosures.countDownloadsInScope.mock.calls[0]![0]).toEqual([POSTING, OTHER]);
+    expect(d.disclosures.countDownloadsInScope.mock.calls[0]![1]).toBe(
+      scopeArg(d.jobPostings.listInScope, 0, 0),
+    );
+    expect(d.disclosures.countDownloadsForPostingInScope).not.toHaveBeenCalled();
   });
 
   it("on: a teammate's read of the org's posting carries its stats; an outsider's is the 404 and reads no stats", async () => {
@@ -144,13 +168,22 @@ describe("PayerPostingPlansService — the posting reads carry their stats from 
     await expect(d.svc.getOneWithStats(POSTING, MEMBER)).resolves.toEqual({
       posting: { id: POSTING, payer_id: ANCHOR },
       stats: STATS,
+      disclosuresCount: 7,
     });
     expect(d.resolve).toHaveBeenCalledTimes(1);
     expect(d.plans.getPostingStats).toHaveBeenCalledWith(POSTING, ANCHOR);
+    // P2b (M-3): the single read's download count, in the scope the ownership read used.
+    expect(d.disclosures.countDownloadsForPostingInScope).toHaveBeenCalledTimes(1);
+    expect(d.disclosures.countDownloadsForPostingInScope.mock.calls[0]![0]).toBe(POSTING);
+    expect(d.disclosures.countDownloadsForPostingInScope.mock.calls[0]![1]).toBe(
+      scopeArg(d.jobPostings.getOneInScope),
+    );
 
     d.plans.getPostingStats.mockClear();
+    d.disclosures.countDownloadsForPostingInScope.mockClear();
     await expect(d.svc.getOneWithStats(POSTING, OUTSIDER)).rejects.toBeInstanceOf(NotFoundException);
     expect(d.plans.getPostingStats).not.toHaveBeenCalled();
+    expect(d.disclosures.countDownloadsForPostingInScope).not.toHaveBeenCalled();
   });
 
   it("off (the default): the teammate lists their own (no) postings, keyed by themself, as today", async () => {
