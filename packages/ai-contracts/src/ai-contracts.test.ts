@@ -24,6 +24,12 @@ import {
   FreeChatReplyOutputSchema,
   FreeChatSummarizeInputSchema,
   FreeChatSummarizeOutputSchema,
+  FreeChatNewsInputSchema,
+  FreeChatNewsSourceSchema,
+  FreeChatNewsAnswerSchema,
+  FreeChatNewsNoResultsSchema,
+  FreeChatNewsRefuseSchema,
+  FreeChatNewsOutputSchema,
 } from "./free-chat";
 import {
   CompanionCareerAnswerSchema,
@@ -1277,6 +1283,12 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     // Release 2 — the rolling summary.
     ["FreeChatSummarizeInput", FreeChatSummarizeInputSchema.shape],
     ["FreeChatSummarizeOutput", FreeChatSummarizeOutputSchema.shape],
+    // ADR-0054 — live news: the input, one source, and the three members of the output union.
+    ["FreeChatNewsInput", FreeChatNewsInputSchema.shape],
+    ["FreeChatNewsSource", FreeChatNewsSourceSchema.shape],
+    ["FreeChatNewsAnswer", FreeChatNewsAnswerSchema.shape],
+    ["FreeChatNewsNoResults", FreeChatNewsNoResultsSchema.shape],
+    ["FreeChatNewsRefuse", FreeChatNewsRefuseSchema.shape],
   ];
 
   it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
@@ -1302,11 +1314,25 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
 
   it("carries NO identity-capable field, by construction", () => {
     const banned = ["worker_id", "worker_ref", "worker_name", "name", "phone", "address", "city"];
+    // THE ONE CARVE-OUT (ADR-0054 security review, H2): the news input's OPAQUE spend ref, so a
+    // paid, searched call is charged to the per-worker daily cap. Opaque like the parse's and the
+    // transcription's; it never reaches the model. Every other contract stays clean.
+    const allowed: Record<string, string[]> = { FreeChatNewsInput: ["worker_ref"] };
     for (const [contractName, shape] of shapes) {
       for (const field of banned) {
+        if (allowed[contractName]?.includes(field)) continue;
         expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(field);
       }
     }
+  });
+
+  it("ADR-0054 H2: the news input's worker_ref is an optional, nullable, non-empty spend ref", () => {
+    expect(FreeChatNewsInputSchema.parse({ text: "aaj ka mausam" }).worker_ref).toBeNull();
+    expect(FreeChatNewsInputSchema.parse({ text: "x", worker_ref: null }).worker_ref).toBeNull();
+    expect(FreeChatNewsInputSchema.parse({ text: "x", worker_ref: "w-ref-1" }).worker_ref).toBe("w-ref-1");
+    expect(FreeChatNewsInputSchema.safeParse({ text: "x", worker_ref: "" }).success).toBe(false);
+    // The carve-out is the news input's alone.
+    expect(Object.keys(FreeChatReplyInputSchema.shape)).not.toContain("worker_ref");
   });
 
   it("caps the classify text, the turns and the pending question", () => {
@@ -1396,5 +1422,25 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     expect(empty.ai_metadata).toBeNull();
     expect(FreeChatSummarizeOutputSchema.parse({ summary: "x".repeat(2000) }).summary).toHaveLength(2000);
     expect(() => FreeChatSummarizeOutputSchema.parse({ summary: "x".repeat(2001) })).toThrow();
+  });
+
+  it("ADR-0054: a news answer carries 1-4 lines, a kind and 1-3 sources", () => {
+    const source = { url: "https://www.thehindu.com/a", title: "Headline", site: "thehindu.com" };
+    const answer = { status: "answer", kind: "work", lines: ["Ek line"], sources: [source], search_count: 1 };
+    const parsed = FreeChatNewsOutputSchema.parse(answer);
+    expect(parsed.status).toBe("answer");
+    expect(FreeChatNewsAnswerSchema.parse(answer).ai_metadata).toBeNull();
+    expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, sources: [] })).toThrow();
+    expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, sources: Array(4).fill(source) })).toThrow();
+    expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, lines: Array(5).fill("l") })).toThrow();
+    expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, kind: "politics" })).toThrow();
+    expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, search_count: 4 })).toThrow();
+  });
+
+  it("ADR-0054: no_results and refuse are the other two news outcomes the model can return", () => {
+    expect(FreeChatNewsOutputSchema.parse({ status: "no_results", search_count: 2 }).status).toBe("no_results");
+    expect(FreeChatNewsOutputSchema.parse({ status: "refuse", topic: "off_limits" }).status).toBe("refuse");
+    expect(() => FreeChatNewsOutputSchema.parse({ status: "refuse", topic: "gossip" })).toThrow();
+    expect(FreeChatNewsInputSchema.parse({ text: "aaj ka mausam" }).recent_turns).toEqual([]);
   });
 });

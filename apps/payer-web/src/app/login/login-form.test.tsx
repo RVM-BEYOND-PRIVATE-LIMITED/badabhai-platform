@@ -12,7 +12,7 @@ import { Badge, Button, Input, OtpInput, Tabs, Toast } from "../../components/ds
  * Env is node (no DOM): React state is injected via a `useState` mock (call-order seed) and the
  * component is rendered to an element tree, then walked. `useTransition` → [pending=false,
  * run-immediately]; `useEffect` is a no-op (cooldown timer); `useRef` returns a stable ref;
- * `next/navigation` + the server actions are mocked. The actions are observed via the mocks so
+ * the navigation helper (components/portal-navigation.ts) + the server actions are mocked. The actions are observed via the mocks so
  * we can assert the ROLE-AGNOSTIC contract + the no-enumeration / no-code-echo invariants.
  *
  * Asserts: the role TABS (ARIA tablist + arrow-key nav + role from the active tab feeds signup),
@@ -38,9 +38,11 @@ vi.mock("react", async () => {
     useEffect: () => {},
   };
 });
-const routerReplace = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: routerReplace, refresh: vi.fn() }),
+// A verified code navigates through the shared helper (the "Opening Dashboard…" cue); its router
+// mechanics are components/portal-navigation.ts's own suite.
+const navigate = vi.fn();
+vi.mock("../../components/portal-navigation", () => ({
+  usePortalNavigation: () => ({ pending: false, navigate }),
 }));
 // Observe the Server Actions. The render path never AWAITS them (no event seeded), but the
 // handler tests below invoke the form's handlers to assert what gets sent to the seam.
@@ -139,7 +141,7 @@ beforeEach(() => {
   requestCodeAction.mockReset();
   signupAction.mockReset();
   verifyCodeAction.mockReset();
-  routerReplace.mockReset();
+  navigate.mockReset();
 });
 
 describe("AUTH-1 · role tabs (Company | Agency) — ARIA tablist", () => {
@@ -305,12 +307,30 @@ describe("AUTH-1 · code step (OtpInput) — shared + UNCHANGED for signin and s
     expect(textOf(p(submit!).children as ReactNode)).toContain("Verify");
   });
 
-  it("verify calls verifyCodeAction → router.replace('/dashboard') on success", () => {
+  it("verify calls verifyCodeAction → replaces sign-in with the dashboard, cued, on success", async () => {
     verifyCodeAction.mockResolvedValue({ ok: true, isNewPayer: true });
     const tree = render({ step: "code", email: "a@b.co", code: "123456" });
     const form = findByProp(tree, "className", "login-form")[0]!;
     (p(form).onSubmit as (e: { preventDefault: () => void }) => void)({ preventDefault: vi.fn() });
     expect(verifyCodeAction).toHaveBeenCalledWith({ email: "a@b.co", code: "123456" });
+    // REPLACE (Back never returns to the used code), REFRESH (the session is new), and the shell's
+    // "Opening Dashboard…" cue while the dashboard renders.
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    expect(navigate).toHaveBeenCalledWith("/dashboard", {
+      pendingLabel: "Dashboard",
+      replace: true,
+      refresh: true,
+    });
+  });
+
+  it("a refused code stays on the page — no navigation", async () => {
+    verifyCodeAction.mockResolvedValue({ ok: false, error: "Invalid or expired code." });
+    const tree = render({ step: "code", email: "a@b.co", code: "123456" });
+    const form = findByProp(tree, "className", "login-form")[0]!;
+    (p(form).onSubmit as (e: { preventDefault: () => void }) => void)({ preventDefault: vi.fn() });
+    expect(verifyCodeAction).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // the action's continuation has run
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("offers 'use a different email' alongside resend", () => {

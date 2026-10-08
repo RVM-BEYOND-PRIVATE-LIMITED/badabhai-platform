@@ -185,11 +185,12 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 - **Per-row controls** that share a visible name ("Suspend", "View") add the row's subject for
   assistive tech, after the visible label.
 - **A customer cell links the customer's own section** (#2032, sweep AW-28). The customer of a
-  posting (Postings, a posting's page), a ledger movement (Credits) and a payment order (Payment
-  orders) links `/companies/<id>` for a Company and `/agencies/<id>` for an Agency, read from the
-  `payer_role` the API serves beside `payer_id`, and names the persona beside the short id. With
-  no role — an older API, an orphaned id, or a top balance (the summary serves none) — it links
-  `/companies/<id>`, whose route redirects an agency to its own section, and names no persona.
+  posting (Postings, a posting's page), a ledger movement and a top balance (Credits; the top
+  balance since #2106) and a payment order (Payment orders) links `/companies/<id>` for a Company
+  and `/agencies/<id>` for an Agency, read from the `payer_role` the API serves beside
+  `payer_id`, and names the persona beside the short id. With no role — an older API or an
+  orphaned id — it links `/companies/<id>`, whose route redirects an agency to its own section,
+  and names no persona.
   Every cell renders `components/customer-link.tsx`, which builds the address with
   `customerHref` (`lib/customer.ts`); a fence in `lib/customer.test.ts` fails any shipped file
   that builds `/companies/…` or `/agencies/…` by hand.
@@ -467,8 +468,34 @@ and status line, at 195–210ms); 0px shift of the clicked link, its ancestors o
 left on screen after the commit. The same links before: 0/30 showed anything, for 1.5–4.8s. A
 fast backend (commits at 53–129ms) showed no cue at all (0/24) — no flash.
 
-Not yet cued: no link. Outside this rule: a button that navigates with `router.push` (a form's
-submit, the agency form's Cancel) — it is not a link, so it has no link status to show.
+Not yet cued: no link.
+
+**Every navigating button carries it too** (follow-up to #2125). A button that navigates from code
+— `router.push` / `router.replace` after a save, or a server action that ends in `redirect()` — has
+no link status, so it showed nothing while the next page rendered. It now goes through
+`usePortalNavigation` (`src/components/portal-navigation.ts`): the router call runs inside the
+hook's own transition, whose pending state lasts until the destination has rendered, and feeds the
+SAME store — the same bar, the same ONE status line, "Opening {pendingLabel}…", the same 180ms
+delay (kept under reduced motion). A server action that redirects (sign-out) feeds it from its own
+transition with `useNavigationCue`. The fence (`src/app/every-navigating-button-shows-the-cue.test.ts`,
+read from the syntax tree) is an ALLOWLIST (review of #2140): outside the helper a router is used
+for `.refresh` / `.prefetch` / `.back` / `.forward` and nothing else — no `push` / `replace`, and no
+handing it on (an argument, a prop, a return value, an assignment), however it is reached (through
+`!`, parentheses, `as` / `satisfies` / `<T>` casts, a `const` alias, a late `r = useRouter()`, an
+alias of the hook, `typeof useRouter`). No module but the helper re-exports `useRouter`, loads a
+router module with require()/import(), or names a router type (`AppRouterInstance`, `NextRouter`);
+a hook imported from another project module is never `push`ed or `replace`d; and every caller of
+a redirecting server action must feed the cue. A button that already had a pending state keeps it
+latched through the navigation ("Publishing…" never flips back). The sign-in page, which has no
+shell, renders the status line itself. Measured on a production build, 1.5s per read, at 1280
+(Cancel also at 375), with and without reduced motion: the create form's Publish, the edit form's
+Save changes and the AI chat's Publish showed "Opening …" 186–210ms after their navigation
+started; the agency form's Cancel 179–212ms after the click; Sign out 193–210ms after it. Each
+kept the bar on with no gap until the commit and its button's pending state unbroken, with 0px
+shift of the button and its ancestors (Sign out aside: its menu closes on the click, by design).
+That measurement caught the AI chat's Publish shrinking 29px under the click (its rocket became
+the spinner, its label "Publishing…"); it is now a DS block button (`<Button block>`), filling the
+draft column whatever it reads.
 
 ### Agency on the company surface
 

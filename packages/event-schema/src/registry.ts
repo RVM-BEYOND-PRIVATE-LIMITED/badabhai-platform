@@ -1405,6 +1405,24 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatFreeChatSummaryUpdatedPayload,
   },
+
+  // ADR-0054 (#2127) — one live-news request in the free chat: answered with sources, or which
+  // fixed line it fell back to. Counts and closed enums only; never the question or a URL. v1.
+  "chat.free_chat_news_served": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatNewsServedPayload,
+  },
+
+  // OWNER RULING 2026-10-07 — the payer applicant pipeline board, saved server-side (migration
+  // 0134). One persisted stage change (New / Shortlist / Passed) of one applicant on one posting:
+  // actor the session payer, subject the worker; ids + closed enums only. A NEW event — no shipped
+  // schema could carry a stage. Appended at the tail per protocol. v1.
+  "payer.applicant_stage_changed": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerApplicantStageChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

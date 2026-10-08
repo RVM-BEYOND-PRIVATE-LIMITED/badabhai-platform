@@ -42,6 +42,24 @@ FeedItem _job(
       rank: 1,
     );
 
+/// The ONE `getFeed` matcher list for this file. Every named argument must be
+/// listed — mocktail matches the named-arg KEY SET exactly, and the bloc always
+/// sends `cursor` (null on page 1, #2068).
+When<Future<FeedPage>> _whenFeed(MockSwipeRepository repo) => when(
+      () => repo.getFeed(
+        tradeKey: any(named: 'tradeKey'),
+        city: any(named: 'city'),
+        shift: any(named: 'shift'),
+        payMin: any(named: 'payMin'),
+        cursor: any(named: 'cursor'),
+      ),
+    );
+
+/// Answers every `getFeed` with [jobs] as ONE page. `next_cursor` null = the
+/// end of the deck, which is also what an API build without the key looks like.
+void _stubFeed(MockSwipeRepository repo, List<FeedItem> jobs) =>
+    _whenFeed(repo).thenAnswer((_) async => FeedPage(jobs: jobs, nextCursor: null));
+
 List<String> _ids(List<FeedItem> jobs) =>
     jobs.map((FeedItem j) => j.jobId).toList();
 
@@ -57,16 +75,14 @@ void main() {
   late MockSwipeRepository repo;
   setUp(() {
     repo = MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin')))
-        .thenAnswer((_) async => <FeedItem>[]);
+    _stubFeed(repo, const <FeedItem>[]);
   });
 
   group('feed load', () {
     blocTest<SwipeBloc, SwipeState>(
       'loads -> ready with the queue',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin')))
-            .thenAnswer((_) async => <FeedItem>[_item('j1'), _item('j2')]);
+        _stubFeed(repo, <FeedItem>[_item('j1'), _item('j2')]);
         return SwipeBloc(repo);
       },
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),
@@ -82,7 +98,7 @@ void main() {
     blocTest<SwipeBloc, SwipeState>(
       'empty feed -> empty',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[]);
+        _stubFeed(repo, const <FeedItem>[]);
         return SwipeBloc(repo);
       },
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),
@@ -95,7 +111,7 @@ void main() {
     blocTest<SwipeBloc, SwipeState>(
       '403 -> consentRequired',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenThrow(const ConsentRequiredFailure());
+        _whenFeed(repo).thenThrow(const ConsentRequiredFailure());
         return SwipeBloc(repo);
       },
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),
@@ -108,7 +124,7 @@ void main() {
     blocTest<SwipeBloc, SwipeState>(
       'network error -> error',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenThrow(const NetworkFailure());
+        _whenFeed(repo).thenThrow(const NetworkFailure());
         return SwipeBloc(repo);
       },
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),

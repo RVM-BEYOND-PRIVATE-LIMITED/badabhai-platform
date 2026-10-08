@@ -1,6 +1,5 @@
 import {
   Body,
-  ConflictException,
   Controller,
   Get,
   HttpCode,
@@ -15,6 +14,7 @@ import {
 import type { Request } from "express";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
+import { inFlightConflict } from "../common/idempotency/in-flight-conflict";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
@@ -185,8 +185,10 @@ export class PayerUnlocksController {
       // to a duplicate would be worse than the double-grant it prevents: the client would render
       // a number that never existed. The client's correct response is to RE-READ the balance,
       // which is exactly what the payer app is being changed to do on a timeout.
+      // `reason: "in_flight"` (#2111) — the same machine-readable reason every purchase route's
+      // in-flight 409 carries; the message is unchanged.
       inFlight: (): never => {
-        throw new ConflictException(
+        throw inFlightConflict(
           "This purchase is already being processed; check your balance before trying again",
         );
       },

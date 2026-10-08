@@ -17,7 +17,9 @@ import { navSections } from "../../app/(portal)/nav-model";
  *    token with no claim is not penalised;
  *  - the dev-only preview override cannot grant Owner outside dev;
  *  - the nav's Owner item (Team) follows the same read; Credits is offered to every member
- *    (owner ruling 2026-10-07).
+ *    (owner ruling 2026-10-07);
+ *  - an orgRole outside the enum is a CONTRACT DRIFT: still least privilege, and logged — ONE
+ *    server-side warn per distinct value, with no PII (org-role-drift.ts).
  */
 
 const NOT_FOUND = new Error("NEXT_NOT_FOUND");
@@ -54,6 +56,7 @@ const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
 const { getOrgRole, requireOwner, requireRecruiter } = await import("./org-roles");
 const { requirePayer } = await import("./index");
 const { payerMeWireSchema, orgRoleWireSchema } = await import("../contracts");
+const { resetOrgRoleDriftForTests } = await import("./org-role-drift");
 
 const PAYER_ID = "11111111-1111-4111-8111-111111111111";
 const ORG_ID = "99999999-9999-4999-8999-999999999999";
@@ -94,6 +97,8 @@ function json(body: unknown, status = 200): Response {
     headers: { "content-type": "application/json" },
   });
 }
+const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
 function meCalls(): number {
   return fetchMock.mock.calls.filter(([url]) => url.endsWith("/payer/me")).length;
 }
@@ -104,6 +109,8 @@ beforeEach(() => {
   fetchMock.mockReset();
   notFound.mockClear();
   redirect.mockClear();
+  warn.mockClear();
+  resetOrgRoleDriftForTests();
   cookieToken = LEGACY_TOKEN;
 });
 afterEach(() => {
@@ -257,6 +264,104 @@ describe("the nav's Owner item (Team) follows the same read (affordance, not aut
     const recruiter = await railHrefs("recruiter");
     expect(recruiter).toContain("/credits");
     expect(recruiter).not.toContain("/team");
+  });
+});
+
+describe("an orgRole outside the enum is a CONTRACT DRIFT — logged once, behaviour unchanged", () => {
+  /** The drift warns this suite saw (every other console.warn is someone else's). */
+  const driftWarns = () =>
+    warn.mock.calls.map((c) => String(c[0])).filter((m) => m.startsWith("[payer-session]"));
+  /** The value a drift line names, between its parentheses. */
+  const named = (line: string) => /\(([^)]*)\)/.exec(line)?.[1];
+
+  it("an unexpected value logs ONE server-side warn naming it — however many requests read it", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    fetchMock.mockImplementation(async () => json(meBody({ orgRole: "admin" })));
+
+    // Three requests (the layout's read, the page's, the gate's): one fact, one line.
+    for (let i = 0; i < 3; i++) {
+      const session = await requirePayer();
+      expect(getOrgRole(session)).toBe("recruiter"); // behaviour unchanged: least privilege
+    }
+    await expect(requireOwner()).rejects.toBe(NOT_FOUND);
+    expect(meCalls()).toBe(4);
+    expect(driftWarns()).toEqual([
+      '[payer-session] GET /payer/me returned an unexpected orgRole ("admin"); read as recruiter (least privilege). payer-web\'s OrgRole mirror is behind the API.',
+    ]);
+  });
+
+  it("the warn carries no PII and no payer id — and a free-form value is named by its type only", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    for (const orgRole of ["owner@acme.example", "Acme Tools", { role: "owner" }, 7]) {
+      fetchMock.mockResolvedValueOnce(json(meBody({ orgRole })));
+      await requirePayer();
+    }
+    const lines = driftWarns();
+    // A free-form string (twice), an object, a number: one line per distinct shape.
+    expect(lines.map(named)).toEqual(["a string value", "an object value", "a number value"]);
+    for (const line of lines) {
+      for (const sensitive of ["owner@acme.example", "Acme Tools", PAYER_ID, ORG_ID, "4321"]) {
+        expect(line).not.toContain(sensitive);
+      }
+    }
+  });
+
+  it("each DISTINCT unexpected value is reported once", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    for (const orgRole of ["admin", "OWNER", "admin", "billing_admin", "OWNER"]) {
+      fetchMock.mockResolvedValueOnce(json(meBody({ orgRole })));
+      await requirePayer();
+    }
+    expect(driftWarns().map(named)).toEqual(['"admin"', '"OWNER"', '"billing_admin"']);
+  });
+
+  it("the distinct values are CAPPED: 16 lines, then ONE 'further values suppressed' — memory and log stay bounded", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    // An API (or a proxy) answering a fresh value on every request must not grow the set or the
+    // log without bound.
+    for (let i = 0; i < 40; i++) {
+      fetchMock.mockResolvedValueOnce(json(meBody({ orgRole: `role_${i}` })));
+      await requirePayer();
+    }
+    const lines = driftWarns();
+    expect(lines).toHaveLength(17);
+    expect(lines.slice(0, 16).map(named)).toEqual(
+      Array.from({ length: 16 }, (_, i) => `"role_${i}"`),
+    );
+    expect(lines[16]).toBe(
+      "[payer-session] GET /payer/me returned more unexpected orgRole values; further values suppressed (16 already reported).",
+    );
+    // Already-reported values stay quiet, and so does everything after the cap.
+    fetchMock.mockResolvedValueOnce(json(meBody({ orgRole: "role_3" })));
+    await requirePayer();
+    fetchMock.mockResolvedValueOnce(json(meBody({ orgRole: "role_99" })));
+    const session = await requirePayer();
+    expect(getOrgRole(session)).toBe("recruiter"); // behaviour unchanged past the cap too
+    expect(driftWarns()).toHaveLength(17);
+  });
+
+  it("owner, recruiter, null and an ABSENT orgRole (an API before #2079) are not drift — no warn", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    for (const body of [
+      meBody({ orgRole: "owner" }),
+      meBody({ orgRole: "recruiter" }),
+      meBody({ orgId: null, orgRole: null }),
+      preOrgMeBody(),
+    ]) {
+      fetchMock.mockResolvedValueOnce(json(body));
+      await requirePayer();
+    }
+    expect(meCalls()).toBe(4);
+    expect(driftWarns()).toEqual([]);
+  });
+
+  it("a /me read that FAILS logs no drift (no session, nothing to report)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    fetchMock.mockResolvedValueOnce(json({ ...meBody({ orgRole: "admin" }), id: "not-a-uuid" }));
+    await expect(requirePayer()).rejects.toBe(REDIRECT);
+    fetchMock.mockResolvedValueOnce(json(meBody({ orgRole: "admin" }), 500));
+    await expect(requirePayer()).rejects.toBe(REDIRECT);
+    expect(driftWarns()).toEqual([]);
   });
 });
 

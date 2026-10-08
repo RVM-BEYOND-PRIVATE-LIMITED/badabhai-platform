@@ -3149,8 +3149,10 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 226 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold)", () => {
-    expect(EVENT_NAMES).toHaveLength(226);
+  it("exposes all 228 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed)", () => {
+    expect(EVENT_NAMES).toHaveLength(228);
+    // Owner ruling 2026-10-07 — the payer pipeline board's own event (a new name; no schema mutated).
+    expect(isEventName("payer.applicant_stage_changed")).toBe(true);
     // ADR-0050 §9 — the agency twin sync's own event (a new name; no schema mutated).
     expect(isEventName("job_posting.twin_synced")).toBe(true);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
@@ -5668,5 +5670,62 @@ describe("chat.free_chat_summary_updated (ADR-0051 Release 2, #2027)", () => {
   it("never carries the summary — `.strict()` refuses it", () => {
     expect(ok({ ...updated, summary: "worker is a welder" })).toBe(false);
     expect(ok({ ...updated, outcome: "stored" })).toBe(false);
+  });
+});
+
+describe("chat.free_chat_news_served (ADR-0054, #2127)", () => {
+  const ok = (payload: Record<string, unknown>) =>
+    validateEvent({
+      event_id: UUID_A,
+      event_name: "chat.free_chat_news_served",
+      event_version: 1,
+      occurred_at: "2026-10-08T10:00:00.000Z",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "chat_session", subject_id: UUID_C },
+      source: "api",
+      correlation_id: UUID_C,
+      causation_id: null,
+      payload,
+      metadata: { environment: "test", service: "api" },
+    }).success;
+  const answered = {
+    worker_id: UUID_B,
+    session_id: UUID_C,
+    outcome: "answered",
+    kind: "everyday",
+    search_count: 1,
+    source_count: 2,
+    daily_count: 3,
+    submission_id: null,
+  };
+  const fixedLine = { ...answered, kind: null, source_count: 0 };
+
+  it("is registered at v1 in the chat domain", () => {
+    expect(isEventName("chat.free_chat_news_served")).toBe(true);
+    expect(EVENT_REGISTRY["chat.free_chat_news_served"].version).toBe(1);
+    expect(EVENT_REGISTRY["chat.free_chat_news_served"].domain).toBe("chat");
+  });
+
+  it("an answer carries its kind and its tiles; every other outcome carries neither", () => {
+    expect(ok(answered)).toBe(true);
+    for (const outcome of ["no_results", "refused", "rejected", "unavailable"]) {
+      expect(ok({ ...fixedLine, outcome })).toBe(true);
+    }
+    expect(ok({ ...answered, kind: null })).toBe(false);
+    expect(ok({ ...answered, source_count: 0 })).toBe(false);
+    expect(ok({ ...fixedLine, outcome: "no_results", kind: "work" })).toBe(false);
+    expect(ok({ ...fixedLine, outcome: "rejected", source_count: 1 })).toBe(false);
+  });
+
+  it("a capped request made no search", () => {
+    expect(ok({ ...fixedLine, outcome: "capped", search_count: null, daily_count: 5 })).toBe(true);
+    expect(ok({ ...fixedLine, outcome: "capped", search_count: 1, daily_count: 5 })).toBe(false);
+  });
+
+  it("never carries the question, the answer or a URL — `.strict()` refuses them", () => {
+    expect(ok({ ...answered, url: "https://www.thehindu.com/a" })).toBe(false);
+    expect(ok({ ...answered, query: "aaj ka mausam" })).toBe(false);
+    expect(ok({ ...answered, kind: "politics" })).toBe(false);
+    expect(ok({ ...answered, search_count: 4 })).toBe(false);
   });
 });

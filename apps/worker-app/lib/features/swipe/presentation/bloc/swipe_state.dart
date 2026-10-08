@@ -15,6 +15,7 @@ class SwipeState extends Equatable {
     this.decisionError = 0,
     this.appliedNonce = 0,
     this.failure,
+    this.nextCursor,
   });
 
   final SwipeStatus status;
@@ -61,10 +62,30 @@ class SwipeState extends Equatable {
   /// (avoids navigating optimistically and diverging on a failed apply).
   final int appliedNonce;
 
+  /// The OPAQUE `next_cursor` of the last page loaded into [queue] (#2068,
+  /// ADR-0052) — the position [SwipeNextPageRequested] resumes from, stored and
+  /// resent byte-for-byte and NEVER parsed or constructed here.
+  ///
+  /// Null means "do not page", which covers all three of: the deck's end (the
+  /// server said null), a server that does not send the key at all (an older
+  /// build / a rollback), and a cursor DROPPED because the scroll it belonged to
+  /// is void — a filter change or a page-1 (re)load. Those are deliberately one
+  /// state: in every one of them the only legal next call is page 1.
+  final String? nextCursor;
+
+  /// True when the server has handed us a position to continue from. Paging is
+  /// the only thing that may read [nextCursor] — nothing renders it.
+  bool get hasMorePages => nextCursor != null;
+
 
   /// The head of the FILTERED deck — the card apply/skip target.
   FeedItem? get current => visibleQueue.isEmpty ? null : visibleQueue.first;
 
+  /// [nextCursor] takes the `_sentinel` default rather than `null`, because for
+  /// this one field null is a REAL value the caller must be able to write: "the
+  /// deck ends here / this cursor is void". `nextCursor: null` therefore CLEARS
+  /// it, while omitting the argument keeps the current one (the plain `??`
+  /// pattern every other field uses cannot express the difference).
   SwipeState copyWith({
     SwipeStatus? status,
     List<FeedItem>? queue,
@@ -73,6 +94,7 @@ class SwipeState extends Equatable {
     int? decisionError,
     int? appliedNonce,
     Failure? failure,
+    Object? nextCursor = _sentinel,
   }) {
     return SwipeState(
       status: status ?? this.status,
@@ -82,6 +104,8 @@ class SwipeState extends Equatable {
       decisionError: decisionError ?? this.decisionError,
       appliedNonce: appliedNonce ?? this.appliedNonce,
       failure: failure ?? this.failure,
+      nextCursor:
+          nextCursor == _sentinel ? this.nextCursor : nextCursor as String?,
     );
   }
 
@@ -94,5 +118,10 @@ class SwipeState extends Equatable {
         decisionError,
         appliedNonce,
         failure,
+        nextCursor,
       ];
 }
+
+/// "Argument not passed", so a nullable field can be set back to null through
+/// [SwipeState.copyWith]. Same idiom as `finishing_models.dart`.
+const Object _sentinel = Object();

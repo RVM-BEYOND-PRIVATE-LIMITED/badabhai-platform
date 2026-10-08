@@ -148,6 +148,9 @@ _TASK_TRACE: dict[str, tuple[str, str]] = {
     # Release 2 (§8): the rolling summary, folded after the reply is served. Same feature tag:
     # its cost is part of "what does the free chat cost", and it builds nothing in the profile.
     "profiling_free_summary": ("summarize-free-chat-turns", "free_chat"),
+    # ADR-0054: the searched news answer. Same feature tag: its tokens and search fees are part of
+    # "what does the free chat cost", and it builds nothing in the profile.
+    "profiling_free_news": ("answer-free-chat-news", "free_chat"),
 }
 
 #: Workflow names — the ROOT trace names. Business operations, not AI tasks: a workflow is

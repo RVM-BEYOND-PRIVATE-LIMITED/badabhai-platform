@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { updatePosting, type PostingEditInitial } from "../../../../../lib/payer-api";
 import { matchSelectionInputSchema, updatePostingInputSchema } from "../../../../../lib/contracts";
 import type { PostingSummary } from "../../../../../lib/contracts";
-import { isPayerValidationError } from "../../../../../lib/payer-errors";
+import { isPayerStatus, isPayerValidationError } from "../../../../../lib/payer-errors";
 import { mapPostingIssues } from "../../../../../lib/posting-field-errors";
 import { workerCardGap } from "../../../../../lib/worker-card-gap";
 import { reachAfterPublish } from "../../../../../lib/published-reach.server";
@@ -139,10 +139,10 @@ export async function updatePostingAction(
         };
       }
     }
-    if (e instanceof Error && /returned 400/.test(e.message)) {
+    if (isPayerStatus(e, 400)) {
       return { ok: false, error: "No changes to save." };
     }
-    if (e instanceof Error && /returned 409/.test(e.message)) {
+    if (isPayerStatus(e, 409)) {
       return { ok: false, error: "This posting can no longer be edited." };
     }
     return { ok: false, error: "Could not save the changes right now. Please retry." };

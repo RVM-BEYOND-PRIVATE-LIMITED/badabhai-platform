@@ -427,6 +427,28 @@ describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () =>
     await inflight;
   });
 
+  it("#2111: the mid-flight 409 says reason in_flight, with the message unchanged", async () => {
+    const { ctrl, unlocks } = ctrlWithRealSeam();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    (unlocks.purchaseCredits as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      await gate;
+      return { payer_id: PAYER_A.id, balance: 50, credits: 50, pack_code: "starter" };
+    });
+    const req = withKey("purchase-if");
+    const inflight = ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX);
+    const dup = await caught(ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX));
+    release();
+    await inflight;
+    expect(renderedError(dup)).toStrictEqual({
+      statusCode: 409,
+      error: "Conflict",
+      message: "This purchase is already being processed; check your balance before trying again",
+      reason: "in_flight",
+    });
+    expect(unlocks.purchaseCredits).toHaveBeenCalledTimes(1);
+  });
+
   it("A SAME-TICK DEAD HEAT grants exactly once", async () => {
     const { ctrl, purchaseCredits } = ctrlWithRealSeam();
     const req = withKey("purchase-4");

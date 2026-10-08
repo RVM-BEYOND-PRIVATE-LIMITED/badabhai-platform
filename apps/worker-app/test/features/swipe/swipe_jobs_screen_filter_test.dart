@@ -28,6 +28,21 @@ FeedItem _job(
   rank: 1,
 );
 
+/// Stubs `getFeed` to answer [jobs] as ONE page — `next_cursor` null (#2068).
+/// These tests are about the FILTER chips, so nothing here pages; the cursor
+/// matcher is still required, because the bloc always sends the param.
+void _stubFeed(_MockSwipeRepository repo, List<FeedItem> jobs) {
+  when(
+    () => repo.getFeed(
+      tradeKey: any(named: 'tradeKey'),
+      city: any(named: 'city'),
+      shift: any(named: 'shift'),
+      payMin: any(named: 'payMin'),
+      cursor: any(named: 'cursor'),
+    ),
+  ).thenAnswer((_) async => FeedPage(jobs: jobs, nextCursor: null));
+}
+
 /// A phone-tall surface so the deck + sheet CTA are on-screen.
 void _tallSurface(WidgetTester tester) {
   tester.view.physicalSize = const Size(400, 1600);
@@ -82,19 +97,10 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(
-        () => repo.getFeed(
-          tradeKey: any(named: 'tradeKey'),
-          city: any(named: 'city'),
-          shift: any(named: 'shift'),
-          payMin: any(named: 'payMin'),
-        ),
-      ).thenAnswer(
-        (_) async => <FeedItem>[
-          _job('cnc1', 'cnc_operator', 'CNC Operator'),
-          _job('vmc1', 'vmc_setter', 'VMC Setter'),
-        ],
-      );
+      _stubFeed(repo, <FeedItem>[
+        _job('cnc1', 'cnc_operator', 'CNC Operator'),
+        _job('vmc1', 'vmc_setter', 'VMC Setter'),
+      ]);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -141,19 +147,10 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(
-        () => repo.getFeed(
-          tradeKey: any(named: 'tradeKey'),
-          city: any(named: 'city'),
-          shift: any(named: 'shift'),
-          payMin: any(named: 'payMin'),
-        ),
-      ).thenAnswer(
-        (_) async => <FeedItem>[
-          _job('cnc1', 'cnc_operator', 'CNC Operator'),
-          _job('vmc1', 'vmc_setter', 'VMC Setter'),
-        ],
-      );
+      _stubFeed(repo, <FeedItem>[
+        _job('cnc1', 'cnc_operator', 'CNC Operator'),
+        _job('vmc1', 'vmc_setter', 'VMC Setter'),
+      ]);
 
       final SwipeBloc bloc = SwipeBloc(repo);
       await tester.pumpWidget(
@@ -194,19 +191,10 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(
-        () => repo.getFeed(
-          tradeKey: any(named: 'tradeKey'),
-          city: any(named: 'city'),
-          shift: any(named: 'shift'),
-          payMin: any(named: 'payMin'),
-        ),
-      ).thenAnswer(
-        (_) async => <FeedItem>[
-          _job('cnc1', 'cnc_operator', 'CNC Operator'),
-          _job('vmc1', 'vmc_setter', 'VMC Setter'),
-        ],
-      );
+      _stubFeed(repo, <FeedItem>[
+        _job('cnc1', 'cnc_operator', 'CNC Operator'),
+        _job('vmc1', 'vmc_setter', 'VMC Setter'),
+      ]);
 
       final SwipeBloc bloc = SwipeBloc(repo);
       await tester.pumpWidget(
@@ -245,19 +233,10 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(
-        () => repo.getFeed(
-          tradeKey: any(named: 'tradeKey'),
-          city: any(named: 'city'),
-          shift: any(named: 'shift'),
-          payMin: any(named: 'payMin'),
-        ),
-      ).thenAnswer(
-        (_) async => <FeedItem>[
-          _job('cnc1', 'cnc_operator', 'CNC Operator'),
-          _job('vmc1', 'vmc_setter', 'VMC Setter'),
-        ],
-      );
+      _stubFeed(repo, <FeedItem>[
+        _job('cnc1', 'cnc_operator', 'CNC Operator'),
+        _job('vmc1', 'vmc_setter', 'VMC Setter'),
+      ]);
 
       final SwipeBloc bloc = SwipeBloc(repo);
       await tester.pumpWidget(
@@ -301,16 +280,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(
-      () => repo.getFeed(
-        tradeKey: any(named: 'tradeKey'),
-        city: any(named: 'city'),
-        shift: any(named: 'shift'),
-        payMin: any(named: 'payMin'),
-      ),
-    ).thenAnswer(
-      (_) async => <FeedItem>[_job('cnc1', 'cnc_operator', 'CNC Operator')],
-    );
+    _stubFeed(repo, <FeedItem>[_job('cnc1', 'cnc_operator', 'CNC Operator')]);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -336,14 +306,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(
-        () => repo.getFeed(
-          tradeKey: any(named: 'tradeKey'),
-          city: any(named: 'city'),
-          shift: any(named: 'shift'),
-          payMin: any(named: 'payMin'),
-        ),
-      ).thenAnswer((_) async => <FeedItem>[_job('weld1', 'welder', 'Welder')]);
+      _stubFeed(repo, <FeedItem>[_job('weld1', 'welder', 'Welder')]);
 
       final SwipeBloc bloc = SwipeBloc(repo);
       await tester.pumpWidget(
@@ -383,16 +346,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(
-      () => repo.getFeed(
-        tradeKey: any(named: 'tradeKey'),
-        city: any(named: 'city'),
-        shift: any(named: 'shift'),
-        payMin: any(named: 'payMin'),
-      ),
-    ).thenAnswer(
-      (_) async => <FeedItem>[_job('weld1', 'welder', 'Welder', city: 'Pune')],
-    );
+    _stubFeed(repo, <FeedItem>[_job('weld1', 'welder', 'Welder', city: 'Pune')]);
 
     final SwipeBloc bloc = SwipeBloc(repo);
     await tester.pumpWidget(

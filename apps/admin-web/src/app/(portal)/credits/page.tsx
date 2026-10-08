@@ -266,9 +266,10 @@ export default async function CreditsPage({
                       {summary.top_balances.map((b) => (
                         <tr key={b.payer_id}>
                           <td>
-                            {/* The summary serves no role for a balance, so this cell keeps the
+                            {/* The summary serves the balance's role (#2106), so the cell goes
+                                straight to the Company or the Agency; without one it keeps the
                                 address that redirects an agency on, and names no persona. */}
-                            <CustomerLink payerId={b.payer_id} />
+                            <CustomerLink payerId={b.payer_id} payerRole={b.payer_role} />
                           </td>
                           <td className="mono ui-num">{formatCount(b.balance)}</td>
                         </tr>

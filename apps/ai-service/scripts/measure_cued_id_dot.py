@@ -108,11 +108,17 @@ EDITS_1950: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+#: #2091's label words and the "no" word after them, as every rule ships them.
+LABELS_2091 = r"(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?"
+
 #: Edits that LATER issues made to a rule, applied on top of #1950's. They are not #1950's, so PRE
 #: takes them too (`pre_source`): PRE and shipped then differ by #1950's tokens and nothing else.
 #: #2043 gave the salary guard the identifier-only résumé cues, a leading word boundary and the
-#: "id" word in the connector's "no"-word slot.
+#: "id" word in the connector's "no"-word slot. #2091 put the label words ("id", then "card" or
+#: "code") in front of the "no" word in all three rules, taking "id" out of the "no"-word group.
 EDITS_LATER: dict[str, tuple[tuple[str, str], ...]] = {
+    "credential_id": ((r"(?:(?:no\.?|number|num|#)\s*)?", LABELS_2091),),
+    "resume_cued_id": ((r"(?:(?:no\.?|number|num|id|#)\s*)?", LABELS_2091),),
     "credential_before": (
         ("(?:roll|", "{WB}(?:roll|"),
         (
@@ -120,6 +126,7 @@ EDITS_LATER: dict[str, tuple[tuple[str, str], ...]] = {
             r"|nsdc|passport|voter|gstin|uan|provident\s+fund|ifsc|dob|date\s+of\s+birth)",
         ),
         (r"(?:no\.?|number|num|#)", r"(?:no\.?|number|num|id|#)"),
+        (r"(?:(?:no\.?|number|num|id|#)\s*)?", LABELS_2091),
     ),
 }
 

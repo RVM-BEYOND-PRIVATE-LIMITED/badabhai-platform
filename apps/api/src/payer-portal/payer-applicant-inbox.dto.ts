@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
+import type { ApplicantPostingKind, ApplicantStage } from "@badabhai/types";
 import type { ApplicantRowDto } from "../reach/reach.dto";
 import type { MatchCandidateRowDto } from "../match/match-candidates.service";
 import { decodeInboxCursor, INBOX_CURSOR_MAX_LENGTH } from "./payer-applicant-inbox.cursor";
+import { ApplicantStageSchema } from "./payer-applicant-stage.dto";
 
 /** Page size when the caller names none — the payer list convention (ledger: 1..50, default 20). */
 export const INBOX_DEFAULT_LIMIT = 20;
@@ -16,11 +18,10 @@ export const INBOX_MAX_LIMIT = 50;
  * NO `payer_id`, ANYWHERE: the payer is the verified session (XB-A). `.strict()` makes a
  * smuggled `payer_id`/`payerId` a 400 rather than a silently ignored key.
  *
- * NO `stage`, DELIBERATELY: the per-posting feed exposes no stage. Its New / Shortlist / Passed
- * board is client-local state in payer-web (`applicant-actions.tsx` — "nothing persisted"), and
- * no table or event records one, so there is nothing a server filter could read. `.strict()`
- * turns `?stage=` into a 400 instead of a filter that silently does nothing; a persisted stage is
- * a product ruling plus a schema change, not a query parameter.
+ * NO `stage` IN THIS SCHEMA: it is the query while `PAYER_APPLICANT_STAGES_ENABLED` is OFF, and
+ * with the flag off nothing persists a stage, so `?stage=` stays the 400 it always was rather than
+ * a filter that silently does nothing. With the flag on the route validates with
+ * {@link PayerApplicantInboxStagedQuerySchema} instead (`PayerApplicantInboxQueryPipe` picks).
  */
 export const PayerApplicantInboxQuerySchema = z
   .object({
@@ -53,10 +54,27 @@ export const PayerApplicantInboxQuerySchema = z
     ),
   })
   .strict();
-export type PayerApplicantInboxQueryDto = z.infer<typeof PayerApplicantInboxQuerySchema>;
+
+/**
+ * The query while `PAYER_APPLICANT_STAGES_ENABLED` is ON (owner ruling 2026-10-07): the base
+ * query plus an optional `stage` filter over the saved New / Shortlist / Passed board.
+ *
+ * `stage=new` matches an applicant with NO stored stage as well as one moved back to `new` — the
+ * board's own rule. The filter composes with `postingId` and with the keyset cursor: it narrows
+ * the same total order (`created_at DESC, id DESC`) without changing it, so a cursor minted under
+ * any filter is a valid position under any other — it carries a position, never a filter. Change
+ * the filter, start from the first page (an applicant moved between pages is shown or skipped by
+ * the stage he holds when his page is read, never twice).
+ */
+export const PayerApplicantInboxStagedQuerySchema = PayerApplicantInboxQuerySchema.extend({
+  stage: ApplicantStageSchema.optional(),
+}).strict();
+
+/** The validated query either schema yields (`stage` only ever set while the flag is on). */
+export type PayerApplicantInboxQueryDto = z.infer<typeof PayerApplicantInboxStagedQuerySchema>;
 
 /** Which table the row's posting lives in — the two sources the per-posting route serves. */
-export type InboxPostingKind = "agency_job" | "company_posting";
+export type InboxPostingKind = ApplicantPostingKind;
 
 /**
  * The posting a row belongs to. `id` is the id the per-posting route
@@ -75,10 +93,16 @@ export interface InboxPostingRefDto<K extends InboxPostingKind = InboxPostingKin
  * for an agency job, the V1 candidate row for a company posting, built by the same code — plus
  * `posting`. Nothing else: `rank` (and, on an agency row, `hot`) is the applicant's position on
  * HIS POSTING's list, not his position in this inbox, which is newest-first.
+ *
+ * `stage` (owner ruling 2026-10-07) is present on every row while `PAYER_APPLICANT_STAGES_ENABLED`
+ * is on — the same value the per-posting feed shows for him — and absent while it is off.
  */
 export type InboxApplicantRowDto =
-  | (ApplicantRowDto & { posting: InboxPostingRefDto<"agency_job"> })
-  | (MatchCandidateRowDto & { posting: InboxPostingRefDto<"company_posting"> });
+  | (ApplicantRowDto & { posting: InboxPostingRefDto<"agency_job">; stage?: ApplicantStage })
+  | (MatchCandidateRowDto & {
+      posting: InboxPostingRefDto<"company_posting">;
+      stage?: ApplicantStage;
+    });
 
 export interface PayerApplicantInboxDto {
   applicants: InboxApplicantRowDto[];

@@ -114,6 +114,20 @@ The global exceptions filter returns:
 
 Stack traces are never leaked; `requestId` is for support correlation.
 
+When a route throws a structured body, the filter puts that **whole body** under `error` — nothing is lifted to the top level. A purchase `409` (#2111) therefore reads its machine-readable reason at `error.reason`, never at `reason`:
+
+```json
+{
+  "statusCode": 409,
+  "error": { "statusCode": 409, "error": "Conflict", "message": "…", "reason": "in_flight" },
+  "requestId": "opaque-uuid",
+  "path": "/payer/job-postings/…/quota-topup",
+  "timestamp": "ISO8601"
+}
+```
+
+Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_plan` (#2111) — see [Purchase idempotency](#purchase-idempotency-idempotency-key) and [Price confirmation](#price-confirmation-expected_price_inr). Branch on `error.reason`; `error.message` is advice copy for humans. Do not reword the in-flight copy (`already being processed`) while payer-web builds that predate `reason` support are live — they tell the two quota top-up 409s apart by that text.
+
 ### 3.3 Status codes
 
 | Code | Meaning | Mobile action |
@@ -125,6 +139,7 @@ Stack traces are never leaked; `requestId` is for support correlation.
 | 401 | Missing/invalid/expired Bearer | refresh once, retry; else re-login |
 | 403 | Role mismatch: an employer on an agent-only `/payer/agency/*` route, or an agent on a company-posting write (`/payer/job-postings` writes, chat publish — #1885). Body: `error.message` = `"Payer role is not permitted for this resource"` | check role; route agents to `/payer/agency/jobs` |
 | 404 | Unknown **or** not-owned resource (no-oracle) | treat as generic "not found" |
+| 409 | Conflict. On a purchase route the body carries `error.reason` (§3.2): `price_mismatch`, `in_flight`, `no_active_plan` (quota top-up). Other 409s (lifecycle, an active boost) carry no `reason` | branch on `error.reason`; no reason → generic conflict |
 | 429 | Rate limit exceeded (fail-closed) | back off; show neutral "try again later" |
 | 500 | Server error | retry with backoff; surface `requestId` |
 
@@ -149,6 +164,7 @@ Stack traces are never leaked; `requestId` is for support correlation.
 | Per-payer disclosure / hour | `PAYER_DISCLOSURE_MAX_PER_HOUR` (default 30) | `POST /payer/unlocks` + reveal (shared cap) |
 | Per-payer reach / hour | `PAYER_REACH_MAX_PER_HOUR` (default 60) | applicant feed reads + `GET /payer/reach/applicants` pages (one shared bucket) |
 | Per-payer invite-mint / hour | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60) | agency invite mint |
+| Per-payer applicant-stage writes / hour | `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600) | `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` (its own bucket — never the reach read budget) |
 | Global OTP sends / day | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends |
 
 Per-worker protection caps also gate unlocks server-side (`UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY` default 5, `UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK` default 10, `UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` default 3) — these surface to you only as a neutral `unavailable`. The per-payer disclosure cap is **shared** across unlock + reveal + resume-disclosure.
@@ -295,14 +311,14 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ tier: string (1–64), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }` — **no** `payer_id`, **no** price/amount (XT5: send the tier **code** only; server resolves price). `expected_price_inr` (#2085) is a guard, never charged — see [Price confirmation](#price-confirmation-expected_price_inr).
 - **Response:** `{ payer_id, quote, max_active_vacancies, source_tier, expires_at, resumed_plan_ids: UUID[] }`.
 - **Events:** `payment.authorized`, `payment.captured`, `capacity.purchased`, `posting_plan.resumed` (one per auto-resumed plan), `coupon.redeemed` (if coupon).
-- **Errors:** `400` unknown tier · `409` same key still in flight · `409 price_mismatch`.
+- **Errors:** `400` unknown tier · `409 in_flight` — same key still in flight (`"This capacity purchase is already being processed; check your capacity before trying again"`) · `409 price_mismatch`. The reason is `error.reason` (§3.2).
 - **Mobile gotchas:** **MOCK payment** (`PAYMENTS_ENABLE_REAL=false`; `real_call:false`) — no real money in Phase 1. `quote` is informational; don't echo it as an authoritative charge. `resumed_plan_ids` tells you how many paused plans were auto-resumed. Atomic per-payer (advisory-locked); concurrent buys serialize. `201`.
 
 #### `POST /payer/job-postings/:id/plan` · `POST /payer/job-postings/:id/boost`
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).
 - **Headers:** `Idempotency-Key?: string` (#2103) — the same seam, scope rules, window and replay semantics as `POST /payer/capacity` / `…/quota-topup`; scopes `plan_purchase` and `boost_purchase` (separate — one key on plan and boost is two purchases). See [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** plan `{ tier: 'standard'|'pro', coupon?, expected_price_inr? }` · boost `{ tier: 'boost_7'|'boost_15'|'boost_30'|'all_candidates', coupon?, expected_price_inr? }`.
-- **Errors:** `400` unknown tier · `409 price_mismatch` (#2085) — refused before the plan/boost row or any payment event · boost: `409` an active boost already exists · `409` same key still in flight (`"This plan purchase is already being processed; check the posting before trying again"` / `"This boost purchase is already being processed; …"`).
+- **Errors:** `400` unknown tier · `409 price_mismatch` (#2085) — refused before the plan/boost row or any payment event · boost: `409` an active boost already exists (no `reason`) · `409 in_flight` (#2111) — same key still in flight (`"This plan purchase is already being processed; check the posting before trying again"` / `"This boost purchase is already being processed; …"`). The reason is `error.reason` (§3.2).
 - A replay under the same key emits no event and charges nothing.
 
 #### `POST /payer/job-postings/:id/quota-topup`
@@ -311,7 +327,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ tier: string (1–64, e.g. 'topup_10'), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }`. No `payer_id`.
 - **Response:** `{ plan, quote }` — `plan.quotaTopupCount` is the running top-up total.
 - **Events:** `payment.authorized`, `payment.captured`, `posting_plan.quota_topped`, `coupon.redeemed` (if coupon). Unchanged by #2085; a replay emits nothing.
-- **Errors:** `400` unknown tier · `409` no active plan on the posting · `409` same key still in flight (`"This quota top-up is already being processed; check the posting before trying again"`) · `409 price_mismatch`.
+- **Errors:** `400` unknown tier · three `409`s, told apart by `error.reason` (§3.2; #2111):
+  - `no_active_plan` — the posting has no active, unexpired plan of yours to top up (`"no active plan to top up for this posting"`). Nothing charged. Buy a plan first. Stored under the key and replayed like any outcome.
+  - `in_flight` — the same `Idempotency-Key` is still running (`"This quota top-up is already being processed; check the posting before trying again"`). Outcome unknown: re-read `GET /payer/job-postings/:id`, never re-post.
+  - `price_mismatch` — see [Price confirmation](#price-confirmation-expected_price_inr).
+
+  The messages are unchanged from before #2111; `reason` is additive. A client on a pre-#2111 API sees no `reason` and must keep its message fallback until it drops support for that build.
 - `201`. **MOCK payment** (`real_call:false`).
 
 #### Purchase idempotency (`Idempotency-Key`)
@@ -320,7 +341,7 @@ Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings
 - Mint **one key per confirmed purchase** and reuse it only for retries of that purchase. A new purchase (a renewal, a second top-up) needs a new key.
 - Keys are scoped per route **and** per session payer, and honoured for **180 s**.
 - **Same key, first attempt finished** → the stored outcome is replayed: the same `201` body, or the same error status **and the same error body** (#2103). The work does not run again, so nothing is charged twice and no event is emitted twice.
-- **Same key, first attempt still running** → `409` (the in-flight message for that route). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting.
+- **Same key, first attempt still running** → `409` with `error.reason: "in_flight"` (#2111, on all five routes) and the route's in-flight message (unchanged). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting. This `409` is never stored, so it is never replayed.
 - **Same key, different body** → **not** compared: the first purchase's outcome is replayed. The key names the intent; a client that changes the body under one key has a bug.
 - **Replayed error body (#2103):** identical to the first response's `error` object — every field, e.g. a replayed `409 price_mismatch` still carries `reason`, `expected_price_inr`, `current_price_inr`. Only the envelope's `requestId`/`path`/`timestamp` differ (they describe the retry). Outcomes stored by a pre-#2103 build (at most 180 s around the deploy) replay as `{ message }` only.
 - If Redis is unavailable the request runs undeduplicated (fail open at this one step; all money paths stay fail-closed).
@@ -329,11 +350,22 @@ Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings
 Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `POST /payer/capacity`, `POST /payer/credits`, `POST /payer/credits/order` (#2085).
 - **Optional** integer, whole rupees, `0–10,000,000`. A non-integer, negative or string value is a `400`. Absent → behaviour unchanged.
 - It is compared to the **final** price the purchase would be charged at that moment — after the active offer and any valid `coupon`. It is never used as the charge.
-- Mismatch → `409`, **nothing charged**: no entitlement row, no ledger row, no provider order, no `payment.*` event.
+- Mismatch → `409`, **nothing charged**: no entitlement row, no ledger row, no provider order, no `payment.*` event. The wire body (the global filter nests the thrown body under `error` — §3.2; read `error.reason`, `error.current_price_inr`):
   ```json
-  { "statusCode": 409, "error": "Conflict", "reason": "price_mismatch",
-    "message": "The price changed: you confirmed ₹1000 but the current price is ₹750. Nothing was charged; re-read the price and confirm again",
-    "expected_price_inr": 1000, "current_price_inr": 750 }
+  {
+    "statusCode": 409,
+    "error": {
+      "statusCode": 409,
+      "error": "Conflict",
+      "reason": "price_mismatch",
+      "message": "The price changed: you confirmed ₹1000 but the current price is ₹750. Nothing was charged; re-read the price and confirm again",
+      "expected_price_inr": 1000,
+      "current_price_inr": 750
+    },
+    "requestId": "opaque-uuid",
+    "path": "/payer/job-postings/…/quota-topup",
+    "timestamp": "ISO8601"
+  }
   ```
   Re-read `GET /payer/pricing/catalog`, show the new price, and ask the payer to confirm again (with a **new** `Idempotency-Key`; the old key replays this `409`).
 - Send the `price_inr` from `GET /payer/pricing/catalog` for that tier. With a coupon, the catalog price is pre-coupon, so expect a `409` unless you send the post-coupon amount.
@@ -412,6 +444,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   2. Otherwise an owned company posting → that posting's **actual applicants** (the V1 shape). Not gated by `FEED_POSTINGS_UNION_ENABLED`, so disarming the worker-feed union never hides people who already applied. Applications without a rank snapshot sort last.
   3. Otherwise → neutral `404` in the §3.2 envelope with `error.message = "Job not found"`. The `error` object is identical for an unknown id, another payer's job and another payer's posting (no existence oracle); only the per-request `path`, `requestId` and `timestamp` differ.
 - **Membership:** neither list ever includes a worker inside the account-deletion grace window (ADR-0031 ruling (b)); a cancelled deletion puts him back.
+- **`stage` (owner ruling 2026-10-07 — behind `PAYER_APPLICANT_STAGES_ENABLED`, default off):** while the flag is on, **every row in both shapes below also carries `stage: 'new' | 'shortlist' | 'passed'`**, appended as the row's last key — the applicant's place on the payer's saved New / Shortlist / Passed board for this posting (`new` when nobody has moved him). Every other key and value is unchanged, and the board never filters or reorders the list: a `passed` applicant is still listed, labelled `passed`; which tab shows him is the client's call. While the flag is off **no row carries `stage`** — treat its absence as "the server does not persist stages" and keep the local board. Set it with `PUT …/applicants/:workerId/stage` below.
 - **Response (agency `jobs` row — its appliers):**
   ```
   { jobId, applicants: [ {
@@ -448,11 +481,11 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `GET /payer/reach/applicants` — every applicant across the payer's own postings (Candidates tab)
 - **Auth:** `PayerAuthGuard` (Bearer), either role. The **same** per-payer hourly reach bucket as the per-posting list (`payer_reach`, `PAYER_REACH_MAX_PER_HOUR`, default 60): **one unit per page**, checked before any read, shared with `GET /payer/reach/jobs/:jobId/applicants` (not a second budget). Fails closed: Redis down → the same `429`.
 - **Scope:** every worker who **applied** to a posting the **session** payer owns — agency `jobs` rows (`jobs.payer_id`) and company `job_postings` (`job_postings.payer_id`), the same two ownership rules the per-posting list resolves an id with, all statuses. `payer_id` comes from the session only; the query has no slot for one.
-- **Query** (all optional; any other key, including `payer_id` and `stage`, is a `400`):
+- **Query** (all optional; any other key, including `payer_id`, is a `400` — and so is `stage` while `PAYER_APPLICANT_STAGES_ENABLED` is off):
   - `postingId` (UUID) — only that posting's applicants; matches an agency job id or a company posting id. **Neutral result:** an unknown id and another payer's id return `200 { applicants: [], nextCursor: null }` — byte-identical to an owned posting nobody has applied to (no existence oracle, one read in every case).
   - `limit` — integer `1..50`, default `20`.
   - `cursor` — the previous response's `nextCursor`, passed back untouched (≤256 chars). Empty = first page. Anything the server did not mint is a `400`, including a cursor whose timestamp is not a real instant (e.g. 30 February, year 0000). Opaque is not secret: it decodes to the last row's application `created_at` and id.
-  - **No `stage` filter.** The per-posting feed exposes no stage: payer-web's New / Shortlist / Passed board is client-local and nothing persists a stage, so there is nothing to filter on server-side.
+  - `stage` — `new` | `shortlist` | `passed` (owner ruling 2026-10-07). **Only while `PAYER_APPLICANT_STAGES_ENABLED` is on**; off, `?stage=` is the same `400` it always was (never a filter that silently does nothing). Keeps only applicants in that stage of the saved board; `new` matches an applicant nobody has moved **and** one moved back to New. Composes with `postingId` and with paging: the filter narrows the same order without changing it, so pages under a filter never skip or repeat a row. A cursor is a position, not a filter — when you change `stage`, start again from the first page (no cursor). An applicant moved between two of your page reads is shown or skipped by the stage he holds when his page is read, never twice.
 - **Order:** newest application first — `applications.created_at DESC`, then `applications.id DESC` as the tiebreak (a total order, so pages never skip or repeat a row). Keyset pagination; the cursor is opaque base64url of `{ v: 1, t: <created_at, microsecond UTC>, id: <application id> }`.
 - **Response:**
   ```
@@ -470,11 +503,29 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   ```
   - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
   - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows.
+  - `stage` — present on every row **only while `PAYER_APPLICANT_STAGES_ENABLED` is on**: the same value the per-posting route shows for him on that posting (a worker's two rows have two independent stages, one per posting). Absent while off.
 - **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.
 - **Faceless:** the rows carry exactly the per-posting projection — opaque ids, banded chips and rank inputs; no name, phone, employer or contact. Identity is still bought through `/payer/unlocks`.
 - **Events:** the per-posting posture, row for row: each **agency** row on the page emits the same `feed.shown` the per-job list emits for it (actor `payer`, payload `worker_id`/`job_id`/`rank`/`score`/`hot`, one all-or-nothing batch); **company** rows emit nothing. A company-only page is therefore rate-limited but not durably audited (the per-posting list's existing residual).
 - **Errors:** `400` bad query / cursor; `429` reach cap (or Redis down); a DB failure is a `5xx`. No `404` — a filter that matches nothing is an empty page.
 - **Mobile/web gotchas:** FREE (no credit debit). Pass `nextCursor` back verbatim; never build one. New applications arriving mid-scroll appear on the next first page, not mid-list. An agent account's older company postings are included, as on the per-posting route.
+
+#### `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` — move an applicant on the pipeline board
+Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved server-side (it survives a reload and every session with access to the posting sees the same board). **Behind `PAYER_APPLICANT_STAGES_ENABLED` (default off): while off this route is a neutral `404` for every caller** (after the `401` for no session) and the feeds carry no `stage`.
+- **Auth:** `PayerAuthGuard` (Bearer), either role. No role gate: like the feed it annotates, the board is governed by **posting ownership** alone — an agent's agency job and an employer's company posting alike. Own per-payer hourly bucket (`payer_applicant_stage`, `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`, default 600), one unit per request (a no-op and a `404` count too), charged before any read; fails closed (Redis down → the same `429`).
+- **Path:** `jobId` — the id `GET /payer/reach/jobs/:jobId/applicants` takes: an agency `jobs` id **or** a company `job_postings` id; the server resolves which, exactly as the feed does (jobs first). `workerId` — the row's `workerId`. Both UUIDs (malformed → `400`).
+- **Body:** `{ "stage": "new" | "shortlist" | "passed" }` — strict; any other key (`payer_id`, a note, a posting kind) is a `400`. `new` moves the applicant back to New.
+- **Who may set it:** the session payer must **own** the posting (`jobs.payer_id` / `job_postings.payer_id` — the same check the feed uses), **and** the worker must be on that posting's applicant feed (applied, not withdrawn/skipped, not inside the deletion grace window, and — on an agency job — with a profile, exactly the feed's membership). Otherwise → `404` with `error.message = "Job not found"`, **identical** to the feed's 404 for an unknown id, another payer's posting, or a worker who is not an applicant (no existence oracle). When org tenancy lands (PAY-DB-01) ownership widens to the org and so does the board — the route does not change.
+- **Response `200`** (the same shape for a change and for a no-op):
+  ```
+  { postingId, postingKind: 'company_posting' | 'agency_job', workerId,
+    stage, previousStage, changed: boolean }
+  ```
+  `previousStage` is what the board held before this request (`new` if nobody had moved him). `changed: false` = he already held `stage`: nothing written, no event.
+- **Idempotent:** retrying the same body is safe (`changed: false`, same body otherwise). Two sessions moving the same applicant at once serialise; the last write wins, and each response's `previousStage` is the stage it actually replaced.
+- **Events:** one `payer.applicant_stage_changed` v1 per **real** change, in the same transaction as the write — actor `payer` (the session payer), subject `worker`, payload `{ posting_kind, posting_id, worker_id, stage, previous_stage }` (ids + closed enums only). A no-op emits nothing.
+- **Errors:** `400` bad ids / body; `401` no session; `404` flag off, or not settable (above); `429` cap or Redis down; a DB failure is a `5xx`, never folded into the `404`.
+- **Web gotchas:** read `stage` from the feed rows (absent ⇒ the flag is off ⇒ keep the local board and do not call this route). Update the row optimistically, then reconcile with the response's `stage`; on `404` re-fetch the feed (the applicant left it). Stages are per posting: the same worker on two postings has two independent stages.
 
 ### 4.6 Agency (role `agent` only)
 
@@ -543,7 +594,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `GET /admin/job-postings/:id`
 - **Auth:** `AdminAuthGuard` + capability `read_entities`. Never called by the payer app.
 - **Response (`AdminJobPostingDetail`, snake_case):** the list fields plus `description`, `shift`, `needed_by`, `boosted_until`, `previous_status`, `applied_count`, `skipped_count`, `updated_at`, and — **added 2026-09-29** — `area`, `min_experience_years`, `max_experience_years`, `pay_type`, `requirements`, `benefits`, `role_kind`. Every one is a nullable, PII-free card field the owning payer already reads back; `role_kind` is returned **raw** (the admin UI labels it with `jobRoleLabel()` and shows the raw id when it is not one of the 21). Explicit column select — never a bare `select()`.
-- **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders`. It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null`.
+- **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders` — and, **added 2026-10-07 (#2106)**, on every `top_balances[]` row of `GET /admin/finance/summary` (`{ payer_id, payer_role, balance }`). It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null` (for `top_balances`, once the admin-web pass-through lands).
 
 ---
 

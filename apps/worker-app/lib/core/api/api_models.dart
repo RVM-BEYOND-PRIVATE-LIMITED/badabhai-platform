@@ -11,6 +11,8 @@ library;
 
 import 'package:equatable/equatable.dart';
 
+import '../../features/chat/domain/chat_news_link.dart';
+
 import 'occupation_label.dart';
 
 /// Thrown when the API returns a non-2xx response.
@@ -245,6 +247,55 @@ class FeedItem extends Equatable {
         postedAt,
         roleKind,
       ];
+}
+
+/// ONE PAGE of `GET /feed` — the cards plus the cursor for the page after them
+/// (#1961 / #2068, ADR-0052). The envelope is `{jobs, next_cursor}`; the card
+/// shape ([FeedItem]) is unchanged, and `rank` keeps counting across pages
+/// (page 2 starts at `limit + 1`), so the card's own `rank` still rides
+/// apply/skip untouched.
+class FeedPage extends Equatable {
+  const FeedPage({required this.jobs, required this.nextCursor});
+
+  final List<FeedItem> jobs;
+
+  /// The OPAQUE cursor for the NEXT page (base64url of a versioned server-minted
+  /// object, ADR-0052 §2.1). Store it and send it back BYTE-FOR-BYTE: never
+  /// parse it, never build one, never edit one — its contents are the server's
+  /// keyset position and the client has no business reading them.
+  ///
+  /// `null` means the END of the deck: stop fetching. A full page can be
+  /// followed by one final EMPTY page whose cursor is null (ADR-0052 §2.2), so
+  /// "null" is the only end signal — never "fewer cards than `limit`".
+  ///
+  /// A MISSING key reads as null too (see [FeedPage.fromJson]): that is an older
+  /// API build, or a rollback of PR #2067, and the app must then behave exactly
+  /// as it did before paging existed — one page, no cursor.
+  final String? nextCursor;
+
+  /// Parses the `/feed` envelope. An absent `jobs` key reads as no cards (the
+  /// pre-existing rule), and a `next_cursor` that is absent, explicitly null, or
+  /// not a String reads as null — a non-string cursor is a contract violation we
+  /// drop rather than stringify into a value the server never minted.
+  ///
+  /// An EMPTY string reads as null as well, and that one is not pedantry: the
+  /// server reads `?cursor=` as "no cursor" (ADR-0052 §2.1), so re-sending an
+  /// empty cursor would refetch page 1 forever.
+  factory FeedPage.fromJson(Map<String, dynamic> json) => FeedPage(
+        jobs: (json['jobs'] as List<dynamic>? ?? <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(FeedItem.fromJson)
+            .toList(),
+        nextCursor: _cursorOrNull(json['next_cursor']),
+      );
+
+  static String? _cursorOrNull(dynamic raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    return raw;
+  }
+
+  @override
+  List<Object?> get props => <Object?>[jobs, nextCursor];
 }
 
 /// A worker's apply/skip decision row from `GET /workers/me/applications` (the
@@ -998,6 +1049,7 @@ class ChatReply extends Equatable {
     this.editProposal,
     this.cooldownUntil,
     this.readAloud,
+    this.newsLinks = const <ChatNewsLink>[],
   });
 
 final String reply;
@@ -1022,6 +1074,10 @@ final String reply;
   /// [ttsText] (or [reply] fallback) without the worker tapping the speaker.
   /// Client-side behaviour only; the server never speaks.
   final bool? readAloud;
+
+  /// ADR-0054 §3.4 — this turn's news tiles, empty on every turn but an
+  /// answered news one.
+  final List<ChatNewsLink> newsLinks;
 
   /// The tap-to-answer options for THIS turn (`suggested_options`, #761), served
   /// ALONGSIDE [suggestedFollowups]. Each carries the stable `option_key` the
@@ -1283,6 +1339,12 @@ final String reply;
             : null,
         // ADR-0046 — whether to auto-read this turn aloud.
         readAloud: json['read_aloud'] is bool ? json['read_aloud'] as bool : null,
+        // ADR-0054 §3.4 (#2148) — the "read more" tiles under an answered news
+        // turn. ADDITIVE and ABSENT on every other turn, never null, so an
+        // empty list is the honest reading of "no tiles" however the wire says
+        // it. Items that cannot safely become a tile are dropped by
+        // [ChatNewsLink.listFromJson], not rendered broken.
+        newsLinks: ChatNewsLink.listFromJson(json['news_links']),
       );
 
   @override
@@ -1310,6 +1372,7 @@ final String reply;
         editProposal,
         cooldownUntil,
         readAloud,
+        newsLinks,
       ];
 }
 
@@ -1372,6 +1435,7 @@ class SessionMessage extends Equatable {
     required this.bodyText,
     required this.createdAt,
     this.ttsText,
+    this.newsLinks = const <ChatNewsLink>[],
   });
 
   /// 'inbound' (the worker) | 'outbound' (bada bhai). Kept as the RAW wire
@@ -1393,6 +1457,11 @@ class SessionMessage extends Equatable {
   /// hydrated bot bubble; read-aloud falls back to [bodyText] when null.
   final String? ttsText;
 
+  /// ADR-0054 §3.4 — the tiles that rode this bot row, so a replay after a
+  /// restart draws them again. Empty on a worker row and on every turn that
+  /// served none.
+  final List<ChatNewsLink> newsLinks;
+
   /// True for the worker's own (inbound) messages. Anything that is not
   /// explicitly 'inbound' is treated as a bada-bhai bubble — the tolerant
   /// default the contract's enum note asks for.
@@ -1401,6 +1470,10 @@ class SessionMessage extends Equatable {
   factory SessionMessage.fromJson(Map<String, dynamic> json) => SessionMessage(
         direction: json['direction'] as String? ?? 'outbound',
         bodyText: json['body_text'] as String?,
+        // ADR-0054 §3.4 (#2148) — the replay carries the SAME field on the bot
+        // row that served them, so a restart redraws the tiles rather than
+        // leaving a summary whose sources vanished.
+        newsLinks: ChatNewsLink.listFromJson(json['news_links']),
         createdAt: json['created_at'] as String? ?? '',
         // #896 — additive: absent / null / blank -> null (read-aloud falls back
         // to the romanized body_text).

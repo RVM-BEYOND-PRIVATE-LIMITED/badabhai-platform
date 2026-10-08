@@ -46,6 +46,10 @@ import {
   FREE_CHAT_OUTCOMES,
   FREE_CHAT_MODE_TRIGGERS,
   FREE_CHAT_SUMMARY_OUTCOMES,
+  FREE_CHAT_NEWS_KINDS,
+  FREE_CHAT_NEWS_OUTCOMES,
+  APPLICANT_POSTING_KINDS,
+  APPLICANT_STAGES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -1214,6 +1218,10 @@ const aiTaskType = z.enum([
   // and charged once per fold (turns aging out of the reply's window). Added in the SAME change
   // that routes it.
   "profiling_free_summary",
+  // ADR-0054 (#2127) — LIVE NEWS: one Claude call with the server-side web search tool, routed in
+  // `model_config._ROUTE_SHAPES` and charged per call (tokens plus each search). Added in the SAME
+  // change that names its contract.
+  "profiling_free_news",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -5337,3 +5345,71 @@ export const ChatFreeChatSummaryUpdatedPayload = z
     message: "summary_chars is set iff outcome is 'updated'",
   });
 export type ChatFreeChatSummaryUpdatedPayload = z.infer<typeof ChatFreeChatSummaryUpdatedPayload>;
+
+/**
+ * ADR-0054 (#2127) — ONE LIVE-NEWS REQUEST ENDED. A casual or career reply refused on `news`, and
+ * the free chat tried the searched answer instead. `outcome` is what the worker got: a summary
+ * with "read more" tiles (`answered`), or a fixed line because the search found nothing
+ * (`no_results`), the news model declined (`refused`), the API's validation threw the answer away
+ * (`rejected`), no real answer came back (`unavailable`) or the daily cap was spent (`capped`).
+ *
+ * `kind` is set exactly for `answered`; `source_count` is the number of tiles served (1-3 for
+ * `answered`, 0 otherwise); `search_count` is how many charged searches ran (null when no call was
+ * made: `capped`); `daily_count` is the worker's news answers today including this one (null when
+ * the cap store could not be read).
+ *
+ * NEVER THE QUESTION, THE ANSWER, A URL OR A TITLE. Counts and closed enums only; `.strict()`.
+ */
+export const ChatFreeChatNewsServedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    outcome: z.enum(FREE_CHAT_NEWS_OUTCOMES),
+    kind: z.enum(FREE_CHAT_NEWS_KINDS).nullable(),
+    search_count: z.number().int().min(0).max(3).nullable(),
+    source_count: z.number().int().min(0).max(3),
+    daily_count: z.number().int().nonnegative().nullable(),
+    submission_id: uuidSchema.nullable(),
+  })
+  .strict()
+  .refine((v) => (v.kind !== null) === (v.outcome === "answered"), {
+    message: "kind is set exactly when outcome is 'answered'",
+  })
+  .refine((v) => (v.source_count > 0) === (v.outcome === "answered"), {
+    message: "tiles are served exactly when outcome is 'answered'",
+  })
+  .refine((v) => v.outcome !== "capped" || v.search_count === null, {
+    message: "a capped request made no search",
+  });
+export type ChatFreeChatNewsServedPayload = z.infer<typeof ChatFreeChatNewsServedPayload>;
+
+/**
+ * OWNER RULING 2026-10-07 — A PAYER MOVED AN APPLICANT ON A POSTING'S PIPELINE BOARD (payer-web's
+ * New / Shortlist / Passed), saved server-side in `payer_applicant_stages` (migration 0134).
+ *
+ * EMITTED ONLY FOR A PERSISTED REAL CHANGE, in the SAME transaction as the write, so the spine and
+ * the board cannot disagree. Re-sending the stage already held (a retry, a double tap) writes
+ * nothing and emits nothing — hence the refine: `stage` never equals `previous_stage`.
+ * `previous_stage` is never null: an applicant nobody has moved is `new`.
+ *
+ * THE ACTOR IS THE SESSION PAYER (`actor_type: payer`, `actor_id` = the payer who moved the row),
+ * the SUBJECT is the worker. No `payer_id` in the payload: the actor carries it, and ACCESS is
+ * posting ownership, decided by the API — not a payer recorded here.
+ *
+ * IDS AND CLOSED ENUMS ONLY, `.strict()`: the posting kind (which table `posting_id` names) and
+ * id, the worker id, two stages. Never a posting title, a note or anything a payer typed. BECAUSE
+ * A SHIPPED PAYLOAD IS FROZEN, a new stage or posting kind is a new event version.
+ */
+export const PayerApplicantStageChangedPayload = z
+  .object({
+    posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+    posting_id: uuidSchema,
+    worker_id: uuidSchema,
+    stage: z.enum(APPLICANT_STAGES),
+    previous_stage: z.enum(APPLICANT_STAGES),
+  })
+  .strict()
+  .refine((v) => v.stage !== v.previous_stage, {
+    message: "a stage change must change the stage (an unchanged stage emits nothing)",
+  });
+export type PayerApplicantStageChangedPayload = z.infer<typeof PayerApplicantStageChangedPayload>;

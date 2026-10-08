@@ -5,11 +5,17 @@ import 'job_detail.dart';
 /// worker's session token (never the widget) and throw a [Failure] on error —
 /// notably [ConsentRequiredFailure] on a 403 so the bloc can route to consent.
 abstract interface class SwipeRepository {
-  Future<List<FeedItem>> getFeed({
+  /// One PAGE of the deck (#2068): the cards plus the opaque cursor for the page
+  /// after them. [cursor] is the previous page's [FeedPage.nextCursor], sent
+  /// back untouched; null asks for page 1. A cursor the server refuses throws
+  /// [FeedCursorRejectedFailure] — the caller restarts from page 1 instead of
+  /// surfacing it.
+  Future<FeedPage> getFeed({
     String? tradeKey,
     String? city,
     String? shift,
     int? payMin,
+    String? cursor,
   });
 
   /// The FULL worker-visible posting (`GET /jobs/:jobId`) — the same columns

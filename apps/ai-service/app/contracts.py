@@ -2266,3 +2266,72 @@ class FreeChatSummarizeOutput(BaseModel):
     summary: FreeChatSummaryOutputText | None = None
     # `None` on the blocked path: no provider was called, so there is no cost to record.
     ai_metadata: AICallMetadata | None = None
+
+
+# --- ADR-0054 (#2127): live news through the Anthropic web search tool ---
+
+#: What a news answer was about (`FREE_CHAT_NEWS_KINDS` in packages/types). An `everyday` answer
+#: ends by steering the worker back toward their profile.
+FreeChatNewsKind = Literal["work", "everyday"]
+
+
+class FreeChatNewsInput(BaseModel):
+    """One news question, sent only after a casual or career reply refused on ``news``.
+
+    ``text`` has the worker's own name redacted by the API (G2); ``recent_turns`` give
+    continuity ("aur batao"); the worker context lets a work answer lean toward the trade.
+    """
+
+    text: str = Field(min_length=1, max_length=4000)
+    recent_turns: list[CompanionRecentTurn] = Field(default_factory=list, max_length=6)
+    worker_context: CompanionCareerWorkerContext = Field(
+        default_factory=CompanionCareerWorkerContext
+    )
+    # ADR-0054 security review (H2): the worker's OPAQUE spend ref, so this paid, searched call is
+    # charged to `ai_max_user_daily_cost_inr` as well as the global caps (the route passes it as
+    # the router's `user_ref`, like /profile/parse). Never a name or a phone; never sent to the
+    # model. Nullable and defaulted: a caller that omits it is charged to the global caps only.
+    worker_ref: str | None = Field(default=None, min_length=1)
+
+
+class FreeChatNewsSource(BaseModel):
+    """One cited source, served as a "read more" tile. The API re-checks the URL (https, a host on
+    ``FREE_CHAT_NEWS_DOMAINS``) before any tile reaches a worker."""
+
+    url: str = Field(min_length=1, max_length=500)
+    title: str = Field(min_length=1, max_length=200)
+    site: str = Field(min_length=1, max_length=100)
+
+
+class FreeChatNewsAnswer(BaseModel):
+    """A searched answer: 1-4 lines, its kind, 1-3 cited sources and the searches it ran."""
+
+    status: Literal["answer"]
+    kind: FreeChatNewsKind
+    lines: list[FreeChatReplyLine] = Field(min_length=1, max_length=4)
+    sources: list[FreeChatNewsSource] = Field(min_length=1, max_length=3)
+    search_count: int = Field(ge=0, le=3)
+    ai_metadata: AICallMetadata | None = None
+
+
+class FreeChatNewsNoResults(BaseModel):
+    """The search ran but found nothing the model could answer from."""
+
+    status: Literal["no_results"]
+    search_count: int = Field(ge=0, le=3)
+    ai_metadata: AICallMetadata | None = None
+
+
+class FreeChatNewsRefuse(BaseModel):
+    """The news model declined on a closed topic; the API serves that topic's fixed line."""
+
+    status: Literal["refuse"]
+    topic: FreeChatRefusalTopic
+    ai_metadata: AICallMetadata | None = None
+
+
+#: The news union, discriminated on ``status`` like the Zod `discriminatedUnion`.
+FreeChatNewsOutput = Annotated[
+    FreeChatNewsAnswer | FreeChatNewsNoResults | FreeChatNewsRefuse,
+    Field(discriminator="status"),
+]

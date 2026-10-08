@@ -58,12 +58,18 @@
 import { and, asc, eq, gt, inArray, isNotNull, notInArray } from "drizzle-orm";
 
 import {
-  bucketMonths,
+  computeIndustryTenure,
   deriveWorkerSkills,
   DEFAULT_MATCH_CONFIG,
   workerSkillDeriveInput,
+  type WorkerSkillRow,
 } from "@badabhai/match-engine";
-import { packAnswerFromStoredRow, type PackAnswer } from "@badabhai/taxonomy";
+import {
+  packAnswerFromStoredRow,
+  type IndustryId,
+  type MatchSkillId,
+  type PackAnswer,
+} from "@badabhai/taxonomy";
 
 import { createDbClient, type Database } from "./client";
 import { CURRENT_PROFILE_ORDER, PROFILE_SOURCE_SESSION_ANSWERS } from "./current-profile";
@@ -269,10 +275,6 @@ async function main(): Promise<void> {
           monthsBucketed: r.monthsBucketed,
         }));
 
-        // The worker's own experience in months — the OTHER half of the E8 clamp below.
-        // Sourced from the engine's `bucketMonths` so the backfill has exactly one bucketing
-        // implementation, the same one moment ① uses.
-        const months = bucketMonths(totalYears, monthBucket);
         if (derived.length === 0) workersWithNoDerivedSkills += 1;
 
         if (opts.apply) {
@@ -326,24 +328,33 @@ async function main(): Promise<void> {
 
           // ── Rebuild tenure (E8 clamp) ──────────────────────────────────────
           // Recomputed from the LIVE rows (derived + human-authored), not from `derived`,
-          // so an interview-authored skill is honoured by the clamp too.
-          const liveRows = await db
+          // so an interview-authored skill is honoured by the clamp too. `computeIndustryTenure`
+          // is the SAME function `WorkerSkillsService.rebuildForWorker` calls on the live path —
+          // a hand-rolled max-by-industry loop used to live here, and it treated a worker's FIRST
+          // skill at `monthsBucketed = 0` as "no industry at all" (its running max started at 0,
+          // so `0 > 0` never promoted the industry into the map), silently deleting the industry's
+          // tenure row instead of writing it. The shared function has no such sentinel.
+          const liveRowsRaw = await db
             .select({
+              skillId: workerSkills.skillId,
               industryId: workerSkills.industryId,
               monthsBucketed: workerSkills.monthsBucketed,
+              wants: workerSkills.wants,
+              startedAt: workerSkills.startedAt,
+              endedAt: workerSkills.endedAt,
             })
             .from(workerSkills)
             .where(eq(workerSkills.workerId, w.id));
+          // Cast, not validate: the FK on `worker_skill.skill_id` (and the matching one on
+          // `industry_id`) already pins every row to the closed vocabulary.
+          const liveRows: WorkerSkillRow[] = liveRowsRaw.map((r) => ({
+            ...r,
+            skillId: r.skillId as MatchSkillId,
+            industryId: r.industryId as IndustryId,
+          }));
 
-          const maxByIndustry = new Map<string, number>();
-          for (const r of liveRows) {
-            const prev = maxByIndustry.get(r.industryId) ?? 0;
-            if (r.monthsBucketed > prev) maxByIndustry.set(r.industryId, r.monthsBucketed);
-          }
-          // The worker's stated experience applies to every industry they hold a skill in;
-          // the clamp takes whichever is larger.
-          for (const [industryId, maxSkillMonths] of maxByIndustry) {
-            const calendarMonths = Math.max(months, maxSkillMonths);
+          const tenure = computeIndustryTenure(liveRows, totalYears, monthBucket);
+          for (const [industryId, calendarMonths] of tenure) {
             await db
               .insert(workerIndustryTenure)
               .values({ workerId: w.id, industryId, calendarMonths, computedAt: now })
@@ -356,11 +367,11 @@ async function main(): Promise<void> {
           // Tenure for an industry the worker no longer holds any skill in is removed, so
           // the projection can never outlive its inputs.
           const tenureStaleWhere =
-            maxByIndustry.size === 0
+            tenure.size === 0
               ? eq(workerIndustryTenure.workerId, w.id)
               : and(
                   eq(workerIndustryTenure.workerId, w.id),
-                  notInArray(workerIndustryTenure.industryId, [...maxByIndustry.keys()]),
+                  notInArray(workerIndustryTenure.industryId, [...tenure.keys()]),
                 );
           await db.delete(workerIndustryTenure).where(tenureStaleWhere);
         } else {
@@ -381,7 +392,21 @@ async function main(): Promise<void> {
           }
           const derivedSet = new Set(derived.map((d) => d.skillId));
           for (const id of existingDerived) if (!derivedSet.has(id)) skillsDeleted += 1;
-          tenureRowsWritten += new Set(derived.map((d) => d.industryId)).size;
+          // Approximation from `derived` alone (see comment above the apply branch for why that
+          // differs from the live rebuild) — but via the SAME tenure function, not a second one.
+          const previewTenure = computeIndustryTenure(
+            derived.map((d) => ({
+              ...d,
+              skillId: d.skillId as MatchSkillId,
+              industryId: d.industryId as IndustryId,
+              wants: true,
+              startedAt: null,
+              endedAt: null,
+            })),
+            totalYears,
+            monthBucket,
+          );
+          tenureRowsWritten += previewTenure.size;
         }
       }
 

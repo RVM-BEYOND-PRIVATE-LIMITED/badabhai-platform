@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { payerAuth } from "../../lib/auth";
 import { BadaBhaiLogo, ThemeToggle } from "../../components/ds";
+import { NavPendingStatus } from "../../components/nav-pending";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,10 @@ export default async function LoginPage() {
 
   return (
     <div className="login-wrap login-wrap--auth">
+      {/* The navigation cue's bar and polite status line — this page has no portal shell to
+          render them, and a verified code navigates to the dashboard (components/nav-pending.tsx).
+          Fixed and visually hidden: they take no space in the centred card's layout. */}
+      <NavPendingStatus />
       {/* Pre-auth theme control — the preference is available before sign-in too. */}
       <div className="login-theme">
         <ThemeToggle />

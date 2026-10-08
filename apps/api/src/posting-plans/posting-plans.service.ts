@@ -18,6 +18,7 @@ import { assertExpectedPrice, chargeQuote } from "../pricing/charge-price";
 import { MatchConfigService } from "../match/match-config.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { PostingPlansRepository } from "./posting-plans.repository";
+import { noActivePlanToTopUp } from "./no-active-plan-conflict";
 import { assertNotAgencyTwin } from "../common/agency-twin-fence";
 import type {
   BuyPlanDto,
@@ -387,7 +388,8 @@ export class PostingPlansService {
     // The plan to top up: the payer's active, unexpired plan for this posting (payer-scoped;
     // a foreign/absent plan is invisible → 409, no oracle). You must own an active plan first.
     const target = await this.repo.findActivePlanForPostingAndPayer(jobPostingId, payerId, now);
-    if (!target) throw new ConflictException("no active plan to top up for this posting");
+    // 409 `reason: "no_active_plan"` (#2111) — the same message as before, plus the reason.
+    if (!target) throw noActivePlanToTopUp();
 
     // ATOMIC increment (re-guards active+owned+unexpired) BEFORE any payment emit, so a plan
     // that raced to expiry yields a clean 409 and NO payment event is recorded for a no-op.
@@ -397,7 +399,7 @@ export class PostingPlansService {
       grants.additionalVisibilityQuota,
       now,
     );
-    if (!updated) throw new ConflictException("no active plan to top up for this posting");
+    if (!updated) throw noActivePlanToTopUp();
 
     await this.emitPayment("payment.authorized", jobPostingId, payerId, quote.finalInr, realCall, ctx);
     await this.emitPayment("payment.captured", jobPostingId, payerId, quote.finalInr, realCall, ctx);

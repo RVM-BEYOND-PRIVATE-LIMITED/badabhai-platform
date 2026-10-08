@@ -17,6 +17,10 @@ export {
   Checkbox,
   Radio,
   Switch,
+  // The DS feedback-line id contract (`${controlId}-msg`, M3). Exported for the few refusals
+  // that belong to a GROUP of controls rather than one DS field — the agency form's match-skill
+  // picker (#2104) — so they describe themselves by the same id every DS field uses.
+  fieldFeedbackId,
 } from "./forms";
 export type {
   ButtonProps,

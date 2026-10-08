@@ -2,10 +2,11 @@
  * The profiling-stage free chat (ADR-0051, #2027).
  *
  * Mirrors `apps/ai-service/app/contracts.py`; both suites assert against the golden fixture
- * `__fixtures__/free-chat.keys.json`. Two endpoints:
- * `POST /free-chat/classify` (one message -> one closed category) and
+ * `__fixtures__/free-chat.keys.json`. Four endpoints:
+ * `POST /free-chat/classify` (one message -> one closed category),
  * `POST /free-chat/reply` (one casual or career message -> 1-4 Hinglish lines, or a closed
- * refusal topic).
+ * refusal topic), `POST /free-chat/summarize` (Release 2, the rolling notes) and
+ * `POST /free-chat/news` (ADR-0054: a news question -> a searched summary with its sources).
  *
  * PRIVACY: `text`, `pending_question` and the recent turns are worker-facing text; the
  * AI-service applies the masking policy in force (ADR-0047) before `AIRouter`, and the API
@@ -21,6 +22,7 @@ import { z } from "zod";
 
 import {
   FREE_CHAT_CATEGORIES,
+  FREE_CHAT_NEWS_KINDS,
   FREE_CHAT_REFUSAL_TOPICS,
   FREE_CHAT_REPLY_CATEGORIES,
 } from "@badabhai/types";
@@ -153,3 +155,88 @@ export const FreeChatSummarizeOutputSchema = z.object({
   ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type FreeChatSummarizeOutput = z.infer<typeof FreeChatSummarizeOutputSchema>;
+
+// ── ADR-0054 (#2127) — live news through web search ─────────────────────────────────────────
+
+const NEWS_SOURCES_MAX = 3;
+const NEWS_URL_MAX = 500;
+const NEWS_TITLE_MAX = 200;
+const NEWS_SITE_MAX = 100;
+const NEWS_SEARCHES_MAX = 3;
+
+/**
+ * One news question: the worker's message (own name redacted, G2), up to six recent turns for
+ * continuity ("aur batao") and the closed worker context, so a work answer can lean toward the
+ * worker's trade. The API sends it only after a casual or career reply refused on `news`, and
+ * only under the worker's daily cap.
+ */
+export const FreeChatNewsInputSchema = z.object({
+  text: z.string().min(1).max(TEXT_MAX_MESSAGE),
+  recent_turns: z.array(CompanionRecentTurnSchema).max(REPLY_TURNS_MAX).default([]),
+  worker_context: CompanionCareerWorkerContextSchema.default({
+    trade_label: null,
+    experience_bucket: null,
+  }),
+  /**
+   * The worker's OPAQUE spend ref (the D-2 attribution the parse and transcription contracts
+   * carry), so the ai-service charges this paid, searched call to the per-worker daily spend cap
+   * as well as the global ones. Never a name or a phone, and never sent to the model. Nullable
+   * and defaulted: a caller that omits it is charged to the global caps only.
+   */
+  worker_ref: z.string().min(1).nullable().default(null),
+});
+export type FreeChatNewsInput = z.infer<typeof FreeChatNewsInputSchema>;
+
+/**
+ * One source a news answer drew on: the "read more" tile. `site` is the host the API shows; the
+ * API re-checks that `url` is https and its host is on `FREE_CHAT_NEWS_DOMAINS` before any tile
+ * is served, whatever the search returned.
+ */
+export const FreeChatNewsSourceSchema = z.object({
+  url: z.string().min(1).max(NEWS_URL_MAX),
+  title: z.string().min(1).max(NEWS_TITLE_MAX),
+  site: z.string().min(1).max(NEWS_SITE_MAX),
+});
+export type FreeChatNewsSource = z.infer<typeof FreeChatNewsSourceSchema>;
+
+/**
+ * A searched answer: 1-4 short lines summarising what the sources say, the kind of news, the
+ * sources it cited (1-3) and how many searches it ran (each one is charged). UNTRUSTED like every
+ * reply: the API runs the free chat's whole reply gate over the lines.
+ */
+export const FreeChatNewsAnswerSchema = z.object({
+  status: z.literal("answer"),
+  kind: z.enum(FREE_CHAT_NEWS_KINDS),
+  lines: z.array(z.string().min(1).max(REPLY_LINE_MAX)).min(1).max(4),
+  sources: z.array(FreeChatNewsSourceSchema).min(1).max(NEWS_SOURCES_MAX),
+  search_count: z.number().int().min(0).max(NEWS_SEARCHES_MAX),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type FreeChatNewsAnswer = z.infer<typeof FreeChatNewsAnswerSchema>;
+
+/** The search ran but found nothing the model could answer from: the API serves its fixed line. */
+export const FreeChatNewsNoResultsSchema = z.object({
+  status: z.literal("no_results"),
+  search_count: z.number().int().min(0).max(NEWS_SEARCHES_MAX),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type FreeChatNewsNoResults = z.infer<typeof FreeChatNewsNoResultsSchema>;
+
+/**
+ * The news model declined on a closed topic (politics or another off-limits subject, a sign of
+ * distress, legal / medical / financial advice, anything unsafe). The API serves that topic's
+ * fixed line, exactly as for a reply refusal.
+ */
+export const FreeChatNewsRefuseSchema = z.object({
+  status: z.literal("refuse"),
+  topic: z.enum(FREE_CHAT_REFUSAL_TOPICS),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type FreeChatNewsRefuse = z.infer<typeof FreeChatNewsRefuseSchema>;
+
+export const FreeChatNewsOutputSchema = z.discriminatedUnion("status", [
+  FreeChatNewsAnswerSchema,
+  FreeChatNewsNoResultsSchema,
+  FreeChatNewsRefuseSchema,
+]);
+export type FreeChatNewsOutput = z.infer<typeof FreeChatNewsOutputSchema>;

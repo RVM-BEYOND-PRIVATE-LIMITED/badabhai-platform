@@ -343,7 +343,7 @@
   ],
 
   "credentialBefore": {
-    "source": "{WB}(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license|ncvt|scvt|nsqf|nsdc|passport|voter|gstin|uan|provident\\s+fund|ifsc|dob|date\\s+of\\s+birth){WE}\\.?(?:\\s+(?:ka|ki|ke|mera|meri))?\\s*(?:(?:no\\.?|number|num|id|#)\\s*)?(?:[:-]-?\\s*)?[A-Za-z0-9/-]{0,20}$",
+    "source": "{WB}(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license|ncvt|scvt|nsqf|nsdc|passport|voter|gstin|uan|provident\\s+fund|ifsc|dob|date\\s+of\\s+birth){WE}\\.?(?:\\s+(?:ka|ki|ke|mera|meri))?\\s*(?:id\\s*)?(?:(?:card|code)\\s*)?(?:(?:no\\.?|number|num|#)\\s*)?(?:[:-]-?\\s*)?[A-Za-z0-9/-]{0,20}$",
     "flags": "i"
   },
   "$comment_credentialBefore": [
@@ -403,7 +403,19 @@
     "protects anything: a full account, ESIC or UAN number is too long to be read as pay.",
     "'{WB}' in front of the group stops a cue matching inside a word: 'payroll' ends in 'roll',",
     "so 'Company payroll. 18000 milta hai' and 'payroll: 18000' dropped a real wage. Over the",
-    "lexicon parity corpus and the repo's tracked text no other verdict moves."
+    "lexicon parity corpus and the repo's tracked text no other verdict moves.",
+    "",
+    "A TWO-WORD LABEL IS READ (issue #2091, risks-register R56). The connector read ONE number",
+    "word, so 'Voter ID No: <id>' and 'IFSC code <code>' had their digits recorded as pay",
+    "(measured 2026-10-07: 9876543 from 'XYZ9876543', 4321 from 'HDFC0004321'), while the G1/G2",
+    "floor admitted both. In front of the number word the connector now",
+    "reads up to two label words, in a fixed order: 'id', then 'card' or 'code' ('ID No', 'ID",
+    "Number', 'Card No', 'ID Card No', 'Code'), the gateway's exact tokens (owner ruling",
+    "2026-10-08: all five copies, these three words). The 'id' word moved from the 'no'-word slot",
+    "to the first label slot, so a lone 'ID' reads as before. Each word is its own optional token",
+    "with its own trailing '\\s*' (#1933's fold) and none starts with whitespace, so the guard",
+    "stays linear. Over the lexicon parity corpus and the repo's tracked text no verdict moves",
+    "(scripts/measure_cued_id_two_word.py)."
   ],
   "phoneChain": {
     "source": "(?<![0-9०-९])[0-9०-९]+(?:[ \\t\\u00a0\\u00ad\\u2000-\\u200b\\u202f\\u205f\\u3000\\u2010-\\u2015\\u2212()-]+[0-9०-९]+)*",

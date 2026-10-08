@@ -157,7 +157,10 @@ NestJS boot assertion).
   the compose default (#1843), so widening means appending to that list on the box. The
   profiling-stage free chat's three tasks (`profiling_free_classify`, `profiling_free_reply`,
   ADR-0051, and Release 2's rolling summary `profiling_free_summary`, §8) are appended the same
-  way; see its kill-switch entry below.
+  way; see its kill-switch entry below. So is its live news answer, `profiling_free_news`
+  (ADR-0054: Claude + the web search tool, billed per search), appended only after the app
+  release that renders the news tiles (R7); unarmed, it returns its mock and workers keep the
+  "coming soon" news line.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
@@ -213,6 +216,18 @@ NestJS boot assertion).
   the api booting, so `scripts/deploy/staging-deploy.sh` refuses any other value before a
   container moves. In CI tests, only the `e2e` job's union step sets it, on a restarted API process that
   runs `tests/e2e/feed-postings-union.e2e.test.ts` alone.
+- **Payer applicant pipeline board (owner ruling 2026-10-07)** — `PAYER_APPLICANT_STAGES_ENABLED`,
+  api only (`booleanFromString`, default off). Off is today's API byte for byte: the stage route
+  `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` is a neutral 404, neither applicant
+  feed carries `stage`, `GET /payer/reach/applicants?stage=` is a 400, and nothing reads
+  `payer_applicant_stages`. On saves the New / Shortlist / Passed board server-side and adds
+  `stage` to both feeds plus the inbox filter. **Apply migration 0134 BEFORE turning it on** — on
+  without the table, both payer applicant feeds 500. Bridged through the GitHub `production`
+  environment secret of the same name (compose `${PAYER_APPLICANT_STAGES_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`). Arming is the
+  secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only. Its write
+  cap `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600 per payer per UTC hour, its own Redis
+  bucket) runs on its default; neither compose file forwards it.
 - **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
   `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
   DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed

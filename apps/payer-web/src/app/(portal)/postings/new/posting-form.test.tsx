@@ -122,8 +122,11 @@ vi.mock("react", async () => {
     useTransition: () => useTransition(),
   };
 });
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+// The publish navigates through the shared helper (components/portal-navigation.ts — the shell's
+// "Opening …" cue); its router mechanics are that module's own suite.
+const navigate = vi.fn();
+vi.mock("../../../../components/portal-navigation", () => ({
+  usePortalNavigation: () => ({ pending: false, navigate }),
 }));
 const createPostingAction = vi.fn(async (_input: unknown) => ({ ok: true, postingId: "p1", published: true }));
 vi.mock("./actions", () => ({ createPostingAction: (i: unknown) => createPostingAction(i) }));
@@ -275,6 +278,7 @@ beforeEach(() => {
   useState.mockClear();
   useTransition.mockClear();
   createPostingAction.mockClear();
+  navigate.mockClear();
 });
 
 describe("PostingForm render — the role picker and the card fields are present", () => {
@@ -480,6 +484,25 @@ describe("PostingForm — the preview rail is the worker card, built from the sh
     const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, requirements: ["Fanuc control"] });
     await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
     expect(createPostingAction).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("a publish lands on the posting's Applicants (?reached=N) with the shell's 'Opening Applicants…' cue — latched busy first", async () => {
+    createPostingAction.mockResolvedValueOnce({
+      ok: true,
+      postingId: "p1",
+      published: true,
+      reached: 42,
+    } as never);
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, requirements: ["Fanuc control"], benefits: ["PF + ESI"] });
+    findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    expect(navigate).toHaveBeenCalledWith("/postings/p1/applicants?reached=42", {
+      pendingLabel: "Applicants",
+      refresh: true,
+    });
+    // The button stays "Publishing…" through the navigation: `navigating` (index 3) latched on.
+    expect(setters[3]).toHaveBeenCalledWith(true);
   });
 });
 

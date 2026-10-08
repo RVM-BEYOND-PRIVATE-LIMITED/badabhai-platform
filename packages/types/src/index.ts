@@ -350,6 +350,82 @@ export type FreeChatModeTrigger = (typeof FREE_CHAT_MODE_TRIGGERS)[number];
 // (mock, timeout, blocked, error) and the previous one was kept.
 export const FREE_CHAT_SUMMARY_OUTCOMES = ["updated", "rejected", "unavailable"] as const;
 export type FreeChatSummaryOutcome = (typeof FREE_CHAT_SUMMARY_OUTCOMES)[number];
+// ADR-0054 (#2127) — LIVE NEWS IN THE FREE CHAT. What a news answer was about: `work` (jobs,
+// factories, wages, skill schemes, safety rules) or `everyday` (weather, match scores, fuel
+// prices). An everyday answer ends by steering the worker back toward their profile.
+export const FREE_CHAT_NEWS_KINDS = ["work", "everyday"] as const;
+export type FreeChatNewsKind = (typeof FREE_CHAT_NEWS_KINDS)[number];
+// WHAT ONE NEWS REQUEST ENDED IN. `answered` a searched, validated summary with its sources;
+// `no_results` the search found nothing usable; `refused` the news model declined on a closed
+// topic; `rejected` the API's validation threw the answer away; `unavailable` no real answer
+// (mock, timeout, error); `capped` the worker's daily news cap was already spent.
+export const FREE_CHAT_NEWS_OUTCOMES = [
+  "answered",
+  "no_results",
+  "refused",
+  "rejected",
+  "unavailable",
+  "capped",
+] as const;
+export type FreeChatNewsOutcome = (typeof FREE_CHAT_NEWS_OUTCOMES)[number];
+// THE SITES A NEWS SEARCH MAY READ FROM, AND THE ONLY HOSTS A "READ MORE" LINK MAY POINT AT.
+// Owner-approved 2026-10-08 (ADR-0054 R4). A bare domain covers its subdomains (indiatimes.com
+// covers Times of India, Economic Times, Navbharat Times, Maharashtra Times and Vijay Karnataka).
+// One list for both the search's `allowed_domains` (ai-service, pinned equal by a parity test)
+// and the API's link check, so a link can never point outside what was searched.
+export const FREE_CHAT_NEWS_DOMAINS = [
+  // Government
+  "pib.gov.in",
+  "labour.gov.in",
+  "msde.gov.in",
+  "skillindiadigital.gov.in",
+  "ncs.gov.in",
+  "dgt.gov.in",
+  "epfindia.gov.in",
+  // National and business
+  "thehindu.com",
+  "thehindubusinessline.com",
+  "indianexpress.com",
+  "indiatimes.com",
+  "hindustantimes.com",
+  "livemint.com",
+  "business-standard.com",
+  "financialexpress.com",
+  "moneycontrol.com",
+  "ndtv.com",
+  "bbc.com",
+  // Hindi
+  "bhaskar.com",
+  "jagran.com",
+  "amarujala.com",
+  "livehindustan.com",
+  // Marathi
+  "lokmat.com",
+  "loksatta.com",
+  "esakal.com",
+  // Gujarati
+  "divyabhaskar.co.in",
+  "gujaratsamachar.com",
+  "sandesh.com",
+  // Kannada
+  "prajavani.net",
+  "kannadaprabha.com",
+  // Telugu
+  "eenadu.net",
+  "sakshi.com",
+  "andhrajyothy.com",
+  // Tamil
+  "dinamalar.com",
+  "dailythanthi.com",
+  "dinamani.com",
+  "vikatan.com",
+  // Everyday: weather, cricket, fuel prices
+  "imd.gov.in",
+  "espncricinfo.com",
+  "cricbuzz.com",
+  "iocl.com",
+] as const;
+export type FreeChatNewsDomain = (typeof FREE_CHAT_NEWS_DOMAINS)[number];
 
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
@@ -1158,6 +1234,39 @@ export function isNonCommissionedLinkKind(kind: ReferralLinkKind): kind is NonCo
 /** Whether an attribution through a link of this kind may ever pay anyone. */
 export function isCommissionedLinkKind(kind: ReferralLinkKind): boolean {
   return !isNonCommissionedLinkKind(kind);
+}
+
+// ---- Payer applicant pipeline stages (owner ruling 2026-10-07; migration 0134) ----
+//
+// HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK
+// constraints on `payer_applicant_stages`, `packages/event-schema` puts them on the spine
+// (`payer.applicant_stage_changed`), and `apps/api` validates the stage route and the inbox filter
+// with them. Declared once so the four cannot drift.
+
+/**
+ * Which table an applicant's posting lives in — the two sources the payer applicant feeds serve
+ * (`GET /payer/reach/jobs/:jobId/applicants`, `GET /payer/reach/applicants` `posting.kind`): an
+ * agency's legacy `jobs` row, or a company `job_postings` row.
+ */
+export const APPLICANT_POSTING_KINDS = Object.freeze(["company_posting", "agency_job"] as const);
+export type ApplicantPostingKind = (typeof APPLICANT_POSTING_KINDS)[number];
+
+/**
+ * Where an applicant sits on a posting's New / Shortlist / Passed board in payer-web.
+ *
+ * `new` IS THE DEFAULT: an applicant nobody has moved has no stored row and reads `new`. A row
+ * moved back to New stores `new` explicitly (it records who moved it and when), so "no row" and
+ * "`new`" mean the same thing to every reader. A stage is the payer's own triage — never a match,
+ * rank or visibility input.
+ */
+export const APPLICANT_STAGES = Object.freeze(["new", "shortlist", "passed"] as const);
+export type ApplicantStage = (typeof APPLICANT_STAGES)[number];
+
+/** The stage of an applicant with no stored row. */
+export const DEFAULT_APPLICANT_STAGE: ApplicantStage = "new";
+
+export function isApplicantStage(value: unknown): value is ApplicantStage {
+  return typeof value === "string" && (APPLICANT_STAGES as readonly string[]).includes(value);
 }
 
 // ---- Résumé import (ADR-0041) ----

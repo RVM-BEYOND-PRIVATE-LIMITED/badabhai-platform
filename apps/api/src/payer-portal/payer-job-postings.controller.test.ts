@@ -6,6 +6,7 @@ import type { Request } from "express";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { caught, renderedError } from "../common/idempotency/replay-fidelity.test-support";
 import { assertExpectedPrice } from "../pricing/charge-price";
+import { noActivePlanToTopUp } from "../posting-plans/no-active-plan-conflict";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
@@ -660,5 +661,92 @@ describe("#2103 — a replayed price_mismatch 409 carries the IDENTICAL structur
       expected_price_inr: 1,
       current_price_inr: 499,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2111 — the 409s on the paid posting routes carry a machine-readable `reason`, so a client
+// tells the in-flight duplicate from the business deny (`no_active_plan`, `price_mismatch`)
+// without matching message text. The messages themselves are UNCHANGED (payer-web still
+// matches them). Rendered through the REAL global filter against the REAL seam.
+// ---------------------------------------------------------------------------
+
+describe("#2111 — the in-flight 409 says reason in_flight, message unchanged", () => {
+  const ROUTES: readonly {
+    readonly name: string;
+    readonly message: string;
+    readonly charge: (c: SeamCtx) => ReturnType<typeof vi.fn>;
+    readonly call: (c: SeamCtx, req: Request) => Promise<unknown>;
+  }[] = [
+    {
+      name: "plan",
+      message:
+        "This plan purchase is already being processed; check the posting before trying again",
+      charge: (c) => c.plans.buyPlanForPayer as ReturnType<typeof vi.fn>,
+      call: (c, req) => c.ctrl.buyPlan(POSTING, { tier: "standard" }, PAYER_B, req, CTX),
+    },
+    {
+      name: "boost",
+      message:
+        "This boost purchase is already being processed; check the posting before trying again",
+      charge: (c) => c.plans.buyBoostForPayer as ReturnType<typeof vi.fn>,
+      call: (c, req) => c.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, PAYER_B, req, CTX),
+    },
+    {
+      name: "quota-topup",
+      message:
+        "This quota top-up is already being processed; check the posting before trying again",
+      charge: (c) => c.plans.topUpQuotaForPayer as ReturnType<typeof vi.fn>,
+      call: (c, req) => c.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_B, req, CTX),
+    },
+  ];
+
+  it.each(ROUTES)("$name: a duplicate MID-FLIGHT gets reason in_flight", async (r) => {
+    const c = postingCtrlWithRealSeam();
+    let release!: () => void;
+    const gate = new Promise<void>((res) => {
+      release = res;
+    });
+    r.charge(c).mockImplementationOnce(async () => {
+      await gate;
+      return {};
+    });
+    const inflight = r.call(c, keyed("tap-if"));
+    const dup = await caught(r.call(c, keyed("tap-if")));
+    release();
+    await inflight;
+    expect(dup).toBeInstanceOf(ConflictException);
+    expect(renderedError(dup)).toStrictEqual({
+      statusCode: 409,
+      error: "Conflict",
+      message: r.message,
+      reason: "in_flight",
+    });
+    expect(r.charge(c)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("#2111 — quota top-up: no active plan is 409 reason no_active_plan, replayed intact", () => {
+  it("the first answer and its replay under the same key carry the same reason and message", async () => {
+    const c = postingCtrlWithRealSeam();
+    // The REAL helper the service throws, so the body under test is what production sends.
+    c.plans.topUpQuotaForPayer.mockImplementationOnce(async () => {
+      throw noActivePlanToTopUp();
+    });
+    const first = await caught(
+      c.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_B, keyed("tap-np"), CTX),
+    );
+    const replay = await caught(
+      c.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_B, keyed("tap-np"), CTX),
+    );
+    expect(c.plans.topUpQuotaForPayer).toHaveBeenCalledTimes(1);
+    expect(renderedError(first)).toStrictEqual({
+      statusCode: 409,
+      error: "Conflict",
+      message: "no active plan to top up for this posting",
+      reason: "no_active_plan",
+    });
+    expect(replay).toMatchObject({ status: 409 });
+    expect(renderedError(replay)).toStrictEqual(renderedError(first));
   });
 });

@@ -19,6 +19,12 @@ sit outside the connector, so the swap keeps them. `scripts/measure_cued_id_dot.
 #1950 itself changed. `rules("unfolded")` swaps those patterns into the modules for the end-to-end
 runs.
 
+#2091 (R56) put up to two label words in front of the "no" word: "id", then "card" or "code",
+each folded with its own `\\s*`. They never existed unfolded, so UNFOLDED carries them exactly
+as shipped and still differs from the shipped rule by #1933's folding alone. Written unfolded
+they would put five whitespace quantifiers in a row, which the timing run could not finish.
+`scripts/measure_cued_id_two_word.py` measures what #2091 itself changed.
+
 parity   Unfolded against the shipped rules (or `--against loose`, a sensitivity variant that
          drops the `\\s*` after the "no" word: it must move spans, or the harness cannot see a
          change).
@@ -70,26 +76,27 @@ from app.profiling import profile_extractor, signals  # noqa: E402
 
 #: name -> (module, attribute, the unfolded connector, the linear connector). The
 #: `credential_before` text is the lexicon's, which writes the class `[:-]` with no escape (a
-#: JavaScript u-mode rule). Main's text before #1933 was the unfolded one without `-?`.
+#: JavaScript u-mode rule). Main's text before #1933 was the unfolded one without `-?`, and
+#: without #2091's label words in front of the "no" word ("id", then "card" or "code"), which
+#: both forms carry folded, as shipped. The "id" word was in the "no"-word group until then.
 RULES: dict[str, tuple[object, str, str, str]] = {
     "credential_id": (
         gateway,
         "_CREDENTIAL_ID_RE",
-        r"\s*(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
-        r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?",
+        r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
+        r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?",
     ),
     "resume_cued_id": (
         gateway,
         "_RESUME_CUED_ID_RE",
-        r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:\-]-?)?\s*",
-        r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]-?\s*)?",
+        r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
+        r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?",
     ),
     "credential_before": (
         signals,
         "_CREDENTIAL_BEFORE_RE",
-        # The "id" word since #2043 ("Voter ID ABC1234567"), as in the résumé rule's connector.
-        r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*",
-        r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?",
+        r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*",
+        r"\s*(?:id\s*)?(?:(?:card|code)\s*)?(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?",
     ),
 }
 #: Every cue of the three rules contains one of these, matched the same case-insensitive way, so a
@@ -219,15 +226,16 @@ CORPUS_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "question_packs": ("packages/db/data/question-packs", (".json", ".jsonl")),
     "job_domains": ("packages/db/data/job-domains", (".json", ".jsonl")),
 }
-#: The #1933, #1950, #2043 and #2049 test files, left out so no fix is measured against its own
-#: fixtures. (#2043's holds "Passport.No. M123456" and #2049's "Licence. 098765 43210", which
-#: #1950's dot reads by design.)
+#: The #1933, #1950, #2043, #2049 and #2091 test files, left out so no fix is measured against
+#: its own fixtures. (#2043's holds "Passport.No. M123456" and #2049's "Licence. 098765
+#: 43210", which #1950's dot reads by design.)
 EXCLUDED_FILES = frozenset(
     {
         "test_pseudonymize_cued_id_linear.py",
         "test_pseudonymize_cued_id_dot.py",
         "test_salary_guard_resume_cues.py",
         "test_pseudonymize_cued_id_monotone.py",
+        "test_pseudonymize_cued_id_two_word.py",
     }
 )
 
