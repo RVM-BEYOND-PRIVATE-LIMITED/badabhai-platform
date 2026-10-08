@@ -1116,7 +1116,16 @@ describe("#1239 — accountDeleteImmediate with the REAL AccountDeletionService 
       findSelfView: vi.fn(async () => ({ status: "active", deletionScheduledAt: null })),
       existsById: vi.fn(async () => true),
     };
-    const sessionsDouble = { revokeAll: vi.fn(async () => opts.sessionsRevoked ?? 3) };
+    const sessionsDouble = {
+      revokeAll: vi.fn(async () => opts.sessionsRevoked ?? 3),
+      // #2113 — the erasure's read-only capture and its post-hardDelete tombstone write.
+      captureErasableRefreshTokens: vi.fn(async () => ({
+        entries: [{ tokenHash: "cd".repeat(32), ttlSeconds: 604800 }],
+        candidates: 1,
+        dropped: 0,
+      })),
+      markRefreshTokensErased: vi.fn(async (entries: readonly unknown[]) => entries.length),
+    };
     const storageDouble = {
       deletePdf: vi.fn(async () => undefined),
       deleteByPrefix: vi.fn(async () => 0),
@@ -1199,6 +1208,24 @@ describe("#1239 — accountDeleteImmediate with the REAL AccountDeletionService 
     expect(eventsDouble.emit).toHaveBeenCalledTimes(1);
     const emitted = eventsDouble.emit.mock.calls[0]![0] as { event_name: string };
     expect(emitted.event_name).toBe("worker.account_deleted");
+  });
+
+  // #2113 owner ruling 2026-10-08: the QA immediate seam writes the erased-credential tombstones
+  // too — they block nothing, and they are what makes the PIN-screen 410 reproducible on QA.
+  it("writes the erased-credential tombstones too — captured before revokeAll, written after the hard delete", async () => {
+    const { controller, sessionsDouble, workersDouble } = makeWithRealAccountDeletion();
+    await controller.accountDeleteImmediate(IMMEDIATE_WORKER);
+
+    expect(sessionsDouble.captureErasableRefreshTokens).toHaveBeenCalledWith(IMMEDIATE_WORKER.id);
+    expect(sessionsDouble.markRefreshTokensErased).toHaveBeenCalledWith([
+      { tokenHash: "cd".repeat(32), ttlSeconds: 604800 },
+    ]);
+    const captureOrder = sessionsDouble.captureErasableRefreshTokens.mock.invocationCallOrder[0]!;
+    const revokeOrder = sessionsDouble.revokeAll.mock.invocationCallOrder[0]!;
+    const hardDeleteOrder = workersDouble.hardDelete.mock.invocationCallOrder[0]!;
+    const markOrder = sessionsDouble.markRefreshTokensErased.mock.invocationCallOrder[0]!;
+    expect(captureOrder).toBeLessThan(revokeOrder);
+    expect(hardDeleteOrder).toBeLessThan(markOrder);
   });
 });
 

@@ -11,6 +11,11 @@ import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PushEnqueuer } from "../push/push-enqueuer.service";
 import { DevicesRepository } from "./devices.repository";
+import {
+  selectErasableRefreshTokens,
+  type ErasableRefreshToken,
+  type RefreshTokenCandidate,
+} from "./erased-refresh-tombstone";
 import { computeRollingSession, istDateString } from "./session-tiers";
 
 /**
@@ -137,6 +142,19 @@ export type RefreshFailure = "invalid" | "reuse_detected" | "requires_otp";
 export type RefreshOutcome = { ok: true; minted: MintedSession } | { ok: false; reason: RefreshFailure };
 
 /**
+ * #2113 — what {@link SessionService.captureErasableRefreshTokens} read before an erasure revoked
+ * the worker's sessions. `entries` is what the erasure will tombstone (hash + TTL only); the two
+ * counts exist for the erasure's log line and carry nothing identifying.
+ */
+export interface ErasableRefreshCapture {
+  entries: ErasableRefreshToken[];
+  /** `refresh:<hash>` records examined (the family-set members found). */
+  candidates: number;
+  /** Candidates not selected (rotated, unbound, foreign, expired, over a cap, or unreadable). */
+  dropped: number;
+}
+
+/**
  * Rolling worker sessions backed by a signed JWT + a Redis session record, PLUS
  * (ADR-0026 Phase 1) an opaque ROTATING refresh token with reuse detection + token
  * families + an idempotency grace window, and an engagement-tiered rolling idle TTL
@@ -245,6 +263,16 @@ export class SessionService {
     return this.config.AUTH_REFRESH_TTL_DAYS * 86400;
   }
 
+  /**
+   * #2113 — ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS, read defensively: anything that is not a
+   * positive finite number reads as 0, the kill switch. Fails toward the status quo (no
+   * tombstone written, none consulted), never toward a 410.
+   */
+  private tombstoneHorizonSeconds(): number {
+    const h = this.config.ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS;
+    return typeof h === "number" && Number.isFinite(h) && h > 0 ? Math.floor(h) : 0;
+  }
+
   private async client(): Promise<RedisSessionClient> {
     return (await this.queue.client) as unknown as RedisSessionClient;
   }
@@ -260,6 +288,19 @@ export class SessionService {
   }
   private static refreshKey(tokenHash: string): string {
     return `refresh:${tokenHash}`;
+  }
+  /**
+   * #2113 — the erased-credential tombstone, `refresh_erased:<sha256(token)>` = "1".
+   *
+   * A SEPARATE NAMESPACE ON PURPOSE. Every reader of `refresh:<hash>` (refreshByToken,
+   * resolveRefreshToken, revokeByDevice, the reuse-shape lookup) treats that key's presence as a
+   * live credential; this key is read by {@link isErasedRefreshToken} and nothing else, so a
+   * tombstone can never mint, rotate or resolve. The prefix collides with no other session key
+   * (`refresh:`, `refresh_family:`, `refresh_idem:`, `refresh_lock:`, `refresh_reuse_shape:`).
+   * The key, like the hash inside it, is never logged.
+   */
+  private static erasedRefreshKey(tokenHash: string): string {
+    return `refresh_erased:${tokenHash}`;
   }
   private static refreshFamilyKey(familyId: string): string {
     return `refresh_family:${familyId}`;
@@ -937,6 +978,144 @@ export class SessionService {
       );
       return null;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // #2113 — erased-credential tombstones (owner ruling 2026-10-08; ADR-0026 D2 amendment).
+  //
+  // A normal erasure revokes every session FIRST (D4), which DELs every `refresh:<hash>` — so a
+  // deleted worker's app later presents a token that resolves to nothing, and /auth/pin/verify
+  // could only answer the neutral 401. These three methods let the erasure leave a value-less,
+  // credential-keyed marker behind instead: CAPTURE (read-only, before revokeAll) → revokeAll
+  // (unchanged) → hard delete → MARK (after the row is gone) → verifyPin READS it only on the
+  // unresolved branch.
+  //
+  // ALL THREE NEVER THROW and log `err.name` only — never the token, its hash, or the key. None
+  // of them is on revokeAll's path: a fault here can cost the 410, never the revocation.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * True iff `rawToken` was a live, device-bound refresh tip of a worker whose erasure COMPLETED
+   * (the tombstone is written only after the hard delete returns). Keyed solely on
+   * sha256(token) — a party without a once-valid credential cannot reach a key (256-bit space).
+   *
+   * FAIL CLOSED TO NEUTRAL: the kill switch (horizon 0) returns false WITHOUT a Redis read, and a
+   * Redis error returns false, so the caller answers its neutral 401 — an outage can never turn
+   * into a 410 storm. Only the exact value "1" counts.
+   */
+  async isErasedRefreshToken(rawToken: string): Promise<boolean> {
+    if (this.tombstoneHorizonSeconds() <= 0) return false;
+    try {
+      const redis = await this.client();
+      return (await redis.get(SessionService.erasedRefreshKey(sha256Hex(rawToken)))) === "1";
+    } catch (err) {
+      this.logger.warn(
+        `erased-token tombstone read failed; treating as not erased (errorType: ${SessionService.errName(err)})`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * READ-ONLY pre-pass an erasure runs BEFORE revokeAll: collect the worker's refresh records
+   * (worker_families → refresh_family → refresh:<hash>) and select the ones to tombstone via
+   * {@link selectErasableRefreshTokens}. Issues SMEMBERS and GET only — no DEL, no SET — so it
+   * cannot change what revokeAll then finds or deletes.
+   *
+   * Never throws. A failing GET leaves that record unreadable (dropped) and the loop continues; a
+   * failing SMEMBERS ends the walk and whatever was gathered so far is still selected. The kill
+   * switch (horizon 0) returns empty with no Redis call at all.
+   */
+  async captureErasableRefreshTokens(workerId: string): Promise<ErasableRefreshCapture> {
+    const horizonSeconds = this.tombstoneHorizonSeconds();
+    if (horizonSeconds <= 0) return { entries: [], candidates: 0, dropped: 0 };
+
+    const gathered: RefreshTokenCandidate[] = [];
+    let unreadable = 0;
+    let unreadableErr: unknown = null;
+    try {
+      const redis = await this.client();
+      const familyIds = await redis.smembers(SessionService.workerFamiliesKey(workerId));
+      for (const familyId of familyIds) {
+        const hashes = await redis.smembers(SessionService.refreshFamilyKey(familyId));
+        for (const tokenHash of hashes) {
+          let raw: string | null = null;
+          try {
+            raw = await redis.get(SessionService.refreshKey(tokenHash));
+          } catch (err) {
+            unreadable += 1;
+            unreadableErr ??= err;
+          }
+          gathered.push({ tokenHash, raw });
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `erased-token capture stopped early; selecting from what was read (errorType: ${SessionService.errName(err)})`,
+      );
+    }
+    if (unreadable > 0) {
+      this.logger.warn(
+        `erased-token capture could not read ${unreadable} refresh record(s); they get no tombstone (errorType: ${SessionService.errName(unreadableErr)})`,
+      );
+    }
+
+    const selected = selectErasableRefreshTokens(gathered, {
+      workerId,
+      nowMs: Date.now(),
+      refreshTtlSeconds: this.refreshTtlSeconds(),
+      horizonSeconds,
+    });
+    return { entries: selected.entries, candidates: gathered.length, dropped: selected.dropped };
+  }
+
+  /**
+   * Write `refresh_erased:<hash>` = "1" EX ttl for each captured entry. Called by the erasure ONLY
+   * after the workers row is hard-deleted, so a tombstone never exists for a row that is still
+   * present. Each SET is independent: one failure does not stop the rest. Returns how many were
+   * written; never throws. The kill switch (horizon 0) writes nothing.
+   */
+  async markRefreshTokensErased(entries: readonly ErasableRefreshToken[]): Promise<number> {
+    if (entries.length === 0 || this.tombstoneHorizonSeconds() <= 0) return 0;
+
+    let redis: RedisSessionClient;
+    try {
+      redis = await this.client();
+    } catch (err) {
+      this.logger.warn(
+        `erased-token tombstones not written; session store unreachable (errorType: ${SessionService.errName(err)})`,
+      );
+      return 0;
+    }
+
+    let written = 0;
+    let failed = 0;
+    let firstErr: unknown = null;
+    for (const entry of entries) {
+      try {
+        await redis.set(
+          SessionService.erasedRefreshKey(entry.tokenHash),
+          "1",
+          "EX",
+          entry.ttlSeconds,
+        );
+        written += 1;
+      } catch (err) {
+        failed += 1;
+        firstErr ??= err;
+      }
+    }
+    if (failed > 0) {
+      this.logger.warn(
+        `erased-token tombstone write failed for ${failed} of ${entries.length} (fail-open; those devices get the neutral 401) (errorType: ${SessionService.errName(firstErr)})`,
+      );
+    }
+    return written;
+  }
+
+  /** The error CLASS name only — an ioredis message can echo the command and its key. */
+  private static errName(err: unknown): string {
+    return err instanceof Error ? err.name : "unknown";
   }
 
   /** A read-only session view for GET /auth/session (no slide, no secrets). */

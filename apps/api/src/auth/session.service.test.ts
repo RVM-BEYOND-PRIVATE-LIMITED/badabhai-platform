@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import type { JwtService } from "@nestjs/jwt";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
@@ -12,6 +13,8 @@ const BASE_CONFIG = {
   AUTH_SESSION_ABSOLUTE_MAX_DAYS: 90,
   AUTH_TIER_WINDOW_DAYS: 60,
   AUTH_REFRESH_TTL_DAYS: 90,
+  // #2113 — the schema default (7d). Only the erased-credential tombstone methods read it.
+  ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: 604800,
 } as unknown as ServerConfig;
 
 const TTL = 30 * 86400;
@@ -1039,5 +1042,324 @@ describe("SessionService device binding (ADR-0026 Phase 2)", () => {
     expect(n).toBe(1);
     expect(redis.store.has(`refresh:${hashA}`)).toBe(false);
     expect(redis.sets.get("worker_families:worker-1")!.has(familyA)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// #2113 — erased-credential tombstones (owner ruling 2026-10-08; ADR-0026 D2 amendment).
+//
+// The erasure CAPTURES (read-only) which refresh tips get a tombstone, revokes every session
+// with the UNCHANGED revokeAll, hard-deletes the row, then MARKS `refresh_erased:<hash>` = "1".
+// verifyPin reads it only when a token no longer resolves. These pin the session-store half:
+// the capture writes nothing, a capture fault never costs the revocation, and a tombstone can
+// never resurrect, resolve or rotate a credential.
+// ===========================================================================
+
+const ERASED_WORKER = "worker-1";
+const HORIZON_SECONDS = 604800;
+/** The Redis commands that change state — the capture must issue none of them. */
+const MUTATING_COMMANDS = new Set(["set", "del", "expire", "incr", "sadd", "srem"]);
+
+/** A comparable copy of every key + set in the double. */
+function snapshotStore(redis: ReturnType<typeof makeRedis>) {
+  return {
+    store: [...redis.store.entries()].sort(),
+    sets: [...redis.sets.entries()].map(([k, v]) => [k, [...v].sort()]).sort(),
+  };
+}
+
+const erasedKeys = (redis: ReturnType<typeof makeRedis>): string[] =>
+  [...redis.store.keys()].filter((k) => k.startsWith("refresh_erased:"));
+const refreshKeys = (redis: ReturnType<typeof makeRedis>): string[] =>
+  [...redis.store.keys()].filter((k) => k.startsWith("refresh:"));
+
+describe("#2113 — captureErasableRefreshTokens is a READ-ONLY pre-pass", () => {
+  it("returns the live device-bound tips only — a rotated token's used hash is excluded", async () => {
+    const { svc } = setup();
+    const a = await svc.create(ERASED_WORKER, "device-a");
+    // A second family on the SAME device — what a PIN unlock's create() leaves behind.
+    const b = await svc.create(ERASED_WORKER, "device-a");
+    const rotated = await svc.refreshByToken(a.refresh.token, "idem-rot");
+    expect(rotated.ok).toBe(true);
+    if (!rotated.ok) return;
+
+    const cap = await svc.captureErasableRefreshTokens(ERASED_WORKER);
+
+    const got = cap.entries.map((e) => e.tokenHash).sort();
+    expect(got).toEqual(
+      [sha256Hex(rotated.minted.refresh.token), sha256Hex(b.refresh.token)].sort(),
+    );
+    expect(got).not.toContain(sha256Hex(a.refresh.token)); // the used (rotated-away) hash
+    // Fresh tips: their natural remaining life (~90d) is capped at the 7d horizon.
+    for (const e of cap.entries) expect(e.ttlSeconds).toBe(HORIZON_SECONDS);
+    expect(cap.candidates).toBe(3);
+    expect(cap.dropped).toBe(1);
+  });
+
+  it("a family revoked BEFORE the erasure contributes nothing — logout, revokeByDevice, reuse detection", async () => {
+    const { svc, jwt } = setup();
+    // (1) a single-session logout
+    await svc.create(ERASED_WORKER, "device-a");
+    await svc.revoke(jwt.lastSigned!.sid, ERASED_WORKER);
+    // (2) a device the worker revoked
+    await svc.create(ERASED_WORKER, "device-b");
+    expect(await svc.revokeByDevice(ERASED_WORKER, "device-b")).toBe(1);
+    // (3) a family torn down by reuse detection
+    const c = await svc.create(ERASED_WORKER, "device-c");
+    expect((await svc.refreshByToken(c.refresh.token, "idem-1")).ok).toBe(true);
+    expect(await svc.refreshByToken(c.refresh.token, "idem-2")).toEqual({
+      ok: false,
+      reason: "reuse_detected",
+    });
+    // The one family still alive at the erasure.
+    const live = await svc.create(ERASED_WORKER, "device-d");
+
+    const cap = await svc.captureErasableRefreshTokens(ERASED_WORKER);
+    expect(cap.entries.map((e) => e.tokenHash)).toEqual([sha256Hex(live.refresh.token)]);
+  });
+
+  it("a record deleted from the store but still listed in its family set contributes nothing", async () => {
+    const { svc, redis } = setup();
+    const a = await svc.create(ERASED_WORKER, "device-a");
+    redis.store.delete(`refresh:${sha256Hex(a.refresh.token)}`);
+
+    const cap = await svc.captureErasableRefreshTokens(ERASED_WORKER);
+    expect(cap).toEqual({ entries: [], candidates: 1, dropped: 1 });
+  });
+
+  it("an UNBOUND session (create with no device) yields nothing — it could never PIN-unlock anyway", async () => {
+    const { svc } = setup();
+    await svc.create(ERASED_WORKER);
+    const cap = await svc.captureErasableRefreshTokens(ERASED_WORKER);
+    expect(cap.entries).toEqual([]);
+  });
+
+  it("writes and deletes NOTHING — the store is identical before and after, and only SMEMBERS/GET are issued", async () => {
+    const { svc, redis } = setup();
+    await svc.create(ERASED_WORKER, "device-a");
+    await svc.create(ERASED_WORKER, "device-b");
+    const before = snapshotStore(redis);
+    const callsBefore = redis.calls.length;
+
+    const cap = await svc.captureErasableRefreshTokens(ERASED_WORKER);
+
+    expect(cap.entries).toHaveLength(2);
+    expect(snapshotStore(redis)).toEqual(before);
+    const issued = redis.calls.slice(callsBefore).map((c) => c[0]);
+    expect(issued.filter((c) => MUTATING_COMMANDS.has(c))).toEqual([]);
+    expect(new Set(issued)).toEqual(new Set(["smembers", "get"]));
+  });
+
+  it("the kill switch (horizon 0) returns empty WITHOUT touching Redis", async () => {
+    const { svc, redis } = setup({ config: { ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: 0 } });
+    await svc.create(ERASED_WORKER, "device-a");
+    const callsBefore = redis.calls.length;
+    expect(await svc.captureErasableRefreshTokens(ERASED_WORKER)).toEqual({
+      entries: [],
+      candidates: 0,
+      dropped: 0,
+    });
+    expect(redis.calls.length).toBe(callsBefore);
+  });
+
+  it("never throws: an SMEMBERS failure resolves with what was read so far", async () => {
+    const { svc, redis } = setup();
+    await svc.create(ERASED_WORKER, "device-a");
+    const realSmembers = redis.client.smembers;
+    redis.client.smembers = async () => {
+      throw new Error("ECONNRESET");
+    };
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(svc.captureErasableRefreshTokens(ERASED_WORKER)).resolves.toEqual({
+        entries: [],
+        candidates: 0,
+        dropped: 0,
+      });
+    } finally {
+      redis.client.smembers = realSmembers;
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("#2113 — isolation from revokeAll (ADR-0026 D4) and from every session reader", () => {
+  it("revokeAll alone writes no refresh_erased:* key and issues no command against one", async () => {
+    const { svc, redis } = setup();
+    await svc.create(ERASED_WORKER, "device-a");
+    await svc.revokeAll(ERASED_WORKER);
+    expect(erasedKeys(redis)).toEqual([]);
+    expect(redis.calls.some((c) => String(c[1]).startsWith("refresh_erased:"))).toBe(false);
+  });
+
+  it("a GET that throws inside capture never stops a following revokeAll deleting every refresh:<hash>", async () => {
+    // The judges' required test: the capture is a separate pass, so a fault in it can cost the
+    // tombstone, never the revocation. The fault is left in place through revokeAll too.
+    const { svc, redis } = setup();
+    const a = await svc.create(ERASED_WORKER, "device-a");
+    const b = await svc.create(ERASED_WORKER, "device-b");
+    expect(refreshKeys(redis)).toHaveLength(2);
+
+    const realGet = redis.client.get;
+    redis.client.get = async (key: string) => {
+      if (key.startsWith("refresh:")) throw new Error("ECONNRESET");
+      return realGet(key);
+    };
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const cap = await svc.captureErasableRefreshTokens(ERASED_WORKER);
+      expect(cap.entries).toEqual([]);
+      expect(cap.dropped).toBe(2);
+
+      await svc.revokeAll(ERASED_WORKER);
+    } finally {
+      redis.client.get = realGet;
+      warn.mockRestore();
+    }
+
+    expect(refreshKeys(redis)).toEqual([]);
+    expect(await svc.refreshByToken(a.refresh.token, "idem-a")).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+    expect(await svc.refreshByToken(b.refresh.token, "idem-b")).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+  });
+
+  it("after capture + revokeAll + mark, the tombstone never resurrects, resolves or rotates the credential", async () => {
+    const { svc, redis } = setup();
+    const a = await svc.create(ERASED_WORKER, "device-a");
+    const cap = await svc.captureErasableRefreshTokens(ERASED_WORKER);
+    await svc.revokeAll(ERASED_WORKER);
+    expect(await svc.markRefreshTokensErased(cap.entries)).toBe(1);
+
+    expect(await svc.isErasedRefreshToken(a.refresh.token)).toBe(true);
+    expect(await svc.resolveRefreshToken(a.refresh.token)).toBeNull();
+    expect(await svc.refreshByToken(a.refresh.token, "idem-after-erasure")).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+    expect(await svc.revokeByDevice(ERASED_WORKER, "device-a")).toBe(0);
+    // Nothing in the live-credential namespace came back, and the tombstone holds only "1".
+    expect(refreshKeys(redis)).toEqual([]);
+    expect(erasedKeys(redis)).toEqual([`refresh_erased:${sha256Hex(a.refresh.token)}`]);
+    expect(redis.store.get(`refresh_erased:${sha256Hex(a.refresh.token)}`)).toBe("1");
+  });
+
+  it('isErasedRefreshToken: true for a tombstoned token; false for a random token, a value other than "1", or a GET that throws', async () => {
+    const { svc, redis } = setup();
+    const tombstoned = "a".repeat(64);
+    expect(
+      await svc.markRefreshTokensErased([{ tokenHash: sha256Hex(tombstoned), ttlSeconds: 60 }]),
+    ).toBe(1);
+
+    expect(await svc.isErasedRefreshToken(tombstoned)).toBe(true);
+    expect(await svc.isErasedRefreshToken("b".repeat(64))).toBe(false);
+    redis.store.set(`refresh_erased:${sha256Hex("c".repeat(64))}`, "true");
+    expect(await svc.isErasedRefreshToken("c".repeat(64))).toBe(false);
+
+    const realGet = redis.client.get;
+    redis.client.get = async () => {
+      throw new Error("ETIMEDOUT");
+    };
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      expect(await svc.isErasedRefreshToken(tombstoned)).toBe(false);
+    } finally {
+      redis.client.get = realGet;
+      warn.mockRestore();
+    }
+  });
+
+  it("the kill switch: horizon 0 answers false WITHOUT a GET — even over a tombstone already written", async () => {
+    const { svc, redis } = setup({ config: { ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: 0 } });
+    const token = "d".repeat(64);
+    redis.store.set(`refresh_erased:${sha256Hex(token)}`, "1");
+    const callsBefore = redis.calls.length;
+    expect(await svc.isErasedRefreshToken(token)).toBe(false);
+    expect(redis.calls.length).toBe(callsBefore);
+  });
+
+  it('markRefreshTokensErased: SET refresh_erased:<h> "1" EX ttl; one failing SET does not stop the rest; returns the count', async () => {
+    const { svc, redis } = setup();
+    const h1 = "1".repeat(64);
+    const h2 = "2".repeat(64);
+    const h3 = "3".repeat(64);
+    const realSet = redis.client.set;
+    redis.client.set = async (key: string, value: string, ...rest: unknown[]) => {
+      if (key === `refresh_erased:${h2}`) throw new Error("OOM command not allowed");
+      return realSet(key, value, ...rest);
+    };
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    let written = -1;
+    try {
+      written = await svc.markRefreshTokensErased([
+        { tokenHash: h1, ttlSeconds: 100 },
+        { tokenHash: h2, ttlSeconds: 200 },
+        { tokenHash: h3, ttlSeconds: 300 },
+      ]);
+    } finally {
+      redis.client.set = realSet;
+      warn.mockRestore();
+    }
+
+    expect(written).toBe(2);
+    expect(redis.calls).toContainEqual(["set", `refresh_erased:${h1}`, "1", "EX", 100]);
+    expect(redis.calls).toContainEqual(["set", `refresh_erased:${h3}`, "1", "EX", 300]);
+    expect(redis.store.get(`refresh_erased:${h1}`)).toBe("1");
+    expect(redis.ttls.get(`refresh_erased:${h1}`)).toBe(100);
+    expect(redis.store.has(`refresh_erased:${h2}`)).toBe(false);
+    expect(redis.ttls.get(`refresh_erased:${h3}`)).toBe(300);
+  });
+
+  it("markRefreshTokensErased writes nothing for an empty list or under the kill switch", async () => {
+    const off = setup({ config: { ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: 0 } });
+    expect(
+      await off.svc.markRefreshTokensErased([{ tokenHash: "e".repeat(64), ttlSeconds: 60 }]),
+    ).toBe(0);
+    expect(off.redis.calls).toEqual([]);
+
+    const on = setup();
+    expect(await on.svc.markRefreshTokensErased([])).toBe(0);
+    expect(on.redis.calls).toEqual([]);
+  });
+
+  it("never logs the token, its sha256, or the tombstone key — err.name only, on every failure path", async () => {
+    const logged: string[] = [];
+    const spies = (["log", "warn", "error", "debug", "verbose"] as const).map((m) =>
+      vi.spyOn(Logger.prototype, m).mockImplementation((...args: unknown[]) => {
+        logged.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
+      }),
+    );
+    const { svc, redis } = setup();
+    const a = await svc.create(ERASED_WORKER, "device-a");
+    const tokenHash = sha256Hex(a.refresh.token);
+    const realGet = redis.client.get;
+    const realSet = redis.client.set;
+    try {
+      // Every failure carries the KEY in its message — what an ioredis error can do.
+      redis.client.get = async (key: string) => {
+        throw new Error(`GET ${key} failed`);
+      };
+      await svc.captureErasableRefreshTokens(ERASED_WORKER);
+      await svc.isErasedRefreshToken(a.refresh.token);
+      redis.client.set = async (key: string) => {
+        throw new Error(`SET ${key} failed`);
+      };
+      await svc.markRefreshTokensErased([{ tokenHash, ttlSeconds: 60 }]);
+    } finally {
+      redis.client.get = realGet;
+      redis.client.set = realSet;
+      spies.forEach((s) => s.mockRestore());
+    }
+
+    const all = logged.join("\n");
+    expect(logged.length).toBeGreaterThanOrEqual(3); // each failure path did log
+    expect(all).not.toContain(a.refresh.token);
+    expect(all).not.toContain(tokenHash);
+    expect(all).not.toContain("refresh_erased:");
+    expect(all).toContain("errorType: Error");
   });
 });

@@ -83,9 +83,13 @@ export type PinResetConfirmResponse = LoginResponse;
 
 /**
  * Response of POST /auth/pin/verify on SUCCESS — the SAME login-shape session the OTP path
- * returns (access + rotating refresh + session block). On any failure the controller throws
- * a neutral 401 with no body (no oracle). Mirrors LoginResponse minus the OTP-only fields
- * (is_new_worker / status are not meaningful for a PIN unlock of an existing worker).
+ * returns (access + rotating refresh + session block). On failure the service throws one of TWO
+ * shapes, both in the standard error envelope: the neutral 401 ("Could not verify PIN", identical
+ * on every negative path — no oracle), or the reserved 410 WORKER_ACCOUNT_DELETED, only for a
+ * once-valid refresh token whose worker was erased (ADR-0026 Phase-3 Finding-3 addendum: (a0) the
+ * #2113 erased-credential tombstone, (a2) a resolving token whose row is gone). Mirrors
+ * LoginResponse minus the OTP-only fields (is_new_worker / status are not meaningful for a PIN
+ * unlock of an existing worker).
  */
 export interface PinVerifyResponse {
   access_token: string;

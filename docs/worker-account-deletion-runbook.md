@@ -37,6 +37,25 @@
   PII-free.** [ADR-0047](decisions/0047-lift-pii-restriction.md) permits PII in an event or an
   audit record only through a NEW versioned schema; such a version must ship with an erasure step
   for it here, or be named as retained PII in its PR.
+- **Retains (Redis, TTL-bounded), the two post-erasure keys:**
+  - **`deleted_phone:<phone_hash>`** = `"1"`. This is the re-registration cool-down, with TTL
+    `ACCOUNT_DELETION_COOLDOWN_SECONDS` (7d). It is skipped on the QA immediate seam.
+  - **`refresh_erased:<sha256(refresh_token)>`** = `"1"`. This is the **erased-credential
+    tombstone** (#2113; ADR-0026 D2 as amended 2026-10-08, owner ruling).
+    - **What gets one.** Each of the worker's **live, unrotated, device-bound** refresh tokens at
+      the moment of a **completed** erasure. It is written only after the hard delete, at most
+      2 per device and 64 per worker, on every erasure path including the QA immediate seam.
+    - **How long it lives.** TTL = min(the token's natural remaining life,
+      `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`). The setting defaults to 7d, which is also its ceiling (it can only be shortened),
+      and boot refuses a value above `AUTH_REFRESH_TTL_DAYS*86400`. **`0` disables both the write
+      and the read.**
+    - **What it holds.** The key and `"1"`, nothing else: no worker id, phone, `phone_hash` or
+      device id. After the erasure the hash appears in no other store, log or event, so only a
+      holder of the raw token (the worker's own device) can tie it to anyone.
+    - **What it does.** Its only reader is `POST /auth/pin/verify`. It answers the reserved 410
+      `WORKER_ACCOUNT_DELETED` instead of a "wrong PIN" 401, so the deleted worker's app shows
+      "Account nahi mila" instead of looping on the keypad.
+    - **How it goes away.** Expiry is by TTL only; there is nothing to erase by hand.
 
 ## 2. Preconditions (before this runs in any non-local env)
 - [ ] Migration **0031** (3 billing FKs `cascade → SET NULL` + nullable) **signed off (Prakash/Akshit) and
@@ -103,6 +122,22 @@
 - [ ] Redis cool-down key `deleted_phone:<phone_hash>` set — note: currently **write-only** (no auth-path
       reader), so it does not yet block re-registration (TD64 in the tech-debt register).
 - [ ] No session can re-auth the deleted worker (revoke runs first inside the cascade).
+- [ ] Erased-credential tombstones written (#2113). The erasure logs
+      `account deletion refresh tombstones worker=<8-char prefix> captured=N written=M dropped=K`,
+      and its summary line ends `credential_tombstones=M`. The keys cannot be tied back to the
+      worker, so verify the **count**, not the worker. On a quiet box, count the keys before and
+      after the sweep and check that the count rose by `written=`:
+
+  ```bash
+  docker compose exec redis redis-cli --scan --pattern 'refresh_erased:*' | wc -l
+  ```
+
+  `written=0` with `captured=0` is normal for a worker who was logged out everywhere, or who had
+  only unbound sessions. `written` below `captured` means a SET failed (see §7).
+
+- [ ] (Optional, QA) The deleted worker's app, on its next PIN unlock, gets
+      `410 {statusCode:410, error:{code:"WORKER_ACCOUNT_DELETED"}}` and shows "Account nahi mila".
+      A random token or a wrong PIN on a live account still gets the identical neutral 401.
 
 ## 6. The sweep (how erasure actually fires)
 - **Queue:** `ACCOUNT_DELETION_QUEUE` (BullMQ, in-process processor in `apps/api` — same idiom as the
@@ -134,6 +169,30 @@
 - The DB erasure is atomic (single transactional `DELETE` + cascade) — it either removed identity or did not;
   a storage hiccup never leaves the worker half-deleted in the DB. Revoke-sessions runs first, so a partially
   failed run never leaves a re-authable deleted worker.
+- **Erased-credential tombstones (#2113) are fail-open.** Each failure below costs only the PIN-screen 410. It never
+  costs the erasure, and it never produces a false 410:
+  - **Lost capture.** The process crashes, or Redis faults, between the read-only capture (before revoke) and the
+    write (after `hardDelete`), so the in-memory capture is lost. A re-run cannot rebuild it, because revoke has
+    already deleted the records. The worker gets the old behaviour: the neutral 401, then the app's 5-failure
+    ladder, then OTP, then the `deleted_phone` 429. There is nothing to repair.
+  - **Failed write.** The log shows `written` below `captured`, with
+    `erased-token tombstone write failed for N of M (… errorType: <name>)`. Those devices get the neutral 401
+    and the ladder. There is nothing to repair; do not write tombstones by hand.
+  - **Turning it off.** Set `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS=0` and recreate the api. This stops new
+    writes and makes the reader ignore keys already written; they expire by TTL. **Set it on the box**, persisted
+    in the project `.env` that compose interpolates from, then `dc up -d --no-deps api`, then confirm with
+    `dc exec api printenv ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS` (the procedure and the preamble are in
+    `docs/otp-throttles-runbook.md` §1–§2). A GitHub secret of this name does nothing: the CI deploy bridge does
+    not carry it. The name reaches the container only because `docker-compose.staging.yml` declares it on the api
+    service (pinned by `apps/api/src/auth/erased-refresh-tombstone-compose.guard.test.ts`).
+- **`revokeAll` fails open (risks-register R69, pre-existing).** If Redis errors while sessions are being revoked,
+  `revokeAll` logs `logout-all Redis error` and returns 0. The erasure then continues and records
+  `sessions_revoked: 0`. Any `refresh:<hash>` record it failed to delete survives for up to `AUTH_REFRESH_TTL_DAYS`
+  (90d), still carrying the opaque `worker_id`/`device_id`. Nobody can re-authenticate with it: every authed path
+  probes existence and answers 410. It is still a post-erasure residual. **To clear it:** if a
+  `logout-all Redis error` line sits next to an `account deletion … sessions=0` line for a worker who had sessions, run
+  `SMEMBERS worker_families:<workerId>`, then for each family `SMEMBERS refresh_family:<familyId>`, then `DEL` each
+  `refresh:<hash>`, each family set, and both `worker_*` sets. This is a human-gated prod step, per §4.
 
 ## 8. Rollback & undo semantics
 - **During grace, the undo is the product:** `POST /auth/account/delete/cancel` (or the app banner) clears the
@@ -156,3 +215,19 @@
   worker exercised — then withdrew — the erasure request.
 - The `SET NULL`'d billing/intent rows record THAT a paid unlock / disclosure / referral occurred, with no
   worker identity attached — a legitimate financial-record interest, PII-free.
+- **`refresh_erased:*` (#2113) is not an audit record.** It is a short-lived, unlinkable credential marker
+  (§1) that expires by TTL. It records nothing about the worker, and nothing reads it except
+  `POST /auth/pin/verify`.
+- **After restoring an erased worker's row from a DB backup, flush `refresh_erased:*`.** A tombstone means
+  "this row was hard-deleted". With the row back, any of the worker's old device tokens that still has a
+  tombstone gets a **false 410** on PIN unlock. The app then hard-logs-out to OTP, which works again because
+  the row exists, but the dialog tells the worker their account is gone. The keys cannot be tied to one worker,
+  so the only targeted fix is to clear them all:
+  ```bash
+  docker compose exec redis sh -c "redis-cli --scan --pattern 'refresh_erased:*' | xargs -r redis-cli del"
+  ```
+  The alternative is `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS=0` set on the box and the api recreated (§7
+  "Turning it off"; check it with `printenv` in the container), which stops all reads at once and lets the keys
+  expire. Clearing the keys costs every other recently-erased worker the PIN-screen 410,
+  and they fall back to the neutral 401 and the ladder. Record the restore and the flush in the ops log. A
+  restore of a DPDP-erased row is itself an owner decision.

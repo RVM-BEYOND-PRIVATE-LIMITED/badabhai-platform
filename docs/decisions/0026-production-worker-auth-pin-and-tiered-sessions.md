@@ -277,6 +277,27 @@ never placed in an event payload, which stays the two-uuid shape).
   throwaway 32MB-scrypt would hand an attacker a **CPU/memory amplification lever**, so it is
   **deliberately not padded**. The no-PIN-set and wrong-PIN paths *do* run an equivalent-cost
   scrypt to keep their timing uniform.
+- **Ratified exception: the reserved 410 `WORKER_ACCOUNT_DELETED` (owner ruling 2026-10-08,
+  Prakash, on #2113).** `POST /auth/pin/verify` answers the reserved 410, not the neutral 401, in
+  exactly two cases. Both fire only for a party holding a **once-valid credential**, and neither
+  evaluates the PIN:
+  - **(a2) — #1176, live since 2026-08-21, ratified now.** The presented refresh token still
+    **resolves**, but `existsById` reports the worker row definitively gone. This covers an
+    out-of-band delete, and records a fail-open `revokeAll` left behind. A probe error is
+    treated as present, so the neutral path holds.
+  - **(a0) — #2113, new.** The token **no longer resolves**, because a normal erasure revoked
+    it, but a `refresh_erased:<sha256(token)>` tombstone exists. The tombstone is written only
+    after a completed hard delete, and only for that worker's live, unrotated, device-bound tips;
+    see D2 and D4 as amended below. The tombstone is read **only** on the unresolved branch, so a
+    live record always wins. The branch does no Postgres access, no scrypt, no throttle write and
+    no event. A miss, the kill switch, or a Redis error gives the unchanged neutral 401.
+  - **Why this is not an oracle.** The tombstone lookup is keyed solely on sha256 of a 256-bit
+    random token, and `PinVerifySchema` still carries no phone and no worker id (R25 addendum,
+    item 1). A guesser therefore cannot reach a key. A holder learns only "this account was
+    erased", which is the fact (a2) already tells the holder of a surviving token, and which
+    the same credential could already read as `deletion_scheduled_for` during the grace
+    window. Every unresolved request makes one uniform Redis GET, so a miss cannot be told
+    apart from any other miss.
 
 ### Endpoints + events as built
 
@@ -286,7 +307,8 @@ never placed in an event payload, which stays the two-uuid shape).
   scrypt hash → `upsertPin` (clears throttle) → `worker.pin_set`. 204.
 - `POST /auth/pin/verify` — **no guard**; the device-bound **refresh token IS the credential**;
   identity + trusted device resolved server-side. Login-shape session on success
-  (`SessionService.create`), neutral 401 otherwise.
+  (`SessionService.create`), neutral 401 otherwise, except the ratified reserved 410 for an
+  erased worker's once-valid token ((a0)/(a2) under Finding 3 above).
 - `POST /auth/pin/reset/request` + `POST /auth/pin/reset/confirm` — **reuse the existing OTP
   channel** (`AuthService.requestOtp` / `OtpService.verify`); worker resolved by **phone hash**
   after OTP verify, never a body id; new PIN set + `worker.pin_reset`. **Amended by A6 (#994):
@@ -358,7 +380,9 @@ only phone derivative allowed outside `workers` per §2), `deleted_at`, optional
 short cool-down keyed on `phone_hash`; (b) give OTP-request a deterministic "this number was
 deleted" branch without resurrecting identity. `phone_hash` is **PII-free by the same rule
 that lets it appear in `worker.created`** — it is a non-brute-forceable HMAC, never the
-number. Nothing else is retained: no ciphertext phone, no name, no device hash.
+number. Nothing else is retained: no ciphertext phone, no name, no device hash. _(Amended
+2026-10-08: one bounded, credential-keyed exception, the `refresh_erased:*` tombstones. See
+the D2 amendment note below.)_
 
 Trade-off (decided): a dedicated `worker_deletions` table is cleaner than overloading the
 events spine for the cool-down read (events is append-only audit, not a lookup index). If
@@ -374,6 +398,39 @@ PII-free `worker.account_deleted` event (D5).
 > **no `worker_deletions` table**. The set is **fail-open** (a Redis error logs + continues —
 > it never aborts the completed erasure). `phone_hash` is the keyed-HMAC blind index (the only
 > §2-permitted retained phone derivative); the raw phone is never stored.
+
+> **D2 AMENDMENT (2026-10-08, owner ruling, Prakash, #2113).** A second retained artefact is
+> permitted: the **erased-credential tombstone** `refresh_erased:<sha256(refresh_token)>` = `"1"`.
+>
+> - **When it is written.** On a **completed** erasure, after `workers.hardDelete` returns. One
+>   is written for each of the worker's **live** (`used:false`), **device-bound** refresh tips
+>   whose record names this worker. At most **2 per device** (newest first) and **64 per worker**.
+> - **What it holds.** Only the key and the value `"1"`. There is no worker id, phone,
+>   `phone_hash`, device id, sid, family id or timestamp. After `revokeAll` the hash appears in
+>   no other store, log or event, so the key can be tied to a person only by someone who holds
+>   the raw token, which means the worker's own device or a party that already held their
+>   credential.
+> - **How long it lives.** Each key's TTL is min(floor(that token's natural remaining life),
+>   `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`). The setting defaults to **604800 (7d)**, the
+>   same horizon as the cool-down. The schema ceiling is also **604800 (7d)** (owner: "7-day max"), so the setting can only
+>   shorten retention; boot also refuses a
+>   value above `AUTH_REFRESH_TTL_DAYS*86400`. **`0` is the kill switch**: it stops the write
+>   and the read. Expiry is by TTL only, so no erasure step is needed.
+> - **Who reads it.** `PinService.verifyPin`, on the unresolved branch only (the (a0) exception
+>   under Phase 3 Finding 3). No other reader of the session store consults it. The
+>   `refresh_erased:` namespace is separate from `refresh:`, so a tombstone can never mint,
+>   rotate or resolve a session.
+> - **Not written** for logout, logout-all, `revokeByDevice`, reuse detection or consent
+>   withdrawal, or during the grace window. A family revoked before the erasure is not in
+>   `worker_families` when the erasure reads it.
+> - **The QA immediate seam writes them too** (owner ruling). They block nothing, and they are
+>   what makes the 410 reproducible.
+> - **Named location (ADR-0047).** The artefact is named in
+>   [`docs/worker-account-deletion-runbook.md`](../worker-account-deletion-runbook.md) §1, with
+>   the scan in §5b, failure modes in §7 and restore-from-backup handling in §9.
+> - **Why the token hash and not `worker_id`.** Rejected design 1 kept a token-hash → worker_id
+>   mapping for up to 90d, which would join the hash to the permanent events/audit spine. This
+>   design keeps nothing that joins.
 
 ### D3 — Per-table fate map (every FK into `workers.id`)
 
@@ -447,6 +504,23 @@ this fixed order:
    `SET NULL` here instead.)
 4. **Tombstone + event** — set the Redis cool-down key on `phone_hash` (D2) and emit
    `worker.account_deleted` (D5) with the counts captured in steps 1–3.
+
+> **D4 AMENDMENT (2026-10-08, #2113).** The as-built order is now:
+> **capture (read-only) → revokeAll → storage + audit → hardDelete → mark credential tombstones
+> → `deleted_phone` cool-down → emit `worker.account_deleted`.**
+>
+> - **Capture.** `SessionService.captureErasableRefreshTokens` issues SMEMBERS and GET only, as a
+>   separate pass. It has to run before `revokeAll`, because `revokeAll` deletes the records it
+>   reads. `revokeAll` itself is **byte-identical**, so a capture fault can cost the 410 but never
+>   the revocation. "Revoke first" still holds: revoke is the first **side effect**.
+> - **Mark.** `markRefreshTokensErased` runs only after `hardDelete` returns. If `hardDelete`
+>   throws, no tombstone exists for a row that is still present. If `hardDelete` returns `false`
+>   (a concurrent run removed the row), mark still runs.
+> - **Failure handling.** Both calls are fail-open and never throw; the service adds
+>   belt-and-braces catches as well. Logs carry counts and `err.name` only, never a token, hash
+>   or key.
+> - **What does not change.** The `worker.account_deleted` payload, every migration, and every
+>   event.
 
 **Failure semantics.** The operation is **idempotent and re-runnable**: re-invoking on an
 already-deleted worker is a no-op (the `workers` row is gone; `SessionService.revokeAll`
@@ -698,3 +772,72 @@ just chosen and confirmed.
 **Client half.** `AuthErrorCode.pinWeak` handling stays in the worker app so the flow degrades
 gracefully if a server ever rejects again; it becomes unreachable in practice. Removing the app's
 own block is Frontend's half of #1462 and is NOT in this change.
+
+---
+
+## Amendment — 2026-10-08: the PIN-screen 410 for an erased worker (#1176 ratified, #2113)
+
+- Status: Accepted · Date: 2026-10-08 · Ruled by: Prakash (owner), recorded on #2113 ·
+  Scope: `apps/api/src/auth/*`, `packages/config`, one line in `docker-compose.staging.yml`. No
+  migration, no event change, no client change, no new request input. **Security-engineer review
+  is required before merge.**
+- **Design correction (review round 1, for the Architect).** The approved design said
+  `docker-compose.staging.yml` needed no change. That was wrong. The file is the production
+  overlay, its api service has no `env_file:`, and compose forwards only the names a service
+  declares, so without a declaration the container always ran the zod default and the ruling-2
+  kill switch (`0`) could not be armed in staging or production (the #1306 class). The api
+  service now declares
+  `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: ${ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS:-604800}`,
+  mirroring the zod default, and `apps/api/src/auth/erased-refresh-tombstone-compose.guard.test.ts` pins it.
+  It is set on the box (project `.env` plus an api recreate), like
+  `ACCOUNT_DELETION_COOLDOWN_SECONDS`; no CI secret bridge carries it.
+
+**Problem.** A normal erasure revokes every session first (D4). So a deleted worker's app
+presents a refresh token that resolves to nothing, and `verifyPin` answered the neutral 401. The
+worker was sent back to the keypad to guess a PIN that could never succeed, until the client's
+5-failure ladder routed them to OTP. (a2) from #1176 could not help: it needs a token that still
+resolves.
+
+**Owner rulings (2026-10-08).**
+
+1. **(a2) is ratified.** The reserved 410 on `/auth/pin/verify` for a resolving token whose
+   worker row is gone stays. It had been live without a recorded ruling since #1176.
+2. **Credential-keyed tombstones are approved.** The setting is
+   `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS`: default 604800 (7d), which is also the schema ceiling ("7-day max"),
+   `0` as the kill switch, and a boot guard of ≤ `AUTH_REFRESH_TTL_DAYS*86400`. This amends D2;
+   the artefact is named in the deletion runbook.
+3. **The QA immediate-delete seam writes tombstones too.**
+
+**Mechanism.** See the Finding-3 exception (a0), the D2 amendment and the D4 amendment above. The
+selection is a pure function (`apps/api/src/auth/erased-refresh-tombstone.ts`) and keeps only:
+
+- records with `used === false`;
+- records where `worker_id === workerId`;
+- device-bound records;
+- at most 2 per device and 64 per worker.
+
+The TTL is min(floor(natural remaining life), horizon), and a TTL under 1 is dropped. The output
+is `{tokenHash, ttlSeconds}` and nothing else.
+
+**Accepted residuals.**
+
+- **A copied live tip learns "erased" for up to the horizon.** It mints nothing and evaluates no
+  PIN, and the same credential could already see `deletion_scheduled_for` during grace.
+- **A crash or Redis fault between capture and mark loses the capture.** The sweep's retry finds
+  empty families, so the worker gets today's neutral 401 and the ladder, never a false 410.
+- **Millisecond races.** A tip minted between capture and `revokeAll` is not tombstoned and gets
+  the neutral 401. The pre-existing D4 race is still covered by (a2).
+- **A rotated token left on a device after a lost rotation response (#999)** is deliberately not
+  tombstoned, so it gets the neutral 401.
+- **Restoring an erased worker's row from backup gives a false 410** until `refresh_erased:*` is
+  flushed (runbook §9). This is a procedure, not enforced in code.
+- **Changing `AUTH_REFRESH_TTL_DAYS` after minting** can skew the computed natural life. It is
+  still bounded by the horizon.
+- **A Redis flush or volume loss degrades to the status quo.**
+- **After the horizon, a deleted worker gets the neutral 401 and the ladder**, then the
+  `deleted_phone` neutral 429 at OTP.
+- **`POST /auth/token/refresh` still answers 401, not 410**, for an erased worker. That path logs
+  the user out rather than trapping them on the keypad. Parity is a follow-up.
+- **Pre-existing and logged, not fixed here:** risks-register R69 (`revokeAll` fails open during
+  erasure), R70 (`verifyPin` accepts `used:true` tokens) and R71 (no per-IP cap and no max length
+  on `/auth/pin/verify`).

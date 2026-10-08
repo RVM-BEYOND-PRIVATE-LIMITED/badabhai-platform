@@ -17,7 +17,7 @@ import { StorageService } from "../storage/storage.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ErasureAuditBuilder } from "./erasure-audit";
 import { ErasureAuditRepository } from "./erasure-audit.repository";
-import { SessionService } from "./session.service";
+import { SessionService, type ErasableRefreshCapture } from "./session.service";
 
 /**
  * Minimal typed view of the Redis commands the erasure needs: the cool-down tombstone
@@ -40,8 +40,11 @@ interface RedisDeletionClient {
  * it remains the post-grace erasure step, run by the sweep once the marker is overdue.
  *
  * `execute(workerId)` runs BEST-EFFORT-COMPLETE and IDEMPOTENT in a fixed order:
- *   1. revoke all sessions + refresh families (FIRST — a deleted-in-progress worker can
- *      never be re-authenticated);
+ *   0. (#2113) CAPTURE, read-only, which of the worker's refresh tokens get an erased-credential
+ *      tombstone — before step 1 deletes the records it reads. A separate pass that writes
+ *      nothing, so it can never skip or alter the revocation;
+ *   1. revoke all sessions + refresh families (FIRST side effect — a deleted-in-progress worker
+ *      can never be re-authenticated);
  *   2. CAPTURE resume object keys + the had_pin/devices_revoked counts, then erase storage
  *      (resume PDFs + archived conversations) — captured BEFORE the DB delete (the cascade
  *      erases generated_resumes, so their opaque object keys must be read first), recording
@@ -51,19 +54,27 @@ interface RedisDeletionClient {
  *      gate, and aborting here would destroy the objects and record nothing;
  *   3. hard-delete the workers row in a transaction (Postgres cascades PII children and
  *      SET-NULLs the three billing/intent FKs per migration 0030);
+ *   3b. (#2113) write the erased-credential tombstones captured at step 0
+ *      (`refresh_erased:<sha256(token)>` = "1", TTL ≤ ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS) —
+ *      ONLY after the hard delete returns, so a tombstone never exists for a present row, and on
+ *      every caller (the QA immediate seam included). Fail-OPEN: a lost write costs that device
+ *      the reserved 410 on PIN unlock, never the erasure;
  *   4. set a Redis cool-down tombstone on the PII-free phone_hash (fail-OPEN);
  *   5. emit `worker.account_deleted` (PII-FREE: opaque worker id + counts/flags only).
  *
  * FAIL SEMANTICS (D4): a re-run on an already-gone worker is a no-op (findById null → return).
  * A storage hiccup increments storage_objects_failed and CONTINUES — it never aborts the DB
  * erasure (an orphan keyed by an opaque UUID is non-PII-linkable + re-runnable). The DB delete
- * is the atomic identity removal; revoke (step 1) precedes everything so we never half-auth a
- * deleted worker.
+ * is the atomic identity removal; revoke (step 1) precedes every side effect so we never half-auth
+ * a deleted worker (step 0 before it only reads).
  *
  * PRIVACY (CLAUDE.md §2): the OTP code, phone, name, phone_hash derivation, and resume object
  * keys NEVER enter the event, logs, ai_jobs, or audit_logs. Logs carry only an opaque worker_id
  * prefix + counts. The only retained phone derivative is the Redis cool-down KEY value (the
  * keyed, non-reversible HMAC blind index — the same §2-permitted derivative as worker.created).
+ * The only retained CREDENTIAL derivative is the #2113 `refresh_erased:<sha256(token)>` key set
+ * (ADR-0026 D2 as amended 2026-10-08): no worker id, phone or device id beside it, bounded TTL,
+ * at most 64 per worker — named in docs/worker-account-deletion-runbook.md §1.
  */
 @Injectable()
 export class AccountDeletionService {
@@ -229,6 +240,22 @@ export class AccountDeletionService {
       return;
     }
     const phoneHash = worker.phoneHash;
+
+    // 0. (#2113) CAPTURE the erased-credential tombstones to write at step 3b — READ-ONLY, and a
+    // pass of its own rather than a change to revokeAll, because step 1 deletes exactly the
+    // `refresh:<hash>` records this has to read. It never throws and writes nothing, so a fault
+    // here costs the reserved 410 on PIN unlock, never the revocation (ADR-0026 D4). The catch
+    // is belt-and-braces over a method that already never throws: that guarantee lives in
+    // another class, and D4 must not rest on it.
+    const erasable = await this.sessions
+      .captureErasableRefreshTokens(workerId)
+      .catch((err: unknown): ErasableRefreshCapture => {
+        this.logger.warn(
+          `account deletion refresh-tombstone capture failed worker=${idPrefix} (fail-open; ` +
+            `revocation unaffected; errorType: ${err instanceof Error ? err.name : "unknown"})`,
+        );
+        return { entries: [], candidates: 0, dropped: 0 };
+      });
 
     // 1. Revoke ALL sessions + refresh families FIRST. revokeAll returns the count of session
     // RECORDS actually deleted — use it directly as sessions_revoked (best-effort: a Redis
@@ -601,6 +628,29 @@ export class AccountDeletionService {
       this.logger.log(`account deletion worker=${idPrefix} already removed by a concurrent run`);
     }
 
+    // 3b. (#2113) The erased-credential tombstones captured at step 0. HERE AND NOWHERE EARLIER:
+    // a tombstone answers "this account no longer exists" (the reserved 410) on /auth/pin/verify,
+    // which is only true once the row is gone — so if hardDelete throws, this never runs. A
+    // `false` from hardDelete still writes: the row is absent either way (a concurrent run took
+    // it). Deliberately NOT gated on setReregistrationCooldown — the QA immediate seam writes them
+    // too (owner ruling 2026-10-08): they block nothing, and they make the 410 reproducible.
+    // Never throws (fail-OPEN, like the cool-down below; the catch is belt-and-braces so nothing
+    // here can stop worker.account_deleted being emitted). Counts only in the log — the hashes,
+    // like the tokens they derive from, are never logged.
+    const tombstonesWritten = await this.sessions
+      .markRefreshTokensErased(erasable.entries)
+      .catch((err: unknown): number => {
+        this.logger.warn(
+          `account deletion refresh-tombstone write failed worker=${idPrefix} (fail-open; ` +
+            `errorType: ${err instanceof Error ? err.name : "unknown"})`,
+        );
+        return 0;
+      });
+    this.logger.log(
+      `account deletion refresh tombstones worker=${idPrefix} captured=${erasable.entries.length} ` +
+        `written=${tombstonesWritten} dropped=${erasable.dropped}`,
+    );
+
     // 4. Tombstone: set the Redis cool-down on the PII-free phone_hash. FAIL-OPEN — a Redis
     // error here must NOT abort the already-completed erasure (the PII is gone). Skip when the
     // cool-down is disabled (0). The KEY value is the keyed HMAC blind index — the only retained
@@ -664,7 +714,8 @@ export class AccountDeletionService {
     const line =
       `account deletion ${verdict} worker=${idPrefix} sessions=${sessionsRevoked} ` +
       `devices=${devicesRevoked} storage_deleted=${storageDeleted} ` +
-      `storage_failed=${storageFailed} outcome=${erasure.outcome} had_pin=${hadPin}`;
+      `storage_failed=${storageFailed} outcome=${erasure.outcome} had_pin=${hadPin} ` +
+      `credential_tombstones=${tombstonesWritten}`;
     if (erasure.outcome === "failed") this.logger.error(line);
     else this.logger.log(line);
   }

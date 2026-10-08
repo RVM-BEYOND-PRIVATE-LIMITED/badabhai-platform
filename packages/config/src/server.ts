@@ -669,6 +669,27 @@ export const serverEnvSchema = z.object({
   // cool-down — never for auth). nonnegative() so 0 disables the cool-down (no key set).
   ACCOUNT_DELETION_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(604800),
 
+  // #2113 (owner ruling 2026-10-08; ADR-0026 D2 amendment) — the ERASED-CREDENTIAL tombstone
+  // horizon, in seconds (default 7d, the same horizon as the cool-down above). On a COMPLETED
+  // erasure (after the hard delete returns) AccountDeletionService writes
+  // `refresh_erased:<sha256(refresh_token)>` = "1" for each live, unrotated, device-bound refresh
+  // tip the worker held, so `POST /auth/pin/verify` can answer the reserved 410
+  // WORKER_ACCOUNT_DELETED to a deleted worker's own app instead of a "wrong PIN" 401. Each key's
+  // TTL is min(that token's natural remaining life, this value). The keys carry no worker id,
+  // phone or device id.
+  //   - 0 = KILL SWITCH: disables BOTH the write (erasure mints nothing) and the read (verifyPin
+  //     consults nothing), so flipping it to 0 takes effect for keys already written too.
+  //   - max(604800) = the 7-day ceiling the owner ruled ("Allow, 7-day max", 2026-10-08): the
+  //     setting can only SHORTEN retention below the default, never lengthen it.
+  //   - assertAuthConfig additionally refuses a value above AUTH_REFRESH_TTL_DAYS*86400: a
+  //     tombstone must never be able to outlive the credential it stands in for.
+  ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .max(604800)
+    .default(604800),
+
   // D-3 — GATED test-login (worker session-mint) seam for staging smoke / e2e ONLY.
   // Worker login is REAL-ONLY (Fast2SMS), so no automated test can complete an OTP
   // round-trip; this pair arms POST /auth/test-login, which mints a REAL worker
@@ -713,10 +734,14 @@ export const serverEnvSchema = z.object({
   //   - DEFAULT OFF. booleanFromString so a falsey string ("false"/"0"/"") stays OFF — fail-safe
   //     to inert, the same idiom as TEST_LOGIN_ENABLED / ADMIN_PII_REVEAL_ENABLED. While OFF the
   //     route answers a NEUTRAL 404 (behaves as if it does not exist).
-  //   - DELIBERATELY SEPARATE from the DPDP AccountDeletionService flow (the real user-facing
-  //     path — step-up OTP + grace + storage sweep + worker.account_deleted). This seam does NONE
-  //     of that: it replicates a raw row delete (session left intact on purpose, so the worker's
-  //     NEXT authed call returns the reserved 410).
+  //   - It SKIPS the user-facing gates of the DPDP flow (step-up OTP + ADR-0031 grace) but NOT
+  //     the erasure itself: the route calls the SAME `AccountDeletionService.execute` the sweep
+  //     runs — sessions + refresh families revoked, every storage prefix swept, the row
+  //     hard-deleted, worker.account_deleted emitted — opting out of ONLY the deleted_phone
+  //     re-registration cool-down (#1306). (This bullet used to say the seam replicates a raw row
+  //     delete with the session left intact; that stopped being true when the seam was routed
+  //     through execute.) The worker's next PIN unlock still returns the reserved 410: execute
+  //     writes the #2113 `refresh_erased:*` tombstones on this path too (owner ruling 2026-10-08).
   //   - ARMABLE IN EVERY ENVIRONMENT, PRODUCTION INCLUDED (owner decision, 2026-08-27). This
   //     bullet previously read "MUST ONLY EVER be enabled on a test/QA server, NEVER a real
   //     production tenant", backed by a boot refusal; both the sentence and the refusal are gone
@@ -2528,6 +2553,17 @@ export function assertAuthConfig(
   if (config.AUTH_REFRESH_TTL_DAYS < config.AUTH_SESSION_ABSOLUTE_MAX_DAYS) {
     problems.push(
       `AUTH_REFRESH_TTL_DAYS (${config.AUTH_REFRESH_TTL_DAYS}) must be >= AUTH_SESSION_ABSOLUTE_MAX_DAYS (${config.AUTH_SESSION_ABSOLUTE_MAX_DAYS})`,
+    );
+  }
+
+  // #2113 — an erased-credential tombstone stands in for a refresh token that erasure DELETED; it
+  // must never be configurable to outlive that token's own maximum life. (Per key the TTL is
+  // already min(natural remaining life, horizon); this makes the horizon itself honest, so the
+  // runbook's "at most N days" is a boot-time fact rather than a per-key computation.)
+  const refreshTtlSeconds = config.AUTH_REFRESH_TTL_DAYS * 86400;
+  if (config.ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS > refreshTtlSeconds) {
+    problems.push(
+      `ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS (${config.ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS}) must be <= AUTH_REFRESH_TTL_DAYS*86400 (${refreshTtlSeconds})`,
     );
   }
 
