@@ -44,6 +44,7 @@ better than a confidently wrong one they do not notice.
 
 from __future__ import annotations
 
+import math
 import re
 from bisect import bisect_left, bisect_right
 from collections import Counter
@@ -472,8 +473,13 @@ _SUFFIX_WORD = (
 )
 # `_SUFFIX` wraps the word in a group of its own so that `?` applies to the boundary as well.
 _SUFFIX = "(?:" + _SUFFIX_WORD + ")?"
-# Decimals are allowed because "1.5 lakh" is how the amount is actually written here.
-_NUMBER = r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)"
+# Decimals are allowed because "1.5 lakh" is how the amount is actually written here. Digit
+# groups are joined by single commas ("25,000", "2,50,000") and a figure ENDS on a digit (#2143):
+# `\d[\d,]*` kept the comma after "25000," in the figure, so a comma boundary sat inside it and
+# "salary 25000, PF ESI" ran into the PF clause and recorded nothing ("25k, PF ESI" read 25,000).
+# A figure never starts INSIDE a comma-joined run either (`(?<!\d,)`): it could start at every
+# digit of "1,1,1,...", each start reading the run to its end, O(n^2) on a failing range.
+_NUMBER = r"(?<![\d.])(?<!\d,)(\d+(?:,\d+)*(?:\.\d+)?)"
 _AMOUNT_RE = re.compile(_NUMBER + r"\s*" + _SUFFIX, re.IGNORECASE)
 # A RANGE, matched before anything else. "20-25k" means 20,000 to 25,000: the
 # trailing multiplier governs its bare partner — but ONLY inside the range.
@@ -527,6 +533,12 @@ def _scale(digits: str, suffix: str | None, partner: str | None) -> int | None:
         amount *= _MULTIPLIERS[suffix.lower()]
     elif partner and amount < 1000:
         amount *= _MULTIPLIERS[partner.lower()]
+    if not math.isfinite(amount):
+        # A comma-joined run is ONE number ("1,1,1,..." is 111...): past ~309 digits `float()` is
+        # infinite, and a figure just under that becomes infinite once its suffix multiplies it,
+        # so `int()` raised OverflowError. Checked AFTER the multiply. It is no wage (#2143). A
+        # function-level guard: through the route the gateway masks such runs as phone tokens.
+        return None
     value = int(amount)  # whole rupees — jobs.pay_min / jobs.pay_max are integers
     return value if _PAY_MIN_INR <= value <= _PAY_MAX_INR else None
 
@@ -593,12 +605,12 @@ _PAY_BASIS_KINDS: dict[str, re.Pattern[str]] = {
 # ("CTC 3 lakh\n15000\nPF ESI"). When a message names either basis ANYWHERE, the "wage, amount,
 # label" screen stays off, and two figures with a basis record nothing, as before (#2141 review).
 _PAY_GROSS_BASES: tuple[str, ...] = ("ctc", "gross")
-# ... and the same pair typed WITHOUT its bases: a wage of a lakh or more beside a thousands figure
+# ... and the same pair typed WITHOUT its bases: a figure of a lakh or more beside a thousands one
 # is the annual package and the monthly pay ("in hand 3 lac and 20000 and ESI", "salary 3 lakh\n
-# 20000\nPF ESI"), not a wage and its add-on. The screen reads only a wage below a lakh; at or above
-# it the pair folds or records nothing, as before. Every wage-and-add-on the payers type is a
-# monthly wage in the tens of thousands (#2141 review).
-_PAY_ADDON_WAGE_LIMIT = 100_000
+# 20000\nPF ESI", "salary 18000 and 3 lakh ctc"). Two rules read this one line: the add-on screen
+# reads only a wage below it (#2141 review) — every wage-and-add-on the payers type is a monthly
+# wage in the tens of thousands — and a band across it records nothing (`_spans_two_bases`).
+_PAY_ANNUAL_FLOOR = 100_000
 
 
 class _PayFigure(NamedTuple):
@@ -612,10 +624,9 @@ class _PayFigure(NamedTuple):
 
 
 def _is_bare_year(message: str, match: re.Match[str]) -> bool:
-    """A four-digit 1950..2099 with no suffix and no currency beside it. (The amount
-    regex keeps a trailing comma — "1998, salary" — which is punctuation, not a digit.)"""
+    """A four-digit 1950..2099 with no suffix and no currency beside it."""
     digits, suffix = match.group(1), match.group(2)
-    if suffix or not _PAY_YEAR_RE.fullmatch(digits.rstrip(",")):
+    if suffix or not _PAY_YEAR_RE.fullmatch(digits):
         return False
     return not (
         _currency_before(message, match.start())
@@ -727,8 +738,8 @@ def _pay_figures(message: str) -> list[_PayFigure]:
         low_s, low_x, high_s, high_x = match.groups()
         if (
             not (low_x or high_x)
-            and _PAY_YEAR_RE.fullmatch(low_s.rstrip(","))
-            and _PAY_YEAR_RE.fullmatch(high_s.rstrip(","))
+            and _PAY_YEAR_RE.fullmatch(low_s)
+            and _PAY_YEAR_RE.fullmatch(high_s)
         ):
             continue  # "1998-2005" is a span of years; its halves are screened below
         low = _scale(low_s, low_x, high_x)
@@ -824,7 +835,7 @@ def _follows_a_wage(
 ) -> bool:
     """The clause before ``figure``'s that says anything holds a wage — a kept figure at least
     `_PAY_AND_SPLIT_RATIO` times it (the #2066 test for two statements) and below
-    `_PAY_ADDON_WAGE_LIMIT` (a lakh-scale figure is an annual package)."""
+    `_PAY_ANNUAL_FLOOR` (a lakh-scale figure is an annual package)."""
     clause = _said_clause(message, boundaries, bisect_right(boundaries.ends, figure.start) - 1, -1)
     if clause is None:
         return False
@@ -832,7 +843,7 @@ def _follows_a_wage(
     if first and wages[first - 1].end > clause[0]:
         first -= 1  # a range that started earlier and runs into the clause
     return any(
-        _PAY_AND_SPLIT_RATIO * figure.low <= wage.low < _PAY_ADDON_WAGE_LIMIT
+        _PAY_AND_SPLIT_RATIO * figure.low <= wage.low < _PAY_ANNUAL_FLOOR
         for wage in wages[first:last]
     )
 
@@ -894,11 +905,24 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
     ]
 
 
+def _spans_two_bases(low: int, high: int | None) -> bool:
+    """A band from a monthly wage to an annual package (#2159): its top a lakh or more, its bottom
+    below a lakh (`_PAY_ANNUAL_FLOOR`), and the top more than `_MONEY_RANGE_MAX_RATIO` times the
+    bottom — the most a real band spans. "salary 18000 and 3 lakh ctc" read as Rs 18,000-3,00,000
+    tagged CTC, "salary 3 lakh\\n20000\\nPF ESI" as Rs 20,000-3,00,000. A band that wide across
+    the lakh line pairs two bases, so it records nothing, like two figures beside a basis word;
+    "salary 50000 - 1 lakh" and "1 - 6 lakh ctc" are bands."""
+    return (
+        high is not None and low < _PAY_ANNUAL_FLOOR <= high and high > _MONEY_RANGE_MAX_RATIO * low
+    )
+
+
 def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
     """Parse a monthly pay answer into ``{"pay_min": int, "pay_max": int | None}``.
 
     An amount in an ADD-ON clause (bonus, OT, allowance, PF...) is dropped, and so is a
-    bare year; two figures on different bases record nothing (see the regexes above).
+    bare year; two figures on different bases record nothing — whether a basis word names
+    them or their scale does (see the regexes above and `_spans_two_bases`).
     """
     message = text or ""
     if require_cue and not _MONEY_CUE_RE.search(message):
@@ -911,6 +935,8 @@ def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
     # 1. A RANGE wins outright — it is the one place a multiplier may travel.
     for figure in kept:
         if figure.from_range:
+            if _spans_two_bases(figure.low, figure.high):
+                return None
             return {"pay_min": figure.low, "pay_max": figure.high}
 
     # 2. Otherwise every amount stands alone with its OWN suffix. A bare number
@@ -918,7 +944,10 @@ def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
     amounts = sorted({figure.low for figure in kept})
     if not amounts:
         return None
-    return {"pay_min": amounts[0], "pay_max": amounts[-1] if len(amounts) > 1 else None}
+    low, high = amounts[0], amounts[-1] if len(amounts) > 1 else None
+    if _spans_two_bases(low, high):
+        return None
+    return {"pay_min": low, "pay_max": high}
 
 
 # --- Pay type (#1726; an allowlist since #1727 round 3) ------------------------------
