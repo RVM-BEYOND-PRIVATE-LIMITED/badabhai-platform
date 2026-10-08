@@ -28,8 +28,9 @@ fuzz      `--samples` (default 60,000) seeded lines of #1933's cue-line generato
           and a number word in some order, glued or spaced, and near misses ("cards", "codes").
           1. ONLY MORE: every offset the gateway masks under PRE it masks under shipped, except
              connector text PRE swallowed into a value ("code123456" masked whole; shipped reads
-             "code" and masks "123456"), which holds no digit and ends where a shipped mask
-             starts; every text G1/G2 refuses under PRE it refuses; every slice the salary guard
+             "code" and masks "123456"), which is label words, number words, separators and
+             whitespace alone (`CONNECTOR_TEXT`) and ends where a shipped mask starts; every
+             text G1/G2 refuses under PRE it refuses; every slice the salary guard
              drops under PRE it drops. A block that becomes a mask is counted apart.
           2. ATTRIBUTED: every line whose decisions move holds a label word (`NEW_SHAPE`).
           3. FOLDED: on every line, each rule's matches equal its unfolded twin's
@@ -239,9 +240,15 @@ def sample(rng: random.Random) -> str:
     return rng.choice(linear.LEADS) + " ".join(lines)
 
 
+#: Connector text: label words, number words, separators and whitespace, and nothing else. A run
+#: PRE masked and shipped does not is excused only if it is made of these (the security review of
+#: #2091: "no digit" alone would also excuse a letter prefix of an ID).
+CONNECTOR_TEXT = re.compile(r"(?i)(?:id|card|code|no\.?|num(?:ber)?|#|[:\-]|\s)+")
+
+
 def lost_offsets(text: str, before: set[int], after: set[int]) -> list[str]:
     """The runs of offsets PRE masks and shipped does not, less connector text PRE swallowed into
-    a value: a run that holds no digit and ends where a shipped mask starts."""
+    a value: a run made of `CONNECTOR_TEXT` alone that ends where a shipped mask starts."""
     runs: list[list[int]] = []
     for index in sorted(before - after):
         if runs and runs[-1][-1] == index - 1:
@@ -251,7 +258,7 @@ def lost_offsets(text: str, before: set[int], after: set[int]) -> list[str]:
     return [
         text[run[0] : run[-1] + 1]
         for run in runs
-        if re.search(r"\d", text[run[0] : run[-1] + 1]) or run[-1] + 1 not in after
+        if not CONNECTOR_TEXT.fullmatch(text[run[0] : run[-1] + 1]) or run[-1] + 1 not in after
     ]
 
 

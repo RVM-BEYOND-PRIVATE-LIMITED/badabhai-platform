@@ -863,10 +863,15 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
   certifier refusal or salary-guard drop is lost. The masked text loses only connector text the
   old rule swallowed into a value: `"cert code123456"` masked `code123456`, and now masks
   `123456`.
-- **Decided consequence** (pinned as `DECIDED`): a block can become a mask.
-  `"Licence ID DL04201100"` was blocked by the residual net, because its eight digits stayed raw.
-  It is now `"Licence ID [ID_1]"` and the turn goes on, as #2049 decided for a run that a value
-  grows through. The digits never egress either way.
+- **Decided consequences** (pinned as `DECIDED`):
+  - A block can become a mask. `"Licence ID DL04201100"` was blocked by the residual net, because
+    its eight digits stayed raw. It is now `"Licence ID [ID_1]"` and the turn goes on, as #2049
+    decided for a run that a value grows through. The digits never egress either way.
+  - What follows a cue and "code" is read as the identifier (found by the security review of
+    #2091; none of these is in the corpus). G1/G2 refuses `"Account Code: 4001-2020"`, and the
+    gateway masks `"Cert code G01M03 programming"` to `"Cert code [ID_1] programming"`. `"Reg.
+    code 18,000 per month"` and `"certificate code 15k"` no longer record pay. Each errs in the
+    safe direction for an identifier, under the owner's ruling.
 - **Measured** (`scripts/measure_cued_id_two_word.py`, 2026-10-08). PRE is each rule as it
   shipped before #2091.
   - `overmask` (#1875's method): 39,283 distinct corpus strings, 2,713 of them cue-bearing, in
@@ -890,7 +895,11 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
   - a dotted `"I.D."`;
   - a label with no cue (`"EPIC No: …"`, `"PF No: …"`).
 
-  Each is admitted and its digits are pay, before #2091 and after it. The gateway still leaves a
+  Each is admitted and its digits are pay, before #2091 and after it. One engine difference is
+  also open: Python's `IGNORECASE` matches a Turkish `ı` (U+0131) or `İ` (U+0130) to `i`, and
+  V8's `/i` (no `u` flag) does not. So `"Registration ıD 123456"` is refused by the ai-service and
+  admitted by the TypeScript wall. Cue words that hold an "i" (`registration`, `licence`) have had
+  this gap all along; the fix is to fold those letters to ASCII before matching, in both walls. The gateway still leaves a
   résumé cue's ID to its other rules, as it always has, because the résumé cues belong to G1/G2
   alone: `"Voter ID No: XYZ9876543"` masks only the amount-shaped `9876543`.
 

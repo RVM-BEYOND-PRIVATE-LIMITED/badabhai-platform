@@ -150,13 +150,67 @@ def test_DECIDED_a_block_can_become_a_mask():
     assert contains_hard_identifier("Licence ID DL04201100") == "credential_id"
 
 
-def test_connector_text_pre_swallowed_into_a_value_is_read_as_the_connector():
-    # PRE could not read "code", so the value started on it; shipped reads it and masks the ID.
-    # No digit is unmasked, and G1/G2 refuses under both.
-    text = "cert code123456 hai"
-    assert under_pre(pseudonymize, text).text == "cert [ID_1] hai"
-    assert pseudonymize(text).text == "cert code[ID_1] hai"
+@pytest.mark.parametrize(
+    ("text", "pre_masked", "masked"),
+    [
+        ("cert code123456 hai", "cert [ID_1] hai", "cert code[ID_1] hai"),
+        # A glued "ID" reads as the label too (the security review of #2091): no digit is lost.
+        ("Licence IDL1234567", "Licence [ID_1]", "Licence ID[ID_1]"),
+    ],
+)
+def test_connector_text_pre_swallowed_into_a_value_is_read_as_the_connector(
+    text, pre_masked, masked
+):
+    # PRE could not read the label word, so the value started on it; shipped reads it as the
+    # connector and masks the rest. G1/G2 refuses under both.
+    assert under_pre(pseudonymize, text).text == pre_masked
+    assert pseudonymize(text).text == masked
     assert contains_hard_identifier(text) == under_pre(contains_hard_identifier, text)
+    (old_mask, _), _, _ = under_pre(measure.decisions, text)
+    (new_mask, _), _, _ = measure.decisions(text)
+    assert old_mask - new_mask  # connector text left the mask ...
+    assert (
+        measure.lost_offsets(text, old_mask, new_mask) == []
+    )  # ... and it is connector text alone
+
+
+@pytest.mark.parametrize(
+    ("text", "pre", "shipped"),
+    [
+        (
+            "Account Code: 4001-2020",
+            ("Account Code: 4001-2020", None, 4001),
+            ("Account Code: 4001-2020", "credential_id", 4001),
+        ),
+        (
+            "Cert code G01M03 programming",
+            ("Cert code G01M03 programming", None, None),
+            ("Cert code [ID_1] programming", "credential_id", None),
+        ),
+        (
+            "Reg. code 18,000 per month",
+            ("Reg. code 18,000 per month", None, 18000),
+            ("Reg. code 18,000 per month", None, None),
+        ),
+        (
+            "certificate code 15k",
+            ("certificate code 15k", None, 15000),
+            ("certificate code 15k", None, None),
+        ),
+    ],
+)
+def test_DECIDED_what_follows_a_cue_and_code_is_read_as_the_identifier(text, pre, shipped):
+    """Found by the security review of #2091; none of these is in the corpus. Under the owner's
+    ruling (2026-10-08) a cue then "code" is an identifier label, so what follows is read as the
+    ID. G1/G2 refuses a ledger code after "Account Code" (the guard has no "account" cue, so 4001
+    stays pay). The gateway masks a CNC program code after "Cert code". A figure after "Reg. code"
+    or "certificate code" is no longer pay. Each is the safe direction for an identifier."""
+
+    def decided() -> tuple[object, object, object]:
+        return pseudonymize(text).text, contains_hard_identifier(text), pay(text)[0]
+
+    assert under_pre(decided) == pre
+    assert decided() == shipped
 
 
 def test_a_wage_beside_a_two_word_label_is_kept():
