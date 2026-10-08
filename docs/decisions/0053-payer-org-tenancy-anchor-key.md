@@ -213,10 +213,12 @@ resolve(actorPayerId: string): Promise<PayerTenantScope>;
 
 1. **Resolve once per request, at the service entry point.** Tenancy is business logic (CLAUDE.md §4),
    so it is never resolved in a controller or a repository. The scope object is passed down. It is
-   never re-resolved inside a transaction. *Amended 2026-10-08 (PR #2175, review F1): a guard that
+   never re-resolved inside a transaction. *Amended 2026-10-08 in the review of PR #2175 (finding
+   F1). It narrows reads under the accepted ADR, so it needs no fresh owner sign-off. A guard that
    authorizes on the tenant scope (`PayerOrgRoleGuard` with `@OrgRoles`) resolves it once and
    hands that scope to the service (`@CurrentTenantScope()`), which then does not resolve: a role
-   check and a tenant key from two reads can disagree when a membership changes mid-request.*
+   check and a tenant key from two reads can disagree when a membership changes mid-request. A
+   handler takes the scope only through that decorator (`payer-tenancy.static.test.ts` pins it).*
 2. **Repositories take `TenantKey`, not `string`,** for every tenant-row predicate and stamp. A typed
    body, path or JWT value cannot reach a predicate, because only the resolver produces the type:
    its one constructor is private to `payer-tenant-scope.ts`, and `payer-tenancy.static.test.ts`

@@ -894,3 +894,106 @@ describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-
     expect(found).toEqual(["fx/a.ts", "fx/b.ts", "fx/c.ts", "fx/d.ts"]);
   });
 });
+
+/**
+ * A tenant scope reaches a route handler ONLY through `@CurrentTenantScope()` (review N1 of PR
+ * #2175). Nest builds a handler argument from its parameter decorator, not its type: a parameter
+ * typed `PayerTenantScope` (or any type carrying a `TenantKey`) under `@Body()` / `@Query()` /
+ * `@Param()` would turn request JSON into a "scope" with no cast at all, past S-F1. So every route
+ * handler parameter whose type names a forgeable tenancy type must carry exactly one decorator,
+ * `@CurrentTenantScope()`, the one that reads the scope `PayerOrgRoleGuard` resolved.
+ */
+const ROUTE_DECORATORS = new Set([
+  "Get",
+  "Post",
+  "Put",
+  "Patch",
+  "Delete",
+  "All",
+  "Options",
+  "Head",
+]);
+
+function decoratorNames(node: ts.Node, sf: ts.SourceFile): string[] {
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
+  return decorators.map((d) =>
+    ts.isCallExpression(d.expression)
+      ? d.expression.expression.getText(sf)
+      : d.expression.getText(sf),
+  );
+}
+
+/** `checked`: every route-handler parameter typed with a tenancy type; `offenders`: the ones not taken by exactly `@CurrentTenantScope()`. */
+function scopeHandlerParams(sources: readonly ts.SourceFile[]): {
+  checked: string[];
+  offenders: string[];
+} {
+  const names = forgeableNames(sources);
+  const checked: string[] = [];
+  const offenders: string[] = [];
+  for (const sf of sources) {
+    sf.forEachChild((cls) => {
+      if (!ts.isClassDeclaration(cls) || !decoratorNames(cls, sf).includes("Controller")) return;
+      for (const m of cls.members) {
+        if (
+          !ts.isMethodDeclaration(m) ||
+          !decoratorNames(m, sf).some((d) => ROUTE_DECORATORS.has(d))
+        )
+          continue;
+        m.parameters.forEach((p, i) => {
+          if (!p.type || !typeNamesIn(p.type, sf).some((n) => names.has(lastName(n)))) return;
+          const at = `${rel(sf.fileName)} ${cls.name?.text}.${m.name.getText(sf)}#${i}`;
+          checked.push(at);
+          const decorators = ts.canHaveDecorators(p) ? (ts.getDecorators(p) ?? []) : [];
+          const only = decorators.length === 1 ? decorators[0]!.expression : undefined;
+          const exact =
+            only !== undefined &&
+            ts.isCallExpression(only) &&
+            only.expression.getText(sf) === "CurrentTenantScope" &&
+            only.arguments.length === 0;
+          if (!exact) offenders.push(at);
+        });
+      }
+    });
+  }
+  return { checked: checked.sort(), offenders: offenders.sort() };
+}
+
+describe("N1 — a tenant scope reaches a handler only through @CurrentTenantScope() (ADR-0053 §5.2 rule 1)", () => {
+  it("every route-handler parameter typed with a tenancy type is taken by exactly @CurrentTenantScope()", () => {
+    const { checked, offenders } = scopeHandlerParams(parsedSources());
+    // Not vacuous: the five agency money handlers take the owner gate's scope.
+    expect(checked.filter((c) => c.startsWith("agency/agency-payouts.controller.ts"))).toHaveLength(
+      5,
+    );
+    expect(offenders, "take the scope with @CurrentTenantScope(), never from the request").toEqual(
+      [],
+    );
+  });
+
+  it("the screen is not vacuous: body / query / bare / doubled / argument-carrying scopes all count", () => {
+    const { checked, offenders } = scopeHandlerParams([
+      fixture(
+        "fx/scope.controller.ts",
+        `type Key = TenantKey;
+        @Controller("fx")
+        export class FxController {
+          @Get("a") a(@CurrentTenantScope() scope: PayerTenantScope) {}
+          @Post("b") b(@Body() scope: PayerTenantScope) {}
+          @Post("c") c(@Body() dto: { tenant: TenantKey; n: number }) {}
+          @Get("d") d(@Query() q: Key) {}
+          @Get("e") e(scope: PayerTenantScope) {}
+          @Get("f") f(@CurrentTenantScope() @Body() scope: PayerTenantScope) {}
+          @Get("g") g(@CurrentTenantScope("x") scope: PayerTenantScope) {}
+          @Get("h") h(@CurrentPayer() payer: AuthenticatedPayer, @Body() dto: CreateDto) {}
+          private helper(scope: PayerTenantScope) {}
+        }
+        export class FxService { run(scope: PayerTenantScope) {} }`,
+      ),
+    ]);
+    expect(checked).toHaveLength(7);
+    expect(offenders).toEqual(
+      ["b", "c", "d", "e", "f", "g"].map((h) => `fx/scope.controller.ts FxController.${h}#0`),
+    );
+  });
+});

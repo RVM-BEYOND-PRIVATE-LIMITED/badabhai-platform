@@ -1,7 +1,8 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
-import { PayerOrgRoleGuard } from "./payer-org-role.guard";
+import { ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
+import { ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
+import { CurrentTenantScope, PayerOrgRoleGuard } from "./payer-org-role.guard";
 
 const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
 
@@ -64,7 +65,9 @@ describe("PayerOrgRoleGuard — org resolution + RBAC (ADR-0027 / B5.3)", () => 
     const noOrg = ctxWith({ id: PAYER });
     await expect(none.guard.canActivate(noOrg.context)).rejects.toBeInstanceOf(ForbiddenException);
     expect(noOrg.req.payerTenantScope).toBeUndefined();
+    // The refused RECRUITER (role check failed) carries neither the org nor the scope.
     expect(req.payerOrg).toBeUndefined();
+    expect(req.payerTenantScope).toBeUndefined();
   });
 
   it("a resolver DENIAL (an `on` 403) is the guard's own 'no membership' 403, never the resolver's body", async () => {
@@ -108,5 +111,32 @@ describe("PayerOrgRoleGuard — org resolution + RBAC (ADR-0027 / B5.3)", () => 
     const d = make({ allowed: ["owner"], org: { orgId: "org-1", orgRole: "owner" } });
     const { context } = ctxWith(undefined);
     await expect(d.guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+/** The factory Nest runs for `@CurrentTenantScope()` on a handler parameter. */
+function currentTenantScopeFactory(): (data: unknown, ctx: ExecutionContext) => unknown {
+  class Probe {
+    handler(_scope: unknown): void {}
+  }
+  CurrentTenantScope()(Probe.prototype, "handler", 0);
+  const meta = Reflect.getMetadata(ROUTE_ARGS_METADATA, Probe, "handler") as Record<
+    string,
+    { factory: (data: unknown, ctx: ExecutionContext) => unknown }
+  >;
+  return Object.values(meta)[0]!.factory;
+}
+
+describe("@CurrentTenantScope() — the scope the guard admitted on, or nothing", () => {
+  it("returns the very scope PayerOrgRoleGuard attached", () => {
+    const scope = { actorPayerId: PAYER, tenantKey: PAYER, orgId: "org-1", orgRole: "owner" };
+    const { context, req } = ctxWith({ id: PAYER });
+    req.payerTenantScope = scope;
+    expect(currentTenantScopeFactory()(undefined, context)).toBe(scope);
+  });
+
+  it("401s when no scope is on the request (guard not mounted) — never a fresh resolution", () => {
+    const { context } = ctxWith({ id: PAYER });
+    expect(() => currentTenantScopeFactory()(undefined, context)).toThrow(UnauthorizedException);
   });
 });
