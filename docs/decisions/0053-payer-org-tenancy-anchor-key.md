@@ -112,7 +112,7 @@ For actor `P` in mode `on`:
 - **R5 (org liveness):** if the acting org's `status` ≠ `active`, return 403. When `P` is not the
   acting org's anchor, if the anchor's `payers.status` ≠ `active`, return 403 (O-6, ruled
   2026-10-08). `P`'s own status is judged by `PayerAuthGuard`, not here.
-  *Amended 2026-10-08 (PR #2155, accepted by the owner's coordinator review):* as first written, R5
+  *Amended 2026-10-08 (PR #2155; a correction to keep the owner's solo-identity ruling — **pending the owner's own confirmation**, a P3 entry criterion):* as first written, R5
   checked the anchor's status on every acting org, including a solo org, whose anchor is `P`.
   Login resolves the org **before** a first-time payer is activated (`PayerAuthService.testLogin`
   and `verifyLogin` resolve the org, then call `payers.activate`), so in `on` every first login was
@@ -220,7 +220,10 @@ resolve(actorPayerId: string): Promise<PayerTenantScope>;
    fails on any type assertion to `TenantKey` / `PayerTenantScope` / `ActingOrgChoice` (or an alias
    or interface built on one) elsewhere, and on any import of `chooseActingOrg` outside the resolver
    service. The brand is a compile-time device: a value typed `any` assigns to it without a cast,
-   and the lint config has no type-aware `no-unsafe-argument`. Inputs therefore reach payer
+   and the lint config has no type-aware `no-unsafe-argument`. A type predicate (`x is TenantKey`),
+   an assertion function (`asserts x is TenantKey`) or a generic helper whose return type is
+   inferred (`launder<T>(x: unknown): T`) also mints one with no visible cast; the static test does
+   not see these yet (closing the first two is Phase 2 work). Inputs therefore reach payer
    services only as Zod-parsed DTOs and the session id, and Phase 2 review must keep it so.
 3. **Writes stamp the tenant key** into the tenant-key column. Actor columns get the actor.
 4. **Trusted internal routes that take a payer id** (`InternalServiceGuard`: `/unlocks`,

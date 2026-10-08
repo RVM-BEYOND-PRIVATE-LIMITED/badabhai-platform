@@ -240,6 +240,12 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 6. **Census DB case (P3 prerequisite, review L4):** a `RUN_DB_TESTS` test that seeds C2/C3/C4/C6
    breaches and asserts `runCensus` reports them, wired into the CI DB-gate step. P1 verified this
    by hand on a throwaway database only (PR #2155).
+7. **Brand forge guard covers predicates (review N1 of PR #2155):** the static test also refuses a
+   type predicate (`x is TenantKey`) or an assertion function (`asserts x is TenantKey`) naming a
+   forgeable type outside `payer-tenant-scope.ts`; Phase 2 review checks for inferred generic
+   launderers (`launder<T>(x: unknown): T`), which no static test sees.
+8. **The owner confirms the R5 / O-6 amendment** (ADR-0053 R5, amended 2026-10-08 in PR #2155:
+   the anchor-status check applies only when the actor is not the anchor).
 
 **Owner actions (O-8), in order:**
 
