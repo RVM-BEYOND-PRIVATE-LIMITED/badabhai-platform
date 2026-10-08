@@ -20,6 +20,8 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { MatchConfigService } from "../match/match-config.service";
 import { PayersRepository } from "../payers/payers.repository";
 import type { JobRefPolicy } from "../payers/job-ref-policy";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import {
   PAYER_VISIBLE_STORED_STATUSES,
   toPayerUnlocks,
@@ -95,6 +97,33 @@ interface TxResult<R> {
 }
 
 /**
+ * ADR-0053 §7 — who a tenant business event names. The envelope `actor.actor_id` is the login
+ * that ACTED; every payload payer reference (`payer_id`, `viewer_payer_id`) is the TENANT key —
+ * the wallet, and the `payer_id` of the row the event describes. In mode `off` the two are the
+ * same session payer, so every event is byte-identical to before. No event schema changes: only
+ * which id fills which existing field.
+ */
+interface EventParty {
+  /** `actor.actor_id` — the acting login. */
+  readonly actorId: string;
+  /** Every payload payer reference — the tenant key. */
+  readonly payerId: string;
+}
+
+/** The party of a request the tenant resolver scoped. */
+function partyOf(scope: PayerTenantScope): EventParty {
+  return { actorId: scope.actorPayerId, payerId: scope.tenantKey };
+}
+
+/**
+ * The party when no payer login acted on the tenant's behalf — the ops reveal route and the
+ * Razorpay webhook. The row's (or the order's) own `payer_id` is both, exactly as before.
+ */
+function rowOwnerParty(rowPayerId: string): EventParty {
+  return { actorId: rowPayerId, payerId: rowPayerId };
+}
+
+/**
  * UnlockService — the SINGLE fail-closed disclosure chokepoint (ADR-0010 §D4; the
  * {@link UnlockGuardService} of the contract). It is the ONLY writer of `unlocks` /
  * `unlock_routing` and the ONLY resolver of routing tokens (structural F-2/F-5/T5-b:
@@ -134,6 +163,15 @@ interface TxResult<R> {
  * source of truth; the event is the audit record. On emit failure we LOG (id +
  * event class, NO PII) and STILL return the committed result. This is the accepted
  * trade-off — the alternative (emit-in-tx) reintroduces the pool-vs-lock deadlock.
+ *
+ * ORG TENANCY (ADR-0053, PAY-DB-01). Every public entry point that names a payer resolves the
+ * tenant ONCE through {@link PayerTenantScopeService} — the payer-session routes and the ops
+ * routes alike (§5.2 rules 1 and 4) — and passes the branded `tenantKey` down. Unlocks, the
+ * wallet (`payer_credits`), the ledger and payment orders are keyed by it; the acting login
+ * stays on every event envelope (§7). In mode `off` the key is the caller itself (identical to
+ * before); in `on` it is the acting org's anchor, so a team shares ONE wallet (O-1) — the
+ * anchor's existing row, so no money moves — and a member's personal pre-team wallet stays
+ * theirs and out of view (O-2). Rate limits and the `Idempotency-Key` seam stay per login.
  */
 @Injectable()
 export class UnlockService {
@@ -158,6 +196,8 @@ export class UnlockService {
     // the narrow {role, status} projection the payer guard uses, NOT `findById` (which
     // returns the encrypted-PII row).
     private readonly payers: PayersRepository,
+    // ADR-0053 — the ONE tenant resolver (exported by PayersModule, already imported above).
+    private readonly tenancy: PayerTenantScopeService,
   ) {}
 
   // ===========================================================================
@@ -168,20 +208,31 @@ export class UnlockService {
     ctx: RequestContext,
     jobRefPolicy: JobRefPolicy = "normalise",
   ): Promise<UnlockOutcome> {
-    const { payerId, workerId } = input;
+    const { workerId } = input;
     const _r21_start = Date.now();
     try {
+
+    // ADR-0053 — resolve the tenant ONCE, at the entry point, for the payer-session route and
+    // the ops route alike (§5.2 rules 1 and 4). `input.payerId` is the ACTING login; every
+    // tenant row below — the unlock, the wallet debit, the ledger line — is keyed by `tenant`,
+    // and every event names the actor on its envelope and the tenant in its payload (§7). In
+    // `off` tenant === actor. In `on` a refusal is the resolver's one neutral 403, raised
+    // before anything is read, written or emitted (it depends only on the CALLER's own
+    // memberships, never on the worker, so it is no worker-state oracle).
+    const scope = await this.tenancy.resolve(input.payerId);
+    const tenant = scope.tenantKey;
+    const party = partyOf(scope);
 
     // #1903 — normalise the caller's job context ONCE, before anything is written or
     // emitted: every row and event below carries `jobContext`, never the raw input. It is
     // resolved here, BEFORE the advisory lock, because it is a global-pool read (the
     // deadlock rule above the consent read below). See resolveJobContext.
-    // #1899 — on the payer-session route a reference the payer does not own is REFUSED here
+    // #1899 — on the payer-session route a reference the TENANT does not own is REFUSED here
     // with the one neutral body: no event, no deny row, no debit (and still latency-padded).
-    const resolved = await this.resolveJobContext(input.jobId, payerId, jobRefPolicy);
+    const resolved = await this.resolveJobContext(input.jobId, tenant, jobRefPolicy);
     if (!resolved.ok) {
       // Ops visibility only (ids, no PII): repeated hits from one payer are tenant probing.
-      this.logger.warn(`unlock refused: job ref not owned by payer=${payerId}`);
+      this.logger.warn(`unlock refused: job ref not owned by payer=${scope.actorPayerId}`);
       return neutralUnavailable();
     }
     const { jobContext, jobPostingId } = resolved;
@@ -189,19 +240,20 @@ export class UnlockService {
     // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
     // is keyed on (payer, worker) so a retry is one logical request in the spine. The
     // *granted* row id (if any) is carried by unlock.granted below.
-    await this.emitRequested(payerId, workerId, jobContext, ctx);
+    await this.emitRequested(party, workerId, jobContext, ctx);
 
     // ---- [F-1] worker-state-INDEPENDENT credit precondition (BC-1) -----------
     // Checked BEFORE consent/caps/worker existence. A zero-balance payer can never
     // distinguish a consented-uncapped worker from a non-consented/unknown one: every
     // branch from here that ends in "no contact" returns the IDENTICAL neutral body.
-    const balance = await this.repo.getBalance(payerId);
+    // The balance is the TENANT's wallet (the org's in `on`, ADR-0053 W1).
+    const balance = await this.repo.getBalance(tenant);
     if (balance < 1) {
       // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
       // No worker state was consulted → no oracle. We do NOT record a per-worker deny
       // row (that would itself be a probe signal); we emit an internal payment.failed
       // for ops audit only.
-      await this.emitPaymentFailed(null, payerId, "insufficient_credits", ctx);
+      await this.emitPaymentFailed(null, party, "insufficient_credits", ctx);
       return neutralUnavailable();
     }
 
@@ -241,8 +293,10 @@ export class UnlockService {
         // Serialize all grants/reveals for this worker (F-2 atomicity).
         await this.repo.lockWorker(tx, workerId);
 
-        // Idempotency: a live grant for (payer, worker) → return it, no second debit (F-6).
-        const existing = await this.repo.findByPayerWorker(tx, payerId, workerId);
+        // Idempotency: a live grant for (tenant, worker) → return it, no second debit (F-6).
+        // In `on` that is per ORG: a teammate re-unlocking a worker the org already holds gets
+        // the org's existing grant and is charged nothing.
+        const existing = await this.repo.findByPayerWorker(tx, tenant, workerId);
         if (existing && (existing.status === "granted" || existing.status === "revealed")) {
           if (existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
             return { response: this.grantedResponse(existing.id, existing.expiresAt), events };
@@ -259,20 +313,20 @@ export class UnlockService {
           const reason: UnlockDenyReason = workerPresent ? "no_consent" : "unknown_worker";
           if (workerPresent) {
             const row = await this.repo.recordDeny(tx, {
-              payerId,
+              payerId: tenant,
               workerId,
               jobId: jobContext,
               jobPostingId,
               denyReason: reason,
             });
-            events.push(() => this.emitDenied(row.id, payerId, workerId, jobContext, reason, ctx));
+            events.push(() => this.emitDenied(row.id, party, workerId, jobContext, reason, ctx));
           } else {
             // F-A (no-oracle): a non-existent worker_id would violate the
             // unlocks.worker_id FK on INSERT and surface as a 500 — distinguishable from
             // the 200 neutral body, i.e. a worker-enumeration oracle. Do NOT write a row
             // for an unknown worker; emit the internal audit event WITHOUT one (unlock_id
             // null, subject = worker) and return the identical neutral body.
-            events.push(() => this.emitDenied(null, payerId, workerId, jobContext, reason, ctx));
+            events.push(() => this.emitDenied(null, party, workerId, jobContext, reason, ctx));
           }
           return { response: neutralUnavailable(), events };
         }
@@ -290,27 +344,30 @@ export class UnlockService {
         }
 
         // ---- [2] worker CAPS (atomic, before payment) -------------------------
+        // Counted over `unlocks.payer_id`, the tenant key: distinct ORGS in `on` (O-3).
         const cap = await this.checkCaps(tx, workerId);
         if (cap) {
           const row = await this.repo.recordDeny(tx, {
-            payerId,
+            payerId: tenant,
             workerId,
             jobId: jobContext,
             jobPostingId,
             denyReason: "capped",
           });
           // Order preserved: cap_exceeded THEN denied (unchanged from emit-in-tx).
-          events.push(() => this.emitCapExceeded(payerId, workerId, cap, ctx));
-          events.push(() => this.emitDenied(row.id, payerId, workerId, jobContext, "capped", ctx));
+          events.push(() => this.emitCapExceeded(party, workerId, cap, ctx));
+          events.push(() => this.emitDenied(row.id, party, workerId, jobContext, "capped", ctx));
           return { response: neutralUnavailable(), events };
         }
 
         // ---- [3] PAYMENT / credit debit (atomic with [4] grant; F-6) ----------
-        const debit = await this.payments.debitOneCreditWithinTx(tx, payerId);
+        // The TENANT's wallet row: in `on`, two members spending at once serialize on the org
+        // wallet's row lock inside this UPDATE, so the team can never overdraw it.
+        const debit = await this.payments.debitOneCreditWithinTx(tx, tenant);
         if (!debit.ok) {
           // Lost a concurrent debit race after the precondition — collapse to neutral
           // (still no worker-state oracle; consent already passed but the BODY is neutral).
-          events.push(() => this.emitPaymentFailed(null, payerId, "insufficient_credits", ctx));
+          events.push(() => this.emitPaymentFailed(null, party, "insufficient_credits", ctx));
           return { response: neutralUnavailable(), events };
         }
 
@@ -319,7 +376,7 @@ export class UnlockService {
         const expiresAt = new Date(now.getTime() + UNLOCK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
         const routingTokenRef = randomUUID(); // 122-bit, server-internal only (F-4)
         const granted = await this.repo.upsertGrant(tx, {
-          payerId,
+          payerId: tenant,
           workerId,
           jobId: jobContext,
           jobPostingId,
@@ -327,19 +384,20 @@ export class UnlockService {
           grantedAt: now,
           expiresAt,
         });
-        // Ledger debit in the SAME tx (balance + ledger never drift; F-6).
+        // Ledger debit in the SAME tx, on the SAME key as the wallet it debited (balance +
+        // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6).
         await this.repo.appendLedger(tx, {
-          payerId,
+          payerId: tenant,
           delta: -1,
           reason: "unlock_debit",
           unlockId: granted.id,
         });
 
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
-        events.push(() => this.emitPaymentAuthorized(granted.id, payerId, ctx));
-        events.push(() => this.emitPaymentCaptured(granted.id, payerId, ctx));
+        events.push(() => this.emitPaymentAuthorized(granted.id, party, ctx));
+        events.push(() => this.emitPaymentCaptured(granted.id, party, ctx));
         events.push(() =>
-          this.emitGranted(granted.id, payerId, workerId, jobContext, expiresAt, ctx),
+          this.emitGranted(granted.id, party, workerId, jobContext, expiresAt, ctx),
         );
         // E0 C-1 (owner ruling 2026-09-21, route ii-v2) — THE WORKER IS TOLD HE WAS UNLOCKED.
         // Deferred like its siblings so an emit failure costs a notification, never the grant:
@@ -347,7 +405,7 @@ export class UnlockService {
         // unlock, so an at-least-once flush records it once. Only on a NEW grant — the early
         // idempotent-replay branch above returns before this, so a payer re-requesting a live
         // unlock cannot re-notify the worker.
-        events.push(() => this.emitProfileViewedV2(granted.id, payerId, workerId, jobContext, ctx));
+        events.push(() => this.emitProfileViewedV2(granted.id, party, workerId, jobContext, ctx));
         // §X.6 — a granted unlock is LEG 2 of the ₹20 activation-bonus rule (the leg a
         // fraudster cannot fake, because it costs a paying party money). Deferred like the
         // emits above, so it runs POST-COMMIT and inherits flushEvents' log-and-continue:
@@ -366,7 +424,7 @@ export class UnlockService {
         //  * it is keyed on the debiting unlock, so an at-least-once replay of the
         //    post-commit flush records it once.
         if (debit.balanceAfter === 0) {
-          events.push(() => this.emitCreditsExhausted(payerId, granted.id, ctx));
+          events.push(() => this.emitCreditsExhausted(party, granted.id, ctx));
         }
 
         return { response: this.grantedResponse(granted.id, expiresAt), events };
@@ -391,6 +449,11 @@ export class UnlockService {
   ): Promise<RevealOutcome> {
     const _r21_start = Date.now();
     try {
+    // ADR-0053 — the payer route names its session payer; the unlock it may reveal is its
+    // TENANT's (in `on`, any member of the org may reveal the org's unlock). Resolved once,
+    // before anything else. The ops route names no payer and is unaffected.
+    const scope =
+      expectedPayerId === undefined ? undefined : await this.tenancy.resolve(expectedPayerId);
     // Consent re-check BEFORE the advisory lock (same pool-vs-lock deadlock fix as
     // requestUnlock): a tx-external consent read inside the locked tx would need a 2nd
     // pool connection while concurrent reveals on this worker hold theirs → deadlock.
@@ -400,11 +463,11 @@ export class UnlockService {
     // eliminating the deadlock outweighs the marginal widening. A missing/own-by-other
     // unlock falls through to the tx, which returns the IDENTICAL neutral body (F-3).
     const pre = await this.repo.getProjection(unlockId);
-    // XB-A (payer-self path, ADR-0019): a payer may reveal ONLY their own unlock. A
+    // XB-A (payer-self path, ADR-0019): a payer may reveal ONLY their own tenant's unlock. A
     // not-owned (or unknown) unlock returns the IDENTICAL neutral body — never a 403 —
     // so a payer learns nothing about other tenants' unlocks (no-oracle, mirrors F-3).
     // Ops callers (InternalServiceGuard) pass no expectedPayerId and are UNAFFECTED.
-    if (pre && expectedPayerId !== undefined && pre.payer_id !== expectedPayerId) {
+    if (pre && scope !== undefined && pre.payer_id !== scope.tenantKey) {
       return neutralUnavailable();
     }
     // ADR-0026 Phase 5: a worker hard-delete (DSAR) SET-NULLs unlocks.worker_id while keeping
@@ -430,6 +493,12 @@ export class UnlockService {
 
         const unlock = await this.repo.findByIdForUpdate(tx, unlockId);
         if (!unlock) return { response: neutralUnavailable(), events };
+        // Ownership, re-asserted on the LOCKED row (ADR-0053): the pre-lock check above only
+        // runs when the projection existed then. A row that was absent at that read and is
+        // present now is held to the same rule — same neutral body.
+        if (scope !== undefined && unlock.payerId !== scope.tenantKey) {
+          return { response: neutralUnavailable(), events };
+        }
         // ADR-0026 Phase 5: a hard-deleted worker SET-NULLs worker_id. The grant row survives
         // (billing history) but cannot be relayed — guard BEFORE lockWorker/relay/emit so a
         // null worker_id never reaches them; return the IDENTICAL neutral body (no oracle).
@@ -453,6 +522,10 @@ export class UnlockService {
         // mutable property through) carry a guaranteed-non-null worker id (ADR-0026 Phase 5).
         if (fresh.workerId === null) return { response: neutralUnavailable(), events };
         const freshWorkerId: string = fresh.workerId;
+        // ADR-0053 §7 — the payer route's events name the acting login on the envelope and the
+        // tenant (this row's owner, checked above) in the payload; the ops route has no login
+        // of its own, so the row's owner is both — exactly as before.
+        const party = scope !== undefined ? partyOf(scope) : rowOwnerParty(fresh.payerId);
 
         // ADR-0031 TOCTOU re-read UNDER the lock (mirrors the worker-gone re-guard
         // above): a deletion scheduled in the lock-acquire window must still freeze —
@@ -471,7 +544,7 @@ export class UnlockService {
 
         // Per-unlock attempt cap (F-2 atomic; under the worker lock).
         if (fresh.revealCount >= this.config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK) {
-          events.push(() => this.emitCapExceeded(fresh.payerId, freshWorkerId, "attempts_per_unlock", ctx));
+          events.push(() => this.emitCapExceeded(party, freshWorkerId, "attempts_per_unlock", ctx));
           return { response: neutralUnavailable(), events };
         }
 
@@ -520,7 +593,7 @@ export class UnlockService {
 
         // The routing TOKEN never leaves this row (F-4); only the KIND is evented.
         events.push(() =>
-          this.emitRevealed(fresh.id, fresh.payerId, freshWorkerId, routingRow.channel, revealCount, ctx),
+          this.emitRevealed(fresh.id, party, freshWorkerId, routingRow.channel, revealCount, ctx),
         );
 
         return {
@@ -567,21 +640,31 @@ export class UnlockService {
   // ===========================================================================
   // Ops reads (PII-free projections)
   // ===========================================================================
+  /**
+   * Ops: the unlocks of the tenant `payerId` acts in (ADR-0053 §5.2 rule 4 — the ops route's
+   * payer id goes through the same resolver). In `off` that is `payerId`'s own rows.
+   */
   async listByPayer(payerId: string): Promise<{ unlocks: UnlockProjection[] }> {
-    return { unlocks: await this.repo.listByPayer(payerId) };
+    const scope = await this.tenancy.resolve(payerId);
+    return { unlocks: await this.repo.listByPayer(scope.tenantKey) };
   }
 
   /**
-   * #2033 — the SESSION payer's own unlocks on the payer contract (GET /payer/unlocks): only
-   * payer-visible rows (internal `requested` / `denied` rows are filtered in SQL, so they
+   * #2033 — the SESSION payer's tenant's unlocks on the payer contract (GET /payer/unlocks):
+   * only payer-visible rows (internal `requested` / `denied` rows are filtered in SQL, so they
    * neither leak nor consume the list cap), with `expired` derived from `expires_at`. See
-   * {@link toPayerUnlocks}. Read-only: no event.
+   * {@link toPayerUnlocks}. In mode `on` a team member sees the org's unlocks (ADR-0053 §3.3).
+   * Read-only: no event.
    */
   async listOwnForPayer(
     payerId: string,
     now: Date = new Date(),
   ): Promise<{ unlocks: PayerUnlockProjection[] }> {
-    const rows = await this.repo.listByPayerWithStatus(payerId, PAYER_VISIBLE_STORED_STATUSES);
+    const scope = await this.tenancy.resolve(payerId);
+    const rows = await this.repo.listByPayerWithStatus(
+      scope.tenantKey,
+      PAYER_VISIBLE_STORED_STATUSES,
+    );
     return { unlocks: toPayerUnlocks(rows, now) };
   }
 
@@ -589,8 +672,14 @@ export class UnlockService {
     return this.repo.getProjection(unlockId);
   }
 
+  /**
+   * The balance of the wallet `payerId` spends from: the org wallet in mode `on` (the anchor's
+   * existing row, O-1), never a member's personal pre-team balance (O-2), and `payerId`'s own
+   * wallet in `off`. `payer_id` in the response echoes the CALLER, not the wallet (ADR-0053 §10).
+   */
   async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
-    return { payer_id: payerId, balance: await this.repo.getBalance(payerId) };
+    const scope = await this.tenancy.resolve(payerId);
+    return { payer_id: payerId, balance: await this.repo.getBalance(scope.tenantKey) };
   }
 
   // R21 / LC-7: latency-normalisation helper. Pads the response to
@@ -605,15 +694,19 @@ export class UnlockService {
   }
 
   /**
-   * The payer's OWN credit-ledger history (the append-only movements behind the balance),
-   * newest first, bounded by `limit`. PII-free by table design; scoped to the SESSION payer.
-   * Read-only — no event.
+   * The ledger of the wallet the SESSION payer spends from (the append-only movements behind
+   * the balance), newest first, bounded by `limit` — the org wallet's in mode `on`. PII-free by
+   * table design. `payer_id` in the response echoes the caller. Read-only — no event.
    */
   async getCreditLedger(
     payerId: string,
     limit: number,
   ): Promise<{ payer_id: string; ledger: CreditLedgerItem[] }> {
-    return { payer_id: payerId, ledger: await this.repo.listCreditLedgerByPayer(payerId, limit) };
+    const scope = await this.tenancy.resolve(payerId);
+    return {
+      payer_id: payerId,
+      ledger: await this.repo.listCreditLedgerByPayer(scope.tenantKey, limit),
+    };
   }
 
   // ===========================================================================
@@ -625,6 +718,9 @@ export class UnlockService {
     ctx: RequestContext,
     expectedPriceInr?: number,
   ): Promise<{ payer_id: string; balance: number; credits: number; pack_code: string } | null> {
+    // ADR-0053 — any member's purchase credits the ORG wallet in mode `on` (O-1; owner ruling
+    // 2026-10-07, any authenticated payer may buy). Resolved once, before the catalog read.
+    const scope = await this.tenancy.resolve(payerId);
     // D-6: resolved from the LIVE catalog (legacy constants as the fallback) so the price +
     // credits CHARGED are the same ones the portal DISPLAYED. Async since D-6.
     const pack = await this.payments.resolvePack(packCode);
@@ -633,14 +729,15 @@ export class UnlockService {
     // ledger write, so a mismatch grants and records nothing.
     assertExpectedPrice(expectedPriceInr, pack.priceInr);
 
-    const result = await this.payments.purchasePackMock(payerId, pack);
+    const result = await this.payments.purchasePackMock(scope.tenantKey, pack);
+    const party = partyOf(scope);
     // Mock purchase audit: authorized + captured, real_call:false (mock honesty, F-6).
-    await this.emitPaymentAuthorized(null, payerId, ctx, {
+    await this.emitPaymentAuthorized(null, party, ctx, {
       packCode: pack.code,
       amountInr: result.priceInr,
       amountCredits: result.credits,
     });
-    await this.emitPaymentCaptured(null, payerId, ctx, {
+    await this.emitPaymentCaptured(null, party, ctx, {
       packCode: pack.code,
       amountInr: result.priceInr,
       amountCredits: result.credits,
@@ -679,14 +776,17 @@ export class UnlockService {
     ctx: RequestContext,
     expectedPriceInr?: number,
   ): Promise<RealOrderHandoff | null> {
+    // ADR-0053 §6 — the order is STAMPED with the tenant's wallet at intent; settlement credits
+    // that wallet and never re-resolves.
+    const scope = await this.tenancy.resolve(payerId);
     const pack = await this.payments.resolvePack(packCode);
     if (!pack) return null;
     // #2085: refused BEFORE the provider order and the payment_orders row exist.
     assertExpectedPrice(expectedPriceInr, pack.priceInr);
 
-    const order = await this.payments.createRealOrder(payerId, pack);
+    const order = await this.payments.createRealOrder(scope.tenantKey, pack);
 
-    await this.emitPaymentAuthorized(null, payerId, ctx, {
+    await this.emitPaymentAuthorized(null, partyOf(scope), ctx, {
       packCode: order.packCode,
       amountInr: order.amountInr,
       amountCredits: order.credits,
@@ -708,7 +808,9 @@ export class UnlockService {
    *
    * TRUST: the `razorpay_signature` is HMAC(order_id|payment_id, KEY SECRET), compared
    * constant-time. A payer cannot mint credits by POSTing ids they invented, because they
-   * cannot produce that HMAC. Ownership is additionally bound to the SESSION payer.
+   * cannot produce that HMAC. Ownership is additionally bound to the SESSION payer's TENANT
+   * (ADR-0053 §6): the order's stamped wallet must be the caller's, so in mode `on` any member
+   * may verify the org's order, and the credits land where the order was stamped.
    *
    * NO-ORACLE: an invalid signature, an unknown order, and another tenant's order all
    * return the same `{ verified: false }` shape — the caller learns nothing about which.
@@ -730,15 +832,18 @@ export class UnlockService {
       return { verified: false };
     }
 
+    // ADR-0053 — resolved after the two pure checks above (no DB read before them), once.
+    const scope = await this.tenancy.resolve(payerId);
     const result = await this.settleAndEmit(
       {
         providerOrderId: input.orderId,
         providerPaymentRef: input.paymentId,
         // Ownership is enforced INSIDE settle: a mismatch is indistinguishable from
         // "no such order", so this endpoint is not an order-id oracle for other tenants.
-        expectedPayerId: payerId,
+        expectedTenantKey: scope.tenantKey,
       },
       ctx,
+      scope.actorPayerId,
     );
 
     switch (result.outcome) {
@@ -753,11 +858,13 @@ export class UnlockService {
       case "already_settled": {
         // The webhook won the race. This is a SUCCESS for the payer — report the real
         // balance, never a failure, or a paying customer is told their purchase failed.
-        const credits = await this.getCredits(payerId);
+        // The wallet the order was stamped with (checked equal to the tenant inside settle);
+        // read with the scope already resolved — never re-resolved (ADR-0053 §5.2 rule 1).
+        const balance = await this.repo.getBalance(scope.tenantKey);
         return {
           verified: true,
           payer_id: payerId,
-          balance: credits.balance,
+          balance,
           credits: 0, // already credited by the winning channel; nothing added here
           pack_code: result.order.packCode,
         };
@@ -796,7 +903,8 @@ export class UnlockService {
     if (isFailure) {
       const order = await this.payments.failOrder(event.orderId);
       if (!order) return { result: "no_op" }; // unknown, or already paid (never walk that back)
-      await this.emitPaymentFailed(null, order.payerId, "gateway_error", ctx, {
+      // Razorpay is speaking, not a login: the order's stamped wallet is both actor and payer.
+      await this.emitPaymentFailed(null, rowOwnerParty(order.payerId), "gateway_error", ctx, {
         idempotencyKey: `payment.failed:order:${order.id}`,
       });
       return { result: "failed_recorded" };
@@ -808,8 +916,8 @@ export class UnlockService {
         // A capture without a payment id is malformed; record the order id so the ledger
         // still carries an opaque reference rather than null.
         providerPaymentRef: event.paymentId ?? event.orderId,
-        // NO expectedPayerId: the webhook is Razorpay speaking, not a tenant — the order
-        // row itself names the payer to credit.
+        // NO expectedTenantKey: the webhook is Razorpay speaking, not a tenant — the order
+        // row itself names the wallet to credit (stamped at intent, ADR-0053 §6).
       },
       ctx,
     );
@@ -831,14 +939,19 @@ export class UnlockService {
    * this call is the one that granted, so the event spine has exactly one capture per
    * order — matching the money exactly (§1: no important state change without an event,
    * and no event without a state change).
+   *
+   * ADR-0053 §7: the payload names the WALLET the order was stamped with; the envelope names
+   * `actorPayerId` — the member who verified — or, on the webhook (no login acted), the wallet.
    */
   private async settleAndEmit(
-    input: { providerOrderId: string; providerPaymentRef: string; expectedPayerId?: string },
+    input: { providerOrderId: string; providerPaymentRef: string; expectedTenantKey?: TenantKey },
     ctx: RequestContext,
+    actorPayerId?: string,
   ): Promise<SettleResult> {
     const result = await this.payments.settleOrder(input);
     if (result.outcome === "granted") {
-      await this.emitPaymentCaptured(null, result.order.payerId, ctx, {
+      const wallet = result.order.payerId;
+      await this.emitPaymentCaptured(null, { actorId: actorPayerId ?? wallet, payerId: wallet }, ctx, {
         packCode: result.order.packCode,
         amountInr: result.priceInr,
         amountCredits: result.credits,
@@ -964,16 +1077,19 @@ export class UnlockService {
    * The try/catch is the fail-closed wall: a read error resolves to null, never to an
    * allow. This is a non-tx read path — it writes nothing on `unlocks`/`unlock_routing`
    * (single-writer stays structural) and needs no advisory lock.
+   *
+   * `tenant` is the caller's {@link TenantKey}, resolved ONCE by the relay service at its entry
+   * point (ADR-0053): in mode `on` any member of the org may use the org's unlock's thread.
    */
-  async resolveRelayForPayer(handle: string, payerId: string): Promise<RelayResolution | null> {
+  async resolveRelayForPayer(handle: string, tenant: TenantKey): Promise<RelayResolution | null> {
     try {
       const routing = await this.repo.findRoutingByHandle(handle);
       if (!routing) return null;
       const unlock = await this.repo.getProjection(routing.unlockId);
       if (!unlock) return null;
-      // Ownership (XB-A): a payer resolves only their OWN unlock, and not-owned is
+      // Ownership (XB-A): a payer resolves only their own tenant's unlock, and not-owned is
       // indistinguishable from unknown.
-      if (unlock.payer_id !== payerId) return null;
+      if (unlock.payer_id !== tenant) return null;
       if (unlock.worker_id === null) return null; // DSAR SET NULL — a gone worker is not relayable
       if (!this.isLiveGrant(unlock)) return null;
       if (routing.expiresAt.getTime() <= Date.now()) return null; // handle expires with the window
@@ -1038,12 +1154,13 @@ export class UnlockService {
    * anything is emitted, locked or debited, rather than guessing a context (fail closed).
    *
    * That is the `"normalise"` policy (the ops route). #1899 adds `"payer_owned"` for the
-   * payer-session route, where the reference must also belong to the SESSION payer — see
+   * payer-session route, where the reference must also belong to the SESSION payer's tenant
+   * (ADR-0053: in mode `on` a member may unlock from the org's postings) — see
    * {@link JobRefPolicy}.
    */
   private async resolveJobContext(
     jobId: string | null,
-    payerId: string,
+    tenant: TenantKey,
     policy: JobRefPolicy,
   ): Promise<JobContextResolution> {
     if (jobId === null) return { ok: true, jobContext: null, jobPostingId: null };
@@ -1063,7 +1180,7 @@ export class UnlockService {
     // #1899 — "payer_owned": the SESSION payer must own the reference. An owned `jobs` row is
     // kept (the FK holds it); an owned posting is accepted and stored as null exactly as #1903
     // stores it; unknown and foreign are the same refusal (no id oracle).
-    const owned = await this.repo.findOwnedJobRef(jobId, payerId);
+    const owned = await this.repo.findOwnedJobRef(jobId, tenant);
     if (owned !== null) {
       // #2033 — an owned posting is now KEPT on the row as `job_posting_id` (migration 0132), so
       // the payer's list can say which posting a grant came from. `job_id` and every event still
@@ -1079,7 +1196,7 @@ export class UnlockService {
     // Anyone else gets the same refusal as an unknown or foreign id.
     const source = await this.repo.findAgencyTwinSourceJobId(jobId);
     if (source === null) return { ok: false };
-    const ownedSource = await this.repo.findOwnedJobRef(source, payerId);
+    const ownedSource = await this.repo.findOwnedJobRef(source, tenant);
     if (ownedSource === null || ownedSource.kind !== "job") return { ok: false };
     return { ok: true, jobContext: source, jobPostingId: null };
   }
@@ -1154,22 +1271,24 @@ export class UnlockService {
   }
 
   // ---- Event emitters (all PII-free; ids + enums + counts only) -------------
+  // ADR-0053 §7: each takes an {@link EventParty} — `actor.actor_id` is the acting login, every
+  // payload payer reference is the tenant key. In mode `off` both are the session payer.
 
   private async emitRequested(
-    payerId: string,
+    party: EventParty,
     workerId: string,
     jobId: string | null,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"unlock.requested"> = {
       unlock_id: randomUUID(), // a request id placeholder (no row yet); not the grant id
-      payer_id: payerId,
+      payer_id: party.payerId,
       worker_id: workerId,
       job_id: jobId,
     };
     await this.events.emit({
       event_name: "unlock.requested",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: { subject_type: "unlock", subject_id: payload.unlock_id },
       payload,
       correlationId: ctx.correlationId,
@@ -1196,7 +1315,7 @@ export class UnlockService {
 
   private async emitGranted(
     unlockId: string,
-    payerId: string,
+    party: EventParty,
     workerId: string,
     jobId: string | null,
     expiresAt: Date,
@@ -1204,14 +1323,14 @@ export class UnlockService {
   ): Promise<void> {
     const payload: PayloadInputOf<"unlock.granted"> = {
       unlock_id: unlockId,
-      payer_id: payerId,
+      payer_id: party.payerId,
       worker_id: workerId,
       job_id: jobId,
       expires_at: expiresAt.toISOString(),
     };
     await this.events.emit({
       event_name: "unlock.granted",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
       idempotencyKey: `unlock.granted:${unlockId}`, // once-only
@@ -1238,22 +1357,24 @@ export class UnlockService {
    * `job_id` IS OMITTED, never null: an unlock found by search carries no job context, nor
    * does one whose context was not a `jobs` row (#1903, {@link resolveJobContext}), and the
    * payload's optional field means the key simply does not appear.
+   *
+   * `viewer_payer_id` is the TENANT key (ADR-0053 §7): the company that holds the contact.
    */
   private async emitProfileViewedV2(
     unlockId: string,
-    payerId: string,
+    party: EventParty,
     workerId: string,
     jobId: string | null,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"profile.viewed_v2"> = {
       worker_id: workerId,
-      viewer_payer_id: payerId,
+      viewer_payer_id: party.payerId,
       ...(jobId === null ? {} : { job_id: jobId }),
     };
     await this.events.emit({
       event_name: "profile.viewed_v2",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       // The WORKER is the subject: the feed scopes on subject/actor/payload, and this
       // reads as a fact about the worker ("he was unlocked"), not about the unlock row.
       subject: { subject_type: "worker", subject_id: workerId },
@@ -1266,7 +1387,7 @@ export class UnlockService {
 
   private async emitDenied(
     unlockId: string | null,
-    payerId: string,
+    party: EventParty,
     workerId: string,
     jobId: string | null,
     reason: UnlockDenyReason,
@@ -1277,14 +1398,14 @@ export class UnlockService {
     // unlock.cap_exceeded's worker subject.
     const payload: PayloadInputOf<"unlock.denied"> = {
       unlock_id: unlockId,
-      payer_id: payerId,
+      payer_id: party.payerId,
       worker_id: workerId,
       job_id: jobId,
       reason, // INTERNAL audit only — NEVER echoed to the payer (F-3)
     };
     await this.events.emit({
       event_name: "unlock.denied",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: unlockId
         ? { subject_type: "unlock", subject_id: unlockId }
         : { subject_type: "worker", subject_id: workerId },
@@ -1295,21 +1416,21 @@ export class UnlockService {
   }
 
   private async emitCapExceeded(
-    payerId: string,
+    party: EventParty,
     workerId: string,
     cap: "daily_reveals" | "weekly_payers" | "attempts_per_unlock",
     ctx: RequestContext,
   ): Promise<void> {
     const window = cap === "daily_reveals" ? "day" : cap === "weekly_payers" ? "week" : "unlock";
     const payload: PayloadInputOf<"unlock.cap_exceeded"> = {
-      payer_id: payerId,
+      payer_id: party.payerId,
       worker_id: workerId,
       cap,
       window,
     };
     await this.events.emit({
       event_name: "unlock.cap_exceeded",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: { subject_type: "worker", subject_id: workerId },
       payload,
       correlationId: ctx.correlationId,
@@ -1319,7 +1440,7 @@ export class UnlockService {
 
   private async emitRevealed(
     unlockId: string,
-    payerId: string,
+    party: EventParty,
     workerId: string,
     channel: RoutingChannel,
     revealCount: number,
@@ -1327,14 +1448,14 @@ export class UnlockService {
   ): Promise<void> {
     const payload: PayloadInputOf<"contact.revealed"> = {
       unlock_id: unlockId,
-      payer_id: payerId,
+      payer_id: party.payerId,
       worker_id: workerId,
       channel, // KIND only — NEVER the number/handle/destination (F-5)
       reveal_count: revealCount,
     };
     await this.events.emit({
       event_name: "contact.revealed",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
       correlationId: ctx.correlationId,
@@ -1344,7 +1465,7 @@ export class UnlockService {
 
   private async emitPaymentAuthorized(
     unlockId: string | null,
-    payerId: string,
+    party: EventParty,
     ctx: RequestContext,
     extra?: {
       packCode?: string;
@@ -1360,7 +1481,7 @@ export class UnlockService {
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.authorized"> = {
       unlock_id: unlockId,
-      payer_id: payerId,
+      payer_id: party.payerId,
       pack_code: extra?.packCode ?? null,
       amount_inr: extra?.amountInr ?? null,
       amount_credits: extra?.amountCredits ?? 1,
@@ -1370,7 +1491,7 @@ export class UnlockService {
       extra?.idempotencyKey ?? (unlockId ? `payment.authorized:${unlockId}` : undefined);
     await this.events.emit({
       event_name: "payment.authorized",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
       ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -1391,20 +1512,21 @@ export class UnlockService {
    * name, no worker.
    */
   private async emitCreditsExhausted(
-    payerId: string,
+    party: EventParty,
     unlockId: string,
     ctx: RequestContext,
   ): Promise<void> {
     const cfg = await this.matchConfig.get();
     const payload: PayloadInputOf<"payer.credits_exhausted"> = {
-      payer_id: payerId,
+      payer_id: party.payerId,
       unlock_id: unlockId,
       free_tier_credits: cfg.freeUnlockCredits,
     };
     await this.events.emit({
       event_name: "payer.credits_exhausted",
-      actor: { actor_type: "payer", actor_id: payerId },
-      subject: { subject_type: "payer", subject_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
+      // The subject is the WALLET that ran dry — the tenant's (ADR-0053 §7).
+      subject: { subject_type: "payer", subject_id: party.payerId },
       payload,
       // Keyed on the DEBITING unlock: a post-commit flush replay re-emits at most one
       // audit row, and a payer who tops up and drains again gets a NEW event (a
@@ -1417,7 +1539,7 @@ export class UnlockService {
 
   private async emitPaymentCaptured(
     unlockId: string | null,
-    payerId: string,
+    party: EventParty,
     ctx: RequestContext,
     extra?: {
       packCode?: string;
@@ -1428,7 +1550,7 @@ export class UnlockService {
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.captured"> = {
       unlock_id: unlockId,
-      payer_id: payerId,
+      payer_id: party.payerId,
       pack_code: extra?.packCode ?? null,
       amount_inr: extra?.amountInr ?? null,
       amount_credits: extra?.amountCredits ?? 1,
@@ -1438,7 +1560,7 @@ export class UnlockService {
       extra?.idempotencyKey ?? (unlockId ? `payment.captured:${unlockId}` : undefined);
     await this.events.emit({
       event_name: "payment.captured",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
       ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -1449,20 +1571,20 @@ export class UnlockService {
 
   private async emitPaymentFailed(
     unlockId: string | null,
-    payerId: string,
+    party: EventParty,
     reason: "insufficient_credits" | "gateway_error",
     ctx: RequestContext,
     extra?: { idempotencyKey?: string },
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.failed"> = {
       unlock_id: unlockId,
-      payer_id: payerId,
+      payer_id: party.payerId,
       reason,
       real_call: this.payments.realCall,
     };
     await this.events.emit({
       event_name: "payment.failed",
-      actor: { actor_type: "payer", actor_id: payerId },
+      actor: { actor_type: "payer", actor_id: party.actorId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
       ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),

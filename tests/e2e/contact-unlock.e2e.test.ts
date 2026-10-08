@@ -12,6 +12,7 @@ import {
 } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { mintPayerSession } from "./helpers/payer-session";
 
 /**
  * Contact Unlock + Reveal (ADR-0010, Stream A) end-to-end against a LIVE API + DB.
@@ -36,6 +37,8 @@ import { eq } from "drizzle-orm";
  *   2. pnpm db:migrate
  *   3. INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/api start  (another terminal)
  *   4. RUN_E2E=1 INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/e2e test
+ * Both test-login seams must be armed on the API and this runner (TEST_LOGIN_* for the workers,
+ * PAYER_TEST_LOGIN_* for the payers — see `opsPayer`), as the CI `e2e` job arms them.
  * The AI service is NOT required (this surface never calls an LLM).
  */
 
@@ -122,6 +125,20 @@ async function loginWorker(): Promise<{ workerId: string; token: string; phone: 
   return { workerId: r.json.worker_id as string, token: r.json.access_token as string, phone };
 }
 
+/**
+ * A REAL payer id for the ops routes (`/unlocks`, `/payers/:payerId/credits`).
+ *
+ * ADR-0053 §5.2 rule 4: an ops route's `payer_id` goes through the payer TENANT resolver, and in
+ * mode `on` — this job's mode — the resolver refuses an id that names no payer at all (R4, then
+ * R7: a neutral 403). These stories used bare random uuids, an alpha-era shortcut; they now name
+ * a real account, the way an ops caller does. The id is minted through `POST /payer/test-login`
+ * (a solo payer, so its tenant is itself) and only the id is used — no session token reaches
+ * the InternalServiceGuard routes. Fresh per call, zero credits (test-login grants none).
+ */
+async function opsPayer(): Promise<string> {
+  return (await mintPayerSession()).payerId;
+}
+
 async function consent(token: string, purposes: string[]): Promise<void> {
   // `POST /consent/accept` is WORKER-AUTHED: the subject is the SESSION worker,
   // never a body id. Sending `worker_id` would be silently stripped by the DTO.
@@ -177,7 +194,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
   }
 
   it("F-1: a zero-credit payer cannot distinguish a consented-uncapped worker from a non-consented one", async () => {
-    const payer = randomUUID(); // zero credits (never topped up)
+    const payer = await opsPayer(); // zero credits (never topped up)
     const consented = await loginWorker();
     await consent(consented.token, ["profiling", "employer_sharing"]);
     const notConsented = await loginWorker();
@@ -197,7 +214,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
   });
 
   it("F-3: every deny branch + reveal-on-unknown returns the identical neutral body (not a 404)", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
 
     const noConsentW = await loginWorker(); // no consent at all
@@ -219,7 +236,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
   });
 
   it("happy path: purchase → grant → reveal, emitting PII-free events; balance debited once", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["profiling", "employer_sharing"]);
 
@@ -270,7 +287,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     // Before #1903 this id reached `unlocks.job_id`, an FK to `jobs.id`: the INSERT failed,
     // the request 500'd and the debit rolled back. Any uuid with no `jobs` row exercises the
     // identical FK path a company `job_postings.id` takes.
-    const payer = randomUUID();
+    const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
@@ -314,7 +331,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
         status: "closed",
       })
       .returning({ id: jobs.id });
-    const payer = randomUUID();
+    const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
@@ -343,7 +360,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
   });
 
   it("F-6: a retried unlock returns the SAME grant and debits only once", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
@@ -365,7 +382,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
 
-    const payersList = Array.from({ length: 14 }, () => randomUUID());
+    const payersList = await Promise.all(Array.from({ length: 14 }, () => opsPayer()));
     await Promise.all(
       payersList.map((p) => req("POST", `/payers/${p}/credits`, { ops: true, body: { pack_code: "pack_10" } })),
     );
@@ -385,7 +402,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
   });
 
   it("F-5: the sentinel phone never appears in any emitted event or in any unlock-family table", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
@@ -418,7 +435,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
   });
 
   it("ops reads are PII-free projections (no routing token, no phone)", async () => {
-    const payer = randomUUID();
+    const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });

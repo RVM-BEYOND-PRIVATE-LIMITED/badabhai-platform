@@ -232,6 +232,74 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 - An order created before the flip settles into its original wallet.
 - B's unlock of a worker that A already unlocked returns the existing grant and charges no credit.
 
+**As built (P2b):**
+
+- **Services resolve; repositories take the brand.** `UnlockService`, `ResumeDisclosureService`
+  and `RelayService` inject `PayerTenantScopeService` and resolve once per entry point. The
+  ops routes go through the same entry points (rule 4). All 16 P2b T5 entries are retyped to
+  `TenantKey` and removed from `UNCONVERTED`.
+- **The shared helper P2a left is retyped.** P2b landed second, so it retyped
+  `payers/owned-job-ref.ts findOwnedJobRef` to `TenantKey` and removed it from `UNCONVERTED`.
+  All three callers now pass a resolved key.
+- **T0 and T0-HTTP are flipped to `it`** in this PR (P2a #2167 and P2b are both on `main`).
+- **`UNCONVERTED` is empty.** P2b merges last of the four, so T5's allowlist is down to the §4
+  `NAMED_EXCEPTIONS`. That is §5 item 1's code precondition. The hand-checks of §5 item 4 still
+  stand.
+- **Converted by hand (T5 cannot see them):**
+  - `UnlocksRepository.findOwnedJobRef` / `.creditPack` and `ResumeDisclosureRepository.findOwnedJobRef` (delegates).
+  - `PaymentGateway.debitOneCreditWithinTx` / `.purchasePackMock` / `.createRealOrder` (delegates).
+  - `settleOrder`'s `expectedPayerId`, renamed `expectedTenantKey`.
+  - The reveal and relay owner compares.
+- **Settlement claims and credits in one call.** `UnlocksRepository.claimAndCreditPaymentOrderWithinTx`
+  runs the compare-and-set and credits the wallet named by the claim's `RETURNING` row: the
+  `payer_id` stamped at intent, never re-resolved. The claim and the wallet-credit helper are
+  private. No public method credits a caller-supplied order or wallet (review I1 of PR #2171).
+  A purchase credits through `creditPack` (a resolver-minted `TenantKey`).
+- **`lockPayer` is not a wallet lock.** `PostingPlansRepository.lockPayer` is the capacity
+  advisory lock, so it stays with **P2c** (§3.3). The P2b wallet locks are the `payer_credits`
+  row locks taken by `tryDebit`'s conditional `UPDATE` and by the credit upsert. Both are
+  tenant-keyed, so two members' concurrent debits queue on the one org row (T6,
+  `payer-org-tenancy.db.test.ts`). The unused `findCreditsForUpdate` read is deleted.
+- **§7 event list, extended (ADR-0053 §6–§7 amended in PR #2171).**
+  - `contact.revealed` and `resume.disclosed` describe tenant rows, so they follow the general
+    rule.
+  - A webhook-settled `payment.captured` / `payment.failed` names the stamped wallet as actor;
+    a verify names the verifying member.
+  - `payer.credits_exhausted`'s subject is the wallet.
+  - `payer.suspended_payment_captured` is a system-actor event about the stamped wallet.
+- **A verify across the flip is refused.** An order stamped before the flip with a member's own
+  wallet cannot be browser-verified by that member in `on` (§6 compares with the tenant). The
+  webhook, the source of truth, still settles it into the stamped wallet. See the support runbook
+  below, and census C9.
+- **Ops payer ids must name a payer in `on`.** An ops route whose `payer_id` names no `payers`
+  row (a legacy opaque id) gets the resolver's 403 in `on` (R4 heals nothing, then R7). Before
+  P2b no predicate asked. `tests/e2e/contact-unlock.e2e.test.ts` (run with mode `on` in CI) now
+  mints real payers.
+- **The reveal re-checks ownership on the locked row.** This closes a pre-existing race: a row
+  missed by the pre-lock read was revealed unchecked. It is the only change reachable in `off`,
+  and reaching it needs an unlock id that did not yet exist at the first read.
+- **N+1 hazard, P2b half (P2c review M-3).** `PayerPostingPlansService.listWithStats` reads the
+  page's résumé-download counts in the scope it already resolved:
+  `ResumeDisclosureService.countDownloadsInScope`, one grouped query, in `Promise.all` with the
+  plan stats. `getOneWithStats` reads the single posting's count the same way
+  (`countDownloadsForPostingInScope`). The controller reads nothing per posting, so
+  `GET /payer/job-postings` and `/:id` resolve exactly once
+  (`payer-job-postings.single-resolution.test.ts`, N = 3).
+
+**Support runbook (P2b money, for the flip; PR #2171 review, security L2):**
+
+- **A member's personal order is not browser-verified after the flip.** The member created the
+  order for their own wallet while the mode was `off`, and their tenant is now the org. Their
+  browser verify answers "not verified". The Razorpay webhook still settles the order into the
+  member's personal wallet. That balance is not visible while they act in the team (O-2) and
+  reappears if they are removed. There is nothing to repair. Tell the member, and point Finance at
+  the order row's `payer_id`. Census C9 lists these orders before `on`.
+- **A member is removed between creating an order and its settlement.** The order is stamped with
+  the org wallet, so the webhook settles it there. The removed member's verify is refused: they
+  are no longer of that tenant. The credits are the org's, as the stamp says. Nothing moves to the
+  member. If the owner wants to refund the member, that is an ops credit grant
+  (`POST /admin/payers/:id/credits`), never a re-stamp.
+
 ### 3.3 P2c — plans, boosts, quota top-up, capacity, coupons
 
 | File | Methods / predicates |
@@ -439,7 +507,7 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
 
 | Step | Action | Pass condition |
 |---|---|---|
-| 1 | Run `pnpm --filter @badabhai/db db:audit:org-tenancy` against production (read-only) | C2 = C3 = C4 = C6 = 0. C1, C5 and C5b recorded. A non-zero C5 / C5b is expected and needs no further ruling: O-2 (ruled 2026-10-08) keeps those rows and balances personal. Tell the affected members before `on`. |
+| 1 | Run `pnpm --filter @badabhai/db db:audit:org-tenancy` against production (read-only) | C2 = C3 = C4 = C6 = 0. C1, C5, C5b and C9 recorded. A non-zero C5 / C5b is expected and needs no further ruling: O-2 (ruled 2026-10-08) keeps those rows and balances personal. Tell the affected members before `on`. A non-zero C9 (open orders on a member's own wallet) follows the P2b support runbook (§3.2). |
 | 2 | Set the `production` secret `PAYER_ORG_TENANCY_MODE=shadow` and redeploy | — |
 | 3 | Observe `shadow` for at least 48 h of payer traffic | zero resolver errors; `would_differ` only for C1 actors; resolver p95 ≤ 5 ms; tenant-route p95 regression ≤ 5 ms (ADR §5.4) |
 | 4 | security-engineer pass in a non-production environment with mode `on` and a seeded team org | no Critical or High findings |
@@ -551,6 +619,13 @@ WHERE po.status <> 'active' OR r.status <> 'active';
 SELECT 'unlocks' AS t, count(*) FROM unlocks u WHERE NOT EXISTS (SELECT 1 FROM payers p WHERE p.id = u.payer_id)
 UNION ALL SELECT 'payer_credits', count(*) FROM payer_credits c WHERE NOT EXISTS (SELECT 1 FROM payers p WHERE p.id = c.payer_id)
 UNION ALL SELECT 'job_postings', count(*) FROM job_postings j WHERE j.payer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM payers p WHERE p.id = j.payer_id);
+
+-- C9  Record (P2b, PR #2171): team members' OPEN payment orders stamped with their OWN wallet. After
+--     the flip the member's browser verify of such an order is refused; the webhook still settles
+--     it into the member's personal wallet (support runbook, §3.2). Same team_members CTE as C5.
+SELECT po.id AS order_id, po.payer_id, po.created_at FROM payment_orders po
+WHERE po.status = 'created' AND po.payer_id IN (SELECT id FROM team_members)
+ORDER BY po.created_at;
 ```
 
 ---

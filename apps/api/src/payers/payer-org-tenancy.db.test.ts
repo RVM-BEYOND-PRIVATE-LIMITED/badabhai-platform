@@ -48,6 +48,11 @@ import { PostingPlansService } from "../posting-plans/posting-plans.service";
 import { PayersRepository } from "./payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "./payer-orgs.repository";
 import { PayerTenantScopeService } from "./payer-tenant-scope.service";
+import { signCheckoutForTest } from "../unlocks/razorpay-signature";
+import { RelayRepository } from "../relay/relay.repository";
+import { RelayService } from "../relay/relay.service";
+import { ResumeDisclosureRepository } from "../disclosures/resume-disclosure.repository";
+import { ResumeDisclosureService } from "../disclosures/resume-disclosure.service";
 
 /**
  * ADR-0053 (PAY-DB-01) T0 — "A invites B; B sees A's postings + credits", AGAINST A REAL POSTGRES.
@@ -58,20 +63,17 @@ import { PayerTenantScopeService } from "./payer-tenant-scope.service";
  * credit pack, and the real unlock chokepoint (consent gate, caps, atomic debit + grant) with the
  * real EventsService validating every event. Mode `on`.
  *
- * THE TEAM STORY IS `it.fails` — RED BY DESIGN IN PHASE 1. P1 ships the resolver, not the
- * predicates: every posting / credit / unlock read still filters on the caller's own payer id,
- * so B sees none of A's rows and the story fails at its FIRST tenancy assertion. The PR in which
- * P2a and P2b are both on `main` flips it to `it` (ORG_TENANCY_PLAN §1, §7).
+ * THE TEAM STORY IS GREEN SINCE P2b. It landed as `it.fails` in P1 (resolver, no predicates:
+ * B saw none of A's rows and the story failed at its FIRST tenancy assertion) and was flipped to
+ * `it` in the PR that put the second of P2a (postings, #2167) and P2b (money) on `main`
+ * (ORG_TENANCY_PLAN §1, §7). That flip is the evidence T0 can observe the fix.
  *
- * WHY THE `it.fails` CANNOT PASS FOR THE WRONG REASON. `it.fails` passes on ANY error, so
- * nothing the story depends on is left to it:
+ * The harness stays split so a failure names the right cause:
  *  - the ANCHOR's story runs first as an ordinary `it` through the SAME calls (list, credits,
  *    unlock, ledger), proving the harness, the fixtures and every service it builds work;
  *  - B's membership, and the resolver keying B to A in mode `on`, are asserted in an ordinary
  *    `it` before the story;
  *  - the story's first assertion is the tenancy one.
- * Flip the story to `it` locally and the failure names B's posting list (`expected [] to
- * include …`) — that is the evidence the red is the right red.
  *
  * Fixtures carry no PII: synthetic `@e2e.badabhai.invalid` emails encrypted by the real crypto,
  * `enc:`/`hash:` markers in the worker's NOT NULL phone columns, ids fresh per run, everything
@@ -172,6 +174,7 @@ describe.skipIf(!RUN)(
         { add: async () => undefined } as never, // the referral-bonus queue (post-commit, not measured)
         {} as never, // MatchConfigService — read only on the signup free-tier grant
         payers,
+        tenancy,
       );
 
       // A and B sign up; each founds a solo org.
@@ -196,7 +199,8 @@ describe.skipIf(!RUN)(
         vacancy_band: "1",
       });
       postingOfA = (await postings.createForPayer(payerA, dto, CTX)).id;
-      await gateway.purchasePackMock(payerA, PACK);
+      // The wallet key comes from the resolver, as in production (A is a solo anchor: itself).
+      await gateway.purchasePackMock((await tenancy.resolve(payerA)).tenantKey, PACK);
 
       // Two consented workers (employer_sharing), no PII.
       for (const worker of [WORKER_FOR_A, WORKER_FOR_B]) {
@@ -225,8 +229,8 @@ describe.skipIf(!RUN)(
     });
 
     it("control: the ANCHOR, through the same calls, sees its posting and credits, and its unlock debits its wallet", async () => {
-      // Every call the team story makes, made by A. If this fails the harness is broken, and the
-      // `it.fails` below would be passing for the wrong reason.
+      // Every call the team story makes, made by A. If this fails the harness is broken, not the
+      // tenancy the team story below asserts.
       const list = await listFor(payerA);
       expect(list.map((p) => p.id)).toContain(postingOfA);
       expect((await unlocks.getCredits(payerA)).balance).toBe(PACK.credits);
@@ -242,7 +246,7 @@ describe.skipIf(!RUN)(
     });
 
     it("setup: B is an ACTIVE member of A's org, and mode `on` keys B to A (the resolver, shipped in P1)", async () => {
-      // Proven here, outside the `it.fails`, so the story below can only fail on a predicate.
+      // Proven here, outside the story, so the story below can only fail on a predicate.
       const scope = await tenancy.resolve(payerB);
       expect(scope).toMatchObject({
         actorPayerId: payerB,
@@ -256,12 +260,11 @@ describe.skipIf(!RUN)(
       expect(row).toMatchObject({ status: "active", member_payer_id: payerB });
     });
 
-    // RED IN PHASE 1 (ADR-0053 / ORG_TENANCY_PLAN §2.5). Flip to `it` in the PR that lands the
-    // second of P2a (postings) and P2b (money).
-    it.fails(
+    // RED IN P1 as `it.fails`; GREEN since P2b landed beside P2a (ORG_TENANCY_PLAN §1, §2.5).
+    it(
       "T0: B sees A's posting and A's credits, spends A's wallet, A sees B's unlock — and removal takes it all away",
       async () => {
-        // 1. B lists postings and finds A's posting. ← THE FIRST TENANCY ASSERTION (fails in P1).
+        // 1. B lists postings and finds A's posting. ← THE FIRST TENANCY ASSERTION (failed in P1).
         const listB = await listFor(payerB);
         expect(listB.map((p) => p.id)).toContain(postingOfA);
 
@@ -974,7 +977,23 @@ describe.skipIf(!RUN)(
         {} as never, // WorkerSkillsRepository — unread with the gate off
         tenancy,
       );
-      const postingPlans = new PayerPostingPlansService(postings, plans, tenancy);
+      // P2b — the posting reads also carry their résumé-download counts (real repository).
+      const disclosures = new ResumeDisclosureService(
+        new ResumeDisclosureRepository(client.db),
+        {} as never, // ConsentRepository — no disclosure is requested in this block
+        {} as never, // WorkersRepository
+        {} as never, // PiiCryptoService
+        {} as never, // ResumeRenderer
+        {} as never, // StorageService
+        {} as never, // WorkerAttributesRepository
+        {} as never, // WorkerEmploymentRepository
+        {} as never, // WorkerQualificationsRepository
+        {} as never, // WorkerOccupationsRepository
+        events,
+        config,
+        tenancy,
+      );
+      const postingPlans = new PayerPostingPlansService(postings, plans, disclosures, tenancy);
       return { postings, plans, postingPlans };
     }
 
@@ -1576,6 +1595,598 @@ describe.skipIf(!RUN)(
           kycStatus: "not_submitted",
         });
       });
+    });
+  },
+);
+
+/**
+ * ADR-0053 Phase 2b — ONE ORG WALLET, against a real Postgres (plan §3.2 T6, §7 T7).
+ *
+ * The money properties that only Postgres can prove: the wallet row lock that serialises two
+ * members' concurrent debits, the ledger reconciling per `payer_id` after mixed-member activity,
+ * an order stamped at intent and settled (webhook and verify) into the wallet it names, the
+ * unique (payer_id, worker_id) grant converging a teammate onto the org's existing unlock, and
+ * the worker-protection cap counting distinct ORGS. Every story runs through the real services,
+ * repositories and EventsService (payload validation included), in mode `on`, with the same
+ * calls in mode `off` as the control where the two must differ.
+ *
+ * Fixtures: B buys a PERSONAL pack before joining A's org (owner ruling O-2: it stays B's and out
+ * of view), so every "the org wallet paid" assertion is discriminating — had B's own wallet been
+ * used, it had the credits to succeed. Synthetic `@e2e.badabhai.invalid` payers, `enc:`/`hash:`
+ * worker markers, ids fresh per run, everything deleted in afterAll.
+ */
+describe.skipIf(!RUN)(
+  "ADR-0053 P2b — one org wallet: unlocks, ledger, orders, disclosures, relay (Postgres)",
+  () => {
+    const W_TAG = randomUUID().slice(0, 8);
+    const W_CTX: RequestContext = {
+      correlationId: randomUUID(),
+      requestId: `tenancy-p2b-${W_TAG}`,
+    };
+    const KEY_SECRET = "rzp_test_key_secret_p2b";
+
+    let client!: DbClient;
+    let pii!: PiiCryptoService;
+    let payers!: PayersRepository;
+    let orgsRepo!: PayerOrgsRepository;
+    let members!: PayerOrgMembersService;
+    let on!: {
+      unlocks: UnlockService;
+      tenancy: PayerTenantScopeService;
+      disclosures: ResumeDisclosureService;
+      relay: RelayService;
+      postings: JobPostingsService;
+    };
+    let off!: {
+      unlocks: UnlockService;
+      tenancy: PayerTenantScopeService;
+      disclosures: ResumeDisclosureService;
+      relay: RelayService;
+      postings: JobPostingsService;
+    };
+    /** A's company posting — the page the postings list counts downloads for. */
+    let postingOfA = "";
+    /** An org unlock B revealed, and the relay handle B kept, while still a member. */
+    let keptOrgUnlockId = "";
+    let keptHandle = "";
+
+    const payerIds: string[] = [];
+    const workerIds: string[] = [];
+    const acceptUrls: string[] = [];
+    let A = ""; // anchor of the org
+    let B = ""; // active recruiter in A's org, with a personal pre-team balance
+    let C = ""; // solo outsider
+    let D = ""; // solo, for the cap story
+    let orgOfA!: ResolvedOrg;
+    let memberIdOfB = "";
+    let bPersonal = 0;
+
+    async function signUp(label: string): Promise<string> {
+      const { id } = await payers.createOrGet({
+        role: "employer",
+        email: `p2b-${label}-${W_TAG}@e2e.badabhai.invalid`,
+        orgName: `P2b ${W_TAG}`,
+        phone: undefined,
+      });
+      await orgsRepo.ensureSoloOrg(id);
+      await payers.activate(id);
+      payerIds.push(id);
+      return id;
+    }
+
+    /**
+     * A consented worker — both employer purposes, so the relay ladder can open too. The phone is
+     * a reserved synthetic number (`+9100000…`, unassignable) ENCRYPTED by the real crypto: the
+     * reveal decrypts it once to wire the relay, and a marker string would fail that decrypt.
+     */
+    async function worker(
+      purposes: string[] = ["profiling", "employer_sharing", "employer_messaging"],
+    ): Promise<string> {
+      const id = randomUUID();
+      const phone = `+9100000${String(workerIds.length).padStart(5, "0")}`;
+      await client.sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${id}::uuid, ${pii.encrypt(phone)}, ${`hash:p2b-${W_TAG}-${id}`}, 'active')`;
+      await client.sql`
+      INSERT INTO worker_consents (worker_id, consent_version, purposes, accepted_at)
+      VALUES (${id}::uuid, '2026-06-01', ${JSON.stringify(purposes)}::jsonb, now())`;
+      workerIds.push(id);
+      return id;
+    }
+
+    async function balanceOf(payerId: string): Promise<number> {
+      const [row] =
+        await client.sql`SELECT balance FROM payer_credits WHERE payer_id = ${payerId}::uuid`;
+      return Number(row?.balance ?? 0);
+    }
+
+    /** ADR-0053 §6: `payer_credits.balance = Σ credit_ledger.delta` per `payer_id`. */
+    async function expectReconciled(payerId: string): Promise<void> {
+      const [row] = await client.sql`
+      SELECT coalesce((SELECT balance FROM payer_credits WHERE payer_id = ${payerId}::uuid), 0)::int AS balance,
+             coalesce((SELECT sum(delta) FROM credit_ledger WHERE payer_id = ${payerId}::uuid), 0)::int AS ledger`;
+      expect(Number(row?.ledger), `ledger of ${payerId}`).toBe(Number(row?.balance));
+    }
+
+    /** A credited wallet with its ledger line, exactly as an ops grant writes it (reconciled). */
+    async function grantCredits(payerId: string, credits: number): Promise<void> {
+      await client.sql`
+      INSERT INTO payer_credits (payer_id, balance) VALUES (${payerId}::uuid, ${credits})
+      ON CONFLICT (payer_id) DO UPDATE SET balance = payer_credits.balance + ${credits}`;
+      await client.sql`
+      INSERT INTO credit_ledger (payer_id, delta, reason) VALUES (${payerId}::uuid, ${credits}, 'grant')`;
+    }
+
+    async function eventOf(
+      name: string,
+      key: string,
+      value: string,
+    ): Promise<{ actor_id: string; payload: Record<string, unknown> }> {
+      const [row] = await client.sql`
+      SELECT actor_id, payload FROM events
+      WHERE correlation_id = ${W_CTX.correlationId}::uuid AND event_name = ${name}
+        AND payload->>${key} = ${value}
+      ORDER BY created_at DESC LIMIT 1`;
+      expect(row, `${name} with ${key}=${value}`).toBeDefined();
+      return { actor_id: String(row!.actor_id), payload: row!.payload as Record<string, unknown> };
+    }
+
+    /** The real services for one mode, sharing the database, the crypto and the event spine. */
+    function build(config: ServerConfig, pii: PiiCryptoService, events: EventsService) {
+      const tenancy = new PayerTenantScopeService(config, orgsRepo);
+      const repo = new UnlocksRepository(client.db);
+      const pricing = {
+        getActiveCatalog: async () => ({
+          catalog: DEFAULT_CATALOG,
+          revision: 1,
+          source: "db" as const,
+        }),
+      };
+      const razorpay = {
+        isLive: true,
+        keyId: "rzp_test_p2b",
+        createOrder: async ({ amountInr }: { amountInr: number }) => ({
+          orderId: `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+          amountPaise: amountInr * 100,
+          currency: "INR",
+        }),
+      };
+      const gateway = new PaymentGateway(repo, config, pricing as never, razorpay as never);
+      const unlocks = new UnlockService(
+        repo,
+        new ConsentRepository(client.db),
+        new WorkersRepository(client.db),
+        pii,
+        gateway,
+        events,
+        config,
+        { add: async () => undefined } as never,
+        { get: async () => DEFAULT_MATCH_CONFIG } as never,
+        payers,
+        tenancy,
+      );
+      const disclosures = new ResumeDisclosureService(
+        new ResumeDisclosureRepository(client.db),
+        new ConsentRepository(client.db),
+        new WorkersRepository(client.db),
+        pii,
+        {} as never, // ResumeRenderer — the deny path renders nothing
+        {} as never, // StorageService — likewise
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        events,
+        config,
+        tenancy,
+      );
+      const relay = new RelayService(new RelayRepository(client.db), unlocks, events, tenancy);
+      const postings = new JobPostingsService(
+        new JobPostingsRepository(client.db),
+        events,
+        {} as never, // AiService — no skill phrases, so canonicalization returns before any call
+        {} as never, // AiCostRecorder — likewise
+        {} as never, // AiTraceRecorder — likewise
+        {} as never, // PublishReachService — a draft never materializes reach
+        {} as never, // MatchSkillsService — no match_skill_ids on this create
+        tenancy,
+      );
+      return { unlocks, tenancy, disclosures, relay, postings };
+    }
+
+    beforeAll(async () => {
+      client = createDbClient(DATABASE_URL, { max: 6 });
+      const base = {
+        NODE_ENV: "test",
+        UNLOCK_LATENCY_TARGET_MS: "0",
+        // T7: a cap of TWO distinct payers per worker per week makes the org-vs-login count visible.
+        UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK: "2",
+        PAYMENTS_ENABLE_REAL: "true",
+        PAYMENTS_PROVIDER_KEY: "rzp_test_p2b",
+        PAYMENTS_PROVIDER_SECRET: KEY_SECRET,
+        RAZORPAY_WEBHOOK_SECRET: "whsec_p2b",
+      };
+      const cfgOn = loadServerConfig({ ...base, PAYER_ORG_TENANCY_MODE: "on" });
+      const cfgOff = loadServerConfig({ ...base, PAYER_ORG_TENANCY_MODE: "off" });
+      pii = new PiiCryptoService(cfgOn);
+      const events = new EventsService(new EventsRepository(client.db), cfgOn);
+      payers = new PayersRepository(client.db, pii);
+      orgsRepo = new PayerOrgsRepository(client.db);
+      members = new PayerOrgMembersService(orgsRepo, pii, events, payers, cfgOn, {
+        send: async ({ acceptUrl }: { email: string; acceptUrl: string }) => {
+          acceptUrls.push(acceptUrl);
+        },
+      });
+      on = build(cfgOn, pii, events);
+      off = build(cfgOff, pii, events);
+
+      A = await signUp("a");
+      B = await signUp("b");
+      C = await signUp("c");
+      D = await signUp("d");
+
+      // B buys a PERSONAL pack while still solo (O-2: it stays B's own wallet after joining).
+      bPersonal = (await on.unlocks.purchaseCredits(B, "pack_50", W_CTX))!.balance;
+      expect(bPersonal).toBe(50);
+
+      // A invites B; B accepts (the real invite + accept, A1–A3 included).
+      const resolvedA = await on.tenancy.resolveActingOrg(A);
+      if (!resolvedA) throw new Error("fixture: A has no org");
+      orgOfA = resolvedA;
+      await members.invite(
+        orgOfA,
+        A,
+        { email: `p2b-b-${W_TAG}@e2e.badabhai.invalid`, org_role: "recruiter" },
+        W_CTX,
+      );
+      const token = new URL(acceptUrls.at(-1)!).searchParams.get("token");
+      if (!token) throw new Error("fixture: no accept token");
+      memberIdOfB = (await members.accept(B, { token }, W_CTX)).member_id;
+
+      // The org wallet (A's existing row) and the outsiders' own wallets.
+      await on.unlocks.purchaseCredits(A, "pack_50", W_CTX);
+      await on.unlocks.purchaseCredits(C, "pack_50", W_CTX);
+      await on.unlocks.purchaseCredits(D, "pack_50", W_CTX);
+
+      // A's company posting (fixed text — a hex TAG can trip the posting's contact screen).
+      const dto = PayerCreateJobPostingSchema.parse({
+        org_label: "Tenancy Org",
+        role_title: "CNC Turner",
+        vacancy_band: "1",
+      });
+      postingOfA = (await on.postings.createForPayer(A, dto, W_CTX)).id;
+    }, 90_000);
+
+    afterAll(async () => {
+      if (!client) return;
+      const { sql } = client;
+      await sql`DELETE FROM resume_disclosures WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM unlocks WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payment_orders WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payer_credits WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM events WHERE correlation_id = ${W_CTX.correlationId}::uuid`;
+      await sql`DELETE FROM workers WHERE id = ANY(${workerIds}::uuid[])`;
+      await sql`DELETE FROM job_postings WHERE payer_id = ANY(${payerIds}::uuid[]) OR created_by = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payer_orgs WHERE root_payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payers WHERE id = ANY(${payerIds}::uuid[])`;
+      await sql.end({ timeout: 5 });
+    });
+
+    it("setup: mode `on` keys B to A, `off` keys B to B — and B's personal pre-team wallet exists", async () => {
+      expect((await on.tenancy.resolve(B)).tenantKey).toBe(A);
+      expect((await off.tenancy.resolve(B)).tenantKey).toBe(B);
+      expect(await balanceOf(B)).toBe(50);
+    });
+
+    it("O-1/O-2: a teammate reads the ORG wallet, never their personal balance; `off` reads their own", async () => {
+      const org = await balanceOf(A);
+      expect(org).toBeGreaterThan(0);
+      expect(await on.unlocks.getCredits(B)).toEqual({ payer_id: B, balance: org });
+      expect((await off.unlocks.getCredits(B)).balance).toBe(bPersonal);
+      // The outsider sees only their own.
+      expect((await on.unlocks.getCredits(C)).balance).toBe(await balanceOf(C));
+    });
+
+    it("a teammate's purchase credits the ORG wallet; every wallet still reconciles (Σ ledger = balance)", async () => {
+      const before = await balanceOf(A);
+      const out = await on.unlocks.purchaseCredits(B, "pack_50", W_CTX);
+      expect(out).toMatchObject({ payer_id: B, balance: before + 50, credits: 50 });
+      expect(await balanceOf(A)).toBe(before + 50);
+      expect(await balanceOf(B)).toBe(bPersonal);
+      for (const p of [A, B, C, D]) await expectReconciled(p);
+      // The teammate's own ledger view is the org's.
+      const ledger = await on.unlocks.getCreditLedger(B, 50);
+      expect(ledger.payer_id).toBe(B);
+      expect(ledger.ledger.reduce((s, l) => s + l.delta, 0)).toBe(await balanceOf(A));
+    });
+
+    it("a teammate's unlock spends the ORG wallet; the anchor sees it; the outsider does not; events name actor + org", async () => {
+      const w = await worker();
+      const orgBefore = await balanceOf(A);
+      const grant = await on.unlocks.requestUnlock(
+        { payerId: B, workerId: w, jobId: null },
+        W_CTX,
+        "payer_owned",
+      );
+      expect(grant).toMatchObject({ ok: true, status: "granted" });
+      const unlockId = (grant as { unlock_id: string }).unlock_id;
+
+      expect(await balanceOf(A)).toBe(orgBefore - 1);
+      expect(await balanceOf(B)).toBe(bPersonal);
+      const [row] = await client.sql`SELECT payer_id FROM unlocks WHERE id = ${unlockId}::uuid`;
+      expect(String(row?.payer_id)).toBe(A);
+
+      expect((await on.unlocks.listOwnForPayer(A)).unlocks.map((u) => u.unlock_id)).toContain(
+        unlockId,
+      );
+      expect((await on.unlocks.listOwnForPayer(B)).unlocks.map((u) => u.unlock_id)).toContain(
+        unlockId,
+      );
+      expect((await on.unlocks.listOwnForPayer(C)).unlocks.map((u) => u.unlock_id)).not.toContain(
+        unlockId,
+      );
+
+      const granted = await eventOf("unlock.granted", "unlock_id", unlockId);
+      expect(granted.actor_id).toBe(B);
+      expect(granted.payload.payer_id).toBe(A);
+      for (const p of [A, B]) await expectReconciled(p);
+    });
+
+    it("T6: the ORG already holds the worker — a teammate gets the org's grant back and is charged nothing", async () => {
+      const w = await worker();
+      const first = await on.unlocks.requestUnlock({ payerId: A, workerId: w, jobId: null }, W_CTX);
+      const orgAfterFirst = await balanceOf(A);
+      const again = await on.unlocks.requestUnlock({ payerId: B, workerId: w, jobId: null }, W_CTX);
+      expect((again as { unlock_id: string }).unlock_id).toBe(
+        (first as { unlock_id: string }).unlock_id,
+      );
+      expect(await balanceOf(A)).toBe(orgAfterFirst);
+      expect(await balanceOf(B)).toBe(bPersonal);
+      const [count] =
+        await client.sql`SELECT count(*)::int AS n FROM unlocks WHERE worker_id = ${w}::uuid`;
+      expect(Number(count?.n)).toBe(1);
+    });
+
+    it("a teammate may reveal the ORG's unlock and use its relay thread; an outsider gets the neutral body", async () => {
+      const w = await worker();
+      const grant = await on.unlocks.requestUnlock({ payerId: A, workerId: w, jobId: null }, W_CTX);
+      const unlockId = (grant as { unlock_id: string }).unlock_id;
+
+      const revealed = await on.unlocks.reveal(unlockId, W_CTX, B);
+      expect(revealed).toMatchObject({ channel: "in_app_relay" });
+      const handle = (revealed as { relay_handle: string }).relay_handle;
+      keptOrgUnlockId = unlockId;
+      keptHandle = handle;
+      expect(await on.unlocks.reveal(unlockId, W_CTX, C)).toEqual({ status: "unavailable" });
+      // `off`: B is not A's org — the same reveal is the neutral body.
+      expect(await off.unlocks.reveal(unlockId, W_CTX, B)).toEqual({ status: "unavailable" });
+
+      expect(await on.relay.readThreadForPayer(B, handle)).toEqual({ messages: [] });
+      expect(await on.relay.readThreadForPayer(C, handle)).toEqual({ status: "unavailable" });
+
+      const event = await eventOf("contact.revealed", "unlock_id", unlockId);
+      expect(event.actor_id).toBe(B);
+      expect(event.payload.payer_id).toBe(A);
+    });
+
+    it("T6: two members spending CONCURRENTLY serialize on the one org wallet row — exactly one wins, never overdrawn", async () => {
+      // A fresh org whose wallet holds exactly ONE credit, and a teammate whose own wallet holds
+      // plenty: had either debit hit the teammate's personal wallet, both would succeed.
+      const A2 = await signUp("a2");
+      const B2 = await signUp("b2");
+      await grantCredits(B2, 10);
+      const org2 = await on.tenancy.resolveActingOrg(A2);
+      await members.invite(
+        org2!,
+        A2,
+        { email: `p2b-b2-${W_TAG}@e2e.badabhai.invalid`, org_role: "recruiter" },
+        W_CTX,
+      );
+      const token = new URL(acceptUrls.at(-1)!).searchParams.get("token")!;
+      await members.accept(B2, { token }, W_CTX);
+      await grantCredits(A2, 1);
+
+      const [w1, w2] = [await worker(), await worker()];
+      const results = await Promise.all([
+        on.unlocks.requestUnlock({ payerId: A2, workerId: w1, jobId: null }, W_CTX),
+        on.unlocks.requestUnlock({ payerId: B2, workerId: w2, jobId: null }, W_CTX),
+      ]);
+      expect(results.filter((r) => (r as { ok?: boolean }).ok === true)).toHaveLength(1);
+      expect(
+        results.filter((r) => (r as { status?: string }).status === "unavailable"),
+      ).toHaveLength(1);
+      expect(await balanceOf(A2)).toBe(0);
+      expect(await balanceOf(B2)).toBe(10);
+      await expectReconciled(A2);
+      await expectReconciled(B2);
+    });
+
+    it("T7 (O-3): the worker cap counts distinct ORGS in `on` — distinct LOGINS in `off`", async () => {
+      // Cap = 2 distinct payers per worker per week (config above). The TEAMMATE unlocks first, so
+      // the count depends on what the grant was stamped with: had B's row carried B's own id, A's
+      // request would write a second row and C would already be the third payer.
+      const w = await worker();
+      expect(
+        await on.unlocks.requestUnlock({ payerId: B, workerId: w, jobId: null }, W_CTX),
+      ).toMatchObject({ ok: true });
+      expect(
+        await on.unlocks.requestUnlock({ payerId: A, workerId: w, jobId: null }, W_CTX),
+      ).toMatchObject({ ok: true }); // the org's grant
+      expect(
+        await on.unlocks.requestUnlock({ payerId: C, workerId: w, jobId: null }, W_CTX),
+      ).toMatchObject({ ok: true }); // org #2
+      expect(
+        await on.unlocks.requestUnlock({ payerId: D, workerId: w, jobId: null }, W_CTX),
+      ).toEqual({ status: "unavailable" }); // org #3: capped
+
+      const v = await worker();
+      expect(
+        await off.unlocks.requestUnlock({ payerId: A, workerId: v, jobId: null }, W_CTX),
+      ).toMatchObject({ ok: true });
+      expect(
+        await off.unlocks.requestUnlock({ payerId: B, workerId: v, jobId: null }, W_CTX),
+      ).toMatchObject({ ok: true }); // B's own row
+      bPersonal -= 1; // `off`: B paid from their own wallet
+      expect(await balanceOf(B)).toBe(bPersonal);
+      expect(
+        await off.unlocks.requestUnlock({ payerId: C, workerId: v, jobId: null }, W_CTX),
+      ).toEqual({ status: "unavailable" }); // capped at 2 logins
+    });
+
+    it("an order a teammate creates is stamped with the ORG wallet and settles into it — by webhook, and by the anchor's verify", async () => {
+      const before = await balanceOf(A);
+      const order1 = await on.unlocks.createCreditOrder(B, "pack_50", W_CTX);
+      const [stamp] =
+        await client.sql`SELECT payer_id FROM payment_orders WHERE id = ${order1!.orderRowId}::uuid`;
+      expect(String(stamp?.payer_id)).toBe(A);
+      expect(
+        await on.unlocks.handleRazorpayEvent(
+          {
+            eventName: "payment.captured",
+            paymentId: `pay_${W_TAG}1`,
+            orderId: order1!.providerOrderId,
+          },
+          W_CTX,
+        ),
+      ).toEqual({ result: "granted" });
+      expect(await balanceOf(A)).toBe(before + 50);
+
+      const order2 = await on.unlocks.createCreditOrder(B, "pack_50", W_CTX);
+      const pay2 = `pay_${W_TAG}2`;
+      const signature = signCheckoutForTest(order2!.providerOrderId, pay2, KEY_SECRET);
+      // An outsider holding a valid signature cannot settle the org's order (byte-identical refusal).
+      expect(
+        await on.unlocks.verifyCheckoutPayment(
+          C,
+          { orderId: order2!.providerOrderId, paymentId: pay2, signature },
+          W_CTX,
+        ),
+      ).toEqual({ verified: false });
+      expect(
+        await on.unlocks.verifyCheckoutPayment(
+          A,
+          { orderId: order2!.providerOrderId, paymentId: pay2, signature },
+          W_CTX,
+        ),
+      ).toMatchObject({ verified: true, payer_id: A, balance: before + 100, credits: 50 });
+      expect(await balanceOf(B)).toBe(bPersonal);
+      for (const p of [A, B, C]) await expectReconciled(p);
+    });
+
+    it("an order created BEFORE the flip settles into the wallet it was created for (never re-resolved)", async () => {
+      const orgBefore = await balanceOf(A);
+      const preFlip = await off.unlocks.createCreditOrder(B, "pack_50", W_CTX); // stamped: B
+      expect(
+        await on.unlocks.handleRazorpayEvent(
+          {
+            eventName: "payment.captured",
+            paymentId: `pay_${W_TAG}3`,
+            orderId: preFlip!.providerOrderId,
+          },
+          W_CTX,
+        ),
+      ).toEqual({ result: "granted" });
+      bPersonal += 50;
+      expect(await balanceOf(B)).toBe(bPersonal);
+      expect(await balanceOf(A)).toBe(orgBefore);
+      await expectReconciled(B);
+    });
+
+    it("disclosures: a teammate's row is stamped with the ORG; the org lists it, the outsider and `off` do not", async () => {
+      const w = await worker(["profiling"]); // no employer_sharing → the deny row path (no render)
+      expect(
+        await on.disclosures.requestDisclosure(
+          { payerId: B, workerId: w, jobPostingId: null },
+          W_CTX,
+          "payer_owned",
+        ),
+      ).toEqual({ status: "unavailable" });
+      const [row] =
+        await client.sql`SELECT payer_id, status FROM resume_disclosures WHERE worker_id = ${w}::uuid`;
+      expect(row).toMatchObject({ payer_id: A, status: "denied" });
+      const listed = (p: string, svc: ResumeDisclosureService) =>
+        svc.listByPayer(p).then((r) => r.disclosures.map((d) => d.worker_id));
+      expect(await listed(A, on.disclosures)).toContain(w);
+      expect(await listed(B, on.disclosures)).toContain(w);
+      expect(await listed(C, on.disclosures)).not.toContain(w);
+      expect(await listed(B, off.disclosures)).not.toContain(w);
+    });
+
+    it("the postings page's download counts are the ORG's, read in one grouped query; denied rows and other tenants' downloads never count", async () => {
+      /** A disclosure row for A's posting under `payerId`, completed (downloaded) or denied. */
+      async function disclosure(payerId: string, downloaded: boolean): Promise<void> {
+        const w = await worker();
+        await client.sql`
+          INSERT INTO resume_disclosures (payer_id, worker_id, job_posting_id, status, deny_reason,
+                                          disclosed_at, expires_at)
+          VALUES (${payerId}::uuid, ${w}::uuid, ${postingOfA}::uuid,
+                  ${downloaded ? "disclosed" : "denied"}, ${downloaded ? null : "capped"},
+                  CASE WHEN ${downloaded}::boolean THEN now() END,
+                  CASE WHEN ${downloaded}::boolean THEN now() + interval '1 hour' END)`;
+      }
+      await disclosure(A, true);
+      await disclosure(A, true);
+      await disclosure(A, false); // a denied request is not a download
+      await disclosure(C, true); // another tenant's row on the same posting id
+
+      const unknown = randomUUID();
+      // Each read takes the scope its caller resolved (the posting seam resolves once per request).
+      const asB = await on.tenancy.resolve(B);
+      // `on`: the teammate counts the ORG's two downloads; an id the page holds but nobody
+      // disclosed for reads 0.
+      expect(await on.disclosures.countDownloadsInScope([postingOfA, unknown], asB)).toEqual(
+        new Map([
+          [postingOfA, 2],
+          [unknown, 0],
+        ]),
+      );
+      // The single-posting read agrees with the page read.
+      expect(await on.disclosures.countDownloadsForPostingInScope(postingOfA, asB)).toBe(2);
+      // The outsider counts only its own row; `off` keys the teammate to themself (0).
+      const asC = await on.tenancy.resolve(C);
+      expect((await on.disclosures.countDownloadsInScope([postingOfA], asC)).get(postingOfA)).toBe(
+        1,
+      );
+      const asBOff = await off.tenancy.resolve(B);
+      expect(
+        (await off.disclosures.countDownloadsInScope([postingOfA], asBOff)).get(postingOfA),
+      ).toBe(0);
+    });
+
+    it("removal: on the very next call the former teammate is back on their personal wallet and sees none of the org's rows", async () => {
+      await members.remove(orgOfA, A, memberIdOfB, W_CTX);
+      expect((await on.tenancy.resolve(B)).tenantKey).toBe(B);
+      expect(await on.unlocks.getCredits(B)).toEqual({ payer_id: B, balance: bPersonal });
+      const [orgUnlocks] =
+        await client.sql`SELECT count(*)::int AS n FROM unlocks WHERE payer_id = ${A}::uuid`;
+      expect(Number(orgUnlocks?.n)).toBeGreaterThan(0);
+      const mine = await on.unlocks.listOwnForPayer(B);
+      const [bRows] =
+        await client.sql`SELECT count(*)::int AS n FROM unlocks WHERE payer_id = ${B}::uuid AND status IN ('granted','revealed')`;
+      expect(mine.unlocks).toHaveLength(Number(bRows?.n));
+      expect((await on.disclosures.listByPayer(B)).disclosures).toEqual([]);
+
+      // A handle and an unlock id B KEPT from membership open nothing now (PR #2171 review,
+      // security L1): the reveal and both relay routes answer the one neutral body, and no
+      // message is written.
+      expect(keptOrgUnlockId).not.toBe("");
+      const neutral = { status: "unavailable" };
+      expect(await on.unlocks.reveal(keptOrgUnlockId, W_CTX, B)).toEqual(neutral);
+      expect(await on.relay.readThreadForPayer(B, keptHandle)).toEqual(neutral);
+      expect(
+        await on.relay.sendFromPayer(
+          B,
+          keptHandle,
+          { kind: "template", template_id: "availability", params: {} },
+          W_CTX,
+        ),
+      ).toEqual(neutral);
+      const [sent] = await client.sql`
+        SELECT count(*)::int AS n FROM relay_messages WHERE unlock_id = ${keptOrgUnlockId}::uuid`;
+      expect(Number(sent?.n)).toBe(0);
+      // The anchor still holds the thread (control: the handle itself is live).
+      expect(await on.relay.readThreadForPayer(A, keptHandle)).toEqual({ messages: [] });
     });
   },
 );

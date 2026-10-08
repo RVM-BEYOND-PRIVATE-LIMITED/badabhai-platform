@@ -22,6 +22,12 @@ import { RequestDisclosureSchema } from "./resume-disclosure.dto";
 import { neutralUnavailable } from "../unlocks/unlock-response";
 import { ROAD_FALLBACK_FRESHER, roadSnapshot } from "../resume/__fixtures__/general-road";
 import type { TradeSheetContext } from "../resume/resume-render-input";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import type {
+  ActiveMembershipFacts,
+  PayerOrgTenancyMode,
+} from "../payers/payer-tenant-scope";
 
 // ADR-0045 Phase 5 — WHAT THE LEAK GUARD SCANS, captured by a PASS-THROUGH wrapper: the guard
 // still runs for real on every call, and the context it saw is the evidence that the road was
@@ -53,6 +59,23 @@ const CONFIG = {
   UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK: 10,
   RESUME_SIGNED_URL_TTL_SECONDS: 900,
 } as unknown as ServerConfig;
+
+/**
+ * The REAL tenant resolver (ADR-0053) over a fake membership read: `memberships` maps a payer id
+ * to its ACTIVE memberships. Default `off` with none — every caller is their own tenant.
+ */
+function tenancyService(
+  mode: PayerOrgTenancyMode = "off",
+  memberships: Record<string, ActiveMembershipFacts[]> = {},
+): PayerTenantScopeService {
+  return new PayerTenantScopeService(
+    { PAYER_ORG_TENANCY_MODE: mode } as unknown as ServerConfig,
+    {
+      listActiveMembershipsWithAnchor: vi.fn(async (id: string) => memberships[id] ?? []),
+      ensureSoloOrg: vi.fn(async () => null),
+    } as unknown as PayerOrgsRepository,
+  );
+}
 
 interface SetupOpts {
   consentPurposes?: string[] | null; // null => no consent row
@@ -104,6 +127,8 @@ interface SetupOpts {
   postingRowExists?: boolean;
   /** #1899: the posting / job ids each payer OWNS (findOwnedJobRef), keyed by ref id. */
   ownedRefs?: Record<string, { payerId: string; kind: "job" | "posting" }>;
+  /** ADR-0053: the tenant resolver the service is built with (default: mode `off`). */
+  tenancy?: PayerTenantScopeService;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -147,6 +172,10 @@ function setup(opts: SetupOpts = {}) {
     ),
     markDisclosed: vi.fn(async (_id: string, _input: Record<string, unknown>) => undefined),
     listByPayer: vi.fn(async () => []),
+    countDisclosedForPosting: vi.fn(async () => 3),
+    countDisclosedForPostings: vi.fn(
+      async (_ids: readonly string[], _tenant: string) => new Map<string, number>(),
+    ),
     // #1898: a global-pool read, so it lives on the repo only — NOT in txMethods, where a call
     // through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     jobPostingExists: vi.fn(async (_id: string) => opts.postingRowExists ?? true),
@@ -264,6 +293,7 @@ function setup(opts: SetupOpts = {}) {
     occupations as never,
     events as unknown as EventsService,
     CONFIG,
+    opts.tenancy ?? tenancyService("off"),
     // `tierScopes` — absent here; its own suite covers it.
     undefined,
     generalRoads as never,
@@ -1053,5 +1083,168 @@ describe("#1899 — a payer-session posting reference must be null or the payer'
       expect.anything(),
       expect.objectContaining({ jobPostingId: null }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) Phase 2b — disclosures belong to the ORG; the event names the actor.
+// ---------------------------------------------------------------------------------------------
+
+describe("ResumeDisclosureService — ADR-0053 org tenancy", () => {
+  const ANCHOR = PAYER; // A — the org's founder
+  const MEMBER = "33333333-3333-4333-8333-333333333333"; // B — an active recruiter in A's org
+  const OUTSIDER = "55555555-5555-4555-8555-555555555555"; // C — a solo payer
+  const POSTING = "77777777-7777-4777-8777-777777777777";
+
+  const facts = (anchor: string, orgRole: "owner" | "recruiter"): ActiveMembershipFacts => ({
+    orgId: `0${anchor.slice(1)}`,
+    orgRole,
+    acceptedAt: new Date(orgRole === "owner" ? "2026-05-01" : "2026-07-01"),
+    orgStatus: "active",
+    anchorPayerId: anchor,
+    anchorRole: "employer",
+    anchorStatus: "active",
+    memberRole: "employer",
+  });
+  const MEMBERSHIPS: Record<string, ActiveMembershipFacts[]> = {
+    [ANCHOR]: [facts(ANCHOR, "owner")],
+    [MEMBER]: [facts(MEMBER, "owner"), facts(ANCHOR, "recruiter")],
+    [OUTSIDER]: [facts(OUTSIDER, "owner")],
+  };
+  const on = () => tenancyService("on", MEMBERSHIPS);
+  const off = () => tenancyService("off", MEMBERSHIPS);
+
+  type Emitted = { event_name: string; actor: { actor_id: string }; payload: { payer_id: string } };
+
+  it("on: a teammate's disclosure is read and stamped under the ORG key; resume.disclosed names the teammate and the org", async () => {
+    const tenancy = on();
+    const resolve = vi.spyOn(tenancy, "resolve");
+    const t = setup({ tenancy });
+    const out = await t.service.requestDisclosure(
+      { payerId: MEMBER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(out).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.txMethods.findByPayerWorkerPosting).toHaveBeenCalledWith(
+      expect.anything(),
+      ANCHOR,
+      WORKER,
+      null,
+    );
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ payerId: ANCHOR, status: "granted" }),
+    );
+    const ev = t.emitted[0] as Emitted;
+    expect(ev.event_name).toBe("resume.disclosed");
+    expect(ev.actor.actor_id).toBe(MEMBER);
+    expect(ev.payload.payer_id).toBe(ANCHOR);
+    // ONE resolution for the whole request, at its entry point (review L-1).
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledWith(MEMBER);
+  });
+
+  it("off: the same teammate is keyed to themself, and the event names them twice — identical to before", async () => {
+    const t = setup({ tenancy: off() });
+    await t.service.requestDisclosure({ payerId: MEMBER, workerId: WORKER, jobPostingId: null }, CTX);
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ payerId: MEMBER }),
+    );
+    const ev = t.emitted[0] as Emitted;
+    expect(ev.actor.actor_id).toBe(MEMBER);
+    expect(ev.payload.payer_id).toBe(MEMBER);
+  });
+
+  it("on: a deny row (no consent) is stamped under the ORG key too", async () => {
+    const t = setup({ tenancy: on(), consentPurposes: ["profiling"] });
+    expect(
+      await t.service.requestDisclosure(
+        { payerId: MEMBER, workerId: WORKER, jobPostingId: null },
+        CTX,
+      ),
+    ).toEqual(NEUTRAL);
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ payerId: ANCHOR, status: "denied", denyReason: "no_consent" }),
+    );
+  });
+
+  it("on: the payer-session posting context must be the ORG's — a teammate may use it, an outsider is refused", async () => {
+    const ownedRefs = { [POSTING]: { payerId: ANCHOR, kind: "posting" as const } };
+    const mine = setup({ tenancy: on(), ownedRefs });
+    const granted = await mine.service.requestDisclosure(
+      { payerId: MEMBER, workerId: WORKER, jobPostingId: POSTING },
+      CTX,
+      "payer_owned",
+    );
+    expect(granted).toMatchObject({ ok: true });
+    expect(mine.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ payerId: ANCHOR, jobPostingId: POSTING }),
+    );
+
+    const foreign = setup({ tenancy: on(), ownedRefs });
+    expect(
+      await foreign.service.requestDisclosure(
+        { payerId: OUTSIDER, workerId: WORKER, jobPostingId: POSTING },
+        CTX,
+        "payer_owned",
+      ),
+    ).toEqual(NEUTRAL);
+    expect(foreign.repo.withTransaction).not.toHaveBeenCalled();
+    expect(foreign.emitted).toEqual([]);
+  });
+
+  it("on: the disclosure list and the per-posting count are the ORG's", async () => {
+    const tenancy = on();
+    const resolve = vi.spyOn(tenancy, "resolve");
+    const t = setup({ tenancy });
+    await t.service.listByPayer(MEMBER);
+    expect(t.repo.listByPayer).toHaveBeenCalledWith(ANCHOR);
+    expect(resolve).toHaveBeenCalledTimes(1); // one resolution per entry point (review L-1)
+    // The single-posting count reads in the scope its caller resolved — it never resolves.
+    const scope = await tenancy.resolve(MEMBER);
+    resolve.mockClear();
+    expect(await t.service.countDownloadsForPostingInScope(POSTING, scope)).toBe(3);
+    expect(t.repo.countDisclosedForPosting).toHaveBeenCalledWith(POSTING, ANCHOR);
+    expect(resolve).not.toHaveBeenCalled();
+
+    const solo = setup({ tenancy: on() });
+    await solo.service.listByPayer(OUTSIDER);
+    expect(solo.repo.listByPayer).toHaveBeenCalledWith(OUTSIDER);
+  });
+
+  it("on: the postings page's download counts are ONE grouped read in the caller's scope (no resolution of their own); unknown ids read 0", async () => {
+    const tenancy = on();
+    const t = setup({ tenancy });
+    const scope = await tenancy.resolve(MEMBER);
+    const resolve = vi.spyOn(tenancy, "resolve"); // spied AFTER the caller's one resolution
+    const OTHER = "88888888-8888-4888-8888-888888888888";
+    t.repo.countDisclosedForPostings.mockResolvedValueOnce(new Map([[POSTING, 4]]));
+    const counts = await t.service.countDownloadsInScope([POSTING, OTHER], scope);
+    expect(counts).toEqual(
+      new Map([
+        [POSTING, 4],
+        [OTHER, 0],
+      ]),
+    );
+    expect(t.repo.countDisclosedForPostings).toHaveBeenCalledTimes(1);
+    expect(t.repo.countDisclosedForPostings).toHaveBeenCalledWith([POSTING, OTHER], ANCHOR);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("on: a refused tenancy is the resolver's 403 before any read, write or event", async () => {
+    const t = setup({
+      tenancy: tenancyService("on", {
+        [MEMBER]: [...MEMBERSHIPS[MEMBER]!, facts("66666666-6666-4666-8666-666666666666", "recruiter")],
+      }),
+    });
+    await expect(
+      t.service.requestDisclosure({ payerId: MEMBER, workerId: WORKER, jobPostingId: null }, CTX),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.emitted).toEqual([]);
   });
 });

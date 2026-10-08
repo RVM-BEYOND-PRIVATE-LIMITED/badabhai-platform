@@ -4,7 +4,6 @@ import {
   type Database,
   type Unlock,
   type UnlockRouting,
-  type PayerCredit,
   type CreditReason,
   type UnlockStatus,
   type UnlockDenyReason,
@@ -22,6 +21,7 @@ import {
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { OPS_LIST_CAP } from "../common/pagination";
 
 /**
@@ -61,6 +61,26 @@ export interface CreditLedgerItem {
   created_at: Date;
 }
 
+/** One credit movement into a wallet — everything but WHICH wallet (the caller's authority). */
+export interface WalletCredit {
+  credits: number;
+  reason: CreditReason;
+  packCode: string | null;
+  paymentRef: string | null;
+  /**
+   * The amount CHARGED, whole ₹ (D-6). Stamped onto the row so History renders what this
+   * purchase ACTUALLY cost, immune to any later ops price edit. Null for ops grants /
+   * movements with no amount.
+   */
+  priceInr?: number | null;
+  /**
+   * EXACTLY-ONCE key for the ledger insert (the `credit_ledger_idempotency_key_uq` partial
+   * unique index). Optional: movements with no natural dedup key leave it null and never
+   * collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
+   */
+  idempotencyKey?: string | null;
+}
+
 /** PII-free ops/list projection of an unlock row (NO routing token resolved). */
 export interface UnlockProjection {
   unlock_id: string;
@@ -92,6 +112,13 @@ export interface UnlockProjection {
  * called from {@link UnlockService}. No other module imports this repository. The
  * raw phone is NEVER read or written here — it is touched only transiently in the
  * service's reveal handler.
+ *
+ * TENANCY (ADR-0053, PAY-DB-01). Every predicate and stamp on a tenant row — `unlocks`,
+ * `payer_credits` (the org wallet), `credit_ledger`, `payment_orders` — takes a {@link TenantKey},
+ * never a raw payer id. The key comes only from `PayerTenantScopeService`: the service resolves
+ * it once per request and passes it down. In mode `off` the key IS the session payer, so every
+ * statement here is byte-identical to before; in `on` it is the acting org's anchor. The column
+ * keeps its name (`payer_id`) and now means "the tenant" (ADR-0053 §3.1).
  */
 @Injectable()
 export class UnlocksRepository {
@@ -168,20 +195,24 @@ export class UnlocksRepository {
   }
 
   /**
-   * #1899 — `jobId` as a `jobs` or `job_postings` row the payer OWNS, or null (unknown and
+   * #1899 — `jobId` as a `jobs` or `job_postings` row the TENANT owns, or null (unknown and
    * foreign alike). A NON-tx global-pool read like {@link legacyJobExists}, so the service
    * calls it BEFORE the advisory-locked transaction (same deadlock rule).
    */
-  async findOwnedJobRef(jobId: string, payerId: string): Promise<OwnedJobRef | null> {
-    return findOwnedJobRef(this.db, jobId, payerId);
+  async findOwnedJobRef(jobId: string, tenant: TenantKey): Promise<OwnedJobRef | null> {
+    return findOwnedJobRef(this.db, jobId, tenant);
   }
 
-  /** The existing unlock for (payer, worker), or undefined. Tx-scoped read. */
-  async findByPayerWorker(tx: Tx, payerId: string, workerId: string): Promise<Unlock | undefined> {
+  /** The existing unlock for (tenant, worker), or undefined. Tx-scoped read. */
+  async findByPayerWorker(
+    tx: Tx,
+    tenant: TenantKey,
+    workerId: string,
+  ): Promise<Unlock | undefined> {
     const rows = await tx
       .select()
       .from(unlocks)
-      .where(and(eq(unlocks.payerId, payerId), eq(unlocks.workerId, workerId)))
+      .where(and(eq(unlocks.payerId, tenant), eq(unlocks.workerId, workerId)))
       .limit(1);
     return rows[0];
   }
@@ -210,7 +241,12 @@ export class UnlocksRepository {
     return rows[0]?.total ?? 0;
   }
 
-  /** Count DISTINCT payers who hold a grant for a worker since `since` (weekly cap). */
+  /**
+   * Count DISTINCT payers who hold a grant for a worker since `since` (weekly cap). `payer_id`
+   * holds the tenant key (ADR-0053), so in mode `on` this counts distinct ORGS — owner ruling
+   * O-3: the cap protects the worker from distinct companies, and a team counts once. The SQL
+   * is unchanged; only what the column means changed.
+   */
   async countDistinctPayersSince(tx: Tx, workerId: string, since: Date): Promise<number> {
     const rows = await tx
       .select({ count: sql<number>`count(distinct ${unlocks.payerId})::int` })
@@ -227,14 +263,15 @@ export class UnlocksRepository {
   }
 
   /**
-   * Upsert the GRANTED unlock for (payer, worker) — idempotent on the unique
-   * (payer_id, worker_id). Tx-scoped. Sets status=granted, the routing token ref,
-   * granted_at, expires_at, clears any prior deny_reason.
+   * Upsert the GRANTED unlock for (tenant, worker) — idempotent on the unique
+   * (payer_id, worker_id), which is one unlock per (org, worker) in mode `on`. Tx-scoped. Sets
+   * status=granted, the routing token ref, granted_at, expires_at, clears any prior deny_reason.
    */
   async upsertGrant(
     tx: Tx,
     input: {
-      payerId: string;
+      /** The tenant key, stamped into `payer_id` (ADR-0053 §5.2 rule 3). */
+      payerId: TenantKey;
       workerId: string;
       jobId: string | null;
       /** #2033 — the owned company posting, or null. At most one of jobId / jobPostingId. */
@@ -278,14 +315,15 @@ export class UnlocksRepository {
   }
 
   /**
-   * Record a DENIED unlock for the audit spine — idempotent on (payer, worker). The
+   * Record a DENIED unlock for the audit spine — idempotent on (tenant, worker). The
    * deny_reason is INTERNAL only (CHECK enforces it is set only on status=denied). It
    * never reaches the payer. Tx-scoped. Returns the row so the caller can event its id.
    */
   async recordDeny(
     tx: Tx,
     input: {
-      payerId: string;
+      /** The tenant key, stamped into `payer_id`. */
+      payerId: TenantKey;
       workerId: string;
       jobId: string | null;
       /** #2033 — the owned company posting, or null. */
@@ -431,37 +469,26 @@ export class UnlocksRepository {
   // atomic conditional decrement below guarantee balance never goes negative.
   // -------------------------------------------------------------------------
 
-  /** The payer's credit balance row, or undefined (tx-scoped, locked). */
-  async findCreditsForUpdate(tx: Tx, payerId: string): Promise<PayerCredit | undefined> {
-    const rows = await tx
-      .select()
-      .from(payerCredits)
-      .where(eq(payerCredits.payerId, payerId))
-      .limit(1)
-      .for("update");
-    return rows[0];
-  }
-
-  /** The payer's current balance (non-tx read), or 0 if no row. Ops read. */
-  async getBalance(payerId: string): Promise<number> {
+  /** The tenant wallet's current balance (non-tx read), or 0 if no row. */
+  async getBalance(tenant: TenantKey): Promise<number> {
     const rows = await this.db
       .select({ balance: payerCredits.balance })
       .from(payerCredits)
-      .where(eq(payerCredits.payerId, payerId))
+      .where(eq(payerCredits.payerId, tenant))
       .limit(1);
     return rows[0]?.balance ?? 0;
   }
 
   /**
-   * The payer's OWN credit-ledger movements, newest first, bounded by `limit`. The append-only
-   * source of truth behind the balance — amounts + opaque ids only (PII-free by table design;
-   * no currency/PAN/UPI). Scoped by `payer_id` (the caller's SESSION id) so a payer only ever
-   * sees their OWN rows. Read-only.
+   * The tenant wallet's credit-ledger movements, newest first, bounded by `limit`. The
+   * append-only source of truth behind the balance — amounts + opaque ids only (PII-free by
+   * table design; no currency/PAN/UPI). Scoped by `payer_id` = the tenant key the resolver gave
+   * the SESSION payer, so a payer only ever sees their own org's wallet. Read-only.
    *
    * ⚠️ Selects `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
    * against an unmigrated DB this read fails outright (not a silently-null column).
    */
-  async listCreditLedgerByPayer(payerId: string, limit: number): Promise<CreditLedgerItem[]> {
+  async listCreditLedgerByPayer(tenant: TenantKey, limit: number): Promise<CreditLedgerItem[]> {
     return this.db
       .select({
         id: creditLedger.id,
@@ -474,7 +501,7 @@ export class UnlocksRepository {
         created_at: creditLedger.createdAt,
       })
       .from(creditLedger)
-      .where(eq(creditLedger.payerId, payerId))
+      .where(eq(creditLedger.payerId, tenant))
       .orderBy(desc(creditLedger.createdAt))
       .limit(limit);
   }
@@ -484,21 +511,30 @@ export class UnlocksRepository {
    * balance >= amount, returning the new balance — or undefined if there were
    * insufficient credits (no row updated). Combined with the DB CHECK this makes a
    * negative balance impossible even under concurrency. Tx-scoped.
+   *
+   * THE ORG WALLET LOCK (ADR-0053 §6). The UPDATE takes the wallet row's lock, keyed by the
+   * tenant: in mode `on` two members spending at once queue on the SAME row, and the second
+   * re-evaluates `balance >= amount` against the first's committed balance — so a team can
+   * never overdraw its one wallet, exactly as one payer never could.
    */
-  async tryDebit(tx: Tx, payerId: string, amount: number): Promise<number | undefined> {
+  async tryDebit(tx: Tx, tenant: TenantKey, amount: number): Promise<number | undefined> {
     const rows = await tx
       .update(payerCredits)
       .set({ balance: sql`${payerCredits.balance} - ${amount}`, updatedAt: sql`now()` })
-      .where(and(eq(payerCredits.payerId, payerId), gte(payerCredits.balance, amount)))
+      .where(and(eq(payerCredits.payerId, tenant), gte(payerCredits.balance, amount)))
       .returning({ balance: payerCredits.balance });
     return rows[0]?.balance;
   }
 
-  /** Append a credit-ledger movement (tx-scoped — the source of truth). */
+  /**
+   * Append a credit-ledger movement (tx-scoped — the source of truth). `payerId` is the WALLET
+   * (the tenant key) the movement belongs to — the same key as the balance it moved, so
+   * `balance = Σ delta` per `payer_id` holds across the flip and across a rollback (ADR-0053 §6).
+   */
   async appendLedger(
     tx: Tx,
     input: {
-      payerId: string;
+      payerId: TenantKey;
       delta: number;
       reason: CreditReason;
       unlockId?: string | null;
@@ -524,66 +560,50 @@ export class UnlocksRepository {
    * ⚠️ Inserts `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
    * against an unmigrated DB EVERY pack purchase fails on this insert.
    */
-  async creditPack(input: {
-    payerId: string;
-    credits: number;
-    reason: CreditReason;
-    packCode: string | null;
-    paymentRef: string | null;
-    /**
-     * The amount CHARGED, whole ₹ (D-6). Stamped onto the row so History renders what this
-     * purchase ACTUALLY cost, immune to any later ops price edit. Null for ops grants /
-     * movements with no amount.
-     */
-    priceInr?: number | null;
-    /**
-     * EXACTLY-ONCE key for the ledger insert (the `credit_ledger_idempotency_key_uq` partial
-     * unique index). Optional: movements with no natural dedup key leave it null and never
-     * collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
-     */
-    idempotencyKey?: string | null;
-  }): Promise<number> {
-    return this.db.transaction((tx) => this.creditPackWithinTx(tx, input));
+  async creditPack(
+    input: {
+      /** The wallet credited: the tenant key (ADR-0053 W1 — a member's purchase credits the org). */
+      payerId: TenantKey;
+    } & WalletCredit,
+  ): Promise<number> {
+    const { payerId, ...credit } = input;
+    return this.db.transaction((tx) => this.creditWalletWithinTx(tx, payerId, credit));
   }
 
   /**
-   * The tx-scoped half of {@link creditPack} — grant + ledger append inside the CALLER's
-   * transaction (the same F-6 atomicity shape as {@link tryDebit}).
+   * The ONE wallet-credit implementation, inside the CALLER's transaction (the F-6 atomicity
+   * shape of {@link tryDebit}): upsert the balance row (+credits), append the ledger line on the
+   * SAME key. PRIVATE, and typed so only an authority names the wallet: a resolver-minted
+   * {@link TenantKey} ({@link creditPack}) or the row a payment-order claim RETURNED
+   * ({@link claimAndCreditPaymentOrderWithinTx}). No caller can hand it an order it built.
    *
-   * WHY IT MUST BE TX-SCOPED FOR REAL PAYMENTS: the grant has to commit in the SAME
-   * transaction as the `payment_orders` 'created' → 'paid' flip. If they were separate
-   * transactions, a crash between them leaves either a paid order with no credits (the
-   * payer paid and got nothing) or credits with an unpaid order (a free grant that a
-   * retried webhook would repeat). One transaction makes both impossible.
+   * WHY TX-SCOPED: the real-payment grant must commit in the SAME transaction as the
+   * `payment_orders` 'created' → 'paid' flip. Separate transactions would let a crash leave a
+   * paid order with no credits (the payer paid and got nothing) or credits with an unpaid order
+   * (a free grant a retried webhook would repeat). One transaction makes both impossible.
    */
-  async creditPackWithinTx(
+  private async creditWalletWithinTx(
     tx: Tx,
-    input: {
-      payerId: string;
-      credits: number;
-      reason: CreditReason;
-      packCode: string | null;
-      paymentRef: string | null;
-      priceInr?: number | null;
-      idempotencyKey?: string | null;
-    },
+    wallet: TenantKey | PaymentOrder,
+    credit: WalletCredit,
   ): Promise<number> {
+    const walletKey = typeof wallet === "string" ? wallet : wallet.payerId;
     const updated = await tx
       .insert(payerCredits)
-      .values({ payerId: input.payerId, balance: input.credits })
+      .values({ payerId: walletKey, balance: credit.credits })
       .onConflictDoUpdate({
         target: payerCredits.payerId,
-        set: { balance: sql`${payerCredits.balance} + ${input.credits}`, updatedAt: sql`now()` },
+        set: { balance: sql`${payerCredits.balance} + ${credit.credits}`, updatedAt: sql`now()` },
       })
       .returning({ balance: payerCredits.balance });
     await tx.insert(creditLedger).values({
-      payerId: input.payerId,
-      delta: input.credits,
-      reason: input.reason,
-      packCode: input.packCode,
-      paymentRef: input.paymentRef,
-      priceInr: input.priceInr ?? null,
-      idempotencyKey: input.idempotencyKey ?? null,
+      payerId: walletKey,
+      delta: credit.credits,
+      reason: credit.reason,
+      packCode: credit.packCode,
+      paymentRef: credit.paymentRef,
+      priceInr: credit.priceInr ?? null,
+      idempotencyKey: credit.idempotencyKey ?? null,
     });
     const balance = updated[0]?.balance;
     if (balance === undefined) throw new Error("Failed to credit pack");
@@ -603,9 +623,13 @@ export class UnlocksRepository {
    * reads BOTH off this row and never re-consults the catalog, so an ops price/size edit
    * between creation and capture cannot change what an existing order is worth. A receipt
    * carrying only the amount and not the goods is not a receipt.
+   *
+   * The WALLET is stamped here too (ADR-0053 §6): `payer_id` is the tenant key at intent, and
+   * settlement credits that wallet and never re-resolves — an order created before the flip
+   * settles into the wallet it was created for.
    */
   async createPaymentOrder(input: {
-    payerId: string;
+    payerId: TenantKey;
     packCode: string;
     amountInr: number;
     creditsGranted: number;
@@ -648,6 +672,38 @@ export class UnlocksRepository {
   }
 
   /**
+   * SETTLEMENT (ADR-0053 §6): claim the order with the compare-and-set below and, in the SAME
+   * transaction, credit the wallet the CLAIMED row names — the `payer_id` stamped at intent,
+   * read off the UPDATE's RETURNING row and never re-resolved. An order created before the flip
+   * therefore settles into the wallet it was created for, and an order a team member created
+   * settles into the org wallet. The credits and the ₹ are the row's stamped values (D-6).
+   *
+   * The wallet cannot come from anywhere else: the caller names the PROVIDER order only, and the
+   * credit helper is private. `undefined` when the claim matched no row (already paid, unknown,
+   * or a concurrent settler won) — then nothing is credited.
+   *
+   * Exactly-once, layer 3: the ledger line carries `payment_order:<row id>` under the partial
+   * unique index, so even a bypassed claim could not credit an order twice.
+   */
+  async claimAndCreditPaymentOrderWithinTx(
+    tx: Tx,
+    input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
+  ): Promise<{ order: PaymentOrder; balanceAfter: number } | undefined> {
+    const claimed = await this.claimPaymentOrderPaidWithinTx(tx, input);
+    if (!claimed) return undefined;
+    const balanceAfter = await this.creditWalletWithinTx(tx, claimed, {
+      credits: claimed.creditsGranted,
+      reason: "pack_purchase",
+      packCode: claimed.packCode,
+      // OPAQUE provider payment id only (`pay_*`) — never a card/UPI/contact value.
+      paymentRef: input.providerPaymentRef,
+      priceInr: claimed.amountInr,
+      idempotencyKey: `payment_order:${claimed.id}`,
+    });
+    return { order: claimed, balanceAfter };
+  }
+
+  /**
    * THE RACE CLOSURE — an atomic compare-and-set from any non-paid state to 'paid'.
    *
    * Returns the claimed row to EXACTLY ONE caller and `undefined` to every other, whether
@@ -665,7 +721,7 @@ export class UnlocksRepository {
    * The caller performs the credit grant in the SAME transaction as this call, so "claimed
    * the order" and "granted the credits" commit or roll back together.
    */
-  async claimPaymentOrderPaidWithinTx(
+  private async claimPaymentOrderPaidWithinTx(
     tx: Tx,
     input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
   ): Promise<PaymentOrder | undefined> {
@@ -717,25 +773,25 @@ export class UnlocksRepository {
     return status === "paid";
   }
 
-  /** PII-free list of a payer's unlocks (ops read). NO routing token resolved. */
-  async listByPayer(payerId: string): Promise<UnlockProjection[]> {
+  /** PII-free list of a tenant's unlocks (ops read). NO routing token resolved. */
+  async listByPayer(tenant: TenantKey): Promise<UnlockProjection[]> {
     const rows = await this.db
       .select()
       .from(unlocks)
-      .where(eq(unlocks.payerId, payerId))
+      .where(eq(unlocks.payerId, tenant))
       .orderBy(desc(unlocks.createdAt)) // deterministic newest-first under the cap
       .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read
     return rows.map((u) => this.project(u));
   }
 
   /**
-   * #2033 — the payer's unlocks whose STORED status is one of `statuses`, newest first, capped.
+   * #2033 — the tenant's unlocks whose STORED status is one of `statuses`, newest first, capped.
    * The filter runs in SQL so rows outside the set never reach the caller AND never consume
    * the cap. Which statuses a caller may see is the service's rule, not this method's.
-   * Served by `unlocks_payer_id_idx`; the status test is a residual filter on that payer's rows.
+   * Served by `unlocks_payer_id_idx`; the status test is a residual filter on that tenant's rows.
    */
   async listByPayerWithStatus(
-    payerId: string,
+    tenant: TenantKey,
     statuses: readonly UnlockStatus[],
   ): Promise<UnlockProjection[]> {
     // An empty IN () is invalid SQL and would mean "nothing" anyway.
@@ -743,7 +799,7 @@ export class UnlocksRepository {
     const rows = await this.db
       .select()
       .from(unlocks)
-      .where(and(eq(unlocks.payerId, payerId), inArray(unlocks.status, [...statuses])))
+      .where(and(eq(unlocks.payerId, tenant), inArray(unlocks.status, [...statuses])))
       .orderBy(desc(unlocks.createdAt))
       .limit(OPS_LIST_CAP);
     return rows.map((u) => this.project(u));

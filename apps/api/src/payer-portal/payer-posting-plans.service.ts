@@ -16,11 +16,17 @@ import type {
   PayerTopUpQuotaDto,
 } from "../posting-plans/posting-plans.dto";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { ResumeDisclosureService } from "../disclosures/resume-disclosure.service";
 
-/** One of the tenant's postings with its plan / boost stats, read in ONE tenant resolution. */
+/**
+ * One of the tenant's postings with its plan / boost stats and its résumé-download count, all
+ * read in ONE tenant resolution.
+ */
 export interface PostingWithStats {
   readonly posting: JobPostingApi;
   readonly stats: PostingStats;
+  /** Résumés the tenant downloaded for this posting (completed disclosures only). */
+  readonly disclosuresCount: number;
 }
 
 /**
@@ -55,8 +61,9 @@ export interface OwnedPostingPurchases {
  * the scope across, so nothing re-resolves.
  *
  * The postings list and the single read go through here too ({@link listWithStats},
- * {@link getOneWithStats}): their stats are read with the tenant key the posting read used, so
- * `GET /payer/job-postings` resolves once, not once per posting (§5.4; plan §3.1 "N+1" hazard).
+ * {@link getOneWithStats}): their plan stats AND their résumé-download counts (P2b) are read in
+ * the scope the posting read used, so `GET /payer/job-postings` resolves once, not once per
+ * posting (§5.4; plan §3.1 "N+1" hazard). The page's download counts are ONE grouped query.
  *
  * In mode `off` the tenant is the session payer, so every read and stamp is today's.
  */
@@ -65,6 +72,8 @@ export class PayerPostingPlansService {
   constructor(
     private readonly jobPostings: JobPostingsService,
     private readonly plans: PostingPlansService,
+    // ADR-0053 P2b — the résumé-download counts, read in the scope resolved here.
+    private readonly disclosures: ResumeDisclosureService,
     // ADR-0053 — the payer tenant resolver (PayersModule).
     private readonly tenancy: PayerTenantScopeService,
   ) {}
@@ -83,25 +92,43 @@ export class PayerPostingPlansService {
     };
   }
 
-  /** The tenant's postings, newest first, each with its plan / boost stats — one resolution. */
+  /**
+   * The tenant's postings, newest first, each with its plan / boost stats and its download count
+   * — one resolution; the page's download counts in ONE grouped query beside the stats.
+   */
   async listWithStats(
     actorPayerId: string,
     query: ListJobPostingsQueryDto,
   ): Promise<PostingWithStats[]> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const postings = await this.jobPostings.listInScope(scope, query);
-    return Promise.all(
-      postings.map(async (posting) => ({
-        posting,
-        stats: await this.plans.getPostingStats(posting.id, scope.tenantKey),
-      })),
-    );
+    const [stats, downloads] = await Promise.all([
+      Promise.all(
+        postings.map((posting) => this.plans.getPostingStats(posting.id, scope.tenantKey)),
+      ),
+      this.disclosures.countDownloadsInScope(
+        postings.map((posting) => posting.id),
+        scope,
+      ),
+    ]);
+    return postings.map((posting, i) => ({
+      posting,
+      stats: stats[i]!,
+      disclosuresCount: downloads.get(posting.id) ?? 0,
+    }));
   }
 
-  /** One of the tenant's postings with its stats; no-oracle 404 for an unknown or foreign id. */
+  /**
+   * One of the tenant's postings with its stats and download count; no-oracle 404 for an unknown
+   * or foreign id (nothing else is read for it).
+   */
   async getOneWithStats(jobPostingId: string, actorPayerId: string): Promise<PostingWithStats> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const posting = await this.jobPostings.getOneInScope(jobPostingId, scope);
-    return { posting, stats: await this.plans.getPostingStats(posting.id, scope.tenantKey) };
+    const [stats, disclosuresCount] = await Promise.all([
+      this.plans.getPostingStats(posting.id, scope.tenantKey),
+      this.disclosures.countDownloadsForPostingInScope(posting.id, scope),
+    ]);
+    return { posting, stats, disclosuresCount };
   }
 }

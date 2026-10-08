@@ -16,11 +16,39 @@ import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
 import type { RazorpayClient } from "./razorpay.client";
 import { neutralUnavailable } from "./unlock-response";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import type {
+  ActiveMembershipFacts,
+  PayerOrgTenancyMode,
+  TenantKey,
+} from "../payers/payer-tenant-scope";
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
 const PAYER = "11111111-1111-1111-1111-111111111111";
 const WORKER = "22222222-2222-2222-2222-222222222222";
 const SENTINEL_PHONE = "+919876500000"; // a value that must NEVER appear in events/response
+/** The tenant key `PAYER` resolves to in mode `off` (or as a solo payer in `on`) — itself. */
+const PAYER_KEY = PAYER as TenantKey;
+
+/**
+ * The REAL resolver (ADR-0053) over a fake membership read, so these tests exercise the same
+ * `off`/`on` decision production makes and never mint a tenant key by hand. `memberships` maps
+ * a payer id to its ACTIVE memberships; anyone absent has none (in `off` that resolves to
+ * themselves; in `on` the heal finds no payer and the resolver fails closed).
+ */
+function tenancyService(
+  mode: PayerOrgTenancyMode = "off",
+  memberships: Record<string, ActiveMembershipFacts[]> = {},
+): PayerTenantScopeService {
+  return new PayerTenantScopeService(
+    { PAYER_ORG_TENANCY_MODE: mode } as unknown as ServerConfig,
+    {
+      listActiveMembershipsWithAnchor: vi.fn(async (id: string) => memberships[id] ?? []),
+      ensureSoloOrg: vi.fn(async () => null),
+    } as unknown as PayerOrgsRepository,
+  );
+}
 
 const CAPS = {
   UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY: 5,
@@ -50,6 +78,8 @@ interface SetupOpts {
   ownedRefs?: Record<string, { payerId: string; kind: "job" | "posting" }>;
   /** ADR-0050: agency TWIN posting id → its source `jobs` id (findAgencyTwinSourceJobId). */
   twins?: Record<string, string>;
+  /** ADR-0053: the tenant resolver the service is built with (default: mode `off`). */
+  tenancy?: PayerTenantScopeService;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -108,6 +138,9 @@ function setup(opts: SetupOpts = {}) {
     listByPayer: vi.fn(async () => []),
     // #2033: the payer route's status-filtered read.
     listByPayerWithStatus: vi.fn(async (): Promise<unknown[]> => []),
+    // The wallet's ledger read and the mock pack credit (ADR-0053 tests key-check both).
+    listCreditLedgerByPayer: vi.fn(async (): Promise<unknown[]> => []),
+    creditPack: vi.fn(async (input: { credits: number }) => balance + input.credits),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
     // pre-lock consent check fires in the reveal tests.
@@ -189,6 +222,7 @@ function setup(opts: SetupOpts = {}) {
     // alert inert; it is wired rather than stubbed out because the helper is fail-open and
     // an undefined dependency would be silently swallowed by its catch.
     { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
+    opts.tenancy ?? tenancyService("off"),
   );
   return { svc, repo, txMethods, consents, workers, pii, events, referralBonusQueue };
 }
@@ -1257,7 +1291,7 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       routingByHandle: routingRow(),
       projection: liveProjection(),
     });
-    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toEqual({
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toEqual({
       unlockId: "unlock-1",
       workerId: WORKER,
     });
@@ -1265,7 +1299,7 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
 
   it("fails closed for an unknown handle", async () => {
     const { svc } = setup({ consentPurposes: BOTH, projection: liveProjection() });
-    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
   });
 
   it("fails closed when the caller does not own the unlock (no oracle)", async () => {
@@ -1274,7 +1308,7 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       routingByHandle: routingRow(),
       projection: liveProjection({ payer_id: "99999999-9999-4999-8999-999999999999" }),
     });
-    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
   });
 
   it("C-3: fails closed when the latest consent row omits employer_messaging — the C-2 exit reaches live unlocks", async () => {
@@ -1283,7 +1317,7 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       routingByHandle: routingRow(),
       projection: liveProjection(),
     });
-    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
   });
 
   it("fails closed when employer_sharing is missing or the row is revoked", async () => {
@@ -1292,7 +1326,7 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       routingByHandle: routingRow(),
       projection: liveProjection(),
     });
-    expect(await missing.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await missing.svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
 
     const revoked = setup({
       consentPurposes: BOTH,
@@ -1300,7 +1334,7 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       routingByHandle: routingRow(),
       projection: liveProjection(),
     });
-    expect(await revoked.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await revoked.svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
   });
 
   it("fails closed on an expired unlock or an expired handle", async () => {
@@ -1309,14 +1343,14 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       routingByHandle: routingRow(),
       projection: liveProjection({ expires_at: new Date(Date.now() - 1_000) }),
     });
-    expect(await expiredUnlock.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await expiredUnlock.svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
 
     const expiredHandle = setup({
       consentPurposes: BOTH,
       routingByHandle: routingRow({ expiresAt: new Date(Date.now() - 1_000) }),
       projection: liveProjection(),
     });
-    expect(await expiredHandle.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await expiredHandle.svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
   });
 
   it("fails closed for a pending-deletion worker and for a DSAR null worker_id", async () => {
@@ -1326,14 +1360,14 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       routingByHandle: routingRow(),
       projection: liveProjection(),
     });
-    expect(await leaving.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await leaving.svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
 
     const gone = setup({
       consentPurposes: BOTH,
       routingByHandle: routingRow(),
       projection: liveProjection({ worker_id: null }),
     });
-    expect(await gone.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+    expect(await gone.svc.resolveRelayForPayer(HANDLE, PAYER_KEY)).toBeNull();
   });
 
   it("worker side: resolves the caller's own live unlock, and fails closed for a foreign worker", async () => {
@@ -1445,5 +1479,273 @@ describe("UnlockService — ADR-0050 §4.5: an unlock on an agency TWIN stores t
       t.svc.requestUnlock({ payerId: AGENCY, workerId: WORKER, jobId: TWIN }, CTX),
     ).rejects.toThrow();
     expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// ADR-0053 (PAY-DB-01) Phase 2b — the ORG is the tenant: one wallet, one set of unlocks.
+// ---------------------------------------------------------------------------------------------
+
+describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key, the envelope by the ACTOR", () => {
+  const ANCHOR = PAYER; // A — founded the org; its existing wallet IS the org wallet (O-1)
+  const MEMBER = "33333333-3333-4333-8333-333333333333"; // B — an active recruiter in A's org
+  const OUTSIDER = "55555555-5555-4555-8555-555555555555"; // C — a solo payer, no tie to A
+  const OTHER_ANCHOR = "66666666-6666-4666-8666-666666666666";
+  const POSTING = "77777777-7777-4777-8777-777777777777";
+
+  const facts = (
+    anchor: string,
+    orgRole: "owner" | "recruiter",
+    acceptedAt: string,
+  ): ActiveMembershipFacts => ({
+    orgId: `0${anchor.slice(1)}`,
+    orgRole,
+    acceptedAt: new Date(acceptedAt),
+    orgStatus: "active",
+    anchorPayerId: anchor,
+    anchorRole: "employer",
+    anchorStatus: "active",
+    memberRole: "employer",
+  });
+  // B anchors their own solo org AND is an active recruiter in A's — exactly what the accept
+  // path leaves behind (ADR-0053 §3.5). Everyone else is solo.
+  const MEMBERSHIPS: Record<string, ActiveMembershipFacts[]> = {
+    [ANCHOR]: [facts(ANCHOR, "owner", "2026-05-01")],
+    [MEMBER]: [facts(MEMBER, "owner", "2026-05-02"), facts(ANCHOR, "recruiter", "2026-07-01")],
+    [OUTSIDER]: [facts(OUTSIDER, "owner", "2026-05-03")],
+  };
+  const on = () => tenancyService("on", MEMBERSHIPS);
+  const off = () => tenancyService("off", MEMBERSHIPS);
+
+  type Emitted = {
+    event_name: string;
+    actor: { actor_id: string | null };
+    subject: { subject_id: string | null };
+    payload: Record<string, unknown>;
+  };
+  const sent = (events: { emit: { mock: { calls: unknown[][] } } }): Emitted[] =>
+    events.emit.mock.calls.map((c) => c[0] as Emitted);
+  /** The payer reference a payload carries: `payer_id`, or `profile.viewed_v2`'s `viewer_payer_id`. */
+  const payloadPayer = (e: Emitted): unknown => e.payload.payer_id ?? e.payload.viewer_payer_id;
+
+  /** Every key the unlock request handed a tenant-row method — the debit, the grant, the ledger. */
+  function keysUsed(t: ReturnType<typeof setup>): unknown[] {
+    const arg = (calls: unknown[][], i: number): unknown[] => calls.map((c) => c[i]);
+    const payerIdOf = (calls: unknown[][]): unknown[] =>
+      calls.map((c) => (c[1] as { payerId: unknown }).payerId);
+    return [
+      ...arg(t.repo.getBalance.mock.calls as unknown[][], 0),
+      ...arg(t.txMethods.findByPayerWorker.mock.calls as unknown[][], 1),
+      ...arg(t.txMethods.tryDebit.mock.calls as unknown[][], 1),
+      ...payerIdOf(t.txMethods.upsertGrant.mock.calls as unknown[][]),
+      ...payerIdOf(t.txMethods.appendLedger.mock.calls as unknown[][]),
+    ];
+  }
+
+  it("on: a teammate's unlock checks, debits and stamps the ORG's wallet and unlock — never their own", async () => {
+    const t = setup({ balance: 1, tenancy: on() });
+    const out = await t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+
+    const keys = keysUsed(t);
+    expect(keys).toHaveLength(5); // balance, existing-grant read, debit, grant, ledger line
+    expect(new Set(keys)).toEqual(new Set([ANCHOR]));
+    expect(t.txMethods.tryDebit).toHaveBeenCalledWith(expect.anything(), ANCHOR, 1);
+  });
+
+  it("on: every event names the teammate on the envelope and the ORG in the payload (§7) — schemas unchanged", async () => {
+    // Balance 1 → the debit lands on zero, so payer.credits_exhausted fires too.
+    const t = setup({ balance: 1, tenancy: on() });
+    await t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX);
+
+    const all = sent(t.events);
+    expect(all.map((e) => e.event_name)).toEqual([
+      "unlock.requested",
+      "payment.authorized",
+      "payment.captured",
+      "unlock.granted",
+      "profile.viewed_v2",
+      "payer.credits_exhausted",
+    ]);
+    for (const e of all) {
+      expect(e.actor.actor_id, e.event_name).toBe(MEMBER);
+      expect(payloadPayer(e), e.event_name).toBe(ANCHOR);
+    }
+    // The wallet that ran dry is the org's.
+    expect(all.at(-1)?.subject.subject_id).toBe(ANCHOR);
+  });
+
+  it("off: the SAME teammate is keyed to themself, and every event names them twice — identical to before ADR-0053", async () => {
+    const t = setup({ balance: 1, tenancy: off() });
+    await t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX);
+    expect(new Set(keysUsed(t))).toEqual(new Set([MEMBER]));
+    for (const e of sent(t.events)) {
+      expect(e.actor.actor_id, e.event_name).toBe(MEMBER);
+      expect(payloadPayer(e), e.event_name).toBe(MEMBER);
+    }
+  });
+
+  it("on: a solo payer is unaffected (solo identity, ADR-0053 §5.3)", async () => {
+    const t = setup({ balance: 3, tenancy: on() });
+    await t.svc.requestUnlock({ payerId: OUTSIDER, workerId: WORKER, jobId: null }, CTX);
+    expect(new Set(keysUsed(t))).toEqual(new Set([OUTSIDER]));
+  });
+
+  it("on: a refused tenancy (two team memberships, R3) is the resolver's 403 BEFORE any read, write or event", async () => {
+    const tangled = tenancyService("on", {
+      [MEMBER]: [...MEMBERSHIPS[MEMBER]!, facts(OTHER_ANCHOR, "recruiter", "2026-08-01")],
+    });
+    const t = setup({ balance: 5, tenancy: tangled });
+    await expect(
+      t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("on: a teammate re-unlocking a worker the ORG already holds gets the org's grant, uncharged (T6)", async () => {
+    const t = setup({
+      balance: 5,
+      tenancy: on(),
+      existingUnlock: {
+        id: "unlock-org",
+        payerId: ANCHOR,
+        workerId: WORKER,
+        status: "granted",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const out = await t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toMatchObject({ ok: true, unlock_id: "unlock-org" });
+    expect(t.txMethods.findByPayerWorker).toHaveBeenCalledWith(expect.anything(), ANCHOR, WORKER);
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
+  });
+
+  it("on: a payer-session job context must be the ORG's posting — a teammate may use it, an outsider is refused", async () => {
+    const ownedRefs = { [POSTING]: { payerId: ANCHOR, kind: "posting" as const } };
+    const mine = setup({ balance: 5, tenancy: on(), ownedRefs });
+    const granted = await mine.svc.requestUnlock(
+      { payerId: MEMBER, workerId: WORKER, jobId: POSTING },
+      CTX,
+      "payer_owned",
+    );
+    expect(granted).toMatchObject({ ok: true });
+    expect(mine.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ payerId: ANCHOR, jobPostingId: POSTING }),
+    );
+
+    const foreign = setup({ balance: 5, tenancy: on(), ownedRefs });
+    const refused = await foreign.svc.requestUnlock(
+      { payerId: OUTSIDER, workerId: WORKER, jobId: POSTING },
+      CTX,
+      "payer_owned",
+    );
+    expect(refused).toEqual(neutralUnavailable());
+    expect(foreign.repo.withTransaction).not.toHaveBeenCalled();
+    expect(foreign.events.emit).not.toHaveBeenCalled();
+  });
+
+  /** A live grant held by the ORG (A's key), as the locked read returns it. */
+  function orgGrant() {
+    return {
+      id: "unlock-1",
+      payerId: ANCHOR,
+      workerId: WORKER,
+      status: "granted",
+      routingTokenRef: "44444444-4444-4444-4444-444444444444",
+      revealCount: 0,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+  }
+
+  it("on: a teammate may reveal the ORG's unlock; contact.revealed names the teammate and the org", async () => {
+    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: on() });
+    t.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: ANCHOR });
+    const out = await t.svc.reveal("unlock-1", CTX, MEMBER);
+    expect(out).toMatchObject({ channel: "in_app_relay" });
+    const revealed = sent(t.events).find((e) => e.event_name === "contact.revealed");
+    expect(revealed?.actor.actor_id).toBe(MEMBER);
+    expect(revealed?.payload.payer_id).toBe(ANCHOR);
+  });
+
+  it("on: an outsider revealing the org's unlock gets the byte-identical neutral body — no decrypt, no event", async () => {
+    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: on() });
+    t.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: ANCHOR });
+    expect(await t.svc.reveal("unlock-1", CTX, OUTSIDER)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("off: the teammate is NOT the org — revealing A's unlock is the neutral body, as before ADR-0053", async () => {
+    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: off() });
+    t.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: ANCHOR });
+    expect(await t.svc.reveal("unlock-1", CTX, MEMBER)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("ownership is re-asserted on the LOCKED row: a row the pre-lock read did not see is held to the same rule", async () => {
+    // The pre-lock projection read finds nothing (the row did not exist yet, or the read raced);
+    // the locked read then finds a live grant held by ANOTHER tenant. Neutral, never a reveal.
+    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: on() });
+    t.repo.getProjection.mockResolvedValue(undefined);
+    expect(await t.svc.reveal("unlock-1", CTX, OUTSIDER)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.txMethods.createRouting).not.toHaveBeenCalled();
+  });
+
+  it("on: the teammate's balance, ledger and unlock lists are the ORG's; each response echoes the CALLER", async () => {
+    const t = setup({ balance: 9, tenancy: on() });
+
+    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9 });
+    expect(t.repo.getBalance).toHaveBeenLastCalledWith(ANCHOR);
+
+    expect(await t.svc.getCreditLedger(MEMBER, 25)).toEqual({ payer_id: MEMBER, ledger: [] });
+    expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(ANCHOR, 25);
+
+    await t.svc.listOwnForPayer(MEMBER);
+    expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(ANCHOR, expect.any(Array));
+
+    // The ops list takes its payer id through the same resolver (§5.2 rule 4).
+    await t.svc.listByPayer(MEMBER);
+    expect(t.repo.listByPayer).toHaveBeenCalledWith(ANCHOR);
+  });
+
+  it("on: an outsider's balance and lists stay their own — no org row reaches them", async () => {
+    const t = setup({ balance: 4, tenancy: on() });
+    await t.svc.getCredits(OUTSIDER);
+    await t.svc.getCreditLedger(OUTSIDER, 10);
+    await t.svc.listOwnForPayer(OUTSIDER);
+    expect(t.repo.getBalance).toHaveBeenCalledWith(OUTSIDER);
+    expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(OUTSIDER, 10);
+    expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(OUTSIDER, expect.any(Array));
+    for (const fn of [t.repo.getBalance, t.repo.listCreditLedgerByPayer, t.repo.listByPayerWithStatus]) {
+      expect((fn.mock.calls as unknown[][]).flat()).not.toContain(ANCHOR);
+    }
+  });
+
+  it("on: a teammate's (mock) purchase credits the ORG wallet; payment.* name the teammate and the org; the body echoes the caller", async () => {
+    const t = setup({ balance: 10, tenancy: on() });
+    const out = await t.svc.purchaseCredits(MEMBER, "pack_50", CTX);
+    expect(out).toMatchObject({ payer_id: MEMBER, credits: 50, pack_code: "pack_50" });
+    expect(t.repo.creditPack).toHaveBeenCalledWith(expect.objectContaining({ payerId: ANCHOR }));
+    const pay = sent(t.events);
+    expect(pay.map((e) => e.event_name)).toEqual(["payment.authorized", "payment.captured"]);
+    for (const e of pay) {
+      expect(e.actor.actor_id).toBe(MEMBER);
+      expect(e.payload.payer_id).toBe(ANCHOR);
+    }
+  });
+
+  it("on: #2085 price_mismatch still refuses a teammate BEFORE any ledger write or event", async () => {
+    const t = setup({ balance: 10, tenancy: on() });
+    await expect(t.svc.purchaseCredits(MEMBER, "pack_50", CTX, 1)).rejects.toMatchObject({
+      status: 409,
+      response: { reason: "price_mismatch" },
+    });
+    expect(t.repo.creditPack).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
   });
 });
