@@ -27,6 +27,7 @@ import '../../domain/chat_identity_questions.dart';
 import '../../domain/chat_repository.dart';
 import '../../domain/chat_session_opening.dart';
 import '../../domain/chat_free_chat_keys.dart';
+import '../../domain/chat_news_link.dart';
 import '../../domain/chat_turn.dart';
 
 // ---------------- Events ----------------
@@ -1317,6 +1318,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             // carries no reviewed Devanagari twin, so this bubble is never
             // spoken. Absent (every other turn) keeps read-aloud as it was.
             canReadAloud: turn.readAloud != false,
+            // ADR-0054 §3.4 (#2148) — the tiles ride the bubble they belong to,
+            // so the transcript needs no parallel list to know whose they are.
+            newsLinks: turn.newsLinks,
           ),
         ];
       } else if (predictionWasRight) {
@@ -1333,6 +1337,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           turn.reply,
           turn.ttsText,
           canReadAloud: turn.readAloud != false,
+          newsLinks: turn.newsLinks,
         );
       }
       // #2030 ask 3 — remember THIS turn's chips, so a cold start can redraw
@@ -1764,6 +1769,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     String reply,
     String? ttsText, {
     bool canReadAloud = true,
+    List<ChatNewsLink> newsLinks = const <ChatNewsLink>[],
   }) {
     if (messages.isEmpty || messages.last.fromWorker) return messages;
     final List<ChatMessage> next = List<ChatMessage>.of(messages);
@@ -1772,6 +1778,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       fromWorker: false,
       ttsText: ttsText,
       canReadAloud: canReadAloud,
+      // The optimistic bubble this overwrites carried none of its own.
+      newsLinks: newsLinks,
     );
     return next;
   }
