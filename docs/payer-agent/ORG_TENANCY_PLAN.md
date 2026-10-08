@@ -89,7 +89,7 @@ program takes **no** migration number, so the two cannot collide. That branch mu
 
 | File | Change |
 |---|---|
-| `packages/db/src/audit-org-tenancy.ts` **(new)** | runs §6 queries C1–C8 (C5b reports the team members' wallet credits on its own line) and prints counts plus ids only. Read-only by construction: no write statement is compiled in, and the whole run is one `sql.begin("read only", …)` transaction checked to report read-only; a role without BYPASSRLS is refused. Exits 1 when the §5 flip gate fails. |
+| `packages/db/src/audit-org-tenancy.ts` **(new)** | runs §6 queries C1–C9 (C5b reports the team members' wallet credits on its own line) and prints counts plus ids only. Read-only by construction: no write statement is compiled in, and the whole run is one `sql.begin("read only", …)` transaction checked to report read-only; a role without BYPASSRLS is refused. Exits 1 when the §5 flip gate fails. |
 | `packages/db/package.json` | `"db:audit:org-tenancy": "tsx src/audit-org-tenancy.ts"` |
 
 ### 2.5 Red tests (must be observed RED in CI)
@@ -236,8 +236,9 @@ The accept page should explain an A1–A3 refusal; raise that as a Frontend issu
 
 - **Services resolve; repositories take the brand.** `UnlockService`, `ResumeDisclosureService`
   and `RelayService` inject `PayerTenantScopeService` and resolve once per entry point. The
-  ops routes go through the same entry points (rule 4). All 16 P2b T5 entries are retyped to
-  `TenantKey` and removed from `UNCONVERTED`.
+  ops routes go through the same entry points (rule 4). All 16 P2b T5 entries are removed from
+  `UNCONVERTED`: 14 retyped to `TenantKey`; `findCreditsForUpdate` deleted (no caller) and
+  `creditPackWithinTx` folded into a private helper behind `creditPack`.
 - **The shared helper P2a left is retyped.** P2b landed second, so it retyped
   `payers/owned-job-ref.ts findOwnedJobRef` to `TenantKey` and removed it from `UNCONVERTED`.
   All three callers now pass a resolved key.
@@ -620,11 +621,11 @@ SELECT 'unlocks' AS t, count(*) FROM unlocks u WHERE NOT EXISTS (SELECT 1 FROM p
 UNION ALL SELECT 'payer_credits', count(*) FROM payer_credits c WHERE NOT EXISTS (SELECT 1 FROM payers p WHERE p.id = c.payer_id)
 UNION ALL SELECT 'job_postings', count(*) FROM job_postings j WHERE j.payer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM payers p WHERE p.id = j.payer_id);
 
--- C9  Record (P2b, PR #2171): team members' OPEN payment orders stamped with their OWN wallet. After
+-- C9  Record (P2b, PR #2171): team members' UNSETTLED payment orders (status <> paid; a failed order can still be captured) stamped with their OWN wallet. After
 --     the flip the member's browser verify of such an order is refused; the webhook still settles
 --     it into the member's personal wallet (support runbook, §3.2). Same team_members CTE as C5.
 SELECT po.id AS order_id, po.payer_id, po.created_at FROM payment_orders po
-WHERE po.status = 'created' AND po.payer_id IN (SELECT id FROM team_members)
+WHERE po.status <> 'paid' AND po.payer_id IN (SELECT id FROM team_members)
 ORDER BY po.created_at;
 ```
 

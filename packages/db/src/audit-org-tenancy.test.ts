@@ -43,7 +43,10 @@ describe("db:audit:org-tenancy — read-only by construction", () => {
     const c9 = CENSUS_QUERIES.find((q) => q.id === "C9")!;
     expect(c9.rule).toBe("record");
     expect(c9.sql).toMatch(/FROM payment_orders/);
-    expect(c9.sql).toMatch(/status = 'created'/);
+    // Any unsettled order, not only `created`: the settle claim matches every status but `paid`, so
+    // a `failed` order can still be captured on a provider retry (PR #2171 re-review).
+    expect(c9.sql).toMatch(/status <> 'paid'/);
+    expect(c9.sql).not.toMatch(/status = 'created'/);
     expect(c9.sql).toMatch(/payer_id IN \(SELECT id FROM team_members\)/);
   });
 

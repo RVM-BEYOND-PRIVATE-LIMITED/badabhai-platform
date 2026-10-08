@@ -23,7 +23,8 @@
  *      0 to flip cleanly (R4 heals the first kind on the next request).
  *  C7  team orgs R5 would block at the flip (org or anchor not active). Record it (O-6).
  *  C8  informational: tenant rows whose key names no `payers` row (unreachable today and after).
- *  C9  team members' OPEN payment orders (`created`) stamped with their OWN wallet. Record it:
+ *  C9  team members' UNSETTLED payment orders (any status but `paid`: a `failed` order can
+ *      still be captured on a provider retry) stamped with their OWN wallet. Record it:
  *      after the flip the member's browser verify of such an order is refused (it compares with
  *      the org), while the Razorpay webhook still settles it into the member's personal wallet
  *      (ADR-0053 §6, the plan's support runbook). Tell those members before `on`.
@@ -227,13 +228,13 @@ export const CENSUS_QUERIES: readonly CensusQuery[] = [
     // PR #2171 review (security L2): an order stamped with a member's personal wallet before the
     // flip cannot be browser-verified by that member after it; the webhook still settles it.
     id: "C9",
-    title: "team members' open payment orders stamped with their own wallet (record; runbook)",
+    title: "team members' unsettled payment orders stamped with their own wallet (record; runbook)",
     rule: "record",
     sql: `
       WITH ${TEAM_MEMBERS_CTE}
       SELECT po.id AS order_id, po.payer_id, po.created_at
       FROM payment_orders po
-      WHERE po.status = 'created'
+      WHERE po.status <> 'paid'
         AND po.payer_id IN (SELECT id FROM team_members)
       ORDER BY po.created_at`,
   },
