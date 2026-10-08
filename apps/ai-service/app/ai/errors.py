@@ -17,6 +17,11 @@ any text derived from an exception body or response payload.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .gemini_client import LlmResult
+
 # --- Closed set of PII-free transport reason codes -------------------------
 # A fixed enum -> provably PII-free. NEVER add a value derived from an exception
 # body, a response payload, or any worker text.
@@ -31,6 +36,16 @@ REASON_HTTP_ERROR = "http_error"
 REASON_NO_TEXT_CONTENT = "no_text_content"
 REASON_MISSING_KEY = "missing_key"
 REASON_SDK_ERROR = "sdk_error"
+#: ADR-0054. A call that carries server tools (the web search) was dispatched to a provider
+#: whose transport cannot run them. Raised BEFORE any network I/O: sending the request without
+#: the tool would return an ungrounded answer that looks exactly like a grounded one.
+REASON_TOOLS_UNSUPPORTED = "tools_unsupported"
+#: ADR-0054. Anthropic paused a long server-tool turn (`stop_reason: "pause_turn"`). v1 does not
+#: continue a paused turn, so the partial response is a failure, never an answer.
+REASON_PAUSE_TURN = "pause_turn"
+#: ADR-0054. The route's own per-attempt deadline (`TaskRoute.timeout_seconds`) expired. Raised
+#: by the router, not a client, so a caller's wait is never outlived by the provider call.
+REASON_TIMEOUT = "timeout"
 
 TRANSPORT_REASON_CODES: frozenset[str] = frozenset(
     {
@@ -42,6 +57,9 @@ TRANSPORT_REASON_CODES: frozenset[str] = frozenset(
         REASON_NO_TEXT_CONTENT,
         REASON_MISSING_KEY,
         REASON_SDK_ERROR,
+        REASON_TOOLS_UNSUPPORTED,
+        REASON_PAUSE_TURN,
+        REASON_TIMEOUT,
     }
 )
 
@@ -56,9 +74,34 @@ class LlmTransportError(RuntimeError):
 
     The router logs only ``reason_code`` (and ``status_code``) — NEVER the
     exception body.
+
+    TWO BILLING FACTS (ADR-0054 security review, H1), read by the router for calls that carry
+    server tools and ignored for every other call:
+
+    - ``request_sent`` — False ONLY when the failure was raised before any network I/O (a
+      missing key, the SDK absent, tools on a provider that cannot run them). The default is
+      True because "unknown" must be treated as "possibly billed".
+    - ``billed`` — the measured usage (tokens, searches, cache buckets) when the provider DID
+      return a response that was then refused (a paused or truncated turn, no text). Counts
+      only: its ``content`` is always empty, so no model text rides an exception.
+    - ``provider_rejected`` — the provider answered with an HTTP error status (4xx or 5xx,
+      429 and 529 included). Such a response is not billed, so a tool call refunds it. Set
+      without touching ``reason_code`` or ``status_code``, so a text-only call's retry,
+      cooldown and log behaviour is exactly what it was.
     """
 
-    def __init__(self, reason_code: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        status_code: int | None = None,
+        request_sent: bool = True,
+        billed: LlmResult | None = None,
+        provider_rejected: bool = False,
+    ) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
         self.status_code = status_code
+        self.request_sent = request_sent
+        self.billed = billed
+        self.provider_rejected = provider_rejected

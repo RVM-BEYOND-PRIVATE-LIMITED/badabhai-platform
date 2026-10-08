@@ -173,6 +173,42 @@ describe("ChatTranscriptBuffer — round trip", () => {
     store.set(KEY, JSON.stringify(raw));
     expect("foldable" in (await buffer.load(SESSION))!.messages[0]!).toBe(false);
   });
+
+  it("carries a news answer's tiles (ADR-0054) — re-checked on load, absent otherwise", async () => {
+    // Dropped on load, a reload would show the summary without its sources; trusted on load, a
+    // drifted value could put a link outside the approved sites on a worker's screen.
+    const { buffer, store } = make();
+    const at = "2026-10-08T00:00:00.000Z";
+    const link = {
+      title: "Factory opens",
+      url: "https://www.thehindu.com/a",
+      site: "thehindu.com",
+    };
+    await buffer.save(
+      SESSION,
+      sample({
+        messages: [
+          { role: "worker", text: "koi khabar?", at, voiceNoteId: null, aside: true },
+          {
+            role: "assistant",
+            text: "Pune mein factory khul rahi hai.",
+            at,
+            voiceNoteId: null,
+            aside: true,
+            newsLinks: [link],
+          },
+        ],
+      }),
+    );
+    const loaded = await buffer.load(SESSION);
+    expect(loaded!.messages[1]!.newsLinks).toEqual([link]);
+    expect("newsLinks" in loaded!.messages[0]!).toBe(false);
+
+    const raw = JSON.parse(store.get(KEY)!) as { messages: Record<string, unknown>[] };
+    raw.messages[1]!.newsLinks = [{ ...link, url: "https://evil.example/a" }];
+    store.set(KEY, JSON.stringify(raw));
+    expect("newsLinks" in (await buffer.load(SESSION))!.messages[1]!).toBe(false);
+  });
 });
 
 describe("ChatTranscriptBuffer — fails closed", () => {

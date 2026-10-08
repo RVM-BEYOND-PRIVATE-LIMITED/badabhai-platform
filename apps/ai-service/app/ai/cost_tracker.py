@@ -25,11 +25,24 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from ..config import ConfigError, Settings
 from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
-from .model_config import provider_for_model, rate_inr_per_1k
+from .errors import LlmTransportError
+from .model_config import (
+    ANTHROPIC_CACHE_READ_MULTIPLIER,
+    ANTHROPIC_CACHE_WRITE_MULTIPLIER,
+    WEB_SEARCH_COST_INR,
+    WEB_SEARCH_RESULT_TOKENS_ALLOWANCE,
+    WEB_SEARCH_UNBOUNDED_USES,
+    provider_for_model,
+    rate_inr_per_1k,
+)
+
+if TYPE_CHECKING:
+    from .gemini_client import LlmResult
 
 logger = get_logger("ai.cost")
 
@@ -46,6 +59,120 @@ def estimate_cost_inr(model: str, input_tokens: int, output_tokens: int) -> floa
     in_rate, out_rate = rate_inr_per_1k(model)
     cost = (input_tokens / 1000.0) * in_rate + (output_tokens / 1000.0) * out_rate
     return round(cost, 4)
+
+
+# --- Server tools (ADR-0054): the web search's per-search fee ---------------
+
+
+def web_search_max_uses(tools: list[dict[str, Any]]) -> int:
+    """The most searches ``tools`` permits: the sum of every web search tool's ``max_uses``.
+
+    A web search tool without a positive integer ``max_uses`` is unbounded and counts as
+    ``WEB_SEARCH_UNBOUNDED_USES``, which prices the call past the per-call ceiling (fail closed:
+    an unbounded search is skipped, never run). Tools of any other type add nothing.
+    """
+    searches = 0
+    for tool in tools:
+        if not str(tool.get("type", "")).startswith("web_search"):
+            continue
+        uses = tool.get("max_uses")
+        bounded = isinstance(uses, int) and not isinstance(uses, bool) and uses > 0
+        searches += uses if bounded else WEB_SEARCH_UNBOUNDED_USES
+    return searches
+
+
+def server_tool_reserve_inr(model: str, tools: list[dict[str, Any]], prompt_tokens: int) -> float:
+    """What ``tools`` can add to a call's WORST case, on top of ONE read of the prompt and the
+    output tokens (which the router already prices).
+
+    THE SERVER-SIDE LOOP RE-READS EVERYTHING ON EVERY PASS (ADR-0054 security review, L2). With
+    ``m`` permitted searches the model is sampled up to ``m + 1`` times, and pass ``k`` re-reads
+    the prompt plus the results of the ``k - 1`` searches before it. With ``P`` prompt tokens and
+    ``R = WEB_SEARCH_RESULT_TOKENS_ALLOWANCE`` result tokens per search, the input billed is at
+    most::
+
+        (m + 1) * P  +  R * m * (m + 1) / 2
+
+    of which the router's base estimate already holds one ``P``; this returns the rest, priced
+    at ``model``'s input rate, plus ``m`` searches at the per-search fee. For the news call
+    (``m = 2``, ``P`` ~2,500): 5,000 + 30,000 extra input tokens and 2 fees, ~Rs 4.6 on top of the
+    ~Rs 0.5 base, inside the Rs 10 per-call ceiling. An unbounded search prices far past it.
+    """
+    searches = web_search_max_uses(tools)
+    extra_input = searches * prompt_tokens + (
+        WEB_SEARCH_RESULT_TOKENS_ALLOWANCE * searches * (searches + 1) // 2
+    )
+    return round(estimate_cost_inr(model, extra_input, 0) + searches * WEB_SEARCH_COST_INR, 4)
+
+
+def server_tool_call_cost_inr(
+    model: str, result: LlmResult, *, input_tokens: int, output_tokens: int
+) -> float:
+    """The MEASURED cost of a call that carried tools: its tokens plus every billed search.
+
+    ``input_tokens`` / ``output_tokens`` are the router's counts for the call (the provider's,
+    or the estimate when it reported none), priced at ``model``'s rate. The cache buckets
+    Anthropic reports apart from ``input_tokens`` are priced at its write/read multipliers (zero
+    on a call that cached nothing). The search fee is ``result.search_requests`` (what the
+    provider says it billed) times ``WEB_SEARCH_COST_INR``. Passed to
+    :func:`build_call_metadata` as ``cost_inr``, so ``ai.cost_recorded`` carries the fees too.
+    """
+    in_rate, _ = rate_inr_per_1k(model)
+    cached = (
+        result.cache_creation_input_tokens * ANTHROPIC_CACHE_WRITE_MULTIPLIER
+        + result.cache_read_input_tokens * ANTHROPIC_CACHE_READ_MULTIPLIER
+    ) * (in_rate / 1000.0)
+    tokens = estimate_cost_inr(model, input_tokens, output_tokens) + cached
+    return round(tokens + result.search_requests * WEB_SEARCH_COST_INR, 4)
+
+
+def server_tool_ambiguous_charge_inr(
+    model: str, tools: list[dict[str, Any]], prompt_tokens: int
+) -> float:
+    """The bound kept for a tool attempt that may or may not have been billed (H1 refinement).
+
+    Every permitted search at its fee plus ONE read of the prompt. Deliberately smaller than the
+    reservation (no result-token allowance, no re-reads, no output): this is the charge for "the
+    request left and nothing came back", which is mostly a cancelled or broken connection, and
+    keeping the full worst case for it would let a run of them drain the global daily cap.
+    """
+    searches = web_search_max_uses(tools)
+    return round(
+        searches * WEB_SEARCH_COST_INR + estimate_cost_inr(model, prompt_tokens, 0), 4
+    )
+
+
+def server_tool_failure_charge_inr(
+    model: str, exc: BaseException, tools: list[dict[str, Any]], prompt_tokens: int
+) -> float:
+    """What a FAILED attempt of a server-tool call keeps on the spend ledger (security review H1).
+
+    Four classes, by what the provider can have billed:
+
+    - Raised before any network I/O (``request_sent`` False: tools on the wrong provider, a
+      missing key, the SDK absent or unbuildable) -> 0.0: nothing reached the provider.
+    - The provider answered with an HTTP ERROR STATUS (``provider_rejected``: any 4xx or 5xx,
+      429 and 529 overloaded included) -> 0.0: Anthropic does not bill an error response. This
+      is what keeps an Anthropic outage from draining the global daily cap.
+    - A 200 response that was refused HERE (``billed`` set: paused, truncated, no text) -> its
+      MEASURED cost: tokens, cache buckets and every billed search, priced like a success.
+    - Anything else, the ambiguous after-send failure with no response (the route's deadline, a
+      connection reset after the request was written, an untyped exception) ->
+      :func:`server_tool_ambiguous_charge_inr`, a bound smaller than the reservation.
+
+    Only the router's tool path calls this; a text-only call refunds on failure as before.
+    """
+    if isinstance(exc, LlmTransportError):
+        if not exc.request_sent or exc.provider_rejected:
+            return 0.0
+        if exc.billed is not None:
+            return server_tool_call_cost_inr(
+                model,
+                exc.billed,
+                input_tokens=exc.billed.input_tokens,
+                output_tokens=exc.billed.output_tokens,
+            )
+    return server_tool_ambiguous_charge_inr(model, tools, prompt_tokens)
 
 
 def build_call_metadata(

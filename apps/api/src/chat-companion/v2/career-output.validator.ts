@@ -197,6 +197,16 @@ function statesMoney(scan: string): boolean {
 const PROMISE = /\b(?:pakka|pakki|guarantee|gaurantee)\b|zaroor milegi|100\s*%/i;
 
 /**
+ * The PROMISE wall ALONE, over the same scan form {@link contentFailureWith} reads — for text that
+ * is not a model answer and must not meet the other walls: a live-news tile's third-party headline
+ * (ADR-0054 §8), where a real headline about loan rates or one in Tamil is legitimate but "naukri
+ * pakki" is not. The answer gate's own order and results are unchanged.
+ */
+export function statesJobPromise(text: string): boolean {
+  return PROMISE.test(scanForm(text));
+}
+
+/**
  * SENSITIVE ADVICE (O10): legal, medical and financial terms. Whole-word, context-free matches
  * only — each listed word is enough on its own.
  *

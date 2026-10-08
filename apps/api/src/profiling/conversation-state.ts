@@ -83,6 +83,7 @@ import { MAX_SKILLS } from "./skill-certifier";
 import { narrowGeneralFormOffer, type GeneralFormOffer } from "./skills-gate";
 // One-directional: the free chat's state module imports nothing from this file.
 import { narrowFreeChat, type FreeChatState } from "./free-chat/free-chat.state";
+import { newsLinksField, type FreeChatNewsLink } from "./free-chat/free-chat-news-links";
 
 /**
  * The reply-cache entry — Layer A of the double-submit defence.
@@ -249,6 +250,12 @@ export interface LastTurn {
    * every stamp written before this field existed described one.
    */
   readonly readAloud?: false;
+  /**
+   * ADR-0054 — the "read more" tiles an answered live-news reply carried, so a replay is the
+   * response it repeats. ABSENT on every other stamp, never empty — and RE-CHECKED on the way in
+   * (`narrowNewsLinks`), like `formOffer`: a link is rendered as something a worker can tap.
+   */
+  readonly newsLinks?: readonly FreeChatNewsLink[];
   /**
    * How many times THIS stamped reply has already been served as a replay. 0 on a fresh stamp.
    *
@@ -1329,6 +1336,8 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     // ONLY A LITERAL `false` SURVIVES (ADR-0051), and the key is otherwise ABSENT, so every stamp
     // that did not serve a model reply round-trips exactly as it did before the field existed.
     ...(v.readAloud === false ? { readAloud: false as const } : {}),
+    // ADR-0054 — RE-CHECKED, never trusted off the stored copy; ABSENT unless a tile survives.
+    ...newsLinksField(v.newsLinks),
     // ABSENT NARROWS TO 0, matching a stamp written before this field existed: nothing has replayed
     // it yet as far as this record can say, so it gets the same one-through-`MAX_REPLAYS_PER_TURN`
     // budget a freshly-stamped turn would. Clamped rather than trusted verbatim for the same reason

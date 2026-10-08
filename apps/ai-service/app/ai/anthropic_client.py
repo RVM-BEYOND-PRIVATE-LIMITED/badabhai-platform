@@ -12,13 +12,31 @@ Unlike the Gemini client (raw ``httpx``), Anthropic is reached via the OFFICIAL
 
 Callers MUST pass already-pseudonymized ``messages``. This module NEVER logs the
 request or response bodies — only the router observes counts/status.
+
+SERVER TOOLS (ADR-0054). ``acomplete`` takes an optional ``tools`` list, passed to
+``messages.create`` only when given (today: the web search tool for the free chat's
+news answer). A call without tools sends and parses exactly what it did before; a call
+with tools additionally reads the search count, the citations and the search results
+off the response (:func:`_with_server_tool_fields`), and treats a paused or truncated
+turn as a failure rather than an answer.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import sys
+from typing import Any
+
 from ..config import Settings
 from ..logging_config import get_logger
-from .errors import REASON_MISSING_KEY, REASON_NO_TEXT_CONTENT, REASON_SDK_ERROR, LlmTransportError
+from .errors import (
+    REASON_MAX_TOKENS_TRUNCATED,
+    REASON_MISSING_KEY,
+    REASON_NO_TEXT_CONTENT,
+    REASON_PAUSE_TURN,
+    REASON_SDK_ERROR,
+    LlmTransportError,
+)
 
 # Reuse the SAME result shape as the Gemini client so the router/cost tracker
 # treat every provider identically.
@@ -119,6 +137,124 @@ def _parse_anthropic_response(resp) -> LlmResult:
     return LlmResult(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
 
 
+def _field(obj: Any, name: str) -> Any:
+    """``obj.name`` or ``obj[name]``, else None.
+
+    BOTH SHAPES, because the SDK's typed models only know the block types its version shipped
+    with: an SDK older than the web search tool keeps an unknown block or usage field as a plain
+    dict. Reading either shape means the parse does not depend on which SDK the box installed.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def _count(value: Any) -> int:
+    """A provider count as a non-negative int; anything else (None, a junk type) is 0."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _url_title(item: Any) -> tuple[str, str] | None:
+    """``(url, title)`` off a citation or a search result, or None without a string URL."""
+    url = _field(item, "url")
+    if not isinstance(url, str) or not url:
+        return None
+    title = _field(item, "title")
+    return url, title if isinstance(title, str) else ""
+
+
+def _with_server_tool_fields(result: LlmResult, resp: Any) -> LlmResult:
+    """``result`` plus what a server-tool turn adds: searches billed, citations, results.
+
+    - ``search_requests``: ``usage.server_tool_use.web_search_requests`` — what is billed.
+    - ``citations``: every ``web_search_result_location`` on a text block, in order. Citations
+      are always on for web search; they name the results the answer text drew on.
+    - ``search_results``: every ``web_search_result`` inside a ``web_search_tool_result`` block.
+      That block's ``content`` is a LIST on success and an error OBJECT
+      (``web_search_tool_result_error``) on failure; an error contributes nothing.
+    - the cache buckets, which Anthropic bills apart from ``input_tokens``.
+
+    Only called for a call that carried tools, so no other call's result changes shape.
+    """
+    citations: list[tuple[str, str]] = []
+    search_results: list[tuple[str, str]] = []
+    for block in _field(resp, "content") or []:
+        kind = _field(block, "type")
+        if kind == "text":
+            for citation in _field(block, "citations") or []:
+                if _field(citation, "type") == "web_search_result_location":
+                    pair = _url_title(citation)
+                    if pair is not None:
+                        citations.append(pair)
+        elif kind == "web_search_tool_result":
+            content = _field(block, "content")
+            if not isinstance(content, list):  # the error object: the search failed
+                continue
+            for item in content:
+                if _field(item, "type") == "web_search_result":
+                    pair = _url_title(item)
+                    if pair is not None:
+                        search_results.append(pair)
+    usage = _field(resp, "usage")
+    return dataclasses.replace(
+        result,
+        search_requests=_count(_field(_field(usage, "server_tool_use"), "web_search_requests")),
+        citations=citations,
+        search_results=search_results,
+        cache_creation_input_tokens=_count(_field(usage, "cache_creation_input_tokens")),
+        cache_read_input_tokens=_count(_field(usage, "cache_read_input_tokens")),
+    )
+
+
+def _is_http_status_error(exc: BaseException) -> bool:
+    """``exc`` is the SDK's ``APIStatusError`` (or a subclass): the provider answered 4xx/5xx.
+
+    Read off the SDK module ``acomplete`` already imported, so no second import can fail here,
+    and an SDK without the class (a stub) reads as False: an ambiguous failure, never a refund
+    granted by accident. ``APIConnectionError`` and ``APITimeoutError`` are not status errors.
+    """
+    status_error = getattr(sys.modules.get("anthropic"), "APIStatusError", None)
+    return isinstance(status_error, type) and isinstance(exc, status_error)
+
+
+def _measured_usage(resp: Any) -> LlmResult:
+    """What a tool-carrying response BILLED, with no text: tokens, searches and cache buckets.
+
+    Read before any check that can refuse the response, so a refused response still reports its
+    cost (ADR-0054 security review, H1): Anthropic bills a paused, truncated or textless turn,
+    searches included, and the spend ledger must record that rather than refund it.
+    """
+    usage = _field(resp, "usage")
+    tokens = LlmResult(
+        content="",
+        input_tokens=_count(_field(usage, "input_tokens")),
+        output_tokens=_count(_field(usage, "output_tokens")),
+    )
+    return _with_server_tool_fields(tokens, resp)
+
+
+def _parse_tool_response(resp: Any) -> LlmResult:
+    """A tool-carrying call's response: the stop reason first, then the text and the tool fields.
+
+    ``pause_turn`` means Anthropic paused the server-tool loop mid-turn; v1 makes no continuation
+    request, so the partial turn is a failure. ``max_tokens`` means the answer was cut off inside
+    its JSON. Both, and a response with no text, raise a closed reason so the router fails the
+    call instead of serving a fragment, and each carries the response's measured usage
+    (``billed``) so the router records what the provider charged for it.
+    """
+    measured = _measured_usage(resp)
+    stop_reason = _field(resp, "stop_reason")
+    if stop_reason == "pause_turn":
+        raise LlmTransportError(REASON_PAUSE_TURN, billed=measured)
+    if stop_reason == "max_tokens":
+        raise LlmTransportError(REASON_MAX_TOKENS_TRUNCATED, billed=measured)
+    try:
+        text = _parse_anthropic_response(resp)
+    except LlmTransportError as exc:
+        raise LlmTransportError(exc.reason_code, billed=measured) from exc
+    return dataclasses.replace(measured, content=text.content)
+
+
 async def acomplete(
     *,
     settings: Settings,
@@ -127,6 +263,7 @@ async def acomplete(
     max_output_tokens: int,
     temperature: float,
     json_mode: bool,
+    tools: list[dict[str, Any]] | None = None,
 ) -> LlmResult:
     """Call Claude (Anthropic) via the official SDK. Raises on failure.
 
@@ -138,15 +275,21 @@ async def acomplete(
 
     The ``anthropic`` SDK is imported HERE (lazily) so module import succeeds even
     when the package is not installed (mock-only mode).
+
+    ``tools`` (ADR-0054) rides ``messages.create`` only when given; without it the request
+    and the parse are exactly what they were before the argument existed.
+
+    Every failure raised BEFORE ``messages.create`` (no key, no SDK, a client that cannot be
+    built) says ``request_sent=False``: nothing reached the provider, so nothing was billed.
     """
     api_key = settings.anthropic_api_key
     if not api_key:
-        raise LlmTransportError(REASON_MISSING_KEY)
+        raise LlmTransportError(REASON_MISSING_KEY, request_sent=False)
 
     try:
         from anthropic import AsyncAnthropic
     except ImportError as exc:  # SDK not installed -> treat as a failed provider.
-        raise LlmTransportError(REASON_SDK_ERROR) from exc
+        raise LlmTransportError(REASON_SDK_ERROR, request_sent=False) from exc
 
     system_texts, anthropic_messages = _to_anthropic_request(messages, json_mode=json_mode)
     system_param = _anthropic_system_param(system_texts)
@@ -164,21 +307,39 @@ async def acomplete(
         # that can see all of them at once. A second, hidden policy underneath it can
         # only disagree.
         client = AsyncAnthropic(api_key=api_key, max_retries=0)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        # Built no client, so sent nothing. The same reason code as before.
+        raise LlmTransportError(REASON_SDK_ERROR, request_sent=False) from exc
+
+    try:
+        request: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max(max_output_tokens, _MAX_TOKENS_FLOOR),
+            "system": system_param,
+            "messages": anthropic_messages,
+            "temperature": temperature,
+        }
+        # Only when given: a call without tools must send the request it always sent.
+        if tools is not None:
+            request["tools"] = tools
         # Do NOT set thinking/effort — unsupported on Haiku 4.5.
-        resp = await client.messages.create(
-            model=model,
-            max_tokens=max(max_output_tokens, _MAX_TOKENS_FLOOR),
-            system=system_param,
-            messages=anthropic_messages,
-            temperature=temperature,
-        )
+        resp = await client.messages.create(**request)
     except RuntimeError:
         # Includes LlmTransportError (a RuntimeError) -> re-raise unchanged.
         raise
     except Exception as exc:
         # Never include the body (may echo pseudonymized content) — a PII-free
         # reason code only. Chained via ``from exc`` for local tracebacks (the
-        # router logs only reason_code, never this chain).
-        raise LlmTransportError(REASON_SDK_ERROR) from exc
+        # router logs only reason_code, never this chain). `request_sent` stays at its
+        # default True: the request may have reached the provider. An HTTP error STATUS
+        # is marked `provider_rejected` (not billed, so a tool call refunds it, H1); the
+        # reason code is unchanged either way, so a text-only call behaves as before.
+        raise LlmTransportError(
+            REASON_SDK_ERROR, provider_rejected=_is_http_status_error(exc)
+        ) from exc
 
-    return _parse_anthropic_response(resp)
+    if tools is None:
+        return _parse_anthropic_response(resp)
+    return _parse_tool_response(resp)

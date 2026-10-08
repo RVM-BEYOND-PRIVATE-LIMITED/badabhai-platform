@@ -1314,11 +1314,25 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
 
   it("carries NO identity-capable field, by construction", () => {
     const banned = ["worker_id", "worker_ref", "worker_name", "name", "phone", "address", "city"];
+    // THE ONE CARVE-OUT (ADR-0054 security review, H2): the news input's OPAQUE spend ref, so a
+    // paid, searched call is charged to the per-worker daily cap. Opaque like the parse's and the
+    // transcription's; it never reaches the model. Every other contract stays clean.
+    const allowed: Record<string, string[]> = { FreeChatNewsInput: ["worker_ref"] };
     for (const [contractName, shape] of shapes) {
       for (const field of banned) {
+        if (allowed[contractName]?.includes(field)) continue;
         expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(field);
       }
     }
+  });
+
+  it("ADR-0054 H2: the news input's worker_ref is an optional, nullable, non-empty spend ref", () => {
+    expect(FreeChatNewsInputSchema.parse({ text: "aaj ka mausam" }).worker_ref).toBeNull();
+    expect(FreeChatNewsInputSchema.parse({ text: "x", worker_ref: null }).worker_ref).toBeNull();
+    expect(FreeChatNewsInputSchema.parse({ text: "x", worker_ref: "w-ref-1" }).worker_ref).toBe("w-ref-1");
+    expect(FreeChatNewsInputSchema.safeParse({ text: "x", worker_ref: "" }).success).toBe(false);
+    // The carve-out is the news input's alone.
+    expect(Object.keys(FreeChatReplyInputSchema.shape)).not.toContain("worker_ref");
   });
 
   it("caps the classify text, the turns and the pending question", () => {

@@ -5,6 +5,7 @@ import { EVENT_REGISTRY } from "@badabhai/event-schema";
 
 import type { BufferedMessage } from "../../chat/chat-transcript.buffer";
 import {
+  FREE_CHAT_NEWS_INFLIGHT_GRACE_MS,
   FreeChatService,
   freeChatWorkerContextOf,
   recentTurnOf,
@@ -45,10 +46,31 @@ const META = {
 };
 
 const at = "2026-10-06T10:00:00.000Z";
+
+/** ADR-0054 — a real, grounded news answer that passes every check. */
+const NEWS_ANSWER = {
+  status: "answer",
+  kind: "work",
+  lines: ["Pune mein ek nayi factory khul rahi hai.", "Bharti agle mahine shuru hogi."],
+  sources: [
+    {
+      url: "https://www.thehindu.com/news/cities/pune/factory",
+      title: "New factory in Pune",
+      site: "thehindu.com",
+    },
+  ],
+  search_count: 1,
+  ai_metadata: { ...META, task_type: "profiling_free_news", model_name: "claude-haiku-4-5" },
+};
 const line = (role: "worker" | "assistant", text: string, flags: Partial<BufferedMessage> = {}) =>
   ({ role, text, at, voiceNoteId: null, ...flags }) as BufferedMessage;
 
-function make(knownName: string | null = "Ramesh Kumar") {
+interface MakeOpts {
+  /** What the news cap's `reserve` answers: a reservation, null (unreadable), or the default ok/1. */
+  reservation?: { ok: boolean; count: number } | null;
+}
+
+function make(knownName: string | null = "Ramesh Kumar", opts: MakeOpts = {}) {
   const ai = {
     freeChatClassify: vi.fn(
       async (_input: unknown): Promise<unknown> => ({
@@ -66,18 +88,31 @@ function make(knownName: string | null = "Ramesh Kumar") {
         ai_metadata: { ...META, task_type: "profiling_free_reply" },
       }),
     ),
+    freeChatNews: vi.fn(async (_input: unknown): Promise<unknown> => NEWS_ANSWER),
+  };
+  const newsCap = {
+    reserve: vi.fn(async (_workerId: string, _now: Date) =>
+      opts.reservation === undefined ? { ok: true, count: 1 } : opts.reservation,
+    ),
+    release: vi.fn(async (_workerId: string, _now: Date) => undefined),
   };
   const cost = { record: vi.fn(async (..._args: unknown[]) => undefined) };
   const events = { emit: vi.fn(async (_params: unknown) => undefined) };
   const chat = { mergeFreeChatLock: vi.fn(async (..._args: unknown[]) => true) };
-  const service = new FreeChatService(ai as never, cost as never, events as never, chat as never);
+  const service = new FreeChatService(
+    ai as never,
+    cost as never,
+    events as never,
+    chat as never,
+    newsCap as never,
+  );
   const ctx: FreeChatCallContext = {
     workerId: WORKER,
     sessionId: SESSION,
     ...CTX,
     knownName: async () => knownName,
   };
-  return { service, ai, cost, events, chat, ctx };
+  return { service, ai, cost, events, chat, ctx, newsCap };
 }
 
 beforeEach(() => {
@@ -474,5 +509,362 @@ describe("the spine — ids and closed enums only, never throwing", () => {
       service.recordModeChanged({ from: null, to: "resume", trigger: "first_turn" }, ref),
     ).resolves.toBeUndefined();
     await expect(service.persistLock(SESSION, WORKER, at)).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0054 — live news: the call, the cap and the spine
+// ---------------------------------------------------------------------------
+
+const NOW = new Date("2026-10-08T10:00:00.000Z");
+const NEWS_REQ = {
+  text: "Ramesh puchh raha hai, Pune mein koi factory khul rahi hai?",
+  messages: [line("assistant", "Ramesh ji, kaise hain?"), line("worker", "main Ramesh, theek")],
+  workerContext: { trade_label: "Ramesh Kumar welding", experience_bucket: "3-7" as const },
+};
+const MOCK_META = { ...META, task_type: "profiling_free_news", real_call: false };
+
+describe("news — G2, R9 and the ledger (ADR-0054 §3.2, §8)", () => {
+  it("redacts the worker's own name from the question, every turn and the trade label", async () => {
+    const { service, ai, ctx } = make();
+    expect(await service.news(NEWS_REQ, ctx, "Ramesh Kumar")).toMatchObject({ sent: true });
+    const sent = ai.freeChatNews.mock.calls[0]![0] as Record<string, unknown>;
+    expect(JSON.stringify(sent)).not.toMatch(/Ramesh|Kumar/);
+    expect(sent).toEqual({
+      text: "[NAME] puchh raha hai, Pune mein koi factory khul rahi hai?",
+      recent_turns: [
+        { role: "bada_bhai", text: "[NAME] ji, kaise hain?" },
+        { role: "worker", text: "main [NAME], theek" },
+      ],
+      worker_context: { trade_label: "[NAME] welding", experience_bucket: "3-7" },
+      // §8 H2: the worker's id rides along for the ai-service's per-worker spend limit.
+      worker_ref: ctx.workerId,
+    });
+    // No summary on the news input — the reply alone reads it (R24).
+    expect("summary" in sent).toBe(false);
+  });
+
+  it("R9: a recent turn carrying an identifier is DROPPED from the input", async () => {
+    const { service, ai, ctx } = make();
+    await service.news(
+      {
+        ...NEWS_REQ,
+        text: "aur batao",
+        messages: [
+          line("worker", "mera number 98765 43210 hai"),
+          line("assistant", "Theek hai."),
+          line("worker", "mail karo ramu@example.in par"),
+          line("worker", "PAN ABCDE1234F"),
+          line("worker", "नंबर ९८७६५४३२१० पर"),
+          line("worker", "Pune ki factory"),
+        ],
+      },
+      ctx,
+      null,
+    );
+    const sent = ai.freeChatNews.mock.calls[0]![0] as { recent_turns: { text: string }[] };
+    expect(sent.recent_turns.map((t) => t.text)).toEqual(["Theek hai.", "Pune ki factory"]);
+  });
+
+  it("records the spend ONCE under profiling_free_news, attributed to the worker and session", async () => {
+    const { service, cost, ctx } = make();
+    await service.news(NEWS_REQ, ctx, null);
+    expect(cost.record).toHaveBeenCalledOnce();
+    expect(cost.record.mock.calls[0]!.slice(1)).toEqual([
+      "profiling_free_news",
+      null,
+      CTX.correlationId,
+      CTX.requestId,
+      { workerId: WORKER, sessionId: SESSION },
+    ]);
+  });
+
+  it("an off-contract input is NOT SENT: no call, and it says so", async () => {
+    const { service, ai, ctx } = make(null);
+    expect(await service.news({ ...NEWS_REQ, text: "" }, ctx, null)).toEqual({
+      sent: false,
+      output: null,
+    });
+    expect(ai.freeChatNews).not.toHaveBeenCalled();
+  });
+});
+
+describe("requestNews — the cap counts PAID attempts (R5 as revised, ADR-0054 §8)", () => {
+  /** One request through the cap: what it served, its day count, and whether the slot came back. */
+  async function attempt(
+    output: unknown,
+    opts: { reservation?: { ok: boolean; count: number } } = {},
+  ) {
+    const world = make("Ramesh Kumar", { reservation: opts.reservation ?? { ok: true, count: 3 } });
+    world.ai.freeChatNews.mockResolvedValueOnce(output);
+    const out = await world.service.requestNews(NEWS_REQ, world.ctx, NOW, null);
+    return { ...world, out, released: world.newsCap.release.mock.calls.length > 0 };
+  }
+
+  it("an ANSWER keeps its slot; the day's count includes it", async () => {
+    const { out, released, newsCap } = await attempt(NEWS_ANSWER);
+    expect(out).toMatchObject({ outcome: "answered", dailyCount: 3 });
+    expect(released).toBe(false);
+    expect(newsCap.reserve).toHaveBeenCalledWith(WORKER, NOW);
+  });
+
+  it.each([
+    [
+      "no_results from a real call",
+      { status: "no_results", search_count: 2, ai_metadata: NEWS_ANSWER.ai_metadata },
+      "no_results",
+    ],
+    [
+      "a real refusal",
+      { status: "refuse", topic: "off_limits", ai_metadata: NEWS_ANSWER.ai_metadata },
+      "refused",
+    ],
+    ["a rejected answer", { ...NEWS_ANSWER, lines: ["Call karein 98765 43210 par."] }, "rejected"],
+    [
+      "a real call that failed",
+      {
+        status: "no_results",
+        search_count: 0,
+        ai_metadata: { ...NEWS_ANSWER.ai_metadata, success: false },
+      },
+      "unavailable",
+    ],
+    ["a sent request that came back null (timeout)", null, "unavailable"],
+  ])("KEEPS the slot for %s — it may have been billed", async (_name, output, outcome) => {
+    const { out, released } = await attempt(output);
+    expect(out).toMatchObject({ outcome, dailyCount: 3 });
+    expect(released).toBe(false);
+  });
+
+  it.each([
+    [
+      "the unarmed mock",
+      { status: "no_results", search_count: 0, ai_metadata: { ...MOCK_META, error_code: null } },
+    ],
+    [
+      "the spend-cap mock",
+      {
+        status: "no_results",
+        search_count: 0,
+        ai_metadata: { ...MOCK_META, error_code: "spend_cap" },
+      },
+    ],
+    [
+      "a blocked input (no metadata)",
+      { status: "refuse", topic: "unsafe_other", ai_metadata: null },
+    ],
+  ])("HANDS BACK the slot for %s — it never reached Anthropic", async (_name, output) => {
+    const { out, released, newsCap } = await attempt(output);
+    expect(out).toMatchObject({ outcome: "unavailable", dailyCount: 2 });
+    expect(released).toBe(true);
+    expect(newsCap.release).toHaveBeenCalledWith(WORKER, NOW);
+  });
+
+  it("an input refused BEFORE SENDING hands the slot back too", async () => {
+    const { service, ai, newsCap, ctx } = make("Ramesh Kumar", {
+      reservation: { ok: true, count: 1 },
+    });
+    const out = await service.requestNews({ ...NEWS_REQ, text: "" }, ctx, NOW, null);
+    expect(out).toMatchObject({ outcome: "unavailable", dailyCount: 0 });
+    expect(ai.freeChatNews).not.toHaveBeenCalled();
+    expect(newsCap.release).toHaveBeenCalledOnce();
+  });
+
+  it("a call that THROWS keeps the slot — it may have been sent", async () => {
+    const { service, ai, newsCap, ctx } = make();
+    ai.freeChatNews.mockRejectedValueOnce(new Error("socket hang up"));
+    const out = await service.requestNews(NEWS_REQ, ctx, NOW, null);
+    expect(out.outcome).toBe("unavailable");
+    expect(newsCap.release).not.toHaveBeenCalled();
+  });
+
+  it("an UNREADABLE cap makes no call — fail closed, the unavailable line, no count", async () => {
+    const { service, ai, newsCap, cost, ctx } = make("Ramesh Kumar", { reservation: null });
+    const out = await service.requestNews(NEWS_REQ, ctx, NOW, null);
+    expect(out).toMatchObject({ outcome: "unavailable", dailyCount: null, searchCount: null });
+    expect(ai.freeChatNews).not.toHaveBeenCalled();
+    expect(cost.record).not.toHaveBeenCalled();
+    expect(newsCap.release).not.toHaveBeenCalled();
+  });
+
+  it("a SPENT cap makes no call and releases nothing — the INCR was already handed back", async () => {
+    const { service, ai, newsCap, ctx } = make("Ramesh Kumar", {
+      reservation: { ok: false, count: 5 },
+    });
+    const out = await service.requestNews(NEWS_REQ, ctx, NOW, null);
+    expect(out).toMatchObject({ outcome: "capped", dailyCount: 5, searchCount: null });
+    expect(ai.freeChatNews).not.toHaveBeenCalled();
+    expect(newsCap.release).not.toHaveBeenCalled();
+  });
+});
+
+describe("requestNews — what is never searched (R9, security M1)", () => {
+  it.each([
+    "mera number 98765 43210 hai, is par job news bhejo",
+    "ramu@example.in par khabar bhejo",
+    "PAN ABCDE1234F wale scheme ki khabar",
+    "Aadhaar 2345 6789 0123 update ki news",
+    "मेरा नंबर ९८७६५४३२१० है, नौकरी की खबर",
+  ])("R9: %j is NOT searched — no reservation, no call, daily_count null", async (text) => {
+    const { service, ai, newsCap, cost, ctx } = make();
+    const out = await service.requestNews({ ...NEWS_REQ, text }, ctx, NOW, null);
+    expect(out).toMatchObject({
+      outcome: "unavailable",
+      line: { latin: "Abhi taaza khabar nahi mil paayi. Thodi der baad phir poochhiye." },
+      dailyCount: null,
+      searchCount: null,
+    });
+    expect(newsCap.reserve).not.toHaveBeenCalled();
+    expect(ai.freeChatNews).not.toHaveBeenCalled();
+    expect(cost.record).not.toHaveBeenCalled();
+  });
+
+  it("G2 FAILS CLOSED for news: a name lookup that ERRORS makes no reservation and no call", async () => {
+    const { service, ai, newsCap, ctx } = make();
+    const out = await service.requestNews(
+      NEWS_REQ,
+      {
+        ...ctx,
+        knownName: async () => {
+          throw new Error("decrypt failed");
+        },
+      },
+      NOW,
+      null,
+    );
+    expect(out).toMatchObject({ outcome: "unavailable", dailyCount: null });
+    expect(newsCap.reserve).not.toHaveBeenCalled();
+    expect(ai.freeChatNews).not.toHaveBeenCalled();
+  });
+
+  it("…while 'no name on file' (null) is not a failure — the request runs", async () => {
+    const { service, ai, ctx } = make(null);
+    expect((await service.requestNews(NEWS_REQ, ctx, NOW, null)).outcome).toBe("answered");
+    expect(ai.freeChatNews).toHaveBeenCalledOnce();
+  });
+
+  it("classify and reply keep their FAIL-OPEN lookup (unchanged)", async () => {
+    const { service, ai, ctx } = make();
+    const throwing = {
+      ...ctx,
+      knownName: async () => {
+        throw new Error("decrypt failed");
+      },
+    };
+    await service.reply(
+      {
+        category: "casual",
+        text: "kaise ho",
+        messages: [],
+        workerContext: { trade_label: null, experience_bucket: null },
+        summary: null,
+      },
+      throwing,
+    );
+    expect(ai.freeChatReply).toHaveBeenCalledOnce();
+  });
+});
+
+describe("requestNews — one request per submission, shared by a concurrent resend (code review #1)", () => {
+  it("two concurrent requests for ONE submission reserve once and call once", async () => {
+    const { service, ai, newsCap, ctx } = make();
+    let finish: (value: unknown) => void = () => undefined;
+    ai.freeChatNews.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const first = service.requestNews(NEWS_REQ, ctx, NOW, SUBMISSION);
+    const second = service.requestNews(NEWS_REQ, ctx, new Date(NOW.getTime() + 15_000), SUBMISSION);
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(ai.freeChatNews).toHaveBeenCalledOnce());
+    finish(NEWS_ANSWER);
+    expect((await first).outcome).toBe("answered");
+    expect(await second).toBe(await first);
+    expect(newsCap.reserve).toHaveBeenCalledOnce();
+    expect(ai.freeChatNews).toHaveBeenCalledOnce();
+  });
+
+  it("a retry right AFTER it settled reuses it during the grace; afterwards it is forgotten", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, ai } = make();
+      const ctx = { workerId: WORKER, sessionId: SESSION, ...CTX, knownName: async () => null };
+      const first = await service.requestNews(NEWS_REQ, ctx, NOW, SUBMISSION);
+      expect(await service.requestNews(NEWS_REQ, ctx, NOW, SUBMISSION)).toBe(first);
+      expect(ai.freeChatNews).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(FREE_CHAT_NEWS_INFLIGHT_GRACE_MS + 1);
+      await service.requestNews(NEWS_REQ, ctx, NOW, SUBMISSION);
+      expect(ai.freeChatNews).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("another submission, or none, is its own request", async () => {
+    const { service, ai, ctx } = make();
+    await service.requestNews(NEWS_REQ, ctx, NOW, SUBMISSION);
+    await service.requestNews(NEWS_REQ, ctx, NOW, "77777777-7777-4777-8777-777777777777");
+    await service.requestNews(NEWS_REQ, ctx, NOW, null);
+    await service.requestNews(NEWS_REQ, ctx, NOW, null);
+    expect(ai.freeChatNews).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("recordNews — chat.free_chat_news_served, counts and enums only", () => {
+  const ref = {
+    workerId: WORKER,
+    sessionId: SESSION,
+    submissionId: SUBMISSION,
+    turnRef: "rev3",
+    ctx: CTX as never,
+  };
+
+  it("emits a payload that validates, keyed on the submission", async () => {
+    const { service, events } = make();
+    await service.recordNews(
+      { outcome: "answered", kind: "work", searchCount: 1, sourceCount: 2, dailyCount: 3 },
+      ref,
+    );
+    const params = events.emit.mock.calls[0]![0] as {
+      event_name: string;
+      payload: Record<string, unknown>;
+      idempotencyKey: string;
+    };
+    expect(params.event_name).toBe("chat.free_chat_news_served");
+    expect(params.payload).toEqual({
+      worker_id: WORKER,
+      session_id: SESSION,
+      outcome: "answered",
+      kind: "work",
+      search_count: 1,
+      source_count: 2,
+      daily_count: 3,
+      submission_id: SUBMISSION,
+    });
+    expect(
+      EVENT_REGISTRY["chat.free_chat_news_served"].payload.safeParse(params.payload).success,
+    ).toBe(true);
+    expect(params.idempotencyKey).toBe(`chat.free_chat_news_served:${SESSION}:${SUBMISSION}`);
+  });
+
+  it("a capped request validates with no search count, and the key falls back to the rev", async () => {
+    const { service, events } = make();
+    await service.recordNews(
+      { outcome: "capped", kind: null, searchCount: null, sourceCount: 0, dailyCount: 5 },
+      { ...ref, submissionId: null },
+    );
+    const params = events.emit.mock.calls[0]![0] as { payload: unknown; idempotencyKey: string };
+    expect(
+      EVENT_REGISTRY["chat.free_chat_news_served"].payload.safeParse(params.payload).success,
+    ).toBe(true);
+    expect(params.idempotencyKey).toBe(`chat.free_chat_news_served:${SESSION}:rev3`);
+  });
+
+  it("swallows an emit failure", async () => {
+    const { service, events } = make();
+    events.emit.mockRejectedValue(new Error("db down"));
+    await expect(
+      service.recordNews(
+        { outcome: "unavailable", kind: null, searchCount: null, sourceCount: 0, dailyCount: null },
+        ref,
+      ),
+    ).resolves.toBeUndefined();
   });
 });

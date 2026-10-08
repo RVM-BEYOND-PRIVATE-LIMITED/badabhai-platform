@@ -5355,8 +5355,9 @@ export type ChatFreeChatSummaryUpdatedPayload = z.infer<typeof ChatFreeChatSumma
  *
  * `kind` is set exactly for `answered`; `source_count` is the number of tiles served (1-3 for
  * `answered`, 0 otherwise); `search_count` is how many charged searches ran (null when no call was
- * made: `capped`); `daily_count` is the worker's news answers today including this one (null when
- * the cap store could not be read).
+ * made: `capped`); `daily_count` is the worker's paid news attempts today, counting this one when it
+ * was paid (ADR-0054 R5 as revised; null when the cap store could not be read or the question was
+ * never searched).
  *
  * NEVER THE QUESTION, THE ANSWER, A URL OR A TITLE. Counts and closed enums only; `.strict()`.
  */

@@ -14,6 +14,14 @@
  * down", "no memory". Never a fail-CLOSED check (a rate limit, a spend ledger): there a timeout
  * must refuse, not permit, and those callers own their own bound.
  *
+ * ONE RECORDED EXCEPTION: `FreeChatNewsCap` (ADR-0054 R5, the live-news daily cap). It is a
+ * fail-closed counter that uses this helper because its timeout path REFUSES — a rejection here
+ * becomes "no news call", never "unlimited calls" — so the race bounds a hang without permitting
+ * anything. The late-landing caveat below applies to it and is accepted there: a reservation that
+ * lands after its timeout holds one slot until the IST day ends (the refusing direction), and the
+ * `daily_count` its event reports may then be one low. Any other fail-closed caller still owns its
+ * own bound.
+ *
  * THE ABANDONED COMMAND STILL RUNS. `Promise.race` cancels nothing, so a timed-out write may land
  * after the caller moved on. A caller whose write must not land late (a counter that an event
  * reports) must not use this.

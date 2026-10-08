@@ -16,6 +16,7 @@ import {
   FreeChatClassifyOutputSchema,
   FreeChatReplyOutputSchema,
   FreeChatSummarizeOutputSchema,
+  FreeChatNewsOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
   ResumeParseOutputSchema,
@@ -55,6 +56,8 @@ import {
   type FreeChatReplyOutput,
   type FreeChatSummarizeInput,
   type FreeChatSummarizeOutput,
+  type FreeChatNewsInput,
+  type FreeChatNewsOutput,
   type SkillCanonicalizationInput,
   type SkillCanonicalization,
   type ProfileExtractionInput,
@@ -490,6 +493,25 @@ export class AiService {
     ctx?: AiRequestContext,
   ): Promise<FreeChatSummarizeOutput | null> {
     return this.post("/free-chat/summarize", input, FreeChatSummarizeOutputSchema, 8000, ctx);
+  }
+
+  /**
+   * ADR-0054 — one news question to a searched answer (Haiku with the server-side web search tool,
+   * at most two searches): 1-4 lines and 1-3 sources, `no_results`, or a closed refusal.
+   *
+   * TWENTY-FIVE SECONDS, the ADR's budget: a news turn runs the classifier, the reply's refusal and
+   * then up to two searches whose results the model reads, so it is the slowest free-chat call by
+   * design (the app's typing indicator covers it). Null on every failure — unreachable, non-OK, a
+   * schema miss, the abort — and the caller serves its fixed line. The far side applies the masking
+   * policy in force (ADR-0047); the caller has already redacted the worker's own name (G2). NOTHING
+   * in the answer is trusted: the API re-validates every line and every source before a worker
+   * sees them (`judgeNews`).
+   */
+  async freeChatNews(
+    input: FreeChatNewsInput,
+    ctx?: AiRequestContext,
+  ): Promise<FreeChatNewsOutput | null> {
+    return this.post("/free-chat/news", input, FreeChatNewsOutputSchema, 25000, ctx);
   }
 
   async extractProfile(

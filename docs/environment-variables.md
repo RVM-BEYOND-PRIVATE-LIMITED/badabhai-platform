@@ -169,7 +169,10 @@ NestJS boot assertion).
   the compose default (#1843), so widening means appending to that list on the box. The
   profiling-stage free chat's three tasks (`profiling_free_classify`, `profiling_free_reply`,
   ADR-0051, and Release 2's rolling summary `profiling_free_summary`, §8) are appended the same
-  way; see its kill-switch entry below.
+  way; see its kill-switch entry below. So is its live news answer, `profiling_free_news`
+  (ADR-0054: Claude + the web search tool, billed per search), appended only after the app
+  release that renders the news tiles (R7); unarmed, it returns its mock and workers keep the
+  "coming soon" news line.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
@@ -191,9 +194,11 @@ NestJS boot assertion).
   `true` sends every session straight to today's interview with no greeting and no classifier
   call, byte for byte the pre-ADR-0051 chat. Bridged through the GitHub `production` environment
   secret of the same name (compose `${CHAT_FREE_CHAT_DISABLED:-false}`, `ci.yml` `env:` + `envs:`).
-  The three model tasks it calls (`profiling_free_classify`, `profiling_free_reply`, and
-  Release 2's `profiling_free_summary`, whose unarmed mock stores no summary) are armed
-  separately, by appending them to the box's `AI_REAL_CALL_TASKS`. No migration.
+  The four model tasks it calls (`profiling_free_classify`, `profiling_free_reply`,
+  Release 2's `profiling_free_summary`, whose unarmed mock stores no summary, and ADR-0054's
+  `profiling_free_news`, whose unarmed mock keeps today's "jaldi aayegi" line) are armed
+  separately, by appending them to the box's `AI_REAL_CALL_TASKS`. `true` also stops live news
+  and drops `news_links` from every response. No migration.
 - **Matching V1 cutover gate (ADR-0036 §8, #1904)** — `MATCH_V1_ENABLED`, api only
   (`booleanFromString`, default off). Off is the legacy source for the worker feed, apply and the
   payer candidate list (`jobs` + the weighted engine); on is `job_reach` + `job_postings` + the V1

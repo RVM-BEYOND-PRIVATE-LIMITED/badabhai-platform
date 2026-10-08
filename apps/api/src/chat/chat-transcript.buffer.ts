@@ -7,6 +7,13 @@ import {
   narrowProfilingEnvelope,
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
+import {
+  narrowNewsLinks,
+  newsLinksField,
+  toWireNewsLinks,
+  type FreeChatNewsLink,
+  type FreeChatNewsLinkWire,
+} from "../profiling/free-chat/free-chat-news-links";
 import { PROFILE_EXTRACTION_QUEUE, type ProfileExtractionJobData } from "../queue/queue.constants";
 
 /** Canonical UUID shape, for narrowing a buffered `voiceNoteId` back into a real FK. */
@@ -112,6 +119,14 @@ export interface BufferedMessage {
    * `chat_messages`.
    */
   foldable?: true;
+  /**
+   * ADR-0054 §3.4 — the 1-3 "read more" tiles of an ANSWERED live-news reply, on that assistant line
+   * only (always an aside), so a thread redraw shows them; the flush carries them into the row's
+   * `metadata.news_links` (see {@link freeChatMetadataOf}). Titles and links come from the search's
+   * sources — never the worker's words — and each was checked by `newsLinksOf`. ABSENT on every
+   * other line, never empty, so every buffer written without it serializes byte-identically.
+   */
+  newsLinks?: readonly FreeChatNewsLink[];
 }
 
 /**
@@ -135,6 +150,30 @@ export function isIdentityIntakeMetadata(metadata: unknown): boolean {
  * never text, beside {@link IDENTITY_INTAKE_METADATA} and for the same readers.
  */
 export const FREE_CHAT_METADATA = { free_chat: true } as const;
+
+/**
+ * The `chat_messages.metadata` a flushed free-chat line carries: {@link FREE_CHAT_METADATA}, plus —
+ * on an answered news reply (ADR-0054 §3.4) — its tiles as `news_links`, so the session replay can
+ * redraw them once the buffer is gone. The tiles are the search's titles and links, never worker
+ * text; every reader still matches the line by `free_chat: true` (JSONB containment ignores the
+ * extra key).
+ */
+export function freeChatMetadataOf(
+  message: Pick<BufferedMessage, "newsLinks">,
+): typeof FREE_CHAT_METADATA | { free_chat: true; news_links: FreeChatNewsLinkWire[] } {
+  const links = message.newsLinks;
+  if (links === undefined || links.length === 0) return FREE_CHAT_METADATA;
+  return { ...FREE_CHAT_METADATA, news_links: toWireNewsLinks(links) };
+}
+
+/**
+ * The tiles a flushed row's metadata holds (ADR-0054), re-checked — or null. Tolerates any shape:
+ * an unreadable value is simply no tiles.
+ */
+export function newsLinksOfMetadata(metadata: unknown): FreeChatNewsLink[] | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  return narrowNewsLinks((metadata as Record<string, unknown>).news_links);
+}
 
 /**
  * Does a stored row's `metadata` keep it out of every reader of the conversation's MEANING — the
@@ -174,6 +213,7 @@ export const BUFFERED_MESSAGE_KEYS = {
   intake: true,
   aside: true,
   foldable: true,
+  newsLinks: true,
 } satisfies Record<keyof BufferedMessage, true>;
 
 /** The whole in-flight interview. Serialized to one Redis string per session. */
@@ -509,6 +549,8 @@ export class ChatTranscriptBuffer {
         // ADR-0051 Release 2 — the same rule again. A lost flag fails toward "not foldable": the
         // line is simply never summarised, which is how every line read before Release 2 behaves.
         ...(msg.foldable === true ? { foldable: true as const } : {}),
+        // ADR-0054 — RE-CHECKED like every tile read back from a store; ABSENT unless one survives.
+        ...newsLinksField(msg.newsLinks),
       });
     }
 

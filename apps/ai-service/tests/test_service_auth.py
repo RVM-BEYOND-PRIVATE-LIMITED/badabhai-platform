@@ -251,12 +251,18 @@ class TestServiceAuthEnabled:
         # 22 -> 23 with ADR-0051 Release 2 (§8): POST /free-chat/summarize. It carries the
         # worker's free-chat turns and their rolling summary, so the same bearer gates it; the
         # API's validation before storing is the summary's second lock.
+        #
+        # 23 -> 24 with ADR-0054: POST /free-chat/news. It carries the worker's question and
+        # recent turns, and it is the one route whose call carries the web search tool (paid per
+        # search), so an ungated route here would spend money for anyone who could reach it. The
+        # same bearer gates it; the API's reply gate and tile checks are its second lock.
         assert post_paths == [
             "/companion/career",
             "/companion/classify",
             "/companion/edit-parse",
             "/embeddings/skill-alias",
             "/free-chat/classify",
+            "/free-chat/news",
             "/free-chat/reply",
             "/free-chat/summarize",
             "/growth/cluster",
