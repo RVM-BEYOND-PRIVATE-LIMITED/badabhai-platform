@@ -4415,3 +4415,128 @@ def test_a_monthly_wage_and_an_annual_package_never_form_one_band(
 @pytest.mark.parametrize("text", ["salary 18000 and 3 lakh ctc", "in hand 15 hazar - 2 lakhs"])
 def test_a_band_on_two_bases_tags_no_pay_type(text: str) -> None:
     assert "pay_type" not in answers.detect_answers(text, None)
+
+
+# --- #2142: a bare amount added to the wage with "+" / "plus" is not the pay minimum -------------
+# #2141 read "salary 18000 + 1500 and PF" as Rs 18,000; with no add-on word at all, "salary 18000 +
+# 1500" still read as Rs 1,500-18,000 — a Rs 1,500 minimum shown for an Rs 18,000 job. One more
+# condition in the same add-on screen, with the same wage test and the same read of the next clause.
+_PLUS_ADDITION_CASES: list[tuple[str, dict | None]] = [
+    ("salary 18000 + 1500", _pay(18000)),
+    ("salary 18k + 1.5k", _pay(18000)),
+    ("salary 18000 plus 1500", _pay(18000)),
+    ("Salary 15000 + 2000 per month", _pay(15000)),
+    ("salary 18k+1.5k", _pay(18000)),
+    ("salary 18000 + Rs 1500", _pay(18000)),
+    ("salary 18000 + 1500 + 1000", _pay(18000)),
+    ("salary 18000 + 1500 + 2000 bonus", _pay(18000)),
+    # An add-on named BEFORE a wage with words of its own is not that wage's label ...
+    ("PF ESI, salary 18000 + 1500", _pay(18000)),
+    ("Room and food free, salary 12000 + 1000", _pay(12000)),
+    # ... and a clause after the amount that is about a figure of its own does not make it a wage.
+    ("fitter 18000 + 1500, helper 12000 + 1000", _pay(12000, 18000)),
+    # Unchanged: #2141's labelled rows ...
+    ("salary 18000 + 1500 and PF", _pay(18000)),
+    ("salary 18k + 1.5k and PF", _pay(18000)),
+    # ... a second wage labelled in its own clause or in the next one (#2153 review) ...
+    ("experienced 25000+ 12000 fresher ko", _pay(12000, 25000)),
+    ("experienced 25000+ 12000+ fresher ko", _pay(12000, 25000)),
+    ("Salary 25000+ 12000+ for fresher", _pay(12000, 25000)),
+    ("salary 15000+ 10000+ helper", _pay(10000, 15000)),
+    ("experienced 25000+ 12000\nfresher ko", _pay(12000, 25000)),
+    ("experienced 25000+ 12000; fresher ko", _pay(12000, 25000)),
+    ("experienced 25000+ 12k, fresher ko", _pay(12000, 25000)),
+    ("experienced 25000+ 12000, fresher", _pay(12000, 25000)),
+    ("experienced 25000 + 12000\nfresher ko", _pay(12000, 25000)),
+    ("salary 30000 + 15000\nfresher room free", _pay(15000, 30000)),
+    ("25000 + 18000 salary", _pay(18000, 25000)),
+    ("joining bonus, 25000 + 18000 salary", _pay(18000, 25000)),
+    # ... "or more": a "+" glued to a figure and followed by a space, or one that adds no number ...
+    ("salary 25000+ 12000", _pay(12000, 25000)),
+    ("experienced 25000 + 12000+", _pay(12000, 25000)),
+    ("salary 25000+12000+", _pay(12000, 25000)),
+    # ... a figure more than half the wage is a second wage (#2066's ratio, as #2141 reads it) ...
+    ("salary 18000 + 12000, fresher", _pay(12000, 18000)),
+    ("salary 18000 + 12000\nfood allowance", _pay(12000, 18000)),
+    ("15000 + 15000", _pay(15000)),
+    ("salary 10k + 15k", _pay(10000, 15000)),
+    # ... a chain whose first figure is itself an add-on labelled before it: dropping the 1800 would
+    # make the bonus the whole pay ...
+    ("joining bonus, 25000 + 1800", _pay(1800, 25000)),
+    # ... a "+" across a line break joins nothing ...
+    ("salary 18000 +\n1500", _pay(1500, 18000)),
+    ("salary 18000\n+ 1500", _pay(1500, 18000)),
+    # ... a lakh-scale figure is an annual package, never the wage an amount is added to ...
+    ("salary 3 lakh + 20000", None),
+    # ... and phone text: the "+" before a country code adds nothing (its digits read as on main).
+    ("+91 98765 43210", _pay(43210, 98765)),
+    # Owner scope (#2142): a RANGE after the "+" is not an addition — a known residual ...
+    ("20k + 2-3k", _pay(2000, 3000)),
+    # ... and beside an in-hand basis two figures still record nothing (the basis rule), while
+    # #2141's "wage, amount, label" run reads as before.
+    ("in hand 18000 + 1500", None),
+    ("in hand 18000 + 1500 and PF", _pay(18000)),
+]
+
+
+@pytest.mark.parametrize(("text", "pay"), _PLUS_ADDITION_CASES)
+def test_a_bare_amount_added_with_plus_is_not_the_pay_minimum(text: str, pay: dict | None) -> None:
+    assert answers.detect_answers(text, "pay_range").get("pay_range") == pay
+    assert answers.detect_answers(f"{text}\nmonthly", None).get("pay_range") == pay
+
+
+@pytest.mark.parametrize(
+    ("between", "joins"),
+    [
+        (" + ", True),
+        ("+", True),
+        (" +", True),
+        (" plus ", True),
+        (" PLUS ", True),
+        ("plus", True),
+        (" + Rs ", True),
+        (" + rs.", True),
+        (" + ₹", True),
+        (" + rupees ", True),
+        ("\t+\t", True),
+        # The "or more" idiom, a line break, another joiner, or words: no join.
+        ("+ ", False),
+        ("+\t", False),
+        (" +\n", False),
+        ("\n+ ", False),
+        (" +\r", False),
+        (" + \x85", False),
+        (" and ", False),
+        (" aur ", False),
+        (" / ", False),
+        (" ", False),
+        (" + PF + ", False),
+        (" surplus ", False),
+    ],
+)
+def test_which_text_joins_two_figures(between: str, joins: bool) -> None:
+    assert (answers._PAY_PLUS_JOIN_RE.fullmatch(between) is not None) is joins
+
+
+@pytest.mark.parametrize(
+    ("after", "or_more"),
+    [
+        ("+", True),
+        (" +", True),
+        ("+ fresher", True),
+        ("+ 12000", True),
+        (" + PF", True),
+        (" plus", True),
+        ("+\n12000", True),
+        # A "+" that adds a number, or no "+" at all.
+        (" + 1000", False),
+        ("+1000", False),
+        (" plus Rs 1000", False),
+        (" + ₹ 1000", False),
+        ("", False),
+        (" per month", False),
+        ("\n+ 1000", False),
+    ],
+)
+def test_which_plus_after_a_figure_is_or_more(after: str, or_more: bool) -> None:
+    assert (answers._PAY_OR_MORE_RE.match(after) is not None) is or_more

@@ -586,6 +586,9 @@ _PAY_LABEL_FILLER_RE = re.compile(
     ),
     re.IGNORECASE,
 )
+# A letter: `_HAS_ALNUM_RE` with its ASCII digits left out. A WORD left beside a label names
+# something; a number left there ("bonus 2500") is not a word (#2142).
+_PAY_LETTER_RE = re.compile(r"[A-Za-zऀ-ॿ]")
 # A bare four-digit YEAR is not pay ("Established 1998" became pay_min 1998, R34). It is
 # pay only with a currency word before it or a per-month / "/-" after it ("Rs 2000").
 _PAY_YEAR_RE = re.compile(r"19[5-9]\d|20\d\d")
@@ -611,6 +614,30 @@ _PAY_GROSS_BASES: tuple[str, ...] = ("ctc", "gross")
 # reads only a wage below it (#2141 review) — every wage-and-add-on the payers type is a monthly
 # wage in the tens of thousands — and a band across it records nothing (`_spans_two_bases`).
 _PAY_ANNUAL_FLOOR = 100_000
+# Whitespace that does not end a line: every `str.splitlines` break (\n, \r, \v, \f, \x1c-\x1e,
+# \x85, U+2028, U+2029) is left out, so a "+" never joins across one.
+_PAY_LINE_SPACE = r"[^\S\n\r\v\f\x1c-\x1e\x85\u2028\u2029]"
+# "plus" where the clause boundary reads it: not inside a word.
+_PAY_PLUS_WORD = r"(?<![A-Za-z])plus(?![A-Za-z])"
+# A "+" that adds: spaces before it ("18000 + 1500", "18000 +1500") or none on either side
+# ("18k+1.5k"). One glued to the figure before it and followed by a space is the "or more" idiom
+# — "25000+ 12000" is 25,000 or more beside a 12,000 wage — and adds nothing.
+_PAY_PLUS_SIGN = rf"(?:{_PAY_LINE_SPACE}+\+|\+(?!{_PAY_LINE_SPACE}))"
+# What may sit between a joining "+" / "plus" and the figure it adds: spaces and a currency word.
+_PAY_PLUS_TAIL = rf"{_PAY_LINE_SPACE}*(?:(?:₹|rs\.?|inr|rupees?){_PAY_LINE_SPACE}*)?"
+# A "+" / "plus" that JOINS a figure to the one before it on the same line, with nothing else
+# between them: "18000 + 1500", "18k+1.5k", "18000 plus Rs 1500" (#2142). Fullmatched on the
+# slice between two adjacent figures only, so it costs O(slice).
+_PAY_PLUS_JOIN_RE = re.compile(
+    rf"(?:{_PAY_PLUS_SIGN}|{_PAY_LINE_SPACE}*{_PAY_PLUS_WORD}){_PAY_PLUS_TAIL}", re.IGNORECASE
+)
+# A figure followed on its line by a "+" / "plus" that adds no number is "or more": "12000+",
+# "12000+ fresher", "25000 + 12000+", and the glued "+" of "25000+ 12000". It is a wage, not an
+# amount added to one. Matched at the figure's end; the lookahead reads one run of spaces.
+_PAY_OR_MORE_RE = re.compile(
+    rf"\+(?={_PAY_LINE_SPACE})|{_PAY_LINE_SPACE}*(?:\+|{_PAY_PLUS_WORD})(?!{_PAY_PLUS_TAIL}\d)",
+    re.IGNORECASE,
+)
 
 
 class _PayFigure(NamedTuple):
@@ -826,6 +853,13 @@ def _said_clause(
     return None
 
 
+def _is_a_wage_for(wage: _PayFigure, figure: _PayFigure) -> bool:
+    """``wage`` can be the wage ``figure`` is an add-on to: at least `_PAY_AND_SPLIT_RATIO` times it
+    (the #2066 test for two statements) and below `_PAY_ANNUAL_FLOOR` (a lakh-scale figure is an
+    annual package)."""
+    return _PAY_AND_SPLIT_RATIO * figure.low <= wage.low < _PAY_ANNUAL_FLOOR
+
+
 def _follows_a_wage(
     message: str,
     figure: _PayFigure,
@@ -833,33 +867,121 @@ def _follows_a_wage(
     wages: list[_PayFigure],
     wage_starts: list[int],
 ) -> bool:
-    """The clause before ``figure``'s that says anything holds a wage — a kept figure at least
-    `_PAY_AND_SPLIT_RATIO` times it (the #2066 test for two statements) and below
-    `_PAY_ANNUAL_FLOOR` (a lakh-scale figure is an annual package)."""
+    """The clause before ``figure``'s that says anything holds a wage for it (`_is_a_wage_for`)."""
     clause = _said_clause(message, boundaries, bisect_right(boundaries.ends, figure.start) - 1, -1)
     if clause is None:
         return False
     first, last = bisect_left(wage_starts, clause[0]), bisect_left(wage_starts, clause[1])
     if first and wages[first - 1].end > clause[0]:
         first -= 1  # a range that started earlier and runs into the clause
-    return any(
-        _PAY_AND_SPLIT_RATIO * figure.low <= wage.low < _PAY_ANNUAL_FLOOR
-        for wage in wages[first:last]
-    )
+    return any(_is_a_wage_for(wage, figure) for wage in wages[first:last])
+
+
+def _next_said_clause(
+    message: str, figure: _PayFigure, boundaries: _ClauseBoundaries
+) -> tuple[int, int] | None:
+    """The clause after ``figure``'s that says anything (`_said_clause`)."""
+    return _said_clause(message, boundaries, bisect_left(boundaries.starts, figure.end) + 1, 1)
+
+
+def _beside_a_label(said: str) -> str:
+    """What ``said`` holds beside an add-on label's words: its add-on words, filler
+    (`_PAY_LABEL_FILLER_RE`), currency words and periods blanked out."""
+    return _PAY_LABEL_FILLER_RE.sub(" ", _PAY_BARE_WORD_RE.sub(" ", _PAY_ADDON_RE.sub(" ", said)))
 
 
 def _labels_an_addon(message: str, figure: _PayFigure, boundaries: _ClauseBoundaries) -> bool:
     """The clause after ``figure``'s that says anything is an add-on's LABEL: it names an add-on
     and holds nothing else but filler, a currency word or a period (`_PAY_LABEL_FILLER_RE`) — no
     figure of its own and no worker category ("fresher room free")."""
-    clause = _said_clause(message, boundaries, bisect_left(boundaries.starts, figure.end) + 1, 1)
+    clause = _next_said_clause(message, figure, boundaries)
     if clause is None:
         return False
     said = message[clause[0] : clause[1]]
     if _PAY_ADDON_RE.search(said) is None:
         return False
-    rest = _PAY_LABEL_FILLER_RE.sub(" ", _PAY_BARE_WORD_RE.sub(" ", _PAY_ADDON_RE.sub(" ", said)))
-    return _HAS_ALNUM_RE.search(rest) is None
+    return _HAS_ALNUM_RE.search(_beside_a_label(said)) is None
+
+
+class _PlusChains(NamedTuple):
+    """The "+" chains among one message's kept figures (#2142): for each kept figure, the index of
+    its chain's FIRST figure (`_plus_chain_heads`), and, per first figure, whether it is itself an
+    add-on's amount (`_led_by_an_addon`) — worked out once, the first time a chain needs it."""
+
+    heads: list[int]
+    led_by_an_addon: dict[int, bool]
+
+
+def _plus_chain_heads(message: str, wages: list[_PayFigure]) -> list[int]:
+    """For each figure of ``wages``, the index of the first figure of its "+" chain: the run of
+    figures each JOINED to the one before it (`_PAY_PLUS_JOIN_RE`). "18000 + 1500 + 1000" is one
+    chain from 18000; a figure joined to none starts its own. The slices between adjacent figures
+    are disjoint, so this is O(n)."""
+    heads: list[int] = []
+    for index, figure in enumerate(wages):
+        joined = (
+            index > 0
+            and _PAY_PLUS_JOIN_RE.fullmatch(message, wages[index - 1].end, figure.start) is not None
+        )
+        heads.append(heads[index - 1] if joined else index)
+    return heads
+
+
+def _led_by_an_addon(
+    message: str, head: _PayFigure, span: tuple[int, int], boundaries: _ClauseBoundaries
+) -> bool:
+    """A "+" chain's first figure is itself an add-on's amount, its label BEFORE it: it is bare and
+    the clause before its own that says anything names an add-on. In "joining bonus, 25000 +
+    1800" the comma cuts "joining bonus" off the 25000; nothing in that chain is added to a wage.
+    An add-on named before a figure that has words of its own ("PF ESI, salary 18000 + 1500") is
+    not that figure's label."""
+    if not _is_bare(message, head, span):
+        return False
+    clause = _said_clause(message, boundaries, bisect_right(boundaries.ends, head.start) - 1, -1)
+    return clause is not None and _PAY_ADDON_RE.search(message[clause[0] : clause[1]]) is not None
+
+
+def _makes_it_a_wage(message: str, clause: tuple[int, int], wage_starts: list[int]) -> bool:
+    """``clause``, the clause after an added amount's that says anything, makes that amount a wage:
+    it holds no pay figure of its own (its words would be about that figure, as `_labels_an_addon`
+    reads them) and a word that is not an add-on word, filler, a currency word or a period — the
+    worker category or the wage the amount is ("fresher ko", "for fresher", "helper")."""
+    first = bisect_left(wage_starts, clause[0])
+    if first < len(wage_starts) and wage_starts[first] < clause[1]:
+        return False
+    return _PAY_LETTER_RE.search(_beside_a_label(message[clause[0] : clause[1]])) is not None
+
+
+def _is_a_bare_addition(
+    message: str,
+    index: int,
+    kept: list[tuple[_PayFigure, tuple[int, int]]],
+    wage_starts: list[int],
+    boundaries: _ClauseBoundaries,
+    chains: _PlusChains,
+) -> bool:
+    """Kept figure ``index`` — a bare single figure, alone in its clause — is an amount ADDED to the
+    wage its "+" chain starts from (#2142): "salary 18000 + 1500" is Rs 18,000 and 1,500 on top,
+    not a Rs 1,500-18,000 band. It is that when
+
+    - its chain starts at an EARLIER figure that is a wage for it (`_is_a_wage_for`, the test
+      `_follows_a_wage` makes) and is not itself an add-on's amount (`_led_by_an_addon`);
+    - it is not "or more" itself (`_PAY_OR_MORE_RE`): "experienced 25000 + 12000+";
+    - and the clause after its own that says anything does not make it a wage
+      (`_makes_it_a_wage`): "experienced 25000 + 12000\\nfresher ko" is the fresher's wage, as
+      on main, while in "18000 + 1500 + 1000" and "fitter 18000 + 1500, helper 12000 + 1000" the
+      clause after the 1500 is about a figure of its own."""
+    head_index = chains.heads[index]
+    figure = kept[index][0]
+    head, head_span = kept[head_index]
+    if head_index == index or not _is_a_wage_for(head, figure):
+        return False
+    if head_index not in chains.led_by_an_addon:
+        chains.led_by_an_addon[head_index] = _led_by_an_addon(message, head, head_span, boundaries)
+    if chains.led_by_an_addon[head_index] or _PAY_OR_MORE_RE.match(message, figure.end) is not None:
+        return False
+    clause = _next_said_clause(message, figure, boundaries)
+    return clause is None or not _makes_it_a_wage(message, clause, wage_starts)
 
 
 def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFigure]:
@@ -874,12 +996,26 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
     add-on's amount; and nothing is screened in a message naming CTC or gross
     (`_PAY_GROSS_BASES`), as before.
 
+    The same bare single figure is also an add-on's amount when it is ADDED to a wage on its line
+    with "+" / "plus", with no add-on word to label it (#2142, `_is_a_bare_addition`): "salary
+    18000 + 1500", "salary 18k + 1.5k", "18000 plus 1500" read as Rs 1,500-18,000. It uses the
+    same wage test, so "salary 18000 + 12000" stays a band, and the same read of what follows, so
+    "experienced 25000 + 12000\\nfresher ko" stays the fresher's wage. Two scopes are the owner's
+    (#2142): a RANGE after the "+" is never an addition ("20k + 2-3k" still reads Rs 2,000-3,000,
+    a known residual); and a message naming an in-hand basis is left to the basis rule ("in hand
+    18000 + 1500" records nothing, as on main), while its "wage, amount, label" run reads as
+    before ("in hand 18000 + 1500 and PF" is Rs 18,000).
+
     The boundaries are found once and each distinct clause is screened once (figures in one
     clause share its verdict). The "wage, amount, label" test runs only for an amount alone in
     its clause, and each of its two walks stops at the first said clause; the next amount's
     clause is one, so a clause is walked at most twice (forward from the amount before it, back
     from the amount after it) and its wages are read for one amount at most. O(n) together; a
-    bare test per figure of a many-figure clause would be O(n^2)."""
+    bare test per figure of a many-figure clause would be O(n^2). The "+" test adds O(n) to that:
+    the chains come from one pass over the disjoint slices between figures; a chain's first figure
+    is read once (its clause, and one walk back), however long the chain, and it is the last
+    figure of its clause, so no clause is read for two chains; and each amount reads the spaces
+    after it and makes one more walk forward of the kind above."""
     boundaries = _clause_boundaries(message)
     spans = [_pay_clause_span(message, figure, boundaries) for figure in figures]
     verdicts: dict[tuple[int, int], bool] = {}
@@ -892,15 +1028,26 @@ def _addon_figure_screen(message: str, figures: list[_PayFigure]) -> list[_PayFi
     wages = [figure for figure, _ in kept]
     wage_starts = [figure.start for figure in wages]
     shared = Counter(spans)
+    # CTC / gross returned above; an in-hand basis leaves a "+" pair to the basis rule (#2142).
+    adds_on_a_plus = _PAY_BASIS_KINDS["in_hand"].search(message) is None
+    chains = _PlusChains(_plus_chain_heads(message, wages), {})
     return [
         figure
-        for figure, span in kept
+        for index, (figure, span) in enumerate(kept)
         if not (
             not figure.from_range
             and shared[span] == 1
             and _is_bare(message, figure, span)
-            and _follows_a_wage(message, figure, boundaries, wages, wage_starts)
-            and _labels_an_addon(message, figure, boundaries)
+            and (
+                (
+                    _follows_a_wage(message, figure, boundaries, wages, wage_starts)
+                    and _labels_an_addon(message, figure, boundaries)
+                )
+                or (
+                    adds_on_a_plus
+                    and _is_a_bare_addition(message, index, kept, wage_starts, boundaries, chains)
+                )
+            )
         )
     ]
 
