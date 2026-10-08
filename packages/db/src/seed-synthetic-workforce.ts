@@ -387,10 +387,35 @@ function pickDistinct<T>(items: readonly T[], k: number, rng: Rng): T[] {
 
 export const WORKFORCE_PAYER_COUNT = 35;
 
+// Deterministic (no RNG — index-derived, so re-running with --apply upserts the SAME name for
+// the same payer index; never a real company's name, so this can never read as impersonation).
+const COMPANY_NAME_PREFIXES = [
+  "Shree", "Om", "Bharat", "Vikram", "Balaji", "Suvidha", "Konkan", "Deccan", "Sunrise",
+  "Metro", "Apex", "Prime", "Supreme", "Vishwa", "Sai", "Modern", "Star", "Classic",
+  "National", "United", "Pioneer", "Royal", "Elite", "Mahalaxmi", "Krishna", "Ganesh",
+  "Laxmi", "Hind", "Jyoti", "Swastik", "Annapurna", "Vighnaharta", "Siddhi", "Gokul", "Shakti",
+] as const;
+
+const COMPANY_NAME_SUFFIXES = [
+  "Precision Engineering Works", "CNC Solutions Pvt Ltd", "Tooling & Fabrication",
+  "Sheet Metal Industries", "Industrial Corporation", "Machine Works",
+  "Auto Components Pvt Ltd", "Forge & Fabrication Co.", "Manufacturing Enterprises",
+  "Metal Works Pvt Ltd", "Engineering Industries", "Precision Tools Pvt Ltd",
+  "Fabricators & Engineers", "Industrial Works", "Components Pvt Ltd",
+] as const;
+
+/** Index-derived "real-sounding" synthetic company name — never a real company's. */
+export function workforceCompanyName(index: number): string {
+  const prefix = COMPANY_NAME_PREFIXES[index % COMPANY_NAME_PREFIXES.length]!;
+  // Step by a number coprime-ish with the suffix pool so nearby indices don't share a suffix.
+  const suffix = COMPANY_NAME_SUFFIXES[(index * 7 + 5) % COMPANY_NAME_SUFFIXES.length]!;
+  return `${prefix} ${suffix}`;
+}
+
 export interface WorkforcePayer {
   index: number;
   payerId: string;
-  /** SYNTHETIC — encrypted into `payers.org_name_enc`; never worker-visible. */
+  /** SYNTHETIC but real-sounding — encrypted into `payers.org_name_enc`; never worker-visible. */
   orgName: string;
   /** SYNTHETIC — `.invalid` TLD (RFC 2606), encrypted + hashed. */
   email: string;
@@ -403,7 +428,7 @@ export function buildWorkforcePayers(count: number = WORKFORCE_PAYER_COUNT): Wor
     return {
       index: i,
       payerId: workforceUuid("payer", i),
-      orgName: `Workforce Seed Employer ${n} (synthetic)`,
+      orgName: workforceCompanyName(i),
       email: `workforce-seed-employer-${n}@workforce-seed.test.invalid`,
       // Employers 01-04 are large (weight 5), 05-12 medium (2), the rest small (1).
       weight: i < 4 ? 5 : i < 12 ? 2 : 1,
@@ -1008,7 +1033,7 @@ export async function applyWorkforceSeed(
               id: p.postingId,
               createdBy: payer.payerId,
               payerId: payer.payerId,
-              orgLabel: `SYNTHETIC — Workforce Seed Employer ${String(p.payerIndex + 1).padStart(2, "0")}`,
+              orgLabel: payer.orgName,
               roleTitle: p.roleTitle,
               locationLabel: `${p.area}, ${p.city}`,
               description: p.description,
