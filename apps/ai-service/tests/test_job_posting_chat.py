@@ -4276,8 +4276,10 @@ _NEXT_CLAUSE_ADDON_CASES: list[tuple[str, dict | None]] = [
     # ... a next clause with a figure of its own labels THAT figure, so the bare one has no
     # label and stays in the fold as on main (its own add-on clause drops the 2500) ...
     ("salary 18000\n1500\nbonus 2500", _pay(1500, 18000)),
-    # ... a range is never an add-on's amount: "CTC 3 lakh" and an in-hand range are two bases ...
+    # ... a range is never an add-on's amount: "CTC 3 lakh" and an in-hand range are two bases,
+    # and beside a larger monthly figure a range still wins outright ...
     ("CTC 3 lakh\n18000-22000\nPF ESI", None),
+    ("salary 50000\n18000-22000\nPF ESI", _pay(18000, 22000)),
     # ... nor is a smaller figure beside a CTC or gross one, wherever the message names that
     # basis: it may be the in-hand pay, so the pair still records nothing (#2141 review) ...
     ("CTC 3 lakh\n15000\nPF ESI", None),
@@ -4287,6 +4289,12 @@ _NEXT_CLAUSE_ADDON_CASES: list[tuple[str, dict | None]] = [
     ("CTC 3 lakh\n15000\nfood free", None),
     ("gross 30000\n14000\nPF ESI", None),
     ("salary 30000\n14000\nPF ESI\nabove is gross", None),
+    # ... nor beside a wage of a lakh or more: that is the annual package and the monthly pay,
+    # typed without "CTC" — the pair folds or records nothing, as on main ...
+    ("in hand 3 lac and ₹ 20000 and ESI", None),
+    ("in hand 1.5 lakh and 20K and ESI", None),
+    ("salary 3 lakh\n20000\nPF ESI", _pay(20000, 300000)),
+    ("1.5 lakh and\n20K; food free", _pay(20000, 150000)),
     # ... a label clause holds add-on words and filler only: a worker category in it ("fresher")
     # makes the figure that category's wage, as on main (#2141 review) ...
     ("salary 30000\n15000\nfresher room free", _pay(15000, 30000)),

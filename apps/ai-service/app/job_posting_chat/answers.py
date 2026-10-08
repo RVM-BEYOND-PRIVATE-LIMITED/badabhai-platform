@@ -593,6 +593,12 @@ _PAY_BASIS_KINDS: dict[str, re.Pattern[str]] = {
 # ("CTC 3 lakh\n15000\nPF ESI"). When a message names either basis ANYWHERE, the "wage, amount,
 # label" screen stays off, and two figures with a basis record nothing, as before (#2141 review).
 _PAY_GROSS_BASES: tuple[str, ...] = ("ctc", "gross")
+# ... and the same pair typed WITHOUT its bases: a wage of a lakh or more beside a thousands figure
+# is the annual package and the monthly pay ("in hand 3 lac and 20000 and ESI", "salary 3 lakh\n
+# 20000\nPF ESI"), not a wage and its add-on. The screen reads only a wage below a lakh; at or above
+# it the pair folds or records nothing, as before. Every wage-and-add-on the payers type is a
+# monthly wage in the tens of thousands (#2141 review).
+_PAY_ADDON_WAGE_LIMIT = 100_000
 
 
 class _PayFigure(NamedTuple):
@@ -817,14 +823,18 @@ def _follows_a_wage(
     wage_starts: list[int],
 ) -> bool:
     """The clause before ``figure``'s that says anything holds a wage — a kept figure at least
-    `_PAY_AND_SPLIT_RATIO` times it (the #2066 test for two statements)."""
+    `_PAY_AND_SPLIT_RATIO` times it (the #2066 test for two statements) and below
+    `_PAY_ADDON_WAGE_LIMIT` (a lakh-scale figure is an annual package)."""
     clause = _said_clause(message, boundaries, bisect_right(boundaries.ends, figure.start) - 1, -1)
     if clause is None:
         return False
     first, last = bisect_left(wage_starts, clause[0]), bisect_left(wage_starts, clause[1])
     if first and wages[first - 1].end > clause[0]:
         first -= 1  # a range that started earlier and runs into the clause
-    return any(_PAY_AND_SPLIT_RATIO * figure.low <= wage.low for wage in wages[first:last])
+    return any(
+        _PAY_AND_SPLIT_RATIO * figure.low <= wage.low < _PAY_ADDON_WAGE_LIMIT
+        for wage in wages[first:last]
+    )
 
 
 def _labels_an_addon(message: str, figure: _PayFigure, boundaries: _ClauseBoundaries) -> bool:
