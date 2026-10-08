@@ -8,7 +8,7 @@ import { withinRedisDeadline } from "../queue/redis-deadline";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { type KnownNameSource, knownNameOnce } from "../common/redact-known-name";
+import { type KnownNameSource, onceRetrying } from "../common/redact-known-name";
 import { ProfilesService } from "../profiles/profiles.service";
 import {
   ProfilingOrchestrator,
@@ -722,6 +722,7 @@ export class ChatService {
     session: { readonly conversationState: unknown },
     sessionId: string,
     workerId: string,
+    ownName: KnownNameSource,
   ): FreeChatTurnInput {
     const enabled = this.config.CHAT_FREE_CHAT_DISABLED !== true;
     const sessionLocked = carriesFreeChatLock(session.conversationState);
@@ -732,6 +733,7 @@ export class ChatService {
     return {
       enabled,
       sessionLocked,
+      ownName,
       foldedLines: foldWatermarkOf(ownSummary, sessionId),
       summary: () =>
         (pendingSummary ??= !enabled
@@ -796,7 +798,9 @@ export class ChatService {
   ): Promise<PostMessageResponse> {
     // ONE name lookup for the whole request: the model's egress (if this turn calls one) and the
     // reply's vocative read the same memoised value.
-    const knownName = knownNameOnce(() => this.workerFullName(workerId));
+    // ADR-0054 (security M1) — and the live-news view of that SAME read, which fails closed.
+    const names = this.workerNameSources(workerId);
+    const knownName = names.knownName;
     // `?? null` AND NOT `?? undefined`: absent on the wire is the supported legacy case — an app
     // build that predates the field — and it has to arrive at the replay gate as the explicit
     // "this submission carries no id" that makes it take the hash + window path (#931).
@@ -812,7 +816,7 @@ export class ChatService {
       null,
       // ADR-0045: the chat is the ONE surface that may arm a new session for the general road.
       // ADR-0051: and the ONE surface the profiling-stage free chat runs on.
-      { armGeneralRoad: true, knownName, freeChat: true },
+      { armGeneralRoad: true, knownName, ownName: names.ownName, freeChat: true },
     );
     switch (outcome.kind) {
       case "session_over":
@@ -995,6 +999,12 @@ export class ChatService {
       readonly armGeneralRoad?: boolean;
       readonly knownName?: KnownNameSource;
       /**
+       * ADR-0054 (security M1) — the live-news view of the same name read: it REJECTS when the name
+       * could not be read or decrypted, where `knownName` reads null. Absent, this method builds
+       * its own from one fresh read.
+       */
+      readonly ownName?: KnownNameSource;
+      /**
        * ADR-0051 — the profiling-stage free chat. Set by `postMessage` alone; ABSENT for the voice
        * form, whose turns never meet it (the `armGeneralRoad` rule).
        */
@@ -1002,6 +1012,10 @@ export class ChatService {
     },
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
+    // The worker's name sources when the caller passed none — built lazily, and READ only by an
+    // egress that awaits one (see `workerNameSources`).
+    let ownSources: WorkerNameSources | null = null;
+    const names = (): WorkerNameSources => (ownSources ??= this.workerNameSources(workerId));
     const session = await this.chat.findSession(dto.session_id);
     // Ownership: a worker may only post to their OWN session. 404 (not 403) so a
     // session id is never an existence oracle for another worker's session.
@@ -1105,10 +1119,17 @@ export class ChatService {
       voiceNoteId,
       ...(opts?.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
       ...(opts?.freeChat === true
-        ? { freeChat: this.freeChatTurnInput(session, dto.session_id, workerId) }
+        ? {
+            freeChat: this.freeChatTurnInput(
+              session,
+              dto.session_id,
+              workerId,
+              opts.ownName ?? names().ownName,
+            ),
+          }
         : {}),
       // Read only if this turn calls a model — see `TurnInput.knownName`.
-      knownName: opts?.knownName ?? knownNameOnce(() => this.workerFullName(workerId)),
+      knownName: opts?.knownName ?? names().knownName,
       ctx,
     });
 
@@ -2541,31 +2562,51 @@ export class ChatService {
   }
 
   /**
-   * The worker's DECRYPTED `full_name`, or `null` when there is none / it cannot be
-   * decrypted. ONE read per chat turn, through `knownNameOnce`; both consumers (the R32
-   * redaction at the interview model's egress, `redactedTurnText`, and the AI-PERSONA-2
-   * vocative) take the same value.
+   * The worker's name for one request, as TWO VIEWS OF ONE READ (at most one lookup and one
+   * decrypt, memoised by `onceRetrying`; a rejected read is retried by the next caller):
+   *
+   *   - `knownName` — the DECRYPTED `full_name`, or `null` when there is none OR it cannot be
+   *     decrypted. Every existing consumer reads this one, unchanged: the R32 redaction at the
+   *     interview model's egress (`redactedTurnText`), the free chat's classify and reply, and the
+   *     AI-PERSONA-2 vocative. A malformed / rotated-key / tampered token degrades to `null` — a key
+   *     rotation must not break every worker's chat at once.
+   *   - `ownName` — the same value, except that a name that could not be DECRYPTED REJECTS instead
+   *     of reading as "no name on file" (ADR-0054, security M1). Live news reads this one and fails
+   *     closed on it: a question that cannot be name-redacted never reaches a third-party search.
    *
    * The plaintext never leaves the request: it is used to REMOVE text on the way out
-   * (`redactKnownName`) and to interpolate the vocative in the client-facing reply
-   * only. It is never logged, evented, stored, or sent to the ai-service/LLM.
-   *
-   * A decrypt never throws. A malformed / rotated-key / tampered token degrades to `null` —
-   * a key rotation must not break every worker's chat at once — and the warning
-   * carries the opaque worker id ONLY, never the token or the decrypted value.
+   * (`redactKnownName`) and to interpolate the vocative in the client-facing reply only. It is never
+   * logged, evented, stored, or sent to the ai-service/LLM. The warning carries the opaque worker id
+   * ONLY, never the token or the decrypted value.
    */
-  private async workerFullName(workerId: string): Promise<string | null> {
+  private workerNameSources(workerId: string): WorkerNameSources {
+    const read = onceRetrying(() => this.readWorkerName(workerId));
+    return {
+      knownName: async () => {
+        const result = await read();
+        return result.ok ? result.name : null;
+      },
+      ownName: async () => {
+        const result = await read();
+        if (!result.ok) throw new Error("the worker's own name could not be decrypted");
+        return result.name;
+      },
+    };
+  }
+
+  /** One read of `workers.full_name`: the name, nothing on file, or a decrypt that failed. */
+  private async readWorkerName(workerId: string): Promise<WorkerNameRead> {
     const worker = await this.workers.findById(workerId);
-    if (!worker?.fullName) return null;
+    if (!worker?.fullName) return { ok: true, name: null };
     try {
       // full_name is encrypted at rest (TD21) — decrypt here, never log the value.
-      return this.pii.decrypt(worker.fullName);
+      return { ok: true, name: this.pii.decrypt(worker.fullName) };
     } catch {
       this.logger.warn(
         `could not decrypt full_name for worker ${workerId}; ` +
-          `reply stays name-less and the outbound turn is not name-redacted`,
+          `reply stays name-less, the outbound turn is not name-redacted, and no news search is made`,
       );
-      return null;
+      return { ok: false };
     }
   }
 
@@ -2720,6 +2761,15 @@ export class ChatService {
       );
     }
   }
+}
+
+/** What one read of the worker's own name found (ADR-0054, security M1). */
+type WorkerNameRead = { readonly ok: true; readonly name: string | null } | { readonly ok: false };
+
+/** The two views of one name read — see `ChatService.workerNameSources`. */
+interface WorkerNameSources {
+  readonly knownName: KnownNameSource;
+  readonly ownName: KnownNameSource;
 }
 
 // ---------------------------------------------------------------------------

@@ -468,6 +468,14 @@ export interface FreeChatTurnInput {
    */
   readonly locked: () => Promise<boolean>;
   /**
+   * ADR-0054 (security M1) — the worker's own name for the LIVE-NEWS egress: the same read as
+   * `TurnInput.knownName`, but it REJECTS when the name could not be read or decrypted, where
+   * `knownName` reads null. News fails closed on a rejection (no reservation, no call); classify and
+   * reply keep reading `knownName`. REQUIRED, for `knownName`'s reason: forgetting it at a new call
+   * site would be a build failure, never a question sent to a search unredacted.
+   */
+  readonly ownName: KnownNameSource;
+  /**
    * ADR-0051 §8 (Release 2) — the worker's stored rolling summary text, or null: this session's row
    * first, else the worker's latest session carrying one. A memoised THUNK like {@link locked}, read
    * ONLY by a casual or career reply (R24 — the classifier never gets it), so every other turn costs

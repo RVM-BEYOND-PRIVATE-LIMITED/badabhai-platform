@@ -912,7 +912,9 @@ export class FreeChatTurns {
         messages: t.buffer.messages,
         workerContext: freeChatWorkerContextOf(t.envelope),
       },
-      callCtxOf(t.input),
+      // The OWN-NAME view (security M1): a name that could not be decrypted rejects, and news fails
+      // closed on it. Classify and reply keep `knownName`, which reads it as no name.
+      { ...callCtxOf(t.input), knownName: t.fc.ownName },
       t.input.now,
       t.input.submissionId,
     );

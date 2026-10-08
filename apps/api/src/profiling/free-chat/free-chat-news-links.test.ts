@@ -143,10 +143,38 @@ describe("strict hosts and no open redirect (ADR-0054 §8, security F)", () => {
     "u",
     "link",
     "target",
+    "to",
+    "return",
+    "returnurl",
+    "return_url",
+    "continue",
+    "redir",
+    "redirect_to",
   ])("refuses a query carrying the open-redirect key %j", (key) => {
     expect(newsLinkOf(source(`https://www.thehindu.com/r?${key}=https://evil.net`))).toBeNull();
     // Case-insensitive, and after the parser percent-decodes the key.
     expect(newsLinkOf(source(`https://www.thehindu.com/r?id=1&${key.toUpperCase()}=x`))).toBeNull();
+  });
+
+  it.each(["q", "r", "Q"])("refuses %j only when its value is a URL or a host", (key) => {
+    for (const value of [
+      "https://evil.net/a",
+      "http://evil.net",
+      "//evil.net/a",
+      "evil.net",
+      "x.ru/a",
+    ]) {
+      expect(
+        newsLinkOf(source(`https://www.thehindu.com/search?${key}=${encodeURIComponent(value)}`)),
+        `${key}=${value}`,
+      ).toBeNull();
+    }
+    for (const value of ["welder", "ITI admission 2026", "3.5 lakh", "2"]) {
+      expect(
+        newsLinkOf(source(`https://www.thehindu.com/search?${key}=${encodeURIComponent(value)}`)),
+        `${key}=${value}`,
+      ).not.toBeNull();
+    }
   });
 
   it("refuses a percent-encoded redirect key, and keeps an ordinary query", () => {

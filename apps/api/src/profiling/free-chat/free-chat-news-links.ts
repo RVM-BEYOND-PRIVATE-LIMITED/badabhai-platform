@@ -10,7 +10,8 @@
  *     `:` port). The WHATWG parser then agrees: `https:`, no credentials, no port, a host of plain
  *     `[a-z0-9-]` labels — an IDN look-alike is punycoded (`xn--…`) and so never equals a listed
  *     domain. The normalised form is at most {@link FREE_CHAT_NEWS_URL_MAX} characters, and its
- *     query string carries no open-redirect key ({@link OPEN_REDIRECT_KEYS}).
+ *     query string carries no open-redirect key ({@link OPEN_REDIRECT_KEYS}, and `q` / `r` when
+ *     their value is a URL or a host).
  *   - THE HOST IS a domain on the owner-approved list (`FREE_CHAT_NEWS_DOMAINS`) or a subdomain of
  *     one, matched on a LABEL BOUNDARY — `x.indiatimes.com` passes, `evilindiatimes.com` and
  *     `indiatimes.com.evil.net` do not.
@@ -47,13 +48,15 @@ export const FREE_CHAT_NEWS_TITLE_MAX = 200;
 /**
  * Query keys that hand a link on to somewhere else — an article URL never needs one, and a listed
  * site's open redirect would turn an approved host into a hop to any host. Compared lower-cased,
- * after the parser has percent-decoded the key.
+ * after the parser has percent-decoded the key. Any value refuses the tile.
  */
 export const OPEN_REDIRECT_KEYS: ReadonlySet<string> = new Set([
   "url",
   "redirect",
   "redirect_uri",
   "redirect_url",
+  "redirect_to",
+  "redir",
   "next",
   "goto",
   "dest",
@@ -62,7 +65,26 @@ export const OPEN_REDIRECT_KEYS: ReadonlySet<string> = new Set([
   "u",
   "link",
   "target",
+  "to",
+  "return",
+  "returnurl",
+  "return_url",
+  "continue",
 ]);
+
+/**
+ * Keys that are ordinary on a news site (`?q=welder` is a search, `?r=2` a page) and a redirect only
+ * when their value is a link: refused only when {@link looksLikeRedirectTarget} says so.
+ */
+export const VALUE_CHECKED_REDIRECT_KEYS: ReadonlySet<string> = new Set(["q", "r"]);
+
+/** A scheme, a scheme-relative `//`, or a dot followed by a TLD-ish token (`evil.net`, `x.ru/a`). */
+const REDIRECT_TARGET = /^\s*(?:https?:|\/\/)|\.[a-z]{2,}(?:[/:?#]|\s|$)/i;
+
+/** Does a query value point somewhere — a URL or a host? */
+export function looksLikeRedirectTarget(value: string): boolean {
+  return REDIRECT_TARGET.test(value);
+}
 
 /** One "read more" tile: the article's title, its link, and the site it is on. */
 export interface FreeChatNewsLink {
@@ -112,8 +134,10 @@ export function isListedNewsHost(host: string): boolean {
 
 /** Does the query string carry a key that forwards the reader elsewhere? */
 function carriesRedirectKey(url: URL): boolean {
-  for (const key of url.searchParams.keys()) {
-    if (OPEN_REDIRECT_KEYS.has(key.toLowerCase())) return true;
+  for (const [rawKey, value] of url.searchParams) {
+    const key = rawKey.toLowerCase();
+    if (OPEN_REDIRECT_KEYS.has(key)) return true;
+    if (VALUE_CHECKED_REDIRECT_KEYS.has(key) && looksLikeRedirectTarget(value)) return true;
   }
   return false;
 }

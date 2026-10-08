@@ -553,6 +553,7 @@ describe("news — G2, R9 and the ledger (ADR-0054 §3.2, §8)", () => {
           line("assistant", "Theek hai."),
           line("worker", "mail karo ramu@example.in par"),
           line("worker", "PAN ABCDE1234F"),
+          line("worker", "नंबर ९८७६५४३२१० पर"),
           line("worker", "Pune ki factory"),
         ],
       },
@@ -701,6 +702,7 @@ describe("requestNews — what is never searched (R9, security M1)", () => {
     "ramu@example.in par khabar bhejo",
     "PAN ABCDE1234F wale scheme ki khabar",
     "Aadhaar 2345 6789 0123 update ki news",
+    "मेरा नंबर ९८७६५४३२१० है, नौकरी की खबर",
   ])("R9: %j is NOT searched — no reservation, no call, daily_count null", async (text) => {
     const { service, ai, newsCap, cost, ctx } = make();
     const out = await service.requestNews({ ...NEWS_REQ, text }, ctx, NOW, null);

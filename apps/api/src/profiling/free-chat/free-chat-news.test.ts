@@ -5,7 +5,9 @@ import { FREE_CHAT_NEWS_OUTCOMES, FREE_CHAT_REFUSAL_TOPICS } from "@badabhai/typ
 
 import { FREE_CHAT_COPY, FREE_CHAT_REFUSAL_LINES } from "./free-chat.copy";
 import {
+  carriesLink,
   carriesNewsIdentifier,
+  foldDecimalDigits,
   judgeNews,
   keepsSlot,
   NEWS_NOT_REQUESTED,
@@ -197,6 +199,52 @@ describe("an answer — grounded, gated, and sourced", () => {
     }
   });
 
+  it.each([
+    "rb.gy/3xk9",
+    "youtu.be/abc",
+    "amzn.to/x",
+    "shorturl.at/x",
+    "s.id/x",
+    "evil.ru/x",
+    "jobs.news/x",
+  ])("is REJECTED for the short / unlisted-TLD link %j (security re-check)", (link) => {
+    const line = `Poori khabar ${link} par padhiye.`;
+    expect(carriesLink(line)).toBe(true);
+    expect(judgeNews(answer({ lines: [line] }))).toMatchObject({
+      outcome: "rejected",
+      rejection: "link",
+    });
+  });
+
+  it("the TLD-AGNOSTIC rule catches a host with a path on a TLD no list names", () => {
+    for (const line of ["Form jobs.careers/apply par bharein.", "Details scam.qq/x par."]) {
+      expect(carriesLink(line), line).toBe(true);
+    }
+  });
+
+  it("the closed TLD list catches a bare short host with no path", () => {
+    for (const line of [
+      "Video youtu.be par hai.",
+      "Site evil.ru dekhiye.",
+      "Form jobs.news par.",
+    ]) {
+      expect(carriesLink(line), line).toBe(true);
+    }
+  });
+
+  it("ordinary lines are not links — a price with a decimal, an abbreviation before a word", () => {
+    for (const line of [
+      "Pune mein petrol ₹94.72 litre hai.",
+      "Govt.ne kaha ki bharti jaldi hogi.",
+      "Pune mein ek nayi factory khul rahi hai.",
+      "B.Com aur ITI walon ki bharti hai.",
+      "Petrol Rs.105 litre hai.",
+      "Bharti 10/12 pass walon ke liye hai.",
+    ]) {
+      expect(carriesLink(line), line).toBe(false);
+    }
+  });
+
   it("keeps ordinary lines — sentence dots, abbreviations, degrees and amounts are not links", () => {
     for (const line of [
       "Pune mein ek nayi factory khul rahi hai.",
@@ -278,6 +326,38 @@ describe("R5 as revised — keepsSlot: every request that may have reached Anthr
     expect(
       keepsSlot(call(parsed({ status: "refuse", topic: "unsafe_other", ai_metadata: null }))),
     ).toBe(false);
+  });
+});
+
+describe("R9 — Indic digits are folded before the identifier check (security re-check)", () => {
+  it("folds every Unicode decimal digit to its ASCII twin", () => {
+    expect(foldDecimalDigits("९८७६५४३२१०")).toBe("9876543210"); // Devanagari
+    expect(foldDecimalDigits("૯૮૭૬")).toBe("9876"); // Gujarati
+    expect(foldDecimalDigits("௯௮௭௬")).toBe("9876"); // Tamil
+    expect(foldDecimalDigits("౯౮౭౬")).toBe("9876"); // Telugu
+    expect(foldDecimalDigits("೯೮೭೬")).toBe("9876"); // Kannada
+    expect(foldDecimalDigits("৯৮৭৬")).toBe("9876"); // Bengali
+    // Mathematical bold 9 and double-struck 8: back-to-back Nd sets, so the value is modulo ten.
+    expect(foldDecimalDigits("\u{1D7D7}\u{1D7E0}")).toBe("98");
+    expect(foldDecimalDigits("abc 123 xyz")).toBe("abc 123 xyz");
+  });
+
+  it("flags a phone number typed in Indic digits", () => {
+    for (const text of [
+      "मेरा नंबर ९८७६५४३२१० है",
+      "नंबर ९८७६५ ४३२१० पर",
+      "mobile ૯૮૭૬૫૪૩૨૧૦",
+      "எண் ௯௮௭௬௫௪௩௨௧௦",
+      "నంబర్ ౯౮౭౬౫౪౩౨౧౦",
+      "ಸಂಖ್ಯೆ ೯೮೭೬೫೪೩೨೧೦",
+    ]) {
+      expect(carriesNewsIdentifier(text), text).toBe(true);
+    }
+  });
+
+  it("an Indic year or price is still not an identifier", () => {
+    expect(carriesNewsIdentifier("२०२६ में भर्ती")).toBe(false);
+    expect(carriesNewsIdentifier("पेट्रोल ९४ रुपये")).toBe(false);
   });
 });
 

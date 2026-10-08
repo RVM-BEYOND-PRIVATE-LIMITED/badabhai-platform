@@ -181,7 +181,9 @@ function make(opts: Opts = {}) {
   );
   const turnInput = () =>
     (orchestrator.takeTurn.mock.calls[0]![0] as { freeChat?: FreeChatTurnInput }).freeChat;
-  return { svc, chat, orchestrator, buffer, turnInput };
+  const takeTurnInput = () =>
+    orchestrator.takeTurn.mock.calls[0]![0] as { knownName: () => Promise<string | null> };
+  return { svc, chat, orchestrator, buffer, turnInput, takeTurnInput, workers, pii };
 }
 
 const CONFIRM_FIRST = { confirmFirst: true };
@@ -420,6 +422,35 @@ describe("POST /chat/message — the free chat's turn input", () => {
     expect(input.sessionLocked).toBe(true);
     expect(await input.locked()).toBe(true);
     expect(chat.findFreeChatLockDecider).not.toHaveBeenCalled();
+  });
+
+  it("ADR-0054 (M1): the own-name view shares ONE read with knownName and resolves the name", async () => {
+    const { svc, turnInput, takeTurnInput, workers, pii } = make();
+    await svc.postMessage(WORKER, DTO, CTX);
+    expect(await turnInput()!.ownName()).toBe("Ramesh");
+    expect(await takeTurnInput().knownName()).toBe("Ramesh");
+    expect(workers.findById).toHaveBeenCalledOnce();
+    expect(pii.decrypt).toHaveBeenCalledOnce();
+  });
+
+  it("ADR-0054 (M1): a DECRYPT FAILURE — knownName reads null (unchanged), ownName REJECTS", async () => {
+    const { svc, turnInput, takeTurnInput, pii } = make();
+    pii.decrypt.mockImplementation(() => {
+      throw new Error("bad token");
+    });
+    await svc.postMessage(WORKER, DTO, CTX);
+    // Classify, reply, the interview egress and the vocative: no name, as before.
+    expect(await takeTurnInput().knownName()).toBeNull();
+    // Live news: fails closed — "could not decrypt" is not "no name on file".
+    await expect(turnInput()!.ownName()).rejects.toThrow();
+  });
+
+  it("ADR-0054 (M1): NO NAME ON FILE is not a failure — both views read null", async () => {
+    const { svc, turnInput, takeTurnInput, workers } = make();
+    workers.findById.mockResolvedValue({ id: WORKER, fullName: null } as never);
+    await svc.postMessage(WORKER, DTO, CTX);
+    expect(await turnInput()!.ownName()).toBeNull();
+    expect(await takeTurnInput().knownName()).toBeNull();
   });
 
   it("under the kill switch the input says so; an unreadable lock reads as locked", async () => {

@@ -142,16 +142,45 @@ export const NEWS_NOT_REQUESTED: FreeChatNewsResolution = {
 
 /**
  * R9 — does a news question (or a recent turn riding with it) carry an identifier? A phone number,
- * an email, an ID number: `looksLikePii` OR `containsHardIdentifier`. Such text is never searched —
- * the search query is written from it and leaves for a third-party search provider. A scanner that
- * throws counts as a hit — fail closed. Independent of `AI_RAW_PII_ENABLED`.
+ * an email, an ID number: `looksLikePii` OR `containsHardIdentifier`, over the text AS TYPED and
+ * over its {@link foldDecimalDigits} fold — both scanners read ASCII digits only, so "९८७६५४३२१०"
+ * typed in Devanagari is a phone number only once folded. Such text is never searched — the search
+ * query is written from it and leaves for a third-party search provider. A scanner that throws
+ * counts as a hit — fail closed. Independent of `AI_RAW_PII_ENABLED`.
  */
 export function carriesNewsIdentifier(text: string): boolean {
   try {
-    return looksLikePii(text) || containsHardIdentifier(text) !== null;
+    const folded = foldDecimalDigits(text);
+    return identifierIn(text) || (folded !== text && identifierIn(folded));
   } catch {
     return true;
   }
+}
+
+function identifierIn(text: string): boolean {
+  return looksLikePii(text) || containsHardIdentifier(text) !== null;
+}
+
+/** Any Unicode decimal digit (`Nd`): ASCII, Devanagari, Gujarati, Tamil, Telugu, Kannada, … */
+const DECIMAL_DIGIT = /\p{Nd}/u;
+const DECIMAL_DIGITS = /\p{Nd}/gu;
+
+/**
+ * Every Unicode decimal digit (`\p{Nd}`) as its ASCII twin: "९८७६" → "9876", "௧௨" → "12".
+ *
+ * HOW A DIGIT'S VALUE IS READ. Unicode encodes every `Nd` set as a CONTIGUOUS run 0…9 in ascending
+ * order (a stability guarantee), and where sets sit back to back (the mathematical digits) the run
+ * is a multiple of ten that starts on a zero. So a digit's value is its distance from the start of
+ * its contiguous `Nd` run, modulo ten. The walk back is at most a few dozen code points.
+ */
+export function foldDecimalDigits(text: string): string {
+  return text.replace(DECIMAL_DIGITS, (digit) => {
+    const cp = digit.codePointAt(0) ?? 0;
+    if (cp >= 0x30 && cp <= 0x39) return digit;
+    let start = cp;
+    while (start > 0 && DECIMAL_DIGIT.test(String.fromCodePoint(start - 1))) start -= 1;
+    return String((cp - start) % 10);
+  });
 }
 
 /**
@@ -169,17 +198,32 @@ export function keepsSlot(call: FreeChatNewsCall): boolean {
 }
 
 /**
- * A LINE CARRYING A LINK (§8): a URL, a `www.` host or a dotted common TLD (`looksLikeUrl`, which
- * also reads the fullwidth / invisibly split fold), or a bare host on a TLD that list does not
- * name but a phishing or messaging link uses (`wa.me`, `bit.ly`, `x.xyz`, …). Links reach the
- * worker only as checked tiles. A check that throws counts as a hit — fail closed.
+ * A LINE CARRYING A LINK (§8). Three checks, any one is a hit, over the line and its NFKC fold:
+ *
+ *   - `looksLikeUrl` — a scheme, a `www.` host or a dotted common TLD (it also reads the fullwidth /
+ *     invisibly split fold);
+ *   - {@link EXTRA_LINK_HOST} — a bare host on a closed list of TLDs that list does not name but
+ *     short, messaging and phishing links use (`wa.me`, `bit.ly`, `youtu.be`, `amzn.to`, `evil.ru`);
+ *   - {@link HOST_WITH_PATH} — TLD-AGNOSTIC: any dotted host followed by a path (`rb.gy/3xk9`,
+ *     `s.id/x`, `jobs.news/x`), whatever the TLD. Its known cost: a degree pair written `B.Com/M.Com`
+ *     reads as a link too, and that answer gets the unavailable line.
+ *
+ * Links reach the worker only as checked tiles. A check that throws counts as a hit — fail closed.
+ * The same rules run on the ai-service side.
  */
 const EXTRA_LINK_HOST =
-  /(?:^|[^\w.@-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:me|ly|gl|gd|xyz|online|site|top|app|link|click|live|shop|store|ws|cc|tk|ml|ga|cf|gq|icu|buzz|club|vip|gov|edu)\b/i;
+  /(?:^|[^\w.@-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:me|ly|gl|gd|gy|be|to|at|id|ru|su|cn|news|xyz|online|site|top|app|link|click|live|shop|store|ws|cc|tk|ml|ga|cf|gq|icu|buzz|club|vip|gov|edu)\b/i;
+const HOST_WITH_PATH = /(?<![a-z0-9-])[a-z0-9-]+\.[a-z]{2,}\/\S/i;
 
-function carriesLink(line: string): boolean {
+export function carriesLink(line: string): boolean {
   try {
-    return looksLikeUrl(line) || EXTRA_LINK_HOST.test(line.normalize("NFKC"));
+    const folded = line.normalize("NFKC");
+    return (
+      looksLikeUrl(line) ||
+      EXTRA_LINK_HOST.test(folded) ||
+      HOST_WITH_PATH.test(line) ||
+      HOST_WITH_PATH.test(folded)
+    );
   } catch {
     return true;
   }

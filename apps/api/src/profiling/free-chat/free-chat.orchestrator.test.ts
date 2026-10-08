@@ -365,6 +365,7 @@ function makeWorld(opts: WorldOpts = {}) {
             enabled: opts.killSwitch !== true,
             sessionLocked: opts.sessionLocked === true,
             locked: async () => opts.workerLocked === true,
+            ownName: async () => null,
             ...(opts.summary === undefined ? {} : { summary: summaryThunk }),
           },
         };
@@ -1621,7 +1622,13 @@ describe("Release 2 — when a fold is scheduled (R21)", () => {
       now: T0,
       submissionId: "77777777-7777-4777-8777-777777777777",
       voiceNoteId: null,
-      freeChat: { enabled: true, sessionLocked: false, locked: async () => false, foldedLines: 6 },
+      freeChat: {
+        enabled: true,
+        sessionLocked: false,
+        locked: async () => false,
+        ownName: async () => null,
+        foldedLines: 6,
+      },
       knownName: async () => null,
       ctx: CTX as never,
     });
@@ -2038,6 +2045,21 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     ]);
   });
 
+  it("R9: a phone typed in DEVANAGARI digits is never searched — NEWS_UNAVAILABLE, unavailable", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("career"));
+    world.replyWith(REFUSE_NEWS);
+    world.newsWith(newsAnswer());
+    const turn = await world.say("मेरा नंबर ९८७६५४३२१० है, नौकरी की खबर भेजो");
+    expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
+    expect(world.newsCap.reserve).not.toHaveBeenCalled();
+    expect(world.ai.freeChatNews).not.toHaveBeenCalled();
+    expect(newsServed(world)).toEqual([
+      expect.objectContaining({ outcome: "unavailable", search_count: null, daily_count: null }),
+    ]);
+  });
+
   it("R9: an identifier in an EARLIER turn never rides along with 'aur batao'", async () => {
     const world = makeWorld();
     await inFreeMode(world);
@@ -2050,7 +2072,7 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
     expect(sent.recent_turns.map((t) => t.text)).toContain("Theek hai.");
   });
 
-  it("G2 FAILS CLOSED for news: an own-name lookup that ERRORS makes no slot and no call", async () => {
+  it("G2 FAILS CLOSED for news: a name that could not be DECRYPTED makes no slot and no call", async () => {
     const world = makeWorld();
     await inFreeMode(world);
     world.classifyAs(verdict("career"));
@@ -2063,10 +2085,17 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
       now: T0,
       submissionId: "99999999-9999-4999-8999-999999999999",
       voiceNoteId: null,
-      freeChat: { enabled: true, sessionLocked: false, locked: async () => false },
-      knownName: async () => {
-        throw new Error("decrypt failed");
+      // The decrypt failed: `knownName` reads it as no name (classify and reply go on, unchanged),
+      // while the own-name view REJECTS — exactly what `ChatService.workerNameSources` builds.
+      freeChat: {
+        enabled: true,
+        sessionLocked: false,
+        locked: async () => false,
+        ownName: async () => {
+          throw new Error("the worker's own name could not be decrypted");
+        },
       },
+      knownName: async () => null,
       ctx: CTX as never,
     });
     expect(turn.reply).toBe(FREE_CHAT_COPY.NEWS_UNAVAILABLE.latin);
@@ -2143,7 +2172,12 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
       now: T0,
       submissionId: "abababab-abab-4bab-8bab-abababababab",
       voiceNoteId: null,
-      freeChat: { enabled: true, sessionLocked: false, locked: async () => false },
+      freeChat: {
+        enabled: true,
+        sessionLocked: false,
+        locked: async () => false,
+        ownName: async () => null,
+      },
       knownName: async () => null,
       ctx: CTX as never,
     };
@@ -2174,7 +2208,12 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
       now: T0,
       submissionId: "88888888-8888-4888-8888-888888888888",
       voiceNoteId: null,
-      freeChat: { enabled: true, sessionLocked: false, locked: async () => false },
+      freeChat: {
+        enabled: true,
+        sessionLocked: false,
+        locked: async () => false,
+        ownName: async () => null,
+      },
       knownName: async () => null,
       ctx: CTX as never,
     };
