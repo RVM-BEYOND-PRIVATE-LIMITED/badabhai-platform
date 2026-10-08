@@ -628,6 +628,13 @@ export const creditPackSchema = z.object({
   priceInr: z.number().int().positive(),
   /** The catalog list price, only when an active offer lowers `priceInr` below it. */
   listPriceInr: z.number().int().positive().optional(),
+  /**
+   * When that offer ends (#2102) — the `ChargedPrice.offerEndsAt` the pack is built from
+   * (`offeredCreditPacks` spreads it in), so the tile can state the deadline beside the struck
+   * figure. Only ever present beside `listPriceInr`, and only for a NAMED offer. (The API applies
+   * no offer to a credit pack today — charge-price.ts — so this carries the shape, not a rule.)
+   */
+  offerEndsAt: z.string().min(1).optional(),
   credits: z.number().int().positive(),
 });
 export type CreditPack = z.infer<typeof creditPackSchema>;

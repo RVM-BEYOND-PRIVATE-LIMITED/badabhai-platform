@@ -334,9 +334,19 @@ describe("/plans — #2085: the tiles and the capacity panel carry the charged p
     expect(out).toContain('<s class="price-was">₹8,000</s>');
     expect(textOf(out)).toContain("₹6,000");
     expect(out.match(/class="price-was"/g)).toHaveLength(1); // only the offered pack
+    // #2102 — beside the struck figure, WHEN it comes back. One deadline, on the offered pack
+    // only, as a day (no time of day reaches the DOM).
+    expect(out.match(/class="price-offer"/g)).toHaveLength(1);
+    expect(textOf(out)).toContain("offer ends 2026-11-01");
     expect(panelTiers(out)).toEqual([
       { code: "cap_5", priceInr: 5000, maxActiveVacancies: expect.any(Number) },
-      { code: "cap_15", priceInr: 9000, listPriceInr: 12000, maxActiveVacancies: expect.any(Number) },
+      {
+        code: "cap_15",
+        priceInr: 9000,
+        listPriceInr: 12000,
+        offerEndsAt: "2026-11-01T00:00:00.000Z",
+        maxActiveVacancies: expect.any(Number),
+      },
     ]);
   });
 
@@ -344,6 +354,7 @@ describe("/plans — #2085: the tiles and the capacity panel carry the charged p
     getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices: null, live: true });
     const out = await html();
     expect(out).not.toContain("price-was");
+    expect(out).not.toContain("price-offer"); // #2102 — nothing struck ⇒ no deadline either
     expect(textOf(out)).toContain("₹8,000");
     expect(panelTiers(out)).toEqual([
       { code: "cap_5", priceInr: 5000, maxActiveVacancies: expect.any(Number) },

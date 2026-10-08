@@ -4912,6 +4912,23 @@ img.agency-qr__code,
   font-size: var(--text-lg);
 }
 
+/* #2102 — WHEN the struck offer above ends (`priceFigure`). Muted and stepped down so the
+   charged figure stays the one to read. INLINE by default: the one prose site (the Postings
+   applicant-quota note) carries it mid-sentence. On a tile it drops BELOW the figure — the three
+   price containers below, the same list the struck figure steps down in. Tokens only. */
+.price-offer {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  margin-inline-start: var(--space-1);
+}
+.credit-pack__price .price-offer,
+.capacity-tier__price .price-offer,
+.plan-card__price .price-offer {
+  display: block;
+  margin-inline-start: 0;
+}
+
 /* ------------------------------------------------------------------
  * CAPACITY (DS2.3) — concurrent active-vacancy allowance StatTiles, DS Card capacity
  * tiers (₹/allowance in mono tabular), the INERT-enforcement "recorded only" note, and the
