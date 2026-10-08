@@ -5780,6 +5780,12 @@ describe("chat.free_chat_language_changed (ADR-0051 §11, #2181)", () => {
     expect(ok({ ...accepted, from: null, to: null, trigger: "declined" })).toBe(false);
   });
 
+  it("ties the trigger to the outcome: accepted keeps a language, declined clears it (R41)", () => {
+    expect(ok({ ...accepted, from: "marathi", to: null })).toBe(false);
+    expect(ok({ ...accepted, from: null, to: "tamil", trigger: "declined" })).toBe(false);
+    expect(ok({ ...accepted, from: "marathi", to: "tamil", trigger: "declined" })).toBe(false);
+  });
+
   it("refuses values outside the closed sets — no Hindi (Hinglish covers it), no free text", () => {
     expect(ok({ ...accepted, to: "hindi" })).toBe(false);
     expect(ok({ ...accepted, from: "Marathi", to: "tamil" })).toBe(false);

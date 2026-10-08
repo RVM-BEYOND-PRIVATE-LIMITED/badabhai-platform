@@ -5439,5 +5439,10 @@ export const ChatFreeChatLanguageChangedPayload = z
     trigger: z.enum(FREE_CHAT_LANGUAGE_TRIGGERS),
   })
   .strict()
-  .refine((v) => v.from !== v.to, { message: "a language change changes the held language" });
+  .refine((v) => v.from !== v.to, { message: "a language change changes the held language" })
+  // R41: "Haan" keeps a language, so `accepted` always lands on one; "Nahi" returns to following each
+  // message, so `declined` always lands on null.
+  .refine((v) => (v.trigger === "accepted") === (v.to !== null), {
+    message: "accepted sets a language (to non-null); declined clears it (to null)",
+  });
 export type ChatFreeChatLanguageChangedPayload = z.infer<typeof ChatFreeChatLanguageChangedPayload>;
