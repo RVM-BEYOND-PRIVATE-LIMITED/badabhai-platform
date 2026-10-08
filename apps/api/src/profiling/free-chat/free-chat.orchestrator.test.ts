@@ -22,7 +22,11 @@ import {
   FREE_CHAT_RESUME_LABEL,
   FREE_CHAT_START_KEY,
 } from "./free-chat.copy";
-import { FREE_CHAT_ASIDE_CAP, FREE_CHAT_COOLDOWN_MS } from "./free-chat.state";
+import {
+  FREE_CHAT_ASIDE_CAP,
+  FREE_CHAT_COOLDOWN_MS,
+  FREE_CHAT_NUDGE_EVERY,
+} from "./free-chat.state";
 import { FreeChatService } from "./free-chat.service";
 import { FreeChatSummaryService } from "./free-chat-summary.service";
 
@@ -2255,5 +2259,185 @@ describe("ADR-0054 — a reply's `news` refusal runs the searched answer", () =>
       ).toBe(true);
     }
     expect(new Set(news.map((c) => c.idempotencyKey)).size).toBe(news.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2172 — no nudge on the casual reply right after a résumé offer
+// ---------------------------------------------------------------------------
+
+type World = ReturnType<typeof makeWorld>;
+
+/** Seed the casual counter so the NEXT casual reply is a nudge turn (`count + 1` is a multiple). */
+function primeNudge(world: World, count = 2 * FREE_CHAT_NUDGE_EVERY - 1) {
+  const saved = world.saved()!;
+  world.store.set(SESSION, {
+    ...saved,
+    profiling: {
+      ...saved.profiling!,
+      freeChat: { ...saved.profiling!.freeChat!, casualReplies: count },
+    },
+  });
+}
+
+/** Replace the stored `lastTurn` — absent (`undefined`) or a raw stamp the real narrower reads. */
+function storeLastTurn(world: World, lastTurn: unknown) {
+  const saved = world.saved()!;
+  const { lastTurn: _dropped, ...profiling } = saved.profiling!;
+  world.store.set(SESSION, {
+    ...saved,
+    profiling: (lastTurn === undefined
+      ? profiling
+      : { ...profiling, lastTurn }) as unknown as ProfilingEnvelope,
+  });
+}
+
+const DECLINE_REPLY = "Koi baat nahi, aaram se sochiye.";
+
+/** The worker declines the offer — read as `casual` since #2176 — and the model answers it. */
+async function decline(world: World, text = "nahi") {
+  world.classifyAs(verdict("casual"));
+  world.replyWith(answer([DECLINE_REPLY], ["Aur batao kuch"]));
+  return world.say(text);
+}
+
+const nudged = (turn: TurnResult) => turn.reply.endsWith(FREE_CHAT_COPY.CASUAL_NUDGE.latin);
+
+const answeredNudges = (world: World) =>
+  world
+    .emitted("chat.free_chat_turn_served")
+    .filter((e) => e.payload.outcome === "answered")
+    .map((e) => e.payload.nudge);
+
+describe("#2172 — the casual reply right after a résumé offer never carries the nudge", () => {
+  it.each([
+    {
+      offer: "JOBS",
+      opts: {},
+      serve: (world: World) => {
+        world.classifyAs(verdict("jobs"));
+        return world.say("job chahiye");
+      },
+    },
+    {
+      // A casual reply ENDING with the nudge — R38's fourth offer.
+      offer: "CASUAL_NUDGE",
+      opts: {},
+      serve: (world: World) => {
+        primeNudge(world, FREE_CHAT_NUDGE_EVERY - 1);
+        return casual(world, FREE_CHAT_NUDGE_EVERY);
+      },
+    },
+    {
+      offer: "NEWS_CAP",
+      opts: { newsHeld: 5 },
+      serve: (world: World) => askNews(world, newsAnswer()),
+    },
+  ] as const)(
+    "$offer → 'nahi' (casual) on a DUE counter: the model's line alone, the chip, nudge false",
+    async ({ offer, opts, serve }) => {
+      const world = makeWorld(opts);
+      await inFreeMode(world);
+      const offered = await serve(world);
+      expect(offered.reply.endsWith(FREE_CHAT_COPY[offer].latin)).toBe(true);
+
+      // The counter WOULD fire on the next casual reply.
+      primeNudge(world);
+      const turn = await decline(world);
+
+      expect(turn.reply).toBe(DECLINE_REPLY);
+      // The résumé chip stays attached as always (R9, §5.1).
+      expect(optionKeys(turn)).toEqual(["fcq_a", FREE_CHAT_RESUME_KEY]);
+      // The count still moved — only the line was skipped — and the event says so truthfully.
+      expect(world.envelope().freeChat!.casualReplies).toBe(2 * FREE_CHAT_NUDGE_EVERY);
+      expect(lastTurnServed(world)).toMatchObject({
+        category: "casual",
+        outcome: "answered",
+        nudge: false,
+      });
+    },
+  );
+
+  it("unseeded: casual, casual, JOBS, 'abhi nahi' — the due third is skipped, and NOT re-owed", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    expect(nudged(await casual(world, 1))).toBe(false);
+    expect(nudged(await casual(world, 2))).toBe(false);
+    world.classifyAs(verdict("jobs"));
+    expect((await world.say("job chahiye")).reply).toBe(FREE_CHAT_COPY.JOBS.latin);
+
+    const declined = await decline(world, "abhi nahi");
+    expect(declined.reply).toBe(DECLINE_REPLY);
+    expect(world.envelope().freeChat!.casualReplies).toBe(3);
+
+    // The next nudge rides the next multiple, as if the counter had been reset at the decline.
+    const after: boolean[] = [];
+    for (let n = 4; n <= 6; n++) after.push(nudged(await casual(world, n)));
+    expect(after).toEqual([false, false, true]);
+    expect(answeredNudges(world)).toEqual([false, false, false, false, false, true]);
+  });
+
+  it.each([
+    { before: "LATER_ACK", serve: async (_world: World) => undefined },
+    {
+      before: "OFF_LIMITS",
+      serve: async (world: World) => {
+        world.classifyAs(verdict("off_limits"));
+        await world.say("politics pe baat karo");
+      },
+    },
+    {
+      // ONLY the reply IMMEDIATELY after: a career answer between the offer and the casual reply.
+      before: "a career answer after JOBS",
+      serve: async (world: World) => {
+        world.classifyAs(verdict("jobs"));
+        await world.say("job chahiye");
+        world.classifyAs(verdict("career"));
+        world.replyWith(answer(["Welder ka kaam har sheher mein milta hai."]));
+        await world.say("welder ka kaam kahan milta hai");
+      },
+    },
+  ] as const)("after $before (no offer on screen), a due casual reply is nudged", async (c) => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    await c.serve(world);
+    primeNudge(world);
+    const turn = await casual(world, 6);
+    expect(turn.reply).toBe(`Theek hai, baat 6.\n${FREE_CHAT_COPY.CASUAL_NUDGE.latin}`);
+    expect(lastTurnServed(world)).toMatchObject({ nudge: true });
+  });
+
+  it("a plain casual run keeps the every-3rd cadence exactly", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    const seen: boolean[] = [];
+    for (let n = 1; n <= 3 * FREE_CHAT_NUDGE_EVERY; n++) seen.push(nudged(await casual(world, n)));
+    const cadence = seen.map((_, i) => (i + 1) % FREE_CHAT_NUDGE_EVERY === 0);
+    expect(seen).toEqual(cadence);
+    expect(answeredNudges(world)).toEqual(cadence);
+    expect(world.envelope().freeChat!.casualReplies).toBe(3 * FREE_CHAT_NUDGE_EVERY);
+  });
+
+  it("an envelope with NO lastTurn reads as no offer: the due nudge is served, as before", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    storeLastTurn(world, undefined);
+    expect(nudged(await casual(world, 6))).toBe(true);
+  });
+
+  it("an OLDEST-shape lastTurn stamp (hash, reply, at only) still names the offer", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    storeLastTurn(world, {
+      inboundHash: "stamp-from-an-old-build",
+      reply: FREE_CHAT_COPY.JOBS.latin,
+      at: T0.toISOString(),
+    });
+    // Through JSON and the REAL narrower on load (`makeWorld`'s buffer), as production reads it.
+    const turn = await decline(world);
+    expect(turn.reply).toBe(DECLINE_REPLY);
+    expect(lastTurnServed(world)).toMatchObject({ nudge: false });
   });
 });

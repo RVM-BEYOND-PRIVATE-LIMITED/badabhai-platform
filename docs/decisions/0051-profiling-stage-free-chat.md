@@ -90,7 +90,7 @@ A session that opens on a résumé-import turn (identity / batch-confirm) ──
 | 8 | classifier → `distress`, at ANY confidence (it bypasses the 0.6 floor) | the distress line |
 | 9 | classifier → `resume` | enter résumé mode; a message that already describes the work becomes the first answer |
 | 10 | → `career` | model reply (career prompt) → validator → served, or the fallback |
-| 11 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply |
+| 11 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply, never on the reply right after a résumé offer (R38's lines; #2172) |
 | 12 | → `jobs` | the jobs line + chip |
 | 13 | → `off_limits` | the off-limits line, no strike |
 | 14 | → `trash` | strike; 3 in a day → 30-minute cool-down |
