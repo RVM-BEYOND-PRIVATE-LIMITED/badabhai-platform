@@ -1,7 +1,8 @@
 /**
  * The profiling-stage free chat's fixed lines (ADR-0051 §5.1) — reviewed copy, never a model's.
  *
- * OWNER-APPROVED VERBATIM (2026-10-06). Every line here is served exactly as written: an edit is a
+ * OWNER-APPROVED VERBATIM (2026-10-06; NEWS_CAP and NEWS_UNAVAILABLE 2026-10-08, ADR-0054 §5).
+ * Every line here is served exactly as written: an edit is a
  * copy review, not a refactor. `free-chat.copy.test.ts` holds them to persona v3.2 ("aap", ≤20
  * words, ≤1 "?", no "!", no emoji, none of the banned tokens), and the only number in any line is
  * the Tele-MANAS helpline.
@@ -68,6 +69,16 @@ export const FREE_CHAT_COPY = {
   NEWS: {
     latin: "Taaza khabar abhi nahi bata sakta. Yeh suvidha jaldi aayegi.",
     dev: "ताज़ा ख़बर अभी नहीं बता सकता। यह सुविधा जल्दी आएगी।",
+  },
+  // ADR-0054 §5 (approved 2026-10-08) — live news. NEWS above stays the answer while the news task
+  // is unarmed (its mock); these two are served once it is armed.
+  NEWS_CAP: {
+    latin: "Aaj ki khabrein ho gayin. Kal phir poochhiye. Tab tak resume bana lete hain?",
+    dev: "आज की ख़बरें हो गईं। कल फिर पूछिए। तब तक रिज़्यूमे बना लेते हैं?",
+  },
+  NEWS_UNAVAILABLE: {
+    latin: "Abhi taaza khabar nahi mil paayi. Thodi der baad phir poochhiye.",
+    dev: "अभी ताज़ा ख़बर नहीं मिल पाई। थोड़ी देर बाद फिर पूछिए।",
   },
   LEGAL_MED_FIN: {
     latin:

@@ -226,7 +226,15 @@ function makeWorld() {
   const pii = { decrypt: vi.fn(() => "Ramesh") };
   const lock = { acquire: vi.fn(async () => "tok"), release: vi.fn(async () => undefined) };
 
-  const freeChat = new FreeChatService(ai as never, cost as never, events as never, chat as never);
+  // ADR-0054 — the live-news cap; no turn here asks for news.
+  const newsCap = { reserve: vi.fn(async () => null), release: vi.fn(async () => undefined) };
+  const freeChat = new FreeChatService(
+    ai as never,
+    cost as never,
+    events as never,
+    chat as never,
+    newsCap as never,
+  );
   const summary = new FreeChatSummaryService(
     ai as never,
     cost as never,

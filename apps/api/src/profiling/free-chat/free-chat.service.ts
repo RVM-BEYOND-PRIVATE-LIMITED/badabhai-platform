@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import {
   FreeChatClassifyInputSchema,
+  FreeChatNewsInputSchema,
   FreeChatReplyInputSchema,
   type CompanionCareerWorkerContext,
   type CompanionRecentTurn,
@@ -32,6 +33,17 @@ import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { isUniversalPlaceholderLabel } from "../../occupation/family-chip-labels";
 import { FREE_CHAT_SUMMARY_MAX } from "./free-chat-summary";
+import { FreeChatNewsCap } from "./free-chat-news-cap.store";
+import {
+  carriesNewsIdentifier,
+  judgeNews,
+  keepsSlot,
+  NEWS_NOT_REQUESTED,
+  newsCapped,
+  type FreeChatNewsCall,
+  type FreeChatNewsResolution,
+  type FreeChatNewsServed,
+} from "./free-chat-news";
 import { UNAVAILABLE_VERDICT, type FreeChatVerdict } from "./free-chat.router";
 
 /** The classify contract's text bound (`FreeChatClassifyInputSchema.text`). */
@@ -45,6 +57,12 @@ const PENDING_QUESTION_MAX = 500;
 /** Recent turns each call may carry (the contract's caps). */
 export const CLASSIFY_TURNS = 2;
 export const REPLY_TURNS = 6;
+/**
+ * ADR-0054 — how long a SETTLED news request stays shareable with a resent submission (see
+ * `FreeChatService.requestNews`): a retry that lands just after the first request finished reuses
+ * it instead of paying again.
+ */
+export const FREE_CHAT_NEWS_INFLIGHT_GRACE_MS = 60_000;
 /** The worker context's trade-label bound (`CompanionCareerWorkerContextSchema.trade_label`). */
 const TRADE_LABEL_MAX = 64;
 
@@ -80,6 +98,16 @@ export interface FreeChatReplyRequest {
   readonly summary: string | null;
 }
 
+/**
+ * One live-news call's inputs, before redaction (ADR-0054): the worker's question, the recent turns
+ * the reply would see and the same closed worker context. No summary — the reply alone reads it.
+ */
+export interface FreeChatNewsRequest {
+  readonly text: string;
+  readonly messages: readonly BufferedMessage[];
+  readonly workerContext: CompanionCareerWorkerContext;
+}
+
 /** What one served free-chat turn reports on the spine — ids, counts and closed enums only. */
 export interface FreeChatServed {
   readonly mode: FreeChatMode;
@@ -91,6 +119,11 @@ export interface FreeChatServed {
   readonly strikeCount: number | null;
   readonly cooldownStarted: boolean;
   readonly nudge: boolean;
+  /**
+   * ADR-0054 — on a turn that ran a live-news request, what that request ended in: recorded as
+   * `chat.free_chat_news_served` beside this turn's own event. ABSENT on every other turn.
+   */
+  readonly news?: FreeChatNewsServed;
 }
 
 /** One mode transition. `from` null is a session with no mode yet being stamped. */
@@ -110,9 +143,10 @@ export interface FreeChatEventRef {
 }
 
 /**
- * THE PROFILING-STAGE FREE CHAT'S SIDE EFFECTS (ADR-0051) — the two model calls, their spend, the
- * two events and the durable lock. Everything that DECIDES is pure and lives in
- * `free-chat.router.ts`; the orchestrator calls this only for I/O.
+ * THE PROFILING-STAGE FREE CHAT'S SIDE EFFECTS (ADR-0051) — the model calls, their spend, the
+ * events and the durable lock; and (ADR-0054) the live-news call with its daily cap. Everything that
+ * DECIDES is pure and lives in `free-chat.router.ts` and `free-chat-news.ts`; the orchestrator calls
+ * this only for I/O.
  *
  * PRIVACY (ADR-0047). The worker's own known name is redacted out of every model input — the
  * message, the pending question and every recent turn — whatever `AI_RAW_PII_ENABLED` says (G2);
@@ -126,12 +160,16 @@ export interface FreeChatEventRef {
 @Injectable()
 export class FreeChatService {
   private readonly logger = new Logger(FreeChatService.name);
+  /** ADR-0054 — live-news requests in flight (and in their grace), by session and submission. */
+  private readonly newsInFlight = new Map<string, Promise<FreeChatNewsResolution>>();
 
   constructor(
     private readonly ai: AiService,
     private readonly cost: AiCostRecorder,
     private readonly events: EventsService,
     private readonly chat: ChatRepository,
+    // ADR-0054 — the live-news daily cap (Redis). A VALUE import, for the reason stated above.
+    private readonly newsCap: FreeChatNewsCap,
   ) {}
 
   /**
@@ -205,6 +243,145 @@ export class FreeChatService {
   }
 
   /**
+   * ADR-0054 — ONE LIVE-NEWS CALL: whether it was SENT, and what came back (null on any failure).
+   * The worker's own name (`knownName`, already looked up by the caller) is redacted out of the
+   * question, every recent turn and the trade label (G2), exactly as for {@link reply}; a recent turn
+   * carrying an identifier is dropped (R9, {@link newsTurnsOf}). An off-contract input is NOT sent.
+   * The answer is UNTRUSTED: `judgeNews` checks every line and every source before a worker sees
+   * them. The spend (tokens plus each search, priced by the ai-service) is recorded once, here.
+   */
+  async news(
+    req: FreeChatNewsRequest,
+    ctx: FreeChatCallContext,
+    knownName: string | null,
+  ): Promise<FreeChatNewsCall> {
+    const input = FreeChatNewsInputSchema.safeParse({
+      text: clip(redactKnownName(req.text, knownName), REPLY_TEXT_MAX),
+      recent_turns: newsTurnsOf(req.messages, knownName),
+      worker_context: workerContextFor(req.workerContext, knownName),
+      // ADR-0054 §8 (H2): the worker's id, so the ai-service's per-worker daily AI spend limit
+      // (`ai_max_user_daily_cost_inr`) bounds news on top of the API's daily attempt cap. The
+      // ai-service uses it for the spend ledger only; it never reaches the model.
+      worker_ref: ctx.workerId,
+    });
+    if (!input.success) {
+      this.logger.warn(
+        `free-chat news input off-contract session=${ctx.sessionId} ` +
+          `paths=[${input.error.issues.map((i) => i.path.join(".")).join(",")}]; no news call is made`,
+      );
+      return { sent: false, output: null };
+    }
+    const out = await this.ai.freeChatNews(input.data, ctx);
+    await this.cost.record(
+      out?.ai_metadata ?? null,
+      "profiling_free_news",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+      { workerId: ctx.workerId, sessionId: ctx.sessionId },
+    );
+    return { sent: true, output: out };
+  }
+
+  /**
+   * ONE LIVE-NEWS REQUEST, END TO END (ADR-0054 §3.1, §8) — SHARED by every concurrent turn of the
+   * same submission.
+   *
+   * THE APP RESENDS A SLOW SUBMISSION. It times `POST /chat/message` out at 15 s and resends the same
+   * `submission_id` while the first request is still running (a news turn takes 8-15 s); the second
+   * `takeTurn` builds its own refs, so without this it would reserve a second slot and pay for a
+   * second search. Keyed `${sessionId}:${submissionId}`, the request (reservation and call together)
+   * is held while in flight and for {@link FREE_CHAT_NEWS_INFLIGHT_GRACE_MS} after it settles, so a
+   * retry that lands right after completion reuses it too. A turn with no submission id (an older
+   * app) is not shared — the reply cache has nothing to match it by either.
+   *
+   * PROCESS-LOCAL. One API container today; with more than one, a retry routed to another instance
+   * would run its own request (bounded by the daily cap). A Redis-held lock is the fix then.
+   */
+  requestNews(
+    req: FreeChatNewsRequest,
+    ctx: FreeChatCallContext,
+    now: Date,
+    submissionId: string | null,
+  ): Promise<FreeChatNewsResolution> {
+    if (submissionId === null) return this.runNewsRequest(req, ctx, now);
+    const key = `${ctx.sessionId}:${submissionId}`;
+    const held = this.newsInFlight.get(key);
+    if (held !== undefined) return held;
+    const request = this.runNewsRequest(req, ctx, now);
+    this.newsInFlight.set(key, request);
+    const forget = (): void => {
+      const timer = setTimeout(() => {
+        if (this.newsInFlight.get(key) === request) this.newsInFlight.delete(key);
+      }, FREE_CHAT_NEWS_INFLIGHT_GRACE_MS);
+      timer.unref();
+    };
+    void request.then(forget, forget);
+    return request;
+  }
+
+  /**
+   * The request itself. In order, and the order is the design:
+   *
+   *   1. THE WORKER'S OWN NAME (G2). A lookup that ERRORS — not "no name on file" — means the
+   *      question cannot be redacted: no reservation, no call, the unavailable line.
+   *   2. AN IDENTIFIER IN THE QUESTION (R9): a phone number, an email or an ID number is never
+   *      searched — no reservation, no call, the unavailable line.
+   *   3. THE CAP: an unreadable store makes no call (fail closed); a spent one serves NEWS_CAP.
+   *   4. THE CALL, judged by `judgeNews`.
+   *   5. THE SLOT (R5 as revised): KEPT for every request that may have reached Anthropic, handed back
+   *      only when it certainly did not (`keepsSlot`).
+   *
+   * `now` is the TURN's clock, so the release rebuilds the key the reservation used. Never throws:
+   * anything unexpected is the unavailable line, and a slot already taken is kept (fail closed).
+   */
+  private async runNewsRequest(
+    req: FreeChatNewsRequest,
+    ctx: FreeChatCallContext,
+    now: Date,
+  ): Promise<FreeChatNewsResolution> {
+    try {
+      const own = await this.ownNameForNews(ctx);
+      if (!own.ok) return NEWS_NOT_REQUESTED;
+      if (carriesNewsIdentifier(req.text)) {
+        // Ids only: the question is the worker's own text and carries the identifier.
+        this.logger.log(
+          `free-chat news question carries an identifier session=${ctx.sessionId}; it is not searched`,
+        );
+        return NEWS_NOT_REQUESTED;
+      }
+      const slot = await this.newsCap.reserve(ctx.workerId, now);
+      if (slot === null) return NEWS_NOT_REQUESTED;
+      if (!slot.ok) return newsCapped(slot.count);
+      const call = await this.news(req, ctx, own.name).catch((error: unknown) => {
+        this.logger.warn(
+          `free-chat news call threw session=${ctx.sessionId}; judged as no answer, slot kept: ` +
+            `${logSafeReason(error, "free-chat news call")}`,
+        );
+        // It may have been sent: keep the slot (the fail-closed direction).
+        return { sent: true, output: null } satisfies FreeChatNewsCall;
+      });
+      const verdict = judgeNews(call.output);
+      if (verdict.outcome !== "answered" && verdict.rejection !== null) {
+        // The CLOSED reason only — never a line of the answer or a source, which are untrusted text.
+        this.logger.warn(
+          `free-chat news answer rejected session=${ctx.sessionId} (${verdict.rejection}); ` +
+            `the unavailable line is served`,
+        );
+      }
+      if (keepsSlot(call)) return { ...verdict, dailyCount: slot.count };
+      await this.newsCap.release(ctx.workerId, now);
+      return { ...verdict, dailyCount: slot.count - 1 };
+    } catch (error) {
+      this.logger.error(
+        `free-chat news request failed session=${ctx.sessionId}; the unavailable line is served: ` +
+          `${logSafeReason(error, "free-chat news request")}`,
+      );
+      return NEWS_NOT_REQUESTED;
+    }
+  }
+
+  /**
    * `chat.free_chat_turn_served` — once per served free-chat turn, after the CAS that landed it.
    * Keyed on the submission (or the write's rev), so a retried emit stores one row. Never throws.
    */
@@ -236,6 +413,39 @@ export class FreeChatService {
       this.logger.error(
         `chat.free_chat_turn_served not recorded session=${ref.sessionId} ` +
           `outcome=${served.outcome}: ${logSafeReason(error, "free-chat turn event")}`,
+      );
+    }
+  }
+
+  /**
+   * `chat.free_chat_news_served` (ADR-0054 §3.5) — once per news request that LANDED, after the CAS,
+   * beside the turn's own `chat.free_chat_turn_served`. Counts and closed enums only: never the
+   * question, the answer, a URL or a title. Keyed like the turn's event. Never throws.
+   */
+  async recordNews(news: FreeChatNewsServed, ref: FreeChatEventRef): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "chat.free_chat_news_served",
+        actor: { actor_type: "worker", actor_id: ref.workerId },
+        subject: { subject_type: "chat_session", subject_id: ref.sessionId },
+        payload: {
+          worker_id: ref.workerId,
+          session_id: ref.sessionId,
+          outcome: news.outcome,
+          kind: news.kind,
+          search_count: news.searchCount,
+          source_count: news.sourceCount,
+          daily_count: news.dailyCount,
+          submission_id: ref.submissionId,
+        },
+        idempotencyKey: `chat.free_chat_news_served:${ref.sessionId}:${ref.submissionId ?? ref.turnRef}`,
+        correlationId: ref.ctx.correlationId,
+        requestId: ref.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `chat.free_chat_news_served not recorded session=${ref.sessionId} ` +
+          `outcome=${news.outcome}: ${logSafeReason(error, "free-chat news event")}`,
       );
     }
   }
@@ -287,6 +497,26 @@ export class FreeChatService {
     }
   }
 
+  /**
+   * ADR-0054 (security M1) — the worker's own name for a NEWS call, which FAILS CLOSED where
+   * {@link knownNameOf} fails open: a lookup that errors is `{ok: false}` and no news request is
+   * made, because an unredacted question would reach a third-party search. "No name on file" is
+   * `{ok: true, name: null}` — nothing to redact. Classify and reply keep the fail-open lookup.
+   */
+  private async ownNameForNews(
+    ctx: FreeChatCallContext,
+  ): Promise<{ readonly ok: true; readonly name: string | null } | { readonly ok: false }> {
+    try {
+      return { ok: true, name: await ctx.knownName() };
+    } catch {
+      this.logger.warn(
+        `known name unavailable worker=${ctx.workerId} session=${ctx.sessionId}; ` +
+          `no news request is made (it could not be name-redacted)`,
+      );
+      return { ok: false };
+    }
+  }
+
   /** The worker's own name for the G2 redaction — FAIL SAFE to null, logged with ids only. */
   private async knownNameOf(ctx: FreeChatCallContext): Promise<string | null> {
     try {
@@ -334,6 +564,31 @@ export function recentTurnsOf(
     if (turn !== null) turns.push(turn);
   }
   return turns.slice(-limit);
+}
+
+/**
+ * ADR-0054 — the recent turns a NEWS call carries: the reply's window ({@link REPLY_TURNS}, the same
+ * redaction and clipping as {@link recentTurnsOf}) MINUS every turn whose text carries an
+ * identifier (R9, `carriesNewsIdentifier`), so a number typed two turns ago plus "aur batao" can
+ * never reach a search query.
+ */
+export function newsTurnsOf(
+  messages: readonly BufferedMessage[],
+  knownName: string | null,
+): CompanionRecentTurn[] {
+  const window: Array<{ readonly source: BufferedMessage; readonly turn: CompanionRecentTurn }> =
+    [];
+  for (const message of messages) {
+    const turn = recentTurnOf(message, knownName);
+    if (turn !== null) window.push({ source: message, turn });
+  }
+  return window
+    .slice(-REPLY_TURNS)
+    .filter(
+      ({ source, turn }) =>
+        !carriesNewsIdentifier(source.text) && !carriesNewsIdentifier(turn.text),
+    )
+    .map(({ turn }) => turn);
 }
 
 /**

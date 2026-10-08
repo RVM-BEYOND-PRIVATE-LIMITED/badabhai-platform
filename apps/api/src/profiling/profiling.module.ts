@@ -18,6 +18,7 @@ import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
 import { FreeChatService } from "./free-chat/free-chat.service";
+import { FreeChatNewsCap } from "./free-chat/free-chat-news-cap.store";
 import { FreeChatFoldLock } from "./free-chat/free-chat-fold.lock";
 import { FreeChatSummaryService } from "./free-chat/free-chat-summary.service";
 import { LlmTurnService } from "./llm-turn.service";
@@ -175,6 +176,9 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // silently open no greeting and classify nothing, with the feature "live". `AiService` and
     // `AiCostRecorder` come from `AiModule`, `ChatRepository` from `ChatModule` and `EventsService`
     // from `EventsModule`, all imported above: a provider, and no module edge.
+    // ADR-0054 — the live-news daily cap, a CONSTRUCTOR dependency of `FreeChatService` (omitting it
+    // fails BOOT). It borrows the RESUME_RENDER_QUEUE connection registered above: no module edge.
+    FreeChatNewsCap,
     FreeChatService,
     // ADR-0051 §8 (Release 2) — the rolling summary's fold and its per-session Redis lock. The fold
     // is a trailing optional constructor dependency of the orchestrator like the three above, so

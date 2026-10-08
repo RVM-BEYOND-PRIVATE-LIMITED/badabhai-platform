@@ -134,3 +134,30 @@ describe("the chips and the refusal map", () => {
     for (const line of FREE_CHAT_REPLIES) expect(CONSTANT_REPLIES).toContain(line);
   });
 });
+
+describe("ADR-0054 §5 — the two live-news lines, as approved on 2026-10-08", () => {
+  it("are served verbatim, with their Devanagari twins", () => {
+    expect(FREE_CHAT_COPY.NEWS_CAP).toEqual({
+      latin: "Aaj ki khabrein ho gayin. Kal phir poochhiye. Tab tak resume bana lete hain?",
+      dev: "आज की ख़बरें हो गईं। कल फिर पूछिए। तब तक रिज़्यूमे बना लेते हैं?",
+    });
+    expect(FREE_CHAT_COPY.NEWS_UNAVAILABLE).toEqual({
+      latin: "Abhi taaza khabar nahi mil paayi. Thodi der baad phir poochhiye.",
+      dev: "अभी ताज़ा ख़बर नहीं मिल पाई। थोड़ी देर बाद फिर पूछिए।",
+    });
+  });
+
+  it("ADR-0051's NEWS line is unchanged — it stays the answer while news is unarmed", () => {
+    expect(FREE_CHAT_COPY.NEWS.latin).toBe(
+      "Taaza khabar abhi nahi bata sakta. Yeh suvidha jaldi aayegi.",
+    );
+    expect(FREE_CHAT_REFUSAL_LINES.news).toBe(FREE_CHAT_COPY.NEWS);
+  });
+
+  it("both are in the reply closure and the read-aloud sidecar", () => {
+    for (const line of [FREE_CHAT_COPY.NEWS_CAP, FREE_CHAT_COPY.NEWS_UNAVAILABLE]) {
+      expect(CONSTANT_REPLIES).toContain(line.latin);
+      expect(ttsTextFor(line.latin)).toBe(line.dev);
+    }
+  });
+});

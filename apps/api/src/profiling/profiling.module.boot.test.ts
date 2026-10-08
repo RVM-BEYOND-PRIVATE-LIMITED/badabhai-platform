@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import { IdentifyService } from "./identify.service";
 import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
 import { FreeChatService } from "./free-chat/free-chat.service";
+import { FreeChatNewsCap } from "./free-chat/free-chat-news-cap.store";
 import { FreeChatFoldLock } from "./free-chat/free-chat-fold.lock";
 import { FreeChatSummaryService } from "./free-chat/free-chat-summary.service";
 import { WorkersModule } from "../workers/workers.module";
@@ -116,6 +117,9 @@ describe("ProfilingModule wiring", () => {
       // ADR-0051. Trailing and optional on the orchestrator for the same reason again: omitting it
       // would not fail boot, it would silently serve no greeting and classify nothing while the
       // feature reads as live (it has no default-off flag). Pinned here for that reason.
+      // ADR-0054 — the live-news daily cap is a CONSTRUCTOR dependency of `FreeChatService`, so
+      // omitting it fails BOOT. Pinned for that reason.
+      FreeChatNewsCap,
       FreeChatService,
       // ADR-0051 §8 (Release 2) — the rolling summary. The fold is trailing and optional on the
       // orchestrator, so omitting it would not fail boot — it would silently fold nothing; the

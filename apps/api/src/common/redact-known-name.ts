@@ -149,7 +149,16 @@ export type KnownNameSource = () => Promise<string | null>;
  * it, exactly as it would have when each consumer read the name for itself.
  */
 export function knownNameOnce(read: () => Promise<string | null>): KnownNameSource {
-  let pending: Promise<string | null> | null = null;
+  return onceRetrying(read);
+}
+
+/**
+ * `read`, run at most once — a rejected read is NOT kept, so the next caller retries it. The shape
+ * {@link knownNameOnce} gives the name; `ChatService` uses it directly for the one name READ that
+ * both the fail-open `knownName` and the live-news `ownName` views share (ADR-0054, security M1).
+ */
+export function onceRetrying<T>(read: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | null = null;
   return () => {
     pending ??= read().catch((error: unknown) => {
       pending = null;

@@ -182,9 +182,11 @@ NestJS boot assertion).
   `true` sends every session straight to today's interview with no greeting and no classifier
   call, byte for byte the pre-ADR-0051 chat. Bridged through the GitHub `production` environment
   secret of the same name (compose `${CHAT_FREE_CHAT_DISABLED:-false}`, `ci.yml` `env:` + `envs:`).
-  The three model tasks it calls (`profiling_free_classify`, `profiling_free_reply`, and
-  Release 2's `profiling_free_summary`, whose unarmed mock stores no summary) are armed
-  separately, by appending them to the box's `AI_REAL_CALL_TASKS`. No migration.
+  The four model tasks it calls (`profiling_free_classify`, `profiling_free_reply`,
+  Release 2's `profiling_free_summary`, whose unarmed mock stores no summary, and ADR-0054's
+  `profiling_free_news`, whose unarmed mock keeps today's "jaldi aayegi" line) are armed
+  separately, by appending them to the box's `AI_REAL_CALL_TASKS`. `true` also stops live news
+  and drops `news_links` from every response. No migration.
 - **Matching V1 cutover gate (ADR-0036 §8, #1904)** — `MATCH_V1_ENABLED`, api only
   (`booleanFromString`, default off). Off is the legacy source for the worker feed, apply and the
   payer candidate list (`jobs` + the weighted engine); on is `job_reach` + `job_postings` + the V1
