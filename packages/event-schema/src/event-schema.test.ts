@@ -4,6 +4,7 @@ import {
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
   TRADE_FORM_KINDS_ALL,
+  FREE_CHAT_REPLY_LANGUAGES,
 } from "@badabhai/types";
 import {
   validateEvent,
@@ -3149,8 +3150,10 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 228 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed)", () => {
-    expect(EVENT_NAMES).toHaveLength(228);
+  it("exposes all 229 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change)", () => {
+    expect(EVENT_NAMES).toHaveLength(229);
+    // ADR-0051 §11 (R41) — the held free-chat reply language changed (a new name; no schema mutated).
+    expect(isEventName("chat.free_chat_language_changed")).toBe(true);
     // Owner ruling 2026-10-07 — the payer pipeline board's own event (a new name; no schema mutated).
     expect(isEventName("payer.applicant_stage_changed")).toBe(true);
     // ADR-0050 §9 — the agency twin sync's own event (a new name; no schema mutated).
@@ -5727,5 +5730,69 @@ describe("chat.free_chat_news_served (ADR-0054, #2127)", () => {
     expect(ok({ ...answered, query: "aaj ka mausam" })).toBe(false);
     expect(ok({ ...answered, kind: "politics" })).toBe(false);
     expect(ok({ ...answered, search_count: 4 })).toBe(false);
+  });
+});
+
+describe("chat.free_chat_language_changed (ADR-0051 §11, #2181)", () => {
+  const ok = (payload: Record<string, unknown>) =>
+    validateEvent({
+      event_id: UUID_A,
+      event_name: "chat.free_chat_language_changed",
+      event_version: 1,
+      occurred_at: "2026-10-08T10:00:00.000Z",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "chat_session", subject_id: UUID_C },
+      source: "api",
+      correlation_id: UUID_C,
+      causation_id: null,
+      payload,
+      metadata: { environment: "test", service: "api" },
+    }).success;
+  const accepted = {
+    worker_id: UUID_B,
+    session_id: UUID_C,
+    from: null,
+    to: "marathi",
+    trigger: "accepted",
+  };
+
+  it("is registered at v1 in the chat domain", () => {
+    expect(isEventName("chat.free_chat_language_changed")).toBe(true);
+    expect(EVENT_REGISTRY["chat.free_chat_language_changed"].version).toBe(1);
+    expect(EVENT_REGISTRY["chat.free_chat_language_changed"].domain).toBe("chat");
+  });
+
+  it("records keeping a language, switching to another, and going back to following each message", () => {
+    expect(ok(accepted)).toBe(true);
+    expect(ok({ ...accepted, from: "marathi", to: "tamil" })).toBe(true);
+    expect(ok({ ...accepted, from: "tamil", to: null, trigger: "declined" })).toBe(true);
+    // Every closed language, on either side.
+    expect(FREE_CHAT_REPLY_LANGUAGES).toHaveLength(7);
+    const declined = { ...accepted, to: null, trigger: "declined" };
+    for (const language of FREE_CHAT_REPLY_LANGUAGES) {
+      expect(ok({ ...accepted, to: language }), language).toBe(true);
+      expect(ok({ ...declined, from: language }), language).toBe(true);
+    }
+  });
+
+  it("never records a no-op: from and to always differ", () => {
+    expect(ok({ ...accepted, from: "marathi" })).toBe(false);
+    expect(ok({ ...accepted, from: null, to: null, trigger: "declined" })).toBe(false);
+  });
+
+  it("refuses values outside the closed sets — no Hindi (Hinglish covers it), no free text", () => {
+    expect(ok({ ...accepted, to: "hindi" })).toBe(false);
+    expect(ok({ ...accepted, from: "Marathi", to: "tamil" })).toBe(false);
+    expect(ok({ ...accepted, to: "reply in Tamil" })).toBe(false);
+    expect(ok({ ...accepted, trigger: "chip" })).toBe(false);
+    expect(ok({ ...accepted, trigger: "typed" })).toBe(false);
+  });
+
+  it("carries no words — `.strict()` refuses the request riding along; every field is required", () => {
+    expect(ok({ ...accepted, text: "marathi mai jawab do" })).toBe(false);
+    expect(ok({ ...accepted, submission_id: UUID_A })).toBe(false);
+    const ids = { worker_id: UUID_B, session_id: UUID_C };
+    expect(ok({ ...ids, from: null, to: "marathi" })).toBe(false);
+    expect(ok({ ...ids, to: "marathi", trigger: "accepted" })).toBe(false);
   });
 });

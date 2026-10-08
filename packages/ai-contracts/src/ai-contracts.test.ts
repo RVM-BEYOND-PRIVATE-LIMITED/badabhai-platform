@@ -14,6 +14,7 @@ import {
   FREE_CHAT_CATEGORIES,
   FREE_CHAT_REFUSAL_TOPICS,
   FREE_CHAT_REPLY_CATEGORIES,
+  FREE_CHAT_REPLY_LANGUAGES,
 } from "@badabhai/types";
 import {
   FreeChatAnswerSchema,
@@ -30,6 +31,7 @@ import {
   FreeChatNewsNoResultsSchema,
   FreeChatNewsRefuseSchema,
   FreeChatNewsOutputSchema,
+  FreeChatReplyLanguageSchema,
 } from "./free-chat";
 import {
   CompanionCareerAnswerSchema,
@@ -1310,6 +1312,8 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     // Non-vacuous: eight categories, two of them model-written.
     expect(FREE_CHAT_CATEGORIES).toHaveLength(8);
     expect(FREE_CHAT_REPLY_CATEGORIES).toEqual(["casual", "career"]);
+    // ADR-0051 §11 — the reply languages, one list for the field and the API's detector.
+    expect(FreeChatReplyLanguageSchema.options).toEqual([...FREE_CHAT_REPLY_LANGUAGES]);
   });
 
   it("carries NO identity-capable field, by construction", () => {
@@ -1442,5 +1446,32 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     expect(FreeChatNewsOutputSchema.parse({ status: "refuse", topic: "off_limits" }).status).toBe("refuse");
     expect(() => FreeChatNewsOutputSchema.parse({ status: "refuse", topic: "gossip" })).toThrow();
     expect(FreeChatNewsInputSchema.parse({ text: "aaj ka mausam" }).recent_turns).toEqual([]);
+  });
+
+  describe("ADR-0051 §11: the reply and the news input carry an optional reply_language", () => {
+    const inputs = [
+      ["FreeChatReplyInput", FreeChatReplyInputSchema, { category: "casual", text: "kaise ho" }],
+      ["FreeChatNewsInput", FreeChatNewsInputSchema, { text: "aaj ka mausam" }],
+    ] as const;
+
+    it.each(inputs)("%s: absent or null parses to null, as before the field", (_, schema, base) => {
+      expect(schema.parse(base).reply_language).toBeNull();
+      expect(schema.parse({ ...base, reply_language: null }).reply_language).toBeNull();
+    });
+
+    it.each(inputs)("%s: takes every member of FREE_CHAT_REPLY_LANGUAGES", (_, schema, base) => {
+      expect(FREE_CHAT_REPLY_LANGUAGES).toHaveLength(7); // non-vacuous
+      for (const language of FREE_CHAT_REPLY_LANGUAGES) {
+        expect(schema.parse({ ...base, reply_language: language }).reply_language).toBe(language);
+      }
+    });
+
+    it.each(inputs)("%s: refuses anything outside the closed set", (_, schema, base) => {
+      // "hinglish" covers Hindi in either script; there is no separate Hindi, no script variant,
+      // no other casing and no free text.
+      for (const bad of ["hindi", "devanagari", "English", "bengali", "", "reply in Tamil", 1]) {
+        expect(schema.safeParse({ ...base, reply_language: bad }).success, String(bad)).toBe(false);
+      }
+    });
   });
 });
