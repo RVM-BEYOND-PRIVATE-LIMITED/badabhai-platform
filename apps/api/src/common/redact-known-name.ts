@@ -63,8 +63,11 @@ export const REDACTED_NAME_PLACEHOLDER = "[NAME]";
  * "me" and "hai" in the message and shred the text the extractor reads — the exact
  * over-masking regression class that killed the gazetteer attempt. 3 is the shortest
  * length at which a token is a name rather than a letter.
+ *
+ * Exported for the free-chat probe's residue check (ADR-0051 §10), which must read a name's
+ * tokens exactly as this redaction does.
  */
-const MIN_TOKEN_LENGTH = 3;
+export const MIN_TOKEN_LENGTH = 3;
 
 /** Escape a literal so it can be embedded in a RegExp source. */
 function escapeRegExp(value: string): string {
