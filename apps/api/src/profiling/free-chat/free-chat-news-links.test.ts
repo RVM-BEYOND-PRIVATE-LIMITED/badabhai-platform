@@ -211,6 +211,14 @@ describe("the title — cleaned, bounded, and no hard identifier (G1)", () => {
     }
   });
 
+  it("reads Indian-script digits too: a phone in Devanagari or Tamil digits drops the title", () => {
+    for (const title of ["हेल्पलाइन ९८७६५४३२१० पर कॉल करें", "உதவி எண் ௯௮௭௬௫௪௩௨௧௦"]) {
+      expect(newsLinkOf(source("https://www.thehindu.com/a", title)), title).toBeNull();
+    }
+    // A Devanagari year or price is not an identifier.
+    expect(newsLinkOf(source("https://www.thehindu.com/a", "२०२६ में नई भर्ती"))).not.toBeNull();
+  });
+
   it("drops a title the content walls fail: abuse, a job promise (Hinglish or regional), a template token", () => {
     for (const title of [
       "Chutiya log pakde gaye",

@@ -42,7 +42,10 @@ import type {
 
 import { containsHardIdentifier } from "../resume-import/resume-parse-gates";
 import { screenFreeChatAnswer, type FreeChatAnswerFailure } from "./free-chat-output.validator";
-import { newsLinksOf, type FreeChatNewsLink } from "./free-chat-news-links";
+import { foldDecimalDigits, newsLinksOf, type FreeChatNewsLink } from "./free-chat-news-links";
+
+// Re-exported: the digit fold lives beside the tile walls (titles need it too) and is read here.
+export { foldDecimalDigits };
 import { FREE_CHAT_COPY, FREE_CHAT_REFUSAL_LINES, type FreeChatLine } from "./free-chat.copy";
 
 /** Why the API threw a news answer away — a closed reason for the log, never a line of it. */
@@ -159,28 +162,6 @@ export function carriesNewsIdentifier(text: string): boolean {
 
 function identifierIn(text: string): boolean {
   return looksLikePii(text) || containsHardIdentifier(text) !== null;
-}
-
-/** Any Unicode decimal digit (`Nd`): ASCII, Devanagari, Gujarati, Tamil, Telugu, Kannada, … */
-const DECIMAL_DIGIT = /\p{Nd}/u;
-const DECIMAL_DIGITS = /\p{Nd}/gu;
-
-/**
- * Every Unicode decimal digit (`\p{Nd}`) as its ASCII twin: "९८७६" → "9876", "௧௨" → "12".
- *
- * HOW A DIGIT'S VALUE IS READ. Unicode encodes every `Nd` set as a CONTIGUOUS run 0…9 in ascending
- * order (a stability guarantee), and where sets sit back to back (the mathematical digits) the run
- * is a multiple of ten that starts on a zero. So a digit's value is its distance from the start of
- * its contiguous `Nd` run, modulo ten. The walk back is at most a few dozen code points.
- */
-export function foldDecimalDigits(text: string): string {
-  return text.replace(DECIMAL_DIGITS, (digit) => {
-    const cp = digit.codePointAt(0) ?? 0;
-    if (cp >= 0x30 && cp <= 0x39) return digit;
-    let start = cp;
-    while (start > 0 && DECIMAL_DIGIT.test(String.fromCodePoint(start - 1))) start -= 1;
-    return String((cp - start) % 10);
-  });
 }
 
 /**

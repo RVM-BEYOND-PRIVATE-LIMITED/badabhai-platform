@@ -179,11 +179,35 @@ export function cleanNewsTitle(raw: string): string | null {
   return failsTitleWall(clipped) ? null : clipped;
 }
 
+/** Any Unicode decimal digit (`Nd`): ASCII, Devanagari, Gujarati, Tamil, Telugu, Kannada, … */
+const DECIMAL_DIGIT = /\p{Nd}/u;
+const DECIMAL_DIGITS = /\p{Nd}/gu;
+
+/**
+ * Every Unicode decimal digit (`\p{Nd}`) as its ASCII twin: "९८७६" → "9876", "௧௨" → "12".
+ *
+ * HOW A DIGIT'S VALUE IS READ. Unicode encodes every `Nd` set as a CONTIGUOUS run 0…9 in ascending
+ * order (a stability guarantee), and where sets sit back to back (the mathematical digits) the run
+ * is a multiple of ten that starts on a zero. So a digit's value is its distance from the start of
+ * its contiguous `Nd` run, modulo ten. The walk back is at most a few dozen code points.
+ */
+export function foldDecimalDigits(text: string): string {
+  return text.replace(DECIMAL_DIGITS, (digit) => {
+    const cp = digit.codePointAt(0) ?? 0;
+    if (cp >= 0x30 && cp <= 0x39) return digit;
+    let start = cp;
+    while (start > 0 && DECIMAL_DIGIT.test(String.fromCodePoint(start - 1))) start -= 1;
+    return String((cp - start) % 10);
+  });
+}
+
 /** The content walls a headline meets. Any check that throws counts as a hit — fail closed. */
 function failsTitleWall(title: string): boolean {
   try {
     return (
       containsHardIdentifier(title) !== null ||
+      // A phone in Devanagari / Gujarati / Tamil / … digits: the G1 scanner reads ASCII digits.
+      containsHardIdentifier(foldDecimalDigits(title)) !== null ||
       TEMPLATE_TOKEN.test(title) ||
       isAbusive(title) ||
       statesJobPromise(title) ||
