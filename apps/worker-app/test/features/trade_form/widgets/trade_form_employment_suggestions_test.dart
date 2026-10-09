@@ -324,4 +324,28 @@ void main() {
     // …and Easy still asks for only the one current job, not a second.
     expect(find.text('Aur ek jagah jodein'), findsNothing);
   });
+
+  testWidgets(
+      'a second job needs the first one finished first '
+      '(one open form at a time)', (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(host.build());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Aur ek jagah jodein'));
+    await tester.pumpAndSettle();
+    // Past the double-tap guard window, so only the incomplete-form rule can
+    // block this.
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('Aur ek jagah jodein'));
+    await tester.pumpAndSettle();
+
+    // Second tap blocked: still on the first card, with "fill first".
+    expect(
+      find.text('Pehle ye form bharein — tabhi nayi jagah jod sakte hain.'),
+      findsOneWidget,
+    );
+    expect(host.key.currentState!.pageCount, 1);
+  });
 }
