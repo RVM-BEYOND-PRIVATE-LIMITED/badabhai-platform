@@ -213,6 +213,18 @@ function statusBanner(status: AgencyKyc["status"], rejectReason?: string) {
       </div>
     );
   }
+  if (status === "forbidden") {
+    return (
+      <div className="alert alert--neutral">
+        <div className="alert__text">
+          <p className="alert__title">Agency accounts only</p>
+          <p className="alert__body">
+            KYC for payouts is only available on agency (recruiter) accounts.
+          </p>
+        </div>
+      </div>
+    );
+  }
   // not_submitted
   return (
     <div className="alert alert--info">

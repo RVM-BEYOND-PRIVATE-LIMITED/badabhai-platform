@@ -83,6 +83,17 @@ export class PayerValidationError extends PayerHttpError {
   }
 }
 
+export class PayerForbiddenError extends Error {
+  constructor(path: string) {
+    super(`payer API ${path} returned 403`);
+    this.name = "PayerForbiddenError";
+  }
+}
+
+export function isPayerForbiddenError(e: unknown): e is PayerForbiddenError {
+  return e instanceof PayerForbiddenError;
+}
+
 export function isPayerValidationError(e: unknown): e is PayerValidationError {
   return e instanceof PayerValidationError;
 }
