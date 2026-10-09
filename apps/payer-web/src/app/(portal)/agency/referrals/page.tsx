@@ -72,20 +72,20 @@ export default async function AgencyReferralsPage() {
   }
   const pct = summary ? conversionPct(summary) : null;
 
-// 3) GATED earnings read. `null` = supply payouts not enabled (404 → coming soon); a
-   //    thrown error is a transient degrade (retry), distinct from "not enabled".
-   let earnings: AgencyEarnings | null = null;
-   let payoutsEnabled = true;
-   let earningsError = false;
-   let earningsForbidden = false;
-   try {
-     const res = await getAgencyEarnings();
-     if (res === null) payoutsEnabled = false; // gated route (404) — not enabled yet.
-     else earnings = res;
-   } catch (e) {
-     if (isPayerForbiddenError(e)) earningsForbidden = true;
-     else earningsError = true;
-   }
+  // 3) GATED earnings read. `null` = supply payouts not enabled (404 → coming soon); a
+  //    thrown error is a transient degrade (retry), distinct from "not enabled".
+  let earnings: AgencyEarnings | null = null;
+  let payoutsEnabled = true;
+  let earningsError = false;
+  let earningsForbidden = false;
+  try {
+    const res = await getAgencyEarnings();
+    if (res === null) payoutsEnabled = false; // gated route (404) — not enabled yet.
+    else earnings = res;
+  } catch (e) {
+    if (isPayerForbiddenError(e)) earningsForbidden = true;
+    else earningsError = true;
+  }
 
   // 4) Only when earnings loaded do we read KYC + payout history (same gate). Each isolated.
   let kyc: AgencyKyc | null = null;
