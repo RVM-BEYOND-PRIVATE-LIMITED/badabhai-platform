@@ -183,11 +183,10 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
                 label: 'Photo dikhayein',
                 value: fields.showPhoto,
                 onChanged: cubit.setShowPhoto,
-              ),
-              _ToggleField(
-                label: 'Night shift ke liye taiyaar',
-                value: fields.nightShiftReady,
-                onChanged: cubit.setNightShiftReady,
+                // HIDDEN FOR NOW: the 'Night shift ke liye taiyaar' toggle
+                // below is hidden until the owner asks it back — so this row
+                // is last again. Restored by re-adding that toggle with
+                // `last: true` and dropping it here.
                 last: true,
               ),
             ],

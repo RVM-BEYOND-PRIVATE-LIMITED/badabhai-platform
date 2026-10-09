@@ -401,7 +401,7 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
           // this line's old destination, reached with the same request
           // sequence, so a worker who has no résumé walks the identical path he
           // walked before the screen existed.
-          context.go(Routes.resumeUpload);
+          context.go(Routes.chatProfiling);
         } else if (state.status == NameStatus.failed) {
           ScaffoldMessenger.of(context)
             ..clearSnackBars()

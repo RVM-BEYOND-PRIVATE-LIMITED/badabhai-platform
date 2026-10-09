@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -49,7 +51,12 @@ import 'widgets/resume_door_tile.dart';
 /// say one honest line and continue in Hinglish. The server's `failure_reason`
 /// vocabulary is never shown: see [ResumeUploadNotice].
 class ResumeUploadScreen extends StatefulWidget {
-  const ResumeUploadScreen({super.key});
+  const ResumeUploadScreen({super.key, this.autoUpload = false});
+
+  /// True when the worker already tapped "Resume upload karein" in the chat's
+  /// résumé prompt: door 1 fires on entry instead of asking again. A cancel or
+  /// a rejection falls back to the doors, so this never strands the worker.
+  final bool autoUpload;
 
   @override
   State<ResumeUploadScreen> createState() => _ResumeUploadScreenState();
@@ -65,6 +72,16 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
       picker: locator<ResumeDocumentPicker>(),
       importer: locator<ResumeImporter>(),
     );
+    // The choice was already made in the chat — auto-click door 1. Post-frame
+    // so the first frame (the doors) still paints under the picker, and
+    // guarded by `mounted`: a synchronous pop before the frame must not emit
+    // on a closed cubit.
+    if (widget.autoUpload) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_cubit.chooseDocument());
+      });
+    }
   }
 
   @override

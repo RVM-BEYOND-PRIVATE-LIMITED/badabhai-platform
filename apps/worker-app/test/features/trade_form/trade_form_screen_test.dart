@@ -349,6 +349,74 @@ TradeForm _qualificationsForm({List<String> suggested = const <String>[]}) =>
       ],
     );
 
+/// A walk with a question BEFORE and AFTER the qualifications marker, so a
+/// saved marker can be walked BACK into — the user flow of filling
+/// education + certificate, saving, then pressing back to confirm.
+TradeForm _qualsBetweenQuestionsForm() => TradeForm(
+      kind: 'cnc_turner',
+      packId: 'qp_cnc_turning',
+      packVersion: 1,
+      sections: <TradeFormSection>[
+        TradeFormSection(
+          id: 'capability',
+          title: 'Machines',
+          screens: <TradeFormStep>[
+            const TradeFormQuestionStep(
+                question: _plainQuestion, searchable: false),
+          ],
+        ),
+        TradeFormSection(
+          id: 'qualifications',
+          title: 'Qualification, documents & languages',
+          screens: <TradeFormStep>[
+            const TradeFormQualificationsStep(),
+          ],
+        ),
+        TradeFormSection(
+          id: 'more',
+          title: 'More',
+          screens: <TradeFormStep>[
+            const TradeFormQuestionStep(
+                question: _searchableQuestion, searchable: true),
+          ],
+        ),
+      ],
+    );
+
+/// A walk with a question BEFORE and AFTER the employment marker, so an
+/// unsent job survives back-and-forward and a drafted done-marker is not
+/// skipped forward.
+TradeForm _employmentBetweenQuestionsForm() => TradeForm(
+      kind: 'cnc_turner',
+      packId: 'qp_cnc_turning',
+      packVersion: 1,
+      sections: <TradeFormSection>[
+        TradeFormSection(
+          id: 'capability',
+          title: 'Machines',
+          screens: <TradeFormStep>[
+            const TradeFormQuestionStep(
+                question: _plainQuestion, searchable: false),
+          ],
+        ),
+        TradeFormSection(
+          id: 'work_history',
+          title: 'Work history',
+          screens: <TradeFormStep>[
+            const TradeFormEmploymentStep(),
+          ],
+        ),
+        TradeFormSection(
+          id: 'more',
+          title: 'More',
+          screens: <TradeFormStep>[
+            const TradeFormQuestionStep(
+                question: _searchableQuestion, searchable: true),
+          ],
+        ),
+      ],
+    );
+
 void main() {
   late _MockRepo repo;
 
@@ -722,6 +790,180 @@ void main() {
     });
 
     testWidgets(
+        'an answer given this session stays selected after goBack, not blank',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                      question: _plainQuestion, searchable: false),
+                  const TradeFormQuestionStep(
+                      question: _searchableQuestion, searchable: true),
+                ],
+              ),
+            ],
+          ));
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+
+      // Answer in-session (nothing pre-saved): tick, submit, advance.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+
+      // Back: the just-banked answer must render ticked, not blank.
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      expect(_optionSelected(tester, 'CNC lathe'), isTrue,
+          reason: 'the just-given answer must render pre-selected after goBack');
+    });
+
+    testWidgets(
+        'a tick given but NOT submitted survives back-and-forward, not blank',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                      question: _plainQuestion, searchable: false),
+                  const TradeFormQuestionStep(
+                      question: _searchableQuestion, searchable: true),
+                ],
+              ),
+            ],
+          ));
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+
+      // Submit Q1, then tick Q2 WITHOUT submitting.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+      await tester.ensureVisible(find.text('Brass'));
+      await tester.tap(find.text('Brass'));
+      await tester.pump();
+      expect(_optionSelected(tester, 'Brass'), isTrue);
+
+      // Back to Q1 (banked answer shows), then forward again: the unsent
+      // tick must still be there, and the bar must accept it.
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+      expect(_optionSelected(tester, 'Brass'), isTrue,
+          reason: 'the unsent tick must survive back-and-forward');
+      // Q2 is the walk's last step — the bar reads "Submit karein".
+      await tester.tap(find.text('Submit karein'));
+      await tester.pumpAndSettle();
+      verify(() => repo.submitAnswer(
+            questionKey: 'material_worked',
+            answer: any(named: 'answer'),
+          )).called(1);
+    });
+
+    testWidgets(
+        'text typed but NOT submitted survives back-and-forward, not blank',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                      question: _plainQuestion, searchable: false),
+                  const TradeFormQuestionStep(
+                      question: textQuestion, searchable: false),
+                ],
+              ),
+            ],
+          ));
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+
+      // Submit Q1, then type on Q2 WITHOUT submitting.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('ITI me kya banaya tha?'), findsOneWidget);
+      await tester.ensureVisible(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), 'Bush banaya tha');
+      await tester.pump();
+
+      // Back to Q1, then forward again: the unsent words must still be in
+      // the field, and the bar must accept them.
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ITI me kya banaya tha?'), findsOneWidget);
+      expect(find.text('Bush banaya tha'), findsOneWidget,
+          reason: 'the unsent text must survive back-and-forward');
+      // Q2 is the walk's last step — the bar reads "Submit karein".
+      await tester.tap(find.text('Submit karein'));
+      await tester.pumpAndSettle();
+      verify(() => repo.submitAnswer(
+            questionKey: 'iti_project_work',
+            answer: any(named: 'answer'),
+          )).called(1);
+    });
+
+    testWidgets(
         'a saved text answer pre-fills the open field after goBack, not '
         'blank', (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
@@ -1031,11 +1273,8 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       await pump(tester);
-      // Education is the marker's SECOND (and last) internal page: a single
-      // page holding every field.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
+      // Certificates + education share the marker's ONE screen — the
+      // education section is right below, no "Aage badhein" hop.
       // One open form at a time: each entry is finished (credential, subject,
       // board, year, institute) before the next is opened.
       for (int i = 0; i < 4; i++) {
@@ -1068,11 +1307,9 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       await pump(tester);
-      // Education is ONE page: credential, subject, board, year and institute
-      // together — no separate council screen.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> education
-      await tester.pumpAndSettle();
+      // Certificates + education share the marker's ONE screen: credential,
+      // subject, board, year and institute together — no separate council
+      // screen, no "Aage badhein" hop.
       await tester.ensureVisible(find.text('Aur ek entry jodein'));
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
@@ -1117,12 +1354,8 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
       await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
-      // #1465 — with NO education added, the marker is TWO internal pages:
-      // certificates -> education (single page). That single "Aage badhein"
-      // is purely internal pagination and must NOT reach the server.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
+      // The marker is ONE screen, so "Ho gaya" saves straight away — and a
+      // server 400 must surface with the server's own message, not swallowed.
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1145,11 +1378,7 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
       await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
-      // #1465 — no education, so the marker's LAST internal page is the
-      // single education page, one hop away.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
+      // The marker is ONE screen — "Ho gaya" finishes it.
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1170,12 +1399,8 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       final GoRouter router = await pumpToBuilding(tester);
-      // #1465 — nothing touched at all, so there is no education and the
-      // marker is two pages; the one "Aage badhein" is purely internal and
-      // must not touch saveQualifications either.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
+      // Nothing touched at all — "Ho gaya" must not touch
+      // saveQualifications either.
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1190,9 +1415,8 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       final GoRouter router = await pumpToBuilding(tester);
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> education (single page)
-      await tester.pumpAndSettle();
+      // Certificates + education share the ONE screen — the education
+      // section is right below the certificates.
       await tester.ensureVisible(find.text('Aur ek entry jodein'));
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
@@ -1230,15 +1454,13 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       final GoRouter router = await pumpToBuilding(tester);
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> education
-      await tester.pumpAndSettle();
+      // Certificates + education share the ONE screen.
       await tester.ensureVisible(find.text('Aur ek entry jodein'));
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
 
       // "Kis subject me kiya" only shows once a subject-bearing credential
-      // (ITI/Diploma/Graduate/12th pass) is picked — hidden until then, just
+      // (ITI/Diploma/Graduate) is picked — hidden until then, just
       // below the selected credential.
       expect(find.text('Kis subject me kiya'), findsNothing);
       await tester.ensureVisible(find.text('ITI'));
@@ -1266,6 +1488,266 @@ void main() {
           .single as TradeFormQualifications;
       expect(sent.educations.single.field, 'Electric');
       expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
+    });
+
+    testWidgets(
+        'fill certificate + education, save, go back — entries still show',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm())
+          .thenAnswer((_) async => _qualsBetweenQuestionsForm());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+
+      // Answer Q1 -> qualifications screen.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Koi certificate ya licence hai?'), findsOneWidget);
+
+      // Fill one certificate.
+      await tester.ensureVisible(find.text('Aur ek certificate jodein'));
+      await tester.tap(find.text('Aur ek certificate jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), 'ITI Certificate');
+      await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
+      await tester.enterText(find.byType(TextField).at(2), '2019');
+      await tester.pumpAndSettle();
+
+      // Fill one education.
+      await tester.ensureVisible(find.text('Aur ek entry jodein'));
+      await tester.tap(find.text('Aur ek entry jodein'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('ITI'));
+      await tester.tap(find.text('ITI'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(3), 'Machinist');
+      await tester.pump();
+      await tester.ensureVisible(find.text('NCVT'));
+      await tester.tap(find.text('NCVT'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(4), '2018');
+      await tester.enterText(find.byType(TextField).at(5), 'Govt ITI');
+      await tester.pumpAndSettle();
+
+      // Save: mid-walk the marker saves off "Aage badhein" (not "Ho gaya",
+      // which is only the walk's true final save) and advances to Q2.
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.certificates.single.name, 'ITI Certificate');
+      expect(sent.educations.single.field, 'Machinist');
+
+      // Back into the saved marker: everything must still be there.
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Koi certificate ya licence hai?'), findsOneWidget);
+      final List<String> texts = tester
+          .widgetList<TextField>(find.byType(TextField))
+          .map((TextField f) => f.controller?.text ?? '')
+          .toList();
+      expect(texts, contains('ITI Certificate'));
+      expect(texts, contains('Machinist'));
+      expect(texts, contains('2018'));
+      expect(texts, contains('Govt ITI'));
+    });
+  });
+
+  group('unsent marker input survives back-and-forward', () {
+    testWidgets('half-typed employment is still there after back-and-forward',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm())
+          .thenAnswer((_) async => _employmentBetweenQuestionsForm());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+
+      // Answer Q1 -> employment. Type a company but do NOT save.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.pump();
+
+      // Back to Q1, then forward again: the unsent company is still there.
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+        'Acme',
+        reason: 'the unsent company must survive back-and-forward',
+      );
+
+      // Finish the card off the draft and save: it reaches the server.
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(
+          find.byType(TextField).at(2), 'Naye parts banate the');
+      await tester.pump();
+      await _pickStartDate(tester);
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+
+      final List<TradeFormEmploymentEntry> sent = verify(() =>
+              repo.saveEmployment(captureAny(),
+                  expectedExistingCount: any(named: 'expectedExistingCount')))
+          .captured
+          .single as List<TradeFormEmploymentEntry>;
+      expect(sent.single.employerName, 'Acme');
+    });
+
+    testWidgets('a drafted done-marker is NOT skipped forward',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm())
+          .thenAnswer((_) async => _employmentBetweenQuestionsForm());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+
+      // Answer Q1, fill the job fully, save -> employment is done.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(
+          find.byType(TextField).at(2), 'Naye parts banate the');
+      await tester.pump();
+      await _pickStartDate(tester);
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+
+      // Back into the saved marker, edit WITHOUT saving, back again.
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), 'Acme2');
+      await tester.pump();
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+
+      // Forward must land on the drafted (done) employment — skipping it
+      // would strand the unsent edit with no screen to save it on.
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget,
+          reason: 'a done marker holding a draft must not be skipped');
+      expect(
+        tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+        'Acme2',
+      );
+
+      // Saving off the draft reaches the server with the edit.
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+      final List<dynamic> saves = verify(() => repo.saveEmployment(
+            captureAny(),
+            expectedExistingCount: any(named: 'expectedExistingCount'),
+          )).captured;
+      expect(
+        (saves.last as List<TradeFormEmploymentEntry>).single.employerName,
+        'Acme2',
+      );
+    });
+
+    testWidgets('half-filled qualifications restore after back-and-forward',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm())
+          .thenAnswer((_) async => _qualsBetweenQuestionsForm());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+
+      // Answer Q1 -> qualifications. Start both sections, save NEITHER.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aur ek certificate jodein'));
+      await tester.tap(find.text('Aur ek certificate jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), 'ITI Certificate');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Aur ek entry jodein'));
+      await tester.tap(find.text('Aur ek entry jodein'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('ITI'));
+      await tester.tap(find.text('ITI'));
+      await tester.pumpAndSettle();
+
+      // Back to Q1, then forward again: both half-filled rows restore.
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Koi certificate ya licence hai?'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+        'ITI Certificate',
+        reason: 'the unsent certificate must survive back-and-forward',
+      );
+      expect(_optionSelected(tester, 'ITI'), isTrue,
+          reason: 'the unsent credential must survive back-and-forward');
     });
   });
 

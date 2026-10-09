@@ -368,8 +368,14 @@ class _ResumeViewState extends State<_ResumeView> {
         // is every box today.
         const AddMoreDetailButton(),
         const _ReportCorrectionButton(),
-        const SizedBox(height: 10),
-        const _ReviewExtractedButton(),
+        // HIDDEN FOR NOW: the 'Profile review karein' button with its gap —
+        // hidden until the owner asks it back. Restored by deleting this
+        // Visibility (the sibling gap above stays removed either way).
+        const Visibility(
+          visible: false,
+          maintainState: true,
+          child: _ReviewExtractedButton(),
+        ),
         const SizedBox(height: 16),
         Center(
           child: Text(

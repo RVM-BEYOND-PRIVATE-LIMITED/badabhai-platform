@@ -495,8 +495,9 @@ void main() {
       // The two collectable sections render exactly one Add entry each.
       expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
       expect(find.text('Kaam ki jaankari jodein'), findsOneWidget);
-      // The chrome around them is untouched.
-      expect(find.text('Profile edit karein'), findsOneWidget);
+      // The chrome around them is untouched (the 'Profile edit karein'
+      // shortcut is HIDDEN FOR NOW — see _shortcutsCard).
+      expect(find.text('Profile edit karein'), findsNothing);
       expect(find.text('Logout'), findsOneWidget);
     });
 
@@ -635,8 +636,9 @@ void main() {
       expect(find.text('Skills aur anubhav'), findsNothing);
       expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
       expect(find.text('Kaam ki jaankari jodein'), findsOneWidget);
-      // No dead ends: the way forward is on screen.
-      expect(find.text('Profile edit karein'), findsOneWidget);
+      // No dead ends: the way forward is on screen ('Profile edit karein'
+      // is HIDDEN FOR NOW — see _shortcutsCard).
+      expect(find.text('Profile edit karein'), findsNothing);
       expect(find.text('Logout'), findsOneWidget);
     });
 

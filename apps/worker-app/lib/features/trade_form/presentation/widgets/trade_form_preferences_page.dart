@@ -78,6 +78,7 @@ class TradeFormPreferencesPage extends StatefulWidget {
     this.tierScope = TradeFormTierScope.unscoped,
     this.onPageChanged,
     this.knownFacts = const <WorkerFact>{},
+    this.onDraftChanged,
   });
 
   /// Facts the worker already gave in the chat (`TradeFormState.knownFacts`).
@@ -89,6 +90,12 @@ class TradeFormPreferencesPage extends StatefulWidget {
   final Future<WorkPrefOptionsDto> Function() loadOptions;
   final bool enabled;
   final ValueChanged<TradeFormPreferences> onSave;
+
+  /// The live preferences on unmount — the cubit keeps them as this walk's
+  /// unsent draft, so walking back onto this page restores half-ticked
+  /// input instead of a blank screen. Null keeps today's behaviour. Never
+  /// rebuilds anything: the cubit stores without emitting.
+  final ValueChanged<TradeFormPreferences>? onDraftChanged;
 
   /// The cubit's own memory of the last successful save for THIS marker
   /// (#1384 item 1, `TradeFormState.savedPreferences`) — null the first time
@@ -218,6 +225,10 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
 
   @override
   void dispose() {
+    // Leaving the screen (back or forward) without saving: hand the live
+    // preferences to the cubit as this walk's draft. Reads-only — the cubit
+    // stores without emitting, so this is safe inside dispose.
+    widget.onDraftChanged?.call(_prefs);
     _search.dispose();
     super.dispose();
   }

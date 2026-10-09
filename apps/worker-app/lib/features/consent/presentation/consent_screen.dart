@@ -77,7 +77,7 @@ class _ConsentView extends StatelessWidget {
           // record is actually missing. The route itself stays registered — a
           // worker mid-onboarding on an older build can have `/name` saved as
           // their durable step (#1470), and it must still resolve for them.
-          context.go(Routes.resumeUpload);
+          context.go(Routes.chatProfiling);
         }
       },
       builder: (BuildContext context, ConsentState state) {

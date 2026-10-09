@@ -114,6 +114,8 @@ class TradeFormQuestionBody extends StatefulWidget {
     required this.onDecline,
     required this.isLastStep,
     this.speechReader,
+    this.initialDraft,
+    this.onDraftChanged,
   });
 
   final TradeFormQuestionStep step;
@@ -122,6 +124,18 @@ class TradeFormQuestionBody extends StatefulWidget {
   /// (resolved by the screen) rather than read from the locator here, so this
   /// widget keeps working under a bare test harness. Null hides the button.
   final SpeechReader? speechReader;
+
+  /// What the worker picked/typed here but has NOT submitted yet (the cubit's
+  /// session scratchpad). Seeds the fields below when the step carries no
+  /// stored answer — a half-answered question reopened by a back-and-forward
+  /// walk shows the draft instead of a blank screen. Null (or empty) starts
+  /// blank, today's behaviour.
+  final TradeFormDraft? initialDraft;
+
+  /// Fires on every pick/keystroke with the live unsent state, so the cubit
+  /// can keep it for a remount. Never rebuilds anything by itself. Null keeps
+  /// the widget working under a bare test harness with no cubit behind it.
+  final ValueChanged<TradeFormDraft>? onDraftChanged;
 
   /// False while a submit is already in flight — every affordance below is
   /// disabled rather than allowing a second concurrent answer.
@@ -168,13 +182,14 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
   /// when a saved typed answer reopens it on load.
   bool _otherAutofocus = false;
 
-  /// The typed "Koi aur" answer, seeded from a saved `other_text` so a
-  /// reopened form shows what he wrote. Kept while the option is unpicked, so
-  /// tapping a chip and coming back does not lose his words.
+  /// The typed "Koi aur" answer, seeded from a saved `other_text` (else from
+  /// the unsent draft) so a reopened form shows what he wrote. Kept while the
+  /// option is unpicked, so tapping a chip and coming back does not lose his
+  /// words.
   late final TextEditingController _otherController = TextEditingController(
     text: (widget.step.answer?.hasOtherText ?? false)
         ? widget.step.answer!.otherText!.trim()
-        : '',
+        : (widget.initialDraft?.otherText ?? ''),
   );
 
   @override
@@ -182,9 +197,13 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
     super.initState();
     // A fresh mount per question (the parent always supplies a new
     // `ValueKey` — see `trade_form_screen.dart`'s `_stepBody`), so seeding
-    // once here from the saved answer is correct and never goes stale.
+    // once here from the saved answer is correct and never goes stale. A
+    // stored answer ALWAYS wins; only an unanswered step falls back to the
+    // unsent draft (a pick or keystrokes from an earlier visit that never
+    // reached "Aage badhein").
     final VoiceQuestion q = widget.step.question;
     final TradeFormSavedAnswer? answer = widget.step.answer;
+    final TradeFormDraft? draft = answer == null ? widget.initialDraft : null;
     switch (q.kind) {
       case VoiceQuestionKind.open:
         // RULING D2 + D7 (#1499): a stored answer ALWAYS wins, and only when
@@ -192,19 +211,47 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         // to prefill because it is a transcription a worker can see is wrong;
         // an option key is not, which is why nothing below ever seeds a
         // selection from the suggestion.
-        _text = answer?.text ?? _suggestedFactText() ?? '';
+        _text = answer?.text ?? _suggestedFactText() ?? draft?.text ?? '';
       case VoiceQuestionKind.multiSelect:
-        _selected = _seedOptionKeys(answer, q.options);
+        _selected = answer != null
+            ? _seedOptionKeys(answer, q.options)
+            : _seedDraftKeys(draft, q.options);
         // #1519 — a saved typed answer comes back with no chips at all; it
         // reopens as the picked "Koi aur" with his words in the box.
-        _otherSelected = answer?.hasOtherText ?? false;
+        _otherSelected =
+            answer?.hasOtherText ?? draft?.otherSelected ?? false;
       case VoiceQuestionKind.singleSelect:
-        _singleKey = _seedSingleKey(answer, q.options);
-        _otherSelected = answer?.hasOtherText ?? false;
+        _singleKey = answer != null
+            ? _seedSingleKey(answer, q.options)
+            : _seedDraftSingleKey(draft, q.options);
+        _otherSelected =
+            answer?.hasOtherText ?? draft?.otherSelected ?? false;
       case VoiceQuestionKind.boolean:
-        _boolValue =
-            (answer == null || answer.isDeclined) ? null : answer.boolValue;
+        _boolValue = answer != null
+            ? (answer.isDeclined ? null : answer.boolValue)
+            : draft?.boolValue;
     }
+  }
+
+  /// The live unsent state, reported to the cubit on every change so a
+  /// remount (back-and-forward walk) restores it. Reads-only: the cubit
+  /// stores it without emitting, so typing never rebuilds the walk.
+  void _reportDraft() {
+    final ValueChanged<TradeFormDraft>? report = widget.onDraftChanged;
+    if (report == null) return;
+    final VoiceQuestion q = widget.step.question;
+    report(TradeFormDraft(
+      optionKeys: q.kind == VoiceQuestionKind.multiSelect
+          ? List<String>.of(_selected)
+          : (_singleKey == null ? const <String>[] : <String>[_singleKey!]),
+      boolValue: q.kind == VoiceQuestionKind.boolean ? _boolValue : null,
+      text: q.kind == VoiceQuestionKind.open ? _text : '',
+      otherSelected: (q.kind == VoiceQuestionKind.multiSelect ||
+              q.kind == VoiceQuestionKind.singleSelect)
+          ? _otherSelected
+          : false,
+      otherText: _otherController.text,
+    ));
   }
 
   /// The résumé's fact for this question as text, or null when it offered no
@@ -310,6 +357,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         options: widget.step.question.options,
       );
     });
+    _reportDraft();
   }
 
   /// A single-select tap. Unpicks "Koi aur" (#1519).
@@ -318,6 +366,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       _otherSelected = false;
       _singleKey = key;
     });
+    _reportDraft();
   }
 
   /// #1519 — the "Koi aur — khud likhein" card. A checkbox on a multi-select
@@ -334,6 +383,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         _singleKey = null;
       }
     });
+    _reportDraft();
   }
 
   /// #1519 — the search found nothing: what the worker typed becomes his
@@ -348,6 +398,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       _selected = const <String>[];
       _singleKey = null;
     });
+    _reportDraft();
   }
 
   @override
@@ -456,8 +507,13 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       if (q.id == kTradeFormCurrentCityQuestionKey) {
         return _CityPickerAnswer(
           key: ValueKey<String>('${q.id}-city'),
-          initialCity: widget.step.answer?.text ?? _suggestedFactText(),
-          onChanged: (String v) => setState(() => _text = v),
+          initialCity: widget.step.answer?.text ??
+              _suggestedFactText() ??
+              widget.initialDraft?.text,
+          onChanged: (String v) {
+            setState(() => _text = v);
+            _reportDraft();
+          },
         );
       }
       return _OpenAnswerField(
@@ -471,8 +527,13 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         // stored answer always wins (ruling D7), exactly as `initState` seeds
         // `_text`. The two must agree or the field and the submit gate
         // disagree about what is in it.
-        initialText: widget.step.answer?.text ?? _suggestedFactText(),
-        onChanged: (String v) => setState(() => _text = v),
+        initialText: widget.step.answer?.text ??
+            _suggestedFactText() ??
+            widget.initialDraft?.text,
+        onChanged: (String v) {
+          setState(() => _text = v);
+          _reportDraft();
+        },
         onSubmitPressed: _submit,
       );
     }
@@ -511,7 +572,10 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
                 questionKey: q.id,
               ),
               isSelected: _boolValue == true,
-              onTap: () => setState(() => _boolValue = true),
+              onTap: () {
+                setState(() => _boolValue = true);
+                _reportDraft();
+              },
               variant: OnboardingVariant.formFlow,
             ),
           ),
@@ -525,7 +589,10 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
                 questionKey: q.id,
               ),
               isSelected: _boolValue == false,
-              onTap: () => setState(() => _boolValue = false),
+              onTap: () {
+                setState(() => _boolValue = false);
+                _reportDraft();
+              },
               variant: OnboardingVariant.formFlow,
             ),
           ),
@@ -625,7 +692,10 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
               textInputAction: TextInputAction.done,
               autofocus: _otherAutofocus,
               // Rebuilds the docked bar's gate as he types.
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) {
+                setState(() {});
+                _reportDraft();
+              },
               onSubmitted: (_) => _submit(),
             ),
           ),
@@ -674,6 +744,30 @@ String? _seedSingleKey(
     if (offered.contains(key)) return key;
   }
   return null;
+}
+
+/// An unsent draft's picks — kept only where the question still OFFERS them,
+/// the same rule as [_seedSingleKey]: a key no card shows must never
+/// pre-tick, or "Aage badhein" would arm on an invisible choice.
+List<String> _seedDraftKeys(
+  TradeFormDraft? draft,
+  List<VoiceChoice> options,
+) {
+  if (draft == null) return const <String>[];
+  final Set<String> offered = options.map((VoiceChoice o) => o.key).toSet();
+  return <String>[
+    for (final String key in draft.optionKeys)
+      if (offered.contains(key)) key,
+  ];
+}
+
+/// An unsent draft's single pick, via [_seedDraftKeys].
+String? _seedDraftSingleKey(
+  TradeFormDraft? draft,
+  List<VoiceChoice> options,
+) {
+  final List<String> keys = _seedDraftKeys(draft, options);
+  return keys.isEmpty ? null : keys.first;
 }
 
 /// The paint every résumé-hint surface shares (#1499, ruling D2): the kit's

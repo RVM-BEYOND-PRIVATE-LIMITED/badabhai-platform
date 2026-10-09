@@ -11,6 +11,7 @@ import 'package:badabhai_worker_app/features/chat/data/chat_repository_impl.dart
 import 'package:badabhai_worker_app/features/chat/domain/chat_identity_questions.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_resume_prompt.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
@@ -204,6 +205,135 @@ void main() {
       await pumpEventQueue();
 
       expect(bloc.state.workerName, isNull);
+      await bloc.close();
+    });
+  });
+
+  // ── THE IN-CHAT RÉSUMÉ QUESTION ──────────────────────────────────────────
+  //
+  // The retired `/resume-upload` screen lives on as one chat turn: once the
+  // server confirms the name steps are done, the chat asks the résumé question
+  // FIRST, strictly before the next LLM question (the stashed state turn is
+  // flushed only when the prompt is answered). The server decides completion,
+  // so a two-word first answer prompts here too.
+  group('the résumé prompt follows the name', () {
+    late _MockChatRepository repo;
+
+    setUp(() {
+      repo = _MockChatRepository();
+      when(() => repo.loadHistory())
+          .thenAnswer((_) async => const <ChatMessage>[]);
+    });
+
+    ChatBloc blocOpening(String? questionKey) {
+      when(() => repo.ensureSession()).thenAnswer(
+        (_) async => ChatSessionOpening(
+          text: 'Aapka naam kya hai?',
+          questionKey: questionKey,
+        ),
+      );
+      return ChatBloc(repo)..add(const ChatStarted());
+    }
+
+    test('a two-word first answer prompts for the résumé', () async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap kis state mein rehte hain?',
+                askedQuestionId: kChatStateQuestionKey,
+              ));
+      final ChatBloc bloc = blocOpening(kChatFirstNameQuestionKey);
+      await pumpEventQueue();
+
+      bloc.add(const ChatMessageSent('ramesh kumar'));
+      await pumpEventQueue();
+
+      expect(bloc.state.workerName, 'Ramesh Kumar');
+      // Sequential: the résumé bubble stands alone — the state question is
+      // stashed, not shown, and no picker is offered yet.
+      expect(bloc.state.messages.last.text, kResumePromptText);
+      expect(
+        bloc.state.messages.map((m) => m.text),
+        isNot(contains('Aap kis state mein rehte hain?')),
+      );
+      expect(bloc.state.askedQuestionKey, isNull);
+      expect(
+        bloc.state.suggestedOptions.map((o) => o.optionKey),
+        <String>[kResumePromptUploadKey, kResumePromptNoResumeKey],
+      );
+      await bloc.close();
+    });
+
+    test('first + surname prompts only after the surname', () async {
+      final List<ChatTurn> replies = <ChatTurn>[
+        const ChatTurn(
+          reply: 'Aur aapka surname?',
+          askedQuestionId: kChatLastNameQuestionKey,
+        ),
+        const ChatTurn(
+          reply: 'Aap kis state mein rehte hain?',
+          askedQuestionId: kChatStateQuestionKey,
+        ),
+      ];
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => replies.removeAt(0));
+      final ChatBloc bloc = blocOpening(kChatFirstNameQuestionKey);
+      await pumpEventQueue();
+
+      bloc.add(const ChatMessageSent('ramesh'));
+      await pumpEventQueue();
+      expect(
+        bloc.state.suggestedOptions.map((o) => o.optionKey),
+        isNot(contains(kResumePromptNoResumeKey)),
+      );
+
+      bloc.add(const ChatMessageSent('kumar'));
+      await pumpEventQueue();
+      expect(bloc.state.workerName, 'Ramesh Kumar');
+      expect(bloc.state.messages.last.text, kResumePromptText);
+      expect(
+        bloc.state.messages.map((m) => m.text),
+        isNot(contains('Aap kis state mein rehte hain?')),
+      );
+      expect(
+        bloc.state.suggestedOptions.map((o) => o.optionKey),
+        <String>[kResumePromptUploadKey, kResumePromptNoResumeKey],
+      );
+      await bloc.close();
+    });
+
+    test('declining flushes the stashed next question, sends NOTHING',
+        () async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap kis state mein rehte hain?',
+                askedQuestionId: kChatStateQuestionKey,
+              ));
+      final ChatBloc bloc = blocOpening(kChatFirstNameQuestionKey);
+      await pumpEventQueue();
+
+      bloc.add(const ChatMessageSent('ramesh kumar'));
+      await pumpEventQueue();
+
+      bloc.add(const ChatResumePromptDeclined(kResumePromptNoResumeLabel));
+      await pumpEventQueue();
+
+      // Worker answer first, then the stashed LLM question — in that order.
+      final int n = bloc.state.messages.length;
+      expect(bloc.state.messages[n - 2].text, kResumePromptNoResumeLabel);
+      expect(bloc.state.messages[n - 2].fromWorker, isTrue);
+      expect(
+        bloc.state.messages.last.text,
+        'Aap kis state mein rehte hain?',
+      );
+      expect(bloc.state.messages.last.fromWorker, isFalse);
+      expect(bloc.state.askedQuestionKey, kChatStateQuestionKey);
+      expect(bloc.state.suggestedOptions, isEmpty);
+      // Exactly the one intake send — the decline never hit the wire.
+      verify(() => repo.sendMessage('ramesh kumar',
+          submissionId: any(named: 'submissionId'))).called(1);
       await bloc.close();
     });
   });

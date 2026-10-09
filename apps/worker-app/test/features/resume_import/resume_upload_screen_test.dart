@@ -73,6 +73,7 @@ Future<GoRouter> _pump(
   required ResumeDocumentPicker picker,
   required ResumeImporter importer,
   Size size = const Size(900, 1900),
+  bool autoUpload = false,
 }) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
@@ -89,7 +90,7 @@ Future<GoRouter> _pump(
     routes: <RouteBase>[
       GoRoute(
         path: Routes.resumeUpload,
-        builder: (_, __) => const ResumeUploadScreen(),
+        builder: (_, __) => ResumeUploadScreen(autoUpload: autoUpload),
       ),
       GoRoute(
         path: Routes.chatProfiling,
@@ -131,6 +132,28 @@ void main() {
       // TWO, counted — not "these two are present". The owner's ruling is a
       // door COUNT, so a fourth tile with copy nobody thought to forbid must
       // redden this suite the same way restoring the deleted one does.
+      expect(find.byType(ResumeDoorTile), findsNWidgets(2));
+    });
+
+    testWidgets('autoUpload opens the picker on entry instead of asking again',
+        (
+      WidgetTester tester,
+    ) async {
+      // The chat's résumé prompt already recorded the choice: arriving with
+      // the auto intent must fire door 1 by itself. A cancelled pick falls
+      // back to the doors, so this never strands the worker.
+      final _FakePicker picker = _FakePicker(
+        const ResumePickResult.rejected(ResumePickRejection.cancelled),
+      );
+      await _pump(
+        tester,
+        picker: picker,
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+        autoUpload: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1);
       expect(find.byType(ResumeDoorTile), findsNWidgets(2));
     });
 
