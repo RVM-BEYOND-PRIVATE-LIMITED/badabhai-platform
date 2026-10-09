@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/onboarding_theme.dart';
-import '../../../../core/widgets/job_card_brand_footer.dart';
 import '../../../../core/widgets/bb_job_card.dart';
 import '../../../../core/widgets/kit/kit_square_icon_button.dart';
+import '../../../../core/widgets/onboarding/brand_badge.dart';
 import '../../../../core/widgets/role_art/role_art.dart';
 import 'job_deck.dart' show kSkipSemanticLabel;
 
@@ -91,11 +91,11 @@ class Design1JobCard extends StatelessWidget {
   static const Color _dutyGreyBg = Color(0xFFF1F5F9);
 
   /// Height of the role illustration on THIS face. The banner itself draws
-  /// 3:1 full-width (~109dp on a 360dp phone); here it is top-cropped to 84
-  /// so the "Duty & Suvidhayein" chips fit a short deck without clipping at
-  /// the bottom. Crop, never squash: proportions stay true and the shared
+  /// 3:1 full-width; here it is top-cropped to 64 so the "Duty &
+  /// Suvidhayein" chips fit a short deck without clipping at the bottom.
+  /// Crop, never squash: proportions stay true and the shared
   /// [RoleArtBanner] (detail screen, [BbJobCard]) is untouched.
-  static const double _artHeight = 84;
+  static const double _artHeight = 64;
 
   @override
   Widget build(BuildContext context) {
@@ -106,7 +106,7 @@ class Design1JobCard extends StatelessWidget {
         border: Border.all(color: OnboardingColors.borderDefault),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(10),
         // THE PAPER FILLS ITS BOX; THE CONTENT CLIPS INSIDE IT.
         //
         // The clip belongs HERE, around the content — not around the whole
@@ -121,18 +121,10 @@ class Design1JobCard extends StatelessWidget {
         // was given, so a card with more chips than fit clips at the bottom
         // edge instead of reporting an overflow. A scroll view here would steal
         // the deck's vertical follow-drag (#374), so the clip IS the contract.
-        // THE BRAND FOOTER IS RESERVED SPACE, NOT CONTENT.
-        //
-        // Inside the clip box the footer would be the first thing a tall job
-        // clipped away, and the card that travels furthest — a screenshot a
-        // worker forwards — is exactly the one with the most chips. So the
-        // footer sits OUTSIDE the clip and the content takes what is left:
-        // card text can never overlap it, and it never moves.
         //
         // `hasBoundedHeight` decides how: the deck hands this card a tight
-        // height, so the content box takes the remainder and the footer pins to
-        // the bottom edge; pumped with no height (a test, an intrinsic pass) it
-        // simply follows the content.
+        // height, so the content box takes it all via [Expanded]; pumped with
+        // no height (a test, an intrinsic pass) it simply follows the content.
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
             final Widget content = ConstraintsTransformBox(
@@ -151,7 +143,6 @@ class Design1JobCard extends StatelessWidget {
                   Expanded(child: content)
                 else
                   content,
-                const JobCardBrandFooter(),
               ],
             );
           },
@@ -165,6 +156,11 @@ class Design1JobCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              // The BadaBhai plate OVERLAPS the art, top-left: the card's
+              // signature floats on the illustration (not above it), so the
+              // bottom edge belongs to the duty chips. Same mark asset as
+              // every header ([BrandBadge.markAsset]) on a small white plate
+              // with a hairline — never a button.
               // The animated role illustration heads the card — the same art,
               // the same place as the payer's live preview
               // (`job-card-preview.tsx`), except on a COMPACT deck, where it
@@ -187,14 +183,23 @@ class Design1JobCard extends StatelessWidget {
                       width: double.infinity,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(AppRadii.md),
-                        child: OverflowBox(
-                          alignment: Alignment.topCenter,
-                          maxWidth: artWidth,
-                          maxHeight: double.infinity,
-                          child: SizedBox(
-                            width: artWidth,
-                            child: RoleArtBanner(roleKind: data.roleKind),
-                          ),
+                        child: Stack(
+                          children: <Widget>[
+                            OverflowBox(
+                              alignment: Alignment.topCenter,
+                              maxWidth: artWidth,
+                              maxHeight: double.infinity,
+                              child: SizedBox(
+                                width: artWidth,
+                                child: RoleArtBanner(roleKind: data.roleKind),
+                              ),
+                            ),
+                            const Positioned(
+                              top: 8,
+                              left: 8,
+                              child: _BrandPlate(),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -206,7 +211,7 @@ class Design1JobCard extends StatelessWidget {
               const SizedBox(height: 2),
               _PlaceRow(place: data.place),
               if (payFull != null) ...<Widget>[
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 _SalaryBox(payFull: payFull!, payNote: data.payNote),
               ],
               _DutySection(data: data),
@@ -234,6 +239,55 @@ class Design1JobCard extends StatelessWidget {
                 ),
               ],
             ],
+    );
+  }
+}
+
+/// The small white brand plate floating top-left ON the role art: the mark +
+/// wordmark, shrunk to a signature. Same plate language as the foot lockup
+/// it replaces (white, hairline, small arc) and the same single-source mark
+/// asset — never a button, and chrome-clamped like every header lockup.
+class _BrandPlate extends StatelessWidget {
+  const _BrandPlate();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: OnboardingColors.paperWhite,
+        borderRadius: BorderRadius.circular(OnboardingRadii.chip),
+        border: Border.all(color: OnboardingColors.borderSubtle),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 4, 8, 4),
+        child: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+          child: Row(
+            key: const Key('design1BrandLockup'),
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Image.asset(
+                BrandBadge.markAsset,
+                width: 12,
+                height: 12,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                'BadaBhai',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: OnboardingTypography.anek(
+                  size: 10,
+                  weight: FontWeight.w800,
+                  color: OnboardingColors.ink900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -342,7 +396,7 @@ class _SalaryBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Design1JobCard._salaryBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
@@ -392,7 +446,7 @@ class _SalaryBox extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           // NOTE: [payFull] is `formatPayBandFull` and already carries its
           // own '/mah' suffix — no second suffix is appended.
           Text(
@@ -460,7 +514,7 @@ class _DutySection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         Text(
           'Duty & Suvidhayein',
           style: OnboardingTypography.inter(

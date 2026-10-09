@@ -267,34 +267,30 @@ void main() {
   });
 
 
-  // ── THE BRAND LOCKUP AT THE FOOT OF THE CARD ──────────────────────────────
-  // Both Jobs-tab views carry it, centred, and no card text may reach it: a
-  // screenshot a worker forwards has to say where it came from.
-  testWidgets('the SWIPE card carries the lockup, centred and below the content',
+  // ── THE BRAND LOCKUP ON THE SWIPE CARD ─────────────────────────────────
+  // A small white BadaBhai plate OVERLAPS the art, top-left (not the foot),
+  // so the bottom edge belongs to the duty chips: a screenshot a worker
+  // forwards still says where it came from, and no card text is ever cut
+  // for it.
+  testWidgets('the SWIPE card carries a small plate overlapping the art',
       (WidgetTester tester) async {
     setKitSurface(tester, const Size(390, 844));
     await tester.pumpWidget(kitTestApp(SwipeJobsScreen(bloc: _bloc())));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.byType(JobCardBrandFooter), findsOneWidget);
+    expect(find.byKey(const Key('design1BrandLockup')), findsOneWidget);
     expect(find.text('BadaBhai'), findsWidgets);
 
-    // CENTRED on the card, and BELOW every chip — the two things the owner
-    // asked for. `Canteen` is the last benefit chip the fixture carries.
-    // The content box CLIPS (the deck card has no scroll — "the clip IS the
-    // contract"), so with the role illustration heading the card the last
-    // chips may sit past its edge; what must hold is that the clipped box
-    // itself ends above the lockup, so no card text can ever be drawn on it.
-    final Rect pill = tester.getRect(find.byType(JobCardBrandFooter));
-    final Rect content = tester.getRect(find.descendant(
-      of: find.byType(Design1JobCard),
-      matching: find.byType(ConstraintsTransformBox),
-    ));
-    expect(content.bottom, lessThanOrEqualTo(pill.top),
-        reason: 'card content must never overlap the lockup');
-    final double cardCentre = tester.getRect(find.byType(Design1JobCard)).center.dx;
-    expect((pill.center.dx - cardCentre).abs(), lessThan(1.0));
+    // Overlapping the art's top-left corner — `Canteen` is the last benefit
+    // chip the fixture carries.
+    final Rect lockup =
+        tester.getRect(find.byKey(const Key('design1BrandLockup')));
+    final Rect card = tester.getRect(find.byType(Design1JobCard));
+    expect(lockup.left - card.left, lessThan(32));
+    expect(lockup.top - card.top, lessThan(80));
+    // The foot carries no lockup any more.
+    expect(find.byType(JobCardBrandFooter), findsNothing);
   });
 
   testWidgets('the SCROLL card carries the same lockup',
