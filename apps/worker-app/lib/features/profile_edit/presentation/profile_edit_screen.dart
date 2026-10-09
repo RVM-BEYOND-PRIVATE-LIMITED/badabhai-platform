@@ -488,7 +488,15 @@ class _AbilityChip extends StatelessWidget {
       selected: selected,
       onSelected: (_) => onTap(),
       visualDensity: VisualDensity.compact,
-      labelStyle: OnboardingTypography.inter(size: 12, weight: FontWeight.w700),
+      // Selected is navy ([shiftBlue]) — the label must go light with it,
+      // the kit's own selected-chip rule, or dark-on-navy turns invisible.
+      labelStyle: OnboardingTypography.inter(
+        size: 12,
+        weight: FontWeight.w700,
+        color: selected
+            ? OnboardingColors.textOnBlue
+            : OnboardingColors.ink900,
+      ),
       selectedColor: OnboardingColors.shiftBlue,
       checkmarkColor: OnboardingColors.safetyYellow,
     );
