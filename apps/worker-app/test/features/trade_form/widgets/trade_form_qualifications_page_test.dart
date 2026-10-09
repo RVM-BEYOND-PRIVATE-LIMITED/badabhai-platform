@@ -8,9 +8,9 @@ import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/tra
 /// #1465 — the last screen of the form ("Qualification, documents & languages")
 /// could render a completely blank body under a full progress bar.
 ///
-/// Education is a SINGLE page holding every field (credential, subject, board,
-/// year, institute) — the board no longer owns a screen of its own — so the
-/// wizard never walks an empty screen at the very end of the form.
+/// Certificates + education share ONE screen (each with its own heading, cards
+/// and add button), so there is no empty screen to walk into at the very end
+/// of the form.
 void main() {
   const QualificationOptionsDto kOptions = QualificationOptionsDto(
     educationCredential: <String, String>{'iti': 'ITI', 'diploma': 'Diploma'},
@@ -55,24 +55,18 @@ void main() {
       find.byType(Text).evaluate().length +
       find.byType(TextField).evaluate().length;
 
-  testWidgets('with NO education, the form ends after page 1 — never on a blank',
+  testWidgets('the single screen holds both sections — never a blank',
       (WidgetTester tester) async {
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
 
-    expect(key.currentState!.pageCount, 2);
-
-    // Walk every page the wizard will actually show and prove each has content.
-    for (int p = 0; p < key.currentState!.pageCount; p++) {
-      expect(visibleThings(tester), greaterThan(0),
-          reason: 'sub-page $p rendered nothing at all');
-      if (p < key.currentState!.pageCount - 1) {
-        key.currentState!.goToNextPage();
-        await tester.pump();
-      }
-    }
-
-    // Page 1 is the last one, and it still offers the way IN to education.
+    expect(key.currentState!.pageCount, 1);
     expect(key.currentState!.isLastPage, isTrue);
+    expect(visibleThings(tester), greaterThan(0));
+
+    // Both sections offer their own way in, on the same screen.
+    expect(find.text('Koi certificate ya licence hai?'), findsOneWidget);
+    expect(find.text('Aur ek certificate jodein'), findsOneWidget);
+    expect(find.text('Padhai ya ITI ki jaankari'), findsOneWidget);
     expect(find.text('Aur ek entry jodein'), findsOneWidget);
   });
 
@@ -82,15 +76,13 @@ void main() {
   testWidgets('a DOUBLE-TAP on "add another" adds ONE education, not two',
       (WidgetTester tester) async {
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
-    key.currentState!.goToNextPage(); // -> the page that owns the add button
-    await tester.pump();
 
     await tester.tap(find.text('Aur ek entry jodein'));
     await tester.tap(find.text('Aur ek entry jodein'));
     await tester.pump();
 
-    // Still a two-page marker (certificates + single education page).
-    expect(key.currentState!.pageCount, 2);
+    // Still the single screen.
+    expect(key.currentState!.pageCount, 1);
     // One card only — the credential prompt renders once per entry.
     expect(find.text('ITI ya Diploma?'), findsOneWidget,
         reason: 'a double-tap must not create a second education card');
@@ -102,8 +94,6 @@ void main() {
     // The TapGuard must never block a worker who genuinely wants two entries —
     // but an unfinished first entry does: "fill this form first".
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
-    key.currentState!.goToNextPage();
-    await tester.pump();
 
     await tester.tap(find.text('Aur ek entry jodein'));
     await tester.pump(const Duration(seconds: 1)); // past the guard window
@@ -135,18 +125,16 @@ void main() {
     expect(find.text('ITI ya Diploma?'), findsNWidgets(2));
   });
 
-  testWidgets('adding an education keeps the single education page',
+  testWidgets('adding an education keeps the single screen',
       (WidgetTester tester) async {
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
-    key.currentState!.goToNextPage(); // page 1 — where "add" lives
-    await tester.pump();
 
     await tester.tap(find.text('Aur ek entry jodein'));
     await tester.pump();
 
-    // Education is ONE page holding every field — no extra pages come back.
-    expect(key.currentState!.pageCount, 2);
-    expect(reported.last, <int>[1, 2]);
+    // Certificates + education share the one screen — no extra page comes back.
+    expect(key.currentState!.pageCount, 1);
+    expect(reported.last, <int>[0, 1]);
     expect(key.currentState!.isLastPage, isTrue);
   });
 
@@ -177,7 +165,7 @@ void main() {
     expect(find.text('Certificate ka naam'), findsNWidgets(2));
   });
 
-  testWidgets('both pages have content, with or without education',
+  testWidgets('both sections have content, with or without education',
       (WidgetTester tester) async {
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(
       tester,
@@ -187,15 +175,10 @@ void main() {
       ),
     );
 
-    expect(key.currentState!.pageCount, 2);
-    for (int p = 0; p < 2; p++) {
-      expect(visibleThings(tester), greaterThan(0),
-          reason: 'sub-page $p rendered nothing at all');
-      if (p < 1) {
-        key.currentState!.goToNextPage();
-        await tester.pump();
-      }
-    }
+    expect(key.currentState!.pageCount, 1);
+    expect(visibleThings(tester), greaterThan(0));
+    expect(find.text('Koi certificate ya licence hai?'), findsOneWidget);
+    expect(find.text('Padhai ya ITI ki jaankari'), findsOneWidget);
   });
 
   // Regression for the ordering hazard the fix above removes: the controller
@@ -211,23 +194,21 @@ void main() {
         educations: <TradeFormEducationEntry>[TradeFormEducationEntry()],
       ),
     );
-    key.currentState!.goToNextPage();
-    await tester.pump();
 
     await tester.tap(find.byIcon(Icons.close).last);
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(key.currentState!.pageCount, 2);
-    expect(reported.last, <int>[1, 2]);
+    expect(key.currentState!.pageCount, 1);
+    expect(reported.last, <int>[0, 1]);
   });
 
-  // #1469 — found by an adversarial verification pass. Education carried no
+  // #1469 — found by an adversarial verification pass. The screen carried no
   // heading once, so while the options fetch was in flight its WHOLE body was
   // a bare spinner: no text, no field, no control, under a full progress bar.
   // That happens on every remount — walking BACK into an already-saved marker
   // refetches — and on 2G it is the reported blank screen.
-  testWidgets('education page is never blank while options are loading',
+  testWidgets('the screen is never blank while options are loading',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(900, 2400);
     tester.view.devicePixelRatio = 1.0;
@@ -256,15 +237,13 @@ void main() {
       ),
     ));
     await tester.pump();
+    expect(key.currentState, isNotNull);
 
-    for (int p = 0; p < 2; p++) {
-      expect(find.byType(Text), findsWidgets,
-          reason: 'sub-page $p is a contextless body while options load');
-      if (p < 1) {
-        key.currentState!.goToNextPage();
-        await tester.pump();
-      }
-    }
+    // Both headings ride the screen even while the options load, so no state
+    // is a contextless body.
+    expect(find.text('Koi certificate ya licence hai?'), findsOneWidget);
+    expect(find.text('Padhai ya ITI ki jaankari'), findsOneWidget);
+    expect(find.byType(Text), findsWidgets);
     await tester.pump(const Duration(seconds: 31)); // let the fetch settle
   });
 
@@ -310,23 +289,21 @@ void main() {
         educations: <TradeFormEducationEntry>[TradeFormEducationEntry()],
       ),
     );
-    key.currentState!.goToNextPage();
-    await tester.pump();
     expect(key.currentState!.isLastPage, isTrue);
 
-    // Drop the only education while standing on the education page.
+    // Drop the only education while standing on the single screen.
     await tester.tap(find.byIcon(Icons.close).last);
     await tester.pump();
 
-    expect(key.currentState!.pageCount, 2);
-    expect(reported.last, <int>[1, 2]);
+    expect(key.currentState!.pageCount, 1);
+    expect(reported.last, <int>[0, 1]);
     expect(visibleThings(tester), greaterThan(0));
     expect(tester.takeException(), isNull);
   });
 
   // Two stacked unified cards still need to say which entry each belongs to:
   // each card names its entry ("Entry 1 — ITI, Machinist").
-  testWidgets('two educations name their entry on the single education page',
+  testWidgets('two educations name their entry on the single screen',
       (WidgetTester tester) async {
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(
       tester,
@@ -338,13 +315,11 @@ void main() {
         ],
       ),
     );
-    expect(key.currentState!.pageCount, 2);
+    expect(key.currentState!.pageCount, 1);
 
-    key.currentState!.goToNextPage(); // -> education (all fields, one page)
-    await tester.pump();
     expect(find.text('Entry 1 — ITI, Machinist'), findsOneWidget);
     expect(find.text('Entry 2 — Diploma, Electrician'), findsOneWidget);
-    // Each repeated question renders once per entry, on the same page.
+    // Each repeated question renders once per entry, on the same screen.
     expect(find.text('Council / board'), findsNWidgets(2));
     expect(find.text('Kis saal poora hua'), findsNWidgets(2));
     expect(find.text('Kis subject me kiya'), findsNWidgets(2));
@@ -367,15 +342,13 @@ void main() {
 
   testWidgets('a lone blank entry gains no header noise',
       (WidgetTester tester) async {
-    final GlobalKey<TradeFormQualificationsPageState> key = await pump(
+    await pump(
       tester,
       initial: const TradeFormQualifications(
         certificates: <TradeFormCertificateEntry>[],
         educations: <TradeFormEducationEntry>[TradeFormEducationEntry()],
       ),
     );
-    key.currentState!.goToNextPage();
-    await tester.pump();
     expect(find.textContaining('Entry'), findsNothing);
   });
 
@@ -466,8 +439,6 @@ void main() {
             educations: <TradeFormEducationEntry>[entry],
           ),
         );
-        k.currentState!.goToNextPage(); // certificates -> education
-        await tester.pump();
         return k;
       }
 

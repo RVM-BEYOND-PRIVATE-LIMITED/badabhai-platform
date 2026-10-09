@@ -87,10 +87,11 @@ const int _kMaxSuggestionChips = 6;
 /// owns. Two independent repeatable sections, mirroring
 /// `TradeFormEmploymentPage`'s add/remove-row pattern.
 ///
-/// #1384 item 2 — the two sections are separate INTERNAL pages rather than
-/// stacked on one scroll. Education is ONE page: each entry is a single card
-/// holding credential, subject, board, year and institute together, with the
-/// detail fields revealed just below the selected credential.
+/// ONE internal screen holding BOTH sections — certificates first, then
+/// education — so the worker answers everything here and taps "Ho gaya"
+/// once. Each education entry is a single card holding credential, subject,
+/// board, year and institute together, with the detail fields revealed just
+/// below the selected credential.
 ///
 /// TRI-STATE, NOT "always send both lists" (see `trade_form_models.dart`'s
 /// `TradeFormQualifications` doc): this widget's only job is to track,
@@ -111,6 +112,7 @@ class TradeFormQualificationsPage extends StatefulWidget {
     this.initialQualifications,
     this.tierScope = TradeFormTierScope.unscoped,
     this.onPageChanged,
+    this.onDraftChanged,
   });
 
   /// Per-trade certificate-name suggestions from the form schema
@@ -140,8 +142,15 @@ class TradeFormQualificationsPage extends StatefulWidget {
   final TradeFormTierScope tierScope;
 
   /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
-  /// same contract, off [pageCount] (certificates, then education).
+  /// same contract, off a [pageCount] of 1 (certificates + education share
+  /// the one screen).
   final void Function(int page, int pageCount)? onPageChanged;
+
+  /// The live model on unmount — the cubit keeps it as this walk's unsent
+  /// draft, so walking back onto this page restores half-typed rows instead
+  /// of a blank screen. Null keeps today's behaviour. Never rebuilds
+  /// anything: the cubit stores without emitting.
+  final ValueChanged<TradeFormQualifications>? onDraftChanged;
 
   @override
   State<TradeFormQualificationsPage> createState() =>
@@ -150,30 +159,17 @@ class TradeFormQualificationsPage extends StatefulWidget {
 
 class TradeFormQualificationsPageState
     extends State<TradeFormQualificationsPage> {
-  /// Page 0: certificates · 1: education (all fields in one card).
+  /// A SINGLE screen: certificates first, then education, each with its own
+  /// heading, cards and "add" affordance. A section with no entries still
+  /// shows its heading + add button (never a blank screen, #1465), and the
+  /// certificates section is dropped only when this tier does not ask for it
+  /// (#1698) — the stored certificates are untouched then, because the PUT
+  /// is tri-state and an undrawn section is never touched.
   ///
-  /// Education used to be split into 3 internal pages (credential+subject /
-  /// council / kis saal poora hua+institute) — a worker facing 5 questions at
-  /// once was a wall, but the council-only page confused (a whole screen for
-  /// one board question). Now one education page holds every field: the
-  /// credential selector on top, and just below the selected credential the
-  /// board, subject, year and institute — so tapping a credential reveals the
-  /// rest of its form inline.
-  ///
-  /// The sub-pages this visit actually asks, in walk order — the certificates
-  /// page is dropped when this tier does not ask for it (#1698).
-  ///
-  /// A LIST, NOT A COUNT (#1710). The page used to switch on a raw index with
-  /// `0` hard-coded as "certificates", which cannot express "this page is not
-  /// asked": dropping the first page would have silently renumbered every
-  /// other one.
-  List<_QualsPage> get _pages => <_QualsPage>[
-        if (!widget.tierScope.hides(kTierFieldCertificates))
-          _QualsPage.certificates,
-        _QualsPage.education,
-      ];
-
-  int get pageCount => _pages.length;
+  /// Internal pagination is therefore always exactly ONE page: [goToNextPage]
+  /// / [goToPreviousPage] are no-ops, [isLastPage] is always true, and the
+  /// wizard offers "Ho gaya" straight away.
+  int get pageCount => 1;
 
   /// #1474 — one guard per add button. A worker who taps twice because the new
   /// card appended BELOW the fold got two identical cards; the second tap is
@@ -266,6 +262,15 @@ class TradeFormQualificationsPageState
 
   @override
   void dispose() {
+    // Leaving the screen (back or forward) without saving: hand the live
+    // model to the cubit as this walk's draft. Reads-only — the cubit
+    // stores without emitting, so this is safe inside dispose.
+    widget.onDraftChanged?.call(TradeFormQualifications(
+      certificates: _certificates,
+      certificatesTouched: _certificatesTouched,
+      educations: _educations,
+      educationsTouched: _educationsTouched,
+    ));
     for (final TextEditingController c in _eduFieldControllers) {
       c.dispose();
     }
@@ -290,20 +295,22 @@ class TradeFormQualificationsPageState
   /// bug (a future year showed the inline error and still let the worker
   /// through).
   ///
-  /// EVERY FIELD ON A USED ROW: a row the worker started must be complete
-  /// before the wizard moves past the page (a certificate row needs its three
-  /// fields; an education row needs credential, subject where it applies,
-  /// council, year and institute — all on its single page). A wholly-blank row
-  /// is skipped — it is dropped before the write, so a worker with no
-  /// certificates or education is never blocked. A year is also range-checked
-  /// from the MODEL, not only from the inline field callback: a value loaded
-  /// from saved data never fires that callback, and an out-of-range year would
-  /// otherwise slip through the gate it used to.
+  /// EVERY FIELD ON A USED ROW, both sections: certificates first, then
+  /// education (a certificate row needs its three fields; an education row
+  /// needs credential, subject where it applies, council, year and
+  /// institute). A wholly-blank row is skipped — it is dropped before the
+  /// write, so a worker with no certificates or education is never blocked.
+  /// A year is also range-checked from the MODEL, not only from the inline
+  /// field callback: a value loaded from saved data never fires that
+  /// callback, and an out-of-range year would otherwise slip through the
+  /// gate it used to.
   String? currentPageError() {
-    final List<_QualsPage> pages = _pages;
-    final _QualsPage page =
-        _page >= 0 && _page < pages.length ? pages[_page] : pages.last;
-    if (page == _QualsPage.certificates) return _certificatesError();
+    // A section this tier does not ask for is never drawn — and a section
+    // that is never drawn is never touched, so it cannot block the save.
+    if (!widget.tierScope.hides(kTierFieldCertificates)) {
+      final String? certificates = _certificatesError();
+      if (certificates != null) return certificates;
+    }
     return _educationError();
   }
 
@@ -391,17 +398,13 @@ class TradeFormQualificationsPageState
     return false;
   }
 
-  /// What the wizard's listen button reads on the CURRENT internal page: its
-  /// heading (and the note under it where one shows) — app copy only, never a
+  /// What the wizard's listen button reads: the headings of the sections on
+  /// screen (and the notes under them) — app copy only, never a
   /// certificate, institute or year the worker typed.
   String currentPageSpeech() {
-    final List<_QualsPage> pages = _pages;
-    final _QualsPage page =
-        _page >= 0 && _page < pages.length ? pages[_page] : pages.last;
-    if (page == _QualsPage.certificates) {
-      return '$_kCertTitle\n$_kCertSubtitle';
-    }
-    return '$_kEduTitle\n$_kEduSubtitle';
+    const String education = '$_kEduTitle\n$_kEduSubtitle';
+    if (widget.tierScope.hides(kTierFieldCertificates)) return education;
+    return '$_kCertTitle\n$_kCertSubtitle\n$education';
   }
 
   void _onCertYearValidity(int index, bool hasError) {
@@ -574,27 +577,35 @@ class TradeFormQualificationsPageState
     );
   }
 
+  /// The one screen: certificates (heading + cards + add, unless this tier
+  /// does not ask for them) above education (heading + cards + add). Every
+  /// question, option and field from the two old pages is here — nothing was
+  /// removed, only stacked.
   Widget _pageContent(BuildContext context) {
-    final List<_QualsPage> pages = _pages;
-    final _QualsPage page =
-        _page >= 0 && _page < pages.length ? pages[_page] : pages.last;
-    switch (page) {
-      case _QualsPage.certificates:
-        return _certificatesPage(context);
-      case _QualsPage.education:
-        return _educationPage(
-          title: _kEduTitle,
-          subtitle: _kEduSubtitle,
-        );
-    }
-  }
-
-  Widget _certificatesPage(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const TradeFormHeading(title: _kCertTitle, subtitle: _kCertSubtitle),
-        const SizedBox(height: FormFlowLayout.introToOptionsGap),
+        if (!widget.tierScope.hides(kTierFieldCertificates)) ...<Widget>[
+          const TradeFormHeading(title: _kCertTitle, subtitle: _kCertSubtitle),
+          const SizedBox(height: FormFlowLayout.introToOptionsGap),
+          _certificatesSection(context),
+          const SizedBox(height: 24),
+        ],
+        _educationPage(
+          title: _kEduTitle,
+          subtitle: _kEduSubtitle,
+        ),
+      ],
+    );
+  }
+
+  /// The certificates section: one card per entry + the add affordance. The
+  /// heading lives in [_pageContent], beside education's — this is only the
+  /// repeatable rows.
+  Widget _certificatesSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
         for (int i = 0; i < _certificates.length; i++) ...<Widget>[
           _CertificateCard(
             key: ValueKey<int>(_certIds[i]),
@@ -817,11 +828,6 @@ class TradeFormQualificationsPageState
     );
   }
 }
-
-/// The qualifications marker's own sub-pages, in walk order. Named rather
-/// than numbered so a page that this tier does not ask for can be dropped
-/// without renumbering the rest (#1710).
-enum _QualsPage { certificates, education }
 
 /// The per-entry header that tells the worker WHICH entry a repeated card
 /// belongs to ("Entry 1 — ITI, Machinist"). Drawn inside the card, above its
