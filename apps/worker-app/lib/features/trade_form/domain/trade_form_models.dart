@@ -72,6 +72,53 @@ class TradeFormSavedAnswer extends Equatable {
       <Object?>[status, optionKeys, text, number, boolValue, otherText];
 }
 
+/// An UNSENT draft for one question — what the worker picked or typed but has
+/// not submitted yet (no "Aage badhein" tap). The question body reports it on
+/// every change and re-seeds from it on remount, so walking back to a
+/// half-answered question (or forward to it again) shows the draft instead of
+/// a blank screen.
+///
+/// IT IS NOT AN ANSWER: it is never sent, never counted, and a stored answer
+/// always wins over it when both exist. A successful submit drops it (the
+/// banked reply takes over) and a fresh [load] clears them all — drafts live
+/// exactly one walk, never across a restart.
+class TradeFormDraft extends Equatable {
+  const TradeFormDraft({
+    this.optionKeys = const <String>[],
+    this.boolValue,
+    this.text = '',
+    this.otherSelected = false,
+    this.otherText = '',
+  });
+
+  /// Multi-select picks, or the single pick as a one-list.
+  final List<String> optionKeys;
+
+  /// Boolean pick. Null means untouched.
+  final bool? boolValue;
+
+  /// Open-question text (and the city picker's composed value).
+  final String text;
+
+  /// Whether "Koi aur — khud likhein" is the pick.
+  final bool otherSelected;
+
+  /// The words in the "Koi aur" box.
+  final String otherText;
+
+  /// True when nothing worth keeping was entered — never stored.
+  bool get isEmpty =>
+      optionKeys.isEmpty &&
+      boolValue == null &&
+      text.trim().isEmpty &&
+      !otherSelected &&
+      otherText.trim().isEmpty;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[optionKeys, boolValue, text, otherSelected, otherText];
+}
+
 /// What the worker's UPLOADED RÉSUMÉ said about one question (#1499, ADR-0041
 /// RI-4, `GET /profiling/form` → `screens[].suggestion`).
 ///

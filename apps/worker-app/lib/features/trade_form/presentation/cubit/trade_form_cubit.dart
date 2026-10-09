@@ -300,6 +300,33 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// state would invite a rebuild to carry a stale one.
   TradeFormStoredEmployment? _storedEmployment;
 
+  /// Unsent per-question drafts for THIS walk, keyed by question id. The
+  /// question body reports one on every pick/keystroke and re-seeds from it
+  /// on remount, so a half-answered question survives a back-and-forward
+  /// walk instead of reopening blank.
+  ///
+  /// NOT ON [TradeFormState], for the same reason as [_storedEmployment] and
+  /// one more: a draft changes on every keystroke, and emitting (rebuilding
+  /// the whole walk) per character would jank typing on a cheap handset. The
+  /// screen reads it once per mount through [draftFor]; nothing subscribes.
+  /// A successful submit drops the question's draft (the banked reply takes
+  /// over) and [load] clears them all — drafts never cross a restart.
+  final Map<String, TradeFormDraft> _drafts = <String, TradeFormDraft>{};
+
+  /// The draft for [questionId], or null when the worker left nothing
+  /// unsubmitted there.
+  TradeFormDraft? draftFor(String questionId) => _drafts[questionId];
+
+  /// Records [draft], or forgets the question when it holds nothing.
+  /// Deliberately emits NOTHING — see [_drafts].
+  void saveDraft(String questionId, TradeFormDraft draft) {
+    if (draft.isEmpty) {
+      _drafts.remove(questionId);
+    } else {
+      _drafts[questionId] = draft;
+    }
+  }
+
   /// Re-reads the saved markers. What this cubit recorded itself is kept, so an
   /// in-flight store write can never make a marker saved seconds ago look
   /// unsaved on a schema_stale re-fetch.
@@ -330,6 +357,82 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// The stored preferences / qualifications this walk prefilled from (#1710).
   TradeFormPreferences? _savedPreferences;
   TradeFormQualifications? _savedQualifications;
+
+  /// Unsent per-marker input for THIS walk: what the worker typed on a marker
+  /// page but never saved (no "Aage badhein"/"Ho gaya" tap) before walking
+  /// away from it. Each page reports its live state on unmount and re-seeds
+  /// from here on remount, so a half-filled marker survives a
+  /// back-and-forward walk instead of reopening blank — the marker twin of
+  /// the question drafts ([_drafts]).
+  ///
+  /// Same rules: NOT ON [TradeFormState] (no emit, so typing elsewhere never
+  /// rebuilds), cleared on every [load], and a stored/banked record always
+  /// loses to a draft ONLY because a draft is strictly fresher — it can only
+  /// have been typed after the record was read. Marker saves need no
+  /// drop step: saving advances, advancing unmounts, and the unmount
+  /// re-reports exactly what was just saved.
+  TradeFormPreferences? _draftPreferences;
+  List<TradeFormEmploymentEntry>? _draftEmployment;
+  TradeFormQualifications? _draftQualifications;
+
+  /// The unsent input for each marker, or null when the worker left nothing
+  /// worth keeping there. Read once per page mount by the screen.
+  TradeFormPreferences? get draftPreferences => _draftPreferences;
+  List<TradeFormEmploymentEntry>? get draftEmployment => _draftEmployment;
+  TradeFormQualifications? get draftQualifications => _draftQualifications;
+
+  /// Records a marker page's live state on unmount. Deliberately emits
+  /// NOTHING — see [_drafts]. Empty input is forgotten rather than stored,
+  /// so an untouched page keeps today's exact blank behaviour.
+  void savePreferencesDraft(TradeFormPreferences prefs) {
+    _draftPreferences = prefs.touched.isEmpty ? null : prefs;
+  }
+
+  /// Records the page's FULL list ([TradeFormEmploymentPageState._entries]
+  /// always holds the complete history: prefilled rows plus edits), never a
+  /// partial one — so a forward save off a draft can only ever replace the
+  /// history with what the worker actually saw, never delete rows behind
+  /// their back. An empty list is forgotten.
+  void saveEmploymentDraft(List<TradeFormEmploymentEntry> entries) {
+    _draftEmployment =
+        entries.isEmpty ? null : List<TradeFormEmploymentEntry>.of(entries);
+  }
+
+  /// Records the page's live model, touched flags and all — so a remount
+  /// restores both the rows and what counts as "changed". An untouched,
+  /// row-less page is forgotten.
+  void saveQualificationsDraft(TradeFormQualifications qualifications) {
+    _draftQualifications =
+        qualifications.hasAnyTouch ? qualifications : null;
+  }
+
+  /// Whether [step]'s marker holds unsent input. A done marker WITH a draft
+  /// is still worth showing: skipping it forward would strand input the
+  /// worker typed but never saved.
+  bool _hasMarkerDraft(TradeFormStep step) {
+    final TradeFormMarkerType? type = tradeFormMarkerTypeOf(step);
+    return switch (type) {
+      TradeFormMarkerType.preferences => _draftPreferences != null,
+      TradeFormMarkerType.employment => _draftEmployment != null,
+      TradeFormMarkerType.qualifications => _draftQualifications != null,
+      null => false,
+    };
+  }
+
+  /// [TradeFormState.isLastStep] refined with this walk's unsent marker
+  /// drafts: a done marker holding a draft still counts as left to show, so
+  /// the bar offers "Aage badhein" (which saves it) instead of finishing the
+  /// walk with typed input unsaved. The screen uses this everywhere it used
+  /// [TradeFormState.isLastStep].
+  bool get isLastStepWithDrafts {
+    if (!state.isLastStep) return false;
+    for (int i = state.currentIndex + 1;
+        i < state.flatSteps.length;
+        i++) {
+      if (_hasMarkerDraft(state.flatSteps[i].step)) return false;
+    }
+    return true;
+  }
 
   /// Reads the stored record of every marker page [flat] actually contains
   /// (#1710), concurrently.
@@ -428,6 +531,13 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     // armed — the error-state retry calls `load()` bare and must not widen a
     // section walk back to the full form.
     if (sectionKey != null) _sectionKey = sectionKey;
+    // A (re)load starts a new walk: nothing typed before it can still be on
+    // screen, so no draft — question or marker — can still be reachable
+    // either.
+    _drafts.clear();
+    _draftPreferences = null;
+    _draftEmployment = null;
+    _draftQualifications = null;
     emit(state.copyWith(status: TradeFormStatus.loading, loadError: null));
     try {
       final TradeForm? form = await _repo.loadForm(upgradeView: upgradeView);
@@ -518,12 +628,15 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// concept (always scans from 0); this is the shared primitive it and the
   /// mid-walk `schema_stale` resync (`_resyncAfterStaleSchema`) both use —
   /// the latter scans from wherever the worker just was, never from the top.
+  /// A done marker holding an unsent draft still counts as worth showing
+  /// (see [_hasMarkerDraft]) — skipping it would strand typed-but-unsaved
+  /// input with no screen left to save it on.
   int _nextStepIndex(List<TradeFormFlatStep> flat, {required int from}) {
     for (int i = from; i < flat.length; i++) {
       final TradeFormStep s = flat[i].step;
       if (s is TradeFormQuestionStep) {
         if (!s.isAnswered) return i;
-      } else if (!_isDoneMarker(s)) {
+      } else if (!_isDoneMarker(s) || _hasMarkerDraft(s)) {
         return i; // a marker not saved yet — see class doc.
       }
     }
@@ -533,11 +646,14 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// Where a one-step FORWARD move from the current step lands: [from], or
   /// past any already-saved marker screens that follow it. Unlike
   /// [_nextStepIndex] it does not skip answered questions, so walking forward
-  /// after a [goBack] still shows them. Returns `flat.length` when nothing is
-  /// left to show.
+  /// after a [goBack] still shows them. A done marker holding an unsent
+  /// draft is NOT skipped (see [_hasMarkerDraft]). Returns `flat.length`
+  /// when nothing is left to show.
   int _forwardIndex(List<TradeFormFlatStep> flat, {required int from}) {
     int i = from;
-    while (i < flat.length && _isDoneMarker(flat[i].step)) {
+    while (i < flat.length &&
+        _isDoneMarker(flat[i].step) &&
+        !_hasMarkerDraft(flat[i].step)) {
       i++;
     }
     return i;
@@ -636,6 +752,10 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       );
       final List<TradeFormFlatStep> banked =
           _bankAnswer(state.flatSteps, step, saved);
+      // The server holds it now — the unsent draft (if any) is superseded.
+      // On FAILURE below nothing is dropped: the worker stays on the question
+      // with everything he typed still in place.
+      _drafts.remove(step.question.id);
 
       if (result.schemaStale) {
         // #1382 — the just-answered question gates other questions, so the

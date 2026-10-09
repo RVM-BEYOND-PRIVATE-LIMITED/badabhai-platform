@@ -143,6 +143,7 @@ class TradeFormEmploymentPage extends StatefulWidget {
     this.onPageChanged,
     this.onSkip,
     this.suggestions = const <TradeFormEmploymentSuggestion>[],
+    this.onDraftChanged,
   });
 
   /// Jobs from a résumé or the chat interview the worker never confirmed
@@ -203,6 +204,12 @@ class TradeFormEmploymentPage extends StatefulWidget {
   /// preferences' fixed count — changes at runtime as employer cards are
   /// added/removed).
   final void Function(int page, int pageCount)? onPageChanged;
+
+  /// The live entries on unmount — the cubit keeps them as this walk's
+  /// unsent draft, so walking back onto this page restores half-typed
+  /// employers instead of a blank screen. Null keeps today's behaviour.
+  /// Never rebuilds anything: the cubit stores without emitting.
+  final ValueChanged<List<TradeFormEmploymentEntry>>? onDraftChanged;
 
   // NO MIC PROPS, DELIBERATELY. The work description's mic is now the device
   // recogniser ([TradeFormWorkDictation]), which needs neither a recorder seam
@@ -302,13 +309,15 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     final VoidCallback? skip = widget.onSkip;
     // NOTHING TO SEND: the worker changed nothing and the page is holding no
     // history — either because none was prefilled (#1384) or because the read
-    // found none (#1710). `PUT /workers/me/employment` replaces the whole
-    // list, so advancing WITHOUT the write is the only safe reading of a
+    // found none (#1710). `PUT /workers/me/employment` REPLACES the whole
+    // history, so advancing WITHOUT the write is the only safe reading of a
     // tap-through. A prefilled page that was NOT touched still saves, sending
-    // the stored rows back unchanged, which is a no-op server-side.
+    // the stored rows back unchanged, which is a no-op server-side. Blankness
+    // (not list-emptiness) is the test, so a remount seeded from an unsent
+    // draft of only-blank cards still skips instead of wiping the history.
     if (skip != null &&
         !_touched &&
-        (widget.initialEntries?.isEmpty ?? true)) {
+        _entries.every((TradeFormEmploymentEntry e) => e.isBlank)) {
       skip();
       return;
     }
@@ -516,6 +525,17 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
       if (_page > maxPage) _page = maxPage;
     });
     widget.onPageChanged?.call(_page, pageCount);
+  }
+
+  @override
+  void dispose() {
+    // Leaving the screen (back or forward) without saving: hand the live
+    // FULL list to the cubit as this walk's draft — prefilled rows plus
+    // edits, so a forward save off it can only replace the history with
+    // what the worker actually saw. Reads-only; the cubit stores without
+    // emitting, so this is safe inside dispose.
+    widget.onDraftChanged?.call(_entries);
+    super.dispose();
   }
 
   @override

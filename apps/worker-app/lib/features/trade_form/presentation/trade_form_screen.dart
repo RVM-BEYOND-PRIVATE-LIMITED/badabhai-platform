@@ -616,13 +616,16 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                     _MarkerBottomBar(
                       // #1384 item 2 — "the true final button for THIS
                       // marker" now requires BOTH: the outer walk has
-                      // nothing after it (`state.isLastStep`, unchanged) AND
+                      // nothing after it (`cubit.isLastStepWithDrafts`, which is
+                      // [TradeFormState.isLastStep] plus any done marker
+                      // holding an unsent draft) AND
                       // this marker itself is on its own last internal page.
                       // Every internal-pagination "next" tap — including on
                       // a marker whose outer step happens to be last — stays
                       // the ordinary advance button; only the one tap that
                       // ACTUALLY calls `.save()` gets the last-step treatment.
-                      isLast: state.isLastStep && markerOnLastInternalPage,
+                      isLast: cubit.isLastStepWithDrafts &&
+                          markerOnLastInternalPage,
                       isSubmitting: state.isSubmitting,
                       onListen: _speech == null
                           ? null
@@ -675,10 +678,16 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
             cubit.answerQuestion(step, TradeFormAnswer.text(text)),
         onDecline: () => cubit.declineQuestion(step),
         speechReader: _speech,
+        // Unsent picks/keystrokes from an earlier visit, so back-and-forward
+        // restores the draft instead of a blank screen. Read once per mount;
+        // the body reports every change straight back to the cubit.
+        initialDraft: cubit.draftFor(step.question.id),
+        onDraftChanged: (TradeFormDraft draft) =>
+            cubit.saveDraft(step.question.id, draft),
         // #1384 item 3 — reliable per #1376's fix to `answerQuestion`: a
         // question on the walk's true last step emits `done` directly on
         // submit rather than silently advancing.
-        isLastStep: state.isLastStep,
+        isLastStep: cubit.isLastStepWithDrafts,
       );
     }
     if (step is TradeFormPreferencesStep) {
@@ -687,10 +696,14 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         enabled: enabled,
         loadOptions: cubit.loadPreferenceOptions,
         onSave: cubit.savePreferencesAndAdvance,
-        initialPreferences: state.savedPreferences,
+        // Unsent input from an earlier visit first (strictly fresher than
+        // any stored record), then the cubit's banked save.
+        initialPreferences:
+            cubit.draftPreferences ?? state.savedPreferences,
         knownFacts: state.knownFacts,
         tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
+        onDraftChanged: cubit.savePreferencesDraft,
       );
     }
     if (step is TradeFormEmploymentStep) {
@@ -709,7 +722,10 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         // An untouched page with nothing banked never replaces the stored
         // history with its blank default.
         onSkip: cubit.skipEmploymentAndAdvance,
-        initialEntries: state.savedEmployment,
+        // Unsent input from an earlier visit first (strictly fresher than
+        // any stored record), then the cubit's banked save.
+        initialEntries: cubit.draftEmployment ?? state.savedEmployment,
+        onDraftChanged: cubit.saveEmploymentDraft,
         // #1516 — unconfirmed résumé/chat jobs, offered as cards, never sent.
         suggestions: state.employmentSuggestions,
         tierScope: step.tierScope,
@@ -723,9 +739,13 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         enabled: enabled,
         loadOptions: cubit.loadQualificationOptions,
         onSave: cubit.saveQualificationsAndAdvance,
-        initialQualifications: state.savedQualifications,
+        // Unsent input from an earlier visit first (strictly fresher than
+        // any stored record), then the cubit's banked save.
+        initialQualifications:
+            cubit.draftQualifications ?? state.savedQualifications,
         tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
+        onDraftChanged: cubit.saveQualificationsDraft,
       );
     }
     return const SizedBox.shrink();
