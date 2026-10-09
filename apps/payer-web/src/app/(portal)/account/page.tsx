@@ -166,7 +166,8 @@ const STATUS_LABEL: Record<Status, string> = {
  * Per-status presentation for the KYC/PAN row: the alert tone modifier + the status Badge
  * tone + its short label. Kept as a closed map (never a computed class) so every status has a
  * deliberate, reviewed appearance. `not_submitted` is a neutral prompt, `pending` a warning,
- * `verified` green, `rejected` a danger band.
+ * `verified` green, `rejected` a danger band, `forbidden` a neutral
+ * "Agency accounts only" band (a company payer on a recruiter-only surface).
  */
 const KYC_PRESENTATION: Record<
   AgencyKyc["status"],
@@ -176,6 +177,11 @@ const KYC_PRESENTATION: Record<
   pending: { alert: "alert alert--warning", tone: "warning", label: "Pending" },
   verified: { alert: "alert alert--success", tone: "success", label: "Verified" },
   rejected: { alert: "alert alert--danger", tone: "danger", label: "Rejected" },
+  forbidden: {
+    alert: "alert alert--neutral",
+    tone: "neutral",
+    label: "Agency accounts only",
+  },
 };
 
 /**
@@ -197,7 +203,9 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
         ? "Your documents are being reviewed."
         : kyc.status === "rejected"
           ? (kyc.rejectReason ?? "Your details couldn't be verified. Please resubmit.")
-          : "Submit your KYC documents.";
+          : kyc.status === "forbidden"
+            ? "KYC for payouts is only available on agency (recruiter) accounts."
+            : "Submit your KYC documents.";
 
   return (
     <section className="section">

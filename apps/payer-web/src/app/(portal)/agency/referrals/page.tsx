@@ -9,13 +9,14 @@ import {
   listAgencyPayouts,
 } from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
-import { kAnonCount } from "../../../../lib/agency-view";
+import { isPayerForbiddenError } from "../../../../lib/payer-errors";
 import type {
   AgencyEarnings,
   AgencyKyc,
   AgencyPayout,
   AgencyReferralsSummary,
 } from "../../../../lib/contracts";
+import { kAnonCount } from "../../../../lib/agency-view";
 import { ProgressBar, StatTile } from "../../../../components/ds";
 import { PageHeader } from "../../../../components/page-header";
 import { RetryButton } from "../../../../components/retry-button";
@@ -76,12 +77,14 @@ export default async function AgencyReferralsPage() {
   let earnings: AgencyEarnings | null = null;
   let payoutsEnabled = true;
   let earningsError = false;
+  let earningsForbidden = false;
   try {
     const res = await getAgencyEarnings();
     if (res === null) payoutsEnabled = false; // gated route (404) — not enabled yet.
     else earnings = res;
-  } catch {
-    earningsError = true;
+  } catch (e) {
+    if (isPayerForbiddenError(e)) earningsForbidden = true;
+    else earningsError = true;
   }
 
   // 4) Only when earnings loaded do we read KYC + payout history (same gate). Each isolated.
@@ -210,7 +213,25 @@ export default async function AgencyReferralsPage() {
       <AgencyBatchInvitePanel />
 
       {/* d) SUPPLY MONEY — earnings + KYC + payout, gated behind AGENCY_PAYOUTS_ENABLED. */}
-      {earningsError ? (
+      {earningsForbidden ? (
+        <section className="section">
+          <div className="section__head">
+            <h2 className="section__title">Your earnings</h2>
+          </div>
+          <div className="state state--neutral">
+            <span className="state__icon">
+              <Icon name="lock-key" />
+            </span>
+            <h3 className="state__title">Agency accounts only</h3>
+            <p className="state__body">
+              Earnings and payouts are only available on agency (recruiter) accounts.
+            </p>
+            <div className="state__actions">
+              <RetryButton />
+            </div>
+          </div>
+        </section>
+      ) : earningsError ? (
         <section className="section">
           <div className="section__head">
             <h2 className="section__title">Your earnings</h2>
