@@ -57,6 +57,8 @@ import '../domain/chat_companion_keys.dart';
 import '../domain/chat_news_link.dart';
 import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
+import '../domain/chat_resume_prompt.dart';
+import '../../resume_import/domain/resume_upload_intent.dart';
 import 'widgets/chat_location_card.dart';
 import 'widgets/chat_news_tiles.dart';
 import 'widgets/flying_name.dart';
@@ -709,12 +711,35 @@ class _ChatViewState extends State<_ChatView>
       case CompanionAction.none:
         break;
     }
+    // The in-chat résumé prompt's "no resume" chip: client-only, never
+    // submitted (see [ChatResumePromptDeclined]) — the label would otherwise
+    // land as the answer to the state question. No latch either: there is no
+    // send whose completion would unlatch it, and double-taps are idempotent
+    // in the bloc.
+    if (option.optionKey == kResumePromptNoResumeKey) {
+      context.read<ChatBloc>().add(ChatResumePromptDeclined(option.labelText));
+      return;
+    }
     switch (resumeMenuActionFor(option.optionKey)) {
       case ResumeMenuAction.openResumeUpload:
         // NO send, so no `_optionTapPending` latch: `pushOnce` already refuses a
         // duplicate push, and latching here would block the NEXT tap on the menu
         // if the worker comes back without sending anything.
-        context.pushOnce(Routes.resumeUpload);
+        //
+        // The in-chat résumé prompt reuses this same key, so an upload tap from
+        // the name-intake prompt lands here too — but the choice was already
+        // made in the chat, so the screen auto-clicks door 1 instead of asking
+        // again. The post-completion menu keeps the doors: its chips never
+        // include the prompt's client-only `no_resume` key, which is what tells
+        // the two apart.
+        context.pushOnce(
+          Routes.resumeUpload,
+          extra: bloc.state.suggestedOptions.any(
+                (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
+              )
+              ? const ResumeUploadAutoIntent()
+              : null,
+        );
         return;
       case ResumeMenuAction.startFreshChat:
         // The BLOC owns the one-restart-at-a-time guard (a second event during

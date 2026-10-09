@@ -25,6 +25,7 @@ import '../../domain/chat_message.dart';
 import '../../domain/chat_companion_keys.dart';
 import '../../domain/chat_identity_questions.dart';
 import '../../domain/chat_repository.dart';
+import '../../domain/chat_resume_prompt.dart';
 import '../../domain/chat_session_opening.dart';
 import '../../domain/chat_free_chat_keys.dart';
 import '../../domain/chat_news_link.dart';
@@ -203,6 +204,21 @@ class ChatEditProposalConfirmed extends ChatEvent {
 /// ADR-0046 §5.2 — the worker tapped Nahi on the edit card: nothing is applied.
 class ChatEditProposalCancelled extends ChatEvent {
   const ChatEditProposalCancelled();
+}
+
+/// The in-chat résumé question's "Mere paas resume nahi hai" chip was tapped.
+///
+/// Client-only, never sent to the server: the label would land in the intake
+/// transcript as the answer to the state question. Appends the worker bubble
+/// locally, clears the prompt's chips and records nothing.
+class ChatResumePromptDeclined extends ChatEvent {
+  const ChatResumePromptDeclined(this.label);
+
+  /// The tapped chip's display label, shown as the worker's answer.
+  final String label;
+
+  @override
+  List<Object?> get props => <Object?>[label];
 }
 
 // ---------------- State ----------------
@@ -706,6 +722,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // ADR-0046 Phase 1 — the edit card's Haan / Nahi.
     on<ChatEditProposalConfirmed>(_onEditProposalConfirmed);
     on<ChatEditProposalCancelled>(_onEditProposalCancelled);
+    // In-chat résumé question's "no resume" chip — client-only, never sent.
+    on<ChatResumePromptDeclined>(_onResumePromptDeclined);
   }
 
   final ChatRepository _repo;
@@ -728,9 +746,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// bends the #1316 drop-off curve for exactly the workers the companion is for.
   int _companionBubbleOffset = 0;
 
-  /// The interview rank of a bubble, with the companion's own bubbles removed.
+  /// How many worker bubbles are local-only résumé answers ("Mere paas resume
+  /// nahi hai"): appended to the transcript but never sent, so the #1316
+  /// per-ask indices must skip them exactly like companion bubbles.
+  int _resumeLocalBubbles = 0;
+
+  /// The interview rank of a bubble, with the companion's own bubbles and the
+  /// local-only résumé answers removed.
   int _interviewIndex(int rank) {
-    final int adjusted = rank - _companionBubbleOffset;
+    final int adjusted = rank - _companionBubbleOffset - _resumeLocalBubbles;
     return adjusted < 1 ? 1 : adjusted;
   }
 
@@ -832,6 +856,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// one-shot reveal (and its flight) fires exactly once for the intake.
   bool _nameRevealed = false;
 
+  /// The in-chat résumé question: true once its bubble + chips have been
+  /// emitted, so the prompt fires exactly once per intake. Set on the turn
+  /// whose reply proves the name steps are done (see [_deliver]), never on a
+  /// tentative capture — the server skips the surname when the first answer
+  /// already carried the full name, so "both parts held" is the wrong gate.
+  bool _resumePromptShown = false;
+
+  /// The next LLM question, hidden while the résumé prompt stands. Flushed
+  /// (shown) the moment the prompt is answered — by either chip, or by typing
+  /// past it. Null whenever no prompt is pending.
+  ChatTurn? _stashedPostResumeTurn;
+
   /// Capture one name answer TENTATIVELY. Does NOT reveal: whether the name is
   /// complete is the SERVER's call, read from its next question in
   /// [_revealNameIfComplete].
@@ -846,6 +882,20 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       _intakeLastName = titleCaseName(value);
     }
   }
+
+  /// The résumé prompt's two chips. The upload key reuses the menu's upload key
+  /// on purpose: the screen already routes it to the import screen and never
+  /// submits it.
+  static List<ChatOption> _resumePromptOptions() => const <ChatOption>[
+        ChatOption(
+          optionKey: kResumePromptUploadKey,
+          labelText: kResumePromptUploadLabel,
+        ),
+        ChatOption(
+          optionKey: kResumePromptNoResumeKey,
+          labelText: kResumePromptNoResumeLabel,
+        ),
+      ];
 
   /// The name to reveal once the SERVER's next question [nextQuestionKey] proves
   /// the name steps are done — or null while they are not.
@@ -1118,6 +1168,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String text = event.text.trim();
     if (text.isEmpty) return;
 
+    // The résumé prompt's chips never reach here (the screen intercepts both),
+    // so any send while its question is stashed is the worker typing past it:
+    // show the stashed next question first, then send this answer against it.
+    _flushStashedResumeTurn(emit);
+
     // #870 — mint the per-submission id ONCE, here, when the worker's action
     // commits. It rides on the worker bubble (below) so [_onRetryRequested] can
     // re-send the SAME id: a retried POST is then distinguishable server-side
@@ -1340,17 +1395,53 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           newsLinks: turn.newsLinks,
         );
       }
+      // The in-chat résumé question: once, on the turn whose reply proves the
+      // name steps are done — asked FIRST, strictly before the next LLM
+      // question. The SERVER decides completion (see [_revealNameIfComplete]),
+      // so a two-word first answer — which skips the surname — prompts here
+      // too. The server's own reply is STASHED, not shown: the transcript gets
+      // the résumé bubble with its two chips, the pickers stay hidden
+      // (`askedQuestionKey` null) and the composer stays open so typing still
+      // works. Answering the prompt (either chip, or typing) flushes the
+      // stashed question. Never on a companion, blocked or closed-session turn.
+      final bool showResumePrompt = revealedName != null &&
+          !_resumePromptShown &&
+          !turn.companion &&
+          !turn.blocked &&
+          !turn.fromClosedSession;
+      final List<ChatOption> resumeOptions =
+          showResumePrompt ? _resumePromptOptions() : const <ChatOption>[];
+      final List<ChatMessage> emittedMessages;
+      if (!showResumePrompt) {
+        emittedMessages = nextMessages;
+      } else {
+        _resumePromptShown = true;
+        _stashedPostResumeTurn = turn;
+        // Intake serves no lookahead, so there is no optimistic bubble to
+        // reconcile; defensively drop one if it ever stands here rather than
+        // burying the résumé prompt behind a phantom turn.
+        final List<ChatMessage> base =
+            reconciling ? _removeLastBot(healed) : healed;
+        emittedMessages = <ChatMessage>[
+          ...base,
+          const ChatMessage(text: kResumePromptText, fromWorker: false),
+        ];
+      }
       // #2030 ask 3 — remember THIS turn's chips, so a cold start can redraw
       // them. Fire-and-forget: the store never throws and a miss only costs
-      // the chips, so it must not sit in front of the emit.
-      _rememberTurn(turn.suggestedOptions);
+      // the chips, so it must not sit in front of the emit. On the résumé
+      // turn that is the prompt's own chips.
+      _rememberTurn(showResumePrompt ? resumeOptions : turn.suggestedOptions);
       emit(_withCompanionTurn(state.copyWith(
-        messages: nextMessages,
+        messages: emittedMessages,
         sending: _inFlightSends > 0,
-        followups: turn.followups,
+        followups: showResumePrompt
+            ? <String>[for (final ChatOption o in resumeOptions) o.labelText]
+            : turn.followups,
         // #761 — the option objects for THIS turn (with their stable keys); the
         // screen renders chips from these when present, else from [followups].
-        suggestedOptions: turn.suggestedOptions,
+        suggestedOptions:
+            showResumePrompt ? resumeOptions : turn.suggestedOptions,
         // A delivered message proves the session is open again.
         sessionFailed: false,
         // The engine's interview-completeness decision for this turn (#421).
@@ -1380,11 +1471,17 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         clearAnswerType: turn.answerType == null,
         // ADR-0048 — the key this turn is asking, so the screen can offer the
         // right picker. Passed on EVERY turn, so one that names none clears it.
-        askedQuestionKey: turn.askedQuestionId,
-        clearAskedQuestionKey: turn.askedQuestionId == null,
+        // Hidden while the résumé prompt stands: the next LLM question (state)
+        // is stashed until the prompt is answered.
+        askedQuestionKey: showResumePrompt ? null : turn.askedQuestionId,
+        clearAskedQuestionKey:
+            showResumePrompt ? true : turn.askedQuestionId == null,
         occupationLabel: turn.occupationLabel,
         // #761 — the fresh predictions for the NEXT tap; the current one is done.
-        lookahead: turn.lookahead,
+        // Empty while the résumé prompt stands: its chips carry no prediction.
+        lookahead: showResumePrompt
+            ? const <String, PredictedQuestion?>{}
+            : turn.lookahead,
         clearPredictedQuestionKey: true,
         // #1339/#1340 — THIS turn's handover card, or null on an ordinary turn.
         // Also carried on a RETRY/REPLAY: a flaky link that lands the retried
@@ -1428,10 +1525,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       _logAnswerSpoken(askIndex);
       _logWrapUpOnce(ready: turn.extractionReady);
       // A blocked turn did not process the answer and carries no interview
-      // state: record nothing and keep answering the same question.
+      // state: record nothing and keep answering the same question. While the
+      // résumé prompt stands the next question is stashed, so the id stays
+      // until the prompt is answered and the stash flushes.
       if (!turn.blocked) {
         _recordAnsweredFact(answering, text, tappedOption, turn);
-        _askedQuestionId = turn.askedQuestionId;
+        if (!showResumePrompt) _askedQuestionId = turn.askedQuestionId;
       }
     } on Failure catch (_) {
       _inFlightSends--;
@@ -1499,6 +1598,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _intakeFirstName = null;
     _intakeLastName = null;
     _nameRevealed = false;
+    // The fallback interview may run the intake, so the résumé prompt re-arms
+    // too; local-only résumé bubbles stay in the transcript, so their offset
+    // is folded into the companion offset and reset.
+    _resumePromptShown = false;
+    _resumeLocalBubbles = 0;
+    _stashedPostResumeTurn = null;
   }
 
   /// #1753 — log a companion chip tap through the same sink as every other
@@ -1724,6 +1829,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _wrapUpLogged = false;
     _holdInterview = false;
     _companionBubbleOffset = 0;
+    _stashedPostResumeTurn = null;
     _companionDigestKey = recap.digestKey;
     // As if the tab had opened on the recap: no cached interview id, so a later
     // fallback to the interview reads the worker's latest session.
@@ -1846,6 +1952,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // Only a worker bubble that actually failed is retryable.
     if (!message.fromWorker || message.status != ChatSendStatus.failed) return;
 
+    // A retry past a pending résumé prompt flushes the stashed question first
+    // (append-only, so [index] stays valid).
+    _flushStashedResumeTurn(emit);
+
     // Optimistically un-fail it while the retry is in flight.
     emit(state.copyWith(
       messages: _withStatus(state.messages, index, ChatSendStatus.sent),
@@ -1904,6 +2014,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _intakeFirstName = null;
     _intakeLastName = null;
     _nameRevealed = false;
+    // A fresh transcript carries no local-only résumé bubbles, and the new
+    // interview may run the intake, so both re-arm.
+    _resumePromptShown = false;
+    _resumeLocalBubbles = 0;
+    _stashedPostResumeTurn = null;
     // The worker ASKED for this interview; a refocus must not take it away.
     _holdInterview = true;
     _inFlightSends = 0;
@@ -1932,6 +2047,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// the voice pipeline sent the transcript through ChatRepository.sendMessage.
   void _onVoiceMerged(ChatVoiceMerged event, Emitter<ChatState> emit) {
     _holdInterview = true;
+    // Typing past the résumé prompt by voice: the stashed next question lands
+    // first so the transcript keeps its order (see [_flushStashedResumeTurn]).
+    // The pipeline already sent the transcript server-side against it.
+    _flushStashedResumeTurn(emit);
     // ADR-0048 — a SPOKEN name is still a name: hold it tentatively against the
     // question the state is still on. This event carries no next
     // `asked_question_id`, so the reveal waits for the next reply (or is never
@@ -1969,14 +2088,115 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ));
     // #1316 — a voice answer is an answered ask too: the transcript was already
     // sent server-side and is merged (recorded) here, so emit its per-ask index
-    // like a delivered typed send. Rank = worker bubbles after the merge above.
+    // like a delivered typed send. Rank = worker bubbles after the merge above,
+    // minus local-only bubbles (companion, résumé decline).
     _logAnswerSpoken(
-      state.messages.where((ChatMessage m) => m.fromWorker).length,
+      _interviewIndex(
+        state.messages.where((ChatMessage m) => m.fromWorker).length,
+      ),
     );
     _logWrapUpOnce(ready: event.extractionReady);
   }
 
-  
+  /// The résumé prompt's "Mere paas resume nahi hai": dismiss locally, never
+  /// sent — then flush the stashed next LLM question, so the interview carries
+  /// on exactly where it paused. Idempotent: a second tap after the chips are
+  /// gone is a no-op, which is also what makes double-taps safe without a
+  /// screen-side latch (there is no send whose completion would unlatch it).
+  void _onResumePromptDeclined(
+    ChatResumePromptDeclined event,
+    Emitter<ChatState> emit,
+  ) {
+    final bool promptOnScreen = state.suggestedOptions.any(
+      (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
+    );
+    if (!promptOnScreen) return;
+    final String label = event.label.trim().isEmpty
+        ? kResumePromptNoResumeLabel
+        : event.label.trim();
+    _resumePromptShown = true;
+    _resumeLocalBubbles++;
+    final ChatTurn? stashed = _stashedPostResumeTurn;
+    _stashedPostResumeTurn = null;
+    if (stashed == null) {
+      // Cold-start restore: the prompt's chips were redrawn without their
+      // stashed question (it already lives in the history). Just clear.
+      emit(state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(text: label, fromWorker: true),
+        ],
+        followups: const <String>[],
+        suggestedOptions: const <ChatOption>[],
+        questionKind: ChatQuestionKind.ask,
+        inputMode: ChatInputMode.text,
+        clearAnswerType: true,
+      ));
+      _rememberTurn(const <ChatOption>[]);
+      return;
+    }
+    emit(state.copyWith(
+      messages: <ChatMessage>[
+        ...state.messages,
+        ChatMessage(text: label, fromWorker: true),
+        ChatMessage(
+          text: stashed.reply,
+          fromWorker: false,
+          ttsText: stashed.ttsText,
+          canReadAloud: stashed.readAloud != false,
+        ),
+      ],
+      followups: stashed.followups,
+      suggestedOptions: stashed.suggestedOptions,
+      questionKind: stashed.questionKind,
+      inputMode: stashed.inputMode,
+      answerType: stashed.answerType,
+      clearAnswerType: stashed.answerType == null,
+      askedQuestionKey: stashed.askedQuestionId,
+      clearAskedQuestionKey: stashed.askedQuestionId == null,
+      lookahead: stashed.lookahead,
+      progress: stashed.progress,
+      occupationLabel: stashed.occupationLabel,
+    ));
+    _askedQuestionId = stashed.askedQuestionId;
+    _rememberTurn(stashed.suggestedOptions);
+  }
+
+  /// Show the stashed next question when the worker answers past the résumé
+  /// prompt by TYPING (or voice, or retry) instead of tapping a chip. The
+  /// stashed bubble lands first, so the transcript reads résumé question →
+  /// next question → worker's answer, and [_askedQuestionId] advances so the
+  /// send records against the right ask. No-op when no prompt is pending.
+  void _flushStashedResumeTurn(Emitter<ChatState> emit) {
+    final ChatTurn? stashed = _stashedPostResumeTurn;
+    if (stashed == null) return;
+    _stashedPostResumeTurn = null;
+    _resumePromptShown = true;
+    emit(state.copyWith(
+      messages: <ChatMessage>[
+        ...state.messages,
+        ChatMessage(
+          text: stashed.reply,
+          fromWorker: false,
+          ttsText: stashed.ttsText,
+          canReadAloud: stashed.readAloud != false,
+        ),
+      ],
+      followups: stashed.followups,
+      suggestedOptions: stashed.suggestedOptions,
+      questionKind: stashed.questionKind,
+      inputMode: stashed.inputMode,
+      answerType: stashed.answerType,
+      clearAnswerType: stashed.answerType == null,
+      askedQuestionKey: stashed.askedQuestionId,
+      clearAskedQuestionKey: stashed.askedQuestionId == null,
+      lookahead: stashed.lookahead,
+      progress: stashed.progress,
+      occupationLabel: stashed.occupationLabel,
+    ));
+    _askedQuestionId = stashed.askedQuestionId;
+    _rememberTurn(stashed.suggestedOptions);
+  }
 
 /// ADR-0046 §5.2 — the worker tapped Haan: apply the ticked rows.
   ///
