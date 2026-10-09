@@ -222,7 +222,15 @@ class _SettingsView extends StatelessWidget {
                     onTap: () => _comingSoon(context),
                   ),
                   const _WithdrawConsentRow(),
-                  const _EmployerContactRow(),
+                  // HIDDEN FOR NOW: the 'Employer contact band karein' row —
+                  // hidden with its card row until the owner asks it back.
+                  // Restored by deleting this Visibility (same pattern as the
+                  // account-delete block below).
+                  const Visibility(
+                    visible: false,
+                    maintainState: true,
+                    child: _EmployerContactRow(),
+                  ),
                 ]),
                 // Account delete hidden for now; will return after the flow is
                 // redesigned.

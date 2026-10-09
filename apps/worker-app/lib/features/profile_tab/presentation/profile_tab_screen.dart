@@ -590,13 +590,9 @@ class _ProfileTabView extends StatelessWidget {
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
         child: Column(
           children: <Widget>[
-            BbListRow.kit(
-              icon: Icons.edit_note_outlined,
-              title: 'Profile edit karein',
-              subtitle: 'WhatsApp, bhasha, training, portfolio',
-              onTap: () => context.pushOnce(Routes.profileEdit),
-            ),
-            _hairline,
+            // HIDDEN FOR NOW: the 'Profile edit karein' shortcut — hidden with
+            // the row until the owner asks it back. Restored by re-adding the
+            // BbListRow below (with its trailing hairline).
             BbListRow.kit(
               icon: Icons.quiz_outlined,
               title: 'Interview kit',

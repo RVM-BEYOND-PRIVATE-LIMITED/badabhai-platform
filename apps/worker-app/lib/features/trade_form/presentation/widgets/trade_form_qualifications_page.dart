@@ -62,15 +62,14 @@ const String _kEduYearRequiredError = 'Kis saal poora hua — saal likhein.';
 const String _kEduInstituteRequiredError = 'Institute ka naam likhein.';
 
 /// `EDUCATION_QUALIFICATIONS` slugs (`worker-preferences.vocabulary.ts`) that
-/// carry a real trade/stream — ITI, Diploma and Graduate name a specific
-/// trade or subject, and 12th pass carries a stream (Science/Commerce/Arts).
-/// `below_10`/`class_10` do not: there is no "subject" to a 10th-or-below
-/// schooling, so the field has nothing honest to ask for and stays hidden.
+/// show the "Kis subject me kiya" field — only ITI, Diploma and Graduate name
+/// a specific trade or subject. `below_10`/`class_10`/`class_12` never do: a
+/// 12th-or-below schooling has no trade to name, so the field (with its
+/// header) stays hidden for those credentials and shows for the rest.
 const Set<String> _kFieldVisibleCredentials = <String>{
   'iti',
   'diploma',
   'graduate',
-  'class_12',
 };
 
 /// Shown by the wizard's top banner when "Aage badhein" is blocked — the
@@ -530,8 +529,8 @@ class TradeFormQualificationsPageState
 
   /// A credential tap for row [index]. Toggles [slug] exactly like every
   /// other single-select list here — but a credential switching AWAY from
-  /// ITI/Diploma/Graduate/12th pass also hides (see [_kFieldVisibleCredentials])
-  /// and clears the trade/subject field, so a stale subject typed under the
+  /// ITI/Diploma/Graduate also hides (see [_kFieldVisibleCredentials])
+  /// and clears the subject field, so a stale subject typed under the
   /// PREVIOUS credential never rides along on a save under a credential that
   /// has no subject to name.
   void _onCredentialSelected(

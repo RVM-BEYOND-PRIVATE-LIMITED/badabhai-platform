@@ -90,6 +90,13 @@ class Design1JobCard extends StatelessWidget {
   static const Color _payInk = Color(0xFF9A3412);
   static const Color _dutyGreyBg = Color(0xFFF1F5F9);
 
+  /// Height of the role illustration on THIS face. The banner itself draws
+  /// 3:1 full-width (~109dp on a 360dp phone); here it is top-cropped to 84
+  /// so the "Duty & Suvidhayein" chips fit a short deck without clipping at
+  /// the bottom. Crop, never squash: proportions stay true and the shared
+  /// [RoleArtBanner] (detail screen, [BbJobCard]) is untouched.
+  static const double _artHeight = 84;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -159,19 +166,47 @@ class Design1JobCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               // The animated role illustration heads the card — the same art,
-              // the same place and the same 3:1 size as the payer's live
-              // preview (`job-card-preview.tsx`), except on a COMPACT deck,
-              // where it is dropped so the salary box always fits. An unknown
-              // role draws the generic scene.
+              // the same place as the payer's live preview
+              // (`job-card-preview.tsx`), except on a COMPACT deck, where it
+              // is dropped so the salary box always fits. Cropped to
+              // [_artHeight] (top-anchored, proportions kept) so the duty
+              // chips below are not clipped on a short deck. The crop needs a
+              // BOUNDED width for the banner's own 3:1 ratio — hence the
+              // LayoutBuilder (an unbounded width is the RenderAspectRatio
+              // crash); the screen-width fallback never fires inside the deck.
+              // An unknown role draws the generic scene.
               if (!compact) ...<Widget>[
-                RoleArtBanner(roleKind: data.roleKind),
-                const SizedBox(height: AppSpacing.s3),
+                LayoutBuilder(
+                  builder:
+                      (BuildContext context, BoxConstraints constraints) {
+                    final double artWidth = constraints.hasBoundedWidth
+                        ? constraints.maxWidth
+                        : MediaQuery.sizeOf(context).width - 32;
+                    return SizedBox(
+                      height: _artHeight,
+                      width: double.infinity,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadii.md),
+                        child: OverflowBox(
+                          alignment: Alignment.topCenter,
+                          maxWidth: artWidth,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: artWidth,
+                            child: RoleArtBanner(roleKind: data.roleKind),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: AppSpacing.s2),
               ],
               _TitleRow(data: data, onTitleTap: onTitleTap),
               const SizedBox(height: 2),
               _PlaceRow(place: data.place),
               if (payFull != null) ...<Widget>[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 _SalaryBox(payFull: payFull!, payNote: data.payNote),
               ],
               _DutySection(data: data),
@@ -307,7 +342,7 @@ class _SalaryBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Design1JobCard._salaryBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
@@ -357,7 +392,7 @@ class _SalaryBox extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           // NOTE: [payFull] is `formatPayBandFull` and already carries its
           // own '/mah' suffix — no second suffix is appended.
           Text(
@@ -365,7 +400,7 @@ class _SalaryBox extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: OnboardingTypography.anek(
-              size: 20,
+              size: 18,
               weight: FontWeight.w800,
               color: Design1JobCard._payInk,
             ),
@@ -425,7 +460,7 @@ class _DutySection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         Text(
           'Duty & Suvidhayein',
           style: OnboardingTypography.inter(
