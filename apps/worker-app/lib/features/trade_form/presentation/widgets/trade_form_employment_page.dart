@@ -87,6 +87,10 @@ const String _kDateInvalidError = 'Sahi mahina aur saal chunein.';
 const String _kNameRequiredError = 'Company ka naam likhein.';
 const String _kRoleRequiredError = 'Aapka kaam / role likhein.';
 const String _kWorkRequiredError = 'Aap kya kaam karte the — likhein.';
+// Only one open form at a time: tapping "Aur ek jagah jodein" with the
+// current card still incomplete shows this instead of opening a new card.
+const String _kAddBlockedError =
+    'Pehle ye form bharein — tabhi nayi jagah jod sakte hain.';
 // #1516 — an unconfirmed job from a résumé or the chat. It ASKS, and it names
 // where it came from in plain words; the wire tokens `resume`/`chat` are never
 // drawn.
@@ -400,8 +404,23 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     widget.onPageChanged?.call(_page, pageCount);
   }
 
-  void _add() {
+  void _add(BuildContext context) {
     if (_entries.length >= kTradeFormMaxEmployers) return;
+    // Only ONE open form at a time: the new card holds a "Company ka naam"
+    // input, and opening another one over an unfinished card strands the
+    // worker with two blanks. A blank or half-filled last card blocks with
+    // "fill this form first" instead.
+    final int blocked = _firstIncompleteIndex();
+    if (blocked != -1) {
+      if (blocked != _page) {
+        setState(() => _page = blocked);
+        widget.onPageChanged?.call(_page, pageCount);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(_kAddBlockedError)),
+      );
+      return;
+    }
     setState(() {
       _touched = true;
       _entries = <TradeFormEmploymentEntry>[
@@ -411,6 +430,16 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
       _page = _entries.length - 1; // land on the newly-added card
     });
     widget.onPageChanged?.call(_page, pageCount);
+  }
+
+  /// Index of the first entry that would still block a save (blank counts as
+  /// incomplete here — a card opened but left empty is exactly the "not filled"
+  /// case), or -1 when every card is complete.
+  int _firstIncompleteIndex() {
+    for (int i = 0; i < _entries.length; i++) {
+      if (_entryError(_entries[i]) != null) return i;
+    }
+    return -1;
   }
 
   /// The suggestions still worth offering (#1516), in the server's order:
@@ -433,9 +462,21 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   /// a blank card: cards are keyed by index, and a card reused in place keeps
   /// its old text controllers, so the prefill would never show. Nothing is
   /// sent here — the page's own save does that, after its usual checks.
-  void _acceptSuggestion(TradeFormEmploymentSuggestion suggestion) {
+  void _acceptSuggestion(BuildContext context, TradeFormEmploymentSuggestion suggestion) {
     if (_setAside.contains(suggestion)) return; // already added or dismissed
     if (_entries.length >= kTradeFormMaxEmployers) return;
+    // Same one-open-form rule as [_add]: an unfinished card blocks first.
+    final int blocked = _firstIncompleteIndex();
+    if (blocked != -1) {
+      if (blocked != _page) {
+        setState(() => _page = blocked);
+        widget.onPageChanged?.call(_page, pageCount);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(_kAddBlockedError)),
+      );
+      return;
+    }
     setState(() {
       _touched = true;
       _setAside.add(suggestion);
@@ -520,7 +561,7 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
         children.add(
           _EmploymentSuggestionCard(
             suggestion: s,
-            onAdd: _addGuard.wrap(() => _acceptSuggestion(s)),
+            onAdd: _addGuard.wrap(() => _acceptSuggestion(context, s)),
             onDismiss: () => _dismissSuggestion(s),
           ),
         );
@@ -533,7 +574,7 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
         TradeFormSecondaryButton(
           label: _kAddEmployer,
           icon: Icons.add,
-          onPressed: _addGuard.wrap(_add),
+          onPressed: _addGuard.wrap(() => _add(context)),
         ),
       );
     }
