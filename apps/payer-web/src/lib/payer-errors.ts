@@ -83,6 +83,23 @@ export class PayerValidationError extends PayerHttpError {
   }
 }
 
+/**
+ * A 403 on a recruiter-only surface hit by a non-recruiter (company payer). A
+ * {@link PayerHttpError} (status 403, the transport's historic message), so every
+ * 403 check still matches it — the same pattern as {@link PayerValidationError}.
+ * A seam that wants the neutral "Agency accounts only" state narrows it with
+ * {@link isPayerForbiddenError}.
+ */
+export class PayerForbiddenError extends PayerHttpError {
+  constructor(path: string) {
+    super(path, 403);
+  }
+}
+
+export function isPayerForbiddenError(e: unknown): e is PayerForbiddenError {
+  return e instanceof PayerForbiddenError;
+}
+
 export function isPayerValidationError(e: unknown): e is PayerValidationError {
   return e instanceof PayerValidationError;
 }

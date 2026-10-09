@@ -1391,7 +1391,7 @@ export type AgencyWorker = z.infer<typeof agencyWorkerWireSchema>;
  */
 
 /** Agency KYC state — mirrors the backend `status` enum (never a raw document). */
-export const AGENCY_KYC_STATUSES = ["not_submitted", "pending", "verified", "rejected"] as const;
+export const AGENCY_KYC_STATUSES = ["not_submitted", "pending", "verified", "rejected", "forbidden"] as const;
 export const agencyKycStatusSchema = z.enum(AGENCY_KYC_STATUSES);
 export type AgencyKycStatusValue = z.infer<typeof agencyKycStatusSchema>;
 

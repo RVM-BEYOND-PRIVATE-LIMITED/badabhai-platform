@@ -4,6 +4,7 @@ import { payerServerConfig } from "./server-config";
 import { readApiToken } from "./auth/session-cookie";
 import {
   PayerConflictError,
+  PayerForbiddenError,
   PayerHttpError,
   PayerValidationError,
   PriceMismatchError,
@@ -96,6 +97,10 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
       const issues = await readFieldIssues(res);
       if (issues.length > 0) throw new PayerValidationError(path, issues);
     }
+    // 403 = recruiter-only surface accessed by a non-recruiter (company payer).
+    // Surface it as a neutral "Agency accounts only" state — no PII, no oracle,
+    // identical to the Flutter app's AgencyEarningsStatus.forbidden handling.
+    if (res.status === 403) throw new PayerForbiddenError(path);
     // A 409 is read too (#2085): a `price_mismatch` must reach the payer as "the price
     // changed", and must never be read as a purchase seam's other 409s. Nothing from the
     // body is rendered except the API's current price.
