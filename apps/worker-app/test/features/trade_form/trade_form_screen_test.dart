@@ -1000,9 +1000,18 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       await pump(tester);
+      // One open form at a time: each certificate is finished before the next
+      // is opened.
       for (int i = 0; i < 8; i++) {
         await tester.ensureVisible(find.text('Aur ek certificate jodein'));
         await tester.tap(find.text('Aur ek certificate jodein'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+            find.byType(TextField).at(i * 3), 'Cert $i');
+        await tester.enterText(
+            find.byType(TextField).at(i * 3 + 1), 'Govt ITI');
+        await tester.enterText(
+            find.byType(TextField).at(i * 3 + 2), '2019');
         await tester.pumpAndSettle();
       }
 
@@ -1022,13 +1031,30 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       await pump(tester);
-      // #1384 item 2 — education is the marker's SECOND internal page.
+      // Education is the marker's SECOND (and last) internal page: a single
+      // page holding every field.
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
+      // One open form at a time: each entry is finished (credential, subject,
+      // board, year, institute) before the next is opened.
       for (int i = 0; i < 4; i++) {
         await tester.ensureVisible(find.text('Aur ek entry jodein'));
         await tester.tap(find.text('Aur ek entry jodein'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('ITI').last);
+        await tester.tap(find.text('ITI').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+            find.byType(TextField).at(i * 3), 'Machinist');
+        await tester.pump();
+        await tester.ensureVisible(find.text('NCVT').last);
+        await tester.tap(find.text('NCVT').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+            find.byType(TextField).at(i * 3 + 1), '2018');
+        await tester.enterText(
+            find.byType(TextField).at(i * 3 + 2), 'Govt ITI');
         await tester.pumpAndSettle();
       }
 
@@ -1042,10 +1068,10 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       await pump(tester);
-      // #1384 item 2 — education is the marker's 2nd-4th internal pages
-      // (credential+subject / council / year+institute), each its own page.
+      // Education is ONE page: credential, subject, board, year and institute
+      // together — no separate council screen.
       await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> credential+subject
+      await tester.tap(find.text('Aage badhein')); // -> education
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Aur ek entry jodein'));
       await tester.tap(find.text('Aur ek entry jodein'));
@@ -1058,15 +1084,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(_optionSelected(tester, 'ITI'), isTrue);
 
-      // ITI names a trade, so the subject is now shown and REQUIRED on this
-      // page (a used row must be complete before the wizard advances).
+      // ITI names a subject, so it is now shown just below the selected
+      // credential — and REQUIRED before the wizard advances.
+      expect(find.text('Kis subject me kiya'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'Machinist');
       await tester.pump();
 
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> council
-      await tester.pumpAndSettle();
-
+      // The board sits on the SAME page, just below — no "Aage badhein"
+      // between them.
+      await tester.ensureVisible(find.text('NCVT'));
       expect(find.text('NCVT'), findsOneWidget);
       expect(_optionSelected(tester, 'NCVT'), isFalse);
       await tester.tap(find.text('NCVT'));
@@ -1092,10 +1118,8 @@ void main() {
       await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
       // #1465 — with NO education added, the marker is TWO internal pages:
-      // certificates -> credential+subject. The council and year+institute
-      // pages render one row per education entry, so with none they would be
-      // blank and the wizard does not walk them at all. That single "Aage
-      // badhein" is purely internal pagination and must NOT reach the server.
+      // certificates -> education (single page). That single "Aage badhein"
+      // is purely internal pagination and must NOT reach the server.
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
@@ -1121,8 +1145,8 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
       await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
-      // #1465 — no education, so the marker's LAST internal page is
-      // credential+subject, one hop away.
+      // #1465 — no education, so the marker's LAST internal page is the
+      // single education page, one hop away.
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
@@ -1167,32 +1191,26 @@ void main() {
 
       final GoRouter router = await pumpToBuilding(tester);
       await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> credential+subject
+      await tester.tap(find.text('Aage badhein')); // -> education (single page)
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Aur ek entry jodein'));
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
 
-      // A used education row is complete: credential + subject (ITI names one)
-      // -> council -> year + institute.
+      // One card holds everything: credential + subject, board, year,
+      // institute — the board no longer owns a screen of its own.
       await tester.ensureVisible(find.text('ITI'));
       await tester.tap(find.text('ITI'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'Machinist');
       await tester.pump();
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> council
-      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('NCVT'));
       await tester.tap(find.text('NCVT'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> year+institute
-      await tester.pumpAndSettle();
-      // Now on year+institute. Two fields (year, then institute).
+      // Year then institute, on the same card.
       expect(find.text('Institute ka naam'), findsOneWidget);
-      await tester.enterText(find.byType(TextField).first, '2018');
-      await tester.enterText(find.byType(TextField).last, 'rvm cad pvt ltd');
+      await tester.enterText(find.byType(TextField).at(1), '2018');
+      await tester.enterText(find.byType(TextField).at(2), 'rvm cad pvt ltd');
       await tester.pump();
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
@@ -1207,41 +1225,36 @@ void main() {
     });
 
     testWidgets(
-        'a trade/subject typed lowercase is title-cased before it reaches '
+        'a subject typed lowercase is title-cased before it reaches '
         'saveQualifications', (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       final GoRouter router = await pumpToBuilding(tester);
       await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> credential+subject
+      await tester.tap(find.text('Aage badhein')); // -> education
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Aur ek entry jodein'));
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
 
-      // "Trade ya subject" only shows once a subject-bearing credential
-      // (ITI/Diploma/Graduate/12th pass) is picked — hidden until then.
-      expect(find.text('Trade ya subject'), findsNothing);
+      // "Kis subject me kiya" only shows once a subject-bearing credential
+      // (ITI/Diploma/Graduate/12th pass) is picked — hidden until then, just
+      // below the selected credential.
+      expect(find.text('Kis subject me kiya'), findsNothing);
       await tester.ensureVisible(find.text('ITI'));
       await tester.tap(find.text('ITI'));
       await tester.pumpAndSettle();
-      expect(find.text('Trade ya subject'), findsOneWidget);
+      expect(find.text('Kis subject me kiya'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'electric');
       await tester.pump();
 
-      // Walk the remaining pages (council, then year+institute), completing the
-      // used row, to save.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> council
-      await tester.pumpAndSettle();
+      // Board, year and institute sit on the same card — complete the row to
+      // save.
       await tester.ensureVisible(find.text('NCVT'));
       await tester.tap(find.text('NCVT'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein')); // -> year+institute
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, '2018');
-      await tester.enterText(find.byType(TextField).last, 'Govt ITI');
+      await tester.enterText(find.byType(TextField).at(1), '2018');
+      await tester.enterText(find.byType(TextField).at(2), 'Govt ITI');
       await tester.pump();
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
