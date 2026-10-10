@@ -111,10 +111,12 @@ const String kChatCustomAnswerGenericSemantics =
 /// swap reads plainly).
 const String _kComposerHint = 'Boliye ya likhiye…';
 
-/// Normalised labels of the ONE legitimate lock-the-keyboard turn: the
-/// engine's experience gate ("Aur koi experience jodna hai?" → Haan / Nahi).
+/// Normalised labels of a legitimate lock-the-keyboard turn: the engine's
+/// yes/no gates — the experience gate ("Aur koi experience jodna hai?" →
+/// Haan / Nahi) and the trade-confirm gate (#2190, `[Trade] — क्या आप यही
+/// काम करना चाहते हैं?` → Haan / Nahi).
 /// Any other `options_only` turn keeps the composer (see
-/// [_ChatViewState._isYesNoGate]).
+/// [_ChatViewState._isYesNoGate] / [_ChatViewState._isTradeConfirmGate]).
 const Set<String> _kGateYesLabels = <String>{'haan', 'han', 'ha', 'yes'};
 const Set<String> _kGateNoLabels = <String>{'nahi', 'nahin', 'na', 'no'};
 
@@ -124,6 +126,13 @@ const Set<String> _kGateNoLabels = <String>{'nahi', 'nahin', 'na', 'no'};
 /// must keep the composer. If the copy ever drifts the lock simply lifts,
 /// which is the safe side — the server accepts typed text on every turn.
 const String _kExperienceGatePrompt = 'Aur koi experience jodna hai?';
+
+/// The trade-confirm gate's option keys (Phase-A profiling, #2190). The gate
+/// prompt embeds the inferred trade label, so it cannot be byte-matched like
+/// [_kExperienceGatePrompt] — the stable `option_key`s identify the gate.
+/// No new wire enum was added, so this matches existing fields only.
+const String _kTradeConfirmYesKey = 'trade_confirm_yes';
+const String _kTradeConfirmNoKey = 'trade_confirm_no';
 
 /// `option_key` prefix of the LLM interview's model-suggested chips
 /// (`slugIndexKey("llm", i)` server-side → `llm_a`, `llm_b`, …; the slug schema
@@ -1893,14 +1902,17 @@ class _ChatViewState extends State<_ChatView>
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         // #770 — the composer (and its mic, since voice resolves to
-        // typed text) is suppressed ONLY on the engine's yes/no gate
-        // ("Aur koi experience jodna hai?" → Haan / Nahi). Any other
+        // typed text) is suppressed ONLY on the engine's yes/no gates
+        // (the experience gate "Aur koi experience jodna hai?" → Haan /
+        // Nahi, and the trade-confirm gate #2190 `[Trade] — क्या आप यही
+        // काम करना चाहते हैं?` → Haan / Nahi). Any other
         // options_only turn — a model-chosen one, e.g. role
         // suggestions — keeps it: the server accepts typed text on
         // every turn and the worker's profile may not be a chip.
-        // [_isYesNoGate] needs two chips, so a malformed options_only
-        // turn with no chips still never traps the worker, and
-        // custom-answer mode always brings the composer back.
+        // [_isYesNoGate] / [_isTradeConfirmGate] need two chips, so a
+        // malformed options_only turn with no chips still never traps
+        // the worker, and custom-answer mode always brings the composer
+        // back.
         //
         // #1363 — a form_offer turn is the server CLOSING the
         // session (`kind: "close"`, `form_handoff`): typing into it
@@ -1914,7 +1926,7 @@ class _ChatViewState extends State<_ChatView>
         // rather than leaving a bare gap.
         if (state.inputMode == ChatInputMode.optionsOnly &&
             !_customAnswerMode &&
-            _isYesNoGate(state))
+            (_isYesNoGate(state) || _isTradeConfirmGate(state)))
           _optionsOnlyHint()
         // #1821 F1 — THE COOL-DOWN BLOCKS FREE TEXT, AND ONLY FREE TEXT. The
         // server serves `cooldown_until` on a faltu turn; until that instant the
@@ -2228,6 +2240,29 @@ class _ChatViewState extends State<_ChatView>
         last.text.trim().toLowerCase() ==
             _kExperienceGatePrompt.toLowerCase() &&
         _isYesNoPair(_turnLabels(state));
+  }
+
+  /// Whether this turn is the trade-confirm gate (#2190): `options_only` chips
+  /// keyed exactly `trade_confirm_yes` + `trade_confirm_no` with a yes/no
+  /// label pair.
+  ///
+  /// Keyed on the stable option keys — NOT the prompt, which embeds the
+  /// dynamic inferred trade label — and NOT on labels alone, which a model's
+  /// own Haan / Nahi question also carries (that one must keep the composer,
+  /// exactly as [_isYesNoGate] requires its own prompt). Unknown/absent keys
+  /// simply do not lock: the server accepts typed Haan / Nahi on every turn,
+  /// so a parse miss can only restore the keyboard, never trap the worker.
+  static bool _isTradeConfirmGate(ChatState state) {
+    if (state.inputMode != ChatInputMode.optionsOnly) return false;
+    if (state.suggestedOptions.length != 2) return false;
+    final Set<String> keys = <String>{
+      for (final ChatOption o in state.suggestedOptions) o.optionKey,
+    };
+    if (!keys.contains(_kTradeConfirmYesKey) ||
+        !keys.contains(_kTradeConfirmNoKey)) {
+      return false;
+    }
+    return _isYesNoPair(_turnLabels(state));
   }
 
   /// Whether [option] is the server's own escape ([_kServerEscapeOptionKey]).

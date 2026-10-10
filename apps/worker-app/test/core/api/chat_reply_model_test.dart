@@ -187,6 +187,73 @@ void main() {
       }
     });
   });
+
+  // #2190 — the Phase-A trade-confirm gate. The backend serves it with the
+  // existing fields only (no new wire enum): `kind: "ask"`,
+  // `question_key: null`, `answer_type: "single_select"`,
+  // `input_mode: "options_only"`, options keyed `trade_confirm_yes` /
+  // `trade_confirm_no`. A resume re-serve carries `replayed: true`, unknown
+  // to this build — parsing must ignore it, never drop the turn.
+  group('trade-confirm gate parsing (#2190)', () {
+    Map<String, dynamic> gateJson() => <String, dynamic>{
+          'reply': 'Rajmistri — क्या आप यही काम करना चाहते हैं?',
+          'question_kind': 'ask',
+          'question_key': null,
+          'answer_type': 'single_select',
+          'input_mode': 'options_only',
+          'suggested_followups': <dynamic>['Haan', 'Nahi'],
+          'suggested_options': <dynamic>[
+            <String, dynamic>{
+              'option_key': 'trade_confirm_yes',
+              'label_text': 'Haan',
+            },
+            <String, dynamic>{
+              'option_key': 'trade_confirm_no',
+              'label_text': 'Nahi',
+            },
+          ],
+        };
+
+    test('parses the gate turn from the exact served shape', () {
+      final ChatReply reply = ChatReply.fromJson(gateJson());
+      expect(reply.reply, 'Rajmistri — क्या आप यही काम करना चाहते हैं?');
+      expect(reply.questionKind, ChatQuestionKind.ask);
+      expect(reply.askedQuestionId, isNull);
+      expect(reply.answerType, ChatAnswerType.singleSelect);
+      expect(reply.inputMode, ChatInputMode.optionsOnly);
+      expect(reply.suggestedFollowups, <String>['Haan', 'Nahi']);
+      expect(
+        reply.suggestedOptions.map((ChatOption o) => o.optionKey),
+        <String>['trade_confirm_yes', 'trade_confirm_no'],
+      );
+    });
+
+    test('a replayed re-serve (replayed: true) parses identically', () {
+      final Map<String, dynamic> json = gateJson()..['replayed'] = true;
+      final ChatReply reply = ChatReply.fromJson(json);
+      expect(reply.reply, 'Rajmistri — क्या आप यही काम करना चाहते हैं?');
+      expect(reply.answerType, ChatAnswerType.singleSelect);
+      expect(reply.inputMode, ChatInputMode.optionsOnly);
+      expect(reply.suggestedOptions, hasLength(2));
+    });
+
+    test('parses the re-ask turn as open text', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'आप किस ट्रेड में काम करना चाहते हैं?',
+        'question_kind': 'ask',
+        'question_key': null,
+        'answer_type': 'text',
+        'input_mode': 'text',
+        'suggested_followups': <dynamic>[],
+        'suggested_options': <dynamic>[],
+      });
+      expect(reply.reply, 'आप किस ट्रेड में काम करना चाहते हैं?');
+      expect(reply.answerType, ChatAnswerType.text);
+      expect(reply.inputMode, ChatInputMode.text);
+      expect(reply.suggestedOptions, isEmpty);
+      expect(reply.suggestedFollowups, isEmpty);
+    });
+  });
   // #761 — the advisory lookahead. Parsed defensively like the chips (#371): a
   // malformed entry yields "no prediction" for that key and the reply survives.
   group('lookahead + PredictedQuestion parsing (#761)', () {
