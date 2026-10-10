@@ -35,7 +35,7 @@ import { TRADE_FORM_OFFERS } from "./trade-form-router";
  * ── WHAT CHANGED WHEN THE TRADE-CONFIRM GATE CAME FIRST ───────────────────────────────────
  *
  * The offer is now served for a CONFIRMED trade: the turn the trade is named serves
- * "<trade> — क्या आप यही काम करना चाहते हैं?" first, and the offer follows on the Haan.
+ * "<trade> — kya aap yahi kaam karna chahte hain?" first, and the offer follows on the Haan.
  * Every flow below therefore walks two gates — trade-confirm, then form offer — and the
  * pin-only tests prove the pin is gate evidence too, not an offer shortcut.
  *
@@ -235,7 +235,7 @@ describe("the trade-form offer", () => {
       const gated = await orchestrator.takeTurn(say("main cnc turner hoon"));
 
       // The trade-confirm gate owns the turn the trade is named.
-      expect(gated.reply).toBe("CNC Turner — क्या आप यही काम करना चाहते हैं?");
+      expect(gated.reply).toBe("CNC Turner — kya aap yahi kaam karna chahte hain?");
       expect(gated.inputMode).toBe("options_only");
 
       // Haan confirms it, and the offer is served on that same turn.
@@ -430,7 +430,7 @@ describe("the trade-form offer", () => {
       const gated = await orchestrator.takeTurn(say("cnc turning"));
 
       expect(gated.kind).toBe("ask");
-      expect(gated.reply).toBe("CNC Operator-Turning — क्या आप यही काम करना चाहते हैं?");
+      expect(gated.reply).toBe("CNC Operator-Turning — kya aap yahi kaam karna chahte hain?");
 
       const result = await orchestrator.takeTurn(say("Haan"));
       expect(result.kind).toBe("ask");

@@ -814,7 +814,7 @@ describe("the general road through the orchestrator (ADR-0045)", () => {
       });
       const gated = await world.orchestrator.takeTurn(fromChat(ROLE_MSG));
 
-      expect(gated.reply).toBe(`${ROLE} — क्या आप यही काम करना चाहते हैं?`);
+      expect(gated.reply).toBe(`${ROLE} — kya aap yahi kaam karna chahte hain?`);
       expect(gated.inputMode).toBe("options_only");
       expect(saved(world)?.generalRoad.lane).toBeNull();
       expect(emitted(world, LANE)).toHaveLength(0);

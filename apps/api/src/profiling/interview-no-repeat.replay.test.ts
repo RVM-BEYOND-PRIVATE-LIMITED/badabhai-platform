@@ -262,7 +262,7 @@ describe("#1505 F5: the model's own gate-shaped or repeated line is never served
     );
     // The trade-confirm gate owns the turn the trade is first named — even when that name
     // arrives only as an experience entry's role fallback.
-    expect(tradeGate.reply).toBe("tandoor cook — क्या आप यही काम करना चाहते हैं?");
+    expect(tradeGate.reply).toBe("tandoor cook — kya aap yahi kaam karna chahte hain?");
 
     const expGate = await world.orchestrator.takeTurn(
       turnInput("Haan", new Date(T0.getTime() + 2000)),

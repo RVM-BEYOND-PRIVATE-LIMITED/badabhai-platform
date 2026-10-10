@@ -705,8 +705,8 @@ export interface ProfilingEnvelope {
   readonly llmGateAsked: boolean;
 
   /**
-   * The trade-confirm gate (Phase A) — "<trade> — क्या आप यही काम करना चाहते हैं?"
-   * with Haan/Nahi, then "आप किस ट्रेड में काम करना चाहते हैं?" on a Nahi.
+   * The trade-confirm gate (Phase A) — "<trade> — kya aap yahi kaam karna chahte hain?"
+   * with Haan/Nahi, then "Aap kis trade mein kaam karna chahte hain?" on a Nahi.
    *
    * `open` is "the gate is on screen RIGHT NOW" (the worker's next sentence answers
    * it); `trade` the label being confirmed; `confirmed` sticky once the worker says
