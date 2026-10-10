@@ -53,6 +53,7 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
     show applyNoneOfAboveRule, kVoiceBooleanNo, kVoiceBooleanYes;
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
+import '../domain/chat_answered_facts.dart' show kChatShiftPreferenceQuestionId;
 import '../domain/chat_companion_keys.dart';
 import '../domain/chat_news_link.dart';
 import '../domain/chat_free_chat_keys.dart';
@@ -2533,9 +2534,19 @@ class _ChatViewState extends State<_ChatView>
     // #1559 / #1583 — a `multi_select` pack question: its chips TICK and one
     // "Ho gaya" sends them together. Never in companion mode (those chips
     // navigate) and never on a disambiguation (one trade is the answer).
+    //
+    // #2198 — and never the Shift question: the server stores one text slug
+    // (`shift_preference`) and the form asks it single-select, so a tick row
+    // would let a two-tick answer be dropped whole by single-select capture
+    // (losing the answer and wrongly marking the fact known). Covers the live
+    // turn AND the optimistic prediction below via both question keys.
+    final bool isShiftQuestion =
+        state.askedQuestionKey == kChatShiftPreferenceQuestionId ||
+            state.predictedQuestionKey == kChatShiftPreferenceQuestionId;
     final bool multiSelect = !state.companion &&
         state.answerType == ChatAnswerType.multiSelect &&
-        state.questionKind != ChatQuestionKind.disambiguate;
+        state.questionKind != ChatQuestionKind.disambiguate &&
+        !isShiftQuestion;
     if (state.suggestedOptions.isNotEmpty) {
       return KeyedSubtree(
         key: const ValueKey<String>('chips'),
