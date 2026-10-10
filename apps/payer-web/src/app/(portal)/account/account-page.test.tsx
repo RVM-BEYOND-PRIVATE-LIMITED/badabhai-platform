@@ -118,4 +118,21 @@ describe("/account — the agency KYC card follows the agency-portal flag", () =
     expect(out).not.toContain("Payout details (KYC)");
     expect(out).toContain("Signed in as");
   });
+
+  it("#2178: a recruiter's 403 renders the neutral owner-only band — no retry, no error", async () => {
+    getAgencyKyc.mockRejectedValue(new Error("payer API /payer/agency/kyc returned 403"));
+    const out = await html();
+    expect(out).toContain("Payout details (KYC)");
+    expect(out).toContain("owner can see payouts");
+    expect(out).toContain("Owner only");
+    expect(out).not.toMatch(/retry/i);
+  });
+
+  it("#2178: an explicit recruiter orgRole skips the read and renders owner-only", async () => {
+    requirePayer.mockResolvedValue({ ...AGENT, orgRole: "recruiter" });
+    const out = await html();
+    expect(getAgencyKyc).not.toHaveBeenCalled();
+    expect(out).toContain("Payout details (KYC)");
+    expect(out).toContain("owner can see payouts");
+  });
 });

@@ -97,8 +97,10 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
       const issues = await readFieldIssues(res);
       if (issues.length > 0) throw new PayerValidationError(path, issues);
     }
-    // 403 = recruiter-only surface accessed by a non-recruiter (company payer).
-    // Surface it as a neutral "Agency accounts only" state — no PII, no oracle,
+    // 403 = a gated surface refusing this member: a company payer on a recruiter-only
+    // surface (#2187), or a recruiter on an owner-only money surface (#2178, ADR-0053
+    // O-5). Surface it as a typed forbidden — no PII, no oracle — so a page can render
+    // its neutral owner-only / agency-only state instead of a retryable error,
     // identical to the Flutter app's AgencyEarningsStatus.forbidden handling.
     if (res.status === 403) throw new PayerForbiddenError(path);
     // A 409 is read too (#2085): a `price_mismatch` must reach the payer as "the price

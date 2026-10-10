@@ -88,6 +88,18 @@ describe("submitKycAction — vertical authz + validation", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toMatch(/retry/i);
   });
+
+  it("#2178: a 403 maps to the neutral owner-only message — never a retry", async () => {
+    submitAgencyKyc.mockRejectedValueOnce(
+      new Error("payer API /payer/agency/kyc returned 403"),
+    );
+    const res = await submitKycAction(VALID_KYC);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toMatch(/owner/i);
+      expect(res.error).not.toMatch(/retry/i);
+    }
+  });
 });
 
 describe("requestPayoutAction — vertical authz + gate + passthrough", () => {
@@ -129,5 +141,17 @@ describe("requestPayoutAction — vertical authz + gate + passthrough", () => {
     const res = await requestPayoutAction();
     expect(res.ok).toBe(false);
     if (!res.ok && "error" in res) expect(res.error).toMatch(/retry/i);
+  });
+
+  it("#2178: a 403 maps to the neutral owner-only message — never a retry", async () => {
+    requestAgencyPayout.mockRejectedValueOnce(
+      new Error("payer API /payer/agency/payouts returned 403"),
+    );
+    const res = await requestPayoutAction();
+    expect(res.ok).toBe(false);
+    if (!res.ok && "error" in res) {
+      expect(res.error).toMatch(/owner/i);
+      expect(res.error).not.toMatch(/retry/i);
+    }
   });
 });

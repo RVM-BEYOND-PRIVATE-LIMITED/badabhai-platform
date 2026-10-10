@@ -112,6 +112,22 @@ describe("KycPanel — status-driven rendering (masked only)", () => {
     expect(joined).not.toContain("ABCDE1234F");
     expect(joined).not.toContain("123456789");
   });
+
+  it("#2178: forbidden → neutral owner-only band, NO form", () => {
+    const { types, text } = collect(
+      render({
+        status: "forbidden",
+        panLast4: null,
+        bankLast4: null,
+        rejectReason: null,
+        updatedAt: null,
+      }),
+    );
+    expect(types).not.toContain("form");
+    const joined = text.join(" ");
+    expect(joined).toContain("owner can see payouts");
+    expect(joined).toContain("Owner only");
+  });
 });
 
 describe("KycPanel — client validation mirrors the DTO", () => {

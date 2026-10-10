@@ -2,6 +2,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
 import { agencyFlags } from "../../../lib/config";
 import { getAgencyKyc } from "../../../lib/payer-api";
+import { isPayerForbiddenError, isPayerStatus } from "../../../lib/payer-errors";
 import { maskLast4 } from "../../../lib/masking";
 import type { AgencyKyc } from "../../../lib/contracts";
 import type { PayerSession } from "../../../lib/auth/types";
@@ -46,6 +47,11 @@ export const dynamic = "force-dynamic";
  * OWN data, never a raw document, never worker PII. The card's actions open Referrals, where
  * KYC is managed — an agency page behind the agency-portal flag — so with that flag off the
  * card is not shown (and not read): its buttons would lead to a 404.
+ *
+ * OWNER-ONLY (#2178, ADR-0053 O-5): once the payouts flag is on, a recruiter's KYC read is
+ * refused with 403. That renders a neutral "Only your organization's owner can see payouts"
+ * band — no retry, no error styling — via the `forbidden` KYC status. The server stays the
+ * authority (the 403); an explicit recruiter `orgRole` skips the doomed read.
  */
 export default async function AccountPage() {
   const session = await requirePayer();
@@ -77,14 +83,21 @@ export default async function AccountPage() {
   }
 
   // Agency-only: read the caller's OWN masked KYC status. `null` = not enabled (404) or a
-  // transient failure → the KYC card is HIDDEN, never faked. Isolated so a KYC read failure
-  // can never blank the account page.
+  // transient failure → the KYC card is HIDDEN, never faked. A 403 = recruiter on the
+  // owner-only route (#2178) → the neutral owner-only band, never a retry. Isolated so a
+  // KYC read failure can never blank the account page. An explicit recruiter orgRole skips
+  // the doomed read (the server's 403 stays the authority for anything stale).
   let agencyKyc: AgencyKyc | null = null;
   if (session.role === "agent" && agencyFlags().agencyPortalEnabled) {
-    try {
-      agencyKyc = await getAgencyKyc();
-    } catch {
-      agencyKyc = null;
+    if (session.orgRole === "recruiter") {
+      agencyKyc = OWNER_ONLY_KYC;
+    } else {
+      try {
+        agencyKyc = await getAgencyKyc();
+      } catch (e) {
+        if (isPayerForbiddenError(e) || isPayerStatus(e, 403)) agencyKyc = OWNER_ONLY_KYC;
+        else agencyKyc = null;
+      }
     }
   }
 
@@ -147,6 +160,19 @@ export default async function AccountPage() {
 
 const ACCOUNT_DESCRIPTION = "Your organisation’s details on BadaBhai.";
 
+/**
+ * Synthetic KYC for a recruiter refused by the owner-only gate (#2178): the `forbidden`
+ * status renders the neutral owner-only band — no retry, no error styling. The server's
+ * 403 stays the authority; this object only carries the refusal to the card.
+ */
+const OWNER_ONLY_KYC: AgencyKyc = {
+  status: "forbidden",
+  panLast4: null,
+  bankLast4: null,
+  rejectReason: null,
+  updatedAt: null,
+};
+
 type Role = PayerSession["role"];
 type Status = PayerSession["status"];
 
@@ -166,8 +192,8 @@ const STATUS_LABEL: Record<Status, string> = {
  * Per-status presentation for the KYC/PAN row: the alert tone modifier + the status Badge
  * tone + its short label. Kept as a closed map (never a computed class) so every status has a
  * deliberate, reviewed appearance. `not_submitted` is a neutral prompt, `pending` a warning,
- * `verified` green, `rejected` a danger band, `forbidden` a neutral
- * "Agency accounts only" band (a company payer on a recruiter-only surface).
+ * `verified` green, `rejected` a danger band, `forbidden` a neutral owner-only band
+ * (#2178 — a recruiter on the owner-only money surface, never a retry).
  */
 const KYC_PRESENTATION: Record<
   AgencyKyc["status"],
@@ -180,7 +206,7 @@ const KYC_PRESENTATION: Record<
   forbidden: {
     alert: "alert alert--neutral",
     tone: "neutral",
-    label: "Agency accounts only",
+    label: "Owner only",
   },
 };
 
@@ -204,7 +230,7 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
         : kyc.status === "rejected"
           ? (kyc.rejectReason ?? "Your details couldn't be verified. Please resubmit.")
           : kyc.status === "forbidden"
-            ? "KYC for payouts is only available on agency (recruiter) accounts."
+            ? "Only your organization's owner can see payouts."
             : "Submit your KYC documents.";
 
   return (
