@@ -758,17 +758,22 @@ describe("the worker's own trade outranks the model's draft at close (#1506)", (
 
   it("the vacuity twin: with nothing stated, the draft's label DOES settle", async () => {
     const { orchestrator, store } = makeWorld({ take: DONE });
-    await orchestrator.takeTurn(say("bas itna hi"));
+    const gated = await orchestrator.takeTurn(say("bas itna hi"));
+    // A `done` that first names the trade still confirms it before closing.
+    expect(gated.reply).toBe("machining — क्या आप यही काम करना चाहते हैं?");
+    await orchestrator.takeTurn(say("Haan"));
     expect(tradeOf(store)?.value_raw).toBe(FINISHED_DRAFT.domain_label);
   });
 });
 
 describe("Phase A ends and the template tail takes over", () => {
-  it("serves the pack's next question on the SAME turn Phase A finishes", async () => {
+  it("confirms the trade, then serves the pack's next question on the turn Phase A finishes", async () => {
     // Not the model's closing words — that would cost the worker a round trip to see a bubble
-    // with no question in it.
+    // with no question in it. And not before the trade-confirm gate: a `done` that first names
+    // the trade confirms it before closing.
     const { orchestrator, store } = makeWorld({ take: DONE });
-    const result = await orchestrator.takeTurn(say("bas itna hi"));
+    await orchestrator.takeTurn(say("bas itna hi"));
+    const result = await orchestrator.takeTurn(say("Haan"));
 
     expect(result.reply).toBe(CITY.prompt_text);
     expect(result.questionKey).toBe("q_city");
@@ -1176,7 +1181,11 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     });
     seed(store, { occupation: MACHINIST_PIN });
 
-    const result = await orchestrator.takeTurn(say("nahi"));
+    // Phase A led five turns without naming the trade; the deterministic pin names it, so the
+    // gate confirms the pin before the tail — then the tail, without the trade pack.
+    const gated = await orchestrator.takeTurn(say("nahi"));
+    expect(gated.reply).toBe("machine operator — क्या आप यही काम करना चाहते हैं?");
+    const result = await orchestrator.takeTurn(say("Haan"));
 
     expect(result.questionKey).toBe("q_city");
     expect(result.reply).not.toBe("Aap kaunsi machine chalate hain?");
@@ -1214,11 +1223,13 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     // asked, so the two must be indistinguishable here. Under the old floor they were opposites.
     const full = makeWorld({ occupation: MACHINING_PACK, take: DONE });
     seed(full.store, { occupation: MACHINIST_PIN });
-    const withDraft = await full.orchestrator.takeTurn(say("bas itna hi"));
+    await full.orchestrator.takeTurn(say("bas itna hi"));
+    const withDraft = await full.orchestrator.takeTurn(say("Haan"));
 
     const empty = makeWorld({ occupation: MACHINING_PACK, take: DONE_EMPTY_HANDED });
     seed(empty.store, { occupation: MACHINIST_PIN });
-    const withoutDraft = await empty.orchestrator.takeTurn(say("bas itna hi"));
+    await empty.orchestrator.takeTurn(say("bas itna hi"));
+    const withoutDraft = await empty.orchestrator.takeTurn(say("Haan"));
 
     expect(withoutDraft.questionKey).toBe(withDraft.questionKey);
     expect(withDraft.questionKey).toBe("q_city");
@@ -1233,7 +1244,8 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, take: DONE });
     seed(store, { occupation: MACHINIST_PIN });
 
-    const result = await orchestrator.takeTurn(say("bas itna hi"));
+    await orchestrator.takeTurn(say("bas itna hi"));
+    const result = await orchestrator.takeTurn(say("Haan"));
 
     const predicted = Object.values(result.lookahead ?? {}).map((entry) => entry.questionKey);
     expect(predicted.length).toBeGreaterThan(0);
@@ -1244,7 +1256,8 @@ describe("an interview the model led never re-interrogates the trade pack", () =
   it("hands Phase A's close straight to the universal tail", async () => {
     const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, take: DONE });
     seed(store, { occupation: MACHINIST_PIN });
-    const result = await orchestrator.takeTurn(say("bas itna hi"));
+    await orchestrator.takeTurn(say("bas itna hi"));
+    const result = await orchestrator.takeTurn(say("Haan"));
 
     expect(result.questionKey).toBe("q_city");
     // AND THE PACK IS STILL PINNED. Suppressing SELECTION is the whole change; a version of it
@@ -1299,7 +1312,11 @@ describe("an interview the model led never re-interrogates the trade pack", () =
         experiences: [],
       },
     });
-    await orchestrator.takeTurn(say("Nahi"));
+    // The trade gate owns this turn (the draft names the trade and Phase A led); the Haan
+    // after it closes Phase A and settles onto the pinned pack's own rows.
+    const gated = await orchestrator.takeTurn(say("Nahi"));
+    expect(gated.reply).toBe("machining — क्या आप यही काम करना चाहते हैं?");
+    await orchestrator.takeTurn(say("Haan"));
 
     const map = store.get(SESSION)?.profiling?.answerMap ?? [];
     expect(map.find((a) => a.question_key === "machine_type")).toMatchObject({
