@@ -32,11 +32,11 @@ function jobText(job: string): string {
  *  - the boot-safety preflight: the api's z.enum throws at boot on anything but off/shadow/on
  *    (empty reads as unset), the api `up` has no automatic rollback and the secret cannot be read
  *    back — so scripts/deploy/staging-deploy.sh must refuse a bad value before anything moves;
- *  - the PHASE GATE (security review of PR #2167, M1; risk R66): until PAY-DB-01 Phase 3 the
- *    preflight also refuses `on`. Before every tenant predicate is converted (the T5 UNCONVERTED
- *    list in payer-tenancy.static.test.ts is empty), `on` would scope some routes by org and the
- *    rest by login. The api's enum keeps accepting `on` — the e2e job runs with it. The P3 PR
- *    lifts this refusal (ORG_TENANCY_PLAN §5);
+ *  - the preflight admits EXACTLY what the api boots on: off, shadow, on, and empty. Until
+ *    PAY-DB-01 Phase 3 it also refused `on` (security review of PR #2167, M1; risk R66): before
+ *    every tenant predicate was converted, `on` would have scoped some routes by org and the rest
+ *    by login. The P3 PR lifted that arm in the same change that left T5's allowlist at the
+ *    plan's §4 exceptions (payer-tenancy.static.test.ts); arming is owner decision O-8;
  *  - the e2e job runs the api with the mode `on`, so every suite exercises solo identity.
  * Comments are stripped so prose cannot satisfy these.
  */
@@ -80,41 +80,34 @@ describe(`${NAME} — the deploy refuses a value outside the api's grammar, befo
   // some later `exit 1` in the script and pass with the catch-all arm gutted.
   const start = SCRIPT.indexOf(GUARD_HEAD);
   const block = start < 0 ? "" : SCRIPT.slice(start, SCRIPT.indexOf("\nesac", start));
-  // Three arms, in order: the accepting arm, the Phase-gate arm for `on`, the catch-all.
-  const arms = /^case [^\n]*\n\s*([^\n)]*)\)\s*;;\n\s*on\)([\s\S]*?);;\n\s*\*\)([\s\S]*)$/.exec(
-    block,
-  );
+  // Two arms, in order: the accepting arm, then the catch-all. Since P3 there is no arm of its
+  // own for `on` (risk R66, closed): a third arm here means the Phase-gate refusal came back.
+  const arms = /^case [^\n]*\n\s*([^\n)]*)\)\s*;;\n\s*\*\)([\s\S]*)$/.exec(block);
   const field = serverEnvSchema.shape[NAME];
 
   it("carries the guard, and its catch-all arm fails the job", () => {
     expect(arms, "the preflight case on the mode is missing or reshaped").not.toBeNull();
-    expect(arms?.[3] ?? "").toMatch(/^\s*exit 1\s*$/m);
+    expect(arms?.[2] ?? "").toMatch(/^\s*exit 1\s*$/m);
+    expect(arms?.[2] ?? "").toMatch(/::error::/);
   });
 
-  it("accepts exactly off, shadow and empty — the values the api boots on, minus `on` until Phase 3", () => {
+  it("accepts exactly off, shadow, on and empty — the values the api boots on (R66 lifted in P3)", () => {
     const accepted = (arms?.[1] ?? "")
       .split("|")
       .map((alternative) => alternative.trim().replace(/^"(.*)"$/, "$1"));
-    expect([...accepted].sort()).toEqual(["", "off", "shadow"]);
+    expect([...accepted].sort()).toEqual(["", "off", "on", "shadow"]);
     for (const value of accepted) {
       expect(field.safeParse(value).success, `the api refuses ${JSON.stringify(value)}`).toBe(true);
     }
     // …and the api really does refuse what the preflight refuses (the guard is not decorative).
-    for (const value of ["ON", "true", "1", "enabled"]) {
+    for (const value of ["ON", "On", "true", "1", "enabled", "shadow "]) {
       expect(field.safeParse(value).success, value).toBe(false);
     }
   });
 
-  it("REFUSES `on` until PAY-DB-01 Phase 3: its own arm fails the job and says P3 lifts it (R66)", () => {
-    const onArm = arms?.[2] ?? "";
-    expect(onArm).toMatch(/^\s*exit 1\s*$/m);
-    expect(onArm).toMatch(/::error::/);
-    expect(onArm).toMatch(/Phase 3/);
-    expect(onArm, "the refusal must name what to set instead").toMatch(/\bshadow\b/);
-  });
-
-  it("…while the api's config still accepts `on` (the e2e job runs the api with it)", () => {
-    expect(field.safeParse("on").success).toBe(true);
+  it("no longer refuses `on` on its own (R66 closed by PAY-DB-01 Phase 3): the case has no `on)` arm", () => {
+    expect(block).not.toMatch(/^\s*on\)/m);
+    expect(block, "a refusal naming the phase gate must not come back").not.toMatch(/Phase 3/);
   });
 
   it("runs before the first prune, pull or recreate", () => {

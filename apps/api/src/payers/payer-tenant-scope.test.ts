@@ -542,24 +542,84 @@ describe("ONE choice: the Team page guard, the session claim and GET /payer/me a
         orgName: "Org",
         phone: null,
       })),
+      // The founder's org name, read only for a team member's postingOrgName (O-10).
+      findOrgName: vi.fn(async (id: string) => (id === TEAM_ANCHOR ? "Anchor Org" : undefined)),
     } as unknown as PayersRepository;
     const me = await new PayerAccountService(payers, {} as never, svc).getOwnAccount(ACTOR);
 
-    return { guard: req.payerOrg, claim, me: { orgId: me.orgId, orgRole: me.orgRole } };
+    return {
+      guard: req.payerOrg,
+      claim,
+      me: { orgId: me.orgId, orgRole: me.orgRole },
+      postingOrgName: me.postingOrgName,
+      tenantKey: (await svc.resolve(ACTOR)).tenantKey,
+    };
   }
 
   it.each<PayerOrgTenancyMode>(["off", "shadow"])(
-    "%s: all three report the most recent org",
+    "%s: all three report the most recent org; the payer posts under their OWN name (their own tenant)",
     async (mode) => {
       vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
       const solo = { orgId: newerSolo.orgId, orgRole: "owner" };
-      expect(await choicesUnder(mode)).toEqual({ guard: solo, claim: solo, me: solo });
+      expect(await choicesUnder(mode)).toEqual({
+        guard: solo,
+        claim: solo,
+        me: solo,
+        postingOrgName: "Org",
+        tenantKey: ACTOR,
+      });
       vi.restoreAllMocks();
     },
   );
 
-  it("on: all three report the TEAM org (R2), as the tenant scope does", async () => {
+  it("on: all three report the TEAM org (R2), as the tenant scope does; the payer posts under the FOUNDER's name (O-10)", async () => {
     const team = { orgId: olderTeam.orgId, orgRole: "recruiter" };
-    expect(await choicesUnder("on")).toEqual({ guard: team, claim: team, me: team });
+    expect(await choicesUnder("on")).toEqual({
+      guard: team,
+      claim: team,
+      me: team,
+      postingOrgName: "Anchor Org",
+      tenantKey: TEAM_ANCHOR,
+    });
+  });
+});
+
+describe("PayerTenantScopeService.resolveSelfView — GET/PATCH /payer/me (ADR-0053 O-10)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("off: the most recent org, and the ACTOR as the tenant, from ONE membership read", async () => {
+    const { svc, orgs } = makeService("off", [[SOLO, TEAM]]);
+    await expect(svc.resolveSelfView(ACTOR)).resolves.toEqual({
+      org: { orgId: TEAM.orgId, orgRole: "recruiter" },
+      tenantKey: ACTOR,
+    });
+    expect(orgs.listActiveMembershipsWithAnchor).toHaveBeenCalledTimes(1);
+  });
+
+  it("on: a team member's org is the team (R2) and their tenant the ANCHOR; a solo payer is their own", async () => {
+    await expect(makeService("on", [[SOLO, TEAM]]).svc.resolveSelfView(ACTOR)).resolves.toEqual({
+      org: { orgId: TEAM.orgId, orgRole: "recruiter" },
+      tenantKey: TEAM_ANCHOR,
+    });
+    await expect(makeService("on", [[SOLO]]).svc.resolveSelfView(ACTOR)).resolves.toEqual({
+      org: { orgId: SOLO.orgId, orgRole: "owner" },
+      tenantKey: ACTOR,
+    });
+  });
+
+  it("on: a DENIAL is all-null and logged, never a 403 (the account page must load)", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    await expect(
+      makeService("on", [[m(TEAM_ANCHOR, { orgStatus: "suspended" })]]).svc.resolveSelfView(ACTOR),
+    ).resolves.toEqual({ org: null, tenantKey: null });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("reason=org_inactive"));
+  });
+
+  it("a membership read error PROPAGATES in every mode (as it always has for GET /payer/me)", async () => {
+    for (const mode of ["off", "on"] as const) {
+      await expect(
+        makeService(mode, [new Error("pg blip")]).svc.resolveSelfView(ACTOR),
+      ).rejects.toThrow("pg blip");
+    }
   });
 });

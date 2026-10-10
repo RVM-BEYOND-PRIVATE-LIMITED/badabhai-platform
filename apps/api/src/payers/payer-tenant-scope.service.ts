@@ -9,10 +9,19 @@ import {
   type PayerOrgTenancyMode,
   type PayerTenantScope,
   type TenancyDenial,
+  type TenantKey,
 } from "./payer-tenant-scope";
 
 /** The one body every tenancy refusal returns: no rule name, no org id (no oracle). */
 export const TENANCY_DENIED_MESSAGE = "Not permitted for this organization";
+
+/** {@link PayerTenantScopeService.resolveSelfView}: the self-view's org and tenant key. */
+export interface PayerSelfTenancy {
+  /** The acting org and the payer's role in it; `null` with no active membership or on a denial. */
+  readonly org: ResolvedOrg | null;
+  /** The tenant the payer acts for (the actor itself in `off`); `null` only on an `on` denial. */
+  readonly tenantKey: TenantKey | null;
+}
 
 /**
  * ADR-0053 (PAY-DB-01) — THE payer tenant resolver.
@@ -28,9 +37,11 @@ export const TENANCY_DENIED_MESSAGE = "Not permitted for this organization";
  *    `off`/`shadow` never fail a request: the key is the actor, whatever the membership read
  *    does. `on` fails closed: any denial or resolve error is a neutral 403 (R7).
  *  - {@link resolveActingOrg} — the org only, for the callers that existed before this ADR
- *    (the session claim, `GET /payer/me`, login). A denial is `null`
+ *    (the session claim, login). A denial is `null`
  *    (no org); a read error propagates, as it did when those callers read the repository
  *    themselves, so each keeps its own error handling unchanged.
+ *  - {@link resolveSelfView} — `GET`/`PATCH /payer/me`: the same org PLUS the tenant key whose
+ *    org name a posting carries (O-10), from the same single read; a denial is all-`null`.
  *
  * In Phase 1 no tenant predicate reads the scope yet, so `on` changes only which org those
  * four callers report for a team member (R2: the team org, not the most recent membership).
@@ -87,13 +98,30 @@ export class PayerTenantScopeService {
    * membership, or an `on` denial). Same decision as {@link resolve}.
    */
   async resolveActingOrg(actorPayerId: string): Promise<ResolvedOrg | null> {
+    return (await this.resolveSelfView(actorPayerId)).org;
+  }
+
+  /**
+   * `GET`/`PATCH /payer/me`'s view of the payer's tenancy, from ONE membership read and the same
+   * decision as {@link resolve}: the acting org (as {@link resolveActingOrg}) and the TENANT KEY
+   * whose org name a posting the payer publishes carries (O-10, the form's `org_label` prefill).
+   * Never a 403 — the account page must load for a payer tenancy refuses: an `on` denial is
+   * `{ org: null, tenantKey: null }` (logged, as every denial). A read error propagates, as it
+   * always has for these callers.
+   */
+  async resolveSelfView(actorPayerId: string): Promise<PayerSelfTenancy> {
     const mode = this.mode();
-    if (mode !== "on") return toResolvedOrg(await this.servedWithoutTenancy(actorPayerId, mode));
+    if (mode !== "on") {
+      const scope = await this.servedWithoutTenancy(actorPayerId, mode);
+      return { org: toResolvedOrg(scope), tenantKey: scope.tenantKey };
+    }
 
     const choice = await this.decideOn(actorPayerId);
-    if (choice.kind === "resolved") return toResolvedOrg(choice.scope);
+    if (choice.kind === "resolved") {
+      return { org: toResolvedOrg(choice.scope), tenantKey: choice.scope.tenantKey };
+    }
     this.logDenial(actorPayerId, choice.kind === "denied" ? choice.reason : "no_membership");
-    return null;
+    return { org: null, tenantKey: null };
   }
 
   /**

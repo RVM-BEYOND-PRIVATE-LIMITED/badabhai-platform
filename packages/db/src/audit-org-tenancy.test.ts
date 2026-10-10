@@ -6,7 +6,7 @@ import {
   runCensus,
   type CensusQuery,
   type CensusResult,
-} from "./audit-org-tenancy";
+} from "./org-tenancy-census";
 
 /**
  * ADR-0053 census (plan §6). The counting is Postgres's job; what is pinned here is what makes

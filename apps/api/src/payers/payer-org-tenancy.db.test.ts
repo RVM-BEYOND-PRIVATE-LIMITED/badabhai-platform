@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import { CREDIT_PACKS, createDbClient, type DbClient } from "@badabhai/db";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
@@ -41,11 +41,16 @@ import { APPLICANT_NOT_FOUND } from "../payer-portal/payer-applicant-stage.dto";
 import { UnlocksRepository } from "../unlocks/unlocks.repository";
 import { UnlockService } from "../unlocks/unlocks.service";
 import { PaymentGateway } from "../unlocks/payment-gateway";
-import { PayerOrgMembersService } from "../payer-portal/payer-org-members.service";
+import {
+  INVITE_NOT_ACCEPTABLE_MESSAGE,
+  INVITE_NOT_SENDABLE_MESSAGE,
+  PayerOrgMembersService,
+} from "../payer-portal/payer-org-members.service";
 import { PayerPostingPlansService } from "../payer-portal/payer-posting-plans.service";
 import { PostingPlansRepository } from "../posting-plans/posting-plans.repository";
 import { PostingPlansService } from "../posting-plans/posting-plans.service";
 import { PayersRepository } from "./payers.repository";
+import { PayerAccountService } from "./payer-account.service";
 import { PayerOrgsRepository, type ResolvedOrg } from "./payer-orgs.repository";
 import { PayerTenantScopeService } from "./payer-tenant-scope.service";
 import { signCheckoutForTest } from "../unlocks/razorpay-signature";
@@ -260,37 +265,50 @@ describe.skipIf(!RUN)(
       expect(row).toMatchObject({ status: "active", member_payer_id: payerB });
     });
 
+    it("O-10 (P3): GET /payer/me tells B to post under A's org name in `on`, and under B's own in `off`", async () => {
+      const events = new EventsService(new EventsRepository(client.db), config);
+      const accountOn = new PayerAccountService(payers, events, tenancy);
+      // A renames their org through the real PATCH, so A's and B's names differ.
+      await accountOn.updateOwnAccount(payerA, { orgName: "Anchor Works" }, CTX);
+
+      const meB = await accountOn.getOwnAccount(payerB);
+      expect(meB).toMatchObject({ orgName: `Tenancy ${TAG}`, postingOrgName: "Anchor Works" });
+      expect((await accountOn.getOwnAccount(payerA)).postingOrgName).toBe("Anchor Works");
+
+      const offConfig = loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "off" });
+      const tenancyOff = new PayerTenantScopeService(offConfig, new PayerOrgsRepository(client.db));
+      const meBOff = await new PayerAccountService(payers, events, tenancyOff).getOwnAccount(
+        payerB,
+      );
+      expect(meBOff.postingOrgName).toBe(`Tenancy ${TAG}`);
+    });
+
     // RED IN P1 as `it.fails`; GREEN since P2b landed beside P2a (ORG_TENANCY_PLAN §1, §2.5).
-    it(
-      "T0: B sees A's posting and A's credits, spends A's wallet, A sees B's unlock — and removal takes it all away",
-      async () => {
-        // 1. B lists postings and finds A's posting. ← THE FIRST TENANCY ASSERTION (failed in P1).
-        const listB = await listFor(payerB);
-        expect(listB.map((p) => p.id)).toContain(postingOfA);
+    it("T0: B sees A's posting and A's credits, spends A's wallet, A sees B's unlock — and removal takes it all away", async () => {
+      // 1. B lists postings and finds A's posting. ← THE FIRST TENANCY ASSERTION (failed in P1).
+      const listB = await listFor(payerB);
+      expect(listB.map((p) => p.id)).toContain(postingOfA);
 
-        // 2. B's credits are the org wallet: A's balance.
-        const walletBefore = (await unlocks.getCredits(payerA)).balance;
-        expect((await unlocks.getCredits(payerB)).balance).toBe(walletBefore);
+      // 2. B's credits are the org wallet: A's balance.
+      const walletBefore = (await unlocks.getCredits(payerA)).balance;
+      expect((await unlocks.getCredits(payerB)).balance).toBe(walletBefore);
 
-        // 3. B unlocks a worker: A's wallet is debited, and A sees B's unlock.
-        const grant = await unlocks.requestUnlock(
-          { payerId: payerB, workerId: WORKER_FOR_B, jobId: null },
-          CTX,
-        );
-        expect(grant).toMatchObject({ ok: true, status: "granted" });
-        expect((await unlocks.getCredits(payerA)).balance).toBe(walletBefore - 1);
-        const seenByA = await unlocks.listByPayer(payerA);
-        expect(seenByA.unlocks.map((u) => u.worker_id)).toContain(WORKER_FOR_B);
+      // 3. B unlocks a worker: A's wallet is debited, and A sees B's unlock.
+      const grant = await unlocks.requestUnlock(
+        { payerId: payerB, workerId: WORKER_FOR_B, jobId: null },
+        CTX,
+      );
+      expect(grant).toMatchObject({ ok: true, status: "granted" });
+      expect((await unlocks.getCredits(payerA)).balance).toBe(walletBefore - 1);
+      const seenByA = await unlocks.listByPayer(payerA);
+      expect(seenByA.unlocks.map((u) => u.worker_id)).toContain(WORKER_FOR_B);
 
-        // 4. A removes B. On the next call B sees none of A's rows.
-        await members.remove(orgOfA, payerA, memberIdOfB, CTX);
-        expect((await listFor(payerB)).map((p) => p.id)).not.toContain(
-          postingOfA,
-        );
-        expect((await unlocks.getCredits(payerB)).balance).toBe(0);
-        expect((await unlocks.listByPayer(payerB)).unlocks).toEqual([]);
-      },
-    );
+      // 4. A removes B. On the next call B sees none of A's rows.
+      await members.remove(orgOfA, payerA, memberIdOfB, CTX);
+      expect((await listFor(payerB)).map((p) => p.id)).not.toContain(postingOfA);
+      expect((await unlocks.getCredits(payerB)).balance).toBe(0);
+      expect((await unlocks.listByPayer(payerB)).unlocks).toEqual([]);
+    });
   },
 );
 
@@ -386,6 +404,224 @@ describe.skipIf(!RUN)("ADR-0053 §3.5 — the accept-rule reads against Postgres
 });
 
 /**
+ * Risk R65 (ORG_TENANCY_PLAN §5 item 5) — the invite rules A1/A2 hold under CONCURRENCY, against a
+ * real Postgres. A1/A2 are check-then-write; the fix runs the reads and the write in one
+ * transaction that first takes the membership lock (the accepter's `payers` row on accept, the
+ * inviting org's anchor's row on invite).
+ *
+ * Each racer is a REAL `PayerOrgMembersService` on its OWN connection pool (two pools, so two
+ * transactions genuinely overlap; one pipelined pool could fake the serialisation). The race is
+ * forced, not hoped for: each racer's WRITE (`acceptInvite` / `inviteMember`) waits at a
+ * rendezvous until both racers have reached their write or `HOLD_MS` has passed. Without the lock
+ * both racers pass their checks, meet there, and both write — the breach. With the lock the second
+ * racer queues on the row lock, never reaches its write while the first holds it, and after the
+ * first commits its checks see the new membership and refuse. Seen failing with the lock calls
+ * removed (PR body, mutation evidence).
+ *
+ * Fixtures carry no PII: synthetic `@e2e.badabhai.invalid` emails encrypted by the real crypto,
+ * ids fresh per run, everything deleted in afterAll.
+ */
+describe.skipIf(!RUN)("ADR-0053 R65 — the accept rules hold under concurrency (Postgres)", () => {
+  const RACE_TAG = randomUUID().slice(0, 8);
+  const RACE_CTX: RequestContext = { correlationId: randomUUID(), requestId: `r65-${RACE_TAG}` };
+  /** How long a racer waits at its write for the other; far longer than an uncontended accept. */
+  const HOLD_MS = 750;
+  const created: string[] = [];
+  const tokens: string[] = [];
+  const clients: DbClient[] = [];
+  let config!: ServerConfig;
+
+  interface Racer {
+    readonly orgs: PayerOrgsRepository;
+    readonly members: PayerOrgMembersService;
+    readonly payers: PayersRepository;
+    readonly sql: DbClient["sql"];
+  }
+
+  /** A full members stack on its OWN pool. */
+  function racer(): Racer {
+    const client = createDbClient(DATABASE_URL, { max: 3 });
+    clients.push(client);
+    const pii = new PiiCryptoService(config);
+    const orgs = new PayerOrgsRepository(client.db);
+    const payers = new PayersRepository(client.db, pii);
+    const events = new EventsService(new EventsRepository(client.db), config);
+    const members = new PayerOrgMembersService(orgs, pii, events, payers, config, {
+      send: async ({ acceptUrl }: { email: string; acceptUrl: string }) => {
+        tokens.push(new URL(acceptUrl).searchParams.get("token") ?? "");
+      },
+    });
+    return { orgs, members, payers, sql: client.sql };
+  }
+
+  interface Rendezvous {
+    readonly wait: () => Promise<void>;
+    /** How many racers reached their write. With the lock in place, only ever ONE. */
+    readonly arrived: () => number;
+  }
+
+  /** Holds each arrival until `parties` have arrived or `ms` passes, whichever is first. */
+  function rendezvous(parties: number, ms: number): Rendezvous {
+    let arrived = 0;
+    let release!: () => void;
+    const all = new Promise<void>((resolve) => (release = resolve));
+    return {
+      wait: async () => {
+        arrived += 1;
+        if (arrived >= parties) release();
+        await Promise.race([all, new Promise<void>((resolve) => setTimeout(resolve, ms))]);
+      },
+      arrived: () => arrived,
+    };
+  }
+
+  /** Make `method` on `repo` stop at the rendezvous before it writes, then run the real one. */
+  function holdBeforeWrite(
+    repo: PayerOrgsRepository,
+    method: "acceptInvite" | "inviteMember",
+    gate: Rendezvous,
+  ): void {
+    const real = repo[method].bind(repo) as (...args: unknown[]) => Promise<unknown>;
+    (repo as unknown as Record<string, unknown>)[method] = async (...args: unknown[]) => {
+      await gate.wait();
+      return real(...args);
+    };
+  }
+
+  let a!: Racer;
+  let b!: Racer;
+
+  /** A payer with their solo org, verified (the signup data path). */
+  async function payer(label: string): Promise<{ id: string; email: string }> {
+    const email = `r65-${label}-${RACE_TAG}@e2e.badabhai.invalid`;
+    const { id } = await a.payers.createOrGet({
+      role: "employer",
+      email,
+      orgName: "R65 Org",
+      phone: undefined,
+    });
+    await a.orgs.ensureSoloOrg(id);
+    await a.payers.activate(id);
+    created.push(id);
+    return { id, email };
+  }
+
+  async function soloOrgOf(anchor: string): Promise<ResolvedOrg> {
+    const [row] = await a.sql`SELECT id FROM payer_orgs WHERE root_payer_id = ${anchor}::uuid`;
+    return { orgId: String(row!.id), orgRole: "owner" };
+  }
+
+  /** `inviter` (owner of their solo org) invites `email`; returns the captured raw token. */
+  async function inviteFrom(inviter: string, email: string): Promise<string> {
+    const org = await soloOrgOf(inviter);
+    await a.members.invite(org, inviter, { email, org_role: "recruiter" }, RACE_CTX);
+    return tokens.at(-1)!;
+  }
+
+  /** Active memberships of `payerId` in orgs someone ELSE anchors (census C2's unit). */
+  async function teamMemberships(payerId: string): Promise<number> {
+    const [row] = await a.sql`
+      SELECT count(*)::int AS n FROM payer_members pm JOIN payer_orgs po ON po.id = pm.org_id
+      WHERE pm.member_payer_id = ${payerId}::uuid AND pm.status = 'active'
+        AND po.root_payer_id <> pm.member_payer_id`;
+    return Number(row!.n);
+  }
+
+  /** Non-removed members of `anchor`'s org other than the anchor (A2's "anchors a team"). */
+  async function othersInOrgOf(anchor: string): Promise<number> {
+    const [row] = await a.sql`
+      SELECT count(*)::int AS n FROM payer_members pm JOIN payer_orgs po ON po.id = pm.org_id
+      WHERE po.root_payer_id = ${anchor}::uuid AND pm.status <> 'removed'
+        AND pm.member_payer_id IS DISTINCT FROM po.root_payer_id`;
+    return Number(row!.n);
+  }
+
+  /** The neutral 409 body of a rejected racer. */
+  function conflictBody(outcome: PromiseSettledResult<unknown>): string {
+    expect(outcome.status).toBe("rejected");
+    const reason = (outcome as PromiseRejectedResult).reason as unknown;
+    expect(reason).toBeInstanceOf(ConflictException);
+    return JSON.stringify((reason as ConflictException).getResponse());
+  }
+
+  beforeAll(() => {
+    config = loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" });
+    a = racer();
+    b = racer();
+  });
+
+  afterAll(async () => {
+    const [first] = clients;
+    if (first) {
+      await first.sql`DELETE FROM events WHERE correlation_id = ${RACE_CTX.correlationId}::uuid`;
+      await first.sql`DELETE FROM payer_orgs WHERE root_payer_id = ANY(${created}::uuid[])`;
+      await first.sql`DELETE FROM payers WHERE id = ANY(${created}::uuid[])`;
+    }
+    for (const client of clients) await client.sql.end({ timeout: 5 });
+  });
+
+  it("A1: two simultaneous accepts by ONE payer (two orgs' invites) — exactly one lands; the other is the neutral 409 and keeps its token", async () => {
+    const x = await payer("a1-x");
+    const y = await payer("a1-y");
+    const p = await payer("a1-p");
+    const tokenX = await inviteFrom(x.id, p.email);
+    const tokenY = await inviteFrom(y.id, p.email);
+
+    const gate = rendezvous(2, HOLD_MS);
+    holdBeforeWrite(a.orgs, "acceptInvite", gate);
+    holdBeforeWrite(b.orgs, "acceptInvite", gate);
+    const results = await Promise.allSettled([
+      a.members.accept(p.id, { token: tokenX }, RACE_CTX),
+      b.members.accept(p.id, { token: tokenY }, RACE_CTX),
+    ]);
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const loser = results.find((r) => r.status === "rejected")!;
+    expect(conflictBody(loser)).toContain(INVITE_NOT_ACCEPTABLE_MESSAGE);
+    // The breach census C2 counts is absent: ONE active team membership.
+    expect(await teamMemberships(p.id)).toBe(1);
+    // The second racer queued on the lock and was refused before its write.
+    expect(gate.arrived()).toBe(1);
+    // The refused invite is still pending (a refusal consumes no token).
+    const [pending] = await a.sql`
+      SELECT count(*)::int AS n FROM payer_members
+      WHERE email_hash = (SELECT email_hash FROM payers WHERE id = ${p.id}::uuid)
+        AND status = 'invited'`;
+    expect(Number(pending!.n)).toBe(1);
+  });
+
+  it("A2: an anchor accepting another org's invite while inviting someone into their OWN org — exactly one lands", async () => {
+    const x = await payer("a2-x");
+    const p = await payer("a2-p");
+    const q = await payer("a2-q");
+    const tokenX = await inviteFrom(x.id, p.email);
+    const orgOfP = await soloOrgOf(p.id);
+
+    const gate = rendezvous(2, HOLD_MS);
+    holdBeforeWrite(a.orgs, "acceptInvite", gate);
+    holdBeforeWrite(b.orgs, "inviteMember", gate);
+    const [accept, invite] = await Promise.allSettled([
+      a.members.accept(p.id, { token: tokenX }, RACE_CTX),
+      b.members.invite(orgOfP, p.id, { email: q.email, org_role: "recruiter" }, RACE_CTX),
+    ]);
+
+    expect([accept, invite].filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(gate.arrived()).toBe(1);
+    if (accept.status === "fulfilled") {
+      // The accept won: under the anchor's lock the invite saw P now sits in X's team.
+      expect(conflictBody(invite)).toContain(INVITE_NOT_SENDABLE_MESSAGE);
+      expect(await teamMemberships(p.id)).toBe(1);
+      expect(await othersInOrgOf(p.id)).toBe(0);
+    } else {
+      // The invite won: P now anchors a team, so A2 refused the accept.
+      expect(conflictBody(accept)).toContain(INVITE_NOT_ACCEPTABLE_MESSAGE);
+      expect(await teamMemberships(p.id)).toBe(0);
+      expect(await othersInOrgOf(p.id)).toBe(1);
+    }
+  });
+});
+
+/**
  * ADR-0053 P2a (PAY-DB-01) — T2 for postings, agency jobs, the per-posting applicant lists, the
  * Candidates inbox and the saved board, AGAINST A REAL POSTGRES, in BOTH modes over the SAME rows.
  *
@@ -470,7 +706,8 @@ describe.skipIf(!RUN)(
         tenancy,
       );
       /** The postings `actor`'s tenant lists / reads, through the resolver every route uses. */
-      const listOf = async (actor: string) => postings.listInScope(await tenancy.resolve(actor), {});
+      const listOf = async (actor: string) =>
+        postings.listInScope(await tenancy.resolve(actor), {});
       const getOf = async (id: string, actor: string) =>
         postings.getOneInScope(id, await tenancy.resolve(actor));
       return { postings, agency, applicants, inbox, stages, listOf, getOf };
@@ -636,9 +873,7 @@ describe.skipIf(!RUN)(
         expect(evt).toMatchObject({ actor_id: ids.B, payload: { created_by: ids.B } });
         // The anchor sees the teammate's posting; the outsider does not.
         expect((await on.listOf(ids.A)).map((p) => p.id)).toContain(created.id);
-        expect((await on.listOf(ids.C)).map((p) => p.id)).not.toContain(
-          created.id,
-        );
+        expect((await on.listOf(ids.C)).map((p) => p.id)).not.toContain(created.id);
       });
 
       it("company postings: the teammate lists and reads the anchor's postings; the outsider lists none", async () => {
@@ -860,9 +1095,7 @@ describe.skipIf(!RUN)(
         );
         const created = await off.postings.createForPayer(ids.B, postingDto(), P2A_CTX);
         expect(created).toMatchObject({ payer_id: ids.B, created_by: ids.B });
-        expect((await off.listOf(ids.A)).map((p) => p.id)).not.toContain(
-          created.id,
-        );
+        expect((await off.listOf(ids.A)).map((p) => p.id)).not.toContain(created.id);
       });
 
       it("agency jobs: the teammate lists none of the anchor's jobs and reads them as 404; a create is stamped with the login", async () => {
@@ -970,7 +1203,9 @@ describe.skipIf(!RUN)(
         new PostingPlansRepository(client.db),
         events,
         // The catalog is fixed here (the per-run coupon); pricing is not what this suite measures.
-        { getActiveCatalog: async () => ({ catalog: CATALOG, revision: 1, source: "db" }) } as never,
+        {
+          getActiveCatalog: async () => ({ catalog: CATALOG, revision: 1, source: "db" }),
+        } as never,
         config,
         // The boost supply gate is off (floor 0), so no reach count is read.
         { get: async () => ({ ...DEFAULT_MATCH_CONFIG, boostSupplyFloor: 0 }) } as never,
@@ -1103,7 +1338,10 @@ describe.skipIf(!RUN)(
         // The anchor's read of its posting carries the teammate's plan, and so does the teammate's.
         for (const reader of [ids.A, ids.B]) {
           const { stats } = await on.postingPlans.getOneWithStats(PA, reader);
-          expect(stats, reader).toMatchObject({ plan_tier: "standard", applicant_visibility_quota: 10 });
+          expect(stats, reader).toMatchObject({
+            plan_tier: "standard",
+            applicant_visibility_quota: 10,
+          });
         }
         const listed = await on.postingPlans.listWithStats(ids.B, {});
         expect(listed.find((r) => r.posting.id === PA)?.stats.plan_tier).toBe("standard");
@@ -1205,7 +1443,10 @@ describe.skipIf(!RUN)(
           SELECT actor_id, payload FROM events
           WHERE event_name = 'coupon.redeemed' AND payload ->> 'coupon_code' = ${COUPON_2}`;
         expect(redeemed).toEqual([
-          expect.objectContaining({ actor_id: ids.B, payload: expect.objectContaining({ payer_id: ids.A }) }),
+          expect.objectContaining({
+            actor_id: ids.B,
+            payload: expect.objectContaining({ payer_id: ids.A }),
+          }),
         ]);
         expect((await buy(ids.A)).quote.couponApplied).toBeNull();
       });
@@ -1257,10 +1498,9 @@ describe.skipIf(!RUN)(
 
         // The org spent the coupon in `on`; off, the teammate's count is their own (zero).
         const ownPosting = (await off.postings.createForPayer(ids.B, postingDto(), P2C_CTX)).id;
-        const own = await (await off.postingPlans.forOwnedPosting(ownPosting, ids.B)).buyPlan(
-          { tier: "standard", coupon: COUPON },
-          P2C_CTX,
-        );
+        const own = await (
+          await off.postingPlans.forOwnedPosting(ownPosting, ids.B)
+        ).buyPlan({ tier: "standard", coupon: COUPON }, P2C_CTX);
         expect(own.plan.payerId).toBe(ids.B);
         expect(own.quote.couponApplied).toBe(COUPON);
         const [evt] = await eventsOf(ids.B, "coupon.redeemed");

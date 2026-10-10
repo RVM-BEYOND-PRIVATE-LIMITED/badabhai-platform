@@ -6,7 +6,11 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { INVITE_NOT_ACCEPTABLE_MESSAGE, PayerOrgMembersService } from "./payer-org-members.service";
+import {
+  INVITE_NOT_ACCEPTABLE_MESSAGE,
+  INVITE_NOT_SENDABLE_MESSAGE,
+  PayerOrgMembersService,
+} from "./payer-org-members.service";
 import type { ResolvedOrg } from "../payers/payer-orgs.repository";
 import type { ActiveMembershipFacts } from "../payers/payer-tenant-scope";
 
@@ -47,7 +51,10 @@ function memberRow(over: Record<string, unknown> = {}) {
 }
 
 /** An ACTIVE membership of the accepter, as the tenancy read returns it (ADR-0053 R1). */
-function membershipOf(anchorPayerId: string, over: Partial<ActiveMembershipFacts> = {}): ActiveMembershipFacts {
+function membershipOf(
+  anchorPayerId: string,
+  over: Partial<ActiveMembershipFacts> = {},
+): ActiveMembershipFacts {
   return {
     orgId: `org-of-${anchorPayerId}`,
     orgRole: anchorPayerId === ACCEPTER ? "owner" : "recruiter",
@@ -61,27 +68,78 @@ function membershipOf(anchorPayerId: string, over: Partial<ActiveMembershipFacts
   };
 }
 
+/** The transaction handle the fake `withTransaction` hands its callback (identity-compared). */
+const TX = { tx: "payer-orgs" } as const;
+
 function make(configOver: Record<string, unknown> = {}) {
+  /** Every repository call and every event, in the order they happened (R65 ordering checks). */
+  const order: string[] = [];
+  const seen =
+    <A extends unknown[], R>(name: string, impl: (...args: A) => Promise<R>) =>
+    (...args: A): Promise<R> => {
+      order.push(name);
+      return impl(...args);
+    };
   const orgs = {
-    // ADR-0053 §3.5 reads. Default: the accepter has only their own solo org, anchors no team,
-    // and the inviting org's anchor shares their vertical role — every invariant holds.
-    listActiveMembershipsWithAnchor: vi.fn(async (_payerId: string) => [membershipOf(ACCEPTER)]),
-    anchorsTeamOrg: vi.fn(async (_payerId: string) => false),
-    findAnchorRole: vi.fn(async (_orgId: string): Promise<"employer" | "agent" | null> => "employer"),
+    // R65: ONE transaction per invite / accept; the fake runs the work on TX and records it.
+    withTransaction: vi.fn(
+      seen("withTransaction", async (work: (tx: typeof TX) => Promise<unknown>) => work(TX)),
+    ),
+    lockPayerForMembership: vi.fn(
+      seen("lockPayerForMembership", async (_tx: unknown, _id: string) => true),
+    ),
+    // The inviting org's anchor (invites are owner-only; the owner is the anchor).
+    lockOrgAnchorForMembership: vi.fn(
+      seen(
+        "lockOrgAnchorForMembership",
+        async (_tx: unknown, _orgId: string): Promise<string | null> => OWNER,
+      ),
+    ),
+    // ADR-0053 §3.5 reads. Default: every payer has only their own solo org, the accepter anchors
+    // no team, and the inviting org's anchor shares their vertical role — every invariant holds.
+    listActiveMembershipsWithAnchor: vi.fn(
+      seen("listActiveMembershipsWithAnchor", async (payerId: string, _tx?: unknown) => [
+        membershipOf(payerId, { orgRole: "owner" }),
+      ]),
+    ),
+    anchorsTeamOrg: vi.fn(seen("anchorsTeamOrg", async (_payerId: string, _tx?: unknown) => false)),
+    findAnchorRole: vi.fn(
+      seen(
+        "findAnchorRole",
+        async (_orgId: string, _tx?: unknown): Promise<"employer" | "agent" | null> => "employer",
+      ),
+    ),
     listMembers: vi.fn(async () => [memberRow()]),
     findMember: vi.fn(async () => memberRow({ orgRole: "recruiter", status: "invited" })),
-    findActiveOrInvitedByEmail: vi.fn(async () => undefined),
-    countActiveOrInvited: vi.fn(async () => 1),
-    inviteMember: vi.fn(async (input: Record<string, unknown>) => memberRow({ ...input, id: "mem-1" })),
+    findActiveOrInvitedByEmail: vi.fn(
+      seen("findActiveOrInvitedByEmail", async (..._args: unknown[]) => undefined as unknown),
+    ),
+    countActiveOrInvited: vi.fn(seen("countActiveOrInvited", async (..._args: unknown[]) => 1)),
+    inviteMember: vi.fn(
+      seen("inviteMember", async (input: Record<string, unknown>, _tx?: unknown) =>
+        memberRow({ ...input, id: "mem-1" }),
+      ),
+    ),
     findByInviteTokenHash: vi.fn(async (_tokenHash: string, _now: Date) => memberRow()),
-    acceptInvite: vi.fn(async (_input: Record<string, unknown>) =>
-      memberRow({ status: "active", memberPayerId: ACCEPTER, inviteTokenHash: null }),
+    acceptInvite: vi.fn(
+      seen(
+        "acceptInvite",
+        async (_input: Record<string, unknown>, _tx?: unknown) =>
+          memberRow({
+            status: "active",
+            memberPayerId: ACCEPTER,
+            inviteTokenHash: null,
+          }) as unknown,
+      ),
     ),
     softRemoveMember: vi.fn(async () => memberRow({ status: "removed" })),
   };
   const events = {
     emit: vi.fn(
-      async (_evt: { event_name: string; payload: Record<string, unknown> }) => undefined,
+      seen(
+        "emit",
+        async (_evt: { event_name: string; payload: Record<string, unknown> }) => undefined,
+      ),
     ),
   };
   const payers = {
@@ -92,8 +150,14 @@ function make(configOver: Record<string, unknown> = {}) {
       role: "employer",
     })),
   };
-  const mailer = { send: vi.fn(async (_input: { email: string; acceptUrl: string }) => undefined) };
-  const config = { MEMBER_INVITE_MAX_PER_ORG: 25, MEMBER_INVITE_ACCEPT_URL: undefined, ...configOver };
+  const mailer = {
+    send: vi.fn(seen("mail", async (_input: { email: string; acceptUrl: string }) => undefined)),
+  };
+  const config = {
+    MEMBER_INVITE_MAX_PER_ORG: 25,
+    MEMBER_INVITE_ACCEPT_URL: undefined,
+    ...configOver,
+  };
   const svc = new PayerOrgMembersService(
     orgs as never,
     pii as never,
@@ -102,7 +166,7 @@ function make(configOver: Record<string, unknown> = {}) {
     config as never,
     mailer as never,
   );
-  return { svc, orgs, events, payers, mailer };
+  return { svc, orgs, events, payers, mailer, order };
 }
 
 /** The raw email/token must NEVER appear in any emitted event. */
@@ -144,7 +208,12 @@ describe("PayerOrgMembersService.invite (owner-only via guard)", () => {
     // Event carries ids + role enum only.
     const evt = d.events.emit.mock.calls[0]![0];
     expect(evt.event_name).toBe("payer_member.invited");
-    expect(evt.payload).toEqual({ member_id: "mem-1", org_id: "org-1", org_role: "recruiter", invited_by: OWNER });
+    expect(evt.payload).toEqual({
+      member_id: "mem-1",
+      org_id: "org-1",
+      org_role: "recruiter",
+      invited_by: OWNER,
+    });
     expect(view.email_masked).toBe("h•••@acmestaffing.example");
     // The mailer is the ONLY place the raw email + accept link (raw token) appear.
     const delivery = d.mailer.send.mock.calls[0]![0];
@@ -154,7 +223,9 @@ describe("PayerOrgMembersService.invite (owner-only via guard)", () => {
   });
 
   it("rejects re-inviting an already ACTIVE member (409)", async () => {
-    d.orgs.findActiveOrInvitedByEmail.mockResolvedValueOnce(memberRow({ status: "active" }) as never);
+    d.orgs.findActiveOrInvitedByEmail.mockResolvedValueOnce(
+      memberRow({ status: "active" }) as never,
+    );
     await expect(
       d.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -192,6 +263,7 @@ describe("PayerOrgMembersService.accept (any authed payer, single-use token)", (
     expect(d.orgs.findByInviteTokenHash.mock.calls[0]![0]).toBe(`hmac<${RAW_TOKEN}>`);
     expect(d.orgs.acceptInvite).toHaveBeenCalledWith(
       expect.objectContaining({ memberId: "mem-1", memberPayerId: ACCEPTER }),
+      TX,
     );
     const evt = d.events.emit.mock.calls[0]![0];
     expect(evt.event_name).toBe("payer_member.accepted");
@@ -209,7 +281,10 @@ describe("PayerOrgMembersService.accept (any authed payer, single-use token)", (
   });
 
   it("403s when the invite email does not match the accepting account", async () => {
-    d.payers.findById.mockResolvedValueOnce({ id: ACCEPTER, emailHash: "hmac<someone@else.example>" } as never);
+    d.payers.findById.mockResolvedValueOnce({
+      id: ACCEPTER,
+      emailHash: "hmac<someone@else.example>",
+    } as never);
     await expect(d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
@@ -245,9 +320,9 @@ describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants
 
   it("the happy path reads all three facts for the ACCEPTER and the inviting org", async () => {
     await d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX);
-    expect(d.orgs.listActiveMembershipsWithAnchor).toHaveBeenCalledWith(ACCEPTER);
-    expect(d.orgs.anchorsTeamOrg).toHaveBeenCalledWith(ACCEPTER);
-    expect(d.orgs.findAnchorRole).toHaveBeenCalledWith("org-1");
+    expect(d.orgs.listActiveMembershipsWithAnchor).toHaveBeenCalledWith(ACCEPTER, TX);
+    expect(d.orgs.anchorsTeamOrg).toHaveBeenCalledWith(ACCEPTER, TX);
+    expect(d.orgs.findAnchorRole).toHaveBeenCalledWith("org-1", TX);
     expect(d.orgs.acceptInvite).toHaveBeenCalledTimes(1);
   });
 
@@ -331,6 +406,109 @@ describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants
   });
 });
 
+/**
+ * Risk R65 (ADR-0053 §3.5; ORG_TENANCY_PLAN §5 item 5). A1/A2 are check-then-write, so the reads
+ * and the write must run in ONE transaction that FIRST takes the membership lock: the accepter's
+ * row on accept, the inviting org's ANCHOR's row on invite (the same row an accept by that anchor
+ * locks). These pin the ORDER and the handle; `payer-org-tenancy.db.test.ts` ("R65") races the
+ * real thing against Postgres.
+ */
+describe("PayerOrgMembersService — R65: the A-rule checks and the write run under one membership lock", () => {
+  let d: ReturnType<typeof make>;
+  beforeEach(() => {
+    d = make();
+  });
+
+  it("accept: one transaction; the ACCEPTER's lock comes first, then A1–A3 and the write, all on that transaction; the event follows", async () => {
+    await d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX);
+    expect(d.order).toEqual([
+      "withTransaction",
+      "lockPayerForMembership",
+      "listActiveMembershipsWithAnchor",
+      "anchorsTeamOrg",
+      "findAnchorRole",
+      "acceptInvite",
+      "emit",
+    ]);
+    expect(d.orgs.withTransaction).toHaveBeenCalledTimes(1);
+    expect(d.orgs.lockPayerForMembership).toHaveBeenCalledWith(TX, ACCEPTER);
+    expect(d.orgs.acceptInvite.mock.calls[0]![1]).toBe(TX);
+  });
+
+  it("accept: a refusal decided under the lock writes nothing and emits nothing", async () => {
+    d.orgs.anchorsTeamOrg.mockImplementationOnce(async () => {
+      d.order.push("anchorsTeamOrg");
+      return true;
+    });
+    await expect(d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(d.order).toEqual([
+      "withTransaction",
+      "lockPayerForMembership",
+      "listActiveMembershipsWithAnchor",
+      "anchorsTeamOrg",
+    ]);
+  });
+
+  it("accept: an accepter whose payers row is gone under the lock is refused (403); nothing is read or written", async () => {
+    d.orgs.lockPayerForMembership.mockResolvedValueOnce(false);
+    await expect(d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(d.orgs.listActiveMembershipsWithAnchor).not.toHaveBeenCalled();
+    expect(d.orgs.acceptInvite).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("invite: one transaction; the org ANCHOR's lock comes first (derived from the org), then the checks and the insert on that transaction; event and mail follow", async () => {
+    await d.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX);
+    expect(d.order).toEqual([
+      "withTransaction",
+      "lockOrgAnchorForMembership",
+      "listActiveMembershipsWithAnchor",
+      "findActiveOrInvitedByEmail",
+      "countActiveOrInvited",
+      "inviteMember",
+      "emit",
+      "mail",
+    ]);
+    expect(d.orgs.lockOrgAnchorForMembership).toHaveBeenCalledWith(TX, ORG.orgId);
+    // The membership read is the ANCHOR's (the locked row), not the caller's by assumption.
+    expect(d.orgs.listActiveMembershipsWithAnchor).toHaveBeenCalledWith(OWNER, TX);
+    expect(d.orgs.findActiveOrInvitedByEmail.mock.calls[0]![2]).toBe(TX);
+    expect(d.orgs.countActiveOrInvited.mock.calls[0]![1]).toBe(TX);
+    expect(d.orgs.inviteMember.mock.calls[0]![1]).toBe(TX);
+  });
+
+  it("invite: an anchor who has JOINED another org's team cannot grow a team of their own — neutral 409, nothing written, no event, no mail (A2 from the invite side)", async () => {
+    d.orgs.listActiveMembershipsWithAnchor.mockResolvedValueOnce([
+      membershipOf(OWNER, { orgRole: "owner" }),
+      membershipOf(OWNER_ELSEWHERE),
+    ]);
+    const err = await d.svc
+      .invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(JSON.stringify((err as ConflictException).getResponse())).toContain(
+      INVITE_NOT_SENDABLE_MESSAGE,
+    );
+    expect(d.orgs.inviteMember).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalled();
+    expect(d.mailer.send).not.toHaveBeenCalled();
+  });
+
+  it("invite: an org that no longer resolves to an anchor is refused the same way (fail closed)", async () => {
+    d.orgs.lockOrgAnchorForMembership.mockResolvedValueOnce(null);
+    await expect(
+      d.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(d.orgs.inviteMember).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalled();
+    expect(d.mailer.send).not.toHaveBeenCalled();
+  });
+});
+
 describe("PayerOrgMembersService.remove (owner-only via guard, soft-delete)", () => {
   let d: ReturnType<typeof make>;
   beforeEach(() => {
@@ -353,8 +531,12 @@ describe("PayerOrgMembersService.remove (owner-only via guard, soft-delete)", ()
   });
 
   it("refuses to remove an owner (409)", async () => {
-    d.orgs.findMember.mockResolvedValueOnce(memberRow({ orgRole: "owner", status: "active" }) as never);
-    await expect(d.svc.remove(ORG, OWNER, "mem-owner", CTX)).rejects.toBeInstanceOf(ConflictException);
+    d.orgs.findMember.mockResolvedValueOnce(
+      memberRow({ orgRole: "owner", status: "active" }) as never,
+    );
+    await expect(d.svc.remove(ORG, OWNER, "mem-owner", CTX)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
     expect(d.orgs.softRemoveMember).not.toHaveBeenCalled();
   });
 });

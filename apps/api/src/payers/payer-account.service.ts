@@ -3,9 +3,9 @@ import type { Payer } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "./payers.repository";
-import type { ResolvedOrg } from "./payer-orgs.repository";
-import { PayerTenantScopeService } from "./payer-tenant-scope.service";
+import { PayerTenantScopeService, type PayerSelfTenancy } from "./payer-tenant-scope.service";
 import { PayerMeSchema, type PayerMeDto, type PayerUpdateDto } from "./payer-account.dto";
+import type { TenantKey } from "./payer-tenant-scope";
 
 /**
  * SELF-scoped reads + edits for an authenticated payer (ADR-0019 LC-1; PROF-1 / PROF-3).
@@ -33,16 +33,17 @@ export class PayerAccountService {
 
   /**
    * The authenticated payer's own `{ id, role, status, orgName, email, phoneLast4, orgId,
-   * orgRole }`. `orgId`/`orgRole` (#2079) are read from `payer_members` on EVERY call, so this
-   * is the always-current org-role read for payer-web (a JWT claim can be up to a half-life
-   * stale; this cannot). They are the ACTING org (ADR-0053 §3.2) — the same choice the tenant
-   * scope and `PayerOrgRoleGuard` make.
+   * orgRole, postingOrgName }`. `orgId`/`orgRole` (#2079) are read from `payer_members` on EVERY
+   * call, so this is the always-current org-role read for payer-web (a JWT claim can be up to a
+   * half-life stale; this cannot). They are the ACTING org (ADR-0053 §3.2) — the same choice the
+   * tenant scope and `PayerOrgRoleGuard` make. `postingOrgName` (O-10) comes from the same single
+   * resolution: the TENANT's org name, which a posting this payer publishes carries.
    */
   async getOwnAccount(authPayerId: string): Promise<PayerMeDto> {
     const row = await this.payers.findById(authPayerId);
     // A valid session whose payer row is gone → neutral not-found (no oracle).
     if (!row) throw new NotFoundException("Payer account not found");
-    return this.toMaskedDto(row, await this.tenancy.resolveActingOrg(authPayerId));
+    return this.toMaskedDto(row, await this.tenancy.resolveSelfView(authPayerId));
   }
 
   /**
@@ -85,7 +86,7 @@ export class PayerAccountService {
       requestId: ctx.requestId,
     });
 
-    return this.toMaskedDto(updated, await this.tenancy.resolveActingOrg(authPayerId));
+    return this.toMaskedDto(updated, await this.tenancy.resolveSelfView(authPayerId));
   }
 
   /**
@@ -94,17 +95,20 @@ export class PayerAccountService {
    * decrypt failure fails CLOSED — a generic 500 that NEVER leaks ciphertext or crypto
    * internals (the org-name/phone/email are never logged here either).
    *
-   * `org` (#2079) is the caller's CURRENT active membership, resolved from the DB by the
-   * caller on this very request; `null` (no active membership) surfaces as `orgId`/`orgRole`
-   * `null` — least privilege for every reader.
+   * `tenancy.org` (#2079) is the caller's CURRENT active membership, resolved from the DB on
+   * this very request; `null` (no active membership) surfaces as `orgId`/`orgRole` `null` —
+   * least privilege for every reader. `tenancy.tenantKey` names whose org name the payer posts
+   * under ({@link postingOrgName}).
    */
-  private toMaskedDto(row: Payer, org: ResolvedOrg | null): PayerMeDto {
+  private async toMaskedDto(row: Payer, tenancy: PayerSelfTenancy): Promise<PayerMeDto> {
     let contact;
     try {
       contact = this.payers.decryptContact(row);
     } catch {
       throw new InternalServerErrorException("Could not load account");
     }
+    const { org } = tenancy;
+    const postingOrgName = await this.postingOrgName(row.id, contact.orgName, tenancy.tenantKey);
 
     // Mask the phone to its last 4 digits (or null when none is set). Digits-only so any
     // formatting in the stored value can't shift it.
@@ -120,6 +124,34 @@ export class PayerAccountService {
       phoneLast4,
       orgId: org?.orgId ?? null,
       orgRole: org?.orgRole ?? null,
+      postingOrgName,
     });
+  }
+
+  /**
+   * ADR-0053 O-10 — the organisation name a posting this payer publishes carries: the TENANT's
+   * (`payers.org_name_enc` of the tenant key), exactly what the AI chat publish stamps as
+   * `org_label`. A payer who is their own tenant (every payer in `off`; a solo payer or an anchor
+   * in `on`) gets their own, already-decrypted `orgName` — no second read. A team member in `on`
+   * gets the founder's company name (one primary-key read of that one column). `null` when
+   * tenancy refuses the payer (`on` denial): they can publish nothing. Fails CLOSED on a missing
+   * row or an undecryptable name (the same generic 500 as the payer's own contact). Never logged.
+   */
+  private async postingOrgName(
+    actorPayerId: string,
+    ownOrgName: string,
+    tenantKey: TenantKey | null,
+  ): Promise<string | null> {
+    if (tenantKey === null) return null;
+    if (tenantKey === actorPayerId) return ownOrgName.trim();
+    let tenantOrgName: string | undefined;
+    try {
+      tenantOrgName = await this.payers.findOrgName(tenantKey);
+    } catch {
+      throw new InternalServerErrorException("Could not load account");
+    }
+    if (tenantOrgName === undefined)
+      throw new InternalServerErrorException("Could not load account");
+    return tenantOrgName.trim();
   }
 }

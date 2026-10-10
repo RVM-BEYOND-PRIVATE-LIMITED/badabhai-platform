@@ -1558,9 +1558,15 @@ jobs:
       #                    filter under keyset paging, and the worker-erasure cascade.
       #   * payer-org-tenancy.db — ADR-0053 (PAY-DB-01) T0, "A invites B; B sees A's postings +
       #                    credits", through the real invite/accept, posting, credit and unlock
-      #                    services in mode `on`. Its team story is `it.fails` (RED by design)
-      #                    until ORG_TENANCY_PLAN P2a + P2b switch the predicates; the anchor's
-      #                    own story beside it is an ordinary `it` that proves the harness works.
+      #                    services in mode `on` (green since P2a + P2b), the per-domain T2/T6/T7
+      #                    isolation cases, and R65: two accepts by one payer, and an anchor's
+      #                    accept racing an invite into their own org, on two pools with the
+      #                    writes held at a rendezvous — exactly one lands (the membership lock).
+      #   * org-tenancy-census.db — ADR-0053's `db:audit:org-tenancy`, the owner's first step
+      #                    before `shadow`: seeded C2/C3/C4/C6a/C6b breaches (+ a C9 order) are
+      #                    each reported by their own check, the flip gate fails, and the real
+      #                    CLI exits 1. A census query that silently counted nothing would wave a
+      #                    breach through the flip; only a database evaluating it can show it does not.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -1574,7 +1580,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + payer org tenancy + free-chat probe)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + payer org tenancy + org tenancy census + free-chat probe)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1602,7 +1608,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db payer-org-tenancy.db free-chat-probe.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1615,12 +1621,12 @@ jobs:
           # src/applications and `turner-reach.db` under src/resume and `unique-violation.db`
           # under src/common and `job-posting-chat.repository.db` under
           # src/payer-portal/job-posting-chat and `payer-applicant-inbox.db` + `payer-applicant-stages.db` under
-          # src/payer-portal and `payer-org-tenancy.db` under src/payers and `free-chat-probe.db` under
+          # src/payer-portal and `payer-org-tenancy.db` + `org-tenancy-census.db` under src/payers and `free-chat-probe.db` under
           # src/profiling/free-chat, and against a regex
           # missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db payer-org-tenancy.db free-chat-probe.db; do
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db; do
             line=$(grep -E "src/(ai|admin|agency-twin|applications|common|match|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
@@ -1638,8 +1644,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +23 passed \(23\)' db-gates.log; then
-            echo "::error::Expected exactly the 23 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +24 passed \(24\)' db-gates.log; then
+            echo "::error::Expected exactly the 24 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi

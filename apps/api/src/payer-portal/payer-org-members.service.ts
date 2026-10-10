@@ -15,7 +15,11 @@ import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "../payers/payers.repository";
-import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
+import {
+  PayerOrgsRepository,
+  type PayerOrgsTx,
+  type ResolvedOrg,
+} from "../payers/payer-orgs.repository";
 import { isTeamMembership } from "../payers/payer-tenant-scope";
 import type { InviteMemberDto, AcceptInviteDto } from "./payer-org-members.dto";
 import { MEMBER_INVITE_MAILER, type MemberInviteMailer } from "./member-invite.mailer";
@@ -35,6 +39,33 @@ export type AcceptRefusalRule =
   | "A1_already_in_a_team" // already an active member of another org's team
   | "A2_anchors_a_team" // anchors their own team (another non-removed member)
   | "A3_role_mismatch"; // vertical role differs from the inviting org's anchor (O-9)
+
+/**
+ * The ONE body for an invite the org's anchor may no longer send (risk R65, the invite side of
+ * A2): the anchor has joined another org's team, so their own org must not become a team. Names
+ * no rule and no org; the rule is in the log. Reachable only through a race with that accept —
+ * once the accept commits, the guard keys the anchor to the other team, where they are not owner.
+ */
+export const INVITE_NOT_SENDABLE_MESSAGE = "This organization can't invite members right now";
+
+/** Why the invite path refuses under the membership lock (logged; the response is neutral). */
+type InviteRefusalRule =
+  | "A2_anchor_joined_a_team" // the anchor is an active member of another org's team
+  | "org_missing"; // the org named by the session's membership no longer resolves
+
+/** What the invite transaction decided; the service turns it into the response after commit. */
+type InviteOutcome =
+  | { readonly kind: "invited"; readonly member: PayerMember }
+  | { readonly kind: "already_active" }
+  | { readonly kind: "seat_cap" }
+  | { readonly kind: "refused"; readonly rule: InviteRefusalRule };
+
+/** What the accept transaction decided; the service turns it into the response after commit. */
+type AcceptOutcome =
+  | { readonly kind: "accepted"; readonly member: PayerMember }
+  | { readonly kind: "refused"; readonly rule: AcceptRefusalRule }
+  | { readonly kind: "consumed" } // the token was used, expired or re-issued since the read
+  | { readonly kind: "no_payer" }; // the accepter's payers row is gone (fail closed)
 
 /**
  * A member as shown to the team list — FACELESS by default: opaque `member_id` + role +
@@ -92,6 +123,13 @@ export class PayerOrgMembersService {
    * invited member, emits payer_member.invited (PII-free), then delivers the accept link via the
    * {@link MEMBER_INVITE_MAILER} seam (MOCK no-op by default; real send only behind the gate).
    * Returns the masked view. The raw token/link go ONLY to the mailer — never logged/evented.
+   *
+   * Risk R65 (ADR-0053 §3.5, A2 from the invite side): the checks and the write run in ONE
+   * transaction holding the org ANCHOR's membership lock — the same row lock an accept by that
+   * anchor takes — so an anchor accepting another org's invite and their own org gaining a member
+   * can never both land. Under the lock it refuses (neutral 409, logged, no event, no mail) when
+   * the anchor is already an active member of another org's team. The seat cap is counted under
+   * the same lock. The event and the email follow the commit.
    */
   async invite(
     org: ResolvedOrg,
@@ -101,32 +139,55 @@ export class PayerOrgMembersService {
   ): Promise<OrgMemberView> {
     const emailHash = this.pii.hmac(dto.email);
 
-    const existing = await this.orgs.findActiveOrInvitedByEmail(org.orgId, emailHash);
-    if (existing && existing.status === "active") {
-      throw new ConflictException("That email is already an active member of this org");
-    }
-    // Seat cap: only a NEW seat (no existing non-removed row for this email) counts against it.
-    if (!existing) {
-      const seats = await this.orgs.countActiveOrInvited(org.orgId);
-      if (seats >= this.config.MEMBER_INVITE_MAX_PER_ORG) {
-        throw new ConflictException("This organization has reached its member limit");
-      }
-    }
-
     // Bearer token — the RAW value goes ONLY into the accept-link email (the mailer input);
     // only its keyed hash is persisted (single-use, consumed on accept).
     const rawToken = `${randomUUID()}${randomUUID()}`;
     const inviteTokenHash = this.pii.hmac(rawToken);
 
-    const member = await this.orgs.inviteMember({
-      orgId: org.orgId,
-      emailEnc: this.pii.encrypt(dto.email),
-      emailHash,
-      orgRole: dto.org_role,
-      invitedBy,
-      inviteTokenHash,
-      inviteExpiresAt: new Date(Date.now() + INVITE_TTL_DAYS * MS_PER_DAY),
+    const outcome = await this.orgs.withTransaction(async (tx): Promise<InviteOutcome> => {
+      const anchor = await this.orgs.lockOrgAnchorForMembership(tx, org.orgId);
+      if (!anchor) return { kind: "refused", rule: "org_missing" };
+      const anchorMemberships = await this.orgs.listActiveMembershipsWithAnchor(anchor, tx);
+      if (anchorMemberships.some((m) => isTeamMembership(m, anchor))) {
+        return { kind: "refused", rule: "A2_anchor_joined_a_team" };
+      }
+
+      const existing = await this.orgs.findActiveOrInvitedByEmail(org.orgId, emailHash, tx);
+      if (existing && existing.status === "active") return { kind: "already_active" };
+      // Seat cap: only a NEW seat (no existing non-removed row for this email) counts against it.
+      if (!existing) {
+        const seats = await this.orgs.countActiveOrInvited(org.orgId, tx);
+        if (seats >= this.config.MEMBER_INVITE_MAX_PER_ORG) return { kind: "seat_cap" };
+      }
+
+      const member = await this.orgs.inviteMember(
+        {
+          orgId: org.orgId,
+          emailEnc: this.pii.encrypt(dto.email),
+          emailHash,
+          orgRole: dto.org_role,
+          invitedBy,
+          inviteTokenHash,
+          inviteExpiresAt: new Date(Date.now() + INVITE_TTL_DAYS * MS_PER_DAY),
+        },
+        tx,
+      );
+      return { kind: "invited", member };
     });
+
+    if (outcome.kind === "already_active") {
+      throw new ConflictException("That email is already an active member of this org");
+    }
+    if (outcome.kind === "seat_cap") {
+      throw new ConflictException("This organization has reached its member limit");
+    }
+    if (outcome.kind === "refused") {
+      this.logger.warn(
+        `payer invite refused: rule=${outcome.rule} org=${org.orgId} inviter=${invitedBy}`,
+      );
+      throw new ConflictException(INVITE_NOT_SENDABLE_MESSAGE);
+    }
+    const { member } = outcome;
 
     await this.events.emit({
       event_name: "payer_member.invited",
@@ -167,12 +228,13 @@ export class PayerOrgMembersService {
    * anchor cannot join another org, A3 the vertical role must match the anchor's (O-9). Checked
    * only AFTER the caller has proved the invite is theirs, and BEFORE the write, so a refusal
    * consumes no token. Only NEW accepts are refused; an existing membership is never touched.
+   *
+   * Risk R65: the A1–A3 reads and the accept write run in ONE transaction that FIRST takes the
+   * accepter's membership lock (their `payers` row), so two accepts by one payer — or an accept
+   * racing an invite into the org the accepter anchors, which takes the same lock — run one at a
+   * time and the second sees what the first committed. The event follows the commit.
    */
-  async accept(
-    payerId: string,
-    dto: AcceptInviteDto,
-    ctx: RequestContext,
-  ): Promise<OrgMemberView> {
+  async accept(payerId: string, dto: AcceptInviteDto, ctx: RequestContext): Promise<OrgMemberView> {
     const now = new Date();
     const tokenHash = this.pii.hmac(dto.token);
 
@@ -186,21 +248,30 @@ export class PayerOrgMembersService {
       throw new ForbiddenException("This invite is for a different account");
     }
 
-    const refusal = await this.acceptRefusal(payerId, payer.role, member.orgId);
-    if (refusal) {
+    const outcome = await this.orgs.withTransaction(async (tx): Promise<AcceptOutcome> => {
+      if (!(await this.orgs.lockPayerForMembership(tx, payerId))) return { kind: "no_payer" };
+      const rule = await this.acceptRefusal(tx, payerId, payer.role, member.orgId);
+      if (rule) return { kind: "refused", rule };
+      const accepted = await this.orgs.acceptInvite(
+        { memberId: member.id, tokenHash, memberPayerId: payerId, now },
+        tx,
+      );
+      return accepted ? { kind: "accepted", member: accepted } : { kind: "consumed" };
+    });
+
+    if (outcome.kind === "no_payer") {
+      throw new ForbiddenException("This invite is for a different account");
+    }
+    if (outcome.kind === "refused") {
       this.logger.warn(
-        `payer invite accept refused: rule=${refusal} payer=${payerId} member=${member.id}`,
+        `payer invite accept refused: rule=${outcome.rule} payer=${payerId} member=${member.id}`,
       );
       throw new ConflictException(INVITE_NOT_ACCEPTABLE_MESSAGE);
     }
-
-    const accepted = await this.orgs.acceptInvite({
-      memberId: member.id,
-      tokenHash,
-      memberPayerId: payerId,
-      now,
-    });
-    if (!accepted) throw new ConflictException("Invite has already been used or has expired");
+    if (outcome.kind === "consumed") {
+      throw new ConflictException("Invite has already been used or has expired");
+    }
+    const accepted = outcome.member;
 
     await this.events.emit({
       event_name: "payer_member.accepted",
@@ -215,18 +286,20 @@ export class PayerOrgMembersService {
   }
 
   /**
-   * The ADR-0053 §3.5 rule this accept would break, or null. Reads only; decides in order A1, A2,
-   * A3 so the log names the first breach. A missing anchor role fails CLOSED as A3.
+   * The ADR-0053 §3.5 rule this accept would break, or null. Reads only, inside the accept's
+   * transaction under the accepter's membership lock (R65); decides in order A1, A2, A3 so the
+   * log names the first breach. A missing anchor role fails CLOSED as A3.
    */
   private async acceptRefusal(
+    tx: PayerOrgsTx,
     payerId: string,
     payerRole: PayerRole,
     orgId: string,
   ): Promise<AcceptRefusalRule | null> {
-    const memberships = await this.orgs.listActiveMembershipsWithAnchor(payerId);
+    const memberships = await this.orgs.listActiveMembershipsWithAnchor(payerId, tx);
     if (memberships.some((m) => isTeamMembership(m, payerId))) return "A1_already_in_a_team";
-    if (await this.orgs.anchorsTeamOrg(payerId)) return "A2_anchors_a_team";
-    if ((await this.orgs.findAnchorRole(orgId)) !== payerRole) return "A3_role_mismatch";
+    if (await this.orgs.anchorsTeamOrg(payerId, tx)) return "A2_anchors_a_team";
+    if ((await this.orgs.findAnchorRole(orgId, tx)) !== payerRole) return "A3_role_mismatch";
     return null;
   }
 

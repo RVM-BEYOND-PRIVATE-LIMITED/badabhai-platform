@@ -448,14 +448,18 @@ emitters and `readOwnedById` — §3.1 as built). P2d keeps the rest:
 
 ## 4. Explicit exceptions (stay actor- or literal-keyed; T5 allowlist entries that survive P3)
 
+Every file is named by its full path: `payer-tenancy.static.test.ts` reads this table and fails
+when a T5 `NAMED_EXCEPTIONS` entry sits in a file the table does not name (P3).
+
 | Path | Why |
 |---|---|
 | `apps/api/src/payer-portal/job-posting-chat/job-posting-chat.repository.ts` (every method) | member-private drafts (O-7) |
 | `payer_form_drafts` (no consumer) | member-private |
 | `apps/api/src/match/free-tier.service.ts` | per-account signup grant |
-| `apps/api/src/admin/admin-actions.repository.ts` (`suspendPayerInventory` `:159`, `reinstatePayerInventory` `:203`, `grantCredits` `:244`) · `admin-entities.repository.ts` · `admin-finance.repository.ts` | ops address an account literally. Suspending an anchor already cascades the org's inventory because rows carry the anchor; R5 blocks the org (O-6). |
+| `apps/api/src/admin/admin-actions.repository.ts` (`suspendPayerInventory` `:159`, `reinstatePayerInventory` `:203`, `grantCredits` `:244`) · `apps/api/src/admin/admin-entities.repository.ts` · `apps/api/src/admin/admin-finance.repository.ts` | ops address an account literally. Suspending an anchor already cascades the org's inventory because rows carry the anchor; R5 blocks the org (O-6). |
+| `apps/api/src/agency/agency-kyc.repository.ts` (`markVerified`, `markRejected` only) | ops verify or reject the queue row they name; its `payer_id` already is the tenant key (P2d, §3.4) |
 | `apps/api/src/payers/payer-disclosure-rate-limit.service.ts` and other rate limiters | abuse controls are per principal |
-| `apps/api/src/payers/payers.repository.ts` · `payer-account.service.ts` | the person, not the tenant |
+| `apps/api/src/payers/payers.repository.ts` · `apps/api/src/payers/payer-account.service.ts` | the person, not the tenant. (`GET /payer/me` `postingOrgName`, P3, reads the TENANT's org name through the resolver — §5 item 10.) |
 
 ---
 

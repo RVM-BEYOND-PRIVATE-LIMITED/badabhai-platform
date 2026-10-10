@@ -186,3 +186,16 @@ export {
   PRODUCTION_WRITE_FLAG,
   type EnforcedOpsGuard,
 } from "./ops-guard";
+// ADR-0053 (PAY-DB-01) — the payer org tenancy census (`db:audit:org-tenancy`), the queries and
+// the flip gate only. Exported so the api's CI DB gate (`org-tenancy-census.db.test.ts`) can run
+// it against seeded breaches (ORG_TENANCY_PLAN §5 item 6). Read-only, never called on a request
+// path, and side-effect free at import (the CLI wrapper is `audit-org-tenancy.ts`, not exported).
+export {
+  CENSUS_QUERIES,
+  censusCount,
+  flipGate,
+  runCensus,
+  type CensusQuery,
+  type CensusResult,
+  type CensusRule,
+} from "./org-tenancy-census";

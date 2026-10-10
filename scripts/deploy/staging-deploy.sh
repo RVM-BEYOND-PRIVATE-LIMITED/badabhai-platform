@@ -127,18 +127,14 @@ fi
 # and the secret cannot be read back, so a typo ("ON", "true") would take the api down. Checked
 # here, before any prune, pull or recreate. The value is never echoed.
 #
-# PHASE GATE (risk R66): `on` is REFUSED until PAY-DB-01 Phase 3. Until every tenant predicate is
-# converted (the T5 UNCONVERTED list in apps/api/src/payers/payer-tenancy.static.test.ts is
-# empty), `on` would scope some payer routes by org and the rest by login. The api itself still
-# accepts `on` (the CI e2e job runs it). The P3 PR lifts this arm (ORG_TENANCY_PLAN.md §5).
+# `on` is accepted since PAY-DB-01 Phase 3 (risk R66, closed): every tenant predicate is converted
+# (the T5 allowlist in apps/api/src/payers/payer-tenancy.static.test.ts is down to the plan's §4
+# exceptions), so `on` switches the whole payer surface at once. Arming shadow and then on is the
+# owner's call (O-8, ORG_TENANCY_PLAN.md §5), never this script's.
 case "${PAYER_ORG_TENANCY_MODE-}" in
-  "" | off | shadow) ;;
-  on)
-    echo "::error::PAYER_ORG_TENANCY_MODE=on is refused until PAY-DB-01 Phase 3 lands (risk R66): org tenancy is only partly converted, and the P3 PR lifts this refusal. Set the production secret to off or shadow (gh secret set PAYER_ORG_TENANCY_MODE --env production --body shadow) and re-run. Nothing was deployed."
-    exit 1
-    ;;
+  "" | off | shadow | on) ;;
   *)
-    echo "::error::PAYER_ORG_TENANCY_MODE must be exactly off, shadow or empty (lowercase; empty means off; on is refused until Phase 3). Fix the production secret (gh secret set PAYER_ORG_TENANCY_MODE --env production --body off) and re-run. Nothing was deployed."
+    echo "::error::PAYER_ORG_TENANCY_MODE must be exactly off, shadow, on or empty (lowercase; empty means off). Fix the production secret (gh secret set PAYER_ORG_TENANCY_MODE --env production --body off) and re-run. Nothing was deployed."
     exit 1
     ;;
 esac

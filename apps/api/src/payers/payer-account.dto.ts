@@ -40,6 +40,16 @@ export const PayerMeSchema = z.object({
    * (`PayerOrgRoleGuard`). ADDITIVE: older clients ignore it.
    */
   orgRole: z.enum(["owner", "recruiter"]).nullable(),
+  /**
+   * ADR-0053 O-10 (PAY-DB-01 P3) — the organisation name a posting this payer publishes
+   * carries: their TENANT's. For a team member (tenancy `on`) that is the org founder's company
+   * name; for everyone else — and for every payer while tenancy is `off` — it equals `orgName`.
+   * The posting form prefills `org_label` from THIS field, never from `orgName` (the person's own
+   * account label). `null` only when tenancy refuses the payer (they can publish nothing).
+   * Their org's own data, returned to a member of it; never logged/eventized. ADDITIVE: older
+   * clients ignore it.
+   */
+  postingOrgName: z.string().nullable(),
 });
 export type PayerMeDto = z.infer<typeof PayerMeSchema>;
 

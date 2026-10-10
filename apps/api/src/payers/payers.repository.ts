@@ -1,12 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
-import {
-  type Database,
-  payers,
-  type Payer,
-  type PayerRole,
-  type PayerStatus,
-} from "@badabhai/db";
+import { type Database, payers, type Payer, type PayerRole, type PayerStatus } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 
@@ -180,11 +174,7 @@ export class PayersRepository {
       set.phoneEnc = this.pii.encrypt(patch.phone);
       set.phoneHash = this.pii.hashPhone(patch.phone);
     }
-    const [row] = await this.db
-      .update(payers)
-      .set(set)
-      .where(eq(payers.id, id))
-      .returning();
+    const [row] = await this.db.update(payers).set(set).where(eq(payers.id, id)).returning();
     return row;
   }
 
@@ -193,6 +183,22 @@ export class PayersRepository {
     const hash = this.pii.hmac(PayersRepository.normEmail(email));
     const [row] = await this.db.select().from(payers).where(eq(payers.emailHash, hash)).limit(1);
     return row;
+  }
+
+  /**
+   * One payer's organisation display name, decrypted — and ONLY that column (least privilege:
+   * no email or phone ciphertext is read). `GET /payer/me` reads the TENANT's name with it for a
+   * team member (ADR-0053 O-10: a teammate's posting carries the founder's company name), so the
+   * caller passes the resolver's tenant key. `undefined` when there is no such payer. A decrypt
+   * failure throws (the caller fails closed). Never logged.
+   */
+  async findOrgName(id: string): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ orgNameEnc: payers.orgNameEnc })
+      .from(payers)
+      .where(eq(payers.id, id))
+      .limit(1);
+    return row ? this.pii.decrypt(row.orgNameEnc) : undefined;
   }
 
   /** Decrypt a payer's contact PII for their OWN view (backend-only). */

@@ -7,11 +7,13 @@ import ts from "typescript";
  * ADR-0053 (PAY-DB-01) — architecture tests for payer org tenancy.
  *
  *  T5  Every function or method that touches a tenant-owned table and takes a RAW payer id
- *      (`payerId: string`, `inviterPayerId: string`, …) is listed below. Phase 2 retypes those
- *      parameters to the branded `TenantKey` and deletes the entry; P3 (the flip) requires
- *      UNCONVERTED to be empty, leaving only NAMED_EXCEPTIONS (plan §4). The comparison is
- *      EXACT in both directions: a new raw-id method fails this test, and so does a converted
- *      one whose entry was not removed — the list cannot go stale.
+ *      (`payerId: string`, `inviterPayerId: string`, …) must be one of the NAMED_EXCEPTIONS
+ *      below — the plan's §4 exceptions, nothing else. Phase 2 retyped every other one to the
+ *      branded `TenantKey` and emptied the old UNCONVERTED allowlist; Phase 3 (this PR) DELETED
+ *      that list, so there is no longer anywhere to park a raw id: the comparison is EXACT in
+ *      both directions against NAMED_EXCEPTIONS alone, and every exception's file must be one
+ *      §4 of ORG_TENANCY_PLAN.md names. That is what lets the deploy preflight admit `on`
+ *      (risk R66, closed).
  *  T8  `PAYER_ORG_TENANCY_MODE` has one reader, the resolver service.
  *  —   One org choice: only the resolver and the invite-accept invariants read memberships, and
  *      nothing reaches for the retired single-row `resolveOrgForPayer`.
@@ -24,15 +26,16 @@ import ts from "typescript";
  *
  * WHAT T5 SEES. A callable — a method, a function declaration, or a class property / variable
  * initialised with an arrow function or function expression — is listed when (a) one of its
- * parameters, or a property of a parameter typed inline, as an array element, or by an interface
- * or type literal declared ANYWHERE under apps/api/src, is named `payerId` / `*PayerId` /
- * `agencyId` / `tenant` / `tenantKey` and typed `string`, and (b) its OWN body names a tenant
- * table: a Drizzle table imported from `@badabhai/db`, Drizzle's relational `….query.<table>`,
- * or the table in a `sql` template's FROM / JOIN / INTO / UPDATE. Parsed with the TypeScript compiler (syntax only).
+ * parameters, or a property of a parameter typed inline, as an array element, as a member of an
+ * intersection or union (`{ payerId: string } & WalletCredit`, P3), or by an interface or type
+ * literal declared ANYWHERE under apps/api/src, is named `payerId` / `*PayerId` / `agencyId` /
+ * `tenant` / `tenantKey` and typed `string`, and (b) its OWN body names a tenant table: a Drizzle
+ * table imported from `@badabhai/db`, Drizzle's relational `….query.<table>`, or the table in a
+ * `sql` template's FROM / JOIN / INTO / UPDATE. Parsed with the TypeScript compiler (syntax only).
  * The fixture suite below proves each of those paths fires.
  *
- * WHAT T5 CANNOT SEE — P3 MUST HAND-CHECK EVERY ONE (ORG_TENANCY_PLAN §5). A green T5 with an
- * empty UNCONVERTED list is NOT proof of completeness while any of these exist:
+ * WHAT T5 CANNOT SEE — HAND-CHECKED IN P3 (ORG_TENANCY_PLAN §5 item 4, every finding recorded
+ * there and in the P3 PR). A green T5 is NOT proof of completeness on its own:
  *  1. `PostingPlansRepository.lockPayer` — an advisory lock keyed by the payer id; no table.
  *  2. `PostingPlansRepository.couponUsage` — counts `coupon.redeemed` in `events` (O-4).
  *  3. `PostingPlansRepository.insertPlan`, 4. `insertBoost`, 5. `JobPostingsRepository.create` —
@@ -44,11 +47,18 @@ import ts from "typescript";
  *     whose `payerId` is a `TenantKey`. The "T5 blind spots 1–5" case pins all five.)
  *  6. A raw id under a name outside PAYER_ID_NAME (e.g. `ownerId`, `tenantId`, `id`). (`tenant`
  *     and `tenantKey` are inside it since the P2c review: a de-branded `tenant: string` is seen.)
- *  7. A parameter typed `any` / `unknown` that carries a payer id.
+ *  7. A parameter typed `any` / `unknown` that carries a payer id. (P3 closes the CAST form of
+ *     it: `x as any` / `x as never` passed where a forgeable type is expected — "S-F1 (P3)"
+ *     below. A value that is `any` with no cast at all — an unparsed body, `JSON.parse` — stays
+ *     a review rule: inputs reach payer services only as Zod-parsed DTOs and the session id.)
  *  8. A callable that only DELEGATES to a listed helper (deliberate: retyping the helper forces
  *     its callers through the type system — but only once the helper is retyped).
+ *  9. A payer id inside an intersection-typed parameter (`UnlocksRepository.creditPack`,
+ *     `{ payerId: TenantKey } & WalletCredit`). Closed in P3: the scanner reads intersections and
+ *     unions, and creditPack's written signature is pinned below with blind spots 1–5.
  * Closed by this scanner (fixture-tested): arrow-function class properties, top-level const
- * arrows, `this.db.query.<table>`, and parameter types declared in another apps/api file.
+ * arrows, `this.db.query.<table>`, parameter types declared in another apps/api file, and (P3)
+ * intersection / union parameter types.
  */
 
 const SRC = join(__dirname, "..");
@@ -115,26 +125,19 @@ const NAMED_EXCEPTIONS: readonly string[] = [
   "agency/agency-kyc.repository.ts AgencyKycRepository.markVerified",
 ];
 
-/**
- * NOT YET CONVERTED. Phase 2 removes entries as it retypes them to `TenantKey`. Must be EMPTY
- * before the flip (P3). Grouped by the Phase 2 PR that owns them (ORG_TENANCY_PLAN §3).
- */
-const UNCONVERTED: readonly string[] = [
-  // P2a — postings, applicants, Candidates inbox, agency jobs: CONVERTED (PR #2167). Its shared
-  // helper `payers/owned-job-ref.ts findOwnedJobRef` was retyped by P2b, which landed after it.
-  // P2b — unlocks, credits, ledger, payment orders, resume disclosures: CONVERTED (PR #2171, all
-  // 16). Hand-converted beside them (T5 cannot see these — blind spots 7/8 and raw compares):
-  // UnlocksRepository.findOwnedJobRef / .creditPack, ResumeDisclosureRepository.findOwnedJobRef,
-  // PaymentGateway.debitOneCreditWithinTx / .purchasePackMock / .createRealOrder /
-  // .settleOrder(expectedTenantKey) — whose credit is UnlocksRepository.
-  // claimAndCreditPaymentOrderWithinTx, keyed by the claim's RETURNING row — UnlockService.reveal's
-  // owner compare (+ an in-tx re-check) and .resolveRelayForPayer's. `countDistinctPayersSince`
-  // (both repos) keeps its SQL: it counts distinct ORGS in `on` (O-3).
-  // P2c — plans, boosts, quota top-up, capacity, coupons: CONVERTED (PR #2174), including the
-  // blind spots 1–4 below, which it converted by hand.
-  // P2d — agency invites, workers, KYC, payouts: CONVERTED (PR #2175). The ops KYC verify /
-  // reject stay literal (NAMED_EXCEPTIONS above).
-];
+// THE OLD `UNCONVERTED` ALLOWLIST IS GONE (Phase 3). Phase 2 emptied it, one domain per PR:
+//  - P2a (PR #2167) postings, applicants, Candidates inbox, agency jobs;
+//  - P2b (PR #2171) unlocks, credits, ledger, payment orders, resume disclosures, and P2a's
+//    shared helper `payers/owned-job-ref.ts findOwnedJobRef`. Hand-converted beside them (T5
+//    cannot see these): UnlocksRepository.findOwnedJobRef / .creditPack,
+//    ResumeDisclosureRepository.findOwnedJobRef, PaymentGateway.debitOneCreditWithinTx /
+//    .purchasePackMock / .createRealOrder / .settleOrder(expectedTenantKey), the reveal and relay
+//    owner compares. `countDistinctPayersSince` (both repos) keeps its SQL: distinct ORGS in `on`;
+//  - P2c (PR #2174) plans, boosts, quota top-up, capacity, coupons (+ blind spots 1–4 by hand);
+//  - P2d (PR #2175) agency invites, workers, KYC, payouts (the ops KYC verify / reject stay
+//    literal: NAMED_EXCEPTIONS above).
+// With no list to add to, a new raw-id tenant callable can only pass as a §4 exception, which is
+// an ADR-level ruling. The deploy preflight admits `on` on that premise (risk R66, closed).
 
 // ---------------------------------------------------------------------------------------------
 
@@ -193,11 +196,18 @@ function rawIdTypesIn(sf: ts.SourceFile): Set<string> {
   return names;
 }
 
-/** A parameter type that carries a raw payer id: inline, `T[]` / `Array<T>`, or a local type. */
+/**
+ * A parameter type that carries a raw payer id: inline, `T[]` / `Array<T>`, a local type, or any
+ * member of an intersection / union (`{ payerId: string } & WalletCredit`; P3, blind spot 9).
+ */
 function typeCarriesRawPayerId(type: ts.TypeNode | undefined, rawTypes: Set<string>): boolean {
   if (!type) return false;
   if (ts.isTypeLiteralNode(type)) return membersHaveRawPayerId(type.members);
   if (ts.isArrayTypeNode(type)) return typeCarriesRawPayerId(type.elementType, rawTypes);
+  if (ts.isParenthesizedTypeNode(type)) return typeCarriesRawPayerId(type.type, rawTypes);
+  if (ts.isIntersectionTypeNode(type) || ts.isUnionTypeNode(type)) {
+    return type.types.some((member) => typeCarriesRawPayerId(member, rawTypes));
+  }
   if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
     if (type.typeName.text === "Array" || type.typeName.text === "ReadonlyArray") {
       return typeCarriesRawPayerId(type.typeArguments?.[0], rawTypes);
@@ -366,21 +376,39 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
     );
   });
 
-  it("the two lists are disjoint and free of duplicates (a reviewable allowlist)", () => {
-    expect(NAMED_EXCEPTIONS.filter((e) => UNCONVERTED.includes(e))).toEqual([]);
-    const all = [...NAMED_EXCEPTIONS, ...UNCONVERTED];
-    expect(new Set(all).size).toBe(all.length);
+  it("the exceptions are free of duplicates (a reviewable list)", () => {
+    expect(new Set(NAMED_EXCEPTIONS).size).toBe(NAMED_EXCEPTIONS.length);
   });
 
-  it("every raw-id tenant-table callable is listed, and every listed one still exists", () => {
-    const expected = [...NAMED_EXCEPTIONS, ...UNCONVERTED].sort();
+  it("P3: every raw-id tenant-table callable is a §4 NAMED EXCEPTION — nothing is unconverted — and every exception still exists", () => {
+    const expected = [...NAMED_EXCEPTIONS].sort();
     const unlisted = found.filter((f) => !expected.includes(f));
     const stale = expected.filter((e) => !found.includes(e));
     expect(
       { unlisted, stale },
-      "A new raw payer id on a tenant table must take a TenantKey (ADR-0053 §5.2). A converted " +
-        "callable must leave UNCONVERTED. Do not add to NAMED_EXCEPTIONS without an ADR ruling.",
+      "A raw payer id on a tenant table must take a TenantKey (ADR-0053 §5.2): the flip is armed " +
+        "(risk R66 closed), so there is no unconverted list to park it in. Do not add to " +
+        "NAMED_EXCEPTIONS without an ADR ruling and a row in ORG_TENANCY_PLAN §4.",
     ).toEqual({ unlisted: [], stale: [] });
+  });
+
+  it("P3: the exceptions are exactly the plan's §4 — every exception's file is a path §4 names", () => {
+    const plan = readFileSync(join(SRC, "../../../docs/payer-agent/ORG_TENANCY_PLAN.md"), "utf8");
+    const from = plan.indexOf("## 4. Explicit exceptions");
+    const to = plan.indexOf("\n## 5.", from);
+    expect(from, "ORG_TENANCY_PLAN.md §4 not found").toBeGreaterThan(-1);
+    const section = plan.slice(from, to < 0 ? undefined : to);
+    // §4 names every file by its full `apps/api/src/…` path (so this read needs no shorthand).
+    const named = new Set(
+      [...section.matchAll(/`apps\/api\/src\/([^`\s]+\.ts)`/g)].map((m) => m[1]!),
+    );
+    expect(named.size, "§4 lists no apps/api/src path: the read is broken").toBeGreaterThan(0);
+    const outside = NAMED_EXCEPTIONS.map((e) => e.split(" ")[0]!).filter(
+      (file) => !named.has(file),
+    );
+    expect([...new Set(outside)], "add the file to ORG_TENANCY_PLAN §4, with its reason").toEqual(
+      [],
+    );
   });
 });
 
@@ -426,12 +454,44 @@ function aliasPropertyType(file: string, alias: string, property: string): strin
   return found;
 }
 
+/** The written type of `property` inside parameter `index` of `Class.method` in `file`. */
+function paramPropertyType(
+  file: string,
+  className: string,
+  method: string,
+  index: number,
+  property: string,
+): string | null {
+  const sf = ts.createSourceFile(
+    file,
+    readFileSync(join(SRC, file), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  let found: string | null = null;
+  sf.forEachChild((node) => {
+    if (!ts.isClassDeclaration(node) || node.name?.text !== className) return;
+    for (const member of node.members) {
+      if (!ts.isMethodDeclaration(member) || member.name.getText(sf) !== method) continue;
+      const type = member.parameters[index]?.type;
+      const visit = (n: ts.Node): void => {
+        if (ts.isPropertySignature(n) && ts.isIdentifier(n.name) && n.name.text === property) {
+          found = n.type?.getText(sf) ?? null;
+        }
+        n.forEachChild(visit);
+      };
+      if (type) visit(type);
+    }
+  });
+  return found;
+}
+
 /**
  * T5's blind spots 1–5 (the header list) are converted by HAND, so nothing above would notice a
  * revert: a `TenantKey` is assignable to `string`, so retyping one of these back to a raw id
  * still compiles. Pinned here by their written signatures instead.
  */
-describe("T5 blind spots 1–5 — the hand-converted callables keep taking the tenant key (P2a, P2c)", () => {
+describe("T5 blind spots 1–5 and 9 — the hand-converted callables keep taking the tenant key (P2a, P2b, P2c)", () => {
   const PLANS = "posting-plans/posting-plans.repository.ts";
 
   it("1, 2: the capacity advisory lock and the coupon count take a TenantKey (O-4)", () => {
@@ -459,6 +519,16 @@ describe("T5 blind spots 1–5 — the hand-converted callables keep taking the 
       "NewTenantJobPosting",
     );
     expect(aliasPropertyType(POSTINGS, "NewTenantJobPosting", "payerId")).toBe("TenantKey | null");
+  });
+
+  it("9 (P3): creditPack's wallet — `payerId` inside its INTERSECTION parameter — is a TenantKey", () => {
+    // `{ payerId: TenantKey } & WalletCredit` (P2b). T5 reads intersections since P3, but the
+    // written signature is pinned too, the way P2c pinned its hand conversions.
+    const UNLOCKS = "unlocks/unlocks.repository.ts";
+    expect(paramPropertyType(UNLOCKS, "UnlocksRepository", "creditPack", 0, "payerId")).toBe(
+      "TenantKey",
+    );
+    expect(paramTypesOf(UNLOCKS, "UnlocksRepository", "creditPack")).toHaveLength(1);
   });
 });
 
@@ -509,8 +579,9 @@ describe("one org choice — every caller goes through the resolver (ADR-0053 §
     ]) {
       // Login asks the HEALING entry point (one place repairs a missing org, review L1). The org-
       // role guard asks the TENANT entry point, once, and hands that scope on (PR #2175 F1).
+      // GET/PATCH /payer/me ask the SELF-VIEW entry point (the org + the tenant key, O-10; P3).
       expect(codeOf(join(SRC, file)), file).toMatch(
-        /\.(resolve|resolveActingOrg|ensureActingOrg)\(/,
+        /\.(resolve|resolveActingOrg|ensureActingOrg|resolveSelfView)\(/,
       );
     }
   });
@@ -606,6 +677,25 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
     expect(found).toEqual(["fx/cross.repository.ts FxRepository.create"]);
   });
 
+  it("a property of an INTERSECTION or UNION parameter type (P3, blind spot 9 — creditPack's shape)", () => {
+    const found = scanRawTenantKeyCallables([
+      fixture(
+        "fx/intersect.repository.ts",
+        `${TABLE_IMPORT}import type { TenantKey } from "../payers/payer-tenant-scope";
+        interface Credit { credits: number }
+        export class FxRepository {
+          async credit(input: { payerId: string } & Credit) { return this.db.insert(unlocks).values(input); }
+          async maybe(input: ({ agencyPayerId: string }) | null) { return this.db.select().from(unlocks); }
+          async ok(input: { payerId: TenantKey } & Credit) { return this.db.insert(unlocks).values(input); }
+        }`,
+      ),
+    ]);
+    expect(found).toEqual([
+      "fx/intersect.repository.ts FxRepository.credit",
+      "fx/intersect.repository.ts FxRepository.maybe",
+    ]);
+  });
+
   it("a raw table name in a `sql` template", () => {
     const found = scanRawTenantKeyCallables([
       fixture(
@@ -699,8 +789,10 @@ function forgeableNames(
 
 /**
  * `path:line Type` for every type assertion (`as T`, `<T>x`, `as unknown as T`) whose target
- * names a forgeable type, and every explicit CALL type argument that does (`launder<TenantKey>(id)`
- * through a generic `x as T`).
+ * names a forgeable type, every explicit CALL type argument that does (`launder<TenantKey>(id)`
+ * through a generic `x as T`), and (P3, review N1 of PR #2155) every TYPE PREDICATE or ASSERTION
+ * FUNCTION that does (`(x: string): x is TenantKey`, `asserts x is TenantKey`): either mints a
+ * key from any string at its call site with no visible cast.
  */
 function forgedTenancyCasts(
   sources: readonly ts.SourceFile[],
@@ -719,6 +811,98 @@ function forgedTenancyCasts(
     const visit = (node: ts.Node): void => {
       if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) report(node, node.type);
       if (ts.isCallExpression(node)) for (const arg of node.typeArguments ?? []) report(node, arg);
+      // `x is T` and `asserts x is T` (a bare `asserts x` has no type and names nothing).
+      if (ts.isTypePredicateNode(node) && node.type) report(node, node.type);
+      node.forEachChild(visit);
+    };
+    visit(sf);
+  }
+  return out;
+}
+
+/**
+ * Callable name → the indices of its parameters whose WRITTEN type names a forgeable type
+ * (`tenant: TenantKey`, `scope: PayerTenantScope`, `input: NewTenantJobPosting`,
+ * `{ payerId: TenantKey } & WalletCredit`). Matching is by NAME, so a same-named callable elsewhere
+ * can only add positions (over-report), never hide one.
+ */
+function forgeableParamPositions(
+  sources: readonly ts.SourceFile[],
+  names: Set<string>,
+): Map<string, Set<number>> {
+  const out = new Map<string, Set<number>>();
+  for (const sf of sources) {
+    const visit = (node: ts.Node): void => {
+      const callable = asCallable(node, sf);
+      callable?.params.forEach((param, index) => {
+        if (!param.type || !typeNamesIn(param.type, sf).some((n) => names.has(lastName(n)))) return;
+        const at = out.get(callable.name) ?? new Set<number>();
+        at.add(index);
+        out.set(callable.name, at);
+      });
+      node.forEachChild(visit);
+    };
+    visit(sf);
+  }
+  return out;
+}
+
+/** `x as any` / `x as never` / `<any>x` / `<never>x`: the casts that assign to ANY type. */
+function isEscapeHatchCast(expression: ts.Expression): boolean {
+  let e = expression;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return (
+    (ts.isAsExpression(e) || ts.isTypeAssertionExpression(e)) &&
+    (e.type.kind === ts.SyntaxKind.AnyKeyword || e.type.kind === ts.SyntaxKind.NeverKeyword)
+  );
+}
+
+/**
+ * An argument that launders an id into a tenant position: an escape-hatch cast itself, or an
+ * object literal whose payer-id-named property (`payerId: x as never`) is one.
+ */
+function launders(argument: ts.Expression): boolean {
+  if (isEscapeHatchCast(argument)) return true;
+  let e = argument;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return (
+    ts.isObjectLiteralExpression(e) &&
+    e.properties.some(
+      (p) =>
+        ts.isPropertyAssignment(p) &&
+        ts.isIdentifier(p.name) &&
+        PAYER_ID_NAME.test(p.name.text) &&
+        isEscapeHatchCast(p.initializer),
+    )
+  );
+}
+
+/**
+ * S-F1 (P3) — `path:line callee#index` for every call that passes an `as any` / `as never` cast
+ * where the callee's parameter is written with a forgeable type. Neither cast names `TenantKey`,
+ * so the cast screen above cannot see it, yet both assign to it: `repo.find(id, body.x as never)`
+ * mints a tenant key from a request value. Syntax only (no type checker: the whole-program check
+ * would cost more than this file's 30 s budget), so a value that is `any` with no cast at all
+ * stays a review rule (blind spot 7).
+ */
+function escapeHatchTenancyArgs(sources: readonly ts.SourceFile[]): string[] {
+  const positions = forgeableParamPositions(sources, forgeableNames(sources));
+  const out: string[] = [];
+  for (const sf of sources) {
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const callee = ts.isPropertyAccessExpression(node.expression)
+          ? node.expression.name.text
+          : ts.isIdentifier(node.expression)
+            ? node.expression.text
+            : null;
+        const at = callee === null ? undefined : positions.get(callee);
+        node.arguments.forEach((argument, index) => {
+          if (!at?.has(index) || !launders(argument)) return;
+          const line = sf.getLineAndCharacterOfPosition(argument.getStart(sf)).line + 1;
+          out.push(`${rel(sf.fileName)}:${line} ${callee}#${index}`);
+        });
+      }
       node.forEachChild(visit);
     };
     visit(sf);
@@ -829,7 +1013,7 @@ function testSupportImporters(sources: readonly ts.SourceFile[]): string[] {
 }
 
 describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-0053 §5.2 rule 2)", () => {
-  it("no type assertion to TenantKey / PayerTenantScope / ActingOrgChoice outside payer-tenant-scope.ts", () => {
+  it("no type assertion, type predicate or assertion function to TenantKey / PayerTenantScope / ActingOrgChoice outside payer-tenant-scope.ts", () => {
     const offenders = forgedTenancyCasts(prodSources()).filter(
       (o) => !o.startsWith(`${SCOPE_FILE}:`),
     );
@@ -924,6 +1108,72 @@ describe("S-F1 — nothing forges a tenant key or a scope (security review, ADR-
       "fx/forge.ts:11 Key",
       "fx/forge.ts:12 Input",
       "fx/forge.ts:13 TenantKey",
+    ]);
+  });
+
+  it("the predicate screen is not vacuous: a type predicate or assertion function naming a forgeable type counts, and nothing else (P3, review N1 of PR #2155)", () => {
+    const found = forgedTenancyCasts([
+      fixture(
+        "fx/predicate.ts",
+        [
+          `function isKey(x: string): x is TenantKey { return true; }`,
+          `function assertKey(x: unknown): asserts x is TenantKey {}`,
+          `type Key = TenantKey;`,
+          `const isAlias = (x: string): x is Key => true;`,
+          `class Fx { isScope(x: unknown): x is PayerTenantScope { return true; } }`,
+          `function isString(x: unknown): x is string { return true; }`,
+          `function assertOk(x: unknown): asserts x {}`,
+          `function isKeys(x: unknown): x is readonly TenantKey[] { return true; }`,
+          `type Guard = (x: string) => x is scope.TenantKey;`,
+        ].join("\n"),
+      ),
+    ]);
+    expect(found).toEqual([
+      "fx/predicate.ts:1 TenantKey",
+      "fx/predicate.ts:2 TenantKey",
+      "fx/predicate.ts:4 Key",
+      "fx/predicate.ts:5 PayerTenantScope",
+      "fx/predicate.ts:8 TenantKey",
+      "fx/predicate.ts:9 scope.TenantKey",
+    ]);
+  });
+
+  it("no `as any` / `as never` reaches a parameter written with a forgeable type (P3)", () => {
+    expect(
+      escapeHatchTenancyArgs(prodSources()),
+      "pass the resolver's key; never cast a value into a tenant position",
+    ).toEqual([]);
+  });
+
+  it("the escape-hatch screen is not vacuous: a direct cast, a parenthesised one and an object property count; other positions and casts do not", () => {
+    const found = escapeHatchTenancyArgs([
+      fixture(
+        "fx/launder.ts",
+        [
+          `type NewTenantRow = { payerId: TenantKey; n: number };`,
+          `export class FxRepository {`,
+          `  async find(id: string, tenant: TenantKey) { return id; }`,
+          `  async create(input: NewTenantRow) { return input; }`,
+          `}`,
+          `export const scoped = async (scope: PayerTenantScope, n: number) => n;`,
+          `function use(repo: FxRepository, body: any, id: string) {`,
+          `  repo.find(id, body.payerId as any);`,
+          `  repo.find(id, (id as never));`,
+          `  repo.find(id as any, key);`,
+          `  repo.create({ payerId: id as never, n: 1 });`,
+          `  repo.create({ payerId: key, n: 1 as never });`,
+          `  repo.find(id, id as string);`,
+          `  scoped(body as any, 1);`,
+          `  scoped(scope, 1 as never);`,
+          `}`,
+        ].join("\n"),
+      ),
+    ]);
+    expect(found).toEqual([
+      "fx/launder.ts:8 find#1",
+      "fx/launder.ts:9 find#1",
+      "fx/launder.ts:11 create#0",
+      "fx/launder.ts:14 scoped#0",
     ]);
   });
 

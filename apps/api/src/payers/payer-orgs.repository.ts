@@ -19,6 +19,16 @@ export interface ResolvedOrg {
   orgRole: OrgRole;
 }
 
+/**
+ * A Drizzle transaction handle: the first argument of a `db.transaction` callback. The invite
+ * and accept paths run their membership reads and their write inside ONE transaction that first
+ * takes the membership lock ({@link PayerOrgsRepository.lockPayerForMembership}; risk R65).
+ */
+export type PayerOrgsTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/** Where a statement runs: inside the caller's transaction, or on the pool. */
+type Executor = Database | PayerOrgsTx;
+
 /** Input to invite a teammate — the email is already-validated + normalized by the DTO. */
 export interface InviteMemberInput {
   orgId: string;
@@ -87,6 +97,51 @@ export class PayerOrgsRepository {
     return { orgId: org.id, orgRole: "owner" };
   }
 
+  /** Run `work` inside ONE transaction (the invite and accept paths' atomic boundary, R65). */
+  async withTransaction<T>(work: (tx: PayerOrgsTx) => Promise<T>): Promise<T> {
+    return this.db.transaction(work);
+  }
+
+  /**
+   * THE MEMBERSHIP LOCK (risk R65, ADR-0053 §3.5): the payer's own `payers` row, held until `tx`
+   * ends. Invite rules A1/A2 are check-then-write; every path that can break one of them takes
+   * this lock FIRST, then reads and writes inside the same `tx`:
+   *  - an invite ACCEPT locks the accepter (two accepts by one payer queue, so the second sees
+   *    the first's active membership — A1);
+   *  - an INVITE locks the inviting org's ANCHOR ({@link lockOrgAnchorForMembership}), the same
+   *    row an accept by that anchor locks — so "the anchor joins another team" and "the anchor's
+   *    org gains a member" can never both pass their check (A2).
+   * `FOR NO KEY UPDATE`: it excludes every other membership lock on the row and plain updates of
+   * it, but not the `FOR KEY SHARE` a foreign-key check takes, so an unrelated insert that
+   * references this payer never waits on an accept. In READ COMMITTED each statement after the
+   * lock reads a fresh snapshot, so a waiter sees whatever the holder committed. Returns false
+   * when there is no such payer (the caller fails closed).
+   */
+  async lockPayerForMembership(tx: PayerOrgsTx, payerId: string): Promise<boolean> {
+    const rows = await tx
+      .select({ id: payers.id })
+      .from(payers)
+      .where(eq(payers.id, payerId))
+      .for("no key update");
+    return rows.length > 0;
+  }
+
+  /**
+   * {@link lockPayerForMembership} on the ANCHOR of `orgId` (`payer_orgs.root_payer_id`), in one
+   * statement. The invite path's lock: invites are owner-only and the only owner is the anchor,
+   * but the row locked is derived from the org, never from the caller. Returns the anchor's id,
+   * or null when the org does not exist.
+   */
+  async lockOrgAnchorForMembership(tx: PayerOrgsTx, orgId: string): Promise<string | null> {
+    const [row] = await tx
+      .select({ anchor: payers.id })
+      .from(payers)
+      .innerJoin(payerOrgs, eq(payerOrgs.rootPayerId, payers.id))
+      .where(eq(payerOrgs.id, orgId))
+      .for("no key update", { of: payers });
+    return row?.anchor ?? null;
+  }
+
   /**
    * Every ACTIVE membership of a payer, joined to its org and to the org's anchor payer
    * (ADR-0053 rule R1). DB access only: WHICH membership the payer acts in is decided by
@@ -97,12 +152,17 @@ export class PayerOrgsRepository {
    * One round trip: `payer_members_member_payer_id_idx`, then primary-key joins. Every join
    * follows a NOT NULL foreign key (org_id → payer_orgs, root_payer_id → payers) or the
    * payer's own row, so it keeps exactly the rows the WHERE selects. Ordered newest-accepted
-   * first, the order the pre-ADR single-row read used. PII-free: ids and enums only.
+   * first, the order the pre-ADR single-row read used. PII-free: ids and enums only. Pass `tx`
+   * to read under the membership lock (the invite and accept rules, R65).
    */
-  async listActiveMembershipsWithAnchor(payerId: string): Promise<ActiveMembershipFacts[]> {
+  async listActiveMembershipsWithAnchor(
+    payerId: string,
+    tx?: PayerOrgsTx,
+  ): Promise<ActiveMembershipFacts[]> {
+    const exec: Executor = tx ?? this.db;
     const anchor = alias(payers, "anchor");
     const member = alias(payers, "member");
-    return this.db
+    return exec
       .select({
         orgId: payerMembers.orgId,
         orgRole: payerMembers.orgRole,
@@ -125,10 +185,11 @@ export class PayerOrgsRepository {
    * Does this payer anchor a TEAM org — their own org has at least one non-removed member
    * (invited or active) other than themselves? Invite rule A2 (ADR-0053 §3.5). An invited row
    * has no member_payer_id yet, so NULL counts as "someone else" (IS DISTINCT FROM, spelled
-   * out because a bare `<>` drops the NULL).
+   * out because a bare `<>` drops the NULL). Pass `tx` to read under the membership lock (R65).
    */
-  async anchorsTeamOrg(payerId: string): Promise<boolean> {
-    const [row] = await this.db
+  async anchorsTeamOrg(payerId: string, tx?: PayerOrgsTx): Promise<boolean> {
+    const exec: Executor = tx ?? this.db;
+    const [row] = await exec
       .select({ id: payerMembers.id })
       .from(payerMembers)
       .innerJoin(payerOrgs, eq(payerOrgs.id, payerMembers.orgId))
@@ -144,8 +205,9 @@ export class PayerOrgsRepository {
   }
 
   /** The vertical role of an org's anchor payer — invite rule A3 (ADR-0053 §3.5, O-9). */
-  async findAnchorRole(orgId: string): Promise<PayerRole | null> {
-    const [row] = await this.db
+  async findAnchorRole(orgId: string, tx?: PayerOrgsTx): Promise<PayerRole | null> {
+    const exec: Executor = tx ?? this.db;
+    const [row] = await exec
       .select({ role: payers.role })
       .from(payerOrgs)
       .innerJoin(payers, eq(payers.id, payerOrgs.rootPayerId))
@@ -180,10 +242,12 @@ export class PayerOrgsRepository {
   /**
    * Count the NON-removed members of an org (active + invited) — the per-org seat cap the
    * invite path enforces (a backstop against unbounded invite minting). Removed rows are
-   * excluded so freeing a seat re-opens the cap.
+   * excluded so freeing a seat re-opens the cap. Under the invite path's membership lock
+   * (`tx`), concurrent invites into one org also count one at a time.
    */
-  async countActiveOrInvited(orgId: string): Promise<number> {
-    const [row] = await this.db
+  async countActiveOrInvited(orgId: string, tx?: PayerOrgsTx): Promise<number> {
+    const exec: Executor = tx ?? this.db;
+    const [row] = await exec
       .select({ n: count() })
       .from(payerMembers)
       .where(and(eq(payerMembers.orgId, orgId), ne(payerMembers.status, "removed")));
@@ -191,8 +255,13 @@ export class PayerOrgsRepository {
   }
 
   /** The current NON-removed member for an email in an org (dup-invite / already-member guard). */
-  async findActiveOrInvitedByEmail(orgId: string, emailHash: string): Promise<PayerMember | undefined> {
-    const [row] = await this.db
+  async findActiveOrInvitedByEmail(
+    orgId: string,
+    emailHash: string,
+    tx?: PayerOrgsTx,
+  ): Promise<PayerMember | undefined> {
+    const exec: Executor = tx ?? this.db;
+    const [row] = await exec
       .select()
       .from(payerMembers)
       .where(
@@ -212,10 +281,12 @@ export class PayerOrgsRepository {
    * status='invited'. The caller ({@link import("../payer-portal/payer-org-members.service").PayerOrgMembersService})
    * rejects re-inviting an ACTIVE member first. member_payer_id stays NULL until accept. PII:
    * the email is written ONLY as ciphertext + keyed hash (never plaintext); the invite token is
-   * stored ONLY as its hash (bearer secret). Returns the invited row.
+   * stored ONLY as its hash (bearer secret). Returns the invited row. `tx`: the invite path's
+   * transaction, under the anchor's membership lock (R65).
    */
-  async inviteMember(input: InviteMemberInput): Promise<PayerMember> {
-    const [row] = await this.db
+  async inviteMember(input: InviteMemberInput, tx?: PayerOrgsTx): Promise<PayerMember> {
+    const exec: Executor = tx ?? this.db;
+    const [row] = await exec
       .insert(payerMembers)
       .values({
         orgId: input.orgId,
@@ -274,15 +345,20 @@ export class PayerOrgsRepository {
    * single-use). The WHERE re-checks id + the token hash + status='invited' + not-expired, so a
    * concurrent double-accept / expired / already-consumed token is a no-op → undefined (the
    * service 409/404s without leaking which). member_payer_id is stamped here (the invite carried
-   * only the email until now). Returns the activated row.
+   * only the email until now). Returns the activated row. `tx`: the accept path's transaction,
+   * under the accepter's membership lock, so the A1–A3 reads and this write are one unit (R65).
    */
-  async acceptInvite(input: {
-    memberId: string;
-    tokenHash: string;
-    memberPayerId: string;
-    now: Date;
-  }): Promise<PayerMember | undefined> {
-    const [row] = await this.db
+  async acceptInvite(
+    input: {
+      memberId: string;
+      tokenHash: string;
+      memberPayerId: string;
+      now: Date;
+    },
+    tx?: PayerOrgsTx,
+  ): Promise<PayerMember | undefined> {
+    const exec: Executor = tx ?? this.db;
+    const [row] = await exec
       .update(payerMembers)
       .set({
         status: "active",

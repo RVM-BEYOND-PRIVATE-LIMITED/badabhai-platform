@@ -315,6 +315,21 @@ describe.skipIf(!RUN)(
       expect(me.json).toMatchObject({ id: B.payerId, orgId: orgOfA, orgRole: "recruiter" });
     });
 
+    it("O-10 (P3): B's GET /payer/me names A's org as the one B posts under; B's own name is unchanged", async () => {
+      // A renames their org over HTTP, so the two names differ (test-login gives both the same).
+      const renamed = await req("PATCH", "/payer/me", {
+        token: A.token,
+        body: { orgName: "E2E Anchor Works" },
+      });
+      expect(renamed.status).toBe(200);
+      expect(renamed.json.postingOrgName).toBe("E2E Anchor Works");
+
+      const meB = await req("GET", "/payer/me", { token: B.token });
+      expect(meB.status).toBe(200);
+      expect(meB.json.postingOrgName).toBe("E2E Anchor Works");
+      expect(meB.json.orgName).not.toBe("E2E Anchor Works");
+    });
+
     it("setup: every route the story calls answers 200 for B (so the story can only fail on content)", async () => {
       for (const path of ["/payer/job-postings", "/payer/credits", "/payer/unlocks"]) {
         expect((await req("GET", path, { token: B.token })).status, path).toBe(200);
