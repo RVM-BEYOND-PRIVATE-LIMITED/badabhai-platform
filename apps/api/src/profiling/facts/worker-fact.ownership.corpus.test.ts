@@ -46,4 +46,20 @@ describe("shift_preference is never chat-servable — walked over the real corpu
       "shift_preference",
     );
   });
+
+  it("shift_preference is single_select in every universal version — a multi would tick in chat", () => {
+    // The form asks Shift as single-select radios and the server stores one text
+    // slug. If a pack ever authored this key as multi_select, the chat would draw
+    // the tick + "Ho gaya" row for it (answer_type drives the affordance) and a
+    // two-tick answer would be dropped whole by the single-select capture — losing
+    // the answer. Pin the data contract, not just the ownership filter.
+    for (const file of ["qp_universal", "qp_universal@2", "qp_universal@3", "qp_universal@4"]) {
+      const pack = packFromCorpus(file);
+      const shiftPreference = pack.items.find((item) => item.question_key === "shift_preference");
+      expect(shiftPreference, `${file} must still carry shift_preference`).toBeDefined();
+      expect(shiftPreference!.answer_type, `${file}'s shift_preference must stay single`).toBe(
+        "single_select",
+      );
+    }
+  });
 });
