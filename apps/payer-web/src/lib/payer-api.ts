@@ -1182,7 +1182,9 @@ function isPayoutsDisabled(e: unknown): boolean {
 
 /**
  * GET /payer/agency/earnings — the caller's OWN referral-earnings summary (LIVE, gated).
- * `null` = supply payouts not enabled (404). PII-free (amounts/counts/config + a status
+ * `null` = supply payouts not enabled (404). A 403 (recruiter on the owner-only route,
+ * #2178) THROWS (`PayerForbiddenError`) so the page renders its neutral owner-only
+ * state — never `null`, never a retry. PII-free (amounts/counts/config + a status
  * enum). Crosses {@link assertNoAgencyPII} (defence-in-depth).
  */
 export async function getAgencyEarnings(): Promise<AgencyEarnings | null> {
@@ -1198,7 +1200,9 @@ export async function getAgencyEarnings(): Promise<AgencyEarnings | null> {
 /**
  * GET /payer/agency/kyc — the caller's OWN KYC status (LIVE, gated). MASKED-only: the
  * response carries `panLast4` / `bankLast4` (display last-4), NEVER the raw PAN/bank.
- * `null` = supply payouts not enabled (404). Crosses {@link assertNoAgencyPII} — the
+ * `null` = supply payouts not enabled (404). A 403 (recruiter on the owner-only route,
+ * #2178) THROWS so the page renders its neutral owner-only state. Crosses
+ * {@link assertNoAgencyPII} — the
  * masked last-4 keys are explicitly allow-listed there; a raw `pan`/`bank`/`ifsc` key
  * would still throw (faceless boundary).
  */

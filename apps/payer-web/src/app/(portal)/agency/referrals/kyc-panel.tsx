@@ -217,10 +217,8 @@ function statusBanner(status: AgencyKyc["status"], rejectReason?: string) {
     return (
       <div className="alert alert--neutral">
         <div className="alert__text">
-          <p className="alert__title">Agency accounts only</p>
-          <p className="alert__body">
-            KYC for payouts is only available on agency (recruiter) accounts.
-          </p>
+          <p className="alert__title">Owner only</p>
+          <p className="alert__body">Only your organization&apos;s owner can see payouts.</p>
         </div>
       </div>
     );

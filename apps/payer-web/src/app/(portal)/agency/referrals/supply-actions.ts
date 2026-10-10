@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { agencyKycInputSchema, type AgencyKyc } from "../../../../lib/contracts";
 import { requestAgencyPayout, submitAgencyKyc } from "../../../../lib/payer-api";
+import { isPayerForbiddenError, isPayerStatus } from "../../../../lib/payer-errors";
 import { requireAgent } from "../../../../lib/auth/roles";
 
 /**
@@ -17,10 +18,14 @@ import { requireAgent } from "../../../../lib/auth/roles";
  *
  * GATE: while supply payouts are OFF the seam returns `null` (the gated-route 404) — the
  * action maps that to a friendly `{ ok:false, disabled:true }` "coming soon", never a raw
- * error. Any other transient failure is a neutral retryable message.
+ * error. OWNER-ONLY (#2178): a recruiter's write is refused with 403 — the action maps
+ * that to a neutral owner-only message WITHOUT inviting a retry (a retry is the same
+ * 403). Any other transient failure is a neutral retryable message.
  */
 
 const PAYOUTS_DISABLED = "Supply payouts aren't enabled yet. This will open soon.";
+const OWNER_ONLY_KYC = "Only your organization's owner can manage payout details.";
+const OWNER_ONLY_PAYOUT = "Only your organization's owner can request payouts.";
 
 /* ── KYC submit ─────────────────────────────────────────────────────────────── */
 
@@ -46,7 +51,10 @@ export async function submitKycAction(input: unknown): Promise<SubmitKycResult> 
     if (kyc === null) return { ok: false, disabled: true, error: PAYOUTS_DISABLED };
     revalidatePath("/agency/referrals");
     return { ok: true, kyc };
-  } catch {
+  } catch (e) {
+    if (isPayerForbiddenError(e) || isPayerStatus(e, 403)) {
+      return { ok: false, error: OWNER_ONLY_KYC };
+    }
     return { ok: false, error: "Could not submit your details right now. Please retry." };
   }
 }
@@ -84,7 +92,10 @@ export async function requestPayoutAction(): Promise<RequestPayoutResult> {
     }
     // Backend refused — surface the reason (the panel maps it to friendly copy).
     return { ok: false, blocked: true, reason: res.reason };
-  } catch {
+  } catch (e) {
+    if (isPayerForbiddenError(e) || isPayerStatus(e, 403)) {
+      return { ok: false, error: OWNER_ONLY_PAYOUT };
+    }
     return { ok: false, error: "Could not request a payout right now. Please retry." };
   }
 }

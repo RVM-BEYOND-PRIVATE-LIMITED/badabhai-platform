@@ -84,11 +84,13 @@ export class PayerValidationError extends PayerHttpError {
 }
 
 /**
- * A 403 on a recruiter-only surface hit by a non-recruiter (company payer). A
- * {@link PayerHttpError} (status 403, the transport's historic message), so every
- * 403 check still matches it — the same pattern as {@link PayerValidationError}.
- * A seam that wants the neutral "Agency accounts only" state narrows it with
- * {@link isPayerForbiddenError}.
+ * A 403 on a gated surface: a company payer on a recruiter-only surface (#2187), or a
+ * recruiter on an owner-only money surface (#2178, ADR-0053 O-5 — `Org role is not
+ * permitted for this resource`). A {@link PayerHttpError} (status 403, the transport's
+ * historic message), so every 403 check still matches it — the same pattern as
+ * {@link PayerValidationError}. A seam that wants the neutral owner-only / agency-only
+ * state narrows it with {@link isPayerForbiddenError} (or {@link isPayerStatus} 403,
+ * which reads the same status across module instances).
  */
 export class PayerForbiddenError extends PayerHttpError {
   constructor(path: string) {
