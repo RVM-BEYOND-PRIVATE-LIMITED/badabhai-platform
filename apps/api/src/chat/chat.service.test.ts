@@ -27,6 +27,7 @@ import { PostMessageResponseSchema } from "./chat.dto";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
 import {
   emptyGeneralRoad,
+  emptyTradeConfirm,
   emptyTurnLatency,
   TURN_KINDS,
   type ProfilingEnvelope,
@@ -94,6 +95,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmFallback: false,
     llmGateOpen: false,
     llmGateAsked: false,
+    tradeConfirm: emptyTradeConfirm(),
     formKind: null,
     formOfferPrompt: null,
     resumeIdentity: null,

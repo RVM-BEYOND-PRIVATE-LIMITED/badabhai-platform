@@ -257,18 +257,35 @@ describe("#1505 F5: the model's own gate-shaped or repeated line is never served
     });
 
     await world.orchestrator.takeTurn(turnInput("cook hu"));
-    const gate = await world.orchestrator.takeTurn(
+    const tradeGate = await world.orchestrator.takeTurn(
       turnInput("tandoor cook tha teen saal", new Date(T0.getTime() + 1000)),
     );
-    expect(gate.reply).toBe("Aur koi experience jodna hai?");
+    // The trade-confirm gate owns the turn the trade is first named — even when that name
+    // arrives only as an experience entry's role fallback.
+    expect(tradeGate.reply).toBe("tandoor cook — क्या आप यही काम करना चाहते हैं?");
 
-    const third = await world.orchestrator.takeTurn(
+    const expGate = await world.orchestrator.takeTurn(
       turnInput("Haan", new Date(T0.getTime() + 2000)),
     );
-    // The repeated pre-gate line is never served — `llmGateAsked` is already true (set on turn 2),
-    // so the guard's fallback is `done`, not the engine's own gate a second time.
-    expect(third.reply).not.toBe("Aap kaunsi skills jaante hain is kaam mein?");
-    expect(world.store.get(SESSION)?.profiling?.llmStage).toBe("done");
+    // "Haan" confirms the trade and falls through to the model — which re-asks the turn-1
+    // skills question verbatim. The guard discards the repeat; the deferred experience gate
+    // is served instead, so the repeat is never what the worker sees.
+    expect(expGate.reply).toBe("Aur koi experience jodna hai?");
+
+    await world.orchestrator.takeTurn(turnInput("Haan", new Date(T0.getTime() + 3000)));
+
+    // The repeated pre-gate line is served exactly ONCE — on turn 1, where it belongs —
+    // and never re-served on turn 3: the full-history comparison, not a boundary-scoped one.
+    // (The second Haan answers the experience gate and finds the scripted model exhausted,
+    // so the interview falls back to the deterministic tail — also with no repeated line.)
+    const said =
+      world.store
+        .get(SESSION)
+        ?.messages.filter((m) => m.role === "assistant")
+        .map((m) => m.text) ?? [];
+    expect(
+      said.filter((line) => line === "Aap kaunsi skills jaante hain is kaam mein?"),
+    ).toHaveLength(1);
   });
 });
 

@@ -163,6 +163,16 @@ const FULL: ProfilingEnvelope = {
   llmFallback: true,
   llmGateOpen: true,
   llmGateAsked: true,
+  // NON-DEFAULT in every sub-field: the empty gate is what a narrower that dropped the
+  // field would rebuild, and each value is one a lossy narrower could reset.
+  tradeConfirm: {
+    open: true,
+    trade: "CNC Turner",
+    confirmed: false,
+    reaskOpen: false,
+    pastLabel: "Welder",
+    rounds: 2,
+  },
   formKind: "cnc_turner",
   // NON-DEFAULT, like every field here — and a DIFFERENT kind than `formKind` on purpose:
   // a narrower that confused the two fields (or dropped this one and rebuilt the default)

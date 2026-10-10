@@ -705,6 +705,27 @@ export interface ProfilingEnvelope {
   readonly llmGateAsked: boolean;
 
   /**
+   * The trade-confirm gate (Phase A) — "<trade> — क्या आप यही काम करना चाहते हैं?"
+   * with Haan/Nahi, then "आप किस ट्रेड में काम करना चाहते हैं?" on a Nahi.
+   *
+   * `open` is "the gate is on screen RIGHT NOW" (the worker's next sentence answers
+   * it); `trade` the label being confirmed; `confirmed` sticky once the worker says
+   * Haan; `reaskOpen` the desired-trade question on screen; `pastLabel` the last
+   * declined trade (transcript record only — never settled, never re-reported unless
+   * the worker restates it); `rounds` how many Nahi answers this interview has given.
+   *
+   * ITS OWN STATE rather than a reserved `servedQuestionKey`, for the reason
+   * `llmGateOpen` gives: every capture branch reads that key as "the pack question on
+   * screen", and a synthetic key would file a Haan/Nahi as an answer to a question no
+   * pack owns. While `open` or `reaskOpen` is true `servedQuestionKey` stays null.
+   *
+   * REDIS ONLY — DELIBERATELY ABSENT FROM `toConversationStatePatch`. In-interview
+   * control flow the parse call cannot use and the ai-service must never write; the
+   * confirmed trade itself reaches Postgres through the settled `trade` answer.
+   */
+  readonly tradeConfirm: TradeConfirmState;
+
+  /**
    * The trade form this interview handed over to, once it has. Null for every other session.
    *
    * SET ONCE AND NEVER CLEARED. It is the record that Phase A is off for this session and that
@@ -967,6 +988,28 @@ export function emptyGeneralRoad(): GeneralRoadState {
   };
 }
 
+/** See {@link ProfilingEnvelope.tradeConfirm}. */
+export interface TradeConfirmState {
+  readonly open: boolean;
+  readonly trade: string | null;
+  readonly confirmed: boolean;
+  readonly reaskOpen: boolean;
+  readonly pastLabel: string | null;
+  readonly rounds: number;
+}
+
+/** A trade-confirm gate that has never been served. */
+export function emptyTradeConfirm(): TradeConfirmState {
+  return {
+    open: false,
+    trade: null,
+    confirmed: false,
+    reaskOpen: false,
+    pastLabel: null,
+    rounds: 0,
+  };
+}
+
 /** See {@link ProfilingEnvelope.resumeUpdateOffer}. */
 export interface ResumeUpdateOfferState {
   readonly state: "pending" | "settled";
@@ -1085,6 +1128,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmFallback: true,
   llmGateOpen: true,
   llmGateAsked: true,
+  tradeConfirm: true,
   formKind: true,
   formOfferPrompt: true,
   resumeConfirm: true,
@@ -1136,6 +1180,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmFallback: false,
     llmGateOpen: false,
     llmGateAsked: false,
+    tradeConfirm: emptyTradeConfirm(),
     formKind: null,
     formOfferPrompt: null,
     resumeConfirm: null,
@@ -1477,6 +1522,12 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // worker who never saw it never does — which is #1016 itself, preserved. "We have no record
     // that it was asked" is also the honest reading of a field nothing ever wrote.
     llmGateAsked: v.llmGateAsked === true,
+    // ABSENT READS AS NEVER-SERVED — the state of every envelope in flight across the
+    // deploy that adds this field. `open`/`reaskOpen` resume closed (a `true` default
+    // would read the worker's next sentence as a gate answer to a question no longer
+    // on screen); `confirmed` resumes false so the gate is offered once on the next
+    // turn, at most one extra Yes/No turn for a session that already confirmed.
+    tradeConfirm: narrowTradeConfirm(v.tradeConfirm),
     // NULL ON ANYTHING OUTSIDE THE CLOSED SET, ABSENT INCLUDED — and absent is the state of
     // every envelope in flight across the deploy that adds this field. Null reads as "this
     // interview never handed over", which is true of all of them and leaves them running the
@@ -1641,6 +1692,31 @@ function narrowGeneralRoad(value: unknown): GeneralRoadState {
     rejectedCount: nonNegativeInt(v.rejectedCount),
     outcome: SKILLS_STAGE_OUTCOMES.find((candidate) => candidate === v.outcome) ?? null,
     handedOver,
+  };
+}
+
+/**
+ * The trade-confirm gate's state, or a never-served one.
+ *
+ * FAILS TOWARD ASKING, never toward confirming: an unreadable value narrows to the
+ * empty gate (unconfirmed, nothing on screen), so the worker is offered the gate once
+ * more rather than profiled for a trade they never confirmed. `trade`/`pastLabel`
+ * survive only as non-empty strings; `rounds` is clamped like every other counter.
+ */
+function narrowTradeConfirm(value: unknown): TradeConfirmState {
+  if (typeof value !== "object" || value === null) return emptyTradeConfirm();
+  const v = value as Record<string, unknown>;
+  const label = (x: unknown): string | null =>
+    typeof x === "string" && x.trim().length > 0 ? x : null;
+  const trade = label(v.trade);
+  const pastLabel = label(v.pastLabel);
+  return {
+    open: v.open === true && trade !== null,
+    trade,
+    confirmed: v.confirmed === true,
+    reaskOpen: v.reaskOpen === true && v.open !== true,
+    pastLabel,
+    rounds: nonNegativeInt(v.rounds),
   };
 }
 

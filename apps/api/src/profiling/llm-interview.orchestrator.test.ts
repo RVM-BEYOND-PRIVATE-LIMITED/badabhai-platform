@@ -27,6 +27,10 @@ import {
 import type { LlmTurnResult } from "./llm-turn.service";
 import { MAX_ENGINE_TURNS } from "./next-question";
 import {
+  MAX_TRADE_CONFIRM_ROUNDS,
+  TRADE_DESIRED_PROMPT,
+} from "./trade-confirm";
+import {
   DE_ESCALATION_REPLY,
   ESCAPE_TYPE_PROMPT,
   HARDSHIP_REPLIES,
@@ -376,19 +380,33 @@ const say = (text: string, at: Date = T0) => ({
 });
 
 describe("the model's turn reaches the worker", () => {
-  it("serves the model's question and spends no ENGINE ask on it", async () => {
+  it("confirms the inferred trade first, then serves the model's question", async () => {
+    // THE TRADE-CONFIRM GATE: `ASK` names the trade ("cooking"), so the first turn
+    // serves the gate — not the model's question — and spends no ENGINE ask on it.
     const { orchestrator, store } = makeWorld();
-    const result = await orchestrator.takeTurn(say("cook hu"));
+    const gated = await orchestrator.takeTurn(say("cook hu"));
 
-    expect(result.reply).toBe(ASK.reply);
-    expect(result.kind).toBe("ask");
+    expect(gated.reply).toBe("cooking — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.kind).toBe("ask");
     // NO PACK KEY. Claiming one would make the next turn capture the answer as that question's.
-    expect(result.questionKey).toBeNull();
+    expect(gated.questionKey).toBeNull();
+    expect(gated.inputMode).toBe("options_only");
+    expect(gated.options.map((o) => o.label_text)).toEqual(["Haan", "Nahi"]);
     const saved = store.get(SESSION)?.profiling;
     expect(saved?.engineAsks).toBe(0);
     expect(saved?.servedQuestionKey).toBeNull();
     expect(saved?.phase).toBe("llm_interview");
     expect(saved?.llmDraft.domain_label).toBe("cooking");
+    expect(saved?.tradeConfirm.open).toBe(true);
+
+    // Haan confirms it, and the SAME flow as before the gate resumes: the model's
+    // question, still spending no engine ask.
+    const result = await orchestrator.takeTurn(say("Haan"));
+    expect(result.reply).toBe(ASK.reply);
+    expect(result.kind).toBe("ask");
+    expect(result.questionKey).toBeNull();
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(0);
+    expect(store.get(SESSION)?.profiling?.tradeConfirm.confirmed).toBe(true);
   });
 
   it("sends `options_only` and the two gate chips down the wire", async () => {
@@ -439,8 +457,113 @@ describe("the model's turn reaches the worker", () => {
   });
 });
 
+describe("the trade-confirm gate", () => {
+  const cncAsk: LlmTurnResult = {
+    ...ASK,
+    reply: "Aap is kaam mein kitne saal se hain?",
+    patch: {
+      ...ASK.patch,
+      llmDraft: { domain_label: "CNC Machining", role_label: "CNC Turner", skills: [], experiences: [] },
+    },
+  };
+  const camAsk: LlmTurnResult = {
+    ...ASK,
+    reply: "Aap is kaam mein kitne saal se hain?",
+    patch: {
+      ...ASK.patch,
+      llmDraft: { domain_label: null, role_label: "CAM programmer", skills: [], experiences: [] },
+    },
+  };
+  it("a Nahi asks which trade the worker wants, clearing the declined one", async () => {
+    const { orchestrator, store } = makeWorld({ take: cncAsk });
+    await orchestrator.takeTurn(say("CNC turner hu"));
+    const reask = await orchestrator.takeTurn(say("Nahi"));
+
+    expect(reask.reply).toBe(TRADE_DESIRED_PROMPT);
+    expect(reask.questionKey).toBeNull();
+    expect(reask.options).toEqual([]);
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.tradeConfirm.reaskOpen).toBe(true);
+    expect(saved?.tradeConfirm.open).toBe(false);
+    expect(saved?.tradeConfirm.pastLabel).toBe("CNC Turner");
+    expect(saved?.tradeConfirm.rounds).toBe(1);
+    // The declined trade is gone from the draft — the next inference starts clean —
+    // and the deterministic pin with it, so nothing routes on it meanwhile.
+    expect(saved?.llmDraft.domain_label).toBeNull();
+    expect(saved?.llmDraft.role_label).toBeNull();
+    expect(saved?.occupation).toBeNull();
+  });
+
+  it("the wanted trade gets its own gate, and Haan continues the interview on it", async () => {
+    const { orchestrator, store, llm } = makeWorld({ take: cncAsk });
+    await orchestrator.takeTurn(say("CNC turner hu"));
+    await orchestrator.takeTurn(say("Nahi"));
+    llm.take.mockResolvedValue(camAsk);
+    const gated = await orchestrator.takeTurn(say("CAM programmer banna hai"));
+
+    expect(gated.reply).toBe("CAM programmer — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.inputMode).toBe("options_only");
+    // Haan confirms it, and the SAME flow as before the gate resumes — here, the
+    // trade-form offer CAM programmer routes to, served for the CONFIRMED trade.
+    const confirmed = await orchestrator.takeTurn(say("Haan"));
+    expect(confirmed.reply).toContain("profile detected");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.tradeConfirm.confirmed).toBe(true);
+    expect(saved?.formOfferPrompt?.state).toBe("pending");
+    expect(saved?.llmDraft.role_label).toBe("CAM programmer");
+    // The past trade was never settled as experience and never re-reported: it lives
+    // only in the transcript until the worker chooses to add it.
+    expect(
+      (saved?.llmDraft.experiences ?? []).some((e) => e.role_label === "CNC Turner"),
+    ).toBe(false);
+  });
+
+  it("a trade typed over the gate is the wanted trade — no re-ask round trip", async () => {
+    const { orchestrator, store, llm } = makeWorld({ take: cncAsk });
+    await orchestrator.takeTurn(say("CNC turner hu"));
+    llm.take.mockResolvedValue(camAsk);
+    const gated = await orchestrator.takeTurn(say("CAM programmer banna hai"));
+
+    expect(gated.reply).toBe("CAM programmer — क्या आप यही काम करना चाहते हैं?");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.tradeConfirm.reaskOpen).toBe(false);
+    expect(saved?.tradeConfirm.rounds).toBe(1);
+    expect(saved?.tradeConfirm.pastLabel).toBe("CNC Turner");
+  });
+
+  it("past the round bound the gate stops asking and the interview runs on", async () => {
+    const { orchestrator, store } = makeWorld({ take: DONE });
+    seed(store, {
+      llmStage: "experience",
+      llmLedTurns: 3,
+      llmDraft: { domain_label: "cooking", role_label: null, skills: [], experiences: [] },
+      tradeConfirm: {
+        open: false,
+        trade: null,
+        confirmed: false,
+        reaskOpen: false,
+        pastLabel: "welder",
+        rounds: MAX_TRADE_CONFIRM_ROUNDS,
+      },
+    });
+    const result = await orchestrator.takeTurn(say("bas itna hi"));
+    // No gate: Phase A closes into the tail exactly as it did before the gate existed.
+    expect(result.reply).not.toContain("क्या आप यही काम करना चाहते हैं?");
+  });
+});
+
 describe("model chips always leave a way to type your own (#1506)", () => {
-  const chipsAsk = (chips: string[]): LlmTurnResult => ({ ...ASK, chips, inputMode: "text" });
+  // NULL LABELS: these tests are about chip rendering, not trade inference — and a
+  // named trade would open the trade-confirm gate instead of serving the chips.
+  const chipsAsk = (chips: string[]): LlmTurnResult => ({
+    ...ASK,
+    chips,
+    inputMode: "text",
+    patch: {
+      ...ASK.patch,
+      llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+    },
+  });
 
   it("appends the server's escape LAST, and drops the model's own", async () => {
     const { orchestrator } = makeWorld({ take: chipsAsk(["Welder", "Fitter", "Koi aur"]) });
@@ -1344,8 +1467,9 @@ describe("the fallback is a fall-through, not a second engine", () => {
 });
 
 describe("reopening mid-Phase-A", () => {
-  it("re-serves the MODEL's question rather than falling through to a pack one", async () => {
-    // Without this, every cold start and resume-after-kill swapped the conversation for a form.
+  it("re-serves the TRADE GATE rather than falling through to a pack one", async () => {
+    // The gate is what the worker is looking at after "cook hu" names the trade: a
+    // cold start must redraw it, not the model's discarded question and never a form.
     const { orchestrator, store } = makeWorld();
     await orchestrator.takeTurn(say("cook hu"));
     const revBefore = store.get(SESSION)?.profiling?.rev;
@@ -1357,8 +1481,10 @@ describe("reopening mid-Phase-A", () => {
       ctx: CTX as never,
     });
 
-    expect(reopened.reply).toBe(ASK.reply);
+    expect(reopened.reply).toBe("cooking — क्या आप यही काम करना चाहते हैं?");
     expect(reopened.questionKey).toBeNull();
+    expect(reopened.inputMode).toBe("options_only");
+    expect(reopened.options.map((o) => o.label_text)).toEqual(["Haan", "Nahi"]);
     expect(reopened.replayed).toBe(true);
     // NOTHING WRITTEN. Re-serving is not a turn.
     expect(store.get(SESSION)?.profiling?.rev).toBe(revBefore);
@@ -1368,7 +1494,7 @@ describe("reopening mid-Phase-A", () => {
     const { orchestrator } = makeWorld();
     await orchestrator.takeTurn(say("cook hu"));
     const view = await orchestrator.viewSession(SESSION, new Date(T0.getTime() + 60_000));
-    expect(view?.served?.promptText).toBe(ASK.reply);
+    expect(view?.served?.promptText).toBe("cooking — क्या आप यही काम करना चाहते हैं?");
     expect(view?.served?.questionKey).toBeNull();
   });
 
