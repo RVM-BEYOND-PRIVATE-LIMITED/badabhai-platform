@@ -2,7 +2,7 @@ import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabha
 import { normalizeOccupationText, parseAffirmation } from "@badabhai/profiling-lexicon";
 
 /**
- * THE TRADE-CONFIRM GATE — "<trade> — क्या आप यही काम करना चाहते हैं?" [Haan] [Nahi].
+ * THE TRADE-CONFIRM GATE — "<trade> — kya aap yahi kaam karna chahte hain?" [Haan] [Nahi].
  *
  * ── WHAT IT IS ───────────────────────────────────────────────────────────────────
  *
@@ -10,12 +10,12 @@ import { normalizeOccupationText, parseAffirmation } from "@badabhai/profiling-l
  * `role_label`. Before that inference becomes the profile's trade — before the
  * trade-form offer, the lane decision and the draft settlement read it — the worker
  * confirms it. Haan → the interview continues exactly as today. Nahi → the engine
- * asks which trade the worker DOES want ("आप किस ट्रेड में काम करना चाहते हैं?"),
+ * asks which trade the worker DOES want ("Aap kis trade mein kaam karna chahte hain?"),
  * the model learns the new trade the same way it learned the first one, and the gate
  * is served again for the new trade. The loop repeats until the worker says Haan.
  *
  * A worker who was always a CNC Turner but now wants to be a CAM programmer answers
- * Nahi to "CNC Turner — क्या आप यही काम करना चाहते हैं?", names CAM programming on
+ * Nahi to "CNC Turner — kya aap yahi kaam karna chahte hain?", names CAM programming on
  * the re-ask, answers Haan to the next gate, and is profiled as a CAM programmer.
  *
  * ── WHY THE GATE IS OURS AND NOT THE MODEL'S ────────────────────────────────────
@@ -55,7 +55,7 @@ import { normalizeOccupationText, parseAffirmation } from "@badabhai/profiling-l
 export const MAX_TRADE_CONFIRM_ROUNDS = 5;
 
 /** The re-ask served after a Nahi — which trade the worker wants instead. */
-export const TRADE_DESIRED_PROMPT = "आप किस ट्रेड में काम करना चाहते हैं?";
+export const TRADE_DESIRED_PROMPT = "Aap kis trade mein kaam karna chahte hain?";
 
 /**
  * The two chips.
@@ -85,16 +85,19 @@ export const TRADE_CONFIRM_OPTIONS = Object.freeze([
 /**
  * The gate bubble for one inferred trade.
  *
- * `<trade> — क्या आप यही काम करना चाहते हैं?` One question mark (a "?" inside the
- * trade itself is stripped), no exclamation, the "aap" form — the same persona rules
- * every engine line is held to in `persona-copy.test.ts`.
+ * `<trade> — kya aap yahi kaam karna chahte hain?` LATIN SCRIPT ONLY, like every other
+ * engine line the worker reads (`EXPERIENCE_GATE_PROMPT`'s precedent): the interview speaks
+ * Hinglish in Latin letters, and a Devanagari line here would be the one bubble on screen
+ * the voice form cannot pre-render and the worker may not read. One question mark (a "?"
+ * inside the trade itself is stripped), no exclamation, the "aap" form — the same persona
+ * rules every engine line is held to in `persona-copy.test.ts`.
  *
  * DYNAMIC, so it is never in `CONSTANT_REPLIES`: the voice form falls back to
  * on-device TTS for it, exactly as it does for the experience gate.
  */
 export function tradeConfirmPrompt(trade: string): string {
   const clean = trade.replace(/[?？!！]/gu, "").replace(/\s+/gu, " ").trim();
-  return `${clean} — क्या आप यही काम करना चाहते हैं?`;
+  return `${clean} — kya aap yahi kaam karna chahte hain?`;
 }
 
 /**

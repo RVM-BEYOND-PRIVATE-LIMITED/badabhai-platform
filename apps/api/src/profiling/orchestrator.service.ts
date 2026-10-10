@@ -2681,7 +2681,7 @@ export class ProfilingOrchestrator {
         // BEFORE routing, the lane decision, the form offer and every settlement: none of
         // them may treat an unconfirmed trade as the profile's trade. When the model's
         // draft (or, before it names one, the deterministic pin) says what the worker does,
-        // the worker is asked "<trade> — क्या आप यही काम करना चाहते हैं?" with Haan/Nahi —
+        // the worker is asked "<trade> — kya aap yahi kaam karna chahte hain?" with Haan/Nahi —
         // and the model's own question or close on this turn is discarded in favour of it.
         //
         // THE SAME BRANCH-3 REASONING AS THE EXPERIENCE GATE: the model's reply was never

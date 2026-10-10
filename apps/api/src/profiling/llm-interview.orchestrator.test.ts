@@ -386,7 +386,7 @@ describe("the model's turn reaches the worker", () => {
     const { orchestrator, store } = makeWorld();
     const gated = await orchestrator.takeTurn(say("cook hu"));
 
-    expect(gated.reply).toBe("cooking — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.reply).toBe("cooking — kya aap yahi kaam karna chahte hain?");
     expect(gated.kind).toBe("ask");
     // NO PACK KEY. Claiming one would make the next turn capture the answer as that question's.
     expect(gated.questionKey).toBeNull();
@@ -501,7 +501,7 @@ describe("the trade-confirm gate", () => {
     llm.take.mockResolvedValue(camAsk);
     const gated = await orchestrator.takeTurn(say("CAM programmer banna hai"));
 
-    expect(gated.reply).toBe("CAM programmer — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.reply).toBe("CAM programmer — kya aap yahi kaam karna chahte hain?");
     expect(gated.inputMode).toBe("options_only");
     // Haan confirms it, and the SAME flow as before the gate resumes — here, the
     // trade-form offer CAM programmer routes to, served for the CONFIRMED trade.
@@ -524,7 +524,7 @@ describe("the trade-confirm gate", () => {
     llm.take.mockResolvedValue(camAsk);
     const gated = await orchestrator.takeTurn(say("CAM programmer banna hai"));
 
-    expect(gated.reply).toBe("CAM programmer — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.reply).toBe("CAM programmer — kya aap yahi kaam karna chahte hain?");
     const saved = store.get(SESSION)?.profiling;
     expect(saved?.tradeConfirm.reaskOpen).toBe(false);
     expect(saved?.tradeConfirm.rounds).toBe(1);
@@ -548,7 +548,7 @@ describe("the trade-confirm gate", () => {
     });
     const result = await orchestrator.takeTurn(say("bas itna hi"));
     // No gate: Phase A closes into the tail exactly as it did before the gate existed.
-    expect(result.reply).not.toContain("क्या आप यही काम करना चाहते हैं?");
+    expect(result.reply).not.toContain("kya aap yahi kaam karna chahte hain?");
   });
 });
 
@@ -760,7 +760,7 @@ describe("the worker's own trade outranks the model's draft at close (#1506)", (
     const { orchestrator, store } = makeWorld({ take: DONE });
     const gated = await orchestrator.takeTurn(say("bas itna hi"));
     // A `done` that first names the trade still confirms it before closing.
-    expect(gated.reply).toBe("machining — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.reply).toBe("machining — kya aap yahi kaam karna chahte hain?");
     await orchestrator.takeTurn(say("Haan"));
     expect(tradeOf(store)?.value_raw).toBe(FINISHED_DRAFT.domain_label);
   });
@@ -1184,7 +1184,7 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     // Phase A led five turns without naming the trade; the deterministic pin names it, so the
     // gate confirms the pin before the tail — then the tail, without the trade pack.
     const gated = await orchestrator.takeTurn(say("nahi"));
-    expect(gated.reply).toBe("machine operator — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.reply).toBe("machine operator — kya aap yahi kaam karna chahte hain?");
     const result = await orchestrator.takeTurn(say("Haan"));
 
     expect(result.questionKey).toBe("q_city");
@@ -1315,7 +1315,7 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     // The trade gate owns this turn (the draft names the trade and Phase A led); the Haan
     // after it closes Phase A and settles onto the pinned pack's own rows.
     const gated = await orchestrator.takeTurn(say("Nahi"));
-    expect(gated.reply).toBe("machining — क्या आप यही काम करना चाहते हैं?");
+    expect(gated.reply).toBe("machining — kya aap yahi kaam karna chahte hain?");
     await orchestrator.takeTurn(say("Haan"));
 
     const map = store.get(SESSION)?.profiling?.answerMap ?? [];
@@ -1498,7 +1498,7 @@ describe("reopening mid-Phase-A", () => {
       ctx: CTX as never,
     });
 
-    expect(reopened.reply).toBe("cooking — क्या आप यही काम करना चाहते हैं?");
+    expect(reopened.reply).toBe("cooking — kya aap yahi kaam karna chahte hain?");
     expect(reopened.questionKey).toBeNull();
     expect(reopened.inputMode).toBe("options_only");
     expect(reopened.options.map((o) => o.label_text)).toEqual(["Haan", "Nahi"]);
@@ -1511,7 +1511,7 @@ describe("reopening mid-Phase-A", () => {
     const { orchestrator } = makeWorld();
     await orchestrator.takeTurn(say("cook hu"));
     const view = await orchestrator.viewSession(SESSION, new Date(T0.getTime() + 60_000));
-    expect(view?.served?.promptText).toBe("cooking — क्या आप यही काम करना चाहते हैं?");
+    expect(view?.served?.promptText).toBe("cooking — kya aap yahi kaam karna chahte hain?");
     expect(view?.served?.questionKey).toBeNull();
   });
 

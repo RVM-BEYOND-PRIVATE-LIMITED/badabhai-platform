@@ -9,16 +9,16 @@ import {
 } from "./trade-confirm";
 
 describe("trade-confirm gate copy", () => {
-  it("asks '<trade> — क्या आप यही काम करना चाहते हैं?'", () => {
-    expect(tradeConfirmPrompt("CNC Turner")).toBe("CNC Turner — क्या आप यही काम करना चाहते हैं?");
+  it("asks '<trade> — kya aap yahi kaam karna chahte hain?'", () => {
+    expect(tradeConfirmPrompt("CNC Turner")).toBe("CNC Turner — kya aap yahi kaam karna chahte hain?");
   });
 
   it("strips a question mark inside the trade so the bubble keeps one", () => {
-    expect(tradeConfirmPrompt("CNC? Turner")).toBe("CNC Turner — क्या आप यही काम करना चाहते हैं?");
+    expect(tradeConfirmPrompt("CNC? Turner")).toBe("CNC Turner — kya aap yahi kaam karna chahte hain?");
   });
 
   it("the re-ask names the wanted trade", () => {
-    expect(TRADE_DESIRED_PROMPT).toBe("आप किस ट्रेड में काम करना चाहते हैं?");
+    expect(TRADE_DESIRED_PROMPT).toBe("Aap kis trade mein kaam karna chahte hain?");
   });
 
   it("chips are Haan/Nahi on collision-free keys", () => {

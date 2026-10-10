@@ -148,14 +148,14 @@ function isGateShaped(reply: string): boolean {
 }
 
 /**
- * Is `reply` shaped like the engine's own trade-confirm gate — "<trade> — क्या आप
- * यही काम करना चाहते हैं?" in the model's own words?
+ * Is `reply` shaped like the engine's own trade-confirm gate — "<trade> — kya aap
+ * yahi kaam karna chahte hain?" in the model's own words?
  *
  * THE TELL IS "THIS SAME WORK": a same-marker (yahi / yehi / wahi, यही / वही)
  * beside a work noun (kaam, काम). An ordinary trade question asks WHICH work
  * ("kaunsa kaam", "kya kaam karte hain") and never contains the same-marker; a
  * confirmation asks about THIS SAME work and always does. The engine's re-ask
- * ("आप किस ट्रेड में काम करना चाहते हैं?") is DELIBERATELY NOT matched: a worker's
+ * ("Aap kis trade mein kaam karna chahte hain?") is DELIBERATELY NOT matched: a worker's
  * answer to it is a trade statement the model structures, so a model-authored twin
  * of it is harmless — unlike a confirm twin, whose Haan/Nahi settles nothing.
  */
