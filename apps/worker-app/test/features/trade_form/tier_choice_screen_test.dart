@@ -84,6 +84,7 @@ void main() {
               state: extra.state,
               entry: extra.entry,
               sectionKey: extra.sectionKey,
+              fromStart: extra.fromStart,
             );
           },
         ),
@@ -93,7 +94,8 @@ void main() {
             body: Text(
               '$kFormMarker '
               '${s.extra is TradeFormArgs ? (s.extra! as TradeFormArgs).upgradeView : false} '
-              '${s.extra is TradeFormArgs ? (s.extra! as TradeFormArgs).sectionKey : s.extra}',
+              '${s.extra is TradeFormArgs ? (s.extra! as TradeFormArgs).sectionKey : s.extra} '
+              '${s.extra is TradeFormArgs ? (s.extra! as TradeFormArgs).fromStart : false}',
             ),
           ),
         ),
@@ -366,6 +368,83 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('$kFormMarker true'), findsOneWidget);
+    });
+
+    testWidgets('a fromStart walk survives the chooser (Resume poora karein)',
+        (WidgetTester tester) async {
+      when(() => repo.loadTierState()).thenAnswer((_) async => enabledState());
+      when(() => repo.chooseTier(ProfilingTier.medium)).thenAnswer(
+        (_) async => const TierChoice(
+          tier: ProfilingTier.medium,
+          change: TierChange.selected,
+        ),
+      );
+
+      await pump(
+        tester,
+        Builder(
+          builder: (BuildContext context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => openTradeFormWithTier(
+                  context,
+                  entry: TierEntry.pushed,
+                  fromStart: true,
+                ),
+                child: const Text('go'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('go'));
+      await tester.pumpAndSettle();
+      expect(find.text(kTierScreenTitle), findsOneWidget);
+
+      await tester.tap(find.text(kTierMediumTitle));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('$kFormMarker false null true'), findsOneWidget,
+          reason: 'the completion walk must still open from step 1 '
+              'past the chooser');
+    });
+
+    testWidgets('a fromStart walk keeps fromStart on the UPGRADE view',
+        (WidgetTester tester) async {
+      when(() => repo.loadTierState()).thenAnswer((_) async => enabledState());
+      when(() => repo.chooseTier(ProfilingTier.hard)).thenAnswer(
+        (_) async => const TierChoice(
+          tier: ProfilingTier.hard,
+          previousTier: ProfilingTier.easy,
+          change: TierChange.upgraded,
+        ),
+      );
+
+      await pump(
+        tester,
+        Builder(
+          builder: (BuildContext context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => openTradeFormWithTier(
+                  context,
+                  entry: TierEntry.pushed,
+                  fromStart: true,
+                ),
+                child: const Text('go'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('go'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(kTierHardTitle));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('$kFormMarker true null true'), findsOneWidget,
+          reason: 'the narrowed upgrade form still walks from its own step 1');
     });
 
     testWidgets('a FAILED tap keeps the worker on the screen with every card '

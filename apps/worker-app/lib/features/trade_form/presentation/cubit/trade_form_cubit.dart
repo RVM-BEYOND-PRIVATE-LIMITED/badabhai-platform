@@ -288,6 +288,13 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// to the whole form.
   String? _sectionKey;
 
+  /// True when this walk must start at step 1 and show every step, ignoring
+  /// resumability (answered questions + locally-done markers). Set by [load]
+  /// and KEPT across calls, so the error-state retry (`load()` bare) and the
+  /// `schema_stale` resync stay in the same full walk. Per-cubit (per
+  /// navigation), so an ordinary re-entry starts fresh with `false`.
+  bool _fromStart = false;
+
   /// Marker types already saved for this worker.
   Set<TradeFormMarkerType> _doneMarkers = <TradeFormMarkerType>{};
 
@@ -526,11 +533,13 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         _ => false,
       };
 
-  Future<void> load({String? sectionKey, bool upgradeView = false}) async {
+  Future<void> load({String? sectionKey, bool upgradeView = false, bool fromStart = false}) async {
     // A non-null argument (re)arms the section walk; null KEEPS whatever is
     // armed — the error-state retry calls `load()` bare and must not widen a
-    // section walk back to the full form.
+    // section walk back to the full form. Same for fromStart: once armed it
+    // stays armed for this cubit, so a retry never drops back to a resumed walk.
     if (sectionKey != null) _sectionKey = sectionKey;
+    if (fromStart) _fromStart = true;
     // A (re)load starts a new walk: nothing typed before it can still be on
     // screen, so no draft — question or marker — can still be reachable
     // either.
@@ -546,6 +555,14 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         return;
       }
       await _syncDoneMarkers();
+      // `fromStart` (Resume poora karein) ignores resumability: a worker
+      // completing their profile must see the same walk a new candidate does —
+      // employment (work history) + qualifications (certificates/education)
+      // included — instead of resuming past locally-done markers onto the last
+      // unanswered question (e.g. 15/15 machines). The store itself is untouched
+      // (other roads keep resuming); only this walk's in-memory set is emptied.
+      // Prefill below still runs, so marker pages open with saved values.
+      if (_fromStart) _doneMarkers.clear();
       final Set<WorkerFact> known = await _knownFacts.knownFacts();
       List<TradeFormFlatStep> flat = _applySection(_flatten(form));
       // PREFILL BEFORE THE FIRST FRAME (#1710). The pages seed their state in
@@ -614,7 +631,12 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// is left, the last step that is NOT a saved marker — normally the last
   /// question, showing its stored answer. A saved marker page opens blank (no
   /// read route), so landing on one would ask it again.
+  ///
+  /// `fromStart` (Resume poora karein) always opens at step 1 — the same first
+  /// question a new candidate answers — so work history / certificates /
+  /// education markers are walked, not resumed past.
   int _resumeIndex(List<TradeFormFlatStep> flat) {
+    if (_fromStart) return 0;
     final int i = _nextStepIndex(flat, from: 0);
     if (i >= 0) return i;
     final int last =
@@ -858,7 +880,10 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         emit(state.copyWith(status: TradeFormStatus.noForm));
         return;
       }
-      await _syncDoneMarkers();
+      // A fromStart walk never resumes past markers — including across a
+      // mid-walk schema resync. Skipping the store re-read keeps the walk's own
+      // in-walk saves (via _recordMarkerDone) while ignoring pre-walk history.
+      if (!_fromStart) await _syncDoneMarkers();
       // A section walk re-fetches the WHOLE form here by design (the
       // just-answered question may gate others server-side); the armed
       // section re-applies so the resync cannot widen the walk mid-stride.
@@ -867,8 +892,18 @@ class TradeFormCubit extends Cubit<TradeFormState> {
           f.step is TradeFormQuestionStep &&
           (f.step as TradeFormQuestionStep).question.id == result.questionKey);
       final int searchFrom = answeredIdx >= 0 ? answeredIdx + 1 : 0;
-      final int nextIdx = _nextStepIndex(flat, from: searchFrom);
-      if (nextIdx < 0) {
+      // A fromStart walk ("Resume poora karein") shows EVERY step — answered
+      // questions included — so its resync advances to just past the settled
+      // question, skipping only markers THIS walk already saved. An ordinary
+      // walk instead resumes at the first still-unanswered step ahead.
+      // (`_forwardIndex` reports `flat.length` when nothing is left, while
+      // `_nextStepIndex` reports -1 — hence the two-sided `finished` check.)
+      final int nextIdx = _fromStart
+          ? _forwardIndex(flat, from: searchFrom)
+          : _nextStepIndex(flat, from: searchFrom);
+      final bool finished =
+          _fromStart ? nextIdx >= flat.length : nextIdx < 0;
+      if (finished) {
         // The just-answered question was the new schema's last step too.
         emit(state.copyWith(
           status: TradeFormStatus.done,

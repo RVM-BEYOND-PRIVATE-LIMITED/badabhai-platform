@@ -8,7 +8,7 @@ import 'profiling_tier.dart';
 /// (the upgrade view), and two positional meanings on one untyped `extra` is
 /// how a section key silently becomes a boolean.
 class TradeFormArgs {
-  const TradeFormArgs({this.sectionKey, this.upgradeView = false});
+  const TradeFormArgs({this.sectionKey, this.upgradeView = false, this.fromStart = false});
 
   /// The résumé-menu section walk's `option_key`, or null for the full walk.
   final String? sectionKey;
@@ -16,6 +16,13 @@ class TradeFormArgs {
   /// Open `?view=upgrade` — only the questions the worker has not answered
   /// yet. Set for exactly one navigation, straight after a tier upgrade.
   final bool upgradeView;
+
+  /// Open the FULL walk from step 1, ignoring resumability (answered questions
+  /// + locally-done marker pages). Used by "Resume poora karein" so a worker
+  /// completing their profile sees the same questions a new candidate does —
+  /// work history (employment) + certificates/education (qualifications) included —
+  /// instead of landing on the last unanswered step (e.g. 15/15 machines).
+  final bool fromStart;
 }
 
 /// What the tier chooser needs to draw itself and to know how to leave.
@@ -29,6 +36,7 @@ class TierChoiceArgs {
     required this.state,
     required this.entry,
     this.sectionKey,
+    this.fromStart = false,
   });
 
   final TierState state;
@@ -37,6 +45,10 @@ class TierChoiceArgs {
   /// Forwarded to the form untouched, so a section walk that happens to pass
   /// through the chooser still opens on its section.
   final String? sectionKey;
+
+  /// Forwarded to the form untouched — a "resume poora karein" walk that passes
+  /// through the chooser must still open from step 1 on the other side.
+  final bool fromStart;
 }
 
 /// How the worker reached the tier chooser, which decides how they leave it.

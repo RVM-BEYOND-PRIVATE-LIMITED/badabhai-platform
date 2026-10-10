@@ -11,6 +11,10 @@ import '../../theme/onboarding_theme.dart';
 /// [FormFlowLayout]): content 16dp from the outer edge whatever the border
 /// width, a 40dp tile with a slate glyph (navy once selected), an Anek navy
 /// title, and a 24dp checkbox that is a plain navy fill once ticked.
+///
+/// [titleStyle] overrides the title voice (both variants) — opt-in only, for
+/// the trade-form flow whose option titles read in the normal Inter body
+/// voice (owner ask). Null keeps today's voice.
 class MultiSelectQuestionCard extends StatelessWidget {
   const MultiSelectQuestionCard({
     super.key,
@@ -21,6 +25,7 @@ class MultiSelectQuestionCard extends StatelessWidget {
     required this.onTap,
     this.subtitleMono = false,
     this.variant = OnboardingVariant.standard,
+    this.titleStyle,
   });
 
   /// Renders [subtitle] in Roboto Mono — for measurement specs such as
@@ -37,6 +42,9 @@ class MultiSelectQuestionCard extends StatelessWidget {
 
   final OnboardingVariant variant;
 
+  /// Title voice override — see the class doc. Null keeps today's voice.
+  final TextStyle? titleStyle;
+
   @override
   Widget build(BuildContext context) {
     return _SelectionCardShell(
@@ -48,6 +56,7 @@ class MultiSelectQuestionCard extends StatelessWidget {
       checked: isSelected,
       subtitleMono: subtitleMono,
       variant: variant,
+      titleStyle: titleStyle,
       indicator: OptionCheckbox(isSelected: isSelected, variant: variant),
     );
   }
@@ -67,6 +76,7 @@ class SingleSelectQuestionCard extends StatelessWidget {
     required this.onTap,
     this.subtitleMono = false,
     this.variant = OnboardingVariant.standard,
+    this.titleStyle,
   });
 
   /// Renders [subtitle] in Roboto Mono — for measurement specs such as
@@ -81,6 +91,10 @@ class SingleSelectQuestionCard extends StatelessWidget {
 
   final OnboardingVariant variant;
 
+  /// Title voice override — see [MultiSelectQuestionCard]. Null keeps
+  /// today's voice.
+  final TextStyle? titleStyle;
+
   @override
   Widget build(BuildContext context) {
     return _SelectionCardShell(
@@ -93,6 +107,7 @@ class SingleSelectQuestionCard extends StatelessWidget {
       subtitleMono: subtitleMono,
       inMutuallyExclusiveGroup: true,
       variant: variant,
+      titleStyle: titleStyle,
       indicator: OptionRadio(isSelected: isSelected, variant: variant),
     );
   }
@@ -235,6 +250,7 @@ class _SelectionCardShell extends StatelessWidget {
     required this.variant,
     this.subtitleMono = false,
     this.inMutuallyExclusiveGroup = false,
+    this.titleStyle,
   });
 
   final bool subtitleMono;
@@ -248,6 +264,10 @@ class _SelectionCardShell extends StatelessWidget {
   final bool checked;
   final bool inMutuallyExclusiveGroup;
   final OnboardingVariant variant;
+
+  /// Title voice override from either public card. Null keeps the variant's
+  /// own voice (form-flow display face, standard Inter).
+  final TextStyle? titleStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -312,12 +332,13 @@ class _SelectionCardShell extends StatelessWidget {
                       children: <Widget>[
                         Text(
                           title,
-                          style: form
-                              ? OnboardingTypography.formCardTitle()
-                              : OnboardingTypography.inter(
-                                  size: 15,
-                                  weight: FontWeight.w700,
-                                ),
+                          style: titleStyle ??
+                              (form
+                                  ? OnboardingTypography.formCardTitle()
+                                  : OnboardingTypography.inter(
+                                      size: 15,
+                                      weight: FontWeight.w700,
+                                    )),
                         ),
                         if (subtitle != null &&
                             subtitle!.isNotEmpty) ...<Widget>[

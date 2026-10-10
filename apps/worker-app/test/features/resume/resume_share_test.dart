@@ -197,7 +197,7 @@ void main() {
       expect(find.widgetWithText(BbButton, kResumeShareLabel), findsOneWidget);
       // …and it is ADDITIVE — Download and Edit are untouched.
       expect(
-        find.widgetWithText(BbButton, 'PDF download karein'),
+        find.widgetWithText(BbButton, 'Download'),
         findsOneWidget,
       );
       // The edit affordance moved into the profile card's name row (spec §4),

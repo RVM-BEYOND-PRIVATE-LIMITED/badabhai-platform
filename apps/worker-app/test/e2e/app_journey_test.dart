@@ -232,21 +232,21 @@ void main() {
     await _pumpUntil(tester, find.text('Mere paas resume nahi hai'));
     await tester.tap(find.text('Mere paas resume nahi hai'));
 
-    // ── 5. CHAT — send one message (exercises ChatRepository.sendMessage), then
-    //     build the profile. ──
-    //     After ONE message the mock engine has not reported extraction_ready
-    //     (#421), so the CTA is the softened "thodi aur baat karein" and
-    //     tapping it opens the nudge sheet — whose escape hatch still lets the
-    //     worker through. This walks that path deliberately: the gate must
-    //     never be able to strand the journey.
-    await _pumpUntil(tester, find.text(kChatDoneNotReadyLabel));
-    await tester.enterText(find.byType(TextField), 'CNC, 4 years, Fanuc');
-    await tester.pump(); // composer switches Mic→Send once there is text
-    await tester.tap(find.byIcon(Icons.send_rounded));
-    await _pumpUntil(tester, find.text(kChatDoneNotReadyLabel));
-    await tester.tap(find.text(kChatDoneNotReadyLabel));
-    await _pumpUntil(tester, find.text(kChatNudgeProceedLabel));
-    await tester.tap(find.text(kChatNudgeProceedLabel));
+    // ── 5. CHAT — message until the mock engine reports extraction_ready,
+    //     then build the profile. ──
+    //     The not-ready "thodi aur baat karein" CTA is HIDDEN (owner ask), so
+    //     this walks the READY path instead: the mock engine reports ready on
+    //     its fourth canned turn, the CTA becomes "Ho gaya — meri profile
+    //     banaiye", and tapping it opens the confirm sheet straight away.
+    for (int i = 0; i < 6; i++) {
+      await tester.enterText(find.byType(TextField), 'CNC, 4 years, Fanuc');
+      await tester.pump(); // composer switches Mic→Send once there is text
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pumpAndSettle();
+      if (find.text(kChatDoneReadyLabel).evaluate().isNotEmpty) break;
+    }
+    await _pumpUntil(tester, find.text(kChatDoneReadyLabel));
+    await tester.tap(find.text(kChatDoneReadyLabel));
 
     // ── 6. PROFILE PREVIEW — extraction resolves, confirm to generate. The kit
     //     04 confirm sheet's primary action is "Haan, sahi hai" ([Badlo] is the

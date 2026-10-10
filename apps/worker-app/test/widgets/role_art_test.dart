@@ -85,6 +85,26 @@ void main() {
     );
   });
 
+  testWidgets('hideFloor windows y0–84: art paints, floor strip clips away', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      host(const RoleArtBanner(roleKind: 'welder', hideFloor: true)),
+    );
+    final Finder art = find.byKey(const ValueKey<String>('roleArt:welder'));
+    expect(art, findsOneWidget);
+    // The full scene still paints through the window (uniform scale,
+    // top-anchored) ...
+    expect(tester.getSize(art), const Size(300, 100));
+    // ... but the viewport is exactly 84/300 of the width tall, so the
+    // y84–100 floor strip never reaches the screen — no grey band.
+    final Finder window = find
+        .ancestor(of: art, matching: find.byType(ClipRRect))
+        .first;
+    expect(tester.getSize(window), const Size(300, 84));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('reduce motion: rest pose, no ticker', (
     WidgetTester tester,
   ) async {
@@ -126,9 +146,7 @@ void main() {
     expect(tester.hasRunningAnimations, isFalse);
   });
 
-  testWidgets('switching the role swaps the art', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('switching the role swaps the art', (WidgetTester tester) async {
     await tester.pumpWidget(host(const RoleArtBanner(roleKind: 'welder')));
     await tester.pumpWidget(host(const RoleArtBanner(roleKind: 'fitter')));
     expect(

@@ -224,7 +224,7 @@ void main() {
         ),
       );
       // One pair per card, plus the profile card's own pair at the top.
-      expect(find.text('PDF download karein'), findsNWidgets(3));
+      expect(find.text('Download'), findsNWidgets(3));
     });
   });
 

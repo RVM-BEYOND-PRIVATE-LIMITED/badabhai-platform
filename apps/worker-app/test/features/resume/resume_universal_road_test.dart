@@ -80,8 +80,8 @@ void main() {
         (WidgetTester tester) async {
       await wireUniversal(tester);
 
-      expect(find.text('WhatsApp pe bhejein'), findsOneWidget);
-      expect(find.text('PDF download karein'), findsOneWidget);
+      expect(find.text('Share'), findsOneWidget);
+      expect(find.text('Download'), findsOneWidget);
       expect(find.text('Report correction'), findsOneWidget);
     });
   });

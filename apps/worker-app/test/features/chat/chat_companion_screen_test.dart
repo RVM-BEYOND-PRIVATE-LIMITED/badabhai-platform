@@ -36,20 +36,26 @@ const String _jobId = '11111111-1111-4111-8111-111111111111';
 const String _recap = 'Namaste. Aapki profile taiyaar hai. Ab tak yeh hua hai.';
 
 const List<ChatOption> _recapOptions = <ChatOption>[
-  ChatOption(optionKey: 'companion_job:$_jobId', labelText: 'CNC Operator — Pune'),
+  ChatOption(
+    optionKey: 'companion_job:$_jobId',
+    labelText: 'CNC Operator — Pune',
+  ),
   ChatOption(optionKey: 'companion_jobs_tab', labelText: 'Sabhi jobs dekhein'),
-  ChatOption(optionKey: 'companion_applied', labelText: 'Apni applications dekhein'),
+  ChatOption(
+    optionKey: 'companion_applied',
+    labelText: 'Apni applications dekhein',
+  ),
   ChatOption(optionKey: 'companion_resume', labelText: 'Resume badlein'),
 ];
 
 ChatTurn _companion(String reply, List<ChatOption> options) => ChatTurn(
-      reply: reply,
-      followups: <String>[for (final ChatOption o in options) o.labelText],
-      suggestedOptions: options,
-      questionKind: ChatQuestionKind.disambiguate,
-      companion: true,
-      digestKey: 'k1',
-    );
+  reply: reply,
+  followups: <String>[for (final ChatOption o in options) o.labelText],
+  suggestedOptions: options,
+  questionKind: ChatQuestionKind.disambiguate,
+  companion: true,
+  digestKey: 'k1',
+);
 
 void main() {
   late MockChatRepository repo;
@@ -58,9 +64,16 @@ void main() {
     repo = MockChatRepository();
     await locator.reset();
     locator.registerFactory<ChatBloc>(() => ChatBloc(repo));
-    when(() => repo.loadHistory()).thenAnswer((_) async => const <ChatMessage>[]);
+    when(
+      () => repo.loadHistory(),
+    ).thenAnswer((_) async => const <ChatMessage>[]);
     when(() => repo.ensureSession()).thenAnswer((_) async => null);
-    when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(CompanionOpenOutcome.companion, _companion(_recap, _recapOptions)));
+    when(() => repo.openCompanion()).thenAnswer(
+      (_) async => CompanionOpening(
+        CompanionOpenOutcome.companion,
+        _companion(_recap, _recapOptions),
+      ),
+    );
   });
 
   tearDown(() async {
@@ -68,8 +81,8 @@ void main() {
     await locator.reset();
   });
 
-  void companionSwitch(bool on) => BbRemoteConfig.instance
-      .debugSetSnapshot(<String, Object>{
+  void companionSwitch(bool on) =>
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
         BbRemoteConfig.kKeyChatCompanionEnabled: on,
         // ADR-0046 F4 — the v2 UI (edit card, task chips' rendering, voice
         // button) rides its own lever; every companion test here that wants the
@@ -78,149 +91,234 @@ void main() {
       });
 
   GoRouter router({bool assistantTab = true}) => GoRouter(
-        initialLocation: '/bada-bhai',
-        routes: <RouteBase>[
-          GoRoute(
-            path: '/bada-bhai',
-            builder: (_, __) => ChatProfilingScreen(assistantTab: assistantTab),
-          ),
-          GoRoute(
-            path: '${Routes.jobDetail}/:jobId',
-            builder: (_, GoRouterState s) {
-              final JobDetail d = s.extra! as JobDetail;
-              return Scaffold(
-                body: Center(
-                  child: Text('DETAIL ${s.pathParameters['jobId']} | ${d.title} | ${d.city}'),
-                ),
-              );
-            },
-          ),
-          GoRoute(
-            path: Routes.jobs,
-            builder: (_, __) => const Scaffold(body: Center(child: Text('JOBS TAB'))),
-          ),
-          GoRoute(
-            path: Routes.appliedJobs,
-            builder: (_, __) => const Scaffold(body: Center(child: Text('APPLIED LIST'))),
-          ),
-          // ADR-0046 F3 — a stand-in for the voice screen. The real one records
-          // and transcribes; this proves the chat opens it in COMPOSE mode
-          // (`extra: true`) and lands the popped transcript in the composer.
-          GoRoute(
-            path: Routes.voiceNote,
-            builder: (BuildContext context, GoRouterState s) => Scaffold(
-              body: Center(
-                child: TextButton(
-                  onPressed: () =>
-                      context.pop(s.extra == true ? 'boli hui baat' : null),
-                  child: Text(s.extra == true ? 'COMPOSE VOICE' : 'SEND VOICE'),
-                ),
+    initialLocation: '/bada-bhai',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/bada-bhai',
+        builder: (_, __) => ChatProfilingScreen(assistantTab: assistantTab),
+      ),
+      GoRoute(
+        path: '${Routes.jobDetail}/:jobId',
+        builder: (_, GoRouterState s) {
+          final JobDetail d = s.extra! as JobDetail;
+          return Scaffold(
+            body: Center(
+              child: Text(
+                'DETAIL ${s.pathParameters['jobId']} | ${d.title} | ${d.city}',
               ),
             ),
+          );
+        },
+      ),
+      GoRoute(
+        path: Routes.jobs,
+        builder: (_, __) =>
+            const Scaffold(body: Center(child: Text('JOBS TAB'))),
+      ),
+      GoRoute(
+        path: Routes.appliedJobs,
+        builder: (_, __) =>
+            const Scaffold(body: Center(child: Text('APPLIED LIST'))),
+      ),
+      // ADR-0046 F3 — a stand-in for the voice screen. The real one records
+      // and transcribes; this proves the chat opens it in COMPOSE mode
+      // (`extra: true`) and lands the popped transcript in the composer.
+      GoRoute(
+        path: Routes.voiceNote,
+        builder: (BuildContext context, GoRouterState s) => Scaffold(
+          body: Center(
+            child: TextButton(
+              onPressed: () =>
+                  context.pop(s.extra == true ? 'boli hui baat' : null),
+              child: Text(s.extra == true ? 'COMPOSE VOICE' : 'SEND VOICE'),
+            ),
           ),
-        ],
-      );
+        ),
+      ),
+    ],
+  );
 
   Future<void> pumpTab(WidgetTester tester, {bool assistantTab = true}) async {
     tester.view.physicalSize = const Size(400, 1000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(MaterialApp.router(routerConfig: router(assistantTab: assistantTab)));
+    await tester.pumpWidget(
+      MaterialApp.router(routerConfig: router(assistantTab: assistantTab)),
+    );
     await tester.pump();
     await tester.pumpAndSettle();
   }
 
-  testWidgets('switch ON: the tab opens on the recap, touches no session, and has no "build my profile" CTA',
-      (WidgetTester tester) async {
+  testWidgets(
+    'switch ON: the tab opens on the recap, touches no session, and has no "build my profile" CTA',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      await pumpTab(tester);
+
+      expect(find.text(_recap), findsOneWidget);
+      expect(find.text('CNC Operator — Pune'), findsOneWidget);
+      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      verify(() => repo.openCompanion()).called(1);
+      verifyNever(() => repo.ensureSession());
+    },
+  );
+
+  testWidgets(
+    'a multi-line recap renders the lead plus bullets, not one paragraph',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      // The server composes the recap from reviewed lines joined with '\n' —
+      // the bubble must recover that structure, never re-parse the prose.
+      const String multi =
+          '$_recap\nAapka resume chat se bana hai.\nResume mein: CNC Turner, Pune.';
+      when(() => repo.openCompanion()).thenAnswer(
+        (_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          _companion(multi, _recapOptions),
+        ),
+      );
+      await pumpTab(tester);
+
+      expect(find.text(_recap), findsOneWidget);
+      expect(find.text('Aapka resume chat se bana hai.'), findsOneWidget);
+      expect(find.text('Resume mein: CNC Turner, Pune.'), findsOneWidget);
+      // The joined paragraph string itself is never painted as one Text.
+      expect(find.text(multi), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a job chip opens THAT job\'s detail with its title and city, and posts nothing',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      await pumpTab(tester);
+
+      await tester.tap(find.text('CNC Operator — Pune'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('DETAIL $_jobId | CNC Operator | Pune'), findsOneWidget);
+      verifyNever(
+        () => repo.sendCompanionMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      );
+      verifyNever(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      );
+    },
+  );
+
+  testWidgets(
+    '"Sabhi jobs dekhein" switches to the Jobs tab, and posts nothing',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      await pumpTab(tester);
+
+      await tester.tap(find.text('Sabhi jobs dekhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('JOBS TAB'), findsOneWidget);
+      verifyNever(
+        () => repo.sendCompanionMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      );
+    },
+  );
+
+  testWidgets(
+    '"Apni applications dekhein" opens the applied list, and posts nothing',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      await pumpTab(tester);
+
+      await tester.tap(find.text('Apni applications dekhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('APPLIED LIST'), findsOneWidget);
+      verifyNever(
+        () => repo.sendCompanionMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      );
+    },
+  );
+
+  testWidgets(
+    '"Resume badlein" is answered by the server, through the COMPANION route',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      when(
+        () => repo.sendCompanionMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer(
+        (_) async => _companion(
+          'Aap kya karna chahte hain. Neeche se chunein.',
+          const <ChatOption>[
+            ChatOption(
+              optionKey: 'resume_edit',
+              labelText: 'Apna resume edit karein',
+            ),
+            ChatOption(
+              optionKey: 'resume_redo',
+              labelText: 'Apna resume dobara banayein',
+            ),
+          ],
+        ),
+      );
+      await pumpTab(tester);
+
+      await tester.tap(find.text('Resume badlein'));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.sendCompanionMessage(
+          'Resume badlein',
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).called(1);
+      verifyNever(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      );
+      expect(find.text('Apna resume edit karein'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'switch OFF (the default): today\'s tab — no companion call, the session opens, the CTA is there',
+    (WidgetTester tester) async {
+      await pumpTab(tester);
+
+      verifyNever(() => repo.openCompanion());
+      verify(() => repo.ensureSession()).called(1);
+      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'switch ON but not the Bada Bhai tab (the /chat route): today\'s chat, no companion call',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      await pumpTab(tester, assistantTab: false);
+
+      verifyNever(() => repo.openCompanion());
+      verify(() => repo.ensureSession()).called(1);
+    },
+  );
+
+  testWidgets('not a companion worker (null): today\'s tab, CTA included', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
-    await pumpTab(tester);
-
-    expect(find.text(_recap), findsOneWidget);
-    expect(find.text('CNC Operator — Pune'), findsOneWidget);
-    expect(find.text(kChatDoneNotReadyLabel), findsNothing);
-    verify(() => repo.openCompanion()).called(1);
-    verifyNever(() => repo.ensureSession());
-  });
-
-  testWidgets('a job chip opens THAT job\'s detail with its title and city, and posts nothing',
-      (WidgetTester tester) async {
-    companionSwitch(true);
-    await pumpTab(tester);
-
-    await tester.tap(find.text('CNC Operator — Pune'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('DETAIL $_jobId | CNC Operator | Pune'), findsOneWidget);
-    verifyNever(() => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId')));
-    verifyNever(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')));
-  });
-
-  testWidgets('"Sabhi jobs dekhein" switches to the Jobs tab, and posts nothing', (WidgetTester tester) async {
-    companionSwitch(true);
-    await pumpTab(tester);
-
-    await tester.tap(find.text('Sabhi jobs dekhein'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('JOBS TAB'), findsOneWidget);
-    verifyNever(() => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId')));
-  });
-
-  testWidgets('"Apni applications dekhein" opens the applied list, and posts nothing',
-      (WidgetTester tester) async {
-    companionSwitch(true);
-    await pumpTab(tester);
-
-    await tester.tap(find.text('Apni applications dekhein'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('APPLIED LIST'), findsOneWidget);
-    verifyNever(() => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId')));
-  });
-
-  testWidgets('"Resume badlein" is answered by the server, through the COMPANION route',
-      (WidgetTester tester) async {
-    companionSwitch(true);
-    when(() => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
-      (_) async => _companion('Aap kya karna chahte hain. Neeche se chunein.', const <ChatOption>[
-        ChatOption(optionKey: 'resume_edit', labelText: 'Apna resume edit karein'),
-        ChatOption(optionKey: 'resume_redo', labelText: 'Apna resume dobara banayein'),
-      ]),
-    );
-    await pumpTab(tester);
-
-    await tester.tap(find.text('Resume badlein'));
-    await tester.pumpAndSettle();
-
-    verify(() => repo.sendCompanionMessage('Resume badlein', submissionId: any(named: 'submissionId')))
-        .called(1);
-    verifyNever(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')));
-    expect(find.text('Apna resume edit karein'), findsOneWidget);
-  });
-
-  testWidgets('switch OFF (the default): today\'s tab — no companion call, the session opens, the CTA is there',
-      (WidgetTester tester) async {
-    await pumpTab(tester);
-
-    verifyNever(() => repo.openCompanion());
-    verify(() => repo.ensureSession()).called(1);
-    expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
-  });
-
-  testWidgets('switch ON but not the Bada Bhai tab (the /chat route): today\'s chat, no companion call',
-      (WidgetTester tester) async {
-    companionSwitch(true);
-    await pumpTab(tester, assistantTab: false);
-
-    verifyNever(() => repo.openCompanion());
-    verify(() => repo.ensureSession()).called(1);
-  });
-
-  testWidgets('not a companion worker (null): today\'s tab, CTA included', (WidgetTester tester) async {
-    companionSwitch(true);
-    when(() => repo.openCompanion())
-          .thenAnswer((_) async => const CompanionOpening.interview());
+    when(
+      () => repo.openCompanion(),
+    ).thenAnswer((_) async => const CompanionOpening.interview());
     await pumpTab(tester);
 
     verify(() => repo.ensureSession()).called(1);
@@ -232,8 +330,9 @@ void main() {
   // Every other test leaves `TabFocus` unregistered, so `_CompanionRefocus`
   // takes its bail-out and renders the bare child: a wrong tab index, a dropped
   // wrapper or a bloc read from above its provider would all pass unnoticed.
-  testWidgets('a tab refocus re-reads the recap through TabFocusRefetch',
-      (WidgetTester tester) async {
+  testWidgets('a tab refocus re-reads the recap through TabFocusRefetch', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     DateTime now = DateTime.utc(2026, 9, 26, 10);
     final TabFocus focus = TabFocus(TabIndex.chat);
@@ -280,7 +379,9 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('moves to the recap on a refocus once the switch is on', (WidgetTester tester) async {
+    testWidgets('moves to the recap on a refocus once the switch is on', (
+      WidgetTester tester,
+    ) async {
       await pumpWithFocus(tester);
 
       companionSwitch(true);
@@ -292,7 +393,9 @@ void main() {
       expect(find.text(kChatDoneReadyLabel), findsNothing);
     });
 
-    testWidgets('asks nothing on a refocus while the switch is still off', (WidgetTester tester) async {
+    testWidgets('asks nothing on a refocus while the switch is still off', (
+      WidgetTester tester,
+    ) async {
       await pumpWithFocus(tester);
 
       await awayAndBack(tester);
@@ -303,8 +406,9 @@ void main() {
   });
 
   // ── #1755.3 — the recap on the smallest supported screen, at 2.0 text ──────
-  testWidgets('the recap and its chips fit at 320x568, text scale 2.0',
-      (WidgetTester tester) async {
+  testWidgets('the recap and its chips fit at 320x568, text scale 2.0', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     tester.view.physicalSize = const Size(320, 568);
     tester.view.devicePixelRatio = 1.0;
@@ -330,8 +434,9 @@ void main() {
   });
 
   // ── #1752 — the chip goes, and he is told the apply landed ─────────────────
-  testWidgets('applying through a job chip drops that chip and confirms',
-      (WidgetTester tester) async {
+  testWidgets('applying through a job chip drops that chip and confirms', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     await pumpTab(tester);
     expect(find.text('CNC Operator — Pune'), findsOneWidget);
@@ -341,7 +446,9 @@ void main() {
     expect(find.textContaining('DETAIL $_jobId'), findsOneWidget);
 
     // Job detail pops 'applied', exactly as JobDetailScreen does.
-    final NavigatorState nav = tester.state<NavigatorState>(find.byType(Navigator).last);
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator).last,
+    );
     nav.pop('applied');
     await tester.pumpAndSettle();
 
@@ -354,8 +461,9 @@ void main() {
   });
 
   // ── #1754 — the chips announce as BUTTONS, not as an unchecked radio group ─
-  testWidgets('a companion chip is a button, with no checked state',
-      (WidgetTester tester) async {
+  testWidgets('a companion chip is a button, with no checked state', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);
@@ -412,16 +520,21 @@ void main() {
       Duration ttl = const Duration(minutes: 10),
     }) async {
       companionSwitch(true);
-      when(() => repo.sendCompanionMessage(any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => ChatTurn(
-                reply: 'Yeh badlav karne hain?',
-                followups: const <String>[],
-                suggestedOptions: const <ChatOption>[],
-                questionKind: ChatQuestionKind.disambiguate,
-                companion: true,
-                editProposal: proposal(ttl: ttl),
-              ));
+      when(
+        () => repo.sendCompanionMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer(
+        (_) async => ChatTurn(
+          reply: 'Yeh badlav karne hain?',
+          followups: const <String>[],
+          suggestedOptions: const <ChatOption>[],
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+          editProposal: proposal(ttl: ttl),
+        ),
+      );
       await pumpTab(tester);
       // The card arrives on a MESSAGE answer (the open serves the recap): the
       // v1 "Resume badlein" chip is server-answered, so tapping it POSTs.
@@ -429,8 +542,9 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('renders add/edit rows ticked and a DELETE row UNTICKED',
-        (WidgetTester tester) async {
+    testWidgets('renders add/edit rows ticked and a DELETE row UNTICKED', (
+      WidgetTester tester,
+    ) async {
       await pumpWithCard(tester);
 
       expect(find.text('Skills'), findsOneWidget);
@@ -443,8 +557,9 @@ void main() {
       expect(find.textContaining('$kEditOpAdd Welding'), findsOneWidget);
       expect(find.textContaining('$kEditOpDelete Hindi'), findsOneWidget);
 
-      final List<Checkbox> boxes =
-          tester.widgetList<Checkbox>(find.byType(Checkbox)).toList();
+      final List<Checkbox> boxes = tester
+          .widgetList<Checkbox>(find.byType(Checkbox))
+          .toList();
       expect(boxes, hasLength(2));
       // TD151(2): the add row starts ticked; the destructive row does NOT, so a
       // Haan alone can never remove a skill / language / trade.
@@ -455,88 +570,117 @@ void main() {
       expect(find.text(kVoiceBooleanNo), findsOneWidget);
     });
 
-    testWidgets('F6 — the row names the FIELD, and the server\'s value labels win',
-        (WidgetTester tester) async {
-      companionSwitch(true);
-      when(() => repo.sendCompanionMessage(any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => ChatTurn(
-                reply: 'Yeh badlav karne hain?',
-                companion: true,
-                questionKind: ChatQuestionKind.disambiguate,
-                editProposal: EditProposal(
-                  proposalId: proposalId,
-                  expiresAt: DateTime.now().add(const Duration(minutes: 10)),
-                  rows: const <EditProposalRow>[
-                    EditProposalRow(
-                      rowId: rowA,
-                      sectionLabel: 'Shift',
-                      op: 'edit',
-                      before: 'day',
-                      after: 'night',
-                      fieldLabel: 'Shift',
-                      beforeDisplay: 'Day shift',
-                      afterDisplay: 'Night shift',
-                    ),
-                    EditProposalRow(
-                      rowId: rowB,
-                      sectionLabel: 'Pasand',
-                      op: 'edit',
-                      before: 'false',
-                      after: 'true',
-                      fieldLabel: 'Travel kar sakte hain',
-                      beforeDisplay: 'Nahi',
-                      afterDisplay: 'Haan',
-                    ),
-                  ],
+    testWidgets(
+      'F6 — the row names the FIELD, and the server\'s value labels win',
+      (WidgetTester tester) async {
+        companionSwitch(true);
+        when(
+          () => repo.sendCompanionMessage(
+            any(),
+            submissionId: any(named: 'submissionId'),
+          ),
+        ).thenAnswer(
+          (_) async => ChatTurn(
+            reply: 'Yeh badlav karne hain?',
+            companion: true,
+            questionKind: ChatQuestionKind.disambiguate,
+            editProposal: EditProposal(
+              proposalId: proposalId,
+              expiresAt: DateTime.now().add(const Duration(minutes: 10)),
+              rows: const <EditProposalRow>[
+                EditProposalRow(
+                  rowId: rowA,
+                  sectionLabel: 'Shift',
+                  op: 'edit',
+                  before: 'day',
+                  after: 'night',
+                  fieldLabel: 'Shift',
+                  beforeDisplay: 'Day shift',
+                  afterDisplay: 'Night shift',
                 ),
-              ));
-      await pumpTab(tester);
-      await tester.tap(find.text('Resume badlein'));
-      await tester.pumpAndSettle();
-
-      // The field's own name rides beside the section, so "Pasand: Nahi → Haan"
-      // now says WHICH preference.
-      expect(find.text('Shift · Shift'), findsOneWidget);
-      expect(find.text('Pasand · Travel kar sakte hain'), findsOneWidget);
-      // The server's closed-set labels win over the app's own humaniser.
-      expect(find.textContaining('Day shift  →  Night shift'), findsOneWidget);
-      expect(find.textContaining('Nahi  →  Haan'), findsOneWidget);
-    });
-
-    testWidgets('a STALE confirm shows the server\'s line as a bubble, no snackbar',
-        (WidgetTester tester) async {
-      when(() => repo.confirmCompanionEdit(any(), any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => CompanionEditResult.stale(
-                const ChatTurn(
-                  reply: 'Profile beech mein badal gaya. Dobara bataiye kya badalna hai.',
-                  companion: true,
+                EditProposalRow(
+                  rowId: rowB,
+                  sectionLabel: 'Pasand',
+                  op: 'edit',
+                  before: 'false',
+                  after: 'true',
+                  fieldLabel: 'Travel kar sakte hain',
+                  beforeDisplay: 'Nahi',
+                  afterDisplay: 'Haan',
                 ),
-              ));
-      await pumpWithCard(tester);
+              ],
+            ),
+          ),
+        );
+        await pumpTab(tester);
+        await tester.tap(find.text('Resume badlein'));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text(kVoiceBooleanYes));
-      await tester.pumpAndSettle();
+        // The field's own name rides beside the section, so "Pasand: Nahi → Haan"
+        // now says WHICH preference.
+        expect(find.text('Shift · Shift'), findsOneWidget);
+        expect(find.text('Pasand · Travel kar sakte hain'), findsOneWidget);
+        // The server's closed-set labels win over the app's own humaniser.
+        expect(
+          find.textContaining('Day shift  →  Night shift'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Nahi  →  Haan'), findsOneWidget);
+      },
+    );
 
-      // The server's reviewed line renders as an ordinary Bada Bhai bubble...
-      expect(
-        find.text('Profile beech mein badal gaya. Dobara bataiye kya badalna hai.'),
-        findsOneWidget,
+    testWidgets(
+      'a STALE confirm shows the server\'s line as a bubble, no snackbar',
+      (WidgetTester tester) async {
+        when(
+          () => repo.confirmCompanionEdit(
+            any(),
+            any(),
+            submissionId: any(named: 'submissionId'),
+          ),
+        ).thenAnswer(
+          (_) async => CompanionEditResult.stale(
+            const ChatTurn(
+              reply:
+                  'Profile beech mein badal gaya. Dobara bataiye kya badalna hai.',
+              companion: true,
+            ),
+          ),
+        );
+        await pumpWithCard(tester);
+
+        await tester.tap(find.text(kVoiceBooleanYes));
+        await tester.pumpAndSettle();
+
+        // The server's reviewed line renders as an ordinary Bada Bhai bubble...
+        expect(
+          find.text(
+            'Profile beech mein badal gaya. Dobara bataiye kya badalna hai.',
+          ),
+          findsOneWidget,
+        );
+        // ...the dead card is gone...
+        expect(find.byType(Checkbox), findsNothing);
+        // ...and it is NOT the 404 "card went away" snackbar.
+        expect(find.text(kCompanionEditGoneNotice), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
+      },
+    );
+
+    testWidgets('Haan confirms with EVERY ticked row id', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => repo.confirmCompanionEdit(
+          any(),
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          _companion('Badlav ho gaya.', const <ChatOption>[]),
+        ),
       );
-      // ...the dead card is gone...
-      expect(find.byType(Checkbox), findsNothing);
-      // ...and it is NOT the 404 "card went away" snackbar.
-      expect(find.text(kCompanionEditGoneNotice), findsNothing);
-      expect(find.byType(SnackBar), findsNothing);
-    });
-
-    testWidgets('Haan confirms with EVERY ticked row id', (WidgetTester tester) async {
-      when(() => repo.confirmCompanionEdit(any(), any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => CompanionEditResult.served(
-                _companion('Badlav ho gaya.', const <ChatOption>[]),
-              ));
       await pumpWithCard(tester);
 
       // The delete row starts unticked (TD151(2)); tick it deliberately so BOTH
@@ -547,37 +691,58 @@ void main() {
       await tester.tap(find.text(kVoiceBooleanYes));
       await tester.pumpAndSettle();
 
-      verify(() => repo.confirmCompanionEdit(proposalId, <String>[rowA, rowB],
-          submissionId: any(named: 'submissionId'))).called(1);
+      verify(
+        () => repo.confirmCompanionEdit(proposalId, <String>[
+          rowA,
+          rowB,
+        ], submissionId: any(named: 'submissionId')),
+      ).called(1);
       // The served turn replaced the card with its reply bubble.
       expect(find.text('Badlav ho gaya.'), findsOneWidget);
       expect(find.byType(Checkbox), findsNothing);
     });
 
-    testWidgets('a DELETE row left unticked is NOT sent (TD151(2))',
-        (WidgetTester tester) async {
-      when(() => repo.confirmCompanionEdit(any(), any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => CompanionEditResult.served(
-                _companion('Badlav ho gaya.', const <ChatOption>[]),
-              ));
+    testWidgets('a DELETE row left unticked is NOT sent (TD151(2))', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => repo.confirmCompanionEdit(
+          any(),
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          _companion('Badlav ho gaya.', const <ChatOption>[]),
+        ),
+      );
       await pumpWithCard(tester);
 
       // Haan straight away: the add row is ticked, the delete row is not.
       await tester.tap(find.text(kVoiceBooleanYes));
       await tester.pumpAndSettle();
 
-      verify(() => repo.confirmCompanionEdit(proposalId, <String>[rowA],
-          submissionId: any(named: 'submissionId'))).called(1);
+      verify(
+        () => repo.confirmCompanionEdit(proposalId, <String>[
+          rowA,
+        ], submissionId: any(named: 'submissionId')),
+      ).called(1);
     });
 
-    testWidgets('tapping a row still toggles it — an add row can be unticked',
-        (WidgetTester tester) async {
-      when(() => repo.confirmCompanionEdit(any(), any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => CompanionEditResult.served(
-                _companion('Badlav ho gaya.', const <ChatOption>[]),
-              ));
+    testWidgets('tapping a row still toggles it — an add row can be unticked', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => repo.confirmCompanionEdit(
+          any(),
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          _companion('Badlav ho gaya.', const <ChatOption>[]),
+        ),
+      );
       await pumpWithCard(tester);
 
       // Tapping the row (its label) unticks the add row; tick the delete row so
@@ -590,30 +755,49 @@ void main() {
       await tester.tap(find.text(kVoiceBooleanYes));
       await tester.pumpAndSettle();
 
-      verify(() => repo.confirmCompanionEdit(proposalId, <String>[rowB],
-          submissionId: any(named: 'submissionId'))).called(1);
+      verify(
+        () => repo.confirmCompanionEdit(proposalId, <String>[
+          rowB,
+        ], submissionId: any(named: 'submissionId')),
+      ).called(1);
     });
 
-    testWidgets('Nahi cancels and renders the server turn', (WidgetTester tester) async {
-      when(() => repo.cancelCompanionEdit(any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => CompanionEditResult.served(
-                _companion('Theek hai, kuch nahi badla.', const <ChatOption>[]),
-              ));
+    testWidgets('Nahi cancels and renders the server turn', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => repo.cancelCompanionEdit(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          _companion('Theek hai, kuch nahi badla.', const <ChatOption>[]),
+        ),
+      );
       await pumpWithCard(tester);
 
       await tester.tap(find.text(kVoiceBooleanNo));
       await tester.pumpAndSettle();
 
-      verify(() => repo.cancelCompanionEdit(proposalId,
-          submissionId: any(named: 'submissionId'))).called(1);
+      verify(
+        () => repo.cancelCompanionEdit(
+          proposalId,
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).called(1);
       expect(find.text('Theek hai, kuch nahi badla.'), findsOneWidget);
     });
 
-    testWidgets('an EXPIRED card disables Haan and Nahi', (WidgetTester tester) async {
+    testWidgets('an EXPIRED card disables Haan and Nahi', (
+      WidgetTester tester,
+    ) async {
       await pumpWithCard(tester, ttl: const Duration(seconds: -1));
 
-      final Finder haan = find.widgetWithText(PrimaryActionButton, kVoiceBooleanYes);
+      final Finder haan = find.widgetWithText(
+        PrimaryActionButton,
+        kVoiceBooleanYes,
+      );
       expect(tester.widget<PrimaryActionButton>(haan).onPressed, isNull);
       final Finder nahi = find.widgetWithText(OutlinedButton, kVoiceBooleanNo);
       expect(tester.widget<OutlinedButton>(nahi).onPressed, isNull);
@@ -622,22 +806,28 @@ void main() {
     // ADR-0046 F4 — the v2 UI rides its OWN lever. A companion worker whose
     // phone has not flipped `worker_chat_companion_v2_enabled` must see Phase 1
     // only: the reply renders, the card does not.
-    testWidgets('the v2 lever OFF hides the card (F4)',
-        (WidgetTester tester) async {
+    testWidgets('the v2 lever OFF hides the card (F4)', (
+      WidgetTester tester,
+    ) async {
       BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
         BbRemoteConfig.kKeyChatCompanionEnabled: true,
         BbRemoteConfig.kKeyChatCompanionV2Enabled: false,
       });
-      when(() => repo.sendCompanionMessage(any(),
-              submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => ChatTurn(
-                reply: 'Yeh badlav karne hain?',
-                followups: const <String>[],
-                suggestedOptions: const <ChatOption>[],
-                questionKind: ChatQuestionKind.disambiguate,
-                companion: true,
-                editProposal: proposal(),
-              ));
+      when(
+        () => repo.sendCompanionMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer(
+        (_) async => ChatTurn(
+          reply: 'Yeh badlav karne hain?',
+          followups: const <String>[],
+          suggestedOptions: const <ChatOption>[],
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+          editProposal: proposal(),
+        ),
+      );
       await pumpTab(tester);
       await tester.tap(find.text('Resume badlein'));
       await tester.pumpAndSettle();
@@ -659,8 +849,9 @@ void main() {
   // via Visibility (`_kShowCompanionMenuChips`), not deleted. The
   // "server-answered, never client-routed" contract is unchanged in the code;
   // this pins the hide and that the reply still renders.
-  testWidgets('the task MENU chip is hidden; the reply still renders',
-      (WidgetTester tester) async {
+  testWidgets('the task MENU chip is hidden; the reply still renders', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -693,8 +884,9 @@ void main() {
   // OTHER rebuild would sit there enabled indefinitely on a screen where
   // nothing else moves — so the card runs its own one-second ticker, and this
   // is what proves the ticker is wired rather than decorative.
-  testWidgets('Haan and Nahi disable themselves when expires_at passes',
-      (WidgetTester tester) async {
+  testWidgets('Haan and Nahi disable themselves when expires_at passes', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -724,10 +916,16 @@ void main() {
 
     // Live: the card is drawn and both answers are offered.
     expect(find.text('Skills'), findsOneWidget);
-    final Finder haan = find.widgetWithText(PrimaryActionButton, kVoiceBooleanYes);
+    final Finder haan = find.widgetWithText(
+      PrimaryActionButton,
+      kVoiceBooleanYes,
+    );
     expect(haan, findsOneWidget);
-    expect(tester.widget<PrimaryActionButton>(haan).onPressed, isNotNull,
-        reason: 'a live card must offer Haan');
+    expect(
+      tester.widget<PrimaryActionButton>(haan).onPressed,
+      isNotNull,
+      reason: 'a live card must offer Haan',
+    );
 
     // Cross the TTL with NO other state change whatsoever — only the card's own
     // ticker can notice. `runAsync` because `_expired` compares against the real
@@ -738,62 +936,77 @@ void main() {
     );
     await tester.pump(const Duration(seconds: 1));
 
-    expect(tester.widget<PrimaryActionButton>(haan).onPressed, isNull,
-        reason: 'the ticker never fired — Haan would POST a dead proposal');
+    expect(
+      tester.widget<PrimaryActionButton>(haan).onPressed,
+      isNull,
+      reason: 'the ticker never fired — Haan would POST a dead proposal',
+    );
     // And it says so, rather than leaving a dead button unexplained.
     expect(find.text(kEditCardExpired), findsOneWidget);
   });
 
   // ── #1821 F1 — THE COOL-DOWN BLOCKS FREE TEXT, AND ONLY FREE TEXT ──────────
-  testWidgets('a cool-down turn locks the composer with a countdown, and the CHIPS stay tappable',
-      (WidgetTester tester) async {
-    companionSwitch(true);
-    when(() => repo.openCompanion()).thenAnswer(
-      (_) async => CompanionOpening(
-        CompanionOpenOutcome.companion,
-        ChatTurn(
-          reply: 'Thodi der ruk jaayein.',
-          followups: const <String>['Kitna kharcha'],
-          // A NON-menu companion chip: the post-completion MENU chips are hidden
-          // by owner request (2026-10-05), so this proves the cool-down leaves
-          // the REMAINING chips tappable.
-          suggestedOptions: const <ChatOption>[
-            ChatOption(
-              optionKey: 'Kitna kharcha',
-              labelText: 'Kitna kharcha',
-            ),
-          ],
-          questionKind: ChatQuestionKind.disambiguate,
-          companion: true,
-          digestKey: 'k1',
-          cooldownUntil: DateTime.now().add(const Duration(minutes: 2)),
+  testWidgets(
+    'a cool-down turn locks the composer with a countdown, and the CHIPS stay tappable',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      when(() => repo.openCompanion()).thenAnswer(
+        (_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          ChatTurn(
+            reply: 'Thodi der ruk jaayein.',
+            followups: const <String>['Kitna kharcha'],
+            // A NON-menu companion chip: the post-completion MENU chips are hidden
+            // by owner request (2026-10-05), so this proves the cool-down leaves
+            // the REMAINING chips tappable.
+            suggestedOptions: const <ChatOption>[
+              ChatOption(
+                optionKey: 'Kitna kharcha',
+                labelText: 'Kitna kharcha',
+              ),
+            ],
+            questionKind: ChatQuestionKind.disambiguate,
+            companion: true,
+            digestKey: 'k1',
+            cooldownUntil: DateTime.now().add(const Duration(minutes: 2)),
+          ),
         ),
-      ),
-    );
-    when(() => repo.sendCompanionMessage(any(),
-            submissionId: any(named: 'submissionId')))
-        .thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
-    await pumpTab(tester);
+      );
+      when(
+        () => repo.sendCompanionMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
+      await pumpTab(tester);
 
-    // Free text is gone — a visible-but-ignored box is what makes a worker type
-    // into nothing.
-    expect(find.byType(TextField), findsNothing);
-    // And the bar says HOW LONG, not just "later" — the number is the point.
-    // It must NOT claim Bada Bhai is busy: the wait is the faltu cool-down, and
-    // inventing a cause tells the worker nothing they can act on (#1862).
-    expect(find.textContaining('minute baad aap dobara likh sakte hain'),
-        findsOneWidget);
-    expect(find.textContaining('vyast'), findsNothing);
+      // Free text is gone — a visible-but-ignored box is what makes a worker type
+      // into nothing.
+      expect(find.byType(TextField), findsNothing);
+      // And the bar says HOW LONG, not just "later" — the number is the point.
+      // It must NOT claim Bada Bhai is busy: the wait is the faltu cool-down, and
+      // inventing a cause tells the worker nothing they can act on (#1862).
+      expect(
+        find.textContaining('minute baad aap dobara likh sakte hain'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('vyast'), findsNothing);
 
-    // THE REMAINING CHIPS STILL WORK while the composer is locked.
-    await tester.tap(find.text('Kitna kharcha'));
-    await tester.pumpAndSettle();
-    verify(() => repo.sendCompanionMessage('Kitna kharcha',
-        submissionId: any(named: 'submissionId'))).called(1);
-  });
+      // THE REMAINING CHIPS STILL WORK while the composer is locked.
+      await tester.tap(find.text('Kitna kharcha'));
+      await tester.pumpAndSettle();
+      verify(
+        () => repo.sendCompanionMessage(
+          'Kitna kharcha',
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).called(1);
+    },
+  );
 
-  testWidgets('the composer comes back on its own when the cool-down passes',
-      (WidgetTester tester) async {
+  testWidgets('the composer comes back on its own when the cool-down passes', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -808,7 +1021,11 @@ void main() {
       ),
     );
     await pumpTab(tester);
-    expect(find.byType(TextField), findsNothing, reason: 'locked while cooling');
+    expect(
+      find.byType(TextField),
+      findsNothing,
+      reason: 'locked while cooling',
+    );
 
     // Only the lock's own ticker can notice; nothing else on this screen moves.
     await tester.runAsync(
@@ -817,13 +1034,18 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
-    expect(find.byType(TextField), findsOneWidget,
-        reason: 'the ticker never told the screen — the worker is locked out '
-            'until some unrelated rebuild happens to arrive');
+    expect(
+      find.byType(TextField),
+      findsOneWidget,
+      reason:
+          'the ticker never told the screen — the worker is locked out '
+          'until some unrelated rebuild happens to arrive',
+    );
   });
 
-  testWidgets('v2 lever OFF: a cool-down never locks the composer',
-      (WidgetTester tester) async {
+  testWidgets('v2 lever OFF: a cool-down never locks the composer', (
+    WidgetTester tester,
+  ) async {
     BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
       BbRemoteConfig.kKeyChatCompanionEnabled: true,
       BbRemoteConfig.kKeyChatCompanionV2Enabled: false,
@@ -848,8 +1070,9 @@ void main() {
   // ADR-0046 O9. The bubble's shipped read-aloud speaks `ttsText ?? text`, and a
   // career answer has no reviewed Devanagari twin — so the fallback would read
   // the model's raw romanized Hinglish in a hi-IN voice. No speaker is offered.
-  testWidgets('read_aloud:false — no speaker button on that bubble',
-      (WidgetTester tester) async {
+  testWidgets('read_aloud:false — no speaker button on that bubble', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -864,36 +1087,48 @@ void main() {
     );
     await pumpTab(tester);
 
-    expect(find.text('Welding mein aage badhne ke liye NDT seekhein.'),
-        findsOneWidget);
-    expect(find.byIcon(Icons.volume_up_rounded), findsNothing,
-        reason: 'a model-written bubble must offer no read-aloud');
+    expect(
+      find.text('Welding mein aage badhne ke liye NDT seekhein.'),
+      findsOneWidget,
+    );
+    expect(
+      find.byIcon(Icons.volume_up_rounded),
+      findsNothing,
+      reason: 'a model-written bubble must offer no read-aloud',
+    );
   });
 
-  testWidgets('a turn WITHOUT read_aloud keeps its speaker, exactly as before',
-      (WidgetTester tester) async {
-    companionSwitch(true);
-    when(() => repo.openCompanion()).thenAnswer(
-      (_) async => CompanionOpening(
-        CompanionOpenOutcome.companion,
-        const ChatTurn(
-          reply: 'Aapki profile taiyaar hai.',
-          ttsText: 'आपकी प्रोफ़ाइल तैयार है।',
-          companion: true,
-          digestKey: 'k1',
+  testWidgets(
+    'a turn WITHOUT read_aloud keeps its speaker, exactly as before',
+    (WidgetTester tester) async {
+      companionSwitch(true);
+      when(() => repo.openCompanion()).thenAnswer(
+        (_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          const ChatTurn(
+            reply: 'Aapki profile taiyaar hai.',
+            ttsText: 'आपकी प्रोफ़ाइल तैयार है।',
+            companion: true,
+            digestKey: 'k1',
+          ),
         ),
-      ),
-    );
-    await pumpTab(tester);
-    expect(find.byIcon(Icons.volume_up_rounded), findsWidgets,
-        reason: 'fixed copy has a reviewed twin and is still read aloud');
-  });
+      );
+      await pumpTab(tester);
+      expect(
+        find.byIcon(Icons.volume_up_rounded),
+        findsWidgets,
+        reason: 'fixed copy has a reviewed twin and is still read aloud',
+      );
+    },
+  );
 
   // ── #1824 F2 — THE CAREER ANSWER RENDERS AS SEPARATE LINES ─────────────────
-  testWidgets('a multi-line reply keeps its lines, and its 3 chips post',
-      (WidgetTester tester) async {
+  testWidgets('a multi-line reply keeps its lines, and its 3 chips post', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
-    const String answer = 'Welding mein teen raaste hain.\n'
+    const String answer =
+        'Welding mein teen raaste hain.\n'
         'NDT certificate sabse tez hai.\n'
         'Uske baad supervisor ban sakte hain.';
     when(() => repo.openCompanion()).thenAnswer(
@@ -908,9 +1143,12 @@ void main() {
         ),
       ),
     );
-    when(() => repo.sendCompanionMessage(any(),
-            submissionId: any(named: 'submissionId')))
-        .thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
+    when(
+      () => repo.sendCompanionMessage(
+        any(),
+        submissionId: any(named: 'submissionId'),
+      ),
+    ).thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
     await pumpTab(tester);
 
     // The bubble holds the text VERBATIM — the newlines are the model's own
@@ -923,15 +1161,20 @@ void main() {
     expect(find.text('NDT kya hai'), findsOneWidget);
     await tester.tap(find.text('Kitna kharcha'));
     await tester.pumpAndSettle();
-    verify(() => repo.sendCompanionMessage('Kitna kharcha',
-        submissionId: any(named: 'submissionId'))).called(1);
+    verify(
+      () => repo.sendCompanionMessage(
+        'Kitna kharcha',
+        submissionId: any(named: 'submissionId'),
+      ),
+    ).called(1);
   });
 
   // ── #1821 F2 / #1824 F2 — THE P2 AND P3 TASK CHIPS ─────────────────────────
   // OWNER REQUEST (2026-10-05): hidden via Visibility for now (not deleted), so
   // they no longer render. The reply still renders.
-  testWidgets('the new-resume and career-talk MENU chips are hidden',
-      (WidgetTester tester) async {
+  testWidgets('the new-resume and career-talk MENU chips are hidden', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -963,8 +1206,9 @@ void main() {
 
   // OWNER REQUEST (2026-10-05): exactly the four post-completion MENU chips are
   // hidden; the individual job chip is deliberately left visible.
-  testWidgets('the four MENU chips are hidden; a job chip still renders',
-      (WidgetTester tester) async {
+  testWidgets('the four MENU chips are hidden; a job chip still renders', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -1015,8 +1259,9 @@ void main() {
   // every other test in this file turns it on with its v1 twin. So this is the
   // state real workers are in, and the one nothing covered: v1 companion ON,
   // v2 OFF.
-  testWidgets('v2 lever OFF: no task chip, no mic — and v1 chips untouched',
-      (WidgetTester tester) async {
+  testWidgets('v2 lever OFF: no task chip, no mic — and v1 chips untouched', (
+    WidgetTester tester,
+  ) async {
     // v1 on, v2 OFF — deliberately NOT companionSwitch(), which flips both.
     BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
       BbRemoteConfig.kKeyChatCompanionEnabled: true,
@@ -1057,8 +1302,9 @@ void main() {
     expect(find.byKey(kCompanionVoiceButtonKey), findsNothing);
   });
 
-  testWidgets('v2 lever OFF: an edit card on the turn still draws nothing',
-      (WidgetTester tester) async {
+  testWidgets('v2 lever OFF: an edit card on the turn still draws nothing', (
+    WidgetTester tester,
+  ) async {
     BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
       BbRemoteConfig.kKeyChatCompanionEnabled: true,
       BbRemoteConfig.kKeyChatCompanionV2Enabled: false,
@@ -1093,8 +1339,9 @@ void main() {
   });
 
   // ── #1884 / OWNER REQUEST (2026-10-05) — THE VOICE PILL IS HIDDEN ───────────
-  testWidgets('the companion voice entry is hidden; the composer mic remains',
-      (WidgetTester tester) async {
+  testWidgets('the companion voice entry is hidden; the composer mic remains', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);
@@ -1112,8 +1359,9 @@ void main() {
   });
 
   // ── ADR-0046 F3 — THE COMPANION VOICE BUTTON IS HIDDEN (owner request) ─────
-  testWidgets('the hidden companion voice button opens nothing',
-      (WidgetTester tester) async {
+  testWidgets('the hidden companion voice button opens nothing', (
+    WidgetTester tester,
+  ) async {
     companionSwitch(true);
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);

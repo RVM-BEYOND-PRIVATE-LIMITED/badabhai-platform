@@ -121,6 +121,7 @@ class TradeFormScreen extends StatelessWidget {
     super.key,
     this.sectionKey,
     this.upgradeView = false,
+    this.fromStart = false,
   });
 
   /// The served menu's section key, or null for the full walk.
@@ -133,11 +134,17 @@ class TradeFormScreen extends StatelessWidget {
   /// still gets the whole form.
   final bool upgradeView;
 
+  /// Open from step 1, ignoring resumability. Set only by "Resume poora karein"
+  /// so the completion walk asks the same questions a new candidate answers
+  /// (employment + qualifications markers included), instead of resuming past
+  /// them onto the last unanswered step.
+  final bool fromStart;
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider<TradeFormCubit>(
       create: (_) => locator<TradeFormCubit>()
-        ..load(sectionKey: sectionKey, upgradeView: upgradeView),
+        ..load(sectionKey: sectionKey, upgradeView: upgradeView, fromStart: fromStart),
       child: const _TradeFormView(),
     );
   }

@@ -57,6 +57,11 @@ RoleArtDef roleArtDef(String kind) =>
 /// The canvas every illustration is drawn on (width / height = 3).
 const double kRoleArtAspectRatio = _kCanvasWidth / _kCanvasHeight;
 
+/// The floorless window's height in scene units: every scene carries the
+/// same full-width ivory strip at y84–100, so y0–84 is the art without it.
+/// Used by [RoleArtBanner.hideFloor] (and the Jobs face's own window).
+const double _kSceneWindowHeight = 84.0;
+
 // ── The generated data's types (mirror packages/role-art/src/types.ts) ──────
 
 enum RoleArtColour { primary, accent, surface }
@@ -167,6 +172,7 @@ class RoleArtBanner extends StatefulWidget {
     required this.roleKind,
     this.animate = true,
     this.borderRadius = AppRadii.md,
+    this.hideFloor = false,
   });
 
   /// The posting's raw `role_kind`; anything unknown draws the generic art.
@@ -175,6 +181,14 @@ class RoleArtBanner extends StatefulWidget {
   /// False paints the rest pose and runs no ticker.
   final bool animate;
   final double borderRadius;
+
+  /// True windows the scene to y0–84, dropping the full-width ivory floor
+  /// strip every scene carries at y84–100 — it reads as an unwanted grey
+  /// band at the banner's bottom on dark scenes. Opt-in, so every existing
+  /// surface draws exactly as before: the shared scene data is untouched,
+  /// only this banner's viewport narrows (same 300:84 top-anchored window
+  /// the Jobs face applies).
+  final bool hideFloor;
 
   /// The illustration this banner draws (`generic` for an unknown kind).
   String get kind => resolveRoleArtKind(roleKind);
@@ -237,18 +251,47 @@ class _RoleArtBannerState extends State<RoleArtBanner>
 
   @override
   Widget build(BuildContext context) {
-    return ExcludeSemantics(
-      child: RepaintBoundary(
+    final Widget scene = RepaintBoundary(
+      child: AspectRatio(
+        aspectRatio: kRoleArtAspectRatio,
+        child: CustomPaint(
+          key: ValueKey<String>('roleArt:${widget.kind}'),
+          painter: RoleArtPainter(def: _def, progress: _controller),
+        ),
+      ),
+    );
+    if (!widget.hideFloor) {
+      return ExcludeSemantics(
         child: ClipRRect(
           borderRadius: BorderRadius.circular(widget.borderRadius),
-          child: AspectRatio(
-            aspectRatio: kRoleArtAspectRatio,
-            child: CustomPaint(
-              key: ValueKey<String>('roleArt:${widget.kind}'),
-              painter: RoleArtPainter(def: _def, progress: _controller),
-            ),
-          ),
+          child: scene,
         ),
+      );
+    }
+    // The floorless window: uniform scale, top-anchored, never squashed —
+    // an OverflowBox lets the full-width scene paint through a viewport
+    // exactly 84/300 of its width tall, and the viewport's own clip (not
+    // the scene's) carries the corner radius.
+    return ExcludeSemantics(
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final double artWidth = constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : MediaQuery.sizeOf(context).width;
+          return SizedBox(
+            height: artWidth * _kSceneWindowHeight / _kCanvasWidth,
+            width: double.infinity,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(widget.borderRadius),
+              child: OverflowBox(
+                alignment: Alignment.topCenter,
+                maxWidth: artWidth,
+                maxHeight: double.infinity,
+                child: SizedBox(width: artWidth, child: scene),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

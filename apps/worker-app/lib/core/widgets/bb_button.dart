@@ -57,6 +57,7 @@ class BbButton extends StatelessWidget {
     this.loading = false,
     this.buttonKey,
     this.allowMultilineLabel = false,
+    this.labelStyle,
   }) : assert(
          !(size == BbButtonSize.sm &&
              (variant == BbButtonVariant.primary ||
@@ -84,6 +85,13 @@ class BbButton extends StatelessWidget {
 
   /// Key applied to the underlying Material button (handy for widget tests).
   final Key? buttonKey;
+
+  /// Opt-in label-style override — Inter instead of the kit's Anek voice, at
+  /// the caller's size. Null (every existing call site) keeps today's Anek
+  /// exactly. Owner-approved exception for the resume share/download pair,
+  /// whose labels read as body copy beside the card's own Inter text — never
+  /// use it elsewhere without the same explicit ask.
+  final TextStyle? labelStyle;
 
   /// Opt-in: let [label] wrap onto a second line instead of single-line
   /// ellipsis truncation. DEFAULT FALSE, unchanged everywhere else — every
@@ -168,11 +176,12 @@ class BbButton extends StatelessWidget {
         EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       ),
       textStyle: WidgetStatePropertyAll<TextStyle>(
-        OnboardingTypography.anek(
-          size: labelSize,
-          weight: FontWeight.w800,
-          letterSpacing: 0.3,
-        ),
+        labelStyle ??
+            OnboardingTypography.anek(
+              size: labelSize,
+              weight: FontWeight.w800,
+              letterSpacing: 0.3,
+            ),
       ),
     );
 

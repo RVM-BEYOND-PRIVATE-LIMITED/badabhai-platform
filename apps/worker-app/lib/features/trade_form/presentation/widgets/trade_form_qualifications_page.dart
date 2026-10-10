@@ -823,6 +823,7 @@ class TradeFormQualificationsPageState
             isSelected: selected == entry.key,
             onTap: () => onTap(entry.key),
             variant: OnboardingVariant.formFlow,
+            titleStyle: tradeFormOptionTitleStyle(),
           ),
       ],
     );

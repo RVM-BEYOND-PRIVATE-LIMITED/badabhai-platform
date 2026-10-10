@@ -28,6 +28,7 @@ Future<void> openTradeFormWithTier(
   BuildContext context, {
   required TierEntry entry,
   String? sectionKey,
+  bool fromStart = false,
 }) async {
   // Resolved from the locator only IF it is registered. Production always
   // registers it; a screen-level widget test wires only the graph its own
@@ -36,14 +37,14 @@ Future<void> openTradeFormWithTier(
   // who cannot reach their form. Same discipline as `ResumeCubit`'s optional
   // summary repository. Not registered ⇒ today's navigation, unchanged.
   if (!locator.isRegistered<TradeFormRepository>()) {
-    _openFormDirectly(context, entry: entry, sectionKey: sectionKey);
+    _openFormDirectly(context, entry: entry, sectionKey: sectionKey, fromStart: fromStart);
     return;
   }
   final TierState tiers = await locator<TradeFormRepository>().loadTierState();
   if (!context.mounted) return;
 
   if (!tiers.shouldChooseTier) {
-    _openFormDirectly(context, entry: entry, sectionKey: sectionKey);
+    _openFormDirectly(context, entry: entry, sectionKey: sectionKey, fromStart: fromStart);
     return;
   }
 
@@ -51,6 +52,7 @@ Future<void> openTradeFormWithTier(
     state: tiers,
     entry: entry,
     sectionKey: sectionKey,
+    fromStart: fromStart,
   );
   switch (entry) {
     case TierEntry.pushed:
@@ -67,10 +69,24 @@ void _openFormDirectly(
   BuildContext context, {
   required TierEntry entry,
   String? sectionKey,
+  bool fromStart = false,
 }) {
   // The section key is still passed as a BARE STRING here, not wrapped: that is
   // what #1566 shipped and what the router has always read, and an unchanged
-  // path should produce an unchanged request.
+  // path should produce an unchanged request. The fromStart road wraps in
+  // [TradeFormArgs] because it needs the second bit alongside the key.
+  if (fromStart) {
+    final TradeFormArgs args =
+        TradeFormArgs(sectionKey: sectionKey, fromStart: true);
+    switch (entry) {
+      case TierEntry.pushed:
+        context.pushOnce(Routes.tradeForm, extra: args);
+      case TierEntry.replaced:
+      case TierEntry.upgrade:
+        context.go(Routes.tradeForm, extra: args);
+    }
+    return;
+  }
   switch (entry) {
     case TierEntry.pushed:
       context.pushOnce(Routes.tradeForm, extra: sectionKey);

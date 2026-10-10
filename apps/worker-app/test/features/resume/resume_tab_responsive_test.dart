@@ -78,7 +78,7 @@ void main() {
   tearDown(ResumeTabHarness.reset);
 
   /// The CTA a worker must always be able to reach on a ready resume.
-  Finder download() => find.text('PDF download karein');
+  Finder download() => find.text('Download');
 
   group('ready — a full trade sheet with long real values', () {
     setUp(() async {

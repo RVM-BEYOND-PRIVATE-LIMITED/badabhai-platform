@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_pill.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
@@ -102,6 +103,7 @@ void main() {
       () => ResumeCubit(repo, editRepo, _MockProfileRepository()),
     );
     locator.registerFactory<ProfileSummaryRepository>(() => summaryRepo);
+    locator.registerLazySingleton<TabFocus>(() => TabFocus());
   });
 
   tearDown(() async => locator.reset());
@@ -213,7 +215,7 @@ void main() {
       ),
     );
 
-    expect(find.text('PDF download karein'), findsNWidgets(2));
+    expect(find.text('Download'), findsNWidgets(2));
   });
 
   testWidgets('no history: an honest empty state, never an error', (
@@ -324,10 +326,10 @@ void main() {
       await tester.pump();
 
       final Offset share = tester.getTopLeft(
-        find.text('WhatsApp pe bhejein'),
+        find.text('Share'),
       );
       final Offset download = tester.getTopLeft(
-        find.text('PDF download karein'),
+        find.text('Download'),
       );
       expect(
         download.dx,
@@ -543,6 +545,47 @@ void main() {
         ),
       );
       expect(find.textContaining(kResumeDraftPill), findsNothing);
+    });
+
+    testWidgets(
+        'the card goes away after the worker completes the form and returns '
+        '(tab refocus re-reads the summary)', (WidgetTester tester) async {
+      summaryRepo = _FakeSummary(
+        const ProfileSummary(
+          tradeLabel: 'General Machinist',
+          strengthSignals: 6,
+          strengthMax: 10,
+          missingFields: <String>['salary', 'experience'],
+        ),
+      );
+      await pump(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
+        ),
+      );
+      expect(find.textContaining(kResumeDraftPill), findsOneWidget);
+
+      // The worker completes "Resume poora karein" on the trade-form road, so
+      // the server no longer reports anything missing. The shell keeps this
+      // screen mounted under the pushed form, so returning must re-read —
+      // never keep showing mount-time state.
+      summaryRepo = _FakeSummary(
+        const ProfileSummary(
+          tradeLabel: 'General Machinist',
+          strengthSignals: 10,
+          strengthMax: 10,
+        ),
+      );
+      final TabFocus tabFocus = locator<TabFocus>();
+      tabFocus.value = TabIndex.chat;
+      await tester.pump();
+      tabFocus.value = TabIndex.profile;
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.textContaining(kResumeDraftPill), findsNothing);
+      verify(() => repo.loadResumeHistory()).called(greaterThan(1));
     });
 
     testWidgets('no denominator: no progress bar invented', (
