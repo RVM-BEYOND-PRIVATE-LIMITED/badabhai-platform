@@ -57,7 +57,7 @@ void main() {
 
   testWidgets('the single screen holds both sections — never a blank',
       (WidgetTester tester) async {
-    await pump(tester);
+    final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
 
     expect(key.currentState!.pageCount, 1);
     expect(key.currentState!.isLastPage, isTrue);
@@ -93,7 +93,7 @@ void main() {
       '(one open form at a time)', (WidgetTester tester) async {
     // The TapGuard must never block a worker who genuinely wants two entries —
     // but an unfinished first entry does: "fill this form first".
-    final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
+    await pump(tester);
 
     await tester.tap(find.text('Aur ek entry jodein'));
     await tester.pump(const Duration(seconds: 1)); // past the guard window
