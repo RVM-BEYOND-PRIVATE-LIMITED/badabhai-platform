@@ -147,6 +147,37 @@ function isGateShaped(reply: string): boolean {
   return false;
 }
 
+/**
+ * Is `reply` shaped like the engine's own trade-confirm gate — "<trade> — क्या आप
+ * यही काम करना चाहते हैं?" in the model's own words?
+ *
+ * THE TELL IS "THIS SAME WORK": a same-marker (yahi / yehi / wahi, यही / वही)
+ * beside a work noun (kaam, काम). An ordinary trade question asks WHICH work
+ * ("kaunsa kaam", "kya kaam karte hain") and never contains the same-marker; a
+ * confirmation asks about THIS SAME work and always does. The engine's re-ask
+ * ("आप किस ट्रेड में काम करना चाहते हैं?") is DELIBERATELY NOT matched: a worker's
+ * answer to it is a trade statement the model structures, so a model-authored twin
+ * of it is harmless — unlike a confirm twin, whose Haan/Nahi settles nothing.
+ */
+function isTradeConfirmShaped(reply: string): boolean {
+  const toks = tokens(normalize(reply));
+  if (toks.length === 0) return false;
+  const same = new Set([
+    "yahi",
+    "yahin",
+    "yehi",
+    "yehin",
+    "wahi",
+    "wahin",
+    "wohi",
+    "wohin",
+    "यही",
+    "वही",
+  ]);
+  const work = new Set(["kaam", "kam", "job", "काम"]);
+  return toks.some((t) => same.has(t)) && toks.some((t) => work.has(t));
+}
+
 /** Token-set Jaccard similarity. */
 function jaccard(a: readonly string[], b: readonly string[]): number {
   const setA = new Set(a);
@@ -237,6 +268,7 @@ function repeatsHistory(reply: string, history: readonly TranscriptLine[]): bool
  */
 export function classifyLlmReply(reply: string, history: readonly TranscriptLine[]): LlmReplyClass {
   if (isGateShaped(reply)) return "gate_shaped";
+  if (isTradeConfirmShaped(reply)) return "gate_shaped";
   if (repeatsHistory(reply, history)) return "repeat";
   return "ok";
 }

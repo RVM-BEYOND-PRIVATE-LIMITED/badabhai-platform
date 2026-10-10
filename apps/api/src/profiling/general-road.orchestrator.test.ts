@@ -199,6 +199,10 @@ function led(
       skills: [...(opts.skills ?? [])],
       experiences: [...(opts.experiences ?? [])],
     },
+    // The trade-confirm gate is already answered in every world this helper builds: these
+    // tests assert the road AFTER confirmation, on the same turn the role is named. The
+    // gate's own interaction with lane entry is pinned once, in "waits for the trade gate".
+    tradeConfirm: { open: false, trade: null, confirmed: true, reaskOpen: false, pastLabel: null, rounds: 0 },
     ...opts.patch,
   };
   return kind === "done"
@@ -585,8 +589,8 @@ describe("the general road through the orchestrator (ADR-0045)", () => {
     });
   });
 
-  // ═══ 3. AN OUTSIDE ROLE ENTERS THE SKILLS STAGE ON THE SAME TURN ═════════════════════════
-  describe("an outside role enters the skills stage on the turn it is named", () => {
+  // ═══ 3. AN OUTSIDE ROLE ENTERS THE SKILLS STAGE ONCE ITS TRADE IS CONFIRMED ═══════
+  describe("an outside role enters the skills stage once its trade is confirmed", () => {
     /**
      * An ARMED session that had already captured years (by key AND under a pack's own key), whose
      * led turn names an outside role, carries a job in its draft and opens the experience gate —
@@ -781,6 +785,44 @@ describe("the general road through the orchestrator (ADR-0045)", () => {
       expect(result.reply).toBe(ENTER_ASK.reply_text);
       expect(saved(world)?.generalRoad.lane).toBe("skills");
       expect(saved(world)?.generalRoad.skills).toEqual(["React", "Node.js"]);
+      expect(emitted(world, LANE)).toHaveLength(1);
+    });
+
+    it("the lane waits for the trade-confirm gate: an unconfirmed role enters nothing", async () => {
+      // `led()` pre-confirms every other world in this suite; this one reports the role the
+      // way the model really does — unconfirmed — so the gate owns the naming turn and the
+      // lane, the form offer and the skills call all wait for the Haan.
+      const world = makeWorld({
+        led: {
+          kind: "ask",
+          reply: PHASE_A_REPLY,
+          chips: [],
+          inputMode: "text",
+          patch: {
+            llmStage: "role",
+            llmLedTurns: 1,
+            llmAsks: 1,
+            llmDraft: {
+              domain_label: DOMAIN,
+              role_label: ROLE,
+              skills: [],
+              experiences: [],
+            },
+          },
+        },
+        model: [ENTER_ASK],
+      });
+      const gated = await world.orchestrator.takeTurn(fromChat(ROLE_MSG));
+
+      expect(gated.reply).toBe(`${ROLE} — क्या आप यही काम करना चाहते हैं?`);
+      expect(gated.inputMode).toBe("options_only");
+      expect(saved(world)?.generalRoad.lane).toBeNull();
+      expect(emitted(world, LANE)).toHaveLength(0);
+      expect(world.ai.llmTurn).not.toHaveBeenCalled();
+
+      const entry = await world.orchestrator.takeTurn(fromChat("Haan", later(1)));
+      expect(entry.reply).toBe(ENTER_ASK.reply_text);
+      expect(saved(world)?.generalRoad.lane).toBe("skills");
       expect(emitted(world, LANE)).toHaveLength(1);
     });
   });

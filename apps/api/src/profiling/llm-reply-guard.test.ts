@@ -30,6 +30,18 @@ describe("classifyLlmReply — gate_shaped", () => {
   it("does NOT exempt a leading 'kya' — the gate's own yes/no shape starts with it", () => {
     expect(classifyLlmReply("Kya aapke paas koi aur kaam hai?", [])).toBe("gate_shaped");
   });
+
+  it("flags the model writing the trade-confirm gate in its own words", () => {
+    expect(classifyLlmReply("CNC Turner — kya aap yahi kaam karna chahte hain?", [])).toBe(
+      "gate_shaped",
+    );
+    expect(classifyLlmReply("Kya aap wahi kaam karna chahte hain?", [])).toBe("gate_shaped");
+  });
+
+  it("does not flag an ordinary which-trade question as a trade confirm", () => {
+    expect(classifyLlmReply("Aap kaun sa kaam karte hain?", [])).toBe("ok");
+    expect(classifyLlmReply("Aap kis trade mein kaam karna chahte hain?", [])).toBe("ok");
+  });
 });
 
 describe("classifyLlmReply — repeat", () => {

@@ -12,7 +12,12 @@
  * orchestrator, type-only.
  */
 
-import type { AnswerType, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
+import type {
+  AnswerType,
+  InputMode,
+  QuestionPackItem,
+  QuestionPackOption,
+} from "@badabhai/ai-contracts";
 
 import { isSettled, type AnswerMap } from "./answer-map";
 import { answersOf, inboundHash, type ProfilingEnvelope } from "./conversation-state";
@@ -34,6 +39,11 @@ import type {
   ResumeSuggestion,
   ResumeSuggestionReader,
 } from "./resume-import/resume-suggestion-reader";
+import {
+  TRADE_CONFIRM_OPTIONS,
+  TRADE_DESIRED_PROMPT,
+  tradeConfirmPrompt,
+} from "./trade-confirm";
 
 /**
  * The reply cache's stamp for a turn that is about to be written — `ProfilingOrchestrator`'s
@@ -129,6 +139,36 @@ export function outstandingTypeRequest(
 ): { prompt: string; answerType: AnswerType } | null {
   if (!envelope.identifyTypeRequested || envelope.occupation !== null) return null;
   return { prompt: IDENTIFY_TYPE_PROMPT, answerType: "text" };
+}
+
+/**
+ * The trade-confirm gate or its re-ask, still on screen for a session being REOPENED.
+ *
+ * THE FOURTH MEMBER OF THE SAME PRECEDENCE, and in the same place for the same reason:
+ * both belong to no pack, so without this a cold start mid-gate re-serves an authored
+ * question the worker is not looking at. Rebuilt from envelope state rather than
+ * `lastTurn`: the gate prompt embeds the gated trade, and the envelope holds which trade
+ * that was.
+ */
+export function outstandingTradeGate(envelope: ProfilingEnvelope): {
+  prompt: string;
+  options: readonly QuestionPackOption[];
+  answerType: AnswerType;
+  inputMode: InputMode;
+} | null {
+  const gate = envelope.tradeConfirm;
+  if (gate.open && gate.trade !== null) {
+    return {
+      prompt: tradeConfirmPrompt(gate.trade),
+      options: [...TRADE_CONFIRM_OPTIONS],
+      answerType: "single_select",
+      inputMode: "options_only",
+    };
+  }
+  if (gate.reaskOpen && !gate.open) {
+    return { prompt: TRADE_DESIRED_PROMPT, options: [], answerType: "text", inputMode: "text" };
+  }
+  return null;
 }
 
 /**

@@ -29,6 +29,14 @@ import {
   type FormOfferReply,
 } from "./trade-form-offer";
 import { generalFormOfferFor, SKILLS_GATE_OPTIONS, type GeneralFormOffer } from "./skills-gate";
+import {
+  draftTradeLabel,
+  MAX_TRADE_CONFIRM_ROUNDS,
+  readTradeConfirmReply,
+  TRADE_CONFIRM_OPTIONS,
+  TRADE_DESIRED_PROMPT,
+  tradeConfirmPrompt,
+} from "./trade-confirm";
 import type {
   ChatGateKind,
   ProfilingLane,
@@ -164,6 +172,7 @@ import {
   onSkillsLane,
   outstandingLlmAsk,
   outstandingOffer,
+  outstandingTradeGate,
   outstandingTypeRequest,
   progressOf,
   stampLastTurn,
@@ -1311,6 +1320,31 @@ export class ProfilingOrchestrator {
         };
       }
 
+      // THE TRADE GATE OUTRANKS THE PACK RE-SERVE, through the helper `viewSession`
+      // shares: a cold start mid-gate must redraw the gate, not an authored question —
+      // and answering the re-served question would file the worker's Haan/Nahi against
+      // a pack row. RE-SERVE ONLY: no write, no ask.
+      const tradeGate = outstandingTradeGate(envelope);
+      if (tradeGate) {
+        return {
+          reply: tradeGate.prompt,
+          kind: "ask",
+          questionKey: null,
+          options: tradeGate.options,
+          whyText: null,
+          answerType: tradeGate.answerType,
+          inputMode: tradeGate.inputMode,
+          progress: progressOf(progressItems, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
       // THE MODEL'S QUESTION OUTRANKS THE PACK RE-SERVE for the same reason the offer above
       // does: it belongs to no pack, so the lookup below cannot find it and would answer a cold
       // start mid-Phase-A by serving an authored question instead.
@@ -2253,6 +2287,88 @@ export class ProfilingOrchestrator {
       // FALL THROUGH: the interview continues on this same bubble, exactly where it paused.
     }
 
+    // --- THE TRADE-CONFIRM GATE, ANSWERED ------------------------------------
+    //
+    // AFTER the non-advancing branches (abuse, silence, hardship, clarify all outrank a
+    // gate answer) and beside the form-offer branch above, for its reason: while the gate
+    // is on screen the worker's words answer IT, not a pack question. `servedQuestionKey`
+    // is already null for the whole Phase-A stretch, so capture below finds no asked item;
+    // a bare Haan/Nahi additionally finds no value through the typed-parser cross-fill
+    // (the same property the experience gate's Haan relies on), and identify may spend an
+    // attempt on it exactly as it does on that gate's Haan today.
+    //
+    // `yes` marks the trade confirmed and FALLS THROUGH: the same turn continues into
+    // identification and the model, which now profiles the confirmed trade. `no` serves the
+    // desired-trade re-ask and returns; `other` (the worker typed the wanted trade instead
+    // of tapping) falls through with the gate closed, so this turn's own words are resolved
+    // as the desired trade and the new gate is served for them below.
+    if (this.llm.leads(next) && next.tradeConfirm.open && !capped) {
+      const read = readTradeConfirmReply(input.text);
+      if (read === "yes") {
+        next = {
+          ...next,
+          tradeConfirm: { ...next.tradeConfirm, open: false, confirmed: true },
+        };
+        this.logger.log(
+          `trade gate confirmed session=${input.sessionId} ` +
+            `rounds=${next.tradeConfirm.rounds}; the interview continues on the confirmed trade`,
+        );
+        // FALL THROUGH — see the block doc above.
+      } else {
+        const declined = next.tradeConfirm.trade;
+        const rounds = next.tradeConfirm.rounds + 1;
+        // THE PAST TRADE STAYS IN THE TRANSCRIPT ONLY. The draft labels and the
+        // deterministic pin are cleared so the next inference starts clean for the
+        // wanted trade; nothing settled is touched (settlement only runs on confirmed
+        // labels, or on the model's disappearance). Past experience is the worker's to
+        // add through the ordinary experience flow, never the gate's to invent.
+        next = {
+          ...next,
+          llmDraft: { ...next.llmDraft, domain_label: null, role_label: null },
+          occupation: null,
+          occupationFamilyId: null,
+          tradeConfirm: {
+            open: false,
+            trade: null,
+            // THE BOUND (§17): past MAX rounds the gate stops asking and the interview
+            // runs normally on whatever is inferred next — a worker who declined five
+            // trades is never trapped on a sixth question about it.
+            confirmed: rounds >= MAX_TRADE_CONFIRM_ROUNDS,
+            reaskOpen: read === "no" && rounds < MAX_TRADE_CONFIRM_ROUNDS,
+            pastLabel: declined ?? next.tradeConfirm.pastLabel,
+            rounds,
+          },
+        };
+        this.logger.log(
+          `trade gate declined session=${input.sessionId} rounds=${rounds}/${MAX_TRADE_CONFIRM_ROUNDS}; ` +
+            `profiling moves to the wanted trade`,
+        );
+        if (next.tradeConfirm.reaskOpen) {
+          return this.turn(buffer, next, input, {
+            reply: TRADE_DESIRED_PROMPT,
+            // `ask`, not a new kind: `TURN_KINDS` is pinned as a subset of what shipped
+            // clients know. `questionKey: null` because this belongs to no pack — naming
+            // one would file the wanted trade against that question on the next turn.
+            kind: "ask",
+            questionKey: null,
+            options: [],
+            whyText: null,
+            answerType: "text",
+            inputMode: "text",
+            checkpointDue: false,
+            progress: progressOf(progressItems, answers),
+            unansweredEssentials: essentialsOf(items, answers),
+            complete: false,
+            completionReason: null,
+            replayed: false,
+            excludeFromParse: capture.excludeFromParse,
+            unavailable: false,
+          });
+        }
+        // "other", or the bound: FALL THROUGH — see the block doc above.
+      }
+    }
+
     // --- Answer classes: write what the worker said -------------------------
     next = { ...next, silentTurns: 0, clarifyCount: 0, hardshipTurns: 0 };
 
@@ -2495,7 +2611,18 @@ export class ProfilingOrchestrator {
         // THE MODEL WENT AWAY. Sticky from here, and the gate is closed on the way out — leaving
         // it open would make the worker's next sentence be read as a yes/no to a question the
         // engine is about to replace.
-        next = { ...next, llmFallback: true, llmGateOpen: false };
+        //
+        // THE TRADE GATE CLOSES TOO, open and re-ask alike, and UNCONFIRMED: with the model
+        // gone nothing can re-infer a declined trade, so a gate left open would strand the
+        // worker's next sentence (the answer branch above only runs while the model leads).
+        // Settlement below still runs (fail open — the interview must continue), on the model's
+        // best guess rather than on a confirmation that can never arrive.
+        next = {
+          ...next,
+          llmFallback: true,
+          llmGateOpen: false,
+          tradeConfirm: { ...next.tradeConfirm, open: false, reaskOpen: false },
+        };
         await this.recordFallback(next, input);
         // ADR-0045: no model, no skills stage — an armed session still undecided stays on today's
         // path for good.
@@ -2548,6 +2675,84 @@ export class ProfilingOrchestrator {
         // design: one branch, not a second engine to keep in step.
       } else {
         next = { ...next, ...led.patch };
+
+        // --- THE TRADE-CONFIRM GATE, SERVED ---------------------------------
+        //
+        // BEFORE routing, the lane decision, the form offer and every settlement: none of
+        // them may treat an unconfirmed trade as the profile's trade. When the model's
+        // draft (or, before it names one, the deterministic pin) says what the worker does,
+        // the worker is asked "<trade> — क्या आप यही काम करना चाहते हैं?" with Haan/Nahi —
+        // and the model's own question or close on this turn is discarded in favour of it.
+        //
+        // THE SAME BRANCH-3 REASONING AS THE EXPERIENCE GATE: the model's reply was never
+        // asked, so no ask is spent on it and the gate spends none either. `llmLedTurns`
+        // already counted this turn through the patch above; the gate turn itself is what
+        // `outstandingTradeGate` re-serves on a reopen.
+        //
+        // WHEN THE MODEL OPENED THE EXPERIENCE GATE ON THIS SAME TURN, the trade gate wins
+        // and the experience gate is DEFERRED, not dropped: the entry stays in the draft,
+        // only the open flags are cleared, and the engine asks it itself before accepting a
+        // later close (branch 3b in `LlmTurnService`) — exactly as if the model had never
+        // opened it. Asking "another job?" before the worker confirmed which trade the
+        // profile is for would strand a Nahi with the trade still unconfirmed.
+        const tradeGate = tradeGateFor(next, this.llm.leads(next));
+        if (tradeGate !== null) {
+          // Deferred only when THIS turn opened it (`llmGateOpen` can only be true here
+          // from the patch just applied — every open gate is answered through the model
+          // call, which closes it). An `Asked` from an earlier, answered gate is left
+          // alone: clearing it would ask the worker "another job?" twice.
+          const deferredExperienceGate = next.llmGateOpen;
+          next = {
+            ...next,
+            // A deferred experience gate is asked again later; an already-asked one is not
+            // re-asked here — the close path re-offers it once via branch 3b.
+            llmGateOpen: false,
+            llmGateAsked: deferredExperienceGate ? false : next.llmGateAsked,
+            tradeConfirm: {
+              ...next.tradeConfirm,
+              open: true,
+              trade: tradeGate,
+              reaskOpen: false,
+            },
+            phase: "llm_interview",
+            servedQuestionKey: null,
+            clarifyCount: 0,
+          };
+          if (deferredExperienceGate) {
+            this.logger.log(
+              `trade gate defers the experience gate session=${input.sessionId}; ` +
+                `the experience gate will be re-offered before Phase A closes`,
+            );
+          }
+          return this.turn(buffer, next, input, {
+            reply: tradeConfirmPrompt(tradeGate),
+            // `ask`, not a new kind — `TURN_KINDS` is pinned as a subset of what shipped
+            // clients know. `questionKey: null` because this belongs to no pack.
+            kind: "ask",
+            questionKey: null,
+            options: [...TRADE_CONFIRM_OPTIONS],
+            whyText: null,
+            answerType: "single_select",
+            inputMode: "options_only",
+            checkpointDue: false,
+            progress: progressOf(progressItems, answers),
+            unansweredEssentials: essentialsOf(items, answers),
+            complete: false,
+            completionReason: null,
+            replayed: false,
+            excludeFromParse: capture.excludeFromParse,
+            unavailable: false,
+          });
+        }
+        // The re-ask was answered but nothing trade-shaped came back: close it and let the
+        // model's own question below carry the interview — it will ask what it still needs,
+        // and the gate fires when a trade is named.
+        if (next.tradeConfirm.reaskOpen) {
+          next = {
+            ...next,
+            tradeConfirm: { ...next.tradeConfirm, reaskOpen: false },
+          };
+        }
 
         // --- THE TRADE-FORM HANDOVER ----------------------------------------
         //
@@ -3147,6 +3352,27 @@ export class ProfilingOrchestrator {
           promptText: typePrompt.prompt,
           answerType: typePrompt.answerType,
           options: [],
+          whyText: null,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
+
+    // THE TRADE GATE, through the helper `openTurn` uses — one precedence for both
+    // readers, so a reopened app and the review screen cannot disagree about what the
+    // worker is looking at. `questionKey: null` is load-bearing, as for the offers
+    // above: the voice form guards an answer on it.
+    const tradeGate = outstandingTradeGate(envelope);
+    if (tradeGate) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: tradeGate.prompt,
+          answerType: tradeGate.answerType,
+          options: tradeGate.options,
           whyText: null,
           progress: progressOf(progressItems, answers),
         },
@@ -5166,6 +5392,42 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
     absorbedAs: stale ? "stale" : spent ? "storm" : "budget",
     result: replayResultOf(last),
   };
+}
+
+/**
+ * The profile's trade as Phase A currently names it — the model's draft first, the
+ * deterministic pin last — or null when nothing names one yet.
+ *
+ * THE SAME PRECEDENCE `settleFromLlmDraft` settles by (role, domain, pin), so the gate
+ * confirms exactly the label settlement would write. The universal placeholder pin
+ * ("General") names no trade and settles nothing — the same exclusion as there.
+ */
+function effectiveTradeLabel(envelope: ProfilingEnvelope): string | null {
+  const draft = draftTradeLabel(envelope.llmDraft);
+  if (draft !== null) return draft;
+  const pin = envelope.occupation?.label?.trim() ?? "";
+  if (pin.length === 0 || isUniversalPlaceholderLabel(pin)) return null;
+  return pin;
+}
+
+/**
+ * Does this turn owe the worker the trade-confirm gate instead of the model's
+ * question or close?
+ *
+ * THREE OUTS: confirmed (the worker said Haan, or the round bound below was reached),
+ * already on screen (open — the answer branch owns the next turn), the round bound (§17).
+ * Otherwise, once a trade is named, the gate fires on the SAME turn the labels arrive — the model's question is discarded in favour of it, exactly as the
+ * experience gate discards the reply that carried its entry.
+ */
+function tradeGateFor(envelope: ProfilingEnvelope, leads: boolean): string | null {
+  if (!leads) return null;
+  const gate = envelope.tradeConfirm;
+  // `reaskOpen` is DELIBERATELY NOT an out: the turn answering the re-ask is exactly when
+  // the wanted trade needs its gate — bailing on it would route an unconfirmed trade to
+  // the trade-form offer (CAM programmer routes) without ever confirming it.
+  if (gate.confirmed || gate.open) return null;
+  if (gate.rounds >= MAX_TRADE_CONFIRM_ROUNDS) return null;
+  return effectiveTradeLabel(envelope);
 }
 
 /**

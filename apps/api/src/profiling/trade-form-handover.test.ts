@@ -32,6 +32,13 @@ import { TRADE_FORM_OFFERS } from "./trade-form-router";
  * settles the offer, writes NOTHING to `formKind`, and the interview picks up on the same
  * bubble. The offer is never served twice.
  *
+ * ── WHAT CHANGED WHEN THE TRADE-CONFIRM GATE CAME FIRST ───────────────────────────────────
+ *
+ * The offer is now served for a CONFIRMED trade: the turn the trade is named serves
+ * "<trade> — क्या आप यही काम करना चाहते हैं?" first, and the offer follows on the Haan.
+ * Every flow below therefore walks two gates — trade-confirm, then form offer — and the
+ * pin-only tests prove the pin is gate evidence too, not an offer shortcut.
+ *
  * WHAT IS ACTUALLY AT RISK HERE, and what these tests are shaped around:
  *
  *   1. A worker who is NOT a form trade must reach the engine completely unchanged. The offer
@@ -223,9 +230,16 @@ describe("the trade-form offer", () => {
   vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
 
   describe("a CNC turner", () => {
-    it("is OFFERED the form — the interview does not end on the turn the trade is named", async () => {
+    it("confirms the trade first, then is OFFERED the form — the interview does not end", async () => {
       const { orchestrator, store } = makeWorld(led("CNC Machining", "CNC Turner"));
-      const result = await orchestrator.takeTurn(say("main cnc turner hoon"));
+      const gated = await orchestrator.takeTurn(say("main cnc turner hoon"));
+
+      // The trade-confirm gate owns the turn the trade is named.
+      expect(gated.reply).toBe("CNC Turner — क्या आप यही काम करना चाहते हैं?");
+      expect(gated.inputMode).toBe("options_only");
+
+      // Haan confirms it, and the offer is served on that same turn.
+      const result = await orchestrator.takeTurn(say("Haan"));
 
       // NOT a close. The gate this replaced ended the interview here; the offer pauses it.
       expect(result.kind).toBe("ask");
@@ -242,10 +256,11 @@ describe("the trade-form offer", () => {
       expect(saved(store)?.llmStage).not.toBe("done");
     });
 
-    it("offers on the turn the model wanted to ask ANOTHER question, and spends an ask", async () => {
+    it("offers on the turn the trade is confirmed, and spends an ask", async () => {
       const { orchestrator, store } = makeWorld(led("CNC Machining", "CNC Turner", "ask"));
       await orchestrator.takeTurn(say("main cnc turner hoon"));
-      // It is a question: the worker can decline it, and hiding it from the count would make
+      await orchestrator.takeTurn(say("Haan"));
+      // The gate spends no ask; the offer is a question. Hiding it from the count would make
       // the budget stop describing what he was asked.
       expect(saved(store)?.engineAsks).toBe(1);
     });
@@ -253,6 +268,7 @@ describe("the trade-form offer", () => {
     it("ACCEPTING runs the handover the gate used to run — settlement, sticky kind, close with CTA", async () => {
       const { orchestrator, store } = makeWorld(led("CNC Machining", "CNC Turner"));
       await orchestrator.takeTurn(say("main cnc turner hoon"));
+      await orchestrator.takeTurn(say("Haan"));
       const result = await orchestrator.takeTurn(say("form_offer_yes"));
 
       expect(result.kind).toBe("close");
@@ -270,10 +286,16 @@ describe("the trade-form offer", () => {
       expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "settled" });
     });
 
-    it("accepts a typed 'haan' as well as the chip", async () => {
+    it("accepts a typed 'haan' at either gate — trade-confirm and form offer alike", async () => {
       const { orchestrator } = makeWorld(led("CNC Machining", "CNC Turner"));
       await orchestrator.takeTurn(say("main cnc turner hoon"));
-      const result = await orchestrator.takeTurn(say("haan"));
+      // Typed "haan" confirms the trade; the offer is served for the confirmed trade.
+      const offered = await orchestrator.takeTurn(say("haan"));
+      expect(offered.reply).toBe(offerPrompt("cnc_turner"));
+      // And a typed accept takes the offer too — the chip's LABEL text, so this turn is not
+      // a byte-identical repeat of the last one (which Layer A would replay on the legacy
+      // no-submission-id path; shipped clients send distinct ids per #931).
+      const result = await orchestrator.takeTurn(say("Haan, form bharein"));
       expect(result.kind).toBe("close");
       expect(result.completionReason).toBe("form_handoff");
     });
@@ -281,6 +303,7 @@ describe("the trade-form offer", () => {
     it("DECLINING continues the interview on the same bubble, commits nothing, and never re-offers", async () => {
       const { orchestrator, store } = makeWorld(led("CNC Machining", "CNC Turner"));
       await orchestrator.takeTurn(say("main cnc turner hoon"));
+      await orchestrator.takeTurn(say("Haan"));
 
       // SETTLED ON THE OFFER, NOT ON THE ACCEPT — the worker's own words from Phase A. A
       // decline must not walk back into a re-ask of the trade the conversation just named.
@@ -307,6 +330,7 @@ describe("the trade-form offer", () => {
     it("treats an unreadable reply as a decline — never a re-ask, and counted apart", async () => {
       const { orchestrator, store, events } = makeWorld(led("CNC Machining", "CNC Turner"));
       await orchestrator.takeTurn(say("main cnc turner hoon"));
+      await orchestrator.takeTurn(say("Haan"));
       // "form kya hota hai bhai" is genuinely unreadable by the lexicon — unlike "pata nahi",
       // which it classifies as a decline. The two are counted apart for exactly this reason.
       const result = await orchestrator.takeTurn(say("form kya hota hai bhai"));
@@ -321,6 +345,7 @@ describe("the trade-form offer", () => {
     it("records the OFFER with counts and NO labels, exactly once", async () => {
       const { orchestrator, events } = makeWorld(led("CNC Machining", "CNC Turner"));
       await orchestrator.takeTurn(say("main cnc turner hoon"));
+      await orchestrator.takeTurn(say("Haan"));
       // The decline turn must not emit a second offer row.
       await orchestrator.takeTurn(say("Nahi"));
 
@@ -342,6 +367,7 @@ describe("the trade-form offer", () => {
     it("records the decline with its reply class, and the accept still records form_mode_entered", async () => {
       const declinedWorld = makeWorld(led("CNC Machining", "CNC Turner"));
       await declinedWorld.orchestrator.takeTurn(say("main cnc turner hoon"));
+      await declinedWorld.orchestrator.takeTurn(say("Haan"));
       await declinedWorld.orchestrator.takeTurn(say("form_offer_no"));
       const declined = emitted(declinedWorld.events, "profile.form_offer_declined");
       expect(declined).toHaveLength(1);
@@ -355,6 +381,7 @@ describe("the trade-form offer", () => {
 
       const acceptedWorld = makeWorld(led("CNC Machining", "CNC Turner"));
       await acceptedWorld.orchestrator.takeTurn(say("main cnc turner hoon"));
+      await acceptedWorld.orchestrator.takeTurn(say("Haan"));
       await acceptedWorld.orchestrator.takeTurn(say("form_offer_yes"));
       const entered = emitted(acceptedWorld.events, "profile.form_mode_entered");
       expect(entered).toHaveLength(1);
@@ -393,14 +420,19 @@ describe("the trade-form offer", () => {
       },
     };
 
-    it("offers on the pin alone, with the model still silent", async () => {
+    it("offers on the pin alone, with the model still silent — after the gate confirms it", async () => {
       // EXACTLY THE PRODUCTION TURN. The worker types "cnc turning", retrieval pins it, and the
       // model answers by asking about materials without filling either label. Before the pinned
       // label was routing evidence this ran on to the next turn and cost the worker a question
-      // they had already answered.
+      // they had already answered. The pin is confirmed by the trade gate first: the offer is
+      // served for a trade the worker said Haan to, never for a pin alone.
       const { orchestrator } = makeWorld(led(null, null, "ask"), PINNED);
-      const result = await orchestrator.takeTurn(say("cnc turning"));
+      const gated = await orchestrator.takeTurn(say("cnc turning"));
 
+      expect(gated.kind).toBe("ask");
+      expect(gated.reply).toBe("CNC Operator-Turning — क्या आप यही काम करना चाहते हैं?");
+
+      const result = await orchestrator.takeTurn(say("Haan"));
       expect(result.kind).toBe("ask");
       expect(result.reply).toBe(offerPrompt("cnc_turner"));
     });
@@ -408,6 +440,7 @@ describe("the trade-form offer", () => {
     it("accepting from the pin persists the form kind and switches Phase A off", async () => {
       const { orchestrator, store } = makeWorld(led(null, null, "ask"), PINNED);
       await orchestrator.takeTurn(say("cnc turning"));
+      await orchestrator.takeTurn(say("Haan"));
       const result = await orchestrator.takeTurn(say("form_offer_yes"));
       expect(result.completionReason).toBe("form_handoff");
       expect(saved(store)?.formKind).toBe("cnc_turner");
