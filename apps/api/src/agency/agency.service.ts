@@ -79,6 +79,16 @@ export interface AgencyJobView {
   updatedAt: Date;
 }
 
+export interface AdminAgencyJobMatchSkillsView {
+  job_id: string;
+  payer_id: string;
+  title: string;
+  city: string;
+  status: Job["status"];
+  match_skill_ids: string[];
+  updated_at: Date;
+}
+
 /** Funnel summary response — aggregate counts only, with a k-anon floor applied. */
 export interface AgencyReferralsSummary {
   created: number;
@@ -1024,6 +1034,33 @@ export class AgencyService {
     });
 
     return { job_id: updated.id, match_skill_ids: updated.matchSkillIds, changed: true };
+  }
+
+  /** Admin console read projection for the governed match-skill control. */
+  async adminListMatchSkills(limit: number): Promise<AdminAgencyJobMatchSkillsView[]> {
+    return (await this.jobsRepo.listAgencyJobsForAdmin(limit)).map((job) =>
+      this.adminMatchSkillsView(job),
+    );
+  }
+
+  /** Admin console read projection for one agency job; unknown/non-agency is a neutral 404. */
+  async adminGetMatchSkills(jobId: string): Promise<AdminAgencyJobMatchSkillsView> {
+    const job = await this.jobsRepo.findAgencyJobById(jobId);
+    if (!job?.payerId) throw new NotFoundException("Job not found");
+    return this.adminMatchSkillsView(job);
+  }
+
+  private adminMatchSkillsView(job: Job): AdminAgencyJobMatchSkillsView {
+    if (!job.payerId) throw new NotFoundException("Job not found");
+    return {
+      job_id: job.id,
+      payer_id: job.payerId,
+      title: job.title,
+      city: job.city,
+      status: job.status,
+      match_skill_ids: job.matchSkillIds,
+      updated_at: job.updatedAt,
+    };
   }
 
   // ──────────────────────────────── helpers ────────────────────────────────

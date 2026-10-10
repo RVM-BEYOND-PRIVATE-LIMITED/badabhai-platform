@@ -20,3 +20,11 @@ export const OpsSetAgencyJobMatchSkillsSchema = z
   .object({ match_skill_ids: z.array(matchSkillIdSchema).max(50) })
   .strict();
 export type OpsSetAgencyJobMatchSkillsDto = z.infer<typeof OpsSetAgencyJobMatchSkillsSchema>;
+
+/** Admin agency-job match-skill reads use the same bounded keyset-free page for the console. */
+export const AdminAgencyJobsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+export type AdminAgencyJobsQueryDto = z.infer<typeof AdminAgencyJobsQuerySchema>;

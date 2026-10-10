@@ -181,11 +181,7 @@ export class AgencyJobsRepository {
       .update(jobs)
       .set({ status: "closed", updatedAt: now })
       .where(
-        and(
-          eq(jobs.id, jobId),
-          eq(jobs.payerId, tenant),
-          inArray(jobs.status, ["open", "paused"]),
-        ),
+        and(eq(jobs.id, jobId), eq(jobs.payerId, tenant), inArray(jobs.status, ["open", "paused"])),
       )
       .returning();
     return row;
@@ -216,11 +212,7 @@ export class AgencyJobsRepository {
    * reach this route anyway (PayerAuthGuard admits `active` only), but the guard belongs in
    * the WHERE rather than resting on that.
    */
-  async resumeOwnedIfPaused(
-    jobId: string,
-    tenant: TenantKey,
-    now: Date,
-  ): Promise<Job | undefined> {
+  async resumeOwnedIfPaused(jobId: string, tenant: TenantKey, now: Date): Promise<Job | undefined> {
     const [row] = await this.db
       .update(jobs)
       .set({ status: "open", updatedAt: now })
@@ -246,6 +238,18 @@ export class AgencyJobsRepository {
       .where(and(eq(jobs.id, jobId), eq(payers.role, "agent")))
       .limit(1);
     return row?.job;
+  }
+
+  /** List agency-owned jobs for the admin console; no payer PII is selected. */
+  async listAgencyJobsForAdmin(limit: number): Promise<Job[]> {
+    return this.db
+      .select({ job: jobs })
+      .from(jobs)
+      .innerJoin(payers, eq(payers.id, jobs.payerId))
+      .where(eq(payers.role, "agent"))
+      .orderBy(desc(jobs.createdAt))
+      .limit(limit)
+      .then((rows) => rows.map(({ job }) => job));
   }
 
   /**

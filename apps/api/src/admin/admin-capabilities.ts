@@ -153,6 +153,8 @@ export const ADMIN_CAPABILITIES = [
    * `ADMIN_CAPABILITY_MATRIX` below.
    */
   "review_skill_candidates",
+  /** Set agency job demand-match skills; super_admin only until an owner widens the grant. */
+  "manage_agency_match_skills",
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
@@ -209,6 +211,7 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // NOT YET AN ADR CELL — see the capability's own docstring; widening or narrowing this row is an
   // owner decision (CLAUDE.md §16), and the drift test records that the ADR row is still owed.
   review_skill_candidates: ["super_admin", "ops_admin"],
+  manage_agency_match_skills: ["super_admin"],
   toggle_kill_switch: ["super_admin"],
   reveal_pii: ["super_admin", "support"],
   manage_admins: ["super_admin"],

@@ -36,29 +36,37 @@ const admin = (role: AdminRole): AuthenticatedAdmin => ({ id: "a", role, sid: "s
 // ---------------------------------------------------------------------------
 describe("AdminRolesGuard (ADR-0025 Decision 3 — deny-by-default)", () => {
   it("ALLOWS support on a reveal_pii route; REJECTS (403) ops_admin and analyst", () => {
-    expect(guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("support") }))).toBe(true);
-    expect(guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("super_admin") }))).toBe(true);
-    expect(() => guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("ops_admin") }))).toThrow(
-      ForbiddenException,
+    expect(guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("support") }))).toBe(
+      true,
     );
-    expect(() => guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("analyst") }))).toThrow(
-      ForbiddenException,
-    );
+    expect(
+      guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("super_admin") })),
+    ).toBe(true);
+    expect(() =>
+      guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("ops_admin") })),
+    ).toThrow(ForbiddenException);
+    expect(() =>
+      guard.canActivate(makeCtx({ capability: "reveal_pii", admin: admin("analyst") })),
+    ).toThrow(ForbiddenException);
   });
 
   it("ALLOWS ops_admin on suspend_payer; REJECTS support and analyst", () => {
-    expect(guard.canActivate(makeCtx({ capability: "suspend_payer", admin: admin("ops_admin") }))).toBe(true);
-    expect(() => guard.canActivate(makeCtx({ capability: "suspend_payer", admin: admin("support") }))).toThrow(
-      ForbiddenException,
-    );
-    expect(() => guard.canActivate(makeCtx({ capability: "suspend_payer", admin: admin("analyst") }))).toThrow(
-      ForbiddenException,
-    );
+    expect(
+      guard.canActivate(makeCtx({ capability: "suspend_payer", admin: admin("ops_admin") })),
+    ).toBe(true);
+    expect(() =>
+      guard.canActivate(makeCtx({ capability: "suspend_payer", admin: admin("support") })),
+    ).toThrow(ForbiddenException);
+    expect(() =>
+      guard.canActivate(makeCtx({ capability: "suspend_payer", admin: admin("analyst") })),
+    ).toThrow(ForbiddenException);
   });
 
   it("toggle_kill_switch + manage_admins are super_admin-only (break-glass)", () => {
     for (const cap of ["toggle_kill_switch", "manage_admins"] as const) {
-      expect(guard.canActivate(makeCtx({ capability: cap, admin: admin("super_admin") }))).toBe(true);
+      expect(guard.canActivate(makeCtx({ capability: cap, admin: admin("super_admin") }))).toBe(
+        true,
+      );
       for (const role of ["ops_admin", "support", "analyst"] as const) {
         expect(() => guard.canActivate(makeCtx({ capability: cap, admin: admin(role) }))).toThrow(
           ForbiddenException,
@@ -69,7 +77,9 @@ describe("AdminRolesGuard (ADR-0025 Decision 3 — deny-by-default)", () => {
 
   it("read_events is the read floor — every role passes", () => {
     for (const role of ["super_admin", "ops_admin", "support", "analyst"] as const) {
-      expect(guard.canActivate(makeCtx({ capability: "read_events", admin: admin(role) }))).toBe(true);
+      expect(guard.canActivate(makeCtx({ capability: "read_events", admin: admin(role) }))).toBe(
+        true,
+      );
     }
   });
 
@@ -113,9 +123,9 @@ describe("AdminRolesGuard (ADR-0025 Decision 3 — deny-by-default)", () => {
   });
 
   it("REJECTS (401) when req.admin is absent on a DECLARED route (guards misordered — fail closed)", () => {
-    expect(() => guard.canActivate(makeCtx({ capability: "read_events", admin: undefined }))).toThrow(
-      UnauthorizedException,
-    );
+    expect(() =>
+      guard.canActivate(makeCtx({ capability: "read_events", admin: undefined })),
+    ).toThrow(UnauthorizedException);
   });
 
   it("@RequireAdminRole attaches the capability as reflector metadata", () => {
@@ -124,8 +134,14 @@ describe("AdminRolesGuard (ADR-0025 Decision 3 — deny-by-default)", () => {
         /* no-op */
       }
     }
-    RequireAdminRole("export")(C.prototype, "handler", Object.getOwnPropertyDescriptor(C.prototype, "handler")!);
-    expect(new Reflector().get<AdminCapability>(ADMIN_CAPABILITY_KEY, C.prototype.handler)).toBe("export");
+    RequireAdminRole("export")(
+      C.prototype,
+      "handler",
+      Object.getOwnPropertyDescriptor(C.prototype, "handler")!,
+    );
+    expect(new Reflector().get<AdminCapability>(ADMIN_CAPABILITY_KEY, C.prototype.handler)).toBe(
+      "export",
+    );
   });
 });
 
@@ -171,6 +187,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // human), NOT from the ADR. An owner ruling plus the §3.1 row is still owed; until it lands
     // this test pins the code against the code, which is drift detection but not ADR compliance.
     review_skill_candidates: ["super_admin", "ops_admin"],
+    manage_agency_match_skills: ["super_admin"],
     toggle_kill_switch: ["super_admin"],
     reveal_pii: ["super_admin", "support"],
     manage_admins: ["super_admin"],

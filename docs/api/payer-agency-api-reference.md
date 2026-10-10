@@ -595,6 +595,12 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **Events:** one `job.updated` v1, actor `ops` (admin id), `payer_id` = the owning agency, `changed_fields: ["match_skills"]`.
 - **Why:** ADR-0050 §6.3 step (c) requires ops to set match skills on the live agency jobs before the V1 flip.
 
+#### `GET /admin/agency-jobs` and `GET|PUT /admin/agency-jobs/:jobId/match-skills` — **Admin Portal** (#2144)
+- **Auth:** `AdminAuthGuard` plus the dedicated `manage_agency_match_skills` capability. The capability is currently `super_admin` only. These routes do not require `InternalServiceGuard`.
+- **Read response:** `{ job_id, payer_id, title, city, status, match_skill_ids, updated_at }`; `GET /admin/agency-jobs` returns the newest agency jobs, bounded by `limit` (1–100, default 50). Unknown or non-agency ids return the neutral `404 "Job not found"`.
+- **Write body/response:** the same strict `{ match_skill_ids: string[] }` body and `{ job_id, match_skill_ids, changed }` response as the internal ops route. Validation uses the same closed vocabulary and runtime cap as payer/agency forms.
+- **Events:** one `job.updated` v1 on a changed set, with the authenticated admin as actor; unchanged sets write nothing and emit nothing.
+
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 
 #### `GET /admin/job-postings/:id`
