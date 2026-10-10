@@ -25,6 +25,8 @@ import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
 import 'package:badabhai_worker_app/features/chat/data/chat_repository_impl.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_answered_facts.dart'
+    show kChatShiftPreferenceQuestionId;
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_multi_select.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
@@ -269,6 +271,53 @@ void main() {
       expect(bloc.state.predictedQuestionKey, isNull);
     });
 
+    test('#2198 — an optimistic shift prediction carries its question key',
+        () async {
+      final Completer<ChatTurn> second = Completer<ChatTurn>();
+      int calls = 0;
+      when(() =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) {
+        calls++;
+        if (calls == 1) {
+          return Future<ChatTurn>.value(const ChatTurn(
+            reply: 'Aap kya kaam karte hain?',
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'welder', labelText: 'Welder'),
+            ],
+            answerType: ChatAnswerType.singleSelect,
+            lookahead: <String, PredictedQuestion?>{
+              'welder': PredictedQuestion(
+                questionKey: kChatShiftPreferenceQuestionId,
+                promptText: 'Aap din ki shift chahte hain ya raat ki?',
+                answerType: 'multi_select',
+                options: <String>['Din ki shift', 'Raat ki shift'],
+              ),
+            },
+          ));
+        }
+        return second.future;
+      });
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('Helper hoon'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // Tapping predicts the Shift turn: the guard's second disjunct
+      // (`predictedQuestionKey`) is what the screen reads on this render.
+      bloc.add(const ChatMessageSent(
+        'Welder',
+        optionKey: 'welder',
+        servedOption: true,
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(bloc.state.predictedQuestionKey, kChatShiftPreferenceQuestionId);
+      expect(bloc.state.answerType, ChatAnswerType.multiSelect,
+          reason: 'the predicted shape still arrives; the screen demotes it');
+      expect(bloc.state.followups, <String>['Din ki shift', 'Raat ki shift']);
+    });
+
     test('a voice merge clears it', () async {
       when(() =>
               repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
@@ -490,6 +539,56 @@ void main() {
       await tester.tap(find.text('Mahine ka'));
       await tester.pumpAndSettle();
       verifySentOnce('Mahine ka');
+    });
+
+    // #2198 — Shift is one text slug server-side and single-select on the
+    // form, so the chat must never tick it — even when the served
+    // `answer_type` still says `multi_select` (a stale/newer backend). Pack
+    // copy is byte-identical to qp_universal `shift_preference`.
+    testWidgets(
+        'shift with a stale multi_select: one tap sends, no tick row, no '
+        'Ho gaya', (WidgetTester tester) async {
+      replies(const ChatTurn(
+        reply: 'Aap din ki shift chahte hain ya raat ki?',
+        followups: <String>['Din ki shift', 'Raat ki shift', 'Koi bhi chalegi'],
+        suggestedOptions: <ChatOption>[
+          ChatOption(optionKey: 'day', labelText: 'Din ki shift'),
+          ChatOption(optionKey: 'night', labelText: 'Raat ki shift'),
+          ChatOption(
+            optionKey: 'any',
+            labelText: 'Koi bhi chalegi',
+            isNoneOfAbove: true,
+          ),
+        ],
+        answerType: ChatAnswerType.multiSelect,
+        askedQuestionId: kChatShiftPreferenceQuestionId,
+      ));
+      await pumpChat(tester);
+      await type(tester, 'Welder hoon');
+
+      expect(find.text(kChatMultiSelectDoneLabel), findsNothing,
+          reason: 'Shift is single-select: no Ho gaya even on multi_select');
+      await tester.tap(find.text('Din ki shift'));
+      await tester.pumpAndSettle();
+      verifySentOnce('Din ki shift');
+    });
+
+    testWidgets(
+        'shift with label-only chips and a stale multi_select: one tap sends',
+        (WidgetTester tester) async {
+      replies(const ChatTurn(
+        reply: 'Aap din ki shift chahte hain ya raat ki?',
+        followups: <String>['Din ki shift', 'Raat ki shift', 'Koi bhi chalegi'],
+        answerType: ChatAnswerType.multiSelect,
+        askedQuestionId: kChatShiftPreferenceQuestionId,
+      ));
+      await pumpChat(tester);
+      await type(tester, 'Welder hoon');
+
+      expect(find.text(kChatMultiSelectDoneLabel), findsNothing);
+      await tester.tap(find.text('Raat ki shift'));
+      await tester.pumpAndSettle();
+      verifySentOnce('Raat ki shift');
     });
 
     testWidgets(
