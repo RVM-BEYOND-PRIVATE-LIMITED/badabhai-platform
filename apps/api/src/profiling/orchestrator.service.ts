@@ -2695,19 +2695,35 @@ export class ProfilingOrchestrator {
         // later close (branch 3b in `LlmTurnService`) — exactly as if the model had never
         // opened it. Asking "another job?" before the worker confirmed which trade the
         // profile is for would strand a Nahi with the trade still unconfirmed.
-        const tradeGate = tradeGateFor(next, this.llm.leads(next));
+        //
+        // `true` — NOT `this.llm.leads(next)`: reaching this branch means the model LED this
+        // turn, and a `done` that names the trade for the first time must still confirm it.
+        // Post-patch `leads()` is false on exactly that turn (the stage just went `done`), so
+        // reading it here would let a close finalize an unconfirmed trade — the production
+        // defect where the naming turn serves the form offer with no gate in between. The
+        // stage is clamped back below so the gate answer is read as one (see `llmStage`).
+        const tradeGate = tradeGateFor(next, true);
         if (tradeGate !== null) {
           // Deferred only when THIS turn opened it (`llmGateOpen` can only be true here
           // from the patch just applied — every open gate is answered through the model
           // call, which closes it). An `Asked` from an earlier, answered gate is left
           // alone: clearing it would ask the worker "another job?" twice.
           const deferredExperienceGate = next.llmGateOpen;
+          const unclosesPhaseA = next.llmStage === "done";
           next = {
             ...next,
             // A deferred experience gate is asked again later; an already-asked one is not
             // re-asked here — the close path re-offers it once via branch 3b.
             llmGateOpen: false,
             llmGateAsked: deferredExperienceGate ? false : next.llmGateAsked,
+            // A `done` that names the trade for the first time still confirms it: without
+            // this clamp the stage stays `done`, `leads()` goes false, and the gate answer
+            // on the next turn would fall through to the engine tail while the gate is on
+            // screen. `experience`, the last non-terminal rung — the same clamp #949 applies
+            // to a model that writes `done` on an ask turn. The close resumes on the Haan:
+            // the model is consulted again, and a second `done` with the trade now confirmed
+            // closes exactly as today.
+            llmStage: unclosesPhaseA ? "experience" : next.llmStage,
             tradeConfirm: {
               ...next.tradeConfirm,
               open: true,
@@ -2722,6 +2738,12 @@ export class ProfilingOrchestrator {
             this.logger.log(
               `trade gate defers the experience gate session=${input.sessionId}; ` +
                 `the experience gate will be re-offered before Phase A closes`,
+            );
+          }
+          if (unclosesPhaseA) {
+            this.logger.log(
+              `trade gate un-closes Phase A session=${input.sessionId}; ` +
+                `a done that first named the trade confirms it before closing`,
             );
           }
           return this.turn(buffer, next, input, {
@@ -5414,13 +5436,28 @@ function effectiveTradeLabel(envelope: ProfilingEnvelope): string | null {
  * Does this turn owe the worker the trade-confirm gate instead of the model's
  * question or close?
  *
+ * `ledThisTurn` is whether Phase A led THIS turn — the call site passes `true`
+ * unconditionally, because reaching it means `LlmTurnService.take` just ran. It is NOT
+ * `leads()`: a `done` that names the trade for the first time flips the stage to `done`
+ * in the same patch, and reading `leads()` would let that close finalize an unconfirmed
+ * trade. The gate fires, the stage is clamped back to `experience` at the serve site, and
+ * the close resumes on the Haan.
+ *
+ * PHASE A MUST HAVE LED — `llmLedTurns > 0`, the same §3 counter `selectableEnginePacks`
+ * decides the trade pack on. A deterministic interview (or a `done` mock that never led,
+ * which narrows the same way) keeps today's behavior: its pin settles without asking,
+ * and ambiguity is what the disambiguation chips are for. The gate confirms what the
+ * LLM-led interview inferred — draft labels first, the pin that interview produced
+ * last — never a trade no model turn touched.
+ *
  * THREE OUTS: confirmed (the worker said Haan, or the round bound below was reached),
  * already on screen (open — the answer branch owns the next turn), the round bound (§17).
  * Otherwise, once a trade is named, the gate fires on the SAME turn the labels arrive — the model's question is discarded in favour of it, exactly as the
  * experience gate discards the reply that carried its entry.
  */
-function tradeGateFor(envelope: ProfilingEnvelope, leads: boolean): string | null {
-  if (!leads) return null;
+function tradeGateFor(envelope: ProfilingEnvelope, ledThisTurn: boolean): string | null {
+  if (!ledThisTurn) return null;
+  if (envelope.llmLedTurns <= 0) return null;
   const gate = envelope.tradeConfirm;
   // `reaskOpen` is DELIBERATELY NOT an out: the turn answering the re-ask is exactly when
   // the wanted trade needs its gate — bailing on it would route an unconfirmed trade to
