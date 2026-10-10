@@ -194,6 +194,31 @@ void main() {
       expect(bloc.state.followups, <String>['Haan, shuru karein', 'Baad mein']);
     });
 
+    test('#2190 — a cold start mid-trade-gate redraws the gate chips', () async {
+      // The gate's stable keys survive the store round-trip exactly like any
+      // other served turn; the transcript redraw (bubbles only) plus these
+      // chips is the mid-gate redraw the issue asks to confirm.
+      await store.write(const ChatTurnResumeState(
+        sessionId: 's1',
+        options: <({String optionKey, String labelText})>[
+          (optionKey: 'trade_confirm_yes', labelText: 'Haan'),
+          (optionKey: 'trade_confirm_no', labelText: 'Nahi'),
+        ],
+        freeChat: false,
+      ));
+
+      final ChatBloc bloc = buildBloc();
+      addTearDown(bloc.close);
+      bloc.add(const ChatStarted());
+      await settle();
+
+      expect(
+        bloc.state.suggestedOptions.map((ChatOption o) => o.optionKey),
+        <String>['trade_confirm_yes', 'trade_confirm_no'],
+      );
+      expect(bloc.state.followups, <String>['Haan', 'Nahi']);
+    });
+
     test('chips from ANOTHER session are never drawn', () async {
       await store.write(const ChatTurnResumeState(
         sessionId: 'a-session-the-worker-left',

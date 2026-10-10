@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
     show
+        ChatAnswerType,
         ChatInputMode,
         ChatOption,
         ChatProgress,
@@ -801,6 +802,190 @@ void main() {
 
         expect(find.byType(TextField), findsOneWidget,
             reason: 'only the experience gate prompt locks the keyboard');
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+        expect(find.text('Haan'), findsOneWidget);
+      },
+    );
+  });
+
+  // #2190 — the Phase-A trade-confirm gate: `<Trade> — क्या आप यही काम करना
+  // चाहते हैं?` with Haan / Nahi chips keyed `trade_confirm_yes` /
+  // `trade_confirm_no` (`kind: "ask"`, `questionKey: null`, `single_select`,
+  // `options_only`). The prompt embeds the inferred trade label, so the gate
+  // is identified by its stable option keys — never by its text.
+  group('trade-confirm gate locks the composer like the experience gate (#2190)', () {
+    const ChatTurn tradeGate = ChatTurn(
+      reply: 'Rajmistri — क्या आप यही काम करना चाहते हैं?',
+      followups: <String>['Haan', 'Nahi'],
+      suggestedOptions: <ChatOption>[
+        ChatOption(optionKey: 'trade_confirm_yes', labelText: 'Haan'),
+        ChatOption(optionKey: 'trade_confirm_no', labelText: 'Nahi'),
+      ],
+      inputMode: ChatInputMode.optionsOnly,
+      answerType: ChatAnswerType.singleSelect,
+    );
+
+    testWidgets(
+      'the gate hides the composer, serves no Kuch aur chip, a tap submits '
+      'the label, and the composer returns once answered',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+            .thenAnswer((_) async => tradeGate);
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'welder hoon');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        // The free-text composer is gone; a locked hint stands in its place.
+        expect(
+          find.byType(TextField),
+          findsNothing,
+          reason: 'no typing on the trade-confirm gate',
+        );
+        expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
+        expect(find.text(kChatCustomAnswerLabel), findsNothing,
+            reason: 'Haan/Nahi is the full answer — no escape chip');
+
+        // Both chips render.
+        expect(find.text('Haan'), findsOneWidget);
+        expect(find.text('Nahi'), findsOneWidget);
+
+        // A tap submits the label (the server also accepts a typed Haan/Nahi —
+        // the POST body stays `{session_id, text}`), keyed for lookahead.
+        when(() => repo.sendMessage('Haan', submissionId: any(named: 'submissionId')))
+            .thenAnswer((_) async => const ChatTurn(reply: 'Theek hai'));
+        await tester.tap(find.text('Haan'));
+        await tester.pumpAndSettle();
+        verify(() => repo.sendMessage('Haan', submissionId: any(named: 'submissionId'))).called(1);
+
+        // The next turn is ordinary — the composer must come back.
+        expect(
+          find.byType(TextField),
+          findsOneWidget,
+          reason: 'options_only is turn-scoped, not latched',
+        );
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a Nahi tap submits too (the re-ask is then served as open text)',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+            .thenAnswer((_) async => tradeGate);
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'welder hoon');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        when(() => repo.sendMessage('Nahi', submissionId: any(named: 'submissionId')))
+            .thenAnswer((_) async => const ChatTurn(
+                  reply: 'आप किस ट्रेड में काम करना चाहते हैं?',
+                  answerType: ChatAnswerType.text,
+                ));
+        await tester.tap(find.text('Nahi'));
+        await tester.pumpAndSettle();
+        verify(() => repo.sendMessage('Nahi', submissionId: any(named: 'submissionId'))).called(1);
+
+        // The re-ask is an open text question: composer open, no chips.
+        // (Chips are scoped by their subtree key — the transcript holds the
+        // worker's own 'Nahi' bubble, so a bare text query cannot prove
+        // their absence.)
+        expect(find.byType(TextField), findsOneWidget);
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+        expect(find.byKey(const ValueKey<String>('chips')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the re-ask renders as an open text question on its own turn',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+            .thenAnswer((_) async => const ChatTurn(
+                  reply: 'आप किस ट्रेड में काम करना चाहते हैं?',
+                  answerType: ChatAnswerType.text,
+                ));
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'Nahi');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(TextField), findsOneWidget,
+            reason: 'the re-ask keeps the keyboard open');
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+        expect(find.byKey(const ValueKey<String>('chips')), findsNothing);
+        expect(
+          find.text('आप किस ट्रेड में काम करना चाहते हैं?'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'dynamic gate text renders verbatim with a speaker (on-device TTS '
+      'fallback path)',
+      (WidgetTester tester) async {
+        // A different inferred trade: nothing may match on the prompt text.
+        // No `tts_text` either, so read-aloud falls back to the on-screen
+        // text (`ttsText ?? text`) — the dynamic string is not in the
+        // reply-closure / pre-rendered clips, same precedent as the
+        // experience gate.
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+            .thenAnswer((_) async => const ChatTurn(
+                  reply: 'Electrician — क्या आप यही काम करना चाहते हैं?',
+                  followups: <String>['Haan', 'Nahi'],
+                  suggestedOptions: <ChatOption>[
+                    ChatOption(optionKey: 'trade_confirm_yes', labelText: 'Haan'),
+                    ChatOption(optionKey: 'trade_confirm_no', labelText: 'Nahi'),
+                  ],
+                  inputMode: ChatInputMode.optionsOnly,
+                  answerType: ChatAnswerType.singleSelect,
+                ));
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'bijli ka kaam');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Electrician — क्या आप यही काम करना चाहते हैं?'),
+          findsOneWidget,
+          reason: 'the dynamic gate text draws exactly as served',
+        );
+        expect(find.byType(TextField), findsNothing,
+            reason: 'the gate locks whatever the inferred trade');
+        expect(find.byIcon(Icons.volume_up_rounded), findsWidgets,
+            reason: 'the gate bubble offers read-aloud; no tts_text means '
+                'the speaker falls back to the on-screen text');
+      },
+    );
+
+    testWidgets(
+      'Haan/Nahi with non-trade keys under a trade-like prompt keeps the '
+      'composer (the keys identify the gate, never the labels or text)',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+            .thenAnswer((_) async => const ChatTurn(
+                  reply: 'Rajmistri — क्या आप यही काम करना चाहते हैं?',
+                  followups: <String>['Haan', 'Nahi'],
+                  suggestedOptions: <ChatOption>[
+                    ChatOption(optionKey: 'llm_a', labelText: 'Haan'),
+                    ChatOption(optionKey: 'llm_b', labelText: 'Nahi'),
+                  ],
+                  inputMode: ChatInputMode.optionsOnly,
+                  answerType: ChatAnswerType.singleSelect,
+                ));
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'welder hoon');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(TextField), findsOneWidget,
+            reason: 'only trade_confirm_* keys lock the keyboard');
         expect(find.text(kChatOptionsOnlyHint), findsNothing);
         expect(find.text('Haan'), findsOneWidget);
       },
