@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart' show ResumeHistoryItem;
 import '../../../core/di/locator.dart';
+import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/widgets/bb_status_view.dart';
@@ -94,14 +95,31 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
   /// read did.
   ProfileSummary? _summary;
 
+  /// Guards [_loadSummary]: tab refocus and the initState read can overlap,
+  /// and two concurrent summary reads would settle in either order.
+  bool _summaryLoading = false;
+
   @override
   void initState() {
     super.initState();
     _loadSummary();
   }
 
+  /// Re-reads everything on this screen that another road can change: the
+  /// history (a just-built resume lands here) and the summary (a just-
+  /// completed form clears `missingFields`, which hides the draft card).
+  /// Fail-silent like the initState read — a failed refocus keeps showing
+  /// the last good state, never an error.
+  void _refetch() {
+    if (!mounted) return;
+    context.read<ResumeCubit>().loadHistory();
+    _loadSummary();
+  }
+
   Future<void> _loadSummary() async {
+    if (_summaryLoading) return;
     if (!locator.isRegistered<ProfileSummaryRepository>()) return;
+    _summaryLoading = true;
     try {
       // `includeDisplayExtras: true` FOR ATTESTATION (#1782). In lean mode the
       // repository leaves `attested` at `false` without reading it, so the
@@ -115,42 +133,52 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
       setState(() => _summary = s);
     } catch (_) {
       // Fewer facts on the cards; never an error state on this screen.
+    } finally {
+      _summaryLoading = false;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
-      body: BlocBuilder<ResumeCubit, ResumeState>(
-        buildWhen: (ResumeState a, ResumeState b) => a.history != b.history,
-        builder: (BuildContext context, ResumeState state) {
-          final List<ResumeHistoryItem> items = state.history.items
-              .take(kResumeHistoryMaxCards)
-              .toList(growable: false);
-          return Column(
-            children: <Widget>[
-              ShiftBlueHeader(
-                title: kResumeHistoryScreenTitle,
-                subtitle: kResumeHistoryScreenSubtitle,
-                onBack: () => Navigator.maybePop(context),
-                // The count is REAL — it is the length of what the server sent,
-                // so it cannot claim files the worker does not have. Hidden at
-                // zero rather than shown as "0 Files": a count pill on an empty
-                // list is a placeholder pretending to be data (ruling R8).
-                titleTrailing: items.isEmpty
-                    ? null
-                    : _CountPill(label: resumeFileCountLabel(items.length)),
-              ),
-              Expanded(
-                child: SafeArea(
-                  top: false,
-                  child: _body(context, items),
+    // The profile branch stays mounted under pushed root routes (the trade
+    // form, the tier chooser, building), so `create:`/`initState` run only on
+    // the first visit — refetch when the branch comes back into view. Without
+    // this the draft card kept showing mount-time `missingFields` after the
+    // worker completed "Resume poora karein" and returned. Fires on change
+    // only, never on mount, so the first visit still loads exactly once.
+    return TabFocusRefetch(
+      tabFocus: locator<TabFocus>(),
+      index: TabIndex.profile,
+      onFocused: _refetch,
+      child: Scaffold(
+        backgroundColor: OnboardingColors.canvasBg,
+        body: BlocBuilder<ResumeCubit, ResumeState>(
+          buildWhen: (ResumeState a, ResumeState b) => a.history != b.history,
+          builder: (BuildContext context, ResumeState state) {
+            final List<ResumeHistoryItem> items = state.history.items
+                .take(kResumeHistoryMaxCards)
+                .toList(growable: false);
+            return Column(
+              children: <Widget>[
+                ShiftBlueHeader(
+                  title: kResumeHistoryScreenTitle,
+                  subtitle: kResumeHistoryScreenSubtitle,
+                  onBack: () => Navigator.maybePop(context),
+                  // The count is REAL — it is the length of what the server sent,
+                  // so it cannot claim files the worker does not have. Hidden at
+                  // zero rather than shown as "0 Files": a count pill on an empty
+                  // list is a placeholder pretending to be data (ruling R8).
+                  titleTrailing: items.isEmpty
+                      ? null
+                      : _CountPill(label: resumeFileCountLabel(items.length)),
                 ),
-              ),
-            ],
-          );
-        },
+                Expanded(
+                  child: SafeArea(top: false, child: _body(context, items)),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -186,14 +214,6 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
               item: item,
               summary: _summary,
               actions: ResumeActionRow(
-                // The design keeps the pair SIDE BY SIDE on a card, with the
-                // labels wrapping to two lines rather than the buttons going
-                // vertical. Inside the card's own padding the row gets ~325dp
-                // on a 390dp handset — under the profile card's 340 default,
-                // which was measured for one-line labels and made every card
-                // here twice as tall. Both buttons already set
-                // `allowMultilineLabel`.
-                stackBelowWidth: 240,
                 share: ResumeShareButton(resumeId: item.resumeId),
                 download: ResumeDownloadButton(resumeId: item.resumeId),
               ),
@@ -213,8 +233,18 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
             // (#1698). `pushed` keeps Back returning to "Mere resume", and
             // every answer other than `needs_choice` opens the form exactly as
             // this line did before.
-            onContinue: () =>
-                openTradeFormWithTier(context, entry: TierEntry.pushed),
+            //
+            // `fromStart: true` — the completion walk asks the SAME questions a
+            // new candidate answers, from step 1 (employment = work history +
+            // qualifications = certificates/education included). Without it the
+            // cubit resumes past locally-done markers onto the last unanswered
+            // question (e.g. 15/15 machines with only "Submit karein"), so the
+            // worker never sees work history / certificates / education again.
+            onContinue: () => openTradeFormWithTier(
+              context,
+              entry: TierEntry.pushed,
+              fromStart: true,
+            ),
           ),
           const SizedBox(height: 12),
         ],

@@ -1047,5 +1047,89 @@ void main() {
       expect(cubit.state.knownFacts,
           <WorkerFact>{WorkerFact.shift, WorkerFact.preferredCities});
     });
+
+    test(
+        'load(fromStart: true) opens at step 1 with markers, ignoring resumability '
+        '(Resume poora karein asks work history / certificates / education)',
+        () async {
+      final TradeFormMarkerStore store = InMemoryTradeFormMarkerStore();
+      await store.markCompleted(TradeFormMarkerType.preferences);
+      await store.markCompleted(TradeFormMarkerType.employment);
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      final TradeFormCubit cubit = build(store: store);
+
+      await cubit.load(fromStart: true);
+
+      // Same form a new candidate sees: first question, all 4 steps counted,
+      // employment + preferences markers NOT skipped despite the store.
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect(cubit.state.currentIndex, 0);
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'turning_machine');
+      expect(cubit.state.visibleStepCount, 4);
+      expect(cubit.state.visiblePosition, 1);
+
+      // Control: without fromStart the same store resumes past everything to
+      // the last un-marked step.
+      final TradeFormCubit resumed = build(store: store);
+      await resumed.load();
+      expect(resumed.state.currentIndex, greaterThan(0));
+    });
+
+    test('fromStart survives the error-state bare retry', () async {
+      final TradeFormMarkerStore store = InMemoryTradeFormMarkerStore();
+      await store.markCompleted(TradeFormMarkerType.employment);
+      int calls = 0;
+      when(() => repo.loadForm()).thenAnswer((_) async {
+        calls++;
+        if (calls == 1) throw const NetworkFailure('offline');
+        return _formBothAnswered();
+      });
+      final TradeFormCubit cubit = build(store: store);
+
+      await cubit.load(fromStart: true);
+      expect(cubit.state.status, TradeFormStatus.loadError);
+
+      // The retry calls `load()` bare — it must not widen back to a resumed
+      // walk that skips work history / certificates / education.
+      await cubit.load();
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect(cubit.state.currentIndex, 0);
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'turning_machine');
+      expect(cubit.state.visibleStepCount, 4);
+    });
+
+    test(
+        'fromStart resync advances past only the settled question, never past '
+        'answered ones', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+            schemaStale: true,
+          ));
+      final TradeFormCubit cubit = build();
+      await cubit.load(fromStart: true);
+      expect(cubit.state.currentIndex, 0);
+
+      // The re-fetch answers both questions; an ordinary walk would now skip
+      // past q2 onto the preferences marker, but the completion walk shows
+      // every step, so it lands on q2 — just past the settled question.
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['cnc_lathe']),
+      );
+
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'material_worked');
+    });
   });
 }

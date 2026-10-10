@@ -657,7 +657,7 @@ Future<String?> resolveSignedResumeUrl(
   return null; // unreachable: the last attempt either returns or rethrows.
 }
 
-/// "PDF download karein" — resolves a short-lived signed url via the cubit and
+/// "Download" — resolves a short-lived signed url via the cubit and
 /// downloads the PDF IN-APP into the device's Downloads, so the worker stays on
 /// this screen (started/complete SnackBars, "Kholein" opens the saved file).
 /// The button stays busy (disabled) for the WHOLE download so a double-tap
@@ -744,10 +744,16 @@ class ResumeDownloadButtonState extends State<ResumeDownloadButton> {
     return BbButton(
       // Honest progress while the server renders — not an error, and not a
       // silent spinner.
-      label: _preparing ? kResumePreparingLabel : 'PDF download karein',
+      label: _preparing ? kResumePreparingLabel : 'Download',
       block: true,
       // Same as the share button: wrap rather than truncate the worker's action.
       allowMultilineLabel: true,
+      // Owner ask: Inter at body size, bold — matching the card's own
+      // text below, not the kit's Anek button voice.
+      labelStyle: OnboardingTypography.inter(
+        size: 13,
+        weight: FontWeight.w800,
+      ),
       // Spec §4: navy download (deep-blue commitment) + green WhatsApp. There
       // is NO yellow button on this screen by design — yellow lives on the
       // banner headline, not on a CTA here.
@@ -761,7 +767,7 @@ class ResumeDownloadButtonState extends State<ResumeDownloadButton> {
 }
 
 // Worker-facing share copy, exported so tests assert the exact honest lines.
-const String kResumeShareLabel = 'WhatsApp pe bhejein';
+const String kResumeShareLabel = 'Share';
 const String kResumeSharePreparingNotice = 'Resume taiyaar kar rahe hain…';
 const String kResumeShareGenericFailureNotice =
     'Resume bhej nahi paye. Dobara koshish karein.';
@@ -840,7 +846,7 @@ Future<Uint8List> _fetchResumePdfBytes(http.Client client, Uri uri) {
   });
 }
 
-/// "WhatsApp pe bhejein" — shares the resume as an attached PDF (#336).
+/// "Share" — shares the resume as an attached PDF (#336).
 ///
 /// The build-kit parity item that was never built: the worker could save their
 /// PDF to Downloads but had no way to actually SEND it to the factory owner who
@@ -1018,11 +1024,15 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
       // renders — waiting on a render is not an error.
       label: _preparing ? kResumePreparingLabel : kResumeShareLabel,
       block: true,
-      // 'WhatsApp pe bhejein' does not fit one line of a full-width button at a
-      // large system font, and it read as 'WhatsApp p…'. The stacked-button row
-      // above already gives it the full card width, so the only thing missing
-      // was permission to use a second line.
+      // The stacked-button row above already gives it the full card width,
+      // so a longer status line still has room for a second line.
       allowMultilineLabel: true,
+      // Owner ask: Inter at body size, bold — matching the card's own
+      // text below, not the kit's Anek button voice.
+      labelStyle: OnboardingTypography.inter(
+        size: 13,
+        weight: FontWeight.w800,
+      ),
       variant: BbButtonVariant.success,
       size: BbButtonSize.md,
       iconLeft: Icons.share_rounded,

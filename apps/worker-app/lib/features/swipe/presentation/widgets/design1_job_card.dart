@@ -90,12 +90,9 @@ class Design1JobCard extends StatelessWidget {
   static const Color _payInk = Color(0xFF9A3412);
   static const Color _dutyGreyBg = Color(0xFFF1F5F9);
 
-  /// Height of the role illustration on THIS face. The banner itself draws
-  /// 3:1 full-width; here it is top-cropped to 64 so the "Duty &
-  /// Suvidhayein" chips fit a short deck without clipping at the bottom.
-  /// Crop, never squash: proportions stay true and the shared
-  /// [RoleArtBanner] (detail screen, [BbJobCard]) is untouched.
-  static const double _artHeight = 64;
+  /// The role illustration heads THIS face at its own 3:1 (as the payer's
+  /// live preview draws it); the small brand plate overlaps its top-left.
+  /// The shared [RoleArtBanner] (detail screen, [BbJobCard]) is untouched.
 
   @override
   Widget build(BuildContext context) {
@@ -156,20 +153,16 @@ class Design1JobCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              // The BadaBhai plate OVERLAPS the art, top-left: the card's
-              // signature floats on the illustration (not above it), so the
-              // bottom edge belongs to the duty chips. Same mark asset as
-              // every header ([BrandBadge.markAsset]) on a small white plate
-              // with a hairline — never a button.
               // The animated role illustration heads the card — the same art,
               // the same place as the payer's live preview
               // (`job-card-preview.tsx`), except on a COMPACT deck, where it
-              // is dropped so the salary box always fits. Cropped to
-              // [_artHeight] (top-anchored, proportions kept) so the duty
-              // chips below are not clipped on a short deck. The crop needs a
-              // BOUNDED width for the banner's own 3:1 ratio — hence the
-              // LayoutBuilder (an unbounded width is the RenderAspectRatio
-              // crash); the screen-width fallback never fires inside the deck.
+              // is dropped so the salary box always fits. The box shows the
+              // scene WITHOUT its floor: every scene carries the same
+              // full-width ivory-at-40% strip at y84–100, which reads as a
+              // weird grey band on the navy scene, so this face windows y0–84
+              // (300:84, top-anchored, uniform scale — never squashed, never
+              // letterboxed). Card-local only: the shared scene data (also
+              // drawn by the payer preview) is untouched.
               // An unknown role draws the generic scene.
               if (!compact) ...<Widget>[
                 LayoutBuilder(
@@ -177,9 +170,9 @@ class Design1JobCard extends StatelessWidget {
                       (BuildContext context, BoxConstraints constraints) {
                     final double artWidth = constraints.hasBoundedWidth
                         ? constraints.maxWidth
-                        : MediaQuery.sizeOf(context).width - 32;
+                        : MediaQuery.sizeOf(context).width - 20;
                     return SizedBox(
-                      height: _artHeight,
+                      height: artWidth * 84 / 300,
                       width: double.infinity,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(AppRadii.md),

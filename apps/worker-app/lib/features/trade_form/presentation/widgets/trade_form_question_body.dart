@@ -577,6 +577,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
                 _reportDraft();
               },
               variant: OnboardingVariant.formFlow,
+              titleStyle: tradeFormOptionTitleStyle(),
             ),
           ),
           _suggestable(
@@ -594,6 +595,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
                 _reportDraft();
               },
               variant: OnboardingVariant.formFlow,
+              titleStyle: tradeFormOptionTitleStyle(),
             ),
           ),
         ],
@@ -639,6 +641,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
             isSelected: _selected.contains(c.key),
             onTap: () => _toggleMulti(c.key),
             variant: OnboardingVariant.formFlow,
+            titleStyle: tradeFormOptionTitleStyle(),
           )
         : SingleSelectQuestionCard(
             title: tier?.title ?? c.label,
@@ -647,6 +650,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
             isSelected: _singleKey == c.key,
             onTap: () => _pickSingle(c.key),
             variant: OnboardingVariant.formFlow,
+            titleStyle: tradeFormOptionTitleStyle(),
           );
     return _suggestable(suggested: _suggestedKeys.contains(c.key), card: card);
   }
@@ -668,6 +672,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
             isSelected: _otherSelected,
             onTap: _tapOther,
             variant: OnboardingVariant.formFlow,
+            titleStyle: tradeFormOptionTitleStyle(),
           )
         else
           SingleSelectQuestionCard(
@@ -676,6 +681,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
             isSelected: _otherSelected,
             onTap: _tapOther,
             variant: OnboardingVariant.formFlow,
+            titleStyle: tradeFormOptionTitleStyle(),
           ),
         if (_otherSelected)
           Padding(

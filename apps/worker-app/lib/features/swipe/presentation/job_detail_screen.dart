@@ -135,10 +135,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
         ),
         Expanded(
           child: ListView(
-            padding: KitInsets.list(
-              width,
-              gutter: 16,
-            ).copyWith(
+            padding: KitInsets.list(width, gutter: 16).copyWith(
               top: 14,
               // Plus the floating Feedback pill's band, which otherwise landed
               // on a skill chip. See [FeedbackFabInset].
@@ -165,7 +162,11 @@ class _JobDetailViewState extends State<_JobDetailView> {
     //
     // Unconditional, unlike every block below it: a card whose art appeared only
     // for some postings would read as a loading failure on the others.
-    blocks.add(RoleArtBanner(roleKind: d.roleKind));
+    //
+    // `hideFloor` — the same y0–84 window the swipe card applies: the full
+    // scene's ivory floor strip read as an unwanted grey band at the bottom
+    // of this banner.
+    blocks.add(RoleArtBanner(roleKind: d.roleKind, hideFloor: true));
 
     // The employer's OFFERED band — hence 'Salary', not 'Expected salary'
     // (that label belongs to the worker's own asking figure on the resume).

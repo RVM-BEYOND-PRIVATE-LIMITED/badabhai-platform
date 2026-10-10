@@ -204,7 +204,8 @@ const String kChatOptionsOnlyHint = 'Upar diye gaye vikalp mein se chunein';
 /// forward rather than leave a live-looking field on a dead session. Aap-form,
 /// PII-free constant copy; distinct from [kChatOptionsOnlyHint] because there
 /// are no chips above to point at on this turn.
-const String kChatFormOfferLockedHint = 'Neeche diya button dabakar aage badhein';
+const String kChatFormOfferLockedHint =
+    'Neeche diya button dabakar aage badhein';
 
 /// The button under a `multi_select` turn's chips (#1559 / #1583): the chips
 /// only TICK there, and this sends every ticked choice as ONE answer. Disabled
@@ -271,8 +272,9 @@ class ChatProfilingScreen extends StatelessWidget {
         assistantTab && BbRemoteConfig.instance.chatCompanionEnabled;
     final Widget view = _ChatView(fromResumeImport: fromResumeImport);
     return BlocProvider<ChatBloc>(
-      create: (_) => locator<ChatBloc>()
-        ..add(companion ? ChatCompanionStarted() : ChatStarted()),
+      create: (_) =>
+          locator<ChatBloc>()
+            ..add(companion ? ChatCompanionStarted() : ChatStarted()),
       // Wrapped whatever the lever said at mount: the tree must not change shape
       // when the lever does, and a tab that opened as the interview needs the
       // refocus as much as one that opened on the recap.
@@ -498,9 +500,10 @@ class _ChatViewState extends State<_ChatView>
     // mount; a landing rewinds it to 0 and plays the pop.
     _namePop = AnimationController(vsync: this, duration: AppMotion.slower)
       ..value = 1.0;
-    _namePopScale = Tween<double>(begin: 1.14, end: 1.0).animate(
-      CurvedAnimation(parent: _namePop, curve: AppMotion.stamp),
-    );
+    _namePopScale = Tween<double>(
+      begin: 1.14,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _namePop, curve: AppMotion.stamp));
   }
 
   @override
@@ -526,7 +529,9 @@ class _ChatViewState extends State<_ChatView>
     // (listened) notifier synchronously here would markNeedsBuild the FAB
     // overlay mid-build. An overlay that outlives this screen falls back to
     // its own default float height — never an overlap.
-    WidgetsBinding.instance.addPostFrameCallback((_) => bottomBarInset.value = 0);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => bottomBarInset.value = 0,
+    );
     super.dispose();
   }
 
@@ -541,7 +546,8 @@ class _ChatViewState extends State<_ChatView>
   void _publishBottomInset() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      bottomBarInset.value = _bottomSegmentKey.currentContext?.size?.height ?? 0;
+      bottomBarInset.value =
+          _bottomSegmentKey.currentContext?.size?.height ?? 0;
     });
   }
 
@@ -587,7 +593,8 @@ class _ChatViewState extends State<_ChatView>
         // the keyboard closed by back: requestFocus would change nothing and
         // the keyboard would stay down, so raise it directly.
         unawaited(
-            SystemChannels.textInput.invokeMethod<void>('TextInput.show'));
+          SystemChannels.textInput.invokeMethod<void>('TextInput.show'),
+        );
       } else {
         _composerFocus.requestFocus();
       }
@@ -611,12 +618,12 @@ class _ChatViewState extends State<_ChatView>
     final bool escape =
         label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
     context.read<ChatBloc>().add(
-          ChatMessageSent(
-            label,
-            optionKey: escape ? '__declined' : label,
-            servedOption: !escape,
-          ),
-        );
+      ChatMessageSent(
+        label,
+        optionKey: escape ? '__declined' : label,
+        servedOption: !escape,
+      ),
+    );
   }
 
   /// Send an answer chosen from a `suggested_options` chip/row (#761).
@@ -688,7 +695,9 @@ class _ChatViewState extends State<_ChatView>
     // ADR-0044 — the companion's app-routed chips FIRST. None of them is ever
     // posted; every other key (interview chips, the résumé menu, the companion's
     // server-answered chips) falls through to exactly the routing below.
-    final CompanionAction companionAction = companionActionFor(option.optionKey);
+    final CompanionAction companionAction = companionActionFor(
+      option.optionKey,
+    );
     // #1753 — counts only, by key CLASS, while the tab is the companion.
     //
     // #2145 — AND on the PROFILING chat when the chip opens a JOB. ADR-0051 R8
@@ -701,10 +710,12 @@ class _ChatViewState extends State<_ChatView>
     final ChatBloc bloc = context.read<ChatBloc>();
     final bool opensJob = companionAction == CompanionAction.openJob;
     if (bloc.state.companion || opensJob) {
-      bloc.add(ChatCompanionChipTapped(
-        companionChipKeyClass(option.optionKey),
-        openedJob: opensJob,
-      ));
+      bloc.add(
+        ChatCompanionChipTapped(
+          companionChipKeyClass(option.optionKey),
+          openedJob: opensJob,
+        ),
+      );
     }
     switch (companionAction) {
       case CompanionAction.openJob:
@@ -744,7 +755,8 @@ class _ChatViewState extends State<_ChatView>
         // the two apart.
         context.pushOnce(
           Routes.resumeUpload,
-          extra: bloc.state.suggestedOptions.any(
+          extra:
+              bloc.state.suggestedOptions.any(
                 (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
               )
               ? const ResumeUploadAutoIntent()
@@ -776,12 +788,12 @@ class _ChatViewState extends State<_ChatView>
     if (option.labelText.trim().isEmpty) return;
     setState(() => _optionTapPending = true);
     context.read<ChatBloc>().add(
-          ChatMessageSent(
-            option.labelText,
-            optionKey: option.isNoneOfAbove ? '__declined' : option.optionKey,
-            servedOption: true,
-          ),
-        );
+      ChatMessageSent(
+        option.labelText,
+        optionKey: option.isNoneOfAbove ? '__declined' : option.optionKey,
+        servedOption: true,
+      ),
+    );
   }
 
   /// #1559 / #1583 — a chip on a `multi_select` turn TICKS (or unticks)
@@ -819,16 +831,16 @@ class _ChatViewState extends State<_ChatView>
   /// [ChatMessageSent.servedOption] because every part of it is a served label.
   void _sendTicked(List<ChatOption> options) {
     if (_optionTapPending) return;
-    final String answer =
-        chatMultiSelectAnswer(options: options, tickedKeys: _ticked);
+    final String answer = chatMultiSelectAnswer(
+      options: options,
+      tickedKeys: _ticked,
+    );
     if (answer.isEmpty) return;
     setState(() {
       _optionTapPending = true;
       _ticked = const <String>[];
     });
-    context
-        .read<ChatBloc>()
-        .add(ChatMessageSent(answer, servedOption: true));
+    context.read<ChatBloc>().add(ChatMessageSent(answer, servedOption: true));
   }
 
   /// #1583 — a Haan / Nahi quick reply on a `boolean` turn the server served
@@ -1248,12 +1260,12 @@ class _ChatViewState extends State<_ChatView>
   /// Leaves free chat for the interview (#2030 ask 2).
   void _sendFreeChatResume() {
     context.read<ChatBloc>().add(
-          const ChatMessageSent(
-            kFreeChatResumeLabel,
-            optionKey: kFreeChatResumeKey,
-            servedOption: true,
-          ),
-        );
+      const ChatMessageSent(
+        kFreeChatResumeLabel,
+        optionKey: kFreeChatResumeKey,
+        servedOption: true,
+      ),
+    );
   }
 
   /// The handover card (#1339/#1340) — drawn INSTEAD OF [_doneCta] on the one
@@ -1280,7 +1292,10 @@ class _ChatViewState extends State<_ChatView>
           decoration: BoxDecoration(
             color: OnboardingColors.paperWhite,
             borderRadius: BorderRadius.circular(OnboardingRadii.card),
-            border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+            border: Border.all(
+              color: OnboardingColors.borderDefault,
+              width: 1.2,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1513,72 +1528,72 @@ class _ChatViewState extends State<_ChatView>
         title: Padding(
           padding: EdgeInsets.only(left: headerGutter),
           child: MediaQuery.withClampedTextScaling(
-          maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
-          child: Row(
-            children: <Widget>[
-              Image.asset(
-                // The brand mark, same asset as the global BrandBadge lockup.
-                'assets/fonts/image/badabhai_main.png',
-                width: 36,
-                height: 36,
-                filterQuality: FilterQuality.high,
-                excludeFromSemantics: true,
-              ),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      'Bada Bhai',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: OnboardingTypography.anek(
-                        size: 17,
-                        weight: FontWeight.w700,
-                        color: OnboardingColors.textOnBlue,
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: OnboardingColors.successGreen,
-                            shape: BoxShape.circle,
-                            // A light ring so the dark kit green still reads
-                            // as a status dot on the navy band.
-                            border: Border.all(
-                              color: OnboardingColors.successBg,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            'online',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: OnboardingTypography.inter(
-                              size: 12,
-                              weight: FontWeight.w500,
-                              color: OnboardingColors.textOnBlueMuted,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+            maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+            child: Row(
+              children: <Widget>[
+                Image.asset(
+                  // The brand mark, same asset as the global BrandBadge lockup.
+                  'assets/fonts/image/badabhai_main.png',
+                  width: 36,
+                  height: 36,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        'Bada Bhai',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: OnboardingTypography.anek(
+                          size: 17,
+                          weight: FontWeight.w700,
+                          color: OnboardingColors.textOnBlue,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: OnboardingColors.successGreen,
+                              shape: BoxShape.circle,
+                              // A light ring so the dark kit green still reads
+                              // as a status dot on the navy band.
+                              border: Border.all(
+                                color: OnboardingColors.successBg,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'online',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: OnboardingTypography.inter(
+                                size: 12,
+                                weight: FontWeight.w500,
+                                color: OnboardingColors.textOnBlueMuted,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         // OWNER REQUEST (2026-10-05): this slot used to be the Feedback action
@@ -1653,8 +1668,8 @@ class _ChatViewState extends State<_ChatView>
                 prev.progress != curr.progress,
             builder: (BuildContext context, ChatState state) =>
                 state.progress == null
-                    ? const SizedBox(height: _kHeaderProgressHeight)
-                    : _HeaderProgressLine(value: state.progress!.fraction),
+                ? const SizedBox(height: _kHeaderProgressHeight)
+                : _HeaderProgressLine(value: state.progress!.fraction),
           ),
         ),
       ),
@@ -1707,7 +1722,8 @@ class _ChatViewState extends State<_ChatView>
               // Branded, captioned loader — the design system bans bare Material
               // spinners, and a low-literacy worker gets a "loading…" cue.
               return const BbStatusView.loading(
-                  caption: 'Bada Bhai taiyaar ho raha hai…');
+                caption: 'Bada Bhai taiyaar ho raha hai…',
+              );
             }
             // Master UI Kit width cap: the transcript column stops at
             // [OnboardingLayout.maxContentWidth] and centres on a tablet or
@@ -1739,133 +1755,141 @@ class _ChatViewState extends State<_ChatView>
                 SafeArea(
                   bottom: false,
                   child: LayoutBuilder(
-                   builder: (BuildContext context, BoxConstraints body) =>
-                    Column(
-                    children: <Widget>[
-                      if (state.sessionFailed) _sessionBanner(),
-                      // OIE Phase 8 (#649): the pinned occupation pill. Hidden
-                      // until a trade pins. (The pack progress line moved onto
-                      // the header's bottom edge — see the AppBar `bottom`.)
-                      if (state.occupationLabel != null)
-                        _occupationStrip(state.occupationLabel!),
-                      Expanded(
-                        child: Stack(
-                          children: <Widget>[
-                            ListView.builder(
-                              controller: _scroll,
-                              // Full horizontal gutter, lighter vertical rhythm so
-                              // more of the transcript stays visible with the
-                              // keyboard up.
-                              padding: EdgeInsets.symmetric(
-                                horizontal: listGutter,
-                                vertical: AppSpacing.s2,
-                              ),
-                              itemCount: state.messages.length,
-                              itemBuilder: (BuildContext context, int i) {
-                                final ChatMessage m = state.messages[i];
-                                final bool failed =
-                                    m.status == ChatSendStatus.failed;
-                                return _ChatBubble(
-                                  // ADR-0048 — the name's flight lifts off from
-                                  // the last worker bubble.
-                                  key: i == lastWorkerIndex
-                                      ? _lastWorkerBubbleKey
-                                      : null,
-                                  // ADR-0054 §3.4 (#2148) — the news turn's
-                                  // "read more" tiles, drawn UNDER this bubble
-                                  // and inside its width cap so they read as
-                                  // part of the same answer. Empty on every
-                                  // other turn, which draws nothing.
-                                  newsLinks: m.newsLinks,
-                                  text: m.text,
-                                  fromWorker: m.fromWorker,
-                                  maxWidth: bubbleMaxWidth,
-                                  failed: failed,
-                                  onRetry: failed ? () => _retry(i) : null,
-                                  // Read-aloud speaker on bada bhai's questions
-                                  // only (never the worker's own messages). #896 —
-                                  // pass the Devanagari script so read-aloud speaks
-                                  // it (falls back to the romanized text when null).
-                                  //
-                                  // ADR-0046 O9 — EXCEPT on a model-written turn.
-                                  // That fallback is the hazard there: such a turn
-                                  // has no reviewed Devanagari twin, so `ttsText ??
-                                  // text` would read the model's raw romanized
-                                  // Hinglish aloud in a hi-IN voice. A bubble the
-                                  // server marked `read_aloud: false` is offered no
-                                  // speaker at all.
-                                  trailing: (!m.fromWorker && !failed && m.canReadAloud)
-                                      ? _speakerButton(i, m.text, m.ttsText)
-                                      : null,
-                                );
-                              },
-                            ),
-                            if (_hasUnreadBelow)
-                              Positioned(
-                                left: 0,
-                                right: 0,
-                                bottom: AppSpacing.s3,
-                                child: Center(child: _jumpPill()),
-                              ),
-                          ],
-                        ),
-                      ),
-                      // #1059 — the answer affordance (typing indicator ↔ chips)
-                      // cross-fades instead of snapping. The child is keyed by
-                      // KIND ('typing' / 'chips' / 'none') so typing→chips
-                      // animates while chip→chip content changes stay instant.
-                      // Layout safety (320x568 at a 2.0 system font): the stack
-                      // under the transcript — answer options, notices,
-                      // composer and CTA / handover card — takes at most
-                      // [_kBottomStackMaxFraction] of the body and scrolls
-                      // inside that, so the transcript is never squeezed into
-                      // an overflow. On an ordinary phone the stack is far
-                      // shorter than the cap: nothing scrolls, nothing moves.
-                      ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: body.maxHeight * _kBottomStackMaxFraction,
-                        ),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                    builder: (BuildContext context, BoxConstraints body) => Column(
+                      children: <Widget>[
+                        if (state.sessionFailed) _sessionBanner(),
+                        // OIE Phase 8 (#649): the pinned occupation pill. Hidden
+                        // until a trade pins. (The pack progress line moved onto
+                        // the header's bottom edge — see the AppBar `bottom`.)
+                        if (state.occupationLabel != null)
+                          _occupationStrip(state.occupationLabel!),
+                        Expanded(
+                          child: Stack(
                             children: <Widget>[
-                      // ADR-0046 Phase 1 — the edit card (companion mode only)
-                      if (state.companion &&
-                          BbRemoteConfig.instance.chatCompanionV2Enabled &&
-                          state.editProposal != null)
-                        _editProposalCard(state.editProposal!),
-                      BbAnimatedSwitcher(child: _answerAffordance(state)),
-                      // A blocked turn (pseudonymize fail-closed) never processed the
-                      // worker's last answer — say so rather than let the canned
-                      // fallback reply read as understood. Shown in every build.
-                      if (state.lastReplyBlocked)
-                        _replyNotice(
-                          icon: Icons.error_outline,
-                          color: OnboardingColors.errorRed,
-                          text: kChatBlockedNotice,
-                        ),
-                      // B7 maintenance notice — ops copy, shown only when set.
-                      if (maintenance.isNotEmpty)
-                        _replyNotice(
-                          icon: Icons.info_outline,
-                          color: OnboardingColors.ink500,
-                          text: maintenance,
-                        ),
-                      // #1411 — Devanagari never reaches the composer; this
-                      // is why, the first time it happens this session.
-                      if (_devanagariBlocked)
-                        _replyNotice(
-                          icon: Icons.error_outline,
-                          color: OnboardingColors.errorRed,
-                          text: kDevanagariBlockedHint,
-                        ),
-                      _bottomComposerSegment(state, showVoice),
+                              ListView.builder(
+                                controller: _scroll,
+                                // Full horizontal gutter, lighter vertical rhythm so
+                                // more of the transcript stays visible with the
+                                // keyboard up.
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: listGutter,
+                                  vertical: AppSpacing.s2,
+                                ),
+                                itemCount: state.messages.length,
+                                itemBuilder: (BuildContext context, int i) {
+                                  final ChatMessage m = state.messages[i];
+                                  final bool failed =
+                                      m.status == ChatSendStatus.failed;
+                                  return _ChatBubble(
+                                    // ADR-0048 — the name's flight lifts off from
+                                    // the last worker bubble.
+                                    key: i == lastWorkerIndex
+                                        ? _lastWorkerBubbleKey
+                                        : null,
+                                    // ADR-0054 §3.4 (#2148) — the news turn's
+                                    // "read more" tiles, drawn UNDER this bubble
+                                    // and inside its width cap so they read as
+                                    // part of the same answer. Empty on every
+                                    // other turn, which draws nothing.
+                                    newsLinks: m.newsLinks,
+                                    text: m.text,
+                                    fromWorker: m.fromWorker,
+                                    maxWidth: bubbleMaxWidth,
+                                    failed: failed,
+                                    bulleted: m.bulleted,
+                                    onRetry: failed ? () => _retry(i) : null,
+                                    // Read-aloud speaker on bada bhai's questions
+                                    // only (never the worker's own messages). #896 —
+                                    // pass the Devanagari script so read-aloud speaks
+                                    // it (falls back to the romanized text when null).
+                                    //
+                                    // ADR-0046 O9 — EXCEPT on a model-written turn.
+                                    // That fallback is the hazard there: such a turn
+                                    // has no reviewed Devanagari twin, so `ttsText ??
+                                    // text` would read the model's raw romanized
+                                    // Hinglish aloud in a hi-IN voice. A bubble the
+                                    // server marked `read_aloud: false` is offered no
+                                    // speaker at all.
+                                    trailing:
+                                        (!m.fromWorker &&
+                                            !failed &&
+                                            m.canReadAloud)
+                                        ? _speakerButton(i, m.text, m.ttsText)
+                                        : null,
+                                  );
+                                },
+                              ),
+                              if (_hasUnreadBelow)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: AppSpacing.s3,
+                                  child: Center(child: _jumpPill()),
+                                ),
                             ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                        // #1059 — the answer affordance (typing indicator ↔ chips)
+                        // cross-fades instead of snapping. The child is keyed by
+                        // KIND ('typing' / 'chips' / 'none') so typing→chips
+                        // animates while chip→chip content changes stay instant.
+                        // Layout safety (320x568 at a 2.0 system font): the stack
+                        // under the transcript — answer options, notices,
+                        // composer and CTA / handover card — takes at most
+                        // [_kBottomStackMaxFraction] of the body and scrolls
+                        // inside that, so the transcript is never squeezed into
+                        // an overflow. On an ordinary phone the stack is far
+                        // shorter than the cap: nothing scrolls, nothing moves.
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight:
+                                body.maxHeight * _kBottomStackMaxFraction,
+                          ),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                // ADR-0046 Phase 1 — the edit card (companion mode only)
+                                if (state.companion &&
+                                    BbRemoteConfig
+                                        .instance
+                                        .chatCompanionV2Enabled &&
+                                    state.editProposal != null)
+                                  _editProposalCard(state.editProposal!),
+                                BbAnimatedSwitcher(
+                                  child: _answerAffordance(state),
+                                ),
+                                // A blocked turn (pseudonymize fail-closed) never processed the
+                                // worker's last answer — say so rather than let the canned
+                                // fallback reply read as understood. Shown in every build.
+                                if (state.lastReplyBlocked)
+                                  _replyNotice(
+                                    icon: Icons.error_outline,
+                                    color: OnboardingColors.errorRed,
+                                    text: kChatBlockedNotice,
+                                  ),
+                                // B7 maintenance notice — ops copy, shown only when set.
+                                if (maintenance.isNotEmpty)
+                                  _replyNotice(
+                                    icon: Icons.info_outline,
+                                    color: OnboardingColors.ink500,
+                                    text: maintenance,
+                                  ),
+                                // #1411 — Devanagari never reaches the composer; this
+                                // is why, the first time it happens this session.
+                                if (_devanagariBlocked)
+                                  _replyNotice(
+                                    icon: Icons.error_outline,
+                                    color: OnboardingColors.errorRed,
+                                    text: kDevanagariBlockedHint,
+                                  ),
+                                _bottomComposerSegment(state, showVoice),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1895,97 +1919,97 @@ class _ChatViewState extends State<_ChatView>
       // `bottomBarInset` keeps reporting the height above the inset, which is
       // exactly what the floating Feedback pill adds the inset to.
       child: Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewPaddingOf(context).bottom,
-      ),
-      child: Column(
-      key: _bottomSegmentKey,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        // #770 — the composer (and its mic, since voice resolves to
-        // typed text) is suppressed ONLY on the engine's yes/no gates
-        // (the experience gate "Aur koi experience jodna hai?" → Haan /
-        // Nahi, and the trade-confirm gate #2190 `[Trade] — क्या आप यही
-        // काम करना चाहते हैं?` → Haan / Nahi). Any other
-        // options_only turn — a model-chosen one, e.g. role
-        // suggestions — keeps it: the server accepts typed text on
-        // every turn and the worker's profile may not be a chip.
-        // [_isYesNoGate] / [_isTradeConfirmGate] need two chips, so a
-        // malformed options_only turn with no chips still never traps
-        // the worker, and custom-answer mode always brings the composer
-        // back.
-        //
-        // #1363 — a form_offer turn is the server CLOSING the
-        // session (`kind: "close"`, `form_handoff`): typing into it
-        // would be swallowed, so the composer must never render
-        // alongside the handover card. `state.formOffer != null`
-        // alone is a safe gate (unlike options_only, [FormOffer]
-        // has no "empty list" hazard — its required fields cannot
-        // be blank; see `FormOffer.fromJson`), so no separate flag
-        // is needed. Shares the [_optionsOnlyHint] locked-look
-        // FRAME (via [_lockedComposerBar]) with its own copy,
-        // rather than leaving a bare gap.
-        if (state.inputMode == ChatInputMode.optionsOnly &&
-            !_customAnswerMode &&
-            (_isYesNoGate(state) || _isTradeConfirmGate(state)))
-          _optionsOnlyHint()
-        // #1821 F1 — THE COOL-DOWN BLOCKS FREE TEXT, AND ONLY FREE TEXT. The
-        // server serves `cooldown_until` on a faltu turn; until that instant the
-        // composer is replaced by a locked bar counting down. The chips above
-        // this segment are untouched on purpose: a cooled-down worker must still
-        // reach their résumé and the jobs, which is what the chips are for.
-        else if (_cooldownActive(state))
-          _cooldownComposerLock(state.cooldownUntil!)
-        else if (state.gateKind == 'skills')
-          _skillsGateLockedHint()
-        else if (state.formOffer != null)
-          _formOfferLockedHint()
-        else
-          _inputBar(
-            // ONE MIC PER SCREEN (#1862). In companion mode the v2 voice button
-            // sits just below this composer, and BOTH were labelled "Bolkar
-            // likhein" — two identical controls, doing different things (this
-            // one dictates locally; that one uploads and transcribes). The v2
-            // button is the surface ADR-0046 F3 specifies, so the composer's own
-            // dictation mic stands down there. The interview keeps it, exactly
-            // as before.
-            showVoice && !state.companion,
-            // #1583 — a `number` question opens the number keypad for this
-            // turn only; the turn-scoped answerType reverts it on the next.
-            numeric: state.answerType == ChatAnswerType.number,
-          ),
-        // #1339/#1340 — the handover card REPLACES the "build my
-        // profile" CTA on the one turn that hands the worker to a
-        // trade form, never alongside it. `extraction_ready` is
-        // already false on that turn (see [ChatState.formOffer]),
-        // but `_doneCta` renders UNCONDITIONALLY regardless of
-        // readiness (it only changes label/style) — so this branch,
-        // not that flag, is what actually keeps the two CTAs from
-        // both appearing.
-        if (state.formOffer != null)
-          _formOfferCard(state.formOffer!)
-        // ADR-0044 — a companion worker's profile is DONE: "build my profile"
-        // would only re-open the preview for a finished interview.
-        else if (!state.companion)
-          _doneCta(state)
-        // ADR-0046 F3 — the companion composer's mic. TWO levers, both of which
-        // must be on: the v2 lever (the whole Phase 1 UI ships dark) and the
-        // SHIPPED B7 mic kill switch, which exists so ops can pull every mic in
-        // the app without a release when transcription is degraded. This is the
-        // same `voiceEntryHidden` the interview composer above obeys — a second
-        // mic that ignored it would quietly defeat the switch during exactly the
-        // incident it was built for.
-        // ...AND NOT WHILE COOLING DOWN. The mic resolves to typed text in the
-        // very composer the cool-down just removed, so leaving it up let a
-        // worker record, transcribe and land a transcript in a box that is not
-        // on screen — the wait, defeated by the control beside it.
-        else if (state.companion &&
-            BbRemoteConfig.instance.chatCompanionV2Enabled &&
-            !BbRemoteConfig.instance.voiceEntryHidden &&
-            !_cooldownActive(state))
-          _companionVoiceButton(),
-      ],
-      ),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewPaddingOf(context).bottom,
+        ),
+        child: Column(
+          key: _bottomSegmentKey,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            // #770 — the composer (and its mic, since voice resolves to
+            // typed text) is suppressed ONLY on the engine's yes/no gates
+            // (the experience gate "Aur koi experience jodna hai?" → Haan /
+            // Nahi, and the trade-confirm gate #2190 `[Trade] — क्या आप यही
+            // काम करना चाहते हैं?` → Haan / Nahi). Any other
+            // options_only turn — a model-chosen one, e.g. role
+            // suggestions — keeps it: the server accepts typed text on
+            // every turn and the worker's profile may not be a chip.
+            // [_isYesNoGate] / [_isTradeConfirmGate] need two chips, so a
+            // malformed options_only turn with no chips still never traps
+            // the worker, and custom-answer mode always brings the composer
+            // back.
+            //
+            // #1363 — a form_offer turn is the server CLOSING the
+            // session (`kind: "close"`, `form_handoff`): typing into it
+            // would be swallowed, so the composer must never render
+            // alongside the handover card. `state.formOffer != null`
+            // alone is a safe gate (unlike options_only, [FormOffer]
+            // has no "empty list" hazard — its required fields cannot
+            // be blank; see `FormOffer.fromJson`), so no separate flag
+            // is needed. Shares the [_optionsOnlyHint] locked-look
+            // FRAME (via [_lockedComposerBar]) with its own copy,
+            // rather than leaving a bare gap.
+            if (state.inputMode == ChatInputMode.optionsOnly &&
+                !_customAnswerMode &&
+                (_isYesNoGate(state) || _isTradeConfirmGate(state)))
+              _optionsOnlyHint()
+            // #1821 F1 — THE COOL-DOWN BLOCKS FREE TEXT, AND ONLY FREE TEXT. The
+            // server serves `cooldown_until` on a faltu turn; until that instant the
+            // composer is replaced by a locked bar counting down. The chips above
+            // this segment are untouched on purpose: a cooled-down worker must still
+            // reach their résumé and the jobs, which is what the chips are for.
+            else if (_cooldownActive(state))
+              _cooldownComposerLock(state.cooldownUntil!)
+            else if (state.gateKind == 'skills')
+              _skillsGateLockedHint()
+            else if (state.formOffer != null)
+              _formOfferLockedHint()
+            else
+              _inputBar(
+                // ONE MIC PER SCREEN (#1862). In companion mode the v2 voice button
+                // sits just below this composer, and BOTH were labelled "Bolkar
+                // likhein" — two identical controls, doing different things (this
+                // one dictates locally; that one uploads and transcribes). The v2
+                // button is the surface ADR-0046 F3 specifies, so the composer's own
+                // dictation mic stands down there. The interview keeps it, exactly
+                // as before.
+                showVoice && !state.companion,
+                // #1583 — a `number` question opens the number keypad for this
+                // turn only; the turn-scoped answerType reverts it on the next.
+                numeric: state.answerType == ChatAnswerType.number,
+              ),
+            // #1339/#1340 — the handover card REPLACES the "build my
+            // profile" CTA on the one turn that hands the worker to a
+            // trade form, never alongside it. `extraction_ready` is
+            // already false on that turn (see [ChatState.formOffer]),
+            // but `_doneCta` renders UNCONDITIONALLY regardless of
+            // readiness (it only changes label/style) — so this branch,
+            // not that flag, is what actually keeps the two CTAs from
+            // both appearing.
+            if (state.formOffer != null)
+              _formOfferCard(state.formOffer!)
+            // ADR-0044 — a companion worker's profile is DONE: "build my profile"
+            // would only re-open the preview for a finished interview.
+            else if (!state.companion)
+              _doneCta(state)
+            // ADR-0046 F3 — the companion composer's mic. TWO levers, both of which
+            // must be on: the v2 lever (the whole Phase 1 UI ships dark) and the
+            // SHIPPED B7 mic kill switch, which exists so ops can pull every mic in
+            // the app without a release when transcription is degraded. This is the
+            // same `voiceEntryHidden` the interview composer above obeys — a second
+            // mic that ignored it would quietly defeat the switch during exactly the
+            // incident it was built for.
+            // ...AND NOT WHILE COOLING DOWN. The mic resolves to typed text in the
+            // very composer the cool-down just removed, so leaving it up let a
+            // worker record, transcribe and land a transcript in a box that is not
+            // on screen — the wait, defeated by the control beside it.
+            else if (state.companion &&
+                BbRemoteConfig.instance.chatCompanionV2Enabled &&
+                !BbRemoteConfig.instance.voiceEntryHidden &&
+                !_cooldownActive(state))
+              _companionVoiceButton(),
+          ],
+        ),
       ),
     );
   }
@@ -2003,35 +2027,35 @@ class _ChatViewState extends State<_ChatView>
     return Visibility(
       visible: false,
       child: Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s4,
-        AppSpacing.s3,
-        AppSpacing.s4,
-        AppSpacing.s3,
-      ),
-      // A LABELLED CTA, NOT A SECOND BARE MIC (owner request). This sat directly
-      // above the composer's dictation mic wearing the same `Icons.mic` and the
-      // same words, so one screen read as two mics for one job. They are two
-      // jobs: the composer's mic types what you say into the field as you speak,
-      // this one records a note, has it transcribed and drops the text back for
-      // review. A distinct glyph AND words on the face carry that difference; a
-      // bare second yellow circle cannot.
-      //
-      // The kit's own CTA rather than a hand-rolled pill: its `FittedBox` scales
-      // a long Hinglish label down instead of painting overflow stripes inside
-      // the control, which a fixed-width pill does at 320dp and text scale 2.0.
-      // `buttonKey` keeps the handle a test needs on THIS voice entry — the
-      // screen carries three (this one, the composer's dictation mic and the
-      // interview's voice note) and only this one rides the v2 lever.
-      child: _capped(
-        PrimaryActionButton(
-          buttonKey: kCompanionVoiceButtonKey,
-          label: kCompanionVoiceLabel,
-          leadingIcon: Icons.voice_chat,
-          showArrow: false,
-          onPressed: _openCompanionVoiceNote,
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4,
+          AppSpacing.s3,
+          AppSpacing.s4,
+          AppSpacing.s3,
         ),
-      ),
+        // A LABELLED CTA, NOT A SECOND BARE MIC (owner request). This sat directly
+        // above the composer's dictation mic wearing the same `Icons.mic` and the
+        // same words, so one screen read as two mics for one job. They are two
+        // jobs: the composer's mic types what you say into the field as you speak,
+        // this one records a note, has it transcribed and drops the text back for
+        // review. A distinct glyph AND words on the face carry that difference; a
+        // bare second yellow circle cannot.
+        //
+        // The kit's own CTA rather than a hand-rolled pill: its `FittedBox` scales
+        // a long Hinglish label down instead of painting overflow stripes inside
+        // the control, which a fixed-width pill does at 320dp and text scale 2.0.
+        // `buttonKey` keeps the handle a test needs on THIS voice entry — the
+        // screen carries three (this one, the composer's dictation mic and the
+        // interview's voice note) and only this one rides the v2 lever.
+        child: _capped(
+          PrimaryActionButton(
+            buttonKey: kCompanionVoiceButtonKey,
+            label: kCompanionVoiceLabel,
+            leadingIcon: Icons.voice_chat,
+            showArrow: false,
+            onPressed: _openCompanionVoiceNote,
+          ),
+        ),
       ),
     );
   }
@@ -2042,8 +2066,10 @@ class _ChatViewState extends State<_ChatView>
   /// worker sends it as an ordinary companion message, so it goes through the
   /// classifier like anything they type.
   Future<void> _openCompanionVoiceNote() async {
-    final String? transcript =
-        await context.push<String>(Routes.voiceNote, extra: true);
+    final String? transcript = await context.push<String>(
+      Routes.voiceNote,
+      extra: true,
+    );
     if (transcript == null || !mounted || transcript.trim().isEmpty) return;
     _landDictation(transcript);
     _composerFocus.requestFocus();
@@ -2120,8 +2146,7 @@ class _ChatViewState extends State<_ChatView>
             // keyboard open. Matches the chat bubble size (sizeSm).
             style: OnboardingTypography.inter(size: 14),
             decoration: InputDecoration(
-              hintText:
-                  _customAnswerMode ? _customAnswerHint : _kComposerHint,
+              hintText: _customAnswerMode ? _customAnswerHint : _kComposerHint,
               hintStyle: OnboardingTypography.inter(
                 size: 14,
                 color: OnboardingColors.ink500,
@@ -2209,10 +2234,8 @@ class _ChatViewState extends State<_ChatView>
   /// the label-only `suggested_followups`.
   static List<String> _turnLabels(ChatState state) =>
       state.suggestedOptions.isNotEmpty
-          ? <String>[
-              for (final ChatOption o in state.suggestedOptions) o.labelText,
-            ]
-          : state.followups;
+      ? <String>[for (final ChatOption o in state.suggestedOptions) o.labelText]
+      : state.followups;
 
   /// Whether [labels] are exactly the engine's yes/no gate pair (normalised:
   /// trimmed, lower-cased, trailing punctuation dropped) — one of
@@ -2225,8 +2248,7 @@ class _ChatViewState extends State<_ChatView>
     ];
     return (_kGateYesLabels.contains(norm[0]) &&
             _kGateNoLabels.contains(norm[1])) ||
-        (_kGateNoLabels.contains(norm[0]) &&
-            _kGateYesLabels.contains(norm[1]));
+        (_kGateNoLabels.contains(norm[0]) && _kGateYesLabels.contains(norm[1]));
   }
 
   /// Whether this turn is the one legitimate keyboard lock (#770): the yes/no
@@ -2275,8 +2297,9 @@ class _ChatViewState extends State<_ChatView>
   /// trailing [kChatCustomAnswerLabel] chip when the server sent none.
   /// Deterministic pack chips (closed lists) never do.
   static bool _isLlmSuggestionRow(List<ChatOption> options) {
-    final Iterable<ChatOption> suggestions =
-        options.where((ChatOption o) => !_isServerEscape(o));
+    final Iterable<ChatOption> suggestions = options.where(
+      (ChatOption o) => !_isServerEscape(o),
+    );
     return suggestions.isNotEmpty &&
         suggestions.every(
           (ChatOption o) => o.optionKey.startsWith(_kLlmOptionKeyPrefix),
@@ -2287,26 +2310,28 @@ class _ChatViewState extends State<_ChatView>
   /// that keeps the same paper-bar frame as [_inputBar] (no layout jump) and
   /// tells the worker, in aap-form, to answer from the chips above. No text
   /// field, no send, no mic — the chips are the only way to answer this turn.
-  Widget _optionsOnlyHint() =>
-      _lockedComposerBar(text: kChatOptionsOnlyHint, icon: Icons.touch_app_outlined);
+  Widget _optionsOnlyHint() => _lockedComposerBar(
+    text: kChatOptionsOnlyHint,
+    icon: Icons.touch_app_outlined,
+  );
 
   /// Replaces the composer on a `form_offer` (handover) turn (#1363): the same
   /// locked-look frame as [_optionsOnlyHint], but pointing at the CTA below
   /// rather than chips above — this turn has none, only the handover card's
   /// button.
   Widget _formOfferLockedHint() => _lockedComposerBar(
-        text: kChatFormOfferLockedHint,
-        icon: Icons.arrow_downward_rounded,
-      );
+    text: kChatFormOfferLockedHint,
+    icon: Icons.arrow_downward_rounded,
+  );
 
   /// Replaces the composer on a skills gate turn (ADR-0045): the same
   /// locked-look frame as [_optionsOnlyHint], but pointing at the Haan/Nahi
   /// chips above rather than a hint — the skills gate locks the keyboard
   /// and only the two gate chips are the answer path.
   Widget _skillsGateLockedHint() => _lockedComposerBar(
-        text: kChatOptionsOnlyHint,
-        icon: Icons.touch_app_outlined,
-      );
+    text: kChatOptionsOnlyHint,
+    icon: Icons.touch_app_outlined,
+  );
 
   /// Shared locked-look composer replacement: same paper-bar frame as
   /// [_inputBar] (no layout jump when it swaps in), a muted icon and one line
@@ -2347,8 +2372,14 @@ class _ChatViewState extends State<_ChatView>
   static final ButtonStyle _composerActionStyle = IconButton.styleFrom(
     backgroundColor: OnboardingColors.safetyYellow,
     foregroundColor: OnboardingColors.shiftBlue,
-    fixedSize: const Size(OnboardingLayout.tapTarget, OnboardingLayout.tapTarget),
-    minimumSize: const Size(OnboardingLayout.tapTarget, OnboardingLayout.tapTarget),
+    fixedSize: const Size(
+      OnboardingLayout.tapTarget,
+      OnboardingLayout.tapTarget,
+    ),
+    minimumSize: const Size(
+      OnboardingLayout.tapTarget,
+      OnboardingLayout.tapTarget,
+    ),
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(OnboardingRadii.card),
     ),
@@ -2467,7 +2498,9 @@ class _ChatViewState extends State<_ChatView>
     if (chosenState != null && chosenState.isNotEmpty) {
       _identityState = chosenState;
       // Held for the city turn that follows this answer.
-      _heldCity = (chosenCity != null && chosenCity.isNotEmpty) ? chosenCity : null;
+      _heldCity = (chosenCity != null && chosenCity.isNotEmpty)
+          ? chosenCity
+          : null;
       _sendText(chosenState);
       return;
     }
@@ -2542,8 +2575,9 @@ class _ChatViewState extends State<_ChatView>
     // turn AND the optimistic prediction below via both question keys.
     final bool isShiftQuestion =
         state.askedQuestionKey == kChatShiftPreferenceQuestionId ||
-            state.predictedQuestionKey == kChatShiftPreferenceQuestionId;
-    final bool multiSelect = !state.companion &&
+        state.predictedQuestionKey == kChatShiftPreferenceQuestionId;
+    final bool multiSelect =
+        !state.companion &&
         state.answerType == ChatAnswerType.multiSelect &&
         state.questionKind != ChatQuestionKind.disambiguate &&
         !isShiftQuestion;
@@ -2561,10 +2595,10 @@ class _ChatViewState extends State<_ChatView>
         child: state.companion
             ? _companionActionChips(state.suggestedOptions)
             : state.questionKind == ChatQuestionKind.disambiguate
-                ? _disambiguateOptions(state.suggestedOptions)
-                : multiSelect
-                    ? _multiSelectOptions(state.suggestedOptions)
-                    : _followupOptions(state.suggestedOptions),
+            ? _disambiguateOptions(state.suggestedOptions)
+            : multiSelect
+            ? _multiSelectOptions(state.suggestedOptions)
+            : _followupOptions(state.suggestedOptions),
       );
     }
     if (state.followups.isNotEmpty) {
@@ -2591,14 +2625,14 @@ class _ChatViewState extends State<_ChatView>
             : state.questionKind == ChatQuestionKind.disambiguate
             ? _disambiguate(state.followups)
             : multiSelect
-                // Label-only chips (an older build, or the optimistic
-                // prediction's labels): the label is the key, as on
-                // [_followups].
-                ? _multiSelectOptions(<ChatOption>[
-                    for (final String f in state.followups)
-                      ChatOption(optionKey: f, labelText: f),
-                  ])
-                : _followups(state.followups),
+            // Label-only chips (an older build, or the optimistic
+            // prediction's labels): the label is the key, as on
+            // [_followups].
+            ? _multiSelectOptions(<ChatOption>[
+                for (final String f in state.followups)
+                  ChatOption(optionKey: f, labelText: f),
+              ])
+            : _followups(state.followups),
       );
     }
     // #1583 — a `boolean` pack question arrives with NO chips (every boolean
@@ -2662,13 +2696,13 @@ class _ChatViewState extends State<_ChatView>
   /// Nothing here rewrites or filters a chip — if a question ever appears in this
   /// row again, the fix belongs in `question_bank.py`, not in this widget.
   Widget _followups(List<String> followups) => _chipScroller(<Widget>[
-        for (final String f in followups) ...<Widget>[
-          // Answer chips read like a chat message: same 14px size and a
-          // normal weight (owner request 2026-07-23), on the kit's chip surface.
-          _AnswerChip(label: f, onTap: () => _sendOption(f)),
-          const SizedBox(width: AppSpacing.s2),
-        ],
-      ]);
+    for (final String f in followups) ...<Widget>[
+      // Answer chips read like a chat message: same 14px size and a
+      // normal weight (owner request 2026-07-23), on the kit's chip surface.
+      _AnswerChip(label: f, onTap: () => _sendOption(f)),
+      const SizedBox(width: AppSpacing.s2),
+    ],
+  ]);
 
   /// The horizontal chip row rendered from `suggested_options` (#761). Same look
   /// as [_followups] — each chip DISPLAYS [ChatOption.labelText] — but a tap
@@ -2684,9 +2718,11 @@ class _ChatViewState extends State<_ChatView>
   ///    none of them. Never on the yes/no gate — there the two chips ARE the
   ///    full answer.
   Widget _followupOptions(List<ChatOption> options) {
-    final List<ChatOption> answers =
-        options.where((ChatOption o) => !_isServerEscape(o)).toList();
-    final bool escape = answers.length != options.length ||
+    final List<ChatOption> answers = options
+        .where((ChatOption o) => !_isServerEscape(o))
+        .toList();
+    final bool escape =
+        answers.length != options.length ||
         (_isLlmSuggestionRow(options) &&
             !_isYesNoPair(<String>[
               for (final ChatOption o in answers) o.labelText,
@@ -2726,8 +2762,9 @@ class _ChatViewState extends State<_ChatView>
   /// The server's own escape ([_kServerEscapeOptionKey]) is never a tick: it
   /// opens the composer, exactly as on [_followupOptions].
   Widget _multiSelectOptions(List<ChatOption> options) {
-    final List<ChatOption> answers =
-        options.where((ChatOption o) => !_isServerEscape(o)).toList();
+    final List<ChatOption> answers = options
+        .where((ChatOption o) => !_isServerEscape(o))
+        .toList();
     final bool escape = answers.length != options.length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -2776,16 +2813,16 @@ class _ChatViewState extends State<_ChatView>
   /// chips. Same row and look as served chips; the composer stays, since the
   /// server reads a typed "haan ji" the same way.
   Widget _booleanReplies() => _chipScroller(<Widget>[
-        _AnswerChip(
-          label: kVoiceBooleanYes,
-          onTap: () => _sendBooleanReply(kVoiceBooleanYes),
-        ),
-        const SizedBox(width: AppSpacing.s2),
-        _AnswerChip(
-          label: kVoiceBooleanNo,
-          onTap: () => _sendBooleanReply(kVoiceBooleanNo),
-        ),
-      ]);
+    _AnswerChip(
+      label: kVoiceBooleanYes,
+      onTap: () => _sendBooleanReply(kVoiceBooleanYes),
+    ),
+    const SizedBox(width: AppSpacing.s2),
+    _AnswerChip(
+      label: kVoiceBooleanNo,
+      onTap: () => _sendBooleanReply(kVoiceBooleanNo),
+    ),
+  ]);
 
   /// The horizontal, scrollable wrapper shared by the label-keyed fallback
   /// ([_followups]) and the `suggested_options` path ([_followupOptions]) — just
@@ -2928,11 +2965,12 @@ class _ChatViewState extends State<_ChatView>
     // build whose lever is off — see [isCompanionV2OnlyKey] for why offering one
     // without its destination is worse than not offering it. v1's chips (jobs,
     // applied, a job, the résumé menu) are untouched by this and always render.
-    final List<ChatOption> shown = BbRemoteConfig.instance.chatCompanionV2Enabled
+    final List<ChatOption> shown =
+        BbRemoteConfig.instance.chatCompanionV2Enabled
         ? options
         : options
-            .where((ChatOption o) => !isCompanionV2OnlyKey(o.optionKey))
-            .toList(growable: false);
+              .where((ChatOption o) => !isCompanionV2OnlyKey(o.optionKey))
+              .toList(growable: false);
     // Every chip on the turn was v2-only: draw NOTHING rather than an empty
     // padded column, so a lever-off build is byte-identical to v1.
     if (shown.isEmpty) return const SizedBox.shrink();
@@ -2959,50 +2997,54 @@ class _ChatViewState extends State<_ChatView>
             Visibility(
               visible: !_hidesCompanionMenuChip(o.optionKey),
               child: Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-              child: Semantics(
-                container: true,
-                button: true,
-                label: o.labelText,
-                child: Material(
-                  color: OnboardingColors.paperWhite,
-                  borderRadius: BorderRadius.circular(OnboardingRadii.card),
-                  child: InkWell(
+                padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+                child: Semantics(
+                  container: true,
+                  button: true,
+                  label: o.labelText,
+                  child: Material(
+                    color: OnboardingColors.paperWhite,
                     borderRadius: BorderRadius.circular(OnboardingRadii.card),
-                    onTap: () => _sendChoice(o),
-                    child: Container(
-                      // The 48dp tap floor every other row on this screen keeps.
-                      constraints: const BoxConstraints(minHeight: 48),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.s3,
-                        vertical: AppSpacing.s2,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(OnboardingRadii.card),
-                        border: Border.all(color: OnboardingColors.borderCard),
-                      ),
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: ExcludeSemantics(
-                              child: Text(
-                                o.labelText,
-                                style: OnboardingTypography.inter(
-                                  size: 14,
-                                  weight: FontWeight.w600,
-                                  height: 1.35,
-                                  color: OnboardingColors.ink900,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(OnboardingRadii.card),
+                      onTap: () => _sendChoice(o),
+                      child: Container(
+                        // The 48dp tap floor every other row on this screen keeps.
+                        constraints: const BoxConstraints(minHeight: 48),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.s3,
+                          vertical: AppSpacing.s2,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(
+                            OnboardingRadii.card,
+                          ),
+                          border: Border.all(
+                            color: OnboardingColors.borderCard,
+                          ),
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: ExcludeSemantics(
+                                child: Text(
+                                  o.labelText,
+                                  style: OnboardingTypography.inter(
+                                    size: 14,
+                                    weight: FontWeight.w600,
+                                    height: 1.35,
+                                    color: OnboardingColors.ink900,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
             ),
         ],
       ),
@@ -3111,8 +3153,8 @@ class _ChatViewState extends State<_ChatView>
   Future<void> _loadHeaderName() async {
     if (!locator.isRegistered<ResumeEditRepository>()) return;
     try {
-      final ResumeSafeFields fields =
-          await locator<ResumeEditRepository>().load();
+      final ResumeSafeFields fields = await locator<ResumeEditRepository>()
+          .load();
       if (!mounted || _headerName != null) return;
       final String name = fields.displayName.trim();
       if (name.isEmpty) return;
@@ -3166,15 +3208,13 @@ class _ChatViewState extends State<_ChatView>
   /// nothing. [_CooldownComposerLock] owns the clock and tells this screen when
   /// the wait is over, so the composer comes back on its own.
   Widget _cooldownComposerLock(DateTime until) => _CooldownComposerLock(
-        until: until,
-        onExpired: () {
-          if (mounted) setState(() {});
-        },
-        builder: (String text) => _lockedComposerBar(
-          text: text,
-          icon: Icons.hourglass_empty,
-        ),
-      );
+    until: until,
+    onExpired: () {
+      if (mounted) setState(() {});
+    },
+    builder: (String text) =>
+        _lockedComposerBar(text: text, icon: Icons.hourglass_empty),
+  );
 
   Widget _disambiguateOptions(List<ChatOption> options) {
     return Padding(
@@ -3229,11 +3269,7 @@ class _ChatViewState extends State<_ChatView>
     // next rebuild (the one-tap latch lives in [_sendOption]/[_sendChoice]).
     if (!escape) {
       return _capped(
-        SingleSelectQuestionCard(
-          title: label,
-          isSelected: false,
-          onTap: onTap,
-        ),
+        SingleSelectQuestionCard(title: label, isSelected: false, onTap: onTap),
       );
     }
     // The "none of these" escape stays visibly quieter than a real option
@@ -3371,6 +3407,7 @@ class _ChatBubble extends StatelessWidget {
     this.onRetry,
     this.trailing,
     this.newsLinks = const <ChatNewsLink>[],
+    this.bulleted = false,
   });
 
   final String text;
@@ -3392,6 +3429,13 @@ class _ChatBubble extends StatelessWidget {
   /// Rendered just to the RIGHT of the bubble (the read-aloud speaker).
   final Widget? trailing;
 
+  /// Render `\n`-separated lines as a lead line + bullet list. True only on
+  /// companion bubbles ([ChatMessage.bulleted]): the companion
+  /// server-composes every reply from reviewed per-fact lines, so the split
+  /// recovers the server's own structure. A single-line reply draws exactly
+  /// as before, bullet or not.
+  final bool bulleted;
+
   @override
   Widget build(BuildContext context) {
     const Radius soft = Radius.circular(AppRadii.md);
@@ -3401,17 +3445,18 @@ class _ChatBubble extends StatelessWidget {
     final Color background = failed
         ? OnboardingColors.errorBg
         : (fromWorker
-            ? OnboardingColors.shiftBlue
-            : OnboardingColors.paperWhite);
+              ? OnboardingColors.shiftBlue
+              : OnboardingColors.paperWhite);
     final Color borderColor = failed
         ? OnboardingColors.errorRed
         : (fromWorker
-            ? OnboardingColors.shiftBlue
-            : OnboardingColors.borderDefault);
+              ? OnboardingColors.shiftBlue
+              : OnboardingColors.borderDefault);
     // White on the filled navy bubble; dark ink everywhere else (a failed
     // worker bubble sits on the light error tint, so it keeps dark text).
-    final Color textColor =
-        workerFilled ? OnboardingColors.textOnBlue : OnboardingColors.ink900;
+    final Color textColor = workerFilled
+        ? OnboardingColors.textOnBlue
+        : OnboardingColors.ink900;
 
     final Widget bubble = Container(
       constraints: BoxConstraints(maxWidth: maxWidth),
@@ -3434,7 +3479,7 @@ class _ChatBubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Text(text, style: OnboardingTypography.body(color: textColor)),
+          _bubbleText(text, bulleted && !fromWorker, textColor),
           // INSIDE the bubble's column, so the tiles inherit its width cap and
           // sit visibly under the summary they belong to rather than floating
           // in the transcript as separate bubbles.
@@ -3497,6 +3542,61 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
+/// A bot bubble's text: one paragraph normally, or — when the turn arrived
+/// pre-structured from the server — the first line as the lead with every
+/// following line as a bullet.
+///
+/// The split is on the server's own `\n` joins ONLY (see
+/// [ChatMessage.bulleted]); no sentence is ever re-parsed, reordered or
+/// reworded, and the transcript + TalkBack order stay exactly the reply's
+/// order. A single line draws the plain paragraph, whatever the flag.
+Widget _bubbleText(String text, bool bulleted, Color color) {
+  if (!bulleted) {
+    return Text(text, style: OnboardingTypography.body(color: color));
+  }
+  final List<String> lines = <String>[
+    for (final String line in text.split('\n'))
+      if (line.trim().isNotEmpty) line.trim(),
+  ];
+  if (lines.length < 2) {
+    return Text(text, style: OnboardingTypography.body(color: color));
+  }
+  final TextStyle body = OnboardingTypography.body(color: color);
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: <Widget>[
+      Text(lines.first, style: body),
+      const SizedBox(height: AppSpacing.s1),
+      for (final String line in lines.skip(1)) ...<Widget>[
+        _BulletRow(text: line, style: body),
+        const SizedBox(height: AppSpacing.s1),
+      ],
+    ],
+  );
+}
+
+/// One bulleted fact row: a fixed bullet glyph + the server's line, wrapping
+/// inside the bubble. The glyph is punctuation, never copy — the persona net
+/// has no words to scan here.
+class _BulletRow extends StatelessWidget {
+  const _BulletRow({required this.text, required this.style});
+
+  final String text;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('•  ', style: style),
+        Expanded(child: Text(text, style: style)),
+      ],
+    );
+  }
+}
+
 /// A tap-to-answer chip in the Master UI Kit style: `chipBg` fill with a
 /// `borderDefault` hairline; the press state washes it safety yellow. There is
 /// no persistent "selected" state — the tap sends the answer and the row is
@@ -3527,7 +3627,9 @@ class _AnswerChip extends StatelessWidget {
       color: Colors.transparent,
       child: Ink(
         decoration: BoxDecoration(
-          color: ticked ? OnboardingColors.selectedCardBg : OnboardingColors.chipBg,
+          color: ticked
+              ? OnboardingColors.selectedCardBg
+              : OnboardingColors.chipBg,
           borderRadius: _radius,
           border: ticked
               ? Border.all(color: OnboardingColors.safetyYellow, width: 1.8)
@@ -3566,10 +3668,7 @@ class _AnswerChip extends StatelessWidget {
                       ),
                     ],
                   )
-                : Text(
-                    label,
-                    style: OnboardingTypography.inter(size: 14),
-                  ),
+                : Text(label, style: OnboardingTypography.inter(size: 14)),
           ),
         ),
       ),
@@ -3628,8 +3727,9 @@ class _WrappingPrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool enabled = onPressed != null;
-    final Color ink =
-        enabled ? OnboardingColors.shiftBlue : OnboardingColors.disabledText;
+    final Color ink = enabled
+        ? OnboardingColors.shiftBlue
+        : OnboardingColors.disabledText;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: ElevatedButton(
@@ -3643,12 +3743,14 @@ class _WrappingPrimaryButton extends StatelessWidget {
           ),
           shape: const WidgetStatePropertyAll<OutlinedBorder>(
             RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.all(Radius.circular(OnboardingRadii.button)),
+              borderRadius: BorderRadius.all(
+                Radius.circular(OnboardingRadii.button),
+              ),
             ),
           ),
-          backgroundColor:
-              WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+          backgroundColor: WidgetStateProperty.resolveWith((
+            Set<WidgetState> s,
+          ) {
             if (s.contains(WidgetState.disabled)) {
               return OnboardingColors.disabledBg;
             }
@@ -3876,9 +3978,9 @@ class _EditProposalCardState extends State<_EditProposalCard> {
   bool get _expired => !DateTime.now().isBefore(widget.proposal.expiresAt);
 
   List<String> get _tickedRowIds => <String>[
-        for (final EditProposalRow row in widget.proposal.rows)
-          if (!_unticked.contains(row.rowId)) row.rowId,
-      ];
+    for (final EditProposalRow row in widget.proposal.rows)
+      if (!_unticked.contains(row.rowId)) row.rowId,
+  ];
 
   void _toggle(EditProposalRow row) {
     if (_expired) return;
@@ -3969,8 +4071,9 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                           ),
                           minimumSize: const Size(double.infinity, 48),
                           shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(OnboardingRadii.button),
+                            borderRadius: BorderRadius.circular(
+                              OnboardingRadii.button,
+                            ),
                           ),
                         ),
                         child: Text(
@@ -3990,7 +4093,8 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                         // the server would accept; and more than
                         // [kEditProposalMaxRows] is a body the confirm route
                         // rejects outright (see the getter).
-                        onPressed: (expired ||
+                        onPressed:
+                            (expired ||
                                 ticked.isEmpty ||
                                 ticked.length > kEditProposalMaxRows)
                             ? null
@@ -4119,37 +4223,37 @@ class _EditProposalCardState extends State<_EditProposalCard> {
     String value, {
     bool struckThrough = false,
     Color? tone,
-  }) =>
-      Text.rich(
-        TextSpan(children: <InlineSpan>[
-          TextSpan(
-            text: '$op ',
-            style: OnboardingTypography.inter(
-              size: 13,
-              weight: FontWeight.w700,
-              color: tone ?? OnboardingColors.ink600,
-            ),
+  }) => Text.rich(
+    TextSpan(
+      children: <InlineSpan>[
+        TextSpan(
+          text: '$op ',
+          style: OnboardingTypography.inter(
+            size: 13,
+            weight: FontWeight.w700,
+            color: tone ?? OnboardingColors.ink600,
           ),
-          TextSpan(
-            text: value,
-            style: OnboardingTypography.inter(
-              size: 13,
-              color: OnboardingColors.ink600,
-              decoration:
-                  struckThrough ? TextDecoration.lineThrough : null,
-            ),
+        ),
+        TextSpan(
+          text: value,
+          style: OnboardingTypography.inter(
+            size: 13,
+            color: OnboardingColors.ink600,
+            decoration: struckThrough ? TextDecoration.lineThrough : null,
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 
   Widget _valueText(String value, {bool struckThrough = false}) => Text(
-        value,
-        style: OnboardingTypography.inter(
-          size: 13,
-          color: OnboardingColors.ink600,
-          decoration: struckThrough ? TextDecoration.lineThrough : null,
-        ),
-      );
+    value,
+    style: OnboardingTypography.inter(
+      size: 13,
+      color: OnboardingColors.ink600,
+      decoration: struckThrough ? TextDecoration.lineThrough : null,
+    ),
+  );
 }
 
 /// The card's remaining lifetime, e.g. "8 minute". A relative figure is all the

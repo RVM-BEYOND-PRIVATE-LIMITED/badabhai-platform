@@ -451,3 +451,11 @@ class TradeFormRetryBlock extends StatelessWidget {
     );
   }
 }
+
+/// The option title voice for every option card in the trade-form flow —
+/// questions, preferences, salary bands, credentials and boards: the normal
+/// Inter body voice (not the display card voice) — owner ask, all options.
+TextStyle tradeFormOptionTitleStyle() => OnboardingTypography.inter(
+      size: 15,
+      weight: FontWeight.w700,
+    );

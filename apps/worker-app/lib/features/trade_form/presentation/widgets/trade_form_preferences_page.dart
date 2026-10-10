@@ -568,6 +568,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
                   salaryExpectedMax:
                       _prefs.salaryExpectedMax == e.key ? null : e.key)),
               variant: OnboardingVariant.formFlow,
+              titleStyle: tradeFormOptionTitleStyle(),
             ),
         ],
       ],
@@ -657,6 +658,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
             isSelected: selected.contains(e.key),
             onTap: () => onTap(e.key),
             variant: OnboardingVariant.formFlow,
+            titleStyle: tradeFormOptionTitleStyle(),
           ),
       ],
     );
@@ -677,6 +679,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
             isSelected: selected == e.key,
             onTap: () => onTap(e.key),
             variant: OnboardingVariant.formFlow,
+            titleStyle: tradeFormOptionTitleStyle(),
           ),
       ],
     );

@@ -27,6 +27,7 @@ class ChatMessage extends Equatable {
     this.ttsText,
     this.canReadAloud = true,
     this.newsLinks = const <ChatNewsLink>[],
+    this.bulleted = false,
   });
 
   final String text;
@@ -70,21 +71,40 @@ class ChatMessage extends Equatable {
   /// transcript needs no second list to know which bubble owns which tiles.
   final List<ChatNewsLink> newsLinks;
 
+  /// Render the `\n`-separated lines as a lead line + bullet list instead of
+  /// one paragraph. Set ONLY on companion turns whose lines are
+  /// server-composed reviewed copy (the companion server-composes every such
+  /// reply from per-fact lines and joins them with `\n`), so splitting
+  /// recovers the server's own structure — never a re-parse of prose. A
+  /// model-written turn (`read_aloud: false`, no reviewed twin) and every
+  /// interview turn keep `false`, so model prose is never reformatted by the
+  /// client.
+  final bool bulleted;
+
   ChatMessage copyWith({ChatSendStatus? status}) => ChatMessage(
-        text: text,
-        fromWorker: fromWorker,
-        status: status ?? this.status,
-        // Preserved, never regenerated: a retry (which flips status) must keep
-        // the ORIGINAL id so the re-POST is recognisable as the same submission.
-        submissionId: submissionId,
-        // Preserved: flipping status must not drop the read-aloud script (#896).
-        ttsText: ttsText,
-        // Preserved for the same reason: a status flip must not silently make a
-        // model-written bubble speakable again.
-        canReadAloud: canReadAloud,
-      );
+    text: text,
+    fromWorker: fromWorker,
+    status: status ?? this.status,
+    // Preserved, never regenerated: a retry (which flips status) must keep
+    // the ORIGINAL id so the re-POST is recognisable as the same submission.
+    submissionId: submissionId,
+    // Preserved: flipping status must not drop the read-aloud script (#896).
+    ttsText: ttsText,
+    // Preserved for the same reason: a status flip must not silently make a
+    // model-written bubble speakable again.
+    canReadAloud: canReadAloud,
+    // Preserved: a status flip must not silently un-bullet a recap.
+    bulleted: bulleted,
+  );
 
   @override
-  List<Object?> get props =>
-      <Object?>[text, fromWorker, status, submissionId, ttsText, canReadAloud];
+  List<Object?> get props => <Object?>[
+    text,
+    fromWorker,
+    status,
+    submissionId,
+    ttsText,
+    canReadAloud,
+    bulleted,
+  ];
 }

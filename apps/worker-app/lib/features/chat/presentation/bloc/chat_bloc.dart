@@ -581,8 +581,12 @@ class ChatState extends Equatable {
       gateKind: gateKind ?? this.gateKind,
       generalFormOffer: generalFormOffer ?? this.generalFormOffer,
       // ADR-0046 — TURN-SCOPED: cleared on next turn unless explicitly set.
-      editProposal: clearEditProposal ? null : (editProposal ?? this.editProposal),
-      cooldownUntil: clearCooldownUntil ? null : (cooldownUntil ?? this.cooldownUntil),
+      editProposal: clearEditProposal
+          ? null
+          : (editProposal ?? this.editProposal),
+      cooldownUntil: clearCooldownUntil
+          ? null
+          : (cooldownUntil ?? this.cooldownUntil),
       freeChat: freeChat ?? this.freeChat,
       editNotice: clearEditNotice ? null : (editNotice ?? this.editNotice),
       // STICKY: only a capture replaces it; every other turn passes null.
@@ -592,37 +596,37 @@ class ChatState extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[
-        messages,
-        initializing,
-        sending,
-        followups,
-        suggestedOptions,
-        sessionFailed,
-        extractionReady,
-        unansweredEssentials,
-        lastReplyBlocked,
-        lastReplyMock,
-        progress,
-        questionKind,
-        inputMode,
-        answerType,
-        occupationLabel,
-        lookahead,
-        predictedQuestionKey,
-        askedQuestionKey,
-        formOffer,
-        resumePending,
-        resumeUpdateQueued,
-        companion,
-        companionUnreachable,
-        gateKind,
-        generalFormOffer,
-        editProposal,
-        cooldownUntil,
-        freeChat,
-        editNotice,
-        workerName,
-      ];
+    messages,
+    initializing,
+    sending,
+    followups,
+    suggestedOptions,
+    sessionFailed,
+    extractionReady,
+    unansweredEssentials,
+    lastReplyBlocked,
+    lastReplyMock,
+    progress,
+    questionKind,
+    inputMode,
+    answerType,
+    occupationLabel,
+    lookahead,
+    predictedQuestionKey,
+    askedQuestionKey,
+    formOffer,
+    resumePending,
+    resumeUpdateQueued,
+    companion,
+    companionUnreachable,
+    gateKind,
+    generalFormOffer,
+    editProposal,
+    cooldownUntil,
+    freeChat,
+    editNotice,
+    workerName,
+  ];
 }
 
 // ---------------- Bloc ----------------
@@ -705,11 +709,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     KnownWorkerFactsStore? knownFacts,
     ChatTurnResumeStore? turnResume,
     DateTime Function()? clock,
-  })  : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
-        _knownFacts = knownFacts,
-        _turnResume = turnResume,
-        _clock = clock ?? DateTime.now,
-        super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
+  }) : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
+       _knownFacts = knownFacts,
+       _turnResume = turnResume,
+       _clock = clock ?? DateTime.now,
+       super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
     on<ChatStarted>(_onStarted);
     on<ChatMessageSent>(_onMessageSent);
     on<ChatRetryRequested>(_onRetryRequested);
@@ -798,10 +802,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (!ready || _wrapUpLogged) return;
     _wrapUpLogged = true;
     // #1751 — interview turns only; a companion bubble is not an interview turn.
-    _analytics(BbAnalytics.chatWrapUp(
-      turnCount:
-          state.messages.where((ChatMessage m) => m.fromWorker).length,
-    ));
+    _analytics(
+      BbAnalytics.chatWrapUp(
+        turnCount: state.messages.where((ChatMessage m) => m.fromWorker).length,
+      ),
+    );
   }
 
   /// Emit the per-ask funnel index (#1316) for ONE answered ask in the chat
@@ -818,8 +823,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// Fired only when the answer is actually RECORDED — a delivered send or a
   /// server-merged voice note — so a failed-and-abandoned ask is never counted
   /// and a retry never double-counts (the failed first attempt emitted nothing).
-  void _logAnswerSpoken(int questionIndex) =>
-      _analytics(BbAnalytics.profilingAnswerSpoken(questionIndex: questionIndex));
+  void _logAnswerSpoken(int questionIndex) => _analytics(
+    BbAnalytics.profilingAnswerSpoken(questionIndex: questionIndex),
+  );
 
   /// How many sends are awaiting a reply right now.
   ///
@@ -887,15 +893,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// on purpose: the screen already routes it to the import screen and never
   /// submits it.
   static List<ChatOption> _resumePromptOptions() => const <ChatOption>[
-        ChatOption(
-          optionKey: kResumePromptUploadKey,
-          labelText: kResumePromptUploadLabel,
-        ),
-        ChatOption(
-          optionKey: kResumePromptNoResumeKey,
-          labelText: kResumePromptNoResumeLabel,
-        ),
-      ];
+    ChatOption(
+      optionKey: kResumePromptUploadKey,
+      labelText: kResumePromptUploadLabel,
+    ),
+    ChatOption(
+      optionKey: kResumePromptNoResumeKey,
+      labelText: kResumePromptNoResumeLabel,
+    ),
+  ];
 
   /// The name to reveal once the SERVER's next question [nextQuestionKey] proves
   /// the name steps are done — or null while they are not.
@@ -925,8 +931,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     }
     final String first = _intakeFirstName?.trim() ?? '';
     final String last = _intakeLastName?.trim() ?? '';
-    final String name =
-        <String>[if (first.isNotEmpty) first, if (last.isNotEmpty) last].join(' ');
+    final String name = <String>[
+      if (first.isNotEmpty) first,
+      if (last.isNotEmpty) last,
+    ].join(' ');
     if (name.isEmpty) return null;
     _nameRevealed = true;
     return name;
@@ -973,29 +981,31 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // reordered behind a slow transcript read: this emit is what the existing
     // ordering contract depends on, so it stays a single await deep, exactly as
     // before #502.
-    emit(state.copyWith(
-      initializing: false,
-      sessionFailed: failed,
-      // #1523 — a server opening REPLACES the canned bubbles; without one the
-      // state keeps rendering `kChatOpeningMessage` (canned text + Devanagari
-      // twin), byte-for-byte as before.
-      messages: _withOpener(opening),
-      // A résumé-confirm session is flagged so nothing downstream can mistake it
-      // for the generic canned opener — the worker must never have seen "aap
-      // kaunsa kaam karte hain?" on a resume-routed session.
-      resumePending: opening?.resumePending ?? false,
-      suggestedOptions: opening?.options,
-      followups: openingFollowups,
-      // ADR-0048 — when the chat opens ON an identity question, bubble 0 IS the
-      // question. The screen needs its key to offer the State/City pickers, and
-      // `_maybeSayEmptyImport` needs it to know this open is an intake rather
-      // than a résumé import that yielded nothing.
-      askedQuestionKey: opening?.questionKey,
-      clearAskedQuestionKey: opening?.questionKey == null,
-      // #1750's retry is over once the interview is open: a later refocus is
-      // decided by the interview-tab rule, never by another companion open.
-      companionUnreachable: false,
-    ));
+    emit(
+      state.copyWith(
+        initializing: false,
+        sessionFailed: failed,
+        // #1523 — a server opening REPLACES the canned bubbles; without one the
+        // state keeps rendering `kChatOpeningMessage` (canned text + Devanagari
+        // twin), byte-for-byte as before.
+        messages: _withOpener(opening),
+        // A résumé-confirm session is flagged so nothing downstream can mistake it
+        // for the generic canned opener — the worker must never have seen "aap
+        // kaunsa kaam karte hain?" on a resume-routed session.
+        resumePending: opening?.resumePending ?? false,
+        suggestedOptions: opening?.options,
+        followups: openingFollowups,
+        // ADR-0048 — when the chat opens ON an identity question, bubble 0 IS the
+        // question. The screen needs its key to offer the State/City pickers, and
+        // `_maybeSayEmptyImport` needs it to know this open is an intake rather
+        // than a résumé import that yielded nothing.
+        askedQuestionKey: opening?.questionKey,
+        clearAskedQuestionKey: opening?.questionKey == null,
+        // #1750's retry is over once the interview is open: a later refocus is
+        // decided by the interview-tab rule, never by another companion open.
+        companionUnreachable: false,
+      ),
+    );
 
     if (failed) return;
 
@@ -1033,14 +1043,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       try {
         final String? sessionId = await _repo.latestSessionId();
         if (sessionId == null || sessionId.isEmpty) return;
-        await store.write(ChatTurnResumeState(
-          sessionId: sessionId,
-          options: <({String optionKey, String labelText})>[
-            for (final ChatOption o in options)
-              (optionKey: o.optionKey, labelText: o.labelText),
-          ],
-          freeChat: state.freeChat,
-        ));
+        await store.write(
+          ChatTurnResumeState(
+            sessionId: sessionId,
+            options: <({String optionKey, String labelText})>[
+              for (final ChatOption o in options)
+                (optionKey: o.optionKey, labelText: o.labelText),
+            ],
+            freeChat: state.freeChat,
+          ),
+        );
       } catch (_) {
         // Best-effort by contract: never let bookkeeping break a served turn.
       }
@@ -1081,11 +1093,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       for (final ({String optionKey, String labelText}) o in saved.options)
         ChatOption(optionKey: o.optionKey, labelText: o.labelText),
     ];
-    emit(state.copyWith(
-      suggestedOptions: options,
-      followups: <String>[for (final ChatOption o in options) o.labelText],
-      freeChat: saved.freeChat,
-    ));
+    emit(
+      state.copyWith(
+        suggestedOptions: options,
+        followups: <String>[for (final ChatOption o in options) o.labelText],
+        freeChat: saved.freeChat,
+      ),
+    );
   }
 
   /// The transcript with bubble 0 swapped for the server-served [opener].
@@ -1203,75 +1217,89 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // predicted next turn NOW so a 2G worker does not wait the round trip.
     // ADVISORY ONLY: nothing here is banked as an answer, the [_deliver] below
     // still submits the byte-identical `text`, and the real reply reconciles.
-    final PredictedQuestion? predicted =
-        event.optionKey == null ? null : state.lookahead[event.optionKey];
+    final PredictedQuestion? predicted = event.optionKey == null
+        ? null
+        : state.lookahead[event.optionKey];
 
     if (predicted != null && predicted.questionKey != null) {
-      final ChatAnswerType? predictedAnswerType =
-          ChatAnswerType.parse(predicted.answerType);
-      emit(state.copyWith(
-        messages: <ChatMessage>[
-          ...state.messages,
-          ChatMessage(text: text, fromWorker: true, submissionId: submissionId),
-          // The optimistic bada-bhai bubble — REPLACED by the real reply in
-          // [_deliver]. It is never persisted to history: it lives only in this
-          // in-memory transcript until reconcile.
-          ChatMessage(text: predicted.promptText, fromWorker: false),
-        ],
-        sending: true,
-        followups: predicted.options,
-        // The prediction carries LABELS only (no option objects), so clear the
-        // option list and let the predicted chips render from [followups] — the
-        // label-keyed path, which is correct until the real turn brings its own
-        // `suggested_options`.
-        suggestedOptions: const <ChatOption>[],
-        // Sticky-forward: a null predicted progress keeps the last known bar.
-        progress: predicted.progress,
-        questionKind: predicted.questionKind,
-        // #770 — the composer returns the moment the worker answers, on the
-        // optimistic path too: an options-only turn must never outlive the
-        // question that imposed it, and the predicted turn brings its own mode.
-        inputMode: ChatInputMode.text,
-        // #1559 / #1583 — the predicted turn brings its own answer shape (a
-        // tick row, Haan / Nahi, a number keypad); unknown/absent is today's.
-        answerType: predictedAnswerType,
-        clearAnswerType: predictedAnswerType == null,
-        predictedQuestionKey: predicted.questionKey,
-        // The previous turn's card, if any, belongs to a question already
-        // answered — clear it alongside the other turn-scoped fields (#1340). A
-        // `close`-shaped prediction (the only kind a handover could produce) is
-        // filtered out above by the `predicted.questionKey != null` guard, so
-        // this branch can never itself be predicting a handover card back in.
-        clearFormOffer: true,
-      ));
+      final ChatAnswerType? predictedAnswerType = ChatAnswerType.parse(
+        predicted.answerType,
+      );
+      emit(
+        state.copyWith(
+          messages: <ChatMessage>[
+            ...state.messages,
+            ChatMessage(
+              text: text,
+              fromWorker: true,
+              submissionId: submissionId,
+            ),
+            // The optimistic bada-bhai bubble — REPLACED by the real reply in
+            // [_deliver]. It is never persisted to history: it lives only in this
+            // in-memory transcript until reconcile.
+            ChatMessage(text: predicted.promptText, fromWorker: false),
+          ],
+          sending: true,
+          followups: predicted.options,
+          // The prediction carries LABELS only (no option objects), so clear the
+          // option list and let the predicted chips render from [followups] — the
+          // label-keyed path, which is correct until the real turn brings its own
+          // `suggested_options`.
+          suggestedOptions: const <ChatOption>[],
+          // Sticky-forward: a null predicted progress keeps the last known bar.
+          progress: predicted.progress,
+          questionKind: predicted.questionKind,
+          // #770 — the composer returns the moment the worker answers, on the
+          // optimistic path too: an options-only turn must never outlive the
+          // question that imposed it, and the predicted turn brings its own mode.
+          inputMode: ChatInputMode.text,
+          // #1559 / #1583 — the predicted turn brings its own answer shape (a
+          // tick row, Haan / Nahi, a number keypad); unknown/absent is today's.
+          answerType: predictedAnswerType,
+          clearAnswerType: predictedAnswerType == null,
+          predictedQuestionKey: predicted.questionKey,
+          // The previous turn's card, if any, belongs to a question already
+          // answered — clear it alongside the other turn-scoped fields (#1340). A
+          // `close`-shaped prediction (the only kind a handover could produce) is
+          // filtered out above by the `predicted.questionKey != null` guard, so
+          // this branch can never itself be predicting a handover card back in.
+          clearFormOffer: true,
+        ),
+      );
     } else {
       // No usable prediction → EXACTLY today's behaviour: show the typing
       // indicator and drop the previous turn's chips (they belong to a question
       // already answered).
-      emit(state.copyWith(
-        messages: <ChatMessage>[
-          ...state.messages,
-          ChatMessage(text: text, fromWorker: true, submissionId: submissionId),
-        ],
-        sending: true,
-        followups: const <String>[],
-        // The previous turn's options belong to a question already answered —
-        // drop them alongside the followups (#761).
-        suggestedOptions: const <ChatOption>[],
-        // The previous turn's kind belongs to a question already answered — reset
-        // so a stale disambiguate layout can't outlive its chips (#649).
-        questionKind: ChatQuestionKind.ask,
-        // Same reason (#770): bring the composer back the moment the worker answers.
-        inputMode: ChatInputMode.text,
-        // #1559 / #1583 — the answered question's shape (tick row, Haan / Nahi,
-        // number keypad) goes with it.
-        clearAnswerType: true,
-        // The previous turn's handover card, if any, belongs to a question
-        // already answered — clear it alongside the chips (#1340). In practice a
-        // handover turn also ends the session, so this send is rare, but a stale
-        // card must never survive it.
-        clearFormOffer: true,
-      ));
+      emit(
+        state.copyWith(
+          messages: <ChatMessage>[
+            ...state.messages,
+            ChatMessage(
+              text: text,
+              fromWorker: true,
+              submissionId: submissionId,
+            ),
+          ],
+          sending: true,
+          followups: const <String>[],
+          // The previous turn's options belong to a question already answered —
+          // drop them alongside the followups (#761).
+          suggestedOptions: const <ChatOption>[],
+          // The previous turn's kind belongs to a question already answered — reset
+          // so a stale disambiguate layout can't outlive its chips (#649).
+          questionKind: ChatQuestionKind.ask,
+          // Same reason (#770): bring the composer back the moment the worker answers.
+          inputMode: ChatInputMode.text,
+          // #1559 / #1583 — the answered question's shape (tick row, Haan / Nahi,
+          // number keypad) goes with it.
+          clearAnswerType: true,
+          // The previous turn's handover card, if any, belongs to a question
+          // already answered — clear it alongside the chips (#1340). In practice a
+          // handover turn also ends the session, so this send is rare, but a stale
+          // card must never survive it.
+          clearFormOffer: true,
+        ),
+      );
     }
 
     // #1316 — the 1-based rank of the ask this send answers, captured NOW (both
@@ -1321,15 +1349,17 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // own transcript instead of a question that follows nothing.
         _inFlightSends--;
         _leaveCompanionMode();
-        emit(state.copyWith(
-          messages: _withStatus(state.messages, index, ChatSendStatus.failed),
-          sending: _inFlightSends > 0,
-          companion: false,
-          followups: const <String>[],
-          suggestedOptions: const <ChatOption>[],
-          questionKind: ChatQuestionKind.ask,
-          clearAnswerType: true, // #1559 / #1583 — no question on screen
-        ));
+        emit(
+          state.copyWith(
+            messages: _withStatus(state.messages, index, ChatSendStatus.failed),
+            sending: _inFlightSends > 0,
+            companion: false,
+            followups: const <String>[],
+            suggestedOptions: const <ChatOption>[],
+            questionKind: ChatQuestionKind.ask,
+            clearAnswerType: true, // #1559 / #1583 — no question on screen
+          ),
+        );
         await _onStarted(const ChatStarted(), emit);
         return;
       }
@@ -1354,8 +1384,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // may have appended bubbles. Re-emitting a pre-await snapshot ERASED them
       // from the visible transcript — the worker watched their own answers
       // vanish mid-profiling.
-      final List<ChatMessage> healed =
-          _withStatus(state.messages, index, ChatSendStatus.sent);
+      final List<ChatMessage> healed = _withStatus(
+        state.messages,
+        index,
+        ChatSendStatus.sent,
+      );
       final bool reconciling = state.predictedQuestionKey != null;
       final bool predictionWasRight =
           reconciling && turn.askedQuestionId == state.predictedQuestionKey;
@@ -1404,13 +1437,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // (`askedQuestionKey` null) and the composer stays open so typing still
       // works. Answering the prompt (either chip, or typing) flushes the
       // stashed question. Never on a companion, blocked or closed-session turn.
-      final bool showResumePrompt = revealedName != null &&
+      final bool showResumePrompt =
+          revealedName != null &&
           !_resumePromptShown &&
           !turn.companion &&
           !turn.blocked &&
           !turn.fromClosedSession;
-      final List<ChatOption> resumeOptions =
-          showResumePrompt ? _resumePromptOptions() : const <ChatOption>[];
+      final List<ChatOption> resumeOptions = showResumePrompt
+          ? _resumePromptOptions()
+          : const <ChatOption>[];
       final List<ChatMessage> emittedMessages;
       if (!showResumePrompt) {
         emittedMessages = nextMessages;
@@ -1420,8 +1455,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // Intake serves no lookahead, so there is no optimistic bubble to
         // reconcile; defensively drop one if it ever stands here rather than
         // burying the résumé prompt behind a phantom turn.
-        final List<ChatMessage> base =
-            reconciling ? _removeLastBot(healed) : healed;
+        final List<ChatMessage> base = reconciling
+            ? _removeLastBot(healed)
+            : healed;
         emittedMessages = <ChatMessage>[
           ...base,
           const ChatMessage(text: kResumePromptText, fromWorker: false),
@@ -1432,73 +1468,83 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // the chips, so it must not sit in front of the emit. On the résumé
       // turn that is the prompt's own chips.
       _rememberTurn(showResumePrompt ? resumeOptions : turn.suggestedOptions);
-      emit(_withCompanionTurn(state.copyWith(
-        messages: emittedMessages,
-        sending: _inFlightSends > 0,
-        followups: showResumePrompt
-            ? <String>[for (final ChatOption o in resumeOptions) o.labelText]
-            : turn.followups,
-        // #761 — the option objects for THIS turn (with their stable keys); the
-        // screen renders chips from these when present, else from [followups].
-        suggestedOptions:
-            showResumePrompt ? resumeOptions : turn.suggestedOptions,
-        // A delivered message proves the session is open again.
-        sessionFailed: false,
-        // The engine's interview-completeness decision for this turn (#421).
-        // copyWith LATCHES this, so a later turn cannot un-ready the CTA.
-        extractionReady: turn.extractionReady,
-        // #478 — the named "what's still missing" gaps. TRUST ONLY a non-blocked
-        // turn: a blocked turn degrades `unanswered_essentials` to [] = "unknown"
-        // (not "complete"), so keep the previous known gaps rather than wrongly
-        // declaring the profile finished.
-        unansweredEssentials:
-            turn.blocked ? state.unansweredEssentials : turn.unansweredEssentials,
-        // Turn-scoped honesty cues (see [ChatTurn]).
-        lastReplyBlocked: turn.blocked,
-        lastReplyMock: turn.isMock,
-        // OIE Phase 8 (#649): progress + occupation are sticky-forward (a null on
-        // a blocked turn keeps the last known); questionKind drives the followup
-        // layout for THIS turn (disambiguate → vertical single-select).
-        progress: turn.progress,
-        questionKind: turn.questionKind,
-        // #770 — this turn's composer decision; text on a blocked/older turn, so
-        // the worker is never left without a way to answer.
-        inputMode: turn.inputMode,
-        // #1559 / #1583 — THIS turn's answer shape, or null (today's rendering)
-        // on an ordinary, blocked or older turn. Passed on every turn, so a
-        // later turn without it clears the previous one.
-        answerType: turn.answerType,
-        clearAnswerType: turn.answerType == null,
-        // ADR-0048 — the key this turn is asking, so the screen can offer the
-        // right picker. Passed on EVERY turn, so one that names none clears it.
-        // Hidden while the résumé prompt stands: the next LLM question (state)
-        // is stashed until the prompt is answered.
-        askedQuestionKey: showResumePrompt ? null : turn.askedQuestionId,
-        clearAskedQuestionKey:
-            showResumePrompt ? true : turn.askedQuestionId == null,
-        occupationLabel: turn.occupationLabel,
-        // #761 — the fresh predictions for the NEXT tap; the current one is done.
-        // Empty while the résumé prompt stands: its chips carry no prediction.
-        lookahead: showResumePrompt
-            ? const <String, PredictedQuestion?>{}
-            : turn.lookahead,
-        clearPredictedQuestionKey: true,
-        // #1339/#1340 — THIS turn's handover card, or null on an ordinary turn.
-        // Also carried on a RETRY/REPLAY: a flaky link that lands the retried
-        // POST against the server's cached response gets the same offer back
-        // here, byte-identical, and redraws the same card.
-        formOffer: turn.formOffer,
-        clearFormOffer: turn.formOffer == null,
-        // #1689 — 'queued' only on the terminal turn that settled a "Haan".
-        // Passed on EVERY turn so an ordinary one clears it.
-        resumeUpdateQueued: turn.resumeUpdateQueued,
-        // ADR-0044 — TURN-SCOPED: a companion answer keeps the tab in companion
-        // mode; an interview reply (a 409 fallback) takes it out.
-        companion: turn.companion,
-        // ADR-0048 — the name, on the one reply where the server shows the name
-        // steps are done. Null everywhere else.
-        workerName: revealedName,
-      ), turn));
+      emit(
+        _withCompanionTurn(
+          state.copyWith(
+            messages: emittedMessages,
+            sending: _inFlightSends > 0,
+            followups: showResumePrompt
+                ? <String>[
+                    for (final ChatOption o in resumeOptions) o.labelText,
+                  ]
+                : turn.followups,
+            // #761 — the option objects for THIS turn (with their stable keys); the
+            // screen renders chips from these when present, else from [followups].
+            suggestedOptions: showResumePrompt
+                ? resumeOptions
+                : turn.suggestedOptions,
+            // A delivered message proves the session is open again.
+            sessionFailed: false,
+            // The engine's interview-completeness decision for this turn (#421).
+            // copyWith LATCHES this, so a later turn cannot un-ready the CTA.
+            extractionReady: turn.extractionReady,
+            // #478 — the named "what's still missing" gaps. TRUST ONLY a non-blocked
+            // turn: a blocked turn degrades `unanswered_essentials` to [] = "unknown"
+            // (not "complete"), so keep the previous known gaps rather than wrongly
+            // declaring the profile finished.
+            unansweredEssentials: turn.blocked
+                ? state.unansweredEssentials
+                : turn.unansweredEssentials,
+            // Turn-scoped honesty cues (see [ChatTurn]).
+            lastReplyBlocked: turn.blocked,
+            lastReplyMock: turn.isMock,
+            // OIE Phase 8 (#649): progress + occupation are sticky-forward (a null on
+            // a blocked turn keeps the last known); questionKind drives the followup
+            // layout for THIS turn (disambiguate → vertical single-select).
+            progress: turn.progress,
+            questionKind: turn.questionKind,
+            // #770 — this turn's composer decision; text on a blocked/older turn, so
+            // the worker is never left without a way to answer.
+            inputMode: turn.inputMode,
+            // #1559 / #1583 — THIS turn's answer shape, or null (today's rendering)
+            // on an ordinary, blocked or older turn. Passed on every turn, so a
+            // later turn without it clears the previous one.
+            answerType: turn.answerType,
+            clearAnswerType: turn.answerType == null,
+            // ADR-0048 — the key this turn is asking, so the screen can offer the
+            // right picker. Passed on EVERY turn, so one that names none clears it.
+            // Hidden while the résumé prompt stands: the next LLM question (state)
+            // is stashed until the prompt is answered.
+            askedQuestionKey: showResumePrompt ? null : turn.askedQuestionId,
+            clearAskedQuestionKey: showResumePrompt
+                ? true
+                : turn.askedQuestionId == null,
+            occupationLabel: turn.occupationLabel,
+            // #761 — the fresh predictions for the NEXT tap; the current one is done.
+            // Empty while the résumé prompt stands: its chips carry no prediction.
+            lookahead: showResumePrompt
+                ? const <String, PredictedQuestion?>{}
+                : turn.lookahead,
+            clearPredictedQuestionKey: true,
+            // #1339/#1340 — THIS turn's handover card, or null on an ordinary turn.
+            // Also carried on a RETRY/REPLAY: a flaky link that lands the retried
+            // POST against the server's cached response gets the same offer back
+            // here, byte-identical, and redraws the same card.
+            formOffer: turn.formOffer,
+            clearFormOffer: turn.formOffer == null,
+            // #1689 — 'queued' only on the terminal turn that settled a "Haan".
+            // Passed on EVERY turn so an ordinary one clears it.
+            resumeUpdateQueued: turn.resumeUpdateQueued,
+            // ADR-0044 — TURN-SCOPED: a companion answer keeps the tab in companion
+            // mode; an interview reply (a 409 fallback) takes it out.
+            companion: turn.companion,
+            // ADR-0048 — the name, on the one reply where the server shows the name
+            // steps are done. Null everywhere else.
+            workerName: revealedName,
+          ),
+          turn,
+        ),
+      );
       // ADR-0044 — a companion answer is not an interview ask: it must not feed
       // the per-ask funnel, the wrap-up milestone, the answered-facts store or
       // `asked_question_id`. Everything below is interview bookkeeping.
@@ -1543,22 +1589,26 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // question never actually happened, so drop it (and its chips) rather than
       // leave a phantom turn above the worker's failed answer.
       final bool reconciling = state.predictedQuestionKey != null;
-      final List<ChatMessage> reverted =
-          reconciling ? _removeLastBot(state.messages) : state.messages;
-      emit(state.copyWith(
-        messages: _withStatus(reverted, index, ChatSendStatus.failed),
-        sending: _inFlightSends > 0,
-        followups: reconciling ? const <String>[] : state.followups,
-        // Mirror [followups]: a retracted optimistic turn drops its options too;
-        // a plain failure keeps the current turn's options so the chips remain.
-        suggestedOptions:
-            reconciling ? const <ChatOption>[] : state.suggestedOptions,
-        questionKind: reconciling ? ChatQuestionKind.ask : state.questionKind,
-        // #1559 / #1583 — a retracted optimistic turn takes its predicted answer
-        // shape with it; a plain failure keeps the current turn's.
-        clearAnswerType: reconciling,
-        clearPredictedQuestionKey: true,
-      ));
+      final List<ChatMessage> reverted = reconciling
+          ? _removeLastBot(state.messages)
+          : state.messages;
+      emit(
+        state.copyWith(
+          messages: _withStatus(reverted, index, ChatSendStatus.failed),
+          sending: _inFlightSends > 0,
+          followups: reconciling ? const <String>[] : state.followups,
+          // Mirror [followups]: a retracted optimistic turn drops its options too;
+          // a plain failure keeps the current turn's options so the chips remain.
+          suggestedOptions: reconciling
+              ? const <ChatOption>[]
+              : state.suggestedOptions,
+          questionKind: reconciling ? ChatQuestionKind.ask : state.questionKind,
+          // #1559 / #1583 — a retracted optimistic turn takes its predicted answer
+          // shape with it; a plain failure keeps the current turn's.
+          clearAnswerType: reconciling,
+          clearPredictedQuestionKey: true,
+        ),
+      );
     }
   }
 
@@ -1587,8 +1637,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// worker said), so the interview's #1316 indices are offset past them, and the
   /// interview bookkeeping is reset exactly as [_onSessionRestarted] resets it.
   void _leaveCompanionMode() {
-    _companionBubbleOffset =
-        state.messages.where((ChatMessage m) => m.fromWorker).length;
+    _companionBubbleOffset = state.messages
+        .where((ChatMessage m) => m.fromWorker)
+        .length;
     _wrapUpLogged = false;
     _askedQuestionId = null;
     _companionDigestKey = null;
@@ -1640,14 +1691,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         .where((ChatOption o) => o.optionKey == key)
         .map((ChatOption o) => o.labelText)
         .toSet();
-    emit(state.copyWith(
-      suggestedOptions: options,
-      // The chip may also be riding the plain followup list (an older turn shape
-      // serves labels only), so the same label goes with it.
-      followups: state.followups
-          .where((String f) => !droppedLabels.contains(f))
-          .toList(growable: false),
-    ));
+    emit(
+      state.copyWith(
+        suggestedOptions: options,
+        // The chip may also be riding the plain followup list (an older turn shape
+        // serves labels only), so the same label goes with it.
+        followups: state.followups
+            .where((String f) => !droppedLabels.contains(f))
+            .toList(growable: false),
+      ),
+    );
     await _onCompanionRefreshRequested(
       const ChatCompanionRefreshRequested(force: true),
       emit,
@@ -1673,11 +1726,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // as "this worker is interviewing" for the next six or seven hours. So the
     // tab says so and offers a retry; `ChatCompanionRefreshRequested` re-reads.
     if (result.isUnreachable) {
-      emit(state.copyWith(
-        initializing: false,
-        companion: false,
-        companionUnreachable: true,
-      ));
+      emit(
+        state.copyWith(
+          initializing: false,
+          companion: false,
+          companionUnreachable: true,
+        ),
+      );
       return;
     }
     final ChatTurn? opening = result.turn;
@@ -1692,26 +1747,35 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // The recap REPLACES the canned interview question in bubble 0: a finished
     // worker is not asked "aap kaun sa kaam karte hain?". Rebuilt from `state`
     // at emit time (#344), though the composer is not shown while initializing.
-    emit(_withCompanionTurn(state.copyWith(
-      initializing: false,
-      sessionFailed: false,
-      companion: true,
-      companionUnreachable: false,
+    emit(
+      _withCompanionTurn(
+        state.copyWith(
+          initializing: false,
+          sessionFailed: false,
+          companion: true,
+          companionUnreachable: false,
       messages: <ChatMessage>[
         ChatMessage(
           text: opening.reply,
           fromWorker: false,
           ttsText: opening.ttsText,
           canReadAloud: opening.readAloud != false,
+          // Reviewed server-composed lines → bullets; a model-written turn
+          // (`read_aloud: false`) stays verbatim prose.
+          bulleted: opening.readAloud != false,
         ),
         ...state.messages.skip(1),
       ],
-      followups: opening.followups,
-      suggestedOptions: opening.suggestedOptions,
-      questionKind: opening.questionKind,
-      inputMode: ChatInputMode.text,
-      clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
-    ), opening));
+          followups: opening.followups,
+          suggestedOptions: opening.suggestedOptions,
+          questionKind: opening.questionKind,
+          inputMode: ChatInputMode.text,
+          clearAnswerType:
+              true, // #1559 / #1583 — the recap serves no pack item
+        ),
+        opening,
+      ),
+    );
   }
 
   /// ADR-0044 — see [ChatCompanionRefreshRequested].
@@ -1753,8 +1817,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String? key = fresh.digestKey;
     if (key == null || key == _companionDigestKey) return;
     _companionDigestKey = key;
-    emit(_withCompanionTurn(
-      state.copyWith(
+    emit(
+      _withCompanionTurn(
+        state.copyWith(
         messages: <ChatMessage>[
           ...state.messages,
           ChatMessage(
@@ -1762,16 +1827,21 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             fromWorker: false,
             ttsText: fresh.ttsText,
             canReadAloud: fresh.readAloud != false,
+            // Reviewed server-composed lines → bullets; a model-written turn
+            // (`read_aloud: false`) stays verbatim prose.
+            bulleted: fresh.readAloud != false,
           ),
         ],
-        followups: fresh.followups,
-        suggestedOptions: fresh.suggestedOptions,
-        questionKind: fresh.questionKind,
-        inputMode: ChatInputMode.text,
-        clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
+          followups: fresh.followups,
+          suggestedOptions: fresh.suggestedOptions,
+          questionKind: fresh.questionKind,
+          inputMode: ChatInputMode.text,
+          clearAnswerType:
+              true, // #1559 / #1583 — the recap serves no pack item
+        ),
+        fresh,
       ),
-      fresh,
-    ));
+    );
   }
 
   /// Whether a refocus read is due, recording it when it is: at most one per
@@ -1837,24 +1907,29 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // A FRESH state, not a copy: the interview's latches (the ready CTA, the
     // progress bar, the trade label) belong to the interview, and the recap
     // stands alone, as it does when the tab opens on it (ADR-0044 R4).
-    emit(_withCompanionTurn(
-      ChatState(
+    emit(
+      _withCompanionTurn(
+        ChatState(
         messages: <ChatMessage>[
           ChatMessage(
             text: recap.reply,
             fromWorker: false,
             ttsText: recap.ttsText,
             canReadAloud: recap.readAloud != false,
+            // Reviewed server-composed lines → bullets; a model-written turn
+            // (`read_aloud: false`) stays verbatim prose.
+            bulleted: recap.readAloud != false,
           ),
         ],
-        initializing: false,
-        followups: recap.followups,
-        suggestedOptions: recap.suggestedOptions,
-        questionKind: recap.questionKind,
-        companion: true,
+          initializing: false,
+          followups: recap.followups,
+          suggestedOptions: recap.suggestedOptions,
+          questionKind: recap.questionKind,
+          companion: true,
+        ),
+        recap,
       ),
-      recap,
-    ));
+    );
   }
 
   /// Whether a refocus may move this interview tab to the recap: nothing here is
@@ -1957,24 +2032,31 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _flushStashedResumeTurn(emit);
 
     // Optimistically un-fail it while the retry is in flight.
-    emit(state.copyWith(
-      messages: _withStatus(state.messages, index, ChatSendStatus.sent),
-      sending: true,
-      followups: const <String>[],
-      suggestedOptions: const <ChatOption>[], // #761 — drop with the followups
-      questionKind: ChatQuestionKind.ask, // #649 — drop a stale disambiguate
-      inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
-      clearFormOffer: true, // #1340 — drop a stale card while the retry is in flight
-      clearAnswerType: true, // #1559 / #1583 — the reply brings its own shape
-    ));
+    emit(
+      state.copyWith(
+        messages: _withStatus(state.messages, index, ChatSendStatus.sent),
+        sending: true,
+        followups: const <String>[],
+        suggestedOptions:
+            const <ChatOption>[], // #761 — drop with the followups
+        questionKind: ChatQuestionKind.ask, // #649 — drop a stale disambiguate
+        inputMode:
+            ChatInputMode.text, // #770 — bring the composer back on retry
+        clearFormOffer:
+            true, // #1340 — drop a stale card while the retry is in flight
+        clearAnswerType: true, // #1559 / #1583 — the reply brings its own shape
+      ),
+    );
 
     // #1316 — the ask this bubble answers, by its rank among worker bubbles UP TO
     // AND INCLUDING position [index]. Later worker bubbles do not shift it, so a
     // retry emits the SAME index the original send would have had once it lands.
-    final int askIndex = _interviewIndex(state.messages
-        .take(index + 1)
-        .where((ChatMessage m) => m.fromWorker)
-        .length);
+    final int askIndex = _interviewIndex(
+      state.messages
+          .take(index + 1)
+          .where((ChatMessage m) => m.fromWorker)
+          .length,
+    );
 
     // #870 — re-send the ORIGINAL id minted for this bubble on the first send, so
     // the server sees a retry (same submission) rather than a fresh answer. The
@@ -2025,15 +2107,19 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     emit(const ChatState(messages: <ChatMessage>[kChatOpeningMessage]));
     try {
       final ChatSessionOpening? opening = await _repo.startNewSession();
-      emit(state.copyWith(
-        initializing: false,
-        messages: _withOpener(opening),
-        resumePending: opening?.resumePending ?? false,
-        suggestedOptions: opening?.options,
-        followups: opening == null
-            ? null
-            : <String>[for (final ChatOption o in opening.options) o.labelText],
-      ));
+      emit(
+        state.copyWith(
+          initializing: false,
+          messages: _withOpener(opening),
+          resumePending: opening?.resumePending ?? false,
+          suggestedOptions: opening?.options,
+          followups: opening == null
+              ? null
+              : <String>[
+                  for (final ChatOption o in opening.options) o.labelText,
+                ],
+        ),
+      );
     } on Failure {
       // The transcript is already reset; surface the failed open with the same
       // banner an ordinary open failure uses, so the worker can retry by typing.
@@ -2058,34 +2144,36 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _captureNameAnswer(state.askedQuestionKey, event.transcript);
     // The voice pipeline returns only the reply text (no followups), so clear
     // any stale chips from the previous typed turn.
-    emit(state.copyWith(
-      messages: <ChatMessage>[
-        ...state.messages,
-        ChatMessage(text: event.transcript, fromWorker: true),
-        ChatMessage(text: event.reply, fromWorker: false),
-      ],
-      // A voice merge must not clear a TYPED send's indicator that is still
-      // awaiting its reply (#344) — only report idle when nothing is in flight.
-      sending: _inFlightSends > 0,
-      followups: const <String>[],
-      // The voice pipeline returns no options — clear with the followups (#761).
-      suggestedOptions: const <ChatOption>[],
-      // A voice answer is never a disambiguation turn — reset the layout (#649).
-      questionKind: ChatQuestionKind.ask,
-      // A voice merge returns no chips, so the worker must be able to type the
-      // next turn — never leave them on an options-only lock (#770).
-      inputMode: ChatInputMode.text,
-      // The voice turn went through the SAME chat endpoint, so it carries the
-      // same readiness decision (#421).
-      extractionReady: event.extractionReady,
-      // #1340 — the voice pipeline's merge event carries no `form_offer` (it
-      // predates #1339 and the handover flow is text-only today), so a stale
-      // card from a previous typed turn must not survive a voice answer.
-      clearFormOffer: true,
-      // #1559 / #1583 — the merge carries no answer_type either: the answered
-      // question's tick row / Haan-Nahi / keypad must not outlive it.
-      clearAnswerType: true,
-    ));
+    emit(
+      state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(text: event.transcript, fromWorker: true),
+          ChatMessage(text: event.reply, fromWorker: false),
+        ],
+        // A voice merge must not clear a TYPED send's indicator that is still
+        // awaiting its reply (#344) — only report idle when nothing is in flight.
+        sending: _inFlightSends > 0,
+        followups: const <String>[],
+        // The voice pipeline returns no options — clear with the followups (#761).
+        suggestedOptions: const <ChatOption>[],
+        // A voice answer is never a disambiguation turn — reset the layout (#649).
+        questionKind: ChatQuestionKind.ask,
+        // A voice merge returns no chips, so the worker must be able to type the
+        // next turn — never leave them on an options-only lock (#770).
+        inputMode: ChatInputMode.text,
+        // The voice turn went through the SAME chat endpoint, so it carries the
+        // same readiness decision (#421).
+        extractionReady: event.extractionReady,
+        // #1340 — the voice pipeline's merge event carries no `form_offer` (it
+        // predates #1339 and the handover flow is text-only today), so a stale
+        // card from a previous typed turn must not survive a voice answer.
+        clearFormOffer: true,
+        // #1559 / #1583 — the merge carries no answer_type either: the answered
+        // question's tick row / Haan-Nahi / keypad must not outlive it.
+        clearAnswerType: true,
+      ),
+    );
     // #1316 — a voice answer is an answered ask too: the transcript was already
     // sent server-side and is merged (recorded) here, so emit its per-ask index
     // like a delivered typed send. Rank = worker bubbles after the merge above,
@@ -2121,43 +2209,47 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (stashed == null) {
       // Cold-start restore: the prompt's chips were redrawn without their
       // stashed question (it already lives in the history). Just clear.
-      emit(state.copyWith(
-        messages: <ChatMessage>[
-          ...state.messages,
-          ChatMessage(text: label, fromWorker: true),
-        ],
-        followups: const <String>[],
-        suggestedOptions: const <ChatOption>[],
-        questionKind: ChatQuestionKind.ask,
-        inputMode: ChatInputMode.text,
-        clearAnswerType: true,
-      ));
+      emit(
+        state.copyWith(
+          messages: <ChatMessage>[
+            ...state.messages,
+            ChatMessage(text: label, fromWorker: true),
+          ],
+          followups: const <String>[],
+          suggestedOptions: const <ChatOption>[],
+          questionKind: ChatQuestionKind.ask,
+          inputMode: ChatInputMode.text,
+          clearAnswerType: true,
+        ),
+      );
       _rememberTurn(const <ChatOption>[]);
       return;
     }
-    emit(state.copyWith(
-      messages: <ChatMessage>[
-        ...state.messages,
-        ChatMessage(text: label, fromWorker: true),
-        ChatMessage(
-          text: stashed.reply,
-          fromWorker: false,
-          ttsText: stashed.ttsText,
-          canReadAloud: stashed.readAloud != false,
-        ),
-      ],
-      followups: stashed.followups,
-      suggestedOptions: stashed.suggestedOptions,
-      questionKind: stashed.questionKind,
-      inputMode: stashed.inputMode,
-      answerType: stashed.answerType,
-      clearAnswerType: stashed.answerType == null,
-      askedQuestionKey: stashed.askedQuestionId,
-      clearAskedQuestionKey: stashed.askedQuestionId == null,
-      lookahead: stashed.lookahead,
-      progress: stashed.progress,
-      occupationLabel: stashed.occupationLabel,
-    ));
+    emit(
+      state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(text: label, fromWorker: true),
+          ChatMessage(
+            text: stashed.reply,
+            fromWorker: false,
+            ttsText: stashed.ttsText,
+            canReadAloud: stashed.readAloud != false,
+          ),
+        ],
+        followups: stashed.followups,
+        suggestedOptions: stashed.suggestedOptions,
+        questionKind: stashed.questionKind,
+        inputMode: stashed.inputMode,
+        answerType: stashed.answerType,
+        clearAnswerType: stashed.answerType == null,
+        askedQuestionKey: stashed.askedQuestionId,
+        clearAskedQuestionKey: stashed.askedQuestionId == null,
+        lookahead: stashed.lookahead,
+        progress: stashed.progress,
+        occupationLabel: stashed.occupationLabel,
+      ),
+    );
     _askedQuestionId = stashed.askedQuestionId;
     _rememberTurn(stashed.suggestedOptions);
   }
@@ -2172,33 +2264,35 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (stashed == null) return;
     _stashedPostResumeTurn = null;
     _resumePromptShown = true;
-    emit(state.copyWith(
-      messages: <ChatMessage>[
-        ...state.messages,
-        ChatMessage(
-          text: stashed.reply,
-          fromWorker: false,
-          ttsText: stashed.ttsText,
-          canReadAloud: stashed.readAloud != false,
-        ),
-      ],
-      followups: stashed.followups,
-      suggestedOptions: stashed.suggestedOptions,
-      questionKind: stashed.questionKind,
-      inputMode: stashed.inputMode,
-      answerType: stashed.answerType,
-      clearAnswerType: stashed.answerType == null,
-      askedQuestionKey: stashed.askedQuestionId,
-      clearAskedQuestionKey: stashed.askedQuestionId == null,
-      lookahead: stashed.lookahead,
-      progress: stashed.progress,
-      occupationLabel: stashed.occupationLabel,
-    ));
+    emit(
+      state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(
+            text: stashed.reply,
+            fromWorker: false,
+            ttsText: stashed.ttsText,
+            canReadAloud: stashed.readAloud != false,
+          ),
+        ],
+        followups: stashed.followups,
+        suggestedOptions: stashed.suggestedOptions,
+        questionKind: stashed.questionKind,
+        inputMode: stashed.inputMode,
+        answerType: stashed.answerType,
+        clearAnswerType: stashed.answerType == null,
+        askedQuestionKey: stashed.askedQuestionId,
+        clearAskedQuestionKey: stashed.askedQuestionId == null,
+        lookahead: stashed.lookahead,
+        progress: stashed.progress,
+        occupationLabel: stashed.occupationLabel,
+      ),
+    );
     _askedQuestionId = stashed.askedQuestionId;
     _rememberTurn(stashed.suggestedOptions);
   }
 
-/// ADR-0046 §5.2 — the worker tapped Haan: apply the ticked rows.
+  /// ADR-0046 §5.2 — the worker tapped Haan: apply the ticked rows.
   ///
   /// The card's rows are the ONLY source of the row ids, so a card that has
   /// already been replaced/cleared (or a turn that left companion mode) is a
@@ -2226,10 +2320,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // wrong, with its REAL reason. Silence here reads as a dead button, and
       // re-tapping Haan is the safe retry, so the worker needs to know to.
       _inFlightSends--;
-      emit(state.copyWith(
-        sending: _inFlightSends > 0,
-        editNotice: failureReason(failure).reason,
-      ));
+      emit(
+        state.copyWith(
+          sending: _inFlightSends > 0,
+          editNotice: failureReason(failure).reason,
+        ),
+      );
     }
   }
 
@@ -2252,10 +2348,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // Nahi failed: the proposal is untouched and still live, so the card stays
       // and the worker is told why nothing happened.
       _inFlightSends--;
-      emit(state.copyWith(
-        sending: _inFlightSends > 0,
-        editNotice: failureReason(failure).reason,
-      ));
+      emit(
+        state.copyWith(
+          sending: _inFlightSends > 0,
+          editNotice: failureReason(failure).reason,
+        ),
+      );
     }
   }
 
@@ -2296,11 +2394,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // by an unrelated 404. The forced refresh below cannot restore it
         // either, because `cooldown_until` is sent only on the turn that starts
         // the wait.
-        emit(state.copyWith(
-          sending: _inFlightSends > 0,
-          clearEditProposal: true,
-          editNotice: kCompanionEditGoneNotice,
-        ));
+        emit(
+          state.copyWith(
+            sending: _inFlightSends > 0,
+            clearEditProposal: true,
+            editNotice: kCompanionEditGoneNotice,
+          ),
+        );
         await _onCompanionRefreshRequested(
           const ChatCompanionRefreshRequested(force: true),
           emit,
@@ -2311,12 +2411,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // worker — leave companion mode and open the interview, exactly as a
         // 409 on a message send does.
         _leaveCompanionMode();
-        emit(state.copyWith(
-          sending: _inFlightSends > 0,
-          companion: false,
-          clearEditProposal: true,
-          clearCooldownUntil: true,
-        ));
+        emit(
+          state.copyWith(
+            sending: _inFlightSends > 0,
+            companion: false,
+            clearEditProposal: true,
+            clearCooldownUntil: true,
+          ),
+        );
         await _onStarted(const ChatStarted(), emit);
         return;
     }
@@ -2347,9 +2449,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// one always replaces it.
   ChatState _withCompanionTurn(ChatState next, ChatTurn turn) {
     final DateTime? carried = next.cooldownUntil;
-    final bool keepCarried =
-        carried != null && carried.isAfter(_clock());
-    final DateTime? cooldown = turn.cooldownUntil ?? (keepCarried ? carried : null);
+    final bool keepCarried = carried != null && carried.isAfter(_clock());
+    final DateTime? cooldown =
+        turn.cooldownUntil ?? (keepCarried ? carried : null);
     return next.copyWith(
       editProposal: turn.editProposal,
       clearEditProposal: turn.editProposal == null,
@@ -2361,10 +2463,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   void _applyCompanionTurn(ChatTurn turn, Emitter<ChatState> emit) {
-    emit(_withCompanionTurn(
-      state.copyWith(
-        messages: <ChatMessage>[
-          ...state.messages,
+    emit(
+      _withCompanionTurn(
+        state.copyWith(
+          messages: <ChatMessage>[
+            ...state.messages,
           ChatMessage(
             text: turn.reply,
             fromWorker: false,
@@ -2373,24 +2476,28 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             // without the guard, so a model-written confirm/cancel reply gained
             // a speaker button the other four paths correctly withhold.
             canReadAloud: turn.readAloud != false,
+            // Reviewed server-composed lines → bullets; a model-written turn
+            // (`read_aloud: false`) stays verbatim prose.
+            bulleted: turn.readAloud != false,
           ),
-        ],
-        sending: _inFlightSends > 0,
-        companion: true,
-        followups: turn.followups,
-        suggestedOptions: turn.suggestedOptions,
-        questionKind: turn.questionKind,
-        inputMode: turn.inputMode,
-        answerType: turn.answerType,
-        clearAnswerType: turn.answerType == null,
+          ],
+          sending: _inFlightSends > 0,
+          companion: true,
+          followups: turn.followups,
+          suggestedOptions: turn.suggestedOptions,
+          questionKind: turn.questionKind,
+          inputMode: turn.inputMode,
+          answerType: turn.answerType,
+          clearAnswerType: turn.answerType == null,
+        ),
+        // A confirm/cancel turn USUALLY carries no card, and then the one just
+        // applied is cleared. But when NOTHING could be written the server
+        // answers 200 with the FALLBACK turn CARRYING THE SAME card (contracts
+        // §5.2), so `_withCompanionTurn` re-shows it and the worker can tap Haan
+        // again — which is why this is projected like every other turn field
+        // rather than assumed null here.
+        turn,
       ),
-      // A confirm/cancel turn USUALLY carries no card, and then the one just
-      // applied is cleared. But when NOTHING could be written the server
-      // answers 200 with the FALLBACK turn CARRYING THE SAME card (contracts
-      // §5.2), so `_withCompanionTurn` re-shows it and the worker can tap Haan
-      // again — which is why this is projected like every other turn field
-      // rather than assumed null here.
-      turn,
-    ));
+    );
   }
 }

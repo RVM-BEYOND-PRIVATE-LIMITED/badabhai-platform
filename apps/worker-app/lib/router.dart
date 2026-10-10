@@ -588,6 +588,7 @@ GoRouter _buildRouter() {
           return TradeFormScreen(
             sectionKey: args.sectionKey,
             upgradeView: args.upgradeView,
+            fromStart: args.fromStart,
           );
         },
       ),
@@ -608,6 +609,7 @@ GoRouter _buildRouter() {
             state: extra.state,
             entry: extra.entry,
             sectionKey: extra.sectionKey,
+            fromStart: extra.fromStart,
           );
         },
       ),
