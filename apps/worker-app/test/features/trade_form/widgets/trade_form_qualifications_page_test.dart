@@ -57,7 +57,7 @@ void main() {
 
   testWidgets('the single screen holds both sections — never a blank',
       (WidgetTester tester) async {
-    final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
+    await pump(tester);
 
     expect(key.currentState!.pageCount, 1);
     expect(key.currentState!.isLastPage, isTrue);

@@ -12,11 +12,11 @@ The Payer/Agency API is the NestJS backend (`apps/api`) that powers the self-ser
 
 ### Base URL
 
-| Environment | Base URL | Notes |
-| --- | --- | --- |
-| Local dev | `http://localhost:3001` | Backend default. Configurable via the backend's `PAYER_API_URL` (default `http://localhost:3001`). |
-| Staging | (deployment-specific host) | Use HTTPS. CORS allow-list applies to browser/WebView clients; native HTTP clients send no `Origin` and are unaffected. |
-| Prod | (deployment-specific host) | HTTPS only. `JWT_SECRET` must be overridden (fail-closed at boot). |
+| Environment | Base URL                   | Notes                                                                                                                   |
+| ----------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Local dev   | `http://localhost:3001`    | Backend default. Configurable via the backend's `PAYER_API_URL` (default `http://localhost:3001`).                      |
+| Staging     | (deployment-specific host) | Use HTTPS. CORS allow-list applies to browser/WebView clients; native HTTP clients send no `Origin` and are unaffected. |
+| Prod        | (deployment-specific host) | HTTPS only. `JWT_SECRET` must be overridden (fail-closed at boot).                                                      |
 
 Pointing the app at an environment: make the base URL a build-config/flavor value (e.g. `BuildConfig.API_BASE_URL`). Do not hardcode. All payer/agency routes are under the `/payer/*` prefix (plus agency `/payer/agency/*`). Do **not** call the ops-only surfaces `/job-postings`, `/reach`, or `/unlocks` (those are internal/ops, not payer-authed).
 
@@ -78,10 +78,11 @@ The email code is **REAL-ONLY** (ZeptoMail/SMTP). There is no mock code returned
 
 ### 2.6 BIG CALLOUT — is current payer auth cookie-only? NO (verified)
 
-The web portal uses an httpOnly cookie, which can make it *look* cookie-only. **It is not.** The backend `POST /payer/login/verify` returns the token in the response **body**, and `PayerAuthGuard` accepts a plain `Authorization: Bearer` header (verified: `apps/api/src/payers/payer-auth.guard.ts` extracts only the `Authorization: Bearer` header). **Mobile is fully supported today with Bearer tokens — no backend change is required for the core auth flow.**
+The web portal uses an httpOnly cookie, which can make it _look_ cookie-only. **It is not.** The backend `POST /payer/login/verify` returns the token in the response **body**, and `PayerAuthGuard` accepts a plain `Authorization: Bearer` header (verified: `apps/api/src/payers/payer-auth.guard.ts` extracts only the `Authorization: Bearer` header). **Mobile is fully supported today with Bearer tokens — no backend change is required for the core auth flow.**
 
 Caveats the Android dev must still honor:
-- The backend does **not** read any `x-session-token` *request* header — there is no separate refresh-token grant. The refresh model is "call `/payer/refresh` with your current Bearer, get a new Bearer in the body." If a future spec assumes an `x-session-token` request header, that is a gap that does not exist in the backend today.
+
+- The backend does **not** read any `x-session-token` _request_ header — there is no separate refresh-token grant. The refresh model is "call `/payer/refresh` with your current Bearer, get a new Bearer in the body." If a future spec assumes an `x-session-token` request header, that is a gap that does not exist in the backend today.
 - There is **no** org-member (owner vs recruiter) auth model — see §5. Each payer account is a single principal.
 
 ### 2.7 `is_new_payer` — VERIFIED CORRECTION
@@ -130,19 +131,19 @@ Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_pla
 
 ### 3.3 Status codes
 
-| Code | Meaning | Mobile action |
-| --- | --- | --- |
-| 200 | Success (most GET/PATCH; auth verify/refresh) | — |
-| 201 | Created (POST creates: postings, jobs, credits, capacity, invites) | — |
-| 204 | No Content (logout) | clear token |
-| 400 | Zod validation failure / bad lifecycle transition (e.g. closed job edit) | fix request; show field error from `error.message` |
-| 401 | Missing/invalid/expired Bearer | refresh once, retry; else re-login |
-| 403 | Role mismatch: an employer on an agent-only `/payer/agency/*` route, or an agent on a company-posting write (`/payer/job-postings` writes, chat publish — #1885). Body: `error.message` = `"Payer role is not permitted for this resource"` | check role; route agents to `/payer/agency/jobs` |
-| 403 | Org tenancy refused (ADR-0053 R3–R7; only with `PAYER_ORG_TENANCY_MODE=on`, which production runs only once the owner arms it, O-8): the caller's organization could not be resolved — e.g. in two teams, the org or its owner suspended, a role mismatch, or (ops routes) a `payer_id` that names no payer. Body: `error.message` = `"Not permitted for this organization"`, no reason given. On the plan / boost / quota-top-up routes and `GET`/`POST /payer/capacity` it is returned before any plan, boost or capacity row is read or written, and nothing is charged (on `POST /payer/capacity` a sent `Idempotency-Key` is reserved first, so a retry replays the `403`) | contact support; not retryable |
-| 404 | Unknown **or** not-owned resource (no-oracle) | treat as generic "not found" |
-| 409 | Conflict. On a purchase route the body carries `error.reason` (§3.2): `price_mismatch`, `in_flight`, `no_active_plan` (quota top-up). Other 409s (lifecycle, an active boost) carry no `reason` | branch on `error.reason`; no reason → generic conflict |
-| 429 | Rate limit exceeded (fail-closed) | back off; show neutral "try again later" |
-| 500 | Server error | retry with backoff; surface `requestId` |
+| Code | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Mobile action                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 200  | Success (most GET/PATCH; auth verify/refresh)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | —                                                      |
+| 201  | Created (POST creates: postings, jobs, credits, capacity, invites)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | —                                                      |
+| 204  | No Content (logout)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | clear token                                            |
+| 400  | Zod validation failure / bad lifecycle transition (e.g. closed job edit)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | fix request; show field error from `error.message`     |
+| 401  | Missing/invalid/expired Bearer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | refresh once, retry; else re-login                     |
+| 403  | Role mismatch: an employer on an agent-only `/payer/agency/*` route, or an agent on a company-posting write (`/payer/job-postings` writes, chat publish — #1885). Body: `error.message` = `"Payer role is not permitted for this resource"`                                                                                                                                                                                                                                                                                                                                                                                                                                     | check role; route agents to `/payer/agency/jobs`       |
+| 403  | Org tenancy refused (ADR-0053 R3–R7; only with `PAYER_ORG_TENANCY_MODE=on`, which production runs only once the owner arms it, O-8): the caller's organization could not be resolved — e.g. in two teams, the org or its owner suspended, a role mismatch, or (ops routes) a `payer_id` that names no payer. Body: `error.message` = `"Not permitted for this organization"`, no reason given. On the plan / boost / quota-top-up routes and `GET`/`POST /payer/capacity` it is returned before any plan, boost or capacity row is read or written, and nothing is charged (on `POST /payer/capacity` a sent `Idempotency-Key` is reserved first, so a retry replays the `403`) | contact support; not retryable                         |
+| 404  | Unknown **or** not-owned resource (no-oracle)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | treat as generic "not found"                           |
+| 409  | Conflict. On a purchase route the body carries `error.reason` (§3.2): `price_mismatch`, `in_flight`, `no_active_plan` (quota top-up). Other 409s (lifecycle, an active boost) carry no `reason`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | branch on `error.reason`; no reason → generic conflict |
+| 429  | Rate limit exceeded (fail-closed)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | back off; show neutral "try again later"               |
+| 500  | Server error                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | retry with backoff; surface `requestId`                |
 
 ### 3.4 No-oracle / neutral responses (privacy by design)
 
@@ -159,14 +160,14 @@ Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_pla
 
 ### 3.6 Rate limits (all fail-closed; Redis down ⇒ reject)
 
-| Scope | Default | Applies to |
-| --- | --- | --- |
-| Per-IP / hour (public auth) | `PAYER_AUTH_MAX_PER_IP_PER_HOUR` ≈ 20 | signup, login/request, login/verify |
-| Per-payer disclosure / hour | `PAYER_DISCLOSURE_MAX_PER_HOUR` (default 30) | `POST /payer/unlocks` + reveal (shared cap) |
-| Per-payer reach / hour | `PAYER_REACH_MAX_PER_HOUR` (default 60) | applicant feed reads + `GET /payer/reach/applicants` pages (one shared bucket) |
-| Per-payer invite-mint / hour | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60) | agency invite mint |
-| Per-payer applicant-stage writes / hour | `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600) | `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` (its own bucket — never the reach read budget) |
-| Global OTP sends / day | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends |
+| Scope                                   | Default                                                                | Applies to                                                                                               |
+| --------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Per-IP / hour (public auth)             | `PAYER_AUTH_MAX_PER_IP_PER_HOUR` ≈ 20                                  | signup, login/request, login/verify                                                                      |
+| Per-payer disclosure / hour             | `PAYER_DISCLOSURE_MAX_PER_HOUR` (default 30)                           | `POST /payer/unlocks` + reveal (shared cap)                                                              |
+| Per-payer reach / hour                  | `PAYER_REACH_MAX_PER_HOUR` (default 60)                                | applicant feed reads + `GET /payer/reach/applicants` pages (one shared bucket)                           |
+| Per-payer invite-mint / hour            | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60)                         | agency invite mint                                                                                       |
+| Per-payer applicant-stage writes / hour | `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600)                     | `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` (its own bucket — never the reach read budget) |
+| Global OTP sends / day                  | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends                                                                                  |
 
 Per-worker protection caps also gate unlocks server-side (`UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY` default 5, `UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK` default 10, `UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` default 3) — these surface to you only as a neutral `unavailable`. The per-payer disclosure cap is **shared** across unlock + reveal + resume-disclosure.
 
@@ -181,6 +182,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 ### 4.1 Auth / Identity
 
 #### `POST /payer/signup`
+
 - **Auth:** none (public, IP rate-limited).
 - **Body:** `{ role: 'employer'|'agent', email: string (≤254), org_name: string (1–200), phone?: E.164 }`.
 - **Response:** `{ status: 'code_sent', resend_in_seconds: number }` (identical for new/known/unknown — no enumeration).
@@ -188,6 +190,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** Code is emailed, never returned. `org_name`/`email`/`phone` are PII — sent in the request but never echoed/eventized. 429 = IP cap.
 
 #### `POST /payer/login/request`
+
 - **Auth:** none (public, IP rate-limited).
 - **Body:** `{ email: string }`.
 - **Response:** `{ status: 'code_sent', resend_in_seconds: number }`.
@@ -195,6 +198,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** No enumeration — unknown emails get the identical timing/response. Code is emailed only.
 
 #### `POST /payer/login/verify`
+
 - **Auth:** none (public, IP rate-limited).
 - **Body:** `{ email: string, code: string (4–8 digits) }`.
 - **Response:** `{ access_token, token_type: 'Bearer', expires_in_seconds, payer_id (UUID), role: 'employer'|'agent', is_new_payer (always false) }`.
@@ -202,6 +206,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** Token is in the **body**, not `Set-Cookie`. Failure = single neutral `401`. **`is_new_payer` is always `false` — do not branch on it** (verified correction). Single-use code (deleted on success).
 
 #### `POST /payer/refresh`
+
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Body:** empty.
 - **Response:** `{ access_token, token_type: 'Bearer', expires_in_seconds }`.
@@ -209,12 +214,14 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** Use the body `access_token`; ignore the `x-session-token` response header. New token carries the resolved role.
 
 #### `POST /payer/logout`
+
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Body:** empty.
 - **Response:** `204 No Content`.
 - **Mobile gotchas:** Revokes Redis session (best-effort). Clear local token after.
 
 #### `GET /payer/me`
+
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Response:** `{ id: UUID, role: 'employer'|'agent', status: 'pending'|'active'|'suspended', orgName: string, email: string, phoneLast4: string|null, orgId: UUID|null, orgRole: 'owner'|'recruiter'|null, postingOrgName: string|null }`.
 - **Org role (#2079, additive):** `orgId`/`orgRole` are the caller's CURRENT active org membership, read from `payer_members` on every call (never from the token). `null` = no active membership → treat as least privilege (`recruiter`). This is the authoritative read for UI owner affordances; the server enforces owner-only routes itself.
@@ -223,6 +230,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** Self-scoped only. Phone is masked to last 4 (`phoneLast4`); raw E.164 never returned. `Cache-Control: no-store` — do not cache.
 
 #### `PATCH /payer/me`
+
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Body:** `{ orgName?: string (2–120 graphemes), phone?: E.164 }` — at least one field; `.strict()` rejects unknown keys and any `email`/`role`/`status`/`payer_id`.
 - **Response:** same shape as `GET /payer/me` (including `postingOrgName`: an org founder who renames their org gets the new name back, and their teammates read it on their next `GET`).
@@ -236,6 +244,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 > **Employer-only writes (#1885, owner ruling 2026-10-01).** Agencies post agency jobs to `/payer/agency/jobs` (§4.6), never company postings. Every WRITE here — `POST /payer/job-postings`, `PATCH /payer/job-postings/:id` (edit + publish), `POST …/:id/close`, `…/pause`, `…/resume`, `…/plan`, `…/boost`, `…/quota-topup` — and the AI chat `POST /payer/job-posting-chat/sessions/:id/publish` require `PayerRoleGuard` role=`employer`. An `agent` session gets `403` with the same body an employer gets on an agent-only route (`"Payer role is not permitted for this resource"`); the role check runs before validation and ownership, so the refusal is the same for any posting id. The READS (`GET /payer/job-postings`, `GET /payer/job-postings/:id`) stay open to both roles: a `job_postings` row an agent account created before the ruling is **read-only** for it (list/detail, and applicants via `/payer/reach`), and every write on it is refused. No rows were changed. The `/job-postings` (no `/payer`) routes are **OPS-ONLY, unauthenticated alpha** — do **not** call them from mobile (see appendix).
 
 #### `POST /payer/job-postings`
+
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer` (Bearer); session-scoped. Agent → `403`.
 - **Body:** `{ org_label: string, role_title: string (1–200, screened), location_label?: string, description?: string (1–2000, screened), vacancy_band?: '1'|'2-5'|'6-10'|'11-25'|'25+' | vacancies?: positive int, city?: string (1–80, screened as a place), area?: string (1–120, screened as a place), pay_min?: int, pay_max?: int, pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int, max_experience_years?: int, shift?: 'day'|'night'|'rotational', needed_by?: 'immediate'|'soon'|'flexible', benefits?: string[] (≤12 × ≤80 chars, screened), requirements?: string[] (same caps), role_kind?: RoleKind, match_skill_ids?: 'mskill_*'[], unticked_related_ids?: 'mskill_*'[] }` — **exactly one** of `vacancy_band` / `vacancies`. No `payer_id`/`created_by` (session-stamped).
 - **Response:** the full posting row — **snake_case on the wire** (`JobPostingApi`), including `city`, `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`, `role_kind`, `match_skill_ids`, `reach_skill_ids`, `unticked_related_ids`, `status: 'draft'`, `created_at`, `updated_at`, `closed_at: null`. (This line used to list camelCase keys; the API has always returned snake_case here.)
@@ -267,16 +276,19 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
   - **Deploy note:** an API older than migration 0131 strips this key silently (Zod), so clients must not ship a role picker ahead of the API.
 
 #### `GET /payer/job-postings`
+
 - **Auth:** `PayerAuthGuard` (Bearer). Any role. Scoped to the caller's own rows; for an agent those all predate #1885 and are read-only.
 - **Query:** `status?: 'draft'|'open'|'closed'`.
 - **Response:** array of posting rows (own only), newest-first, limit 100.
 - **Mobile gotchas:** Rows include `orgLabel`/`description` at REST; do not display raw company labels you didn't collect — treat as faceless. No applicant count in this projection.
 
 #### `GET /payer/job-postings/:id`
+
 - **Auth:** `PayerAuthGuard` (Bearer). Any role.
 - **Response:** posting row, or neutral `404` (unknown OR not-owned).
 
 #### `PATCH /payer/job-postings/:id`
+
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer` (Bearer). Agent → `403`.
 - **Body:** every field `POST` accepts (see above), all optional, plus `status?: 'open'` — at least one field; `status` may only be `'open'` (publish draft→open). No `org_label`/`payer_id`.
 - **Response:** updated posting row.
@@ -292,6 +304,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** Lifecycle: `draft→open` publish only; `closed` is terminal (editing a closed posting → `400`/conflict). No-op edits rejected. Closing is a **separate** endpoint.
 
 #### `POST /payer/job-postings/:id/close`
+
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer` (Bearer). Agent → `403`.
 - **Body:** empty.
 - **Response:** posting row with `status: 'closed'`, `closedAt` set. `404` unknown/foreign; `409` already closed.
@@ -303,12 +316,14 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 > **Capacity** is fully payer-authed and live. **Plans/Boosts** are **NOT mobile-ready** (unauthenticated, IDOR — see appendix).
 
 #### `GET /payer/capacity`
+
 - **Auth:** `PayerAuthGuard` (Bearer). `payer_id` from session.
 - **Response:** `{ payer_id, max_active_vacancies: int, active_plan_count: int (REAL, from enforcement engine), source_tier: string|null, expires_at: ISO8601|null }`.
 - **Mobile gotchas:** `active_plan_count` is the live count. Enforcement is **INERT by default** (`CAPACITY_ENFORCEMENT_ENABLED=false`) — over-cap does not pause anything in Phase 1. Use this endpoint as the source of truth for the capacity banner.
 - **Org tenancy (PAY-DB-01 P2c, inert while `PAYER_ORG_TENANCY_MODE=off`):** with the mode `on`, the allowance and `active_plan_count` are the **org's** (one allowance per team, its plans counted whichever member bought them); `payer_id` still echoes the caller. Shapes unchanged. A caller whose org cannot be resolved gets the neutral `403` `"Not permitted for this organization"` (§3.2 table) on both capacity routes, before any capacity read or charge.
 
 #### `POST /payer/capacity`
+
 - **Auth:** `PayerAuthGuard` (Bearer). `payer_id` from session.
 - **Headers:** `Idempotency-Key?: string` (#1148) — see [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** `{ tier: string (1–64), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }` — **no** `payer_id`, **no** price/amount (XT5: send the tier **code** only; server resolves price). `expected_price_inr` (#2085) is a guard, never charged — see [Price confirmation](#price-confirmation-expected_price_inr).
@@ -318,6 +333,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** **MOCK payment** (`PAYMENTS_ENABLE_REAL=false`; `real_call:false`) — no real money in Phase 1. `quote` is informational; don't echo it as an authoritative charge. `resumed_plan_ids` tells you how many paused plans were auto-resumed. Atomic per-payer (advisory-locked); concurrent buys serialize. `201`.
 
 #### `POST /payer/job-postings/:id/plan` · `POST /payer/job-postings/:id/boost`
+
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).
 - **Headers:** `Idempotency-Key?: string` (#2103) — the same seam, scope rules, window and replay semantics as `POST /payer/capacity` / `…/quota-topup`; scopes `plan_purchase` and `boost_purchase` (separate — one key on plan and boost is two purchases). See [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** plan `{ tier: 'standard'|'pro', coupon?, expected_price_inr? }` · boost `{ tier: 'boost_7'|'boost_15'|'boost_30'|'all_candidates', coupon?, expected_price_inr? }`.
@@ -326,6 +342,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Org tenancy (PAY-DB-01 P2c, inert while `PAYER_ORG_TENANCY_MODE=off`):** with the mode `on`, a teammate may buy a plan / boost / quota top-up on any of the org's postings; the receipt is the org's (`payerId` = the org owner's id), counted against the org's capacity, and a coupon's per-payer limit is per org. Ownership is checked and the purchase made in one tenant resolution. Same routes, bodies and error model (`in_flight` / `no_active_plan` / `price_mismatch`), plus the neutral `403` `"Not permitted for this organization"` (§3.2 table) when the caller's org cannot be resolved — returned before ownership, the idempotency reservation or any charge. The ops `POST /job-postings/:id/plan` and `/boost` (`InternalServiceGuard`) resolve their body `payer_id` the same way: in `on`, an id that names no payer, or one the resolver refuses, gets that `403` and nothing is written.
 
 #### `POST /payer/job-postings/:id/quota-topup`
+
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).
 - **Headers:** `Idempotency-Key?: string` (#2085) — the same seam, scope rules, window and replay semantics as `POST /payer/capacity`; scope `quota_topup_purchase`. See [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** `{ tier: string (1–64, e.g. 'topup_10'), coupon?: string (1–64), expected_price_inr?: int (0–10,000,000) }`. No `payer_id`.
@@ -337,10 +354,13 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
   - `price_mismatch` — see [Price confirmation](#price-confirmation-expected_price_inr).
 
   The messages are unchanged from before #2111; `reason` is additive. A client on a pre-#2111 API sees no `reason` and must keep its message fallback until it drops support for that build.
+
 - `201`. **MOCK payment** (`real_call:false`).
 
 #### Purchase idempotency (`Idempotency-Key`)
+
 Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`.
+
 - **Optional.** No header (or a blank one) → the request runs exactly as before; nothing is reserved.
 - Mint **one key per confirmed purchase** and reuse it only for retries of that purchase. A new purchase (a renewal, a second top-up) needs a new key.
 - Keys are scoped per route **and** per session payer, and honoured for **180 s**.
@@ -351,7 +371,9 @@ Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings
 - If Redis is unavailable the request runs undeduplicated (fail open at this one step; all money paths stay fail-closed).
 
 #### Price confirmation (`expected_price_inr`)
+
 Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `POST /payer/capacity`, `POST /payer/credits`, `POST /payer/credits/order` (#2085).
+
 - **Optional** integer, whole rupees, `0–10,000,000`. A non-integer, negative or string value is a `400`. Absent → behaviour unchanged.
 - It is compared to the **final** price the purchase would be charged at that moment — after the active offer and any valid `coupon`. It is never used as the charge.
 - Mismatch → `409`, **nothing charged**: no entitlement row, no ledger row, no provider order, no `payment.*` event. The wire body (the global filter nests the thrown body under `error` — §3.2; read `error.reason`, `error.current_price_inr`):
@@ -375,6 +397,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - Send the `price_inr` from `GET /payer/pricing/catalog` for that tier. With a coupon, the catalog price is pre-coupon, so expect a `409` unless you send the post-coupon amount.
 
 #### `GET /payer/pricing/catalog`
+
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Response:** `{ revision: int, source: 'db'|'default', products: Product[], prices: PayerTierPrice[], priced_at: ISO8601 }`. `products` is unchanged since D-6. `prices` + `priced_at` are additive (#2085):
   `PayerTierPrice = { product_code, tier_code, base_price_inr: int, price_inr: int, discount_inr: int, offer: { code: string, ends_at: ISO8601 } | null }`.
@@ -384,6 +407,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Events:** none (read-only).
 
 #### Pricing (read-only, ops-intent, unauthenticated)
+
 - `GET /pricing/catalog` → `{ catalog, revision, source: 'db'|'default' }`.
 - `GET /pricing/quote?product=&tier=&coupon=&payer_id=` → **VERIFIED CORRECTION:** the failure shape is `{ ok: false, reason: 'unavailable' }` (an enum `reason`, **not** a free-form `error` string); success is `{ ok: true, quote }`. The `payer_id` query param is accepted but **unused** by the quote path (coupon caps are enforced at purchase, not preview).
 - `PUT /pricing/catalog` is an ops-only write — not for mobile.
@@ -394,10 +418,12 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 > ✅ **VERIFIED 2026-06-29** against `apps/api/src/.../payer-unlocks.controller.ts` + `payer-disclosure.controller.ts` (the payer-self surface — `PayerAuthGuard`, `@CurrentPayer`, session `payer_id`; distinct from the ops `unlocks.controller.ts` which uses `InternalServiceGuard` + body `payer_id`). The only path to a worker's contact. Faceless: you get a **routed relay handle**, never a raw phone.
 
 #### `GET /payer/credits`
+
 - **Auth:** `PayerAuthGuard` (Bearer) only — any authenticated payer, any `org_role` (owner ruling 2026-10-07). With org tenancy `off` (production today) the balance is the **caller's own** `payer_id` wallet. With it `on` (PAY-DB-01; the code is complete since P3, arming is owner action O-8) it is the **org wallet** — the founder's — for every member (ADR-0053 O-1), and `payer_id` still echoes the caller. Shape unchanged.
 - **Response:** `{ payer_id, balance: number (≥0) }`.
 
 #### `POST /payer/credits`
+
 - **Auth:** `PayerAuthGuard` (Bearer) only — **any authenticated payer may buy credits**, whatever their `org_role` (`owner` or `recruiter`) and with or without an active org membership (owner ruling 2026-10-07; matches ADR-0027 D3). The same applies to `POST /payer/credits/order` and `POST /payer/credits/verify` (real-payments routes). This reverses the owner-only gate #2098 added for #2079 (removed by #2109): there is no org-role `403` on any credit route.
 - **Headers:** `Idempotency-Key?: string` (#1046) — see [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
@@ -406,6 +432,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Mobile gotchas:** **MOCK money** (`real_call:false`). Unknown pack → `404`. `201`.
 
 #### `GET /payer/unlocks`
+
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Query:** none (corrected 2026-10-06 — the route never read a `limit`). Newest first, capped at 500 rows.
 - **Response:** `{ unlocks: [{ unlock_id, payer_id, worker_id|null, job_id|null, job_posting_id|null, status: 'granted'|'revealed'|'expired'|'revoked', reveal_count, granted_at, expires_at, created_at }] }`.
@@ -414,6 +441,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Mobile gotchas:** PII-free routing records only — opaque IDs, no names/phones. `worker_id` is `null` after a worker's DSAR deletion.
 
 #### `POST /payer/unlocks`
+
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly disclosure cap.
 - **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context and must be `null` or a job / posting the **session payer owns** (#1899): an owned `jobs` id (agency vacancy) is stored; an owned company posting's id is accepted, stored as `job_id: null` (#1903) and kept as `job_posting_id` (#2033, migration 0132; row-only — no event carries it). An unknown or another payer's id gets the neutral `200 { status: 'unavailable' }` body — byte-identical to every other deny — with nothing emitted, debited or written. A malformed id is a `400` (syntax only).
 - **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases).
@@ -421,6 +449,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
 
 #### `POST /payer/unlocks/:unlockId/reveal`
+
 - **Auth:** `PayerAuthGuard` (Bearer). Shares the disclosure cap.
 - **Body:** empty.
 - **Response:** SUCCESS `{ relay_handle: string (opaque), channel: 'in_app_relay'|'proxy_number', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`).
@@ -428,6 +457,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Mobile gotchas:** **Never a raw phone** — `relay_handle` is an opaque routed in-app handle (`relay_<unlockId>_<uuid>`, ADR-0010 Stream A), not derived from the number. Ownership checked server-side; not-owned/expired/capped → neutral `unavailable`. Render the handle in the in-app relay UI; do not log it.
 
 #### `POST /payer/resume-disclosures` (masked résumé — VERIFIED LIVE)
+
 - **Auth:** `PayerAuthGuard` (Bearer). Shares the per-payer disclosure cap. **Free — no credit debit.**
 - **Body:** `{ worker_id: UUID, job_posting_id: UUID|null }` — no `payer_id`. `job_posting_id` is the context the résumé was opened from and must be `null` or a posting / job the **session payer owns** (#1899): an owned company posting is stored; an owned agency `jobs` id (from the agency applicants page) is accepted and **stored as `null`** (#1898, the #1903 approach) — the disclosure still succeeds and `GET` lists it with `posting_id: null`. An unknown or another payer's id gets the neutral body — byte-identical to every other deny — with nothing written or emitted. A malformed id is a `400` (syntax only).
 - **Response:** SUCCESS `{ ok: true, disclosure_id: UUID, status: 'disclosed', resume_url: string (short-TTL signed), expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`).
@@ -435,12 +465,14 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Mobile gotchas:** The worker's real name is decrypted server-side at render-time, masked to **initials** in the PDF, then discarded — you only ever get a signed `resume_url` to a masked PDF. **Render the URL short-lived; never log it.** payer-web currently still mocks this; the backend is live (safe to integrate, verify in staging).
 
 #### `GET /payer/resume-disclosures` (VERIFIED LIVE)
+
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Response:** `{ disclosures: [{ disclosure_id, worker_id, posting_id|null, status, expires_at, … }] }` — PII-free projection (no `resume_url`, no name, no deny reason).
 
 ### 4.5 Applicant Feed (Faceless Reach)
 
 #### `GET /payer/reach/jobs/:jobId/applicants`
+
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly reach cap (default 60), checked before any read. `jobId` must be a `jobs` row or a `job_postings` row the session payer owns.
 - **Request:** path `jobId` (UUID); no query/body; **no pagination**.
 - **Source selection** (`PayerApplicantsService.listForOwned`, #1823/#1898; first owner-scoped hit wins; **independent of `MATCH_V1_ENABLED`**):
@@ -483,6 +515,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   - Safe to cache client-side briefly (≤1h, information-only), but ranks/scores may shift — don't serve stale long.
 
 #### `GET /payer/reach/applicants` — every applicant across the payer's own postings (Candidates tab)
+
 - **Auth:** `PayerAuthGuard` (Bearer), either role. The **same** per-payer hourly reach bucket as the per-posting list (`payer_reach`, `PAYER_REACH_MAX_PER_HOUR`, default 60): **one unit per page**, checked before any read, shared with `GET /payer/reach/jobs/:jobId/applicants` (not a second budget). Fails closed: Redis down → the same `429`.
 - **Scope:** every worker who **applied** to a posting the **session** payer owns — agency `jobs` rows (`jobs.payer_id`) and company `job_postings` (`job_postings.payer_id`), the same two ownership rules the per-posting list resolves an id with, all statuses. `payer_id` comes from the session only; the query has no slot for one.
 - **Query** (all optional; any other key, including `payer_id`, is a `400` — and so is `stage` while `PAYER_APPLICANT_STAGES_ENABLED` is off):
@@ -492,10 +525,13 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   - `stage` — `new` | `shortlist` | `passed` (owner ruling 2026-10-07). **Only while `PAYER_APPLICANT_STAGES_ENABLED` is on**; off, `?stage=` is the same `400` it always was (never a filter that silently does nothing). Keeps only applicants in that stage of the saved board; `new` matches an applicant nobody has moved **and** one moved back to New. Composes with `postingId` and with paging: the filter narrows the same order without changing it, so pages under a filter never skip or repeat a row. A cursor is a position, not a filter — when you change `stage`, start again from the first page (no cursor). An applicant moved between two of your page reads is shown or skipped by the stage he holds when his page is read, never twice.
 - **Order:** newest application first — `applications.created_at DESC`, then `applications.id DESC` as the tiebreak (a total order, so pages never skip or repeat a row). Keyset pagination; the cursor is opaque base64url of `{ v: 1, t: <created_at, microsecond UTC>, id: <application id> }`.
 - **Response:**
+
   ```
   { applicants: [ <row> ], nextCursor: string | null }   // null = last page
   ```
+
   Each `<row>` is **exactly** the row `GET /payer/reach/jobs/:jobId/applicants` returns for that applicant (same code builds both, same values), **plus** `posting`:
+
   ```
   // agency job applicant — the legacy weighted row
   { workerId, rank, score, hot, pushEligible, components, experienceBand, tradeLabel, cityLabel,
@@ -505,9 +541,11 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
     lastWorkedAt, matchedSkillLabel, engineVersion,
     posting: { id, title, kind: 'company_posting' } }
   ```
+
   - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
   - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows.
   - `stage` — present on every row **only while `PAYER_APPLICANT_STAGES_ENABLED` is on**: the same value the per-posting route shows for him on that posting (a worker's two rows have two independent stages, one per posting). Absent while off.
+
 - **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.
 - **Faceless:** the rows carry exactly the per-posting projection — opaque ids, banded chips and rank inputs; no name, phone, employer or contact. Identity is still bought through `/payer/unlocks`.
 - **Events:** the per-posting posture, row for row: each **agency** row on the page emits the same `feed.shown` the per-job list emits for it (actor `payer`, payload `worker_id`/`job_id`/`rank`/`score`/`hot`, one all-or-nothing batch); **company** rows emit nothing. A company-only page is therefore rate-limited but not durably audited (the per-posting list's existing residual).
@@ -515,7 +553,9 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Mobile/web gotchas:** FREE (no credit debit). Pass `nextCursor` back verbatim; never build one. New applications arriving mid-scroll appear on the next first page, not mid-list. An agent account's older company postings are included, as on the per-posting route.
 
 #### `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` — move an applicant on the pipeline board
+
 Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved server-side (it survives a reload and every session with access to the posting sees the same board). **Behind `PAYER_APPLICANT_STAGES_ENABLED` (default off): while off this route is a neutral `404` for every caller** (after the `401` for no session) and the feeds carry no `stage`.
+
 - **Auth:** `PayerAuthGuard` (Bearer), either role. No role gate: like the feed it annotates, the board is governed by **posting ownership** alone — an agent's agency job and an employer's company posting alike. Own per-payer hourly bucket (`payer_applicant_stage`, `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`, default 600), one unit per request (a no-op and a `404` count too), charged before any read; fails closed (Redis down → the same `429`).
 - **Path:** `jobId` — the id `GET /payer/reach/jobs/:jobId/applicants` takes: an agency `jobs` id **or** a company `job_postings` id; the server resolves which, exactly as the feed does (jobs first). `workerId` — the row's `workerId`. Both UUIDs (malformed → `400`).
 - **Body:** `{ "stage": "new" | "shortlist" | "passed" }` — strict; any other key (`payer_id`, a note, a posting kind) is a `400`. `new` moves the applicant back to New.
@@ -538,6 +578,7 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 > **Org tenancy (ADR-0053, `PAYER_ORG_TENANCY_MODE`; production `off` until the owner arms it).** With it `on`, every agency route works on the agency ORG, not the login: a recruiter's job or invite is owned by the org; every member reads the same jobs, referrals summary and referred-worker list (the same `ref` handles). No request or response shape changes; with it `off` each login is its own agency, as before.
 
 #### `POST /payer/agency/jobs`
+
 - **Body:** `{ trade_key: enum, title: string (1–200, screened), city: string (1–120, screened as a place), area?: string (1–120, screened as a place), pay_min?: int (0–10M), pay_max?: int (0–10M, ≥pay_min), pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int (0–60), max_experience_years?: int (0–60, ≥min_exp), needed_by?: 'immediate'|'soon'|'flexible', description?: string (1–2000, screened), shift?: 'day'|'night'|'rotational', benefits?: string[] (≤12 × ≤80, screened), requirements?: string[] (same caps), role_kind?: RoleKind, match_skill_ids?: 'mskill_*'[] (1–50) }` — `RoleKind` is the same 21-value enum as on `/payer/job-postings`.
 - **Response:** `AgencyJobView { id, status: 'open', tradeKey, title, city, area, payMin, payMax, payType, minExperienceYears, maxExperienceYears, neededBy, description, shift, benefits, requirements, roleKind, matchSkillIds, applicantsReceived, createdAt, updatedAt }`.
 - **Events:** `job.created` (PII-free: opaque IDs + coarse bands + `role_kind`, the closed enum value or `null`).
@@ -549,12 +590,15 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **`match_skill_ids` (#1983, ADR-0050 §6.1 step 2) — the job's explicit match input.** The closed `mskill_*` ids the agent picked (the same vocabulary as `GET /payer/match/skills` and the posting form). It feeds only the job's ADR-0050 V1 twin, and it is never inferred from `trade_key`. It is **optional**: omitted stores `[]` (`matchSkillIds: []`, "not chosen yet"). Validation is the **posting form's own**: an id outside the closed set → `400 "unknown match skill id(s): …"`; more than `match_config.max_skills_per_posting` (3 at launch) → `400 "a posting may name at most N skills (got M)"`; `[]` or `null` → `400` (to unset it, use `clear` on PATCH). Duplicates are de-duplicated. `job.created` does **not** carry it (v1 unchanged).
 
 #### `GET /payer/agency/jobs`
+
 - **Response:** `AgencyJobView[]`, newest-first. No pagination.
 
 #### `GET /payer/agency/jobs/:jobId`
+
 - **Response:** `AgencyJobView`, or neutral `404` (unknown/not-owned).
 
 #### `PATCH /payer/agency/jobs/:jobId`
+
 - **Body:** any subset of the create fields (≥1 required), plus `clear?: string[]`. Ordering re-validated against the **result** row (handles one-sided edits).
 - **#1652 — `clear: [...]` unsets a field.** Clearable here: `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `needed_by`, `description`, `shift`, `benefits`, `requirements`, `role_kind` (0131), `match_skill_ids` (#1983).
   - **`match_skill_ids` edits (#1983):** when present the set **replaces** the stored pick. It is compared order-free, so re-sending the same skills in another order is no change. Omitted leaves it unchanged. `{ "clear": ["match_skill_ids"] }` resets it to `[]` (never `null`; the column is `NOT NULL`). A changed set is validated exactly as on create and reported as `changed_fields: ["match_skills"]` (the key only, never the ids).
@@ -565,29 +609,35 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **Mobile gotchas:** Editing a **closed** job → `400` (terminal). Status is not edited here (use close/pause).
 
 #### `POST /payer/agency/jobs/:jobId/close`
+
 - **Body:** empty. **Response:** `AgencyJobView` `status: 'closed'`. `400` if already closed; neutral `404` unknown/not-owned.
 - **Events:** `job.closed`. Terminal — no reopen.
 
 #### `POST /payer/agency/jobs/:jobId/pause`
+
 - **Body:** empty. **Response:** `AgencyJobView` `status: 'closed'`.
 - **Events:** `job.updated` (`changed_fields: ['status']` — a serving-state toggle, distinct from terminal close).
 - **Mobile gotchas:** **Phase-1 reality: pause == close** (the schema has only `open|closed`; there is no `paused` state and **no resume**). The reach feed stops serving a closed job. Do not build a resume affordance against this endpoint.
 
 #### `POST /payer/agency/invites`
+
 - **Body:** `{ campaign?: string (1–64, non-PII tag) }` — **no** phone/name/email/worker-id (faceless).
 - **Response:** `{ agency_invite_id: UUID, code: string (opaque, ~12 hex), link: '/i/<code>' }`.
 - **Events:** `agency_invite.created` (channel `whatsapp`, optional campaign).
 - **Mobile gotchas:** Per-payer hourly mint cap; `429` on cap OR Redis fail-closed (neutral, no reason). The agency shares the `link` manually — **there is no real WhatsApp send** (mock provider; `MESSAGING_ENABLE_REAL=false`). `201`.
 
 #### `GET /payer/agency/referrals/summary`
+
 - **Response:** `{ created: int, clicked: int, accepted: int, minBucket: int }`.
 - **Mobile gotchas:** Aggregate-only, no per-invitee rows. Any count `0` may mean "below `minBucket`" — render as `<minBucket` (default `<5`). Worker attribution is **not yet wired** (see appendix), so `accepted` will stay low/zero in Phase 1.
 
 #### `POST /payer/agency/invites/:code/click` — **NOT a primary mobile call (STUB)**
+
 - **Auth:** agency-scoped stub. **Response:** **VERIFIED CORRECTION:** `{ ok: true }` always (even for unknown code — no-oracle), **not** `{ code, status, clicked_at }`.
 - **Mobile gotchas:** Local funnel metric only; does not attribute a worker. The real invitee click is the public `POST /invites/:code/click` (worker funnel), not this. You generally do not need to call this from the agency app.
 
 #### `PUT /ops/agency-jobs/:jobId/match-skills` — **OPS ONLY, not a payer/mobile route** (#1983)
+
 - **Auth:** `InternalServiceGuard` **and** `AdminAuthGuard`, both required (the `POST /job-postings/:id/reach/widen` precedent). The recorded actor is the authenticated admin, never a body field.
 - **Body:** `{ match_skill_ids: 'mskill_*'[] (0–50) }` (`.strict()`). This is the full desired set; `[]` resets it to "not chosen yet".
 - **Response:** `{ job_id, match_skill_ids, changed: boolean }`. An unchanged set (in any order) returns `changed: false` with no write and no event.
@@ -596,6 +646,7 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **Why:** ADR-0050 §6.3 step (c) requires ops to set match skills on the live agency jobs before the V1 flip.
 
 #### `GET /admin/agency-jobs` and `GET|PUT /admin/agency-jobs/:jobId/match-skills` — **Admin Portal** (#2144)
+
 - **Auth:** `AdminAuthGuard` plus the dedicated `manage_agency_match_skills` capability. The capability is currently `super_admin` only. These routes do not require `InternalServiceGuard`.
 - **Read response:** `{ job_id, payer_id, title, city, status, match_skill_ids, updated_at }`; `GET /admin/agency-jobs` returns the newest agency jobs, bounded by `limit` (1–100, default 50). Unknown or non-agency ids return the neutral `404 "Job not found"`.
 - **Write body/response:** the same strict `{ match_skill_ids: string[] }` body and `{ job_id, match_skill_ids, changed }` response as the internal ops route. Validation uses the same closed vocabulary and runtime cap as payer/agency forms.
@@ -604,6 +655,7 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 
 #### `GET /admin/job-postings/:id`
+
 - **Auth:** `AdminAuthGuard` + capability `read_entities`. Never called by the payer app.
 - **Response (`AdminJobPostingDetail`, snake_case):** the list fields plus `description`, `shift`, `needed_by`, `boosted_until`, `previous_status`, `applied_count`, `skipped_count`, `updated_at`, and — **added 2026-09-29** — `area`, `min_experience_years`, `max_experience_years`, `pay_type`, `requirements`, `benefits`, `role_kind`. Every one is a nullable, PII-free card field the owning payer already reads back; `role_kind` is returned **raw** (the admin UI labels it with `jobRoleLabel()` and shows the raw id when it is not one of the 21). Explicit column select — never a bare `select()`.
 - **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders` — and, **added 2026-10-07 (#2106)**, on every `top_balances[]` row of `GET /admin/finance/summary` (`{ payer_id, payer_role, balance }`). It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null` — on `top_balances` too since the admin-web pass-through (#2138), which also treats an absent `payer_role` as `null`.
@@ -612,23 +664,23 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 
 ## 5. Role Model
 
-| Concept | Value | Meaning |
-| --- | --- | --- |
-| Account role | `employer` | Company / direct hirer. Uses `/payer/job-postings/*`, capacity, unlocks, reach, credits. |
-| Account role | `agent` | Agency. Posts agency jobs via `/payer/agency/*` (agency jobs, invites, referrals); shares capacity, unlocks, reach and credits with employers. **Cannot write company postings** (#1885) — reads its own pre-existing `job_postings` only. |
+| Concept      | Value      | Meaning                                                                                                                                                                                                                                    |
+| ------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Account role | `employer` | Company / direct hirer. Uses `/payer/job-postings/*`, capacity, unlocks, reach, credits.                                                                                                                                                   |
+| Account role | `agent`    | Agency. Posts agency jobs via `/payer/agency/*` (agency jobs, invites, referrals); shares capacity, unlocks, reach and credits with employers. **Cannot write company postings** (#1885) — reads its own pre-existing `job_postings` only. |
 
 - The role is set at account creation (`signup` `role`) and is carried in the JWT and returned by `login/verify` + `GET /payer/me`. Use it for UI gating, but **the backend enforces it** (`PayerRoleGuard` + `@PayerRoles('agent')` on `/payer/agency/*`; `@PayerRoles('employer')` on the `/payer/job-postings` writes and chat publish — #1885). Do not rely on client-side role checks for security.
 - **Owner vs recruiter (org-member roles, ADR-0027 / B5.3, #2079).** Every payer is a member of one org with `org_role` `owner` | `recruiter` (a self-signed-up payer is the `owner` of their solo org). Read it from `GET /payer/me` `orgRole` (always current). The payer JWT also carries `org_id` + `org_role` claims minted at login/refresh — a display hint only, absent on tokens minted before #2079 (treat absent as `recruiter`). **Owner-only, enforced server-side** by `PayerOrgRoleGuard` (current role from the DB per request): `POST /payer/org/members`, `DELETE /payer/org/members/:id` → `403` for a recruiter; and the agency money routes `POST`/`GET /payer/agency/kyc`, `GET /payer/agency/earnings`, `POST`/`GET /payer/agency/payouts` (ADR-0053 O-5) — a recruiter gets the same `403`, but only once `AGENCY_PAYOUTS_ENABLED` is on: while it is off every caller gets the same neutral `404`. **Credit purchase is NOT owner-only** (owner ruling 2026-10-07): `POST /payer/credits`, `/credits/order` and `/credits/verify` are open to any authenticated payer, recruiters and payers with no org membership included. Mobile must not surface payment flows anyway (CLAUDE.md §12).
 
 Which surface each role can call:
 
-| Endpoint group | `employer` | `agent` |
-| --- | --- | --- |
-| Auth / `/payer/me` / credits / capacity | ✅ | ✅ |
-| `GET /payer/job-postings`, `GET /payer/job-postings/:id` | ✅ | ✅ (own rows only, read-only) |
-| `/payer/job-postings` writes (create, PATCH, close, pause, resume, plan, boost, quota-topup), `POST /payer/job-posting-chat/sessions/:id/publish` | ✅ | ❌ `403` (#1885) |
-| `/payer/unlocks/*`, `/payer/reach/*`, `/payer/resume-disclosures` | ✅ | ✅ |
-| `/payer/agency/*` (jobs, invites, referrals) | ❌ `403`/`404` | ✅ |
+| Endpoint group                                                                                                                                    | `employer`     | `agent`                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------------------------- |
+| Auth / `/payer/me` / credits / capacity                                                                                                           | ✅             | ✅                            |
+| `GET /payer/job-postings`, `GET /payer/job-postings/:id`                                                                                          | ✅             | ✅ (own rows only, read-only) |
+| `/payer/job-postings` writes (create, PATCH, close, pause, resume, plan, boost, quota-topup), `POST /payer/job-posting-chat/sessions/:id/publish` | ✅             | ❌ `403` (#1885)              |
+| `/payer/unlocks/*`, `/payer/reach/*`, `/payer/resume-disclosures`                                                                                 | ✅             | ✅                            |
+| `/payer/agency/*` (jobs, invites, referrals)                                                                                                      | ❌ `403`/`404` | ✅                            |
 
 ---
 
@@ -649,23 +701,23 @@ Which surface each role can call:
 
 Stub or back these out behind a feature flag; do not ship them as working flows.
 
-| Endpoint / feature | Status | Why / what's needed |
-| --- | --- | --- |
-| `POST /job-postings/:id/plan` (buy plan tier) | **NOT READY — IDOR / auth-gap** | Unauthenticated; trusts body `payer_id` (no guard). Any caller can buy for any payer. Mobile must wait for a payer-authed `POST /payer/job-postings/:id/plan`. Also mock-payment only. |
-| `POST /job-postings/:id/boost` (buy boost) | **NOT READY — IDOR / auth-gap** | Same as plan: unauthenticated, body `payer_id` trusted. Needs a payer-authed route. Mock-payment only. |
-| `POST /payer/resume-disclosures` + `GET /payer/resume-disclosures` (masked resume) | **BACKEND LIVE, FRONTEND MOCK** | The payer-authed endpoint exists (returns `{ ok, disclosure_id, status:'disclosed', resume_url (signed), expires_at }` or neutral `unavailable`; free, no credit). But payer-web still mocks it. Safe to integrate against the live backend; verify in staging first. Render the signed `resume_url` short-lived; never log it. |
-| Posting **pause / resume / quota top-up** (company postings) | **NOT READY — no backend** | Web portal `pausePosting`/`resumePosting`/`topUpPostingQuota` are **mock-store only**. The `job_postings` schema has **no `paused` state** and **no quota column**. Stub in the app until backend wires `POST /payer/job-postings/:id/pause` + resume + quota. |
-| Posting **plans/boosts for payers** (payer-authed) | **MISSING ENDPOINT** | No payer-authed plan/boost purchase route exists; only the IDOR ops routes above. Buyers are blocked until built. |
-| Credit **history / top-up ledger** | **PARTIAL — balance live, history synthesized** | `GET /payer/credits` (balance) and `GET /payer/unlocks` (spends) are live; there is **no** credit-ledger/top-up-history endpoint. Build history from those two; do not expect a server ledger. |
-| Per-posting **applicant quota** field | **MOCK-ONLY** | Live posting rows have no `applicantQuota`; it's config-sourced. Do not display a per-posting quota for live rows. |
-| **Org-member / team management** (owner vs recruiter) | **LIVE (web)** | `GET/POST /payer/org/members`, `DELETE /payer/org/members/:id`, `POST /payer/org/invites/accept` (B5.3); writes owner-only. The caller's role is `GET /payer/me` `orgRole` (#2079). Accept answers **409** `"This invite can't be accepted with this account"` (one body, no reason given) when the caller is already in another team, owns a team with other members, or has a different role (employer vs agent) from the inviting org's owner (ADR-0053 §3.5). The token is not consumed. Two accepts by the same account at the same instant cannot both land, and neither can an owner's invite racing that owner's own accept of another org's invite: both paths run under one per-account lock (risk R65, PAY-DB-01 P3). The losing invite answers **409** `"This organization can't invite members right now"` and sends no email. Mobile: no team UI planned. |
-| Worker **attribution** to agency invite | **STUB — no caller** | `attributeWorkerToInvite()` exists server-side (consent-gated) but is **not wired** to onboarding; `agency_invite.accepted` does not fire yet. Referral `accepted` counts stay ~0. |
-| Real **WhatsApp invite send** | **MOCK** | `MESSAGING_ENABLE_REAL=false`. Agency copies the `link` manually; no platform send. |
-| Real **payments** (credits/capacity/any purchase) | **MOCK** | `PAYMENTS_ENABLE_REAL=false` (fail-closed). All money flows are mock ledgers in Phase 1; `real_call:false`. Do not integrate a real payment SDK. |
-| Agency **payouts / commissions / KYC** | **FLAG-GATED (legal-gated)** | Server-side routes exist — `POST`/`GET /payer/agency/kyc`, `GET /payer/agency/earnings`, `POST`/`GET /payer/agency/payouts` — but answer a neutral `404` to everyone while `AGENCY_PAYOUTS_ENABLED` is off (the default; launch is behind legal/§7 human gates). When on: agent-only, **owner-only** (ADR-0053 O-5: a recruiter gets `403`), org-level, mock money. Do not build against them. |
-| Production **identity provider** (`supabase` login) | **INERT** | `PAYER_LOGIN_METHOD` supports `supabase` but it's inert without keys. Email-OTP is the live method. WhatsApp OTP is mock. |
-| Ops surfaces: `/job-postings/*`, `/reach/jobs/:jobId/applicants`, `/unlocks/*`, `PUT /pricing/catalog` | **OPS-ONLY / unauthenticated** | Not payer-authed; do **not** call from mobile. Use the `/payer/*` equivalents. `/reach/jobs/:jobId/applicants` is the ops **ranked worker pool** (suggested workers, not applicants) — never a payer list (#1898). |
-| `POST /payer/agency/invites/:code/click` | **STUB** | Returns `{ ok: true }` always; local funnel only, no worker attribution. Generally not needed from the app. |
+| Endpoint / feature                                                                                     | Status                                          | Why / what's needed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /job-postings/:id/plan` (buy plan tier)                                                          | **NOT READY — IDOR / auth-gap**                 | Unauthenticated; trusts body `payer_id` (no guard). Any caller can buy for any payer. Mobile must wait for a payer-authed `POST /payer/job-postings/:id/plan`. Also mock-payment only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `POST /job-postings/:id/boost` (buy boost)                                                             | **NOT READY — IDOR / auth-gap**                 | Same as plan: unauthenticated, body `payer_id` trusted. Needs a payer-authed route. Mock-payment only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `POST /payer/resume-disclosures` + `GET /payer/resume-disclosures` (masked resume)                     | **BACKEND LIVE, FRONTEND MOCK**                 | The payer-authed endpoint exists (returns `{ ok, disclosure_id, status:'disclosed', resume_url (signed), expires_at }` or neutral `unavailable`; free, no credit). But payer-web still mocks it. Safe to integrate against the live backend; verify in staging first. Render the signed `resume_url` short-lived; never log it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Posting **pause / resume / quota top-up** (company postings)                                           | **NOT READY — no backend**                      | Web portal `pausePosting`/`resumePosting`/`topUpPostingQuota` are **mock-store only**. The `job_postings` schema has **no `paused` state** and **no quota column**. Stub in the app until backend wires `POST /payer/job-postings/:id/pause` + resume + quota.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Posting **plans/boosts for payers** (payer-authed)                                                     | **MISSING ENDPOINT**                            | No payer-authed plan/boost purchase route exists; only the IDOR ops routes above. Buyers are blocked until built.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Credit **history / top-up ledger**                                                                     | **PARTIAL — balance live, history synthesized** | `GET /payer/credits` (balance) and `GET /payer/unlocks` (spends) are live; there is **no** credit-ledger/top-up-history endpoint. Build history from those two; do not expect a server ledger.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Per-posting **applicant quota** field                                                                  | **MOCK-ONLY**                                   | Live posting rows have no `applicantQuota`; it's config-sourced. Do not display a per-posting quota for live rows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **Org-member / team management** (owner vs recruiter)                                                  | **LIVE (web)**                                  | `GET/POST /payer/org/members`, `DELETE /payer/org/members/:id`, `POST /payer/org/invites/accept` (B5.3); writes owner-only. The caller's role is `GET /payer/me` `orgRole` (#2079). Accept answers **409** `"This invite can't be accepted with this account"` (one body, no reason given) when the caller is already in another team, owns a team with other members, or has a different role (employer vs agent) from the inviting org's owner (ADR-0053 §3.5). The token is not consumed. Two accepts by the same account at the same instant cannot both land, and neither can an owner's invite racing that owner's own accept of another org's invite: both paths run under one per-account lock (risk R65, PAY-DB-01 P3). The losing invite answers **409** `"This organization can't invite members right now"` and sends no email. Mobile: no team UI planned. |
+| Worker **attribution** to agency invite                                                                | **STUB — no caller**                            | `attributeWorkerToInvite()` exists server-side (consent-gated) but is **not wired** to onboarding; `agency_invite.accepted` does not fire yet. Referral `accepted` counts stay ~0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Real **WhatsApp invite send**                                                                          | **MOCK**                                        | `MESSAGING_ENABLE_REAL=false`. Agency copies the `link` manually; no platform send.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Real **payments** (credits/capacity/any purchase)                                                      | **MOCK**                                        | `PAYMENTS_ENABLE_REAL=false` (fail-closed). All money flows are mock ledgers in Phase 1; `real_call:false`. Do not integrate a real payment SDK.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Agency **payouts / commissions / KYC**                                                                 | **FLAG-GATED (legal-gated)**                    | Server-side routes exist — `POST`/`GET /payer/agency/kyc`, `GET /payer/agency/earnings`, `POST`/`GET /payer/agency/payouts` — but answer a neutral `404` to everyone while `AGENCY_PAYOUTS_ENABLED` is off (the default; launch is behind legal/§7 human gates). When on: agent-only, **owner-only** (ADR-0053 O-5: a recruiter gets `403`), org-level, mock money. Do not build against them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Production **identity provider** (`supabase` login)                                                    | **INERT**                                       | `PAYER_LOGIN_METHOD` supports `supabase` but it's inert without keys. Email-OTP is the live method. WhatsApp OTP is mock.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Ops surfaces: `/job-postings/*`, `/reach/jobs/:jobId/applicants`, `/unlocks/*`, `PUT /pricing/catalog` | **OPS-ONLY / unauthenticated**                  | Not payer-authed; do **not** call from mobile. Use the `/payer/*` equivalents. `/reach/jobs/:jobId/applicants` is the ops **ranked worker pool** (suggested workers, not applicants) — never a payer list (#1898).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `POST /payer/agency/invites/:code/click`                                                               | **STUB**                                        | Returns `{ ok: true }` always; local funnel only, no worker attribution. Generally not needed from the app.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ---
 
