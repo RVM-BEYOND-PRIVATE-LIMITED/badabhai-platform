@@ -32,6 +32,7 @@ import {
   readWorkerOnlyAnswerMap,
   type GeneralRoadStamp,
 } from "../profiling/conversation-state";
+import { canonicalIdsForKind, type TradeCanonicalIds } from "../profiling/roles/trade-canonical";
 import {
   projectProfile,
   type ProjectedAttribute,
@@ -562,6 +563,28 @@ export class ProfileExtractionProcessor extends WorkerHost {
     return "chat";
   }
 
+  /**
+   * #2202 — which taxonomy ids the form road's profile row carries.
+   *
+   * THE SAME TWO RECORDS `resolveProfileSource` reads, in the same precedence: the session's
+   * handover `form_kind` first, then the latest résumé import's `formKind` for the no-session
+   * upload road. The kind resolves through `canonicalIdsForKind` — closed registry to closed
+   * taxonomy, validated against the installed taxonomy on every call — so an unmapped trade
+   * (no exact taxonomy role) or an unreadable record yields null and the row keeps the honest
+   * nulls `toExtractionOutput` writes. Called only when the road is already `form`.
+   */
+  private async formRoadCanonicalIds(
+    workerId: string,
+    session: ChatSession | undefined,
+  ): Promise<TradeCanonicalIds | null> {
+    const handoverKind = session ? conversationFormKind(session.conversationState) : null;
+    if (handoverKind !== null) return canonicalIdsForKind(handoverKind);
+    const latest = await this.resumeImports.findLatestForWorker(workerId);
+    const importKind =
+      latest?.route === "form" && typeof latest.formKind === "string" ? latest.formKind : null;
+    return importKind === null ? null : canonicalIdsForKind(importKind);
+  }
+
   async process(job: Job<ProfileExtractionJobData>): Promise<{ profile_id: string }> {
     const { workerId, sessionId, aiJobId, correlationId, requestId } = job.data;
 
@@ -745,6 +768,24 @@ export class ProfileExtractionProcessor extends WorkerHost {
         ? await this.resolvePinnedDomain(pin, aiJobId)
         : await this.resolveJobDomain(result.job_domain_match, aiJobId);
 
+      // #2202 — the form road's canonical ids, resolved from the pack's DECLARED role
+      // (the closed registry → taxonomy, never the model's free text). A completed trade form
+      // IS the worker naming their trade, so the row created for it carries the taxonomy ids
+      // `missing_fields` reads — without them the resume card can never clear. Gated on the
+      // road (not merely on a formKind being present): a general-road handover is `chat` even
+      // when an unrelated CV upload was routed to a form, and stamping that trade's ids here
+      // would be the fabrication this file refuses everywhere else. Unresolvable kinds stay
+      // null (fail-closed — the same honest null `toExtractionOutput` writes).
+      const formCanonical =
+        profileSource === "form" ? await this.formRoadCanonicalIds(workerId, session) : null;
+      // The columns AND the snapshot move together (the same triple-store rule
+      // `ProfilesRepository.fillCanonicalIds` keeps): `profile` above carries the nulls
+      // `toExtractionOutput` hardcoded, so the snapshot is patched here rather than stored
+      // divergent. Both fall back to the projection's own values, which keeps every
+      // non-form road byte-for-byte what it writes today.
+      const canonicalTradeId = formCanonical?.canonicalTradeId ?? profile.canonical_trade_id;
+      const canonicalRoleId = formCanonical?.canonicalRoleId ?? profile.canonical_role_id;
+
       const saved = await this.profiles.create({
         workerId,
         // Ties the profile to this job so a partial-success retry returns the
@@ -760,8 +801,8 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // resolve identically on every attempt).
         seededFromImportId: resumeFacts.importAppliedId,
         resumeUpdateAcceptedAt: isCorrection ? null : resumeFacts.updateAcceptedAt,
-        canonicalTradeId: profile.canonical_trade_id,
-        canonicalRoleId: profile.canonical_role_id,
+        canonicalTradeId,
+        canonicalRoleId,
         skills: profile.skills,
         // B-6: stamp the taxonomy version in force at this skills WRITE (ADR-0030
         // §c "versioned"). Write-path only — reads never touch it; older rows
@@ -772,7 +813,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
         salaryExpectation: profile.salary_expectation,
         locationPreference: profile.location_preference,
         availability: profile.availability,
-        rawProfile: profile,
+        rawProfile: {
+          ...profile,
+          canonical_trade_id: canonicalTradeId,
+          canonical_role_id: canonicalRoleId,
+        },
         // Issue #419 — persist the RICH draft the response has always carried. Before
         // this, apps/api read only `result.profile` (the narrow legacy DraftProfile) and
         // silently dropped controllers, education, certifications, the current-vs-expected

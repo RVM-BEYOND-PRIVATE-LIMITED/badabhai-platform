@@ -31,6 +31,8 @@ import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
 import { descriptorForKind } from "../roles/role-registry";
+import { canonicalIdsForKind } from "../roles/trade-canonical";
+import { ProfilesRepository } from "../../profiles/profiles.repository";
 import { answerMapFromRows, gateKeysOf, isFormQuestionVisible } from "./form-eligibility";
 import type { AnswerMap } from "../answer-map";
 import {
@@ -144,6 +146,10 @@ export class TradeFormService {
     // TIERED PROFILING. OPTIONAL SO ITS ABSENCE IS TODAY'S FORM: a construction without it (every
     // pre-tier test) serves Hard, exactly as `PROFILING_TIERS_ENABLED` off does.
     @Optional() private readonly tiers?: ProfilingTierService,
+    // #2202 — the profile-row heal on form completion. OPTIONAL SO EVERY EXISTING CONSTRUCTION
+    // KEEPS COMPILING: absent, only already-minted rows skip the fill (the extraction still
+    // stamps new rows). `ProfilesModule` is already imported (forwardRef) and exports this.
+    @Optional() private readonly canonicalProfiles?: ProfilesRepository,
   ) {}
 
   /**
@@ -936,6 +942,48 @@ export class TradeFormService {
     // NOT A CHANGE TO THE FORM. No question, no answer, no extraction setting is touched — this
     // reads what the form already stored and hands a worker id to the matching layer.
     await this.workerSkills.rebuildQuietly(workerId, requestCtx);
+
+    // #2202 — HEAL THE PROFILE ROW THIS FORM COMPLETED. The extraction that minted the row
+    // hardcoded both canonical ids to null, and nothing on the answer path wrote them — so a
+    // worker who answered every question kept `missing_fields: ["role", "trade"]` (the
+    // "FORM ADHOORA HAI" card that can never clear). A completed form IS the worker naming
+    // their trade, so the pack's declared role resolves to its taxonomy ids here and fills
+    // the row's blanks. Best-effort like the rebuild above (never throws into the saved
+    // answer); unmapped trades resolve to null and keep their honest nulls.
+    await this.fillCanonicalIdsQuietly(workerId, formKind);
+  }
+
+  /**
+   * #2202 — stamp the completed form's taxonomy ids onto the worker's latest profile row,
+   * filling blanks only (never overwriting — see `ProfilesRepository.fillCanonicalIds`).
+   *
+   * NEVER THROWS: the worker's answers are already durably written by the time this runs,
+   * and a failed heal must not fail them (the same posture as `rebuildQuietly` and the
+   * resume refresh). No profile yet is the ordinary first-run case — the post-form
+   * extraction creates the row WITH the ids — so it returns quietly rather than logging.
+   */
+  private async fillCanonicalIdsQuietly(workerId: string, formKind: TradeFormKind): Promise<void> {
+    try {
+      const ids = canonicalIdsForKind(formKind);
+      if (!ids) return;
+      // Absent in pre-#2202 constructions (every existing unit test): extraction still stamps
+      // new rows, so only the heal of already-minted rows is skipped — never the answers.
+      if (!this.canonicalProfiles) return;
+      const latest = await this.workers.latestProfile?.(workerId);
+      if (!latest) return;
+      const filled = await this.canonicalProfiles.fillCanonicalIds(latest.id, ids);
+      if (filled) {
+        this.logger.log(
+          `the ${formKind} form completion filled canonical ids for worker ${workerId}`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `trade-form canonical heal skipped for worker ${workerId} (${
+          error instanceof Error ? error.message : "unknown"
+        }); answers are saved, ids stay null until the next extraction`,
+      );
+    }
   }
 
   /**

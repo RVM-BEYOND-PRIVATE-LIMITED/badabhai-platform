@@ -9,7 +9,7 @@ import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { CNC_TURNER } from "../roles/cnc-turner.role";
 import { packFromCorpus, rawCorpusPack, UNIVERSAL_PACK_FILE } from "./corpus-pack.test-support";
 import { LEGACY_FORM_UNIVERSAL_KEYS } from "./legacy-universal-answer";
-import { TradeFormSchemaResponse } from "./trade-form.dto";
+import { TradeFormSchemaResponse, type TradeFormAnswerResponse } from "./trade-form.dto";
 import { SEARCHABLE_OPTION_THRESHOLD, TradeFormService } from "./trade-form.service";
 
 /** Marker executor the repository doubles hand to a transaction callback. */
@@ -117,6 +117,17 @@ function makeService(
     /** An already-generated resume row id: set when the test is about a post-completion edit. */
     resumeId?: string;
     /**
+     * #2202 — the worker's latest profile row for the completion heal. Omitted = no row
+     * (first run through the form — the post-form extraction mints it WITH the ids).
+     */
+    latestProfile?: {
+      id: string;
+      canonicalRoleId: string | null;
+      canonicalTradeId: string | null;
+    } | null;
+    /** #2202 — the heal's write result. Defaults to filled. */
+    canonicalFill?: boolean;
+    /**
      * #1459 — what the chat's `experience_years` row says: a number (answered), `"declined"`
      * (settled, no value), or absent (never asked).
      */
@@ -145,14 +156,15 @@ function makeService(
       if (opts.chatExperienceYears === undefined) return undefined;
       return {
         status: opts.chatExperienceYears === "declined" ? "declined" : "answered",
-        answerNumber: typeof opts.chatExperienceYears === "number" ? opts.chatExperienceYears : null,
+        answerNumber:
+          typeof opts.chatExperienceYears === "number" ? opts.chatExperienceYears : null,
       } as unknown as WorkerPackAnswer;
     }),
     // ONE ANSWER IS TWO ROWS, so the service wraps both writes in one transaction. The double
     // runs `cb` directly with a marker executor: there is no database here, so "atomic" is not a
     // property this fake can hold — what it CAN hold is that both writes are attempted inside
     // the callback, which the assertions on `written` and `upsertMany` already check.
-    withTransaction: vi.fn(async <T,>(cb: (tx: unknown) => Promise<T>) => cb(FAKE_TX)),
+    withTransaction: vi.fn(async <T>(cb: (tx: unknown) => Promise<T>) => cb(FAKE_TX)),
     // `_tx` is captured, not used: the enrolment assertion below reads it off `mock.calls`.
     upsertAnswer: vi.fn(async (row: NewWorkerPackAnswer, _tx?: unknown) => {
       written.push(row);
@@ -185,6 +197,10 @@ function makeService(
     opts.resumeId === undefined ? undefined : { id: opts.resumeId },
   );
   const renderQueueAdd = vi.fn(async (_name: string, _data: unknown, _opts: unknown) => ({}));
+  // #2202 — the completion heal's collaborators. `latestProfile` returning undefined is the
+  // ordinary first run (no row yet — the extraction mints it with the ids instead).
+  const latestProfile = vi.fn(async (_workerId: string) => opts.latestProfile ?? undefined);
+  const fillCanonicalIds = vi.fn(async () => opts.canonicalFill ?? true);
   const service = new TradeFormService(
     chat as never,
     packs as never,
@@ -206,8 +222,10 @@ function makeService(
     { findLatestForWorker: async () => undefined } as never,
     otherAnswerPolish as never,
     config as never,
-    { latestResume } as never,
+    { latestResume, latestProfile } as never,
     { add: renderQueueAdd } as never,
+    undefined,
+    { fillCanonicalIds } as never,
   );
   return {
     service,
@@ -221,6 +239,8 @@ function makeService(
     rebuildQuietly,
     review,
     latestResume,
+    latestProfile,
+    fillCanonicalIds,
     renderQueueAdd,
   };
 }
@@ -1077,8 +1097,78 @@ describe("TradeFormService", () => {
       });
       expect(written).toHaveLength(1);
     });
+
+    /**
+     * ═══ THE COMPLETION HEAL (#2202) ═══
+     *
+     * The extraction minted the profile row with null canonical ids and nothing on the answer
+     * path wrote them, so a worker who answered every trade-form question kept
+     * `missing_fields: ["role", "trade"]` — the "FORM ADHOORA HAI" card that can never clear.
+     * On completion the pack's declared role resolves to its taxonomy ids and fills the latest
+     * row's blanks (extraction stamps new rows the same way; this heals already-minted ones).
+     */
+    describe("the completion heal", () => {
+      /** Complete the miniature tiered form: senior + the one capability question it asks. */
+      const complete = (
+        service: Pick<TradeFormService, "answer">,
+        worker: string,
+      ): Promise<TradeFormAnswerResponse> =>
+        service.answer(worker, {
+          question_key: "turning_machine",
+          answer: { kind: "chips", option_keys: ["k1"] },
+        });
+
+      it("fills the latest row's blanks with the pack's taxonomy ids", async () => {
+        const { service, fillCanonicalIds, emitted } = await makeService({
+          pack: TIERED,
+          saved: [senior(), answered({ questionKey: "turning_machine" })],
+          latestProfile: { id: "profile-1", canonicalRoleId: null, canonicalTradeId: null },
+        });
+        await complete(service, WORKER);
+        expect(emitted).toHaveLength(1);
+        expect(fillCanonicalIds).toHaveBeenCalledOnce();
+        expect(fillCanonicalIds).toHaveBeenCalledWith("profile-1", {
+          canonicalRoleId: "role_cnc_turner_operator",
+          canonicalTradeId: "dom_cnc_machining",
+        });
+      });
+
+      it("skips the fill for a trade the taxonomy has no role for (honest nulls stay)", async () => {
+        const { service, fillCanonicalIds } = await makeService({
+          pack: TIERED,
+          formKind: "fitter",
+          saved: [senior(), answered({ questionKey: "turning_machine" })],
+          latestProfile: { id: "profile-1", canonicalRoleId: null, canonicalTradeId: null },
+        });
+        await complete(service, WORKER);
+        expect(fillCanonicalIds).not.toHaveBeenCalled();
+      });
+
+      it("skips the fill when no profile exists yet (the extraction mints it with the ids)", async () => {
+        const { service, fillCanonicalIds } = await makeService({
+          pack: TIERED,
+          saved: [senior(), answered({ questionKey: "turning_machine" })],
+        });
+        await complete(service, WORKER);
+        expect(fillCanonicalIds).not.toHaveBeenCalled();
+      });
+
+      it("keeps the answer when the fill throws", async () => {
+        const { service, written, fillCanonicalIds } = await makeService({
+          pack: TIERED,
+          saved: [senior(), answered({ questionKey: "turning_machine" })],
+          latestProfile: { id: "profile-1", canonicalRoleId: null, canonicalTradeId: null },
+        });
+        fillCanonicalIds.mockRejectedValueOnce(new Error("db down"));
+        await expect(complete(service, WORKER)).resolves.toMatchObject({
+          question_key: "turning_machine",
+          status: "answered",
+        });
+        expect(written).toHaveLength(1);
+      });
+    });
   });
-/**
+  /**
    * ═══ ONE ANSWER IS TWO ROWS, AND THEY COMMIT TOGETHER ═══
    *
    * These two writes were separate autocommits, and the failure was silent AND unrecoverable:
@@ -1127,112 +1217,126 @@ describe("TradeFormService", () => {
       expect(answers.withTransaction).toHaveBeenCalledTimes(2);
     });
   });
-/**
- * ═══ MUTUALLY EXCLUSIVE QUESTIONS NEVER REACH A WORKER TOGETHER (#1413 §3) ═══
- *
- * `qp_cad_drafting` asks a draughtsman with experience which sectors he has DRAWN for, and a
- * fresher which he STUDIED. The two are complements on one gate — `drafting_experience >= 2`
- * against `<= 1` — so exactly one is ever his question.
- *
- * #1413 reported that both are visible on the first fetch, and that is TRUE OF THE PAYLOAD:
- * `form-eligibility`'s rule is that an UNRESOLVED gate shows the question, deliberately, so the
- * form is never shorter than the truth. What stops the worker seeing both is a chain of three
- * separate changes that no test held together:
- *
- *   1. #1377/#1378 — `orderBySheet` hoists every mandatory item and the tenure gate to the FRONT,
- *      so `drafting_experience` is asked before the pair it gates.
- *   2. `schema_stale` — answering a key that appears in any `ask_if`/`skip_if` tells the client
- *      the screen list it holds is now stale (`gateKeysOf`).
- *   3. #1382 — the client re-fetches on that flag rather than walking its stale list.
- *
- * Break any one and the worker is asked both, or asked the wrong one. These assert the two links
- * this service owns; the third is the Flutter cubit's `_resyncAfterStaleSchema`.
- */
-describe("#1413 §3 — the drafting-sector pair", () => {
-  const DRAFTING: QuestionPack = {
-    ...PACK,
-    pack_id: "qp_cad_drafting",
-    family_id: "fam_cad_drafting",
-    items: [
-      // Deliberately LAST in the pack's own order, so a service that did not hoist it would
-      // serve it after the two questions it governs — the exact defect #1377 fixed.
-      item({
-        question_key: "cad_software",
-        answer_type: "multi_select",
-        options: options(4),
-      }),
-      item({
-        question_key: "sector_drawn",
-        answer_type: "multi_select",
-        options: options(4),
-        ask_if: { op: "gte", left: { field: "drafting_experience" }, right: { const: 2 } },
-      }),
-      item({
-        question_key: "sector_studied",
-        answer_type: "multi_select",
-        options: options(4),
-        ask_if: { op: "lte", left: { field: "drafting_experience" }, right: { const: 1 } },
-      }),
-      item({
-        question_key: "drafting_experience",
-        answer_type: "single_select",
-        is_mandatory: true,
-        options: [
-          { option_key: "k0", label_text: "Fresher", value: 0, implies_skill_id: null, is_none_of_above: false },
-          { option_key: "k5", label_text: "5 saal", value: 5, implies_skill_id: null, is_none_of_above: false },
-        ],
-      }),
-    ] as QuestionPackItem[],
-  };
+  /**
+   * ═══ MUTUALLY EXCLUSIVE QUESTIONS NEVER REACH A WORKER TOGETHER (#1413 §3) ═══
+   *
+   * `qp_cad_drafting` asks a draughtsman with experience which sectors he has DRAWN for, and a
+   * fresher which he STUDIED. The two are complements on one gate — `drafting_experience >= 2`
+   * against `<= 1` — so exactly one is ever his question.
+   *
+   * #1413 reported that both are visible on the first fetch, and that is TRUE OF THE PAYLOAD:
+   * `form-eligibility`'s rule is that an UNRESOLVED gate shows the question, deliberately, so the
+   * form is never shorter than the truth. What stops the worker seeing both is a chain of three
+   * separate changes that no test held together:
+   *
+   *   1. #1377/#1378 — `orderBySheet` hoists every mandatory item and the tenure gate to the FRONT,
+   *      so `drafting_experience` is asked before the pair it gates.
+   *   2. `schema_stale` — answering a key that appears in any `ask_if`/`skip_if` tells the client
+   *      the screen list it holds is now stale (`gateKeysOf`).
+   *   3. #1382 — the client re-fetches on that flag rather than walking its stale list.
+   *
+   * Break any one and the worker is asked both, or asked the wrong one. These assert the two links
+   * this service owns; the third is the Flutter cubit's `_resyncAfterStaleSchema`.
+   */
+  describe("#1413 §3 — the drafting-sector pair", () => {
+    const DRAFTING: QuestionPack = {
+      ...PACK,
+      pack_id: "qp_cad_drafting",
+      family_id: "fam_cad_drafting",
+      items: [
+        // Deliberately LAST in the pack's own order, so a service that did not hoist it would
+        // serve it after the two questions it governs — the exact defect #1377 fixed.
+        item({
+          question_key: "cad_software",
+          answer_type: "multi_select",
+          options: options(4),
+        }),
+        item({
+          question_key: "sector_drawn",
+          answer_type: "multi_select",
+          options: options(4),
+          ask_if: { op: "gte", left: { field: "drafting_experience" }, right: { const: 2 } },
+        }),
+        item({
+          question_key: "sector_studied",
+          answer_type: "multi_select",
+          options: options(4),
+          ask_if: { op: "lte", left: { field: "drafting_experience" }, right: { const: 1 } },
+        }),
+        item({
+          question_key: "drafting_experience",
+          answer_type: "single_select",
+          is_mandatory: true,
+          options: [
+            {
+              option_key: "k0",
+              label_text: "Fresher",
+              value: 0,
+              implies_skill_id: null,
+              is_none_of_above: false,
+            },
+            {
+              option_key: "k5",
+              label_text: "5 saal",
+              value: 5,
+              implies_skill_id: null,
+              is_none_of_above: false,
+            },
+          ],
+        }),
+      ] as QuestionPackItem[],
+    };
 
-  const keysOf = (schema: { sections: { screens: unknown[] }[] }) =>
-    schema.sections
-      .flatMap((s) => s.screens)
-      .filter((s): s is { question: { question_key: string } } =>
-        typeof s === "object" && s !== null && "question" in s)
-      .map((s) => s.question.question_key);
+    const keysOf = (schema: { sections: { screens: unknown[] }[] }) =>
+      schema.sections
+        .flatMap((s) => s.screens)
+        .filter(
+          (s): s is { question: { question_key: string } } =>
+            typeof s === "object" && s !== null && "question" in s,
+        )
+        .map((s) => s.question.question_key);
 
-  it("asks the GATE before either question it gates", async () => {
-    const { service } = await makeService({ pack: DRAFTING });
-    const keys = keysOf(await service.schema(WORKER));
-    // The pack lists it last; the form must not.
-    expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_drawn"));
-    expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_studied"));
-    expect(keys[0]).toBe("drafting_experience");
-  });
-
-  it("EXACTLY ONE of the pair survives once the gate is answered", async () => {
-    for (const [rung, expected, gone] of [
-      [5, "sector_drawn", "sector_studied"],
-      [0, "sector_studied", "sector_drawn"],
-    ] as const) {
-      const { service } = await makeService({
-        pack: DRAFTING,
-        saved: [
-          answered({
-            questionKey: "drafting_experience",
-            answerOptionKeys: null,
-            answerNumber: rung,
-          }),
-        ],
-      });
+    it("asks the GATE before either question it gates", async () => {
+      const { service } = await makeService({ pack: DRAFTING });
       const keys = keysOf(await service.schema(WORKER));
-      expect(keys, `rung ${rung} must keep ${expected}`).toContain(expected);
-      expect(keys, `rung ${rung} must drop ${gone}`).not.toContain(gone);
-    }
-  });
+      // The pack lists it last; the form must not.
+      expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_drawn"));
+      expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_studied"));
+      expect(keys[0]).toBe("drafting_experience");
+    });
 
-  it("shows BOTH while the gate is unanswered — the deliberate fail-open", async () => {
-    // NOT A BUG, and pinned so it is not "fixed" into a silent drop. An unresolved gate shows the
-    // question so the form is never SHORTER than the truth; the ordering and staleness rules
-    // above are what stop a worker reaching them. Removing this would hide a fresher's own
-    // question from him whenever the gate write failed.
-    const { service } = await makeService({ pack: DRAFTING });
-    const keys = keysOf(await service.schema(WORKER));
-    expect(keys).toContain("sector_drawn");
-    expect(keys).toContain("sector_studied");
+    it("EXACTLY ONE of the pair survives once the gate is answered", async () => {
+      for (const [rung, expected, gone] of [
+        [5, "sector_drawn", "sector_studied"],
+        [0, "sector_studied", "sector_drawn"],
+      ] as const) {
+        const { service } = await makeService({
+          pack: DRAFTING,
+          saved: [
+            answered({
+              questionKey: "drafting_experience",
+              answerOptionKeys: null,
+              answerNumber: rung,
+            }),
+          ],
+        });
+        const keys = keysOf(await service.schema(WORKER));
+        expect(keys, `rung ${rung} must keep ${expected}`).toContain(expected);
+        expect(keys, `rung ${rung} must drop ${gone}`).not.toContain(gone);
+      }
+    });
+
+    it("shows BOTH while the gate is unanswered — the deliberate fail-open", async () => {
+      // NOT A BUG, and pinned so it is not "fixed" into a silent drop. An unresolved gate shows the
+      // question so the form is never SHORTER than the truth; the ordering and staleness rules
+      // above are what stop a worker reaching them. Removing this would hide a fresher's own
+      // question from him whenever the gate write failed.
+      const { service } = await makeService({ pack: DRAFTING });
+      const keys = keysOf(await service.schema(WORKER));
+      expect(keys).toContain("sector_drawn");
+      expect(keys).toContain("sector_studied");
+    });
   });
-});
 });
 
 /**
@@ -1244,7 +1348,9 @@ describe("#1413 §3 — the drafting-sector pair", () => {
  * showing without a 400 stranding the worker there.
  */
 describe("#1503 — the trade form without the universal append", () => {
-  const LEGACY = new Set(rawCorpusPack(UNIVERSAL_PACK_FILE).items.map((entry) => entry.question_key));
+  const LEGACY = new Set(
+    rawCorpusPack(UNIVERSAL_PACK_FILE).items.map((entry) => entry.question_key),
+  );
 
   /** Every question in PACK settled, so a completion WOULD fire on any answer that evaluated it. */
   const everythingSettled = () =>
@@ -1421,7 +1527,10 @@ describe("#1503 — the trade form without the universal append", () => {
       ["1,00,000", 100000],
     ])("a trade number question stores %j as %d", async (text, expected) => {
       const { service, written } = makeService({ pack: NUMBERED });
-      await service.answer(WORKER, { question_key: "parts_per_shift", answer: { kind: "text", text } });
+      await service.answer(WORKER, {
+        question_key: "parts_per_shift",
+        answer: { kind: "text", text },
+      });
       expect(written[0]).toMatchObject({ answerNumber: expected, status: "answered" });
     });
 
@@ -1430,7 +1539,10 @@ describe("#1503 — the trade form without the universal append", () => {
       async (text) => {
         const { service, written } = makeService({ pack: NUMBERED });
         await expect(
-          service.answer(WORKER, { question_key: "parts_per_shift", answer: { kind: "text", text } }),
+          service.answer(WORKER, {
+            question_key: "parts_per_shift",
+            answer: { kind: "text", text },
+          }),
         ).rejects.toThrow(/parts_per_shift takes a number/);
         expect(written).toEqual([]);
       },
@@ -1517,7 +1629,9 @@ describe("ADR-0041 RI-4 — what the worker's résumé suggested, beside the que
       suggestions: new Map([["turning_machine", suggestion("CNC Lathe")]]),
     }).service.schema(WORKER);
 
-    type Screen = Awaited<ReturnType<TradeFormService["schema"]>>["sections"][number]["screens"][number];
+    type Screen = Awaited<
+      ReturnType<TradeFormService["schema"]>
+    >["sections"][number]["screens"][number];
     type QuestionScreen = Extract<Screen, { type: "question" }>;
     const answerFor = (schema: Awaited<ReturnType<TradeFormService["schema"]>>) =>
       schema.sections
@@ -1568,10 +1682,34 @@ describe("ADR-0041 RI-4 — what the worker's résumé suggested, beside the que
 
 /** The tenure question's options carry value_number ONLY — the shape every gate expects. */
 const TENURE_OPTIONS = [
-  { option_key: "k0", label_text: "Fresher", value: 0, implies_skill_id: null, is_none_of_above: false },
-  { option_key: "k2", label_text: "1-3 years", value: 2, implies_skill_id: null, is_none_of_above: false },
-  { option_key: "k5", label_text: "3-7 years", value: 5, implies_skill_id: null, is_none_of_above: false },
-  { option_key: "k10", label_text: "7+ years", value: 10, implies_skill_id: null, is_none_of_above: false },
+  {
+    option_key: "k0",
+    label_text: "Fresher",
+    value: 0,
+    implies_skill_id: null,
+    is_none_of_above: false,
+  },
+  {
+    option_key: "k2",
+    label_text: "1-3 years",
+    value: 2,
+    implies_skill_id: null,
+    is_none_of_above: false,
+  },
+  {
+    option_key: "k5",
+    label_text: "3-7 years",
+    value: 5,
+    implies_skill_id: null,
+    is_none_of_above: false,
+  },
+  {
+    option_key: "k10",
+    label_text: "7+ years",
+    value: 10,
+    implies_skill_id: null,
+    is_none_of_above: false,
+  },
 ];
 
 /** The real tenure key for `cnc_turner` (`cnc-turner.role.ts`), plus one gate per direction. */
@@ -1583,7 +1721,11 @@ const TENURE_PACK: QuestionPack = {
   status: "active",
   content_hash: "hash",
   items: [
-    item({ question_key: "turning_experience", answer_type: "single_select", options: TENURE_OPTIONS }),
+    item({
+      question_key: "turning_experience",
+      answer_type: "single_select",
+      options: TENURE_OPTIONS,
+    }),
     item({
       question_key: "turning_test_advanced",
       answer_type: "boolean",

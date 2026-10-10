@@ -87,7 +87,7 @@ function make(
      * row (the common chat case). `{ route: "form" }` reproduces the no-session
      * upload-to-form road; `{ route: "chat" }` the upload-to-chat road.
      */
-    resumeImport?: { route: "form" | "chat" | null };
+    resumeImport?: { route: "form" | "chat" | null; formKind?: string | null };
     /** What `/profile/parse` returned. `null` = unreachable/blocked/mis-shaped. */
     parsed?: unknown;
     /**
@@ -263,7 +263,7 @@ function make(
       .fn()
       .mockResolvedValue(
         "resumeImport" in opts && opts.resumeImport !== undefined
-          ? { route: opts.resumeImport.route, formKind: null }
+          ? { route: opts.resumeImport.route, formKind: opts.resumeImport.formKind ?? null }
           : undefined,
       ),
   };
@@ -408,6 +408,81 @@ describe("ProfileExtractionProcessor", () => {
       });
       await proc.process(makeJob());
       expect(createdSource(profiles)).toBe("chat");
+    });
+
+    describe("form-road canonical ids (#2202)", () => {
+      const createdIds = (profiles: { create: { mock: { calls: unknown[][] } } }) => {
+        const arg = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+        const raw = arg.rawProfile as Record<string, unknown>;
+        return {
+          canonicalRoleId: arg.canonicalRoleId,
+          canonicalTradeId: arg.canonicalTradeId,
+          rawRoleId: raw.canonical_role_id,
+          rawTradeId: raw.canonical_trade_id,
+        };
+      };
+
+      it("a form handover stamps the pack's taxonomy ids on the columns AND the snapshot", async () => {
+        const { proc, profiles } = make({
+          conversationState: { form_kind: "cnc_turner", answer_map: [] },
+        });
+        await proc.process(makeJob());
+        expect(createdSource(profiles)).toBe("form");
+        expect(createdIds(profiles)).toEqual({
+          canonicalRoleId: "role_cnc_turner_operator",
+          canonicalTradeId: "dom_cnc_machining",
+          rawRoleId: "role_cnc_turner_operator",
+          rawTradeId: "dom_cnc_machining",
+        });
+      });
+
+      it("an unmapped form trade keeps the honest nulls — never a guessed id", async () => {
+        const { proc, profiles } = make({
+          conversationState: { form_kind: "fitter", answer_map: [] },
+        });
+        await proc.process(makeJob());
+        expect(createdSource(profiles)).toBe("form");
+        expect(createdIds(profiles)).toEqual({
+          canonicalRoleId: null,
+          canonicalTradeId: null,
+          rawRoleId: null,
+          rawTradeId: null,
+        });
+      });
+
+      it("the chat road never stamps ids", async () => {
+        const { proc, profiles } = make({
+          conversationState: { answer_map: [] },
+          resumeImport: { route: "chat" },
+        });
+        await proc.process(makeJob());
+        expect(createdSource(profiles)).toBe("chat");
+        expect(createdIds(profiles)).toEqual({
+          canonicalRoleId: null,
+          canonicalTradeId: null,
+          rawRoleId: null,
+          rawTradeId: null,
+        });
+      });
+
+      it("a résumé routed to a form stamps its formKind ids with no session", async () => {
+        const { proc, profiles } = make({
+          resumeImport: { route: "form", formKind: "cnc_turner" },
+        });
+        const job = {
+          data: { ...JOB, sessionId: null },
+          attemptsMade: 0,
+          opts: { attempts: 3 },
+        } as never;
+        await proc.process(job);
+        expect(createdSource(profiles)).toBe("form");
+        expect(createdIds(profiles)).toEqual({
+          canonicalRoleId: "role_cnc_turner_operator",
+          canonicalTradeId: "dom_cnc_machining",
+          rawRoleId: "role_cnc_turner_operator",
+          rawTradeId: "dom_cnc_machining",
+        });
+      });
     });
 
     // FAIL CLOSED, NOT "DEGRADE TO THE IMPORT". These two used to pin the opposite: an unreadable
@@ -1337,7 +1412,6 @@ describe("ProfileExtractionProcessor — transcript source", () => {
     expect(sent.transcript).toBe("Worker: VMC operator, 5 saal");
     expect(JSON.stringify(sent)).not.toContain("cricket");
   });
-
 
   it("drops the free chat's BUFFERED lines (`aside: true`) on the early-finish path", async () => {
     const { proc, ai } = make({

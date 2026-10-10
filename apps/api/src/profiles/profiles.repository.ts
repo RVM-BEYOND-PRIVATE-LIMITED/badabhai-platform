@@ -69,6 +69,54 @@ export class ProfilesRepository {
   }
 
   /**
+   * Fill a profile's canonical trade/role ids where they are still null (#2202).
+   *
+   * THE HEALING WRITE for the form road. Extraction hardcodes both columns to null and the
+   * form writes answers elsewhere, so a worker who completed a trade form kept a profile with
+   * null ids — and `missing_fields` (`role`/`trade`) never cleared. The caller resolves the
+   * completed pack's declared role through `canonicalIdsForKind` (closed registry → taxonomy,
+   * fail-closed) and hands the pair here.
+   *
+   * FILLS BLANKS ONLY, never overwrites: each column keeps its stored value when set
+   * (`??`), so a re-completion for the same trade is idempotent and a later trade switch
+   * cannot clobber an earlier road's ids through this path (that needs a new extraction).
+   * The `raw_profile` snapshot moves with the columns — same triple-store rule as
+   * {@link setSkillLists} — re-validated through `DraftProfileSchema` (fail closed on a
+   * corrupt row). Returns false when there was nothing to fill (unknown profile, or both
+   * ids already set), so the caller can log rather than throw on the worker's hot path.
+   */
+  async fillCanonicalIds(
+    profileId: string,
+    ids: { canonicalRoleId: string; canonicalTradeId: string },
+  ): Promise<boolean> {
+    if (ids.canonicalRoleId.trim().length === 0 || ids.canonicalTradeId.trim().length === 0) {
+      return false;
+    }
+    const profile = await this.findById(profileId);
+    if (!profile) return false;
+    if (profile.canonicalRoleId && profile.canonicalTradeId) return false;
+    const nextRoleId = profile.canonicalRoleId ?? ids.canonicalRoleId;
+    const nextTradeId = profile.canonicalTradeId ?? ids.canonicalTradeId;
+    const draft = DraftProfileSchema.parse({
+      ...(typeof profile.rawProfile === "object" && profile.rawProfile !== null
+        ? profile.rawProfile
+        : {}),
+      canonical_role_id: nextRoleId,
+      canonical_trade_id: nextTradeId,
+    });
+    await this.db
+      .update(workerProfiles)
+      .set({
+        canonicalRoleId: nextRoleId,
+        canonicalTradeId: nextTradeId,
+        rawProfile: draft,
+        updatedAt: new Date(),
+      })
+      .where(eq(workerProfiles.id, profileId));
+    return true;
+  }
+
+  /**
    * Apply a worker's corrected skill list (#1311 backend half).
    *
    * THREE STORES, ONE CALL, because three readers must agree: `worker_profiles.skills`
