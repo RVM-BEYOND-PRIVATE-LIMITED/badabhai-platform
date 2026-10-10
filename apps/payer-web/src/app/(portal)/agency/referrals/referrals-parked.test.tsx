@@ -195,6 +195,38 @@ describe("agency referrals page — GATED supply money", () => {
     expect(text.join(" ")).not.toMatch(/Payouts coming soon/);
     expect(components).not.toContain(EarningsPanel);
   });
+
+  it("#2178: a recruiter's 403 is a neutral owner-only state — no retry, no error, panels do NOT render", async () => {
+    // The transport's historic message shape reads as a 403 across module instances.
+    getAgencyEarnings.mockRejectedValueOnce(
+      new Error("payer API /payer/agency/earnings returned 403"),
+    );
+    const { components, text } = collect(await AgencyReferralsPage());
+    const joined = text.join(" ");
+    expect(joined).toContain("owner can see payouts");
+    expect(joined).not.toMatch(/Payouts coming soon/);
+    expect(joined).not.toMatch(/could not load/i);
+    expect(components).not.toContain(EarningsPanel);
+    expect(components).not.toContain(KycPanel);
+    expect(components).not.toContain(PayoutPanel);
+    // No KYC/payout reads run once earnings is refused — the server already decided.
+    expect(getAgencyKyc).not.toHaveBeenCalled();
+    expect(listAgencyPayouts).not.toHaveBeenCalled();
+  });
+
+  it("#2178: an explicit recruiter orgRole skips the gated reads and renders owner-only", async () => {
+    requireAgent.mockResolvedValueOnce({
+      payerId: "p",
+      role: "agent",
+      displayLabel: "A",
+      orgRole: "recruiter",
+    });
+    const { text } = collect(await AgencyReferralsPage());
+    expect(text.join(" ")).toContain("owner can see payouts");
+    expect(getAgencyEarnings).not.toHaveBeenCalled();
+    expect(getAgencyKyc).not.toHaveBeenCalled();
+    expect(listAgencyPayouts).not.toHaveBeenCalled();
+  });
 });
 
 /* ── W2-B sectioning: page namespace, compact funnel tiles, and the k-anon rate floor ───────── */

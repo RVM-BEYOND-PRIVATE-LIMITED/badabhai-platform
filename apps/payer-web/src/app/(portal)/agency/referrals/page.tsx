@@ -9,7 +9,7 @@ import {
   listAgencyPayouts,
 } from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
-import { isPayerForbiddenError } from "../../../../lib/payer-errors";
+import { isPayerForbiddenError, isPayerStatus } from "../../../../lib/payer-errors";
 import type {
   AgencyEarnings,
   AgencyKyc,
@@ -51,12 +51,24 @@ export const dynamic = "force-dynamic";
  * earnings/KYC/payout routes return 404 → the seam maps that to `null` and this page
  * renders a graceful "coming soon" inert panel, NOT an error. The referral link + funnel
  * stay LIVE either way.
+ *
+ * OWNER-ONLY (#2178, ADR-0053 O-5): once the flag is on, a recruiter's read is refused
+ * with 403 (`Org role is not permitted for this resource`). That is a neutral
+ * "Only your organization's owner can see payouts" state — no retry, no error
+ * styling. The server stays the authority (the 403); the session orgRole below only
+ * skips the doomed reads.
  */
 export default async function AgencyReferralsPage() {
   // 1) SERVER-enforced role gate — an `employer` session 404s here before any read runs.
-  await requireAgent();
+  const session = await requireAgent();
   // 1b) Public flag fail-close, as on every sibling agency page: off → the route does not exist.
   if (!agencyFlags().agencyPortalEnabled) notFound();
+
+  // 1c) OWNER-ONLY fast path (#2178): an explicit recruiter never sees money — skip the
+  // gated reads entirely and render the neutral owner-only state below. Only an EXPLICIT
+  // "recruiter" skips here (an absent/null orgRole — an older API — still tries the reads
+  // and lets the server's 403/200 decide, so nothing hides on a stale session shape).
+  const isExplicitRecruiter = session.orgRole === "recruiter";
 
   // 2) LIVE aggregate funnel read (ungated), k-anon floored server-side. Isolated so a
   //    failure degrades to a neutral retry Card rather than blanking the page.
@@ -73,27 +85,52 @@ export default async function AgencyReferralsPage() {
   const pct = summary ? conversionPct(summary) : null;
 
   // 3) GATED earnings read. `null` = supply payouts not enabled (404 → coming soon); a
-  //    thrown error is a transient degrade (retry), distinct from "not enabled".
+  //    403 = recruiter on an owner-only route (#2178 → neutral owner-only, never retry);
+  //    any other thrown error is a transient degrade (retry), distinct from both.
+  //    `isPayerStatus(e, 403)` rides alongside `isPayerForbiddenError` so a 403 in the
+  //    transport's historic message shape (a test fake, another module instance) reads
+  //    the same — the status is the contract, never the class identity.
   let earnings: AgencyEarnings | null = null;
   let payoutsEnabled = true;
   let earningsError = false;
-  let earningsForbidden = false;
-  try {
-    const res = await getAgencyEarnings();
-    if (res === null) payoutsEnabled = false; // gated route (404) — not enabled yet.
-    else earnings = res;
-  } catch (e) {
-    if (isPayerForbiddenError(e)) earningsForbidden = true;
-    else earningsError = true;
+  let earningsForbidden = isExplicitRecruiter;
+  if (!isExplicitRecruiter) {
+    try {
+      const res = await getAgencyEarnings();
+      if (res === null) payoutsEnabled = false; // gated route (404) — not enabled yet.
+      else earnings = res;
+    } catch (e) {
+      if (isPayerForbiddenError(e) || isPayerStatus(e, 403)) earningsForbidden = true;
+      else earningsError = true;
+    }
   }
 
   // 4) Only when earnings loaded do we read KYC + payout history (same gate). Each isolated.
+  //    A 403 here (e.g. a demotion landing between the reads) folds back into the same
+  //    neutral owner-only state rather than a form or an error — the server refused.
   let kyc: AgencyKyc | null = null;
   let payouts: AgencyPayout[] = [];
-  if (earnings && payoutsEnabled) {
+  if (earnings && payoutsEnabled && !earningsForbidden) {
     const [kycRes, payoutsRes] = await Promise.allSettled([getAgencyKyc(), listAgencyPayouts()]);
     if (kycRes.status === "fulfilled" && kycRes.value) kyc = kycRes.value;
+    else if (
+      kycRes.status === "rejected" &&
+      (isPayerForbiddenError(kycRes.reason) || isPayerStatus(kycRes.reason, 403))
+    ) {
+      earningsForbidden = true;
+    }
     if (payoutsRes.status === "fulfilled" && payoutsRes.value) payouts = payoutsRes.value;
+    else if (
+      payoutsRes.status === "rejected" &&
+      (isPayerForbiddenError(payoutsRes.reason) || isPayerStatus(payoutsRes.reason, 403))
+    ) {
+      earningsForbidden = true;
+    }
+    if (earningsForbidden) {
+      earnings = null;
+      kyc = null;
+      payouts = [];
+    }
   }
   // If earnings loaded but KYC didn't come back, default to not_submitted so the form shows.
   const kycForPanel: AgencyKyc = kyc ?? {
@@ -213,22 +250,21 @@ export default async function AgencyReferralsPage() {
       <AgencyBatchInvitePanel />
 
       {/* d) SUPPLY MONEY — earnings + KYC + payout, gated behind AGENCY_PAYOUTS_ENABLED. */}
+      {/* OWNER-ONLY (#2178): a recruiter's 403 is a neutral state — no retry, no error
+          styling. The referral link + funnel above stay live either way. */}
       {earningsForbidden ? (
         <section className="section">
           <div className="section__head">
-            <h2 className="section__title">Your earnings</h2>
+            <h2 className="section__title">Earnings &amp; payouts</h2>
           </div>
           <div className="state state--neutral">
             <span className="state__icon">
               <Icon name="lock-key" />
             </span>
-            <h3 className="state__title">Agency accounts only</h3>
+            <h3 className="state__title">Owner only</h3>
             <p className="state__body">
-              Earnings and payouts are only available on agency (recruiter) accounts.
+              Only your organization&apos;s owner can see payouts.
             </p>
-            <div className="state__actions">
-              <RetryButton />
-            </div>
           </div>
         </section>
       ) : earningsError ? (

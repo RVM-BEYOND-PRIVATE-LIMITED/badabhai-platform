@@ -99,6 +99,20 @@ describe("gated 404 → null (supply payouts not enabled)", () => {
     const { getAgencyEarnings } = await import("./payer-api");
     await expect(getAgencyEarnings()).rejects.toThrow(/returned 503/);
   });
+
+  it("#2178: a 403 propagates as forbidden (owner-only) — never the not-enabled null", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Org role is not permitted" }, 403));
+    const { getAgencyEarnings, getAgencyKyc, listAgencyPayouts } = await import("./payer-api");
+    const { isPayerForbiddenError, isPayerStatus } = await import("./payer-errors");
+    for (const read of [getAgencyEarnings, getAgencyKyc, listAgencyPayouts]) {
+      const err = await (read as () => Promise<unknown>)().then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err).not.toBeNull();
+      expect(isPayerForbiddenError(err) || isPayerStatus(err, 403)).toBe(true);
+    }
+  });
 });
 
 describe("earnings read — parses the whole-₹ summary on 200", () => {
