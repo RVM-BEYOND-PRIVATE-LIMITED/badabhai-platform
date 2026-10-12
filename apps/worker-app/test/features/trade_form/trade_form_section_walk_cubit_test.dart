@@ -7,7 +7,7 @@ import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_reposi
 import 'package:badabhai_worker_app/features/trade_form/presentation/cubit/trade_form_cubit.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 
-/// ── THE SECTION-FILTERED CUBIT WALK (Technical Skills pilot) ────────────────
+/// ── THE SECTION-FILTERED CUBIT WALK (Technical Skills + Availability pilots) ──
 ///
 /// `load(sectionKey:)` narrows the walk to the section's steps; everything
 /// else — per-step saves, auto-advance, `done` — is the unchanged full-walk
@@ -153,6 +153,20 @@ void main() {
     expect(cubit.state.status, TradeFormStatus.done);
     verifyNever(() => repo.savePreferences(any()));
     verifyNever(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')));
+  });
+
+  test('the Availability walk keeps only the preferences marker', () async {
+    final TradeFormCubit cubit = TradeFormCubit(repo);
+    await cubit.load(sectionKey: kResumeMenuAvailabilitySalaryKey);
+
+    expect(cubit.state.status, TradeFormStatus.ready,
+        reason: 'load error: ${cubit.state.loadError}');
+    expect(cubit.state.flatSteps, hasLength(1));
+    expect(cubit.state.currentStep, isA<TradeFormPreferencesStep>());
+    // Prefill ran for the marker this walk carries, so the page opens with
+    // the stored record instead of blank (a blank whole-record PUT would
+    // destroy data on save).
+    verify(() => repo.loadSavedPreferences()).called(1);
   });
 
   test('a bare retry keeps the section walk instead of widening it', () async {

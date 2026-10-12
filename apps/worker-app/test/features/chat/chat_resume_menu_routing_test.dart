@@ -26,9 +26,10 @@ import 'package:badabhai_worker_app/router.dart';
 ///   2. route on `option_key`, never on the label copy:
 ///      - `resume_edit` / `resume_redo` ask the SERVER for the next menu;
 ///      - `resume_upload` opens the résumé-import screen (never submitted);
-///      - `section_technical_skills` opens its filtered trade-form walk
-///        (never submitted); every OTHER `section_*` opens the Resume tab's
-///        Edit (never submitted) until its own walk lands;
+///      - `section_technical_skills` + `section_availability_salary` open
+///        their filtered trade-form walks (never submitted); every OTHER
+///        `section_*` opens the Resume tab's Edit (never submitted) until its
+///        own walk lands;
 ///      - `resume_chat_create` mints a NEW session and resets the transcript.
 class MockChatRepository extends Mock implements ChatRepository {}
 
@@ -54,7 +55,8 @@ const List<ChatOption> _sectionOptions = <ChatOption>[
       optionKey: 'section_education', labelText: 'Education & Certifications'),
   ChatOption(optionKey: 'section_location', labelText: 'Location'),
   ChatOption(
-      optionKey: 'section_availability_salary', labelText: 'Availability & Salary'),
+      optionKey: 'section_availability_salary',
+      labelText: 'Availability, Terms & Salary'),
 ];
 
 ChatTurn _turn(String reply, List<ChatOption> options) => ChatTurn(
@@ -212,7 +214,7 @@ void main() {
 
       expect(find.byType(SingleSelectQuestionCard), findsNWidgets(6));
       expect(find.text('General Info'), findsOneWidget);
-      expect(find.text('Availability & Salary'), findsOneWidget);
+      expect(find.text('Availability, Terms & Salary'), findsOneWidget);
     });
 
     testWidgets('resume_edit is submitted to the server for the next menu',
@@ -278,6 +280,25 @@ void main() {
           find.text('SECTION FORM TARGET section_technical_skills'),
           findsOneWidget);
       verifyNever(() => repo.sendMessage('Technical Skills',
+          submissionId: any(named: 'submissionId')));
+    });
+
+    testWidgets(
+        'Availability, Terms & Salary opens its filtered trade-form walk, never submitted',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _turn(_editReply, _sectionOptions));
+      await pumpChat(tester);
+      await triggerMenu(tester);
+
+      await tester.tap(find.text('Availability, Terms & Salary'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('SECTION FORM TARGET section_availability_salary'),
+          findsOneWidget);
+      verifyNever(() => repo.sendMessage('Availability, Terms & Salary',
           submissionId: any(named: 'submissionId')));
     });
 

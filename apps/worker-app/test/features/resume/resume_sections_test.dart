@@ -46,7 +46,7 @@ Expected salary: 20000 per month''';
       'Work History',
       'Education & Certifications',
       'Location',
-      'Availability & Salary',
+      'Availability, Terms & Salary',
     ]) {
       expect(find.text(title), findsOneWidget, reason: 'missing section: $title');
     }
@@ -65,7 +65,7 @@ Expected salary: 20000 per month''';
     expect(find.textContaining('Work history:', findRichText: true), findsNothing);
   });
 
-  testWidgets('Availability & Salary render their values', (
+  testWidgets('Availability, Terms & Salary render their values', (
     WidgetTester tester,
   ) async {
     await pumpSections(tester, full);

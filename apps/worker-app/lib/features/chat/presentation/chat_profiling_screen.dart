@@ -649,9 +649,9 @@ class _ChatViewState extends State<_ChatView>
   /// upload-vs-chat). `resume_upload`, `resume_chat_create` and every
   /// `section_*` are handled on the client and are NEVER submitted — sending
   /// them would only produce the server's ack. Within `section_*`, the
-  /// Technical Skills pilot opens its filtered trade-form walk while the
-  /// other sections open the Resume Edit. An ordinary (non-menu) option
-  /// falls through to exactly today's submit.
+  /// Technical Skills + Availability, Terms & Salary pilots open their filtered
+  /// trade-form walks while the other sections open the Resume Edit. An
+  /// ordinary (non-menu) option falls through to exactly today's submit.
   /// ADR-0044 — a companion job chip, and the recap re-read on the way back.
   ///
   /// #1747 review: this push used to be fire-and-forget, so the `'applied'` the
@@ -769,13 +769,16 @@ class _ChatViewState extends State<_ChatView>
         context.read<ChatBloc>().add(const ChatSessionRestarted());
         return;
       case ResumeMenuAction.openSection:
-        // PILOT: Technical Skills re-asks only its questions on the EXISTING
-        // trade-form pages (section-filtered walk, never submitted here).
+        // PILOT: Technical Skills re-asks only its questions, and
+        // Availability, Terms & Salary re-asks only the preferences marker
+        // (shift / job type / cities / terms), on the EXISTING trade-form
+        // pages (section-filtered walk, never submitted here).
         // Every other section still opens the Resume tab's Edit surface — the
         // same destination the server's ack copy names — until its own walk
         // lands. The key rides along either way so a test can assert WHICH
         // section was chosen without string-matching the display copy.
-        if (option.optionKey == kResumeMenuTechnicalSkillsKey) {
+        if (option.optionKey == kResumeMenuTechnicalSkillsKey ||
+            option.optionKey == kResumeMenuAvailabilitySalaryKey) {
           context.pushOnce(Routes.tradeForm, extra: option.optionKey);
           return;
         }

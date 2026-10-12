@@ -114,9 +114,10 @@ bool _chromeCrowdsChrome(BuildContext context) =>
 /// device read-aloud is wired.
 class TradeFormScreen extends StatelessWidget {
   /// Opens the whole form (null) or one résumé-section walk — currently the
-  /// Technical Skills pilot (`trade_form_section_walk.dart`). The router feeds
-  /// this from the Bada Bhai menu's `option_key` (`state.extra`); every other
-  /// pusher passes nothing and gets exactly today's full walk.
+  /// Technical Skills + Availability, Terms & Salary pilots
+  /// (`trade_form_section_walk.dart`). The router feeds this from the Bada
+  /// Bhai menu's `option_key` (`state.extra`); every other pusher passes
+  /// nothing and gets exactly today's full walk.
   const TradeFormScreen({
     super.key,
     this.sectionKey,
@@ -711,6 +712,9 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
         onDraftChanged: cubit.savePreferencesDraft,
+        // The availability section walk narrows this marker's internal pages
+        // to shift / job type / cities / terms (see the page's doc).
+        sectionKey: cubit.sectionKey,
       );
     }
     if (step is TradeFormEmploymentStep) {

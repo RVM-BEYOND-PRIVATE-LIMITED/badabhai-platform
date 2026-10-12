@@ -11,8 +11,8 @@
  *   dobara -> [Resume upload karein, Chat se resume banayein]
  *   edit   -> the 6 resume-section labels the worker app already renders
  *             (`ResumeSectionsView`: General Info, Technical Skills, Work
- *             History, Education & Certifications, Location, Availability &
- *             Salary) + ack per section.
+ *             History, Education & Certifications, Location, Availability,
+ *             Terms & Salary) + ack per section.
  *
  * DESIGN RULES (BadaBhai invariants):
  *   - DETERMINISTIC ONLY. Normalized string matching, no LLM, no DB, no PII in
@@ -65,7 +65,7 @@ export const RESUME_SECTIONS: readonly ResumeSectionOption[] = [
   { key: "section_work_history", label: "Work History" },
   { key: "section_education", label: "Education & Certifications" },
   { key: "section_location", label: "Location" },
-  { key: "section_availability_salary", label: "Availability & Salary" },
+  { key: "section_availability_salary", label: "Availability, Terms & Salary" },
 ] as const;
 
 export interface ResumeMenuChoice {

@@ -281,12 +281,17 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   final KnownWorkerFactsStore _knownFacts;
 
   /// The résumé-section walk this cubit is running, if any
-  /// (`trade_form_section_walk.dart` — the Technical Skills pilot). Null is
-  /// the full walk, exactly today's behaviour. Set by [load] and KEPT across
-  /// calls, so a retry (`load()` with no argument) and the `schema_stale`
-  /// resync stay inside the same section rather than silently widening back
-  /// to the whole form.
+  /// (`trade_form_section_walk.dart` — the Technical Skills + Availability,
+  /// Terms & Salary pilots). Null is the full walk, exactly today's behaviour.
+  /// Set by [load] and KEPT across calls, so a retry (`load()` with no
+  /// argument) and the `schema_stale` resync stay inside the same section
+  /// rather than silently widening back to the whole form.
   String? _sectionKey;
+
+  /// The armed section walk, for the screen to narrow marker-internal pages
+  /// with (the preferences page hides languages/documents inside the
+  /// availability walk). Null is the full walk.
+  String? get sectionKey => _sectionKey;
 
   /// True when this walk must start at step 1 and show every step, ignoring
   /// resumability (answered questions + locally-done markers). Set by [load]
