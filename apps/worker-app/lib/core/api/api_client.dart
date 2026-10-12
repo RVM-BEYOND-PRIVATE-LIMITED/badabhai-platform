@@ -532,11 +532,16 @@ class ApiClient {
   /// physical send and re-sent verbatim on a retry. ADDITIVE and backward-
   /// compatible: the body stays `{session_id, text}` and the key is added ONLY
   /// when non-null, so an older server (which strips unknown keys) is unaffected.
+  ///
+  /// [answerSource] is the `answer_source` wire value (`dialog`), added ONLY
+  /// when non-null — the location card's Theek hai. Absent reads as `typed`
+  /// server-side, so every other send is byte-identical to before.
   Future<ChatReply> sendMessage({
     required String sessionId,
     required String authToken,
     required String text,
     String? submissionId,
+    String? answerSource,
   }) async {
     final Map<String, dynamic> json = await _post(
       '/chat/message',
@@ -544,6 +549,7 @@ class ApiClient {
         'session_id': sessionId,
         'text': text,
         if (submissionId != null) 'submission_id': submissionId,
+        if (answerSource != null) 'answer_source': answerSource,
       },
       authToken: authToken,
       // #2160 — a live-news turn legitimately outruns the app-wide 15 s. See

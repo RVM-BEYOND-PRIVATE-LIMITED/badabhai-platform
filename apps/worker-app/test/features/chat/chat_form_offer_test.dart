@@ -211,7 +211,7 @@ void main() {
       expect(find.text(kCncOffer.ctaLabel), findsOneWidget);
       // The old CTA must NOT also appear — one card, one button, never two.
       expect(find.text(kChatDoneReadyLabel), findsNothing);
-      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
     });
 
     testWidgets('tapping the CTA navigates to Routes.tradeForm',
@@ -230,15 +230,15 @@ void main() {
     });
 
     testWidgets(
-        'a normal turn (form_offer null) is unchanged — the old CTA still '
-        'renders', (WidgetTester tester) async {
+        'a normal turn (form_offer null) is unchanged — no CTA, just the composer',
+        (WidgetTester tester) async {
       when(() =>
               repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await sendOneMessage(tester, 'Welder hun');
 
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
       expect(find.text(kCncOffer.headline), findsNothing);
       expect(find.text(kCncOffer.ctaLabel), findsNothing);
     });
@@ -309,7 +309,7 @@ void main() {
       expect(find.text(kCncOffer.headline), findsOneWidget);
       expect(find.text(kCncOffer.ctaLabel), findsOneWidget);
       expect(find.text(kChatDoneReadyLabel), findsNothing);
-      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
     });
   });
 }

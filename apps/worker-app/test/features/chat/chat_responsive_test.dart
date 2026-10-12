@@ -92,10 +92,10 @@ void main() {
               isNull,
               reason: 'chat threw at $size, text x$scale',
             );
-            // The composer and the CTA are the two things a worker must always
-            // have: one to answer with, one to leave with.
+            // The composer is the thing a worker must always have to answer
+            // with. No CTA renders until the interview is ready.
             expect(find.byType(TextField), findsOneWidget);
-            expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+            expect(find.text('Thodi aur baat karein'), findsNothing);
           },
         );
       }
@@ -104,7 +104,7 @@ void main() {
 
   testWidgets(
     'D13 small + keyboard — 320x568 @2.0 with the keyboard up keeps the '
-    'composer and the CTA',
+    'composer',
     (WidgetTester tester) async {
       await pumpChat(
         tester,
@@ -123,7 +123,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(TextField), findsOneWidget);
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
       // The chips are the no-typing answer path — they must survive the squeeze
       // that the keyboard plus a 2.0 font puts on the bottom stack.
       expect(find.text('CNC turner'), findsOneWidget);

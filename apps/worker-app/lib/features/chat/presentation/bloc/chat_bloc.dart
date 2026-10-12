@@ -59,15 +59,27 @@ class ChatStarted extends ChatEvent {
 /// so it is keyed `'__declined'` for the lookahead, yet the server stores it as
 /// shift `any`; judging by the key left the shift unrecorded and the form asked
 /// it again. A typed send and the decline/escape chip leave it false.
+///
+/// [answerSource] is how the answer was composed — `dialog` only for the
+/// location card's Theek hai (identity intake D7: only dialog-composed answers
+/// may write `current_state`/`current_city`). Everything else leaves the
+/// default `typed`, which the wire omits. Rides the worker bubble beside
+/// [ChatMessage.submissionId] so a retry re-sends it unchanged.
 class ChatMessageSent extends ChatEvent {
-  const ChatMessageSent(this.text, {this.optionKey, this.servedOption = false});
+  const ChatMessageSent(
+    this.text, {
+    this.optionKey,
+    this.servedOption = false,
+    this.answerSource = ChatAnswerSource.typed,
+  });
 
   final String text;
   final String? optionKey;
   final bool servedOption;
+  final ChatAnswerSource answerSource;
 
   @override
-  List<Object?> get props => <Object?>[text, optionKey, servedOption];
+  List<Object?> get props => <Object?>[text, optionKey, servedOption, answerSource];
 }
 
 /// Re-send the failed worker message at [index] (#343). The transcript is
@@ -1233,6 +1245,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
               text: text,
               fromWorker: true,
               submissionId: submissionId,
+              // D7 — carried for the retry, which must re-send the same source.
+              answerSource: event.answerSource,
             ),
             // The optimistic bada-bhai bubble — REPLACED by the real reply in
             // [_deliver]. It is never persisted to history: it lives only in this
@@ -1278,6 +1292,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
               text: text,
               fromWorker: true,
               submissionId: submissionId,
+              // D7 — carried for the retry, which must re-send the same source.
+              answerSource: event.answerSource,
             ),
           ],
           sending: true,
@@ -1320,6 +1336,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // #2030 ask 5 — read AFTER the mode flip above, so tapping "Baad mein"
       // excludes its own send: choosing free chat is not answering an ask.
       freeChatSend: state.freeChat || isFreeChatKey(event.optionKey),
+      answerSource: event.answerSource,
     );
   }
 
@@ -1328,7 +1345,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// Shared by a first send and a retry so both surface failure identically.
   /// [submissionId] (#870) is forwarded to the repo unchanged; a retry passes the
   /// ORIGINAL id read off the failed worker bubble, so the re-POST carries the
-  /// same id as the send it retries.
+  /// same id as the send it retries. [answerSource] rides the same way — a
+  /// retried dialog answer keeps its source so the intake does not demote it.
   Future<void> _deliver(
     String text,
     int index,
@@ -1338,10 +1356,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     String? answering,
     bool tappedOption = false,
     bool freeChatSend = false,
+    ChatAnswerSource answerSource = ChatAnswerSource.typed,
   }) async {
     _inFlightSends++;
     try {
-      final ChatTurn? sent = await _sendByMode(text, submissionId);
+      final ChatTurn? sent = await _sendByMode(text, submissionId, answerSource);
       if (sent == null) {
         // #1751 — a 409. The text is NOT auto-posted anywhere: the bubble is
         // marked failed (the worker can retry it into the interview himself) and
@@ -1624,11 +1643,23 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// transcript that feeds extraction. The caller now leaves companion mode,
   /// opens the interview properly, and leaves the text unsent for him to send
   /// deliberately if he still wants to.
-  Future<ChatTurn?> _sendByMode(String text, String? submissionId) async {
+  Future<ChatTurn?> _sendByMode(
+    String text,
+    String? submissionId, [
+    ChatAnswerSource answerSource = ChatAnswerSource.typed,
+  ]) async {
     if (state.companion) {
       return _repo.sendCompanionMessage(text, submissionId: submissionId);
     }
-    return _repo.sendMessage(text, submissionId: submissionId);
+    return _repo.sendMessage(
+      text,
+      submissionId: submissionId,
+      // D7 — null (absent) reads as `typed` server-side; only the location
+      // card passes `dialog`, so every other send is byte-identical to before.
+      answerSource: answerSource == ChatAnswerSource.dialog
+          ? ChatAnswerSource.dialog
+          : null,
+    );
   }
 
   /// #1751 — leave companion mode for the interview, cleanly.
@@ -2061,12 +2092,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // #870 — re-send the ORIGINAL id minted for this bubble on the first send, so
     // the server sees a retry (same submission) rather than a fresh answer. The
     // text is already re-sent byte-identically; the id now rides with it.
+    // D7 — and the ORIGINAL source with it, for the same reason.
     await _deliver(
       message.text,
       index,
       emit,
       submissionId: message.submissionId,
       askIndex: askIndex,
+      answerSource: message.answerSource ?? ChatAnswerSource.typed,
     );
   }
 

@@ -132,6 +132,51 @@ void main() {
     });
   });
 
+  group('answer source (identity intake D7)', () {
+    Future<Map<String, dynamic>> sendAndCaptureBody({
+      ChatAnswerSource? answerSource,
+    }) async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(
+            phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+        ..setSession('s1');
+      late Map<String, dynamic> body;
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            body = jsonDecode(req.body) as Map<String, dynamic>;
+            return http.Response(
+                jsonEncode(<String, dynamic>{'reply': 'Got it.'}), 200);
+          }),
+        ),
+        session,
+      );
+      await repo.sendMessage('Haryana', answerSource: answerSource);
+      return body;
+    }
+
+    test('dialog answers ride answer_source: dialog', () async {
+      final Map<String, dynamic> body = await sendAndCaptureBody(
+        answerSource: ChatAnswerSource.dialog,
+      );
+      expect(body['answer_source'], 'dialog');
+    });
+
+    test('typed answers omit the key — the server reads absence as typed',
+        () async {
+      for (final ChatAnswerSource? source in <ChatAnswerSource?>[
+        null,
+        ChatAnswerSource.typed,
+      ]) {
+        final Map<String, dynamic> body =
+            await sendAndCaptureBody(answerSource: source);
+        expect(body.containsKey('answer_source'), isFalse,
+            reason: 'source=$source: only the dialog rides the key');
+      }
+    });
+  });
+
   // #1198 — resume is best-effort but must NOT be silent: a failed
   // GET /chat/session/latest is retried ONCE, then (if it still fails) mapped +
   // logged as a non-fatal and fallen-through to opening a new session. A fast

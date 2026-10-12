@@ -158,7 +158,7 @@ void main() {
 
       expect(find.text(_recap), findsOneWidget);
       expect(find.text('CNC Operator — Pune'), findsOneWidget);
-      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
       verify(() => repo.openCompanion()).called(1);
       verifyNever(() => repo.ensureSession());
     },
@@ -291,13 +291,13 @@ void main() {
   );
 
   testWidgets(
-    'switch OFF (the default): today\'s tab — no companion call, the session opens, the CTA is there',
+    'switch OFF (the default): today\'s tab — no companion call, the session opens, no CTA until ready',
     (WidgetTester tester) async {
       await pumpTab(tester);
 
       verifyNever(() => repo.openCompanion());
       verify(() => repo.ensureSession()).called(1);
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
     },
   );
 
@@ -312,7 +312,7 @@ void main() {
     },
   );
 
-  testWidgets('not a companion worker (null): today\'s tab, CTA included', (
+  testWidgets('not a companion worker (null): today\'s tab, no CTA until ready', (
     WidgetTester tester,
   ) async {
     companionSwitch(true);
@@ -323,7 +323,7 @@ void main() {
 
     verify(() => repo.ensureSession()).called(1);
     expect(find.text(_recap), findsNothing);
-    expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+    expect(find.text('Thodi aur baat karein'), findsNothing);
   });
 
   // ── #1755.1 — THE REFOCUS TRIGGER, through the real wrapper ────────────────
@@ -368,7 +368,7 @@ void main() {
       locator.registerLazySingleton<TabFocus>(() => focus);
       await pumpTab(tester);
       verifyNever(() => repo.openCompanion());
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
     }
 
     Future<void> awayAndBack(WidgetTester tester) async {
@@ -389,7 +389,7 @@ void main() {
 
       verify(() => repo.openCompanion()).called(1);
       expect(find.text(_recap), findsOneWidget);
-      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
       expect(find.text(kChatDoneReadyLabel), findsNothing);
     });
 
@@ -401,7 +401,7 @@ void main() {
       await awayAndBack(tester);
 
       verifyNever(() => repo.openCompanion());
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
     });
   });
 

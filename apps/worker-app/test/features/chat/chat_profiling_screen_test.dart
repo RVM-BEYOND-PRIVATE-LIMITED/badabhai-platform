@@ -104,8 +104,9 @@ void main() {
               ));
 
       await pumpScreen(tester);
-      // The interview CTA stands before the mode changes.
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      // No interview CTA while not ready — the removed invitation never renders.
+      expect(find.text('Thodi aur baat karein'), findsNothing);
+      expect(find.text(kChatDoneReadyLabel), findsNothing);
 
       // TYPING the words is not tapping the chip: only the chip carries the
       // `option_key`, and the mode is keyed on that, never on the text. A
@@ -114,7 +115,7 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.send);
       await tester.pumpAndSettle();
 
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
       expect(find.byKey(kFreeChatResumeCtaKey), findsNothing);
     });
 
@@ -141,7 +142,7 @@ void main() {
 
       // The interview CTA is GONE — its early-finish path would extract an
       // empty transcript, because free-chat lines are excluded from extraction.
-      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
       expect(find.text(kChatDoneReadyLabel), findsNothing);
 
       // REPLACED, not hidden: a visible full-width exit remains.

@@ -1,7 +1,10 @@
-// #421 (screen half) — the "build my profile" CTA is GATED on the engine's
-// extraction_ready, softly: not-ready relabels the CTA and routes it through a
-// warm nudge sheet that still offers a way through. A hard-disabled button
-// would be worse than the bug for a first-time, low-literacy worker.
+// #421 (screen half) — the "build my profile" CTA is READY-ONLY: it renders
+// if and only if the engine's extraction_ready is set. The not-ready
+// "Thodi aur baat karein" invitation and its nudge sheet were removed
+// permanently (owner ask): while the interview is incomplete there is no CTA
+// at all, and the worker keeps talking until the ready CTA appears. These
+// tests pin that absence with the LITERAL copy, so a reintroduction under any
+// name still reddens them.
 //
 // Split out from chat_extraction_ready_test.dart (the parse/bloc half) because
 // anything that imports the screen pulls in router.dart -> the resume photo
@@ -40,7 +43,7 @@ void main() {
 
   // ----------------------------------------------------------------- screen
 
-  group('the Done CTA is gated on extraction_ready (#421)', () {
+  group('the Done CTA renders only when ready (#421)', () {
     Future<GoRouter> pumpChat(WidgetTester tester) async {
       tester.view.physicalSize = const Size(500, 1000);
       tester.view.devicePixelRatio = 1.0;
@@ -73,22 +76,22 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('NOT ready: softened label, and no straight-through '
-        'navigation', (WidgetTester tester) async {
+    testWidgets('NOT ready: no CTA of any kind — the worker keeps talking',
+        (WidgetTester tester) async {
       when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await sendOneMessage(tester);
 
-      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+      // Neither the ready label nor the removed invitation may render.
       expect(find.text(kChatDoneReadyLabel), findsNothing);
-
-      await tester.tap(find.text(kChatDoneNotReadyLabel));
-      await tester.pumpAndSettle();
-
-      // Tapping opens the nudge instead of jumping to the preview.
-      expect(find.text(kChatNudgeTitle), findsOneWidget);
-      expect(find.text(kPreviewMarker), findsNothing);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
+      // And no nudge sheet copy anywhere in the tree.
+      expect(find.text('Ek minute ji'), findsNothing);
+      expect(find.text('Baat jaari rakhein'), findsNothing);
+      expect(find.text('Phir bhi profile banaiye'), findsNothing);
+      // The composer is live: talking is the way forward now.
+      expect(find.byType(TextField), findsOneWidget);
     });
 
     testWidgets('READY: the CTA reads done and goes straight to the preview',
@@ -100,131 +103,29 @@ void main() {
       await sendOneMessage(tester);
 
       expect(find.text(kChatDoneReadyLabel), findsOneWidget);
-      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text('Thodi aur baat karein'), findsNothing);
 
       await tester.tap(find.text(kChatDoneReadyLabel));
       await tester.pumpAndSettle();
 
       expect(find.text(kPreviewMarker), findsOneWidget);
-      expect(find.text(kChatNudgeTitle), findsNothing,
-          reason: 'a ready worker is never nudged');
     });
 
-    testWidgets('the nudge can be dismissed back into the chat',
+    testWidgets('the READY CTA meets the 48px tap target',
         (WidgetTester tester) async {
-      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
-      await pumpChat(tester);
-      await sendOneMessage(tester);
-
-      await tester.tap(find.text(kChatDoneNotReadyLabel));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(kChatNudgeContinueLabel));
-      await tester.pumpAndSettle();
-
-      expect(find.text(kChatNudgeTitle), findsNothing);
-      expect(find.text(kPreviewMarker), findsNothing);
-      expect(find.byType(TextField), findsOneWidget, reason: 'back in the chat');
-    });
-
-    testWidgets('BOTH ways out of the gate are ON SCREEN at 320x568 @2.0',
-        (WidgetTester tester) async {
-      // The screen's own rule: a client-side gate must never be able to trap a
-      // worker in a chat they cannot leave. With the two actions at the end of
-      // the sheet's SCROLLING body, the smallest supported phone at the
-      // largest supported font showed a half-cut primary CTA and pushed the
-      // escape hatch off the sheet entirely. They are docked now, so both are
-      // painted inside the viewport with no scrolling at all.
-      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
-      tester.view.physicalSize = const Size(320, 568);
-      tester.view.devicePixelRatio = 1.0;
-      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-
-      final GoRouter router = GoRouter(
-        initialLocation: '/chat',
-        routes: <RouteBase>[
-          GoRoute(path: '/chat', builder: (_, __) => const ChatProfilingScreen()),
-          GoRoute(
-            path: Routes.profilePreview,
-            builder: (_, __) => const Scaffold(body: Text(kPreviewMarker)),
-          ),
-        ],
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => const ChatTurn(reply: 'Bas ho gaya.', extractionReady: true),
       );
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-      await tester.pumpAndSettle();
-      await sendOneMessage(tester);
-      await tester.tap(find.text(kChatDoneNotReadyLabel));
-      await tester.pumpAndSettle();
-
-      for (final String label in <String>[
-        kChatNudgeContinueLabel,
-        kChatNudgeProceedLabel,
-      ]) {
-        final Rect box = tester.getRect(find.text(label));
-        expect(box.bottom, lessThanOrEqualTo(568), reason: '$label is below the fold');
-        expect(box.top, greaterThanOrEqualTo(0), reason: '$label is above the sheet');
-      }
-      // And the escape hatch really works from there, with no scroll first.
-      await tester.tap(find.text(kChatNudgeProceedLabel));
-      await tester.pumpAndSettle();
-      expect(find.text(kPreviewMarker), findsOneWidget);
-    });
-
-    testWidgets('the ESCAPE HATCH works — a not-ready worker can still build '
-        'their profile', (WidgetTester tester) async {
-      // The whole reason the gate is soft: if readiness never arrives (an older
-      // API, a lost field, a stubborn interview), the worker must still be able
-      // to finish. A hard-disabled button would strand them here.
-      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await sendOneMessage(tester);
 
-      await tester.tap(find.text(kChatDoneNotReadyLabel));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(kChatNudgeProceedLabel));
-      await tester.pumpAndSettle();
-
-      expect(find.text(kPreviewMarker), findsOneWidget);
-    });
-
-    testWidgets('every CTA/nudge control meets the 48px tap target',
-        (WidgetTester tester) async {
-      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
-      await pumpChat(tester);
-      await sendOneMessage(tester);
-
-      expect(tester.getSize(find.text(kChatDoneNotReadyLabel)).height,
-          greaterThan(0));
-      // The not-ready CTA is now the kit's yellow PrimaryActionButton, which
-      // is an ElevatedButton (it was a secondary OutlinedButton before).
+      // The ready CTA is the kit's yellow PrimaryActionButton, which
+      // is an ElevatedButton.
       final Finder cta = find.ancestor(
-        of: find.text(kChatDoneNotReadyLabel),
+        of: find.text(kChatDoneReadyLabel),
         matching: find.byType(ElevatedButton),
       );
       expect(tester.getSize(cta).height, greaterThanOrEqualTo(48));
-
-      await tester.tap(find.text(kChatDoneNotReadyLabel));
-      await tester.pumpAndSettle();
-      for (final String label in <String>[
-        kChatNudgeContinueLabel,
-        kChatNudgeProceedLabel,
-      ]) {
-        // byWidgetPredicate, not byType: ButtonStyleButton is abstract and
-        // byType matches the EXACT runtime type (FilledButton / TextButton).
-        final Finder button = find.ancestor(
-          of: find.text(label),
-          matching:
-              find.byWidgetPredicate((Widget w) => w is ButtonStyleButton),
-        );
-        expect(tester.getSize(button.first).height, greaterThanOrEqualTo(48),
-            reason: '$label must be thumb-sized');
-      }
     });
   });
 

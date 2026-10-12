@@ -28,7 +28,6 @@ import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
-import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
 // Only for [kChatSendFailedLabel]: the bubble itself is drawn locally in the
 // Master UI Kit style (see [_ChatBubble]), the copy stays the shared constant.
@@ -183,9 +182,6 @@ const String _kSessionFailedLabel =
 /// CTA label once the engine says the interview is complete.
 const String kChatDoneReadyLabel = 'Ho gaya — meri profile banaiye';
 
-/// CTA label while the interview is still short — an invitation, not a block.
-const String kChatDoneNotReadyLabel = 'Thodi aur baat karein';
-
 /// Shown when a turn was blocked (pseudonymize fail-closed): the worker's last
 /// answer was NOT processed, so tell them plainly rather than let a canned
 /// fallback reply read as "understood". PII-free constant copy.
@@ -211,25 +207,6 @@ const String kChatFormOfferLockedHint =
 /// only TICK there, and this sends every ticked choice as ONE answer. Disabled
 /// until at least one chip is ticked. Aap-form-neutral, PII-free constant copy.
 const String kChatMultiSelectDoneLabel = 'Ho gaya';
-
-/// Nudge-sheet heading.
-///
-/// PERSONA: was 'Ek minute, bhai'. `bhai` as a VOCATIVE is banned by the Ten
-/// Laws — the persona is NAMED Bada Bhai but never calls the worker one. The
-/// client holds no worker name to address them by (see `kChatOpeningText`), so
-/// the honorific `ji` carries the warmth on its own.
-const String kChatNudgeTitle = 'Ek minute ji';
-
-/// Nudge-sheet body — honest about the cost of stopping now.
-const String kChatNudgeBody =
-    'Aap abhi profile bana sakte hain, par woh adhoori rahegi. Thodi baat aur '
-    'ho jaye to company ko aapki poori baat dikhegi.';
-
-/// Nudge-sheet primary action — back to the chat.
-const String kChatNudgeContinueLabel = 'Baat jaari rakhein';
-
-/// Nudge-sheet escape hatch — the worker is never trapped.
-const String kChatNudgeProceedLabel = 'Phir bhi profile banaiye';
 
 /// The `extra` the résumé-upload screen hands [Routes.chatProfiling] when the
 /// worker arrived from a REAL import that said nothing on the way (#1660).
@@ -567,11 +544,21 @@ class _ChatViewState extends State<_ChatView>
   }
 
   /// Send an answer from a tap-to-answer chip — same path as typing it.
-  void _sendText(String text) {
+  ///
+  /// [answerSource] rides the event to the wire (`answer_source`): `dialog`
+  /// only for the location card's Theek hai (identity intake D7 — only
+  /// dialog-composed answers may write state/city). Everything else leaves
+  /// the default `typed`, which the wire omits.
+  void _sendText(
+    String text, {
+    ChatAnswerSource answerSource = ChatAnswerSource.typed,
+  }) {
     if (text.trim().isEmpty) return;
     // The custom answer has been given — back to the everyday composer.
     if (_customAnswerMode) setState(() => _customAnswerMode = false);
-    context.read<ChatBloc>().add(ChatMessageSent(text));
+    context.read<ChatBloc>().add(
+          ChatMessageSent(text, answerSource: answerSource),
+        );
   }
 
   /// The worker's profile is not among the suggestions: enter
@@ -1186,19 +1173,18 @@ class _ChatViewState extends State<_ChatView>
     );
   }
 
-  /// The "build my profile" CTA (#421).
+  /// The "build my profile" CTA (#421) — READY ONLY.
   ///
-  /// Not-ready is a SOFT gate: the button keeps its full-width ≥48px target and
-  /// stays tappable — it just changes voice from "done" to "let's talk a bit
-  /// more", and routes through [_confirmEarlyFinish] instead of straight to the
-  /// preview. Nothing here can leave the worker stuck.
+  /// The not-ready "Thodi aur baat karein" invitation was removed permanently
+  /// (owner ask), with its nudge sheet: while the engine has not called the
+  /// interview complete there is no CTA at all, and the worker keeps talking
+  /// until the ready CTA appears.
   Widget _doneCta(ChatState state) {
     // #2030 ask 2 — IN FREE CHAT THIS BUTTON IS THE WAY BACK, not the way out.
     //
-    // The interview CTA must not stand here: its not-ready path
-    // ([_confirmEarlyFinish]) would finish a profile from a transcript the
-    // server excluded from extraction, so it would extract NOTHING and hand the
-    // worker an empty profile.
+    // The interview CTA must not stand here: free-chat lines are excluded from
+    // extraction, so it would extract NOTHING and hand the worker an empty
+    // profile.
     //
     // REPLACED, not hidden (the issue allows either). Hiding it leaves a
     // distress turn with no route onward at all: that is the one free-mode turn
@@ -1207,7 +1193,7 @@ class _ChatViewState extends State<_ChatView>
     // every single free-mode turn and posts the server's OWN label, which its
     // `isResumeChip` reads by label or by key.
     if (state.freeChat) return _freeChatResumeCta(sending: state.sending);
-    final bool ready = state.extractionReady;
+    if (!state.extractionReady) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -1215,21 +1201,17 @@ class _ChatViewState extends State<_ChatView>
         AppSpacing.s4,
         AppSpacing.s3,
       ),
-      // Master UI Kit: both labels ride the kit's yellow PrimaryActionButton.
-      // The READY "profile banaiye" CTA keeps the forward arrow (it moves the
-      // worker on); the not-ready "Thodi aur baat karein" invitation drops it,
-      // so the two still read differently at a glance. Both stay tappable —
-      // the #421 soft gate is unchanged.
+      // Master UI Kit: the READY "profile banaiye" CTA keeps the forward arrow
+      // (it moves the worker on). Both labels used to ride this button; only
+      // the ready one remains.
       child: _capped(
         PrimaryActionButton(
-          label: ready ? kChatDoneReadyLabel : kChatDoneNotReadyLabel,
-          showArrow: ready,
+          label: kChatDoneReadyLabel,
+          showArrow: true,
           // #372's visible half: the same-frame half lives in
           // `_openProfilePreview`. Only the READY path can stack previews —
           // the not-ready path opens a sheet, which is its own guard.
-          onPressed: ready
-              ? (_openingPreview ? null : _openProfilePreview)
-              : _confirmEarlyFinish,
+          onPressed: _openingPreview ? null : _openProfilePreview,
         ),
       ),
     );
@@ -1397,83 +1379,6 @@ class _ChatViewState extends State<_ChatView>
       // by then, hence the mounted check before re-arming the button.
       if (mounted) setState(() => _openingPreview = false);
     }
-  }
-
-  /// Warm nudge when the engine has not called the interview complete yet.
-  ///
-  /// Explains WHY in one plain Hinglish line and offers both ways out: keep
-  /// talking (the default, primary) or build the profile anyway. The escape
-  /// hatch is deliberate — the client must never be the reason a worker cannot
-  /// finish (e.g. if `extraction_ready` were missing from a reply, which the
-  /// parser reads as "not ready").
-  Future<void> _confirmEarlyFinish() async {
-    final bool? proceed = await showBbBottomSheet<bool>(
-      context: context,
-      // The EXPLANATION scrolls; the two ways out are DOCKED below it (the
-      // sheet's `footer`). With the actions at the end of the scrolling body, a
-      // 320x568 screen at a 2.0 system font showed a half-cut 'Baat jaari
-      // rakhein' and pushed the escape hatch off the sheet entirely — exactly
-      // what this screen's own rule forbids: a client-side gate must never be
-      // able to trap a worker in a chat they cannot leave.
-      builder: (BuildContext sheetContext) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text(
-              kChatNudgeTitle,
-              style: OnboardingTypography.questionHeadline(
-                color: OnboardingColors.shiftBlue,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s2),
-            Text(
-              kChatNudgeBody,
-              style: OnboardingTypography.body(color: OnboardingColors.ink600),
-            ),
-          ],
-        ),
-      ),
-      footer: (BuildContext sheetContext) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          const SizedBox(height: AppSpacing.s5),
-          PrimaryActionButton(
-            label: kChatNudgeContinueLabel,
-            showArrow: false,
-            onPressed: () => Navigator.of(sheetContext).pop(false),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          // The escape hatch stays a quiet text action under the yellow CTA —
-          // present and thumb-sized, never competing with "keep talking".
-          MediaQuery.withClampedTextScaling(
-            maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
-            child: TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: OnboardingColors.shiftBlue,
-                minimumSize: const Size(
-                  double.infinity,
-                  OnboardingLayout.tapTarget,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(OnboardingRadii.button),
-                ),
-              ),
-              onPressed: () => Navigator.of(sheetContext).pop(true),
-              child: Text(
-                kChatNudgeProceedLabel,
-                textAlign: TextAlign.center,
-                style: OnboardingTypography.buttonLabel(),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (proceed != true) return;
-    if (!mounted) return;
-    _openProfilePreview();
   }
 
   @override
@@ -2482,7 +2387,9 @@ class _ChatViewState extends State<_ChatView>
     if (state.sending) return;
     if (state.askedQuestionKey != kChatCityQuestionKey) return;
     _heldCity = null;
-    _sendText(city);
+    // Dialog-composed (chosen on the state card) — tagged so the intake
+    // writes it (D7).
+    _sendText(city, answerSource: ChatAnswerSource.dialog);
   }
 
   /// ADR-0048 — the worker pressed "Theek hai" on the location card.
@@ -2504,12 +2411,14 @@ class _ChatViewState extends State<_ChatView>
       _heldCity = (chosenCity != null && chosenCity.isNotEmpty)
           ? chosenCity
           : null;
-      _sendText(chosenState);
+      // D7 — dialog-composed: the only source the intake writes for location.
+      _sendText(chosenState, answerSource: ChatAnswerSource.dialog);
       return;
     }
     if (chosenCity != null && chosenCity.isNotEmpty) {
       _heldCity = null;
-      _sendText(chosenCity);
+      // D7 — dialog-composed (see above).
+      _sendText(chosenCity, answerSource: ChatAnswerSource.dialog);
     }
   }
 
@@ -2537,7 +2446,9 @@ class _ChatViewState extends State<_ChatView>
     //
     // The composer stays live underneath, exactly as `/name` kept free text —
     // the city lists are suggestions, never a gate, and the server canonicalises
-    // whatever is sent.
+    // whatever is sent. D7: typed text on THESE two steps never writes the
+    // record (only the card's Theek hai does) — an aside answered here re-asks
+    // instead of becoming the worker's official state.
     if (isChatLocationQuestion(state.askedQuestionKey)) {
       // THE CITY TURN IS ANSWERED BEFORE IT IS DRAWN when the worker already
       // gave the city on the state card — see [_heldCity]. Nothing renders in
