@@ -31,10 +31,12 @@ void main() {
     test('the pilot keys are the server keys, never a second spelling', () {
       expect(kResumeMenuTechnicalSkillsKey, 'section_technical_skills');
       expect(kResumeMenuAvailabilitySalaryKey, 'section_availability_salary');
+      expect(kResumeMenuWorkHistoryKey, 'section_work_history');
       expect(tradeFormSectionFilterFor(kResumeMenuTechnicalSkillsKey),
           isNotNull);
       expect(tradeFormSectionFilterFor(kResumeMenuAvailabilitySalaryKey),
           isNotNull);
+      expect(tradeFormSectionFilterFor(kResumeMenuWorkHistoryKey), isNotNull);
     });
   });
 
@@ -111,6 +113,24 @@ void main() {
       expect(filter(_step('turning_operation')), isFalse);
       expect(filter(_step('turning_experience')), isFalse);
       expect(filter(const TradeFormEmploymentStep()), isFalse);
+      expect(filter(const TradeFormQualificationsStep()), isFalse);
+    });
+  });
+
+  group('Work History keeps only the employment marker', () {
+    test('the employment marker is asked', () {
+      final TradeFormStepFilter filter =
+          tradeFormSectionFilterFor(kResumeMenuWorkHistoryKey)!;
+      expect(filter(const TradeFormEmploymentStep()), isTrue);
+    });
+
+    test('capability questions and other markers are dropped', () {
+      final TradeFormStepFilter filter =
+          tradeFormSectionFilterFor(kResumeMenuWorkHistoryKey)!;
+      expect(filter(_step('turning_machine')), isFalse);
+      expect(filter(_step('turning_operation')), isFalse);
+      expect(filter(_step('turning_experience')), isFalse);
+      expect(filter(const TradeFormPreferencesStep()), isFalse);
       expect(filter(const TradeFormQualificationsStep()), isFalse);
     });
   });

@@ -9,11 +9,11 @@
 /// (never on the cubit's flattened wrapper) so the dependency runs toward the
 /// domain, never back into presentation state.
 ///
-/// PILOT: Technical Skills + Availability, Terms & Salary. Every other
-/// section key (and a null key) yields a null filter, and the caller walks
-/// the whole form exactly as today — so expanding to the next section is a
-/// new predicate here plus one routing branch in the chat screen, never a
-/// change to the cubit, the screen, or the router.
+/// PILOT: Technical Skills + Availability, Terms & Salary + Work History.
+/// Every other section key (and a null key) yields a null filter, and the
+/// caller walks the whole form exactly as today — so expanding to the next
+/// section is a new predicate here plus one routing branch in the chat
+/// screen, never a change to the cubit, the screen, or the router.
 ///
 /// THE RULE (Technical Skills = craft capability, nothing else). The résumé's
 /// Technical Skills section prints the `Machines` + `Skills` labels, which the
@@ -35,7 +35,10 @@
 library;
 
 import '../../chat/domain/chat_resume_menu.dart'
-    show kResumeMenuAvailabilitySalaryKey, kResumeMenuTechnicalSkillsKey;
+    show
+        kResumeMenuAvailabilitySalaryKey,
+        kResumeMenuTechnicalSkillsKey,
+        kResumeMenuWorkHistoryKey;
 import '../domain/trade_form_models.dart';
 import 'widgets/trade_form_topics.dart';
 
@@ -71,19 +74,35 @@ bool _isTechnicalSkillsStep(TradeFormStep step) {
 bool _isAvailabilitySalaryStep(TradeFormStep step) =>
     step is TradeFormPreferencesStep;
 
+/// Whether [step] belongs in the Work History walk.
+///
+/// The résumé's Work History section prints the worker's employment entries —
+/// employer, role, dates and tenure — which the pipeline derives from the
+/// `employment` marker answers (`PUT /workers/me/employment`, whole-history
+/// replace). The walk is therefore exactly that ONE marker step on the
+/// EXISTING form page: no capability questions, no preferences, no
+/// qualifications. The page has no internal pages to narrow (unlike the
+/// preferences marker), so this predicate stays at step granularity and the
+/// cubit reads the stored history through the SAME `loadSavedEmployment`
+/// prefill (#1710) with no screen change.
+bool _isWorkHistoryStep(TradeFormStep step) => step is TradeFormEmploymentStep;
+
 /// The filter for a résumé-section walk, or null for the full walk.
 ///
-/// Returns non-null ONLY for the piloted sections ([kResumeMenuTechnicalSkillsKey]
-/// and [kResumeMenuAvailabilitySalaryKey], the server's keys in
-/// `apps/api/src/chat/resume-menu.ts`, pinned byte-for-byte by the chat parity
-/// test). Every other key — including null — yields null, and the caller walks
-/// the whole form exactly as today.
+/// Returns non-null ONLY for the piloted sections ([kResumeMenuTechnicalSkillsKey],
+/// [kResumeMenuAvailabilitySalaryKey] and [kResumeMenuWorkHistoryKey], the
+/// server's keys in `apps/api/src/chat/resume-menu.ts`, pinned byte-for-byte by
+/// the chat parity test). Every other key — including null — yields null, and
+/// the caller walks the whole form exactly as today.
 TradeFormStepFilter? tradeFormSectionFilterFor(String? sectionKey) {
   if (sectionKey == kResumeMenuTechnicalSkillsKey) {
     return _isTechnicalSkillsStep;
   }
   if (sectionKey == kResumeMenuAvailabilitySalaryKey) {
     return _isAvailabilitySalaryStep;
+  }
+  if (sectionKey == kResumeMenuWorkHistoryKey) {
+    return _isWorkHistoryStep;
   }
   return null;
 }

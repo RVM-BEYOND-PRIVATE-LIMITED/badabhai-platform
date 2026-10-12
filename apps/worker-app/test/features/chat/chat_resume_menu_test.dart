@@ -62,6 +62,7 @@ void main() {
     // real server key, not a second spelling kept beside it.
     expect(sectionKeys, contains(kResumeMenuTechnicalSkillsKey));
     expect(sectionKeys, contains(kResumeMenuAvailabilitySalaryKey));
+    expect(sectionKeys, contains(kResumeMenuWorkHistoryKey));
   });
 
   group('resumeMenuActionFor', () {
