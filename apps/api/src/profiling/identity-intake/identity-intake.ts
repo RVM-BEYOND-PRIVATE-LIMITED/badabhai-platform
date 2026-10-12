@@ -27,6 +27,12 @@
  *       passes `SetMyNameSchema.shape.full_name`, imported rather than copied.
  *   D5  State, then city, both free text: the app shows its pickers for the question keys, and an
  *       unrecognised value is accepted verbatim, exactly as `WorkersService.setLocation` does.
+ *   D7  Dialog-only writes for state and city (#2211): a place answer counts only when the app
+ *       sent it from its State/City picker (`answer_source: "dialog"`). Typed text on those two
+ *       steps is re-asked as `unreadable`, exactly as a filler is — no settlement, no event, no
+ *       write — so a typed aside can never become the worker's official state. Names are
+ *       unaffected; a typed question-back or decline still clarifies or retries. A second
+ *       consecutive non-answer still settles SKIPPED via D1, so D9 is preserved.
  */
 
 import { canonicalCity, canonicalState, classifyUtterance } from "@badabhai/profiling-lexicon";
@@ -58,6 +64,14 @@ export const INTAKE_QUESTION_KEYS = {
 
 /** How every intake question is answered: typed (or picked in the app and sent as text). */
 export const INTAKE_ANSWER_TYPE = "text" as const;
+
+/**
+ * D7 (#2211) — where a place answer came from. `dialog` means the app's State/City picker
+ * sent it; `typed` means the worker typed it (composer, voice-form transcript, any old build).
+ * Absent reads as `typed`, exactly as `armGeneralRoad` absent reads as unarmed: old builds, the
+ * voice form and every existing test construction compile unchanged.
+ */
+export type IntakeAnswerSource = "dialog" | "typed";
 
 /** D1 — asks per step before a non-answer settles it as skipped. */
 export const MAX_INTAKE_ASKS_PER_STEP = 2;
@@ -321,17 +335,28 @@ function nonAnswerIn(words: readonly string[]): IntakeNonAnswer | null {
  * lexicon the interview uses (`classifyUtterance`), so "pata nahi" is a decline here exactly as it
  * is on a pack question; the words are then checked against the D1 lists, and only then is the
  * value held to the `/name` endpoint's own validators.
+ *
+ * D7 (#2211): a place answer (`state`/`city`) that did not come from the pickers is demoted to
+ * `unreadable` — the existing retry line, no settlement, no event, no write. Names are
+ * unaffected; a typed question-back or decline already returned above and still clarifies.
  */
-export function readIntakeAnswer(step: IntakeStep, text: string): IntakeReading {
+export function readIntakeAnswer(
+  step: IntakeStep,
+  text: string,
+  source: IntakeAnswerSource = "typed",
+): IntakeReading {
   const cls = classifyUtterance(text).cls;
   if (cls === "empty") return { kind: "non_answer", why: "empty" };
   if (cls === "abusive") return { kind: "non_answer", why: "abusive" };
   if (cls === "dont_know") return { kind: "non_answer", why: "declined" };
   if (cls === "question_back") return { kind: "non_answer", why: "question_back" };
   if (cls === "hardship") return { kind: "non_answer", why: "unreadable" };
-  return step === "first_name" || step === "last_name"
-    ? readName(step, text)
-    : readPlace(step, text);
+  if (step === "first_name" || step === "last_name") return readName(step, text);
+  const reading = readPlace(step, text);
+  if (reading.kind === "answer" && source !== "dialog") {
+    return { kind: "non_answer", why: "unreadable" };
+  }
+  return reading;
 }
 
 function readName(step: "first_name" | "last_name", text: string): IntakeReading {

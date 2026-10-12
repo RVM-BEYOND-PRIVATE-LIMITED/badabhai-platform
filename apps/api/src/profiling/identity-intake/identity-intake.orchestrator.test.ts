@@ -240,7 +240,7 @@ function makeWorld(opts: WorldOpts = {}) {
     });
   const say = (
     text: string,
-    extra: { submissionId?: string; armGeneralRoad?: boolean } = {},
+    extra: { submissionId?: string; armGeneralRoad?: boolean; answerSource?: "dialog" | "typed" } = {},
   ): Promise<TurnResult> =>
     orchestrator.takeTurn({
       sessionId: SESSION,
@@ -250,6 +250,7 @@ function makeWorld(opts: WorldOpts = {}) {
       submissionId: extra.submissionId ?? null,
       voiceNoteId: null,
       ...(extra.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
+      answerSource: extra.answerSource ?? "dialog",
       knownName: async () => null,
       ctx: CTX as never,
     });
@@ -463,6 +464,40 @@ describe("the steps", () => {
       .emitted("profile.identity_intake_answered")
       .map((e) => (e.payload as { step: string }).step);
     expect(steps).toEqual(["first_name"]);
+  });
+
+  it("D7 end to end: a typed aside is re-asked with no write/event, then dialog answers write once", async () => {
+    const world = makeWorld();
+    await world.open();
+    await world.say("Ramesh");
+    await world.say("Kumar");
+
+    const retry = await world.say("Cnc Mein Ka Chal Raha Hain India Me", {
+      answerSource: "typed",
+    });
+    expect(retry).toMatchObject({
+      questionKey: "worker_state",
+      reply: INTAKE_COPY.state.retry,
+    });
+    expect(world.workersRepo.updateLocation).not.toHaveBeenCalled();
+    expect(
+      world.emitted("profile.identity_intake_answered").map((e) => (e.payload as { step: string }).step),
+    ).toEqual(["first_name", "last_name"]);
+
+    const cityQ = await world.say("Maharashtra", { answerSource: "dialog" });
+    expect(cityQ).toMatchObject({
+      questionKey: "worker_city",
+      reply: INTAKE_COPY.city.prompt,
+    });
+    expect(world.workersRepo.updateLocation).not.toHaveBeenCalled();
+
+    const handoff = await world.say("Pune", { answerSource: "dialog" });
+    expect(handoff.reply).toBe(INTAKE_HANDOFF_TEXT);
+    expect(world.workersRepo.updateLocation).toHaveBeenCalledTimes(1);
+    expect(world.workersRepo.updateLocation).toHaveBeenCalledWith(WORKER, {
+      currentCity: "Pune",
+      currentState: "Maharashtra",
+    });
   });
 
   it("invalid → re-ask → skip: two non-answers settle a step as SKIPPED and move on (D1)", async () => {

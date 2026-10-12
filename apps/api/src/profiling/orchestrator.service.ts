@@ -121,6 +121,7 @@ import {
   readIntakeAnswer,
   reservedIntakeLine,
   type IdentityGaps,
+  type IntakeAnswerSource,
   type IntakeLine,
   type IntakeSettlement,
   type IntakeStep,
@@ -552,6 +553,15 @@ export interface TurnInput {
    * chat (it never passes this), and what lets every test construction compile unchanged.
    */
   readonly freeChat?: FreeChatTurnInput;
+  /**
+   * D7 (#2211) — where this turn's words came from: the app's State/City picker (`dialog`) or
+   * typed text (`typed`). Read only by the identity intake's state/city steps.
+   *
+   * OPTIONAL, AND ABSENT MEANS TYPED — {@link armGeneralRoad}'s exception, for its reason: the
+   * omission's failure mode is today's interview. Old builds, the voice form and every existing
+   * test construction omit it and compile unchanged.
+   */
+  readonly answerSource?: IntakeAnswerSource;
   /**
    * The worker's own name, for the interview models' egress to redact out of what they read
    * (`redactedTurnText`, R32 / ADR-0047 G2). A THUNK, read only by a turn that actually calls a
@@ -4031,7 +4041,10 @@ export class ProfilingOrchestrator {
     if (service === undefined || intake === null || intake.step === null) return null;
     const step = intake.step;
 
-    const transition = advanceIntake(intake, readIntakeAnswer(step, input.text));
+    const transition = advanceIntake(
+      intake,
+      readIntakeAnswer(step, input.text, input.answerSource ?? "typed"),
+    );
     const effects: IntakeEffects = {
       write: service.resolveWrite(transition, intake.firstNameEnc, input.sessionId),
       settled: transition.settled,

@@ -213,8 +213,8 @@ describe("a reply that is not a name or a place (D1) — re-asked, never written
   it("matches WHOLE words only — a name or place merely containing one is an answer", () => {
     // "Noronha" holds "no", "Hina" holds "hi", "Okhla" holds "ok", "Nainital" holds "nai".
     expect(readIntakeAnswer("first_name", "Hina Noronha")).toEqual(answer("Hina Noronha", true));
-    expect(readIntakeAnswer("city", "Okhla")).toEqual(answer("Okhla"));
-    expect(readIntakeAnswer("city", "Nai Dilli")).toEqual(answer("Nai Dilli"));
+    expect(readIntakeAnswer("city", "Okhla", "dialog")).toEqual(answer("Okhla"));
+    expect(readIntakeAnswer("city", "Nai Dilli", "dialog")).toEqual(answer("Nai Dilli"));
   });
 
   it("settles a step as SKIPPED after two of them, exactly as two 'pata nahi' do", () => {
@@ -232,14 +232,79 @@ describe("a reply that is not a name or a place (D1) — re-asked, never written
 
 describe("reading a place (D5) — verbatim, bounded by the /name validators", () => {
   it("keeps an unrecognised place EXACTLY as typed, trimmed", () => {
-    expect(readIntakeAnswer("city", "  Sitamarhi ")).toEqual(answer("Sitamarhi"));
-    expect(readIntakeAnswer("state", "bihar")).toEqual(answer("bihar"));
+    expect(readIntakeAnswer("city", "  Sitamarhi ", "dialog")).toEqual(answer("Sitamarhi"));
+    expect(readIntakeAnswer("state", "bihar", "dialog")).toEqual(answer("bihar"));
   });
 
   it("refuses digits, a decline and nothing", () => {
     expect(readIntakeAnswer("city", "411001")).toEqual({ kind: "non_answer", why: "unreadable" });
     expect(readIntakeAnswer("city", "pata nahi")).toEqual({ kind: "non_answer", why: "declined" });
     expect(readIntakeAnswer("state", " ")).toEqual({ kind: "non_answer", why: "empty" });
+  });
+});
+
+describe("dialog-only places (D7) — typed state/city is re-asked, never written", () => {
+  it("demotes a typed real place to unreadable", () => {
+    expect(readIntakeAnswer("state", "Maharashtra", "typed")).toEqual({
+      kind: "non_answer",
+      why: "unreadable",
+    });
+    expect(readIntakeAnswer("city", "Pune", "typed")).toEqual({
+      kind: "non_answer",
+      why: "unreadable",
+    });
+  });
+
+  it("demotes the defect sentence — a typed aside is never the official state", () => {
+    expect(
+      readIntakeAnswer("state", "Cnc Mein Ka Chal Raha Hain India Me", "typed"),
+    ).toEqual({ kind: "non_answer", why: "unreadable" });
+  });
+
+  it("an omitted source reads as typed", () => {
+    expect(readIntakeAnswer("state", "Maharashtra")).toEqual({
+      kind: "non_answer",
+      why: "unreadable",
+    });
+    expect(readIntakeAnswer("city", "Pune")).toEqual({
+      kind: "non_answer",
+      why: "unreadable",
+    });
+  });
+
+  it("typed names still write — D7 touches places only", () => {
+    expect(readIntakeAnswer("first_name", "Ramesh", "typed")).toEqual(answer("Ramesh"));
+    expect(readIntakeAnswer("first_name", "Ramesh")).toEqual(answer("Ramesh"));
+    expect(readIntakeAnswer("last_name", "Kumar", "typed")).toEqual(answer("Kumar"));
+  });
+
+  it("a typed question-back still clarifies and a decline still declines", () => {
+    expect(readIntakeAnswer("state", "kyu chahiye?", "typed")).toEqual({
+      kind: "non_answer",
+      why: "question_back",
+    });
+    expect(readIntakeAnswer("state", "nahi", "typed")).toEqual({
+      kind: "non_answer",
+      why: "declined",
+    });
+  });
+
+  it("advanceIntake on a demoted reading settles nothing and writes nothing", () => {
+    const first = advanceIntake(
+      pendingAt("state"),
+      readIntakeAnswer("state", "Maharashtra", "typed"),
+    );
+    expect(first.reply).toEqual({ kind: "ask", step: "state", line: "retry" });
+    expect(first.settled).toEqual([]);
+    expect(first.location).toBeNull();
+    expect(first.next.heldState).toBeNull();
+    // A second consecutive non-answer still settles SKIPPED via D1 (D9 preserved).
+    const second = advanceIntake(
+      first.next,
+      readIntakeAnswer("state", "Bihar", "typed"),
+    );
+    expect(second.settled).toEqual([{ step: "state", outcome: "skipped", recognized: null }]);
+    expect(second.location).toBeNull();
   });
 });
 

@@ -37,6 +37,13 @@ export const PostMessageSchema = z.object({
   // non-empty and bounded; the AI service pseudonymizes before any LLM call.
   text: nonEmptyMessageSchema.pipe(safeTextSchema(4000)),
   /**
+   * D7 (#2211) — where this message's words came from: the app's State/City picker
+   * (`dialog`) or typed text (`typed`). Absent means `typed`: old builds, the voice form
+   * and every existing test send nothing and compile unchanged. Non-strict, so an old
+   * server strips it rather than 400ing a new build.
+   */
+  answer_source: z.enum(["dialog", "typed"]).optional(),
+  /**
    * The client's id for THIS physical send — the reply cache's evidence, not its guess (#931).
    *
    * See `ProfilingAnswerSchema.submission_id` for the defect, the on-device symptom and why an
