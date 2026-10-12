@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/design2_cities_page.dart';
 
-/// RENDER-ONLY coverage for the DESIGN2 preferred-cities picker. The page owns
+/// RENDER-ONLY coverage for the CITY1 preferred-cities picker. The page owns
 /// no selection state: every tap must reach the caller's callback with the
 /// canonical city value, and the hub/popular sections must disappear when the
-/// caller has no catalogue data.
+/// caller has no catalogue data. The question heading is untouched by the
+/// city1 restyle; everything below it follows `city1.png`.
 void main() {
   late TextEditingController search;
   late List<String> toggled;
@@ -76,19 +77,27 @@ void main() {
     );
   }
 
-  testWidgets('renders the design chrome: title, counter badge, states, hubs',
+  testWidgets('renders the city1 chrome below the untouched question',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness());
+    // Question area — unchanged.
     expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
     expect(find.text('1/5 Sheher Chune'), findsOneWidget);
-    expect(find.text('INDUSTRIAL STATES'), findsOneWidget);
-    expect(find.text('MAHARASHTRA HUBS'), findsOneWidget);
-    expect(find.text('Chakan, Bhosari MIDC'), findsOneWidget);
-    expect(find.text('Jodein'), findsOneWidget);
-    expect(find.text('Chuna hua'), findsOneWidget);
+    // City1 body.
+    expect(find.text('Selected locations'), findsOneWidget);
+    expect(find.text('1/5 locations selected'), findsOneWidget);
+    expect(find.text('Clear all'), findsOneWidget);
+    expect(find.text('State Chunain'), findsOneWidget);
+    expect(find.text('POPULAR STATES'), findsOneWidget);
+    expect(find.text('Cities Chunain'), findsOneWidget);
+    expect(find.text('Popular cities from selected state'), findsOneWidget);
+    expect(find.text('Pune'), findsOneWidget);
+    // Grid cells show the city name only — area sub-labels stay hidden.
+    expect(find.text('Chakan, Bhosari MIDC'), findsNothing);
+    expect(find.text('Selected cities (max 5)'), findsOneWidget);
   });
 
-  testWidgets('tapping a hub reports the canonical city value',
+  testWidgets('tapping a city cell reports the canonical city value',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness());
     await tester.tap(find.text('Pune'));
@@ -96,7 +105,7 @@ void main() {
     expect(toggled, <String>['Pune']);
   });
 
-  testWidgets('tapping a state chip reports the state',
+  testWidgets('tapping a popular state chip reports the state',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness());
     await tester.tap(find.text('Gujarat'));
@@ -107,25 +116,40 @@ void main() {
   testWidgets('a picked city renders as a removable chip',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness());
-    expect(find.text('CHUNE HUE SHEHER'), findsOneWidget);
+    expect(find.text('Selected cities (max 5)'), findsOneWidget);
+    // The picked strip sits at the foot of the cities card (city1), so it
+    // may start below the fold — scroll it into view before tapping.
+    await tester.ensureVisible(find.byIcon(Icons.close_rounded));
+    await tester.pumpAndSettle();
     expect(find.byIcon(Icons.close_rounded), findsOneWidget);
     await tester.tap(find.byIcon(Icons.close_rounded));
     await tester.pump();
     expect(removed, <String>['Nashik']);
   });
 
-  testWidgets('hides the picked strip and hub fallback note when empty',
+  testWidgets('clear all removes every picked city',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(harness(
+      selected: const <String>['Pune', 'Nashik'],
+    ));
+    await tester.tap(find.text('Clear all'));
+    await tester.pump();
+    expect(removed, <String>['Pune', 'Nashik']);
+  });
+
+  testWidgets('hides the picked chips and hub fallback note when empty',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness(
       selected: const <String>[],
       hubs: const <Design2Hub>[],
     ));
-    expect(find.text('CHUNE HUE SHEHER'), findsNothing);
+    expect(find.text('No cities selected yet'), findsOneWidget);
+    expect(find.text('0/5 locations selected'), findsOneWidget);
     expect(find.text('0/5 Sheher Chune'), findsOneWidget);
     expect(find.textContaining('jald aa rahe hain'), findsOneWidget);
   });
 
-  testWidgets('renders the popular factory hubs row when present',
+  testWidgets('renders the other-cities rows when the catalogue has popular hubs',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness(popular: const <Design2Hub>[
       Design2Hub(
@@ -135,7 +159,7 @@ void main() {
         selected: false,
       ),
     ]));
-    expect(find.text('POPULAR FACTORY HUBS'), findsOneWidget);
+    expect(find.text('Other best places'), findsOneWidget);
     expect(find.text('NCR: Manesar / Gurugram'), findsOneWidget);
   });
 
@@ -156,14 +180,14 @@ void main() {
     expect(find.text('SEARCH RESULTS'), findsOneWidget);
   });
 
-  testWidgets('INDUSTRIAL STATES sits BELOW the suggested cities',
+  testWidgets('State card sits ABOVE the city results',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness(results: kHubs));
 
+    final double state = tester.getTopLeft(find.text('State Chunain')).dy;
     final double results = tester.getTopLeft(find.text('SEARCH RESULTS')).dy;
-    final double states = tester.getTopLeft(find.text('INDUSTRIAL STATES')).dy;
-    expect(states, greaterThan(results),
-        reason: 'the cities are what he came to pick; states narrow them');
+    expect(state, lessThan(results),
+        reason: 'the state narrows the cities, so it comes first');
   });
 
   testWidgets('no overflow on a 320x568 handset at 2.0 text scale',
