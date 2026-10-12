@@ -26,10 +26,10 @@ import 'package:badabhai_worker_app/router.dart';
 ///   2. route on `option_key`, never on the label copy:
 ///      - `resume_edit` / `resume_redo` ask the SERVER for the next menu;
 ///      - `resume_upload` opens the résumé-import screen (never submitted);
-///      - `section_technical_skills` + `section_availability_salary` open
-///        their filtered trade-form walks (never submitted); every OTHER
-///        `section_*` opens the Resume tab's Edit (never submitted) until its
-///        own walk lands;
+///      - `section_technical_skills` + `section_availability_salary` +
+///        `section_work_history` open their filtered trade-form walks (never
+///        submitted); every OTHER `section_*` opens the Resume tab's Edit
+///        (never submitted) until its own walk lands;
 ///      - `resume_chat_create` mints a NEW session and resets the transcript.
 class MockChatRepository extends Mock implements ChatRepository {}
 
@@ -299,6 +299,24 @@ void main() {
           find.text('SECTION FORM TARGET section_availability_salary'),
           findsOneWidget);
       verifyNever(() => repo.sendMessage('Availability, Terms & Salary',
+          submissionId: any(named: 'submissionId')));
+    });
+
+    testWidgets(
+        'Work History opens its filtered trade-form walk, never submitted',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _turn(_editReply, _sectionOptions));
+      await pumpChat(tester);
+      await triggerMenu(tester);
+
+      await tester.tap(find.text('Work History'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('SECTION FORM TARGET section_work_history'), findsOneWidget);
+      verifyNever(() => repo.sendMessage('Work History',
           submissionId: any(named: 'submissionId')));
     });
 

@@ -169,6 +169,25 @@ void main() {
     verify(() => repo.loadSavedPreferences()).called(1);
   });
 
+  test('the Work History walk keeps only the employment marker', () async {
+    final TradeFormCubit cubit = TradeFormCubit(repo);
+    await cubit.load(sectionKey: kResumeMenuWorkHistoryKey);
+
+    expect(cubit.state.status, TradeFormStatus.ready,
+        reason: 'load error: ${cubit.state.loadError}');
+    expect(cubit.state.flatSteps, hasLength(1));
+    expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+    // Prefill ran for the marker this walk carries (#1710), so the page opens
+    // with the stored history instead of blank (a blank whole-history PUT
+    // would delete it on save).
+    verify(() => repo.loadSavedEmployment()).called(1);
+
+    // A bare retry KEEPS the section walk instead of widening it to the form.
+    await cubit.load();
+    expect(cubit.state.flatSteps, hasLength(1));
+    expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+  });
+
   test('a bare retry keeps the section walk instead of widening it', () async {
     final TradeFormCubit cubit = TradeFormCubit(repo);
     await cubit.load(sectionKey: kResumeMenuTechnicalSkillsKey);
