@@ -226,7 +226,11 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<ChatTurn> sendMessage(String text, {String? submissionId}) async {
+  Future<ChatTurn> sendMessage(
+    String text, {
+    String? submissionId,
+    ChatAnswerSource? answerSource,
+  }) async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
 
@@ -251,6 +255,9 @@ class ChatRepositoryImpl implements ChatRepository {
         // adds the key conditionally. Both callers now pass one (chat composer +
         // the voice-merge path, #944); a null would simply be omitted.
         submissionId: submissionId,
+        // D7 — the location card's Theek hai passes `dialog`; the key rides only
+        // then, so every other send is byte-identical to before.
+        answerSource: answerSource == ChatAnswerSource.dialog ? ChatAnswerSource.dialog.wire : null,
       );
       // Carry the backend's tap-to-answer suggestions through to the UI. A
       // blocked reply (pseudonymize fail-closed) arrives with an empty list.

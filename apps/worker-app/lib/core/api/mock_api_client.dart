@@ -165,6 +165,7 @@ class MockApiClient extends ApiClient {
     required String authToken,
     required String text,
     String? submissionId,
+    String? answerSource,
   }) async {
     await _delay();
     final _CannedTurn turn = _cannedTurns[_chatTurn % _cannedTurns.length];

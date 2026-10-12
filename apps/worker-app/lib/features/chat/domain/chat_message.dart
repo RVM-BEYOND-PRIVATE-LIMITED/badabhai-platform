@@ -18,12 +18,31 @@ enum ChatSendStatus {
 
 /// One message in the "bada bhai" profiling chat. UI state (an ordered,
 /// append-only transcript) — not an API shape, so it lives in the domain.
+/// How a worker bubble's answer was composed — the location-write gate
+/// (identity intake D7, `POST /chat/message` `answer_source`).
+///
+/// `dialog`: pressed through the location card's own pickers (state dropdown,
+/// city list incl. its custom entry, GPS fill) via Theek hai. `typed`:
+/// everything else — composer text, chips, voice transcripts. Only the
+/// intake's `state`/`city` steps read it; every other question is source-blind.
+enum ChatAnswerSource {
+  typed,
+  dialog;
+
+  /// The wire value (`answer_source`).
+  String get wire => switch (this) {
+        ChatAnswerSource.typed => 'typed',
+        ChatAnswerSource.dialog => 'dialog',
+      };
+}
+
 class ChatMessage extends Equatable {
   const ChatMessage({
     required this.text,
     required this.fromWorker,
     this.status = ChatSendStatus.sent,
     this.submissionId,
+    this.answerSource,
     this.ttsText,
     this.canReadAloud = true,
     this.newsLinks = const <ChatNewsLink>[],
@@ -43,6 +62,12 @@ class ChatMessage extends Equatable {
   /// the same words. Null on bada-bhai bubbles and any non-submission bubble; it
   /// is never sent for them.
   final String? submissionId;
+
+  /// How this worker bubble was composed (null = typed/legacy). Rides the
+  /// bubble beside [submissionId] so a retry re-sends the SAME source: a
+  /// retried dialog answer must not be demoted to a re-ask server-side.
+  /// Null on bada-bhai bubbles; never rendered, only sent.
+  final ChatAnswerSource? answerSource;
 
   /// The Devanagari read-aloud rendering of [text] (`tts_text`, #896), carried
   /// on a BOT bubble so the on-device hi-IN voice pronounces the Hindi correctly
@@ -88,6 +113,9 @@ class ChatMessage extends Equatable {
     // Preserved, never regenerated: a retry (which flips status) must keep
     // the ORIGINAL id so the re-POST is recognisable as the same submission.
     submissionId: submissionId,
+    // Preserved for the same reason: a retried dialog answer must keep its
+    // source so the intake does not demote it to a re-ask.
+    answerSource: answerSource,
     // Preserved: flipping status must not drop the read-aloud script (#896).
     ttsText: ttsText,
     // Preserved for the same reason: a status flip must not silently make a
@@ -103,6 +131,7 @@ class ChatMessage extends Equatable {
     fromWorker,
     status,
     submissionId,
+    answerSource,
     ttsText,
     canReadAloud,
     bulleted,

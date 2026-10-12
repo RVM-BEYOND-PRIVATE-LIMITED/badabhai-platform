@@ -181,6 +181,37 @@ void main() {
   );
 
   blocTest<ChatBloc, ChatState>(
+    'D7 — a dialog-composed send rides answerSource; typed sends omit it',
+    build: () {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId'),
+              answerSource: any(named: 'answerSource')))
+          .thenAnswer(
+              (_) async => const ChatTurn(reply: 'Got it.'));
+      return ChatBloc(repo);
+    },
+    act: (ChatBloc b) {
+      b.add(const ChatStarted());
+      b.add(const ChatMessageSent('Haryana',
+          answerSource: ChatAnswerSource.dialog));
+      b.add(const ChatMessageSent('cnc'));
+    },
+    verify: (_) {
+      final List<ChatAnswerSource?> sources = verify(() => repo.sendMessage(
+            captureAny(),
+            submissionId: captureAny(named: 'submissionId'),
+            answerSource: captureAny(named: 'answerSource'),
+          )).captured.whereType<ChatAnswerSource?>().toList();
+      expect(
+        sources,
+        <Object?>[ChatAnswerSource.dialog, null],
+        reason: 'only the location card tags dialog; typed rides absent',
+      );
+    },
+  );
+
+  blocTest<ChatBloc, ChatState>(
     'ChatVoiceMerged appends transcript + reply LOCALLY (no network resend)',
     build: () => ChatBloc(repo),
     seed: () =>

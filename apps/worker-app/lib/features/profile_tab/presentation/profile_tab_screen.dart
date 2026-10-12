@@ -343,16 +343,14 @@ class _ProfileTabView extends StatelessWidget {
     );
   }
 
-  /// #1579 — the work-info section: the filled card, or ONE compact Add entry
-  /// to the existing Profile Edit route when empty.
+  /// #1579 — the work-info section: the filled card, or NOTHING when empty.
+  ///
+  /// The "Kaam ki jaankari jodein" Add entry was removed permanently (owner
+  /// ask): unlike languages, an empty work-info zone offers no shortcut and
+  /// renders no stub.
   Widget _workInfoSection(BuildContext context, ProfileSummary s) {
     if (_hasWorkInfo(s)) return _workInfoCard(s);
-    return _addEntryCard(
-      icon: Icons.work_outline_rounded,
-      title: 'Kaam ki jaankari jodein',
-      subtitle: 'Profile edit mein',
-      onTap: () => context.pushOnce(Routes.profileEdit),
-    );
+    return const SizedBox.shrink();
   }
 
   /// The experience / education / skills / machines groups, separated by a

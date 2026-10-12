@@ -479,7 +479,7 @@ void main() {
   /// sentence), unless it maps to an existing one-tap collection route, in
   /// which case exactly one compact Add entry renders in its place.
   group('empty-zone rule', () {
-    testWidgets('all-empty profile: no section headings, two Add entries',
+    testWidgets('all-empty profile: no section headings, one Add entry',
         (WidgetTester tester) async {
       await _pump(
         tester,
@@ -492,9 +492,11 @@ void main() {
       expect(find.text('Kaam ki jaankari'), findsNothing);
       expect(find.textContaining('Abhi kuch nahi'), findsNothing);
       expect(find.text('No experience'), findsNothing);
-      // The two collectable sections render exactly one Add entry each.
+      // Only the languages section keeps its Add entry. The work-info
+      // "Kaam ki jaankari jodein" entry was removed permanently (owner ask):
+      // an empty work-info zone renders nothing at all.
       expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
-      expect(find.text('Kaam ki jaankari jodein'), findsOneWidget);
+      expect(find.text('Kaam ki jaankari jodein'), findsNothing);
       // The chrome around them is untouched (the 'Profile edit karein'
       // shortcut is HIDDEN FOR NOW — see _shortcutsCard).
       expect(find.text('Profile edit karein'), findsNothing);
@@ -533,7 +535,7 @@ void main() {
           name: 'work info',
           filled: ProfileSummary(strengthSignals: 0, commuteKm: 20),
           heading: 'Kaam ki jaankari',
-          add: 'Kaam ki jaankari jodein',
+          add: null, // removed permanently — an empty work-info zone is nothing
         ),
       ];
 
@@ -566,6 +568,21 @@ void main() {
       // And never, in either shape, a sentence describing the worker.
       expect(find.text('No experience'), findsNothing);
       expect(find.textContaining('Abhi kuch nahi'), findsNothing);
+    });
+
+    testWidgets(
+        'the removed work-info Add entry never renders — filled or empty',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _pump(
+          tester, ProfileSummary(strengthSignals: 0, commuteKm: 20));
+      expect(find.text('Kaam ki jaankari'), findsOneWidget);
+      expect(find.text('Kaam ki jaankari jodein'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _pump(tester, const ProfileSummary(strengthSignals: 0));
+      expect(find.text('Kaam ki jaankari'), findsNothing);
+      expect(find.text('Kaam ki jaankari jodein'), findsNothing);
     });
 
     testWidgets('Add entries route to Profile Edit', (WidgetTester tester) async {
@@ -633,9 +650,10 @@ void main() {
       // Chat-road badge still marks the road.
       expect(find.text('Chat se bani profile'), findsOneWidget);
       // Empty sections obey the empty-zone rule, like trade profiles.
+      // Languages keeps its Add entry; work-info renders nothing at all.
       expect(find.text('Skills aur anubhav'), findsNothing);
       expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
-      expect(find.text('Kaam ki jaankari jodein'), findsOneWidget);
+      expect(find.text('Kaam ki jaankari jodein'), findsNothing);
       // No dead ends: the way forward is on screen ('Profile edit karein'
       // is HIDDEN FOR NOW — see _shortcutsCard).
       expect(find.text('Profile edit karein'), findsNothing);

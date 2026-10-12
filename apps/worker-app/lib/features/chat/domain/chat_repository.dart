@@ -149,7 +149,17 @@ abstract interface class ChatRepository {
   /// retry, so the server can tell a retried POST from a worker repeating the
   /// same words. Both callers now supply one — the chat composer (#870) and the
   /// voice-merge path (#944); it stays optional so the contract does not force it.
-  Future<ChatTurn> sendMessage(String text, {String? submissionId});
+  ///
+  /// [answerSource] is how the answer was composed (dialog = the location
+  /// card's Theek hai; typed = everything else), forwarded as `answer_source`
+  /// ONLY when non-null — and then only as `dialog`. A null (the default)
+  /// omits the key, which the server reads as `typed`: today's interview, and
+  /// what keeps old servers (which strip unknown keys) unaffected.
+  Future<ChatTurn> sendMessage(
+    String text, {
+    String? submissionId,
+    ChatAnswerSource? answerSource,
+  });
 
   /// The persisted transcript for the CURRENT session, oldest-first, as
   /// redrawable bubbles (#502 transcript hydration). Empty when there is no open

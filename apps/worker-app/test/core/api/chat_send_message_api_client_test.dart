@@ -58,4 +58,32 @@ void main() {
     expect(body.keys.toSet(), <String>{'session_id', 'text'},
         reason: 'byte-identical to the pre-#870 body');
   });
+
+  test('sendMessage(answerSource: dialog) puts answer_source: dialog in the body',
+      () async {
+    final Map<String, dynamic> body = await capturePostBody(
+      (ApiClient api) => api.sendMessage(
+        sessionId: 's1',
+        authToken: 'tok',
+        text: 'Haryana',
+        answerSource: 'dialog',
+      ),
+    );
+
+    expect(body['answer_source'], 'dialog');
+  });
+
+  test('sendMessage without answerSource omits the key — the server reads '
+      'absence as typed', () async {
+    final Map<String, dynamic> body = await capturePostBody(
+      (ApiClient api) => api.sendMessage(
+        sessionId: 's1',
+        authToken: 'tok',
+        text: 'cnc operator hoon',
+      ),
+    );
+
+    expect(body.containsKey('answer_source'), isFalse,
+        reason: 'absent reads as typed server-side; only the dialog rides it');
+  });
 }
