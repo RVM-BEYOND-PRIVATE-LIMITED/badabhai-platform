@@ -23,12 +23,20 @@ const String kResumeMenuChatCreateKey = 'resume_chat_create';
 /// Prefix of the six `section_*` edit keys (`section_general_info`, …).
 const String kResumeMenuSectionPrefix = 'section_';
 
-/// The piloted per-section walk: "Technical Skills" re-asks only the
+/// The piloted per-section walks: "Technical Skills" re-asks only the
 /// capability questions on the EXISTING trade-form pages
-/// (`trade_form_section_walk.dart`) instead of opening the generic Resume
-/// Edit. Other sections keep the Edit-surface route until their own walk
-/// lands. Pinned against the server source by the parity test like the rest.
+/// (`trade_form_section_walk.dart`), and "Availability, Terms & Salary"
+/// re-asks only the preferences marker (shift / job type / cities /
+/// relocate + accommodation + salary) on the SAME trade-form pages — both
+/// instead of opening the generic Resume Edit. Other sections keep the
+/// Edit-surface route until their own walk lands. Pinned against the server
+/// source by the parity test like the rest.
 const String kResumeMenuTechnicalSkillsKey = 'section_technical_skills';
+
+/// The second piloted per-section walk: availability, terms & salary.
+/// Same stable server key as ever (`section_availability_salary`) — only the
+/// display label was renamed, so old clients keep routing.
+const String kResumeMenuAvailabilitySalaryKey = 'section_availability_salary';
 
 /// What tapping a served menu option should DO.
 enum ResumeMenuAction {

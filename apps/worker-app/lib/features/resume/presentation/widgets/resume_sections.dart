@@ -167,7 +167,7 @@ const List<_SectionSpec> _sections = <_SectionSpec>[
   ]),
   // When the worker can start + their asked pay — their own document, last.
   _SectionSpec(
-    'Availability & Salary',
+    'Availability, Terms & Salary',
     Icons.event_available_outlined,
     <String>['Availability', 'Expected salary'],
   ),

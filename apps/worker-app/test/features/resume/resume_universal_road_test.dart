@@ -52,7 +52,7 @@ void main() {
       expect(find.text('Chat se bana resume'), findsOneWidget);
       // Owned sections render…
       expect(find.text('Location'), findsOneWidget);
-      expect(find.text('Availability & Salary'), findsOneWidget);
+      expect(find.text('Availability, Terms & Salary'), findsOneWidget);
       // Entry rows are RichText (`Label: value`), not plain Text.
       expect(
         find.textContaining('Faridabad', findRichText: true),

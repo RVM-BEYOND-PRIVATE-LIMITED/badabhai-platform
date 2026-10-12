@@ -28,9 +28,12 @@ void main() {
       expect(tradeFormSectionFilterFor('nope'), isNull);
     });
 
-    test('the pilot key is the server key, never a second spelling', () {
+    test('the pilot keys are the server keys, never a second spelling', () {
       expect(kResumeMenuTechnicalSkillsKey, 'section_technical_skills');
+      expect(kResumeMenuAvailabilitySalaryKey, 'section_availability_salary');
       expect(tradeFormSectionFilterFor(kResumeMenuTechnicalSkillsKey),
+          isNotNull);
+      expect(tradeFormSectionFilterFor(kResumeMenuAvailabilitySalaryKey),
           isNotNull);
     });
   });
@@ -91,6 +94,24 @@ void main() {
       final TradeFormStepFilter filter =
           tradeFormSectionFilterFor(kResumeMenuTechnicalSkillsKey)!;
       expect(filter(_step('some_future_pack_question')), isTrue);
+    });
+  });
+
+  group('Availability, Terms & Salary keeps only the preferences marker', () {
+    test('the preferences marker is asked', () {
+      final TradeFormStepFilter filter =
+          tradeFormSectionFilterFor(kResumeMenuAvailabilitySalaryKey)!;
+      expect(filter(const TradeFormPreferencesStep()), isTrue);
+    });
+
+    test('capability questions and other markers are dropped', () {
+      final TradeFormStepFilter filter =
+          tradeFormSectionFilterFor(kResumeMenuAvailabilitySalaryKey)!;
+      expect(filter(_step('turning_machine')), isFalse);
+      expect(filter(_step('turning_operation')), isFalse);
+      expect(filter(_step('turning_experience')), isFalse);
+      expect(filter(const TradeFormEmploymentStep()), isFalse);
+      expect(filter(const TradeFormQualificationsStep()), isFalse);
     });
   });
 }

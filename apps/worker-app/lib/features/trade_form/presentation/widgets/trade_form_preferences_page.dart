@@ -7,6 +7,8 @@ import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/form_flow_parts.dart';
 import '../../../../core/widgets/onboarding/option_icons.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
+import '../../../chat/domain/chat_resume_menu.dart'
+    show kResumeMenuAvailabilitySalaryKey;
 import '../../domain/trade_form_models.dart';
 import 'design2_cities_page.dart';
 import 'trade_form_kit.dart';
@@ -78,7 +80,27 @@ class TradeFormPreferencesPage extends StatefulWidget {
     this.onPageChanged,
     this.knownFacts = const <WorkerFact>{},
     this.onDraftChanged,
+    this.sectionKey,
   });
+
+  /// The résumé-section walk this page is drawn inside, if any
+  /// (`trade_form_section_walk.dart`). Null is the full marker, exactly
+  /// today's behaviour.
+  ///
+  /// Set ONLY for the Availability, Terms & Salary walk
+  /// ([kResumeMenuAvailabilitySalaryKey]): the internal languages + documents
+  /// pages belong to other résumé sections and are hidden, while the shift /
+  /// job-type / cities / terms (relocate + accommodation + salary) pages are
+  /// ALWAYS shown — even for a fact the chat already recorded. An edit walk
+  /// re-asks; the "ask once, skip if known" rule below is the onboarding
+  /// behaviour, and applying it here would hide exactly the fields the worker
+  /// tapped to change.
+  ///
+  /// Hiding is free of data loss BY CONSTRUCTION: [TradeFormPreferences.toJson]
+  /// sends a list/yes-no key only when the worker touched it, and a page that
+  /// never draws a field can never touch it — so the stored languages /
+  /// documents ride through untouched.
+  final String? sectionKey;
 
   /// Facts the worker already gave in the chat (`TradeFormState.knownFacts`).
   /// "Ask once, skip if known": the shift and cities pages are dropped, and the
@@ -160,16 +182,30 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// recorded the fact ([TradeFormPreferencesPage.knownFacts]) or the chosen
   /// tier does not ask for it ([TradeFormPreferencesPage.tierScope]). Both are
   /// the same decision to this walk: do not put the question on screen.
-  bool _isKnown(_PrefsPage page) => switch (page) {
-        _PrefsPage.shift => widget.knownFacts.contains(WorkerFact.shift),
-        _PrefsPage.cities =>
-          widget.knownFacts.contains(WorkerFact.preferredCities),
-        _PrefsPage.documents =>
-          widget.tierScope.hides(kTierFieldDocumentsReady),
-        _ => false,
-      };
+  ///
+  /// In the Availability, Terms & Salary section walk
+  /// ([TradeFormPreferencesPage.sectionKey]) this is OVERRIDDEN: languages +
+  /// documents are always hidden (other sections own them) and shift / cities
+  /// are always shown (re-ask, even when the chat already recorded them).
+  bool _isKnown(_PrefsPage page) {
+    if (widget.sectionKey == kResumeMenuAvailabilitySalaryKey) {
+      return page == _PrefsPage.languages || page == _PrefsPage.documents;
+    }
+    return switch (page) {
+      _PrefsPage.shift => widget.knownFacts.contains(WorkerFact.shift),
+      _PrefsPage.cities =>
+        widget.knownFacts.contains(WorkerFact.preferredCities),
+      _PrefsPage.documents =>
+        widget.tierScope.hides(kTierFieldDocumentsReady),
+      _ => false,
+    };
+  }
 
-  bool get _salaryKnown => widget.knownFacts.contains(WorkerFact.salary);
+  /// In the Availability, Terms & Salary section walk the salary question is
+  /// always shown — an edit walk re-asks, even when the chat recorded it.
+  bool get _salaryKnown => widget.sectionKey == kResumeMenuAvailabilitySalaryKey
+      ? false
+      : widget.knownFacts.contains(WorkerFact.salary);
 
   WorkPrefOptionsDto? _options;
   String? _loadError;

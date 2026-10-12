@@ -9,11 +9,11 @@
 /// (never on the cubit's flattened wrapper) so the dependency runs toward the
 /// domain, never back into presentation state.
 ///
-/// PILOT: Technical Skills only. Every other section key (and a null key)
-/// yields a null filter, and the caller walks the whole form exactly as
-/// today — so expanding to the next section is a new predicate here plus one
-/// routing branch in the chat screen, never a change to the cubit, the
-/// screen, or the router.
+/// PILOT: Technical Skills + Availability, Terms & Salary. Every other
+/// section key (and a null key) yields a null filter, and the caller walks
+/// the whole form exactly as today — so expanding to the next section is a
+/// new predicate here plus one routing branch in the chat screen, never a
+/// change to the cubit, the screen, or the router.
 ///
 /// THE RULE (Technical Skills = craft capability, nothing else). The résumé's
 /// Technical Skills section prints the `Machines` + `Skills` labels, which the
@@ -35,7 +35,7 @@
 library;
 
 import '../../chat/domain/chat_resume_menu.dart'
-    show kResumeMenuTechnicalSkillsKey;
+    show kResumeMenuAvailabilitySalaryKey, kResumeMenuTechnicalSkillsKey;
 import '../domain/trade_form_models.dart';
 import 'widgets/trade_form_topics.dart';
 
@@ -56,15 +56,34 @@ bool _isTechnicalSkillsStep(TradeFormStep step) {
   return !_kNonSkillCategories.contains(category);
 }
 
+/// Whether [step] belongs in the Availability, Terms & Salary walk.
+///
+/// The résumé's "Availability, Terms & Salary" section prints the worker's
+/// job preferences — shift, job type, preferred cities, relocate +
+/// accommodation, and the expected-salary band — which the pipeline derives
+/// from the `preferences` marker answers (`PUT /workers/me/work-preferences`).
+/// The walk is therefore exactly that ONE marker step on the EXISTING form
+/// pages: no capability questions, no employment, no qualifications. The
+/// marker's own INTERNAL pages are narrowed separately — languages and
+/// documents belong to other résumé sections and are hidden there (see
+/// `TradeFormPreferencesPage.sectionKey`) — so this predicate stays at step
+/// granularity, like the Technical Skills one above.
+bool _isAvailabilitySalaryStep(TradeFormStep step) =>
+    step is TradeFormPreferencesStep;
+
 /// The filter for a résumé-section walk, or null for the full walk.
 ///
-/// Returns non-null ONLY for the piloted section ([kResumeMenuTechnicalSkillsKey],
-/// the server's key in `apps/api/src/chat/resume-menu.ts`, pinned byte-for-byte
-/// by the chat parity test). Every other key — including null — yields null,
-/// and the caller walks the whole form exactly as today.
+/// Returns non-null ONLY for the piloted sections ([kResumeMenuTechnicalSkillsKey]
+/// and [kResumeMenuAvailabilitySalaryKey], the server's keys in
+/// `apps/api/src/chat/resume-menu.ts`, pinned byte-for-byte by the chat parity
+/// test). Every other key — including null — yields null, and the caller walks
+/// the whole form exactly as today.
 TradeFormStepFilter? tradeFormSectionFilterFor(String? sectionKey) {
   if (sectionKey == kResumeMenuTechnicalSkillsKey) {
     return _isTechnicalSkillsStep;
+  }
+  if (sectionKey == kResumeMenuAvailabilitySalaryKey) {
+    return _isAvailabilitySalaryStep;
   }
   return null;
 }
