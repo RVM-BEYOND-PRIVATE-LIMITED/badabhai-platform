@@ -1,4 +1,5 @@
 import type { ResumeFactRow, ResumeListRow, ResumeVerdictFacts } from "./resume-renderer.service";
+import { canonicalCity, canonicalState } from "@badabhai/profiling-lexicon";
 import { formatWorkerPhone } from "./resume-phone";
 import { titleCaseName } from "./resume-text-case";
 
@@ -275,6 +276,14 @@ function availabilityPhrase(availability: string | null): string | null {
  * profile snapshot — a different source with a different meaning (where he is looking for work,
  * as the interview recorded it) — so nothing ratified moves. The two agree for most workers and
  * the masthead is simply the one that can speak for the form-first majority.
+ *
+ * D7 BACKSTOP (#2211) — a half that is gazetteer-unrecognised AND longer than four words never
+ * prints. That shape is a typed aside stored as a place before dialog-only writes ("Cnc Mein Ka
+ * Chal Raha Hain India Me" as a state): dropping it heals the legacy row on the next download
+ * with no migration, degrading to an honest city-only line. Short values ("Sitamarhi",
+ * "Nai Dilli") and recognised multi-word states ("Uttar Pradesh", "Tamil Nadu") still print;
+ * a 4-word UT ("Andaman and Nicobar Islands", cased by `titleCaseName` to "Andaman And Nicobar
+ * Islands") still prints.
  */
 export function buildLocationLine(location: {
   city: string | null | undefined;
@@ -285,7 +294,27 @@ export function buildLocationLine(location: {
   // so `faridabad` is ordinary input, and it prints directly under the worker's name. Only a
   // LEADING lowercase letter is raised, so a state abbreviation the worker typed in capitals
   // survives — see `resume-text-case.ts`.
-  return joinSegments([titleCaseName(location.city), titleCaseName(location.state)], ", ");
+  return joinSegments(
+    [keepLocationHalf(location.city, "city"), keepLocationHalf(location.state, "state")],
+    ", ",
+  );
+}
+
+/**
+ * D7 backstop (#2211): null when a half must not print — blank, or an unrecognised sentence —
+ * else the half cased as a proper noun. Pure, so the masthead heals legacy rows on read.
+ */
+function keepLocationHalf(
+  value: string | null | undefined,
+  kind: "city" | "state",
+): string | null | undefined {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  const recognised =
+    kind === "city" ? canonicalCity(trimmed) !== null : canonicalState(trimmed) !== null;
+  if (!recognised && trimmed.split(/\s+/).filter(Boolean).length > 4) return null;
+  return titleCaseName(value);
 }
 
 /**

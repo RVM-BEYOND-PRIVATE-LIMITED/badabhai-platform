@@ -260,6 +260,24 @@ describe("the masthead location line", () => {
     // inferred from a city here and must never be: "Faridabad" alone prints alone.
     expect(buildLocationLine({ city: "Faridabad", state: null })).not.toMatch(/Haryana/);
   });
+
+  it("D7 backstop: a sentence-state drops to an honest city-only line", () => {
+    // The #2211 defect: a typed aside stored as `current_state` before dialog-only writes.
+    expect(
+      buildLocationLine({ city: "Faridabad", state: "Cnc Mein Ka Chal Raha Hain India Me" }),
+    ).toBe("Faridabad");
+  });
+
+  it("D7 backstop keeps short and recognised halves", () => {
+    expect(buildLocationLine({ city: "Sitamarhi", state: "Bihar" })).toBe("Sitamarhi, Bihar");
+    expect(buildLocationLine({ city: "Nai Dilli", state: "Uttar Pradesh" })).toBe(
+      "Nai Dilli, Uttar Pradesh",
+    );
+    // Unrecognised but short (a 4-word UT) still prints; `titleCaseName` raises "and".
+    expect(
+      buildLocationLine({ city: "Faridabad", state: "Andaman and Nicobar Islands" }),
+    ).toBe("Faridabad, Andaman And Nicobar Islands");
+  });
 });
 
 /**

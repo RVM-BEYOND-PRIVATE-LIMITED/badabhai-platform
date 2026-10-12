@@ -374,7 +374,10 @@ function makeWorld(opts: WorldOpts = {}) {
           },
         };
 
-  const say = (text: string, extra: { armGeneralRoad?: boolean } = {}): Promise<TurnResult> =>
+  const say = (
+    text: string,
+    extra: { armGeneralRoad?: boolean; answerSource?: "dialog" | "typed" } = {},
+  ): Promise<TurnResult> =>
     orchestrator.takeTurn({
       sessionId: SESSION,
       workerId: WORKER,
@@ -384,6 +387,7 @@ function makeWorld(opts: WorldOpts = {}) {
       submissionId: randomUUID(),
       voiceNoteId: null,
       ...(extra.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
+      answerSource: extra.answerSource ?? "dialog",
       ...freeChatInput(),
       knownName: async () => null,
       ctx: CTX as never,

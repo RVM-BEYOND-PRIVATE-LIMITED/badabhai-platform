@@ -30,7 +30,10 @@ import {
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
 import { generalFormOfferFor, type GeneralFormOffer } from "../profiling/skills-gate";
-import { identityGapsOf } from "../profiling/identity-intake/identity-intake";
+import {
+  identityGapsOf,
+  type IntakeAnswerSource,
+} from "../profiling/identity-intake/identity-intake";
 import {
   carriesFreeChatLock,
   storedFreeChatLock,
@@ -817,7 +820,14 @@ export class ChatService {
       null,
       // ADR-0045: the chat is the ONE surface that may arm a new session for the general road.
       // ADR-0051: and the ONE surface the profiling-stage free chat runs on.
-      { armGeneralRoad: true, knownName, ownName: names.ownName, freeChat: true },
+      // D7 (#2211): the pickers tag their submits; everything else omits it and reads as typed.
+      {
+        armGeneralRoad: true,
+        knownName,
+        ownName: names.ownName,
+        freeChat: true,
+        ...(dto.answer_source === undefined ? {} : { answerSource: dto.answer_source }),
+      },
     );
     switch (outcome.kind) {
       case "session_over":
@@ -1010,6 +1020,11 @@ export class ChatService {
        * form, whose turns never meet it (the `armGeneralRoad` rule).
        */
       readonly freeChat?: boolean;
+      /**
+       * D7 (#2211) — where this turn's words came from. Set by `postMessage` from the DTO's
+       * `answer_source`; ABSENT for the voice form and every old build, which reads as `typed`.
+       */
+      readonly answerSource?: IntakeAnswerSource;
     },
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
@@ -1119,6 +1134,7 @@ export class ChatService {
       submissionId,
       voiceNoteId,
       ...(opts?.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
+      ...(opts?.answerSource === undefined ? {} : { answerSource: opts.answerSource }),
       ...(opts?.freeChat === true
         ? {
             freeChat: this.freeChatTurnInput(
