@@ -305,17 +305,23 @@ const WorkPrefOptionsDto _prefOptionsWithHubs = WorkPrefOptionsDto(
 /// in this position, so the picker must stay answerable there.
 const String _kCitylessState = 'Bihar';
 
-/// Picks [state] via the cities page's state cascade (#1429/DESIGN2) — the
+/// Picks [state] via the cities page's state cascade (#1429/city1) — the
 /// worker must be on the preferences marker's cities internal page (page 4)
-/// already; taps the state chip in the "INDUSTRIAL STATES" row.
+/// already; opens the "Select State" dropdown sheet and taps the state there.
+/// Popular states also carry direct chips, but the sheet reaches every state.
 Future<void> _pickCityState(WidgetTester tester, String state) async {
-  await tester.ensureVisible(find.text(state));
-  await tester.tap(find.text(state));
+  await tester.ensureVisible(find.byKey(const Key('stateDropdownField')));
+  await tester.tap(find.byKey(const Key('stateDropdownField')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.descendant(
+    of: find.byKey(const Key('statePickerList')),
+    matching: find.text(state),
+  ));
   await tester.pumpAndSettle();
 }
 
-/// Taps a city/HUB card (title = canonical city value) on the DESIGN2 picker,
-/// toggling it into the selected list.
+/// Taps a city checkbox cell (title = canonical city value) on the city1
+/// picker, toggling it into the selected list.
 Future<void> _tapCityCard(WidgetTester tester, String city) async {
   await tester.ensureVisible(find.text(city).first);
   await tester.tap(find.text(city).first);
@@ -1948,7 +1954,7 @@ void main() {
     });
   });
 
-  group('preferred cities: DESIGN2 picker (states → hubs → cap)', () {
+  group('preferred cities: city1 picker (states → cities → cap)', () {
     Future<void> walkToCitiesPage(WidgetTester tester) async {
       await tester.ensureVisible(find.text(_kDecline).first);
       await tester.tap(find.text(_kDecline).first); // decline q1
@@ -1976,7 +1982,7 @@ void main() {
     }
 
     testWidgets(
-        'renders the DESIGN2 chrome — counter badge, states row, hub cards — '
+        'renders the city1 chrome — banner, state card, city cells — '
         'with no custom free-text add', (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
       when(() => repo.submitAnswer(
@@ -1994,8 +2000,12 @@ void main() {
 
       expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
       expect(find.text('0/5 Sheher Chune'), findsOneWidget);
-      expect(find.text('INDUSTRIAL STATES'), findsOneWidget);
-      expect(find.text('HARYANA HUBS'), findsOneWidget);
+      expect(find.text('Selected locations'), findsOneWidget);
+      expect(find.text('0/5 locations selected'), findsOneWidget);
+      expect(find.text('State Chunain'), findsOneWidget);
+      expect(find.text('POPULAR STATES'), findsOneWidget);
+      expect(find.text('Cities Chunain'), findsOneWidget);
+      expect(find.text('Popular cities from selected state'), findsOneWidget);
       expect(find.text('Gurugram'), findsOneWidget);
       // No raw custom-add affordance and no second text box: a city is only
       // ever a real catalogue card, tapped.
@@ -2034,9 +2044,15 @@ void main() {
       }
       expect(find.text('5/5 Sheher Chune'), findsOneWidget);
 
-      // The cap: a 6th distinct city is ignored and the badge does not move.
+      // The cap: a 6th distinct city is refused WITH the OK-only dialog and
+      // the badge does not move. Dismiss it before touching the page again —
+      // the dialog is modal.
       await _tapCityCard(tester, 'Sonipat');
       expect(find.text('5/5 Sheher Chune'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
 
       // Removing one frees a slot; the badge updates and the freed city adds.
       await tester.ensureVisible(find.byIcon(Icons.close_rounded).first);
@@ -2115,6 +2131,8 @@ void main() {
       // The alias matches in the live results; the card carries the canonical
       // name, and TAPPING it is the only add path.
       expect(find.text('SEARCH RESULTS'), findsOneWidget);
+      await tester.ensureVisible(find.text('Delhi').first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Delhi').first);
       await tester.pump();
       await tester.pump(const Duration(seconds: 2));
@@ -2154,11 +2172,10 @@ void main() {
       await tester.ensureVisible(find.text('Gurugram'));
       await tester.tap(find.text('Gurugram'));
       await tester.pump();
-      expect(find.text('Sheher add ho gaya'), findsOneWidget);
-      // Flush the resolved-add banner's 2s auto-dismiss timer.
-      await tester.pump(const Duration(seconds: 2));
-      await tester.pump();
+      // A resolved add is silent — no top banner, no toast: the picked strip
+      // and the counter already confirm it.
       expect(find.text('Sheher add ho gaya'), findsNothing);
+      expect(find.byType(MaterialBanner), findsNothing);
 
       // Card now reads chosen and the city sits in the picked strip: the title
       // appears twice (card + chosen chip), with one removable chip.
@@ -2189,7 +2206,8 @@ void main() {
 
       // Bihar has no hub, but the gazetteer has two real cities — they must be
       // the state's list, not the "coming soon" line.
-      expect(find.text('BIHAR HUBS'), findsOneWidget);
+      expect(
+          find.text('Popular cities from selected state'), findsOneWidget);
       expect(find.text('Is rajya ke sheher jald aa rahe hain.'), findsNothing);
       expect(find.text('Patna'), findsOneWidget);
       expect(find.text('Muzaffarpur'), findsOneWidget);
@@ -2218,9 +2236,9 @@ void main() {
       await pump(tester);
       await walkToCitiesPage(tester); // ends on Haryana
 
-      expect(find.text('HARYANA HUBS'), findsOneWidget);
-      // Hub cards keep their area sub-labels.
-      expect(find.text('Udyog Vihar, Pataudi Road'), findsOneWidget);
+      expect(find.text('Popular cities from selected state'), findsOneWidget);
+      // Grid cells show the city name only — area sub-labels stay hidden.
+      expect(find.text('Udyog Vihar, Pataudi Road'), findsNothing);
       // The hub's own city is NOT repeated as a plain city card.
       expect(find.text('Gurugram'), findsOneWidget);
       expect(find.text('Manesar'), findsOneWidget);
@@ -2294,16 +2312,19 @@ void main() {
       await tester.tap(find.text('Rohtak'));
       await tester.pump();
       expect(find.text('5/5 Sheher Chune'), findsOneWidget);
+      // The cap refuses WITH an OK-only dialog — never a top banner.
+      expect(find.byType(MaterialBanner), findsNothing);
+      expect(find.byType(AlertDialog), findsOneWidget);
       expect(
         find.descendant(
-          of: find.byType(MaterialBanner),
+          of: find.byType(AlertDialog),
           matching: find.text('Aap 1 se 5 sheher chun sakte hain.'),
         ),
         findsOneWidget,
       );
-      // Flush the banner's 2s auto-dismiss timer.
-      await tester.pump(const Duration(seconds: 2));
-      await tester.pump();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
     });
   });
 

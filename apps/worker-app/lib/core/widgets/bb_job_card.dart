@@ -246,7 +246,9 @@ class BbJobCard extends StatelessWidget {
           // behind it (#1651).
           decoration: const BoxDecoration(),
           child: Padding(
-            padding: EdgeInsets.all(isDeck ? 20 : 16),
+            // List inset matches the swipe face (Design1JobCard, all 10) so
+            // both Jobs-tab views read as the same card.
+            padding: EdgeInsets.all(isDeck ? 20 : 10),
             child: isDeck
                 ? _DeckBody(
                     data: data,

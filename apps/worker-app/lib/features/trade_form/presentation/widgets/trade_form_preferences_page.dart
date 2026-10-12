@@ -24,7 +24,6 @@ const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
 const String _kCitiesSubtitle =
     'Aap 1 se $kTradeFormMaxPreferredCities sheher chun sakte hain.';
-const String _kCityAddedToast = 'Sheher add ho gaya';
 const String _kLoadError = 'Kuch gadbad ho gayi. Dobara koshish karein.';
 const String _kRetry = 'Dobara koshish karein';
 
@@ -579,20 +578,94 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// so `preferred_cities` always sends exactly the spelling the server's own
   /// validator already accepted (`worker-cities.catalogue.ts`'s round-trip
   /// guarantee). A hub tap, a search result and a typed exact match all funnel
-  /// through here. At the 5-city cap a new add is refused WITH the honest cap
-  /// banner (a silent no-op reads as a broken card); removing always works.
+  /// through here. A resolved add is SILENT — the picked strip and the counter
+  /// already confirm it, and a top banner on every tap flickered the screen.
+  /// At the 5-city cap a new add is refused WITH the honest cap dialog (a
+  /// silent no-op reads as a broken card); removing always works.
   void _addCityValue(String value) {
     if (value.isEmpty) return;
     if (_isPicked(value)) return;
     if (_prefs.preferredCities.length >= kTradeFormMaxPreferredCities) {
-      _showBanner(_kCitiesSubtitle, OnboardingColors.shiftBlue);
+      _showLimitDialog();
       return;
     }
     setState(() {
       _prefs = _prefs.copyWith(
           preferredCities: <String>[..._prefs.preferredCities, value]);
     });
-    _showBanner(_kCityAddedToast, OnboardingColors.successGreen);
+  }
+
+  /// The cities cap as a brand-styled OK-only dialog — never a top banner or
+  /// snackbar, so adding cities never reflows the screen. `.ignore()` marks
+  /// the dismissed future handled; there is nothing to wait for.
+  void _showLimitDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Container(
+              width: 52,
+              height: 52,
+              decoration: const BoxDecoration(
+                color: OnboardingColors.safetyYellow,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.place_rounded,
+                size: 28,
+                color: OnboardingColors.shiftBlue,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _kCitiesSubtitle,
+              textAlign: TextAlign.center,
+              style: OnboardingTypography.inter(
+                size: 14,
+                weight: FontWeight.w600,
+                height: 1.4,
+                color: OnboardingColors.ink900,
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          SizedBox(
+            width: double.infinity,
+            child: Material(
+              color: OnboardingColors.safetyYellow,
+              borderRadius: BorderRadius.circular(OnboardingRadii.row),
+              child: InkWell(
+                onTap: () => Navigator.of(context).pop(),
+                borderRadius: BorderRadius.circular(OnboardingRadii.row),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minHeight: OnboardingLayout.tapTarget,
+                  ),
+                  child: Center(
+                    child: Text(
+                      'OK',
+                      style: OnboardingTypography.anek(
+                        size: 16,
+                        weight: FontWeight.w800,
+                        color: OnboardingColors.textOnYellow,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ).ignore();
   }
 
   /// A MaterialBanner (top), NOT a SnackBar — this screen's sticky bottom bar

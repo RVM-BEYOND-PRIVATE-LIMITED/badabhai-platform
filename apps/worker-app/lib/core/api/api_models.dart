@@ -2608,6 +2608,24 @@ class ResumeDocumentResponse extends Equatable {
       <Object?>[resumeId, version, document, renderStatus, renderedAt];
 }
 
+/// Owner rule: a worker's name reads capitalised on every surface, however it
+/// was typed or stored. Done at THIS wire edge because `full_name` here is the
+/// app's only source of the worker's own name on a read. Only RAISES each
+/// word's first letter — never lowers the rest, so deliberate spellings like
+/// `McLeod` survive, and inner spacing is preserved. Blank or non-string
+/// input is "no name" (null), which the edit screen renders as an empty
+/// spelling rather than a fabricated placeholder.
+String? _displayNameOrNull(Object? raw) {
+  if (raw is! String) return null;
+  final String trimmed = raw.trim();
+  if (trimmed.isEmpty) return null;
+  return trimmed
+      .split(' ')
+      .map((String w) =>
+          w.isEmpty ? w : w[0].toUpperCase() + w.substring(1))
+      .join(' ');
+}
+
 /// The worker-editable resume "safe fields" (GET /workers/me/resume-fields) — the
 /// worker's OWN name spelling + the two display prefs. `fullName` is null until a
 /// name is set; the edit screen renders it as an empty spelling to fill in.
@@ -2629,7 +2647,7 @@ class ResumeFieldsDto extends Equatable {
   final bool hasPhoto;
 
   factory ResumeFieldsDto.fromJson(Map<String, dynamic> json) => ResumeFieldsDto(
-        fullName: json['full_name'] as String?,
+        fullName: _displayNameOrNull(json['full_name']),
         showPhoto: json['show_photo'] as bool? ?? true,
         nightShiftReady: json['night_shift_ready'] as bool? ?? false,
         hasPhoto: json['has_photo'] as bool? ?? false,

@@ -224,8 +224,9 @@ GoRouter buildAppRouter() => _buildRouter();
 const Set<String> _onboardingRoutes = <String>{
   Routes.consent,
   // ADR-0048 (#1864) — `Routes.name` is no longer a step of this sequence: the
-  // chat's identity intake asks for the name, and consent now hands straight to
-  // `/resume-upload`. The ROUTE stays declared below so a durable step saved by
+  // chat's identity intake asks for the name, and consent now hands straight
+  // to the chat profiling step (#2188; the chat asks for the resume itself).
+  // The ROUTE stays declared below so a durable step saved by
   // an older build still resolves; it is simply never entered again.
   Routes.resumeUpload,
   Routes.chatProfiling,

@@ -38,6 +38,7 @@ class TradeFormTextField extends StatefulWidget {
     this.maxLines = 1,
     this.errorText,
     this.autofocus = false,
+    this.prefixIcon,
   });
 
   final TextEditingController controller;
@@ -62,6 +63,10 @@ class TradeFormTextField extends StatefulWidget {
   /// asked to open (#1519's "Koi aur — khud likhein"). Default false keeps
   /// every existing call site exactly as it was.
   final bool autofocus;
+
+  /// Optional leading glyph inside the box — e.g. the search magnifier on the
+  /// cities picker's browse box. Null (the default) renders exactly as before.
+  final Widget? prefixIcon;
 
   @override
   State<TradeFormTextField> createState() => _TradeFormTextFieldState();
@@ -107,6 +112,7 @@ class _TradeFormTextFieldState extends State<TradeFormTextField> {
           hint: widget.hint,
           errorText: effectiveErrorText,
           counterText: widget.maxLength == null ? null : '',
+          prefixIcon: widget.prefixIcon,
         ),
       ),
     );

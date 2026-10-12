@@ -221,16 +221,14 @@ void main() {
     expect(find.text('Aapka naam?'), findsNothing,
         reason: 'the name form is retired — the chat asks instead');
 
-    // ── 4c. THE TWO DOORS (#1499) — CONSENT hands here now (ADR-0048); it
-    //     was `/name` that did, and before that consent went straight to the
-    //     chat. This journey walks DOOR 2 ("mere paas resume
-    //     nahi hai"), which must be byte-for-byte the old handover: one tap,
-    //     no request, and the chat's own first turn is the first thing the
-    //     network sees. Door 1 is not walked here — it needs a document picker,
-    //     which has no platform channel in a widget-test host; it has its own
-    //     tests in `test/features/resume_import/`. ──
-    await _pumpUntil(tester, find.text('Mere paas resume nahi hai'));
-    await tester.tap(find.text('Mere paas resume nahi hai'));
+    // ── 4c. NO TWO DOORS ANY MORE (#2188) — consent hands straight to the
+    //     chat, which asks the resume question itself with upload/no-resume
+    //     chips. Those chips fire only once the worker answers the identity
+    //     intake, and the mock worker arrives WITH a name on record, so no
+    //     chip is up here — there is nothing to tap. Arrival is the chat
+    //     composer itself; step 5 profiles from there. ──
+    await _pumpUntil(tester, find.byType(TextField));
+    expect(find.text('YOUR PRIVACY'), findsNothing);
 
     // ── 5. CHAT — message until the mock engine reports extraction_ready,
     //     then build the profile. ──
