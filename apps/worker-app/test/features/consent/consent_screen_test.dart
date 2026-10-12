@@ -1,7 +1,10 @@
 // The consent screen has TWO arrivals, and they must not behave the same way.
 //
 // ONBOARDING (the default, #381): consent is the first step, there is no back
-// button, and accepting continues into /name → the profiling interview.
+// button, and accepting continues into the chat profiling step — the chat asks
+// for the name (#1864) and for the resume (#2188) itself, so /resume-upload is
+// no longer the handover (it stays registered for menu/deep-links and older
+// builds).
 //
 // RECOVERY (pushed with a [ConsentReturnIntent]): a worker was in the middle of
 // using a screen — today, writing a feedback report — and it pushed consent to
@@ -39,7 +42,7 @@ void main() {
   tearDown(() => locator.reset());
 
   /// The real route wiring: /caller pushes /consent, optionally handing over the
-  /// recovery marker, and /name stands in for the onboarding continuation.
+  /// recovery marker, and /chat stands in for the onboarding continuation.
   ///
   /// [ConsentScreen.fromExtra] is the SAME entry point `router.dart` uses, so
   /// the rule that reads the marker is under test here rather than restated —
@@ -67,9 +70,14 @@ void main() {
           path: '/consent',
           builder: (_, GoRouterState s) => ConsentScreen.fromExtra(s.extra),
         ),
-        // ADR-0048 (#1864) — consent now hands to `/resume-upload`; the chat's
-        // identity intake asks for the name. `/name` stays declared here so this
-        // test can still assert nothing goes there.
+        // #2188 — consent hands straight to the chat profiling step; the chat
+        // asks for the name (#1864) and for the resume itself. `/name` stays
+        // declared here so this test can still assert nothing goes there.
+        GoRoute(
+          path: '/chat',
+          builder: (_, __) =>
+              const Scaffold(body: Center(child: Text('CHAT STEP'))),
+        ),
         GoRoute(
           path: '/resume-upload',
           builder: (_, __) =>
@@ -113,16 +121,20 @@ void main() {
       expect(find.byTooltip('Wapas'), findsNothing);
     });
 
-    testWidgets('accepting continues into the résumé-upload step', (
+    testWidgets('accepting continues into the chat profiling step', (
       WidgetTester tester,
     ) async {
       await pump(tester, recovery: false);
       await agreeAndContinue(tester);
 
-      // ADR-0048 (#1864) — `/name` was here; the chat asks for the name now.
-      expect(find.text('UPLOAD STEP'), findsOneWidget);
+      // #2188 — consent hands straight to the chat; the name form is retired
+      // (the chat asks instead) and the upload comes from the chat's own
+      // resume chips, not from this handover.
+      expect(find.text('CHAT STEP'), findsOneWidget);
       expect(find.text('NAME STEP'), findsNothing,
           reason: 'the name form is retired — the chat asks instead');
+      expect(find.text('UPLOAD STEP'), findsNothing,
+          reason: 'the upload is offered inside the chat now, not here');
       verify(
         () => repo.acceptConsent(
           purposes: <String>[

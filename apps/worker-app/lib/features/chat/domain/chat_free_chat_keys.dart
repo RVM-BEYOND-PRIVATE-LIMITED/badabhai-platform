@@ -48,6 +48,13 @@ const String kFreeChatLaterKey = 'free_chat_later';
 /// used to detect the mode.
 const String kFreeChatResumeKey = 'free_chat_resume';
 
+/// ADR-0051 §5.1 reply-language chips (approved §11 R41): "Haan, {Language}
+/// mein" answers the LANG_ASK line, "Nahi" declines it. Read only while an
+/// ask is pending, and saying NOTHING about the mode either way — so
+/// [freeChatModeAfterTap] deliberately leaves them at the default null.
+const String kFreeChatLangYesKey = 'free_chat_lang_yes';
+const String kFreeChatLangNoKey = 'free_chat_lang_no';
+
 /// The label the server serves for [kFreeChatResumeKey].
 ///
 /// Posted as ordinary text, which is how every chip answers. The server reads
@@ -58,18 +65,23 @@ const String kFreeChatResumeLabel = 'Resume banayein';
 /// so [freeChatModeAfterTap] can be explicit that these do NOT move the mode.
 const String kFreeChatFollowupKeyPrefix = 'fcq_';
 
-/// Every key this build knows, for the parity pin.
+/// Every key this build knows, for the parity pin: the three mode chips plus
+/// the two reply-language chips.
 const List<String> kFreeChatModeKeys = <String>[
   kFreeChatStartKey,
   kFreeChatLaterKey,
   kFreeChatResumeKey,
+  kFreeChatLangYesKey,
+  kFreeChatLangNoKey,
 ];
 
-/// Whether [optionKey] is a free-chat chip of any kind — a mode chip or a
-/// model-written follow-up.
+/// Whether [optionKey] is a free-chat chip of any kind — a mode chip, a
+/// reply-language chip, or a model-written follow-up.
 ///
 /// Used to keep the greeting's own Haan / Baad mein taps out of the #1316
 /// interview indices: choosing a mode is not answering an interview question.
+/// The language chips get the same treatment: answering the LANG_ASK line is
+/// not an interview answer either.
 bool isFreeChatKey(String? optionKey) {
   if (optionKey == null) return false;
   return kFreeChatModeKeys.contains(optionKey) ||

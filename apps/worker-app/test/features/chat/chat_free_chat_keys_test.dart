@@ -21,8 +21,9 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_free_chat_keys.dar
 /// EXIST. So naming that file here before it is merged reddens CI whichever way
 /// the filter is written. It is referenced in prose only, on purpose.
 ///
-/// ADR-0051 is merged and names all three keys, so it is the authority today
-/// and this pin is live, not a placeholder.
+/// ADR-0051 is merged and names all five keys (three mode + two §11 R41
+/// reply-language chips), so it is the authority today and this pin is live,
+/// not a placeholder.
 ///
 /// WHEN #2047 MERGES: add a `File(...)` pin here pointing at that module (the
 /// path is the api package's profiling/free-chat directory), AND add the same
@@ -37,8 +38,7 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_free_chat_keys.dar
 void main() {
   final File adr = File('../../docs/decisions/0051-profiling-stage-free-chat.md');
 
-  test('the three mode keys match ADR-0051 byte-for-byte', () {
-    expect(
+  test('the mode + language keys match ADR-0051 byte-for-byte', () {    expect(
       adr.existsSync(),
       isTrue,
       reason: 'ADR-0051 (${adr.path}) must be readable from the worker-app '
@@ -56,6 +56,8 @@ void main() {
       kFreeChatStartKey,
       kFreeChatLaterKey,
       kFreeChatResumeKey,
+      kFreeChatLangYesKey,
+      kFreeChatLangNoKey,
     });
   });
 
@@ -77,11 +79,15 @@ void main() {
     test('everything else says NOTHING — null, never false', () {
       // Null is load-bearing. Treating a model follow-up chip or a typed
       // message as "false" would end free mode under the worker mid-chat.
+      // The reply-language chips (§11 R41) also say nothing: they answer the
+      // LANG_ASK line, never the mode question.
       for (final String? key in <String?>[
         null,
         '',
         'fcq_a',
         'fcq_b',
+        kFreeChatLangYesKey,
+        kFreeChatLangNoKey,
         'companion_resume',
         '__declined',
         'Resume banayein',
@@ -97,6 +103,8 @@ void main() {
       expect(isFreeChatKey(kFreeChatStartKey), isTrue);
       expect(isFreeChatKey(kFreeChatLaterKey), isTrue);
       expect(isFreeChatKey(kFreeChatResumeKey), isTrue);
+      expect(isFreeChatKey(kFreeChatLangYesKey), isTrue);
+      expect(isFreeChatKey(kFreeChatLangNoKey), isTrue);
       expect(isFreeChatKey('fcq_a'), isTrue);
       expect(isFreeChatKey('fcq_d'), isTrue);
     });

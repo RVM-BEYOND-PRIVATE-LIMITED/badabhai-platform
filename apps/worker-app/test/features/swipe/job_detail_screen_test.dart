@@ -232,6 +232,14 @@ void main() {
     );
     expect(find.textContaining('CNC lathe par production ka kaam'),
         findsOneWidget);
+    // The skills section sits another card below the description — same
+    // lazy-list rule: scroll it in before asserting, or the sliver has not
+    // built it yet on this viewport.
+    await tester.scrollUntilVisible(
+      find.text('Fanuc control'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Fanuc control'), findsOneWidget);
     expect(find.text('ITI / Diploma'), findsOneWidget);
 
