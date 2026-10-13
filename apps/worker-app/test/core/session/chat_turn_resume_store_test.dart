@@ -11,28 +11,31 @@ void main() {
   });
 
   Future<SharedPreferences> prefs() => SharedPreferences.getInstance();
-  const SharedPrefsChatTurnResumeStore store =
-      SharedPrefsChatTurnResumeStore();
+  const SharedPrefsChatTurnResumeStore store = SharedPrefsChatTurnResumeStore();
 
   test('nothing stored reads as null, not an empty state', () async {
     expect(await store.read(), isNull);
   });
 
   test('a written turn round-trips, order preserved', () async {
-    await store.write(const ChatTurnResumeState(
-      sessionId: 's1',
-      options: <({String optionKey, String labelText})>[
-        (optionKey: 'free_chat_start', labelText: 'Haan, shuru karein'),
-        (optionKey: 'free_chat_later', labelText: 'Baad mein'),
-      ],
-      freeChat: true,
-    ));
+    await store.write(
+      const ChatTurnResumeState(
+        sessionId: 's1',
+        options: <({String optionKey, String labelText})>[
+          (optionKey: 'free_chat_start', labelText: 'Haan, shuru karein'),
+          (optionKey: 'free_chat_later', labelText: 'Baad mein'),
+        ],
+        freeChat: true,
+      ),
+    );
 
     final ChatTurnResumeState? read = await store.read();
     expect(read!.sessionId, 's1');
     expect(read.freeChat, isTrue);
     expect(
-      read.options.map((({String optionKey, String labelText}) o) => o.optionKey),
+      read.options.map(
+        (({String optionKey, String labelText}) o) => o.optionKey,
+      ),
       <String>['free_chat_start', 'free_chat_later'],
     );
     expect(read.options.first.labelText, 'Haan, shuru karein');
@@ -42,15 +45,45 @@ void main() {
     // Labels are server copy, and a model follow-up chip can hold anything —
     // which is why entries are unit-separated, not comma-joined.
     const String awkward = 'CNC, VMC — kaunsa, bhai?';
-    await store.write(const ChatTurnResumeState(
-      sessionId: 's1',
-      options: <({String optionKey, String labelText})>[
-        (optionKey: 'fcq_a', labelText: awkward),
-      ],
-      freeChat: true,
-    ));
+    await store.write(
+      const ChatTurnResumeState(
+        sessionId: 's1',
+        options: <({String optionKey, String labelText})>[
+          (optionKey: 'fcq_a', labelText: awkward),
+        ],
+        freeChat: true,
+      ),
+    );
     expect((await store.read())!.options.single.labelText, awkward);
   });
+
+  // OWNER ASK (2026-10-12) — a location question the worker abandoned is
+  // remembered so it can be offered again after a cold start.
+  test(
+    'the pending question round-trips, and a later null CLEARS it',
+    () async {
+      await store.write(
+        const ChatTurnResumeState(
+          sessionId: 's1',
+          options: <({String optionKey, String labelText})>[],
+          freeChat: false,
+          askedQuestionKey: 'worker_state',
+        ),
+      );
+      expect((await store.read())!.askedQuestionKey, 'worker_state');
+
+      // A turn with no question must CLEAR it — a finished question never
+      // resurfaces as a stale pending one.
+      await store.write(
+        const ChatTurnResumeState(
+          sessionId: 's1',
+          options: <({String optionKey, String labelText})>[],
+          freeChat: false,
+        ),
+      );
+      expect((await store.read())!.askedQuestionKey, isNull);
+    },
+  );
 
   test('a malformed row is dropped, never drawn blank', () async {
     final SharedPreferences p = await prefs();
@@ -67,20 +100,24 @@ void main() {
   });
 
   test('a later write replaces the earlier turn', () async {
-    await store.write(const ChatTurnResumeState(
-      sessionId: 's1',
-      options: <({String optionKey, String labelText})>[
-        (optionKey: 'free_chat_later', labelText: 'Baad mein'),
-      ],
-      freeChat: false,
-    ));
-    await store.write(const ChatTurnResumeState(
-      sessionId: 's2',
-      options: <({String optionKey, String labelText})>[
-        (optionKey: 'free_chat_resume', labelText: 'Resume banayein'),
-      ],
-      freeChat: true,
-    ));
+    await store.write(
+      const ChatTurnResumeState(
+        sessionId: 's1',
+        options: <({String optionKey, String labelText})>[
+          (optionKey: 'free_chat_later', labelText: 'Baad mein'),
+        ],
+        freeChat: false,
+      ),
+    );
+    await store.write(
+      const ChatTurnResumeState(
+        sessionId: 's2',
+        options: <({String optionKey, String labelText})>[
+          (optionKey: 'free_chat_resume', labelText: 'Resume banayein'),
+        ],
+        freeChat: true,
+      ),
+    );
 
     final ChatTurnResumeState? read = await store.read();
     expect(read!.sessionId, 's2');
@@ -89,13 +126,15 @@ void main() {
   });
 
   test('clearAll leaves nothing behind — the shared-phone rule', () async {
-    await store.write(const ChatTurnResumeState(
-      sessionId: 's1',
-      options: <({String optionKey, String labelText})>[
-        (optionKey: 'free_chat_later', labelText: 'Baad mein'),
-      ],
-      freeChat: true,
-    ));
+    await store.write(
+      const ChatTurnResumeState(
+        sessionId: 's1',
+        options: <({String optionKey, String labelText})>[
+          (optionKey: 'free_chat_later', labelText: 'Baad mein'),
+        ],
+        freeChat: true,
+      ),
+    );
     await store.clearAll();
 
     expect(await store.read(), isNull);
@@ -103,16 +142,19 @@ void main() {
     expect(p.getString(SharedPrefsChatTurnResumeStore.kSessionKey), isNull);
     expect(p.getStringList(SharedPrefsChatTurnResumeStore.kOptionsKey), isNull);
     expect(p.getBool(SharedPrefsChatTurnResumeStore.kFreeChatKey), isNull);
+    expect(p.getString(SharedPrefsChatTurnResumeStore.kQuestionKey), isNull);
   });
 
   test('the in-memory seam behaves the same way', () async {
     final InMemoryChatTurnResumeStore mem = InMemoryChatTurnResumeStore();
     expect(await mem.read(), isNull);
-    await mem.write(const ChatTurnResumeState(
-      sessionId: 's1',
-      options: <({String optionKey, String labelText})>[],
-      freeChat: true,
-    ));
+    await mem.write(
+      const ChatTurnResumeState(
+        sessionId: 's1',
+        options: <({String optionKey, String labelText})>[],
+        freeChat: true,
+      ),
+    );
     expect((await mem.read())!.freeChat, isTrue);
     await mem.clearAll();
     expect(await mem.read(), isNull);

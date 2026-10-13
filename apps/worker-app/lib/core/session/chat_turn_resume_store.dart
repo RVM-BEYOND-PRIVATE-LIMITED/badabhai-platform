@@ -4,11 +4,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// [options] is the last served turn's chips as `option_key` + label pairs;
 /// [freeChat] is the ADR-0051 mode the worker was in.
+///
+/// [askedQuestionKey] is the question the last turn ASKED (e.g. a location
+/// question the worker had not answered when the app closed). The transcript
+/// redraw carries no question key and a resume serves no opening, so without
+/// this the pending question is lost and the worker sees its bubble with no way
+/// to answer.
 class ChatTurnResumeState {
   const ChatTurnResumeState({
     required this.sessionId,
     required this.options,
     required this.freeChat,
+    this.askedQuestionKey,
   });
 
   final String sessionId;
@@ -16,6 +23,9 @@ class ChatTurnResumeState {
   /// Server-served chips, in served order. Empty = the turn served none.
   final List<({String optionKey, String labelText})> options;
   final bool freeChat;
+
+  /// The question key the last turn asked, or null when it asked none.
+  final String? askedQuestionKey;
 }
 
 /// The last served chat turn's CHIPS and mode, remembered across a cold start
@@ -63,6 +73,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
   static const String kSessionKey = 'bb_chat_turn_session';
   static const String kOptionsKey = 'bb_chat_turn_options';
   static const String kFreeChatKey = 'bb_chat_turn_free_chat';
+  static const String kQuestionKey = 'bb_chat_turn_question';
 
   /// Splits an entry into key and label. A unit separator, because a label is
   /// server copy that may hold any punctuation a comma-joined list would break
@@ -93,6 +104,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
         sessionId: sessionId,
         options: options,
         freeChat: prefs.getBool(kFreeChatKey) ?? false,
+        askedQuestionKey: prefs.getString(kQuestionKey),
       );
     } catch (_) {
       return null;
@@ -109,6 +121,14 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
           '${o.optionKey}$_sep${o.labelText}',
       ]);
       await prefs.setBool(kFreeChatKey, state.freeChat);
+      // Null-safe: a write of "no pending question" must CLEAR any previous one,
+      // never leave a stale key that would resurface a finished question.
+      final String? questionKey = state.askedQuestionKey;
+      if (questionKey == null || questionKey.isEmpty) {
+        await prefs.remove(kQuestionKey);
+      } else {
+        await prefs.setString(kQuestionKey, questionKey);
+      }
     } catch (_) {
       // Best-effort: an unremembered turn just loses its chips on a cold start.
     }
@@ -121,6 +141,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
       await prefs.remove(kSessionKey);
       await prefs.remove(kOptionsKey);
       await prefs.remove(kFreeChatKey);
+      await prefs.remove(kQuestionKey);
     } catch (_) {
       // Best-effort: a teardown failure must never block sign-out.
     }

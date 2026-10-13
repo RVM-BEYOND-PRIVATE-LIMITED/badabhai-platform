@@ -74,7 +74,10 @@ void main() {
       expect(ChatAnswerType.parse('text'), ChatAnswerType.text);
       expect(ChatAnswerType.parse('number'), ChatAnswerType.number);
       expect(ChatAnswerType.parse('boolean'), ChatAnswerType.boolean);
-      expect(ChatAnswerType.parse('single_select'), ChatAnswerType.singleSelect);
+      expect(
+        ChatAnswerType.parse('single_select'),
+        ChatAnswerType.singleSelect,
+      );
       expect(ChatAnswerType.parse('multi_select'), ChatAnswerType.multiSelect);
     });
 
@@ -104,14 +107,17 @@ void main() {
     });
 
     test('absent key -> null (an older API build)', () {
-      final ChatReply reply =
-          ChatReply.fromJson(<String, dynamic>{'reply': 'Aur bataiye.'});
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aur bataiye.',
+      });
       expect(reply.answerType, isNull);
     });
 
     test('explicit null -> null (nothing pack-shaped on screen)', () {
-      final ChatReply reply = ChatReply.fromJson(
-          <String, dynamic>{'reply': 'Dhanyavaad.', 'answer_type': null});
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Dhanyavaad.',
+        'answer_type': null,
+      });
       expect(reply.answerType, isNull);
     });
 
@@ -125,15 +131,17 @@ void main() {
     });
   });
 
-  test('ChatRepositoryImpl.sendMessage carries answer_type to the turn',
-      () async {
-    final SessionRepository session = SessionRepository()
-      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
-      ..setSession('s1');
-    final ChatRepositoryImpl repo = ChatRepositoryImpl(
-      ApiClient(
-        baseUrl: 'http://test',
-        client: MockClient((http.Request req) async => http.Response(
+  test(
+    'ChatRepositoryImpl.sendMessage carries answer_type to the turn',
+    () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+        ..setSession('s1');
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient(
+            (http.Request req) async => http.Response(
               jsonEncode(<String, dynamic>{
                 'reply': 'Kya aap ghar se door kaam ke liye ja sakte hain?',
                 'answer_type': 'boolean',
@@ -141,14 +149,16 @@ void main() {
                 'suggested_options': <dynamic>[],
               }),
               201,
-            )),
-      ),
-      session,
-    );
+            ),
+          ),
+        ),
+        session,
+      );
 
-    final ChatTurn turn = await repo.sendMessage('20 km');
-    expect(turn.answerType, ChatAnswerType.boolean);
-  });
+      final ChatTurn turn = await repo.sendMessage('20 km');
+      expect(turn.answerType, ChatAnswerType.boolean);
+    },
+  );
 
   // ------------------------------------------------------- the joined answer
 
@@ -165,7 +175,10 @@ void main() {
 
     test('one tick is exactly the chip label (the server\'s chip match)', () {
       expect(
-        chatMultiSelectAnswer(options: kLanguages, tickedKeys: <String>['hindi']),
+        chatMultiSelectAnswer(
+          options: kLanguages,
+          tickedKeys: <String>['hindi'],
+        ),
         'Hindi',
       );
     });
@@ -176,7 +189,10 @@ void main() {
         '',
       );
       expect(
-        chatMultiSelectAnswer(options: kLanguages, tickedKeys: <String>['urdu']),
+        chatMultiSelectAnswer(
+          options: kLanguages,
+          tickedKeys: <String>['urdu'],
+        ),
         '',
       );
     });
@@ -188,62 +204,76 @@ void main() {
     late MockChatRepository repo;
     setUp(() {
       repo = MockChatRepository();
-      when(() => repo.loadHistory())
-          .thenAnswer((_) async => const <ChatMessage>[]);
+      when(
+        () => repo.loadHistory(),
+      ).thenAnswer((_) async => const <ChatMessage>[]);
     });
 
-    test('set from the reply, cleared on the next send, then set again',
-        () async {
-      final Completer<ChatTurn> second = Completer<ChatTurn>();
-      int calls = 0;
-      when(() =>
-              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) {
-        calls++;
-        return calls == 1 ? Future<ChatTurn>.value(kCommuteTurn) : second.future;
-      });
-      final ChatBloc bloc = ChatBloc(repo);
-      addTearDown(bloc.close);
+    test(
+      'set from the reply, cleared on the next send, then set again',
+      () async {
+        final Completer<ChatTurn> second = Completer<ChatTurn>();
+        int calls = 0;
+        when(
+          () =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+        ).thenAnswer((_) {
+          calls++;
+          return calls == 1
+              ? Future<ChatTurn>.value(kCommuteTurn)
+              : second.future;
+        });
+        final ChatBloc bloc = ChatBloc(repo);
+        addTearDown(bloc.close);
 
-      expect(bloc.state.answerType, isNull, reason: 'nothing asked yet');
-      bloc.add(const ChatMessageSent('Mahine ka'));
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(bloc.state.answerType, ChatAnswerType.number);
+        expect(bloc.state.answerType, isNull, reason: 'nothing asked yet');
+        bloc.add(const ChatMessageSent('Mahine ka'));
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(bloc.state.answerType, ChatAnswerType.number);
 
-      bloc.add(const ChatMessageSent('20 km'));
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(bloc.state.answerType, isNull,
-          reason: 'the keypad must not outlive the question it was for');
+        bloc.add(const ChatMessageSent('20 km'));
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(
+          bloc.state.answerType,
+          isNull,
+          reason: 'the keypad must not outlive the question it was for',
+        );
 
-      second.complete(const ChatTurn(reply: 'Aapne kaunsi training ki hai?'));
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(bloc.state.answerType, isNull,
-          reason: 'a turn without answer_type is today\'s rendering');
-    });
+        second.complete(const ChatTurn(reply: 'Aapne kaunsi training ki hai?'));
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(
+          bloc.state.answerType,
+          isNull,
+          reason: 'a turn without answer_type is today\'s rendering',
+        );
+      },
+    );
 
     test('the optimistic prediction brings its own answer shape', () async {
       final Completer<ChatTurn> second = Completer<ChatTurn>();
       int calls = 0;
-      when(() =>
-              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) {
+      when(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      ).thenAnswer((_) {
         calls++;
         if (calls == 1) {
-          return Future<ChatTurn>.value(const ChatTurn(
-            reply: 'Aap din ki shift chahte hain ya raat ki?',
-            suggestedOptions: <ChatOption>[
-              ChatOption(optionKey: 'day', labelText: 'Din ki shift'),
-            ],
-            answerType: ChatAnswerType.singleSelect,
-            lookahead: <String, PredictedQuestion?>{
-              'day': PredictedQuestion(
-                questionKey: 'languages',
-                promptText: 'Aap kaun kaun si bhasha bolte hain?',
-                answerType: 'multi_select',
-                options: <String>['Hindi', 'Marathi'],
-              ),
-            },
-          ));
+          return Future<ChatTurn>.value(
+            const ChatTurn(
+              reply: 'Aap din ki shift chahte hain ya raat ki?',
+              suggestedOptions: <ChatOption>[
+                ChatOption(optionKey: 'day', labelText: 'Din ki shift'),
+              ],
+              answerType: ChatAnswerType.singleSelect,
+              lookahead: <String, PredictedQuestion?>{
+                'day': PredictedQuestion(
+                  questionKey: 'languages',
+                  promptText: 'Aap kaun kaun si bhasha bolte hain?',
+                  answerType: 'multi_select',
+                  options: <String>['Hindi', 'Marathi'],
+                ),
+              },
+            ),
+          );
         }
         return second.future;
       });
@@ -254,15 +284,20 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(bloc.state.answerType, ChatAnswerType.singleSelect);
 
-      bloc.add(const ChatMessageSent(
-        'Din ki shift',
-        optionKey: 'day',
-        servedOption: true,
-      ));
+      bloc.add(
+        const ChatMessageSent(
+          'Din ki shift',
+          optionKey: 'day',
+          servedOption: true,
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(bloc.state.predictedQuestionKey, 'languages');
-      expect(bloc.state.answerType, ChatAnswerType.multiSelect,
-          reason: 'the predicted multi-select renders as one on the tap');
+      expect(
+        bloc.state.answerType,
+        ChatAnswerType.multiSelect,
+        reason: 'the predicted multi-select renders as one on the tap',
+      );
       expect(bloc.state.followups, <String>['Hindi', 'Marathi']);
 
       second.complete(kLanguagesTurn);
@@ -271,57 +306,67 @@ void main() {
       expect(bloc.state.predictedQuestionKey, isNull);
     });
 
-    test('#2198 — an optimistic shift prediction carries its question key',
-        () async {
-      final Completer<ChatTurn> second = Completer<ChatTurn>();
-      int calls = 0;
-      when(() =>
-              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) {
-        calls++;
-        if (calls == 1) {
-          return Future<ChatTurn>.value(const ChatTurn(
-            reply: 'Aap kya kaam karte hain?',
-            suggestedOptions: <ChatOption>[
-              ChatOption(optionKey: 'welder', labelText: 'Welder'),
-            ],
-            answerType: ChatAnswerType.singleSelect,
-            lookahead: <String, PredictedQuestion?>{
-              'welder': PredictedQuestion(
-                questionKey: kChatShiftPreferenceQuestionId,
-                promptText: 'Aap din ki shift chahte hain ya raat ki?',
-                answerType: 'multi_select',
-                options: <String>['Din ki shift', 'Raat ki shift'],
+    test(
+      '#2198 — an optimistic shift prediction carries its question key',
+      () async {
+        final Completer<ChatTurn> second = Completer<ChatTurn>();
+        int calls = 0;
+        when(
+          () =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+        ).thenAnswer((_) {
+          calls++;
+          if (calls == 1) {
+            return Future<ChatTurn>.value(
+              const ChatTurn(
+                reply: 'Aap kya kaam karte hain?',
+                suggestedOptions: <ChatOption>[
+                  ChatOption(optionKey: 'welder', labelText: 'Welder'),
+                ],
+                answerType: ChatAnswerType.singleSelect,
+                lookahead: <String, PredictedQuestion?>{
+                  'welder': PredictedQuestion(
+                    questionKey: kChatShiftPreferenceQuestionId,
+                    promptText: 'Aap din ki shift chahte hain ya raat ki?',
+                    answerType: 'multi_select',
+                    options: <String>['Din ki shift', 'Raat ki shift'],
+                  ),
+                },
               ),
-            },
-          ));
-        }
-        return second.future;
-      });
-      final ChatBloc bloc = ChatBloc(repo);
-      addTearDown(bloc.close);
+            );
+          }
+          return second.future;
+        });
+        final ChatBloc bloc = ChatBloc(repo);
+        addTearDown(bloc.close);
 
-      bloc.add(const ChatMessageSent('Helper hoon'));
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+        bloc.add(const ChatMessageSent('Helper hoon'));
+        await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      // Tapping predicts the Shift turn: the guard's second disjunct
-      // (`predictedQuestionKey`) is what the screen reads on this render.
-      bloc.add(const ChatMessageSent(
-        'Welder',
-        optionKey: 'welder',
-        servedOption: true,
-      ));
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(bloc.state.predictedQuestionKey, kChatShiftPreferenceQuestionId);
-      expect(bloc.state.answerType, ChatAnswerType.multiSelect,
-          reason: 'the predicted shape still arrives; the screen demotes it');
-      expect(bloc.state.followups, <String>['Din ki shift', 'Raat ki shift']);
-    });
+        // Tapping predicts the Shift turn: the guard's second disjunct
+        // (`predictedQuestionKey`) is what the screen reads on this render.
+        bloc.add(
+          const ChatMessageSent(
+            'Welder',
+            optionKey: 'welder',
+            servedOption: true,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(bloc.state.predictedQuestionKey, kChatShiftPreferenceQuestionId);
+        expect(
+          bloc.state.answerType,
+          ChatAnswerType.multiSelect,
+          reason: 'the predicted shape still arrives; the screen demotes it',
+        );
+        expect(bloc.state.followups, <String>['Din ki shift', 'Raat ki shift']);
+      },
+    );
 
     test('a voice merge clears it', () async {
-      when(() =>
-              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async => kTravelTurn);
+      when(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      ).thenAnswer((_) async => kTravelTurn);
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
 
@@ -329,32 +374,39 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(bloc.state.answerType, ChatAnswerType.boolean);
 
-      bloc.add(const ChatVoiceMerged(transcript: 'haan ji', reply: 'Theek hai.'));
+      bloc.add(
+        const ChatVoiceMerged(transcript: 'haan ji', reply: 'Theek hai.'),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(bloc.state.answerType, isNull);
     });
 
-    test('a failed send leaves none; the retried reply brings its own',
-        () async {
-      int calls = 0;
-      when(() =>
-              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async {
-        calls++;
-        if (calls == 1) throw const NetworkFailure();
-        return kCommuteTurn;
-      });
-      final ChatBloc bloc = ChatBloc(repo);
-      addTearDown(bloc.close);
+    test(
+      'a failed send leaves none; the retried reply brings its own',
+      () async {
+        int calls = 0;
+        when(
+          () =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+        ).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const NetworkFailure();
+          return kCommuteTurn;
+        });
+        final ChatBloc bloc = ChatBloc(repo);
+        addTearDown(bloc.close);
 
-      bloc.add(const ChatMessageSent('haan'));
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(bloc.state.answerType, isNull);
+        bloc.add(const ChatMessageSent('haan'));
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(bloc.state.answerType, isNull);
 
-      bloc.add(const ChatRetryRequested(1)); // the failed bubble, after the opener
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(bloc.state.answerType, ChatAnswerType.number);
-    });
+        bloc.add(
+          const ChatRetryRequested(1),
+        ); // the failed bubble, after the opener
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(bloc.state.answerType, ChatAnswerType.number);
+      },
+    );
   });
 
   // ------------------------------------------------------------------ screen
@@ -367,8 +419,9 @@ void main() {
       await locator.reset();
       locator.registerFactory<ChatBloc>(() => ChatBloc(repo));
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.loadHistory())
-          .thenAnswer((_) async => const <ChatMessage>[]);
+      when(
+        () => repo.loadHistory(),
+      ).thenAnswer((_) async => const <ChatMessage>[]);
     });
 
     tearDown(() async => locator.reset());
@@ -376,9 +429,9 @@ void main() {
     /// The first send returns [first]; every later one an ordinary turn.
     void replies(ChatTurn first) {
       int calls = 0;
-      when(() =>
-              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
-          .thenAnswer((_) async {
+      when(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      ).thenAnswer((_) async {
         calls++;
         return calls == 1 ? first : const ChatTurn(reply: 'Aur bataiye.');
       });
@@ -412,47 +465,53 @@ void main() {
 
     VoidCallback? doneAction(WidgetTester tester) => tester
         .widget<BbButton>(
-            find.widgetWithText(BbButton, kChatMultiSelectDoneLabel))
+          find.widgetWithText(BbButton, kChatMultiSelectDoneLabel),
+        )
         .onPressed;
 
-    void verifySentOnce(String text) => verify(() =>
-            repo.sendMessage(text, submissionId: any(named: 'submissionId')))
-        .called(1);
+    void verifySentOnce(String text) => verify(
+      () => repo.sendMessage(text, submissionId: any(named: 'submissionId')),
+    ).called(1);
 
-    void verifyNotSent(String text) => verifyNever(() =>
-        repo.sendMessage(text, submissionId: any(named: 'submissionId')));
+    void verifyNotSent(String text) => verifyNever(
+      () => repo.sendMessage(text, submissionId: any(named: 'submissionId')),
+    );
 
     testWidgets(
-        'multi_select: a chip TICKS instead of sending, and "Ho gaya" sends '
-        'every tick as ONE message', (WidgetTester tester) async {
-      replies(kLanguagesTurn);
-      await pumpChat(tester);
-      await type(tester, 'Welder hoon');
+      'multi_select: a chip TICKS instead of sending, and "Ho gaya" sends '
+      'every tick as ONE message',
+      (WidgetTester tester) async {
+        replies(kLanguagesTurn);
+        await pumpChat(tester);
+        await type(tester, 'Welder hoon');
 
-      expect(find.text(kChatMultiSelectDoneLabel), findsOneWidget);
-      expect(doneAction(tester), isNull, reason: 'nothing ticked yet');
+        expect(find.text(kChatMultiSelectDoneLabel), findsOneWidget);
+        expect(doneAction(tester), isNull, reason: 'nothing ticked yet');
 
-      await tester.tap(find.text('Hindi'));
-      await tester.pump();
-      verifyNotSent('Hindi');
-      expect(doneAction(tester), isNotNull);
+        await tester.tap(find.text('Hindi'));
+        await tester.pump();
+        verifyNotSent('Hindi');
+        expect(doneAction(tester), isNotNull);
 
-      await tester.tap(find.text('Marathi'));
-      await tester.pump();
-      expect(find.byIcon(Icons.check_rounded), findsNWidgets(2));
+        await tester.tap(find.text('Marathi'));
+        await tester.pump();
+        expect(find.byIcon(Icons.check_rounded), findsNWidgets(2));
 
-      await tester.tap(find.text(kChatMultiSelectDoneLabel));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text(kChatMultiSelectDoneLabel));
+        await tester.pumpAndSettle();
 
-      verifySentOnce('Hindi, Marathi');
-      verifyNotSent('Marathi');
-      // The worker's bubble reads like the answer they gave.
-      expect(find.text('Hindi, Marathi'), findsOneWidget);
-      // The turn moved on: the tick row and its button are gone.
-      expect(find.text(kChatMultiSelectDoneLabel), findsNothing);
-    });
+        verifySentOnce('Hindi, Marathi');
+        verifyNotSent('Marathi');
+        // The worker's bubble reads like the answer they gave.
+        expect(find.text('Hindi, Marathi'), findsOneWidget);
+        // The turn moved on: the tick row and its button are gone.
+        expect(find.text(kChatMultiSelectDoneLabel), findsNothing);
+      },
+    );
 
-    testWidgets('multi_select: a second tap unticks', (WidgetTester tester) async {
+    testWidgets('multi_select: a second tap unticks', (
+      WidgetTester tester,
+    ) async {
       replies(kLanguagesTurn);
       await pumpChat(tester);
       await type(tester, 'Welder hoon');
@@ -470,156 +529,288 @@ void main() {
     });
 
     testWidgets(
-        'multi_select: "none of these" is exclusive (the voice/trade form rule)',
-        (WidgetTester tester) async {
-      replies(const ChatTurn(
-        reply: 'Aap kaunse tools chalate hain?',
-        suggestedOptions: <ChatOption>[
-          ChatOption(optionKey: 'drill', labelText: 'Drill machine'),
-          ChatOption(optionKey: 'grinder', labelText: 'Grinder'),
-          ChatOption(
-            optionKey: 'none',
-            labelText: 'Inme se koi nahi',
-            isNoneOfAbove: true,
+      'multi_select: "none of these" is exclusive (the voice/trade form rule)',
+      (WidgetTester tester) async {
+        replies(
+          const ChatTurn(
+            reply: 'Aap kaunse tools chalate hain?',
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'drill', labelText: 'Drill machine'),
+              ChatOption(optionKey: 'grinder', labelText: 'Grinder'),
+              ChatOption(
+                optionKey: 'none',
+                labelText: 'Inme se koi nahi',
+                isNoneOfAbove: true,
+              ),
+            ],
+            answerType: ChatAnswerType.multiSelect,
           ),
-        ],
-        answerType: ChatAnswerType.multiSelect,
-      ));
-      await pumpChat(tester);
-      await type(tester, 'Fitter hoon');
+        );
+        await pumpChat(tester);
+        await type(tester, 'Fitter hoon');
 
-      await tester.tap(find.text('Drill machine'));
-      await tester.pump();
-      await tester.tap(find.text('Inme se koi nahi'));
-      await tester.pump();
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget,
-          reason: 'none-of-above replaced the drill tick');
+        await tester.tap(find.text('Drill machine'));
+        await tester.pump();
+        await tester.tap(find.text('Inme se koi nahi'));
+        await tester.pump();
+        expect(
+          find.byIcon(Icons.check_rounded),
+          findsOneWidget,
+          reason: 'none-of-above replaced the drill tick',
+        );
 
-      await tester.tap(find.text(kChatMultiSelectDoneLabel));
-      await tester.pumpAndSettle();
-      verifySentOnce('Inme se koi nahi');
-    });
-
-    testWidgets('multi_select on label-only chips ticks and sends the same way',
-        (WidgetTester tester) async {
-      replies(const ChatTurn(
-        reply: 'Aap kis tarah ka kaam lena chahte hain?',
-        followups: <String>['Permanent', 'Contract', 'Daily wage'],
-        answerType: ChatAnswerType.multiSelect,
-      ));
-      await pumpChat(tester);
-      await type(tester, 'Helper hoon');
-
-      await tester.tap(find.text('Contract'));
-      await tester.pump();
-      await tester.tap(find.text('Permanent'));
-      await tester.pump();
-      verifyNotSent('Contract');
-
-      await tester.tap(find.text(kChatMultiSelectDoneLabel));
-      await tester.pumpAndSettle();
-      verifySentOnce('Contract, Permanent');
-    });
+        await tester.tap(find.text(kChatMultiSelectDoneLabel));
+        await tester.pumpAndSettle();
+        verifySentOnce('Inme se koi nahi');
+      },
+    );
 
     testWidgets(
-        'single_select keeps one tap = one answer (no tick row, no Ho gaya)',
-        (WidgetTester tester) async {
-      replies(const ChatTurn(
-        reply: 'Aapki salary mahine, din ya saal ke hisaab se hai?',
-        suggestedOptions: <ChatOption>[
-          ChatOption(optionKey: 'month', labelText: 'Mahine ka'),
-          ChatOption(optionKey: 'day', labelText: 'Din ka'),
-        ],
-        answerType: ChatAnswerType.singleSelect,
-      ));
-      await pumpChat(tester);
-      await type(tester, 'Welder hoon');
+      'multi_select on label-only chips ticks and sends the same way',
+      (WidgetTester tester) async {
+        replies(
+          const ChatTurn(
+            reply: 'Aap kis tarah ka kaam lena chahte hain?',
+            followups: <String>['Permanent', 'Contract', 'Daily wage'],
+            answerType: ChatAnswerType.multiSelect,
+          ),
+        );
+        await pumpChat(tester);
+        await type(tester, 'Helper hoon');
 
-      expect(find.text(kChatMultiSelectDoneLabel), findsNothing);
-      await tester.tap(find.text('Mahine ka'));
-      await tester.pumpAndSettle();
-      verifySentOnce('Mahine ka');
-    });
+        await tester.tap(find.text('Contract'));
+        await tester.pump();
+        await tester.tap(find.text('Permanent'));
+        await tester.pump();
+        verifyNotSent('Contract');
+
+        await tester.tap(find.text(kChatMultiSelectDoneLabel));
+        await tester.pumpAndSettle();
+        verifySentOnce('Contract, Permanent');
+      },
+    );
+
+    testWidgets(
+      'single_select keeps one tap = one answer (no tick row, no Ho gaya)',
+      (WidgetTester tester) async {
+        replies(
+          const ChatTurn(
+            reply: 'Aapki salary mahine, din ya saal ke hisaab se hai?',
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'month', labelText: 'Mahine ka'),
+              ChatOption(optionKey: 'day', labelText: 'Din ka'),
+            ],
+            answerType: ChatAnswerType.singleSelect,
+          ),
+        );
+        await pumpChat(tester);
+        await type(tester, 'Welder hoon');
+
+        expect(find.text(kChatMultiSelectDoneLabel), findsNothing);
+        await tester.tap(find.text('Mahine ka'));
+        await tester.pumpAndSettle();
+        verifySentOnce('Mahine ka');
+      },
+    );
 
     // #2198 — Shift is one text slug server-side and single-select on the
     // form, so the chat must never tick it — even when the served
     // `answer_type` still says `multi_select` (a stale/newer backend). Pack
     // copy is byte-identical to qp_universal `shift_preference`.
     testWidgets(
-        'shift with a stale multi_select: one tap sends, no tick row, no '
-        'Ho gaya', (WidgetTester tester) async {
-      replies(const ChatTurn(
-        reply: 'Aap din ki shift chahte hain ya raat ki?',
-        followups: <String>['Din ki shift', 'Raat ki shift', 'Koi bhi chalegi'],
-        suggestedOptions: <ChatOption>[
-          ChatOption(optionKey: 'day', labelText: 'Din ki shift'),
-          ChatOption(optionKey: 'night', labelText: 'Raat ki shift'),
-          ChatOption(
-            optionKey: 'any',
-            labelText: 'Koi bhi chalegi',
-            isNoneOfAbove: true,
+      'shift with a stale multi_select: one tap sends, no tick row, no '
+      'Ho gaya',
+      (WidgetTester tester) async {
+        replies(
+          const ChatTurn(
+            reply: 'Aap din ki shift chahte hain ya raat ki?',
+            followups: <String>[
+              'Din ki shift',
+              'Raat ki shift',
+              'Koi bhi chalegi',
+            ],
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'day', labelText: 'Din ki shift'),
+              ChatOption(optionKey: 'night', labelText: 'Raat ki shift'),
+              ChatOption(
+                optionKey: 'any',
+                labelText: 'Koi bhi chalegi',
+                isNoneOfAbove: true,
+              ),
+            ],
+            answerType: ChatAnswerType.multiSelect,
+            askedQuestionId: kChatShiftPreferenceQuestionId,
           ),
-        ],
-        answerType: ChatAnswerType.multiSelect,
-        askedQuestionId: kChatShiftPreferenceQuestionId,
-      ));
-      await pumpChat(tester);
-      await type(tester, 'Welder hoon');
+        );
+        await pumpChat(tester);
+        await type(tester, 'Welder hoon');
 
-      expect(find.text(kChatMultiSelectDoneLabel), findsNothing,
-          reason: 'Shift is single-select: no Ho gaya even on multi_select');
-      await tester.tap(find.text('Din ki shift'));
-      await tester.pumpAndSettle();
-      verifySentOnce('Din ki shift');
-    });
-
-    testWidgets(
-        'shift with label-only chips and a stale multi_select: one tap sends',
-        (WidgetTester tester) async {
-      replies(const ChatTurn(
-        reply: 'Aap din ki shift chahte hain ya raat ki?',
-        followups: <String>['Din ki shift', 'Raat ki shift', 'Koi bhi chalegi'],
-        answerType: ChatAnswerType.multiSelect,
-        askedQuestionId: kChatShiftPreferenceQuestionId,
-      ));
-      await pumpChat(tester);
-      await type(tester, 'Welder hoon');
-
-      expect(find.text(kChatMultiSelectDoneLabel), findsNothing);
-      await tester.tap(find.text('Raat ki shift'));
-      await tester.pumpAndSettle();
-      verifySentOnce('Raat ki shift');
-    });
+        expect(
+          find.text(kChatMultiSelectDoneLabel),
+          findsNothing,
+          reason: 'Shift is single-select: no Ho gaya even on multi_select',
+        );
+        await tester.tap(find.text('Din ki shift'));
+        await tester.pumpAndSettle();
+        verifySentOnce('Din ki shift');
+      },
+    );
 
     testWidgets(
-        'boolean with NO served chips: Haan / Nahi quick replies send the word',
-        (WidgetTester tester) async {
-      replies(kTravelTurn);
-      await pumpChat(tester);
-      await type(tester, '20 km');
+      'shift with label-only chips and a stale multi_select: one tap sends',
+      (WidgetTester tester) async {
+        replies(
+          const ChatTurn(
+            reply: 'Aap din ki shift chahte hain ya raat ki?',
+            followups: <String>[
+              'Din ki shift',
+              'Raat ki shift',
+              'Koi bhi chalegi',
+            ],
+            answerType: ChatAnswerType.multiSelect,
+            askedQuestionId: kChatShiftPreferenceQuestionId,
+          ),
+        );
+        await pumpChat(tester);
+        await type(tester, 'Welder hoon');
 
-      expect(find.text('Haan'), findsOneWidget);
-      expect(find.text('Nahi'), findsOneWidget);
-      // The composer stays: typing "haan ji" still answers.
-      expect(find.byType(TextField), findsOneWidget);
+        expect(find.text(kChatMultiSelectDoneLabel), findsNothing);
+        await tester.tap(find.text('Raat ki shift'));
+        await tester.pumpAndSettle();
+        verifySentOnce('Raat ki shift');
+      },
+    );
 
-      await tester.tap(find.text('Nahi'));
-      await tester.pumpAndSettle();
-      verifySentOnce('Nahi');
-      verifyNotSent('Haan');
-      expect(find.text('Haan'), findsNothing, reason: 'the turn moved on');
-    });
+    // OWNER RULE (2026-10-12) — a question with a fixed set of choices must be
+    // answered by CHOOSING one. The composer and its mic are withheld so a
+    // custom value cannot be typed past the options.
+    testWidgets(
+      'multi_select: the composer and mic are withheld — choose from the '
+      'chips only',
+      (WidgetTester tester) async {
+        replies(kLanguagesTurn);
+        await pumpChat(tester);
+        await type(tester, 'Welder hoon');
 
-    testWidgets('boolean WITH served chips: only the server\'s chips',
-        (WidgetTester tester) async {
-      replies(const ChatTurn(
-        reply: 'Kya aap welding kar lete hain?',
-        suggestedOptions: <ChatOption>[
-          ChatOption(optionKey: 'yes', labelText: 'Haan, kar leta hoon'),
-          ChatOption(optionKey: 'no', labelText: 'Nahi'),
-        ],
-        answerType: ChatAnswerType.boolean,
-      ));
+        // The tick row is on screen and is the ONLY answer path this turn.
+        expect(find.text(kChatMultiSelectDoneLabel), findsOneWidget);
+        expect(
+          find.byType(TextField),
+          findsNothing,
+          reason: 'no custom value can be typed past the options',
+        );
+        expect(
+          find.byIcon(Icons.mic),
+          findsNothing,
+          reason: 'the mic stands down too',
+        );
+        expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
+
+        // Choosing still works end to end.
+        await tester.tap(find.text('Hindi'));
+        await tester.pump();
+        await tester.tap(find.text(kChatMultiSelectDoneLabel));
+        await tester.pumpAndSettle();
+        verifySentOnce('Hindi');
+        // The turn moved on, so the composer comes back.
+        expect(find.byType(TextField), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'single_select: the composer and mic are withheld — choose from the '
+      'chips only',
+      (WidgetTester tester) async {
+        replies(
+          const ChatTurn(
+            reply: 'Aapki salary mahine, din ya saal ke hisaab se hai?',
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'month', labelText: 'Mahine ka'),
+              ChatOption(optionKey: 'day', labelText: 'Din ka'),
+            ],
+            answerType: ChatAnswerType.singleSelect,
+          ),
+        );
+        await pumpChat(tester);
+        await type(tester, 'Welder hoon');
+
+        expect(find.byType(TextField), findsNothing);
+        expect(find.byIcon(Icons.mic), findsNothing);
+        expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
+
+        await tester.tap(find.text('Din ka'));
+        await tester.pumpAndSettle();
+        verifySentOnce('Din ka');
+        expect(find.byType(TextField), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a multi_select escape ("Kuch aur") KEEPS the composer — the worker is '
+      'never trapped',
+      (WidgetTester tester) async {
+        replies(
+          const ChatTurn(
+            reply: 'Aap kis tarah ka kaam lena chahte hain?',
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'permanent', labelText: 'Permanent'),
+              ChatOption(
+                optionKey: 'kuch_aur',
+                labelText: 'Kuch aur — khud likhein',
+              ),
+            ],
+            answerType: ChatAnswerType.multiSelect,
+          ),
+        );
+        await pumpChat(tester);
+        await type(tester, 'Helper hoon');
+
+        // The escape chip rides this turn, so the composer is enabled by default.
+        expect(find.byType(TextField), findsOneWidget);
+        await tester.tap(find.text(kChatCustomAnswerLabel));
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(TextField),
+          findsOneWidget,
+          reason:
+              'the escape chip focuses the composer for the worker\'s own words',
+        );
+      },
+    );
+
+    testWidgets(
+      'boolean with NO served chips: Haan / Nahi quick replies send the word',
+      (WidgetTester tester) async {
+        replies(kTravelTurn);
+        await pumpChat(tester);
+        await type(tester, '20 km');
+
+        expect(find.text('Haan'), findsOneWidget);
+        expect(find.text('Nahi'), findsOneWidget);
+        // The composer stays: typing "haan ji" still answers.
+        expect(find.byType(TextField), findsOneWidget);
+
+        await tester.tap(find.text('Nahi'));
+        await tester.pumpAndSettle();
+        verifySentOnce('Nahi');
+        verifyNotSent('Haan');
+        expect(find.text('Haan'), findsNothing, reason: 'the turn moved on');
+      },
+    );
+
+    testWidgets('boolean WITH served chips: only the server\'s chips', (
+      WidgetTester tester,
+    ) async {
+      replies(
+        const ChatTurn(
+          reply: 'Kya aap welding kar lete hain?',
+          suggestedOptions: <ChatOption>[
+            ChatOption(optionKey: 'yes', labelText: 'Haan, kar leta hoon'),
+            ChatOption(optionKey: 'no', labelText: 'Nahi'),
+          ],
+          answerType: ChatAnswerType.boolean,
+        ),
+      );
       await pumpChat(tester);
       await type(tester, 'Fitter hoon');
 
@@ -628,8 +819,9 @@ void main() {
       expect(find.text('Haan'), findsNothing);
     });
 
-    testWidgets('no answer_type and no chips: nothing new is drawn',
-        (WidgetTester tester) async {
+    testWidgets('no answer_type and no chips: nothing new is drawn', (
+      WidgetTester tester,
+    ) async {
       replies(const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await type(tester, 'Welder hoon');
@@ -644,30 +836,31 @@ void main() {
     });
 
     testWidgets(
-        'number: the composer opens a number keypad for THAT turn only',
-        (WidgetTester tester) async {
-      replies(kCommuteTurn);
-      await pumpChat(tester);
-      expect(
-        tester.widget<TextField>(find.byType(TextField)).keyboardType,
-        TextInputType.multiline,
-      );
+      'number: the composer opens a number keypad for THAT turn only',
+      (WidgetTester tester) async {
+        replies(kCommuteTurn);
+        await pumpChat(tester);
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).keyboardType,
+          TextInputType.multiline,
+        );
 
-      await type(tester, 'Welder hoon');
-      expect(
-        tester.widget<TextField>(find.byType(TextField)).keyboardType,
-        TextInputType.number,
-      );
-      // The mic (tap-to-talk) is still offered on the empty field.
-      expect(find.byIcon(Icons.mic), findsWidgets);
+        await type(tester, 'Welder hoon');
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).keyboardType,
+          TextInputType.number,
+        );
+        // The mic (tap-to-talk) is still offered on the empty field.
+        expect(find.byIcon(Icons.mic), findsWidgets);
 
-      await type(tester, '20 km');
-      verifySentOnce('20 km');
-      expect(
-        tester.widget<TextField>(find.byType(TextField)).keyboardType,
-        TextInputType.multiline,
-        reason: 'reverted on the next turn',
-      );
-    });
+        await type(tester, '20 km');
+        verifySentOnce('20 km');
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).keyboardType,
+          TextInputType.multiline,
+          reason: 'reverted on the next turn',
+        );
+      },
+    );
   });
 }
