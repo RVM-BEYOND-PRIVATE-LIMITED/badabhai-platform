@@ -203,9 +203,11 @@ export function readGreetingChoice(text: string): "start" | "later" | null {
 /**
  * ADR-0051 §11 (R41) — the worker's answer to the ask "Kya aage ki saari baat {Language} mein
  * karein?", read deterministically and ONLY while the ask for `offer` is pending: the chip's key or
- * label ("Haan, {Language} mein" / "Nahi"), else a short typed yes or no in any of the chat's
- * languages ("haan", "ho", "aam", "avunu", "haudu"… — `readTypedLanguageAnswer`). Null for anything
- * else: the offer then lapses, and the message is read like any other.
+ * label ("Haan, {Language} mein" / "Nahi"), else a BARE typed yes or no in any of the chat's
+ * languages ("haan", "ho", "aam", "avunu", "haudu"…, or "theek hai"), optionally with the offered
+ * language's name, "mein" or "ji" — `readTypedLanguageAnswer`. Null for anything else ("haan marna
+ * hai", "ok, salary batao"): the offer then lapses, and the message is read like any other,
+ * classifier included.
  */
 export function readLanguageAnswer(
   text: string,

@@ -351,9 +351,10 @@ export class FreeChatTurns {
    * answered as free chat, and becomes free mode once a classifier verdict is acted on.
    *
    * THE REPLY LANGUAGE (§11) comes AFTER every guard here — distress, a pending import, the chips,
-   * the cool-down, the cap and the abuse lexicon keep their precedence — and before the classifier:
-   * a pending ask's answer, then an explicit request, then (on a classified reply) the kept language
-   * or the message's own.
+   * the cool-down, the cap and the abuse lexicon keep their precedence: a pending ask's answer,
+   * then a BARE request (no classifier call), then the classifier for everything else — and a
+   * classified casual or career reply is written in the requested language (with the ask), else
+   * the kept language, else the message's own.
    */
   private async routeFreeMode(t: FreeChatTurn, entering: FreeChatState): Promise<FreeChatRouted> {
     const { text, now } = t.input;
@@ -429,24 +430,27 @@ export class FreeChatTurns {
         break;
     }
 
-    // ADR-0051 §11 (R41) — the ask's answer, read deterministically (a chip or a typed yes / no).
+    // ADR-0051 §11 (R41) — the ask's answer, read deterministically: the chip, its typed label, or
+    // a bare typed yes / no. Anything else lets the offer lapse and is read like any message.
     if (offer !== null) {
       const answer = readLanguageAnswer(text, offer);
       if (answer !== null) return this.serveLanguageAnswer(t, state, offer, answer);
     }
-    // R41 — AN EXPLICIT REQUEST in free mode: the model answers again in that language, with no
-    // classifier call — "marathi mai jawab do" is not a category, it is about the previous reply.
-    // At the greeting the classifier still decides (it alone may move the session to free mode),
-    // and the request only picks the reply's language and its ask (`askPlan`, below).
+    // R41 — A BARE REQUEST in free mode ("marathi mai jawab do": every word is the request's own)
+    // is about the previous reply, not a category: the model answers again in that language with
+    // no classifier call. ANY OTHER message carrying a request is classified like every message —
+    // distress, abuse, a jobs or résumé ask said in the same breath keep their handling — and only
+    // a casual or career reply takes the requested language and the ask (`askPlan`, below). At the
+    // greeting even a bare request is classified: the classifier alone moves it to free mode.
     const requested = parseLanguageRequest(text);
-    if (requested !== null && state.mode === "free") {
+    if (requested !== null && requested.bare && state.mode === "free") {
       const category = previousCategory ?? "casual";
       return this.serveReply(
         t,
         state,
         category,
-        { ...REQUEST_FACTS, category },
-        askPlan(requested, keptLanguageOf(state)),
+        { ...BARE_REQUEST_FACTS, category },
+        askPlan(requested.language, keptLanguageOf(state)),
       );
     }
 
@@ -477,7 +481,7 @@ export class FreeChatTurns {
           action.category,
           facts,
           requested !== null
-            ? askPlan(requested, keptLanguageOf(current))
+            ? askPlan(requested.language, keptLanguageOf(current))
             : followPlan(keptLanguageOf(current), text),
         );
       case "fixed":
@@ -1164,7 +1168,8 @@ type ServedExtra = Partial<
 
 /**
  * The language ONE model reply is written in, and whether the reply then ASKS to keep it (R41).
- * Precedence: an explicit request in the message, then the kept language, then the message's own.
+ * Precedence: an explicit request in the message (bare, or classified casual / career), then the
+ * kept language, then the message's own.
  */
 interface ReplyLanguagePlan {
   readonly language: FreeChatReplyLanguage;
@@ -1197,12 +1202,13 @@ function languageAskChips(language: FreeChatReplyLanguage): QuestionPackOption[]
 }
 
 /**
- * An explicit language request decided it: the request reader is a closed word list read
- * deterministically, the nearest of the spine's closed `decided_by` values (no new value: the
- * payload is frozen). The routed category is filled in at the serve site.
+ * A BARE language request decided it — the flow itself, re-answering the previous reply: `flow`,
+ * not `lexicon`, which the spine reserves for the distress and abuse lists (no new value: the
+ * payload is frozen). The routed category is filled in at the serve site. A request that is not
+ * bare is classified, and stamps the classifier's own facts.
  */
-const REQUEST_FACTS: VerdictFacts = {
-  decidedBy: "lexicon",
+const BARE_REQUEST_FACTS: VerdictFacts = {
+  decidedBy: "flow",
   category: null,
   confidenceBucket: null,
 };

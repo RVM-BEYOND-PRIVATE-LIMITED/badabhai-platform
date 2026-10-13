@@ -374,6 +374,10 @@ describe("ADR-0051 §11 — the language ask's answer, read deterministically (R
     ["haan, tamil mein", "marathi"],
     // A message, not an answer.
     ["welder ki salary kitni hai", "marathi"],
+    // A yes / no word leading a message (M1).
+    ["haan marna hai", "marathi"],
+    ["ok, salary batao", "tamil"],
+    ["nahi jeena mujhe", "marathi"],
     // The greeting's and the résumé chip's KEYS are not this ask's.
     ["free_chat_start", "marathi"],
     ["free_chat_resume", "marathi"],

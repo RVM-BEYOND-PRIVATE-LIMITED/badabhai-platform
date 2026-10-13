@@ -8,6 +8,14 @@ import {
   parseLanguageRequest,
   readTypedLanguageAnswer,
 } from "./free-chat-language";
+import {
+  ENGLISH_LATIN_WORDS,
+  HINDI_DEVANAGARI_WORDS,
+  HINDI_LATIN_WORDS,
+  HINDI_SHARED_WORDS,
+  MARATHI_DEVANAGARI_WORDS,
+  REGIONAL_LATIN_WORDS,
+} from "./free-chat-language.lexicon";
 
 /**
  * ADR-0051 §11 (R39–R41) — the reply language, decided by code. Every line below is FABRICATED for
@@ -158,6 +166,26 @@ const FALSE_FRIENDS: readonly Case[] = [
   ["vaat karo tame", "gujarati"],
   // "kon" is Marathi "who"; "aata" is Marathi "now".
   ["aata kon aahe", "marathi"],
+  // ONE regional marker in Hindi-shaped text decides nothing (L2): Hindi "vela" (idle) is Tamil
+  // "vela" (work), but "hu" is a word Hindi shares with GUJARATI, and "main" with English.
+  ["main vela baitha hu", "hinglish"],
+  ["main vela baitha", "hinglish"],
+  // Hindi "aaste aaste" (slowly) is Marathi "aste"; repeated, it is still ONE marker, and "karo"
+  // is Hindi and Gujarati.
+  ["aste aste kaam karo", "hinglish"],
+  // Two DISTINCT markers still decide, whatever the Hindi-shaped words beside them.
+  ["mala kaam karaycha aahe", "marathi"],
+];
+
+/** Devanagari punctuation and digits belong to no language (L4). */
+const SCRIPT_NEUTRAL: readonly Case[] = [
+  ["I want a job in Pune\u0964", "english"],
+  ["I want a job in Pune\u0965", "english"],
+  ["My salary is \u0968\u0966\u0966\u0966\u0966", "english"],
+  ["\u0967\u0968\u0969", "hinglish"],
+  // A Devanagari LETTER still decides.
+  ["मुझे नौकरी चाहिए\u0964", "hinglish"],
+  ["मला नोकरी पाहिजे\u0964", "marathi"],
 ];
 
 /** A script mixed with Latin loanwords: the script decides, the loanwords do not. */
@@ -203,6 +231,9 @@ describe("detectReplyLanguage — the language each message is written in (R39, 
   it.each(MIXED_SCRIPT)("a script beside Latin loanwords: %j → %s", (text, expected) => {
     expect(detectReplyLanguage(text)).toBe(expected);
   });
+  it.each(SCRIPT_NEUTRAL)("the danda and the digits decide nothing: %j → %s", (text, expected) => {
+    expect(detectReplyLanguage(text)).toBe(expected);
+  });
 
   it("every regional script decides its language on its own, one word is enough", () => {
     expect(detectReplyLanguage("ವೇತನ")).toBe("kannada");
@@ -212,7 +243,7 @@ describe("detectReplyLanguage — the language each message is written in (R39, 
   });
 
   it("a zero-width joiner inside a word does not split it", () => {
-    expect(detectReplyLanguage("मला नोकरी पाहि‍जे")).toBe("marathi");
+    expect(detectReplyLanguage("मला नोकरी पाहि\u200dजे")).toBe("marathi");
   });
 
   it("covers every member of the closed set across the corpus", () => {
@@ -309,8 +340,18 @@ const NOT_REQUESTS: readonly string[] = [
   // Negated
   "english mein mat bolo",
   "marathi mein baat mat karo",
+  "english mein bolo mat",
   "dont reply in english",
   "don't speak hindi",
+  // A GENERIC verb beside content is not aimed at the reply (B2 / H1)
+  "tamil me kaam karna hai",
+  "mujhe tamil me job dedo",
+  "gujarati mein job batao",
+  "english mein resume bana do",
+  "hindi mein resume bana dijiye",
+  "ye marathi mein hai",
+  // A place, not a language
+  "can you tell me about jobs in tamil nadu",
   // Too long to be a request: a message ABOUT a language
   "mere bhai ne kaha ki marathi mein baat karo par mujhe hindi aati hai aur main yahin rehta hoon",
   // Nothing to do with language at all
@@ -321,7 +362,7 @@ const NOT_REQUESTS: readonly string[] = [
 
 describe("parseLanguageRequest — an explicit request to reply in a language (R41)", () => {
   it.each(REQUESTS)("%j → %s", (text, expected) => {
-    expect(parseLanguageRequest(text)).toBe(expected);
+    expect(parseLanguageRequest(text)?.language).toBe(expected);
   });
 
   it.each(NOT_REQUESTS)("%j is not a request", (text) => {
@@ -329,10 +370,69 @@ describe("parseLanguageRequest — an explicit request to reply in a language (R
   });
 
   it("names every member of the closed set — Hindi is `hinglish`", () => {
-    const named = new Set(REQUESTS.map(([text]) => parseLanguageRequest(text)));
+    const named = new Set(REQUESTS.map(([text]) => parseLanguageRequest(text)?.language));
     expect([...named].sort()).toEqual(
       ["english", "gujarati", "hinglish", "kannada", "marathi", "tamil", "telugu"].sort(),
     );
+  });
+
+  it("a negation AFTER the request is another clause — only one of the request cancels it (L1)", () => {
+    expect(parseLanguageRequest("english mein bolo, hindi nahi aati")).toEqual({
+      language: "english",
+      bare: false,
+    });
+    expect(parseLanguageRequest("english mein bolo, mujhe hindi nahi aati")?.language).toBe(
+      "english",
+    );
+  });
+});
+
+/** A BARE request: every word is the request's own — the only kind that skips the classifier. */
+const BARE_REQUESTS: readonly Case[] = [
+  ["marathi mai jawab do", "marathi"],
+  ["Marathi mein jawab do", "marathi"],
+  ["tamil me bolo", "tamil"],
+  ["kannada me batao", "kannada"],
+  ["kya aap marathi mein baat kar sakte hain?", "marathi"],
+  ["marathi bol sakte ho?", "marathi"],
+  ["nahi samjha, marathi mein bolo", "marathi"],
+  ["english mein nahi, hindi mein bolo", "hinglish"],
+  ["mujhe english mein baat karni hai", "english"],
+  ["Haan, Tamil mein", "tamil"],
+  ["jawab marathi mein", "marathi"],
+  ["please talk to me in Kannada", "kannada"],
+  ["Can you speak Marathi?", "marathi"],
+  ["from now on reply in tamil only", "tamil"],
+  ["marathit uttar dya", "marathi"],
+  ["Tamil-la sollunga", "tamil"],
+  ["telugu lo cheppandi", "telugu"],
+  ["kannadadalli heli", "kannada"],
+  ["मराठी में जवाब दो", "marathi"],
+  ["தமிழில் சொல்லுங்கள்", "tamil"],
+];
+
+/**
+ * A request WITH SOMETHING ELSE IN IT — still a request (its language rides a casual or career
+ * reply), but not bare, so the classifier reads it: a question, a jobs ask, distress, abuse.
+ */
+const NOT_BARE_REQUESTS: readonly Case[] = [
+  ["can you tell me in tamil what is welder salary", "tamil"],
+  ["english mein bolo, hindi nahi aati", "english"],
+  ["reply in english, i want to die", "english"],
+  ["मराठीत सांगा, मला जगायचं नाही", "marathi"],
+  ["telugu lo cheppandi naaku chavalani undi", "telugu"],
+  ["english mein bolo, khud ko khatam kar lunga", "english"],
+  ["tamil la sollunga, saala kutta", "tamil"],
+  ["marathi mein bolo, welder ki salary kitni hai", "marathi"],
+];
+
+describe("parseLanguageRequest — a BARE request skips the classifier, any other is classified (B2 / H1)", () => {
+  it.each(BARE_REQUESTS)("%j is a bare request for %s", (text, expected) => {
+    expect(parseLanguageRequest(text)).toEqual({ language: expected, bare: true });
+  });
+
+  it.each(NOT_BARE_REQUESTS)("%j asks for %s, and is NOT bare", (text, expected) => {
+    expect(parseLanguageRequest(text)).toEqual({ language: expected, bare: false });
   });
 });
 
@@ -378,7 +478,11 @@ describe("readTypedLanguageAnswer — a typed yes or no to the ask", () => {
     "theek hai",
     "haan ji",
     "ji haan",
+    "ji",
     "haan marathi mein",
+    "Haan, Marathi mein",
+    "ok marathit",
+    "theek hai marathi mein",
     "हाँ",
     "होय",
     "ಹೌದು",
@@ -388,12 +492,22 @@ describe("readTypedLanguageAnswer — a typed yes or no to the ask", () => {
     expect(readTypedLanguageAnswer(text, "marathi")).toBe("yes");
   });
 
-  it.each(["nahi", "no", "nako", "illa", "vendam", "ledu", "beda", "nahi rehne do", "नहीं", "ना"])(
-    "%j is no",
-    (text) => {
-      expect(readTypedLanguageAnswer(text, "marathi")).toBe("no");
-    },
-  );
+  it.each([
+    "nahi",
+    "no",
+    "nako",
+    "illa",
+    "vendam",
+    "ledu",
+    "beda",
+    "नहीं",
+    "ना",
+    "nahi ji",
+    "ji nahi",
+    "nahi marathi mein",
+  ])("%j is no", (text) => {
+    expect(readTypedLanguageAnswer(text, "marathi")).toBe("no");
+  });
 
   it.each([
     // Another language named: a new request, not an answer.
@@ -403,6 +517,16 @@ describe("readTypedLanguageAnswer — a typed yes or no to the ask", () => {
     "haan nahi",
     // Too long: a message, the offer lapses.
     "haan aur welder ki salary kitni hai",
+    // A yes / no word leading a MESSAGE is no answer (M1): anything beyond the offered language's
+    // name, "mein" and "ji" lets the offer lapse, and the classifier reads the message.
+    "accha salary kitni hai",
+    "ok, salary batao",
+    "ho gaya",
+    "haan marna hai",
+    "nahi jeena mujhe",
+    "illai vaazha venam",
+    "nahi rehne do",
+    "haan haan bilkul theek",
     // Neither — a Telugu yes misspelt in Tamil script is not on any list.
     "kaise ho",
     "அவுனு",
@@ -410,4 +534,72 @@ describe("readTypedLanguageAnswer — a typed yes or no to the ask", () => {
   ])("%j to a Marathi ask is neither", (text) => {
     expect(readTypedLanguageAnswer(text, "marathi")).toBeNull();
   });
+});
+
+// ---------------------------------------------------------------------------
+// The lexicon's own invariants
+// ---------------------------------------------------------------------------
+
+/** A list as its normalized words — the form the logic module's sets hold. */
+const normalized = (words: readonly string[]) =>
+  words.map((word) => word.normalize("NFC").toLowerCase());
+
+describe("the lexicon — a shared word belongs to NO marker list (L3)", () => {
+  const latinLists: ReadonlyArray<readonly [string, readonly string[]]> = [
+    ["hindi", HINDI_LATIN_WORDS],
+    ["english", ENGLISH_LATIN_WORDS],
+    ...Object.entries(REGIONAL_LATIN_WORDS),
+  ];
+
+  it("no Latin marker appears in two languages' lists", () => {
+    const owners = new Map<string, string[]>();
+    for (const [language, words] of latinLists) {
+      for (const word of new Set(normalized(words))) {
+        owners.set(word, [...(owners.get(word) ?? []), language]);
+      }
+    }
+    const shared = [...owners].filter(([, languages]) => languages.length > 1);
+    expect(shared).toEqual([]);
+  });
+
+  it("no Devanagari marker is both Marathi and Hindi", () => {
+    const hindi = new Set(normalized(HINDI_DEVANAGARI_WORDS));
+    expect(normalized(MARATHI_DEVANAGARI_WORDS).filter((word) => hindi.has(word))).toEqual([]);
+  });
+
+  it("no word Hindi shares is a marker of any language — it is evidence for neither", () => {
+    const markers = new Set(latinLists.flatMap(([, words]) => normalized(words)));
+    const sharedWords = Object.values(HINDI_SHARED_WORDS).flatMap((words) => normalized(words));
+    expect(sharedWords.filter((word) => markers.has(word))).toEqual([]);
+  });
+
+  it("'hogi' is Hindi alone", () => {
+    expect(REGIONAL_LATIN_WORDS.kannada).not.toContain("hogi");
+    expect(HINDI_LATIN_WORDS).toContain("hogi");
+  });
+});
+
+describe("a 4,000-character message (L9)", () => {
+  const inputs = [
+    "mala kaam bolo tamil me ".repeat(200).slice(0, 4000),
+    // One unbroken Devanagari "word", and one of apostrophes and joiners: the regex worst cases.
+    "म".repeat(4000),
+    "'\u200d".repeat(2000),
+  ];
+
+  it("every reader answers in linear time, well under the turn's budget", () => {
+    for (const long of inputs) expect(long.length).toBe(4000);
+    const started = performance.now();
+    for (let i = 0; i < 20; i++) {
+      for (const long of inputs) {
+        detectReplyLanguage(long);
+        parseLanguageRequest(long);
+        readTypedLanguageAnswer(long, "marathi");
+      }
+    }
+    // Twenty rounds of all three readers on each input, generously bounded for a loaded CI runner.
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(parseLanguageRequest(inputs[0]!)).toBeNull();
+    expect(readTypedLanguageAnswer(inputs[0]!, "marathi")).toBeNull();
+  }, 10_000);
 });
