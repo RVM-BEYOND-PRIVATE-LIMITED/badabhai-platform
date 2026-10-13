@@ -70,16 +70,117 @@ function isChip(text: string, key: string, label: string): boolean {
 /** The typed yes-variants the greeting reads (ADR-0051 §5.1). */
 const START_WORDS: ReadonlySet<string> = new Set(["haan", "ha", "yes", "shuru", "ok"]);
 /** The typed later-variants the greeting reads (ADR-0051 §5.1), as whole phrases. */
-const LATER_PHRASES: readonly string[] = ["baad mein", "baad me", "later", "abhi nahi"];
-/** A negation anywhere turns a "haan …" into something the greeting must not read as a yes. */
-const NEGATIONS: ReadonlySet<string> = new Set(["nahi", "nahin", "nhi", "na", "no", "mat"]);
+const LATER_PHRASES: readonly (readonly string[])[] = [
+  "baad mein",
+  "baad me",
+  "later",
+  "abhi nahi",
+].map((phrase) => phrase.split(" "));
+/** A worker declining — allowed only as the FIRST word of a later reply ("nahi, baad mein"). */
+export const GREETING_DECLINE_WORDS: ReadonlySet<string> = new Set([
+  "nahi",
+  "nahin",
+  "nhi",
+  "na",
+  "no",
+]);
 /** A typed variant is a short reply; anything longer is a message, and is classified. */
 const VARIANT_MAX_WORDS = 3;
 
 /**
+ * #2223 — THE ONLY OTHER WORDS A TYPED VARIANT MAY CARRY, beside its yes word or later phrase (and
+ * the yes words themselves, "haan ok"): politeness and "let's go / let's talk" filler, closed and
+ * reviewed like the copy. Any other word makes the reply a MESSAGE: it reads as null, and free mode
+ * classifies it — which is where distress phrased outside the fixed list ("haan marna hai", "abhi
+ * nahi jeena", or in a regional language) is caught, at any confidence (§3.2 rule 8, R10).
+ *
+ * It holds no negation and no word of a distress phrase, and never may: such a word would let a
+ * message ride a "haan" past the classifier (`free-chat.router.test.ts` pins both).
+ */
+export const GREETING_FILLER_WORDS: ReadonlySet<string> = new Set([
+  "resume",
+  "banao",
+  "banaiye",
+  "banayein",
+  "bolo",
+  "boliye",
+  "batao",
+  "bataiye",
+  "go",
+  "lets",
+  "ji",
+  "jee",
+  "please",
+  "pls",
+  "plz",
+  "theek",
+  "thik",
+  "accha",
+  "acha",
+  "achha",
+  "bilkul",
+  "zaroor",
+  "zarur",
+  "sure",
+  "bhai",
+  "bhaiya",
+  "sir",
+  "abhi",
+  "start",
+  "chalo",
+  "chaliye",
+  "kar",
+  "karo",
+  "karein",
+  "karen",
+  "kariye",
+  "karte",
+  "karenge",
+  "karunga",
+  "karungi",
+  "baat",
+  "hai",
+  "hain",
+]);
+
+/** May a typed variant carry this word beside its yes word or later phrase? */
+function isVariantFiller(word: string): boolean {
+  return START_WORDS.has(word) || GREETING_FILLER_WORDS.has(word);
+}
+
+/** Where `phrase` starts in `words` as consecutive whole words, or -1. */
+function indexOfPhrase(words: readonly string[], phrase: readonly string[]): number {
+  for (let at = 0; at + phrase.length <= words.length; at++) {
+    if (phrase.every((word, k) => words[at + k] === word)) return at;
+  }
+  return -1;
+}
+
+/**
+ * A typed later: a later phrase (its first occurrence) with only yes words and filler around it,
+ * and at most one leading decline — "nahi, baad mein" declines; "baad mein nahi" ("not later")
+ * does not.
+ */
+function isTypedLater(words: readonly string[]): boolean {
+  return LATER_PHRASES.some((phrase) => {
+    const at = indexOfPhrase(words, phrase);
+    if (at < 0) return false;
+    const before = words.slice(0, at);
+    const after = words.slice(at + phrase.length);
+    return (
+      before.every(
+        (word, k) => isVariantFiller(word) || (k === 0 && GREETING_DECLINE_WORDS.has(word)),
+      ) && after.every(isVariantFiller)
+    );
+  });
+}
+
+/**
  * The greeting's Haan / Baad mein, read deterministically: the chip's key or label, or a SHORT
- * typed variant. Null for anything else — which free mode then classifies (a greeting the worker
- * typed past is answered as free chat).
+ * typed variant — a yes word FIRST, or a later phrase, with nothing else but yes words and
+ * {@link GREETING_FILLER_WORDS} (and, before a later phrase, one leading decline). Null for
+ * anything else — which free mode then classifies (a greeting the worker typed past is answered
+ * as free chat).
  */
 export function readGreetingChoice(text: string): "start" | "later" | null {
   if (isChip(text, FREE_CHAT_START_KEY, FREE_CHAT_START_LABEL)) return "start";
@@ -87,9 +188,9 @@ export function readGreetingChoice(text: string): "start" | "later" | null {
   const folded = fold(text);
   const words = folded.length === 0 ? [] : folded.split(" ");
   if (words.length === 0 || words.length > VARIANT_MAX_WORDS + 1) return null;
-  if (LATER_PHRASES.some((phrase) => ` ${folded} `.includes(` ${phrase} `))) return "later";
+  if (isTypedLater(words)) return "later";
   if (words.length > VARIANT_MAX_WORDS) return null;
-  if (START_WORDS.has(words[0]!) && !words.some((word) => NEGATIONS.has(word))) return "start";
+  if (START_WORDS.has(words[0]!) && words.slice(1).every(isVariantFiller)) return "start";
   return null;
 }
 

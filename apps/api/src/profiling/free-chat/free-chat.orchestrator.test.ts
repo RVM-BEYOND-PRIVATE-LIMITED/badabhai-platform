@@ -595,6 +595,44 @@ describe("the greeting (a session with no intake)", () => {
     await world.say("main welder hoon");
     expect(await world.greet()).toBeNull();
   });
+
+  // #2223 — a yes word or a later phrase followed by anything but filler is a message: it is
+  // classified, never read as Haan / Baad mein. "haan marna hai" STARTED before; "abhi nahi jeena"
+  // and "baad mein mar jaunga" got the later line; "ha jeena nahi" is the issue's own example.
+  it.each([
+    "haan marna hai",
+    "haan mar jaunga",
+    "abhi nahi jeena",
+    "baad mein mar jaunga",
+    "ha jeena nahi",
+  ])(
+    "%j is classified, not read as a greeting choice — a distress verdict gets the distress line",
+    async (text) => {
+      const world = makeWorld();
+      await world.greet();
+      world.classifyAs(verdict("distress", 0.3));
+      const turn = await world.say(text);
+      expect(world.ai.freeChatClassify).toHaveBeenCalledTimes(1);
+      expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+      expect(world.envelope().freeChat!.mode).toBe("free");
+      expect(world.emitted("chat.free_chat_turn_served").at(-1)!.payload).toMatchObject({
+        decided_by: "classifier",
+        category: "distress",
+      });
+    },
+  );
+
+  it.each(["haan ji", "haan shuru karo", "ok"])(
+    "%j still starts, with no classifier call",
+    async (text) => {
+      const world = makeWorld();
+      await world.greet();
+      const turn = await world.say(text);
+      expect(turn.reply).toBe(FREE_CHAT_COPY.OPENER.latin);
+      expect(world.envelope().freeChat!.mode).toBe("resume");
+      expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("free mode — greeting → Baad mein → casual → career → refusal → validator failure", () => {

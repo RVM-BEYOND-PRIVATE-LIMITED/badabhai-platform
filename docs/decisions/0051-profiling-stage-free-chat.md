@@ -268,7 +268,10 @@ English, Hindi, Marathi, Gujarati, Kannada, Telugu or Tamil. The Devanagari twin
   ask is pending (§11).
 
 The app posts the label, so readers match the key or the label. Typed variants are also read: haan / ha / yes /
-shuru / ok, and baad mein / baad me / later / abhi nahi.
+shuru / ok, and baad mein / baad me / later / abhi nahi. Besides those, a typed variant may carry only other yes
+words, the closed filler list (`GREETING_FILLER_WORDS` in `free-chat.router.ts`: ji, please, theek, hai, karo…)
+and, before a later phrase, one leading decline (nahi / no). Any other word makes the reply a message, which is
+classified (#2223). "haan marna hai" is not a yes.
 
 ### 5.2 Distress word list (closed; matched as whole phrases, case- and diacritic-insensitive)
 
