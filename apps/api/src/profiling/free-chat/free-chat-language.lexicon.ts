@@ -1077,6 +1077,20 @@ export const GENERIC_VERB_WORDS: readonly string[] = [
   "કરો",
 ];
 
+/**
+ * The generic verbs of TELLING, aimed at the reply when they come STRAIGHT AFTER "{L} mein":
+ * "marathi mein BATAO, welder salary kitni hai" asks for Marathi. With the object first ("gujarati
+ * mein job BATAO") they tell the object, and ask for no language.
+ */
+export const TELL_VERB_WORDS: readonly string[] = [
+  "batao",
+  "bataiye",
+  "bataye",
+  "batayein",
+  "बताओ",
+  "बताइए",
+];
+
 /** The nouns that aim a generic verb at the reply: answer, talk ("jawab do", "baat karo"). */
 export const REPLY_NOUN_WORDS: readonly string[] = [
   "jawab",
@@ -1190,15 +1204,40 @@ export const NEGATION_WORDS: readonly string[] = [
   "नही",
   "नको",
   "नाही",
+  // "bolna BAND karo" — stop doing it.
+  "band",
+  "बंद",
 ];
 
 /**
- * A prohibitive written just BEFORE a request, which negates it: "MAT english mein bolo", "DONT
- * reply in English", "do NOT reply in English". Not "nahi" or "no": before a request they are a
- * worker's "no, …" ("nahi, marathi mein bolo"), and negate something said before. Any negation
- * straight AFTER a request negates it ("bolo mat", "reply nahi karna").
+ * A prohibitive written just BEFORE a language's name or a request, which negates it: "MAT english
+ * mein bolo", "DONT reply in English", "do NOT reply in English", "NO english please", "STOP reply
+ * in English". Not "nahi": before a request it is a worker's "no, …" ("nahi, marathi mein bolo"),
+ * and negates something said before. Any negation straight AFTER a request negates it ("bolo mat",
+ * "reply nahi karna").
  */
-export const PRE_NEGATION_WORDS: readonly string[] = ["mat", "mt", "मत", "dont", "not", "never"];
+export const PRE_NEGATION_WORDS: readonly string[] = [
+  "mat",
+  "mt",
+  "मत",
+  "dont",
+  "not",
+  "never",
+  "no",
+  "stop",
+];
+
+/**
+ * Hinglish "na": a NEGATION directly before a verb ("english mein NA bolo", "reply NA karo", "jawab
+ * NA do"), and the "please" tag after one ("bolo NA") — read as a negation only in the first place.
+ */
+export const NA_WORDS: readonly string[] = ["na", "naa", "ना"];
+
+/**
+ * The particles that may sit between a request and the negation after it, at most two: "reply
+ * KABHI mat karna", "baat karna BILKUL nahi", "bolo HI mat", "bolna HI nahi".
+ */
+export const NEGATION_PARTICLE_WORDS: readonly string[] = ["kabhi", "bilkul", "hi", "to", "toh"];
 
 /**
  * A word that, straight after a language's name, makes it a PLACE: "in Tamil Nadu" is not a

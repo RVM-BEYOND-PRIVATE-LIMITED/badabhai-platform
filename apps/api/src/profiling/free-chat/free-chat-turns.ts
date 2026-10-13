@@ -460,16 +460,18 @@ export class FreeChatTurns {
         "fixed_line",
       );
     }
+    // Re-answering needs BOTH facts: the previous turn served an answered reply, and its category.
+    const reAnswerable = lastServed === "answered" ? previousCategory : null;
     if (requested !== null && requested.bare && state.mode === "free") {
-      return previousCategory !== null
+      return reAnswerable !== null
         ? this.serveReply(
             t,
             state,
-            previousCategory,
-            { ...BARE_REQUEST_FACTS, category: previousCategory },
+            reAnswerable,
+            { ...BARE_REQUEST_FACTS, category: reAnswerable },
             askPlan(requested.language, keptLanguageOf(state)),
           )
-        : this.serveLanguageAsk(t, state, requested.language);
+        : this.serveLanguageAsk(t, state, requested.language, BARE_REQUEST_FACTS);
     }
 
     const verdict = await this.classifyMemo(t, "free", null);
@@ -493,6 +495,13 @@ export class FreeChatTurns {
         // intent ("resume banana hai") gets the opener.
         return action.firstTurn ? this.passAsFirstTurn(t) : this.serveStart(t, facts, "classifier");
       case "reply":
+        // A CASUAL language request with no answered reply before it ("bhai marathi mein bolo"
+        // after JOBS) carries no question of its own: a model reply would only re-answer the line
+        // before it — a jobs ask, a refusal. The ask alone, no reply call. A CAREER verdict carries
+        // a new question, and is answered in the requested language with the ask.
+        if (requested !== null && action.category === "casual" && reAnswerable === null) {
+          return this.serveLanguageAsk(t, current, requested.language, facts);
+        }
         return this.serveReply(
           t,
           current,
@@ -835,34 +844,29 @@ export class FreeChatTurns {
   }
 
   /**
-   * A BARE REQUEST WITH NO ANSWERED REPLY TO RE-ANSWER (ADR-0051 §11) — after JOBS, a strike, a
-   * refusal, the later line or any other fixed line: no model call, only the reviewed ask "Kya aage
-   * ki saari baat {Language} mein karein?" with its two chips, and the offer waits for the next
-   * message. A request for the language the worker ALREADY keeps has nothing to ask: LANG_YES
-   * confirms it, and nothing changes.
+   * A REQUEST WITH NO ANSWERED REPLY TO RE-ANSWER (ADR-0051 §11) — a bare one, or one the classifier
+   * called casual, after JOBS, a strike, a refusal, the later line or any other fixed line: no model
+   * call, only the reviewed ask "Kya aage ki saari baat {Language} mein karein?" with its two chips,
+   * and the offer waits for the next message. A request for the language the worker ALREADY keeps
+   * has nothing to ask: LANG_YES confirms it, and nothing changes. `facts` are whatever decided it:
+   * the flow (bare) or the classifier.
    */
   private serveLanguageAsk(
     t: FreeChatTurn,
     state: FreeChatState,
     language: FreeChatReplyLanguage,
+    facts: VerdictFacts,
   ): FreeChatRouted {
     const kept = keptLanguageOf(state);
     if (kept === language) {
-      return this.serveFreeLine(
-        t,
-        state,
-        languageYesLine(language),
-        [],
-        BARE_REQUEST_FACTS,
-        "fixed_line",
-      );
+      return this.serveFreeLine(t, state, languageYesLine(language), [], facts, "fixed_line");
     }
     return this.serveFreeLine(
       t,
       { ...state, language: { kept, offer: language } },
       languageAskLine(language),
       languageAskChips(language),
-      BARE_REQUEST_FACTS,
+      facts,
       "fixed_line",
     );
   }

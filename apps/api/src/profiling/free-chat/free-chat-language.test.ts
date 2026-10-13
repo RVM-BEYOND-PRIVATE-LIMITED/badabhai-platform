@@ -349,6 +349,22 @@ const NOT_REQUESTS: readonly string[] = [
   "english mein reply nahi karna",
   "english mein baat nahi karni",
   "tamil la sollunga vendam",
+  // Hinglish "na" directly before a verb is a negation (L1)
+  "english mein na bolo",
+  "english mein reply na karo",
+  "baat na karo",
+  "jawab na do",
+  "english me na likho",
+  "english mein jawab na do",
+  // Particles between the request and its negation; "no" / "stop" before it; "band karo" (L2)
+  "english mein reply kabhi mat karna",
+  "english mein baat karna bilkul nahi",
+  "english mein bolo hi mat",
+  "english mein bolna hi nahi",
+  "no english please",
+  "stop reply in english",
+  "english mein bolna band karo",
+  "no, reply in tamil",
   // A GENERIC verb beside content is not aimed at the reply (B2 / H1)
   "tamil me kaam karna hai",
   "mujhe tamil me job dedo",
@@ -406,6 +422,9 @@ const BARE_REQUESTS: readonly Case[] = [
   ["reply in english not hindi", "english"],
   ["mat hindi, english mein bolo", "english"],
   ["tamil la sollunga, english vendam", "tamil"],
+  // "na" AFTER the verb is the please tag, not a negation (L1).
+  ["marathi mein bolo na", "marathi"],
+  ["english mein baat karo na", "english"],
   ["mujhe english mein baat karni hai", "english"],
   ["Haan, Tamil mein", "tamil"],
   ["jawab marathi mein", "marathi"],
@@ -433,11 +452,12 @@ const NOT_BARE_REQUESTS: readonly Case[] = [
   ["english mein bolo, khud ko khatam kar lunga", "english"],
   ["tamil la sollunga, saala kutta", "tamil"],
   ["marathi mein bolo, welder ki salary kitni hai", "marathi"],
+  // A verb of telling straight after "in" tells in that language.
+  ["marathi mein batao welder salary kitni hai", "marathi"],
   // A negation about SOMETHING ELSE: the request stands, the classifier reads the rest (low c).
   ["nahi samjha, marathi mein bolo", "marathi"],
   ["hindi mein bolo, ab kya hi karna hai, ab aage nahi", "hinglish"],
   ["reply in english, can not continue", "english"],
-  ["no, reply in tamil", "tamil"],
 ];
 
 /** Negations with no language named, or about the worker themself: never a bare request (low c). */

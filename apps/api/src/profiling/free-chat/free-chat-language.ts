@@ -47,6 +47,8 @@ import {
   LOCATIVE_WORDS,
   MARATHI_DEVANAGARI_WORDS,
   MODAL_WORDS,
+  NA_WORDS,
+  NEGATION_PARTICLE_WORDS,
   NEGATION_WORDS,
   PLACE_SUFFIX_WORDS,
   PLEASE_WORDS,
@@ -55,6 +57,7 @@ import {
   REPLY_NOUN_WORDS,
   REQUEST_FILLER_WORDS,
   SPEECH_VERB_WORDS,
+  TELL_VERB_WORDS,
   TRAILING_WORDS,
   type RegionalLanguage,
 } from "./free-chat-language.lexicon";
@@ -339,6 +342,7 @@ const LOCATIVES = wordSet(LOCATIVE_WORDS);
 const SPEECH_VERBS = wordSet(SPEECH_VERB_WORDS);
 const GENERIC_VERBS = wordSet(GENERIC_VERB_WORDS);
 const REPLY_NOUNS = wordSet(REPLY_NOUN_WORDS);
+const TELL_VERBS = wordSet(TELL_VERB_WORDS);
 /** What completes "jawab …" / "baat …": a generic verb ("do", "karo") or a modal ("kar sakte"). */
 const NOUN_COMPLETIONS = wordSet(GENERIC_VERB_WORDS, MODAL_WORDS);
 const BOL = wordSet(BOL_WORDS);
@@ -350,6 +354,16 @@ const ENGLISH_IN = wordSet(ENGLISH_IN_WORDS);
 const PLEASE = wordSet(PLEASE_WORDS);
 const NEGATIONS = wordSet(NEGATION_WORDS);
 const PRE_NEGATIONS = wordSet(PRE_NEGATION_WORDS);
+const NA = wordSet(NA_WORDS);
+const NEGATION_PARTICLES = wordSet(NEGATION_PARTICLE_WORDS);
+/** Every verb a request is made with — what makes a "na" before it a negation. */
+const ANY_VERB = wordSet(
+  SPEECH_VERB_WORDS,
+  GENERIC_VERB_WORDS,
+  BOL_WORDS,
+  DIRECT_VERB_WORDS,
+  ENGLISH_REQUEST_VERB_WORDS,
+);
 const PLACE_SUFFIXES = wordSet(PLACE_SUFFIX_WORDS);
 const TRAILING = wordSet(TRAILING_WORDS, REPLY_NOUN_WORDS);
 
@@ -395,10 +409,12 @@ function clauseEnd(tokens: readonly string[], from: number, to: number): number 
 /**
  * The index of the word that AIMS a locative request at the reply, within the window after `from`
  * and before the next language's name, or -1: a speech verb ("bolo", "sollunga"), "bol" + a modal
- * ("bol sakte"), or a reply noun followed by a generic verb or a modal ("jawab do", "baat karo",
- * "baat kar sakte").
+ * ("bol sakte"), a reply noun followed by a generic verb or a modal ("jawab do", "baat karo",
+ * "baat kar sakte"), or a verb of telling as the very first word ("marathi mein BATAO …").
  */
 function aimedAt(tokens: readonly string[], from: number): number {
+  // "marathi mein BATAO …" — a verb of telling straight after "in" tells in that language.
+  if (TELL_VERBS.has(tokens[from] ?? "")) return from;
   const to = clauseEnd(tokens, from, from + REQUEST_WINDOW);
   for (let j = from; j < to; j++) {
     const token = tokens[j]!;
@@ -484,11 +500,35 @@ function requestSpan(
 /** What one negation negates, read against one request — see {@link negationScope}. */
 type NegationScope = "request" | "other_language" | "elsewhere";
 
+/** At most this many particles between a request and the negation after it ("bolo HI mat"). */
+const MAX_NEGATION_PARTICLES = 2;
+
+/**
+ * Is the word at `n` a negation? Every negation word and pre-request prohibitive is; Hinglish "na"
+ * is one only directly before a verb ("na bolo", "reply na karo") — after one it is the "please"
+ * tag ("bolo na") and no negation at all.
+ */
+function isNegationAt(tokens: readonly string[], n: number): boolean {
+  const token = tokens[n]!;
+  if (NEGATIONS.has(token) || PRE_NEGATIONS.has(token)) return true;
+  return NA.has(token) && ANY_VERB.has(tokens[n + 1] ?? "");
+}
+
+/** Only particles ("kabhi", "bilkul", "hi"), and at most two, in `tokens(from, to)`. */
+function onlyParticlesBetween(tokens: readonly string[], from: number, to: number): boolean {
+  const between = tokens.slice(from + 1, to);
+  return (
+    between.length <= MAX_NEGATION_PARTICLES &&
+    between.every((token) => NEGATION_PARTICLES.has(token))
+  );
+}
+
 /**
  * What the negation at `n` negates, for the request for `language` at `span`:
- *   - THE REQUEST ITSELF — inside its span ("english mein MAT bolo"), straight after it ("bolo
- *     MAT", "english mein reply NAHI karna"), or a prohibitive just before it ("MAT english mein
- *     bolo", "DONT reply in English"): the request is cancelled;
+ *   - THE REQUEST ITSELF — inside its span ("english mein MAT bolo", "english mein NA bolo"),
+ *     after it with at most two particles between ("bolo MAT", "english mein reply NAHI karna",
+ *     "reply kabhi MAT karna", "bolna BAND karo"), or a prohibitive just before it ("MAT english
+ *     mein bolo", "DONT reply in English", "NO english please"): the request is cancelled;
  *   - ANOTHER LANGUAGE — beside another language's name ("english mein NAHI, hindi mein bolo",
  *     "hindi NAHI aati", "NOT hindi"): the request stands, and may still be bare;
  *   - SOMETHING ELSE ("NAHI samjha", "ab aage NAHI", "can NOT continue"): the request stands, but
@@ -512,7 +552,7 @@ function negationScope(
   ) {
     return "other_language";
   }
-  if (n === span.end + 1) return "request";
+  if (n > span.end && onlyParticlesBetween(tokens, span.end, n)) return "request";
   if ((n === span.start - 1 || n === span.start - 2) && PRE_NEGATIONS.has(tokens[n]!)) {
     return "request";
   }
@@ -549,7 +589,7 @@ export function parseLanguageRequest(text: string): LanguageRequest | null {
   const tokens = languageTokens(text);
   if (tokens.length === 0 || tokens.length > REQUEST_MAX_TOKENS) return null;
   const allGrammar = tokens.every((token) => NAME_INDEX.has(token) || REQUEST_GRAMMAR.has(token));
-  const negations = tokens.flatMap((token, n) => (NEGATIONS.has(token) ? [n] : []));
+  const negations = tokens.flatMap((_, n) => (isNegationAt(tokens, n) ? [n] : []));
   for (let i = 0; i < tokens.length; i++) {
     const named = NAME_INDEX.get(tokens[i]!);
     if (named === undefined) continue;

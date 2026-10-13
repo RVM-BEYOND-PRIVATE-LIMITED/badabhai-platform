@@ -536,7 +536,10 @@ Understanding was never the problem: the Marathi question was classified and ans
 - **Any other message carrying a request is classified**, and routed by the verdict as usual:
   - distress (any confidence) gets the distress line; trash gets a strike; jobs gets the JOBS line; résumé enters
     résumé mode; off-limits gets its line; unclear or unavailable gets today's clarify;
-  - casual or career gets the reply in the requested language, then the ask.
+  - casual or career gets the reply in the requested language, then the ask;
+  - but a casual verdict with no answered reply before it ("bhai marathi mein bolo" after JOBS) carries no question
+    of its own, so it gets the ask alone, with no model call. A career verdict carries a new question and is still
+    answered.
 
   So "can you tell me in tamil what is welder salary" gets a career reply in Tamil, and "reply in english, i want to
   die" gets the distress line. The request's language applies only to the model-written reply: fixed lines stay
@@ -544,11 +547,18 @@ Understanding was never the problem: the Marathi question was classified and ans
   mode.
 - **A request needs a verb aimed at the reply.** That is a speech verb ("bolo", "sanga", "sollunga", "cheppandi",
   "heli", "reply in", "speak") or a reply noun with a verb ("jawab do", "baat karo"). A generic verb on its own
-  ("batao", "karna", "dedo") counts only when the whole message is the request. So "kannada me batao" is a request,
-  but "gujarati mein job batao" and "tamil me kaam karna hai" are not. A negation cancels a request when it negates
-  the request itself: inside it ("english mein mat bolo"), straight after it ("english mein reply nahi karna"), or a
-  prohibitive just before it ("mat english mein bolo", "dont reply in English"). A negation of another language
-  does not: "english mein bolo, hindi nahi aati" asks for English.
+  ("batao", "karna", "dedo") counts only when the whole message is the request, or, for a verb of telling, when it
+  comes straight after "{L} mein". So "kannada me batao" and "marathi mein batao welder salary kitni hai" are
+  requests, but "gujarati mein job batao" and "tamil me kaam karna hai" are not. A negation cancels a request when
+  it negates the request itself:
+  - inside it ("english mein mat bolo"), including Hinglish "na" directly before a verb ("english mein na bolo",
+    "reply na karo"); "bolo na" stays a please tag;
+  - after it, with at most two particles between ("english mein reply nahi karna", "reply kabhi mat karna", "bolo
+    hi mat", "bolna band karo");
+  - a prohibitive just before it ("mat english mein bolo", "dont reply in English", "no english please", "stop
+    reply in English").
+
+  A negation of another language does not: "english mein bolo, hindi nahi aati" asks for English.
 - **Format characters are dropped before reading.** All of `\p{Cf}` goes (zero-width space and joiners, soft hyphen,
   bidi controls), so an invisible character cannot split one word into two grammar words.
 - **Precedence for one reply:** the requested language (a bare request, or a classified casual or career reply),
