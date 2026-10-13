@@ -530,7 +530,8 @@ def test_the_request_carries_today_the_context_and_the_question_labelled_data() 
     # Deterministic bytes for the same inputs and the same day.
     again = free_prompts.build_free_news_messages("aur batao", turns, context, TODAY, PROMPT)
     assert again == messages
-    # No `reply_language` (an API before ADR-0051 §11): the same bytes as before it.
+    # No `reply_language` (an API before ADR-0051 §11): the same user messages as before it (the
+    # system prompt is §11's either way).
     assert (
         free_prompts.build_free_news_messages(
             "aur batao", turns, context, TODAY, PROMPT, reply_language=None
@@ -558,7 +559,11 @@ def test_the_reply_language_line_follows_the_date(language: str) -> None:
 
 def test_the_news_prompt_follows_a_reply_language_line() -> None:
     folded = _folded(PROMPT)
-    assert 'when the request has a "reply language:" line, write in exactly that language' in folded
+    # Anchored where the news builder puts it: under "Today:", at the top, before WORKER CONTEXT.
+    assert (
+        'when the last message has a "reply language:" line at its top, before worker context, '
+        "write in exactly that language" in folded
+    )
     assert "never repeat an earlier reply of yours, word for word or nearly." in folded
 
 
@@ -1350,9 +1355,11 @@ def test_the_prompt_stays_bounded() -> None:
     words measured 2026-10-08 (most of it the walls the API enforces); the R9 search-query rule
     took it to 7,804 / 1,191 the same day, and the reply-language rules it shares with the reply
     prompts (ADR-0051 §11, #2181: the "Reply language:" line, the respectful forms, no repeats)
-    to 8,582 / 1,308. A budget keeps it from growing unnoticed."""
-    assert len(PROMPT) < 8800
-    assert len(PROMPT.split()) < 1350
+    to 8,571 / 1,307; the review of #2181 (the anchored line, the refusal clause, the English
+    line and the English promise and rating walls) to 9,542 / 1,456. A budget keeps it from
+    growing unnoticed."""
+    assert len(PROMPT) < 9800
+    assert len(PROMPT.split()) < 1500
 
 
 # ── 10. the security review's fixes (2026-10-08) ─────────────────────────────────────────────

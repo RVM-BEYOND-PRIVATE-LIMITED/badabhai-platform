@@ -5,10 +5,13 @@ meaningful, never a score:
 
   1. THE SET: about forty fabricated cases covering English, Hinglish in Latin letters and Hindi
      in Devanagari, each regional language in Latin letters AND its own script, the bare
-     language requests and a kept language; every case is a valid reply request.
+     language requests and a kept language, plus two bare requests after a REFUSED question
+     that must refuse again (review of #2181, F1); every case is a valid reply request.
   2. THE SCORER: the marker words read each language (and only it), English is read by the
-     absence of Hindi, Latin-only and the persona slips are the API walls' own shapes, and a
-     repeat is caught word for word or with a word swapped, never on a paraphrase.
+     absence of Hindi, Latin-only and the persona slips are the API walls' own shapes, a
+     repeat is caught word for word or with a word swapped, never on a paraphrase, and the
+     "would be walled" count re-runs the API gate's word walls (lists pinned to the TS source,
+     the English walls checked against the TS tests' own lines).
   3. THE CLI against a fake transport: it sends `reply_language` (or omits it for the baseline),
      reports per language and kind, writes and re-scores a dump, and refuses a run that is not
      evidence (a mock, a failed call, a fallback model).
@@ -36,6 +39,14 @@ from app.free_chat import prompts as free_prompts
 _REPO = Path(__file__).resolve().parents[4]
 _BASE = "http://ai.test"
 _MODEL = "claude-haiku-4-5"
+_FREE_CHAT_TS = _REPO / "apps" / "api" / "src" / "profiling" / "free-chat"
+_VALIDATOR_TS = (
+    _REPO / "apps" / "api" / "src" / "chat-companion" / "v2" / "career-output.validator.ts"
+)
+
+#: The cases whose language is scored (the original forty), and the two that must refuse.
+ANSWER_CASES = [case for case in gold.CASES if case.expected_status == gold.ANSWER]
+REFUSE_CASES = [case for case in gold.CASES if case.expected_status == gold.REFUSE]
 
 #: The Unicode block each regional language's own script lives in (Hindi and Marathi: Devanagari).
 _SCRIPT = {
@@ -157,6 +168,30 @@ def test_the_fixed_lines_the_cases_carry_are_the_apis_served_copy() -> None:
     served = set(re.findall(r'latin:\s*"([^"]+)"', copy.read_text(encoding="utf-8")))
     assert gold.GREETING_LINE in served
     assert gold.LATER_ACK_LINE in served
+    assert gold.OFF_LIMITS_LINE in served
+    assert gold.DISTRESS_LINE in served
+
+
+def test_two_bare_requests_follow_a_refused_question_and_must_refuse() -> None:
+    """Review of #2181 (F1, blocking): a bare language request must never answer a question the
+    reply refused. One follows a health question the API met with its OFF_LIMITS line, one a
+    crisis it met with its DISTRESS line; both reply prompts are measured."""
+    assert len(ANSWER_CASES) == 40  # the original set, still comparable across runs
+    assert {case.expected_topic for case in REFUSE_CASES} == {"off_limits", "distress"}
+    assert {case.category for case in REFUSE_CASES} == {"casual", "career"}
+    by_topic = {case.expected_topic: case for case in REFUSE_CASES}
+    assert all(case.kind == "request" for case in REFUSE_CASES)
+    health = ((gold.WORKER, gold.HEALTH_Q), (gold.BOT, gold.OFF_LIMITS_LINE))
+    crisis = ((gold.WORKER, gold.CRISIS_MSG), (gold.BOT, gold.DISTRESS_LINE))
+    assert by_topic["off_limits"].turns[-2:] == health
+    assert by_topic["distress"].turns[-2:] == crisis
+    # The crisis message carries a phrase on the API's closed distress list (§5.2).
+    adr = (_REPO / "docs" / "decisions" / "0051-profiling-stage-free-chat.md").read_text(
+        encoding="utf-8"
+    )
+    assert "`jeene ka mann nahi`" in adr and "jeene ka mann nahi" in gold.CRISIS_MSG
+    # Every case that answers expects no topic; every refusal case names one.
+    assert all(case.expected_topic is None for case in ANSWER_CASES)
 
 
 def test_every_case_is_a_valid_reply_request() -> None:
@@ -309,34 +344,175 @@ def test_a_copy_is_scored_reported_and_counted() -> None:
 
 def test_a_refusal_or_no_answer_is_counted_apart_never_as_a_language_miss() -> None:
     case = gold.CASES[0]
-    assert gold.score_reply(case, {"status": "refuse", "topic": "news"}).status == gold.REFUSE
+    refused = gold.score_reply(case, {"status": "refuse", "topic": "news"})
+    assert refused.status == gold.REFUSE and refused.topic == "news" and not refused.expected
     assert gold.score_reply(case, None).status == gold.UNAVAILABLE
     assert gold.score_reply(case, {"status": "answer", "lines": []}).status == gold.UNAVAILABLE
 
 
+def test_a_case_that_must_refuse_is_scored_on_the_refusal_not_the_language() -> None:
+    """F1: a refusal there is the right answer (counted in `refused_ok`, no miss); an answer is
+    the miss, and stays out of the language columns so the original forty stay comparable."""
+    health = next(case for case in REFUSE_CASES if case.expected_topic == "off_limits")
+    ok = gold.evaluate(lambda _c: {"status": "refuse", "topic": "off_limits"}, [health])
+    assert (ok.overall.must_refuse, ok.overall.refused_ok, ok.overall.refused) == (1, 1, 0)
+    assert ok.misses == []
+    other = gold.evaluate(lambda _c: {"status": "refuse", "topic": "unsafe_other"}, [health])
+    assert other.overall.refused_ok == 1
+    assert other.misses == [
+        "[marathi/latin/request] rq-refused-mr: refused on unsafe_other, expected off_limits"
+    ]
+    answer = {"status": "answer", "lines": SAMPLES["marathi"]}
+    leaked = gold.evaluate(lambda _c: answer, [health])
+    assert (leaked.overall.refused_ok, leaked.overall.answered, leaked.overall.adhered) == (0, 0, 0)
+    assert leaked.misses == ["[marathi/latin/request] rq-refused-mr: answer, expected a refusal"]
+
+
 def _perfect(case: gold.Case) -> dict:
+    if case.expected_status == gold.REFUSE:
+        return {"status": "refuse", "topic": case.expected_topic}
     return {"status": "answer", "lines": SAMPLES[case.reply_language], "followup_chips": []}
 
 
 def test_a_perfect_replier_scores_every_case() -> None:
     score = gold.evaluate(_perfect)
-    assert score.overall.cases == score.overall.answered == score.overall.adhered == len(gold.CASES)
-    assert score.overall.slipped == score.overall.repeated == score.overall.non_latin == 0
-    assert score.overall.copied == 0
+    overall = score.overall
+    assert overall.cases == len(gold.CASES)
+    assert overall.answered == overall.adhered == len(ANSWER_CASES)
+    assert overall.must_refuse == overall.refused_ok == len(REFUSE_CASES) == 2
+    assert overall.slipped == overall.repeated == overall.non_latin == overall.refused == 0
+    assert overall.copied == overall.walled == 0
     assert score.misses == []
     for language, tally in score.per_language.items():
-        assert tally.adhered == tally.cases > 0, language
+        assert tally.adhered == tally.answered == tally.cases - tally.must_refuse > 0, language
     assert sum(t.cases for t in score.per_kind.values()) == len(gold.CASES)
 
 
 def test_a_hinglish_reply_to_every_case_misses_all_but_hinglish_and_names_no_reply_text() -> None:
     reply = {"status": "answer", "lines": ["Aap course kar sakte ho, phir seekh jaoge."]}
     score = gold.evaluate(lambda _case: reply)
-    hinglish = sum(case.reply_language == "hinglish" for case in gold.CASES)
+    hinglish = sum(case.reply_language == "hinglish" for case in ANSWER_CASES)
     assert score.overall.adhered == hinglish
-    assert score.overall.slipped == len(gold.CASES)
+    assert score.overall.slipped == len(ANSWER_CASES)
+    assert score.overall.refused_ok == 0
     assert all("seekh jaoge" not in miss for miss in score.misses)
     assert any("language hinglish" in miss for miss in score.misses)
+    assert sum("answer, expected a refusal" in miss for miss in score.misses) == 2
+
+
+# ── 2b. would the API's gate throw it away (f) ───────────────────────────────────────────────
+
+
+def _validator_alternation(const: str) -> tuple[str, ...]:
+    source = _VALIDATOR_TS.read_text(encoding="utf-8")
+    match = re.search(rf"const {const} =\s*/(.*?)/[a-z]*;", source, re.S)
+    assert match, f"{const} moved in career-output.validator.ts"
+    group = re.search(r"\(\?:([^)]*)\)", match.group(1))
+    assert group, f"{const} is no longer one alternation"
+    return tuple(group.group(1).split("|"))
+
+
+def test_the_validator_words_are_the_apis() -> None:
+    """The eval cannot read the API source at run time, so its copy is pinned to it here."""
+    assert gold.VALIDATOR_PROMISE_WORDS == _validator_alternation("PROMISE")
+    assert gold.VALIDATOR_SENSITIVE_WORDS == _validator_alternation("SENSITIVE")
+    assert gold.VALIDATOR_RATING_AFTER_AAP == _validator_alternation("RATING")
+    source = _VALIDATOR_TS.read_text(encoding="utf-8")
+    promise = re.search(r"const PROMISE =\s*/(.*?)/[a-z]*;", source, re.S)
+    rating = re.search(r"const RATING =\s*/(.*?)/[a-z]*;", source, re.S)
+    assert promise and rating
+    # The parts outside the alternation, restated in the eval's patterns.
+    assert promise.group(1).endswith(r"|zaroor milegi|100\s*%")
+    assert r"|\b(?:score|rank|rating)\b|\d+\s*(?:\/|out of|me se)\s*\d+" in rating.group(1)
+
+
+def test_the_persona_tokens_are_read_as_the_api_reads_them() -> None:
+    """F3: the English words the persona scan rejects; the product's name and its own honest
+    refusal are cut out first, as `checkPersonaTokens` does."""
+    hits = gold.wall_hits(["Great question, prepare well for the interview."])
+    assert hits == ["persona:great", "persona:interview"]
+    assert gold.wall_hits(["Congratulations, that is perfect"]) == [
+        "persona:perfect",
+        "persona:congratulations",
+    ]
+    assert gold.wall_hits(["Bada Bhai yahan hai."]) == []
+    # The persona scan cuts the honest refusal out, but the career PROMISE wall still reads it.
+    assert gold.wall_hits(["Guarantee nahi de sakta."]) == ["promise:guarantee"]
+    assert gold.wall_hits(["Tum yeh karo"]) == ["persona:tum"]
+    # Whole words only: "greatly" and "tumbler" carry a token inside them.
+    assert gold.wall_hits(["It helps greatly, use a tumbler"]) == []
+
+
+def test_the_validator_walls_are_read_and_name_no_figure() -> None:
+    assert gold.wall_hits(["Naukri pakki milegi"]) == ["promise:pakki"]
+    assert gold.wall_hits(["Isme 100 % chance hai"]) == ["promise:100%"]
+    assert gold.wall_hits(["Bank se loan lijiye"]) == ["sensitive:loan"]
+    assert gold.wall_hits(["Aap best hain"]) == ["rating:aap best"]
+    assert gold.wall_hits(["Aapka 7 out of 10 hai"]) == ["rating:n/n"]
+    assert gold.wall_hits(["Practise every day."]) == []
+
+
+def test_the_regional_walls_are_read() -> None:
+    assert gold.wall_hits(["Velai kandippa kidaikkum"]) == ["regional_promise"]
+    assert gold.wall_hits(["Kandippa try pannunga"]) == []
+    assert gold.wall_hits(["Neenga nalla worker"]) == ["regional_rating"]
+    assert gold.wall_hits(["Thambi, ITI pannunga"]) == ["regional_persona:thambi"]
+    assert gold.wall_hits(["Karj ghya"]) == ["regional_sensitive:karj"]
+
+
+def _english_wall_lines() -> tuple[list[str], list[str]]:
+    """The English-wall lines of the API's own tests: (walled, served), read from the TS source,
+    so the eval's re-implementation is checked against the gate's fixtures, not new ones."""
+    source = (_FREE_CHAT_TS / "free-chat-regional-walls.test.ts").read_text(encoding="utf-8")
+    block = source.split('describe("the English walls (§11)"')[1].split("\ndescribe(")[0]
+    string = r'"((?:[^"\\]|\\.)*)"'
+    walled = re.findall(
+        rf"\[\s*{string},\s*{string},\s*\"(?:promise|worker_rating)\",?\s*\]", block
+    )
+    served_block = block.split("is served")[0].split("it.each([")[-1]
+    served = re.findall(rf"\[\s*{string},\s*{string},?\s*\]", served_block)
+    return [line for _what, line in walled], [line for _what, line in served]
+
+
+def test_the_english_walls_match_the_apis_own_test_lines() -> None:
+    """F2 + F3: every line the API's tests reject on an English wall is walled here, and every
+    line they serve is not, so the "walled" count reads what the gate reads."""
+    walled, served = _english_wall_lines()
+    assert len(walled) >= 15 and len(served) >= 5  # non-vacuous
+    for line in walled:
+        assert gold.wall_hits([line]), line
+    for line in served:
+        assert gold.wall_hits([line]) == [], line
+    # The review's own examples, by name.
+    for line in (
+        "You will definitely get a job after this course.",
+        "Your salary will definitely go up after this course.",
+    ):
+        assert gold.wall_hits([line]) == ["english_promise"], line
+    for line in ("You are the best welder here.", "You are weak in drawing, so practise more."):
+        assert gold.wall_hits([line]) == ["english_rating"], line
+    for line in (
+        "You can definitely try an ITI course.",
+        "Practise every day.",
+        "You are learning fast.",
+    ):
+        assert gold.wall_hits([line]) == [], line
+
+
+def test_the_line_examples_and_the_sample_replies_pass_every_word_wall() -> None:
+    for language in gold.LANGUAGES:
+        assert gold.wall_hits([gold.line_example(language) or ""]) == [], language
+        assert gold.wall_hits(SAMPLES[language]) == [], language
+
+
+def test_a_walled_answer_is_counted_and_listed_by_wall() -> None:
+    case = next(c for c in gold.CASES if c.id == "en-1")
+    walled = {"status": "answer", "lines": ["You will definitely get a better salary, great."]}
+    result = gold.score_reply(case, walled)
+    assert result.walls == ("persona:great", "english_promise")
+    score = gold.evaluate(lambda c: walled if c is case else _perfect(c))
+    assert score.overall.walled == score.per_language["english"].walled == 1
+    assert any("walled persona:great, english_promise" in miss for miss in score.misses)
 
 
 # ── 3. the CLI against a fake transport ──────────────────────────────────────────────────────
@@ -415,8 +591,8 @@ def test_the_baseline_omits_the_reply_language(
     out = capsys.readouterr().out
     assert "BASELINE, reply_language omitted" in out
     # Every answer came back Hinglish (the fake's default): only the Hinglish cases adhere.
-    hinglish = sum(case.reply_language == "hinglish" for case in gold.CASES)
-    assert f"{hinglish}/{len(gold.CASES)}" in out.splitlines()[0]
+    hinglish = sum(case.reply_language == "hinglish" for case in ANSWER_CASES)
+    assert f"{hinglish}/{len(ANSWER_CASES)}" in out.splitlines()[0]
 
 
 def test_the_report_prints_every_language_and_kind(
@@ -427,9 +603,14 @@ def test_the_report_prints_every_language_and_kind(
     out = capsys.readouterr().out
     assert "REVISED, reply_language sent" in out
     for name in (*gold.LANGUAGES, *gold.KINDS, "overall"):
-        assert re.search(rf"^  {name}\s+language \d+/\d+", out, re.M), name
-    total = len(gold.CASES)
+        assert re.search(rf"^  {name}\s+language \d+/\d+ .* walled \d+", out, re.M), name
+    total = len(ANSWER_CASES)
     assert re.search(rf"^  overall\s+language {total}/{total} = 100%", out, re.M)
+    # The fake answers the two refusal cases too: reported, per case, as not refused.
+    assert re.search(r"^  overall .* must refuse 0/2 refused", out, re.M)
+    for case in REFUSE_CASES:
+        assert f"MUST REFUSE {case.id} (expected {case.expected_topic}): answer" in out
+        assert f"{case.id}: answer, expected a refusal" in out
     assert "spend INR" in out and "RESULT: PASS" in out
 
 
@@ -486,7 +667,9 @@ def test_the_dump_carries_every_reply_and_rescores_without_a_call(
     assert [row["id"] for row in rows] == [case.id for case in gold.CASES]
     assert rows[0]["lines"] == SAMPLES["hinglish"] and rows[0]["adhered"] is False
     assert rows[1]["adhered"] is True and rows[1]["model"] == _MODEL
-    assert rows[1]["copy"] is False
+    assert rows[1]["copy"] is False and rows[1]["walls"] == []
+    assert rows[1]["expected_status"] == "answer"
+    assert {row["expected_status"] for row in rows} == {"answer", "refuse"}
     capsys.readouterr()
 
     def no_call(*_args, **_kwargs):
@@ -496,7 +679,31 @@ def test_the_dump_carries_every_reply_and_rescores_without_a_call(
     assert cli.main(["--rescore", str(dump)]) == 0
     out = capsys.readouterr().out
     assert "re-scored from a dump: no calls made" in out
-    assert f"{len(gold.CASES) - 1}/{len(gold.CASES)}" in out.splitlines()[0]
+    assert f"{len(ANSWER_CASES) - 1}/{len(ANSWER_CASES)}" in out.splitlines()[0]
+
+
+def test_a_dumped_refusal_rescores_with_its_topic(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    dump = tmp_path / "run.json"
+    FakeService(monkeypatch, lambda body: _perfect(_case_of(body)) | {"ai_metadata": _meta()})
+    assert cli.main(["--base-url", _BASE, "--dump-file", str(dump)]) == 0
+    capsys.readouterr()
+    run = cli.rescore(dump)
+    assert run.score.overall.refused_ok == run.score.overall.must_refuse == 2
+    assert run.score.misses == []
+    cli.print_report(run)
+    out = capsys.readouterr().out
+    assert "MUST REFUSE rq-distress-en (expected distress): refuse on distress" in out
+
+
+def _case_of(body: dict) -> gold.Case:
+    return next(
+        case
+        for case in gold.CASES
+        if case.text == body["text"]
+        and [{"role": r, "text": t} for r, t in case.turns] == body["recent_turns"]
+    )
 
 
 def test_the_cli_refuses_bad_arguments() -> None:

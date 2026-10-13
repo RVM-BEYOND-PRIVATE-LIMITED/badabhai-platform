@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { screenFreeChatAnswer } from "./free-chat-output.validator";
 import {
+  ENGLISH_JUDGEMENT_WORDS,
+  ENGLISH_RATING_FILLERS,
+  ENGLISH_RESPECTFUL_YOU,
+  ENGLISH_SURELY_WORDS,
+  ENGLISH_WILL_GET_WORDS,
+  regionalPromise,
   REGIONAL_JUDGEMENT_WORDS,
   REGIONAL_PERSONA_TOKENS,
   REGIONAL_PROMISE_TOKENS,
@@ -86,6 +92,82 @@ describe("each wall, in the regional words", () => {
   it("a rating needs the respectful 'you' DIRECTLY before the judgement word", () => {
     expect(regionalWallFailure("neenga nalla")).toBe("worker_rating");
     expect(regionalWallFailure("nalla skill, neenga practice pannunga")).toBeNull();
+  });
+});
+
+/**
+ * ADR-0051 §11 (R40, #2181): English in, English out — so a plain-English reply meets the same
+ * promise (R11) and rating (R17) bar, in English words. Before these lists the gate SERVED every
+ * line in the first table.
+ */
+describe("the English walls (§11)", () => {
+  it.each([
+    ["the review's promise", "You will definitely get a job after this course.", "promise"],
+    ["the review's raise", "Your salary will definitely go up after this course.", "promise"],
+    ["surely + be hired", "You will surely be hired by a good factory.", "promise"],
+    ["certainly + get", "With this certificate you will certainly get work.", "promise"],
+    ["guaranteed + get", "A job is guaranteed, you will get it soon.", "promise"],
+    ["for sure", "You will get a job for sure.", "promise"],
+    ["100 percent", "100 percent you will get a job.", "promise"],
+    ["a contraction", "You'll definitely get a job.", "promise"],
+    ["the review's rating", "You are the best welder here.", "worker_rating"],
+    ["the review's weakness", "You are weak in drawing, so practise more.", "worker_rating"],
+    ["you're + best", "You're the best in this workshop.", "worker_rating"],
+    ["worst", "You are the worst at measuring.", "worker_rating"],
+    ["very + weak", "You are very weak in maths.", "worker_rating"],
+    ["a + great", "You are a great welder.", "worker_rating"],
+    ["perfect", "You are perfect for this job.", "worker_rating"],
+    ["excellent", "You are excellent at fitting.", "worker_rating"],
+    ["top", "You are the top worker in the team.", "worker_rating"],
+    ["number one", "You are number one in this trade.", "worker_rating"],
+  ])("%s: %j → %s", (_what, line, expected) => {
+    expect(failure([line])).toBe(expected);
+    expect(regionalWallFailure(line)).toBe(expected);
+  });
+
+  it.each([
+    ["a surely word alone is advice", "You can definitely try an ITI course."],
+    ["plain advice", "Practise every day."],
+    ["'you are' before a non-judgement word", "You are learning fast."],
+    ["'you are' with a word between", "You are in a good trade."],
+    ["'will get' without a surely word", "You will get practice at a workshop."],
+    ["a surely word without a will-get phrase", "Certainly, safety shoes help on site."],
+    ["'best' praising the work", "The best way to learn welding is daily practice."],
+  ])("%s: %j is served", (_what, line) => {
+    expect(failure([line])).toBeNull();
+    expect(regionalWallFailure(line)).toBeNull();
+  });
+
+  it("a chip carrying an English promise rejects the whole answer", () => {
+    expect(failure(["Welding seekhiye."], ["you will definitely get"])).toBe("promise");
+  });
+
+  it("matches whole words, case-insensitively", () => {
+    expect(regionalWallFailure("YOU ARE THE BEST")).toBe("worker_rating");
+    // "topper" and "bestseller" carry a listed word inside them; neither is the word.
+    expect(regionalWallFailure("You are a topper")).toBeNull();
+    expect(regionalWallFailure("You are reading a bestseller")).toBeNull();
+    // "will getaway" is not "will get".
+    expect(regionalWallFailure("Definitely, it will getaway")).toBeNull();
+  });
+
+  it("a live-news headline is held to the regional promise only, not the English pair", () => {
+    expect(regionalPromise("Fuel prices will surely go up next month")).toBe(false);
+    expect(regionalPromise("Naukri nakki milel")).toBe(true);
+  });
+
+  it("the English lists are lowercase, deduplicated and fold to whole words", () => {
+    for (const list of [
+      ENGLISH_SURELY_WORDS,
+      ENGLISH_WILL_GET_WORDS,
+      ENGLISH_RESPECTFUL_YOU,
+      ENGLISH_RATING_FILLERS,
+      ENGLISH_JUDGEMENT_WORDS,
+    ]) {
+      expect(list.length).toBeGreaterThan(0);
+      expect(new Set(list).size).toBe(list.length);
+      for (const phrase of list) expect(phrase).toMatch(/^[a-z0-9]+(?:['\s][a-z0-9]+)*$/);
+    }
   });
 });
 

@@ -8,13 +8,17 @@
 
 SCORES A RUNNING SERVICE over the reply-language set (`eval_free_reply_language`) through
 ``POST /free-chat/reply``, and prints, per reply language, per case kind and overall: language
-adherence, non-Latin replies, persona slips and verbatim repeats, plus the misses. CI never runs
-this: the suite is mock-only, and the deterministic half (the set's shape, the scorer, this CLI
-against a fake transport) lives in `tests/free_chat/`.
+adherence, non-Latin replies, persona slips, verbatim repeats, example copies and the replies the
+API's word walls would throw away, then how many of the cases that must refuse did, plus the
+misses. CI never runs this: the suite is mock-only, and the deterministic half (the set's shape,
+the scorer, this CLI against a fake transport) lives in `tests/free_chat/`.
 
-TWO RUNS MAKE ONE MEASUREMENT. ``--omit-language`` is the BASELINE: no ``reply_language``, so
-the prompt's own rules choose (what an API that predates §11 sends). Without it the case's
-``reply_language`` rides the request, as the §11 API sends it. Compare the two on one model.
+TWO RUNS MAKE ONE MEASUREMENT. Without ``--omit-language`` the case's ``reply_language`` rides
+the request, as the §11 API sends it. ``--omit-language`` sends none, so THE TARGET SERVICE'S
+prompt chooses by its own rules: against a service running this code that is §11's prompt
+without the line (its §9 fallback rule), NOT the prompt before §11. For a pre-§11 baseline, point
+``--base-url`` at a service running the earlier code (``--omit-language`` is then what that API
+sent anyway). Compare runs on one model.
 
 NO BAR, ONLY EVIDENCE CHECKS. The exit code is non-zero only when the run is not evidence, by the
 companion eval's shared rules: a mock answer (is ``profiling_free_reply`` armed in the target's
@@ -108,10 +112,13 @@ def _rate(hit: int, total: int) -> str:
 
 
 def _tally_line(name: str, tally: gold.Tally) -> str:
+    must_refuse = (
+        f"  must refuse {tally.refused_ok}/{tally.must_refuse} refused" if tally.must_refuse else ""
+    )
     return (
         f"  {name:<9} language {_rate(tally.adhered, tally.answered):<12} "
         f"non-Latin {tally.non_latin}  slips {tally.slipped}  repeats {tally.repeated}  "
-        f"example copies {tally.copied}  "
+        f"example copies {tally.copied}  walled {tally.walled}{must_refuse}  "
         f"(cases {tally.cases}, refused {tally.refused}, unavailable {tally.unavailable})"
     )
 
@@ -124,13 +131,23 @@ def print_report(run: ReplyLanguageRun) -> None:
     print(
         f"free-chat reply language ({mode}): {_rate(score.overall.adhered, score.overall.answered)}"
     )
-    print("per reply language (adherence over answered replies; slips and repeats are answers):")
+    print(
+        "per reply language (adherence over answered replies of the cases that expect an answer;"
+        " slips, repeats, copies and walled are answers; 'must refuse' is the refusal cases):"
+    )
     for language, tally in score.per_language.items():
         print(_tally_line(language, tally))
     print("per case kind:")
     for kind, tally in score.per_kind.items():
         print(_tally_line(kind, tally))
     print(_tally_line("overall", score.overall))
+    for result in score.results:
+        if result.case.expected_status == gold.REFUSE:
+            topic = f" on {result.topic}" if result.topic else ""
+            print(
+                f"  MUST REFUSE {result.case.id} (expected {result.case.expected_topic}): "
+                f"{result.status}{topic}"
+            )
     if run.calls.sent:
         _print_calls(run.calls, None)
     else:
@@ -179,6 +196,7 @@ def write_dump(path: Path, run: ReplyLanguageRun) -> None:
                 "kind": result.case.kind,
                 "script": result.case.script,
                 "text": result.case.text,
+                "expected_status": result.case.expected_status,
                 "status": result.status,
                 "lines": body.get("lines"),
                 "followup_chips": body.get("followup_chips"),
@@ -190,6 +208,7 @@ def write_dump(path: Path, run: ReplyLanguageRun) -> None:
                 "slips": list(result.slips),
                 "repeat": result.repeat,
                 "copy": result.copy,
+                "walls": list(result.walls),
                 "markers": dict(result.counts),
             }
         )
