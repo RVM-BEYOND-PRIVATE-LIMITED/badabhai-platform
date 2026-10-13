@@ -173,6 +173,11 @@
       h1:empty { display: none; }
       .phone { font-size: 12pt; font-weight: 700; white-space: nowrap; }
       .phone:empty { display: none; }
+      /* ADR-0032 worker-copy-only photo. 0-or-1 region in the masthead below; an empty
+         region collapses so photo-less sheets render byte-identically. 22mm matches the
+         legacy classic 86px slot so the face is consistent across layouts. */
+      .photo { width: 22mm; height: 22mm; object-fit: cover; border-radius: 1.5mm;
+               border: 0.75pt solid var(--rule); flex: 0 0 auto; align-self: center; }
       /* Devanagari renders on the worker's own copy; the employer copy gets Latin only. */
       .deva { font-size: 12pt; margin-top: 2.4mm; }
       .deva:empty { display: none; }
@@ -325,8 +330,7 @@
 
     <div class="idrow">
       <h1 class="{{name_class}}">{{full_name}}</h1>
-      <div class="phone">{{phone}}</div>
-    </div>
+      <div class="phone">{{phone}}</div>{{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}</div>
     <div class="deva">{{name_devanagari}}</div>
     <div class="loc">{{location_line}}</div>
     <div class="wa">{{whatsapp_line}}</div>

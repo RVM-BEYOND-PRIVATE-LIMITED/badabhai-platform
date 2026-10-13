@@ -391,3 +391,56 @@ describe("the general road's brief (ADR-0045 R6)", () => {
     expect(html.split("+91 98765 43210")).toHaveLength(2);
   });
 });
+
+/**
+ * #2217 — THE LIVE SHEETS CARRIED NO PHOTO SLOT.
+ *
+ * `templateIdForPack` serves only `bb_trade` (the 21 predefined roles) or `bb_general`
+ * (everyone else), but only the legacy layouts carried a `{{#photo}}` region — so the
+ * ADR-0032 own-resume embed never reached a production PDF. Both live sheets now carry
+ * the same 0-or-1 region; the employer disclosure still passes `photoDataUri = null`
+ * structurally (`resume-disclosure.service.ts`), so the payer copy stays faceless.
+ */
+describe("the live sheets' photo (#2217)", () => {
+  const PHOTO = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ==";
+
+  for (const templateId of ["bb_trade", "bb_general"] as const) {
+    it(`${templateId}: embeds the photo when a photoDataUri is supplied`, () => {
+      const html = makeRenderer().buildResumeHtml({
+        ...BASE_INPUT,
+        templateId,
+        photoDataUri: PHOTO,
+      });
+      expect(html).toContain(`<img class="photo" src="${PHOTO}"`);
+      expect(html).not.toContain("{{#photo}}");
+      expect(html).not.toContain("{{");
+    });
+
+    it(`${templateId}: renders photo-less when photoDataUri is null/absent`, () => {
+      for (const input of [
+        { ...BASE_INPUT, templateId, photoDataUri: null },
+        { ...BASE_INPUT, templateId },
+      ]) {
+        const html = makeRenderer().buildResumeHtml(input);
+        // The sheets carry other <img> marks (masthead/footer lockups), so the
+        // absence pinned here is the photo element itself, not every image.
+        expect(html).not.toContain('class="photo"');
+        expect(html).not.toContain("data:image/jpeg");
+        expect(html).not.toContain("{{#photo}}");
+      }
+    });
+  }
+
+  it("employer audience (photoDataUri null) renders no photo on either live sheet", () => {
+    for (const templateId of ["bb_trade", "bb_general"] as const) {
+      const html = makeRenderer().buildResumeHtml({
+        ...BASE_INPUT,
+        templateId,
+        photoDataUri: null,
+      });
+      expect(html, `${templateId} leaked a photo to the employer copy`).not.toContain(
+        'class="photo"',
+      );
+    }
+  });
+});
