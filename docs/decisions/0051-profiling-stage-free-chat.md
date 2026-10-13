@@ -286,6 +286,10 @@ Any widening of this list follows the same review as the copy.
 - **Regional (§9, R28):** whole phrases in Marathi, Gujarati, Kannada, Telugu and Tamil (own script and Latin), plus
   word-start stems for "suicide" itself. The canonical list is `DISTRESS_PHRASES` and `DISTRESS_STEMS` in
   `apps/api/src/profiling/free-chat/free-chat.router.ts`.
+- **Invisible characters (#2228):** a Unicode format character (`\p{Cf}`: zero-width space, word joiner, soft
+  hyphen, BOM, ZWJ/ZWNJ) is read two ways, and either reading matching is a match. Deleted, so one hidden inside a
+  word ("mar<ZWSP>na chahta") cannot split it past the list. As a word gap, so one used between words still matches as
+  before.
 
 ## 6. Consequences
 
