@@ -132,6 +132,29 @@ function data(): FreeChatProbeData {
       }),
     ]),
     news: read([]),
+    languages: read([
+      event<"chat.free_chat_language_changed">({
+        worker_id: id(501),
+        session_id: id(701),
+        from: null,
+        to: "marathi",
+        trigger: "accepted",
+      }),
+      event<"chat.free_chat_language_changed">({
+        worker_id: id(502),
+        session_id: id(702),
+        from: null,
+        to: "marathi",
+        trigger: "accepted",
+      }),
+      event<"chat.free_chat_language_changed">({
+        worker_id: id(501),
+        session_id: id(701),
+        from: "marathi",
+        to: null,
+        trigger: "declined",
+      }),
+    ]),
     costs: read([
       cost("profiling_free_classify", 400, 0.01),
       cost("profiling_free_classify", 900, 0.01),
@@ -270,6 +293,11 @@ describe("the report", () => {
     expect(text).toContain("sessions that reached free mode and never entered resume mode: 1");
     expect(text).toContain("folded_lines total=9 avg=4.5");
     expect(text).toMatch(/requests=0[\s\S]*\(none\)/);
+    // ADR-0051 §11 — the kept reply language's changes, by from × to × trigger (null prints "-").
+    expect(text).toContain("-- chat.free_chat_language_changed --");
+    expect(text).toContain("changes=3");
+    expect(text).toMatch(/-\s+\| marathi \| accepted \| 2/);
+    expect(text).toMatch(/marathi \| -\s+\| declined \| 1/);
     expect(text).toMatch(
       /profiling_free_classify \| true\s+\| true\s+\| 3 \| 900\s+\| 1500\s+\| 0\.04/,
     );

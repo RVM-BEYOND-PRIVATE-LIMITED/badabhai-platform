@@ -14,11 +14,13 @@ import type {
   CompanionV2ConfidenceBucket,
   FreeChatCategory,
   FreeChatDecidedBy,
+  FreeChatLanguageTrigger,
   FreeChatMode,
   FreeChatModeTrigger,
   FreeChatOutcome,
   FreeChatRefusalTopic,
   FreeChatReplyCategory,
+  FreeChatReplyLanguage,
 } from "@badabhai/types";
 
 // VALUE imports, not `import type`: each is a constructor parameter, and Nest resolves them from
@@ -45,6 +47,7 @@ import {
   type FreeChatNewsServed,
 } from "./free-chat-news";
 import { UNAVAILABLE_VERDICT, type FreeChatVerdict } from "./free-chat.router";
+import { freeChatLanguageRecord, readFreeChatLanguageValue } from "./free-chat.state";
 
 /** The classify contract's text bound (`FreeChatClassifyInputSchema.text`). */
 export const CLASSIFY_TEXT_MAX = 1_000;
@@ -96,6 +99,13 @@ export interface FreeChatReplyRequest {
    * (R24): the classifier's request has no such field.
    */
   readonly summary: string | null;
+  /**
+   * ADR-0051 §11 (R39) — the language CODE decided this reply is written in: an explicit request,
+   * the kept language, or the message's own. REQUIRED, never optional: a call site that forgot it
+   * would silently hand the choice back to the model, the defect §11 exists to fix. Null leaves the
+   * prompt's own rules in force; the free chat's turns always decide one.
+   */
+  readonly replyLanguage: FreeChatReplyLanguage | null;
 }
 
 /**
@@ -106,6 +116,8 @@ export interface FreeChatNewsRequest {
   readonly text: string;
   readonly messages: readonly BufferedMessage[];
   readonly workerContext: CompanionCareerWorkerContext;
+  /** ADR-0051 §11 — the reply's language, handed on: a news answer is written in it too. */
+  readonly replyLanguage: FreeChatReplyLanguage | null;
 }
 
 /** What one served free-chat turn reports on the spine — ids, counts and closed enums only. */
@@ -124,6 +136,12 @@ export interface FreeChatServed {
    * `chat.free_chat_news_served` beside this turn's own event. ABSENT on every other turn.
    */
   readonly news?: FreeChatNewsServed;
+  /**
+   * ADR-0051 §11 — on a turn whose answered ask CHANGED the kept reply language, the change:
+   * recorded as `chat.free_chat_language_changed` and merge-written onto the session's row, after
+   * the CAS. ABSENT on every other turn — an answer that changes nothing records nothing.
+   */
+  readonly language?: FreeChatLanguageChange;
 }
 
 /** One mode transition. `from` null is a session with no mode yet being stamped. */
@@ -131,6 +149,16 @@ export interface FreeChatModeChange {
   readonly from: FreeChatMode | null;
   readonly to: FreeChatMode;
   readonly trigger: FreeChatModeTrigger;
+}
+
+/**
+ * One change of the kept reply language (ADR-0051 §11, R41). `accepted` always lands on a language,
+ * `declined` always on null — the event's own refines.
+ */
+export interface FreeChatLanguageChange {
+  readonly from: FreeChatReplyLanguage | null;
+  readonly to: FreeChatReplyLanguage | null;
+  readonly trigger: FreeChatLanguageTrigger;
 }
 
 /** The attribution an event carries. `turnRef` makes the idempotency key unique per landed write. */
@@ -144,7 +172,8 @@ export interface FreeChatEventRef {
 
 /**
  * THE PROFILING-STAGE FREE CHAT'S SIDE EFFECTS (ADR-0051) — the model calls, their spend, the
- * events and the durable lock; and (ADR-0054) the live-news call with its daily cap. Everything that
+ * events, the durable lock and (§11) the kept reply language; and (ADR-0054) the live-news call
+ * with its daily cap. Everything that
  * DECIDES is pure and lives in `free-chat.router.ts` and `free-chat-news.ts`; the orchestrator calls
  * this only for I/O.
  *
@@ -222,6 +251,7 @@ export class FreeChatService {
       recent_turns: recentTurnsOf(req.messages, REPLY_TURNS, name),
       worker_context: workerContextFor(req.workerContext, name),
       summary: summaryForModel(req.summary, name),
+      reply_language: req.replyLanguage,
     });
     if (!input.success) {
       this.logger.warn(
@@ -263,6 +293,8 @@ export class FreeChatService {
       // (`ai_max_user_daily_cost_inr`) bounds news on top of the API's daily attempt cap. The
       // ai-service uses it for the spend ledger only; it never reaches the model.
       worker_ref: ctx.workerId,
+      // ADR-0051 §11 — the language the reply that handed over to news was to be written in.
+      reply_language: req.replyLanguage,
     });
     if (!input.success) {
       this.logger.warn(
@@ -494,6 +526,84 @@ export class FreeChatService {
         `free-chat lock not made durable session=${sessionId}; the envelope still holds it: ` +
           `${logSafeReason(error, "free-chat lock merge")}`,
       );
+    }
+  }
+
+  /**
+   * `chat.free_chat_language_changed` (ADR-0051 §11) — once per answered ask that CHANGED the kept
+   * reply language, after the CAS. Ids and closed enums only. Keyed like the turn's own event, so a
+   * retried emit stores one row. Never throws.
+   */
+  async recordLanguageChanged(
+    change: FreeChatLanguageChange,
+    ref: FreeChatEventRef,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "chat.free_chat_language_changed",
+        actor: { actor_type: "worker", actor_id: ref.workerId },
+        subject: { subject_type: "chat_session", subject_id: ref.sessionId },
+        payload: {
+          worker_id: ref.workerId,
+          session_id: ref.sessionId,
+          from: change.from,
+          to: change.to,
+          trigger: change.trigger,
+        },
+        idempotencyKey: `chat.free_chat_language_changed:${ref.sessionId}:${ref.submissionId ?? ref.turnRef}`,
+        correlationId: ref.ctx.correlationId,
+        requestId: ref.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `chat.free_chat_language_changed not recorded session=${ref.sessionId} ` +
+          `trigger=${change.trigger}: ${logSafeReason(error, "free-chat language event")}`,
+      );
+    }
+  }
+
+  /**
+   * Make the kept reply language DURABLE (ADR-0051 §11): the `free_chat_language` record, merged
+   * onto this session's row (`ChatRepository.mergeFreeChatLanguage`), so the worker's next session
+   * opens with it. Best effort, after the CAS: the envelope already holds it for this session, so a
+   * failure costs only the carry to the next one. Never throws.
+   */
+  async persistLanguage(
+    sessionId: string,
+    workerId: string,
+    language: FreeChatReplyLanguage | null,
+    at: Date,
+  ): Promise<void> {
+    try {
+      await this.chat.mergeFreeChatLanguage(
+        sessionId,
+        workerId,
+        freeChatLanguageRecord(language, at, sessionId),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `free-chat language not made durable session=${sessionId}; this session still holds it: ` +
+          `${logSafeReason(error, "free-chat language merge")}`,
+      );
+    }
+  }
+
+  /**
+   * The reply language the worker last chose to keep (ADR-0051 §11) — the latest SET record across
+   * their sessions, a decline included — or null. Read once per new free chat, at its greeting.
+   * FAILS SOFT: an unreadable store or record is "none kept" (each reply follows the message), logged
+   * with ids only. Never throws.
+   */
+  async keptLanguage(workerId: string, sessionId: string): Promise<FreeChatReplyLanguage | null> {
+    try {
+      const latest = await this.chat.findLatestFreeChatLanguage(workerId);
+      return readFreeChatLanguageValue(latest?.language)?.language ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `free-chat kept language unreadable session=${sessionId}; each reply follows the message: ` +
+          `${logSafeReason(error, "free-chat language read")}`,
+      );
+      return null;
     }
   }
 

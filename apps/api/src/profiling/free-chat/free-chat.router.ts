@@ -17,16 +17,22 @@ import type {
   CompanionV2ConfidenceBucket,
   FreeChatCategory,
   FreeChatReplyCategory,
+  FreeChatReplyLanguage,
 } from "@badabhai/types";
 import type { QuestionPackOption } from "@badabhai/ai-contracts";
 
+import { readTypedLanguageAnswer } from "./free-chat-language";
 import {
+  FREE_CHAT_LANG_NO_KEY,
+  FREE_CHAT_LANG_NO_LABEL,
+  FREE_CHAT_LANG_YES_KEY,
   FREE_CHAT_LATER_KEY,
   FREE_CHAT_LATER_LABEL,
   FREE_CHAT_RESUME_KEY,
   FREE_CHAT_RESUME_LABEL,
   FREE_CHAT_START_KEY,
   FREE_CHAT_START_LABEL,
+  languageYesLabel,
 } from "./free-chat.copy";
 import { coolingDown, FREE_CHAT_ASIDE_CAP, type FreeChatState } from "./free-chat.state";
 
@@ -192,6 +198,24 @@ export function readGreetingChoice(text: string): "start" | "later" | null {
   if (words.length > VARIANT_MAX_WORDS) return null;
   if (START_WORDS.has(words[0]!) && words.slice(1).every(isVariantFiller)) return "start";
   return null;
+}
+
+/**
+ * ADR-0051 §11 (R41) — the worker's answer to the ask "Kya aage ki saari baat {Language} mein
+ * karein?", read deterministically and ONLY while the ask for `offer` is pending: the chip's key or
+ * label ("Haan, {Language} mein" / "Nahi"), else a BARE typed yes or no in any of the chat's
+ * languages ("haan", "ho", "aam", "avunu", "haudu"…, or "theek hai"), optionally with the offered
+ * language's name, "mein" or "ji" — `readTypedLanguageAnswer`. Null for anything else ("haan marna
+ * hai", "ok, salary batao"): the offer then lapses, and the message is read like any other,
+ * classifier included.
+ */
+export function readLanguageAnswer(
+  text: string,
+  offer: FreeChatReplyLanguage,
+): "yes" | "no" | null {
+  if (isChip(text, FREE_CHAT_LANG_YES_KEY, languageYesLabel(offer))) return "yes";
+  if (isChip(text, FREE_CHAT_LANG_NO_KEY, FREE_CHAT_LANG_NO_LABEL)) return "no";
+  return readTypedLanguageAnswer(text, offer);
 }
 
 /** The "Resume banayein" chip — its key or its label. Works in free mode and during a cool-down. */

@@ -39,6 +39,7 @@ import {
 } from "./trade-confirm";
 import type {
   ChatGateKind,
+  FreeChatReplyLanguage,
   ProfilingLane,
   ProfilingLaneReason,
   SkillsGateReply,
@@ -4136,7 +4137,9 @@ export class ProfilingOrchestrator {
     // would have armed it. A locked worker gets today's opener, byte for byte, in résumé mode.
     if (fc !== null && fc.enabled) {
       if (!(await fc.locked())) {
-        const greeting: ProfilingEnvelope = { ...envelope, freeChat: greetingState() };
+        // ADR-0051 §11 — the greeting holds the worker's kept reply language, as the opening's does.
+        const kept = (await this.freeChat?.keptLanguage(input.workerId, input.sessionId)) ?? null;
+        const greeting: ProfilingEnvelope = { ...envelope, freeChat: greetingState(kept) };
         return {
           ...this.intakeTurn(
             buffer,
@@ -4289,6 +4292,9 @@ export class ProfilingOrchestrator {
     if (service === undefined) return null;
     // See `takeTurn`'s identical declaration for why this lives outside the loop.
     const citySeed: CitySeedRef = { promise: null };
+    // ADR-0051 §11 — the reply language the worker last chose to keep, read ONCE per opening (a
+    // lost CAS reuses it). It never rejects: an unreadable one is "none kept".
+    let kept: Promise<FreeChatReplyLanguage | null> | null = null;
 
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
@@ -4313,7 +4319,9 @@ export class ProfilingOrchestrator {
           packId: packs.packId,
           packVersion: packs.packVersion,
           servedQuestionKey: null,
-          freeChat: greetingState(),
+          freeChat: greetingState(
+            await (kept ??= service.keptLanguage(input.workerId, input.sessionId)),
+          ),
         },
         packs.engine.universal,
       );
@@ -4379,8 +4387,9 @@ export class ProfilingOrchestrator {
 
   /**
    * After a turn's CAS landed (ADR-0051 §3.7): the mode change it made, the durable lock when it
-   * entered résumé mode, and the served-turn event when the free chat served it. Derived from the
-   * envelope that WAS written, so a decision that lost its CAS records nothing. Never throws.
+   * entered résumé mode, the served-turn event when the free chat served it, and (§11) a change of
+   * the kept reply language with its durable record. Derived from the decision that WAS written,
+   * so a decision that lost its CAS records nothing. Never throws.
    */
   private async recordFreeChatEffects(
     before: ProfilingEnvelope,
@@ -4408,6 +4417,17 @@ export class ProfilingOrchestrator {
     if (served !== undefined) await this.freeChat.recordServed(served, ref);
     // ADR-0054 — the news request this turn ran, recorded only for the decision that landed.
     if (served?.news !== undefined) await this.freeChat.recordNews(served.news, ref);
+    // ADR-0051 §11 — an answered ask that changed the kept reply language: its event, then its
+    // durable record (merged onto this session's row, so the worker's next session opens with it).
+    if (served?.language !== undefined) {
+      await this.freeChat.recordLanguageChanged(served.language, ref);
+      await this.freeChat.persistLanguage(
+        input.sessionId,
+        input.workerId,
+        served.language.to,
+        input.now,
+      );
+    }
     // ADR-0051 §8 (R21) — a free-mode casual or career REPLY that landed may have pushed earlier
     // talk out of the next reply's window: fold it into the summary. SCHEDULED, NEVER AWAITED — the
     // worker's response does not wait on a summarizer — and only from the transcript that landed.

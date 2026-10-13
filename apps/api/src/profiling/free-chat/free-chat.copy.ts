@@ -1,7 +1,8 @@
 /**
  * The profiling-stage free chat's fixed lines (ADR-0051 §5.1) — reviewed copy, never a model's.
  *
- * OWNER-APPROVED VERBATIM (2026-10-06; NEWS_CAP and NEWS_UNAVAILABLE 2026-10-08, ADR-0054 §5).
+ * OWNER-APPROVED VERBATIM (2026-10-06; NEWS_CAP and NEWS_UNAVAILABLE 2026-10-08, ADR-0054 §5; the
+ * reply-language lines LANG_ASK / LANG_YES / LANG_NO 2026-10-08, ADR-0051 §11).
  * Every line here is served exactly as written: an edit is a
  * copy review, not a refactor. `free-chat.copy.test.ts` holds them to persona v3.2 ("aap", ≤20
  * words, ≤1 "?", no "!", no emoji, none of the banned tokens), and the only number in any line is
@@ -20,7 +21,7 @@
  * placeholder in the closure, and a free-chat line is the same for every worker.
  */
 
-import type { FreeChatRefusalTopic } from "@badabhai/types";
+import type { FreeChatRefusalTopic, FreeChatReplyLanguage } from "@badabhai/types";
 
 /** One fixed line: what is shown, and what is read aloud. */
 export interface FreeChatLine {
@@ -139,8 +140,107 @@ export const FREE_CHAT_REFUSAL_LINES: Readonly<Record<FreeChatRefusalTopic, Free
 export const FREE_CHAT_COPY_ENTRIES: ReadonlyArray<readonly [FreeChatLineKey, FreeChatLine]> =
   Object.entries(FREE_CHAT_COPY) as Array<[FreeChatLineKey, FreeChatLine]>;
 
+// ---------------------------------------------------------------------------
+// ADR-0051 §11 (R41, approved 2026-10-08) — the reply-language lines
+// ---------------------------------------------------------------------------
+
+/**
+ * Each reply language's DISPLAY NAME (ADR-0051 §5.1): the Latin name the worker reads and the
+ * Devanagari name the twin is read aloud with. `hinglish` is offered as "Hindi". In the closed
+ * set's order; `free-chat.copy.test.ts` pins the keys to `FREE_CHAT_REPLY_LANGUAGES`.
+ */
+export const FREE_CHAT_LANGUAGE_NAMES = {
+  english: { latin: "English", dev: "अंग्रेज़ी" },
+  hinglish: { latin: "Hindi", dev: "हिंदी" },
+  marathi: { latin: "Marathi", dev: "मराठी" },
+  gujarati: { latin: "Gujarati", dev: "गुजराती" },
+  kannada: { latin: "Kannada", dev: "कन्नड़" },
+  telugu: { latin: "Telugu", dev: "तेलुगु" },
+  tamil: { latin: "Tamil", dev: "तमिल" },
+} as const satisfies Record<FreeChatReplyLanguage, FreeChatLine>;
+
+/** The reply languages, in the closed set's order — read off the names, so no runtime import. */
+const LANGUAGES = Object.keys(FREE_CHAT_LANGUAGE_NAMES) as FreeChatReplyLanguage[];
+
+/** Where a language's display name goes in a template. */
+const LANGUAGE_SLOT = "{Language}";
+
+/**
+ * The three reply-language lines AS APPROVED, `{Language}` still in them. Never served as they
+ * stand: {@link languageAskLine} and {@link languageYesLine} fill the slot, and LANG_NO has none.
+ */
+export const FREE_CHAT_LANGUAGE_TEMPLATES = {
+  LANG_ASK: {
+    latin: "Kya aage ki saari baat {Language} mein karein?",
+    dev: "क्या आगे की सारी बात {Language} में करें?",
+  },
+  LANG_YES: {
+    latin: "Theek hai, ab se {Language} mein baat karenge.",
+    dev: "ठीक है, अब से {Language} में बात करेंगे।",
+  },
+  LANG_NO: {
+    latin: "Theek hai. Aap jis bhasha mein likhenge, usi mein jawab dunga.",
+    dev: "ठीक है। आप जिस भाषा में लिखेंगे, उसी में जवाब दूँगा।",
+  },
+} as const satisfies Record<string, FreeChatLine>;
+
+/** A template with `language`'s name in its slot — both halves, each with its own script's name. */
+function filled(template: FreeChatLine, language: FreeChatReplyLanguage): FreeChatLine {
+  const name = FREE_CHAT_LANGUAGE_NAMES[language];
+  return {
+    latin: template.latin.replace(LANGUAGE_SLOT, name.latin),
+    dev: template.dev.replace(LANGUAGE_SLOT, name.dev),
+  };
+}
+
+/** "Kya aage ki saari baat {Language} mein karein?" — appended to the requested-language reply. */
+export function languageAskLine(language: FreeChatReplyLanguage): FreeChatLine {
+  return filled(FREE_CHAT_LANGUAGE_TEMPLATES.LANG_ASK, language);
+}
+
+/** "Theek hai, ab se {Language} mein baat karenge." — the ask's Haan. */
+export function languageYesLine(language: FreeChatReplyLanguage): FreeChatLine {
+  return filled(FREE_CHAT_LANGUAGE_TEMPLATES.LANG_YES, language);
+}
+
+/** "Theek hai. Aap jis bhasha mein likhenge, usi mein jawab dunga." — the ask's Nahi. */
+export const FREE_CHAT_LANG_NO_LINE: FreeChatLine = FREE_CHAT_LANGUAGE_TEMPLATES.LANG_NO;
+
+/**
+ * The ask's two chips (ADR-0051 §5.1), read ONLY while an ask is pending. Digit-free slugs, like
+ * the three chips above.
+ */
+export const FREE_CHAT_LANG_YES_KEY = "free_chat_lang_yes";
+export const FREE_CHAT_LANG_NO_KEY = "free_chat_lang_no";
+
+/** "Haan, {Language} mein" — the yes chip's label, which the app posts back as the text. */
+export function languageYesLabel(language: FreeChatReplyLanguage): string {
+  return `Haan, ${FREE_CHAT_LANGUAGE_NAMES[language].latin} mein`;
+}
+export const FREE_CHAT_LANG_NO_LABEL = "Nahi";
+
+/**
+ * EVERY reply-language line the chat can serve, one per language where the line names one: the
+ * seven asks, the seven yeses and the one no. Keyed `LANG_ASK.marathi` and so on.
+ */
+export const FREE_CHAT_LANGUAGE_LINE_ENTRIES: ReadonlyArray<readonly [string, FreeChatLine]> = [
+  ...LANGUAGES.map((language) => [`LANG_ASK.${language}`, languageAskLine(language)] as const),
+  ...LANGUAGES.map((language) => [`LANG_YES.${language}`, languageYesLine(language)] as const),
+  ["LANG_NO", FREE_CHAT_LANG_NO_LINE] as const,
+];
+
+/**
+ * EVERY FIXED LINE the free chat can serve — the §5.1 table and every reply-language variant. What
+ * the closure, the Devanagari sidecar, the summary's fixed-line strip and the "not a question" set
+ * read, so a line added to either list reaches all four.
+ */
+export const FREE_CHAT_FIXED_LINE_ENTRIES: ReadonlyArray<readonly [string, FreeChatLine]> = [
+  ...FREE_CHAT_COPY_ENTRIES,
+  ...FREE_CHAT_LANGUAGE_LINE_ENTRIES,
+];
+
 /** The Latin lines — what `CONSTANT_REPLIES` and `TTS_CONSTANT_SOURCES` enumerate. */
-export const FREE_CHAT_REPLIES: readonly string[] = FREE_CHAT_COPY_ENTRIES.map(
+export const FREE_CHAT_REPLIES: readonly string[] = FREE_CHAT_FIXED_LINE_ENTRIES.map(
   ([, line]) => line.latin,
 );
 
@@ -149,7 +249,7 @@ export const FREE_CHAT_REPLIES: readonly string[] = FREE_CHAT_COPY_ENTRIES.map(
  * the sidecar cannot hold a twin that says something else.
  */
 export const FREE_CHAT_TTS_ENTRIES: ReadonlyArray<readonly [roman: string, devanagari: string]> =
-  FREE_CHAT_COPY_ENTRIES.map(([, line]) => [line.latin, line.dev] as const);
+  FREE_CHAT_FIXED_LINE_ENTRIES.map(([, line]) => [line.latin, line.dev] as const);
 
 /**
  * The lines a résumé-mode aside puts IN FRONT OF the pending question ("… + pending question",

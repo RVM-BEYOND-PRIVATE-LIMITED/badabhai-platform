@@ -4,7 +4,7 @@ import { Logger } from "@nestjs/common";
 import { EVENT_REGISTRY } from "@badabhai/event-schema";
 
 import type { BufferedMessage } from "../../chat/chat-transcript.buffer";
-import { FREE_CHAT_COPY } from "./free-chat.copy";
+import { FREE_CHAT_COPY, languageAskLine } from "./free-chat.copy";
 import { FreeChatFoldLock } from "./free-chat-fold.lock";
 
 // The G1 scanner, spied so a scanner ERROR can be forced; every other test runs the real one.
@@ -244,6 +244,26 @@ describe("summaryTurnsOf — what reaches the summarizer", () => {
     expect(turns).toEqual([
       { role: "worker", text: "main [NAME], cricket pasand hai" },
       { role: "bada_bhai", text: "Cricket accha khel hai." },
+    ]);
+  });
+
+  it("ADR-0051 §11 — strips the reply-language ASK out of a reply bubble, as it strips the nudge", () => {
+    const turns = summaryTurnsOf(
+      [
+        line("worker", "marathi mai jawab do", { foldable: true }),
+        line(
+          "assistant",
+          `Welding shikayla ITI changla aahe.\n${languageAskLine("marathi").latin}`,
+          {
+            foldable: true,
+          },
+        ),
+      ],
+      null,
+    );
+    expect(turns).toEqual([
+      { role: "worker", text: "marathi mai jawab do" },
+      { role: "bada_bhai", text: "Welding shikayla ITI changla aahe." },
     ]);
   });
 

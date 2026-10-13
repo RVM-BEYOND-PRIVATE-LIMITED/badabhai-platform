@@ -25,6 +25,7 @@ import type {
   FreeChatModeTrigger,
   FreeChatOutcome,
   FreeChatReplyCategory,
+  FreeChatReplyLanguage,
 } from "@badabhai/types";
 import type { Logger } from "@nestjs/common";
 import type {
@@ -71,10 +72,15 @@ import {
   stampLastTurn,
 } from "../turn-shapes";
 import { screenFreeChatAnswer } from "./free-chat-output.validator";
+import { detectReplyLanguage, parseLanguageRequest } from "./free-chat-language";
 import { NEWS_TURN_OUTCOMES, newsServedOf, type FreeChatNewsResolution } from "./free-chat-news";
 import {
   FREE_CHAT_COPY,
-  FREE_CHAT_COPY_ENTRIES,
+  FREE_CHAT_FIXED_LINE_ENTRIES,
+  FREE_CHAT_LANG_NO_KEY,
+  FREE_CHAT_LANG_NO_LABEL,
+  FREE_CHAT_LANG_NO_LINE,
+  FREE_CHAT_LANG_YES_KEY,
   FREE_CHAT_LATER_KEY,
   FREE_CHAT_LATER_LABEL,
   FREE_CHAT_REFUSAL_LINES,
@@ -82,6 +88,9 @@ import {
   FREE_CHAT_RESUME_LABEL,
   FREE_CHAT_START_KEY,
   FREE_CHAT_START_LABEL,
+  languageAskLine,
+  languageYesLabel,
+  languageYesLine,
   type FreeChatLine,
 } from "./free-chat.copy";
 import {
@@ -94,6 +103,7 @@ import {
   postClassifyResume,
   preClassifyFree,
   preClassifyResume,
+  readLanguageAnswer,
   type FreeChatVerdict,
   type ResumeSkipFacts,
 } from "./free-chat.router";
@@ -101,6 +111,7 @@ import {
   freeChatWorkerContextOf,
   type FreeChatCallContext,
   type FreeChatEventRef,
+  type FreeChatLanguageChange,
   type FreeChatModeChange,
   type FreeChatServed,
   type FreeChatService,
@@ -112,9 +123,12 @@ import {
   FREE_CHAT_MAX_DEESCALATIONS,
   FREE_CHAT_MAX_DEFLECTS,
   FREE_CHAT_NUDGE_EVERY,
+  keptLanguageOf,
+  lapsedOf,
   pendingKeyOf,
   registerStrike,
   type FreeChatHeldTurn,
+  type FreeChatLastServed,
   type FreeChatState,
 } from "./free-chat.state";
 
@@ -336,9 +350,22 @@ export class FreeChatTurns {
   /**
    * GREETING AND FREE MODE (ADR-0051 §3.2, the free table). A greeting the worker typed past is
    * answered as free chat, and becomes free mode once a classifier verdict is acted on.
+   *
+   * THE REPLY LANGUAGE (§11) comes AFTER every guard here — distress, a pending import, the chips,
+   * the cool-down, the cap and the abuse lexicon keep their precedence: a pending ask's answer,
+   * then a BARE request (no classifier call), then the classifier for everything else — and a
+   * classified casual or career reply is written in the requested language (with the ask), else
+   * the kept language, else the message's own.
    */
-  private async routeFreeMode(t: FreeChatTurn, state: FreeChatState): Promise<FreeChatRouted> {
+  private async routeFreeMode(t: FreeChatTurn, entering: FreeChatState): Promise<FreeChatRouted> {
     const { text, now } = t.input;
+    // R41 — AN ASK IS ANSWERED BY THE NEXT MESSAGE ONLY. Its offer (and the previous reply's
+    // category, which a bare request re-answers in) is read here, and every path below starts from
+    // the state with both gone: a distress line, a strike or a classified message lets it lapse.
+    const offer = entering.language?.offer ?? null;
+    const previousCategory = entering.lastReplyCategory ?? null;
+    const lastServed = entering.lastServed ?? "other";
+    const state = lapsedOf(entering);
     // AN UPLOADED RÉSUMÉ IS RÉSUMÉ INTENT. A pending import (an unanswered "is this you?" line, or a
     // batch-confirm with facts to confirm) enters résumé mode and is served now, rather than hidden
     // behind "Haan" — after distress, which outranks everything.
@@ -405,6 +432,48 @@ export class FreeChatTurns {
         break;
     }
 
+    // ADR-0051 §11 (R41) — the ask's answer, read deterministically: the chip, its typed label, or
+    // a bare typed yes / no. Anything else lets the offer lapse and is read like any message.
+    if (offer !== null) {
+      const answer = readLanguageAnswer(text, offer);
+      if (answer !== null) return this.serveLanguageAnswer(t, state, offer, answer);
+    }
+    // R41 — A LANGUAGE REQUEST.
+    //   - RIGHT AFTER THE DISTRESS LINE (the word list, a classifier verdict or a model refusal),
+    //     any request, bare or not, gets the distress line again: a worker who cannot read the
+    //     helpline line and asks for their language is never handed a model reply, nor the ask.
+    //   - A BARE request in free mode ("marathi mai jawab do": every word is the request's own) is
+    //     about the previous reply, not a category, and makes no classifier call: it re-answers an
+    //     ANSWERED casual or career reply in that language; after any other turn (JOBS, a strike,
+    //     a refusal, the later line…) it makes no model call either, and serves the ask alone.
+    //   - ANY OTHER message carrying a request is classified like every message, and only a casual
+    //     or career reply takes the requested language and the ask (`askPlan`, below). At the
+    //     greeting even a bare request is classified: the classifier alone moves it to free mode.
+    const requested = parseLanguageRequest(text);
+    if (requested !== null && lastServed === "distress") {
+      return this.serveFreeLine(
+        t,
+        state,
+        FREE_CHAT_COPY.DISTRESS,
+        [],
+        DISTRESS_AGAIN_FACTS,
+        "fixed_line",
+      );
+    }
+    // Re-answering needs BOTH facts: the previous turn served an answered reply, and its category.
+    const reAnswerable = lastServed === "answered" ? previousCategory : null;
+    if (requested !== null && requested.bare && state.mode === "free") {
+      return reAnswerable !== null
+        ? this.serveReply(
+            t,
+            state,
+            reAnswerable,
+            { ...BARE_REQUEST_FACTS, category: reAnswerable },
+            askPlan(requested.language, keptLanguageOf(state)),
+          )
+        : this.serveLanguageAsk(t, state, requested.language, BARE_REQUEST_FACTS);
+    }
+
     const verdict = await this.classifyMemo(t, "free", null);
     const facts = verdictFacts(verdict);
     const action = postClassifyFree(verdict, text);
@@ -426,7 +495,22 @@ export class FreeChatTurns {
         // intent ("resume banana hai") gets the opener.
         return action.firstTurn ? this.passAsFirstTurn(t) : this.serveStart(t, facts, "classifier");
       case "reply":
-        return this.serveReply(t, current, action.category, facts);
+        // A CASUAL language request with no answered reply before it ("bhai marathi mein bolo"
+        // after JOBS) carries no question of its own: a model reply would only re-answer the line
+        // before it — a jobs ask, a refusal. The ask alone, no reply call. A CAREER verdict carries
+        // a new question, and is answered in the requested language with the ask.
+        if (requested !== null && action.category === "casual" && reAnswerable === null) {
+          return this.serveLanguageAsk(t, current, requested.language, facts);
+        }
+        return this.serveReply(
+          t,
+          current,
+          action.category,
+          facts,
+          requested !== null
+            ? askPlan(requested.language, keptLanguageOf(current))
+            : followPlan(keptLanguageOf(current), text),
+        );
       case "fixed":
         return this.serveFreeLine(
           t,
@@ -573,14 +657,21 @@ export class FreeChatTurns {
    * deterministic gate, its refusal as reviewed copy, or the fallback line. The "Resume banayein"
    * chip is always attached, and every third casual reply carries the nudge (R9) — except the reply
    * right after a résumé offer (#2172, see {@link followsResumeOffer}).
+   *
+   * ADR-0051 §11 — written in `plan.language`. When the plan carries an ASK (an explicit request for
+   * a language the worker does not keep yet, R41), an ANSWERED reply is followed by the fixed line
+   * "Kya aage ki saari baat {Language} mein karein?" with its two chips INSTEAD of the follow-ups,
+   * the résumé chip and the nudge, and the offer waits for the next message. Every other ending
+   * (fallback, refusal, news) is served exactly as without one, and asks nothing.
    */
   private async serveReply(
     t: FreeChatTurn,
     state: FreeChatState,
     category: FreeChatReplyCategory,
     facts: VerdictFacts,
+    plan: ReplyLanguagePlan,
   ): Promise<FreeChatRouted> {
-    const out = await this.replyMemo(t, category);
+    const out = await this.replyMemo(t, category, plan.language);
     if (out === null) {
       return this.serveFreeLine(
         t,
@@ -593,7 +684,9 @@ export class FreeChatTurns {
     }
     // ADR-0054 — A NEWS QUESTION. The reply's `news` refusal is the trigger (the classifier's
     // categories are unchanged): the searched answer is tried instead of the fixed NEWS line.
-    if (out.status === "refuse" && out.topic === "news") return this.serveNews(t, state, facts);
+    if (out.status === "refuse" && out.topic === "news") {
+      return this.serveNews(t, state, facts, plan.language);
+    }
     if (out.status === "refuse") {
       return this.serveFreeLine(
         t,
@@ -622,31 +715,45 @@ export class FreeChatTurns {
       );
     }
     const casualReplies = state.casualReplies + (category === "casual" ? 1 : 0);
+    const ask = plan.ask;
     // NEVER RIGHT AFTER AN OFFER (#2172): the classifier reads a "nahi" to the offer as `casual`
     // (R38's lines), so a due nudge here would answer the worker's no with the same question. The
     // count still moves and the nudge is not re-owed: the next one rides the next multiple, as if
-    // the counter had been reset — so a run with no offer in it keeps the cadence exactly.
+    // the counter had been reset — so a run with no offer in it keeps the cadence exactly. NOR
+    // BESIDE THE LANGUAGE ASK (§11): one appended question, and its chips are the ask's.
     const nudge =
+      ask === null &&
       category === "casual" &&
       casualReplies % FREE_CHAT_NUDGE_EVERY === 0 &&
       !followsResumeOffer(t.envelope);
-    const lines = nudge
-      ? [...screened.answer.lines, FREE_CHAT_COPY.CASUAL_NUDGE.latin]
-      : [...screened.answer.lines];
+    const lines =
+      ask !== null
+        ? [...screened.answer.lines, languageAskLine(ask).latin]
+        : nudge
+          ? [...screened.answer.lines, FREE_CHAT_COPY.CASUAL_NUDGE.latin]
+          : [...screened.answer.lines];
     const answers = answersOf(t.envelope);
     const result: TurnResult = {
       ...freeTurnResult(
         lines.join("\n"),
-        followupOptions(screened.answer.followup_chips),
+        ask !== null ? languageAskChips(ask) : followupOptions(screened.answer.followup_chips),
         progressOf(t.progressItems, answers),
         essentialsOf(t.items, answers),
       ),
       // MODEL-WRITTEN: never read aloud, and no Devanagari twin exists for it (R17).
       readAloud: false,
     };
+    const next: FreeChatState = {
+      ...state,
+      casualReplies,
+      // §11 — a bare request on the NEXT turn re-answers in this reply's category.
+      lastReplyCategory: category,
+      lastServed: "answered",
+      ...(ask === null ? {} : { language: { kept: keptLanguageOf(state), offer: ask } }),
+    };
     return this.serveAside(
       t,
-      { ...t.envelope, freeChat: { ...state, casualReplies } },
+      { ...t.envelope, freeChat: next },
       result,
       servedFacts(state.mode, facts, "answered", { nudge }),
       true,
@@ -672,8 +779,9 @@ export class FreeChatTurns {
     t: FreeChatTurn,
     state: FreeChatState,
     facts: VerdictFacts,
+    language: FreeChatReplyLanguage,
   ): Promise<FreeChatRouted> {
-    const news = await this.newsMemo(t);
+    const news = await this.newsMemo(t, language);
     const extra: ServedExtra = { news: newsServedOf(news) };
     if (news.outcome !== "answered") {
       return this.serveFreeLine(
@@ -700,13 +808,74 @@ export class FreeChatTurns {
     };
     return this.serveAside(
       t,
-      { ...t.envelope, freeChat: state },
+      // §11 — a news answer is not re-answered on a bare request: it is no casual or career reply.
+      { ...t.envelope, freeChat: { ...state, lastServed: "other" } },
       result,
       servedFacts(state.mode, facts, NEWS_TURN_OUTCOMES.answered, extra),
     );
   }
 
-  /** One fixed line (plus its chips) as an aside, in the state the turn leaves behind. */
+  /**
+   * THE ASK ANSWERED (ADR-0051 §11, R41) — "Haan": the offered language is KEPT for the whole chat
+   * and LANG_YES is served; "Nahi": any kept language is dropped (each reply follows the message
+   * again) and LANG_NO is served. Both are reviewed fixed lines, read aloud, with no chips, decided
+   * by the chip or the typed word (`decided_by: chip`). The kept language's change, when it IS one,
+   * rides out of the decision for the post-CAS effects: its event and its durable record.
+   */
+  private serveLanguageAnswer(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    offer: FreeChatReplyLanguage,
+    answer: "yes" | "no",
+  ): FreeChatRouted {
+    const from = keptLanguageOf(state);
+    const to = answer === "yes" ? offer : null;
+    const change: FreeChatLanguageChange | null =
+      from === to ? null : { from, to, trigger: answer === "yes" ? "accepted" : "declined" };
+    return this.serveFreeLine(
+      t,
+      { ...state, language: { kept: to } },
+      answer === "yes" ? languageYesLine(offer) : FREE_CHAT_LANG_NO_LINE,
+      [],
+      ANSWER_FACTS,
+      "fixed_line",
+      change === null ? {} : { language: change },
+    );
+  }
+
+  /**
+   * A REQUEST WITH NO ANSWERED REPLY TO RE-ANSWER (ADR-0051 §11) — a bare one, or one the classifier
+   * called casual, after JOBS, a strike, a refusal, the later line or any other fixed line: no model
+   * call, only the reviewed ask "Kya aage ki saari baat {Language} mein karein?" with its two chips,
+   * and the offer waits for the next message. A request for the language the worker ALREADY keeps
+   * has nothing to ask: LANG_YES confirms it, and nothing changes. `facts` are whatever decided it:
+   * the flow (bare) or the classifier.
+   */
+  private serveLanguageAsk(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    language: FreeChatReplyLanguage,
+    facts: VerdictFacts,
+  ): FreeChatRouted {
+    const kept = keptLanguageOf(state);
+    if (kept === language) {
+      return this.serveFreeLine(t, state, languageYesLine(language), [], facts, "fixed_line");
+    }
+    return this.serveFreeLine(
+      t,
+      { ...state, language: { kept, offer: language } },
+      languageAskLine(language),
+      languageAskChips(language),
+      facts,
+      "fixed_line",
+    );
+  }
+
+  /**
+   * One fixed line (plus its chips) as an aside, in the state the turn leaves behind — recording
+   * whether it was the DISTRESS line (whatever decided it), which the next message's language
+   * request reads (§11).
+   */
   private serveFreeLine(
     t: FreeChatTurn,
     state: FreeChatState,
@@ -723,9 +892,11 @@ export class FreeChatTurns {
       progressOf(t.progressItems, answers),
       essentialsOf(t.items, answers),
     );
+    const lastServed: FreeChatLastServed =
+      line.latin === FREE_CHAT_COPY.DISTRESS.latin ? "distress" : "other";
     return this.serveAside(
       t,
-      { ...t.envelope, freeChat: state },
+      { ...t.envelope, freeChat: { ...state, lastServed } },
       result,
       servedFacts(state.mode, facts, outcome, extra),
     );
@@ -891,6 +1062,7 @@ export class FreeChatTurns {
   private replyMemo(
     t: FreeChatTurn,
     category: FreeChatReplyCategory,
+    replyLanguage: FreeChatReplyLanguage,
   ): Promise<FreeChatReplyOutput | null> {
     t.refs.reply ??= (async () =>
       t.service.reply(
@@ -902,6 +1074,7 @@ export class FreeChatTurns {
           summary: await Promise.resolve()
             .then(() => t.fc.summary?.() ?? null)
             .catch(() => null),
+          replyLanguage,
         },
         callCtxOf(t.input),
       ))();
@@ -913,12 +1086,16 @@ export class FreeChatTurns {
    * concurrent turn of the same submission (`FreeChatService.requestNews`), so neither a lost CAS
    * nor the app's resend of a slow submission reserves or pays twice.
    */
-  private newsMemo(t: FreeChatTurn): Promise<FreeChatNewsResolution> {
+  private newsMemo(
+    t: FreeChatTurn,
+    replyLanguage: FreeChatReplyLanguage,
+  ): Promise<FreeChatNewsResolution> {
     t.refs.news ??= t.service.requestNews(
       {
         text: t.input.text,
         messages: t.buffer.messages,
         workerContext: freeChatWorkerContextOf(t.envelope),
+        replyLanguage,
       },
       // The OWN-NAME view (security M1): a name that could not be decrypted rejects, and news fails
       // closed on it. Classify and reply keep `knownName`, which reads it as no name.
@@ -1042,8 +1219,73 @@ function followupOptions(chips: readonly string[]): QuestionPackOption[] {
 
 /** The extras one served turn may carry beyond its verdict facts. */
 type ServedExtra = Partial<
-  Pick<FreeChatServed, "refusalTopic" | "strikeCount" | "cooldownStarted" | "nudge" | "news">
+  Pick<
+    FreeChatServed,
+    "refusalTopic" | "strikeCount" | "cooldownStarted" | "nudge" | "news" | "language"
+  >
 >;
+
+// ---------------------------------------------------------------------------
+// ADR-0051 §11 — the reply language
+// ---------------------------------------------------------------------------
+
+/**
+ * The language ONE model reply is written in, and whether the reply then ASKS to keep it (R41).
+ * Precedence: an explicit request in the message (bare, or classified casual / career), then the
+ * kept language, then the message's own.
+ */
+interface ReplyLanguagePlan {
+  readonly language: FreeChatReplyLanguage;
+  /** The language the ask offers after an answered reply, or null — no ask. */
+  readonly ask: FreeChatReplyLanguage | null;
+}
+
+/**
+ * An explicit request for `requested`: the reply in it, and the ask — unless the worker already
+ * keeps that very language, when the reply simply comes in it.
+ */
+function askPlan(
+  requested: FreeChatReplyLanguage,
+  kept: FreeChatReplyLanguage | null,
+): ReplyLanguagePlan {
+  return { language: requested, ask: requested === kept ? null : requested };
+}
+
+/** No request: the kept language, else the language of the worker's message (R40). No ask. */
+function followPlan(kept: FreeChatReplyLanguage | null, text: string): ReplyLanguagePlan {
+  return { language: kept ?? detectReplyLanguage(text), ask: null };
+}
+
+/** The ask's two chips: "Haan, {Language} mein" · "Nahi". */
+function languageAskChips(language: FreeChatReplyLanguage): QuestionPackOption[] {
+  return [
+    chipOption(FREE_CHAT_LANG_YES_KEY, languageYesLabel(language)),
+    chipOption(FREE_CHAT_LANG_NO_KEY, FREE_CHAT_LANG_NO_LABEL),
+  ];
+}
+
+/**
+ * A BARE language request decided it — the flow itself, re-answering the previous reply: `flow`,
+ * not `lexicon`, which the spine reserves for the distress and abuse lists (no new value: the
+ * payload is frozen). The routed category is filled in at the serve site. A request that is not
+ * bare is classified, and stamps the classifier's own facts.
+ */
+const BARE_REQUEST_FACTS: VerdictFacts = {
+  decidedBy: "flow",
+  category: null,
+  confidenceBucket: null,
+};
+/**
+ * A language request right after the distress line: the flow serves the helpline again, with no
+ * model call (§11) — `flow`, with the distress category the line answers.
+ */
+const DISTRESS_AGAIN_FACTS: VerdictFacts = {
+  decidedBy: "flow",
+  category: "distress",
+  confidenceBucket: null,
+};
+/** The ask's chip, or its typed yes / no, decided it — `chip` by the spine's own definition. */
+const ANSWER_FACTS: VerdictFacts = { decidedBy: "chip", category: null, confidenceBucket: null };
 
 /** One served turn's event facts — every field the payload's refines read, defaulted honestly. */
 function servedFacts(
@@ -1198,8 +1440,9 @@ const NON_QUESTION_REPLIES: ReadonlySet<string> = new Set([
   CLOSING_REPLY,
   UNAVAILABLE_REPLY,
   // ADR-0051 — every free-chat fixed line but the OPENER (a real interview question): the
-  // helpline, the cap, the strikes, the per-category lines, the clarify and deflect leads.
-  ...FREE_CHAT_COPY_ENTRIES.filter(([key]) => key !== "OPENER").map(([, line]) => line.latin),
+  // helpline, the cap, the strikes, the per-category lines, the clarify and deflect leads, and
+  // (§11) every reply-language line.
+  ...FREE_CHAT_FIXED_LINE_ENTRIES.filter(([key]) => key !== "OPENER").map(([, line]) => line.latin),
 ]);
 
 /**

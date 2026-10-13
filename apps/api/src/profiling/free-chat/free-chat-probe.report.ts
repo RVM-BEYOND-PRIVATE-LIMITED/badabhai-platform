@@ -37,6 +37,8 @@ export interface FreeChatProbeData {
   readonly modeChanges: ProbeEvents<"chat.free_chat_mode_changed">;
   readonly summaries: ProbeEvents<"chat.free_chat_summary_updated">;
   readonly news: ProbeEvents<"chat.free_chat_news_served">;
+  /** ADR-0051 §11 — the kept reply language's changes (an answered ask). */
+  readonly languages: ProbeEvents<"chat.free_chat_language_changed">;
   readonly costs: ProbeEvents<"ai.cost_recorded">;
 }
 
@@ -237,6 +239,25 @@ function newsSection(read: ProbeEvents<"chat.free_chat_news_served">): string[] 
   ];
 }
 
+/**
+ * ADR-0051 §11 — how often an answered ask changed the kept reply language, by from × to × trigger.
+ * A null language (none kept: each reply follows the message) prints as "-".
+ */
+function languageSection(read: ProbeEvents<"chat.free_chat_language_changed">): string[] {
+  return [
+    "-- chat.free_chat_language_changed --",
+    `  changes=${read.events.length}${readNote(read)}`,
+    ...table(
+      ["from", "to", "trigger", "n"],
+      crossTab(read.events, (e) => [
+        e.payload.from ?? NONE,
+        e.payload.to ?? NONE,
+        e.payload.trigger,
+      ]),
+    ),
+  ];
+}
+
 /** One `ai.cost_recorded` group: a free-chat task × real_call × success. */
 export interface CostRow {
   readonly task: string;
@@ -420,6 +441,8 @@ export function renderFreeChatProbeReport(
     ...summarySection(data.summaries),
     "",
     ...newsSection(data.news),
+    "",
+    ...languageSection(data.languages),
     "",
     ...costSection(data.costs),
     ...(sample === null ? [] : ["", ...sampleSection(sample)]),

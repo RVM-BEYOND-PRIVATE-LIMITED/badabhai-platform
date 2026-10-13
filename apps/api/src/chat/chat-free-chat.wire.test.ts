@@ -598,11 +598,13 @@ const SUMMARY = {
   folded_lines: 6,
 };
 
-describe("Release 2 — the replacing writers leave the summary to their own SQL", () => {
-  // The statement keeps the LIVE row's key (`keepLiveFreeChatSummary`, pinned in
+describe("Release 2 / §11 — the replacing writers leave the summary and kept language to their own SQL", () => {
+  // The statement keeps the LIVE row's keys (`keepLiveFreeChatKeys`, pinned in
   // chat.repository.test.ts). The service must NOT spread the copy it READ: that copy can be older
-  // than a fold that landed since, and spreading it would only hand the SQL a stale value to lose.
-  const ROW = { turn_count: 2, free_chat_summary: SUMMARY };
+  // than a fold or an answered ask that landed since, and spreading it would only hand the SQL a
+  // stale value to lose.
+  const LANGUAGE = { v: 1, language: "marathi", set_at: T0.toISOString(), session_id: SESSION };
+  const ROW = { turn_count: 2, free_chat_summary: SUMMARY, free_chat_language: LANGUAGE };
   const env = (): ProfilingEnvelope => ({ ...emptyProfilingEnvelope(), freeChat: null });
 
   it("the mid-interview checkpoint", async () => {
@@ -614,6 +616,7 @@ describe("Release 2 — the replacing writers leave the summary to their own SQL
     await svc.postMessage(WORKER, DTO, CTX);
     const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
     expect("free_chat_summary" in state).toBe(false);
+    expect("free_chat_language" in state).toBe(false);
   });
 
   it("the completion flush", async () => {
@@ -625,6 +628,7 @@ describe("Release 2 — the replacing writers leave the summary to their own SQL
     await svc.postMessage(WORKER, DTO, CTX);
     const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
     expect("free_chat_summary" in state).toBe(false);
+    expect("free_chat_language" in state).toBe(false);
   });
 
   it("the abandon sweep with its buffer alive", async () => {
@@ -636,6 +640,7 @@ describe("Release 2 — the replacing writers leave the summary to their own SQL
     );
     const state = alive.chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>;
     expect("free_chat_summary" in state).toBe(false);
+    expect("free_chat_language" in state).toBe(false);
   });
 });
 

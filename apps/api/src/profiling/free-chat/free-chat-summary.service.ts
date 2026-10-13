@@ -16,7 +16,7 @@ import type { BufferedMessage } from "../../chat/chat-transcript.buffer";
 import { logSafeReason } from "../../common/db-error";
 import type { KnownNameSource } from "../../common/redact-known-name";
 import { EventsService } from "../../events/events.service";
-import { FREE_CHAT_COPY_ENTRIES } from "./free-chat.copy";
+import { FREE_CHAT_FIXED_LINE_ENTRIES } from "./free-chat.copy";
 import { FreeChatFoldLock } from "./free-chat-fold.lock";
 import {
   FREE_CHAT_FOLD_MAX_LINES,
@@ -99,9 +99,12 @@ export function planFold(
   return { watermark, batch, target: watermark + batch.length };
 }
 
-/** Every fixed free-chat line — the casual NUDGE rides inside a model reply's bubble. */
+/**
+ * Every fixed free-chat line — the casual NUDGE and (ADR-0051 §11) the reply-language ASK ride
+ * inside a model reply's bubble.
+ */
 const FIXED_LINES: ReadonlySet<string> = new Set(
-  FREE_CHAT_COPY_ENTRIES.map(([, line]) => line.latin),
+  FREE_CHAT_FIXED_LINE_ENTRIES.map(([, line]) => line.latin),
 );
 
 /**

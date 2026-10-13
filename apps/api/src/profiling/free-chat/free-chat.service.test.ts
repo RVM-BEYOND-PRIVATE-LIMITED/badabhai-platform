@@ -98,7 +98,15 @@ function make(knownName: string | null = "Ramesh Kumar", opts: MakeOpts = {}) {
   };
   const cost = { record: vi.fn(async (..._args: unknown[]) => undefined) };
   const events = { emit: vi.fn(async (_params: unknown) => undefined) };
-  const chat = { mergeFreeChatLock: vi.fn(async (..._args: unknown[]) => true) };
+  const chat = {
+    mergeFreeChatLock: vi.fn(async (..._args: unknown[]) => true),
+    // ADR-0051 §11 — the kept reply language's merge and its read at a greeting.
+    mergeFreeChatLanguage: vi.fn(async (..._args: unknown[]) => true),
+    findLatestFreeChatLanguage: vi.fn(
+      async (_workerId: string): Promise<{ id: string; language: unknown } | undefined> =>
+        undefined,
+    ),
+  };
   const service = new FreeChatService(
     ai as never,
     cost as never,
@@ -309,6 +317,7 @@ describe("reply — G2 and the ledger", () => {
         messages: [],
         workerContext: { trade_label: "Ramesh Kumar welding", experience_bucket: null },
         summary: null,
+        replyLanguage: null,
       },
       ctx,
     );
@@ -328,6 +337,7 @@ describe("reply — G2 and the ledger", () => {
         messages,
         workerContext: { trade_label: "Welder", experience_bucket: "3-7" },
         summary: null,
+        replyLanguage: null,
       },
       ctx,
     );
@@ -352,6 +362,7 @@ describe("Release 2 — the rolling summary rides the REPLY only (R24)", () => {
     messages: [],
     workerContext: { trade_label: null, experience_bucket: null },
     summary,
+    replyLanguage: null,
   });
 
   it("carries the stored summary into the reply input, the worker's own name redacted (G2)", async () => {
@@ -521,6 +532,7 @@ const NEWS_REQ = {
   text: "Ramesh puchh raha hai, Pune mein koi factory khul rahi hai?",
   messages: [line("assistant", "Ramesh ji, kaise hain?"), line("worker", "main Ramesh, theek")],
   workerContext: { trade_label: "Ramesh Kumar welding", experience_bucket: "3-7" as const },
+  replyLanguage: null,
 };
 const MOCK_META = { ...META, task_type: "profiling_free_news", real_call: false };
 
@@ -761,6 +773,7 @@ describe("requestNews — what is never searched (R9, security M1)", () => {
         messages: [],
         workerContext: { trade_label: null, experience_bucket: null },
         summary: null,
+        replyLanguage: null,
       },
       throwing,
     );
@@ -869,5 +882,135 @@ describe("recordNews — chat.free_chat_news_served, counts and enums only", () 
         ref,
       ),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0051 §11 — the reply language: the model inputs, the spine and the durable record
+// ---------------------------------------------------------------------------
+
+describe("§11 — reply_language rides the reply and the news inputs (R39)", () => {
+  it("the reply input carries the language the turn decided", async () => {
+    const { service, ai, ctx } = make();
+    await service.reply(
+      {
+        category: "career",
+        text: "mala welding shikaychi aahe",
+        messages: [],
+        workerContext: { trade_label: null, experience_bucket: null },
+        summary: null,
+        replyLanguage: "marathi",
+      },
+      ctx,
+    );
+    expect((ai.freeChatReply.mock.calls[0]![0] as { reply_language: unknown }).reply_language).toBe(
+      "marathi",
+    );
+  });
+
+  it("the news input carries it too", async () => {
+    const { service, ai, ctx } = make();
+    await service.news({ ...NEWS_REQ, replyLanguage: "tamil" }, ctx, null);
+    expect((ai.freeChatNews.mock.calls[0]![0] as { reply_language: unknown }).reply_language).toBe(
+      "tamil",
+    );
+  });
+});
+
+describe("§11 — the kept language on the spine and on the row, never throwing", () => {
+  const ref = {
+    workerId: WORKER,
+    sessionId: SESSION,
+    submissionId: SUBMISSION,
+    turnRef: "rev4",
+    ctx: CTX as never,
+  };
+
+  it.each([
+    [{ from: null, to: "marathi", trigger: "accepted" }],
+    [{ from: "tamil", to: "marathi", trigger: "accepted" }],
+    [{ from: "marathi", to: null, trigger: "declined" }],
+  ] as const)("emits %j as a change that validates, keyed on the submission", async (change) => {
+    const { service, events } = make();
+    await service.recordLanguageChanged(change, ref);
+    const params = events.emit.mock.calls[0]![0] as {
+      event_name: string;
+      payload: unknown;
+      idempotencyKey: string;
+    };
+    expect(params.event_name).toBe("chat.free_chat_language_changed");
+    expect(params.payload).toEqual({
+      worker_id: WORKER,
+      session_id: SESSION,
+      from: change.from,
+      to: change.to,
+      trigger: change.trigger,
+    });
+    expect(
+      EVENT_REGISTRY["chat.free_chat_language_changed"].payload.safeParse(params.payload).success,
+    ).toBe(true);
+    expect(params.idempotencyKey).toBe(`chat.free_chat_language_changed:${SESSION}:${SUBMISSION}`);
+  });
+
+  it("falls back to the write's rev without a submission", async () => {
+    const { service, events } = make();
+    await service.recordLanguageChanged(
+      { from: null, to: "tamil", trigger: "accepted" },
+      { ...ref, submissionId: null },
+    );
+    expect((events.emit.mock.calls[0]![0] as { idempotencyKey: string }).idempotencyKey).toBe(
+      `chat.free_chat_language_changed:${SESSION}:rev4`,
+    );
+  });
+
+  it("merges the record onto THIS session's row, set at the turn's clock — a decline as null", async () => {
+    const { service, chat } = make();
+    const now = new Date(at);
+    await service.persistLanguage(SESSION, WORKER, "marathi", now);
+    await service.persistLanguage(SESSION, WORKER, null, now);
+    expect(chat.mergeFreeChatLanguage.mock.calls).toEqual([
+      [SESSION, WORKER, { v: 1, language: "marathi", set_at: at, session_id: SESSION }],
+      [SESSION, WORKER, { v: 1, language: null, set_at: at, session_id: SESSION }],
+    ]);
+  });
+
+  it("swallows an emit failure and a merge failure", async () => {
+    const { service, events, chat } = make();
+    events.emit.mockRejectedValue(new Error("db down"));
+    chat.mergeFreeChatLanguage.mockRejectedValue(new Error("db down"));
+    await expect(
+      service.recordLanguageChanged({ from: null, to: "tamil", trigger: "accepted" }, ref),
+    ).resolves.toBeUndefined();
+    await expect(
+      service.persistLanguage(SESSION, WORKER, "tamil", new Date(at)),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("§11 — keptLanguage, read at a greeting", () => {
+  const record = (language: string | null) => ({
+    id: SESSION,
+    language: { v: 1, language, set_at: at, session_id: SESSION },
+  });
+
+  it("is the latest SET record's language — a decline reads as none kept", async () => {
+    const { service, chat } = make();
+    chat.findLatestFreeChatLanguage.mockResolvedValueOnce(record("gujarati"));
+    expect(await service.keptLanguage(WORKER, SESSION)).toBe("gujarati");
+    chat.findLatestFreeChatLanguage.mockResolvedValueOnce(record(null));
+    expect(await service.keptLanguage(WORKER, SESSION)).toBeNull();
+    expect(chat.findLatestFreeChatLanguage).toHaveBeenCalledWith(WORKER);
+  });
+
+  it("fails SOFT to none kept: no record, an unparseable one, a read that throws", async () => {
+    const { service, chat } = make();
+    expect(await service.keptLanguage(WORKER, SESSION)).toBeNull();
+    chat.findLatestFreeChatLanguage.mockResolvedValueOnce({
+      id: SESSION,
+      language: { v: 2, language: "tamil" },
+    });
+    expect(await service.keptLanguage(WORKER, SESSION)).toBeNull();
+    chat.findLatestFreeChatLanguage.mockRejectedValueOnce(new Error("statement timeout"));
+    expect(await service.keptLanguage(WORKER, SESSION)).toBeNull();
   });
 });

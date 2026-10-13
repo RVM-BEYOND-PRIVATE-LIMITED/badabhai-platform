@@ -6,9 +6,15 @@ import {
   coolingDown,
   enterMode,
   FREE_CHAT_COOLDOWN_MS,
+  FREE_CHAT_LANGUAGE_KEY,
+  freeChatLanguageRecord,
   greetingState,
+  keptLanguageOf,
+  lapsedOf,
   narrowFreeChat,
   pendingKeyOf,
+  readFreeChatLanguage,
+  readFreeChatLanguageValue,
   readFreeChatLock,
   storedFreeChatLock,
   registerStrike,
@@ -218,5 +224,134 @@ describe("the durable lock — chat_sessions.conversation_state.free_chat_lock",
     expect(carriesFreeChatLock({ free_chat_lock: { v: 2 } })).toBe(true);
     expect(carriesFreeChatLock({ turn_count: 3 })).toBe(false);
     expect(carriesFreeChatLock(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0051 §11 — the reply language in the envelope, and its durable record
+// ---------------------------------------------------------------------------
+
+describe("the reply language in the envelope (ADR-0051 §11)", () => {
+  const free = enterMode(greetingState(), "free", "chip", T0);
+
+  it("round-trips the kept language, a pending offer and the previous reply's category", () => {
+    const state: FreeChatState = {
+      ...free,
+      language: { kept: "tamil", offer: "marathi" },
+      lastReplyCategory: "career",
+    };
+    expect(narrowFreeChat(JSON.parse(JSON.stringify(state)))).toEqual(state);
+  });
+
+  it("an envelope written BEFORE §11 parses as no kept language and no offer — no new key at all", () => {
+    const older = JSON.parse(JSON.stringify(free)) as Record<string, unknown>;
+    expect("language" in older).toBe(false);
+    const narrowed = narrowFreeChat(older)!;
+    expect("language" in narrowed).toBe(false);
+    expect("lastReplyCategory" in narrowed).toBe(false);
+    expect(keptLanguageOf(narrowed)).toBeNull();
+    expect(keptLanguageOf(null)).toBeNull();
+  });
+
+  it("fails soft: an unreadable kept language is none; an offer and a category only in free mode", () => {
+    expect(narrowFreeChat({ ...free, language: { kept: "klingon" } })?.language).toBeUndefined();
+    expect(narrowFreeChat({ ...free, language: "marathi" })?.language).toBeUndefined();
+    expect(narrowFreeChat({ ...free, language: { kept: null, offer: "x" } })?.language).toEqual({
+      kept: null,
+    });
+    expect(
+      narrowFreeChat({ ...free, lastReplyCategory: "jobs" })?.lastReplyCategory,
+    ).toBeUndefined();
+    const greeting = { ...greetingState(), language: { kept: "tamil", offer: "marathi" } };
+    expect(narrowFreeChat(greeting)?.language).toEqual({ kept: "tamil" });
+    const resume = {
+      ...enterMode(null, "resume", "chip", T0),
+      language: { kept: "tamil", offer: "marathi" },
+      lastReplyCategory: "casual",
+    };
+    expect(narrowFreeChat(resume)?.language).toEqual({ kept: "tamil" });
+    expect(narrowFreeChat(resume)?.lastReplyCategory).toBeUndefined();
+  });
+
+  it("the greeting holds the language the worker last kept — and is byte-identical without one", () => {
+    expect(greetingState("marathi").language).toEqual({ kept: "marathi" });
+    expect(keptLanguageOf(greetingState("marathi"))).toBe("marathi");
+    expect("language" in greetingState()).toBe(false);
+    expect(greetingState(null)).toEqual(greetingState());
+  });
+
+  it("lapsedOf drops the offer and the previous category — the kept language stays", () => {
+    const pending: FreeChatState = {
+      ...free,
+      language: { kept: "tamil", offer: "marathi" },
+      lastReplyCategory: "casual",
+    };
+    const lapsed = lapsedOf(pending);
+    expect(lapsed.language).toEqual({ kept: "tamil" });
+    expect("lastReplyCategory" in lapsed).toBe(false);
+    expect("language" in lapsedOf(free)).toBe(false);
+  });
+
+  it("a mode change lets a pending offer lapse and keeps the kept language", () => {
+    const pending: FreeChatState = { ...free, language: { kept: "tamil", offer: "marathi" } };
+    expect(enterMode(pending, "resume", "chip", T0).language).toEqual({ kept: "tamil" });
+  });
+
+  it("what the previous turn served round-trips in greeting and free mode, and lasts one message", () => {
+    for (const lastServed of ["answered", "distress", "other"] as const) {
+      const state: FreeChatState = { ...free, lastServed };
+      expect(narrowFreeChat(JSON.parse(JSON.stringify(state)))).toEqual(state);
+    }
+    // The distress line at the greeting is read there too.
+    expect(narrowFreeChat({ ...greetingState(), lastServed: "distress" })?.lastServed).toBe(
+      "distress",
+    );
+    // Unreadable, older, or in résumé mode: absent ("other").
+    expect("lastServed" in narrowFreeChat({ ...free, lastServed: "panic" })!).toBe(false);
+    expect("lastServed" in narrowFreeChat(JSON.parse(JSON.stringify(free)))!).toBe(false);
+    const resume = { ...enterMode(null, "resume", "chip", T0), lastServed: "distress" };
+    expect(narrowFreeChat(resume)?.lastServed).toBeUndefined();
+    expect("lastServed" in lapsedOf({ ...free, lastServed: "distress" })).toBe(false);
+  });
+});
+
+describe("the kept language's durable record — conversation_state.free_chat_language", () => {
+  const SESSION = "33333333-3333-4333-8333-333333333333";
+
+  it("is built set now, on this session — a decline is a null language, a SET value", () => {
+    expect(freeChatLanguageRecord("marathi", T0, SESSION)).toEqual({
+      v: 1,
+      language: "marathi",
+      set_at: T0.toISOString(),
+      session_id: SESSION,
+    });
+    expect(freeChatLanguageRecord(null, T0, SESSION).language).toBeNull();
+  });
+
+  it("reads back strictly, failing soft to null", () => {
+    const record = freeChatLanguageRecord("tamil", T0, SESSION);
+    expect(readFreeChatLanguage({ turn_count: 2, [FREE_CHAT_LANGUAGE_KEY]: record })).toEqual(
+      record,
+    );
+    expect(readFreeChatLanguageValue(freeChatLanguageRecord(null, T0, SESSION))).toEqual({
+      v: 1,
+      language: null,
+      set_at: T0.toISOString(),
+      session_id: SESSION,
+    });
+    expect(readFreeChatLanguageValue({ ...record, v: 2 })).toBeNull();
+    expect(readFreeChatLanguageValue({ ...record, language: "klingon" })).toBeNull();
+    expect(readFreeChatLanguageValue({ ...record, extra: true })).toBeNull();
+    expect(readFreeChatLanguageValue({ ...record, set_at: "yesterday" })).toBeNull();
+    expect(readFreeChatLanguage({ turn_count: 2 })).toBeNull();
+    expect(readFreeChatLanguage(null)).toBeNull();
+  });
+
+  it("is never part of the envelope's lock patch — only the merge writes it", () => {
+    const pending: FreeChatState = {
+      ...enterMode(greetingState(), "resume", "chip", T0),
+      language: { kept: "tamil" },
+    };
+    expect(Object.keys(toFreeChatStatePatch({ freeChat: pending }))).toEqual(["free_chat_lock"]);
   });
 });

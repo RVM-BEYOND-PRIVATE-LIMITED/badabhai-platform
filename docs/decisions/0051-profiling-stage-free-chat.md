@@ -516,15 +516,73 @@ Understanding was never the problem: the Marathi question was classified and ans
   - Latin text is scored against per-language marker words. Examples: Marathi "aahe", "mala", "kay"; Gujarati "chhe",
     "mare", "kem"; Tamil "enakku", "eppadi"; Telugu "naaku", "ela"; Kannada "nanage", "hege". English is told apart
     from Hinglish by Hindi markers.
-  - A tie, or too little evidence, is Hinglish.
-- **Precedence for one reply:** an explicit request in the message, then the kept language, then the message's own
-  language.
+  - Markers are counted once each. Two distinct markers decide a regional language. One decides only when the message
+    carries no word Hindi shares with another language: "main vela baitha hu" is Hinglish, not Tamil.
+  - The danda and the Devanagari digits belong to no language.
+  - A tie, or too little evidence, is Hinglish. The word lists live in `free-chat-language.lexicon.ts`.
+- **Right after the distress line, any request gets the distress line again.** That holds whether the line came
+  from the word list, a classifier verdict or a model refusal, and whether the request is bare or not. There is no
+  model call and no ask: a worker who cannot read the helpline line and asks for their language is never handed a
+  model reply.
+- **A bare request skips the classifier.** A request is bare when every word belongs to the request grammar: the
+  language's name, an "in"-word ("mein", "madhe", "la", "lo", "alli"), a request verb, a reply noun ("jawab",
+  "baat"), or a small closed filler set ("mujhe", "aap", "please", "na", "ji"). A negation may appear only where it
+  negates another named language ("english mein nahi, hindi mein bolo"). Any other negation ("nahi samjha", "ab
+  aage nahi") makes the request not bare. "marathi mai jawab do" is bare. In free mode:
+  - after an answered casual or career reply, it re-answers that reply's category in the requested language, then
+    asks;
+  - after any other turn (JOBS, a strike, off-limits, a refusal, the later line…), it makes no model call and serves
+    the ask alone with its two chips. If the worker already keeps that language, LANG_YES confirms it instead.
+- **Any other message carrying a request is classified**, and routed by the verdict as usual:
+  - distress (any confidence) gets the distress line; trash gets a strike; jobs gets the JOBS line; résumé enters
+    résumé mode; off-limits gets its line; unclear or unavailable gets today's clarify;
+  - casual or career gets the reply in the requested language, then the ask;
+  - but a casual verdict with no answered reply before it ("bhai marathi mein bolo" after JOBS) carries no question
+    of its own, so it gets the ask alone, with no model call. A career verdict carries a new question and is still
+    answered.
+
+  So "can you tell me in tamil what is welder salary" gets a career reply in Tamil, and "reply in english, i want to
+  die" gets the distress line. The request's language applies only to the model-written reply: fixed lines stay
+  Hinglish (R27). At the greeting even a bare request is classified, because only the classifier moves it to free
+  mode.
+- **A request needs a verb aimed at the reply.** That is a speech verb ("bolo", "sanga", "sollunga", "cheppandi",
+  "heli", "reply in", "speak") or a reply noun with a verb ("jawab do", "baat karo"). A generic verb on its own
+  ("batao", "karna", "dedo") counts only when the whole message is the request, or, for a verb of telling, when it
+  comes straight after "{L} mein". So "kannada me batao" and "marathi mein batao welder salary kitni hai" are
+  requests, but "gujarati mein job batao" and "tamil me kaam karna hai" are not. A negation cancels a request when
+  it negates the request itself:
+  - inside it ("english mein mat bolo"), including Hinglish "na" directly before a verb ("english mein na bolo",
+    "reply na karo"); "bolo na" stays a please tag;
+  - after it, with at most two particles between ("english mein reply nahi karna", "reply kabhi mat karna", "bolo
+    hi mat", "bolna band karo");
+  - a prohibitive just before it ("mat english mein bolo", "dont reply in English", "no english please", "stop
+    reply in English").
+
+  A negation of another language does not: "english mein bolo, hindi nahi aati" asks for English.
+- **Format characters are dropped before reading.** All of `\p{Cf}` goes (zero-width space and joiners, soft hyphen,
+  bidi controls), so an invisible character cannot split one word into two grammar words.
+- **Precedence for one reply:** the requested language (a bare request, or a classified casual or career reply),
+  then the kept language, then the message's own language.
 - **The kept language** is stored as a `free_chat_language {v:1, language, set_at, session_id}` sibling key in
   `chat_sessions.conversation_state`. It is written by jsonb merge, with no migration, and read at session open
   (the latest set value), like the §8 summary. Account erasure removes it with the session rows.
 - **The ask** is served after the requested-language reply, with its two chips. Only the next message can answer
-  it. A tapped chip, or its typed label, is read deterministically. Anything else lets the offer lapse with no
-  change.
+  it, and only if the guards (distress, the chips, the cool-down, the aside cap, the abuse list) let it through. An
+  answer is one of these:
+  - the chip;
+  - its typed label;
+  - a bare yes or no ("haan", "ho", "aam", "avunu", "haudu", "theek hai", "nahi", "nako"), followed only by the
+    offered language's name or "mein"-type words. "ji" may appear anywhere ("haan ji", "ji nahi" is a no), and "ji"
+    alone is a yes.
+
+  Anything else lets the offer lapse silently, with no change, and the message goes through the normal flow,
+  classifier included. So "haan marna hai" and "accha salary kitni hai" are not a yes.
+- **`decided_by`** on `chat.free_chat_turn_served`: a bare request stamps `flow` (so does the ask served alone, and
+  the distress line served again after a request); an answered ask stamps `chip`; a classified request stamps
+  `classifier` (or `fallback` when the classifier is unavailable). `lexicon` stays reserved for the distress and
+  abuse lists.
+- **What the previous turn served** rides the envelope as an optional `lastServed` (`answered`, `distress` or
+  `other`), cleared on every message like the previous reply's category. Older envelopes read it as `other`.
 - **Prompts:**
   - The reply and news prompts carry one hard line, "Reply language: …". English answers are in plain, simple
     English.

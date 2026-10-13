@@ -141,68 +141,104 @@ describe("ChatRepository.endSession — the duplicate-transcript guard", () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════
- * ADR-0051 §8 — a fold merged between a request's read and its whole-column write survives it:
- * every REPLACING writer keeps the LIVE row's `free_chat_summary` in its own statement.
+ * ADR-0051 §8 / §11 — a fold (or an answered language ask) merged between a request's read and
+ * its whole-column write survives it: every REPLACING writer keeps the LIVE row's
+ * `free_chat_summary` AND `free_chat_language` in its own statement.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/** The exact operand every replacing writer appends — the live row's key, or `{}`. */
-const KEEP_LIVE_SUMMARY =
-  `CASE WHEN "chat_sessions"."conversation_state" -> 'free_chat_summary' IS NOT NULL ` +
-  `THEN jsonb_build_object('free_chat_summary', "chat_sessions"."conversation_state" -> 'free_chat_summary') ` +
+/** The live row's key as the right-hand operand of `||` — the key, or `{}`. */
+const keepLive = (key: string): string =>
+  `CASE WHEN "chat_sessions"."conversation_state" -> '${key}' IS NOT NULL ` +
+  `THEN jsonb_build_object('${key}', "chat_sessions"."conversation_state" -> '${key}') ` +
   `ELSE '{}'::jsonb END`;
+/** The §8 summary's operand. */
+const KEEP_LIVE_SUMMARY = keepLive("free_chat_summary");
+/** The §11 kept language's operand. */
+const KEEP_LIVE_LANGUAGE = keepLive("free_chat_language");
+/** What every replacing writer appends, in this order: the summary, then the kept language. */
+const KEEP_LIVE_KEYS = `${KEEP_LIVE_SUMMARY} || ${KEEP_LIVE_LANGUAGE}`;
 
-describe("the replacing writers keep the LIVE row's rolling summary (ADR-0051 §8)", () => {
+describe("the replacing writers keep the LIVE row's summary and kept language (ADR-0051 §8, §11)", () => {
   const STATE = { turn_count: 4, answer_map: [] };
 
-  it("saveConversationState (the checkpoint, the correction): state || the live key", async () => {
+  it("saveConversationState (the checkpoint, the correction): state || the live keys", async () => {
     const { db, captured } = makeCapturingDb();
     const at = new Date("2026-10-07T10:00:00.000Z");
     await new ChatRepository(db as never).saveConversationState(SESSION, STATE, at);
     const q = renderQuery(captured.set!.conversationState);
-    expect(q.sql).toBe(`$1::jsonb || ${KEEP_LIVE_SUMMARY}`);
-    // The state is ONE bound value; the live summary is read from the row, never re-sent.
+    expect(q.sql).toBe(`$1::jsonb || ${KEEP_LIVE_KEYS}`);
+    // The state is ONE bound value; the live keys are read from the row, never re-sent.
     expect(q.params).toEqual([JSON.stringify(STATE)]);
     expect(captured.set!.lastMessageAt).toBe(at);
   });
 
-  it("endSession (the flush): state || TD145's mark || the live key", async () => {
+  it("endSession (the flush): state || TD145's mark || the live keys", async () => {
     const { db, captured } = makeCapturingDb();
     await new ChatRepository(db as never).endSession(db as never, SESSION, STATE, new Date());
     const q = renderQuery(captured.set!.conversationState);
     expect(q.sql).toBe(
       `$1::jsonb || jsonb_strip_nulls(jsonb_build_object('general_form_completed_at', ` +
-        `"chat_sessions"."conversation_state" -> 'general_form_completed_at')) || ${KEEP_LIVE_SUMMARY}`,
+        `"chat_sessions"."conversation_state" -> 'general_form_completed_at')) || ${KEEP_LIVE_KEYS}`,
     );
     expect(q.params).toEqual([JSON.stringify(STATE)]);
   });
 
-  it("abandonSession (the sweep): state || the live key, still conditional on `active`", async () => {
+  it("abandonSession (the sweep): state || the live keys, still conditional on `active`", async () => {
     const { db, captured } = makeCapturingDb();
     const at = new Date("2026-10-07T10:00:00.000Z");
     await new ChatRepository(db as never).abandonSession(db as never, SESSION, STATE, at);
     const q = renderQuery(captured.set!.conversationState);
-    expect(q.sql).toBe(`$1::jsonb || ${KEEP_LIVE_SUMMARY}`);
+    expect(q.sql).toBe(`$1::jsonb || ${KEEP_LIVE_KEYS}`);
     expect(q.params).toEqual([JSON.stringify(STATE)]);
     expect(captured.set).toMatchObject({ status: "abandoned", endedAt: at });
     expect(renderWhere(captured.where)).toContain('"status"');
   });
 
-  it("the live key goes on the RIGHT of `||` — it wins over an older copy the state carries", async () => {
-    // The correction path spreads the whole column it read, summary included; a fold that landed
-    // since is newer, and the right-hand operand of `||` is the one jsonb keeps.
+  it("the live keys go on the RIGHT of `||` — they win over an older copy the state carries", async () => {
+    // The correction path spreads the whole column it read, summary and language included; a fold
+    // or an answered ask that landed since is newer, and the right-hand operand of `||` is the one
+    // jsonb keeps.
     const { db, captured } = makeCapturingDb();
-    const stale = { ...STATE, free_chat_summary: { v: 1, text: "- stale", folded_lines: 2 } };
+    const stale = {
+      ...STATE,
+      free_chat_summary: { v: 1, text: "- stale", folded_lines: 2 },
+      free_chat_language: { v: 1, language: "tamil", set_at: "2026-10-01T00:00:00.000Z" },
+    };
     await new ChatRepository(db as never).saveConversationState(SESSION, stale, new Date());
     const q = renderQuery(captured.set!.conversationState);
-    expect(q.sql.endsWith(KEEP_LIVE_SUMMARY)).toBe(true);
+    expect(q.sql.endsWith(KEEP_LIVE_KEYS)).toBe(true);
     expect(q.sql.indexOf("$1::jsonb")).toBe(0);
   });
 
-  it("a CASE, never jsonb_strip_nulls, around the summary — a watermark's `text: null` must survive", async () => {
+  it("a CASE, never jsonb_strip_nulls, around either key — a watermark's `text: null` and a declined `language: null` must survive", async () => {
     const { db, captured } = makeCapturingDb();
     await new ChatRepository(db as never).saveConversationState(SESSION, STATE, new Date());
     const q = renderQuery(captured.set!.conversationState);
     expect(q.sql).not.toContain("jsonb_strip_nulls");
+  });
+
+  it("all three writers keep the SAME keys — none can drop the language the others carry", async () => {
+    const save = makeCapturingDb();
+    await new ChatRepository(save.db as never).saveConversationState(SESSION, STATE, new Date());
+    const end = makeCapturingDb();
+    await new ChatRepository(end.db as never).endSession(
+      end.db as never,
+      SESSION,
+      STATE,
+      new Date(),
+    );
+    const abandon = makeCapturingDb();
+    await new ChatRepository(abandon.db as never).abandonSession(
+      abandon.db as never,
+      SESSION,
+      STATE,
+      new Date(),
+    );
+    for (const { captured } of [save, end, abandon]) {
+      const sql = renderQuery(captured.set!.conversationState).sql;
+      expect(sql).toContain(KEEP_LIVE_LANGUAGE);
+      expect(sql).toContain(KEEP_LIVE_SUMMARY);
+    }
   });
 });
 
@@ -661,6 +697,103 @@ describe("ChatRepository.mergeFreeChatSummary — merged beside the state, monot
     const won = makeCapturingDb();
     expect(
       await new ChatRepository(won.db as never).mergeFreeChatSummary(SESSION, WORKER, SUMMARY),
+    ).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ADR-0051 §11 — the kept reply language
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe("ChatRepository.findLatestFreeChatLanguage — the language a new free chat opens with", () => {
+  it("filters on the worker AND the key's presence IN the WHERE clause — a decline counts", async () => {
+    const h = makeSelectingDb([{ id: SESSION, language: { v: 1 } }]);
+    const out = await new ChatRepository(h.db as never).findLatestFreeChatLanguage(WORKER);
+    expect(out).toEqual({ id: SESSION, language: { v: 1 } });
+    const { sql, params } = new PgDialect().sqlToQuery(h.captured.where as never);
+    expect(sql).toContain('"worker_id" = $1');
+    // The KEY, not the language: a declined ask (`language: null`) is the latest SET value and must
+    // shadow an older session's kept language.
+    expect(sql).toMatch(/"conversation_state" -> 'free_chat_language' IS NOT NULL/);
+    expect(sql).not.toContain("->> 'language'");
+    expect(params).toEqual([WORKER]);
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("orders by the record's own set_at in BYTE order, newest first, then started_at", async () => {
+    const h = makeSelectingDb([]);
+    await new ChatRepository(h.db as never).findLatestFreeChatLanguage(WORKER);
+    const order = renderOrderBy(h);
+    expect(order).toMatch(
+      /^\("chat_sessions"\."conversation_state" -> 'free_chat_language' ->> 'set_at'\) COLLATE "C" DESC NULLS LAST, "chat_sessions"\."started_at" desc$/,
+    );
+  });
+
+  it("returns undefined for a worker who never answered an ask", async () => {
+    const h = makeSelectingDb([]);
+    expect(
+      await new ChatRepository(h.db as never).findLatestFreeChatLanguage(WORKER),
+    ).toBeUndefined();
+  });
+});
+
+describe("ChatRepository.mergeFreeChatLanguage — merged beside the state, monotonic", () => {
+  const RECORD = {
+    v: 1 as const,
+    language: "marathi" as const,
+    set_at: "2026-10-08T10:00:00.000Z",
+    session_id: SESSION,
+  };
+
+  it("MERGES one sibling key — never a replace — with every value a bound parameter", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatLanguage(SESSION, WORKER, RECORD);
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toMatch(
+      /^coalesce\((?:"chat_sessions"\.)?"conversation_state", '\{\}'::jsonb\) \|\| jsonb_build_object\('free_chat_language', jsonb_build_object\('v', 1, 'language', \$1::text, 'set_at', \$2::text, 'session_id', \$3::text\)\)$/,
+    );
+    expect(q.params).toEqual(["marathi", RECORD.set_at, SESSION]);
+    expect(Object.keys(captured.set!)).toEqual(["conversationState"]);
+  });
+
+  it("a DECLINE binds a null language — a set value, stored as JSON null", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatLanguage(SESSION, WORKER, {
+      ...RECORD,
+      language: null,
+    });
+    expect(renderQuery(captured.set!.conversationState).params).toEqual([
+      null,
+      RECORD.set_at,
+      SESSION,
+    ]);
+  });
+
+  it("is scoped to the session and its owner — NOT to an active row — and guarded monotonic", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatLanguage(SESSION, WORKER, RECORD);
+    const { sql, params } = new PgDialect().sqlToQuery(captured.where as never);
+    expect(sql).not.toContain('"status"');
+    // Writes only over no record, or one set EARLIER (byte order) — the WHOLE predicate pinned, so
+    // a guard weakened by an extra disjunct is caught.
+    const s = `"chat_sessions"."conversation_state" -> 'free_chat_language'`;
+    expect(sql).toBe(
+      `("chat_sessions"."id" = $1 and "chat_sessions"."worker_id" = $2 and ` +
+        `(${s} IS NULL OR CASE WHEN jsonb_typeof(${s} -> 'set_at') = 'string' ` +
+        `THEN (${s} ->> 'set_at') COLLATE "C" < $3::text COLLATE "C" ELSE true END))`,
+    );
+    expect(params).toEqual([SESSION, WORKER, RECORD.set_at]);
+  });
+
+  it("reports whether it wrote — false when an answer set at or after this one already landed", async () => {
+    const lost = makeCapturingDb();
+    lost.setUpdateMatchesNothing();
+    expect(
+      await new ChatRepository(lost.db as never).mergeFreeChatLanguage(SESSION, WORKER, RECORD),
+    ).toBe(false);
+    const won = makeCapturingDb();
+    expect(
+      await new ChatRepository(won.db as never).mergeFreeChatLanguage(SESSION, WORKER, RECORD),
     ).toBe(true);
   });
 });
