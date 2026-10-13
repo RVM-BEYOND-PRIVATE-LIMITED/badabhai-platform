@@ -259,7 +259,11 @@ class BbJobCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       if (showRoleArt) ...<Widget>[
-                        RoleArtBanner(roleKind: data.roleKind),
+                        // hideFloor: every scene carries the same full-width
+                        // ivory strip at y84–100, which reads as a grey band
+                        // under the navy art. Window y0–84 (like the deck face
+                        // and the detail screen) so the card has no dead strip.
+                        RoleArtBanner(roleKind: data.roleKind, hideFloor: true),
                         const SizedBox(height: AppSpacing.s3),
                       ],
                       _HeaderRow(data: data, onTitleTap: onTitleTap),
@@ -763,7 +767,8 @@ class _DeckBody extends StatelessWidget {
     // #374 follow-and-snap-back gesture owns.
     final String? meta = data.effectiveMetaRight;
     final String? pay = data.payBand;
-    final bool hasFacts = pay != null || meta != null || data.experience != null;
+    final bool hasFacts =
+        pay != null || meta != null || data.experience != null;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints box) {
         if (!box.maxHeight.isFinite) {
@@ -817,11 +822,7 @@ class _DeckBody extends StatelessWidget {
               // note there is nothing honest to put there, so `spaceBetween`
               // keeps its plain gap rather than inventing a filler.
               if (_notePlacedInFreeSpace)
-                Expanded(
-                  child: Center(
-                    child: _clipped(_freeSpaceNote()),
-                  ),
-                ),
+                Expanded(child: Center(child: _clipped(_freeSpaceNote()))),
               if (hasFacts)
                 // The gap lives INSIDE this block as a padding, not beside it
                 // as a `SizedBox` sibling: `spaceBetween` shares the surplus
@@ -886,8 +887,7 @@ class _DeckBody extends StatelessWidget {
 
   /// The "why am I seeing this" note, drawn on its own so the deck layout can
   /// put it in the card's free space instead of stacking it under the place.
-  Widget _freeSpaceNote() =>
-      _MatchNote(text: data.matchNote!, maxLines: null);
+  Widget _freeSpaceNote() => _MatchNote(text: data.matchNote!, maxLines: null);
 
   Widget _narrative() {
     return Column(

@@ -79,7 +79,12 @@ class ChatMessageSent extends ChatEvent {
   final ChatAnswerSource answerSource;
 
   @override
-  List<Object?> get props => <Object?>[text, optionKey, servedOption, answerSource];
+  List<Object?> get props => <Object?>[
+    text,
+    optionKey,
+    servedOption,
+    answerSource,
+  ];
 }
 
 /// Re-send the failed worker message at [index] (#343). The transcript is
@@ -255,6 +260,7 @@ class ChatState extends Equatable {
     this.lookahead = const <String, PredictedQuestion?>{},
     this.predictedQuestionKey,
     this.askedQuestionKey,
+    this.questionRestored = false,
     this.formOffer,
     this.resumePending = false,
     this.resumeUpdateQueued = false,
@@ -376,6 +382,13 @@ class ChatState extends Equatable {
   /// every turn the server does not name, which is most of them — the pickers
   /// then never appear and the composer behaves exactly as it always has.
   final String? askedQuestionKey;
+
+  /// OWNER ASK (2026-10-12) — [askedQuestionKey] came back from the cold-start
+  /// resume store rather than a served turn: the app was closed (or backed out)
+  /// on a question the worker had not answered. The screen uses this to offer a
+  /// "Location bharein" BUTTON instead of popping the dialog the instant the
+  /// chat reopens. Turn-scoped: a freshly served turn clears it.
+  final bool questionRestored;
 
   /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), from the
   /// LATEST turn — null on every turn except the one that hands over.
@@ -524,6 +537,7 @@ class ChatState extends Equatable {
     // names no question must be able to clear the last key.
     String? askedQuestionKey,
     bool clearAskedQuestionKey = false,
+    bool? questionRestored,
     FormOffer? formOffer,
     // Same idiom as [clearPredictedQuestionKey]: formOffer is TURN-SCOPED
     // (field doc), so a new turn without one must be able to CLEAR the
@@ -580,6 +594,7 @@ class ChatState extends Equatable {
       askedQuestionKey: clearAskedQuestionKey
           ? null
           : (askedQuestionKey ?? this.askedQuestionKey),
+      questionRestored: questionRestored ?? this.questionRestored,
       formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
       answerType: clearAnswerType ? null : (answerType ?? this.answerType),
       // Sticky: once a résumé-confirm session, always (the opening is applied
@@ -626,6 +641,7 @@ class ChatState extends Equatable {
     lookahead,
     predictedQuestionKey,
     askedQuestionKey,
+    questionRestored,
     formOffer,
     resumePending,
     resumeUpdateQueued,
@@ -1019,6 +1035,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ),
     );
 
+    // OWNER ASK (2026-10-12) — remember the OPENING's question too. The identity
+    // intake serves the location question as the FIRST bubble of a fresh session
+    // (`confirm_first: true` → `opening_question_key`), and `_rememberTurn` is
+    // otherwise only called for LATER turns. Without this the state/city question
+    // is never persisted, so closing the app mid-location loses it and the resume
+    // shows an open composer instead of the "Location bharein" button.
+    if (opening != null) {
+      _rememberTurn(opening.options, askedQuestionKey: opening.questionKey);
+    }
+
     if (failed) return;
 
     // #502 transcript hydration, as a FOLLOW-UP emit: redraw a prior session's
@@ -1048,7 +1074,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// Keyed by the live session id, so a later restore can refuse chips that
   /// belong to a session the worker has since left. No session id (a mock, a
   /// failed open) stores nothing rather than storing unattributable chips.
-  void _rememberTurn(List<ChatOption> options) {
+  void _rememberTurn(List<ChatOption> options, {String? askedQuestionKey}) {
     final ChatTurnResumeStore? store = _turnResume;
     if (store == null) return;
     unawaited(() async {
@@ -1063,6 +1089,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
                 (optionKey: o.optionKey, labelText: o.labelText),
             ],
             freeChat: state.freeChat,
+            // OWNER ASK — so a location question the worker abandoned (closed
+            // the app) is offered again as a "Location bharein" button on
+            // reopen instead of vanishing.
+            askedQuestionKey: askedQuestionKey,
           ),
         );
       } catch (_) {
@@ -1095,7 +1125,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     } catch (_) {
       return;
     }
-    if (saved == null || saved.options.isEmpty) return;
+    // OWNER ASK (2026-10-12) — nothing to draw only when the turn had NEITHER
+    // chips NOR a question. A location turn carries no chips, so its pending
+    // question is the whole point of the restore.
+    if (saved == null) return;
+    if (saved.options.isEmpty && saved.askedQuestionKey == null) return;
     final String? live = await _repo.latestSessionId();
     if (live == null || live != saved.sessionId) return;
     // Re-checked after the awaits: a send may have landed while they ran, and
@@ -1105,11 +1139,28 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       for (final ({String optionKey, String labelText}) o in saved.options)
         ChatOption(optionKey: o.optionKey, labelText: o.labelText),
     ];
+    // ONLY the location questions are resumable. Restoring an arbitrary turn's
+    // question could re-open a picker for a step the server has moved past; a
+    // location question is the one the worker cannot answer by typing, so losing
+    // it left them stuck.
+    final String? restoredQuestion =
+        isChatLocationQuestion(saved.askedQuestionKey)
+        ? saved.askedQuestionKey
+        : null;
+    // A live key on the current state always wins over a remembered one.
+    if (restoredQuestion != null && state.askedQuestionKey != null) return;
     emit(
       state.copyWith(
         suggestedOptions: options,
         followups: <String>[for (final ChatOption o in options) o.labelText],
         freeChat: saved.freeChat,
+        askedQuestionKey: restoredQuestion,
+        // Never clears: a null [restoredQuestion] means "nothing to restore",
+        // not "clear whatever key is live".
+        clearAskedQuestionKey: false,
+        // Tells the screen this came back from a cold start: it offers the
+        // "Location bharein" BUTTON rather than auto-opening the dialog.
+        questionRestored: restoredQuestion != null,
       ),
     );
   }
@@ -1360,7 +1411,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }) async {
     _inFlightSends++;
     try {
-      final ChatTurn? sent = await _sendByMode(text, submissionId, answerSource);
+      final ChatTurn? sent = await _sendByMode(
+        text,
+        submissionId,
+        answerSource,
+      );
       if (sent == null) {
         // #1751 — a 409. The text is NOT auto-posted anywhere: the bubble is
         // marked failed (the worker can retry it into the interview himself) and
@@ -1486,7 +1541,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // them. Fire-and-forget: the store never throws and a miss only costs
       // the chips, so it must not sit in front of the emit. On the résumé
       // turn that is the prompt's own chips.
-      _rememberTurn(showResumePrompt ? resumeOptions : turn.suggestedOptions);
+      _rememberTurn(
+        showResumePrompt ? resumeOptions : turn.suggestedOptions,
+        askedQuestionKey: showResumePrompt ? null : turn.askedQuestionId,
+      );
       emit(
         _withCompanionTurn(
           state.copyWith(
@@ -1538,6 +1596,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             clearAskedQuestionKey: showResumePrompt
                 ? true
                 : turn.askedQuestionId == null,
+            // A SERVED turn is a live question, never a restored one — clears
+            // the resume flag so the screen auto-opens the dialog again.
+            questionRestored: false,
             occupationLabel: turn.occupationLabel,
             // #761 — the fresh predictions for the NEXT tap; the current one is done.
             // Empty while the résumé prompt stands: its chips carry no prediction.
@@ -1785,18 +1846,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           sessionFailed: false,
           companion: true,
           companionUnreachable: false,
-      messages: <ChatMessage>[
-        ChatMessage(
-          text: opening.reply,
-          fromWorker: false,
-          ttsText: opening.ttsText,
-          canReadAloud: opening.readAloud != false,
-          // Reviewed server-composed lines → bullets; a model-written turn
-          // (`read_aloud: false`) stays verbatim prose.
-          bulleted: opening.readAloud != false,
-        ),
-        ...state.messages.skip(1),
-      ],
+          messages: <ChatMessage>[
+            ChatMessage(
+              text: opening.reply,
+              fromWorker: false,
+              ttsText: opening.ttsText,
+              canReadAloud: opening.readAloud != false,
+              // Reviewed server-composed lines → bullets; a model-written turn
+              // (`read_aloud: false`) stays verbatim prose.
+              bulleted: opening.readAloud != false,
+            ),
+            ...state.messages.skip(1),
+          ],
           followups: opening.followups,
           suggestedOptions: opening.suggestedOptions,
           questionKind: opening.questionKind,
@@ -1851,18 +1912,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     emit(
       _withCompanionTurn(
         state.copyWith(
-        messages: <ChatMessage>[
-          ...state.messages,
-          ChatMessage(
-            text: fresh.reply,
-            fromWorker: false,
-            ttsText: fresh.ttsText,
-            canReadAloud: fresh.readAloud != false,
-            // Reviewed server-composed lines → bullets; a model-written turn
-            // (`read_aloud: false`) stays verbatim prose.
-            bulleted: fresh.readAloud != false,
-          ),
-        ],
+          messages: <ChatMessage>[
+            ...state.messages,
+            ChatMessage(
+              text: fresh.reply,
+              fromWorker: false,
+              ttsText: fresh.ttsText,
+              canReadAloud: fresh.readAloud != false,
+              // Reviewed server-composed lines → bullets; a model-written turn
+              // (`read_aloud: false`) stays verbatim prose.
+              bulleted: fresh.readAloud != false,
+            ),
+          ],
           followups: fresh.followups,
           suggestedOptions: fresh.suggestedOptions,
           questionKind: fresh.questionKind,
@@ -1941,17 +2002,17 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     emit(
       _withCompanionTurn(
         ChatState(
-        messages: <ChatMessage>[
-          ChatMessage(
-            text: recap.reply,
-            fromWorker: false,
-            ttsText: recap.ttsText,
-            canReadAloud: recap.readAloud != false,
-            // Reviewed server-composed lines → bullets; a model-written turn
-            // (`read_aloud: false`) stays verbatim prose.
-            bulleted: recap.readAloud != false,
-          ),
-        ],
+          messages: <ChatMessage>[
+            ChatMessage(
+              text: recap.reply,
+              fromWorker: false,
+              ttsText: recap.ttsText,
+              canReadAloud: recap.readAloud != false,
+              // Reviewed server-composed lines → bullets; a model-written turn
+              // (`read_aloud: false`) stays verbatim prose.
+              bulleted: recap.readAloud != false,
+            ),
+          ],
           initializing: false,
           followups: recap.followups,
           suggestedOptions: recap.suggestedOptions,
@@ -2284,7 +2345,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ),
     );
     _askedQuestionId = stashed.askedQuestionId;
-    _rememberTurn(stashed.suggestedOptions);
+    // OWNER ASK (2026-10-12) — carry the stashed turn's QUESTION, not just its
+    // chips. The identity intake's state/city question is served as this stashed
+    // turn (it follows the name, behind the résumé prompt), so dropping the key
+    // here CLEARED the remembered location question: the dialog opened, the
+    // worker closed the app, and a cold start found nothing to offer.
+    _rememberTurn(
+      stashed.suggestedOptions,
+      askedQuestionKey: stashed.askedQuestionId,
+    );
   }
 
   /// Show the stashed next question when the worker answers past the résumé
@@ -2322,7 +2391,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ),
     );
     _askedQuestionId = stashed.askedQuestionId;
-    _rememberTurn(stashed.suggestedOptions);
+    // OWNER ASK (2026-10-12) — same as the chip path: the stashed turn's
+    // QUESTION must ride the remembered turn, or a cold start cannot re-offer
+    // the location question the worker abandoned.
+    _rememberTurn(
+      stashed.suggestedOptions,
+      askedQuestionKey: stashed.askedQuestionId,
+    );
   }
 
   /// ADR-0046 §5.2 — the worker tapped Haan: apply the ticked rows.
@@ -2501,18 +2576,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         state.copyWith(
           messages: <ChatMessage>[
             ...state.messages,
-          ChatMessage(
-            text: turn.reply,
-            fromWorker: false,
-            ttsText: turn.ttsText,
-            // ADR-0046 O9 — this was the one bot-bubble site in the feature
-            // without the guard, so a model-written confirm/cancel reply gained
-            // a speaker button the other four paths correctly withhold.
-            canReadAloud: turn.readAloud != false,
-            // Reviewed server-composed lines → bullets; a model-written turn
-            // (`read_aloud: false`) stays verbatim prose.
-            bulleted: turn.readAloud != false,
-          ),
+            ChatMessage(
+              text: turn.reply,
+              fromWorker: false,
+              ttsText: turn.ttsText,
+              // ADR-0046 O9 — this was the one bot-bubble site in the feature
+              // without the guard, so a model-written confirm/cancel reply gained
+              // a speaker button the other four paths correctly withhold.
+              canReadAloud: turn.readAloud != false,
+              // Reviewed server-composed lines → bullets; a model-written turn
+              // (`read_aloud: false`) stays verbatim prose.
+              bulleted: turn.readAloud != false,
+            ),
           ],
           sending: _inFlightSends > 0,
           companion: true,

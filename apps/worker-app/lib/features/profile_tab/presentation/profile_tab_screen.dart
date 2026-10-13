@@ -178,8 +178,6 @@ class _ProfileTabView extends StatelessWidget {
           _skillsCard(s),
         ],
         const SizedBox(height: 12),
-        _languagesSection(context, s),
-        const SizedBox(height: 12),
         _workInfoSection(context, s),
         const SizedBox(height: 12),
         _shortcutsCard(context),
@@ -329,20 +327,6 @@ class _ProfileTabView extends StatelessWidget {
     );
   }
 
-  /// #1579 — the languages section: the filled card, or ONE compact Add entry
-  /// to the existing Profile Edit route when empty. Never a heading-only stub.
-  Widget _languagesSection(BuildContext context, ProfileSummary s) {
-    if (s.languages.isNotEmpty || s.workTypes.isNotEmpty) {
-      return _languagesAndWorkTypesCard(s);
-    }
-    return _addEntryCard(
-      icon: Icons.translate_rounded,
-      title: 'Bhasha aur kaam jodein',
-      subtitle: 'Profile edit mein',
-      onTap: () => context.pushOnce(Routes.profileEdit),
-    );
-  }
-
   /// #1579 — the work-info section: the filled card, or NOTHING when empty.
   ///
   /// The "Kaam ki jaankari jodein" Add entry was removed permanently (owner
@@ -430,32 +414,6 @@ class _ProfileTabView extends StatelessWidget {
     );
   }
 
-  /// #1576 — the chat/forms-captured languages and work types as labelled kit
-  /// chips. Rendered ONLY when at least one list has a value, so an absent
-  /// answer adds no heading and no gap (absence is not a claim). The values
-  /// arrive as PRINTABLE labels from the repository, already resolved against
-  /// the server's own dictionary — this screen never maps a raw slug.
-  Widget _languagesAndWorkTypesCard(ProfileSummary s) {
-    return KitCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const KitCardHeader(
-            icon: Icons.translate_rounded,
-            title: 'Bhasha aur kaam',
-          ),
-          const SizedBox(height: 12),
-          if (s.languages.isNotEmpty)
-            _chipGroup('Bhashayein', s.languages, OnboardingColors.shiftBlue),
-          if (s.languages.isNotEmpty && s.workTypes.isNotEmpty)
-            const SizedBox(height: 12),
-          if (s.workTypes.isNotEmpty)
-            _chipGroup('Kaam ka prakar', s.workTypes, OnboardingColors.successGreen),
-        ],
-      ),
-    );
-  }
-
   /// True when any v4 work fact is present (#1587). The card renders ONLY in
   /// this case, so absent answers add no heading and no gap.
   bool _hasWorkInfo(ProfileSummary s) =>
@@ -492,15 +450,9 @@ class _ProfileTabView extends StatelessWidget {
   List<Widget> _workInfoRows(ProfileSummary s) {
     final List<Widget> groups = <Widget>[
       if (s.commuteKm != null)
-        _infoRow(
-          Icons.commute_rounded,
-          'Aane-jaane: ${s.commuteKm} km tak',
-        ),
+        _infoRow(Icons.commute_rounded, 'Aane-jaane: ${s.commuteKm} km tak'),
       if (s.willingToTravel)
-        _infoRow(
-          Icons.flight_takeoff_rounded,
-          'Travel kar sakte hain',
-        ),
+        _infoRow(Icons.flight_takeoff_rounded, 'Travel kar sakte hain'),
       if (s.salaryPeriod?.isNotEmpty ?? false)
         _infoRow(
           Icons.payments_outlined,
@@ -512,10 +464,7 @@ class _ProfileTabView extends StatelessWidget {
           'Uplabdhata: ${s.availabilityStatus}',
         ),
       if (s.availableFrom?.isNotEmpty ?? false)
-        _infoRow(
-          Icons.calendar_month_outlined,
-          'Kab se: ${s.availableFrom}',
-        ),
+        _infoRow(Icons.calendar_month_outlined, 'Kab se: ${s.availableFrom}'),
       if (s.noticeDays != null)
         _infoRow(
           Icons.hourglass_bottom_outlined,
@@ -524,11 +473,9 @@ class _ProfileTabView extends StatelessWidget {
       for (final String training in s.trainings)
         _infoRow(Icons.school_outlined, 'Training: $training'),
       if (s.occupations.isNotEmpty)
-        _chipGroup(
-          'Aur kaam',
-          <String>[for (final o in s.occupations) o.label],
-          OnboardingColors.shiftBlue,
-        ),
+        _chipGroup('Aur kaam', <String>[
+          for (final o in s.occupations) o.label,
+        ], OnboardingColors.shiftBlue),
     ];
     return <Widget>[
       for (int i = 0; i < groups.length; i++) ...<Widget>[
@@ -536,30 +483,6 @@ class _ProfileTabView extends StatelessWidget {
         groups[i],
       ],
     ];
-  }
-
-  /// A single compact Add entry (#1579): no heading, no claim-like empty
-  /// sentence — one tappable row to the route that collects the section.
-  /// Used ONLY where such a route exists; anything else hides entirely.
-  Widget _addEntryCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    // Method, not class: it closes over nothing and lives beside its callers.
-    return KitCard(
-      padding: EdgeInsets.zero,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        child: BbListRow.kit(
-          icon: icon,
-          title: title,
-          subtitle: subtitle,
-          onTap: onTap,
-        ),
-      ),
-    );
   }
 
   /// "12th • Electronics" / "12th" / "Electronics"; `null` when both are absent
