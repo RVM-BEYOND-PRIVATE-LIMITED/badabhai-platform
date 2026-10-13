@@ -320,6 +320,24 @@ void main() {
           submissionId: any(named: 'submissionId')));
     });
 
+    testWidgets(
+        'Education & Certifications opens its filtered trade-form walk, never submitted',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _turn(_editReply, _sectionOptions));
+      await pumpChat(tester);
+      await triggerMenu(tester);
+
+      await tester.tap(find.text('Education & Certifications'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('SECTION FORM TARGET section_education'), findsOneWidget);
+      verifyNever(() => repo.sendMessage('Education & Certifications',
+          submissionId: any(named: 'submissionId')));
+    });
+
     testWidgets('resume_chat_create mints a new session and resets the thread',
         (WidgetTester tester) async {
       when(() => repo.sendMessage(any(),

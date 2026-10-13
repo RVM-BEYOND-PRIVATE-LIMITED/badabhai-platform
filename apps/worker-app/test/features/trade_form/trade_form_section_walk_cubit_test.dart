@@ -61,6 +61,11 @@ TradeForm _form() => TradeForm(
           title: 'Work history',
           screens: <TradeFormStep>[TradeFormEmploymentStep()],
         ),
+        const TradeFormSection(
+          id: 'education',
+          title: 'Education',
+          screens: <TradeFormStep>[TradeFormQualificationsStep()],
+        ),
       ],
     );
 
@@ -90,7 +95,7 @@ void main() {
     final TradeFormCubit cubit = TradeFormCubit(repo);
     await cubit.load();
 
-    expect(cubit.state.flatSteps, hasLength(7));
+    expect(cubit.state.flatSteps, hasLength(8));
     expect(cubit.state.currentIndex, 0);
   });
 
@@ -100,7 +105,7 @@ void main() {
     await cubit.load(sectionKey: 'section_something_future');
 
     expect(cubit.state.status, TradeFormStatus.ready);
-    expect(cubit.state.flatSteps, hasLength(7));
+    expect(cubit.state.flatSteps, hasLength(8));
   });
 
   test('the Technical Skills walk keeps only capability questions, in order',
@@ -186,6 +191,27 @@ void main() {
     await cubit.load();
     expect(cubit.state.flatSteps, hasLength(1));
     expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+  });
+
+  test(
+      'the Education & Certifications walk keeps only the qualifications '
+      'marker', () async {
+    final TradeFormCubit cubit = TradeFormCubit(repo);
+    await cubit.load(sectionKey: kResumeMenuEducationKey);
+
+    expect(cubit.state.status, TradeFormStatus.ready,
+        reason: 'load error: ${cubit.state.loadError}');
+    expect(cubit.state.flatSteps, hasLength(1));
+    expect(cubit.state.currentStep, isA<TradeFormQualificationsStep>());
+    // Prefill ran for the marker this walk carries (#1710), so the page opens
+    // with the stored qualifications instead of blank (a blank whole-record
+    // PUT would delete them on save).
+    verify(() => repo.loadSavedQualifications()).called(1);
+
+    // A bare retry KEEPS the section walk instead of widening it to the form.
+    await cubit.load();
+    expect(cubit.state.flatSteps, hasLength(1));
+    expect(cubit.state.currentStep, isA<TradeFormQualificationsStep>());
   });
 
   test('a bare retry keeps the section walk instead of widening it', () async {

@@ -5,6 +5,8 @@ import '../../../../core/util/tap_guard.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/title_case.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
+import '../../../chat/domain/chat_resume_menu.dart'
+    show kResumeMenuEducationKey;
 import '../../domain/trade_form_models.dart';
 import 'trade_form_kit.dart';
 import 'trade_form_text_field.dart';
@@ -113,6 +115,7 @@ class TradeFormQualificationsPage extends StatefulWidget {
     this.tierScope = TradeFormTierScope.unscoped,
     this.onPageChanged,
     this.onDraftChanged,
+    this.sectionKey,
   });
 
   /// Per-trade certificate-name suggestions from the form schema
@@ -140,6 +143,20 @@ class TradeFormQualificationsPage extends StatefulWidget {
   /// `trainings` is accepted in the scope and ignored here: this page has no
   /// trainings section to hide, and the PUT leaves an absent key alone.
   final TradeFormTierScope tierScope;
+
+  /// The résumé-section walk this page is drawn inside, if any
+  /// (`trade_form_section_walk.dart`). Null is the full marker, exactly
+  /// today's behaviour.
+  ///
+  /// Set ONLY for the Education & Certifications walk
+  /// ([kResumeMenuEducationKey]), and it OVERRIDES the certificates hide above
+  /// (#2221, the #2220 lesson): the walk is the worker exercising an edit they
+  /// asked for, so it re-asks the certificates they tapped to change even on a
+  /// tier (Easy) that hides them. The override is presentation-only and free
+  /// of data loss BY THE PAGE'S OWN TRI-STATE CONTRACT: hidden certificates
+  /// ride through the PUT untouched, and forcing the section back on re-arms
+  /// its validation on a prefilled-or-editable value.
+  final String? sectionKey;
 
   /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
   /// same contract, off a [pageCount] of 1 (certificates + education share
@@ -170,6 +187,14 @@ class TradeFormQualificationsPageState
   /// / [goToPreviousPage] are no-ops, [isLastPage] is always true, and the
   /// wizard offers "Ho gaya" straight away.
   int get pageCount => 1;
+
+  /// Whether this page draws the certificates section (#2221): the tier's ask,
+  /// OR the Education & Certifications edit walk — which re-asks the section
+  /// the worker tapped to change even on a tier that hides it. See
+  /// [TradeFormQualificationsPage.sectionKey].
+  bool get _showCertificates =>
+      widget.sectionKey == kResumeMenuEducationKey ||
+      !widget.tierScope.hides(kTierFieldCertificates);
 
   /// #1474 — one guard per add button. A worker who taps twice because the new
   /// card appended BELOW the fold got two identical cards; the second tap is
@@ -306,8 +331,10 @@ class TradeFormQualificationsPageState
   /// gate it used to.
   String? currentPageError() {
     // A section this tier does not ask for is never drawn — and a section
-    // that is never drawn is never touched, so it cannot block the save.
-    if (!widget.tierScope.hides(kTierFieldCertificates)) {
+    // that is never drawn is never touched, so it cannot block the save. The
+    // Education & Certifications edit walk forces it drawn again (#2221), so
+    // its validation re-arms too. See [_showCertificates].
+    if (_showCertificates) {
       final String? certificates = _certificatesError();
       if (certificates != null) return certificates;
     }
@@ -403,7 +430,7 @@ class TradeFormQualificationsPageState
   /// certificate, institute or year the worker typed.
   String currentPageSpeech() {
     const String education = '$_kEduTitle\n$_kEduSubtitle';
-    if (widget.tierScope.hides(kTierFieldCertificates)) return education;
+    if (!_showCertificates) return education;
     return '$_kCertTitle\n$_kCertSubtitle\n$education';
   }
 
@@ -585,7 +612,7 @@ class TradeFormQualificationsPageState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        if (!widget.tierScope.hides(kTierFieldCertificates)) ...<Widget>[
+        if (_showCertificates) ...<Widget>[
           const TradeFormHeading(title: _kCertTitle, subtitle: _kCertSubtitle),
           const SizedBox(height: FormFlowLayout.introToOptionsGap),
           _certificatesSection(context),

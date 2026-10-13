@@ -1,7 +1,9 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
     show WorkPrefOptionsDto;
+import 'package:badabhai_worker_app/features/chat/domain/chat_resume_menu.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_employment_page.dart';
+import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_work_dictation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -45,6 +47,7 @@ class _Host {
     List<TradeFormEmploymentSuggestion> suggestions =
         const <TradeFormEmploymentSuggestion>[],
     TradeFormTierScope tierScope = TradeFormTierScope.unscoped,
+    String? sectionKey,
   }) {
     return kitTestApp(
       Scaffold(
@@ -65,6 +68,7 @@ class _Host {
             initialEntries: entries,
             suggestions: suggestions,
             tierScope: tierScope,
+            sectionKey: sectionKey,
           ),
         ),
       ),
@@ -347,5 +351,83 @@ void main() {
       findsOneWidget,
     );
     expect(host.key.currentState!.pageCount, 1);
+  });
+
+  // ── #2220 — the Work History edit walk re-asks what the tier hides ─────────
+  //
+  // On Easy the scope hides `work_done` + `additional_entries`, so the plain
+  // onboarding page draws neither the description box/mic nor the add control.
+  // The edit walk (section walk `section_work_history`) must show BOTH: the
+  // worker tapped this section precisely to change the description they cannot
+  // see. The override is presentation-only — the tier policy is untouched.
+  const TradeFormTierScope easyWorkHistory = TradeFormTierScope(
+    hiddenFields: <String>{kTierFieldWorkDone, kTierFieldAdditionalEntries},
+  );
+  const String workLabel = 'Aap kya kaam karte the?';
+
+  testWidgets(
+      'the description box + mic are hidden on Easy without the edit walk',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        entries: const <TradeFormEmploymentEntry>[_savedJob],
+        tierScope: easyWorkHistory,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(workLabel), findsNothing);
+    expect(find.byType(TradeFormWorkDictation), findsNothing);
+  });
+
+  testWidgets(
+      'the Work History edit walk shows the description box + mic on Easy, '
+      'prefilled, and offers "Aur ek jagah jodein"', (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        entries: const <TradeFormEmploymentEntry>[_savedJob],
+        tierScope: easyWorkHistory,
+        sectionKey: kResumeMenuWorkHistoryKey,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The box + the device mic the worker tapped to edit.
+    expect(find.text(workLabel), findsOneWidget);
+    expect(find.byType(TradeFormWorkDictation), findsOneWidget);
+    // Prefilled with the stored description, not blank.
+    expect(find.text('Parts banate the'), findsOneWidget);
+    // The walk can add a past job (Easy hides it outside the walk).
+    expect(find.text('Aur ek jagah jodein'), findsOneWidget);
+  });
+
+  testWidgets(
+      'the edit walk re-arms the description requirement on a hidden tier',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        // A used card with no description.
+        entries: const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            startYm: '2019-01',
+            stillWorking: true,
+          ),
+        ],
+        tierScope: easyWorkHistory,
+        sectionKey: kResumeMenuWorkHistoryKey,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(host.key.currentState!.currentPageError(),
+        'Aap kya kaam karte the — likhein.');
   });
 }

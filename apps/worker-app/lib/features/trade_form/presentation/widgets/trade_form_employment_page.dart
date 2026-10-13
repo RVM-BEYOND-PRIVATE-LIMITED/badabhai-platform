@@ -6,6 +6,8 @@ import '../../../../core/api/api_client.dart'
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/tap_guard.dart';
 import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
+import '../../../chat/domain/chat_resume_menu.dart'
+    show kResumeMenuWorkHistoryKey;
 import '../../domain/trade_form_models.dart';
 import 'trade_form_kit.dart';
 import 'trade_form_text_field.dart';
@@ -144,6 +146,7 @@ class TradeFormEmploymentPage extends StatefulWidget {
     this.onSkip,
     this.suggestions = const <TradeFormEmploymentSuggestion>[],
     this.onDraftChanged,
+    this.sectionKey,
   });
 
   /// Jobs from a résumé or the chat interview the worker never confirmed
@@ -199,6 +202,20 @@ class TradeFormEmploymentPage extends StatefulWidget {
   ///    the jobs already stored stay on their cards.
   final TradeFormTierScope tierScope;
 
+  /// The résumé-section walk this page is drawn inside, if any
+  /// (`trade_form_section_walk.dart`). Null is the full marker, exactly
+  /// today's behaviour.
+  ///
+  /// Set ONLY for the Work History walk ([kResumeMenuWorkHistoryKey]), and it
+  /// OVERRIDES the two [tierScope] hides above (#2220): the walk is the worker
+  /// exercising an edit they asked for, so it re-asks the very fields they
+  /// tapped to change. On an Easy tier `work_done` + `additional_entries` are
+  /// hidden, which used to leave the edit walk unable to show the description
+  /// box or its mic — the exact field the worker tapped. The override is
+  /// presentation-only: the tier policy is unchanged, and the entry's stored
+  /// description still rides through [TradeFormEmploymentEntry.toJson].
+  final String? sectionKey;
+
   /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
   /// same contract, reported here off [pageCount] (which — unlike
   /// preferences' fixed count — changes at runtime as employer cards are
@@ -248,6 +265,23 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   int get pageCount => _entries.isEmpty ? 1 : _entries.length;
   bool get isFirstPage => _page <= 0;
   bool get isLastPage => _page >= pageCount - 1;
+
+  /// Whether this page draws the work-description box + its mic (#2220). The
+  /// tier's ask, OR the Work History edit walk — which re-asks the very field
+  /// the worker tapped to change even on a tier that hides it. See
+  /// [TradeFormEmploymentPage.sectionKey].
+  bool get _showWorkDone =>
+      widget.sectionKey == kResumeMenuWorkHistoryKey ||
+      !widget.tierScope.hides(kTierFieldWorkDone);
+
+  /// Whether "Aur ek jagah jodein" is offered (#2220). The tier's ask (with
+  /// the empty-list exception below), OR the Work History edit walk, which
+  /// offers the control up to [kTradeFormMaxEmployers]. See
+  /// [TradeFormEmploymentPage.sectionKey].
+  bool get _canAddEntry =>
+      widget.sectionKey == kResumeMenuWorkHistoryKey ||
+      _entries.isEmpty ||
+      !widget.tierScope.hides(kTierFieldAdditionalEntries);
 
   /// The state catalogue + state-tagged city gazetteer (#1429), once loaded.
   /// Null while in flight or if the fetch failed — in BOTH cases the picker
@@ -362,9 +396,10 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   String? _entryError(TradeFormEmploymentEntry e) {
     if (e.employerName.trim().isEmpty) return _kNameRequiredError;
     if (e.roleLabel.trim().isEmpty) return _kRoleRequiredError;
-    // Only when this tier ASKED for it (#1698): a description box the worker
-    // was never shown cannot be a reason to block their save.
-    if (!widget.tierScope.hides(kTierFieldWorkDone) &&
+    // Only when this tier ASKED for it (#1698), or the Work History edit walk
+    // forced it back on (#2220): a description box the worker was never shown
+    // cannot be a reason to block their save.
+    if (_showWorkDone &&
         (e.workDone == null || e.workDone!.trim().isEmpty)) {
       return _kWorkRequiredError;
     }
@@ -557,7 +592,7 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
           citiesFor: _citiesFor,
           onChanged: (TradeFormEmploymentEntry e) => _update(i, e),
           onRemove: () => _remove(i),
-          showWorkDone: !widget.tierScope.hides(kTierFieldWorkDone),
+          showWorkDone: _showWorkDone,
         ),
       );
     }
@@ -566,12 +601,12 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     // Easy, so the control that enters it must still render while the list is
     // EMPTY — otherwise an Easy worker lands on this page with no way to add
     // even their current job (the page rendered title-only). Once one card
-    // exists, Easy hides the control as intended.
-    final bool canAddEntry =
-        _entries.isEmpty || !widget.tierScope.hides(kTierFieldAdditionalEntries);
+    // exists, Easy hides the control as intended. The Work History edit walk
+    // (#2220) forces it back on so a worker can add a past job they tapped to
+    // change. See [_canAddEntry].
     if (isLastPage &&
         _entries.length < kTradeFormMaxEmployers &&
-        canAddEntry) {
+        _canAddEntry) {
       // #1516 — offered exactly where "add" is offered, because accepting one
       // IS adding a job: never past the cap, and never on a tier that does not
       // ask for more jobs.

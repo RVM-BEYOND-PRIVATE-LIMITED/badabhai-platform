@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_resume_menu.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_qualifications_page.dart';
 
@@ -22,6 +23,8 @@ void main() {
   Future<GlobalKey<TradeFormQualificationsPageState>> pump(
     WidgetTester tester, {
     TradeFormQualifications? initial,
+    TradeFormTierScope tierScope = TradeFormTierScope.unscoped,
+    String? sectionKey,
   }) async {
     reported = <List<int>>[];
     tester.view.physicalSize = const Size(900, 2400);
@@ -41,6 +44,8 @@ void main() {
             loadOptions: () async => kOptions,
             onSave: (_) {},
             initialQualifications: initial,
+            tierScope: tierScope,
+            sectionKey: sectionKey,
             onPageChanged: (int p, int c) => reported.add(<int>[p, c]),
           ),
         ),
@@ -493,6 +498,69 @@ void main() {
         institute: 'Govt ITI',
       ));
       expect(key.currentState!.currentPageError(), isNull);
+    });
+  });
+
+  // ── #2221 — the Education edit walk re-asks what the tier hides ────────────
+  //
+  // On Easy the scope hides `certificates`, so the plain page drops the whole
+  // certificates section. The edit walk (section walk `section_education`) must
+  // re-ask it: the worker tapped this section to change certificates they
+  // cannot otherwise see. The override is presentation-only — the stored
+  // certificates still ride through the page's tri-state PUT untouched.
+  group('the Education edit walk forces the certificates section back on', () {
+    const TradeFormTierScope easyEducation = TradeFormTierScope(
+      hiddenFields: <String>{kTierFieldCertificates},
+    );
+
+    testWidgets('Easy without the edit walk hides the certificates section',
+        (WidgetTester tester) async {
+      await pump(tester, tierScope: easyEducation);
+
+      expect(find.text('Koi certificate ya licence hai?'), findsNothing);
+      expect(find.text('Aur ek certificate jodein'), findsNothing);
+      // Education is untouched and still shown.
+      expect(find.text('Padhai ya ITI ki jaankari'), findsOneWidget);
+    });
+
+    testWidgets('the edit walk shows certificates (prefilled) on Easy',
+        (WidgetTester tester) async {
+      await pump(
+        tester,
+        tierScope: easyEducation,
+        sectionKey: kResumeMenuEducationKey,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(
+              name: 'ITI Certificate',
+              issuer: 'Govt ITI',
+              year: 2019,
+            ),
+          ],
+        ),
+      );
+
+      expect(find.text('Koi certificate ya licence hai?'), findsOneWidget);
+      expect(find.text('Aur ek certificate jodein'), findsOneWidget);
+      // Prefilled from the stored record.
+      expect(find.text('ITI Certificate'), findsOneWidget);
+    });
+
+    testWidgets('the edit walk re-arms certificate validation on Easy',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormQualificationsPageState> key = await pump(
+        tester,
+        tierScope: easyEducation,
+        sectionKey: kResumeMenuEducationKey,
+        // A used certificate missing its issuer + year.
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(name: 'ITI Certificate'),
+          ],
+        ),
+      );
+
+      expect(key.currentState!.currentPageError(), 'Kisne diya — likhein.');
     });
   });
 }

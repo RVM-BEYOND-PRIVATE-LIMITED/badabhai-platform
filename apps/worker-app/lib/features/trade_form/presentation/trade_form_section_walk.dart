@@ -9,7 +9,8 @@
 /// (never on the cubit's flattened wrapper) so the dependency runs toward the
 /// domain, never back into presentation state.
 ///
-/// PILOT: Technical Skills + Availability, Terms & Salary + Work History.
+/// PILOT: Technical Skills + Availability, Terms & Salary + Work History +
+/// Education & Certifications.
 /// Every other section key (and a null key) yields a null filter, and the
 /// caller walks the whole form exactly as today — so expanding to the next
 /// section is a new predicate here plus one routing branch in the chat
@@ -37,6 +38,7 @@ library;
 import '../../chat/domain/chat_resume_menu.dart'
     show
         kResumeMenuAvailabilitySalaryKey,
+        kResumeMenuEducationKey,
         kResumeMenuTechnicalSkillsKey,
         kResumeMenuWorkHistoryKey;
 import '../domain/trade_form_models.dart';
@@ -87,13 +89,39 @@ bool _isAvailabilitySalaryStep(TradeFormStep step) =>
 /// prefill (#1710) with no screen change.
 bool _isWorkHistoryStep(TradeFormStep step) => step is TradeFormEmploymentStep;
 
+/// Whether [step] belongs in the Education & Certifications walk.
+///
+/// The résumé's Education & Certifications section prints the worker's
+/// education entries + certificates, which the pipeline derives from the
+/// `qualifications` marker answers (`PUT /workers/me/qualifications`,
+/// tri-state). The walk is therefore exactly that ONE marker step on the
+/// EXISTING form page: no capability questions, no preferences, no
+/// employment.
+///
+/// DELIBERATELY MARKER-ONLY. The Training-category pack questions
+/// (`iti_project_work`, `trade_test_status`, …) also feed this section on the
+/// résumé, but a marker + questions combined walk strands the done marker: the
+/// cubit's forward moves skip saved markers, so with everything answered the
+/// walk lands on the last question and the marker (the whole point of the
+/// walk) is never shown. A marker-only single-step walk always lands on its
+/// step (same as Availability / Work History). Training questions stay
+/// reachable via the full walk; combining them is a later enhancement that
+/// needs cubit semantics, not a predicate.
+///
+/// The marker's own INTERNAL hide (`certificates` on Easy) is overridden
+/// separately by the page's `sectionKey` (#2220's lesson) — this predicate
+/// stays at step granularity.
+bool _isEducationStep(TradeFormStep step) =>
+    step is TradeFormQualificationsStep;
+
 /// The filter for a résumé-section walk, or null for the full walk.
 ///
 /// Returns non-null ONLY for the piloted sections ([kResumeMenuTechnicalSkillsKey],
-/// [kResumeMenuAvailabilitySalaryKey] and [kResumeMenuWorkHistoryKey], the
-/// server's keys in `apps/api/src/chat/resume-menu.ts`, pinned byte-for-byte by
-/// the chat parity test). Every other key — including null — yields null, and
-/// the caller walks the whole form exactly as today.
+/// [kResumeMenuAvailabilitySalaryKey], [kResumeMenuWorkHistoryKey] and
+/// [kResumeMenuEducationKey], the server's keys in
+/// `apps/api/src/chat/resume-menu.ts`, pinned byte-for-byte by the chat parity
+/// test). Every other key — including null — yields null, and the caller walks
+/// the whole form exactly as today.
 TradeFormStepFilter? tradeFormSectionFilterFor(String? sectionKey) {
   if (sectionKey == kResumeMenuTechnicalSkillsKey) {
     return _isTechnicalSkillsStep;
@@ -103,6 +131,9 @@ TradeFormStepFilter? tradeFormSectionFilterFor(String? sectionKey) {
   }
   if (sectionKey == kResumeMenuWorkHistoryKey) {
     return _isWorkHistoryStep;
+  }
+  if (sectionKey == kResumeMenuEducationKey) {
+    return _isEducationStep;
   }
   return null;
 }
