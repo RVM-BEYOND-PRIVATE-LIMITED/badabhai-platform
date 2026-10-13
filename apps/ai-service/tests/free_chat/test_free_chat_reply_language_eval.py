@@ -446,7 +446,9 @@ def test_the_persona_tokens_are_read_as_the_api_reads_them() -> None:
 def test_the_validator_walls_are_read_and_name_no_figure() -> None:
     assert gold.wall_hits(["Naukri pakki milegi"]) == ["promise:pakki"]
     assert gold.wall_hits(["Isme 100 % chance hai"]) == ["promise:100%"]
-    assert gold.wall_hits(["Bank se loan lijiye"]) == ["sensitive:loan"]
+    # "loan" is on the career list and the English list (#2227); "wakil" on the career list only.
+    assert gold.wall_hits(["Bank se loan lijiye"]) == ["sensitive:loan", "english_sensitive:loan"]
+    assert gold.wall_hits(["Wakil se baat kijiye"]) == ["sensitive:wakil"]
     assert gold.wall_hits(["Aap best hain"]) == ["rating:aap best"]
     assert gold.wall_hits(["Aapka 7 out of 10 hai"]) == ["rating:n/n"]
     assert gold.wall_hits(["Practise every day."]) == []
@@ -467,7 +469,8 @@ def _english_wall_lines() -> tuple[list[str], list[str]]:
     block = source.split('describe("the English walls (§11)"')[1].split("\ndescribe(")[0]
     string = r'"((?:[^"\\]|\\.)*)"'
     walled = re.findall(
-        rf"\[\s*{string},\s*{string},\s*\"(?:promise|worker_rating)\",?\s*\]", block
+        rf"\[\s*{string},\s*{string},\s*\"(?:promise|worker_rating|sensitive_advice)\",?\s*\]",
+        block,
     )
     served_block = block.split("is served")[0].split("it.each([")[-1]
     served = re.findall(rf"\[\s*{string},\s*{string},?\s*\]", served_block)
@@ -516,7 +519,6 @@ def test_the_re_review_lines_are_read_as_the_api_reads_them() -> None:
         "You will surely be selected in the next batch.",
         "Your salary will definitely increase with this course.",
         "You will definitely land a job in a big factory.",
-        "100 percent you are sure to get a job.",
         "Definitely, you will get a job.",
         "You will get a job, for sure.",
     ):
@@ -529,6 +531,41 @@ def test_the_re_review_lines_are_read_as_the_api_reads_them() -> None:
         "This skill is useful, keep practising.",
     ):
         assert gold.wall_hits([line]) == [], line
+
+
+def test_the_english_sensitive_wall_and_the_sure_to_get_forms() -> None:
+    """Owner ruling 2026-10-13 (#2227): English medical, legal and money advice is walled, with
+    plurals; "doctor" stays allowed (TD147(2)). "sure to get" after is / are / you're stands
+    alone; "make sure to get" is advice, with or without a surely word."""
+    assert gold.wall_hits(["Take a painkiller tablet twice a day for back pain."]) == [
+        "english_sensitive:painkiller",
+        "english_sensitive:tablet",
+    ]
+    assert gold.wall_hits(["Please take the medicine your doctor gives, two times a day."]) == [
+        "english_sensitive:medicine"
+    ]
+    # The career list already reads the singular; the English list adds the plural.
+    assert gold.wall_hits(["Take a loan from the bank."]) == [
+        "sensitive:loan",
+        "english_sensitive:loan",
+    ]
+    assert gold.wall_hits(["Banks give loans for tools."]) == ["english_sensitive:loans"]
+    for line in (
+        "Please see a doctor.",
+        "Safety ke liye doctor se check karwaiye.",
+        "Wear safety shoes at work.",
+        "Ask the supervisor.",
+        "Make sure to get your safety shoes.",
+        "Definitely make sure to get your ITI certificate.",
+    ):
+        assert gold.wall_hits([line]) == [], line
+    for line, phrase in (
+        ("You are sure to get a job after this course.", "are sure to get"),
+        ("You're sure to get a job.", "you re sure to get"),
+        ("He is sure to get selected.", "is sure to get"),
+        ("100 percent you are sure to get a job.", "are sure to get"),
+    ):
+        assert gold.wall_hits([line]) == [f"english_promise:{phrase}"], line
 
 
 def test_the_line_examples_and_the_sample_replies_pass_every_word_wall() -> None:

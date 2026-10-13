@@ -34,7 +34,9 @@
  * that gap the way §9 closed it per language: "guaranteed" alone, or a "surely" word with a "will
  * get" phrase in one clause, is a promise, and the respectful "you" before a judgement word in one
  * clause is a rating. They are PHRASES, not single words, so they are matched on the folded word
- * sequence (see {@link phraseAt}), clause by clause (see {@link englishClauses}).
+ * sequence (see {@link phraseAt}), clause by clause (see {@link englishClauses}). The English
+ * sensitive-advice words (owner ruling 2026-10-13, #2227) are single words, read like the regional
+ * ones.
  */
 
 import type { CareerAnswerFailure } from "../../chat-companion/v2/career-output.validator";
@@ -251,9 +253,17 @@ export const REGIONAL_JUDGEMENT_WORDS: readonly string[] = [
 /**
  * ENGLISH PROMISE (§11) — the English "pakka" stands alone: "guaranteed" and "guarantees", which the
  * career gate's whole-word `guarantee` does not match ("A job is guaranteed after this course",
- * "This course guarantees a job", "Job guaranteed hai").
+ * "This course guarantees a job", "Job guaranteed hai"), and "sure to get" after "is", "are" or
+ * "you're" ("You are sure to get a job", "He is sure to get selected"), which carries its own
+ * certainty. "Make sure to get your safety shoes" is advice and matches none of them.
  */
-export const ENGLISH_PROMISE_TOKENS: readonly string[] = ["guaranteed", "guarantees"];
+export const ENGLISH_PROMISE_TOKENS: readonly string[] = [
+  "guaranteed",
+  "guarantees",
+  "is sure to get",
+  "are sure to get",
+  "you're sure to get",
+];
 
 /**
  * The English "zaroor milegi": a SURELY phrase and a WILL-GET phrase in ONE CLAUSE ("You will
@@ -272,7 +282,9 @@ export const ENGLISH_SURELY_WORDS: readonly string[] = [
 
 /**
  * The WILL-GET half of an English promise: a job, a hire, a selection or a raise. Not "will find":
- * "You will definitely find the form on the ITI site" is directions, not a promise.
+ * "You will definitely find the form on the ITI site" is directions, not a promise. Not "sure to
+ * get" either: its promise forms stand alone above, and here it walled "Definitely make sure to get
+ * your certificate".
  */
 export const ENGLISH_WILL_GET_WORDS: readonly string[] = [
   "will get",
@@ -281,7 +293,41 @@ export const ENGLISH_WILL_GET_WORDS: readonly string[] = [
   "will be selected",
   "will increase",
   "will land",
-  "sure to get",
+];
+
+/**
+ * ENGLISH SENSITIVE ADVICE (§11; owner ruling 2026-10-13, #2227) — the medical, legal and money
+ * words an English reply would advise with, whole words with their plurals, as each regional list
+ * carries its language's own. The career gate's English list stops at the singular ("court",
+ * "lawyer", "loan", "invest", …) and has no medical word an English reply uses ("Take a painkiller
+ * tablet twice a day"). "doctor" stays OUT, as the career list keeps it out (TD147(2)): "please see
+ * a doctor" is first-aid advice.
+ */
+export const ENGLISH_SENSITIVE_WORDS: readonly string[] = [
+  // medical
+  "tablet",
+  "tablets",
+  "painkiller",
+  "painkillers",
+  "medicine",
+  "medicines",
+  "dosage",
+  "dose",
+  "doses",
+  "injection",
+  "injections",
+  // legal
+  "lawyer",
+  "lawyers",
+  "court",
+  // money
+  "loan",
+  "loans",
+  "emi",
+  "insurance",
+  "invest",
+  "investment",
+  "investments",
 ];
 
 /**
@@ -353,6 +399,7 @@ const phraseWords = (phrases: readonly string[]): readonly (readonly string[])[]
   phrases.map((phrase) => foldWords(phrase).split(" "));
 
 const EN_PROMISE = phraseWords(ENGLISH_PROMISE_TOKENS);
+const EN_SENSITIVE = new Set(ENGLISH_SENSITIVE_WORDS);
 const EN_SURELY = phraseWords(ENGLISH_SURELY_WORDS);
 const EN_WILL_GET = phraseWords(ENGLISH_WILL_GET_WORDS);
 const EN_YOU = phraseWords(ENGLISH_RESPECTFUL_YOU);
@@ -482,7 +529,9 @@ export function regionalWallFailure(text: string): CareerAnswerFailure | null {
   if (promisesIn(words) || hasPhrase(words, EN_PROMISE) || clauses.some(englishPromise)) {
     return "promise";
   }
-  if (words.some((word) => SENSITIVE.has(word))) return "sensitive_advice";
+  if (words.some((word) => SENSITIVE.has(word) || EN_SENSITIVE.has(word))) {
+    return "sensitive_advice";
+  }
   if (ratesTheWorker(words) || clauses.some(englishRating)) return "worker_rating";
   return null;
 }

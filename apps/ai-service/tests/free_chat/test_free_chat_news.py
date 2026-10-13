@@ -1358,9 +1358,11 @@ def test_the_prompt_stays_bounded() -> None:
     to 8,571 / 1,307; the review of #2181 (the anchored line, the refusal clause, the English
     line and the English promise and rating walls) to 9,542 / 1,456; the re-review's English
     walls (good / bad, "guaranteed" alone, four will-get verbs) and the English line's praise of
-    the skill, not the worker, to 9,779 / 1,490. A budget keeps it from growing unnoticed."""
-    assert len(PROMPT) < 9800
-    assert len(PROMPT.split()) < 1500
+    the skill, not the worker, to 9,779 / 1,490; the owner-ordered English sensitive-advice wall
+    (2026-10-13, #2227) and the standalone "sure to get" forms to 10,126 / 1,528. A budget keeps
+    it from growing unnoticed."""
+    assert len(PROMPT) < 10300
+    assert len(PROMPT.split()) < 1560
 
 
 # ── 10. the security review's fixes (2026-10-08) ─────────────────────────────────────────────

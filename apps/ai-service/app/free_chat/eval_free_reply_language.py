@@ -753,6 +753,7 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
         if sensitive:
             hits.append(f"sensitive:{sensitive.group(0).lower()}")
         hits += [f"regional_sensitive:{w}" for w in words if w in walls.REGIONAL_SENSITIVE_WORDS]
+        hits += [f"english_sensitive:{w}" for w in words if w in walls.ENGLISH_SENSITIVE_WORDS]
         rating = _RATING.search(scan)
         if rating:
             hits.append(f"rating:{_label(rating.group(0), 'n/n')}")

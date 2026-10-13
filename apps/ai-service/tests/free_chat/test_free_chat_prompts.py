@@ -208,6 +208,7 @@ def _regional_list(const: str) -> tuple[str, ...]:
         # ADR-0051 §11 (#2181): the English promise and rating walls, in the same file.
         "ENGLISH_PROMISE_TOKENS",
         "ENGLISH_SURELY_WORDS",
+        "ENGLISH_SENSITIVE_WORDS",
         "ENGLISH_WILL_GET_WORDS",
         "ENGLISH_RESPECTFUL_YOU",
         "ENGLISH_RATING_FILLERS",

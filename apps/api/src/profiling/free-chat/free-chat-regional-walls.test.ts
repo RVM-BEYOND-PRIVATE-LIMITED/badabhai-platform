@@ -6,6 +6,7 @@ import {
   ENGLISH_PROMISE_TOKENS,
   ENGLISH_RATING_FILLERS,
   ENGLISH_RESPECTFUL_YOU,
+  ENGLISH_SENSITIVE_WORDS,
   ENGLISH_SURELY_WORDS,
   ENGLISH_WILL_GET_WORDS,
   regionalPromise,
@@ -120,7 +121,32 @@ describe("the English walls (§11)", () => {
     ["surely + be selected", "You will surely be selected in the next batch.", "promise"],
     ["definitely + increase", "Your salary will definitely increase with this course.", "promise"],
     ["definitely + land", "You will definitely land a job in a big factory.", "promise"],
-    ["100 percent + sure to get", "100 percent you are sure to get a job.", "promise"],
+    ["100 percent + are sure to get", "100 percent you are sure to get a job.", "promise"],
+    // "sure to get" after is / are / you're stands alone, as "guaranteed" does.
+    ["you are sure to get", "You are sure to get a job after this course.", "promise"],
+    ["you're sure to get", "You're sure to get a job.", "promise"],
+    ["he is sure to get", "He is sure to get selected.", "promise"],
+    ["is sure to get", "Your salary is sure to get a raise.", "promise"],
+    ["are sure to get", "Workers like you are sure to get work here.", "promise"],
+    // Owner ruling 2026-10-13 (#2227): English medical, legal and money advice.
+    [
+      "the owner's painkiller line",
+      "Take a painkiller tablet twice a day for back pain.",
+      "sensitive_advice",
+    ],
+    [
+      "the owner's medicine line",
+      "Please take the medicine your doctor gives, two times a day.",
+      "sensitive_advice",
+    ],
+    ["a dose", "Check the dosage on the box before each dose.", "sensitive_advice"],
+    ["an injection", "An injection helps with this pain.", "sensitive_advice"],
+    ["loan advice", "Take loans from the bank to buy your tools.", "sensitive_advice"],
+    ["court advice", "Go to court with your salary slips.", "sensitive_advice"],
+    ["insurance advice", "Buy insurance for your bike first.", "sensitive_advice"],
+    ["an EMI", "Pay the EMI on time every month.", "sensitive_advice"],
+    ["investments", "Put your savings in investments.", "sensitive_advice"],
+    ["lawyers", "Talk to lawyers about your case.", "sensitive_advice"],
     // Re-review: a clause that is only a surely word still pairs with its neighbour.
     ["a surely clause before", "Definitely, you will get a job.", "promise"],
     ["a surely clause after", "You will get a job, for sure.", "promise"],
@@ -159,7 +185,14 @@ describe("the English walls (§11)", () => {
     ["praise of the skill", "This skill is useful, keep practising."],
     // Re-review: "will find" is directions, and "make sure to get" is advice.
     ["'will find' is not a will-get verb", "You will definitely find the form on the ITI site."],
-    ["'sure to get' without a surely word", "Make sure to get your safety shoes."],
+    ["'make sure to get' is advice", "Make sure to get your safety shoes."],
+    ["'make sure to get' with a surely word", "Definitely make sure to get your ITI certificate."],
+    // Owner ruling 2026-10-13: "doctor" stays allowed (TD147(2)), and so does safety advice.
+    ["see a doctor", "Please see a doctor."],
+    ["doctor in Hinglish", "Safety ke liye doctor se check karwaiye."],
+    ["safety shoes", "Wear safety shoes at work."],
+    ["the supervisor", "Ask the supervisor."],
+    ["'tablet' inside a word", "Use a stable ladder and keep the floor dry."],
     // Re-review: a pair must sit inside one clause.
     ["a rating across a comma", "Please tell me where you are, the best ITI may be near."],
     ["a promise across a comma", "Definitely ask the supervisor, you will get a clear answer."],
@@ -201,6 +234,20 @@ describe("the English walls (§11)", () => {
       expect(new Set(list).size).toBe(list.length);
       for (const phrase of list) expect(phrase).toMatch(/^[a-z0-9]+(?:['\s][a-z0-9]+)*$/);
     }
+  });
+
+  it.each(ENGLISH_SENSITIVE_WORDS)("the English sensitive word %j is walled alone", (word) => {
+    expect(regionalWallFailure(`Please read about ${word} first.`)).toBe("sensitive_advice");
+  });
+
+  it("the English sensitive list is single lowercase words, plurals in, 'doctor' out", () => {
+    expect(new Set(ENGLISH_SENSITIVE_WORDS).size).toBe(ENGLISH_SENSITIVE_WORDS.length);
+    for (const word of ENGLISH_SENSITIVE_WORDS) expect(word).toMatch(/^[a-z]+$/);
+    for (const word of ["tablets", "painkillers", "medicines", "doses", "injections", "loans"]) {
+      expect(ENGLISH_SENSITIVE_WORDS).toContain(word);
+    }
+    expect(ENGLISH_SENSITIVE_WORDS).not.toContain("doctor");
+    expect(ENGLISH_SENSITIVE_WORDS).not.toContain("doctors");
   });
 });
 

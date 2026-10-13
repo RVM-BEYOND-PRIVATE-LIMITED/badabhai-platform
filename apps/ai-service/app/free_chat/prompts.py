@@ -160,13 +160,23 @@ REGIONAL_JUDGEMENT_WORDS = (
 #: clause: "guaranteed" or "guarantees" alone is a promise, as "pakku" is; a surely phrase with a
 #: will-get phrase in one clause is a promise ("You will definitely get a job"), a surely phrase
 #: alone is advice; "you are" before a judgement word, with only the fillers between, is a rating
-#: ("You are the best welder here", "You are not good at drawing"). Pinned EQUAL to the API's
-#: lists.
-ENGLISH_PROMISE_TOKENS = ("guaranteed", "guarantees")
+#: ("You are the best welder here", "You are not good at drawing"). "sure to get" after "is",
+#: "are" or "you're" stands alone too ("Make sure to get your safety shoes" is advice). And, by
+#: owner ruling 2026-10-13 (#2227), the English medical, legal and money words with their plurals
+#: are sensitive advice, single words like the regional ones; "doctor" stays out (TD147(2)).
+#: Pinned EQUAL to the API's lists.
+ENGLISH_PROMISE_TOKENS = (
+    "guaranteed", "guarantees", "is sure to get", "are sure to get", "you're sure to get",
+)  # fmt: skip
 ENGLISH_SURELY_WORDS = ("definitely", "surely", "certainly", "for sure", "100 percent")
 ENGLISH_WILL_GET_WORDS = (
     "will get", "will go up", "will be hired", "will be selected", "will increase", "will land",
-    "sure to get",
+)  # fmt: skip
+ENGLISH_SENSITIVE_WORDS = (
+    "tablet", "tablets", "painkiller", "painkillers", "medicine", "medicines", "dosage", "dose",
+    "doses", "injection", "injections",
+    "lawyer", "lawyers", "court",
+    "loan", "loans", "emi", "insurance", "invest", "investment", "investments",
 )  # fmt: skip
 ENGLISH_RESPECTFUL_YOU = ("you are", "you're")
 ENGLISH_RATING_FILLERS = ("the", "a", "an", "very", "really", "so", "not", "too", "quite")
@@ -215,12 +225,14 @@ def render_regional_words() -> str:
             _quoted_list(REGIONAL_SENSITIVE_WORDS),
             f"  {_or_list(REGIONAL_RESPECTFUL_YOU)} directly before any of:",
             _quoted_list(REGIONAL_JUDGEMENT_WORDS),
-            f"  In English, {_or_list(ENGLISH_PROMISE_TOKENS)} alone, or a"
-            ' "surely" word in the same line as a',
-            '  "will get" phrase. Surely:',
+            "  In English, any of these alone:",
+            _quoted_list(ENGLISH_PROMISE_TOKENS),
+            '  or a "surely" word in the same line as a "will get" phrase. Surely:',
             _quoted_list(ENGLISH_SURELY_WORDS),
             "  Will get:",
             _quoted_list(ENGLISH_WILL_GET_WORDS),
+            "  English legal, medical and financial words:",
+            _quoted_list(ENGLISH_SENSITIVE_WORDS),
             f"  {_or_list(ENGLISH_RESPECTFUL_YOU)} before any of these, even with",
             f"  {_or_list(ENGLISH_RATING_FILLERS)} between:",
             _quoted_list(ENGLISH_JUDGEMENT_WORDS),
