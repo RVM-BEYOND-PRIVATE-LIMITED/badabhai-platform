@@ -7,6 +7,8 @@ import {
   DISTRESS_PHRASES,
   DISTRESS_STEMS,
   FREE_CHAT_MIN_CONFIDENCE,
+  GREETING_DECLINE_WORDS,
+  GREETING_FILLER_WORDS,
   isFreeChatChip,
   isResumeChip,
   matchesDistress,
@@ -51,8 +53,44 @@ describe("reading the worker's words deterministically", () => {
     ["haan nahi", null],
     ["haan mujhe pehle jobs dekhni hain", null],
     ["kaise ho", null],
+    // #2223 — a yes word or a later phrase carries ONLY filler; anything else is a message.
+    ["haan shuru karo", "start"],
+    ["Haan theek hai", "start"],
+    ["yes please", "start"],
+    ["ok bhai", "start"],
+    ["haan ok", "start"],
+    ["haan resume banao", "start"],
+    ["ok lets go", "start"],
+    ["Nahi, baad mein", "later"],
+    ["ok baad mein", "later"],
+    ["abhi nahi ji", "later"],
+    ["baad mein karenge", "later"],
+    // Each of these STARTED or read LATER before #2223 — the old reader took any short "haan …".
+    ["haan marna hai", null],
+    ["ha marna", null],
+    ["haan mar jaunga", null],
+    ["ok sab khatam", null],
+    ["yes give up", null],
+    ["abhi nahi jeena", null],
+    ["baad mein mar jaunga", null],
+    ["baad mein nahi", null],
+    ["mat baad mein", null],
+    // Null before and after (the old negation rule) — kept as the issue's own example.
+    ["ha jeena nahi", null],
   ] as const)("the greeting reads %j as %s", (text, choice) => {
     expect(readGreetingChoice(text)).toBe(choice);
+  });
+
+  it("the filler list holds no negation and no word of a Latin distress phrase (#2223)", () => {
+    const distressWords = new Set(
+      DISTRESS_PHRASES.filter((phrase) => /^[a-z ]+$/.test(phrase)).flatMap((phrase) =>
+        phrase.split(" "),
+      ),
+    );
+    for (const word of GREETING_FILLER_WORDS) {
+      expect(distressWords.has(word), word).toBe(false);
+      expect(GREETING_DECLINE_WORDS.has(word) || word === "mat", word).toBe(false);
+    }
   });
 
   it("reads the résumé chip by key or label, accents and case aside", () => {
@@ -163,6 +201,14 @@ describe("free mode — the deterministic rules come first", () => {
   ])("DISTRESS comes before the greeting's choice: %j → distress", (text) => {
     expect(pre(text, greetingState(), "greeting")).toBe("distress");
   });
+
+  it.each(["haan marna hai", "haan mar jaunga", "abhi nahi jeena", "baad mein mar jaunga"])(
+    "distress OFF the fixed list is not swallowed as a greeting choice: %j → classify (#2223)",
+    (text) => {
+      expect(matchesDistress(text)).toBe(false);
+      expect(pre(text, greetingState(), "greeting")).toBe("classify");
+    },
+  );
 
   it("no chip key or label is a distress phrase, so distress-first costs a chip nothing", () => {
     for (const chip of [
