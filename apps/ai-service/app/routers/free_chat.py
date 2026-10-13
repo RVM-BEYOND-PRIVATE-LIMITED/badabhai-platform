@@ -1,8 +1,9 @@
 """The profiling-stage free chat routes (ADR-0051, #2027).
 
 ``POST /free-chat/classify``: one typed message, in free or résumé mode, to one closed category.
-``POST /free-chat/reply``: one casual or career message to 1-4 short Hinglish lines, or a closed
-refusal topic. Both mirror the companion routes (ADR-0046), on a different surface.
+``POST /free-chat/reply``: one casual or career message to 1-4 short lines, or a closed refusal
+topic, in the ``reply_language`` the API chose (ADR-0051 §11) or, without one, the message's.
+Both mirror the companion routes (ADR-0046), on a different surface.
 ``POST /free-chat/summarize`` (Release 2, §8): the free-chat turns that aged out of the reply's
 window, folded with the previous notes into the rolling summary the reply reads (R21-R24).
 ``POST /free-chat/news`` (ADR-0054): a news question the reply refused on ``news``, answered by
@@ -186,6 +187,8 @@ async def free_chat_reply(body: FreeChatReplyInput) -> FreeChatAnswer | FreeChat
         _gated_summary(body.summary, raw=raw_pii, route="reply", field="summary"),
         system_prompt,
         message_label=reply_prompt.message_label,
+        # §11 (R39): the language CODE chose, rendered from a closed table (nothing to mask).
+        reply_language=body.reply_language,
     )
     content, meta = await router.run(
         FREE_REPLY_TASK_TYPE,
@@ -290,6 +293,7 @@ async def free_chat_news(
         # The day in India, computed here: never a value from the request.
         news_logic.ist_today(),
         system_prompt,
+        reply_language=body.reply_language,
     )
     content, meta, llm_result = await router.run_with_result(
         FREE_NEWS_TASK_TYPE,

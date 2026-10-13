@@ -21,10 +21,22 @@
  * one no Hinglish reply should carry anyway.
  *
  * WHOLE WORDS AND WHOLE PHRASES on a folded form (NFKD, marks dropped, lowercased, every non-letter
- * a space), matched by set lookup and padded `includes` — no RegExp is built from these lists.
+ * a space), matched by set lookup and by comparing word sequences — no RegExp is built from these
+ * lists.
  *
  * THE FAILURE REASONS ARE THE CAREER GATE'S OWN (`persona`, `promise`, `sensitive_advice`,
  * `worker_rating`), so a log or an operator reads one vocabulary whatever the language.
+ *
+ * AND ENGLISH (ADR-0051 §11, R40, #2181). English in, English out: a free-chat reply may now be
+ * plain English, and the career gate's promise and rating walls are spelled for Hinglish ("pakka",
+ * "zaroor milegi", "aap best"), so "You will definitely get a job after this course." and "You are
+ * the best welder here." walked past them (owner rulings R11, R17). The English lists below close
+ * that gap the way §9 closed it per language: "guaranteed" alone, or a "surely" word with a "will
+ * get" phrase in one clause, is a promise, and the respectful "you" before a judgement word in one
+ * clause is a rating. They are PHRASES, not single words, so they are matched on the folded word
+ * sequence (see {@link phraseAt}), clause by clause (see {@link englishClauses}). The English
+ * sensitive-advice words (owner ruling 2026-10-13, #2227) are single words, read like the regional
+ * ones.
  */
 
 import type { CareerAnswerFailure } from "../../chat-companion/v2/career-output.validator";
@@ -238,6 +250,132 @@ export const REGIONAL_JUDGEMENT_WORDS: readonly string[] = [
   "kharab",
 ];
 
+/**
+ * ENGLISH PROMISE (§11) — the English "pakka" stands alone: "guaranteed" and "guarantees", which the
+ * career gate's whole-word `guarantee` does not match ("A job is guaranteed after this course",
+ * "This course guarantees a job", "Job guaranteed hai"), and "sure to get" after "is", "are" or
+ * "you're" ("You are sure to get a job", "He is sure to get selected"), which carries its own
+ * certainty. "Make sure to get your safety shoes" is advice and matches none of them.
+ */
+export const ENGLISH_PROMISE_TOKENS: readonly string[] = [
+  "guaranteed",
+  "guarantees",
+  "is sure to get",
+  "are sure to get",
+  "you're sure to get",
+];
+
+/**
+ * The English "zaroor milegi": a SURELY phrase and a WILL-GET phrase in ONE CLAUSE ("You will
+ * definitely get a job", "Your salary will surely go up"). A surely phrase alone is advice ("You
+ * can definitely try an ITI course"), as "kandippa try pannunga" is. The surely phrases are taken
+ * out before the will-get phrase is looked for, so the adverb may sit inside it: "will definitely
+ * get" reads as "will get". `100%` and "guarantee" are the career gate's already.
+ */
+export const ENGLISH_SURELY_WORDS: readonly string[] = [
+  "definitely",
+  "surely",
+  "certainly",
+  "for sure",
+  "100 percent",
+];
+
+/**
+ * The WILL-GET half of an English promise: a job, a hire, a selection or a raise. Not "will find":
+ * "You will definitely find the form on the ITI site" is directions, not a promise. Not "sure to
+ * get" either: its promise forms stand alone above, and here it walled "Definitely make sure to get
+ * your certificate".
+ */
+export const ENGLISH_WILL_GET_WORDS: readonly string[] = [
+  "will get",
+  "will go up",
+  "will be hired",
+  "will be selected",
+  "will increase",
+  "will land",
+];
+
+/**
+ * ENGLISH SENSITIVE ADVICE (§11; owner ruling 2026-10-13, #2227) — the medical, legal and money
+ * words an English reply would advise with, whole words with their plurals, as each regional list
+ * carries its language's own. The career gate's English list stops at the singular ("court",
+ * "lawyer", "loan", "invest", …) and has no medical word an English reply uses ("Take a painkiller
+ * tablet twice a day"). "doctor" stays OUT, as the career list keeps it out (TD147(2)): "please see
+ * a doctor" is first-aid advice.
+ */
+export const ENGLISH_SENSITIVE_WORDS: readonly string[] = [
+  // medical
+  "tablet",
+  "tablets",
+  "painkiller",
+  "painkillers",
+  "medicine",
+  "medicines",
+  "dosage",
+  "dose",
+  "doses",
+  "injection",
+  "injections",
+  // legal
+  "lawyer",
+  "lawyers",
+  "court",
+  // money
+  "loan",
+  "loans",
+  "emi",
+  "insurance",
+  "invest",
+  "investment",
+  "investments",
+];
+
+/**
+ * ENGLISH RATING (§11) — the English "aap best": the respectful "you" before a judgement word, in
+ * ONE CLAUSE ("You are the best welder here", "You are not good at drawing"). Only the fillers below
+ * may sit between them, so "You are learning fast" and "You are in a good trade" are served. A
+ * conditional "if you are weak in drawing" is walled too; the prompts steer away from the shape,
+ * and the cost of a miss is one fallback line.
+ */
+export const ENGLISH_RESPECTFUL_YOU: readonly string[] = ["you are", "you're"];
+
+/** The words that may sit between the English "you" and the judgement word. */
+export const ENGLISH_RATING_FILLERS: readonly string[] = [
+  "the",
+  "a",
+  "an",
+  "very",
+  "really",
+  "so",
+  "not",
+  "too",
+  "quite",
+];
+
+/** The judgement half of an English rating: good and bad, as every regional list has them. */
+export const ENGLISH_JUDGEMENT_WORDS: readonly string[] = [
+  "best",
+  "worst",
+  "good",
+  "bad",
+  "poor",
+  "weak",
+  "perfect",
+  "great",
+  "excellent",
+  "top",
+  "number one",
+];
+
+/**
+ * Where a clause ends for the English pair checks: the money wall's sentence stops (`?` `!` a
+ * danda, a line break, a `.` not inside a number), plus a comma or semicolon not inside a number.
+ * The fold erases punctuation, so without this "Please tell me where you are, the best ITI may be
+ * near" read as a rating and "Definitely ask the supervisor, you will get a clear answer" as a
+ * promise.
+ */
+const CLAUSE_STOP = /[?!;\u0964\u0965\n\r]|(?<!\p{Nd})[.,]|[.,](?!\p{Nd})/u;
+
 /** Lowercase, marks off, every non-letter or non-digit a space — the form every list reads. */
 function foldWords(text: string): string {
   return text
@@ -256,6 +394,104 @@ const SENSITIVE = new Set(REGIONAL_SENSITIVE_WORDS);
 const RESPECTFUL_YOU = new Set(REGIONAL_RESPECTFUL_YOU);
 const JUDGEMENT = new Set(REGIONAL_JUDGEMENT_WORDS);
 
+/** A phrase as the folded words it matches ("you're" → ["you", "re"]). */
+const phraseWords = (phrases: readonly string[]): readonly (readonly string[])[] =>
+  phrases.map((phrase) => foldWords(phrase).split(" "));
+
+const EN_PROMISE = phraseWords(ENGLISH_PROMISE_TOKENS);
+const EN_SENSITIVE = new Set(ENGLISH_SENSITIVE_WORDS);
+const EN_SURELY = phraseWords(ENGLISH_SURELY_WORDS);
+const EN_WILL_GET = phraseWords(ENGLISH_WILL_GET_WORDS);
+const EN_YOU = phraseWords(ENGLISH_RESPECTFUL_YOU);
+const EN_FILLERS = new Set(ENGLISH_RATING_FILLERS);
+const EN_JUDGEMENT = phraseWords(ENGLISH_JUDGEMENT_WORDS);
+
+/** The length of the first of `phrases` that starts at `words[i]`, or 0. Whole words only. */
+function phraseAt(
+  words: readonly string[],
+  i: number,
+  phrases: readonly (readonly string[])[],
+): number {
+  for (const phrase of phrases) {
+    if (phrase.every((word, k) => words[i + k] === word)) return phrase.length;
+  }
+  return 0;
+}
+
+/** Does any of `phrases` occur in `words`? */
+function hasPhrase(words: readonly string[], phrases: readonly (readonly string[])[]): boolean {
+  return words.some((_word, i) => phraseAt(words, i, phrases) > 0);
+}
+
+/** Is a clause nothing but surely phrases ("Definitely", "For sure")? */
+function onlySurely(words: readonly string[]): boolean {
+  for (let i = 0; i < words.length; ) {
+    const size = phraseAt(words, i, EN_SURELY);
+    if (size === 0) return false;
+    i += size;
+  }
+  return true;
+}
+
+/**
+ * One line or chip as the folded words of each CLAUSE, for the English pair checks. A clause that
+ * is ONLY a surely phrase joins the next one (or the previous, at the end), so "Definitely, you
+ * will get a job" and "You will get a job, for sure" still read as one promise.
+ */
+function englishClauses(text: string): string[][] {
+  const clauses = text
+    .split(CLAUSE_STOP)
+    .map((clause) => foldWords(clause).split(" ").filter(Boolean))
+    .filter((words) => words.length > 0);
+  const out: string[][] = [];
+  let carry: string[] = [];
+  for (const words of clauses) {
+    if (onlySurely(words)) {
+      carry = [...carry, ...words];
+      continue;
+    }
+    out.push([...carry, ...words]);
+    carry = [];
+  }
+  if (carry.length > 0) {
+    const last = out.pop();
+    out.push(last === undefined ? carry : [...last, ...carry]);
+  }
+  return out;
+}
+
+/**
+ * An English "surely" phrase and a "will get" phrase in one clause. The contraction "you'll" folds
+ * to "you ll", read as "will"; the surely phrases are dropped before the will-get phrase is looked
+ * for.
+ */
+function englishPromise(words: readonly string[]): boolean {
+  if (!hasPhrase(words, EN_SURELY)) return false;
+  const rest: string[] = [];
+  for (let i = 0; i < words.length; ) {
+    const surely = phraseAt(words, i, EN_SURELY);
+    if (surely > 0) {
+      i += surely;
+      continue;
+    }
+    rest.push(words[i] === "ll" ? "will" : (words[i] as string));
+    i += 1;
+  }
+  return hasPhrase(rest, EN_WILL_GET);
+}
+
+/** Does the English respectful "you" sit before a judgement word, with only fillers between, in
+ * one clause? */
+function englishRating(words: readonly string[]): boolean {
+  return words.some((_word, i) => {
+    const you = phraseAt(words, i, EN_YOU);
+    if (you === 0) return false;
+    let j = i + you;
+    while (j < words.length && EN_FILLERS.has(words[j] as string)) j += 1;
+    return phraseAt(words, j, EN_JUDGEMENT) > 0;
+  });
+}
+
 /** A regional "pakka", or a "surely" word and a "will get" word in one text. */
 function promisesIn(words: readonly string[]): boolean {
   return (
@@ -266,7 +502,9 @@ function promisesIn(words: readonly string[]): boolean {
 
 /**
  * The regional PROMISE wall ALONE — for a live-news tile's third-party headline (ADR-0054 §8),
- * which meets the promise wall but not the persona, sensitive or rating walls.
+ * which meets the promise wall but not the persona, sensitive or rating walls. The English promise
+ * walls (§11) are NOT applied to headlines: "Fuel prices will surely go up" and "State guarantees
+ * minimum wage" are news someone else wrote, not promises the app makes.
  */
 export function regionalPromise(text: string): boolean {
   return promisesIn(foldWords(text).split(" ").filter(Boolean));
@@ -281,14 +519,19 @@ function ratesTheWorker(words: readonly string[]): boolean {
 }
 
 /**
- * The first regional wall one line or chip fails, or `null`. Order mirrors the career gate's:
- * persona, promise, sensitive advice, rating.
+ * The first regional or English wall one line or chip fails, or `null`. Order mirrors the career
+ * gate's: persona, promise, sensitive advice, rating.
  */
 export function regionalWallFailure(text: string): CareerAnswerFailure | null {
   const words = foldWords(text).split(" ").filter(Boolean);
+  const clauses = englishClauses(text);
   if (words.some((word) => PERSONA.has(word))) return "persona";
-  if (promisesIn(words)) return "promise";
-  if (words.some((word) => SENSITIVE.has(word))) return "sensitive_advice";
-  if (ratesTheWorker(words)) return "worker_rating";
+  if (promisesIn(words) || hasPhrase(words, EN_PROMISE) || clauses.some(englishPromise)) {
+    return "promise";
+  }
+  if (words.some((word) => SENSITIVE.has(word) || EN_SENSITIVE.has(word))) {
+    return "sensitive_advice";
+  }
+  if (ratesTheWorker(words) || clauses.some(englishRating)) return "worker_rating";
   return null;
 }

@@ -42,6 +42,7 @@ from app.free_chat.prompts import (
     CASUAL_SYSTEM_PROMPT,
     CLASSIFY_SYSTEM_PROMPT,
     NOTES_LABEL,
+    REPLY_LANGUAGE_LINES,
     SUMMARY_SYSTEM_PROMPT,
 )
 from app.main import app
@@ -385,6 +386,38 @@ def test_the_message_label_fits_the_category(
     assert reply_logic.REPLY_PROMPTS[category].message_label == label
 
 
+@pytest.mark.parametrize("category", ["casual", "career"])
+def test_the_reply_language_reaches_the_request_and_never_the_system_prompt(
+    monkeypatch: pytest.MonkeyPatch, category: str
+) -> None:
+    """ADR-0051 §11 (R39): the API's `reply_language` opens the last user message as its fixed
+    line. The system prompt is the category's constant either way (one registry version), and
+    the worker's message is still masked and last."""
+    prompt_registry.install_default_prompts()
+    captured: list[dict] = []
+    monkeypatch.setattr(free_chat_router.router, "run", _fake_run("{}", captured))
+    client.post(
+        "/free-chat/reply",
+        json=_reply({"category": category, "text": EMPLOYER_TEXT, "reply_language": "marathi"}),
+    )
+    messages = _messages(captured)
+    assert messages[0]["content"] == reply_logic.REPLY_PROMPTS[category].text
+    last = messages[-1]["content"]
+    assert last.startswith(f"{REPLY_LANGUAGE_LINES['marathi']}\n\nWORKER CONTEXT (JSON):")
+    assert "Tata Motors" not in last  # the masking policy still ran on the message
+    assert last.count("Reply language:") == 1
+
+    captured.clear()
+    client.post("/free-chat/reply", json=_reply({"category": category}))
+    assert "Reply language" not in _messages(captured)[-1]["content"]
+
+
+def test_an_unknown_reply_language_is_refused_at_the_contract() -> None:
+    for bad in ("hindi", "Marathi", "bengali", ""):
+        resp = client.post("/free-chat/reply", json=_reply({"reply_language": bad}))
+        assert resp.status_code == 422, bad
+
+
 def test_reply_masks_the_trade_label_and_drops_a_blocked_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -400,9 +433,7 @@ def test_reply_masks_the_trade_label_and_drops_a_blocked_one(
     assert "[PHONE_1]" in _seen(captured)
 
     captured.clear()
-    client.post(
-        "/free-chat/reply", json=_reply({"worker_context": {"trade_label": BLOCKING_TEXT}})
-    )
+    client.post("/free-chat/reply", json=_reply({"worker_context": {"trade_label": BLOCKING_TEXT}}))
     assert '"trade_label":null' in _seen(captured)
     assert "12345678" not in _seen(captured)
 
