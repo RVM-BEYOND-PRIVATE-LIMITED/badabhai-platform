@@ -63,6 +63,7 @@ void main() {
     expect(sectionKeys, contains(kResumeMenuTechnicalSkillsKey));
     expect(sectionKeys, contains(kResumeMenuAvailabilitySalaryKey));
     expect(sectionKeys, contains(kResumeMenuWorkHistoryKey));
+    expect(sectionKeys, contains(kResumeMenuEducationKey));
   });
 
   group('resumeMenuActionFor', () {

@@ -32,11 +32,13 @@ void main() {
       expect(kResumeMenuTechnicalSkillsKey, 'section_technical_skills');
       expect(kResumeMenuAvailabilitySalaryKey, 'section_availability_salary');
       expect(kResumeMenuWorkHistoryKey, 'section_work_history');
+      expect(kResumeMenuEducationKey, 'section_education');
       expect(tradeFormSectionFilterFor(kResumeMenuTechnicalSkillsKey),
           isNotNull);
       expect(tradeFormSectionFilterFor(kResumeMenuAvailabilitySalaryKey),
           isNotNull);
       expect(tradeFormSectionFilterFor(kResumeMenuWorkHistoryKey), isNotNull);
+      expect(tradeFormSectionFilterFor(kResumeMenuEducationKey), isNotNull);
     });
   });
 
@@ -132,6 +134,35 @@ void main() {
       expect(filter(_step('turning_experience')), isFalse);
       expect(filter(const TradeFormPreferencesStep()), isFalse);
       expect(filter(const TradeFormQualificationsStep()), isFalse);
+    });
+  });
+
+  group('Education & Certifications keeps only the qualifications marker', () {
+    test('the qualifications marker is asked', () {
+      final TradeFormStepFilter filter =
+          tradeFormSectionFilterFor(kResumeMenuEducationKey)!;
+      expect(filter(const TradeFormQualificationsStep()), isTrue);
+    });
+
+    test('capability questions and other markers are dropped', () {
+      final TradeFormStepFilter filter =
+          tradeFormSectionFilterFor(kResumeMenuEducationKey)!;
+      expect(filter(_step('turning_machine')), isFalse);
+      expect(filter(_step('turning_operation')), isFalse);
+      expect(filter(_step('turning_experience')), isFalse);
+      expect(filter(const TradeFormPreferencesStep()), isFalse);
+      expect(filter(const TradeFormEmploymentStep()), isFalse);
+    });
+
+    // MARKER-ONLY BY DESIGN: the Training-category questions also feed this
+    // résumé section, but combining them with the marker strands the done
+    // marker (cubit forward moves skip saved markers). They are deliberately
+    // dropped from this single-step walk; see `_isEducationStep`'s doc.
+    test('training questions stay out of the marker-only walk', () {
+      final TradeFormStepFilter filter =
+          tradeFormSectionFilterFor(kResumeMenuEducationKey)!;
+      expect(filter(_step('iti_project_work')), isFalse);
+      expect(filter(_step('trade_test_status')), isFalse);
     });
   });
 }

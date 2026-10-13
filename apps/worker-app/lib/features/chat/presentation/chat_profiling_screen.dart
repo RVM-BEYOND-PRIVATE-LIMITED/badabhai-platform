@@ -758,16 +758,18 @@ class _ChatViewState extends State<_ChatView>
       case ResumeMenuAction.openSection:
         // PILOT: Technical Skills re-asks only its questions, Availability,
         // Terms & Salary re-asks only the preferences marker (shift / job type
-        // / cities / terms), and Work History re-asks only the employment
-        // marker, on the EXISTING trade-form pages (section-filtered walk,
-        // never submitted here).
+        // / cities / terms), Work History re-asks only the employment marker,
+        // and Education & Certifications re-asks only the qualifications
+        // marker (education entries + certificates), on the EXISTING trade-form
+        // pages (section-filtered walk, never submitted here).
         // Every other section still opens the Resume tab's Edit surface — the
         // same destination the server's ack copy names — until its own walk
         // lands. The key rides along either way so a test can assert WHICH
         // section was chosen without string-matching the display copy.
         if (option.optionKey == kResumeMenuTechnicalSkillsKey ||
             option.optionKey == kResumeMenuAvailabilitySalaryKey ||
-            option.optionKey == kResumeMenuWorkHistoryKey) {
+            option.optionKey == kResumeMenuWorkHistoryKey ||
+            option.optionKey == kResumeMenuEducationKey) {
           context.pushOnce(Routes.tradeForm, extra: option.optionKey);
           return;
         }

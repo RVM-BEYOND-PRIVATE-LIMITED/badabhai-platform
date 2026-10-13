@@ -741,6 +741,9 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         suggestions: state.employmentSuggestions,
         tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
+        // The Work History section walk forces the description box + mic back
+        // on for a tier that hides them (#2220); see the page's doc.
+        sectionKey: cubit.sectionKey,
       );
     }
     if (step is TradeFormQualificationsStep) {
@@ -757,6 +760,9 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
         onDraftChanged: cubit.saveQualificationsDraft,
+        // The Education & Certifications section walk forces the certificates
+        // section back on for a tier that hides it (#2221); see the page's doc.
+        sectionKey: cubit.sectionKey,
       );
     }
     return const SizedBox.shrink();

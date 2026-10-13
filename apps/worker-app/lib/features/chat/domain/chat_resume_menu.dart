@@ -43,6 +43,12 @@ const String kResumeMenuAvailabilitySalaryKey = 'section_availability_salary';
 /// (`section_work_history`) as the section the résumé prints.
 const String kResumeMenuWorkHistoryKey = 'section_work_history';
 
+/// The fourth piloted per-section walk: education & certifications. Same
+/// stable server key (`section_education`) as the section the résumé prints —
+/// the qualifications marker (`PUT /workers/me/qualifications`) carries the
+/// education entries + certificates it prints.
+const String kResumeMenuEducationKey = 'section_education';
+
 /// What tapping a served menu option should DO.
 enum ResumeMenuAction {
   /// Ordinary answer / a menu-navigation turn the SERVER must resolve (the root
