@@ -149,6 +149,18 @@ describe("bb_general — collapse mechanics", () => {
       expect(html).toContain(region);
     }
   });
+
+  it("carries the ADR-0032 worker-copy-only photo region (#2217)", () => {
+    // LIVE-SHEET REGRESSION: only bb_trade/bb_general render in production, and neither carried
+    // a photo region — so the own-resume embed never reached a PDF. A 0-or-1 region in the
+    // masthead; empty collapses so photo-less sheets render as before.
+    expect(body).toContain(
+      '{{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}',
+    );
+    expect(body).toMatch(/\.photo\s*\{[^}]*object-fit:\s*cover/);
+    // The region closes flush against the masthead div (the closer guard above enforces it).
+    expect(html).toContain("{{/photo}}</div>");
+  });
 });
 
 describe("bb_general — the owner's section structure", () => {
