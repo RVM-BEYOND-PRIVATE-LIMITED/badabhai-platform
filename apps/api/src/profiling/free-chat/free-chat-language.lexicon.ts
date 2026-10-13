@@ -1192,8 +1192,13 @@ export const NEGATION_WORDS: readonly string[] = [
   "नाही",
 ];
 
-/** The prohibitive written AFTER the verb: "english mein bolo MAT". */
-export const POST_VERB_NEGATION_WORDS: readonly string[] = ["mat", "mt", "मत"];
+/**
+ * A prohibitive written just BEFORE a request, which negates it: "MAT english mein bolo", "DONT
+ * reply in English", "do NOT reply in English". Not "nahi" or "no": before a request they are a
+ * worker's "no, …" ("nahi, marathi mein bolo"), and negate something said before. Any negation
+ * straight AFTER a request negates it ("bolo mat", "reply nahi karna").
+ */
+export const PRE_NEGATION_WORDS: readonly string[] = ["mat", "mt", "मत", "dont", "not", "never"];
 
 /**
  * A word that, straight after a language's name, makes it a PLACE: "in Tamil Nadu" is not a

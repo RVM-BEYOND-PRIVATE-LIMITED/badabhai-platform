@@ -2601,13 +2601,23 @@ describe("§11 R41 — an explicit request: the reply in that language, then the
     expect(world.chat.mergeFreeChatLanguage).not.toHaveBeenCalled();
   });
 
-  it("after a turn that was no model reply, a bare request re-answers as casual", async () => {
+  it("after a turn that was no model reply, a bare request makes NO model call and serves the ask alone", async () => {
     const world = makeWorld();
     await inFreeMode(world);
-    world.replyWith(answer(["Vanakkam, eppadi irukeenga?"]));
-    await world.say("Tamil-la sollunga");
-    expect(replyInput(world)).toMatchObject({ reply_language: "tamil", category: "casual" });
+    const turn = await world.say("Tamil-la sollunga");
+    expect(world.ai.freeChatReply).not.toHaveBeenCalled();
     expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(turn.reply).toBe(languageAskLine("tamil").latin);
+    expect(chipPairs(turn)).toEqual([
+      [FREE_CHAT_LANG_YES_KEY, "Haan, Tamil mein"],
+      [FREE_CHAT_LANG_NO_KEY, "Nahi"],
+    ]);
+    expect(world.envelope().freeChat!.language).toEqual({ kept: null, offer: "tamil" });
+    expect(world.emitted("chat.free_chat_turn_served").at(-1)!.payload).toMatchObject({
+      decided_by: "flow",
+      category: null,
+      outcome: "fixed_line",
+    });
   });
 
   it("the ask follows only an ANSWERED reply — a fallback asks nothing and offers nothing", async () => {
@@ -2620,15 +2630,27 @@ describe("§11 R41 — an explicit request: the reply in that language, then the
     expect(world.envelope().freeChat!.language).toBeUndefined();
   });
 
-  it("a request for the language ALREADY KEPT is answered in it, with no ask", async () => {
+  it("a request for the language ALREADY KEPT re-answers in it, with no ask", async () => {
     const world = makeWorld({ keptLanguage: "marathi" });
     await inFreeMode(world);
+    await casual(world, 1);
     world.replyWith(answer(["Bola, kay madat karu?"], ["Aur sanga"]));
     const turn = await world.say("marathi mein bolo");
     expect(replyInput(world).reply_language).toBe("marathi");
     expect(optionKeys(turn)).toEqual(["fcq_a", FREE_CHAT_RESUME_KEY]);
     expect(turn.reply).not.toContain(languageAskLine("marathi").latin);
     expect(world.envelope().freeChat!.language).toEqual({ kept: "marathi" });
+  });
+
+  it("…and with no answered reply to re-answer, LANG_YES confirms it: no model call, nothing changes", async () => {
+    const world = makeWorld({ keptLanguage: "marathi" });
+    await inFreeMode(world);
+    const turn = await world.say("marathi mein bolo");
+    expect(world.ai.freeChatReply).not.toHaveBeenCalled();
+    expect(turn.reply).toBe(languageYesLine("marathi").latin);
+    expect(turn.options).toEqual([]);
+    expect(world.envelope().freeChat!.language).toEqual({ kept: "marathi" });
+    expect(world.emitted("chat.free_chat_language_changed")).toEqual([]);
   });
 
   it("the nudge never rides beside the ask, even when it is due", async () => {
@@ -2773,8 +2795,9 @@ describe("§11 R41 — Nahi: each reply follows the message again", () => {
     const world = makeWorld({ keptLanguage: "tamil" });
     await inFreeMode(world);
     expect(world.envelope().freeChat!.language).toEqual({ kept: "tamil" });
-    world.replyWith(answer(["Bola."]));
-    await world.say("marathi mein bolo");
+    // No answered reply yet: the ask alone, no model call.
+    expect((await world.say("marathi mein bolo")).reply).toBe(languageAskLine("marathi").latin);
+    expect(world.ai.freeChatReply).not.toHaveBeenCalled();
     expect(world.envelope().freeChat!.language).toEqual({ kept: "tamil", offer: "marathi" });
 
     const no = await world.say("Nahi");
@@ -2815,7 +2838,6 @@ describe("§11 R41 — Nahi: each reply follows the message again", () => {
   it("a decline is the latest SET value — the next session opens with none kept", async () => {
     const world = makeWorld({ keptLanguage: "tamil" });
     await inFreeMode(world);
-    world.replyWith(answer(["Bola."]));
     await world.say("marathi mein bolo");
     await world.say(FREE_CHAT_LANG_NO_KEY);
     world.useSession(NEXT_SESSION);
@@ -2936,7 +2958,7 @@ describe("§11 — the spine", () => {
     const world = makeWorld({ keptLanguage: "tamil" });
     await askedMarathi(world);
     await world.say("Haan, Marathi mein");
-    world.replyWith(answer(["Kem cho."]));
+    // After LANG_YES (no answered reply): the ask alone — its served event validates too.
     await world.say("gujarati ma bolo");
     await world.say("Nahi");
     const calls = world.events.emit.mock.calls.map(
@@ -3149,5 +3171,113 @@ describe("§11 L9 — an ask pending behind the aside cap or the cool-down", () 
     const turn = await world.say("haan");
     expect(turn.reply).toBe(FREE_CHAT_COPY.TRASH_COOLDOWN.latin);
     expectNoLanguageChange(world);
+  });
+});
+
+/** How many reply and classifier calls the world has made so far. */
+const calls = (world: ReturnType<typeof makeWorld>) => ({
+  reply: world.ai.freeChatReply.mock.calls.length,
+  classify: world.ai.freeChatClassify.mock.calls.length,
+});
+
+describe("§11 re-review HIGH — a request re-answers ONLY an answered reply; after distress it gets distress", () => {
+  it("word-list distress → 'मराठीत सांगा' → the distress line again: no model call, no ask", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    expect((await world.say("मला आत्महत्या करायची आहे")).reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    const before = calls(world);
+    const turn = await world.say("मराठीत सांगा");
+    expect(calls(world)).toEqual(before);
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(turn.options).toEqual([]);
+    expect(world.envelope().freeChat!.language).toBeUndefined();
+    expect(world.emitted("chat.free_chat_turn_served").at(-1)!.payload).toMatchObject({
+      decided_by: "flow",
+      category: "distress",
+      outcome: "fixed_line",
+    });
+  });
+
+  it("classifier distress ('enakku vaazhave venam') → 'tamil la sollunga' → the distress line again", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("distress", 0.4));
+    expect((await world.say("enakku vaazhave venam")).reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    const before = calls(world);
+    const turn = await world.say("tamil la sollunga");
+    expect(calls(world)).toEqual(before);
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(world.envelope().freeChat!.language).toBeUndefined();
+  });
+
+  it("a model's distress refusal counts too, and a NON-bare request after it gets the distress line, unclassified", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("casual"));
+    world.replyWith({ status: "refuse", topic: "distress", ai_metadata: null });
+    expect((await world.say("sab khatam sa lagta hai")).reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "refused", refusal_topic: "distress" });
+    const before = calls(world);
+    const turn = await world.say("english mein bolo, what should i do now");
+    expect(calls(world)).toEqual(before);
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+  });
+
+  it("at the GREETING too: distress, then a request, is the distress line again", async () => {
+    const world = makeWorld();
+    await world.greet();
+    expect((await world.say("मला आत्महत्या करायची आहे")).reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    const turn = await world.say("मराठीत सांगा");
+    expect(calls(world)).toEqual({ reply: 0, classify: 0 });
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+  });
+
+  it("JOBS → 'marathi mai jawab do' → LANG_ASK alone with its chips: no model call; the offer works", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("jobs"));
+    expect((await world.say("mujhe job chahiye")).reply).toBe(FREE_CHAT_COPY.JOBS.latin);
+    const before = calls(world);
+    const turn = await world.say("marathi mai jawab do");
+    expect(calls(world)).toEqual(before);
+    expect(turn.reply).toBe(languageAskLine("marathi").latin);
+    expect(chipPairs(turn)).toEqual([
+      [FREE_CHAT_LANG_YES_KEY, "Haan, Marathi mein"],
+      [FREE_CHAT_LANG_NO_KEY, "Nahi"],
+    ]);
+    expect(world.envelope().freeChat!.language).toEqual({ kept: null, offer: "marathi" });
+    expect((await world.say("Haan, Marathi mein")).reply).toBe(languageYesLine("marathi").latin);
+    expect(world.envelope().freeChat!.language).toEqual({ kept: "marathi" });
+  });
+
+  it("a strike → 'english mein bolo' → LANG_ASK alone: no model call", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    expect((await world.say("chutiya")).reply).toBe(FREE_CHAT_COPY.TRASH_WARN.latin);
+    const turn = await world.say("english mein bolo");
+    expect(calls(world)).toEqual({ reply: 0, classify: 0 });
+    expect(turn.reply).toBe(languageAskLine("english").latin);
+    expect(world.envelope().freeChat!.language).toEqual({ kept: null, offer: "english" });
+  });
+
+  it("an answered career reply → 'marathi mai jawab do' → the re-answer in Marathi, as before", async () => {
+    const world = makeWorld();
+    await careerAnswered(world);
+    const before = calls(world);
+    world.replyWith(answer(["Sadharan welder la 15000 te 20000 milta."]));
+    const turn = await world.say("marathi mai jawab do");
+    expect(calls(world)).toEqual({ reply: before.reply + 1, classify: before.classify });
+    expect(replyInput(world)).toMatchObject({ reply_language: "marathi", category: "career" });
+    expect(turn.reply.endsWith(languageAskLine("marathi").latin)).toBe(true);
+  });
+
+  it("what the previous turn served lasts ONE message: distress, an answered reply, then a request re-answers", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    await world.say("मला आत्महत्या करायची आहे");
+    await casual(world, 1);
+    world.replyWith(answer(["Bara aahe."]));
+    await world.say("marathi mein bolo");
+    expect(replyInput(world)).toMatchObject({ reply_language: "marathi", category: "casual" });
   });
 });

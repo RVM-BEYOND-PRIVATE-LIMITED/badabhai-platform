@@ -160,7 +160,19 @@ export interface FreeChatState {
    * Absent after any other turn, and outside free mode.
    */
   readonly lastReplyCategory?: FreeChatReplyCategory;
+  /**
+   * ADR-0051 §11 — what the PREVIOUS greeting / free-mode turn served, read by the next message's
+   * language request only: an answered casual or career reply (a bare request may re-answer it),
+   * the DISTRESS line (any request gets it again — never a model reply, never the ask), or any
+   * other line. OPTIONAL, cleared every message like {@link lastReplyCategory}; absent reads as
+   * "other", which is what every envelope written before it means.
+   */
+  readonly lastServed?: FreeChatLastServed;
 }
+
+/** The kinds {@link FreeChatState.lastServed} records — closed, envelope-internal. */
+export const FREE_CHAT_LAST_SERVED = ["answered", "distress", "other"] as const;
+export type FreeChatLastServed = (typeof FREE_CHAT_LAST_SERVED)[number];
 
 /** The reply language held in the envelope (ADR-0051 §11) — see {@link FreeChatState.language}. */
 export interface FreeChatLanguageState {
@@ -223,12 +235,12 @@ export function keptLanguageOf(
 }
 
 /**
- * The state with what lasts ONE message gone (ADR-0051 §11): a pending ask's offer, and the
- * previous reply's category. The kept language stays. Every free-mode message starts from this, so
- * an ask only the next message answered can never be answered later.
+ * The state with what lasts ONE message gone (ADR-0051 §11): a pending ask's offer, the previous
+ * reply's category and what the previous turn served. The kept language stays. Every free-mode
+ * message starts from this, so an ask only the next message answered can never be answered later.
  */
 export function lapsedOf(state: FreeChatState): FreeChatState {
-  const { lastReplyCategory: _category, language, ...rest } = state;
+  const { lastReplyCategory: _category, lastServed: _served, language, ...rest } = state;
   return language === undefined ? rest : { ...rest, language: { kept: language.kept } };
 }
 
@@ -360,6 +372,12 @@ export function narrowFreeChat(value: unknown): FreeChatState | null {
     mode === "free"
       ? FREE_CHAT_REPLY_CATEGORIES.find((candidate) => candidate === v.lastReplyCategory)
       : undefined;
+  // What the previous turn served — read in greeting and free mode, where a language request is.
+  // Unreadable reads as "other": a bare request then asks, with no model call.
+  const lastServed =
+    mode === "resume"
+      ? undefined
+      : FREE_CHAT_LAST_SERVED.find((candidate) => candidate === v.lastServed);
   return {
     mode,
     trigger: FREE_CHAT_MODE_TRIGGERS.find((candidate) => candidate === v.trigger) ?? null,
@@ -389,6 +407,7 @@ export function narrowFreeChat(value: unknown): FreeChatState | null {
     // it did before ADR-0051 §11.
     ...(language === undefined ? {} : { language }),
     ...(lastReplyCategory === undefined ? {} : { lastReplyCategory }),
+    ...(lastServed === undefined ? {} : { lastServed }),
   };
 }
 

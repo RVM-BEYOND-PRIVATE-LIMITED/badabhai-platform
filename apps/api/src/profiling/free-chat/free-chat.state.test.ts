@@ -296,6 +296,23 @@ describe("the reply language in the envelope (ADR-0051 §11)", () => {
     const pending: FreeChatState = { ...free, language: { kept: "tamil", offer: "marathi" } };
     expect(enterMode(pending, "resume", "chip", T0).language).toEqual({ kept: "tamil" });
   });
+
+  it("what the previous turn served round-trips in greeting and free mode, and lasts one message", () => {
+    for (const lastServed of ["answered", "distress", "other"] as const) {
+      const state: FreeChatState = { ...free, lastServed };
+      expect(narrowFreeChat(JSON.parse(JSON.stringify(state)))).toEqual(state);
+    }
+    // The distress line at the greeting is read there too.
+    expect(narrowFreeChat({ ...greetingState(), lastServed: "distress" })?.lastServed).toBe(
+      "distress",
+    );
+    // Unreadable, older, or in résumé mode: absent ("other").
+    expect("lastServed" in narrowFreeChat({ ...free, lastServed: "panic" })!).toBe(false);
+    expect("lastServed" in narrowFreeChat(JSON.parse(JSON.stringify(free)))!).toBe(false);
+    const resume = { ...enterMode(null, "resume", "chip", T0), lastServed: "distress" };
+    expect(narrowFreeChat(resume)?.lastServed).toBeUndefined();
+    expect("lastServed" in lapsedOf({ ...free, lastServed: "distress" })).toBe(false);
+  });
 });
 
 describe("the kept language's durable record — conversation_state.free_chat_language", () => {

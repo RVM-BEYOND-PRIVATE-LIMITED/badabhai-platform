@@ -128,6 +128,7 @@ import {
   pendingKeyOf,
   registerStrike,
   type FreeChatHeldTurn,
+  type FreeChatLastServed,
   type FreeChatState,
 } from "./free-chat.state";
 
@@ -363,6 +364,7 @@ export class FreeChatTurns {
     // the state with both gone: a distress line, a strike or a classified message lets it lapse.
     const offer = entering.language?.offer ?? null;
     const previousCategory = entering.lastReplyCategory ?? null;
+    const lastServed = entering.lastServed ?? "other";
     const state = lapsedOf(entering);
     // AN UPLOADED RÉSUMÉ IS RÉSUMÉ INTENT. A pending import (an unanswered "is this you?" line, or a
     // batch-confirm with facts to confirm) enters résumé mode and is served now, rather than hidden
@@ -436,22 +438,38 @@ export class FreeChatTurns {
       const answer = readLanguageAnswer(text, offer);
       if (answer !== null) return this.serveLanguageAnswer(t, state, offer, answer);
     }
-    // R41 — A BARE REQUEST in free mode ("marathi mai jawab do": every word is the request's own)
-    // is about the previous reply, not a category: the model answers again in that language with
-    // no classifier call. ANY OTHER message carrying a request is classified like every message —
-    // distress, abuse, a jobs or résumé ask said in the same breath keep their handling — and only
-    // a casual or career reply takes the requested language and the ask (`askPlan`, below). At the
-    // greeting even a bare request is classified: the classifier alone moves it to free mode.
+    // R41 — A LANGUAGE REQUEST.
+    //   - RIGHT AFTER THE DISTRESS LINE (the word list, a classifier verdict or a model refusal),
+    //     any request, bare or not, gets the distress line again: a worker who cannot read the
+    //     helpline line and asks for their language is never handed a model reply, nor the ask.
+    //   - A BARE request in free mode ("marathi mai jawab do": every word is the request's own) is
+    //     about the previous reply, not a category, and makes no classifier call: it re-answers an
+    //     ANSWERED casual or career reply in that language; after any other turn (JOBS, a strike,
+    //     a refusal, the later line…) it makes no model call either, and serves the ask alone.
+    //   - ANY OTHER message carrying a request is classified like every message, and only a casual
+    //     or career reply takes the requested language and the ask (`askPlan`, below). At the
+    //     greeting even a bare request is classified: the classifier alone moves it to free mode.
     const requested = parseLanguageRequest(text);
-    if (requested !== null && requested.bare && state.mode === "free") {
-      const category = previousCategory ?? "casual";
-      return this.serveReply(
+    if (requested !== null && lastServed === "distress") {
+      return this.serveFreeLine(
         t,
         state,
-        category,
-        { ...BARE_REQUEST_FACTS, category },
-        askPlan(requested.language, keptLanguageOf(state)),
+        FREE_CHAT_COPY.DISTRESS,
+        [],
+        DISTRESS_AGAIN_FACTS,
+        "fixed_line",
       );
+    }
+    if (requested !== null && requested.bare && state.mode === "free") {
+      return previousCategory !== null
+        ? this.serveReply(
+            t,
+            state,
+            previousCategory,
+            { ...BARE_REQUEST_FACTS, category: previousCategory },
+            askPlan(requested.language, keptLanguageOf(state)),
+          )
+        : this.serveLanguageAsk(t, state, requested.language);
     }
 
     const verdict = await this.classifyMemo(t, "free", null);
@@ -721,6 +739,7 @@ export class FreeChatTurns {
       casualReplies,
       // §11 — a bare request on the NEXT turn re-answers in this reply's category.
       lastReplyCategory: category,
+      lastServed: "answered",
       ...(ask === null ? {} : { language: { kept: keptLanguageOf(state), offer: ask } }),
     };
     return this.serveAside(
@@ -780,7 +799,8 @@ export class FreeChatTurns {
     };
     return this.serveAside(
       t,
-      { ...t.envelope, freeChat: state },
+      // §11 — a news answer is not re-answered on a bare request: it is no casual or career reply.
+      { ...t.envelope, freeChat: { ...state, lastServed: "other" } },
       result,
       servedFacts(state.mode, facts, NEWS_TURN_OUTCOMES.answered, extra),
     );
@@ -814,7 +834,44 @@ export class FreeChatTurns {
     );
   }
 
-  /** One fixed line (plus its chips) as an aside, in the state the turn leaves behind. */
+  /**
+   * A BARE REQUEST WITH NO ANSWERED REPLY TO RE-ANSWER (ADR-0051 §11) — after JOBS, a strike, a
+   * refusal, the later line or any other fixed line: no model call, only the reviewed ask "Kya aage
+   * ki saari baat {Language} mein karein?" with its two chips, and the offer waits for the next
+   * message. A request for the language the worker ALREADY keeps has nothing to ask: LANG_YES
+   * confirms it, and nothing changes.
+   */
+  private serveLanguageAsk(
+    t: FreeChatTurn,
+    state: FreeChatState,
+    language: FreeChatReplyLanguage,
+  ): FreeChatRouted {
+    const kept = keptLanguageOf(state);
+    if (kept === language) {
+      return this.serveFreeLine(
+        t,
+        state,
+        languageYesLine(language),
+        [],
+        BARE_REQUEST_FACTS,
+        "fixed_line",
+      );
+    }
+    return this.serveFreeLine(
+      t,
+      { ...state, language: { kept, offer: language } },
+      languageAskLine(language),
+      languageAskChips(language),
+      BARE_REQUEST_FACTS,
+      "fixed_line",
+    );
+  }
+
+  /**
+   * One fixed line (plus its chips) as an aside, in the state the turn leaves behind — recording
+   * whether it was the DISTRESS line (whatever decided it), which the next message's language
+   * request reads (§11).
+   */
   private serveFreeLine(
     t: FreeChatTurn,
     state: FreeChatState,
@@ -831,9 +888,11 @@ export class FreeChatTurns {
       progressOf(t.progressItems, answers),
       essentialsOf(t.items, answers),
     );
+    const lastServed: FreeChatLastServed =
+      line.latin === FREE_CHAT_COPY.DISTRESS.latin ? "distress" : "other";
     return this.serveAside(
       t,
-      { ...t.envelope, freeChat: state },
+      { ...t.envelope, freeChat: { ...state, lastServed } },
       result,
       servedFacts(state.mode, facts, outcome, extra),
     );
@@ -1210,6 +1269,15 @@ function languageAskChips(language: FreeChatReplyLanguage): QuestionPackOption[]
 const BARE_REQUEST_FACTS: VerdictFacts = {
   decidedBy: "flow",
   category: null,
+  confidenceBucket: null,
+};
+/**
+ * A language request right after the distress line: the flow serves the helpline again, with no
+ * model call (§11) — `flow`, with the distress category the line answers.
+ */
+const DISTRESS_AGAIN_FACTS: VerdictFacts = {
+  decidedBy: "flow",
+  category: "distress",
   confidenceBucket: null,
 };
 /** The ask's chip, or its typed yes / no, decided it — `chip` by the spine's own definition. */

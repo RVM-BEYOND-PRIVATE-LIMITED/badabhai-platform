@@ -343,6 +343,12 @@ const NOT_REQUESTS: readonly string[] = [
   "english mein bolo mat",
   "dont reply in english",
   "don't speak hindi",
+  "do not reply in english",
+  // A negation of the request verb or the named language, wherever it sits (low a)
+  "mat english mein bolo",
+  "english mein reply nahi karna",
+  "english mein baat nahi karni",
+  "tamil la sollunga vendam",
   // A GENERIC verb beside content is not aimed at the reply (B2 / H1)
   "tamil me kaam karna hai",
   "mujhe tamil me job dedo",
@@ -395,8 +401,11 @@ const BARE_REQUESTS: readonly Case[] = [
   ["kannada me batao", "kannada"],
   ["kya aap marathi mein baat kar sakte hain?", "marathi"],
   ["marathi bol sakte ho?", "marathi"],
-  ["nahi samjha, marathi mein bolo", "marathi"],
+  // A negation may sit in a bare request only where it negates ANOTHER named language (low c).
   ["english mein nahi, hindi mein bolo", "hinglish"],
+  ["reply in english not hindi", "english"],
+  ["mat hindi, english mein bolo", "english"],
+  ["tamil la sollunga, english vendam", "tamil"],
   ["mujhe english mein baat karni hai", "english"],
   ["Haan, Tamil mein", "tamil"],
   ["jawab marathi mein", "marathi"],
@@ -424,6 +433,20 @@ const NOT_BARE_REQUESTS: readonly Case[] = [
   ["english mein bolo, khud ko khatam kar lunga", "english"],
   ["tamil la sollunga, saala kutta", "tamil"],
   ["marathi mein bolo, welder ki salary kitni hai", "marathi"],
+  // A negation about SOMETHING ELSE: the request stands, the classifier reads the rest (low c).
+  ["nahi samjha, marathi mein bolo", "marathi"],
+  ["hindi mein bolo, ab kya hi karna hai, ab aage nahi", "hinglish"],
+  ["reply in english, can not continue", "english"],
+  ["no, reply in tamil", "tamil"],
+];
+
+/** Negations with no language named, or about the worker themself: never a bare request (low c). */
+const NEGATED_NOT_BARE: readonly string[] = [
+  "mujhse nahi ho",
+  "mujhe ab baat nahi karni",
+  "mala nako",
+  "enakku vendam",
+  "naaku vaddu",
 ];
 
 describe("parseLanguageRequest — a BARE request skips the classifier, any other is classified (B2 / H1)", () => {
@@ -433,6 +456,23 @@ describe("parseLanguageRequest — a BARE request skips the classifier, any othe
 
   it.each(NOT_BARE_REQUESTS)("%j asks for %s, and is NOT bare", (text, expected) => {
     expect(parseLanguageRequest(text)).toEqual({ language: expected, bare: false });
+  });
+
+  it.each(NEGATED_NOT_BARE)("%j is no bare request — it is classified", (text) => {
+    expect(parseLanguageRequest(text)?.bare ?? false).toBe(false);
+  });
+
+  it("a format character never splits a word into grammar words (low b)", () => {
+    // U+200B between "jee" and "na": one word, "jeena" — not the fillers "jee" and "na".
+    const zwsp = "hindi mein bolo, ab jee\u200Bna nahi";
+    expect(parseLanguageRequest(zwsp)).toEqual({ language: "hinglish", bare: false });
+    expect(languageTokens(zwsp)).toContain("jeena");
+    // The soft hyphen, a bidi override and a BOM are dropped too.
+    expect(languageTokens("ma\u00ADrathi me\u202Ein bo\uFEFFlo")).toEqual([
+      "marathi",
+      "mein",
+      "bolo",
+    ]);
   });
 });
 

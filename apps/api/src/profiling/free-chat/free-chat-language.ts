@@ -50,7 +50,7 @@ import {
   NEGATION_WORDS,
   PLACE_SUFFIX_WORDS,
   PLEASE_WORDS,
-  POST_VERB_NEGATION_WORDS,
+  PRE_NEGATION_WORDS,
   REGIONAL_LATIN_WORDS,
   REPLY_NOUN_WORDS,
   REQUEST_FILLER_WORDS,
@@ -65,14 +65,16 @@ import {
 
 /**
  * One token, normalized: NFC (so a precomposed nukta letter and its decomposed spelling are one
- * word), lowercased, the zero-width non-joiner and joiner (U+200C, U+200D) dropped — Indic
- * keyboards insert them inside a word, and they are not separators.
+ * word), lowercased, and EVERY Unicode format character (`\p{Cf}`) dropped: the zero-width
+ * non-joiner and joiner Indic keyboards insert inside a word, and the zero-width space, soft hyphen
+ * and bidi controls that would otherwise split one word into two grammar words ("jee" + "na").
+ * None of them is a separator.
  */
 function normalizeToken(token: string): string {
   return token
     .normalize("NFC")
     .toLowerCase()
-    .replace(/[\u200c\u200d]/g, "");
+    .replace(/\p{Cf}/gu, "");
 }
 
 /**
@@ -92,11 +94,6 @@ export function languageTokens(text: string): string[] {
 /** A closed word list as a set of normalized tokens. */
 function wordSet(...lists: ReadonlyArray<readonly string[]>): ReadonlySet<string> {
   return new Set(lists.flat().map(normalizeToken));
-}
-
-/** Any token of `set` in `tokens[from, to)`. */
-function anyIn(tokens: readonly string[], set: ReadonlySet<string>, from: number, to: number) {
-  return tokens.slice(Math.max(0, from), Math.max(0, to)).some((token) => set.has(token));
 }
 
 /** The first index in `[from, to)` whose token is in `set`, or -1. */
@@ -352,7 +349,7 @@ const ENGLISH_DIRECT_VERBS = wordSet(ENGLISH_DIRECT_VERB_WORDS);
 const ENGLISH_IN = wordSet(ENGLISH_IN_WORDS);
 const PLEASE = wordSet(PLEASE_WORDS);
 const NEGATIONS = wordSet(NEGATION_WORDS);
-const POST_VERB_NEGATIONS = wordSet(POST_VERB_NEGATION_WORDS);
+const PRE_NEGATIONS = wordSet(PRE_NEGATION_WORDS);
 const PLACE_SUFFIXES = wordSet(PLACE_SUFFIX_WORDS);
 const TRAILING = wordSet(TRAILING_WORDS, REPLY_NOUN_WORDS);
 
@@ -380,25 +377,36 @@ const REQUEST_MAX_TOKENS = 12;
 /** How far a request's verb may sit from the name. */
 const REQUEST_WINDOW = 4;
 
-/** "english mein bolo MAT" — the prohibitive straight after the verb at `verbAt`. */
-function prohibitedAfter(tokens: readonly string[], verbAt: number): boolean {
-  const after = tokens[verbAt + 1];
-  return after !== undefined && POST_VERB_NEGATIONS.has(after);
+/** Where one request sits in the message: its first and last word, inclusive. */
+interface RequestSpan {
+  readonly start: number;
+  readonly end: number;
+  /** Completed by a GENERIC verb alone ("kannada me batao") — a request only when it is bare. */
+  readonly generic: boolean;
+}
+
+/** The first index in `[from, to)` holding a language's name, else `to`: a new clause starts there. */
+function clauseEnd(tokens: readonly string[], from: number, to: number): number {
+  const limit = Math.min(to, tokens.length);
+  for (let j = Math.max(0, from); j < limit; j++) if (NAME_INDEX.has(tokens[j]!)) return j;
+  return limit;
 }
 
 /**
- * The index of the word that AIMS a locative request at the reply, in `[from, from + window)`, or
- * -1: a speech verb ("bolo", "sollunga"), "bol" + a modal ("bol sakte"), or a reply noun followed
- * by a generic verb or a modal ("jawab do", "baat karo", "baat kar sakte").
+ * The index of the word that AIMS a locative request at the reply, within the window after `from`
+ * and before the next language's name, or -1: a speech verb ("bolo", "sollunga"), "bol" + a modal
+ * ("bol sakte"), or a reply noun followed by a generic verb or a modal ("jawab do", "baat karo",
+ * "baat kar sakte").
  */
 function aimedAt(tokens: readonly string[], from: number): number {
-  const to = Math.min(from + REQUEST_WINDOW, tokens.length);
+  const to = clauseEnd(tokens, from, from + REQUEST_WINDOW);
   for (let j = from; j < to; j++) {
     const token = tokens[j]!;
     if (SPEECH_VERBS.has(token)) return j;
     if (BOL.has(token) && MODALS.has(tokens[j + 1] ?? "")) return j + 1;
     if (REPLY_NOUNS.has(token)) {
-      const verb = findFirst(tokens, NOUN_COMPLETIONS, j + 1, j + 1 + REQUEST_WINDOW);
+      const until = clauseEnd(tokens, j + 1, j + 1 + REQUEST_WINDOW);
+      const verb = findFirst(tokens, NOUN_COMPLETIONS, j + 1, until);
       if (verb >= 0) return verb;
     }
   }
@@ -409,61 +417,106 @@ function aimedAt(tokens: readonly string[], from: number): number {
  * "{L} mein …" (or a glued "marathit …"), the name at `i` and the words after "in" from `from`:
  *   - AIMED: a speech verb or a reply noun + verb within the window ("jawab do", "bolo");
  *   - NOTHING CONTENTFUL AFTER IT: "marathi mein", "jawab marathi mein", "marathi mein please";
- *   - a GENERIC verb ("batao", "karo"), only when the whole message is the request (`bare`):
- *     "kannada me batao" asks, "gujarati mein job batao" does not.
- * A negation between the name and its verb ("mat bolo", "nahi") cancels it — and only that one: a
- * negation after the request ("english mein bolo, hindi nahi aati") is another clause.
+ *   - a GENERIC verb ("batao", "karo") when every word is the request's grammar (`allGrammar`) —
+ *     kept only if the request turns out bare: "kannada me batao" asks, "gujarati mein job batao"
+ *     does not.
  */
-function locativeRequest(
+function locativeSpan(
   tokens: readonly string[],
   i: number,
   from: number,
-  bare: boolean,
-): boolean {
-  const negatedUpTo = (verbAt: number) =>
-    anyIn(tokens, NEGATIONS, i + 1, verbAt + 1) || prohibitedAfter(tokens, verbAt);
+  allGrammar: boolean,
+): RequestSpan | null {
   const aimed = aimedAt(tokens, from);
-  if (aimed >= 0) return !negatedUpTo(aimed);
-  if (tokens.slice(from).every((token) => TRAILING.has(token))) return true;
-  if (!bare) return false;
-  const generic = findFirst(tokens, GENERIC_VERBS, from, from + REQUEST_WINDOW);
-  return generic >= 0 && !negatedUpTo(generic);
+  if (aimed >= 0) return { start: i, end: aimed, generic: false };
+  if (tokens.slice(from).every((token) => TRAILING.has(token))) {
+    return { start: i, end: tokens.length - 1, generic: false };
+  }
+  if (!allGrammar) return null;
+  const until = clauseEnd(tokens, from, from + REQUEST_WINDOW);
+  const generic = findFirst(tokens, GENERIC_VERBS, from, until);
+  return generic >= 0 ? { start: i, end: generic, generic: true } : null;
 }
 
-/**
- * "[verb] in {L}" / "speak {L}" / "in {L} please" — the English shapes, the verb BEFORE the name
- * and never negated in the two words before it ("dont reply in English").
- */
-function englishRequest(tokens: readonly string[], i: number): boolean {
+/** "[verb] in {L}" / "speak {L}" / "in {L} please" — the English shapes, the verb BEFORE the name. */
+function englishSpan(tokens: readonly string[], i: number): RequestSpan | null {
   const prev = tokens[i - 1];
-  if (prev === undefined) return false;
+  if (prev === undefined) return null;
   const verbAt = ENGLISH_DIRECT_VERBS.has(prev)
     ? i - 1
     : ENGLISH_IN.has(prev)
       ? findLast(tokens, ENGLISH_REQUEST_VERBS, i - 1 - REQUEST_WINDOW, i - 1)
       : -1;
-  if (verbAt >= 0) return !anyIn(tokens, NEGATIONS, verbAt - 2, verbAt);
+  if (verbAt >= 0) return { start: verbAt, end: i, generic: false };
   // "in Tamil please", "please, in Tamil" — a short ask with nothing else in it.
-  return (
-    ENGLISH_IN.has(prev) && tokens.length <= REQUEST_WINDOW && tokens.some((t) => PLEASE.has(t))
-  );
+  return ENGLISH_IN.has(prev) &&
+    tokens.length <= REQUEST_WINDOW &&
+    tokens.some((t) => PLEASE.has(t))
+    ? { start: 0, end: tokens.length - 1, generic: false }
+    : null;
 }
 
 /**
- * Is the language named at `i` the object of a request? Its three shapes: LOCATIVE ("{L} mein
- * bolo", {@link locativeRequest}); DIRECT ("{L} bolo", "{L} bol sakte ho", "{L} please"); ENGLISH
- * ({@link englishRequest}). A name followed by "nadu" is a place, not a language.
+ * Where the request for the language named at `i` sits, or null when the name is no request's
+ * object. Its three shapes: LOCATIVE ("{L} mein bolo", {@link locativeSpan}); DIRECT ("{L} bolo",
+ * "{L} bol sakte ho", "{L} please"); ENGLISH ({@link englishSpan}). A name followed by "nadu" is a
+ * place, not a language.
  */
-function requestsAt(tokens: readonly string[], i: number, glued: boolean, bare: boolean) {
+function requestSpan(
+  tokens: readonly string[],
+  i: number,
+  glued: boolean,
+  allGrammar: boolean,
+): RequestSpan | null {
   const next = tokens[i + 1];
-  if (next !== undefined && PLACE_SUFFIXES.has(next)) return false;
+  if (next !== undefined && PLACE_SUFFIXES.has(next)) return null;
   const afterLocative = glued ? i + 1 : next !== undefined && LOCATIVES.has(next) ? i + 2 : null;
-  if (afterLocative !== null) return locativeRequest(tokens, i, afterLocative, bare);
+  if (afterLocative !== null) return locativeSpan(tokens, i, afterLocative, allGrammar);
   if (next !== undefined && (DIRECT_VERBS.has(next) || PLEASE.has(next))) {
-    return !prohibitedAfter(tokens, i + 1);
+    return { start: i, end: i + 1, generic: false };
   }
-  if (next !== undefined && BOL.has(next) && MODALS.has(tokens[i + 2] ?? "")) return true;
-  return englishRequest(tokens, i);
+  if (next !== undefined && BOL.has(next) && MODALS.has(tokens[i + 2] ?? "")) {
+    return { start: i, end: i + 2, generic: false };
+  }
+  return englishSpan(tokens, i);
+}
+
+/** What one negation negates, read against one request — see {@link negationScope}. */
+type NegationScope = "request" | "other_language" | "elsewhere";
+
+/**
+ * What the negation at `n` negates, for the request for `language` at `span`:
+ *   - THE REQUEST ITSELF — inside its span ("english mein MAT bolo"), straight after it ("bolo
+ *     MAT", "english mein reply NAHI karna"), or a prohibitive just before it ("MAT english mein
+ *     bolo", "DONT reply in English"): the request is cancelled;
+ *   - ANOTHER LANGUAGE — beside another language's name ("english mein NAHI, hindi mein bolo",
+ *     "hindi NAHI aati", "NOT hindi"): the request stands, and may still be bare;
+ *   - SOMETHING ELSE ("NAHI samjha", "ab aage NAHI", "can NOT continue"): the request stands, but
+ *     it is not bare — the classifier reads what the negation is about.
+ */
+function negationScope(
+  tokens: readonly string[],
+  n: number,
+  span: RequestSpan,
+  language: FreeChatReplyLanguage,
+): NegationScope {
+  if (n > span.start && n < span.end) return "request";
+  const otherName = (k: number) => {
+    const named = NAME_INDEX.get(tokens[k] ?? "");
+    return named !== undefined && named.language !== language;
+  };
+  if (
+    otherName(n - 1) ||
+    otherName(n + 1) ||
+    (LOCATIVES.has(tokens[n - 1] ?? "") && otherName(n - 2))
+  ) {
+    return "other_language";
+  }
+  if (n === span.end + 1) return "request";
+  if ((n === span.start - 1 || n === span.start - 2) && PRE_NEGATIONS.has(tokens[n]!)) {
+    return "request";
+  }
+  return "elsewhere";
 }
 
 /** An explicit request to reply in a language (R41). */
@@ -471,9 +524,10 @@ export interface LanguageRequest {
   readonly language: FreeChatReplyLanguage;
   /**
    * EVERY word of the message belongs to the request grammar (a language's name, an "in"-word, a
-   * request verb, a reply noun, a negation, the closed filler set) — nothing else rides on it.
-   * Only a bare request skips the classifier; any other one is classified, so distress, abuse or
-   * a jobs / résumé ask said in the same breath is read as such.
+   * request verb, a reply noun, the closed filler set, and a negation only where it negates
+   * ANOTHER named language) — nothing else rides on it. Only a bare request skips the classifier;
+   * any other one is classified, so distress, abuse, a jobs / résumé ask or a negation about
+   * something else said in the same breath is read as such.
    */
   readonly bare: boolean;
 }
@@ -487,19 +541,25 @@ export interface LanguageRequest {
  *
  * NOT a request: a message that only mentions a language ("main marathi hoon", "tamil nadu mein
  * kaam", "mujhe english nahi aati", "tamil me kaam karna hai" — a generic verb beside content is
- * not aimed at the reply), a long message about one, or a negated one ("english mein mat bolo").
- * When a message names two, the first one asked for wins ("english mein nahi, hindi mein bolo"
- * asks for Hindi).
+ * not aimed at the reply), a long message about one, or one whose request is negated ("english
+ * mein mat bolo", "mat english mein bolo", "english mein reply nahi karna"). When a message names
+ * two, the first one asked for wins ("english mein nahi, hindi mein bolo" asks for Hindi).
  */
 export function parseLanguageRequest(text: string): LanguageRequest | null {
   const tokens = languageTokens(text);
   if (tokens.length === 0 || tokens.length > REQUEST_MAX_TOKENS) return null;
-  const bare = tokens.every((token) => NAME_INDEX.has(token) || REQUEST_GRAMMAR.has(token));
+  const allGrammar = tokens.every((token) => NAME_INDEX.has(token) || REQUEST_GRAMMAR.has(token));
+  const negations = tokens.flatMap((token, n) => (NEGATIONS.has(token) ? [n] : []));
   for (let i = 0; i < tokens.length; i++) {
     const named = NAME_INDEX.get(tokens[i]!);
-    if (named !== undefined && requestsAt(tokens, i, named.glued, bare)) {
-      return { language: named.language, bare };
-    }
+    if (named === undefined) continue;
+    const span = requestSpan(tokens, i, named.glued, allGrammar);
+    if (span === null) continue;
+    const scopes = negations.map((n) => negationScope(tokens, n, span, named.language));
+    if (scopes.includes("request")) continue;
+    const bare = allGrammar && scopes.every((scope) => scope === "other_language");
+    if (span.generic && !bare) continue;
+    return { language: named.language, bare };
   }
   return null;
 }
