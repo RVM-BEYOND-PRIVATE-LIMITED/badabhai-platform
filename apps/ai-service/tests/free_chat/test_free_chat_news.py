@@ -1356,8 +1356,9 @@ def test_the_prompt_stays_bounded() -> None:
     took it to 7,804 / 1,191 the same day, and the reply-language rules it shares with the reply
     prompts (ADR-0051 §11, #2181: the "Reply language:" line, the respectful forms, no repeats)
     to 8,571 / 1,307; the review of #2181 (the anchored line, the refusal clause, the English
-    line and the English promise and rating walls) to 9,542 / 1,456. A budget keeps it from
-    growing unnoticed."""
+    line and the English promise and rating walls) to 9,542 / 1,456; the re-review's English
+    walls (good / bad, "guaranteed" alone, four will-get verbs) and the English line's praise of
+    the skill, not the worker, to 9,779 / 1,490. A budget keeps it from growing unnoticed."""
     assert len(PROMPT) < 9800
     assert len(PROMPT.split()) < 1500
 

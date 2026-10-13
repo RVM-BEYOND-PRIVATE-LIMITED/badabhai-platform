@@ -49,6 +49,7 @@ from app.contracts import (
     FreeChatReplyCategory,
     FreeChatReplyLanguage,
 )
+from app.free_chat import eval_free_reply_language as gold
 from app.free_chat import prompts as free_prompts
 from app.free_chat import reply as reply_logic
 from app.profiling import lexicon
@@ -205,6 +206,7 @@ def _regional_list(const: str) -> tuple[str, ...]:
         "REGIONAL_RESPECTFUL_YOU",
         "REGIONAL_JUDGEMENT_WORDS",
         # ADR-0051 §11 (#2181): the English promise and rating walls, in the same file.
+        "ENGLISH_PROMISE_TOKENS",
         "ENGLISH_SURELY_WORDS",
         "ENGLISH_WILL_GET_WORDS",
         "ENGLISH_RESPECTFUL_YOU",
@@ -382,7 +384,9 @@ def test_the_english_line_names_every_english_word_the_persona_scan_rejects(cate
     """Review of #2181 (F3): plain-English replies used "great", "perfect", "interview" and
     "congratulations", each a persona token the API throws the whole answer away for, so the
     worker read the fallback line. The English line names them where an English reply is
-    described, with a plain word to use instead, and the words it offers pass every wall."""
+    described, and what it offers instead praises the skill or the effort, never the worker:
+    re-review, it said "good" / "very good", which steers straight into "You are very good at
+    welding", a rating the English wall now rejects."""
     persona = _REPO / "packages" / "profiling-lexicon" / "data" / "persona.json"
     canonical = json.loads(persona.read_text(encoding="utf-8"))
     tokens = {token for group in lexicon.PERSONA_BANNED_GROUPS for token in canonical[group]}
@@ -394,12 +398,22 @@ def test_the_english_line_names_every_english_word_the_persona_scan_rejects(cate
     assert english_tokens == set(ENGLISH_PERSONA_WORDS)
     folded = _folded(REPLY_PROMPTS[category])
     english = folded.split("- english:")[1].split("- hinglish:")[0]
-    banned, offered = english.split(" never ")[1].split(" say ")
+    banned, rest = english.split(" never ", 1)[1].split(": the app throws those away")
     for word in ENGLISH_PERSONA_WORDS:
         assert f'"{word}"' in banned, (category, word)
-    for phrase in re.findall(r'"([^"]+)"', offered):
+    assert "praise the skill or the effort, never the worker" in rest
+    assert 'never "you are good"' in rest
+    assert '"good"' not in english and '"very good"' not in english
+    offered = [p for p in re.findall(r'"([^"]+)"', rest) if p != "you are good"]
+    assert offered == ["this skill is useful", "keep practising", "meeting the employer"]
+    for phrase in offered:
         assert not set(phrase.split()) & tokens, phrase
+        assert gold.wall_hits([phrase]) == [], phrase
+    # The shape the line forbids is one the API's English rating wall rejects.
+    assert gold.wall_hits(["You are good at welding."]) == ["english_rating"]
 
+
+def test_the_respectful_forms_the_prompt_names_pass_every_api_wall() -> None:
     """A form the prompt ASKS for must never be one the API's gate rejects (persona tokens, the
     regional walls), or a respectful answer would serve the fallback line."""
     banned = set(lexicon.persona_banned_tokens())

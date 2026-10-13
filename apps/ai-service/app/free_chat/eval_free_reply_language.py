@@ -639,16 +639,52 @@ def _phrases(items: Iterable[str]) -> tuple[tuple[str, ...], ...]:
     return tuple(tuple(_fold_words(item)) for item in items)
 
 
+_EN_PROMISE = _phrases(walls.ENGLISH_PROMISE_TOKENS)
 _EN_SURELY = _phrases(walls.ENGLISH_SURELY_WORDS)
 _EN_WILL_GET = _phrases(walls.ENGLISH_WILL_GET_WORDS)
 _EN_YOU = _phrases(walls.ENGLISH_RESPECTFUL_YOU)
 _EN_JUDGEMENT = _phrases(walls.ENGLISH_JUDGEMENT_WORDS)
 
+#: The API's `CLAUSE_STOP`: a sentence stop (`?` `!` `;` a danda, a line break, a `.` not inside
+#: a number) or a comma not inside a number. The English pairs are read one clause at a time.
+_CLAUSE_STOP = re.compile(r"[?!;\u0964\u0965\n\r]|(?<!\d)[.,]|[.,](?!\d)")
+
+
+def _has_phrase(words: list[str], phrases: tuple[tuple[str, ...], ...]) -> bool:
+    return any(_phrase_at(words, i, phrases) for i in range(len(words)))
+
+
+def _only_surely(words: list[str]) -> bool:
+    i = 0
+    while i < len(words):
+        size = _phrase_at(words, i, _EN_SURELY)
+        if not size:
+            return False
+        i += size
+    return True
+
+
+def _english_clauses(text: str) -> list[list[str]]:
+    """The API's `englishClauses`: each clause's folded words, a clause that is only a surely
+    phrase joined to the next one (or the previous, at the end)."""
+    clauses = [words for part in _CLAUSE_STOP.split(text) if (words := _fold_words(part))]
+    out: list[list[str]] = []
+    carry: list[str] = []
+    for words in clauses:
+        if _only_surely(words):
+            carry += words
+            continue
+        out.append(carry + words)
+        carry = []
+    if carry:
+        out.append((out.pop() if out else []) + carry)
+    return out
+
 
 def _english_promise(words: list[str]) -> bool:
-    """The API's English promise pair: a surely phrase, and a will-get phrase once the surely
-    phrases are taken out ("will definitely get"), with "you'll" read as "will"."""
-    if not any(_phrase_at(words, i, _EN_SURELY) for i in range(len(words))):
+    """The API's English promise pair, in one clause: a surely phrase, and a will-get phrase once
+    the surely phrases are taken out ("will definitely get"), with "you'll" read as "will"."""
+    if not _has_phrase(words, _EN_SURELY):
         return False
     rest: list[str] = []
     i = 0
@@ -662,7 +698,8 @@ def _english_promise(words: list[str]) -> bool:
 
 
 def _english_rating(words: list[str]) -> bool:
-    """The API's English rating: "you are" / "you're" before a judgement word, fillers between."""
+    """The API's English rating, in one clause: "you are" / "you're" before a judgement word,
+    fillers between."""
     for i in range(len(words)):
         if size := _phrase_at(words, i, _EN_YOU):
             j = i + size
@@ -694,6 +731,7 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
     for text in texts:
         scan = _scan_form(text)
         words = _fold_words(text)
+        clauses = _english_clauses(text)
         hits += [f"persona:{token}" for token in _persona_hits(scan)]
         hits += [f"regional_persona:{w}" for w in words if w in walls.REGIONAL_PERSONA_TOKENS]
         promise = _PROMISE.search(scan)
@@ -704,7 +742,12 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
             and any(w in walls.REGIONAL_WILL_GET_WORDS for w in words)
         ):
             hits.append("regional_promise")
-        if _english_promise(words):
+        hits += [
+            f"english_promise:{' '.join(words[i : i + size])}"
+            for i in range(len(words))
+            if (size := _phrase_at(words, i, _EN_PROMISE))
+        ]
+        if any(_english_promise(clause) for clause in clauses):
             hits.append("english_promise")
         sensitive = _SENSITIVE.search(scan)
         if sensitive:
@@ -715,7 +758,7 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
             hits.append(f"rating:{_label(rating.group(0), 'n/n')}")
         if _regional_rating(words):
             hits.append("regional_rating")
-        if _english_rating(words):
+        if any(_english_rating(clause) for clause in clauses):
             hits.append("english_rating")
     return hits
 

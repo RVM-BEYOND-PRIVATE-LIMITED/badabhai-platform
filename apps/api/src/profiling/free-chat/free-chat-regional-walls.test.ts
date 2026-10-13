@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { screenFreeChatAnswer } from "./free-chat-output.validator";
 import {
   ENGLISH_JUDGEMENT_WORDS,
+  ENGLISH_PROMISE_TOKENS,
   ENGLISH_RATING_FILLERS,
   ENGLISH_RESPECTFUL_YOU,
   ENGLISH_SURELY_WORDS,
@@ -106,10 +107,24 @@ describe("the English walls (§11)", () => {
     ["the review's raise", "Your salary will definitely go up after this course.", "promise"],
     ["surely + be hired", "You will surely be hired by a good factory.", "promise"],
     ["certainly + get", "With this certificate you will certainly get work.", "promise"],
-    ["guaranteed + get", "A job is guaranteed, you will get it soon.", "promise"],
+    ["guaranteed, and a pair", "A job is guaranteed, you will get it soon.", "promise"],
     ["for sure", "You will get a job for sure.", "promise"],
     ["100 percent", "100 percent you will get a job.", "promise"],
     ["a contraction", "You'll definitely get a job.", "promise"],
+    // Re-review: "guaranteed" / "guarantees" stand alone, as "pakka" does.
+    ["guaranteed alone", "A job is guaranteed after this course.", "promise"],
+    ["you are guaranteed", "You are guaranteed a job after this course.", "promise"],
+    ["guarantees", "This course guarantees a job.", "promise"],
+    ["guaranteed in Hinglish", "Job guaranteed hai is course ke baad.", "promise"],
+    // Re-review: the missing will-get verbs.
+    ["surely + be selected", "You will surely be selected in the next batch.", "promise"],
+    ["definitely + increase", "Your salary will definitely increase with this course.", "promise"],
+    ["definitely + land", "You will definitely land a job in a big factory.", "promise"],
+    ["100 percent + sure to get", "100 percent you are sure to get a job.", "promise"],
+    // Re-review: a clause that is only a surely word still pairs with its neighbour.
+    ["a surely clause before", "Definitely, you will get a job.", "promise"],
+    ["a surely clause after", "You will get a job, for sure.", "promise"],
+    ["a comma inside a number", "Definitely you will get 15,000 a month here.", "promise"],
     ["the review's rating", "You are the best welder here.", "worker_rating"],
     ["the review's weakness", "You are weak in drawing, so practise more.", "worker_rating"],
     ["you're + best", "You're the best in this workshop.", "worker_rating"],
@@ -120,6 +135,12 @@ describe("the English walls (§11)", () => {
     ["excellent", "You are excellent at fitting.", "worker_rating"],
     ["top", "You are the top worker in the team.", "worker_rating"],
     ["number one", "You are number one in this trade.", "worker_rating"],
+    // Re-review: good and bad, as every regional list has them.
+    ["very + good", "You are very good at welding.", "worker_rating"],
+    ["good", "You are good at fitting.", "worker_rating"],
+    ["bad", "You are bad at measuring.", "worker_rating"],
+    ["not + good", "You are not good at drawing.", "worker_rating"],
+    ["poor", "You're poor at reading drawings.", "worker_rating"],
   ])("%s: %j → %s", (_what, line, expected) => {
     expect(failure([line])).toBe(expected);
     expect(regionalWallFailure(line)).toBe(expected);
@@ -133,6 +154,16 @@ describe("the English walls (§11)", () => {
     ["'will get' without a surely word", "You will get practice at a workshop."],
     ["a surely word without a will-get phrase", "Certainly, safety shoes help on site."],
     ["'best' praising the work", "The best way to learn welding is daily practice."],
+    // Re-review: "in" is not a filler, and the prompt's own praise of the skill is served.
+    ["'good' after 'in'", "You are in a good trade."],
+    ["praise of the skill", "This skill is useful, keep practising."],
+    // Re-review: "will find" is directions, and "make sure to get" is advice.
+    ["'will find' is not a will-get verb", "You will definitely find the form on the ITI site."],
+    ["'sure to get' without a surely word", "Make sure to get your safety shoes."],
+    // Re-review: a pair must sit inside one clause.
+    ["a rating across a comma", "Please tell me where you are, the best ITI may be near."],
+    ["a promise across a comma", "Definitely ask the supervisor, you will get a clear answer."],
+    ["a promise across a full stop", "Ask definitely. You will get an answer from them."],
   ])("%s: %j is served", (_what, line) => {
     expect(failure([line])).toBeNull();
     expect(regionalWallFailure(line)).toBeNull();
@@ -151,13 +182,15 @@ describe("the English walls (§11)", () => {
     expect(regionalWallFailure("Definitely, it will getaway")).toBeNull();
   });
 
-  it("a live-news headline is held to the regional promise only, not the English pair", () => {
+  it("a live-news headline is held to the regional promise only, not the English walls", () => {
     expect(regionalPromise("Fuel prices will surely go up next month")).toBe(false);
+    expect(regionalPromise("State guarantees minimum wage for factory workers")).toBe(false);
     expect(regionalPromise("Naukri nakki milel")).toBe(true);
   });
 
   it("the English lists are lowercase, deduplicated and fold to whole words", () => {
     for (const list of [
+      ENGLISH_PROMISE_TOKENS,
       ENGLISH_SURELY_WORDS,
       ENGLISH_WILL_GET_WORDS,
       ENGLISH_RESPECTFUL_YOU,

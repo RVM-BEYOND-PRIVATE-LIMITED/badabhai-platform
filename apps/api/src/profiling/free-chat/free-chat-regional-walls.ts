@@ -31,9 +31,10 @@
  * plain English, and the career gate's promise and rating walls are spelled for Hinglish ("pakka",
  * "zaroor milegi", "aap best"), so "You will definitely get a job after this course." and "You are
  * the best welder here." walked past them (owner rulings R11, R17). The English lists below close
- * that gap the way §9 closed it per language: a "surely" word with a "will get" phrase in one line
- * is a promise, and the respectful "you" before a judgement word is a rating. They are PHRASES, not
- * single words, so they are matched on the folded word sequence (see {@link phraseAt}).
+ * that gap the way §9 closed it per language: "guaranteed" alone, or a "surely" word with a "will
+ * get" phrase in one clause, is a promise, and the respectful "you" before a judgement word in one
+ * clause is a rating. They are PHRASES, not single words, so they are matched on the folded word
+ * sequence (see {@link phraseAt}), clause by clause (see {@link englishClauses}).
  */
 
 import type { CareerAnswerFailure } from "../../chat-companion/v2/career-output.validator";
@@ -248,44 +249,70 @@ export const REGIONAL_JUDGEMENT_WORDS: readonly string[] = [
 ];
 
 /**
- * ENGLISH PROMISE (§11) — the English "zaroor milegi": a SURELY phrase and a WILL-GET phrase in one
- * line ("You will definitely get a job", "Your salary will surely go up"). A surely phrase alone is
- * advice ("You can definitely try an ITI course"), as "kandippa try pannunga" is. The surely
- * phrases are taken out before the will-get phrase is looked for, so the adverb may sit inside it:
- * "will definitely get" reads as "will get". `100%` and "guarantee" are the career gate's already.
+ * ENGLISH PROMISE (§11) — the English "pakka" stands alone: "guaranteed" and "guarantees", which the
+ * career gate's whole-word `guarantee` does not match ("A job is guaranteed after this course",
+ * "This course guarantees a job", "Job guaranteed hai").
+ */
+export const ENGLISH_PROMISE_TOKENS: readonly string[] = ["guaranteed", "guarantees"];
+
+/**
+ * The English "zaroor milegi": a SURELY phrase and a WILL-GET phrase in ONE CLAUSE ("You will
+ * definitely get a job", "Your salary will surely go up"). A surely phrase alone is advice ("You
+ * can definitely try an ITI course"), as "kandippa try pannunga" is. The surely phrases are taken
+ * out before the will-get phrase is looked for, so the adverb may sit inside it: "will definitely
+ * get" reads as "will get". `100%` and "guarantee" are the career gate's already.
  */
 export const ENGLISH_SURELY_WORDS: readonly string[] = [
   "definitely",
   "surely",
   "certainly",
-  "guaranteed",
   "for sure",
   "100 percent",
 ];
 
-/** The WILL-GET half of an English promise: a job, a hire or a raise, in the future tense. */
+/**
+ * The WILL-GET half of an English promise: a job, a hire, a selection or a raise. Not "will find":
+ * "You will definitely find the form on the ITI site" is directions, not a promise.
+ */
 export const ENGLISH_WILL_GET_WORDS: readonly string[] = [
   "will get",
   "will go up",
   "will be hired",
+  "will be selected",
+  "will increase",
+  "will land",
+  "sure to get",
 ];
 
 /**
- * ENGLISH RATING (§11) — the English "aap best": the respectful "you" before a judgement word ("You
- * are the best welder here", "You are weak in drawing"). Only the fillers below may sit between
- * them, so "You are learning fast" and "You are in a good trade" are served. A conditional "if you
- * are weak in drawing" is walled too; the prompts steer away from the shape, and the cost of a miss
- * is one fallback line.
+ * ENGLISH RATING (§11) — the English "aap best": the respectful "you" before a judgement word, in
+ * ONE CLAUSE ("You are the best welder here", "You are not good at drawing"). Only the fillers below
+ * may sit between them, so "You are learning fast" and "You are in a good trade" are served. A
+ * conditional "if you are weak in drawing" is walled too; the prompts steer away from the shape,
+ * and the cost of a miss is one fallback line.
  */
 export const ENGLISH_RESPECTFUL_YOU: readonly string[] = ["you are", "you're"];
 
 /** The words that may sit between the English "you" and the judgement word. */
-export const ENGLISH_RATING_FILLERS: readonly string[] = ["the", "a", "an", "very", "really", "so"];
+export const ENGLISH_RATING_FILLERS: readonly string[] = [
+  "the",
+  "a",
+  "an",
+  "very",
+  "really",
+  "so",
+  "not",
+  "too",
+  "quite",
+];
 
-/** The judgement half of an English rating. */
+/** The judgement half of an English rating: good and bad, as every regional list has them. */
 export const ENGLISH_JUDGEMENT_WORDS: readonly string[] = [
   "best",
   "worst",
+  "good",
+  "bad",
+  "poor",
   "weak",
   "perfect",
   "great",
@@ -293,6 +320,15 @@ export const ENGLISH_JUDGEMENT_WORDS: readonly string[] = [
   "top",
   "number one",
 ];
+
+/**
+ * Where a clause ends for the English pair checks: the money wall's sentence stops (`?` `!` a
+ * danda, a line break, a `.` not inside a number), plus a comma or semicolon not inside a number.
+ * The fold erases punctuation, so without this "Please tell me where you are, the best ITI may be
+ * near" read as a rating and "Definitely ask the supervisor, you will get a clear answer" as a
+ * promise.
+ */
+const CLAUSE_STOP = /[?!;\u0964\u0965\n\r]|(?<!\p{Nd})[.,]|[.,](?!\p{Nd})/u;
 
 /** Lowercase, marks off, every non-letter or non-digit a space — the form every list reads. */
 function foldWords(text: string): string {
@@ -316,6 +352,7 @@ const JUDGEMENT = new Set(REGIONAL_JUDGEMENT_WORDS);
 const phraseWords = (phrases: readonly string[]): readonly (readonly string[])[] =>
   phrases.map((phrase) => foldWords(phrase).split(" "));
 
+const EN_PROMISE = phraseWords(ENGLISH_PROMISE_TOKENS);
 const EN_SURELY = phraseWords(ENGLISH_SURELY_WORDS);
 const EN_WILL_GET = phraseWords(ENGLISH_WILL_GET_WORDS);
 const EN_YOU = phraseWords(ENGLISH_RESPECTFUL_YOU);
@@ -339,9 +376,47 @@ function hasPhrase(words: readonly string[], phrases: readonly (readonly string[
   return words.some((_word, i) => phraseAt(words, i, phrases) > 0);
 }
 
+/** Is a clause nothing but surely phrases ("Definitely", "For sure")? */
+function onlySurely(words: readonly string[]): boolean {
+  for (let i = 0; i < words.length; ) {
+    const size = phraseAt(words, i, EN_SURELY);
+    if (size === 0) return false;
+    i += size;
+  }
+  return true;
+}
+
 /**
- * An English "surely" phrase and a "will get" phrase in one text. The contraction "you'll" folds to
- * "you ll", read as "will"; the surely phrases are dropped before the will-get phrase is looked for.
+ * One line or chip as the folded words of each CLAUSE, for the English pair checks. A clause that
+ * is ONLY a surely phrase joins the next one (or the previous, at the end), so "Definitely, you
+ * will get a job" and "You will get a job, for sure" still read as one promise.
+ */
+function englishClauses(text: string): string[][] {
+  const clauses = text
+    .split(CLAUSE_STOP)
+    .map((clause) => foldWords(clause).split(" ").filter(Boolean))
+    .filter((words) => words.length > 0);
+  const out: string[][] = [];
+  let carry: string[] = [];
+  for (const words of clauses) {
+    if (onlySurely(words)) {
+      carry = [...carry, ...words];
+      continue;
+    }
+    out.push([...carry, ...words]);
+    carry = [];
+  }
+  if (carry.length > 0) {
+    const last = out.pop();
+    out.push(last === undefined ? carry : [...last, ...carry]);
+  }
+  return out;
+}
+
+/**
+ * An English "surely" phrase and a "will get" phrase in one clause. The contraction "you'll" folds
+ * to "you ll", read as "will"; the surely phrases are dropped before the will-get phrase is looked
+ * for.
  */
 function englishPromise(words: readonly string[]): boolean {
   if (!hasPhrase(words, EN_SURELY)) return false;
@@ -358,7 +433,8 @@ function englishPromise(words: readonly string[]): boolean {
   return hasPhrase(rest, EN_WILL_GET);
 }
 
-/** Does the English respectful "you" sit before a judgement word, with only fillers between? */
+/** Does the English respectful "you" sit before a judgement word, with only fillers between, in
+ * one clause? */
 function englishRating(words: readonly string[]): boolean {
   return words.some((_word, i) => {
     const you = phraseAt(words, i, EN_YOU);
@@ -380,8 +456,8 @@ function promisesIn(words: readonly string[]): boolean {
 /**
  * The regional PROMISE wall ALONE — for a live-news tile's third-party headline (ADR-0054 §8),
  * which meets the promise wall but not the persona, sensitive or rating walls. The English promise
- * pair (§11) is NOT applied to headlines: "Fuel prices will surely go up" is news someone else
- * wrote, not a promise the app makes, and the English will-get phrases are common in it.
+ * walls (§11) are NOT applied to headlines: "Fuel prices will surely go up" and "State guarantees
+ * minimum wage" are news someone else wrote, not promises the app makes.
  */
 export function regionalPromise(text: string): boolean {
   return promisesIn(foldWords(text).split(" ").filter(Boolean));
@@ -401,9 +477,12 @@ function ratesTheWorker(words: readonly string[]): boolean {
  */
 export function regionalWallFailure(text: string): CareerAnswerFailure | null {
   const words = foldWords(text).split(" ").filter(Boolean);
+  const clauses = englishClauses(text);
   if (words.some((word) => PERSONA.has(word))) return "persona";
-  if (promisesIn(words) || englishPromise(words)) return "promise";
+  if (promisesIn(words) || hasPhrase(words, EN_PROMISE) || clauses.some(englishPromise)) {
+    return "promise";
+  }
   if (words.some((word) => SENSITIVE.has(word))) return "sensitive_advice";
-  if (ratesTheWorker(words) || englishRating(words)) return "worker_rating";
+  if (ratesTheWorker(words) || clauses.some(englishRating)) return "worker_rating";
   return null;
 }

@@ -156,23 +156,23 @@ REGIONAL_JUDGEMENT_WORDS = (
 
 #: ADR-0051 §11 (R40, #2181): English in, English out, so the same file's ENGLISH walls hold a
 #: plain-English reply to the promise (R11) and rating (R17) bar the Hinglish walls ("pakka",
-#: "aap best") cannot read. Phrases, matched on the folded word sequence by the API: a surely
-#: phrase with a will-get phrase in one line is a promise ("You will definitely get a job"), a
-#: surely phrase alone is advice; "you are" before a judgement word, with only the fillers
-#: between, is a rating ("You are the best welder here"). Pinned EQUAL to the API's lists.
-ENGLISH_SURELY_WORDS = (
-    "definitely",
-    "surely",
-    "certainly",
-    "guaranteed",
-    "for sure",
-    "100 percent",
-)
-ENGLISH_WILL_GET_WORDS = ("will get", "will go up", "will be hired")
+#: "aap best") cannot read. Phrases, matched on the folded word sequence by the API, clause by
+#: clause: "guaranteed" or "guarantees" alone is a promise, as "pakku" is; a surely phrase with a
+#: will-get phrase in one clause is a promise ("You will definitely get a job"), a surely phrase
+#: alone is advice; "you are" before a judgement word, with only the fillers between, is a rating
+#: ("You are the best welder here", "You are not good at drawing"). Pinned EQUAL to the API's
+#: lists.
+ENGLISH_PROMISE_TOKENS = ("guaranteed", "guarantees")
+ENGLISH_SURELY_WORDS = ("definitely", "surely", "certainly", "for sure", "100 percent")
+ENGLISH_WILL_GET_WORDS = (
+    "will get", "will go up", "will be hired", "will be selected", "will increase", "will land",
+    "sure to get",
+)  # fmt: skip
 ENGLISH_RESPECTFUL_YOU = ("you are", "you're")
-ENGLISH_RATING_FILLERS = ("the", "a", "an", "very", "really", "so")
+ENGLISH_RATING_FILLERS = ("the", "a", "an", "very", "really", "so", "not", "too", "quite")
 ENGLISH_JUDGEMENT_WORDS = (
-    "best", "worst", "weak", "perfect", "great", "excellent", "top", "number one",
+    "best", "worst", "good", "bad", "poor", "weak", "perfect", "great", "excellent", "top",
+    "number one",
 )  # fmt: skip
 
 #: Where the regional and English words land in the shared answer rules, filled at import like the
@@ -215,7 +215,9 @@ def render_regional_words() -> str:
             _quoted_list(REGIONAL_SENSITIVE_WORDS),
             f"  {_or_list(REGIONAL_RESPECTFUL_YOU)} directly before any of:",
             _quoted_list(REGIONAL_JUDGEMENT_WORDS),
-            '  In English, a "surely" word in the same line as a "will get" phrase. Surely:',
+            f"  In English, {_or_list(ENGLISH_PROMISE_TOKENS)} alone, or a"
+            ' "surely" word in the same line as a',
+            '  "will get" phrase. Surely:',
             _quoted_list(ENGLISH_SURELY_WORDS),
             "  Will get:",
             _quoted_list(ENGLISH_WILL_GET_WORDS),
@@ -244,7 +246,11 @@ def render_regional_words() -> str:
 #: - A BARE REQUEST NEVER ROUTES AROUND A REFUSAL: the turns before "marathi madhe sanga" may hold
 #:   a question the reply refused (a health question on `off_limits`) or one the API answered with
 #:   its distress line. Re-answering "the previous question" would answer it fresh, with advice the
-#:   word walls do not catch, so the rule refuses it again on the same topic.
+#:   word walls do not catch, so the rule refuses it again on the same topic. The clause sits AFTER
+#:   the re-answer rule. Measured on `claude-haiku-4-5` (2026-10-13), the refusal-first order (one
+#:   sentence: refuse if you must, otherwise re-answer) did not help "marathi mai jawab do": still
+#:   Hinglish 5 of 5 with 1 verbatim repeat, against 4 of 4 with 1 repeat in this order. And the
+#:   distress case refused once on "unsafe_other" rather than "distress", so this order stays.
 #: - ENGLISH NAMES ITS WALLED WORDS: an English reply reaches for "great", "perfect", "excellent",
 #:   "congratulations" and "interview", all persona v3.2 tokens the API throws the whole answer
 #:   away for. The banned-token list names them, but as one list among Hinglish words; the English
@@ -263,7 +269,8 @@ Latin letters.
 Always respectful, in every language:
 - English: polite and plain, with "please" and "you can". Never "great", "perfect",
   "excellent", "awesome", "congratulations", "interview" or "guarantee": the app throws those
-  away in English too. Say "good" or "very good", and "meeting the employer" for an interview.
+  away in English too. Praise the skill or the effort, never the worker: "this skill is useful",
+  "keep practising", never "you are good". For an interview, say "meeting the employer".
 - Hinglish: always using "aap", with "kariye", "seekhiye", "dekhiye", "lijiye", "sakte hain";
   never "karo", "jaao", "seekho", "jaoge", "sakte ho", "lo" or "lelo".
 - Marathi: Marathi with English, using "tumhi" and "kara", never "tu", "tula" or "tujha".

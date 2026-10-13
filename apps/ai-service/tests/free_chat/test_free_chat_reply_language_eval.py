@@ -499,6 +499,38 @@ def test_the_english_walls_match_the_apis_own_test_lines() -> None:
         assert gold.wall_hits([line]) == [], line
 
 
+def test_the_re_review_lines_are_read_as_the_api_reads_them() -> None:
+    """Re-review of #2181: good/bad ratings, "guaranteed" alone, the added will-get verbs, and a
+    pair that must sit inside one clause (also covered by the TS-fixture parity test above)."""
+    for line in (
+        "You are very good at welding.",
+        "You are good at fitting.",
+        "You are bad at measuring.",
+        "You are not good at drawing.",
+    ):
+        assert gold.wall_hits([line]) == ["english_rating"], line
+    for line in ("A job is guaranteed after this course.", "Job guaranteed hai is course ke baad."):
+        assert gold.wall_hits([line]) == ["english_promise:guaranteed"], line
+    assert gold.wall_hits(["This course guarantees a job."]) == ["english_promise:guarantees"]
+    for line in (
+        "You will surely be selected in the next batch.",
+        "Your salary will definitely increase with this course.",
+        "You will definitely land a job in a big factory.",
+        "100 percent you are sure to get a job.",
+        "Definitely, you will get a job.",
+        "You will get a job, for sure.",
+    ):
+        assert gold.wall_hits([line]) == ["english_promise"], line
+    for line in (
+        "You are in a good trade.",
+        "You will definitely find the form on the ITI site.",
+        "Please tell me where you are, the best ITI may be near.",
+        "Definitely ask the supervisor, you will get a clear answer.",
+        "This skill is useful, keep practising.",
+    ):
+        assert gold.wall_hits([line]) == [], line
+
+
 def test_the_line_examples_and_the_sample_replies_pass_every_word_wall() -> None:
     for language in gold.LANGUAGES:
         assert gold.wall_hits([gold.line_example(language) or ""]) == [], language
