@@ -13,7 +13,6 @@ import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_info_chip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -63,7 +62,9 @@ Future<void> _pump(
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   final MockProfileSummaryRepository repo = MockProfileSummaryRepository();
-  when(() => repo.summary(includeDisplayExtras: true)).thenAnswer((_) async => summary);
+  when(
+    () => repo.summary(includeDisplayExtras: true),
+  ).thenAnswer((_) async => summary);
   locator.registerFactory<ProfileTabCubit>(() => ProfileTabCubit(repo));
   // The screen refetches on tab focus (T4) and resolves this from the locator.
   locator.registerLazySingleton<TabFocus>(() => TabFocus());
@@ -199,41 +200,39 @@ void main() {
     expect(find.byType(BbChip), findsNothing);
   });
 
-  testWidgets(
-    'Skills section hides entirely when nothing shared yet (#1579)',
-    (WidgetTester tester) async {
-      await _pump(
-        tester,
-        const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0),
-      );
+  testWidgets('Skills section hides entirely when nothing shared yet (#1579)', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0),
+    );
 
-      // No heading, no claim-like empty sentence, no chips, no count pill.
-      expect(find.text('Skills aur anubhav'), findsNothing);
-      expect(find.textContaining('Abhi kuch nahi'), findsNothing);
-      expect(find.byType(KitInfoChip), findsNothing);
-      expect(find.byType(BbChip), findsNothing);
-      expect(find.text('0'), findsNothing);
-    },
-  );
+    // No heading, no claim-like empty sentence, no chips, no count pill.
+    expect(find.text('Skills aur anubhav'), findsNothing);
+    expect(find.textContaining('Abhi kuch nahi'), findsNothing);
+    expect(find.byType(KitInfoChip), findsNothing);
+    expect(find.byType(BbChip), findsNothing);
+    expect(find.text('0'), findsNothing);
+  });
 
   // #1524 — a chat-sourced profile is labelled so it can never be silently
   // mistaken for the form road's trade-sheet profile; form and unknown stay
   // exactly as they rendered before.
-  testWidgets(
-    'a CHAT-sourced profile carries the chat-road badge',
-    (WidgetTester tester) async {
-      await _pump(
-        tester,
-        const ProfileSummary(
-          tradeLabel: 'Welder',
-          strengthSignals: 4,
-          source: 'chat',
-        ),
-      );
+  testWidgets('a CHAT-sourced profile carries the chat-road badge', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      const ProfileSummary(
+        tradeLabel: 'Welder',
+        strengthSignals: 4,
+        source: 'chat',
+      ),
+    );
 
-      expect(find.text(kChatProfileSourceLabel), findsOneWidget);
-    },
-  );
+    expect(find.text(kChatProfileSourceLabel), findsOneWidget);
+  });
 
   testWidgets(
     'a FORM-sourced (and a null-source) profile carries no chat-road badge',
@@ -341,60 +340,50 @@ void main() {
     },
   );
 
-  // #1576 — the chat-captured languages and work types, as labelled chips.
-  group('captured languages + work types', () {
-    testWidgets('renders both as chips when present', (WidgetTester tester) async {
-      await _pump(
-        tester,
-        const ProfileSummary(
-          tradeLabel: 'Fitter',
-          strengthSignals: 5,
-          languages: <String>['Hindi', 'English'],
-          workTypes: <String>['Permanent', 'Daily wage'],
-        ),
-      );
+  // OWNER ASK (2026-10-12) — the "Bhasha aur kaam" section is REMOVED
+  // permanently from the Profile tab: even with captured languages and work
+  // types there is no card, no heading, no chips and no Add entry.
+  group('the "Bhasha aur kaam" section is removed permanently', () {
+    testWidgets(
+      'renders NOTHING even when languages and work types are present',
+      (WidgetTester tester) async {
+        await _pump(
+          tester,
+          const ProfileSummary(
+            tradeLabel: 'Fitter',
+            strengthSignals: 5,
+            languages: <String>['Hindi', 'English'],
+            workTypes: <String>['Permanent', 'Daily wage'],
+          ),
+        );
 
-      expect(find.text('Bhasha aur kaam'), findsOneWidget);
-      expect(find.text('BHASHAYEIN'), findsOneWidget);
-      expect(find.text('Hindi'), findsOneWidget);
-      expect(find.text('English'), findsOneWidget);
-      expect(find.text('KAAM KA PRAKAR'), findsOneWidget);
-      expect(find.text('Permanent'), findsOneWidget);
-      expect(find.text('Daily wage'), findsOneWidget);
-    });
+        expect(find.text('Bhasha aur kaam'), findsNothing);
+        expect(find.text('Bhasha aur kaam jodein'), findsNothing);
+        expect(find.text('BHASHAYEIN'), findsNothing);
+        expect(find.text('KAAM KA PRAKAR'), findsNothing);
+      },
+    );
 
-    testWidgets('hides the whole section when both are empty',
-        (WidgetTester tester) async {
+    testWidgets('renders nothing when both are empty either', (
+      WidgetTester tester,
+    ) async {
       await _pump(
         tester,
         const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 3),
       );
 
       expect(find.text('Bhasha aur kaam'), findsNothing);
+      expect(find.text('Bhasha aur kaam jodein'), findsNothing);
       expect(find.text('BHASHAYEIN'), findsNothing);
       expect(find.text('KAAM KA PRAKAR'), findsNothing);
-    });
-
-    testWidgets('shows only work types when languages are absent',
-        (WidgetTester tester) async {
-      await _pump(
-        tester,
-        const ProfileSummary(
-          tradeLabel: 'Fitter',
-          strengthSignals: 4,
-          workTypes: <String>['Contract'],
-        ),
-      );
-
-      expect(find.text('Bhasha aur kaam'), findsOneWidget);
-      expect(find.text('KAAM KA PRAKAR'), findsOneWidget);
-      expect(find.text('BHASHAYEIN'), findsNothing);
     });
   });
 
   /// #1586 — the pill/seal render on SERVER ATTESTATION, never confirmation.
   group('verification badge follows attestation', () {
-    testWidgets('attested worker shows pill and seal', (WidgetTester tester) async {
+    testWidgets('attested worker shows pill and seal', (
+      WidgetTester tester,
+    ) async {
       await _pump(
         tester,
         const ProfileSummary(
@@ -463,8 +452,9 @@ void main() {
       expect(find.text('Welder'), findsOneWidget);
     });
 
-    testWidgets('hides the card when every v4 fact is absent',
-        (WidgetTester tester) async {
+    testWidgets('hides the card when every v4 fact is absent', (
+      WidgetTester tester,
+    ) async {
       await _pump(
         tester,
         const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 3),
@@ -479,12 +469,10 @@ void main() {
   /// sentence), unless it maps to an existing one-tap collection route, in
   /// which case exactly one compact Add entry renders in its place.
   group('empty-zone rule', () {
-    testWidgets('all-empty profile: no section headings, one Add entry',
-        (WidgetTester tester) async {
-      await _pump(
-        tester,
-        const ProfileSummary(strengthSignals: 0),
-      );
+    testWidgets('all-empty profile: no section headings, no Add entries', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, const ProfileSummary(strengthSignals: 0));
 
       // Headings without content: none may render.
       expect(find.text('Skills aur anubhav'), findsNothing);
@@ -492,10 +480,11 @@ void main() {
       expect(find.text('Kaam ki jaankari'), findsNothing);
       expect(find.textContaining('Abhi kuch nahi'), findsNothing);
       expect(find.text('No experience'), findsNothing);
-      // Only the languages section keeps its Add entry. The work-info
-      // "Kaam ki jaankari jodein" entry was removed permanently (owner ask):
-      // an empty work-info zone renders nothing at all.
-      expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
+      // Both empty-zone Add entries are gone for good: the "Bhasha aur kaam"
+      // section was removed permanently (owner ask), and the work-info
+      // "Kaam ki jaankari jodein" entry was already removed. An empty zone
+      // renders nothing at all.
+      expect(find.text('Bhasha aur kaam jodein'), findsNothing);
       expect(find.text('Kaam ki jaankari jodein'), findsNothing);
       // The chrome around them is untouched (the 'Profile edit karein'
       // shortcut is HIDDEN FOR NOW — see _shortcutsCard).
@@ -504,131 +493,102 @@ void main() {
     });
 
     testWidgets(
-        'ONE rule over every section: heading iff content, else the single '
-        'compact Add entry (#1579)', (WidgetTester tester) async {
-      const List<({String name, ProfileSummary filled, String heading, String? add})>
-          sections = <({
-        String name,
-        ProfileSummary filled,
-        String heading,
-        String? add,
-      })>[
-        (
-          name: 'skills',
-          filled: ProfileSummary(
-            strengthSignals: 0,
-            skills: <String>['MIG Welding'],
-          ),
-          heading: 'Skills aur anubhav',
-          add: null, // hides entirely — the kit is the collection path
-        ),
-        (
-          name: 'languages',
-          filled: ProfileSummary(
-            strengthSignals: 0,
-            languages: <String>['Hindi'],
-          ),
-          heading: 'Bhasha aur kaam',
-          add: 'Bhasha aur kaam jodein',
-        ),
-        (
-          name: 'work info',
-          filled: ProfileSummary(strengthSignals: 0, commuteKm: 20),
-          heading: 'Kaam ki jaankari',
-          add: null, // removed permanently — an empty work-info zone is nothing
-        ),
-      ];
+      'ONE rule over every section: heading iff content, else the single '
+      'compact Add entry (#1579)',
+      (WidgetTester tester) async {
+        const List<
+          ({String name, ProfileSummary filled, String heading, String? add})
+        >
+        sections =
+            <
+              ({
+                String name,
+                ProfileSummary filled,
+                String heading,
+                String? add,
+              })
+            >[
+              (
+                name: 'skills',
+                filled: ProfileSummary(
+                  strengthSignals: 0,
+                  skills: <String>['MIG Welding'],
+                ),
+                heading: 'Skills aur anubhav',
+                add: null, // hides entirely — the kit is the collection path
+              ),
+              (
+                name: 'work info',
+                filled: ProfileSummary(strengthSignals: 0, commuteKm: 20),
+                heading: 'Kaam ki jaankari',
+                add:
+                    null, // removed permanently — an empty work-info zone is nothing
+              ),
+            ];
 
-      Future<void> freshPump(ProfileSummary summary) async {
-        // pumpWidget reuses a same-shaped tree (the provider — and its cubit
-        // — would survive), so flush to an empty frame first.
-        await tester.pumpWidget(const SizedBox.shrink());
-        await _pump(tester, summary);
-      }
-
-      for (final section in sections) {
-        // Filled: the heading renders, and no Add entry stands beside it.
-        await freshPump(section.filled);
-        expect(find.text(section.heading), findsOneWidget,
-            reason: '${section.name}: filled section must head itself');
-        if (section.add != null) {
-          expect(find.text(section.add!), findsNothing,
-              reason: '${section.name}: filled section needs no Add entry');
+        Future<void> freshPump(ProfileSummary summary) async {
+          // pumpWidget reuses a same-shaped tree (the provider — and its cubit
+          // — would survive), so flush to an empty frame first.
+          await tester.pumpWidget(const SizedBox.shrink());
+          await _pump(tester, summary);
         }
 
-        // Empty: no heading, no gap-claim — the Add entry or nothing.
-        await freshPump(const ProfileSummary(strengthSignals: 0));
-        expect(find.text(section.heading), findsNothing,
-            reason: '${section.name}: empty section must not head itself');
-        if (section.add != null) {
-          expect(find.text(section.add!), findsOneWidget,
-              reason: '${section.name}: empty section gets one Add entry');
+        for (final section in sections) {
+          // Filled: the heading renders, and no Add entry stands beside it.
+          await freshPump(section.filled);
+          expect(
+            find.text(section.heading),
+            findsOneWidget,
+            reason: '${section.name}: filled section must head itself',
+          );
+          if (section.add != null) {
+            expect(
+              find.text(section.add!),
+              findsNothing,
+              reason: '${section.name}: filled section needs no Add entry',
+            );
+          }
+
+          // Empty: no heading, no gap-claim — the Add entry or nothing.
+          await freshPump(const ProfileSummary(strengthSignals: 0));
+          expect(
+            find.text(section.heading),
+            findsNothing,
+            reason: '${section.name}: empty section must not head itself',
+          );
+          if (section.add != null) {
+            expect(
+              find.text(section.add!),
+              findsOneWidget,
+              reason: '${section.name}: empty section gets one Add entry',
+            );
+          }
         }
-      }
-      // And never, in either shape, a sentence describing the worker.
-      expect(find.text('No experience'), findsNothing);
-      expect(find.textContaining('Abhi kuch nahi'), findsNothing);
-    });
+        // And never, in either shape, a sentence describing the worker.
+        expect(find.text('No experience'), findsNothing);
+        expect(find.textContaining('Abhi kuch nahi'), findsNothing);
+      },
+    );
 
     testWidgets(
-        'the removed work-info Add entry never renders — filled or empty',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(const SizedBox.shrink());
-      await _pump(
-          tester, ProfileSummary(strengthSignals: 0, commuteKm: 20));
-      expect(find.text('Kaam ki jaankari'), findsOneWidget);
-      expect(find.text('Kaam ki jaankari jodein'), findsNothing);
+      'the removed work-info Add entry never renders — filled or empty',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await _pump(tester, ProfileSummary(strengthSignals: 0, commuteKm: 20));
+        expect(find.text('Kaam ki jaankari'), findsOneWidget);
+        expect(find.text('Kaam ki jaankari jodein'), findsNothing);
 
-      await tester.pumpWidget(const SizedBox.shrink());
-      await _pump(tester, const ProfileSummary(strengthSignals: 0));
-      expect(find.text('Kaam ki jaankari'), findsNothing);
-      expect(find.text('Kaam ki jaankari jodein'), findsNothing);
-    });
+        await tester.pumpWidget(const SizedBox.shrink());
+        await _pump(tester, const ProfileSummary(strengthSignals: 0));
+        expect(find.text('Kaam ki jaankari'), findsNothing);
+        expect(find.text('Kaam ki jaankari jodein'), findsNothing);
+      },
+    );
 
-    testWidgets('Add entries route to Profile Edit', (WidgetTester tester) async {
-      GoogleFonts.config.allowRuntimeFetching = false;
-      await locator.reset();
-      final MockProfileSummaryRepository repo =
-          MockProfileSummaryRepository();
-      when(() => repo.summary(includeDisplayExtras: true)).thenAnswer(
-        (_) async => const ProfileSummary(strengthSignals: 0),
-      );
-      locator.registerFactory<ProfileTabCubit>(() => ProfileTabCubit(repo));
-      locator.registerLazySingleton<TabFocus>(() => TabFocus());
-      tester.view.physicalSize = const Size(900, 1900);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(() async => locator.reset());
-
-      final GoRouter router = GoRouter(
-        initialLocation: '/profile',
-        routes: <RouteBase>[
-          GoRoute(
-            path: '/profile',
-            builder: (_, __) => const ProfileTabScreen(),
-          ),
-          GoRoute(
-            path: '/profile/edit',
-            builder: (_, __) =>
-                const Scaffold(body: Text('PROFILE EDIT TARGET')),
-          ),
-        ],
-      );
-      await tester.pumpWidget(
-        MaterialApp.router(
-          theme: AppTheme.light(),
-          routerConfig: router,
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
-
-      await tester.tap(find.text('Bhasha aur kaam jodein'));
-      await tester.pumpAndSettle();
-      expect(find.text('PROFILE EDIT TARGET'), findsOneWidget);
-    });
+    // The old "Add entries route to Profile Edit" test is gone with the
+    // section: "Bhasha aur kaam" was removed permanently (owner ask), and it
+    // was the last empty-zone Add entry — so there is no Add entry left to
+    // route anywhere.
   });
 
   /// #1580 — a fallback-pack (universal, role-less, chat-road) worker sees a
@@ -640,8 +600,9 @@ void main() {
       missingFields: <String>['role'],
     );
 
-    testWidgets('renders the same skeleton: identity, nudge, shortcuts',
-        (WidgetTester tester) async {
+    testWidgets('renders the same skeleton: identity, nudge, shortcuts', (
+      WidgetTester tester,
+    ) async {
       await _pump(tester, universal);
 
       // Identity falls back to the neutral card title — never a fabricated
@@ -649,10 +610,11 @@ void main() {
       expect(find.text('Aapki profile'), findsOneWidget);
       // Chat-road badge still marks the road.
       expect(find.text('Chat se bani profile'), findsOneWidget);
-      // Empty sections obey the empty-zone rule, like trade profiles.
-      // Languages keeps its Add entry; work-info renders nothing at all.
+      // Empty sections obey the empty-zone rule, like trade profiles. The
+      // "Bhasha aur kaam" section was removed permanently (owner ask), so no
+      // Add entry renders for it either; work-info renders nothing at all.
       expect(find.text('Skills aur anubhav'), findsNothing);
-      expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
+      expect(find.text('Bhasha aur kaam jodein'), findsNothing);
       expect(find.text('Kaam ki jaankari jodein'), findsNothing);
       // No dead ends: the way forward is on screen ('Profile edit karein'
       // is HIDDEN FOR NOW — see _shortcutsCard).
@@ -660,8 +622,9 @@ void main() {
       expect(find.text('Logout'), findsOneWidget);
     });
 
-    testWidgets('names no trade the worker does not have',
-        (WidgetTester tester) async {
+    testWidgets('names no trade the worker does not have', (
+      WidgetTester tester,
+    ) async {
       await _pump(tester, universal);
 
       expect(find.textContaining('CNC'), findsNothing);

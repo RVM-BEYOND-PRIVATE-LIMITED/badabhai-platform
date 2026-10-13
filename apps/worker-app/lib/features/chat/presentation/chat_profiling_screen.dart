@@ -35,6 +35,7 @@ import '../../../core/widgets/bb_chat_bubble.dart' show kChatSendFailedLabel;
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/selection_cards.dart';
+import 'widgets/resume_action_button.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../router.dart';
 import '../../resume/domain/resume_edit_repository.dart';
@@ -368,6 +369,18 @@ class _ChatViewState extends State<_ChatView>
   /// deliberately not persisted: it is only needed for the very next turn.
   String? _identityState;
 
+  /// OWNER ASK (2026-10-12) — a location question is answered in a modal dialog,
+  /// not inline. True while that dialog is up. It is BOTH the "hide the inline
+  /// card" switch AND the open-guard: the location turn can re-emit (an
+  /// optimistic echo, a rebuild) and this keeps a second dialog from ever
+  /// stacking on the first.
+  bool _locationDialogOpen = false;
+
+  /// The question key a location dialog was last OPENED for, so an optimistic
+  /// echo of the SAME turn (which arrives with `sending == true`) cannot reopen
+  /// it after the worker presses "Theek hai".
+  String? _locationDialogQuestionKey;
+
   /// The composer hint while [_customAnswerMode] is on: the profile hint for a
   /// disambiguation list, the question-neutral one for a chip row.
   String _customAnswerHint = kChatCustomAnswerHint;
@@ -557,8 +570,8 @@ class _ChatViewState extends State<_ChatView>
     // The custom answer has been given — back to the everyday composer.
     if (_customAnswerMode) setState(() => _customAnswerMode = false);
     context.read<ChatBloc>().add(
-          ChatMessageSent(text, answerSource: answerSource),
-        );
+      ChatMessageSent(text, answerSource: answerSource),
+    );
   }
 
   /// The worker's profile is not among the suggestions: enter
@@ -1184,19 +1197,25 @@ class _ChatViewState extends State<_ChatView>
   /// interview complete there is no CTA at all, and the worker keeps talking
   /// until the ready CTA appears.
   Widget _doneCta(ChatState state) {
-    // #2030 ask 2 — IN FREE CHAT THIS BUTTON IS THE WAY BACK, not the way out.
+    // #2030 ask 2 — IN FREE CHAT THE YELLOW EXIT CTA IS HIDDEN.
     //
     // The interview CTA must not stand here: free-chat lines are excluded from
     // extraction, so it would extract NOTHING and hand the worker an empty
     // profile.
     //
-    // REPLACED, not hidden (the issue allows either). Hiding it leaves a
-    // distress turn with no route onward at all: that is the one free-mode turn
-    // the server attaches no "Resume banayein" chip to (R9), so the chip cannot
-    // be relied on as the only exit. This keeps a visible, full-width exit on
-    // every single free-mode turn and posts the server's OWN label, which its
-    // `isResumeChip` reads by label or by key.
-    if (state.freeChat) return _freeChatResumeCta(sending: state.sending);
+    // OWNER ASK (2026-10-13): the free-chat yellow "Resume banayein" CTA is
+    // HIDDEN (Visibility ONLY — no code removed; flip `visible` true to restore
+    // it). The composer above — text field + mic — is the way onward in free
+    // chat, so free mode no longer withholds it (see [_locksComposerToOptions]).
+    // A distress turn (R9, no served chip) is still never stranded: the worker
+    // can type or speak, and the server reads a typed "Resume banayein" by its
+    // label.
+    if (state.freeChat) {
+      return Visibility(
+        visible: false,
+        child: _freeChatResumeCta(sending: state.sending),
+      );
+    }
     if (!state.extractionReady) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -1533,14 +1552,23 @@ class _ChatViewState extends State<_ChatView>
                     horizontal: 12,
                     vertical: 8,
                   ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(
-                      OnboardingRadii.feedbackButton,
-                    ),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.25),
-                    ),
-                  ),
+                  // OWNER ASK (2026-10-12): no name yet → NO VISIBLE BOX. The
+                  // bordered pill used to sit empty in the header before the
+                  // worker typed their name. The box (its border) appears only
+                  // once the name lands. The Container itself stays laid out —
+                  // [_maybeFlyName] measures [_headerNameActionKey] as the
+                  // flight's destination, so a removed node would kill the
+                  // animation; only the visible chrome is withheld.
+                  decoration: (_headerName ?? '').isEmpty
+                      ? null
+                      : BoxDecoration(
+                          borderRadius: BorderRadius.circular(
+                            OnboardingRadii.feedbackButton,
+                          ),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.25),
+                          ),
+                        ),
                   child: BbAnimatedSwitcher(
                     child: ConstrainedBox(
                       // The switcher animates on the DIRECT child's key, so the
@@ -1606,6 +1634,10 @@ class _ChatViewState extends State<_ChatView>
             curr.workerName != prev.workerName,
         listener: (BuildContext context, ChatState state) {
           _maybeFlyName(state);
+          // BEFORE [_maybeAnswerHeldCity]: that method CLEARS the held city, and
+          // this one must still see it to know the city turn is auto-answered
+          // (never a second dialog).
+          _maybeOpenLocationDialog(state);
           _maybeAnswerHeldCity(state);
           _showEditNotice(state);
           _maybeSayEmptyImport(state);
@@ -1839,17 +1871,21 @@ class _ChatViewState extends State<_ChatView>
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             // #770 — the composer (and its mic, since voice resolves to
-            // typed text) is suppressed ONLY on the engine's yes/no gates
+            // typed text) is suppressed on the engine's yes/no gates
             // (the experience gate "Aur koi experience jodna hai?" → Haan /
             // Nahi, and the trade-confirm gate #2190 `[Trade] — क्या आप यही
-            // काम करना चाहते हैं?` → Haan / Nahi). Any other
-            // options_only turn — a model-chosen one, e.g. role
-            // suggestions — keeps it: the server accepts typed text on
-            // every turn and the worker's profile may not be a chip.
-            // [_isYesNoGate] / [_isTradeConfirmGate] need two chips, so a
-            // malformed options_only turn with no chips still never traps
-            // the worker, and custom-answer mode always brings the composer
-            // back.
+            // काम करना चाहते हैं?` → Haan / Nahi).
+            //
+            // OWNER RULE (2026-10-12): WHENEVER a question puts a fixed set
+            // of choices on screen, the worker must CHOOSE one — the composer
+            // and mic are withheld so a custom value cannot be typed past the
+            // options. This covers the structured `single_select` /
+            // `multi_select` pack questions (skipped until now: `work_types`
+            // etc. arrive as `input_mode: text`, so their tick row sat above a
+            // live composer) and any `options_only` turn. [_isYesNoGate] /
+            // [_isTradeConfirmGate] need two chips, so a malformed
+            // options_only turn with no chips still never traps the worker,
+            // and custom-answer mode always brings the composer back.
             //
             // #1363 — a form_offer turn is the server CLOSING the
             // session (`kind: "close"`, `form_handoff`): typing into it
@@ -1876,6 +1912,24 @@ class _ChatViewState extends State<_ChatView>
               _skillsGateLockedHint()
             else if (state.formOffer != null)
               _formOfferLockedHint()
+            // OWNER RULE (2026-10-12) — a question showing a fixed set of
+            // choices is answered by CHOOSING one, never by typing: the
+            // composer and its mic are withheld and the buy-in is the option
+            // row above. Deliberately LAST among the locks so the cooldown,
+            // the skills gate and the form offer keep the copy they already
+            // own; and deliberately requires the options to actually be on
+            // screen (see [_locksComposerToOptions]) so a malformed
+            // `options_only` turn with no chips can never trap a worker.
+            else if (_locksComposerToOptions(state))
+              _optionsOnlyHint()
+            // OWNER ASK (2026-10-12) — the location question is answered in a
+            // modal dialog, so the composer and its mic are withdrawn while that
+            // question is on screen. The dialog's scrim already blocks them; this
+            // makes the state explicit (and covers the frame before the dialog
+            // opens) so no live-looking box invites typing into a question only
+            // the dialog can answer.
+            else if (isChatLocationQuestion(state.askedQuestionKey))
+              _locationLockedHint()
             else
               _inputBar(
                 // ONE MIC PER SCREEN (#1862). In companion mode the v2 voice button
@@ -2200,6 +2254,97 @@ class _ChatViewState extends State<_ChatView>
     return _isYesNoPair(_turnLabels(state));
   }
 
+  /// Whether THIS turn shows a fixed set of choices and so must withhold the
+  /// composer and mic (OWNER RULE, 2026-10-12): "if the question has options,
+  /// the worker selects one — no custom value."
+  ///
+  /// The set is the server's own declaration, never a guess from copy:
+  ///   * a structured `single_select` / `multi_select` pack question (its
+  ///     `answer_type` names the closed list — e.g. `work_types`); or
+  ///   * any `options_only` turn (the engine's Haan / Nahi and skills gates,
+  ///     and a model turn the engine stamped chips-only).
+  ///
+  /// Guards, each of which keeps a worker from being trapped:
+  ///   * `_customAnswerMode` — the escape chip ("Kuch aur — khud likhein") was
+  ///     tapped, so the composer MUST come back;
+  ///   * `companion` — its chips NAVIGATE, they are not an answer set;
+  ///   * a location question — it owns its own card and deliberately keeps
+  ///     free text (identity D7);
+  ///   * `formOffer` — handled by its own locked bar earlier in the chain;
+  ///   * options MUST actually be on screen. A malformed `options_only` turn
+  ///     with no chips has no answer path, so locking it would trap the worker
+  ///     — the same reason [_isYesNoGate] / [_isTradeConfirmGate] require chips.
+  ///
+  /// A `boolean` (Haan / Nahi) pack question is intentionally NOT locked: the
+  /// server reads a typed "haan ji" the same way, and its two chips are the
+  /// whole answer (see [_booleanReplies]).
+  bool _locksComposerToOptions(ChatState state) {
+    if (_customAnswerMode) return false;
+    if (state.companion) return false;
+    // OWNER ASK (2026-10-13): free chat is CONVERSATIONAL — the composer
+    // (text field + mic) is the way to talk and to leave it, so a free-mode
+    // turn never locks it. The served "Resume banayein" chip stays on the chip
+    // row as a shortcut.
+    if (state.freeChat) return false;
+    if (state.formOffer != null) return false;
+    if (isChatLocationQuestion(state.askedQuestionKey)) return false;
+    final bool hasOptions =
+        state.suggestedOptions.isNotEmpty || state.followups.isNotEmpty;
+    if (!hasOptions) return false;
+    // OWNER ASK (2026-10-12) — a turn that offers typing KEEPS the composer.
+    // "Kuch aur" means exactly "answer in your own words", so the input is
+    // enabled by default rather than replaced by the locked bar.
+    if (_turnOffersCustomAnswer(state)) return false;
+    if (state.inputMode == ChatInputMode.optionsOnly) return true;
+    return state.answerType == ChatAnswerType.singleSelect ||
+        state.answerType == ChatAnswerType.multiSelect;
+  }
+
+  /// Whether THIS turn lets the worker answer in their own words — i.e. its
+  /// option row carries the custom-answer ("Kuch aur — khud likhein") chip.
+  ///
+  /// Mirrors EXACTLY what the option renderers draw, so the composer lock and
+  /// the chips can never disagree:
+  ///   * the SERVER's own escape (`kuch_aur`) — `_followupOptions` /
+  ///     `_multiSelectOptions` / a disambiguation row all surface it;
+  ///   * a disambiguation row's none-of-above escape;
+  ///   * a MODEL suggestion row (`llm_*`), which gains the trailing escape chip
+  ///     unless it is a yes/no pair (the two chips ARE the whole answer) or a
+  ///     `multi_select` (whose renderer adds no model escape). This is the same
+  ///     rule the backend's `llmChipOptions` applies when it appends the escape.
+  bool _turnOffersCustomAnswer(ChatState state) {
+    if (state.companion) return false;
+    final List<ChatOption> options = state.suggestedOptions.isNotEmpty
+        ? state.suggestedOptions
+        : <ChatOption>[
+            for (final String f in state.followups)
+              ChatOption(optionKey: f, labelText: f),
+          ];
+    if (options.isEmpty) return false;
+    // The server's escape is the plainest signal.
+    if (options.any(_isServerEscape)) return true;
+    // A disambiguation row's none-of-above opens typing.
+    if (state.questionKind == ChatQuestionKind.disambiguate &&
+        options.any((ChatOption o) => o.isNoneOfAbove)) {
+      return true;
+    }
+    final bool isShiftQuestion =
+        state.askedQuestionKey == kChatShiftPreferenceQuestionId ||
+        state.predictedQuestionKey == kChatShiftPreferenceQuestionId;
+    final bool multiSelect =
+        state.answerType == ChatAnswerType.multiSelect &&
+        state.questionKind != ChatQuestionKind.disambiguate &&
+        !isShiftQuestion;
+    return !multiSelect &&
+        _isLlmSuggestionRow(options) &&
+        !_isYesNoPair(<String>[
+          for (final ChatOption o in options.where(
+            (ChatOption o) => !_isServerEscape(o),
+          ))
+            o.labelText,
+        ]);
+  }
+
   /// Whether [option] is the server's own escape ([_kServerEscapeOptionKey]).
   static bool _isServerEscape(ChatOption option) =>
       option.optionKey == _kServerEscapeOptionKey;
@@ -2243,6 +2388,14 @@ class _ChatViewState extends State<_ChatView>
   Widget _skillsGateLockedHint() => _lockedComposerBar(
     text: kChatOptionsOnlyHint,
     icon: Icons.touch_app_outlined,
+  );
+
+  /// Replaces the composer while the location DIALOG is the answer path
+  /// (OWNER ASK, 2026-10-12): same locked-look frame, a place icon and the
+  /// dialog's own copy — no text field, no send, no mic.
+  Widget _locationLockedHint() => _lockedComposerBar(
+    text: kChatLocationDialogHint,
+    icon: Icons.place_outlined,
   );
 
   /// Shared locked-look composer replacement: same paper-bar frame as
@@ -2396,6 +2549,99 @@ class _ChatViewState extends State<_ChatView>
     _sendText(city, answerSource: ChatAnswerSource.dialog);
   }
 
+  /// OWNER ASK (2026-10-12) — open the location DIALOG when the location
+  /// question appears, exactly once.
+  ///
+  /// Guarded three ways so it can NEVER stack a second dialog:
+  ///   * [_locationDialogOpen] — already up (a rebuild, a re-emit);
+  ///   * [ChatState.sending] — the optimistic echo of the answer the worker just
+  ///     gave arrives with `sending == true`; opening on it is the classic
+  ///     double-dialog bug;
+  ///   * [_locationDialogQuestionKey] — the same turn key seen again (e.g. a
+  ///     no-op rebuild that flips `initializing`) is not a fresh question.
+  ///
+  /// The city turn the SERVER asks right after the state answer is answered from
+  /// [_heldCity] by [_maybeAnswerHeldCity] instead of a second dialog — the pair
+  /// was already collected on the one dialog.
+  ///
+  /// The flag is set SYNCHRONOUSLY (before the post-frame), so the same frame's
+  /// build already hides the inline card and cannot flash it under the dialog.
+  void _maybeOpenLocationDialog(ChatState state) {
+    if (state.initializing) return;
+    final String? questionKey = state.askedQuestionKey;
+    if (!isChatLocationQuestion(questionKey)) {
+      // The turn is no longer a location question: allow a future one.
+      if (_locationDialogQuestionKey != null) {
+        _locationDialogQuestionKey = null;
+      }
+      return;
+    }
+    // OWNER ASK (2026-10-12) — a question RESTORED after the app was closed (or
+    // backed out) is NOT auto-opened. The screen draws a "Location bharein"
+    // button instead (see [_answerAffordance]); the modal only appears when the
+    // worker taps it, so reopening the chat is never hijacked by a pop-up.
+    if (state.questionRestored) return;
+    if (_locationDialogOpen) return;
+    if (state.sending) return;
+    // The held city auto-answers the city turn — never a second dialog.
+    if (questionKey == kChatCityQuestionKey && _heldCity != null) return;
+    if (questionKey == _locationDialogQuestionKey) return;
+
+    _openLocationDialog(questionKey!);
+  }
+
+  /// Opens the non-cancelable location dialog for [questionKey], once. Used by
+  /// the fresh-ask auto-open ([_maybeOpenLocationDialog]) AND the restored
+  /// question's "Location bharein" button.
+  ///
+  /// The flags are set SYNCHRONOUSLY in a [setState] so the same frame's build
+  /// hides the button / inline card and cannot flash it under the dialog.
+  void _openLocationDialog(String questionKey) {
+    if (_locationDialogOpen) return;
+    final bool askState = questionKey == kChatStateQuestionKey;
+    final String? knownState = questionKey == kChatCityQuestionKey
+        ? _identityState
+        : null;
+    setState(() {
+      _locationDialogQuestionKey = questionKey;
+      _locationDialogOpen = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_locationDialogOpen) return;
+      showChatLocationDialog(
+        context,
+        askState: askState,
+        knownState: knownState,
+        onSubmit: _submitIdentityLocation,
+      ).whenComplete(() {
+        if (mounted) setState(() => _locationDialogOpen = false);
+      });
+    });
+  }
+
+  /// The "Location bharein" button for a RESTORED location question (owner ask):
+  /// the only way to the dialog after a cold start, since the dialog no longer
+  /// auto-opens. The composer and mic stay locked ([_locationLockedHint]).
+  Widget _locationRestoreButton(ChatState state) {
+    final String questionKey = state.askedQuestionKey!;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
+      child: _capped(
+        PrimaryActionButton(
+          buttonKey: kChatLocationRestoreCtaKey,
+          label: kChatLocationRestoreLabel,
+          showArrow: false,
+          onPressed: () => _openLocationDialog(questionKey),
+        ),
+      ),
+    );
+  }
+
   /// ADR-0048 — the worker pressed "Theek hai" on the location card.
   ///
   /// ONE PRESS, TWO WIRE ANSWERS, because the server still asks two questions:
@@ -2460,6 +2706,14 @@ class _ChatViewState extends State<_ChatView>
       if (state.askedQuestionKey == kChatCityQuestionKey && _heldCity != null) {
         return const SizedBox.shrink();
       }
+      // OWNER ASK (2026-10-12) — the pickers are a modal DIALOG now, so the
+      // inline card is not drawn while the dialog owns the question.
+      if (_locationDialogOpen) return const SizedBox.shrink();
+      // A question RESTORED after the app was closed/back'd gets a BUTTON — the
+      // dialog does not auto-open on reopen.
+      if (state.questionRestored) return _locationRestoreButton(state);
+      // Fresh ask: the dialog auto-opens on its own; this inline card is only a
+      // fallback for the frame before it appears.
       return KeyedSubtree(
         key: const ValueKey<String>('identity-location'),
         child: ChatLocationCard(
@@ -2617,7 +2871,12 @@ class _ChatViewState extends State<_ChatView>
     for (final String f in followups) ...<Widget>[
       // Answer chips read like a chat message: same 14px size and a
       // normal weight (owner request 2026-07-23), on the kit's chip surface.
-      _AnswerChip(label: f, onTap: () => _sendOption(f)),
+      // A label-only row is an older build; the résumé action is still matched
+      // by its served label so the spotlight survives that path too.
+      if (f == kFreeChatResumeLabel)
+        ResumeActionButton(label: f, onPressed: () => _sendOption(f))
+      else
+        _AnswerChip(label: f, onTap: () => _sendOption(f)),
       const SizedBox(width: AppSpacing.s2),
     ],
   ]);
@@ -2647,12 +2906,25 @@ class _ChatViewState extends State<_ChatView>
             ]));
     return _chipScroller(<Widget>[
       for (final ChatOption o in answers) ...<Widget>[
-        _AnswerChip(label: o.labelText, onTap: () => _sendChoice(o)),
+        if (o.optionKey == kFreeChatResumeKey)
+          _resumeActionChip(o)
+        else
+          _AnswerChip(label: o.labelText, onTap: () => _sendChoice(o)),
         const SizedBox(width: AppSpacing.s2),
       ],
       if (escape) _customAnswerChip(),
     ]);
   }
+
+  /// OWNER ASK (2026-10-12): the free-chat "Resume banayein" chip is the way
+  /// back to the interview, so it is drawn as the mock-up's gradient spotlight
+  /// ([ResumeActionButton]) instead of a plain chip — the one element on the row
+  /// built to draw the eye. Every other chip is returned untouched.
+  Widget _resumeActionChip(ChatOption option) => ResumeActionButton(
+    buttonKey: const ValueKey<String>('free-chat-resume-chip'),
+    label: option.labelText,
+    onPressed: () => _sendChoice(option),
+  );
 
   /// The chip-row escape: opens [_enterCustomAnswer] with the question-neutral
   /// hint, since a chip row can be about a skill or a duration, not a profile.
@@ -3804,6 +4076,13 @@ const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
 /// #2030 ask 2 — the free-chat exit CTA, keyed so a test can assert that the
 /// interview's "build my profile" button is NOT what stands in free mode.
 const Key kFreeChatResumeCtaKey = ValueKey<String>('free-chat-resume-cta');
+
+/// OWNER ASK (2026-10-12) — the "Location bharein" CTA shown when a location
+/// question is RESTORED after the app was closed (or backed out). Tapping it
+/// opens the location dialog.
+const Key kChatLocationRestoreCtaKey = ValueKey<String>(
+  'chat-location-restore-cta',
+);
 
 /// What the two VISIBLE voice controls say, and why they must never say the
 /// same thing.

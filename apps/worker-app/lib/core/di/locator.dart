@@ -597,6 +597,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => ChatBloc(
       locator<ChatRepository>(),
       knownFacts: _knownWorkerFactsOrNull(),
+      // #2030 ask 3 / OWNER ASK (2026-10-12) — the last served turn's chips
+      // AND its pending question. Registers in initAuthLocator (plugin-free
+      // sync graph); a widget-test graph without it keeps the chat's
+      // session-only default, so a served turn is never remembered.
+      turnResume: _chatTurnResumeOrNull(),
     ),
   );
   locator.registerFactory<ProfileCubit>(
@@ -830,6 +835,16 @@ Future<void> initAuthLocator({
 KnownWorkerFactsStore? _knownWorkerFactsOrNull() =>
     locator.isRegistered<KnownWorkerFactsStore>()
         ? locator<KnownWorkerFactsStore>()
+        : null;
+
+/// The persisted [ChatTurnResumeStore] once [initAuthLocator] registered it,
+/// else null — a widget-test graph without it remembers no served turn, as
+/// before #2030 ask 3. OWNER ASK (2026-10-12): without this the location
+/// question a worker abandoned (closed the app) is never restored, so the chat
+/// reopens on a live composer instead of the "Location bharein" button.
+ChatTurnResumeStore? _chatTurnResumeOrNull() =>
+    locator.isRegistered<ChatTurnResumeStore>()
+        ? locator<ChatTurnResumeStore>()
         : null;
 
 void _clearSessionScopedCaches() {

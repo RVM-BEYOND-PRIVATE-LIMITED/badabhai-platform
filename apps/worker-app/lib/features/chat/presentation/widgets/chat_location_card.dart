@@ -35,6 +35,11 @@ import '../../../name/domain/location_lookup.dart';
 /// FREE TEXT SURVIVES. The city picker allows a typed value (`allowCustom`),
 /// because the city lists are suggestions and the server canonicalises whatever
 /// is sent — "never refuses the name of the place they actually live in".
+///
+/// OWNER ASK (2026-10-12). The card is now shown in a NON-CANCELABLE dialog (see
+/// [showChatLocationDialog]) and gains a small red "help karein" affordance at
+/// its top-right: a worker who cannot get a GPS fix or cannot find their city in
+/// the list taps it and the CITY dropdown becomes a free-text field.
 class ChatLocationCard extends StatefulWidget {
   const ChatLocationCard({
     super.key,
@@ -75,10 +80,21 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
   bool _loading = false;
   String? _error;
 
+  /// OWNER ASK — true once "help karein" is tapped: the city dropdown is a
+  /// free-text field instead, for a worker whose city is not in the list.
+  bool _cityManual = false;
+  late final TextEditingController _cityController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _state = widget.knownState ?? '';
+  }
+
+  @override
+  void dispose() {
+    _cityController.dispose();
+    super.dispose();
   }
 
   LocationLookup? get _lookup {
@@ -103,6 +119,9 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
       setState(() {
         _state = location.state;
         _city = location.city;
+        // A fix also fills the manual field, so switching to typing later keeps
+        // what the GPS found.
+        if (_cityManual) _cityController.text = location.city;
         _loading = false;
       });
     } on LocationLookupFailure catch (failure) {
@@ -153,10 +172,27 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
     });
   }
 
+  /// The top-right toggle: dropdown ⇄ free text. Entering the manual view seeds
+  /// the field with whatever is in it now; leaving it keeps the typed value as
+  /// the field's value (the picker shows any value).
+  void _toggleCityMode() {
+    setState(() {
+      _cityManual = !_cityManual;
+      if (_cityManual) _cityController.text = _city;
+      _error = null;
+    });
+  }
+
   /// Everything this card was asked for has an answer.
   bool get _complete =>
       (!widget.askState || _state.trim().isNotEmpty) &&
       (!widget.askCity || _city.trim().isNotEmpty);
+
+  static OutlineInputBorder _fieldBorder(Color color, double width) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
+        borderSide: BorderSide(color: color, width: width),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +214,39 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            // OWNER ASK — the top-right TOGGLE: a worker who cannot find their
+            // city in the list taps "city khud bharein" and types it; the same
+            // spot then reads "city select kren" and swaps the dropdown back.
+            if (widget.askCity)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Semantics(
+                  button: true,
+                  label: _cityManual
+                      ? kChatLocationDropdownToggle
+                      : kChatLocationManualCityToggle,
+                  child: InkWell(
+                    onTap: _toggleCityMode,
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 2,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        _cityManual
+                            ? kChatLocationDropdownToggle
+                            : kChatLocationManualCityToggle,
+                        style: OnboardingTypography.inter(
+                          size: 12,
+                          weight: FontWeight.w600,
+                          color: OnboardingColors.errorRed,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             // BOTH WAYS ARE ON SCREEN AT ONCE (#1462): a worker who refuses the
             // permission still has the pickers, and one who grants it later
             // still has the button.
@@ -256,14 +325,53 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
                 ),
               ),
               const SizedBox(height: 6),
-              OnboardingSelectField(
-                value: _city,
-                hint: 'Sheher chunein',
-                semanticLabel: 'Sheher',
-                // A city list only means something inside a state.
-                enabled: _state.trim().isNotEmpty,
-                onTap: _pickCity,
-              ),
+              if (_cityManual)
+                TextField(
+                  controller: _cityController,
+                  textCapitalization: TextCapitalization.words,
+                  maxLength: 80,
+                  style: OnboardingTypography.inter(
+                    size: 14,
+                    weight: FontWeight.w500,
+                  ),
+                  onChanged: (String value) => setState(() {
+                    _city = value;
+                    _error = null;
+                  }),
+                  decoration: InputDecoration(
+                    hintText: kChatLocationCityManualHint,
+                    hintStyle: OnboardingTypography.inter(
+                      size: 14,
+                      color: OnboardingColors.ink500,
+                    ),
+                    counterText: '',
+                    filled: true,
+                    fillColor: OnboardingColors.paperWhite,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    enabledBorder: _fieldBorder(
+                      OnboardingColors.borderDefault,
+                      1.2,
+                    ),
+                    // Spec §3.3: a focused input rings navy at 1.8.
+                    focusedBorder: _fieldBorder(
+                      OnboardingColors.shiftBlue,
+                      1.8,
+                    ),
+                  ),
+                )
+              else
+                OnboardingSelectField(
+                  value: _city,
+                  hint: 'Sheher chunein',
+                  semanticLabel: 'Sheher',
+                  // A city list only means something inside a state.
+                  enabled: _state.trim().isNotEmpty,
+                  onTap: _pickCity,
+                ),
               const SizedBox(height: 14),
             ],
             // NOTHING IS SENT UNTIL THIS IS PRESSED. The chat's next question
@@ -275,9 +383,9 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
               showArrow: false,
               onPressed: _complete
                   ? () => widget.onSubmit(
-                        state: widget.askState ? _state.trim() : null,
-                        city: widget.askCity ? _city.trim() : null,
-                      )
+                      state: widget.askState ? _state.trim() : null,
+                      city: widget.askCity ? _city.trim() : null,
+                    )
                   : null,
             ),
           ],
@@ -285,6 +393,60 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
       ),
     );
   }
+}
+
+/// OWNER ASK (2026-10-12) — the location pickers as a NON-CANCELABLE dialog.
+///
+/// The inline card became a modal so the worker answers the location in one
+/// focused step: the scrim blocks the rest of the chat (and its composer/mic),
+/// tapping outside does nothing, and the system back is swallowed — the ONLY
+/// way out is "Theek hai".
+///
+/// [onSubmit] fires once, AFTER the dialog is closed, with whatever the worker
+/// chose. The caller must guard against opening a second dialog (the chat screen
+/// keeps its own open-guard).
+Future<void> showChatLocationDialog(
+  BuildContext context, {
+  required bool askState,
+  required String? knownState,
+  required void Function({String? state, String? city}) onSubmit,
+  LocationLookup? lookup,
+}) {
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext dialogContext) => PopScope(
+      // Non-cancelable: the back button/gesture must not dismiss the question.
+      canPop: false,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: OnboardingLayout.maxContentWidth,
+            // A short phone with a large font scrolls the card rather than
+            // clipping the confirm button out of reach.
+            maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.86,
+          ),
+          child: SingleChildScrollView(
+            child: ChatLocationCard(
+              askState: askState,
+              askCity: true,
+              knownState: knownState,
+              lookup: lookup,
+              onSubmit: ({String? state, String? city}) {
+                // Close first, then send: the worker is returned to the chat as
+                // the next turn is posted.
+                Navigator.of(dialogContext).pop();
+                onSubmit(state: state, city: city);
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 /// The card's copy. Hinglish, aap-form, like the rest of the chat.
@@ -295,18 +457,37 @@ const String kChatLocationStateLabel = 'STATE (RAJYA)';
 const String kChatLocationCityLabel = 'SHEHER (CITY)';
 const String kChatLocationConfirm = 'Theek hai';
 
+/// OWNER ASK (2026-10-12) — the top-right TOGGLE on the dialog. In the default
+/// view it reads [kChatLocationManualCityToggle] ("city khud bharein") and swaps
+/// the city dropdown for a free-text field; once typing, it reads
+/// [kChatLocationDropdownToggle] ("city select kren") and swaps the dropdown
+/// back.
+const String kChatLocationManualCityToggle = 'city khud bharein';
+const String kChatLocationDropdownToggle = 'city select kren';
+
+/// The manual city field's hint.
+const String kChatLocationCityManualHint = 'Sheher likhein';
+
+/// The composer hint shown INSTEAD of the keyboard while the location dialog is
+/// up (the dialog is the only answer path).
+const String kChatLocationDialogHint = 'Location dialog mein chunein';
+
+/// OWNER ASK (2026-10-12) — the button offered for a location question that came
+/// back after the app was closed (or backed out): tapping it opens the dialog.
+const String kChatLocationRestoreLabel = 'Location bharein';
+
 /// What each GPS failure says — the REAL cause, never "check your internet",
 /// and always with the way forward (the pickers are right below it).
 const Map<LocationLookupFailureReason, String> kChatLocationGpsErrors =
     <LocationLookupFailureReason, String>{
-  LocationLookupFailureReason.serviceDisabled:
-      'Phone ki location on nahi hai. Neeche khud chunein.',
-  LocationLookupFailureReason.permissionDenied:
-      'Location ki permission nahi mili. Neeche khud chunein.',
-  LocationLookupFailureReason.permissionDeniedForever:
-      'Location ki permission nahi mili. Neeche khud chunein.',
-  LocationLookupFailureReason.unresolved:
-      'Location nahi mil paayi. Neeche khud chunein.',
-  LocationLookupFailureReason.unknown:
-      'Location nahi mil paayi. Neeche khud chunein.',
-};
+      LocationLookupFailureReason.serviceDisabled:
+          'Phone ki location on nahi hai. Neeche khud chunein.',
+      LocationLookupFailureReason.permissionDenied:
+          'Location ki permission nahi mili. Neeche khud chunein.',
+      LocationLookupFailureReason.permissionDeniedForever:
+          'Location ki permission nahi mili. Neeche khud chunein.',
+      LocationLookupFailureReason.unresolved:
+          'Location nahi mil paayi. Neeche khud chunein.',
+      LocationLookupFailureReason.unknown:
+          'Location nahi mil paayi. Neeche khud chunein.',
+    };
