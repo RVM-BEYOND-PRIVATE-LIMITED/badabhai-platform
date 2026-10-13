@@ -145,6 +145,23 @@ describe("the distress list (ADR-0051 §5.2) — whole phrases, case- and diacri
     expect(matchesDistress("मारना चाहता")).toBe(false);
     expect(matchesDistress("main kal kaam pe jaana chahta hoon")).toBe(false);
   });
+
+  it("reads an invisible format character inside a word as nothing, not a split (#2228)", () => {
+    expect(matchesDistress("mar\u200Bna chahta")).toBe(true);
+    expect(matchesDistress("jee\u200Bne ka mann nahi")).toBe(true);
+    expect(matchesDistress("mar\u00ADna chahta")).toBe(true);
+    expect(matchesDistress("mar\u2060na chahta")).toBe(true);
+    expect(matchesDistress("sui\uFEFFcide")).toBe(true);
+    expect(matchesDistress("\u0906\u0924\u094D\u092E\u200B\u0939\u0924\u094D\u092F\u093E")).toBe(
+      true,
+    );
+  });
+
+  it("still reads a format character used as a word gap as a gap (#2228)", () => {
+    expect(matchesDistress("marna\u200Bchahta")).toBe(true);
+    expect(matchesDistress("main\u200Bkal kaam pe jaana chahta hoon")).toBe(false);
+    expect(matchesDistress("ma\u200Brna chahtay")).toBe(false);
+  });
 });
 
 describe("the regional distress list (ADR-0051 §9, #2126) — five languages, both scripts", () => {

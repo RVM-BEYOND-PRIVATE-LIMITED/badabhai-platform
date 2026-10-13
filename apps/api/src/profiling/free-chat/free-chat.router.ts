@@ -430,12 +430,27 @@ function foldDistress(text: string): string {
 const FOLDED_DISTRESS: readonly string[] = DISTRESS_PHRASES.map(foldDistress);
 const FOLDED_DISTRESS_STEMS: readonly string[] = DISTRESS_STEMS.map(foldDistress);
 
-/** Does the message carry a distress phrase as a whole phrase, or a word that starts with a stem? */
-export function matchesDistress(text: string): boolean {
-  const haystack = ` ${foldDistress(text)} `;
+function foldedHasDistress(folded: string): boolean {
+  const haystack = ` ${folded} `;
   return (
     FOLDED_DISTRESS.some((phrase) => haystack.includes(` ${phrase} `)) ||
     FOLDED_DISTRESS_STEMS.some((stem) => haystack.includes(` ${stem}`))
+  );
+}
+
+/**
+ * Does the message carry a distress phrase as a whole phrase, or a word that starts with a stem?
+ *
+ * TWO READINGS of every Unicode format character (`\p{Cf}`: zero-width space, word joiner, soft
+ * hyphen, BOM, ZWJ/ZWNJ), and either one matching is a match (#2228). DELETED, so an invisible
+ * character inside a word ("mar<ZWSP>na chahta") cannot split it past the list; and as a SEPARATOR
+ * (the fold's own reading), so one used as a word gap ("marna<ZWSP>chahta") still matches as it
+ * always has. The list fails towards serving the helpline line, never away from it.
+ */
+export function matchesDistress(text: string): boolean {
+  return (
+    foldedHasDistress(foldDistress(text)) ||
+    foldedHasDistress(foldDistress(text.replace(/\p{Cf}/gu, "")))
   );
 }
 
