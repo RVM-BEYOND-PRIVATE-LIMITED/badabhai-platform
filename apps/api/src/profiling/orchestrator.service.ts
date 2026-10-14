@@ -172,6 +172,7 @@ import {
   identityTurnFields,
   importOpening,
   onSkillsLane,
+  outstandingFormOffer,
   outstandingLlmAsk,
   outstandingOffer,
   outstandingTradeGate,
@@ -1345,6 +1346,31 @@ export class ProfilingOrchestrator {
           whyText: null,
           answerType: tradeGate.answerType,
           inputMode: tradeGate.inputMode,
+          progress: progressOf(progressItems, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
+      // THE TRADE-FORM OFFER OUTRANKS THE PACK RE-SERVE TOO (#2245), through the helper
+      // `viewSession` shares. Before the model's question below, because that reader only
+      // replays `lastTurn` while Phase A leads — and an offer served on the fallback turn or on
+      // a led `done` is pending with `leads()` already false. RE-SERVE ONLY: no write, no ask.
+      const formOffer = outstandingFormOffer(envelope);
+      if (formOffer) {
+        return {
+          reply: formOffer.prompt,
+          kind: "ask",
+          questionKey: null,
+          options: formOffer.options,
+          whyText: null,
+          answerType: formOffer.answerType,
+          inputMode: "text",
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -2682,6 +2708,41 @@ export class ProfilingOrchestrator {
               `its draft was settled and the occupation pack will not be re-asked`,
           );
         }
+
+        // --- THE TRADE-FORM OFFER OUTLIVES THE MODEL (#2245) ---------------------------------
+        //
+        // THE DEFECT THIS CLOSES. The offer used to be served from the led branch below and
+        // nowhere else, so a single failed call — a provider cooldown, a refused output, one
+        // timeout — cost a worker the form for good: `llmFallback` is sticky, and the engine
+        // never looks at routing. Production 2026-10-14: two CNC sessions fell back on their
+        // first call with the turning pin already on the envelope, and got the fixed pack
+        // questions instead of the offer that 81 of 85 comparable sessions got.
+        //
+        // ELIGIBILITY WAS NEVER THE MODEL'S. `routeToTradeForm` is pure and closed, and the
+        // catalogue pin it reads is retrieval's, not the model's — so the decision the led
+        // branch makes is just as available here. See `fallbackFormOfferKind` for the guards.
+        //
+        // NO TRADE-CONFIRM GATE IN FRONT OF IT, by `tradeGateFor`'s own rule: the gate confirms
+        // what a model turn inferred, and from here on this is a deterministic interview whose
+        // pin is acted on without asking. The offer names the trade itself, and a Nahi is
+        // exactly today's path.
+        const fallbackFormKind = fallbackFormOfferKind(next, input.text, capped);
+        if (fallbackFormKind !== null) {
+          this.logger.log(
+            `trade-form offer served after Phase A fallback session=${input.sessionId} ` +
+              `kind=${fallbackFormKind} led=${next.llmLedTurns}`,
+          );
+          return this.serveFormOffer(
+            buffer,
+            next,
+            input,
+            answers,
+            items,
+            progressItems,
+            fallbackFormKind,
+            capture.excludeFromParse,
+          );
+        }
         // ...and FALL THROUGH. `nextQuestion` below serves the next question, which is the whole
         // design: one branch, not a second engine to keep in step.
       } else {
@@ -2864,11 +2925,6 @@ export class ProfilingOrchestrator {
           // worker who would rather finish in the chat now says so and the interview
           // resumes on the NEXT turn's bubble.
           //
-          // THE OFFER SPENDS AN ASK, AND MUST — the same argument as the résumé
-          // batch-confirm: it is a question, the worker can decline it, and a budget that
-          // stopped counting what he was asked would stop describing the thing
-          // `chat.session_abandoned` measures.
-          //
           // NEVER OFFERED TWICE: `formOfferPrompt` settles on the first reply, and the
           // `=== null` guard above is what makes a decline final. `capped` turns skip the
           // offer entirely — past the turn cap the interview is closing, and a question
@@ -2888,43 +2944,20 @@ export class ProfilingOrchestrator {
             turn,
           );
           next = withLlmDraftSettlement(next, beforeSettle, answers);
-          next = {
-            ...next,
-            formOfferPrompt: { kind: formKind, state: "pending" },
-            // The model-led stretch is still what owns the interview — the offer pauses it,
-            // it does not end it. Decline and the SAME branch set the ask branch below uses
-            // picks straight back up.
-            phase: "llm_interview",
-            // NO `servedQuestionKey`. This question belongs to no pack — the same reason
-            // the résumé-confirm turn claims none — and naming one would make the next
-            // turn's `askedItem` lookup capture "haan" as that question's answer.
-            servedQuestionKey: null,
-            clarifyCount: 0,
-            engineAsks: next.engineAsks + 1,
-          };
-          await this.recordFormOffered(next, input, formKind);
-          return this.turn(buffer, next, input, {
-            reply: offerPrompt(formKind),
-            // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped
-            // clients know, so a new value would reach a build in the field as an
-            // unrenderable turn. This IS an ask: a question with two chips, answered
-            // like any other single-select.
-            kind: "ask",
-            questionKey: null,
-            options: [...FORM_OFFER_OPTIONS],
-            whyText: null,
-            answerType: "single_select",
-            // An ask CAN cross a checkpoint boundary, but nothing is on the line here
-            // beyond the offer itself.
-            checkpointDue: false,
-            progress: progressOf(progressItems, answers),
-            unansweredEssentials: essentialsOf(items, answers),
-            complete: false,
-            completionReason: null,
-            replayed: false,
-            excludeFromParse: capture.excludeFromParse,
-            unavailable: false,
-          });
+          // The model-led stretch is still what owns the interview — the offer pauses it,
+          // it does not end it. Decline and the SAME branch set the ask branch below uses
+          // picks straight back up.
+          next = { ...next, phase: "llm_interview" };
+          return this.serveFormOffer(
+            buffer,
+            next,
+            input,
+            answers,
+            items,
+            progressItems,
+            formKind,
+            capture.excludeFromParse,
+          );
         }
 
         if (led.kind === "ask") {
@@ -3406,6 +3439,26 @@ export class ProfilingOrchestrator {
           promptText: tradeGate.prompt,
           answerType: tradeGate.answerType,
           options: tradeGate.options,
+          whyText: null,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
+
+    // THE TRADE-FORM OFFER (#2245), through the helper `openTurn` uses. `questionKey: null` with
+    // the chips in `options` is what lets a voice-form tap on `form_offer_yes` resolve to its label
+    // instead of being refused as an unknown option.
+    const formOffer = outstandingFormOffer(envelope);
+    if (formOffer) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: formOffer.prompt,
+          answerType: formOffer.answerType,
+          options: formOffer.options,
           whyText: null,
           progress: progressOf(progressItems, answers),
         },
@@ -3944,6 +3997,65 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * THE OFFER TURN (owner ruling 2026-09-16) — one question, two chips, and the interview paused
+   * rather than ended.
+   *
+   * TWO CALLERS, ONE PAUSE. The led branch serves it on the turn the model's draft (or the pin)
+   * routes; the fallback branch serves it on the turn Phase A goes away (#2245). Each caller owns
+   * what comes BEFORE the pause — Phase A settles its draft and keeps `phase: "llm_interview"`,
+   * the fallback keeps only its own `llmLedTurns`-guarded settlement and leaves `phase` to the
+   * engine's predicates — and this owns the pause itself, so the two offers cannot drift into two
+   * different questions.
+   *
+   * THE OFFER SPENDS AN ASK, AND MUST — the same argument as the résumé batch-confirm: it is a
+   * question, the worker can decline it, and a budget that stopped counting what he was asked
+   * would stop describing the thing `chat.session_abandoned` measures.
+   */
+  private async serveFormOffer(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    formKind: TradeFormKind,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    const next: ProfilingEnvelope = {
+      ...envelope,
+      formOfferPrompt: { kind: formKind, state: "pending" },
+      // NO `servedQuestionKey`. This question belongs to no pack — the same reason the
+      // résumé-confirm turn claims none — and naming one would make the next turn's `askedItem`
+      // lookup capture "haan" as that question's answer.
+      servedQuestionKey: null,
+      clarifyCount: 0,
+      engineAsks: envelope.engineAsks + 1,
+    };
+    await this.recordFormOffered(next, input, formKind);
+    return this.turn(buffer, next, input, {
+      reply: offerPrompt(formKind),
+      // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped clients know,
+      // so a new value would reach a build in the field as an unrenderable turn. This IS an ask:
+      // a question with two chips, answered like any other single-select.
+      kind: "ask",
+      questionKey: null,
+      options: [...FORM_OFFER_OPTIONS],
+      whyText: null,
+      answerType: "single_select",
+      // An ask CAN cross a checkpoint boundary, but nothing is on the line here beyond the
+      // offer itself.
+      checkpointDue: false,
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: false,
+      completionReason: null,
+      replayed: false,
+      excludeFromParse,
+      unavailable: false,
+    });
+  }
+
+  /**
    * THE HANDOVER, ON THE WORKER'S WORD (Task 1 recall path; owner ruling 2026-09-16).
    *
    * The exact body the forced gate used to run, moved here so the ONLY caller is the
@@ -3968,7 +4080,10 @@ export class ProfilingOrchestrator {
     // interview closes: the form picks up from the answer map, and a handover that
     // discarded the trade would open the form by asking a worker the one question they
     // have already answered. Unguarded by `llmLedTurns` here -- unlike the fallback --
-    // because routing REQUIRES a label, so there is always a draft to settle.
+    // because routing REQUIRES a label, so there is always a draft to settle. That includes
+    // an offer served after a first-turn fallback (#2245): the label is then the catalogue
+    // pin alone, and the worker's Haan to an offer that names the trade is the confirmation
+    // the fallback branch's own settlement had no way to get.
     const settled = settleFromLlmDraft(
       answers,
       envelope.llmDraft,
@@ -5498,6 +5613,40 @@ function tradeGateFor(envelope: ProfilingEnvelope, ledThisTurn: boolean): string
   if (gate.confirmed || gate.open) return null;
   if (gate.rounds >= MAX_TRADE_CONFIRM_ROUNDS) return null;
   return effectiveTradeLabel(envelope);
+}
+
+/**
+ * Does the turn Phase A fell back on owe the worker the trade-form offer? (#2245)
+ *
+ * THE SAME ROUTER THE LED BRANCH CALLS, on the same evidence — the draft's two labels, the
+ * catalogue pin, and the worker's own words for the conflict veto only — so a fallback can never
+ * route somebody the led branch would not have. On a first-turn fallback the draft is empty and
+ * the pin is the whole case, which is exactly the production session this exists for.
+ *
+ * EVERY GUARD FAILS CLOSED TO TODAY'S PATH (the engine's next pack question):
+ *   - `capped`, or an offer already made — the led branch's own two guards.
+ *   - The skills lane (ADR-0045): a worker on the general road is outside the 21 by definition.
+ *   - A trade the worker said Nahi to and has not confirmed a replacement for. The decline
+ *     clears the pin, but the re-ask that follows needs the model to settle the wanted trade
+ *     (`tradeGateFor`'s `reaskOpen` note) — with the model gone, nothing here can confirm it,
+ *     so the offer would name a trade on evidence the worker has already argued with.
+ */
+function fallbackFormOfferKind(
+  envelope: ProfilingEnvelope,
+  workerText: string,
+  capped: boolean,
+): TradeFormKind | null {
+  if (capped || envelope.formOfferPrompt !== null) return null;
+  // `?.` like every other reader: an envelope built by a caller that predates the field.
+  if (envelope.generalRoad?.lane === "skills") return null;
+  const gate = envelope.tradeConfirm;
+  if (gate.rounds > 0 && !gate.confirmed) return null;
+  return routeToTradeForm({
+    draft: envelope.llmDraft,
+    occupationFamilyId: envelope.occupationFamilyId,
+    occupationLabel: envelope.occupation?.label ?? null,
+    workerText,
+  });
 }
 
 /**
