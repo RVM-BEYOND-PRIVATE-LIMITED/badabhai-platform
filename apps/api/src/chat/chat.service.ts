@@ -2547,6 +2547,9 @@ export class ChatService {
           ...this.wireNewsLinks(m.role === "worker" ? undefined : m.newsLinks),
         })),
         ...liveGeneralRoadFields(buffered.profiling),
+        // From the ROW, in this branch too: a buffer can outlive the close for a moment (the flush
+        // commits before the key is dropped), and the row is what says the session is over.
+        ...sessionEndedField(session),
       };
     }
 
@@ -2575,6 +2578,7 @@ export class ChatService {
         ),
       })),
       ...durableGeneralRoadFields(session.conversationState),
+      ...sessionEndedField(session),
     };
   }
 
@@ -2834,6 +2838,19 @@ function liveGeneralRoadFields(envelope: ProfilingEnvelope | undefined): {
     ...(skillsGateOnScreen(envelope) ? { gate_kind: "skills" as const } : {}),
     ...(card !== null ? { general_form_offer: toWireGeneralFormOffer(card) } : {}),
   };
+}
+
+/**
+ * #2235 — the redraw field that says the session is OVER: its `ended_at` once the row is no longer
+ * `active` (finished or abandoned — the same test `postMessage` uses to answer `session_over`).
+ * Empty while it is live, and on a closed row with no `ended_at` to place a marker at.
+ */
+function sessionEndedField(session: { readonly status: string; readonly endedAt: Date | null }): {
+  session_ended_at?: string;
+} {
+  return session.status !== "active" && session.endedAt !== null
+    ? { session_ended_at: session.endedAt.toISOString() }
+    : {};
 }
 
 /** The redraw field for an ENDED session: its card, from the durable stamp, when it handed over. */

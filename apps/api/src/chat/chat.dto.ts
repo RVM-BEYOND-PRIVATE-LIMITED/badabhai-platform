@@ -518,5 +518,16 @@ export const SessionMessagesResponseSchema = z.object({
    */
   gate_kind: z.enum(CHAT_GATE_KINDS).optional(),
   general_form_offer: GeneralFormOfferWireSchema.optional(),
+  /**
+   * #2235 — WHEN THE SESSION CLOSED (ISO, UTC), so a cold reopen can draw the "End of
+   * conversation" marker after the last message at or before it. Bubbles alone cannot say a
+   * thread is finished rather than paused, and the close is a server decision.
+   *
+   * PRESENT once the session is no longer `active`: finished (`ended`) or `abandoned`. Either way a
+   * next message gets only `session_over`, which is the one definition of "closed" this mirrors.
+   * ABSENT — never null — while the session is live, so every live response is byte-identical,
+   * and on a closed row that has no `ended_at` to place a marker at.
+   */
+  session_ended_at: z.string().datetime().optional(),
 });
 export type SessionMessagesResponse = z.infer<typeof SessionMessagesResponseSchema>;
