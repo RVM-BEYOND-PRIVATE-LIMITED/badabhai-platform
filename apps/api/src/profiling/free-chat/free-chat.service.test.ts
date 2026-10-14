@@ -219,8 +219,49 @@ describe("classify — a VERDICT needs a real, unblocked, successful call", () =
 
   it("a real verdict carries its category and confidence", () => {
     expect(
-      verdictOf({ category: "jobs", confidence: 0.81, blocked: false, ai_metadata: META } as never),
-    ).toEqual({ kind: "verdict", category: "jobs", confidence: 0.81 });
+      verdictOf({
+        category: "jobs",
+        confidence: 0.81,
+        blocked: false,
+        ai_metadata: META,
+        language: null,
+      } as never),
+    ).toEqual({ kind: "verdict", category: "jobs", confidence: 0.81, language: null });
+  });
+
+  // ADR-0051 §11 R42 — the label rides the REAL verdict only; an unavailable one never carries it.
+  it("a real verdict carries the classifier's language label", () => {
+    expect(
+      verdictOf({
+        category: "career",
+        confidence: 0.9,
+        blocked: false,
+        ai_metadata: META,
+        language: "marathi",
+      } as never),
+    ).toEqual({ kind: "verdict", category: "career", confidence: 0.9, language: "marathi" });
+  });
+
+  it("a body with no language key (an older service's shape) reads as no label", () => {
+    expect(
+      verdictOf({
+        category: "casual",
+        confidence: 0.9,
+        blocked: false,
+        ai_metadata: META,
+      } as never),
+    ).toEqual({ kind: "verdict", category: "casual", confidence: 0.9, language: null });
+  });
+
+  it.each([
+    ["blocked", { blocked: true, ai_metadata: META }],
+    ["a mock", { blocked: false, ai_metadata: { ...META, real_call: false } }],
+    ["no metadata", { blocked: false, ai_metadata: null }],
+    ["a failed call", { blocked: false, ai_metadata: { ...META, success: false } }],
+  ])("%s drops even a labelled answer to UNAVAILABLE", (_label, rest) => {
+    expect(
+      verdictOf({ category: "career", confidence: 0.9, language: "marathi", ...rest } as never),
+    ).toEqual({ kind: "unavailable" });
   });
 
   it("records the spend ONCE, under its own task type, attributed to the worker and session", async () => {

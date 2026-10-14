@@ -1,17 +1,20 @@
 /**
- * THE FREE CHAT'S REPLY LANGUAGE (ADR-0051 §11, owner rulings R39–R41) — PURE: text in, a closed
- * `FreeChatReplyLanguage` out. No I/O, no model.
+ * THE FREE CHAT'S REPLY LANGUAGE (ADR-0051 §11, owner rulings R39–R42) — PURE: text (and the
+ * turn's classifier verdict) in, a closed `FreeChatReplyLanguage` out. No I/O, no model call.
  *
  * CODE DECIDES, THE MODEL FOLLOWS (R39). On the production model the reply prompt's own "answer in
  * the worker's language" rule did not hold (9 of 10 regional questions came back in Hinglish), so
- * the language is decided here, deterministically, and handed to the reply and news calls as
- * `reply_language`.
+ * the language is decided here and handed to the reply and news calls as `reply_language`. The
+ * message's own language is the CLASSIFIER'S label (R42) where code is not certain, with the word
+ * lists as the backup.
  *
- * THREE READERS:
- *   - {@link detectReplyLanguage} — the language a message is WRITTEN in (R40). A Gujarati, Tamil,
- *     Telugu or Kannada script decides that language; Devanagari is Marathi when Marathi markers
- *     outweigh Hindi ones, else Hinglish; Latin text is scored against per-language marker words.
- *     A tie, or too little evidence, is Hinglish.
+ * FOUR READERS:
+ *   - {@link messageLanguage} — the language a message is WRITTEN in (R40, R42): a regional script
+ *     by code, else a real verdict's label, else {@link detectReplyLanguage}.
+ *   - {@link detectReplyLanguage} — the word-list backup. A Gujarati, Tamil, Telugu or Kannada
+ *     script decides that language; Devanagari is Marathi when Marathi markers outweigh Hindi
+ *     ones, else Hinglish; Latin text is scored against per-language marker words. A tie, or too
+ *     little evidence, is Hinglish.
  *   - {@link parseLanguageRequest} — an EXPLICIT request to reply in a language (R41): "marathi mai
  *     jawab do", "reply in Tamil", "telugu lo cheppandi" — and whether it is BARE (nothing else in
  *     the message), the only kind that skips the classifier. A message that merely MENTIONS a
@@ -21,12 +24,13 @@
  * THE WORD LISTS live in `free-chat-language.lexicon.ts` (closed, fabricated, data only). A miss
  * costs a Hinglish reply, which is what the chat served before this ruling.
  *
- * NO RUNTIME IMPORTS beyond that data module: the closed set is imported as a type, so this module
- * stays readable by anything that boots nothing.
+ * NO RUNTIME IMPORTS beyond that data module: the closed set and the verdict are imported as
+ * types, so this module stays readable by anything that boots nothing.
  */
 
 import type { FreeChatReplyLanguage } from "@badabhai/types";
 
+import type { FreeChatVerdict } from "./free-chat.router";
 import {
   ANSWER_HONORIFIC_WORDS,
   BOL_WORDS,
@@ -295,8 +299,9 @@ function latinLanguage(tokens: readonly string[]): FreeChatReplyLanguage {
 }
 
 /**
- * THE LANGUAGE ONE MESSAGE IS WRITTEN IN (R40) — the reply's language when the worker keeps none.
- * Never throws; anything it cannot read is Hinglish, the chat's language before this ruling.
+ * THE LANGUAGE ONE MESSAGE IS WRITTEN IN, BY THE WORD LISTS ALONE (R39, R40) — since R42 the backup
+ * {@link messageLanguage} falls to when the classifier names no language. Never throws; anything it
+ * cannot read is Hinglish, the chat's language before R39.
  */
 export function detectReplyLanguage(text: string): FreeChatReplyLanguage {
   const script = decidingScript(text);
@@ -304,6 +309,25 @@ export function detectReplyLanguage(text: string): FreeChatReplyLanguage {
   if (script === "devanagari") return devanagariLanguage(languageTokens(text));
   if (script !== null) return script;
   return latinLanguage(languageTokens(text));
+}
+
+/**
+ * THIS MESSAGE'S LANGUAGE (ADR-0051 §11 R42) — the AI names it, code is the backup. The reply's
+ * language when the worker neither asks for one (R41) nor keeps one. Three steps, in order:
+ *   1. A GUJARATI, TAMIL, TELUGU OR KANNADA SCRIPT decides its language, exactly as
+ *      {@link detectReplyLanguage} reads it: code is certain there, so the label is not consulted.
+ *   2. Otherwise (Latin, Devanagari, or two regional scripts tied — where code is not certain) a
+ *      REAL verdict's label decides. `kind === "verdict"` IS the real test: `verdictOf` folds a
+ *      mock, a failed call, a timeout and a blocked input into `unavailable`, which has no label.
+ *   3. Otherwise — the classifier unavailable, or a real verdict with no label — the word lists,
+ *      {@link detectReplyLanguage}, unchanged.
+ * Pure: the verdict is the turn's memoised one, so a lost CAS reads the same label again.
+ */
+export function messageLanguage(text: string, verdict: FreeChatVerdict): FreeChatReplyLanguage {
+  const script = decidingScript(text);
+  if (script !== null && script !== "tie" && script !== "devanagari") return script;
+  if (verdict.kind === "verdict" && verdict.language !== null) return verdict.language;
+  return detectReplyLanguage(text);
 }
 
 // ---------------------------------------------------------------------------

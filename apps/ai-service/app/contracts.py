@@ -2205,6 +2205,10 @@ class FreeChatClassifyOutput(BaseModel):
     blocked: bool = False
     # `None` on the blocked path: no provider was called, so there is no cost to record.
     ai_metadata: AICallMetadata | None = None
+    # The message's own language (ADR-0051 R42), from the closed reply-language set. `None` on the
+    # blocked and mock paths, or when the model's label is outside the set: the API then falls back
+    # to its word-list detection.
+    language: FreeChatReplyLanguage | None = None
 
 
 class FreeChatReplyInput(BaseModel):

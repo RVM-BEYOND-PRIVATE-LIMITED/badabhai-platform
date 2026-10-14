@@ -47,10 +47,20 @@ export const FREE_CHAT_MIN_CONFIDENCE = 0.6;
  * The classifier's answer as the router reads it. `unavailable` is every way it can fail to give a
  * REAL verdict — null, blocked, a mock (`real_call !== true`), a failed call, a timeout — folded
  * into one value by `FreeChatService`, so no branch here can mistake a mock for a decision.
+ *
+ * A REAL verdict also carries the message's `language` as the classifier named it (ADR-0051 §11
+ * R42), or null when it named none. It rides INSIDE the verdict so the memoised classify promise
+ * carries it across a lost CAS, and so an unavailable classifier can never contribute one. Only
+ * `messageLanguage` (`free-chat-language.ts`) reads it; no routing rule here does.
  */
 export type FreeChatVerdict =
   | { readonly kind: "unavailable" }
-  | { readonly kind: "verdict"; readonly category: FreeChatCategory; readonly confidence: number };
+  | {
+      readonly kind: "verdict";
+      readonly category: FreeChatCategory;
+      readonly confidence: number;
+      readonly language: FreeChatReplyLanguage | null;
+    };
 
 export const UNAVAILABLE_VERDICT: FreeChatVerdict = { kind: "unavailable" };
 

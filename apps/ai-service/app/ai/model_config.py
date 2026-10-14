@@ -388,10 +388,13 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
         return TaskRoute(
             task_type,
             default_tier,
-            # THE COMPANION CLASSIFIER'S NUMBERS, for its reasons (ADR-0051 §3.3). 48 tokens: the
-            # worst-case answer `{"category": "off_limits", "confidence": 0.95}` is ~15 tokens,
-            # and the API waits ~2.5 s, so the output cap is part of the worst-case latency.
-            max_output_tokens=48,
+            # THE COMPANION CLASSIFIER'S SHAPE, for its reasons (ADR-0051 §3.3), with a larger cap
+            # since R42 (#2240): the answer gained a third key, `language`, and now measures mean
+            # 29.8 / max 32 tokens on claude-haiku-4-5 (was ~15). `language` is the LAST key, so a
+            # truncated answer fails the JSON parse and loses the category with it; a fenced or
+            # pretty-printed fallback adds ~6-10 tokens. 64 keeps 2x headroom over the measured
+            # max. The API waits ~2.5 s, and the cap only costs latency on a runaway answer.
+            max_output_tokens=64,
             # TEMPERATURE ZERO: a closed-set choice, and the same résumé-mode answer must route
             # the same way on a retry.
             temperature=0.0,

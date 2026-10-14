@@ -72,7 +72,7 @@ import {
   stampLastTurn,
 } from "../turn-shapes";
 import { screenFreeChatAnswer } from "./free-chat-output.validator";
-import { detectReplyLanguage, parseLanguageRequest } from "./free-chat-language";
+import { messageLanguage, parseLanguageRequest } from "./free-chat-language";
 import { NEWS_TURN_OUTCOMES, newsServedOf, type FreeChatNewsResolution } from "./free-chat-news";
 import {
   FREE_CHAT_COPY,
@@ -355,7 +355,8 @@ export class FreeChatTurns {
    * the cool-down, the cap and the abuse lexicon keep their precedence: a pending ask's answer,
    * then a BARE request (no classifier call), then the classifier for everything else — and a
    * classified casual or career reply is written in the requested language (with the ask), else
-   * the kept language, else the message's own.
+   * the kept language, else the message's own — which this turn's verdict names (R42,
+   * `messageLanguage`), with the word lists as the backup.
    */
   private async routeFreeMode(t: FreeChatTurn, entering: FreeChatState): Promise<FreeChatRouted> {
     const { text, now } = t.input;
@@ -509,7 +510,7 @@ export class FreeChatTurns {
           facts,
           requested !== null
             ? askPlan(requested.language, keptLanguageOf(current))
-            : followPlan(keptLanguageOf(current), text),
+            : followPlan(keptLanguageOf(current), text, verdict),
         );
       case "fixed":
         return this.serveFreeLine(
@@ -1232,7 +1233,7 @@ type ServedExtra = Partial<
 /**
  * The language ONE model reply is written in, and whether the reply then ASKS to keep it (R41).
  * Precedence: an explicit request in the message (bare, or classified casual / career), then the
- * kept language, then the message's own.
+ * kept language, then the message's own (the classifier's label, else the word lists — R42).
  */
 interface ReplyLanguagePlan {
   readonly language: FreeChatReplyLanguage;
@@ -1251,9 +1252,16 @@ function askPlan(
   return { language: requested, ask: requested === kept ? null : requested };
 }
 
-/** No request: the kept language, else the language of the worker's message (R40). No ask. */
-function followPlan(kept: FreeChatReplyLanguage | null, text: string): ReplyLanguagePlan {
-  return { language: kept ?? detectReplyLanguage(text), ask: null };
+/**
+ * No request: the kept language, else the language of the worker's message (R40) as
+ * {@link messageLanguage} reads it — the classifier's label where code is not certain (R42). No ask.
+ */
+function followPlan(
+  kept: FreeChatReplyLanguage | null,
+  text: string,
+  verdict: FreeChatVerdict,
+): ReplyLanguagePlan {
+  return { language: kept ?? messageLanguage(text, verdict), ask: null };
 }
 
 /** The ask's two chips: "Haan, {Language} mein" · "Nahi". */

@@ -50,10 +50,12 @@ const SUMMARY_OUTPUT_MAX = 2000;
 const SUMMARY_TURNS_MAX = 24;
 
 /**
- * ADR-0051 §11 (R39–R41) — the language the model writes a reply in, from the closed
- * `FREE_CHAT_REPLY_LANGUAGES`. CODE decides it, never the model (R39): the language the API
- * detected in the worker's message (R40), or the one the worker chose to keep for the whole chat
- * (R41). Always Latin letters; `hinglish` covers Hindi in either script.
+ * ADR-0051 §11 (R39–R44) — the language the model writes a reply in, from the closed
+ * `FREE_CHAT_REPLY_LANGUAGES`. The API decides which language is SENT: the one the worker asked
+ * for (R41), the one they chose to keep for the whole chat (R41), or this message's own language
+ * (R40) — which the classifier names (R42, `FreeChatClassifyOutput.language`), with the API's word
+ * lists as the backup. The reply model only follows it. Always Latin letters; `hinglish` covers
+ * Hindi in either script.
  */
 export const FreeChatReplyLanguageSchema = z.enum(FREE_CHAT_REPLY_LANGUAGES);
 
@@ -97,6 +99,14 @@ export const FreeChatClassifyOutputSchema = z.object({
   confidence: z.number().min(0).max(1),
   blocked: z.boolean().default(false),
   ai_metadata: AICallMetadataSchema.nullable().default(null),
+  /**
+   * The language the worker's message is written in (ADR-0051 R42), from the closed reply-language
+   * set. Additive and defaulted: null — an older service, a mock, a blocked input, or a label
+   * outside the set — leaves the API's word-list detection in force, exactly as before the field.
+   * A label outside the set is CAUGHT to null rather than failing the parse: the language is
+   * advisory, and an unlisted label must never throw away the category it came with.
+   */
+  language: z.enum(FREE_CHAT_REPLY_LANGUAGES).nullable().default(null).catch(null),
 });
 export type FreeChatClassifyOutput = z.infer<typeof FreeChatClassifyOutputSchema>;
 

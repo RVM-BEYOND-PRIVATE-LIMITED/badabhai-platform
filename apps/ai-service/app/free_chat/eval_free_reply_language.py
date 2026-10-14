@@ -42,6 +42,12 @@ over both):
     regional and English walls (§9, §11) and soft job promise (#2184). Only the WORD walls are
     re-run here; the shape, script (b), abuse and identifier checks are not, so this count is a
     floor.
+(g) HINDI LEAK (R43/R44, #2240): on a case whose reply language is regional (not English, not
+    Hinglish), a Hindi function word in the lines OR the chips (:data:`HINDI_LEAK_WORDS`,
+    :data:`HINDI_LEAK_PHRASES`), the leak the owner's device showed ("iya trades mein achha pay
+    ahe"). A word a language shares with Hindi is never a leak in it
+    (:data:`HINDI_LEAK_SHARED`: Gujarati "kya" is "where"). Counted on every answered regional
+    reply, whether or not its language adhered, because a worker reads the Hindi either way.
 
 A HEURISTIC, AND STATED AS ONE. Marker words are the frequent function words, pronouns and verb
 endings of each language as romanized by a model; a word two languages share ("kaam", "nahi",
@@ -893,6 +899,40 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
     return hits
 
 
+# ── (g) Hindi function words in a regional reply ─────────────────────────────────────────────
+
+#: The Hindi function words R43 bars from a regional reply (the issue's list, with "accha", the
+#: third common spelling of "achha"/"acha"). Single words, matched whole on the folded tokens.
+HINDI_LEAK_WORDS = frozenset(
+    {"mein", "hai", "hain", "achha", "acha", "accha", "aur", "kya", "kaise"}
+)
+#: The same, as word sequences ("ke liye" is two words).
+HINDI_LEAK_PHRASES: tuple[str, ...] = ("ke liye",)
+#: Words a regional language SHARES with Hindi, so never a leak in it: Gujarati "kya" is "where"
+#: ("kya thi" is "from where"). Marathi "nahi" and "kaam" are not on the leak list at all.
+HINDI_LEAK_SHARED: Mapping[str, frozenset[str]] = {"gujarati": frozenset({"kya"})}
+_LEAK_PHRASES = tuple(tuple(phrase.split()) for phrase in HINDI_LEAK_PHRASES)
+
+
+def hindi_leak(texts: Iterable[str], language: str) -> list[str]:
+    """The Hindi function words in ``texts`` (a reply's lines and chips), per text the words and
+    then the phrases, when the reply should be ``language``. Empty for English and Hinglish, which
+    are not scored for it."""
+    if language not in REGIONAL:
+        return []
+    shared = HINDI_LEAK_SHARED.get(language, frozenset())
+    found: list[str] = []
+    for text in texts:
+        tokens = _tokens(text)
+        found += [t for t in tokens if t in HINDI_LEAK_WORDS and t not in shared]
+        found += [
+            " ".join(tokens[i : i + size])
+            for i in range(len(tokens))
+            if (size := _phrase_at(tokens, i, _LEAK_PHRASES))
+        ]
+    return found
+
+
 # ── scoring ──────────────────────────────────────────────────────────────────────────────────
 
 ANSWER = "answer"
@@ -915,6 +955,8 @@ class CaseResult:
     copy: bool = False
     #: The word walls the API's gate would reject it on, (f): the worker would see the fallback.
     walls: tuple[str, ...] = ()
+    #: The Hindi function words in a regional reply's lines and chips, (g). Empty otherwise.
+    hindi_leak: tuple[str, ...] = ()
     #: The refusal topic, when the reply refused.
     topic: str | None = None
     counts: Mapping[str, int] = field(default_factory=dict)
@@ -954,6 +996,7 @@ def score_reply(case: Case, payload: Mapping | None) -> CaseResult:
         repeat=verbatim_repeat(lines, case.turns),
         copy=example_copy(lines, line_example(case.reply_language)),
         walls=tuple(wall_hits(lines + chips)),
+        hindi_leak=tuple(hindi_leak(lines + chips, case.reply_language)),
         counts=marker_counts(text),
     )
 
@@ -977,6 +1020,10 @@ class Tally:
     copied: int = 0
     #: Answers the API's gate would throw away on a word wall, (f).
     walled: int = 0
+    #: (g) Answered replies whose language is regional (the ones scored for a Hindi leak), and how
+    #: many of them carried a Hindi function word.
+    leak_scored: int = 0
+    leaked: int = 0
     #: Cases that expect a refusal, and how many were refused.
     must_refuse: int = 0
     refused_ok: int = 0
@@ -998,6 +1045,9 @@ class Tally:
             self.repeated += result.repeat
             self.copied += result.copy
             self.walled += bool(result.walls)
+            if result.case.reply_language in REGIONAL:
+                self.leak_scored += 1
+                self.leaked += bool(result.hindi_leak)
 
 
 @dataclass(frozen=True)
@@ -1037,6 +1087,8 @@ def _miss(result: CaseResult) -> str | None:
             reasons.append("copies the line's example")
         if result.walls:
             reasons.append("walled " + ", ".join(result.walls))
+        if result.hindi_leak and case.expected_status == ANSWER:
+            reasons.append("hindi " + ", ".join(result.hindi_leak))
     if not reasons:
         return None
     return f"[{case.reply_language}/{case.script}/{case.kind}] {case.id}: " + "; ".join(reasons)
