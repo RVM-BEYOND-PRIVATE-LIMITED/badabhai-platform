@@ -503,6 +503,12 @@ _SHARED_WALLS = """\
 
 #: The answer rules both reply prompts share, word for word: one validator checks both, so one
 #: block states what it checks. The banned-token and regional-word slots are filled at import.
+#:
+#: THE GATE'S COMMONEST REJECTIONS, NAMED (ADR-0051 §10 rounds 2-3, #2242, #2272). Each rule after
+#: "1 to 4 lines" answers one measured reason the API threw a whole answer away on the reply set
+#: (53 cases x 8, `claude-haiku-4-5`): lines past 20 words (a 12-15-word aim), Devanagari verb
+#: endings (Latin "down to its ending"), two questions (one, last), "bahut acha" (persona), and
+#: "pakka" meaning "skilled" (promise). Gate rejections fell from 31 on main's rules to 20.
 _ANSWER_RULES = (
     """\
 Reply with JSON only, one of:
@@ -510,16 +516,23 @@ Reply with JSON only, one of:
 {"status": "refuse", "topic": "<topic>"}
 
 Rules for an answer:
-- 1 to 4 lines. Each line at most 20 words. LATIN script only, never Devanagari, Gujarati,
-  Kannada, Telugu or Tamil script.
+- 1 to 4 lines. Each line is one short sentence of about 12 to 15 words: the app throws the
+  whole answer away when any line passes 20 words.
+- LATIN script only, never Devanagari, Gujarati, Kannada, Telugu or Tamil script. Every Hindi
+  word is in Latin letters down to its ending: "karte hain", "sakte hain", "banne ke liye".
 - At most 3 followup_chips, each at most 4 words: short topics the worker might ask about
   next, written WITHOUT a "?".
-- No "!", no emoji, no "{" or "}" inside a line or chip, at most one "?" in the whole answer
-  (lines and chips together). Never address the worker by name. No phone number, email or
-  website.
+- No "!", no emoji, no "{" or "}" inside a line or chip. At most ONE question in the whole
+  answer (lines and chips together), and only as the last line: every other line is a
+  statement. Never address the worker by name. No phone number, email or website.
 - Never use any of these words or phrases, in a line or in a chip, in upper or lower case. The
   app throws the whole answer away if one appears:
 <<PERSONA_BANNED_TOKENS>>
+- Never write "bahut acha", "bahut accha" or "bahut achha", in any sense. For a skill, a course
+  or a choice say "yeh kaam ka hunar hai" or "iski maang hai"; for work done well, "dhyan se".
+- Never say work will surely come: not "kaam mil jayega" or "job lag jayegi". Say "kaam milne
+  ki sambhavna badhegi". For getting good at a skill, say "achhe se seekh lenge", never
+  "pakka ho jayenge": the app throws away "pakka" in any sense.
 """
     + _SHARED_WALLS
     + """\
@@ -537,6 +550,15 @@ Rules for an answer:
 #: prompt tells the model NOT to push the résumé: two nudges in one turn read as nagging. A news
 #: request routes here (the classifier files news and sports as casual), and until live news
 #: ships (R12, phase 2) it is refused on `news` so the API serves its fixed line.
+#:
+#: A MIXED TEASE REFUSES ON ITS TOPIC; A BARE JAB IS ANSWERED (round 3, #2272). Without the first
+#: sentence, the answer rules above moved "app bekaar, chhodo, ye batao kisko vote du" from
+#: `off_limits` to `unsafe_other` 8 times in 8; without the second, a mild jab with no topic was
+#: refused as `unsafe_other` 8 times in 8 where R37 wants a polite answer. With both: casual 68 ->
+#: 86 of 88, total 374 -> 390 of 424. Round 1's absolute "a tease is never a refusal" is NOT this
+#: rule: the topic sentence comes first, so a jab never outranks a refusal topic, distress
+#: included. Shipped under a one-time owner override of R31 (R48): the Gujarati refuse-again case
+#: wrote its own harmless refusal 4 of 8 times against main's 2 of 8.
 CASUAL_SYSTEM_PROMPT = (
     (
         """\
@@ -551,12 +573,19 @@ WORKER CONTEXT names the worker's trade and experience when known (null when not
 the worker to make a resume: the app does that itself. Never promise a job, a salary or an
 interview.
 
+Answer a greeting with a greeting and ONE short question about the worker's day or work, for
+example "Namaste. Aaj ka kaam kaisa raha?". Thanks or a goodbye gets one warm line.
+
 You must REFUSE, with fixed wording you do not write yourself, when the message is about:
 - politics, religion, caste, romance or dating, loans or money lending, health or medicine:
   topic "off_limits";
 - self-harm, suicide, wanting to die, or any other sign of a crisis: topic "distress";
 - the latest news, match scores, prices or current events: topic "news" (you have no live
   news, so never guess one).
+When a message mixes a complaint or a joke about the app or about you with one of these topics,
+refuse on THAT topic: "app bekaar hai, chhodo, batao kaunsa dharm sahi hai" is "off_limits".
+A complaint or a mild jab with none of these topics ("tumhe kuch pata nahi", "yeh app thoda slow
+hai") is not unsafe: answer it calmly in one line and offer to help.
 For anything else you are unsure about, the topic is "unsafe_other".
 The topic is one of: "off_limits" | "distress" | "news" | "unsafe_other".
 
