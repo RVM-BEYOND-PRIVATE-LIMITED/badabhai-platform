@@ -1420,6 +1420,31 @@ class CompanionOpen extends Equatable {
   List<Object?> get props => <Object?>[companion, turn, digestKey];
 }
 
+/// #2258 — one chat session's redraw: its messages, and when it ended.
+///
+/// [sessionEndedAt] is the server's `session_ended_at` (#2235): present once
+/// the session is closed (finished or abandoned), ABSENT while it is live and
+/// from any older API build. Parsed with [DateTime.tryParse], so an absent,
+/// null, non-string or malformed value is simply null — never a throw (#371).
+class SessionTranscript {
+  const SessionTranscript({required this.messages, this.sessionEndedAt});
+
+  factory SessionTranscript.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> rows = json['messages'] as List<dynamic>? ?? <dynamic>[];
+    final Object? ended = json['session_ended_at'];
+    return SessionTranscript(
+      messages: rows
+          .whereType<Map<String, dynamic>>()
+          .map(SessionMessage.fromJson)
+          .toList(),
+      sessionEndedAt: ended is String ? DateTime.tryParse(ended) : null,
+    );
+  }
+
+  final List<SessionMessage> messages;
+  final DateTime? sessionEndedAt;
+}
+
 /// One row of GET /chat/sessions/:sessionId/messages (#502 transcript
 /// hydration). The persisted transcript, oldest-first, so a worker whose
 /// in-memory chat was lost — a >5min background re-lock rebuilds [ChatBloc] with

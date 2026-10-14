@@ -47,6 +47,7 @@ class ChatMessage extends Equatable {
     this.canReadAloud = true,
     this.newsLinks = const <ChatNewsLink>[],
     this.bulleted = false,
+    this.closesSession = false,
   });
 
   final String text;
@@ -106,6 +107,15 @@ class ChatMessage extends Equatable {
   /// client.
   final bool bulleted;
 
+  /// #2258 — this redrawn bubble is the one that CLOSED its session.
+  ///
+  /// Set only by the transcript redraw (`ChatRepositoryImpl.loadHistory`), on
+  /// the last KEPT bubble at or before the server's `session_ended_at`, so a
+  /// cold reopen of a finished interview can draw the "End of conversation"
+  /// marker where the live close drew it. Every live bubble keeps `false`; the
+  /// live close sets its marker from the turn itself.
+  final bool closesSession;
+
   ChatMessage copyWith({ChatSendStatus? status}) => ChatMessage(
     text: text,
     fromWorker: fromWorker,
@@ -123,6 +133,8 @@ class ChatMessage extends Equatable {
     canReadAloud: canReadAloud,
     // Preserved: a status flip must not silently un-bullet a recap.
     bulleted: bulleted,
+    // Preserved: a status flip must not move the "End of conversation" marker.
+    closesSession: closesSession,
   );
 
   @override
@@ -135,5 +147,6 @@ class ChatMessage extends Equatable {
     ttsText,
     canReadAloud,
     bulleted,
+    closesSession,
   ];
 }

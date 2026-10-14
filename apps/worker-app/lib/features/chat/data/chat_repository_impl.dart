@@ -526,11 +526,18 @@ class ChatRepositoryImpl implements ChatRepository {
     // never throw, or a hydration miss would block the chat from opening.
     if (token == null || sessionId == null) return const <ChatMessage>[];
     try {
-      final List<SessionMessage> rows = await _api.listSessionMessages(
+      final SessionTranscript transcript = await _api.listSessionTranscript(
         sessionId: sessionId,
         authToken: token,
       );
+      final List<SessionMessage> rows = transcript.messages;
       final List<ChatMessage> messages = <ChatMessage>[];
+      // #2258 — the KEPT bubble the session closed on: the last one at or
+      // before `session_ended_at`. Counted over KEPT bubbles, not raw rows —
+      // the loop below drops voice rows with no transcript and name-only lines,
+      // so a raw-row index would point at the wrong bubble. -1 = none.
+      final DateTime? endedAt = transcript.sessionEndedAt;
+      int closingIndex = -1;
       for (final SessionMessage row in rows) {
         // A voice row before its transcript lands carries a null body — drop it
         // from the redraw rather than showing an empty bubble (hydration is a
@@ -554,6 +561,22 @@ class ChatRepositoryImpl implements ChatRepository {
               ? const <ChatNewsLink>[]
               : row.newsLinks,
         ));
+        if (endedAt != null) {
+          final DateTime? at = DateTime.tryParse(row.createdAt);
+          if (at != null && !at.isAfter(endedAt)) {
+            closingIndex = messages.length - 1;
+          }
+        }
+      }
+      if (closingIndex >= 0) {
+        final ChatMessage closing = messages[closingIndex];
+        messages[closingIndex] = ChatMessage(
+          text: closing.text,
+          fromWorker: closing.fromWorker,
+          ttsText: closing.ttsText,
+          newsLinks: closing.newsLinks,
+          closesSession: true,
+        );
       }
       return messages;
     } catch (_) {
