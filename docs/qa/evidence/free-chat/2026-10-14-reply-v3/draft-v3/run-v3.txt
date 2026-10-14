@@ -1,0 +1,9 @@
+free-chat reply eval: 53 cases x 8 repeats = 424 replies
+  answer 352, refuse 72
+  refused on: distress 16, legal_medical_financial 8, news 8, off_limits 24, unsafe_other 16
+calls: 424 sent, 424 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 161.07 (router estimate)
+models: claude-haiku-4-5 (424); 0 served by a fallback model
+latency, round trip to the ai-service: p50 2551 ms, p95 3525 ms; model call only: p50 2466 ms, p95 3429 ms (excludes the API hop and validator, and a career turn's classify call)
+the served rate is the API gate's: replay the dump with free-chat-reply-served.js (apps/api)
+wrote 424 replies to reply-v3.json
+RESULT: PASS
