@@ -261,6 +261,7 @@ class ChatState extends Equatable {
     this.predictedQuestionKey,
     this.askedQuestionKey,
     this.questionRestored = false,
+    this.sessionEndedAfterIndex,
     this.formOffer,
     this.resumePending = false,
     this.resumeUpdateQueued = false,
@@ -389,6 +390,24 @@ class ChatState extends Equatable {
   /// "Location bharein" BUTTON instead of popping the dialog the instant the
   /// chat reopens. Turn-scoped: a freshly served turn clears it.
   final bool questionRestored;
+
+  /// #2224 — the index in [messages] of the bot bubble that CLOSED the
+  /// interview, or null while the session is live.
+  ///
+  /// The transcript then draws an "End of conversation" marker directly after
+  /// that bubble, the way Claude Code marks where a session ended: anything that
+  /// arrives afterwards (a post-completion résumé-menu reply) renders BELOW the
+  /// marker rather than moving it.
+  ///
+  /// An INDEX, not a flag, and never moved once set — [messages] is append-only,
+  /// so the index stays valid for the life of the session. It is also NOT a
+  /// fabricated `ChatMessage` in the list: the bloc's per-ask indices
+  /// (`_companionBubbleOffset`, `_resumeLocalBubbles`, retry-by-index) all
+  /// assume every list entry is a real bubble.
+  ///
+  /// Cleared when a new session starts and when the tab enters companion mode —
+  /// the recap is not the interview transcript.
+  final int? sessionEndedAfterIndex;
 
   /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), from the
   /// LATEST turn — null on every turn except the one that hands over.
@@ -538,6 +557,11 @@ class ChatState extends Equatable {
     String? askedQuestionKey,
     bool clearAskedQuestionKey = false,
     bool? questionRestored,
+    // #2224 — set ONCE, on the turn that closes the interview, and cleared only
+    // by a restart or companion mode. Never re-pointed: a later turn on an
+    // already-closed session must leave the marker where it is.
+    int? sessionEndedAfterIndex,
+    bool clearSessionEndedAfterIndex = false,
     FormOffer? formOffer,
     // Same idiom as [clearPredictedQuestionKey]: formOffer is TURN-SCOPED
     // (field doc), so a new turn without one must be able to CLEAR the
@@ -595,6 +619,9 @@ class ChatState extends Equatable {
           ? null
           : (askedQuestionKey ?? this.askedQuestionKey),
       questionRestored: questionRestored ?? this.questionRestored,
+      sessionEndedAfterIndex: clearSessionEndedAfterIndex
+          ? null
+          : (sessionEndedAfterIndex ?? this.sessionEndedAfterIndex),
       formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
       answerType: clearAnswerType ? null : (answerType ?? this.answerType),
       // Sticky: once a résumé-confirm session, always (the opening is applied
@@ -642,6 +669,7 @@ class ChatState extends Equatable {
     predictedQuestionKey,
     askedQuestionKey,
     questionRestored,
+    sessionEndedAfterIndex,
     formOffer,
     resumePending,
     resumeUpdateQueued,
@@ -1545,10 +1573,24 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         showResumePrompt ? resumeOptions : turn.suggestedOptions,
         askedQuestionKey: showResumePrompt ? null : turn.askedQuestionId,
       );
+      // #2224 — the marker goes after the bubble that CLOSED the interview, and
+      // only the FIRST such turn sets it: a later reply on an already-closed
+      // session (`fromClosedSession` — the stateless résumé menu) renders below
+      // the marker instead of dragging it down. Never on a résumé-prompt turn:
+      // there the server's reply is stashed rather than shown, so the last
+      // bubble is the client's own question and not a close.
+      final int? closedAtIndex =
+          turn.sessionEnded &&
+              !turn.fromClosedSession &&
+              !showResumePrompt &&
+              state.sessionEndedAfterIndex == null
+          ? emittedMessages.length - 1
+          : null;
       emit(
         _withCompanionTurn(
           state.copyWith(
             messages: emittedMessages,
+            sessionEndedAfterIndex: closedAtIndex,
             sending: _inFlightSends > 0,
             followups: showResumePrompt
                 ? <String>[
@@ -1846,6 +1888,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           sessionFailed: false,
           companion: true,
           companionUnreachable: false,
+          // #2224 — the recap REPLACES the transcript, so an "End of
+          // conversation" marker placed in the interview would now point at a
+          // bubble that is no longer there. The companion is out of scope for
+          // the marker (ADR-0044).
+          clearSessionEndedAfterIndex: true,
           messages: <ChatMessage>[
             ChatMessage(
               text: opening.reply,
