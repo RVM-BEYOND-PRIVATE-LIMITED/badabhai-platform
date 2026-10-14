@@ -105,6 +105,35 @@ export function parseAffirmation(text: string): NormalizedValue<boolean> | null 
   return null;
 }
 
+/** Anything that is not a letter, a mark or a digit separates two words of the residue. */
+const RESIDUE_SEPARATOR = /[^\p{L}\p{M}\p{N}]+/u;
+
+/**
+ * The words of a yes/no answer that NO cue accounts for, lowercased and in order. Every explicit
+ * cue, every verb cue and every negator token is taken out first. Empty for a bare answer ("haan",
+ * "haan ji karta hoon", "nahi").
+ *
+ * WHY IT EXISTS (#2226). `parseAffirmation` reads "haan marna hai" ("yes, I want to die") as a
+ * definite yes. A leading "haan" wins unless a negator reaches it, and the rest of the sentence
+ * does not matter. That is right for the VALUE. It says nothing about whether the sentence was ONLY
+ * an answer, and a caller that lets a typed yes/no skip a check (the free chat's résumé mode) needs
+ * to know that.
+ *
+ * NO POLICY HERE. The caller's own closed list decides which leftover words are harmless filler. A
+ * word left in here is only "not a yes/no cue", never "suspicious".
+ */
+export function affirmationResidue(text: string): readonly string[] {
+  let blanked = text;
+  for (const pattern of [...EXPLICIT, ...VERB]) {
+    // Blanked to spaces, never deleted, so the words either side of a cue cannot fuse into one.
+    blanked = blanked.replace(pattern, (cue) => " ".repeat(cue.length));
+  }
+  return blanked
+    .toLowerCase()
+    .split(RESIDUE_SEPARATOR)
+    .filter((word) => word.length > 0 && !NEGATOR_TOKENS.has(word));
+}
+
 /** A cue is a yes unless a negator reaches it — clause-clamped, then span-overlap. */
 function withNegationCheck(text: string, cue: CueHit): NormalizedValue<boolean> {
   const denied =

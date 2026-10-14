@@ -107,6 +107,19 @@ These skip the classifier and go to today's interview:
   not classified, counted toward no cap)
 - the turn cap
 
+**A typed yes/no that carries other words is checked for distress (#2226).** `parseAffirmation` reads
+"haan marna hai" ("yes, I want to die") as a yes, because a leading "haan" wins. Such an answer keeps its skip,
+but the classifier checks it first. An answer counts as carrying other words when a word is left after its yes/no
+cues and negators (`affirmationResidue`) that is not on the closed filler list (`YES_NO_FILLER_WORDS` in
+`free-chat.router.ts`: ji, sir, bhai, hai, main, mere, paas…). An emoji also counts as another word. A format
+character (#2228) is read both deleted and as a word gap, and both readings must be bare.
+- A `distress` verdict, at any confidence, gets the distress line. Nothing is stored, and the question stays
+  pending.
+- Any other verdict, or an unavailable classifier, passes the answer to today's interview, exactly as before. A
+  typed answer is never deflected, clarified or de-escalated.
+- "haan", "haan ji", "haan karta hoon" and "nahi" are bare: they make no classifier call.
+- Number, field-normalised and option answers keep today's skip.
+
 Everything else is classified:
 
 | Verdict | Handling |
@@ -293,7 +306,8 @@ Any widening of this list follows the same review as the copy.
 
 ## 6. Consequences
 
-- **Latency and cost.** One classifier call per typed résumé-mode answer that the skip list does not settle.
+- **Latency and cost.** One classifier call per typed résumé-mode answer that the skip list does not settle,
+  and per typed yes/no that carries other words (#2226).
   Today's companion classifier runs at p95 1.6–2.4 s. Free mode adds one reply call for casual and career. No
   per-worker cap; cost is recorded per call (`ai.cost_recorded`). On the admin dashboard,
   `profiling_free_classify` counts toward cost-per-profile and `profiling_free_reply` does not.

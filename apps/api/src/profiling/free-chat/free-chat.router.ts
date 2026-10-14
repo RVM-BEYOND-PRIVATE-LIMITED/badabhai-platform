@@ -12,14 +12,19 @@
  * unavailable classifier passes the message to the interview — an AI outage never degrades it.
  */
 
-import { hasFirstPersonClaim, isAbusive, type UtteranceClass } from "@badabhai/profiling-lexicon";
+import {
+  affirmationResidue,
+  hasFirstPersonClaim,
+  isAbusive,
+  type UtteranceClass,
+} from "@badabhai/profiling-lexicon";
 import type {
   CompanionV2ConfidenceBucket,
   FreeChatCategory,
   FreeChatReplyCategory,
   FreeChatReplyLanguage,
 } from "@badabhai/types";
-import type { QuestionPackOption } from "@badabhai/ai-contracts";
+import type { QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
 
 import { readTypedLanguageAnswer } from "./free-chat-language";
 import {
@@ -76,6 +81,91 @@ function fold(text: string): string {
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
+}
+
+/**
+ * #2226 — THE ONLY OTHER WORDS A TYPED YES/NO ANSWER MAY CARRY and still skip the classifier in
+ * résumé mode. Its yes/no cues and negators are already set aside (`affirmationResidue`). These
+ * are address, politeness, the copula and "I / mine / have", closed and reviewed like the copy.
+ * Any other word ("haan marna hai") means the classifier checks the answer for distress first. The
+ * answer still answers the question unless the verdict is distress.
+ *
+ * It holds no negation and no word of a distress phrase, and never may: such a word would let a
+ * message ride a "haan" past the check (`free-chat.router.test.ts` pins both). A word missing from
+ * the list costs one classifier call. A wrong word in it is a hole.
+ */
+export const YES_NO_FILLER_WORDS: ReadonlySet<string> = new Set([
+  "ji",
+  "jee",
+  "sir",
+  "madam",
+  "maam",
+  "bhai",
+  "bhaiya",
+  "bhaiyya",
+  "please",
+  "pls",
+  "plz",
+  "hai",
+  "hain",
+  "hoon",
+  "hun",
+  "hu",
+  "h",
+  "tha",
+  "thi",
+  "main",
+  "mai",
+  "mere",
+  "mera",
+  "meri",
+  "paas",
+  "to",
+  "toh",
+  "है",
+  "हैं",
+  "हूँ",
+  "हूं",
+  "था",
+  "थी",
+  "मैं",
+  "मेरे",
+  "मेरा",
+  "मेरी",
+  "पास",
+  "भाई",
+  "सर",
+]);
+
+/**
+ * Is this typed yes/no answer ONLY an answer? True when every word is a yes/no cue, a negator or
+ * {@link YES_NO_FILLER_WORDS}: "haan", "haan ji", "haan karta hoon", "nahi, mere paas nahi hai".
+ *
+ * It fails towards the check, as {@link matchesDistress} does (#2228):
+ * - An EMOJI is never filler: "haan 😭" is checked.
+ * - A Unicode format character (`\p{Cf}`: zero-width space, soft hyphen, ZWJ…) is read both ways,
+ *   DELETED and as a word gap, and both readings must be bare. Read only as a gap, "jee<ZWSP>na"
+ *   splits into a yes cue and the tag negator "na" and hides "jeena".
+ */
+export function isBareYesNo(text: string): boolean {
+  if (/\p{Extended_Pictographic}/u.test(text)) return false;
+  return [text, text.replace(/\p{Cf}/gu, "")].every((reading) =>
+    affirmationResidue(reading).every((word) => YES_NO_FILLER_WORDS.has(word.normalize("NFC"))),
+  );
+}
+
+/**
+ * A question whose typed answer is read as a yes or a no: a `boolean` item, or a select with a yes
+ * and a no among its options. Capture reads both through `parseAffirmation`.
+ */
+export function isYesNoQuestion(
+  item: Pick<QuestionPackItem, "answer_type" | "options"> | null,
+): boolean {
+  return (
+    item !== null &&
+    (item.answer_type === "boolean" ||
+      item.options.some((option) => typeof option.value === "boolean"))
+  );
 }
 
 /** Was this exact chip sent — its key (a client that posts keys) or its label (one that posts labels)? */
@@ -575,6 +665,11 @@ export interface ResumeSkipFacts {
   readonly lexiconClass: UtteranceClass;
   /** A typed (number, yes/no, field-normalised, or option-matching) answer to the question on screen. */
   readonly typedAnswer: boolean;
+  /**
+   * #2226 — the typed answer is to a YES/NO question and carries a word beyond its cues, negators
+   * and {@link YES_NO_FILLER_WORDS} ("haan marna hai"). Read only when `typedAnswer` is true.
+   */
+  readonly typedAnswerCarriesWords: boolean;
   /** Whether there is a question to re-serve after a deflection — nothing on screen means no aside. */
   readonly hasPendingQuestion: boolean;
   /** The session already served its quota of asides. */
@@ -597,11 +692,20 @@ const LEXICON_OWNED: ReadonlySet<UtteranceClass> = new Set([
 export type ResumeModePre =
   | { readonly kind: "distress" }
   | { readonly kind: "pass" }
+  /**
+   * #2226 — a typed yes/no that carries other words: today's interview, unless the classifier
+   * calls it distress ({@link postDistressCheck}).
+   */
+  | { readonly kind: "distress_check" }
   | { readonly kind: "classify" };
 
 /**
  * Résumé mode's deterministic rules: distress first (in both modes), then the skip list — every
  * case today's interview already reads deterministically goes straight to it, with no model call.
+ *
+ * A TYPED ANSWER IS THE ONE SKIP WITH A CHECK (#2226). A yes/no that carries words beyond its cues
+ * and filler ("haan marna hai") is still the interview's answer, but the classifier checks it for
+ * distress first. The other skips win over it, unchanged.
  */
 export function preClassifyResume(text: string, facts: ResumeSkipFacts): ResumeModePre {
   if (matchesDistress(text)) return { kind: "distress" };
@@ -611,10 +715,13 @@ export function preClassifyResume(text: string, facts: ResumeSkipFacts): ResumeM
     facts.gateOpen ||
     facts.offeredOption ||
     LEXICON_OWNED.has(facts.lexiconClass) ||
-    facts.typedAnswer ||
     !facts.hasPendingQuestion ||
     facts.asideCapReached;
-  return skip ? { kind: "pass" } : { kind: "classify" };
+  if (skip) return { kind: "pass" };
+  if (facts.typedAnswer) {
+    return facts.typedAnswerCarriesWords ? { kind: "distress_check" } : { kind: "pass" };
+  }
+  return { kind: "classify" };
 }
 
 export type ResumeModeAction =
@@ -662,4 +769,16 @@ export function postClassifyResume(verdict: FreeChatVerdict): ResumeModeAction {
     case "off_limits":
       return { kind: "deflect" };
   }
+}
+
+/**
+ * #2226 — what résumé mode does with the classifier's answer to a {@link preClassifyResume}
+ * `distress_check`: the distress line for a distress verdict, at ANY confidence (R10), and today's
+ * interview for everything else. A typed answer is never deflected, clarified or de-escalated, and
+ * an outage passes it exactly as before.
+ */
+export function postDistressCheck(verdict: FreeChatVerdict): ResumeModeAction {
+  return verdict.kind === "verdict" && verdict.category === "distress"
+    ? { kind: "distress" }
+    : { kind: "pass" };
 }
