@@ -60,6 +60,7 @@ import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
 import '../domain/chat_resume_prompt.dart';
 import '../../resume_import/domain/resume_upload_intent.dart';
+import 'widgets/chat_end_divider.dart';
 import 'widgets/chat_location_card.dart';
 import 'widgets/chat_news_tiles.dart';
 import 'widgets/flying_name.dart';
@@ -1690,6 +1691,16 @@ class _ChatViewState extends State<_ChatView>
                 break;
               }
             }
+            // #2224 — the index the "End of conversation" marker follows, or
+            // null while the session is live. Clamped to the transcript the
+            // builder is about to draw: a redraw that REPLACED the transcript
+            // (the companion recap, a history redraw) must never leave the
+            // marker pointing past its end.
+            final int? endAfter =
+                state.sessionEndedAfterIndex != null &&
+                    state.sessionEndedAfterIndex! < state.messages.length
+                ? state.sessionEndedAfterIndex
+                : null;
             return Stack(
               children: <Widget>[
                 // bottom: false — the docked composer panel consumes the
@@ -1719,8 +1730,25 @@ class _ChatViewState extends State<_ChatView>
                                   horizontal: listGutter,
                                   vertical: AppSpacing.s2,
                                 ),
-                                itemCount: state.messages.length,
-                                itemBuilder: (BuildContext context, int i) {
+                                // #2224 — the "End of conversation" marker is
+                                // ONE EXTRA ROW, sitting directly after the
+                                // bubble that closed the interview. It is not a
+                                // fabricated `ChatMessage`: the bloc's per-ask
+                                // indices (retry-by-index, the companion
+                                // offset, the résumé local bubbles) all assume
+                                // every entry in `state.messages` is a real
+                                // bubble, so the row is inserted HERE and every
+                                // index below it is read back out.
+                                itemCount:
+                                    state.messages.length + (endAfter == null ? 0 : 1),
+                                itemBuilder: (BuildContext context, int row) {
+                                  if (endAfter != null && row == endAfter + 1) {
+                                    return const ChatEndDivider();
+                                  }
+                                  // Rows after the marker address a message one
+                                  // place earlier in the list.
+                                  final int i =
+                                      (endAfter != null && row > endAfter) ? row - 1 : row;
                                   final ChatMessage m = state.messages[i];
                                   final bool failed =
                                       m.status == ChatSendStatus.failed;
