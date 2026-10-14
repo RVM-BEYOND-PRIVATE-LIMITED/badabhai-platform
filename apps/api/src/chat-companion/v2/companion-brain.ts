@@ -107,7 +107,10 @@ export interface BrainTurn {
   readonly v2Intent: CompanionV3Intent | null;
   readonly confidenceBucket: CompanionV2ConfidenceBucket | null;
   readonly outcome: CompanionV3Outcome;
-  /** False for a message the classifier called trash: never stored (the v2 rule — abuse is not context). */
+  /**
+   * False for a message the classifier called trash (the v2 rule — abuse is not context, at any
+   * confidence) and for one answered with the distress line: neither is replayed to a later model.
+   */
   readonly remember: boolean;
   readonly facts: BrainFacts;
 }
@@ -196,7 +199,7 @@ function brainTurn(verdicted: Verdicted, served: Served): BrainTurn {
     v2Intent: served.v2Intent,
     confidenceBucket: verdicted.confidenceBucket,
     outcome: served.outcome,
-    remember: served.remember ?? true,
+    remember: served.remember ?? verdicted.freeCategory !== "trash",
     facts: {
       freeCategory: verdicted.freeCategory,
       resumeAction: verdicted.resumeAction,
@@ -230,6 +233,11 @@ function callContextOf(input: NamedInput, name: KnownNameSource): FreeChatCallCo
     knownName: name,
     surface: "companion",
   };
+}
+
+/** A turn that served the distress line keeps nothing of the message (F4): `{ remember: false }`. */
+function forgetIfDistress(topic: FreeChatRefusalTopic | null): { remember?: false } {
+  return topic === "distress" ? { remember: false } : {};
 }
 
 /**
@@ -314,8 +322,9 @@ export class CompanionBrain {
   ): Promise<Served> {
     // DISTRESS BYPASSES THE FLOOR (ADR-0051 R10): a helpline offered to a worker who did not need
     // it costs one line; a clarify served to one who did is the failure R10 exists to prevent.
+    // A distress message is never stored either: it is not replayed to a later model call.
     if (verdict.category === "distress") {
-      return { turn: distressTurn(), v2Intent: "distress", outcome: "served" };
+      return { turn: distressTurn(), v2Intent: "distress", outcome: "served", remember: false };
     }
     const intent = intentOf(verdict.category, resumeAction);
     if (verdict.confidence < FREE_CHAT_MIN_CONFIDENCE) return this.unclear(input, intent);
@@ -414,6 +423,7 @@ export class CompanionBrain {
         turn: v2CopyTurn(FREE_CHAT_REFUSAL_LINES[out.topic], this.chipsAfter(out.topic)),
         outcome: "refused",
         refusalTopic: out.topic,
+        ...forgetIfDistress(out.topic),
       };
     }
     const screened = screenFreeChatAnswer(out);
@@ -476,6 +486,7 @@ export class CompanionBrain {
       outcome: NEWS_FIXED_OUTCOMES[resolution.outcome],
       refusalTopic: resolution.refusalTopic,
       news: { outcome: resolution.outcome, sourceCount: 0 },
+      ...forgetIfDistress(resolution.refusalTopic),
     };
   }
 

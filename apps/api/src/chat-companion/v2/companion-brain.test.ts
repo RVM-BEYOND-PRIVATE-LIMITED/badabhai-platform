@@ -263,6 +263,33 @@ describe("distress, unclear and the floor", () => {
     expect(h.calls.reply).not.toHaveBeenCalled();
   });
 
+  it("a distress message is NEVER remembered — the classifier's verdict, or a distress refusal", async () => {
+    const verdicted = await setup({ verdict: verdict("distress", 0.95) }).brain.route(input("x"));
+    expect(verdicted.remember).toBe(false);
+    const refused = await setup({
+      reply: { status: "refuse", topic: "distress", ai_metadata: META },
+    }).brain.route(input("x"));
+    expect(refused.remember).toBe(false);
+    // Any other refusal keeps the pair, as v2 does.
+    const legal = await setup({
+      reply: { status: "refuse", topic: "legal_medical_financial", ai_metadata: META },
+    }).brain.route(input("x"));
+    expect(legal.remember).toBe(true);
+  });
+
+  it("a TRASH verdict below the floor clarifies — and is still never remembered", async () => {
+    const h = setup({ verdict: verdict("trash", 0.4) });
+    const out = await h.brain.route(input("bakwas"));
+    expect(out.turn.reply).toBe(V2_CLARIFY.latin);
+    expect(out).toMatchObject({ outcome: "clarify", v2Intent: "faltu", remember: false });
+    // Below the floor no strike is counted: the clarify handler answered, not the faltu one.
+    expect(h.faltuStore.countStrike).not.toHaveBeenCalled();
+    // Other categories below the floor keep the pair (v2's rule for a clarify).
+    expect(
+      (await setup({ verdict: verdict("career", 0.4) }).brain.route(input("x"))).remember,
+    ).toBe(true);
+  });
+
   it("an UNAVAILABLE classifier is the existing clarify handler, recorded as fail-closed", async () => {
     const h = setup({ verdict: { kind: "unavailable" } });
     const out = await h.brain.route(input("x"));
