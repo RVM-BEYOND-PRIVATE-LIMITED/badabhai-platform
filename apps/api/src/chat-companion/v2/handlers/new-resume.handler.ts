@@ -8,7 +8,9 @@ import { hasActiveConsent } from "../../../consent/consent-active";
 // which constructs the handler by hand, stayed green.
 import { ConsentRepository } from "../../../consent/consent.repository";
 import { SERVER_CONFIG } from "../../../config/config.module";
+import { companionBrainOn } from "../../companion-brain-switch";
 import { FALLBACK } from "../../companion-replies";
+import { withFormCreateOption } from "../../companion-resume-menu";
 import { taskChips, v2CopyTurn, v2MenuTurn } from "../companion-v2-compose";
 import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler";
 
@@ -30,6 +32,10 @@ import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler"
  * the task chips instead. This mirrors `ResumeGenerateProcessor`'s own gate — the handler only
  * decides whether to OFFER the flow; the cap and the gate that actually spends are enforced
  * where generation happens, as today.
+ *
+ * ADR-0055 — ON THE FREE-CHAT BRAIN the redo menu also offers the form road ("Form se resume
+ * banayein"), the same decoration the v1 menu branch applies, so every redo menu the companion
+ * serves agrees. With the kill switch on it is the shipped menu, byte for byte.
  */
 @Injectable()
 export class NewResumeHandler implements CompanionV2Handler {
@@ -42,8 +48,9 @@ export class NewResumeHandler implements CompanionV2Handler {
     if (!(await hasActiveConsent(this.consents, input.workerId, "resume_generation"))) {
       return { turn: v2CopyTurn(FALLBACK, taskChips(this.config)), outcome: "fallback" };
     }
+    const redo = resolveResumeMenu(RESUME_MENU_REDO_LABEL);
     return {
-      turn: v2MenuTurn(resolveResumeMenu(RESUME_MENU_REDO_LABEL)),
+      turn: v2MenuTurn(companionBrainOn(this.config) ? withFormCreateOption(redo) : redo),
       outcome: "served",
     };
   }

@@ -85,6 +85,9 @@ function setup(
     CHAT_COMPANION_V2_CAREER_ENABLED: opts.careerEnabled ?? false,
     CHAT_COMPANION_V2_FALTU_ENABLED: opts.faltuEnabled ?? false,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
+    // ADR-0055 — the kill switch ON: this suite is the v2 path's regression pin.
+    CHAT_COMPANION_V2_ENABLED: true,
+    CHAT_FREE_CHAT_DISABLED: true,
     CHAT_COMPANION_V2_FALTU_STRIKES: 3,
     CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: 30,
     ...(opts.rawPii === undefined ? {} : { AI_RAW_PII_ENABLED: opts.rawPii }),
@@ -141,6 +144,9 @@ function setup(
     replays as never,
     // TD146/WP6 — the pending-intent store; unused unless the route-precedence flag is on.
     { set: vi.fn(async () => undefined), take: vi.fn(async () => null), clear: vi.fn(async () => undefined) } as never,
+    // ADR-0055 — the free-chat brain. This suite pins the KILL-SWITCH path (`CHAT_FREE_CHAT_DISABLED`
+    // on): the v2 classifier, byte for byte, so the brain must never be reached.
+    { route: vi.fn(async () => { throw new Error("the brain was reached under the kill switch"); }) } as never,
   );
   return { orchestrator, ai, memory, edits, events, cost, faltuStore, replays, held, config };
 }
@@ -161,7 +167,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     expect(h.edits.propose).toHaveBeenCalledWith(WORKER, PROFILE, "masked text", CTX, NOW);
 
     const event = emitted(h.events);
-    expect(event.event_name).toBe("chat.companion_turn_served_v3");
+    expect(event.event_name).toBe("chat.companion_turn_served_v4");
     expect(event.payload).toMatchObject({
       trigger: "message",
       intent: "fallback",
@@ -174,7 +180,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
       job_chips_count: 0,
     });
     // The payload is exactly what the merged contract accepts.
-    const parsed = EVENT_REGISTRY["chat.companion_turn_served_v3"].payload.safeParse(event.payload);
+    const parsed = EVENT_REGISTRY["chat.companion_turn_served_v4"].payload.safeParse(event.payload);
     expect(parsed.success).toBe(true);
 
     // ADR-0046 O12 — the classify spend is recorded against `companion_classify` before any
@@ -285,7 +291,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
       NOW,
     );
     expect(emitted(h.events).idempotencyKey).toBe(
-      `chat.companion_turn_served_v3:message:${WORKER}:44444444-4444-4444-8444-444444444444`,
+      `chat.companion_turn_served_v4:message:${WORKER}:44444444-4444-4444-8444-444444444444`,
     );
   });
 
@@ -369,7 +375,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     // The handler emits `chat.companion_career_answered` FIRST, so find the turn event by name.
     const turnEvent = on.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
+      .find((e) => e.event_name === "chat.companion_turn_served_v4")!;
     expect(turnEvent.payload).toMatchObject({ v2_intent: "career_talk", outcome: "fallback" });
   });
 });
@@ -378,7 +384,7 @@ describe("a TAPPED task chip names a task — no model ever reads its label", ()
   const chipEvent = (h: ReturnType<typeof setup>) =>
     h.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
+      .find((e) => e.event_name === "chat.companion_turn_served_v4")!;
 
   it("'Resume badlo' serves the fixed ask line: no edit-parse call, no snapshot, no memory", async () => {
     const h = setup({ newResumeEnabled: true, careerEnabled: true });

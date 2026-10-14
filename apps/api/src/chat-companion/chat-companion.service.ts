@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { WorkerProfile } from "@badabhai/db";
-import type { CompanionIntent, CompanionJobsScope, CompanionNudge, ResumeSource } from "@badabhai/types";
+import type { CompanionIntent, CompanionJobsScope, CompanionNudge } from "@badabhai/types";
 import { looksLikePii } from "@badabhai/validators";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -12,9 +12,16 @@ import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { ResumeService } from "../resume/resume.service";
 import { ttsField } from "../profiling/question-tts-text";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { matchesDistress } from "../profiling/free-chat/free-chat.router";
 import { toProfileSummary } from "../workers/profile-summary.mapper";
 import { readProfileFormFacts, type ProfileFormFacts } from "../workers/profile-form-facts";
 import type { ResumeMenuChoice } from "../chat/resume-menu";
+import { companionBrainOn } from "./companion-brain-switch";
+import {
+  formCreateAck,
+  isFormCreateChoice,
+  withFormCreateOption,
+} from "./companion-resume-menu";
 import { ChatCompanionPolicy } from "./chat-companion.policy";
 import { ChatCompanionRepository } from "./chat-companion.repository";
 import {
@@ -41,7 +48,13 @@ import {
   type ComposedTurn,
   JOBS_REPLY_CHIPS_MAX,
 } from "./companion-compose";
-import { resumeStateOf, type CompanionFacts, type CompanionJob, type CompanionJobsFacts } from "./companion-facts";
+import {
+  currentResumeFacts,
+  resumeStateOf,
+  type CompanionFacts,
+  type CompanionJob,
+  type CompanionJobsFacts,
+} from "./companion-facts";
 import { FALLBACK, MISSING_FIELD_LABELS } from "./companion-replies";
 import { COMPANION_RESUME_KEY, COMPANION_RESUME_LABEL } from "./companion-keys";
 
@@ -65,13 +78,6 @@ export type CompanionEditCancelResult =
   | { readonly mode: "companion"; readonly turn: CompanionTurn };
 
 const DAY_MS = 86_400_000;
-
-/** An ISO instant from the wire DTO, or null when it does not parse. */
-function parseInstant(iso: string | null | undefined): Date | null {
-  if (!iso) return null;
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? null : at;
-}
 
 /**
  * A short, stable hash of EVERYTHING a turn states — its lines and its chip keys — which the app
@@ -172,18 +178,31 @@ export class ChatCompanionService {
     if (mode.mode === "interview") return { mode: "interview" };
 
     const v2On = this.config.CHAT_COMPANION_V2_ENABLED;
+    // ADR-0055 — THE FREE-CHAT BRAIN (v2 on, the kill switch `CHAT_FREE_CHAT_DISABLED` off). Every
+    // step it adds below is gated on it, so with it off the flow is today's, byte for byte.
+    const brainOn = companionBrainOn(this.config);
     // P2 (ADR-0046): the phase-2 order is chip keys → cool-down → v1 text resolver → lexicon →
     // classifier. A task-chip tap is recognised FIRST and routed deterministically — v1 would
     // otherwise answer these labels itself (see `companion-task-chips.ts`). Only while v2 is on
     // AND that chip's own phase flag is on: a chip that cannot be shown is typed text, and
     // typed text goes to v1 first exactly as it did before the chip existed.
     const taskChip = v2On ? resolveCompanionTaskChip(dto.text, this.config) : null;
+    // ADR-0055 — the redo submenu's form road ("Form se resume banayein") is an EXACT chip like v1's
+    // own: answered by its ack, and never gated by the cool-down. Recognised only while the brain
+    // is on, the one time the chip is shown; typed by hand with it off, it is v1's text as before.
+    const formChip = brainOn && taskChip === null && isFormCreateChoice(dto.text);
+    const chipTap = isCompanionChipTap(dto.text) || formChip;
+    // ADR-0055 — THE DISTRESS WORD LIST (the free chat's own, `matchesDistress`), BEFORE the
+    // cool-down and the v1 resolver: "job nahi mili, marna chahta hoon" carries a strong jobs word
+    // v1 would answer with job chips, and a worker blocked from typing is still given the helpline,
+    // never the cool-down line. No chip's label can match a distress phrase, so no tap is lost.
+    const distress = brainOn && taskChip === null && !chipTap && matchesDistress(dto.text);
     // The cool-down gate sits BEFORE the v1 resolver and blocks FREE TEXT only: exact chip taps
     // (v1's own and the open task chips') are never gated, so a cooled-down worker can still
     // reach the résumé and jobs. Read only while the faltu phase is on; a Redis failure reads
     // null and the worker is served normally (the store fails open, by design).
     const cooling =
-      this.faltuOn() && taskChip === null && !isCompanionChipTap(dto.text)
+      this.faltuOn() && taskChip === null && !chipTap && !distress
         ? await this.v2.cooldownUntil(workerId, now)
         : null;
 
@@ -194,15 +213,15 @@ export class ChatCompanionService {
     // no classifier call. Exact chip taps and every NAMED v1 intent keep their zero-model answers.
     const precedenceOn =
       v2On && this.config.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED === true;
-    const chipTap = isCompanionChipTap(dto.text);
     // Another chip clears a stale pending intent (the edit/career task chips set their own in
     // `handleTaskChip`). Best-effort: the chip's answer is served either way.
     if (precedenceOn && chipTap && taskChip === null) {
       await this.v2.clearPendingIntent(workerId);
     }
     const resolution = resolveCompanionText(dto.text);
+    // A distress message never consumes the one-shot pending intent: the helpline answers it.
     const pending =
-      precedenceOn && taskChip === null && cooling === null && !chipTap
+      precedenceOn && taskChip === null && cooling === null && !chipTap && !distress
         ? await this.v2.takePendingIntent(workerId)
         : null;
     const editPrecheck =
@@ -216,6 +235,13 @@ export class ChatCompanionService {
     let turn: CompanionTurn;
     if (taskChip !== null) {
       turn = await this.v2.handleTaskChip(workerId, mode.profile, dto, taskChip, ctx, now);
+    } else if (distress) {
+      // ADR-0055 — the helpline, alone. The orchestrator records the v4 event (`lexicon`).
+      turn = await this.v2.handleDistress(workerId, dto, ctx, now);
+    } else if (formChip) {
+      // ADR-0055 — the form road's ack, served like the menu's own upload and chat acks.
+      turn = this.menuTurn(formCreateAck());
+      await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);
     } else if (cooling !== null) {
       turn = await this.v2.handleCooldown(workerId, dto, ctx, now, cooling);
     } else if (pending !== null) {
@@ -230,7 +256,8 @@ export class ChatCompanionService {
       // other named answers never arrive here (`isWeakCompanionAlias`).
       turn = await this.v2.handleMessage(workerId, mode.profile, dto, ctx, now);
     } else if (resolution.kind === "resume_menu") {
-      turn = this.menuTurn(resolution.menu);
+      // ADR-0055 — on the brain, the redo submenu offers the form road too (no other menu changes).
+      turn = this.menuTurn(brainOn ? withFormCreateOption(resolution.menu) : resolution.menu);
       await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);
     } else if (v2On && resolution.intent === "fallback") {
       // ADR-0046 T6 — THE V1 MISS GOES TO THE ROUTER, and v1's `fallback` intent IS the miss:
@@ -316,19 +343,7 @@ export class ChatCompanionService {
           ),
     ]);
 
-    const current = history?.items[0];
-    const resume = current
-      ? {
-          resumeId: current.resume_id,
-          source: (current.source ?? null) as ResumeSource | null,
-          renderStatus: current.render_status,
-          generatedAt: parseInstant(current.generated_at),
-          tradeLabel: current.trade_label,
-          experienceYears: current.experience_years,
-          machines: current.machines ?? [],
-          city: current.city,
-        }
-      : null;
+    const resume = currentResumeFacts(history?.items[0]);
     return {
       resume,
       resumeState: resumeStateOf({

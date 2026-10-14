@@ -163,6 +163,7 @@ describe("GET /chat/companion carries a running cool-down", () => {
           store,
           unused,
           unused,
+          unused,
         );
         const h = makeCompanionServiceForV2({
           v2: true,

@@ -18,7 +18,11 @@ import { WorkerAttributesRepository } from "../profiles/worker-attributes.reposi
 import { WorkerPreferencesService } from "../profiles/worker-preferences.service";
 import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
 import { ResumeSuggestionReader } from "../profiling/resume-import/resume-suggestion-reader";
+import { FreeChatModelCalls } from "../profiling/free-chat/free-chat-model-calls";
+import { FreeChatNewsCap } from "../profiling/free-chat/free-chat-news-cap.store";
 import { ChatCompanionController } from "./chat-companion.controller";
+import { CompanionResumeStatus } from "./companion-resume-status";
+import { CompanionBrain } from "./v2/companion-brain";
 import { ChatCompanionPolicy } from "./chat-companion.policy";
 import { ChatCompanionRepository } from "./chat-companion.repository";
 import { ChatCompanionService } from "./chat-companion.service";
@@ -65,6 +69,16 @@ import {
  * OWN instances of the five writers and the repositories they need (the `ProfilesModule`
  * precedent for repositories: "a second, independent instance of each", all their dependencies
  * @Global or registered above). Nothing here reaches a chat table, and the guard test asserts it.
+ *
+ * ADR-0055 — WHY THE FREE CHAT'S MODEL CALLS ARE PROVIDED HERE TOO. The Bada Bhai chat runs the
+ * profiling free chat's brain. `FreeChatService` cannot come with it: it writes the profiling chat's
+ * session row through `ChatRepository`, and `ProfilingModule` imports `ChatModule` — either would
+ * give this leaf the route to a chat writer the boot egress test forbids. So the model calls were
+ * split into `FreeChatModelCalls` (AI client, cost recorder, news cap — no chat table), and this
+ * module provisions its OWN instance of it and of `FreeChatNewsCap`, the section-writer precedent
+ * above. Their dependencies are @Global (`AiModule`) or registered here (the render queue the news
+ * cap borrows its Redis connection from): two providers, and no module edge. The cap's Redis key is
+ * the worker's, so the profiling chat and this one share one daily news allowance.
  */
 @Module({
   imports: [
@@ -110,6 +124,12 @@ import {
     JobsDeferredHandler,
     PhaseOffHandler,
     UnclearHandler,
+    // ADR-0055 — the free-chat brain, the free chat's model calls and news cap (see the module
+    // docblock for why they are provisioned here), and the résumé read behind the download answer.
+    CompanionBrain,
+    FreeChatModelCalls,
+    FreeChatNewsCap,
+    CompanionResumeStatus,
     // ADR-0046 T7 — the edit path and the section writers it applies through (see the module
     // docblock for why they are provisioned here rather than imported).
     CompanionEditService,

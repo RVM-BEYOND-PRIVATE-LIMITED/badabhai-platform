@@ -63,6 +63,9 @@ function setup(
     CHAT_COMPANION_V2_NEW_RESUME_ENABLED: true,
     CHAT_COMPANION_V2_FALTU_ENABLED: opts.faltuEnabled ?? true,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
+    // ADR-0055 — the kill switch ON: this suite is the v2 path's regression pin.
+    CHAT_COMPANION_V2_ENABLED: true,
+    CHAT_FREE_CHAT_DISABLED: true,
     CHAT_COMPANION_V2_FALTU_STRIKES: 3,
     CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: 30,
   } as unknown as ServerConfig;
@@ -105,6 +108,9 @@ function setup(
     faltuStore as never,
     replays,
     { set: vi.fn(async () => undefined), take: vi.fn(async () => null), clear: vi.fn(async () => undefined) } as never,
+    // ADR-0055 — the free-chat brain. This suite pins the KILL-SWITCH path (`CHAT_FREE_CHAT_DISABLED`
+    // on): the v2 classifier, byte for byte, so the brain must never be reached.
+    { route: vi.fn(async () => { throw new Error("the brain was reached under the kill switch"); }) } as never,
   );
   return { orchestrator, ai, memory, events, faltuStore, replayRedis };
 }
@@ -143,7 +149,7 @@ describe("faltu privacy (ADR-0046 P2) — the abusive message never leaves the r
     // The turn event records the lexicon as the source, the intent, and nothing about the text.
     const turnEvent = h.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
+      .find((e) => e.event_name === "chat.companion_turn_served_v4")!;
     expect(turnEvent.payload).toMatchObject({ intent_source: "lexicon", v2_intent: "faltu" });
     for (const call of h.events.emit.mock.calls) {
       const serialized = JSON.stringify(call[0]);
@@ -207,7 +213,7 @@ describe("faltu privacy (ADR-0046 P2) — the abusive message never leaves the r
       expect(logs).not.toContain("gadhe");
       const turnEvent = h.events.emit.mock.calls
         .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-        .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
+        .find((e) => e.event_name === "chat.companion_turn_served_v4")!;
       expect(turnEvent.payload).toMatchObject({ intent_source: "llm", v2_intent: "faltu" });
     });
 

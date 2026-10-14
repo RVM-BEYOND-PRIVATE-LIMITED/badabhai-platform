@@ -2,11 +2,13 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { WorkerProfile } from "@badabhai/db";
 import { isAbusive } from "@badabhai/profiling-lexicon";
+import type { CompanionRecentTurn } from "@badabhai/ai-contracts";
 import type {
   CompanionV2ConfidenceBucket,
   CompanionV2Intent,
   CompanionV2IntentSourceV3,
-  CompanionV2Outcome,
+  CompanionV3Intent,
+  CompanionV3Outcome,
 } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../config/config.module";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
@@ -14,6 +16,7 @@ import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import type { CompanionMessageDto, CompanionTurn } from "../chat-companion.dto";
+import { companionBrainOn } from "../companion-brain-switch";
 import {
   V2_CAREER_ASK,
   V2_CLARIFY,
@@ -21,6 +24,8 @@ import {
   V2_IN_FLIGHT,
   type CopyPair,
 } from "../companion-replies";
+// VALUE import: a constructor parameter (Nest resolves it by its class token).
+import { CompanionBrain, distressTurn, type BrainFacts, type BrainTurn } from "./companion-brain";
 import { CompanionMemoryStore } from "./companion-memory.store";
 import { taskChipLabel, type CompanionTaskChipIntent } from "./companion-task-chips";
 import { taskChips, v2CooldownTurn, v2CopyTurn } from "./companion-v2-compose";
@@ -54,15 +59,27 @@ const TASK_CHIP_ASK: Readonly<Partial<Record<CompanionTaskChipIntent, CopyPair>>
   career_talk: V2_CAREER_ASK,
 };
 
-/** A turn about to be served, with the facts its memory append and its v3 event need. */
+/** A turn about to be served, with the facts its memory append and its v4 event need. */
 interface ServedTurn {
   turn: CompanionTurn;
   intentSource: CompanionV2IntentSourceV3;
-  v2Intent: CompanionV2Intent | null;
+  v2Intent: CompanionV3Intent | null;
   confidenceBucket: CompanionV2ConfidenceBucket | null;
-  outcome: CompanionV2Outcome;
+  outcome: CompanionV3Outcome;
   memoryPair: { workerText: string; reply: string } | null;
+  /** ADR-0055 — what the free-chat brain decided; absent on every v2-path turn (all null on the event). */
+  brain?: BrainFacts;
 }
+
+/** The v4 event's brain fields on a turn the brain did not decide: nothing, and no tiles. */
+const NO_BRAIN_FACTS: BrainFacts = {
+  freeCategory: null,
+  resumeAction: null,
+  refusalTopic: null,
+  replyLanguage: null,
+  newsOutcome: null,
+  newsSourceCount: 0,
+};
 
 /** A served v1-miss turn, and whether a retry of the same submission may be answered with it. */
 interface RoutedTurn {
@@ -104,7 +121,14 @@ function clipText(text: string, max: number): string {
  *   5. the registry picks the handler from the closed intent set;
  *   6. append the pair to memory — the step-2 text, so raw while the flag is on — never for a
  *      message the classifier called `faltu` (abuse the lexicon missed is still never stored);
- *   7. emit `chat.companion_turn_served_v2` — ids, counts and closed enums only.
+ *   7. emit `chat.companion_turn_served_v4` — ids, counts and closed enums only.
+ *
+ * ADR-0055 (#2275) — THE FREE-CHAT BRAIN. While `companionBrainOn` (the kill switch
+ * `CHAT_FREE_CHAT_DISABLED` off — the production default), steps 4-5 are the profiling free chat's
+ * classifier and its per-category answers (`CompanionBrain`), on the same gateway text and the same
+ * memory; steps 0-3 and 6-7 are unchanged. With the kill switch on, steps 4-5 are the v2
+ * classifier and registry exactly as before. Both paths emit the v4 event; the brain's facts ride
+ * it, and on a v2-path turn they are null.
  *
  * The model NEVER decides anything but the intent: handlers are deterministic, and the only
  * handler that can cause a write is the edit one, which still requires the worker's Haan.
@@ -123,7 +147,31 @@ export class CompanionV2Orchestrator {
     private readonly faltu: FaltuStore,
     private readonly replays: CompanionTurnReplayStore,
     private readonly pending: PendingIntentStore,
+    // ADR-0055 — the free-chat brain, reached only while `companionBrainOn`.
+    private readonly brain: CompanionBrain,
   ) {}
+
+  /**
+   * ADR-0055 — THE DISTRESS WORD LIST HIT, before the v1 resolver (the service's gate; the free
+   * chat's own list, `matchesDistress`). The Tele-MANAS line alone — no chips — and the v4 event
+   * with `intent_source: "lexicon"`. No gateway, no model, no memory: a deterministic answer to a
+   * message that is never stored, the way the abuse lexicon's is not.
+   */
+  async handleDistress(
+    workerId: string,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<CompanionTurn> {
+    return this.finish(workerId, ctx, dto, now, {
+      turn: distressTurn(),
+      intentSource: "lexicon",
+      v2Intent: "distress",
+      confidenceBucket: null,
+      outcome: "served",
+      memoryPair: null,
+    });
+  }
 
   /**
    * When the worker's faltu cool-down ends, or null. The SERVICE's gate asks this before the
@@ -394,6 +442,12 @@ export class CompanionV2Orchestrator {
     //    because the Phase 3 career answer reads up to six and a second Redis hop would buy nothing.
     const recent = await this.memory.read(workerId);
 
+    // ADR-0055 — THE FREE-CHAT BRAIN classifies and answers instead of steps 3-4, on the same
+    // gateway text and the same memory. The kill switch keeps the v2 steps below, byte for byte.
+    if (companionBrainOn(this.config)) {
+      return this.routeBrain(workerId, profile, dto, ctx, now, promptText, recent);
+    }
+
     // 3. CLASSIFY the contract's first CLASSIFY_TEXT_MAX chars — the same clipped text is what
     //    memory keeps, because the store drops any turn over that bound on read. Every failure
     //    mode lands on the SAME closed answer: `unclear`.
@@ -459,6 +513,65 @@ export class CompanionV2Orchestrator {
   }
 
   /**
+   * ADR-0055 — a v1 miss answered by the free-chat brain (`CompanionBrain`), then memory and the
+   * spine exactly as a classified v2 turn: the pair is stored unless the classifier called the
+   * message trash, and the brain's facts ride the v4 event.
+   *
+   * FAILS CLOSED: a brain that throws (nothing in it should — every model call already fails soft
+   * to a fixed line) serves the clarify line as a fail-closed turn, never kept for a retry, and an
+   * error log with the worker id and the error CLASS only. A companion hiccup never costs the worker
+   * their chat tab.
+   */
+  private async routeBrain(
+    workerId: string,
+    profile: WorkerProfile,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+    promptText: string,
+    recent: readonly CompanionRecentTurn[],
+  ): Promise<RoutedTurn> {
+    let decided: BrainTurn;
+    try {
+      decided = await this.brain.route({
+        workerId,
+        profile,
+        rawText: dto.text,
+        promptText,
+        recentTurns: recent,
+        ctx,
+        now,
+        submissionId: dto.submission_id ?? null,
+      });
+    } catch (err) {
+      this.logger.error(
+        `companion brain failed for worker ${workerId}; the clarify line is served (${
+          err instanceof Error ? err.name : "UnknownError"
+        })`,
+      );
+      return this.routed(workerId, ctx, dto, now, {
+        turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
+        intentSource: "fallback",
+        v2Intent: null,
+        confidenceBucket: null,
+        outcome: "clarify",
+        memoryPair: null,
+      });
+    }
+    return this.routed(workerId, ctx, dto, now, {
+      turn: decided.turn,
+      intentSource: decided.intentSource,
+      v2Intent: decided.v2Intent,
+      confidenceBucket: decided.confidenceBucket,
+      outcome: decided.outcome,
+      memoryPair: decided.remember
+        ? { workerText: clipText(promptText, CLASSIFY_TEXT_MAX), reply: decided.turn.reply }
+        : null,
+      brain: decided.facts,
+    });
+  }
+
+  /**
    * `finish` for the v1-miss route: the served turn, and whether a retry of the same submission
    * may be answered with it — every turn except a fail-closed one (see `handleMessage`).
    */
@@ -515,18 +628,21 @@ export class CompanionV2Orchestrator {
   }
 
   /**
-   * `chat.companion_turn_served_v2` — the v1 counts-and-closed-sets shape plus the router's own
-   * facts. Never any worker text. What the fields MEAN on this event (the schema's closed sets
-   * are unchanged; see contracts §4):
+   * `chat.companion_turn_served_v4` (ADR-0055) — the v1 counts-and-closed-sets shape plus the
+   * router's own facts and the free-chat brain's. Never any worker text. What the fields MEAN on
+   * this event (see contracts §4):
    *   - `intent` is ALWAYS v1's `fallback` — "no named v1 intent answered this turn". That holds
    *     for the classifier path and is merely nominal for a chip tap or a guard turn, which run
    *     before v1; the truth of the turn lives in `v2_intent` / `outcome`;
-   *   - `intent_source` is `v1_deterministic` ONLY for a task-chip tap (exact label/key match, no
-   *     model) — a v1 resolver hit never reaches this event; `lexicon`, `llm`, `guard` (the
-   *     cool-down) and `fallback` (gateway blocked/unreachable, classifier failed) as named;
-   *   - `v2_intent` is the intent the turn was routed on — the chip's, the lexicon's `faltu`, or
-   *     the classifier's (recorded even below the confidence floor) — and null on the guard and
-   *     fail-closed paths; `confidence_bucket` is set only when the classifier answered.
+   *   - `intent_source` is `chip` for an exact task-chip tap, `v1_deterministic` for the other
+   *     deterministic pre-classifier routes (WP6), `lexicon` for the abuse and distress word lists,
+   *     `llm` for a classifier, `guard` for the cool-down and `fallback` for a fail-closed turn;
+   *   - `v2_intent` is the intent the turn was routed on — the chip's, a word list's, or the
+   *     classifier's (recorded even below the confidence floor) — and null on the guard and
+   *     fail-closed paths; `confidence_bucket` is set only when a classifier answered;
+   *   - the brain's six fields are null (and the tile count 0) on every turn it did not decide.
+   *
+   * v2 and v3 stay registered and are no longer emitted: this is the one turn event from ADR-0055.
    */
   private async record(
     workerId: string,
@@ -535,15 +651,16 @@ export class CompanionV2Orchestrator {
     now: Date,
     out: {
       intentSource: CompanionV2IntentSourceV3;
-      v2Intent: CompanionV2Intent | null;
+      v2Intent: CompanionV3Intent | null;
       confidenceBucket: CompanionV2ConfidenceBucket | null;
-      outcome: CompanionV2Outcome;
+      outcome: CompanionV3Outcome;
+      brain?: BrainFacts;
     },
   ): Promise<void> {
+    const brain = out.brain ?? NO_BRAIN_FACTS;
     try {
-      // V3 (TD150/WP8): the v2 shape with `intent_source` widened by `chip`. v2 stays registered.
       await this.events.emit({
-        event_name: "chat.companion_turn_served_v3",
+        event_name: "chat.companion_turn_served_v4",
         actor: { actor_type: "worker", actor_id: workerId },
         subject: { subject_type: "worker", subject_id: workerId },
         payload: {
@@ -561,9 +678,15 @@ export class CompanionV2Orchestrator {
           v2_intent: out.v2Intent,
           confidence_bucket: out.confidenceBucket,
           outcome: out.outcome,
+          free_category: brain.freeCategory,
+          resume_action: brain.resumeAction,
+          refusal_topic: brain.refusalTopic,
+          reply_language: brain.replyLanguage,
+          news_outcome: brain.newsOutcome,
+          news_source_count: brain.newsSourceCount,
         },
         ...(dto.submission_id
-          ? { idempotencyKey: `chat.companion_turn_served_v3:message:${workerId}:${dto.submission_id}` }
+          ? { idempotencyKey: `chat.companion_turn_served_v4:message:${workerId}:${dto.submission_id}` }
           : {}),
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
@@ -571,7 +694,7 @@ export class CompanionV2Orchestrator {
     } catch (err) {
       // BEST-EFFORT: the spine never costs the worker their answer.
       this.logger.error(
-        `chat.companion_turn_served_v3 not recorded for worker ${workerId} (${
+        `chat.companion_turn_served_v4 not recorded for worker ${workerId} (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );

@@ -25,6 +25,11 @@ import {
   COMPANION_TASK_EDIT_RESUME_LABEL,
   COMPANION_TASK_NEW_RESUME_LABEL,
 } from "./companion-task-keys";
+import {
+  COMPANION_RESUME_DOWNLOAD_LABEL,
+  RESUME_MENU_FORM_ACK,
+  RESUME_MENU_FORM_CREATE_LABEL,
+} from "./companion-v3-keys";
 
 const DEVANAGARI = /[ऀ-ॿ]/u;
 // Pictographs and the emoji presentation selector — the persona ships no emoji.
@@ -67,7 +72,12 @@ describe("companion copy is on-persona (persona v3.2)", () => {
       COMPANION_TASK_EDIT_RESUME_LABEL,
       COMPANION_TASK_NEW_RESUME_LABEL,
       COMPANION_TASK_CAREER_LABEL,
+      // ADR-0055 — the free-chat brain's two chips.
+      COMPANION_RESUME_DOWNLOAD_LABEL,
+      RESUME_MENU_FORM_CREATE_LABEL,
     ].map((l) => ["chip", l] as const),
+    // ADR-0055 — the form road's ack (a résumé-menu line, served as written).
+    ["RESUME_MENU_FORM_ACK", RESUME_MENU_FORM_ACK],
   ];
 
   it.each(shown)("%s — %j carries no banned token", (_name, text) => {

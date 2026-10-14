@@ -51,6 +51,8 @@ describe("ChatCompanionModule wiring", () => {
       "ChatCompanionPolicy",
       "ChatCompanionRepository",
       "ChatCompanionService",
+      // ADR-0055 — the free-chat brain and the résumé read behind its download answer.
+      "CompanionBrain",
       // ADR-0046 T7 — the edit path plus ITS OWN instances of the five section writers and the
       // repositories they need (provisioned here, not imported — see the module docblock).
       "CompanionEditService",
@@ -58,6 +60,7 @@ describe("ChatCompanionModule wiring", () => {
       "CompanionHandlerRegistry",
       // ADR-0046 T5 — the v2 Redis stores (memory + the pending edit card).
       "CompanionMemoryStore",
+      "CompanionResumeStatus",
       // The served-turn replay cache that makes a retried submission idempotent.
       "CompanionTurnReplayStore",
       "CompanionV2Orchestrator",
@@ -66,6 +69,10 @@ describe("ChatCompanionModule wiring", () => {
       // ADR-0046 P2 — the faltu strike handler and its Redis store.
       "FaltuHandler",
       "FaltuStore",
+      // ADR-0055 — the free chat's model calls and news cap: this module's OWN instances (no route
+      // to `ChatRepository`, which `FreeChatService` writes through).
+      "FreeChatModelCalls",
+      "FreeChatNewsCap",
       "JobsDeferredHandler",
       // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
       "NewResumeHandler",
@@ -129,6 +136,17 @@ describe("ChatCompanionModule wiring", () => {
     // ADR-0046 O12 — the v2 emitters inject `AiCostRecorder` (classify in the orchestrator,
     // edit-parse in the edit service). @Global + exported, so no import edge is added.
     expect(getMeta("exports", AiModule)).toContain(AiCostRecorder);
+  });
+
+  it("ADR-0055 — the free chat's model calls it provides reach no chat table either", () => {
+    // `FreeChatModelCalls` is provided HERE (not `FreeChatService`, which writes the profiling
+    // chat's session row). Its own source is pinned: no chat repository, no transcript buffer, no
+    // events (its spend goes through the @Global cost recorder only).
+    const source = readFileSync(join(__dirname, "../profiling/free-chat/free-chat-model-calls.ts"), "utf8");
+    expect(source).not.toMatch(/chat\.repository|chat-transcript\.buffer|events\.service/);
+    const providers = getMeta("providers", ChatCompanionModule).map((p) => (p as { name: string }).name);
+    expect(providers).not.toContain("FreeChatService");
+    expect(providers).not.toContain("ChatRepository");
   });
 
   it("does NOT import the chat, profiles or profiling modules — a leaf with no route to a chat writer", () => {
