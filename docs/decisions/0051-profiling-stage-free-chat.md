@@ -91,7 +91,7 @@ A session that opens on a résumé-import turn (identity / batch-confirm) ──
 | 8 | classifier → `distress`, at ANY confidence (it bypasses the 0.6 floor) | the distress line |
 | 9 | classifier → `resume` | enter résumé mode; a message that already describes the work becomes the first answer |
 | 10 | → `career` | model reply (career prompt) → validator → served, or the fallback |
-| 11 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply, never on the reply right after a résumé offer (R38's lines; #2172) |
+| 11 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply, never on the reply right after a résumé offer (R38's lines; #2172), and held to the next casual reply when this one already asks a question (R46; #2242) |
 | 12 | → `jobs` | the jobs line + chip |
 | 13 | → `off_limits` | the off-limits line, no strike |
 | 14 | → `trash` | strike; 3 in a day → 30-minute cool-down |
@@ -587,6 +587,7 @@ Understanding was never the problem: the Marathi question was classified and ans
 | **R42** | **The AI names the language (owner, 2026-10-14, #2240).** The free-chat classifier, which already reads every free-mode message, also returns that message's language from the closed reply-language set (`FreeChatClassifyOutput.language`). That label is the message's language for R40. The word lists stay only as the backup, when the label is missing. In free mode an unavailable classifier already serves the clarify line, so that means a real verdict with no label. The classify prompt change holds category accuracy (118/126 before and after; distress, trash and off_limits lose no line). R31's "goes up" is the bar for accuracy-tuning rounds, not for this added field. A Gujarati, Tamil, Telugu or Kannada script still decides by code, because it is certain. The precedence is otherwise unchanged: an explicit request (R41), then a kept language, then this message's language. Why: the device test's "cam programmer kitee kamai karato?" carried no listed Marathi word ("kitee", "karato" are unlisted spellings), so it fell to Hinglish. |
 | **R43** | **Better prompt first, same model (owner, 2026-10-14).** The reply prompts get stricter per-language instructions and real examples, with no Hindi function words in a non-Hindi reply. For example, Marathi says "madhe", "aahe", "chhan", "sathi", never "mein", "hai", "achha", "ke liye". Measured on the reply-language eval on the production model before shipping. A stronger model is not part of this ruling. |
 | **R44** | **Trade words may stay English (owner, 2026-10-14).** A reply is in the worker's language, in Latin letters only. Work words people actually say in English (welding, CNC, resume, course, salary) may stay English. Hindi words in a non-Hindi reply are not allowed. |
+| **R46** | **One question per bubble (owner, 2026-10-14, #2242).** The résumé nudge (R9) is a question, so it is never appended to a casual reply that already asks one (any line with a "?"). The nudge is held, not dropped: the next casual reply that asks nothing carries it, and a career answer in between keeps it waiting. The two existing skips still drop a due nudge without holding it: the reply right after a résumé offer (#2172) and a reply that carries the language ask (§11). The cadence is otherwise the counter's. |
 
 **How it works:**
 - **Free mode only.** The résumé lock and interview are unchanged (R27), and so are the conversation notes, which stay
@@ -689,4 +690,5 @@ Regional-language rulings R25–R28 taken 2026-10-07 (§9).
 Improvement-loop rulings R29–R38 taken 2026-10-08 (§10).
 Reply-language rulings R39–R41 taken 2026-10-08 (§11).
 Reply-language rulings R42–R44 taken 2026-10-14 (§11, #2240).
+Nudge ruling R46 taken 2026-10-14 (#2242).
 ```

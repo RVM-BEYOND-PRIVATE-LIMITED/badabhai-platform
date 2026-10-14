@@ -2662,6 +2662,93 @@ describe("#2172 — the casual reply right after a résumé offer never carries 
   });
 });
 
+/** A casual reply that ends on its own question — a greeting answered with one (#2242). */
+async function casualAsking(world: World, n: number, lines?: string[]) {
+  world.classifyAs(verdict("casual"));
+  world.replyWith(answer(lines ?? [`Namaste, baat ${n}.`, "Aaj ka kaam kaisa raha?"]));
+  return world.say(`namaste ${n}`);
+}
+
+describe("#2242 — one question per bubble: a reply that asks holds the nudge, never drops it", () => {
+  it("a due reply that asks is served alone, and the next casual reply that asks nothing carries the nudge", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+
+    const asking = await casualAsking(world, 6);
+    expect(asking.reply).toBe("Namaste, baat 6.\nAaj ka kaam kaisa raha?");
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "answered", nudge: false });
+
+    // Off the multiple (7), but owed: it rides now, and the debt is cleared.
+    const next = await casual(world, 7);
+    expect(next.reply).toBe(`Theek hai, baat 7.\n${FREE_CHAT_COPY.CASUAL_NUDGE.latin}`);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+    expect(lastTurnServed(world)).toMatchObject({ nudge: true });
+
+    // The cadence is the counter's again: the next one rides the next multiple (9).
+    const after: boolean[] = [];
+    for (let n = 8; n <= 9; n++) after.push(nudged(await casual(world, n)));
+    expect(after).toEqual([false, true]);
+  });
+
+  it("stays owed across a career answer and another reply that asks", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    await casualAsking(world, 6);
+
+    world.classifyAs(verdict("career"));
+    world.replyWith(answer(["Welder ka kaam har sheher mein milta hai."]));
+    const career = await world.say("welder ka kaam kahan milta hai");
+    expect(nudged(career)).toBe(false);
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+
+    expect(nudged(await casualAsking(world, 7))).toBe(false);
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+
+    expect(nudged(await casual(world, 8))).toBe(true);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+  });
+
+  it("reads a question on ANY line, not only the last", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    const turn = await casualAsking(world, 6, [
+      "Aaj ka kaam kaisa raha?",
+      "Aaram bhi zaroori hai.",
+    ]);
+    expect(nudged(turn)).toBe(false);
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+  });
+
+  it("an owed nudge meeting a résumé offer is dropped like a due one (#2172), not carried further", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    await casualAsking(world, 6);
+
+    world.classifyAs(verdict("jobs"));
+    expect((await world.say("job chahiye")).reply).toBe(FREE_CHAT_COPY.JOBS.latin);
+    const declined = await decline(world);
+    expect(declined.reply).toBe(DECLINE_REPLY);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+
+    // Casual reply 8 is not a multiple and owes nothing; 9 is the next multiple.
+    expect(nudged(await casual(world, 8))).toBe(false);
+    expect(nudged(await casual(world, 9))).toBe(true);
+  });
+
+  it("a due reply that asks nothing is nudged exactly as before, and writes no flag", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    expect(nudged(await casual(world, 6))).toBe(true);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // ADR-0051 §11 — the reply language (R39–R41)
 // ---------------------------------------------------------------------------

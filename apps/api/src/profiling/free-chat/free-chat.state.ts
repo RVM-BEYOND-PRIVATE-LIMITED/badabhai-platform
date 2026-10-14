@@ -115,6 +115,13 @@ export interface FreeChatState {
   readonly cooldownUntil: string | null;
   /** Casual model replies served — the every-third nudge's counter. */
   readonly casualReplies: number;
+  /**
+   * #2242 — a due résumé nudge was HELD BACK because the reply it would have ridden already asked
+   * the worker something: one question per bubble (owner ruling 2026-10-14). The next casual reply
+   * that asks nothing carries it, and clears this. OPTIONAL, and absent means "nothing owed" —
+   * every envelope written before it. Free mode only, where the nudge is served.
+   */
+  readonly nudgeOwed?: true;
   /** Aside turns served in this session — the per-session cap's counter. */
   readonly asides: number;
   readonly held: FreeChatHeldTurn | null;
@@ -272,8 +279,10 @@ export function enterMode(
 ): FreeChatState {
   const base = state ?? greetingState();
   if (!canEnter(state?.mode ?? null, to)) return base;
+  // #2242 — an owed nudge belongs to free mode, the only mode that serves one; a move drops it.
+  const { nudgeOwed: _owed, ...carried } = lapsedOf(base);
   return {
-    ...lapsedOf(base),
+    ...carried,
     mode: to,
     trigger,
     lockedAt: to === "resume" ? (base.lockedAt ?? now.toISOString()) : base.lockedAt,
@@ -408,6 +417,8 @@ export function narrowFreeChat(value: unknown): FreeChatState | null {
     ...(language === undefined ? {} : { language }),
     ...(lastReplyCategory === undefined ? {} : { lastReplyCategory }),
     ...(lastServed === undefined ? {} : { lastServed }),
+    // Unreadable reads as "nothing owed": at worst one nudge waits for the next multiple.
+    ...(mode === "free" && v.nudgeOwed === true ? { nudgeOwed: true as const } : {}),
   };
 }
 
