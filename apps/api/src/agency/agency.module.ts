@@ -19,6 +19,7 @@ import { AgencyPayoutsEnabledGuard } from "./agency-payouts-enabled.guard";
 import { AgencyKycOpsController } from "./agency-kyc-ops.controller";
 import { AgencyJobsOpsController } from "./agency-jobs-ops.controller";
 import { AgencyJobsAdminController } from "./agency-jobs-admin.controller";
+import { AgencyMatchSkillsAdminController } from "./agency-match-skills-admin.controller";
 import { AgencyWorkersController } from "./agency-workers.controller";
 import { AgencyWorkersRepository } from "./agency-workers.repository";
 import { AgencyWorkersService } from "./agency-workers.service";
@@ -63,6 +64,8 @@ import { AgencyWorkersService } from "./agency-workers.service";
     // ADR-0050 §6.1 step 2 — ops sets match skills on any agency job (InternalService + admin).
     AgencyJobsOpsController,
     AgencyJobsAdminController,
+    // #2207 — the editor's vocabulary + cap read, same capability as the trio above.
+    AgencyMatchSkillsAdminController,
     // B5 — the referred-worker ENGAGEMENT view. Consent-gated in SQL, tenant-scoped
     // on `agency_invites.inviter_payer_id`, per-agency pseudonymized ids.
     AgencyWorkersController,

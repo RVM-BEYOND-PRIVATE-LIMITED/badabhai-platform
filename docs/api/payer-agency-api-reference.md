@@ -652,6 +652,12 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **Write body/response:** the same strict `{ match_skill_ids: string[] }` body and `{ job_id, match_skill_ids, changed }` response as the internal ops route. Validation uses the same closed vocabulary and runtime cap as payer/agency forms.
 - **Events:** one `job.updated` v1 on a changed set, with the authenticated admin as actor; unchanged sets write nothing and emit nothing.
 
+#### `GET /admin/match/skills` — **Admin Portal** editor vocabulary (#2207)
+
+- **Auth:** `AdminAuthGuard` plus `manage_agency_match_skills` (currently `super_admin` only), the same gate as the agency-jobs routes above.
+- **Response:** `{ skills: [{ skill_id, label, industry_id, related_skill_ids }], max_skills_per_posting }`. `skills` is the same closed vocabulary `GET /payer/match/skills` serves, sorted by `skill_id`. `max_skills_per_posting` is the live `match_config` cap that the PUT enforces, read on every call.
+- **Events:** none. It is a read-only route, and the PUT records the decision taken with it.
+
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 
 #### `GET /admin/job-postings/:id`
