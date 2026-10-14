@@ -400,6 +400,15 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
   - **persona:** familiar address (anna, thambi, machan, bhau, dada, maga, …) and the informal "you";
   - **promise:** "pakku" alone, or a "surely" word and a "will get" word in one line (the regional
     "zaroor milegi"). A "surely" word alone is advice, just as "zaroor try kijiye" is;
+  - **soft job promise (#2184):** a job word followed by a future "will get" form in one clause, with only a filler
+    such as "bhi" or "aapko" between ("phir job mil jayegi", "sthira kelasa milthade", "naukri milel"); no surely
+    word is needed. Advice ("kaam milne ki sambhavna badhegi"), a question ("kya aapko job mil jayegi, …"), a listed
+    take-back right after the form, read across a comma too ("job mil jayegi ya nahi, …", "…job mil jayegi, aisa
+    nahi hai"; not when a new "ki" statement follows it), a listed disclaimer before it with no "par" / "lekin"
+    between ("nahi keh sakta ki …") and the job as a condition ("jab job mil jayegi to …") stay served; a negation
+    word alone, or a bare "to" meaning "so" ("job mil jayegi to tension mat lijiye"), does not. Accepted limit: a
+    scam warning that quotes the promise across a comma ("jo agent kehta hai ki paise dene se naukri lag jayegi, woh
+    fraud ho sakta hai") is walled;
   - **sensitive advice:** each language's words for lawyer, court, medicine, treatment, loan, insurance and
     investment;
   - **rating:** a respectful "you" directly before a judgement word (the regional "aap achhe").
