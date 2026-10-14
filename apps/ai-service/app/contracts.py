@@ -2124,8 +2124,9 @@ class CompanionCareerRefuse(BaseModel):
 # summary before it stores one (§8).
 #
 # The closed sets are the ones `packages/types` declares (`FREE_CHAT_CATEGORIES`,
-# `FREE_CHAT_REPLY_CATEGORIES`, `FREE_CHAT_REFUSAL_TOPICS`, `FREE_CHAT_REPLY_LANGUAGES`); the
-# parity suite reads that source.
+# `FREE_CHAT_REPLY_CATEGORIES`, `FREE_CHAT_REFUSAL_TOPICS`, `FREE_CHAT_REPLY_LANGUAGES`, and
+# ADR-0055's `FREE_CHAT_SURFACES` and `FREE_CHAT_RESUME_ACTIONS`); the parity suite reads that
+# source.
 # The recent-turn and worker-context shapes are the companion's: one shape, not two.
 
 #: The modes a message is classified IN. `greeting` is never sent: the API reads the greeting's
@@ -2175,6 +2176,15 @@ FreeChatReplyLanguage = Literal[
     "telugu",
     "tamil",
 ]
+#: ADR-0055 (#2275): the screen a free-chat model call serves (`FREE_CHAT_SURFACES` in
+#: packages/types; the parity suite reads that source). `profiling` is the onboarding chat
+#: (ADR-0051); `companion` is the Bada Bhai chat after the profile is confirmed, which runs the
+#: same brain. Defaulted to `profiling` on every input, so an existing caller is unchanged and its
+#: prompts are byte-identical; `companion` swaps only the prompt lines that assume no résumé yet.
+FreeChatSurface = Literal["profiling", "companion"]
+#: ADR-0055: on the companion surface, what a `resume` message wants (`FREE_CHAT_RESUME_ACTIONS`).
+#: `edit` change, add or remove something in it; `new` make a fresh one; `download` get the file.
+FreeChatResumeAction = Literal["edit", "new", "download"]
 
 
 class FreeChatClassifyInput(BaseModel):
@@ -2188,6 +2198,9 @@ class FreeChatClassifyInput(BaseModel):
     recent_turns: list[CompanionRecentTurn] = Field(default_factory=list, max_length=2)
     mode: FreeChatClassifyMode
     pending_question: str | None = Field(default=None, min_length=1, max_length=500)
+    # ADR-0055: `companion` asks for `resume_action` too, and the companion always sends mode
+    # `free`. Additive and defaulted.
+    surface: FreeChatSurface = "profiling"
 
 
 class FreeChatClassifyOutput(BaseModel):
@@ -2209,6 +2222,11 @@ class FreeChatClassifyOutput(BaseModel):
     # blocked and mock paths, or when the model's label is outside the set: the API then falls back
     # to its word-list detection.
     language: FreeChatReplyLanguage | None = None
+    # ADR-0055: on the companion surface, what a `resume` message wants. Read APART like
+    # `language` (`app/free_chat/classify.py`), so an unlisted label is `None` and never costs the
+    # category. `None` on the profiling surface, for any other category, on the blocked and mock
+    # paths, and when unsure: the API's deterministic résumé menu then asks.
+    resume_action: FreeChatResumeAction | None = None
 
 
 class FreeChatReplyInput(BaseModel):
@@ -2227,6 +2245,8 @@ class FreeChatReplyInput(BaseModel):
     # ADR-0051 §11 (R39, R40): the language to reply in, decided by the API. Additive and
     # defaulted: None (or a caller that omits it) leaves the prompt's own language rules in force.
     reply_language: FreeChatReplyLanguage | None = None
+    # ADR-0055: `companion`, the worker's résumé is already made. Additive and defaulted.
+    surface: FreeChatSurface = "profiling"
 
 
 class FreeChatAnswer(BaseModel):
@@ -2316,6 +2336,9 @@ class FreeChatNewsInput(BaseModel):
     # ADR-0051 §11: the language to answer in, as for the reply. Additive and defaulted: None
     # leaves the prompt's own language rules in force.
     reply_language: FreeChatReplyLanguage | None = None
+    # ADR-0055: `companion`, an everyday answer steers back to work and the app's jobs, not the
+    # résumé. Additive and defaulted.
+    surface: FreeChatSurface = "profiling"
 
 
 class FreeChatNewsSource(BaseModel):

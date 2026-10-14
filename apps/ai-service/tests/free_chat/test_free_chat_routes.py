@@ -259,6 +259,8 @@ def test_classify_blocks_a_message_before_the_router(monkeypatch: pytest.MonkeyP
         "ai_metadata": None,
         # R42: no provider read the message, so no language: the API's word lists decide.
         "language": None,
+        # ADR-0055: and no résumé action: the companion's deterministic menu asks.
+        "resume_action": None,
     }
 
 
