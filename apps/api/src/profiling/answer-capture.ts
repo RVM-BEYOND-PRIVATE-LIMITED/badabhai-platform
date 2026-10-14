@@ -492,6 +492,18 @@ function needlesFor(labelText: string): string[] {
  * living in the orchestrator is exactly the drift this export prevents.
  */
 export function matchOptions(item: QuestionPackItem, text: string): unknown[] {
+  return optionHits(item, text).map((hit) => hit.value);
+}
+
+/** One option {@link matchOptions} found, with the needle that landed it. */
+interface OptionHit {
+  readonly order: number;
+  readonly value: unknown;
+  readonly needle: string;
+}
+
+/** {@link matchOptions}'s scan, keeping each hit's needle for {@link typedAnswerResidue}. */
+function optionHits(item: QuestionPackItem, text: string): OptionHit[] {
   const masked = applyNegation(text).masked.toLowerCase();
 
   const needles = item.options
@@ -499,7 +511,7 @@ export function matchOptions(item: QuestionPackItem, text: string): unknown[] {
     .sort((a, b) => b.needle.length - a.needle.length);
 
   let remaining = masked;
-  const hits = new Map<string, { order: number; value: unknown }>();
+  const hits = new Map<string, OptionHit>();
   for (const { option, needle } of needles) {
     if (hits.has(option.option_key)) continue; // one hit per option, whichever needle landed first
     const at = remaining.indexOf(needle);
@@ -511,11 +523,74 @@ export function matchOptions(item: QuestionPackItem, text: string): unknown[] {
     hits.set(option.option_key, {
       order: masked.indexOf(needle),
       value: option.value ?? option.label_text,
+      needle,
     });
   }
 
   // Report in the order the worker SAID them, not in the order we happened to scan.
-  return [...hits.values()].sort((a, b) => a.order - b.order).map((hit) => hit.value);
+  return [...hits.values()].sort((a, b) => a.order - b.order);
+}
+
+/**
+ * #2250 — a NUMBER question with no field parser (`target_output`, `quantity_cooking`,
+ * `hours_per_day`, `piece_rate`). Its capture falls through to the verbatim path, so it stores any
+ * sentence word for word, a number in it or not.
+ */
+export function isParserlessNumber(
+  item: Pick<QuestionPackItem, "answer_type" | "target_field">,
+): boolean {
+  return item.answer_type === "number" && !hasFieldNormalizer(item.target_field);
+}
+
+/** Anything that is not a letter, a mark or a digit separates two words of a residue. */
+const RESIDUE_SEPARATOR = /[^\p{L}\p{M}\p{N}]+/u;
+const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u;
+
+/**
+ * #2250 — THE WORDS OF A TYPED ANSWER ITS CAPTURE DID NOT READ, lowercased and in order. Blanked
+ * out first: the field parser's span ("5 saal", "Pune", "2015"), every word-bounded occurrence of a
+ * matched option's needle, and, on a {@link isParserlessNumber} question, every digit. Empty for a
+ * bare answer.
+ *
+ * WHY IT EXISTS. The free chat's résumé mode lets a typed answer skip its classifier, because
+ * capture reads it deterministically. Capture reads only the value, though: "5 saal, ab marna hai"
+ * is 5 years and nothing else. This tells the caller what else the sentence said.
+ *
+ * NO POLICY HERE, as with the lexicon's `affirmationResidue` (which reads a yes/no answer): the
+ * caller's own closed list decides which leftover words are harmless filler.
+ *
+ * IT FAILS TOWARDS MORE WORDS, never fewer. A needle inside a longer word blanks nothing, so
+ * "marna" can never lose letters to an option label. A text whose lowercase changes its length
+ * would move every span, so it blanks nothing at all.
+ */
+export function typedAnswerResidue(item: QuestionPackItem, text: string): readonly string[] {
+  const lower = text.toLowerCase();
+  let blanked = lower;
+  if (lower.length === text.length) {
+    const span = spanFor(item, text);
+    if (span !== undefined) blanked = blankRange(blanked, span.start, span.end);
+    for (const hit of optionHits(item, text)) blanked = blankWordBounded(blanked, hit.needle);
+    if (isParserlessNumber(item))
+      blanked = blanked.replace(/\p{Nd}+/gu, (d) => " ".repeat(d.length));
+  }
+  return blanked.split(RESIDUE_SEPARATOR).filter((word) => word.length > 0);
+}
+
+function blankRange(text: string, start: number, end: number): string {
+  return text.slice(0, start) + " ".repeat(end - start) + text.slice(end);
+}
+
+/** Blank every occurrence of `needle` that no letter, mark or digit touches on either side. */
+function blankWordBounded(text: string, needle: string): string {
+  let out = text;
+  for (let at = out.indexOf(needle); at >= 0; at = out.indexOf(needle, at + needle.length)) {
+    const before = at === 0 ? "" : out.charAt(at - 1);
+    const after = out.charAt(at + needle.length);
+    if (!WORD_CHAR.test(before) && !WORD_CHAR.test(after)) {
+      out = blankRange(out, at, at + needle.length);
+    }
+  }
+  return out;
 }
 
 /**

@@ -1299,11 +1299,200 @@ describe("résumé mode — a typed yes/no carrying other words is checked for d
     expect(turn.questionKey).toBe(CITY.question_key);
   });
 
-  it("a number question keeps today's skip, whatever else the answer carries", async () => {
+  it.each([
+    ["main theek nahi hoon", false],
+    ["not ok", false],
+  ] as const)(
+    "a denied state cue (%j) is checked too, and answers the question (#2250)",
+    async (text, value) => {
+      const world = makeWorld();
+      await onQuestion(world, "tools");
+      world.classifyAs(verdict("resume"));
+      await world.say(text);
+      expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+      expect(toolsAnswer(world)?.value_normalized).toBe(value);
+    },
+  );
+
+  it("a denied state cue with a distress verdict gets the helpline (#2250)", async () => {
+    const world = makeWorld();
+    await onQuestion(world, "tools");
+    world.classifyAs(verdict("distress", 0.4));
+    const turn = await world.say("main theek nahi hoon");
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(toolsAnswer(world)).toBeUndefined();
+  });
+
+  it("'ji nahi' stays a bare no (#2250)", async () => {
+    const world = makeWorld();
+    await onQuestion(world, "tools");
+    await world.say("ji nahi");
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(toolsAnswer(world)?.value_normalized).toBe(false);
+  });
+});
+
+// #2250 — every other typed answer gets the same check: one that carries words beyond its value
+// keeps its skip behind a distress check, and a number question with no parser is a typed answer
+// only when the message carries a digit.
+describe("résumé mode — any typed answer carrying other words is checked for distress (#2250)", () => {
+  const answerOf = (world: ReturnType<typeof makeWorld>, key: string) =>
+    world.envelope().answerMap.find((r) => r.question_key === key);
+
+  const OUTPUT = item({
+    question_key: "target_output",
+    target_kind: "attribute",
+    target_field: "target_output",
+    answer_type: "number",
+    prompt_text: "Aap ek shift me kitne piece karte hain?",
+  });
+  const SHIFT = item({
+    question_key: "shift_pref",
+    target_kind: "attribute",
+    target_field: "shift_pref",
+    answer_type: "single_select",
+    prompt_text: "Kaunsi shift chahiye?",
+    options: [
+      {
+        option_key: "day",
+        label_text: "Din ki shift",
+        value: "day",
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "night",
+        label_text: "Raat ki shift",
+        value: "night",
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+    ],
+  });
+
+  /** Résumé mode with `question` on screen, right after the trade. */
+  async function onItem(question: QuestionPackItem) {
+    const world = makeWorld({ universal: { ...UNIVERSAL_PACK, items: [TRADE, question] } });
+    await inResumeMode(world);
+    world.classifyAs(verdict("resume"), verdict("resume"));
+    await world.say("main welder hoon");
+    expect((await world.say("welder")).questionKey).toBe(question.question_key);
+    world.ai.freeChatClassify.mockClear();
+    return world;
+  }
+
+  it("'5 saal, ab marna hai' with a distress verdict gets the helpline, and nothing is stored", async () => {
     const world = makeWorld();
     await onQuestion(world, "years");
-    await world.say("5 saal se kar raha hoon");
+    world.classifyAs(verdict("distress", 0.3));
+    const turn = await world.say("5 saal, ab marna hai");
+    expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(answerOf(world, YEARS.question_key)).toBeUndefined();
+  });
+
+  it("'Pune mein hoon, jeena nahi' with a distress verdict gets the helpline", async () => {
+    const world = makeWorld();
+    await onQuestion(world, "tools");
+    await world.say("haan");
+    world.classifyAs(verdict("distress", 0.3));
+    const turn = await world.say("Pune mein hoon, jeena nahi");
+    expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(answerOf(world, CITY.question_key)).toBeUndefined();
+  });
+
+  it.each(["resume", "career", "casual", "trash", "unclear"] as const)(
+    "a %s verdict never deflects a typed number with other words: it answers the question",
+    async (category) => {
+      const world = makeWorld();
+      await onQuestion(world, "years");
+      world.classifyAs(verdict(category));
+      const turn = await world.say("5 saal se kar raha hoon");
+      expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+      expect(answerOf(world, YEARS.question_key)?.value_normalized).toBe(5);
+      expect(turn.questionKey).toBe(TOOLS.question_key);
+    },
+  );
+
+  it("an unavailable classifier passes a typed answer with other words to the interview", async () => {
+    const world = makeWorld();
+    await onQuestion(world, "years");
+    world.ai.freeChatClassify.mockImplementationOnce(() => Promise.resolve(null));
+    const turn = await world.say("5 saal, ab marna hai");
+    expect(turn.reply).not.toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(answerOf(world, YEARS.question_key)?.value_normalized).toBe(5);
+    expect(turn.questionKey).toBe(TOOLS.question_key);
+  });
+
+  it("'5 saal' and 'Pune' still answer with no classifier call", async () => {
+    const world = makeWorld();
+    await onQuestion(world, "years");
+    await world.say("5 saal");
+    await world.say("haan");
+    await world.say("Pune");
     expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(answerOf(world, YEARS.question_key)?.value_normalized).toBe(5);
+    expect(answerOf(world, CITY.question_key)?.value_normalized).toBe("Pune");
+  });
+
+  it("a bare option label still answers with no classifier call", async () => {
+    const world = await onItem(SHIFT);
+    await world.say("raat ki shift");
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(answerOf(world, SHIFT.question_key)?.value_normalized).toBe("night");
+  });
+
+  it("an option label inside a distress sentence gets the helpline", async () => {
+    const world = await onItem(SHIFT);
+    world.classifyAs(verdict("distress", 0.3));
+    const turn = await world.say("raat ki shift, ab jeena nahi");
+    expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+    expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(answerOf(world, SHIFT.question_key)).toBeUndefined();
+  });
+
+  describe("a number question with no parser", () => {
+    it("'marna hai' is no typed answer: a distress verdict gets the helpline, and nothing is stored", async () => {
+      const world = await onItem(OUTPUT);
+      world.classifyAs(verdict("distress", 0.3));
+      const turn = await world.say("marna hai");
+      expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+      expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+      expect(answerOf(world, OUTPUT.question_key)).toBeUndefined();
+    });
+
+    it("a sentence with no digit is classified like a free-text answer: off-topic is deflected", async () => {
+      const world = await onItem(OUTPUT);
+      world.classifyAs(verdict("casual"));
+      const turn = await world.say("aaj mausam accha hai");
+      expect(turn.reply).toContain(FREE_CHAT_COPY.LOCK_DEFLECT.latin);
+      expect(answerOf(world, OUTPUT.question_key)).toBeUndefined();
+    });
+
+    it("'50' answers with no classifier call", async () => {
+      const world = await onItem(OUTPUT);
+      await world.say("50");
+      expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+      expect(answerOf(world, OUTPUT.question_key)?.value_normalized).toBe("50");
+    });
+
+    it("'50 piece, marna hai' is checked, and a distress verdict gets the helpline", async () => {
+      const world = await onItem(OUTPUT);
+      world.classifyAs(verdict("distress", 0.3));
+      const turn = await world.say("50 piece, marna hai");
+      expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+      expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+      expect(answerOf(world, OUTPUT.question_key)).toBeUndefined();
+    });
+
+    it("an unavailable classifier passes a digit-less answer to the interview, as before", async () => {
+      const world = await onItem(OUTPUT);
+      world.ai.freeChatClassify.mockImplementationOnce(() => Promise.resolve(null));
+      const turn = await world.say("pachaas");
+      expect(turn.reply).not.toBe(FREE_CHAT_COPY.DISTRESS.latin);
+      expect(answerOf(world, OUTPUT.question_key)?.value_normalized).toBe("pachaas");
+    });
   });
 });
 

@@ -11,6 +11,7 @@ import {
   FREE_CHAT_MIN_CONFIDENCE,
   GREETING_DECLINE_WORDS,
   GREETING_FILLER_WORDS,
+  isBareTypedAnswer,
   isBareYesNo,
   isFreeChatChip,
   isResumeChip,
@@ -24,9 +25,10 @@ import {
   preClassifyResume,
   readGreetingChoice,
   readLanguageAnswer,
+  TYPED_ANSWER_FILLER_WORDS,
+  typedAnswerCarriesWords,
   UNAVAILABLE_VERDICT,
   type FreeChatVerdict,
-  YES_NO_FILLER_WORDS,
   type ResumeSkipFacts,
 } from "./free-chat.router";
 
@@ -53,6 +55,39 @@ const packOption = (value: unknown): QuestionPackOption => ({
   implies_skill_id: null,
   is_none_of_above: false,
 });
+
+/** A pack question: a field and an answer type, and the options a select offers. */
+const packItem = (
+  target_field: string | null,
+  answer_type: QuestionPackItem["answer_type"],
+  options: readonly unknown[] = [],
+): QuestionPackItem => ({
+  question_key: target_field ?? "q",
+  prompt_text: "?",
+  display_order: 0,
+  target_kind: "attribute",
+  target_field,
+  target_skill_id: null,
+  answer_type,
+  is_mandatory: false,
+  is_core: false,
+  max_asks: 1,
+  min_turn: null,
+  max_turn: null,
+  ask_if: null,
+  skip_if: null,
+  parent_item_key: null,
+  retry_text: null,
+  why_text: null,
+  options: options.map(packOption),
+});
+
+const YEARS = packItem("experience_years", "number");
+const CITY = packItem("current_city", "text");
+const TRAINING = packItem("training_year", "number");
+const OUTPUT = packItem("target_output", "number");
+const PROCESS = packItem("welding_process", "multi_select", ["MIG welding", "TIG welding"]);
+const TOOLS = packItem("own_tools", "boolean");
 
 describe("reading the worker's words deterministically", () => {
   it.each([
@@ -155,6 +190,27 @@ describe("reading the worker's words deterministically", () => {
     expect(isBareYesNo("haan\u200Bji")).toBe(true);
   });
 
+  // #2250 \u2014 a denied cue that says how the worker IS ("theek", "sahi", "ok") is checked; a denied
+  // "ji" or "bilkul" is only a "no".
+  it.each([
+    "main theek nahi hoon",
+    "main sahi nahi hoon",
+    "theek nahi",
+    "not ok",
+    "ok nahi hai",
+    "acha nahi",
+    "\u092E\u0948\u0902 \u0920\u0940\u0915 \u0928\u0939\u0940\u0902 \u0939\u0942\u0901",
+  ])("a denied state cue is no bare yes/no: %j (#2250)", (text) => {
+    expect(isBareYesNo(text)).toBe(false);
+  });
+
+  it.each(["ji nahi", "bilkul nahi", "nahi, theek hai", "haan theek hai", "theek hai", "ok"])(
+    "a plain answer around a state cue stays bare: %j (#2250)",
+    (text) => {
+      expect(isBareYesNo(text)).toBe(true);
+    },
+  );
+
   it.each<[Pick<QuestionPackItem, "answer_type" | "options"> | null, boolean]>([
     [{ answer_type: "boolean", options: [] }, true],
     [{ answer_type: "single_select", options: [packOption(true), packOption(false)] }, true],
@@ -166,11 +222,49 @@ describe("reading the worker's words deterministically", () => {
     expect(isYesNoQuestion(item)).toBe(yesNo);
   });
 
-  it("the yes/no filler list holds no negation and no word of a distress phrase (#2226)", () => {
+  // #2250 — any other typed answer is bare when every word its capture did not read is filler.
+  it.each<[string, QuestionPackItem, string]>([
+    ["years", YEARS, "5 saal"],
+    ["years", YEARS, "paanch saal"],
+    ["years", YEARS, "mere paas 5 saal hai"],
+    ["city", CITY, "Pune"],
+    ["city", CITY, "Pune hai, sir"],
+    ["training year", TRAINING, "2015"],
+    ["no-parser number", OUTPUT, "50"],
+    ["no-parser number", OUTPUT, "50 hai ji"],
+    ["option", PROCESS, "MIG welding"],
+    ["options", PROCESS, "MIG welding, TIG welding"],
+  ])("a bare %s answer: %j (#2250)", (_l, item, text) => {
+    expect(isBareTypedAnswer(text, item)).toBe(true);
+    expect(typedAnswerCarriesWords(text, item)).toBe(false);
+  });
+
+  it.each<[string, QuestionPackItem, string]>([
+    ["years", YEARS, "5 saal, ab marna hai"],
+    ["years", YEARS, "5 saal se kar raha hoon"],
+    ["years", YEARS, "5 saal 😭"],
+    ["city", CITY, "Pune mein hoon, jeena nahi"],
+    ["city", CITY, "Pune\u200Bmarna"],
+    ["training year", TRAINING, "2015, ab sab khatam"],
+    ["no-parser number", OUTPUT, "50 piece, marna hai"],
+    ["no-parser number", OUTPUT, "50 log"],
+    ["option", PROCESS, "MIG welding, ab jeena nahi"],
+  ])("a %s answer that carries other words: %j (#2250)", (_l, item, text) => {
+    expect(isBareTypedAnswer(text, item)).toBe(false);
+    expect(typedAnswerCarriesWords(text, item)).toBe(true);
+  });
+
+  it("reads a yes/no question by its cues, not by a value (#2226, #2250)", () => {
+    expect(typedAnswerCarriesWords("haan ji", TOOLS)).toBe(false);
+    expect(typedAnswerCarriesWords("haan marna hai", TOOLS)).toBe(true);
+    expect(typedAnswerCarriesWords("main theek nahi hoon", TOOLS)).toBe(true);
+  });
+
+  it("the typed-answer filler list holds no negation and no word of a distress phrase (#2226)", () => {
     const distressWords = new Set(
       DISTRESS_PHRASES.flatMap((phrase) => phrase.normalize("NFC").toLowerCase().split(" ")),
     );
-    for (const word of YES_NO_FILLER_WORDS) {
+    for (const word of TYPED_ANSWER_FILLER_WORDS) {
       expect(distressWords.has(word), word).toBe(false);
       expect(GREETING_DECLINE_WORDS.has(word), word).toBe(false);
       expect(parseAffirmation(word)?.value, word).not.toBe(false);

@@ -37,7 +37,12 @@ import { classifyUtterance } from "@badabhai/profiling-lexicon";
 
 import { CHAT_UNAVAILABLE_REPLY as UNAVAILABLE_REPLY } from "../../chat/chat-replies";
 import type { TranscriptBuffer } from "../../chat/chat-transcript.buffer";
-import { captureAnswer, hasFieldNormalizer, matchOptions } from "../answer-capture";
+import {
+  captureAnswer,
+  hasFieldNormalizer,
+  isParserlessNumber,
+  matchOptions,
+} from "../answer-capture";
 import {
   answersOf,
   stampUniversalPointer,
@@ -95,10 +100,8 @@ import {
 } from "./free-chat.copy";
 import {
   confidenceBucketOf,
-  isBareYesNo,
   isFreeChatChip,
   isResumeChip,
-  isYesNoQuestion,
   matchesDistress,
   matchesOfferedOption,
   postClassifyFree,
@@ -107,6 +110,7 @@ import {
   preClassifyFree,
   preClassifyResume,
   readLanguageAnswer,
+  typedAnswerCarriesWords,
   type FreeChatVerdict,
   type ResumeSkipFacts,
 } from "./free-chat.router";
@@ -261,8 +265,8 @@ export class FreeChatTurns {
    * RÉSUMÉ MODE — today's interview, with an off-topic message deflected (ADR-0051 §3.2, the résumé
    * table). Distress first; then every message today's interview already reads deterministically
    * passes with no model call (the skip list); then the classifier, whose UNAVAILABLE answer also
-   * passes — an AI outage never degrades the interview. A typed yes/no that carries other words is
-   * classified too, but only a distress verdict changes what happens to it (#2226).
+   * passes — an AI outage never degrades the interview. A typed answer that carries other words is
+   * classified too, but only a distress verdict changes what happens to it (#2226, #2250).
    */
   private async routeResumeMode(t: FreeChatTurn, state: FreeChatState): Promise<FreeChatRouted> {
     const pass = (): FreeChatRouted => ({
@@ -298,7 +302,7 @@ export class FreeChatTurns {
 
     const verdict = await this.classifyMemo(t, "resume", pending);
     const facts = verdictFacts(verdict);
-    // #2226 — a typed yes/no carrying other words: only a distress verdict changes its outcome.
+    // #2226, #2250 — a typed answer carrying other words: only a distress verdict changes its outcome.
     const action =
       pre.kind === "distress_check" ? postDistressCheck(verdict) : postClassifyResume(verdict);
     switch (action.kind) {
@@ -554,7 +558,7 @@ export class FreeChatTurns {
       lexiconClass: classifyUtterance(t.input.text).cls,
       typedAnswer,
       typedAnswerCarriesWords:
-        typedAnswer && isYesNoQuestion(t.askedItem) && !isBareYesNo(t.input.text),
+        typedAnswer && t.askedItem !== null && typedAnswerCarriesWords(t.input.text, t.askedItem),
       hasPendingQuestion: pending !== null,
       asideCapReached: state.asides >= FREE_CHAT_ASIDE_CAP,
     };
@@ -1589,8 +1593,9 @@ function lastServedQuestion(envelope: ProfilingEnvelope, leads: boolean): FreeCh
 /**
  * A TYPED answer to the question on screen — a number, a yes/no, a field with a real parser, or a
  * select whose option the words match. Today's capture reads these deterministically, so résumé
- * mode never sends them to the classifier. A free-text question is never "typed": its capture would
- * take any sentence, off-topic included, which is exactly what the classifier is for.
+ * mode sends them to the classifier only for a distress check, and only when they carry other
+ * words (`typedAnswerCarriesWords`). A free-text question is never "typed": its capture would take
+ * any sentence, off-topic included, which is exactly what the classifier is for.
  */
 function isTypedAnswer(text: string, item: QuestionPackItem | null): boolean {
   if (item === null) return false;
@@ -1600,6 +1605,10 @@ function isTypedAnswer(text: string, item: QuestionPackItem | null): boolean {
   ) {
     return true;
   }
+  // #2250 — a number question with no parser stores any sentence verbatim, so a sentence is not a
+  // typed answer to it just because capture keeps it. Only one that carries a digit is: "marna hai"
+  // and "pachaas" go to the classifier, as on a free-text question.
+  if (isParserlessNumber(item) && !/\p{Nd}/u.test(text)) return false;
   const typed =
     hasFieldNormalizer(item.target_field) ||
     item.answer_type === "number" ||

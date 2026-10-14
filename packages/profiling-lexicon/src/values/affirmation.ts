@@ -134,6 +134,34 @@ export function affirmationResidue(text: string): readonly string[] {
     .filter((word) => word.length > 0 && !NEGATOR_TOKENS.has(word));
 }
 
+/**
+ * Every EXPLICIT cue a negator reaches, lowercased and in the order the cue patterns find them.
+ * The rule is `parseAffirmation`'s own (clause-clamped look-back, then span overlap), applied to
+ * every explicit cue rather than only the first. Empty when no explicit cue is denied ("haan",
+ * "nahi", "nahi karta").
+ *
+ * WHY IT EXISTS (#2250). {@link affirmationResidue} sets every cue aside, denied or not, so
+ * "main theek nahi hoon" ("I am not okay") leaves only "main" and "hoon". The answer is a plain
+ * "no" to the question, but the denied cue says how the worker is. The free chat's résumé mode
+ * reads this to check such an answer for distress.
+ *
+ * NO POLICY HERE, as with {@link affirmationResidue}: the caller decides which denied cues matter.
+ */
+export function deniedAffirmationCues(text: string): readonly string[] {
+  const denied: string[] = [];
+  for (const pattern of EXPLICIT) {
+    for (const match of text.matchAll(pattern)) {
+      // An empty match is no cue (see `firstHit`).
+      if (match[0].length === 0) continue;
+      const start = match.index ?? 0;
+      if (withNegationCheck(text, { start, end: start + match[0].length }).negationVetoed) {
+        denied.push(match[0].toLowerCase());
+      }
+    }
+  }
+  return denied;
+}
+
 /** A cue is a yes unless a negator reaches it — clause-clamped, then span-overlap. */
 function withNegationCheck(text: string, cue: CueHit): NormalizedValue<boolean> {
   const denied =
