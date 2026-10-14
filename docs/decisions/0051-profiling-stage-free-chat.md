@@ -303,6 +303,9 @@ Any widening of this list follows the same review as the copy.
   hyphen, BOM, ZWJ/ZWNJ) is read two ways, and either reading matching is a match. Deleted, so one hidden inside a
   word ("mar<ZWSP>na chahta") cannot split it past the list. As a word gap, so one used between words still matches as
   before.
+- **The abuse lexicon reads them the same two ways (#2237):** `isAbusive` in `@badabhai/profiling-lexicon` and its
+  Python twin `signals.is_abusive`. So "chu<ZWSP>tiya" is a strike here, and the interview's de-escalation count
+  (`classifyUtterance`) sees it too. The shared utterance corpus pins the parity.
 
 ## 6. Consequences
 

@@ -139,11 +139,11 @@ describe("reading the worker's words deterministically", () => {
     "हाँ मरना है",
     // A hidden format character inside "jeena" / "jina" / "जीना" splits it into a yes cue and the
     // tag negator "na" when read as a gap; the deleted reading still sees the word.
-    "haan jee​na nahi hai",
-    "haan ji​na nahi hai",
-    "haan jee­na nahi",
-    "जी‍ना नहीं है",
-    "haan​marna",
+    "haan jee\u200Bna nahi hai",
+    "haan ji\u200Bna nahi hai",
+    "haan jee\u00ADna nahi",
+    "जी\u200Dना नहीं है",
+    "haan\u200Bmarna",
     // An emoji is never filler.
     "haan 😭💀",
     "nahi 😭",
@@ -152,7 +152,7 @@ describe("reading the worker's words deterministically", () => {
   });
 
   it("reads a format character between two bare words as bare (#2226)", () => {
-    expect(isBareYesNo("haan​ji")).toBe(true);
+    expect(isBareYesNo("haan\u200Bji")).toBe(true);
   });
 
   it.each<[Pick<QuestionPackItem, "answer_type" | "options"> | null, boolean]>([
@@ -331,6 +331,13 @@ describe("free mode — the deterministic rules come first", () => {
     expect(pre("chutiya")).toBe("strike");
     expect(pre("aaj mausam accha hai")).toBe("classify");
   });
+
+  it.each(["chu\u200Btiya", "bhos\u00ADdike", "gaa\u2060ndu", "haan\u200Bchutiya"])(
+    "an invisible format character cannot hide a lexicon word from the strike: %j (#2237)",
+    (text) => {
+      expect(pre(text)).toBe("strike");
+    },
+  );
 
   it("the cool-down blocks typing and the classifier — but not the chip, and not distress", () => {
     let state = FREE;
