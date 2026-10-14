@@ -789,6 +789,17 @@ export const payerMeWireSchema = z.object({
   phoneLast4: z.string().length(4).nullable().optional(),
   orgId: z.string().uuid().nullable().optional().catch(null),
   orgRole: orgRoleWireSchema.nullable().optional().catch(null),
+  /**
+   * ADR-0053 O-10 (#2189 / #2194) — the organisation name a posting this payer publishes
+   * carries: their TENANT's. Equals `orgName` for a solo payer and for everyone while tenancy
+   * is off; for a team member with tenancy on it is the founder's company name. `null` means
+   * tenancy refuses this payer (they can publish nothing).
+   *
+   * OPTIONAL and WITHOUT `.catch()`, deliberately: `undefined` (an older API that does not send
+   * the field) and `null` (tenancy denied) are different facts, and collapsing them would make
+   * the posting form unable to tell "no such field" from "no org to post under".
+   */
+  postingOrgName: z.string().nullable().optional(),
 });
 export type PayerMeWire = z.infer<typeof payerMeWireSchema>;
 

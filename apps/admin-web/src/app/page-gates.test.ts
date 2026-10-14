@@ -39,7 +39,14 @@ import { ADMIN_CAPABILITIES, type AdminCapability } from "../lib/auth/capabiliti
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(here, "..");
 const PORTAL = join(SRC, "app", "(portal)");
-const API_ADMIN = resolve(SRC, "..", "..", "api", "src", "admin");
+/**
+ * EVERY API source file, not just `admin/`: an admin route is defined by its `admin/…`
+ * `@Controller` prefix, not by which folder the controller sits in. `AgencyJobsAdminController`
+ * (#2144) lives under `api/src/agency/` and serves `GET /admin/agency-jobs`, so a scan of the
+ * `admin/` folder alone reported "no API GET route serves it" for a route that very much
+ * exists — a false alarm that would have been silenced by weakening the fence.
+ */
+const API_SRC = resolve(SRC, "..", "..", "api", "src");
 
 /** Drop comments so a gate or import named in prose is never read as code. */
 const strip = (src: string) =>
@@ -66,10 +73,12 @@ interface ApiRoute {
 
 function apiGetRoutes(): ApiRoute[] {
   const routes: ApiRoute[] = [];
-  for (const file of readdirSync(API_ADMIN).filter((f) => f.endsWith(".controller.ts"))) {
-    const src = read(join(API_ADMIN, file));
+  for (const file of walk(API_SRC).filter((f) => f.endsWith(".controller.ts"))) {
+    const src = read(file);
     const prefix = /@Controller\(\s*"([^"]*)"\s*\)/.exec(src)?.[1];
-    if (prefix === undefined) continue;
+    // Only the admin surface. A payer/worker controller is a different audience with a
+    // different guard, and the portal never calls one.
+    if (prefix === undefined || prefix.split("/")[0] !== "admin") continue;
     const verbs = [...src.matchAll(/@(Get|Post|Put|Patch|Delete)\(\s*(?:"([^"]*)")?\s*\)/g)];
     verbs.forEach((m, i) => {
       if (m[1] !== "Get") return;

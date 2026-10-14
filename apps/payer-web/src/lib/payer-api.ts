@@ -149,15 +149,41 @@ function orgDisplayLabel(me: { orgName: string; role: "employer" | "agent" }): s
 }
 
 /**
- * GET /payer/me → the caller's OWN org label (the SESSION identity), used to stamp `org_label`
- * on a posting create. The org label is the payer's OWN registered org — NEVER a form field and
- * NEVER eventized (XB-A / privacy); resolving it server-side from the session (not the client)
- * is exactly the contract {@link toPayerJobPostingBody} documents. The session `displayLabel`
- * is NOT used here: it may carry a "(mock)" decoration; `/payer/me`'s `orgName` is authoritative.
+ * The org a posting is PUBLISHED UNDER, which is not always the org the account is registered
+ * as (ADR-0053 O-10, #2189 / #2194).
+ *
+ * `postingOrgName` is the TENANT's name: for a team member with tenancy on, that is the
+ * founder's company — the name the posting must carry, because the posting belongs to the team,
+ * not to the person who typed it. `orgName` is the person's own account label and is what this
+ * stamped before, so a recruiter's postings went out under the recruiter's own org name.
+ *
+ * FALLS BACK to the account label when the field is `undefined` (an older API that never sends
+ * it — today's behaviour, byte for byte), when it is `null` (tenancy refuses this payer, who
+ * can publish nothing: the server refuses the create itself, so the label never reaches a
+ * posting) or when it is blank.
+ */
+export function postingOrgLabel(me: {
+  orgName: string;
+  role: "employer" | "agent";
+  /** Absent on an older API; null when tenancy refuses the payer. */
+  postingOrgName?: string | null;
+}): string {
+  const tenantName = me.postingOrgName?.trim();
+  if (tenantName) return tenantName;
+  return orgDisplayLabel(me);
+}
+
+/**
+ * GET /payer/me → the org label stamped on a posting create (the SESSION identity). NEVER a
+ * form field and NEVER eventized (XB-A / privacy); resolving it server-side from the session
+ * (not the client) is exactly the contract {@link toPayerJobPostingBody} documents. The session
+ * `displayLabel` is NOT used here: it may carry a "(mock)" decoration.
+ *
+ * #2194 — which NAME that is comes from {@link postingOrgLabel}, not from `orgName`.
  */
 async function sessionOrgLabel(): Promise<string> {
   const me = await payerFetch("/payer/me", { schema: payerMeWireSchema });
-  return orgDisplayLabel(me);
+  return postingOrgLabel(me);
 }
 
 /** GET /payer/credits — the caller's OWN balance (the one knowable signal). */

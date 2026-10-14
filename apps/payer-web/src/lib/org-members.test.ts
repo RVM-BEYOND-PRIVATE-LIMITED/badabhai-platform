@@ -35,6 +35,16 @@ function okJson(body: unknown) {
 function fail(status: number) {
   return { ok: false, status, text: async () => "" };
 }
+/** A 409 whose body the transport actually reads (`readConflict` parses JSON, not text). */
+function conflict(message: string) {
+  const body = { statusCode: 409, error: { message } };
+  return {
+    ok: false,
+    status: 409,
+    text: async () => JSON.stringify(body),
+    json: async () => body,
+  };
+}
 function lastCall() {
   const [url, init] = fetchMock.mock.calls.at(-1)!;
   const body = init.body ? JSON.parse(init.body) : undefined;
@@ -126,5 +136,51 @@ describe("acceptOrgInvite — token-only, XB-A", () => {
     const { acceptOrgInvite } = await import("./org-members");
     const res = await acceptOrgInvite({ token: "tok-raw-0123456789abcdef" });
     expect(res.ok).toBe(false);
+  });
+
+  // ── #2193: the 409 that means the ACCOUNT, not the link ───────────────────
+  //
+  // "That invite link is invalid or has expired" sent such a payer back to the inviter for a
+  // fresh link, which would fail identically forever. The guidance has to say the account is
+  // the problem — without saying WHICH invariant failed (ADR-0053 §3.5 is no-oracle).
+  it("maps the membership-invariant 409 to account guidance, not link guidance", async () => {
+    fetchMock.mockResolvedValueOnce(conflict("This invite can't be accepted with this account"));
+    const { acceptOrgInvite, INVITE_NOT_ACCEPTABLE_COPY } = await import("./org-members");
+    const res = await acceptOrgInvite({ token: "tok-raw-0123456789abcdef" });
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.error).toBe(INVITE_NOT_ACCEPTABLE_COPY);
+    expect(res.ok === false && res.error).not.toMatch(/link/i);
+  });
+
+  it("matches the server line whatever its punctuation", async () => {
+    // An apostrophe or a trailing full stop on the server must not drop the branch.
+    fetchMock.mockResolvedValueOnce(
+      conflict("This invite cannot be accepted with this account."),
+    );
+    const { acceptOrgInvite, INVITE_NOT_ACCEPTABLE_COPY } = await import("./org-members");
+    const res = await acceptOrgInvite({ token: "tok-raw-0123456789abcdef" });
+    expect(res.ok === false && res.error).toBe(INVITE_NOT_ACCEPTABLE_COPY);
+  });
+
+  it("the guidance names no organisation, no email and no invariant", async () => {
+    const { INVITE_NOT_ACCEPTABLE_COPY } = await import("./org-members");
+    expect(INVITE_NOT_ACCEPTABLE_COPY).not.toMatch(/A1|A2|A3|org_id|owner of|anchor/i);
+    expect(INVITE_NOT_ACCEPTABLE_COPY).not.toMatch(/@/);
+  });
+
+  it("an ALREADY-USED 409 keeps the existing neutral line", async () => {
+    fetchMock.mockResolvedValueOnce(conflict("Invite has already been used or has expired"));
+    const { acceptOrgInvite, INVITE_NOT_ACCEPTABLE_COPY } = await import("./org-members");
+    const res = await acceptOrgInvite({ token: "tok-raw-0123456789abcdef" });
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.error).not.toBe(INVITE_NOT_ACCEPTABLE_COPY);
+  });
+
+  it("a WRONG-ACCOUNT 403 keeps the existing neutral line", async () => {
+    fetchMock.mockResolvedValueOnce(fail(403));
+    const { acceptOrgInvite, INVITE_NOT_ACCEPTABLE_COPY } = await import("./org-members");
+    const res = await acceptOrgInvite({ token: "tok-raw-0123456789abcdef" });
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.error).not.toBe(INVITE_NOT_ACCEPTABLE_COPY);
   });
 });
