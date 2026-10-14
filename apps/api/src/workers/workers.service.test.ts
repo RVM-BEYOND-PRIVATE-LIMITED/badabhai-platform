@@ -9,6 +9,7 @@ import {
 import type { ServerConfig } from "@badabhai/config";
 import type { BadaBhaiEvent } from "@badabhai/event-schema";
 import { WorkersService } from "./workers.service";
+import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import type { WorkersRepository } from "./workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
@@ -480,6 +481,69 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
     expect(JSON.stringify(res)).not.toMatch(/ciphertext|deadbeef|phone|full_?name/i);
     // deliberately event-less: a read is not a material state change (§1)
     expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkersService.getProfileSummary — form answers move strength (#2201)", () => {
+  /** A form-road turner row: the two ids (#2205) and nothing the form wrote. */
+  const FORM_ROW = {
+    ...CONFIRMED_PROFILE,
+    source: "form",
+    canonicalRoleId: "role_cnc_turner",
+    canonicalTradeId: "cnc_turning",
+    skills: [],
+    machines: [],
+    experience: {},
+    salaryExpectation: {},
+    locationPreference: {},
+    availability: {},
+  };
+
+  function withAttributes(loadTradeSheet: () => Promise<unknown>) {
+    const repo = {
+      latestProfile: vi.fn(async (_workerId: string) => FORM_ROW),
+      findById: vi.fn(async (_id: string) => ({ id: "w-1", photoStorageKey: null })),
+    };
+    const attributes = { loadTradeSheet: vi.fn(loadTradeSheet) };
+    const svc = new WorkersService(
+      repo as unknown as WorkersRepository,
+      { encrypt: vi.fn() } as unknown as PiiCryptoService,
+      { emit: vi.fn(async () => true) } as unknown as EventsService,
+      mockStorage() as unknown as StorageService,
+      mockConfig(),
+      mockRenderQueue() as unknown as Queue<ResumeRenderJobData>,
+      attributes as unknown as WorkerAttributesRepository,
+    );
+    return { svc, attributes };
+  }
+
+  it("scores the worker's saved form answers that the profile row never received", async () => {
+    const { svc, attributes } = withAttributes(async () => ({
+      packId: "qp_cnc_turning",
+      attributes: {
+        turning_experience: 2,
+        turning_machine: ["cnc_lathe"],
+        turning_operation: ["boring"],
+        salary_expected_max: 25000,
+        preferred_locations: ["Pune"],
+        availability: { status: "immediate" },
+      },
+      polishedAttributes: {},
+      declinedAttributes: new Set<string>(),
+    }));
+    const res = await svc.getProfileSummary("w-1");
+    expect(attributes.loadTradeSheet).toHaveBeenCalledWith("w-1");
+    expect(res.strength).toBe(8);
+    expect(res.missing_fields).toEqual(["photo"]);
+  });
+
+  it("degrades to the profile row alone when the attribute read fails — never a 500", async () => {
+    const { svc } = withAttributes(async () => {
+      throw new Error("db unreachable");
+    });
+    const res = await svc.getProfileSummary("w-1");
+    expect(res.strength).toBe(2);
+    expect(res.missing_fields).toContain("machines");
   });
 });
 

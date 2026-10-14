@@ -2,6 +2,7 @@ import type { ProfileSource, ProfileStatus } from "@badabhai/types";
 import { getRole, labelForTaxonomyId } from "@badabhai/taxonomy";
 import { resolveTradeContent } from "../resume/trade-content";
 import type { WorkerProfileSummary } from "./workers.dto";
+import { NO_FORM_FACTS, type ProfileFormFacts } from "./profile-form-facts";
 
 /**
  * PURE mapper: latest `worker_profiles` row → the TD54 self-view summary
@@ -11,8 +12,9 @@ import type { WorkerProfileSummary } from "./workers.dto";
  * on anything missing or unparseable — a malformed row must NEVER throw a 500 at
  * the worker.
  *
- * FACELESS BY CONSTRUCTION: the input is the profile row only (canonical ids +
- * signal JSONB). Name/phone live on `workers` and never enter this mapper — the
+ * FACELESS BY CONSTRUCTION: the input is the profile row (canonical ids + signal
+ * JSONB) plus presence flags for the worker's form answers (#2201, never a value).
+ * Name/phone live on `workers` and never enter this mapper — the
  * "Namaste, <name>" field is an OPEN §2 escalation
  * (docs/worker-profile-summary-spec.md) and ships only if ruled allowed.
  */
@@ -51,6 +53,11 @@ export interface ProfileSummarySource {
    * Outranks anything in `locationPreference` — see {@link readCity}.
    */
   workerCity?: string | null;
+  /**
+   * #2201 — the worker's own form answers, presence only (see {@link ProfileFormFacts}). Absent
+   * or null scores exactly as before: the profile row alone.
+   */
+  formFacts?: ProfileFormFacts | null;
 }
 
 type Json = Record<string, unknown>;
@@ -197,43 +204,95 @@ function readDisplayName(
 }
 
 /**
- * Profile strength, RECOMPUTED on read — the exact `countFields` algorithm from
- * profile-extraction.processor.ts, re-derived over the STORED row's JSONB (with
- * defensive narrowing instead of the processor's typed DraftProfile):
+ * Profile strength, RECOMPUTED on read over the STORED row's JSONB (defensive narrowing) PLUS the
+ * worker's own form answers (#2201, {@link ProfileFormFacts}). Never stored.
+ *
+ * The nine dimensions and what each scores:
  * +1 canonical_role_id, +1 canonical_trade_id, +skills.length, +machines.length,
  * +1 experience.total_years != null, +1 salary amount_min/amount_max present,
  * +1 preferred_cities non-empty, +1 availability.status !== "unknown",
  * +1 has_photo (TD77b — photo-in-strength).
- * Deliberately NOT stored (no new column, no drift with the processor's value).
  *
- * THE INTERVIEW'S LABELS ARE DELIBERATELY NOT COUNTED HERE, and `computeMissingFields` below
- * does not consult them either. `readDisplayName` reads them, but that is PRESENTATION — what
- * the worker's header says. Strength is a BUSINESS signal count that must stay identical to
- * `countFields` in profile-extraction.processor.ts, and the two dimensions it scores are
- * "canonicalized role" and "canonicalized trade": a free-text label is precisely the state
- * canonicalization has not yet resolved. Counting it would tell a worker their profile is
- * stronger than the match engine can actually use it, and would silently move a number the
- * product hangs behaviour off (§3 — AI never owns business decisions).
+ * THE PROFILE ROW SCORES FIRST AND IS NEVER CHANGED BY THE FORM. A dimension the row already
+ * fills scores exactly what it did before #2201. A dimension the row leaves blank can now score on
+ * any road, because chat-road workers hold attributes too. The form answer only FILLS A BLANK, and it scores +1 for the group, not +N per item. That stops a
+ * turner who ticked eight operations from jumping past `strength_max`. The row's own unbounded
+ * `skills.length` / `machines.length` scoring is pre-existing and left as it is.
  *
- * Same rule for `missing_fields`: "role"/"trade" mean "no canonical id", which stays true.
+ * WHY THE FORM COUNTS HERE AND NOT IN `countFields`. `countFields` (profile-extraction.processor.ts)
+ * scores the draft at EXTRACTION time for the `profile.extracted` event's `field_count`. It cannot
+ * see answers the worker gives afterwards, and the trade form is exactly that. This read is the
+ * worker's live view, so it scores what the worker has actually told us. The résumé already prints
+ * these same answers (`resume-preference-facts.ts`).
+ *
+ * THE INTERVIEW'S LABELS ARE DELIBERATELY NOT COUNTED, and `missing_fields` does not consult them
+ * either. `readDisplayName` reads them, but that is PRESENTATION. The role/trade dimensions are
+ * "canonicalized role" and "canonicalized trade", and a free-text label is precisely the state
+ * canonicalization has not yet resolved. Counting it would tell a worker their profile is stronger
+ * than the match engine can actually use (§3 — AI never owns business decisions). "role"/"trade"
+ * in `missing_fields` mean "no canonical id".
  */
 const STRENGTH_MAX = 9;
 
-function computeStrength(p: ProfileSummarySource): number {
-  let n = 0;
-  if (p.canonicalRoleId) n += 1;
-  if (p.canonicalTradeId) n += 1;
-  n += Array.isArray(p.skills) ? p.skills.length : 0;
-  n += Array.isArray(p.machines) ? p.machines.length : 0;
-  if (asObject(p.experience)?.total_years != null) n += 1;
+/** One strength dimension: its `missing_fields` key and the points it scores (0 = missing). */
+interface StrengthDimension {
+  readonly key: string;
+  readonly points: number;
+}
+
+/** A profile list's own count, else +1 when the form fills the blank, else 0. */
+function listPoints(value: unknown, formHas: boolean): number {
+  if (Array.isArray(value) && value.length > 0) return value.length;
+  return formHas ? 1 : 0;
+}
+
+/**
+ * THE ONE TABLE strength and `missing_fields` are both derived from, in wire order, so the two can
+ * never disagree about a dimension.
+ */
+function strengthDimensions(p: ProfileSummarySource): StrengthDimension[] {
+  const form = p.formFacts ?? NO_FORM_FACTS;
   const salary = asObject(p.salaryExpectation);
-  if (salary != null && (salary.amount_min != null || salary.amount_max != null)) n += 1;
   const cities = asObject(p.locationPreference)?.preferred_cities;
-  if (Array.isArray(cities) && cities.length > 0) n += 1;
   const status = readAvailabilityStatus(p.availability);
-  if (status != null && status !== "unknown") n += 1;
-  if (p.hasPhoto) n += 1;
-  return n;
+  const has = (filled: boolean): number => (filled ? 1 : 0);
+  return [
+    { key: "role", points: has(Boolean(p.canonicalRoleId)) },
+    { key: "trade", points: has(Boolean(p.canonicalTradeId)) },
+    { key: "skills", points: listPoints(p.skills, form.hasSkills) },
+    { key: "machines", points: listPoints(p.machines, form.hasMachines) },
+    {
+      key: "experience",
+      points: has(asObject(p.experience)?.total_years != null || form.hasExperience),
+    },
+    {
+      key: "salary",
+      points: has(
+        (salary != null && (salary.amount_min != null || salary.amount_max != null)) ||
+          form.hasSalary,
+      ),
+    },
+    {
+      key: "location",
+      points: has((Array.isArray(cities) && cities.length > 0) || form.hasPreferredLocations),
+    },
+    {
+      key: "availability",
+      points: has((status != null && status !== "unknown") || form.hasAvailability),
+    },
+    { key: "photo", points: has(p.hasPhoto) },
+  ];
+}
+
+function computeStrength(p: ProfileSummarySource): number {
+  return strengthDimensions(p).reduce((sum, d) => sum + d.points, 0);
+}
+
+/** The dimensions that score nothing. Each maps to exactly one key in `missing_fields`. */
+function computeMissingFields(p: ProfileSummarySource): string[] {
+  return strengthDimensions(p)
+    .filter((d) => d.points === 0)
+    .map((d) => d.key);
 }
 
 /**
@@ -253,28 +312,6 @@ type RawProfileStringKey = "education_level" | "education_field" | "role_label" 
 
 function readRawProfileString(rawProfile: unknown, key: RawProfileStringKey): string | null {
   return nonBlankStringOrNull(asObject(rawProfile)?.[key]);
-}
-
-/**
- * Which of the 9 field-group slots are empty/missing. Each maps to exactly one
- * key in missing_fields. Must stay in sync with computeStrength's dimension set.
- */
-function computeMissingFields(p: ProfileSummarySource): string[] {
-  const missing: string[] = [];
-  if (!p.canonicalRoleId) missing.push("role");
-  if (!p.canonicalTradeId) missing.push("trade");
-  if (!Array.isArray(p.skills) || p.skills.length === 0) missing.push("skills");
-  if (!Array.isArray(p.machines) || p.machines.length === 0) missing.push("machines");
-  if (asObject(p.experience)?.total_years == null) missing.push("experience");
-  const salary = asObject(p.salaryExpectation);
-  if (salary == null || (salary.amount_min == null && salary.amount_max == null))
-    missing.push("salary");
-  const cities = asObject(p.locationPreference)?.preferred_cities;
-  if (!Array.isArray(cities) || cities.length === 0) missing.push("location");
-  const status = readAvailabilityStatus(p.availability);
-  if (status == null || status === "unknown") missing.push("availability");
-  if (!p.hasPhoto) missing.push("photo");
-  return missing;
 }
 
 /** No-profile-yet summary: everything null/zero/empty, `profile_status: "none"`. */

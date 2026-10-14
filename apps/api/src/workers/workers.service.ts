@@ -5,7 +5,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { Inject } from "@nestjs/common";
+import { Inject, Optional } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
@@ -20,7 +20,9 @@ import { EventsService } from "../events/events.service";
 import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "./workers.repository";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { toProfileSummary } from "./profile-summary.mapper";
+import { readProfileFormFacts, type ProfileFormFacts } from "./profile-form-facts";
 import type {
   ConfirmPhotoDto,
   MyWhatsappResponse,
@@ -124,6 +126,9 @@ export class WorkersService {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     @InjectQueue(RESUME_RENDER_QUEUE)
     private readonly renderQueue: Queue<ResumeRenderJobData>,
+    // #2201 — the form answers the profile-summary strength reads. Optional so constructions that
+    // predate it (the unit tests) keep scoring the profile row alone, exactly as before.
+    @Optional() private readonly attributes?: WorkerAttributesRepository,
   ) {}
 
   /**
@@ -666,12 +671,14 @@ export class WorkersService {
    * Worker SELF-view profile summary (TD54 — the worker-app home "my profile"
    * card). Projects the LATEST `worker_profiles` row via the pure
    * {@link toProfileSummary} mapper: canonical trade ids + resolved display
-   * name, first preferred city, and a strength recomputed on read
-   * (countFields-equivalent — deliberately never stored). No profile row yet →
-   * the `"none"` summary, not a 404 (the app renders "complete your profile").
+   * name, first preferred city, and a strength recomputed on read over the
+   * row plus the worker's own form answers (#2201, presence only — deliberately
+   * never stored). No profile row yet → the `"none"` summary, not a 404 (the app
+   * renders "complete your profile").
    *
-   * NO PII: only the profile row is read — the worker's name/phone never enter
-   * this path (returning the name is an OPEN §2 escalation, see
+   * NO PII: the profile row and the attribute bag are read, and only presence
+   * flags leave the attribute read — the worker's name/phone never enter this
+   * path (returning the name is an OPEN §2 escalation, see
    * docs/worker-profile-summary-spec.md).
    *
    * DELIBERATELY NO EVENT: a read-only self-view is not a material state change
@@ -679,16 +686,43 @@ export class WorkersService {
    * emits nothing.
    */
   async getProfileSummary(workerId: string): Promise<WorkerProfileSummary> {
-    const [profile, worker] = await Promise.all([
+    const [profile, worker, formFacts] = await Promise.all([
       this.workers.latestProfile(workerId),
       this.workers.findById(workerId),
+      this.loadFormFacts(workerId),
     ]);
     if (!profile) return toProfileSummary(null);
     const hasPhoto =
       typeof worker?.photoStorageKey === "string" && worker.photoStorageKey.length > 0;
     // #1428 — the worker's own onboarding city outranks the extraction's (owner ruling
     // 2026-09-05). Threaded from the `workers` row, which this method already reads for the photo.
-    return toProfileSummary({ ...profile, hasPhoto, workerCity: worker?.currentCity ?? null });
+    return toProfileSummary({
+      ...profile,
+      hasPhoto,
+      workerCity: worker?.currentCity ?? null,
+      formFacts,
+    });
+  }
+
+  /**
+   * #2201 — the worker's form answers, presence only, for the strength read.
+   *
+   * FAIL-OPEN TO THE PRE-#2201 SCORE: a failed attribute read degrades to `null` (the profile row
+   * alone), never a 500 on the worker's own card. That is the same posture the résumé capability
+   * overlay takes on the same read. The log names the worker id and the error, never a value.
+   */
+  private async loadFormFacts(workerId: string): Promise<ProfileFormFacts | null> {
+    if (!this.attributes) return null;
+    try {
+      return readProfileFormFacts(await this.attributes.loadTradeSheet(workerId));
+    } catch (error) {
+      this.logger.warn(
+        `profile-summary form facts skipped for worker ${workerId} (${
+          error instanceof Error ? error.message : "unknown"
+        }); strength scores the profile row alone`,
+      );
+      return null;
+    }
   }
 
   /**
