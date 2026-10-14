@@ -27,6 +27,7 @@ import {
   type UtteranceClass,
 } from "@badabhai/profiling-lexicon";
 
+import { isCredentialYear } from "../profiles/credential-year";
 import type { AnswerMap, CapturedValue } from "./answer-map";
 
 /** What one worker turn produced. */
@@ -44,6 +45,12 @@ export interface Capture {
   readonly declined: boolean;
   /** An explicit correction ("nahi, 5 saal nahi 7 saal"), which overrides the commit rule. */
   readonly correcting: boolean;
+  /**
+   * #2233 — the field's parser READ a value and its business bound refused it ("2050" for a
+   * training year). Not an answer, so `values` is empty; the turn re-asks the question while it
+   * has asks left, instead of moving on as if the worker had said nothing.
+   */
+  readonly outOfRange: boolean;
 }
 
 /**
@@ -98,6 +105,25 @@ const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> =
   commute_max_km: (text) => parseCommuteKm(text)?.value ?? null,
   training_year: (text) => parseTrainingYear(text)?.value ?? null,
 };
+
+/**
+ * #2233 — Field id → the BUSINESS bound a typed value must meet, applied after the field's parser.
+ *
+ * A parser reads what a value looks like; this decides whether it can be true. `training_year`'s
+ * parser stops at the database's 2100, so "2050" was stored. The bound is the qualifications
+ * page's own, 1950 to the CURRENT year, read on every call (`credential-year.ts`). A value it
+ * refuses is NOT an answer: capture reports it as `outOfRange`, the turn re-asks the question, and
+ * the projector drops one already stored.
+ */
+const BOUND_BY_FIELD: Readonly<Record<string, (value: unknown) => boolean>> = {
+  training_year: (value) => isCredentialYear(value),
+};
+
+/** Does `value` meet its field's business bound? True for a field that declares none. */
+export function withinFieldBound(field: string | null, value: unknown): boolean {
+  const bound = field === null ? undefined : BOUND_BY_FIELD[field];
+  return bound === undefined || bound(value);
+}
 
 /**
  * Does this target field have a TYPED normalizer?
@@ -513,33 +539,39 @@ export function captureAnswer(
   const turnClass = signal.cls;
 
   if (turnClass === "abusive") {
-    return { turnClass, values: [], excludeFromParse: true, declined: false, correcting: false };
+    return noValue(turnClass, { excludeFromParse: true });
   }
   if (turnClass === "empty" || turnClass === "hardship" || turnClass === "question_back") {
     // None of these is an answer, and none of them is the worker's fault. They consume a TURN and
     // are handled by the orchestrator (acknowledge, clarify, or simply wait) — never an ASK.
-    return { turnClass, values: [], excludeFromParse: false, declined: false, correcting: false };
+    return noValue(turnClass);
   }
   if (turnClass === "dont_know") {
-    return { turnClass, values: [], excludeFromParse: false, declined: true, correcting: false };
+    return noValue(turnClass, { declined: true });
   }
 
   const correcting = turnClass === "correction";
   if (!askedItem) {
-    return { turnClass, values: [], excludeFromParse: false, declined: false, correcting };
+    return noValue(turnClass, { correcting });
   }
 
   const normalized = normalizeFor(askedItem, text, opts);
   if (normalized === undefined) {
-    return { turnClass, values: [], excludeFromParse: false, declined: false, correcting };
+    return noValue(turnClass, { correcting });
   }
 
-  // The negation veto is checked LAST, so a value that was found and then refused is reported as
-  // "no answer here" rather than as a wrong answer. "abhi kaam nahi mil raha" must never become
+  // The negation veto is checked once a value is found, so a value that was found and then refused
+  // is reported as "no answer here" rather than as a wrong answer. "abhi kaam nahi mil raha" must never become
   // availability: immediate.
   const span = spanFor(askedItem, text);
   if (isVetoed(text, span)) {
-    return { turnClass, values: [], excludeFromParse: false, declined: false, correcting };
+    return noValue(turnClass, { correcting });
+  }
+
+  // #2233 — READ, AND IMPOSSIBLE. After the veto, so a refused "2050 nahi" stays plain "no
+  // answer". Reported rather than dropped silently: the turn re-asks the question.
+  if (!withinFieldBound(askedItem.target_field, normalized)) {
+    return noValue(turnClass, { correcting, outOfRange: true });
   }
 
   // NOTE there is no `mayCommit` call here, and that is deliberate. This function only ever
@@ -563,6 +595,23 @@ export function captureAnswer(
     excludeFromParse: false,
     declined: false,
     correcting,
+    outOfRange: false,
+  };
+}
+
+/** A capture that carries no value: every early return of {@link captureAnswer}. */
+function noValue(
+  turnClass: UtteranceClass,
+  flags: Partial<Pick<Capture, "excludeFromParse" | "declined" | "correcting" | "outOfRange">> = {},
+): Capture {
+  return {
+    turnClass,
+    values: [],
+    excludeFromParse: false,
+    declined: false,
+    correcting: false,
+    outOfRange: false,
+    ...flags,
   };
 }
 

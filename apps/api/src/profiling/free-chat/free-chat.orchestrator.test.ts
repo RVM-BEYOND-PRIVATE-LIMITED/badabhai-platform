@@ -215,6 +215,8 @@ interface WorldOpts {
    * another row), or "throws" for a read that fails. Absent: none on file.
    */
   keptLanguage?: FreeChatReplyLanguage | "throws";
+  /** The universal pack the registry serves. Absent: {@link UNIVERSAL_PACK}. */
+  universal?: QuestionPack;
 }
 
 /** ADR-0051 §11 — an earlier session of the same worker, carrying a kept language. */
@@ -267,7 +269,7 @@ function makeWorld(opts: WorldOpts = {}) {
     }),
   };
   const registry = {
-    loadUniversal: vi.fn(async () => UNIVERSAL_PACK),
+    loadUniversal: vi.fn(async () => opts.universal ?? UNIVERSAL_PACK),
     loadPinned: vi.fn(async () => null),
     resolveForOccupation: vi.fn(async () => null),
   };
@@ -1302,6 +1304,34 @@ describe("résumé mode — a typed yes/no carrying other words is checked for d
     await onQuestion(world, "years");
     await world.say("5 saal se kar raha hoon");
     expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+  });
+});
+
+describe("résumé mode — a value its field's bound refuses (#2233)", () => {
+  it("a future training year is a typed answer: re-asked, with no classifier call", async () => {
+    const TRAINING_YEAR = item({
+      question_key: "training_year",
+      target_kind: "attribute",
+      target_field: "training_year",
+      answer_type: "number",
+      prompt_text: "Training kis saal ki thi?",
+    });
+    const world = makeWorld({
+      universal: { ...UNIVERSAL_PACK, items: [TRADE, TRAINING_YEAR] },
+    });
+    await inResumeMode(world);
+    world.classifyAs(verdict("resume"), verdict("resume"));
+    await world.say("main welder hoon");
+    expect((await world.say("welder")).questionKey).toBe(TRAINING_YEAR.question_key);
+    world.ai.freeChatClassify.mockClear();
+
+    const turn = await world.say("2050");
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(turn.questionKey).toBe(TRAINING_YEAR.question_key);
+    expect(turn.reply).toBe(TRAINING_YEAR.prompt_text);
+    expect(
+      world.envelope().answerMap.find((r) => r.question_key === TRAINING_YEAR.question_key)?.status,
+    ).not.toBe("answered");
   });
 });
 

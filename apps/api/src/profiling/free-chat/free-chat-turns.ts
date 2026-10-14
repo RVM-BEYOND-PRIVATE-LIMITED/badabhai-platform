@@ -1591,7 +1591,11 @@ function isTypedAnswer(text: string, item: QuestionPackItem | null): boolean {
     hasFieldNormalizer(item.target_field) ||
     item.answer_type === "number" ||
     item.answer_type === "boolean";
-  return typed && captureAnswer(text, item).values.length > 0;
+  if (!typed) return false;
+  // #2233 — a value READ and refused by its field's bound ("2050" for the training year) is still
+  // a typed answer: the interview re-asks it deterministically, with no classifier call.
+  const capture = captureAnswer(text, item);
+  return capture.values.length > 0 || capture.outOfRange;
 }
 
 /**

@@ -6,10 +6,10 @@ import {
   type ChatAttribute,
 } from "./chat-table-writes";
 
-const attribute = (
-  attributeKey: string,
-  value: ChatAttribute["value"],
-): ChatAttribute => ({ attributeKey, value });
+const attribute = (attributeKey: string, value: ChatAttribute["value"]): ChatAttribute => ({
+  attributeKey,
+  value,
+});
 
 describe("trainingEntryFromChatAttributes", () => {
   it("assembles one row from the three chat attributes", () => {
@@ -33,11 +33,31 @@ describe("trainingEntryFromChatAttributes", () => {
   });
 
   it("keeps provider and year optional", () => {
-    expect(trainingEntryFromChatAttributes([attribute("training_name", "Welding course")])).toEqual({
-      name: "Welding course",
-      provider: null,
-      year: null,
-    });
+    expect(trainingEntryFromChatAttributes([attribute("training_name", "Welding course")])).toEqual(
+      {
+        name: "Welding course",
+        provider: null,
+        year: null,
+      },
+    );
+  });
+
+  it("refuses a future year — the qualifications page's bound, not the CHECK's 2100 (#2233)", () => {
+    const thisYear = new Date().getFullYear();
+    const yearOf = (year: number) =>
+      trainingEntryFromChatAttributes([
+        attribute("training_name", "CNC course"),
+        attribute("training_year", year),
+      ]);
+    expect(yearOf(thisYear)?.year).toBe(thisYear);
+    for (const year of [2050, thisYear + 1, 2100]) {
+      // The row is kept; only the year is dropped.
+      expect(yearOf(year), String(year)).toEqual({
+        name: "CNC course",
+        provider: null,
+        year: null,
+      });
+    }
   });
 
   it("refuses a year the worker_training CHECK would reject", () => {
@@ -63,8 +83,11 @@ describe("trainingEntryFromChatAttributes", () => {
 
 describe("roleIdsFromChatAttributes", () => {
   it("keeps known role ids in the worker's order", () => {
-    expect(roleIdsFromChatAttributes([attribute("secondary_occupations", ["role_welder", "role_plumber"])]))
-      .toEqual(["role_welder", "role_plumber"]);
+    expect(
+      roleIdsFromChatAttributes([
+        attribute("secondary_occupations", ["role_welder", "role_plumber"]),
+      ]),
+    ).toEqual(["role_welder", "role_plumber"]);
   });
 
   it("drops ids the closed taxonomy does not know — the page's PUT would 400 on them", () => {
