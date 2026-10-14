@@ -23,7 +23,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import { ChatService } from "./chat.service";
-import { PostMessageResponseSchema } from "./chat.dto";
+import { PostMessageResponseSchema, SessionMessagesResponseSchema } from "./chat.dto";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
 import {
   emptyGeneralRoad,
@@ -164,6 +164,8 @@ function make(
     resumeConfirmOpen?: Record<string, unknown> | null;
     /** ADR-0045 — the ended session's persisted `conversation_state`. Default null. */
     conversationState?: unknown;
+    /** #2235 — the row's `ended_at`. Default null, as on a live row. */
+    sessionEndedAt?: Date | null;
   } = {},
 ) {
   const session = {
@@ -172,6 +174,7 @@ function make(
     status: opts.sessionStatus ?? "active",
     conversationState: opts.conversationState ?? null,
     startedAt: new Date(),
+    endedAt: opts.sessionEndedAt ?? null,
   };
 
   let nextMessageId = 0;
@@ -1600,6 +1603,61 @@ describe("ChatService.listMessages — replayed questions read aloud too (#896)"
 
     expect(assistant!.tts_text).toBe("आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।");
     expect("tts_text" in worker!).toBe(false);
+  });
+});
+
+describe("ChatService.listMessages — session_ended_at says the thread is over (#2235)", () => {
+  const ENDED_AT = new Date("2026-10-14T09:30:00.000Z");
+  const rows = [
+    { direction: "outbound", bodyText: "Kitne saal ka tajurba hai?", createdAt: new Date(T0) },
+    { direction: "inbound", bodyText: "5 saal", createdAt: new Date(T0) },
+  ];
+
+  it.each(["ended", "abandoned"])(
+    "a %s session carries its ended_at, on the durable branch",
+    async (status) => {
+      const { svc, chat } = make({ buffer: null, sessionStatus: status, sessionEndedAt: ENDED_AT });
+      chat.listMessages.mockResolvedValue(rows);
+      const res = await svc.listMessages(WORKER, SESSION);
+      expect(res.session_ended_at).toBe("2026-10-14T09:30:00.000Z");
+      expect(SessionMessagesResponseSchema.safeParse(res).success).toBe(true);
+    },
+  );
+
+  it("a closed row read while its buffer still exists says so too (the row decides)", async () => {
+    const { svc } = make({
+      buffer: {
+        messages: [{ role: "assistant", text: "Shukriya.", at: T0, voiceNoteId: null }],
+      },
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+    });
+    const res = await svc.listMessages(WORKER, SESSION);
+    expect(res.session_ended_at).toBe("2026-10-14T09:30:00.000Z");
+  });
+
+  it("a LIVE session's response is byte-identical: the key is absent, never null", async () => {
+    const durable = make({ buffer: null });
+    durable.chat.listMessages.mockResolvedValue(rows);
+    const fromRows = await durable.svc.listMessages(WORKER, SESSION);
+    expect("session_ended_at" in fromRows).toBe(false);
+
+    const buffered = make({
+      buffer: {
+        messages: [{ role: "assistant", text: "Namaste", at: T0, voiceNoteId: null }],
+      },
+    });
+    expect("session_ended_at" in (await buffered.svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it("a live row that somehow carries an ended_at is still live", async () => {
+    const { svc } = make({ buffer: null, sessionStatus: "active", sessionEndedAt: ENDED_AT });
+    expect("session_ended_at" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it("a closed row with no ended_at has nowhere to put a marker: absent", async () => {
+    const { svc } = make({ buffer: null, sessionStatus: "ended", sessionEndedAt: null });
+    expect("session_ended_at" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
   });
 });
 
