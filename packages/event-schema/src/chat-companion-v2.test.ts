@@ -86,13 +86,18 @@ describe("chat.companion_turn_served_v2", () => {
       version: 2,
       domain: "chat",
     });
-    expect(EVENT_REGISTRY["chat.companion_turn_served"]).toMatchObject({ version: 1, domain: "chat" });
+    expect(EVENT_REGISTRY["chat.companion_turn_served"]).toMatchObject({
+      version: 1,
+      domain: "chat",
+    });
   });
 
   it("validates a full v2 turn and normalizes it through createEvent", () => {
     const parsed = validateEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload()));
     expect(parsed.success).toBe(true);
-    const event = createEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload()) as never);
+    const event = createEvent(
+      envelope("chat.companion_turn_served_v2", 2, turnV2Payload()) as never,
+    );
     expect(event.payload).toMatchObject({
       worker_id: UUID_B,
       intent_source: "llm",
@@ -105,9 +110,8 @@ describe("chat.companion_turn_served_v2", () => {
   it("accepts every intent, source, bucket and outcome of the closed sets", () => {
     for (const v2_intent of V2_INTENTS) {
       expect(
-        validateEvent(
-          envelope("chat.companion_turn_served_v2", 2, turnV2Payload({ v2_intent })),
-        ).success,
+        validateEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload({ v2_intent })))
+          .success,
         v2_intent,
       ).toBe(true);
     }
@@ -171,7 +175,9 @@ describe("chat.companion_turn_served_v2", () => {
       { outcome: "ok" },
       { trigger: "tap" },
     ]) {
-      const result = validateEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload(bad)));
+      const result = validateEvent(
+        envelope("chat.companion_turn_served_v2", 2, turnV2Payload(bad)),
+      );
       expect(result.success, JSON.stringify(bad)).toBe(false);
       if (!result.success) expect(result.error.stage).toBe("payload");
     }
@@ -192,9 +198,7 @@ describe("chat.companion_turn_served_v2", () => {
   });
 
   it("rejects the event under v1's version number — one version per name", () => {
-    const result = validateEvent(
-      envelope("chat.companion_turn_served_v2", 1, turnV2Payload()),
-    );
+    const result = validateEvent(envelope("chat.companion_turn_served_v2", 1, turnV2Payload()));
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.stage).toBe("version");
   });
@@ -236,9 +240,9 @@ describe("chat.companion_edit_proposed", () => {
       version: 1,
       domain: "chat",
     });
-    expect(
-      validateEvent(envelope("chat.companion_edit_proposed", 1, proposed())).success,
-    ).toBe(true);
+    expect(validateEvent(envelope("chat.companion_edit_proposed", 1, proposed())).success).toBe(
+      true,
+    );
     expect(
       validateEvent(
         envelope(
@@ -356,9 +360,8 @@ describe("chat.companion_edit_cancelled", () => {
     });
     for (const reason of ["worker", "expired", "stale"] as const) {
       expect(
-        validateEvent(
-          envelope("chat.companion_edit_cancelled", 1, { proposal_id: UUID_C, reason }),
-        ).success,
+        validateEvent(envelope("chat.companion_edit_cancelled", 1, { proposal_id: UUID_C, reason }))
+          .success,
         reason,
       ).toBe(true);
     }
@@ -484,39 +487,176 @@ describe("chat.companion_turn_served_v3 (TD150) — intent_source gains `chip`",
   });
 
   it("is registered v3 and accepts `chip` alongside every v2 source, keeping v2's set intact", () => {
-    expect(EVENT_REGISTRY["chat.companion_turn_served_v3"]).toMatchObject({ version: 3, domain: "chat" });
+    expect(EVENT_REGISTRY["chat.companion_turn_served_v3"]).toMatchObject({
+      version: 3,
+      domain: "chat",
+    });
     for (const source of ["v1_deterministic", "chip", "lexicon", "llm", "guard", "fallback"]) {
       expect(
-        validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ intent_source: source }))).success,
+        validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ intent_source: source })))
+          .success,
         source,
       ).toBe(true);
     }
     // v2's five-value set is untouched (no `chip` there), so old rows stay valid.
     for (const source of INTENT_SOURCES) {
       expect(
-        validateEvent(envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: source })).success,
+        validateEvent(
+          envelope("chat.companion_turn_served_v2", 2, {
+            ...turnV2Payload(),
+            intent_source: source,
+          }),
+        ).success,
         source,
       ).toBe(true);
     }
-    expect(validateEvent(envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: "chip" })).success).toBe(false);
+    expect(
+      validateEvent(
+        envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: "chip" }),
+      ).success,
+    ).toBe(false);
   });
 
   it("repeats v2's jobs refine and stays STRICT", () => {
     expect(
-      validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ jobs_scope: null, new_jobs_count: 3 }))).success,
+      validateEvent(
+        envelope("chat.companion_turn_served_v3", 3, v3({ jobs_scope: null, new_jobs_count: 3 })),
+      ).success,
     ).toBe(false);
-    const smuggled = validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ text: "mera naam badlo" })));
+    const smuggled = validateEvent(
+      envelope("chat.companion_turn_served_v3", 3, v3({ text: "mera naam badlo" })),
+    );
     expect(smuggled.success).toBe(false);
     if (!smuggled.success) expect(smuggled.error.stage).toBe("payload");
   });
 });
 
+// ── ADR-0055 (#2275) — the Bada Bhai chat runs the free-chat brain ──────────────────────────
+
+describe("chat.companion_turn_served_v4 (ADR-0055) — the brain's facts, ids and enums only", () => {
+  const v4 = (over: Record<string, unknown> = {}) => ({
+    ...turnV2Payload(),
+    intent_source: "llm",
+    v2_intent: "career_talk",
+    confidence_bucket: "gte90",
+    outcome: "answered",
+    free_category: "career",
+    resume_action: null,
+    refusal_topic: null,
+    reply_language: "hinglish",
+    news_outcome: null,
+    news_source_count: 0,
+    ...over,
+  });
+  const ok = (over: Record<string, unknown> = {}) =>
+    validateEvent(envelope("chat.companion_turn_served_v4", 4, v4(over))).success;
+
+  it("is registered v4 in the chat domain, and v3 stays registered", () => {
+    expect(isEventName("chat.companion_turn_served_v4")).toBe(true);
+    expect(EVENT_REGISTRY["chat.companion_turn_served_v4"]).toMatchObject({
+      version: 4,
+      domain: "chat",
+    });
+    expect(EVENT_REGISTRY["chat.companion_turn_served_v3"]).toMatchObject({ version: 3 });
+  });
+
+  it("accepts every widened intent and the `answered` outcome — which v3 refuses", () => {
+    for (const intent of [
+      ...V2_INTENTS,
+      "download_resume",
+      "resume_menu",
+      "casual",
+      "off_limits",
+      "distress",
+    ]) {
+      expect(
+        ok({ v2_intent: intent, free_category: null, confidence_bucket: null, outcome: "served" }),
+        intent,
+      ).toBe(true);
+    }
+    for (const outcome of [...OUTCOMES, "answered"]) {
+      expect(ok({ outcome }), outcome).toBe(true);
+    }
+    // v3's sets are untouched: neither a new intent nor `answered` parses there.
+    const v3 = { ...turnV2Payload(), intent_source: "llm" };
+    expect(
+      validateEvent(envelope("chat.companion_turn_served_v3", 3, { ...v3, v2_intent: "casual" }))
+        .success,
+    ).toBe(false);
+    expect(
+      validateEvent(envelope("chat.companion_turn_served_v3", 3, { ...v3, outcome: "answered" }))
+        .success,
+    ).toBe(false);
+  });
+
+  it("accepts a v2-path turn with every brain field null (the kill switch)", () => {
+    expect(
+      ok({
+        v2_intent: "edit_resume",
+        outcome: "proposed",
+        free_category: null,
+        reply_language: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("carries a résumé action, a refusal topic and a news ending", () => {
+    expect(
+      ok({
+        v2_intent: "download_resume",
+        outcome: "served",
+        free_category: "resume",
+        resume_action: "download",
+        reply_language: null,
+      }),
+    ).toBe(true);
+    expect(ok({ outcome: "refused", refusal_topic: "legal_medical_financial" })).toBe(true);
+    expect(ok({ news_outcome: "answered", news_source_count: 3 })).toBe(true);
+    expect(ok({ outcome: "served", news_outcome: "capped", news_source_count: 0 })).toBe(true);
+  });
+
+  it("refuses facts that contradict each other", () => {
+    // A category with no classifier bucket; an action off a non-résumé category.
+    expect(ok({ confidence_bucket: null })).toBe(false);
+    expect(ok({ resume_action: "edit" })).toBe(false);
+    // A refusal topic on a turn that did not refuse.
+    expect(ok({ refusal_topic: "news" })).toBe(false);
+    // Tiles without an answered news request, an answered one without tiles, too many tiles.
+    expect(ok({ news_outcome: "no_results", news_source_count: 1 })).toBe(false);
+    expect(ok({ news_outcome: "answered", news_source_count: 0 })).toBe(false);
+    expect(ok({ news_outcome: "answered", news_source_count: 4 })).toBe(false);
+    // A news request with no reply language; the v1 jobs refine still holds.
+    expect(ok({ news_outcome: "unavailable", reply_language: null })).toBe(false);
+    expect(ok({ jobs_scope: null, new_jobs_count: 3 })).toBe(false);
+  });
+
+  it("refuses an out-of-set value and stays STRICT — no worker or model text can ride along", () => {
+    expect(ok({ free_category: "gossip" })).toBe(false);
+    expect(ok({ reply_language: "bhojpuri" })).toBe(false);
+    expect(ok({ resume_action: "print", free_category: "resume" })).toBe(false);
+    for (const smuggle of [
+      { text: "mera naam Ramesh hai" },
+      { reply: "Welder ki salary aam taur par 15-20 hazaar hoti hai." },
+      { news_url: "https://www.thehindu.com/x" },
+    ]) {
+      const result = validateEvent(envelope("chat.companion_turn_served_v4", 4, v4(smuggle)));
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.stage).toBe("payload");
+    }
+  });
+});
+
 describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
   it("accepts the renamed reasons plus `superseded`", () => {
-    expect(EVENT_REGISTRY["chat.companion_edit_cancelled_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    expect(EVENT_REGISTRY["chat.companion_edit_cancelled_v2"]).toMatchObject({
+      version: 2,
+      domain: "chat",
+    });
     for (const reason of ["worker_declined", "expired", "stale", "superseded"]) {
       expect(
-        validateEvent(envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason })).success,
+        validateEvent(
+          envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason }),
+        ).success,
         reason,
       ).toBe(true);
     }
@@ -524,10 +664,16 @@ describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
 
   it("refuses v1's `worker` and any other word, and stays STRICT", () => {
     expect(
-      validateEvent(envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "worker" })).success,
+      validateEvent(
+        envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "worker" }),
+      ).success,
     ).toBe(false);
     const smuggled = validateEvent(
-      envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "stale", value: "Tata Motors" }),
+      envelope("chat.companion_edit_cancelled_v2", 2, {
+        proposal_id: UUID_B,
+        reason: "stale",
+        value: "Tata Motors",
+      }),
     );
     expect(smuggled.success).toBe(false);
   });
@@ -535,7 +681,10 @@ describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
 
 describe("chat.companion_edit_confirmed_v2 (TD150) — skipped_no_consent", () => {
   it("accepts the consent skip alongside the three v1 values", () => {
-    expect(EVENT_REGISTRY["chat.companion_edit_confirmed_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    expect(EVENT_REGISTRY["chat.companion_edit_confirmed_v2"]).toMatchObject({
+      version: 2,
+      domain: "chat",
+    });
     for (const resume_regen of ["queued", "capped", "failed", "skipped_no_consent"]) {
       expect(
         validateEvent(
@@ -577,7 +726,10 @@ describe("chat.companion_edit_confirmed_v2 (TD150) — skipped_no_consent", () =
 
 describe("chat.companion_edit_rolled_back (TD150) — new v1", () => {
   it("is registered v1 and accepts the apply_failed rollback", () => {
-    expect(EVENT_REGISTRY["chat.companion_edit_rolled_back"]).toMatchObject({ version: 1, domain: "chat" });
+    expect(EVENT_REGISTRY["chat.companion_edit_rolled_back"]).toMatchObject({
+      version: 1,
+      domain: "chat",
+    });
     expect(
       validateEvent(
         envelope("chat.companion_edit_rolled_back", 1, {
@@ -596,7 +748,9 @@ describe("chat.companion_edit_rolled_back (TD150) — new v1", () => {
       { proposal_id: UUID_B, row_count: 0, sections: ["skills"], reason: "apply_failed" },
       { proposal_id: UUID_B, row_count: 1, sections: [], reason: "apply_failed" },
     ]) {
-      expect(validateEvent(envelope("chat.companion_edit_rolled_back", 1, bad)).success).toBe(false);
+      expect(validateEvent(envelope("chat.companion_edit_rolled_back", 1, bad)).success).toBe(
+        false,
+      );
     }
     const smuggled = validateEvent(
       envelope("chat.companion_edit_rolled_back", 1, {
@@ -613,7 +767,10 @@ describe("chat.companion_edit_rolled_back (TD150) — new v1", () => {
 
 describe("the submission-id v2s (TD150) — faltu strike and career answer", () => {
   it("faltu_strike_v2 accepts the v1 shape plus a nullable submission_id", () => {
-    expect(EVENT_REGISTRY["chat.companion_faltu_strike_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    expect(EVENT_REGISTRY["chat.companion_faltu_strike_v2"]).toMatchObject({
+      version: 2,
+      domain: "chat",
+    });
     for (const submission_id of [null, UUID_C]) {
       expect(
         validateEvent(
@@ -638,7 +795,10 @@ describe("the submission-id v2s (TD150) — faltu strike and career answer", () 
   });
 
   it("career_answered_v2 accepts the v1 shape plus a nullable submission_id, STRICT", () => {
-    expect(EVENT_REGISTRY["chat.companion_career_answered_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    expect(EVENT_REGISTRY["chat.companion_career_answered_v2"]).toMatchObject({
+      version: 2,
+      domain: "chat",
+    });
     for (const submission_id of [null, UUID_C]) {
       expect(
         validateEvent(

@@ -197,6 +197,45 @@ export type CompanionV2UnsupportedEditTarget = (typeof COMPANION_V2_UNSUPPORTED_
 export const COMPANION_V2_CONFIDENCE_BUCKETS = ["lt50", "50_70", "70_90", "gte90"] as const;
 export type CompanionV2ConfidenceBucket = (typeof COMPANION_V2_CONFIDENCE_BUCKETS)[number];
 
+// ---- Companion v3 — the Bada Bhai chat runs the free-chat brain (ADR-0055, #2275) ----
+// The closed sets `chat.companion_turn_served_v4` records. NEW CONSTANTS, never a widened v2 set:
+// `chat.companion_turn_served_v2`/`_v3` keep their vocabularies exactly as shipped.
+//
+// THE INTENT A TURN WAS ROUTED ON: the six v2 intents, plus what the free-chat brain routes to that
+// v2 could not name — `download_resume` (a résumé message that wants the file), `resume_menu` (a
+// résumé message whose action the classifier could not tell: the résumé menu asks), `casual` (a
+// model reply to small talk), `off_limits` (the fixed deflect line) and `distress` (the helpline,
+// from the word list or the classifier). `career_talk` is the brain's career reply too.
+export const COMPANION_V3_INTENTS = [
+  "edit_resume",
+  "career_talk",
+  "jobs_talk",
+  "new_resume",
+  "faltu",
+  "unclear",
+  "download_resume",
+  "resume_menu",
+  "casual",
+  "off_limits",
+  "distress",
+] as const;
+export type CompanionV3Intent = (typeof COMPANION_V3_INTENTS)[number];
+
+// WHAT A V3 TURN DELIVERED: the seven v2 outcomes, plus `answered` — a MODEL-WRITTEN reply (a
+// casual or career answer, or a live-news summary) that passed the API's deterministic gate. A
+// fixed line the brain serves (jobs, off-limits, distress, the download lines) is `served`, as in v2.
+export const COMPANION_V3_OUTCOMES = [
+  "served",
+  "proposed",
+  "phase_off",
+  "clarify",
+  "cooldown",
+  "refused",
+  "fallback",
+  "answered",
+] as const;
+export type CompanionV3Outcome = (typeof COMPANION_V3_OUTCOMES)[number];
+
 // ---- The general road (ADR-0045) ----
 // A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with
 // a card to the offline general form. Shared by the API (which decides) and the event spine

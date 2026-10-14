@@ -1434,6 +1434,17 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatFreeChatLanguageChangedPayload,
   },
+
+  // ADR-0055 (#2275) — `chat.companion_turn_served` VERSION 4: the Bada Bhai chat runs the free-chat
+  // brain. The v3 fields with `v2_intent` / `outcome` drawn from the wider COMPANION_V3_* sets, plus
+  // the brain's facts (free_category, resume_action, refusal_topic, reply_language, news_outcome,
+  // news_source_count). A NEW NAME — v3 keeps its definition and stops being emitted. Every v2 turn
+  // emits this now, on both paths. Ids, counts and closed enums only; never the worker's words. v4.
+  "chat.companion_turn_served_v4": {
+    version: 4,
+    domain: "chat",
+    payload: p.ChatCompanionTurnServedV4Payload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
