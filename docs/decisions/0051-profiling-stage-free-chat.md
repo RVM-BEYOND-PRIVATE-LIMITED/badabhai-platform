@@ -516,9 +516,12 @@ Understanding was never the problem: the Marathi question was classified and ans
 
 | # | Ruling |
 |---|---|
-| **R39** | **Code detects the language, the model follows.** The API decides each reply's language with word lists, in Latin letters and in each language's script. It passes the result to the reply and news calls as `reply_language`, and the prompt follows it. The model no longer chooses. |
+| **R39** | **Code detects the language, the model follows.** _(Detection amended by R42: the classifier names the language, the word lists are the backup.)_ The API decides each reply's language with word lists, in Latin letters and in each language's script. It passes the result to the reply and news calls as `reply_language`, and the prompt follows it. The model no longer chooses. |
 | **R40** | **Every reply mirrors the worker's message.** English in, English out: plain, simple English (this supersedes R26 for English). Hindi or Hinglish, in either script, gets Hinglish. Marathi, Gujarati, Kannada, Telugu or Tamil gets that language mixed with English. Anything unsure gets Hinglish. Always Latin letters (R26). The fixed lines stay Hinglish (R27). The worker should feel they are chatting with someone who speaks every language they do. |
 | **R41** | **An explicit language request.** For example "marathi mai jawab do" or "reply in Tamil". That one reply comes in the requested language. Then the fixed ask "Kya aage ki saari baat {Language} mein karein?" follows, with the chips "Haan, {Language} mein" and "Nahi". **Haan:** "Theek hai, ab se {Language} mein baat karenge." Every reply then uses that language for the whole chat, across returns, until another request. **Nahi:** "Theek hai. Aap jis bhasha mein likhenge, usi mein jawab dunga." Each reply follows the message again. Copy approved as drafted. |
+| **R42** | **The AI names the language (owner, 2026-10-14, #2240).** The free-chat classifier, which already reads every free-mode message, also returns that message's language from the closed reply-language set (`FreeChatClassifyOutput.language`). That label is the message's language for R40. The word lists stay only as the backup: when the classifier is unavailable, or returns no label. A Gujarati, Tamil, Telugu or Kannada script still decides by code, because it is certain. The precedence is otherwise unchanged: an explicit request (R41), then a kept language, then this message's language. Why: the device test's "cam programmer kitee kamai karato?" carried no listed Marathi word ("kitee", "karato" are unlisted spellings), so it fell to Hinglish. |
+| **R43** | **Better prompt first, same model (owner, 2026-10-14).** The reply prompts get stricter per-language instructions and real examples, with no Hindi function words in a non-Hindi reply. For example, Marathi says "madhe", "aahe", "chhan", "sathi", never "mein", "hai", "achha", "ke liye". Measured on the reply-language eval on the production model before shipping. A stronger model is not part of this ruling. |
+| **R44** | **Trade words may stay English (owner, 2026-10-14).** A reply is in the worker's language, in Latin letters only. Work words people actually say in English (welding, CNC, resume, course, salary) may stay English. Hindi words in a non-Hindi reply are not allowed. |
 
 **How it works:**
 - **Free mode only.** The résumé lock and interview are unchanged (R27). So are the classifier, which still reads the
@@ -614,4 +617,5 @@ Release 2 rulings R21–R24 taken 2026-10-07 (§8).
 Regional-language rulings R25–R28 taken 2026-10-07 (§9).
 Improvement-loop rulings R29–R38 taken 2026-10-08 (§10).
 Reply-language rulings R39–R41 taken 2026-10-08 (§11).
+Reply-language rulings R42–R44 taken 2026-10-14 (§11, #2240).
 ```
