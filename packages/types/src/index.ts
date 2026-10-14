@@ -449,6 +449,19 @@ export type FreeChatReplyLanguage = (typeof FREE_CHAT_REPLY_LANGUAGES)[number];
 // until another request; `declined` ("Nahi") each reply follows the worker's message again.
 export const FREE_CHAT_LANGUAGE_TRIGGERS = ["accepted", "declined"] as const;
 export type FreeChatLanguageTrigger = (typeof FREE_CHAT_LANGUAGE_TRIGGERS)[number];
+// ADR-0055 (#2275) — WHICH SCREEN a free-chat model call serves. `profiling` the onboarding chat
+// (ADR-0051, before the profile is confirmed); `companion` the Bada Bhai chat after it, which now
+// runs the same brain. The AI inputs default to `profiling`, so every existing caller is unchanged
+// and its prompts stay byte-identical; `companion` swaps only the lines that assume no résumé yet.
+export const FREE_CHAT_SURFACES = ["profiling", "companion"] as const;
+export type FreeChatSurface = (typeof FREE_CHAT_SURFACES)[number];
+// ADR-0055 — ON THE COMPANION SURFACE, WHAT A `resume` MESSAGE WANTS. The worker's résumé already
+// exists, so "resume" splits three ways: `edit` change, add or remove something in it (the edit
+// card); `new` make a fresh one (the redo menu); `download` get, send, share or print the file
+// (the download chip). The classifier names it; null (profiling surface, unsure, or any other
+// category) leaves the deterministic résumé menu to ask.
+export const FREE_CHAT_RESUME_ACTIONS = ["edit", "new", "download"] as const;
+export type FreeChatResumeAction = (typeof FREE_CHAT_RESUME_ACTIONS)[number];
 
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
