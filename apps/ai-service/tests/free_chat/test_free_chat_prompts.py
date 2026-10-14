@@ -911,7 +911,7 @@ def test_the_classify_route_is_cheap_json_deterministic_and_small() -> None:
     assert _ROUTE_SHAPES["profiling_free_classify"] == ("cheap", True)
     route = get_route("profiling_free_classify", settings)
     assert (route.tier, route.json_mode, route.temperature) == ("cheap", True, 0.0)
-    assert route.max_output_tokens == 48
+    assert route.max_output_tokens == 64
     assert route.max_retries == settings.ai_chat_max_retries
     assert route.model is None and route.fallback_model is None
     assert resolve_model("profiling_free_classify", settings) == settings.default_cheap_model

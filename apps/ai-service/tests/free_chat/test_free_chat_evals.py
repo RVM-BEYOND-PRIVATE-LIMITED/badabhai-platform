@@ -720,7 +720,7 @@ def test_the_language_cli_posts_each_line_alone_in_free_mode(
     assert re.search(r"language marathi\s+1/1 = 100\.0%", out)
     assert "Latin-letter Marathi: 1/1 = 100.0%" in out
     assert "hinglish missed as: marathi (2)" in out
-    assert "output tokens: max 30 of the route's cap 48 (3 answers)" in out
+    assert "output tokens: max 30 of the route's cap 64 (3 answers)" in out
     assert "MISS [native] 'मुझे वेल्डिंग सीखनी है': expected hinglish, got marathi" in out
     assert "RESULT: PASS" in out
 
@@ -762,5 +762,5 @@ def test_the_category_report_prints_the_output_tokens_against_the_cap(
     _small_set(monkeypatch)
     FakeService(monkeypatch, lambda _p, _b: _language_verdict("hinglish", output_tokens=31))
     assert eval_cli.main(["--base-url", _BASE]) == 0
-    assert "output tokens: max 31 of the route's cap 48 (3 answers)" in capsys.readouterr().out
-    assert eval_cli.output_token_cap() == 48
+    assert "output tokens: max 31 of the route's cap 64 (3 answers)" in capsys.readouterr().out
+    assert eval_cli.output_token_cap() == 64

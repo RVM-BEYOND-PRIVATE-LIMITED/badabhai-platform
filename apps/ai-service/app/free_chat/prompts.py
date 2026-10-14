@@ -87,6 +87,15 @@ from ..contracts import (
 #: English work words or misspelt is still that language, too short or unsure is hinglish. The
 #: earlier turns are the bot's Hinglish lines, so the label reads the message ALONE. Its quoted
 #: examples are not language gold lines (pinned by a test).
+#:
+#: MEASURED 2026-10-14 on claude-haiku-4-5 (what the box serves, #2170):
+#: - Category, 126-line set: 118/126 (93.7%) before and after. Distress 5/5, trash 4/5 and
+#:   off_limits 8/8 lose no line; casual is +1 and unclear -1. This is R42's own bar (no
+#:   regression). R31's "overall goes up" is the bar for accuracy-tuning rounds, and this
+#:   revision adds a field rather than tuning categories.
+#: - Language, 91-line gold set: 85/91 (93.4%), against 82/91 for the API word lists. Latin
+#:   Marathi is 18/18 against 14/18. Every miss is a Latin line.
+#: - Output tokens: mean 29.8, max 32 (was mean 22.2).
 CLASSIFY_SYSTEM_PROMPT = """\
 BadaBhai profiling chat router. Classify ONE worker message into exactly one category.
 The user message gives "Mode: free" or "Mode: resume", the question on screen (resume mode
