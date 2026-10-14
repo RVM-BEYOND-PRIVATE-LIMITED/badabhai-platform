@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
+import { EVENT_REGISTRY } from "@badabhai/event-schema";
 import { FreeChatModelCalls } from "../../profiling/free-chat/free-chat-model-calls";
 import { FREE_CHAT_COPY } from "../../profiling/free-chat/free-chat.copy";
 import { WorkerNameReader } from "../../workers/worker-name-sources";
@@ -43,6 +44,9 @@ const NAME = "Ramesh Yadav";
 /** A news question with the worker's name and no identifier (an identifier is never searched, R9). */
 const NEWS_MSG = "main Ramesh Yadav hoon, aaj ki khabar batao";
 const NEWS_MSG_REDACTED = "main [NAME] hoon, aaj ki khabar batao";
+/** A message carrying the name, a phone number and an employer — none of it may reach a log or the spine. */
+const PII_MSG = "main Ramesh Yadav hoon, 9876543210 pe call karo, Tata Motors mein kaam karta tha";
+const PII_WORDS = /Ramesh|Yadav|9876543210|Tata|Motors/;
 
 /** The gateway's mask, as the ai-service pseudonymizer would write it. */
 const mask = (text: string): string =>
@@ -242,5 +246,50 @@ describe("own-name redaction on the brain's model egress (ADR-0055 F1)", () => {
     expect(inputOf(h.ai.freeChatClassify).text).toBe(NEWS_MSG);
     expect(inputOf(h.ai.freeChatReply).text).toBe(NEWS_MSG);
     expect(h.ai.freeChatNews).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe.each([true, false])("AI_RAW_PII_ENABLED=%s on the brain path (ADR-0055 F2)", (rawPii) => {
+  it(`the gateway runs ${rawPii ? "NEVER" : "FIRST"}; every model call carries ${
+    rawPii ? "the raw text, own-name redacted" : "its masked text"
+  }`, async () => {
+    const h = setup({ rawPii });
+    await h.send(NEWS_MSG);
+    expect(h.ai.pseudonymize).toHaveBeenCalledTimes(rawPii ? 0 : 1);
+    const expected = rawPii ? NEWS_MSG_REDACTED : mask(NEWS_MSG);
+    for (const spy of [h.ai.freeChatClassify, h.ai.freeChatReply, h.ai.freeChatNews]) {
+      expect(inputOf(spy).text).toBe(expected);
+      expect(JSON.stringify(spy.mock.calls[0]![0])).not.toMatch(/Ramesh|Yadav/);
+    }
+  });
+
+  const PATHS: Array<[string, Setup["reply"] | "throw"]> = [
+    // The gate rejects a line ("!") → REPLY_FALLBACK and a closed-reason warning.
+    [
+      "reject",
+      { status: "answer", lines: ["Call kariye!"], followup_chips: [], ai_metadata: META },
+    ],
+    // The reply call failed → REPLY_FALLBACK.
+    ["fallback", null],
+    // The brain itself throws, its error carrying the worker's words → the clarify line.
+    ["throw", "throw"],
+  ];
+  it.each(PATHS)("%s path: the logs and the v4 event stay text-free", async (path, reply) => {
+    const h = setup({ rawPii, reply: reply === "throw" ? undefined : reply });
+    if (reply === "throw") h.route.mockRejectedValueOnce(new Error(`boom: ${PII_MSG}`));
+    const turn = await h.send(PII_MSG);
+    expect(turn.reply).not.toMatch(PII_WORDS);
+
+    const events = h.events.emit.mock.calls.map(
+      (c) => c[0] as { event_name: string; payload: unknown },
+    );
+    const v4 = events.find((e) => e.event_name === "chat.companion_turn_served_v4")!;
+    expect(
+      EVENT_REGISTRY["chat.companion_turn_served_v4"].payload.safeParse(v4.payload).success,
+    ).toBe(true);
+    expect(JSON.stringify(events)).not.toMatch(PII_WORDS);
+    expect(JSON.stringify(logged)).not.toMatch(PII_WORDS);
+    if (path !== "throw") expect(v4.payload).toMatchObject({ outcome: "fallback" });
+    else expect(v4.payload).toMatchObject({ intent_source: "fallback", outcome: "clarify" });
   });
 });
