@@ -459,7 +459,7 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
    - sessions with repeated deflections. The order is unknown, because a résumé-mode message that goes to the
      interview records no event;
    - mode changes, summary outcomes and news outcomes;
-   - `ai.cost_recorded` for the four free-chat tasks.
+   - `ai.cost_recorded` for the four free-chat tasks, by the model that served each call (R32 reads it here).
 
    With `--sample`, on the box only (R34), it adds the masked struggled messages (R29): clarify, fallback or
    deflected turns, and classifier verdicts acted on at 0.5–0.7 confidence, from eligible workers only (R36). A turn
@@ -472,12 +472,21 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 
    `badabhai-api` is the container name fixed in `docker-compose.yml`. A bare `docker compose … exec` stops on the
    staging file's required `API_IMAGE` / `AI_SERVICE_IMAGE` variables.
-2. **Grow the labelled set.** Each weak spot becomes fabricated lines in `eval_free_classify_gold.py`, written fresh
-   rather than copied from the sample.
+2. **Grow the labelled set.** Each weak spot becomes fabricated lines, written fresh rather than copied from the
+   sample: a misread message in the classifier's set (`eval_free_classify_gold.py`); a reply the worker was not
+   served in the reply's set (`eval_free_reply_gold.py`).
 3. **Score the baseline** on the current prompt (R32), on the model production actually serves: read the served
-   `model` from `ai.cost_recorded`. On 2026-10-08 that was `claude-haiku-4-5` for every call, because the box's
-   Gemini calls all fall back (#2170).
+   `model` from the probe's cost table. On 2026-10-08 that was `claude-haiku-4-5` for every call, because the box's
+   Gemini calls all fall back (#2170). The reply's primary is Haiku by design (`default_career_model`).
+   - **Classifier:** `python -m app.free_chat.eval_cli --expect-model <model>`.
+   - **Reply:** `python -m app.free_chat.eval_free_reply_cli --expect-model <model> --repeats 10 --dump-file <f>`,
+     then `node apps/api/dist/profiling/free-chat/free-chat-reply-served.js --file <f>`. The replay puts every reply
+     through the API's own contract and `screenFreeChatAnswer`, so the number is what a worker would be served, not
+     what the model wrote. An outcome of `fallback` in the probe with a successful reply cost event is this gate.
 4. **Revise the prompt.** Bump its registry version and score again in the same sitting. Ship only past R31.
+   For the reply, `--baseline <baseline dump>` applies R31: overall hits up, no refusal topic (`off_limits`,
+   `distress`, `legal_medical_financial`, `news`) loses a line, `career` and `casual` drop by at most one line. Both
+   runs must be one model, one case set, one repeat count.
 5. **Delete the pasted copy** (R35).
 
 **Known limits (accepted):**
@@ -503,6 +512,40 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
   - numbers written in words.
 - **No privacy notice yet** tells workers their chats help improve the bot (owner action, alongside the §8 note;
   risks register R67).
+
+**Round 1 record (2026-10-08 to 2026-10-14).** Evidence: `docs/qa/evidence/free-chat/2026-10-14/`.
+
+1. **Classifier revised** on the first probe (#2176): 82.5% to 93.7% on Haiku, past R31. It added the R37 and R38
+   lines.
+2. **Masked sample.** The owner ran it on the box over 2026-10-07 to 2026-10-14. Of 21 struggled turns, 4 were
+   eligible (R36). All 4 were career questions, and the classifier read every one right.
+3. **Classifier re-scored.** 8 fabricated rewrites were added (`SAMPLE_ROWS`). On Haiku it scores 126/134 = 94.0%, so
+   no revision this round.
+4. **The weak spot was the reply.** 9 of 75 free-mode reply turns served `REPLY_FALLBACK`, every one from a reply that
+   came back in time and in contract, so the API's gate threw them away. The new reply set (46 cases, Haiku) shows
+   why:
+   - lines over 20 words;
+   - two questions in one casual answer;
+   - Devanagari verb endings;
+   - "pakka" (in any sense);
+   - "bahut acha".
+5. **Draft revision: not shipped.** It did not pass R31: 131/138 against main's 131/138 at 3 repeats, with career −3
+   and off_limits −1. On 9 clean repeats it was 379 against 375 of 414:
+   - it cut two-question rejections (11 → 5), persona rejections (8 → 2) and long lines (9 → 3);
+   - its "a tease is never a refusal" rule moved a tease-plus-politics message from `off_limits` to `unsafe_other` 8
+     times in 9;
+   - "pakka" meaning "skilled" rejections rose from 4 to 9.
+
+   A v3 without those two rules was not measured, because the Anthropic credit ran out.
+6. **Lessons for the next round:**
+   - At temperature 0.5, run the reply eval at 10 repeats. At 3, the same prompt scored 117 and 131.
+   - Local evals draw on the production Anthropic account. On 2026-10-14 they used the last of its credit, and every
+     box AI call failed from about 12:28 IST until the top-up. Estimate the cost, get the owner's OK, and never run
+     streams in parallel.
+7. **Still owed:**
+   - measuring v3 (#2242);
+   - the flash-lite re-run before #2170 switches the box (the local key is free tier);
+   - deleting the session transcript that holds the pasted sample (R35, owner).
 
 ## 11. Reply language (owner rulings 2026-10-08, #2181)
 

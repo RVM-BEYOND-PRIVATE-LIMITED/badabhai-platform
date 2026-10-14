@@ -50,12 +50,13 @@ def test_the_categories_and_modes_are_the_contracts() -> None:
 
 
 def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
-    # About sixty Hindi/Hinglish/English lines, plus the regional lines (ADR-0051 §9) and the
-    # improvement loop's held-out round-1 lines (§10, #2128).
-    blocks = (gold.REGIONAL_ROWS, gold.ROUND1_ROWS)
+    # About sixty Hindi/Hinglish/English lines, plus the regional lines (ADR-0051 §9), the
+    # improvement loop's held-out round-1 lines and its masked-sample rewrites (§10, #2128).
+    blocks = (gold.REGIONAL_ROWS, gold.ROUND1_ROWS, gold.SAMPLE_ROWS)
     assert 55 <= len(gold.CASES) - sum(len(block) for block in blocks) <= 70
     assert 15 <= len(gold.REGIONAL_ROWS) <= 25
     assert 30 <= len(gold.ROUND1_ROWS) <= 45
+    assert 5 <= len(gold.SAMPLE_ROWS) <= 15
     assert all(isinstance(case, gold.Case) for case in gold.CASES)
     counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(gold.CATEGORIES)
@@ -67,8 +68,9 @@ def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
 
 def test_resume_mode_is_about_twenty_lines_with_answers_and_off_topic() -> None:
     resume_mode = [case for case in gold.CASES if case.mode == "resume"]
-    # About twenty, plus the regional and round-1 guards (a "not now" that answers the question).
-    assert 18 <= len(resume_mode) <= 28
+    # About twenty, plus the regional and round-1 guards (a "not now" that answers the question)
+    # and the masked sample's pay question mid-interview.
+    assert 18 <= len(resume_mode) <= 32
     answers = [case for case in resume_mode if case.category == "resume"]
     off_topic = {case.category for case in resume_mode if case.category != "resume"}
     assert len(answers) >= 10
@@ -130,6 +132,8 @@ def test_recent_turns_are_well_formed_and_carry_reviewed_bot_lines() -> None:
         gold.OFF_LIMITS_LINE,
         gold.LATER_ACK_LINE,
         gold.FREE_CLARIFY_LINE,
+        gold.REPLY_FALLBACK_LINE,
+        gold.Q_OPENER,
     ):
         assert line in served, line
 
@@ -234,6 +238,22 @@ def test_round1_lines_are_not_copies_of_the_baseline_misses() -> None:
         tokens = set(row[0].casefold().split())
         for miss, miss_tokens in words.items():
             assert not tokens or not (tokens <= miss_tokens or miss_tokens <= tokens), (row, miss)
+
+
+def test_the_masked_sample_rewrites_keep_the_struggled_shape() -> None:
+    """Round 1's masked production sample (2026-10-14): the struggled lines were career questions
+    the classifier read right. The rewrites keep that shape measured: comparisons, pay and
+    software questions, a re-ask after the fallback line and after an answer, and a pay question
+    mid-interview, which is career (résumé mode deflects it), never a résumé answer."""
+    cases = [gold.Case(*row) for row in gold.SAMPLE_ROWS]
+    assert {case.category for case in cases} == {"career"}
+    assert {case.mode for case in cases} == set(gold.MODES)
+    last_bot = {case.turns[-1][1] for case in cases if case.turns}
+    assert gold.REPLY_FALLBACK_LINE in last_bot
+    assert len(last_bot) >= 2  # and after an answer, not only after the fallback line
+    (mid_interview,) = [case for case in cases if case.mode == "resume"]
+    assert mid_interview.question == gold.Q_OPENER
+    assert all(gold.Case(*row) in gold.CASES for row in gold.SAMPLE_ROWS)
 
 
 def test_every_regional_language_asks_for_a_job_in_both_scripts() -> None:
