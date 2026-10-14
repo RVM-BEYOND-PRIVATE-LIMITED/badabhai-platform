@@ -79,8 +79,9 @@ describe("freeChatClassify / freeChatReply", () => {
     expect(out?.language).toBe("marathi");
   });
 
-  it("a label OUTSIDE the closed set fails the whole parse — null, never a guessed language", async () => {
-    // The contract's enum is strict: the ai-service must null an unlisted label itself (#2240).
+  it("a label OUTSIDE the closed set drops only the label — the category survives (#2240)", async () => {
+    // The language is advisory: the contract catches an unlisted label to null, so the API falls
+    // back to its word lists, and the verdict's category is kept.
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -99,7 +100,13 @@ describe("freeChatClassify / freeChatReply", () => {
       mode: "free",
       pending_question: null,
     });
-    expect(out).toBeNull();
+    expect(out).toEqual({
+      category: "career",
+      confidence: 0.8,
+      blocked: false,
+      ai_metadata: null,
+      language: null,
+    });
   });
 
   it("posts the reply to /free-chat/reply and parses an answer or a refusal", async () => {

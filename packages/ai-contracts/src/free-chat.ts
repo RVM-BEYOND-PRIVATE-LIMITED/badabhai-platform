@@ -103,8 +103,10 @@ export const FreeChatClassifyOutputSchema = z.object({
    * The language the worker's message is written in (ADR-0051 R42), from the closed reply-language
    * set. Additive and defaulted: null — an older service, a mock, a blocked input, or a label
    * outside the set — leaves the API's word-list detection in force, exactly as before the field.
+   * A label outside the set is CAUGHT to null rather than failing the parse: the language is
+   * advisory, and an unlisted label must never throw away the category it came with.
    */
-  language: z.enum(FREE_CHAT_REPLY_LANGUAGES).nullable().default(null),
+  language: z.enum(FREE_CHAT_REPLY_LANGUAGES).nullable().default(null).catch(null),
 });
 export type FreeChatClassifyOutput = z.infer<typeof FreeChatClassifyOutputSchema>;
 
