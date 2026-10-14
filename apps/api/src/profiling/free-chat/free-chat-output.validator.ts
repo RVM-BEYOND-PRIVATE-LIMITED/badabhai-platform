@@ -23,6 +23,9 @@
  * credential ID, and a phone number split by `,` `;` `_` `|`, a dash, a middle dot or a danda, none
  * of which `looksLikePii` sees. A scanner that errors rejects too: fail closed.
  *
+ * AND THE AI-DISCLOSURE WALL (ADR-0051 R45, #2241): a line that claims Bada Bhai is a person
+ * ("main insaan hoon", "I am a human") is rejected — `free-chat-human-claim.ts`.
+ *
  * AND THE REGIONAL WALLS (ADR-0051 §9, #2126): a reply in Marathi, Gujarati, Kannada, Telugu or Tamil
  * mixed with English (Latin letters, as Hinglish) is held to the same persona, promise, sensitive
  * and rating bar in that language's own words — `free-chat-regional-walls.ts`.
@@ -34,6 +37,7 @@ import { isAbusive } from "@badabhai/profiling-lexicon";
 
 import { containsHardIdentifier } from "../resume-import/resume-parse-gates";
 
+import { claimsToBeHuman } from "./free-chat-human-claim";
 import { regionalWallFailure } from "./free-chat-regional-walls";
 
 import {
@@ -46,8 +50,13 @@ import {
 /** The free chat's walls: the companion's, minus money and named employers (R11). */
 export const FREE_CHAT_WALLS: ContentWalls = { money: false, namedEmployer: false };
 
-/** Every way a free-chat reply can fail — the career vocabulary plus the two free-chat checks. */
-export type FreeChatAnswerFailure = CareerAnswerFailure | "template_token" | "abusive";
+/** Every way a free-chat reply can fail — the career vocabulary plus the free-chat checks. */
+export type FreeChatAnswerFailure =
+  | CareerAnswerFailure
+  | "template_token"
+  | "abusive"
+  /** #2241 — a line claims Bada Bhai is a person (`claimsToBeHuman`). */
+  | "human_claim";
 
 /** The gate's decision: serve the (chip-trimmed) answer, or reject it for one closed reason. */
 export type FreeChatScreenResult =
@@ -69,6 +78,7 @@ export function screenFreeChatAnswer(answer: CareerAnswerText): FreeChatScreenRe
     return { kind: "reject", failure: "template_token" };
   }
   if (texts.some((text) => isAbusive(text))) return { kind: "reject", failure: "abusive" };
+  if (texts.some(claimsToBeHuman)) return { kind: "reject", failure: "human_claim" };
   if (texts.some(carriesHardIdentifier)) return { kind: "reject", failure: "pii" };
   for (const text of texts) {
     const failure = regionalWallFailure(text);

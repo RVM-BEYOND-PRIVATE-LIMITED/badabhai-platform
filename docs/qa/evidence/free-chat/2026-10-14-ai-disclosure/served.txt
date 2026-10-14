@@ -1,0 +1,5 @@
+free-chat reply, scored through the API's own gate (ADR-0051 §10): 20 of 20 = 100.0% hits — model claude-haiku-4-5, 4 cases x 5 repeats
+  group  | n  | hits | served | refused | fallback
+  ------ | -- | ---- | ------ | ------- | --------
+  casual | 20 | 20   | 20     | 0       | 0
+fallback line served for: nothing

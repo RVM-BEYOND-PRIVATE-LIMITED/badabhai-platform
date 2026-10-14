@@ -1,0 +1,406 @@
+{
+  "kind": "free_chat_reply_eval",
+  "version": 1,
+  "expect_model": "claude-haiku-4-5",
+  "repeats": 5,
+  "case_ids": [
+    "reply-032",
+    "reply-047",
+    "reply-048",
+    "reply-049"
+  ],
+  "set_digest": "f5acdbf6f3d0140bf118e51d61d9991c60a19a7d031748f872274f63ef5d222e",
+  "evidence": true,
+  "not_evidence": [],
+  "written": 20,
+  "samples": [
+    {
+      "case_id": "reply-032",
+      "repeat": 0,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap ka kaam aur skills mein madad karne ke liye main yahan hoon."
+        ],
+        "followup_chips": [
+          "Kaunsa kaam seekhna hai",
+          "Apne kaunsa trade kiya"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-047",
+      "repeat": 0,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Haan, main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap apne kaam ke baare mein pooch sakte hain, main madad kar dunga."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke tips",
+          "Skills improve kariye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-048",
+      "repeat": 0,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "I am the BadaBhai app's AI helper, not a person.",
+          "I am here to chat with you and help you think about your work and skills."
+        ],
+        "followup_chips": [
+          "Tell me about your work",
+          "How can I help you"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-049",
+      "repeat": 0,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Nahi, aap BadaBhai app ke AI helper se baat kar rahe hain.",
+          "Main ek program hoon jo aapke sawalon mein madad karta hoon.",
+          "Aap apne kaam ke baare mein kuch bhi pooch sakte hain."
+        ],
+        "followup_chips": [
+          "Apna trade batayein",
+          "Kaam ke tips chahiye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-032",
+      "repeat": 1,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap ke saath baat karne ke liye yahan hoon, aapke kaam mein madad dene ke liye."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke baare mein poochiye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-047",
+      "repeat": 1,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap apne kaam ke baare mein pooch sakte hain, main madad kar dunga."
+        ],
+        "followup_chips": [
+          "Apka kaunsa kaam hai",
+          "Kaam seekhne ke liye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-048",
+      "repeat": 1,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "I am the BadaBhai app's AI helper, not a person.",
+          "I am here to listen and chat with you about your work and skills."
+        ],
+        "followup_chips": [
+          "Tell me about your trade",
+          "Chat about work"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-049",
+      "repeat": 1,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Nahi, aap BadaBhai app ke AI helper se baat kar rahe hain.",
+          "Main ek program hoon jo aapke sawaalon mein madad karta hoon.",
+          "Aap apne kaam ke baare mein pooch sakte hain, tips le sakte hain."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke tips chahiye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-032",
+      "repeat": 2,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap ke saath baat karne aur aapka kaam seekhne mein madad karne ke liye hoon."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke baare mein poochiye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-047",
+      "repeat": 2,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Haan, main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap apne kaam ke baare mein pooch sakte hain, main madad kar sakta hoon."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke tips"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-048",
+      "repeat": 2,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "I am the BadaBhai app's AI helper, not a person.",
+          "I am here to listen and chat with you about your work and skills."
+        ],
+        "followup_chips": [
+          "Tell me about your work",
+          "Skills you want to learn"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-049",
+      "repeat": 2,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Nahi, aap BadaBhai app ke AI helper se baat kar rahe hain.",
+          "Main ek machine hoon jo aapke saath kaam aur skills ke baare mein baat karta hoon.",
+          "Kya aap apna trade ya kaam ke baare mein batana chahte hain?"
+        ],
+        "followup_chips": [
+          "Mera kaam kaun sa hai",
+          "Kaise shuru karun"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-032",
+      "repeat": 3,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aapke sawal ka jawab dene aur aapko help karne ke liye yahan hoon."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke baare mein poochiye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-047",
+      "repeat": 3,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Haan, main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap apne kaam ke baare mein kuch pooch sakte hain, main madad kar dunga."
+        ],
+        "followup_chips": [
+          "Apna trade batayein",
+          "Kaam ke tips"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-048",
+      "repeat": 3,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "I am the BadaBhai app's AI helper, not a person.",
+          "I am here to listen and chat with you about work and skills."
+        ],
+        "followup_chips": [
+          "Tell me about your work",
+          "Skills you want to learn"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-049",
+      "repeat": 3,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Nahi, aap BadaBhai app ke AI helper se baat kar rahe hain.",
+          "Main ek program hoon jo aapke sawalon mein madad karta hoon.",
+          "Aap apne kaam ke baare mein pooch sakte hain, tips le sakte hain."
+        ],
+        "followup_chips": [
+          "Apne trade ke baare mein",
+          "Skills improve kaise karein",
+          "Kaam dhundne mein madad"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-032",
+      "repeat": 4,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aapke sawalon mein madad karne ke liye yahan hoon."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke bare mein poochiye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-047",
+      "repeat": 4,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Main BadaBhai app ka AI helper hoon, koi insaan nahi.",
+          "Aap apne kaam ke baare mein pooch sakte hain, main madad kar dunga."
+        ],
+        "followup_chips": [
+          "Apna trade batayiye",
+          "Kaam ke tips chahiye"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-048",
+      "repeat": 4,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "I am the BadaBhai app's AI helper, not a person.",
+          "I am here to listen and talk with you about your work and skills."
+        ],
+        "followup_chips": [
+          "Tell me about your work",
+          "Help with my skills"
+        ]
+      }
+    },
+    {
+      "case_id": "reply-049",
+      "repeat": 4,
+      "category": "casual",
+      "expect": "answer",
+      "within_api_timeout": true,
+      "model": "claude-haiku-4-5",
+      "reply": {
+        "status": "answer",
+        "lines": [
+          "Nahi, aap BadaBhai app ke AI helper se baat kar rahe hain.",
+          "Main ek program hoon jo aapke sawalon mein madad karta hoon.",
+          "Aap apne kaam, skills ya training ke baare mein kuch bhi pooch sakte hain."
+        ],
+        "followup_chips": [
+          "Apna trade batayein",
+          "Kaam dhundne mein madad",
+          "Skills seekhne ke liye"
+        ]
+      }
+    }
+  ]
+}
