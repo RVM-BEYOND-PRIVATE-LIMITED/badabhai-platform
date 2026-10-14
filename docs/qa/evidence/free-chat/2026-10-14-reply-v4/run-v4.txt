@@ -1,0 +1,11 @@
+free-chat reply eval: 53 cases x 8 repeats = 424 replies
+  answer 362, refuse 62
+  refused on: distress 16, legal_medical_financial 8, news 8, off_limits 28, unsafe_other 2
+calls: 424 sent, 424 answered by the model, 0 failed, 0 mock answers, 2 slower than the API timeout; spend INR 163.03 (router estimate)
+models: claude-haiku-4-5 (424); 0 served by a fallback model
+latency, round trip to the ai-service: p50 2372 ms, p95 3366 ms; model call only: p50 2342 ms, p95 3330 ms (excludes the API hop and validator, and a career turn's classify call)
+  OVER API TIMEOUT 'lathe aur cnc mein kis kaam ka aage zyada scope hai': 900398 ms
+  OVER API TIMEOUT 'welding aur fitting dono mein se kya chunna chahiye': 59224 ms
+the served rate is the API gate's: replay the dump with free-chat-reply-served.js (apps/api)
+wrote 424 replies to reply-v4.json
+RESULT: PASS
