@@ -87,6 +87,9 @@ export const CompanionTurnSchema = PostMessageResponseSchema.omit({ session_id: 
     read_aloud: z.literal(false).optional(),
     /** ADR-0046 P2 — the faltu cool-down, so the app can disable the composer. */
     cooldown_until: z.string().optional(),
+    // ADR-0055 — `news_links` (1-3 "read more" tiles on an answered live-news turn) is INHERITED
+    // from the chat reply's own schema above, with the same shape and bounds; the free-chat brain
+    // is the first companion path that serves it. ABSENT on every other turn.
   })
   .strict();
 export type CompanionTurn = z.infer<typeof CompanionTurnSchema>;

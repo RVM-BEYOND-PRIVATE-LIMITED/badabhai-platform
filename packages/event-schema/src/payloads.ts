@@ -29,6 +29,9 @@ import {
   COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
   COMPANION_V2_CONFIDENCE_BUCKETS,
   COMPANION_V2_CAREER_REFUSAL_TOPICS,
+  COMPANION_V3_INTENTS,
+  COMPANION_V3_OUTCOMES,
+  FREE_CHAT_RESUME_ACTIONS,
   PROFILING_LANES,
   PROFILING_LANE_REASONS,
   SKILLS_GATE_REPLIES,
@@ -4987,6 +4990,84 @@ export const ChatCompanionCareerAnsweredV2Payload = z
 export type ChatCompanionCareerAnsweredV2Payload = z.infer<
   typeof ChatCompanionCareerAnsweredV2Payload
 >;
+
+/**
+ * THE V4 TURN (ADR-0055, #2275) — the Bada Bhai chat runs the profiling free chat's brain. The v3
+ * fields, with `v2_intent` and `outcome` drawn from the WIDER v3 sets (`COMPANION_V3_INTENTS` adds
+ * `download_resume`, `resume_menu`, `casual`, `off_limits`, `distress`; `COMPANION_V3_OUTCOMES`
+ * adds `answered`, a model-written reply that passed the gate), plus what the brain decided:
+ *
+ *   - `free_category` — the free-chat classifier's category, recorded even below the floor; null
+ *     unless that classifier answered (the v2 classifier, a chip, a guard, the word lists and the
+ *     fail-closed path leave it null);
+ *   - `resume_action` — on a `resume` category, what the message wanted (edit / new / download);
+ *   - `refusal_topic` — the free-chat reply's (or the news model's) refusal topic, on `refused`;
+ *   - `reply_language` — the language a model reply was ASKED for (null when none was asked);
+ *   - `news_outcome` / `news_source_count` — on a turn that ran a live-news request (ADR-0054),
+ *     what it ended in and how many "read more" tiles were served. The companion has no chat
+ *     session, so `chat.free_chat_news_served` (whose session id is required) is never emitted
+ *     for it: the news facts ride this event instead.
+ *
+ * A NEW NAME, so v3's shape stays exactly as shipped. Every v2 turn on BOTH paths (the brain, and
+ * the v2 classifier under `CHAT_FREE_CHAT_DISABLED`) emits this from ADR-0055 on; v2 and v3 stay
+ * registered and stop being emitted. Ids, counts and closed enums only — never the worker's words
+ * or the model's — and `.strict()`, so a stray text field is rejected, not passed through.
+ */
+export const ChatCompanionTurnServedV4Payload = z
+  .object({
+    worker_id: uuidSchema,
+    trigger: z.enum(COMPANION_TRIGGERS),
+    intent: z.enum(COMPANION_INTENTS),
+    applied_count: z.number().int().nonnegative().nullable(),
+    new_jobs_count: z.number().int().nonnegative().nullable(),
+    jobs_scope: z.enum(COMPANION_JOBS_SCOPES).nullable(),
+    job_chips_count: z.number().int().nonnegative(),
+    resume_source: resumeSource.nullable(),
+    nudge: z.enum(COMPANION_NUDGES).nullable(),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
+    /** Who chose the intent: a chip tap, the other deterministic routes, a word list, a classifier, a guard, fallback. */
+    intent_source: z.enum(COMPANION_V2_INTENT_SOURCES_V3),
+    /** The intent the turn was routed on; null on the guard and fail-closed paths. */
+    v2_intent: z.enum(COMPANION_V3_INTENTS).nullable(),
+    /** Coarse confidence bucket; null unless a classifier answered. Never the raw score. */
+    confidence_bucket: z.enum(COMPANION_V2_CONFIDENCE_BUCKETS).nullable(),
+    /** What was delivered — a model answer, a proposed card, a fixed line, clarify, … */
+    outcome: z.enum(COMPANION_V3_OUTCOMES),
+    /** The free-chat classifier's category (ADR-0055); null unless that classifier answered. */
+    free_category: z.enum(FREE_CHAT_CATEGORIES).nullable(),
+    /** On a `resume` category, what the message wanted; null otherwise. */
+    resume_action: z.enum(FREE_CHAT_RESUME_ACTIONS).nullable(),
+    /** The free-chat refusal topic, set only on a `refused` turn. */
+    refusal_topic: z.enum(FREE_CHAT_REFUSAL_TOPICS).nullable(),
+    /** The language a model reply was asked to be written in; null when none was asked. */
+    reply_language: z.enum(FREE_CHAT_REPLY_LANGUAGES).nullable(),
+    /** What a live-news request ended in; null on a turn that ran none. */
+    news_outcome: z.enum(FREE_CHAT_NEWS_OUTCOMES).nullable(),
+    /** "Read more" tiles served — 1-3 on an answered news turn, 0 otherwise. */
+    news_source_count: z.number().int().min(0).max(3),
+  })
+  .strict()
+  .refine((v) => (v.jobs_scope === "profile") === (v.new_jobs_count !== null), {
+    message:
+      "new_jobs_count is set iff jobs_scope is 'profile' — null scope (not read), 'unavailable' " +
+      "(read failed) and 'no_skills' (no claim) carry no count",
+  })
+  .refine((v) => v.free_category === null || v.confidence_bucket !== null, {
+    message: "free_category is set only when the classifier answered (a confidence bucket)",
+  })
+  .refine((v) => v.resume_action === null || v.free_category === "resume", {
+    message: "resume_action is set only on a 'resume' category",
+  })
+  .refine((v) => v.refusal_topic === null || v.outcome === "refused", {
+    message: "refusal_topic is set only on a 'refused' turn",
+  })
+  .refine((v) => (v.news_source_count > 0) === (v.news_outcome === "answered"), {
+    message: "tiles are served exactly when the news request was 'answered'",
+  })
+  .refine((v) => v.news_outcome === null || v.reply_language !== null, {
+    message: "a news request is always asked in the reply's language",
+  });
+export type ChatCompanionTurnServedV4Payload = z.infer<typeof ChatCompanionTurnServedV4Payload>;
 
 // ── THE GENERAL ROAD (ADR-0045) ──────────────────────────────────────────────────────────────
 //

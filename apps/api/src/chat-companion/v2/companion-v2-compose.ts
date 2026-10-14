@@ -2,10 +2,16 @@ import type { ServerConfig } from "@badabhai/config";
 import type { CompanionV2EditSection } from "@badabhai/types";
 import type { ResumeMenuChoice } from "../../chat/resume-menu";
 import { ttsField } from "../../profiling/question-tts-text";
+import type { FreeChatNewsLinkWire } from "../../profiling/free-chat/free-chat-news-links";
 import type { CompanionTurn, EditProposal } from "../chat-companion.dto";
 import type { CopyPair } from "../companion-replies";
 import { render, V2_FALTU_COOLDOWN } from "../companion-replies";
-import { COMPANION_NEW_JOBS_KEY, COMPANION_NEW_JOBS_LABEL } from "../companion-keys";
+import {
+  COMPANION_JOBS_TAB_KEY,
+  COMPANION_JOBS_TAB_LABEL,
+  COMPANION_NEW_JOBS_KEY,
+  COMPANION_NEW_JOBS_LABEL,
+} from "../companion-keys";
 import { openTaskChips } from "./companion-task-chips";
 
 /** One suggested option on a v2 turn — the wire shape the v1 composer already emits. */
@@ -135,6 +141,31 @@ export function v2CareerAnswerTurn(
     suggested_options: [],
     question_kind: chips.length > 0 ? "disambiguate" : "close",
   };
+}
+
+/**
+ * "Sabhi jobs dekhein" (ADR-0055) — v1's existing APP-ROUTED Jobs-tab chip, the one way forward
+ * from the brain's jobs line. The shipped app already routes the key to the Jobs tab and never posts it.
+ */
+export function jobsTabChip(): V2Option {
+  return {
+    option_key: COMPANION_JOBS_TAB_KEY,
+    label_text: COMPANION_JOBS_TAB_LABEL,
+    is_none_of_above: false,
+  };
+}
+
+/**
+ * A MODEL-WRITTEN LIVE-NEWS ANSWER on the Bada Bhai chat (ADR-0054 through ADR-0055): the gate's
+ * lines, never read aloud (the career answer's contract), and its 1-3 checked "read more" tiles as
+ * `news_links` — the field the profiling chat's wire already carries, which the companion turn
+ * inherits. No chips: the tiles are the turn's way forward.
+ */
+export function v3NewsAnswerTurn(
+  lines: readonly string[],
+  links: readonly FreeChatNewsLinkWire[],
+): CompanionTurn {
+  return { ...v2CareerAnswerTurn(lines, []), news_links: links.map((link) => ({ ...link })) };
 }
 
 /**

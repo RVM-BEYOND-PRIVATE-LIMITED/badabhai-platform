@@ -133,7 +133,7 @@ recap), and its extraction deduped onto the early-finish job (so the redo never 
 | **R5** | **No skills, no claim.** A worker with no wanted skills gets no "aapke kaam ke" line and no job chips — #1240's "every open posting" fallback is a search-box ruling, not licence to call unmatched postings theirs. |
 | **R6** | **Apply attribution unchanged.** Applies still happen on the job-detail screen with `source_surface: feed`; a `chat` surface would need `application.submitted` v2 and is deferred. |
 | **R7** | **No LLM in V1.** Copy is reviewed constants; intents are a closed deterministic set after the résumé menu. A later model step may only CLASSIFY into the same closed set, behind its own flag and its own task; a model-phrased answer needs its own ADR. |
-| **R8** | **No vocative in V1.** The companion never reads the `workers` row, so it never decrypts a name. |
+| **R8** | **No vocative in V1.** The companion never reads the `workers` row, so it never decrypts a name. *Narrowed by [ADR-0055](0055-bada-bhai-chat-free-chat-brain.md) §4 (2026-10-14): the free-chat brain reads `workers.full_name` solely to redact the worker's own name from model egress; it is never shown, logged or stored, and there is still no vocative.* |
 | **R9** | **In-chat only.** No push (ADR-0034 stays security-only), no WhatsApp (ADR-0020 stays mock/consent-gated). |
 | **R10** | **Production ON only after this ADR is signed.** Staging first. |
 

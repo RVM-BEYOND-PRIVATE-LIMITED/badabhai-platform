@@ -7,7 +7,7 @@
    throws an answer away for (read from the validator SOURCE, so a word the API adds turns this
    red instead of silently turning good answers into fallback lines).
 4. The classifier states the eight categories, the priority, the floor and the JSON contract.
-5. The routes: classify cheap/JSON/0.0/48, reply Claude primary with a Gemini fallback, summary
+5. The routes: classify cheap/JSON/0.0/80, reply Claude primary with a Gemini fallback, summary
    cheap/JSON/0.0/400.
 6. Release 2 (§8): the summary prompt states what to keep, the format, what never to include,
    the DATA rule and the JSON contract; both reply prompts carry ONE line about the notes; the
@@ -79,6 +79,11 @@ REGIONAL_LANGUAGES = {
 REPLY_PROMPTS = {
     "casual": free_prompts.CASUAL_SYSTEM_PROMPT,
     "career": free_prompts.CAREER_SYSTEM_PROMPT,
+    # ADR-0055 (#2275): the companion surface's variants are held to every reply-prompt rule and
+    # wall below too (the regional and English lists pinned EQUAL to the API's included). Each
+    # differs from its profiling prompt by one swapped sentence (test_free_chat_companion_surface).
+    "companion-casual": free_prompts.COMPANION_CASUAL_SYSTEM_PROMPT,
+    "companion-career": free_prompts.COMPANION_CAREER_SYSTEM_PROMPT,
 }
 
 
@@ -1011,7 +1016,7 @@ def test_the_classify_route_is_cheap_json_deterministic_and_small() -> None:
     assert _ROUTE_SHAPES["profiling_free_classify"] == ("cheap", True)
     route = get_route("profiling_free_classify", settings)
     assert (route.tier, route.json_mode, route.temperature) == ("cheap", True, 0.0)
-    assert route.max_output_tokens == 64
+    assert route.max_output_tokens == 80
     assert route.max_retries == settings.ai_chat_max_retries
     assert route.model is None and route.fallback_model is None
     assert resolve_model("profiling_free_classify", settings) == settings.default_cheap_model

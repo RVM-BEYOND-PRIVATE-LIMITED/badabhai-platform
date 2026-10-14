@@ -90,6 +90,12 @@ _REGIONAL_TS = (
 )
 
 PROMPT = free_prompts.NEWS_SYSTEM_PROMPT
+#: ADR-0055 (#2275): the companion surface's news prompt is held to the same walls (the wall
+#: tests below run on both); it differs from PROMPT by the everyday steer alone.
+SURFACE_PROMPTS = {
+    "profiling": free_prompts.NEWS_SYSTEM_PROMPT,
+    "companion": free_prompts.COMPANION_NEWS_SYSTEM_PROMPT,
+}
 #: A residual 8-digit run the gateway cannot place: the fail-closed (blocked) case.
 BLOCKING_TEXT = "reference number 12345678"
 TODAY = date(2026, 10, 8)
@@ -1237,8 +1243,10 @@ def test_the_prompt_carries_the_language_rules_without_the_chips_clause() -> Non
     assert "the chips are in the reply's language too" not in folded
 
 
-def test_the_prompt_states_the_shared_answer_rules() -> None:
-    folded = _folded(PROMPT)
+@pytest.mark.parametrize("surface", sorted(SURFACE_PROMPTS))
+def test_the_prompt_states_the_shared_answer_rules(surface: str) -> None:
+    prompt = SURFACE_PROMPTS[surface]
+    folded = _folded(prompt)
     for rule in (
         "1 to 4 lines. Each line at most 20 words.",
         "LATIN script only",
@@ -1254,16 +1262,17 @@ def test_the_prompt_states_the_shared_answer_rules() -> None:
     ):
         assert _folded(rule) in folded, rule
     # The reply prompts' content walls, word for word.
-    assert free_prompts._SHARED_WALLS.split("<<REGIONAL_BANNED_WORDS>>")[0] in PROMPT
+    assert free_prompts._SHARED_WALLS.split("<<REGIONAL_BANNED_WORDS>>")[0] in prompt
 
 
-def test_the_prompt_names_every_persona_token_the_api_enforces() -> None:
+@pytest.mark.parametrize("surface", sorted(SURFACE_PROMPTS))
+def test_the_prompt_names_every_persona_token_the_api_enforces(surface: str) -> None:
     persona = _REPO / "packages" / "profiling-lexicon" / "data" / "persona.json"
     canonical = json.loads(persona.read_text(encoding="utf-8"))
     tokens = [token for group in lexicon.PERSONA_BANNED_GROUPS for token in canonical[group]]
     assert len(tokens) >= 30
     for token in tokens:
-        assert f'"{token}"' in PROMPT, token
+        assert f'"{token}"' in SURFACE_PROMPTS[surface], token
 
 
 def _validator_alternation(const: str) -> list[str]:
@@ -1275,15 +1284,19 @@ def _validator_alternation(const: str) -> list[str]:
     return group.group(1).split("|")
 
 
-def test_the_prompt_names_every_sensitive_promise_and_rating_word_the_validator_rejects() -> None:
+@pytest.mark.parametrize("surface", sorted(SURFACE_PROMPTS))
+def test_the_prompt_names_every_sensitive_promise_and_rating_word_the_validator_rejects(
+    surface: str,
+) -> None:
+    prompt = SURFACE_PROMPTS[surface]
     for word in _validator_alternation("SENSITIVE"):
-        assert re.search(rf"\b{re.escape(word)}\b", PROMPT, re.I), word
+        assert re.search(rf"\b{re.escape(word)}\b", prompt, re.I), word
     for word in _validator_alternation("PROMISE"):
         if word == "gaurantee":  # a misspelling the validator catches; not one to teach
             continue
-        assert word in PROMPT, word
+        assert word in prompt, word
     for word in _validator_alternation("RATING"):
-        assert f'"aap {word}"' in PROMPT, word
+        assert f'"aap {word}"' in prompt, word
 
 
 @pytest.mark.parametrize(
@@ -1302,14 +1315,17 @@ def test_the_prompt_names_every_sensitive_promise_and_rating_word_the_validator_
         "SOFT_PROMISE_FILLERS",
     ],
 )
-def test_the_prompt_names_every_regional_word_the_api_gate_rejects(const: str) -> None:
+@pytest.mark.parametrize("surface", sorted(SURFACE_PROMPTS))
+def test_the_prompt_names_every_regional_word_the_api_gate_rejects(
+    const: str, surface: str
+) -> None:
     source = _REGIONAL_TS.read_text(encoding="utf-8")
     match = re.search(rf"export const {const}: readonly string\[\] = \[(.*?)\];", source, re.S)
     assert match, f"{const} moved in free-chat-regional-walls.ts"
     words = re.findall(r'"([^"]+)"', match.group(1))
     assert words
     for word in words:
-        assert f'"{word}"' in PROMPT, (const, word)
+        assert f'"{word}"' in SURFACE_PROMPTS[surface], (const, word)
 
 
 def test_the_number_rule_and_the_prompts_own_examples_pass_the_validator_shapes() -> None:
@@ -1372,9 +1388,11 @@ def test_the_prompt_stays_bounded() -> None:
     #2240: the work-words sentence and each language's "say ..., never ..." words) to 11,424 /
     1,714; Bada Bhai is the app's AI helper, never a person (ADR-0051 R45, #2241: the shared
     walls' disclosure rule and the three claims it names) to 11,792 / 1,788. A budget keeps it
-    from growing unnoticed."""
-    assert len(PROMPT) < 11820
-    assert len(PROMPT.split()) < 1795
+    from growing unnoticed. The companion variant (ADR-0055) is 11,784 / 1,790, under the same
+    budget."""
+    for prompt in SURFACE_PROMPTS.values():
+        assert len(prompt) < 11820
+        assert len(prompt.split()) < 1795
 
 
 # ── 10. the security review's fixes (2026-10-08) ─────────────────────────────────────────────

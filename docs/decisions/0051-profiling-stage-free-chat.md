@@ -1,5 +1,9 @@
 # ADR-0051: The profiling-stage free chat — a greeting, a résumé lock, and per-category answers
 
+> **2026-10-14 — R1 superseded by [ADR-0055](0055-bada-bhai-chat-free-chat-brain.md).** The Bada Bhai chat (the
+> companion) now runs this free chat's brain, so "the companion is untouched" no longer holds.
+> `CHAT_FREE_CHAT_DISABLED` turns off both chats' free-chat behaviour.
+
 - **Status:** **Accepted — signed 2026-10-06** (see the foot). The owner gave rulings R1–R20 on 2026-10-06
   in the design session, then approved the plan and the copy in §5. **Live on merge** (R18): no default-off
   gate. The only lever is the kill switch `CHAT_FREE_CHAT_DISABLED`.

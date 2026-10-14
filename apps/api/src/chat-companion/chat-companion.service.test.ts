@@ -131,6 +131,8 @@ function make(over: {
     RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: 1_200,
     CHAT_COMPANION_V2_ENABLED: over.v2 ?? false,
     CHAT_COMPANION_V2_EDIT_ENABLED: over.v2 ?? false,
+    // ADR-0055 — the kill switch ON: this harness pins the v2 path (the brain has its own suites).
+    CHAT_FREE_CHAT_DISABLED: true,
   };
   const svc = new ChatCompanionService(
     config as never,

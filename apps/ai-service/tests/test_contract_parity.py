@@ -65,8 +65,10 @@ from app.contracts import (
     FreeChatReplyInput,
     FreeChatReplyLanguage,
     FreeChatReplyOutput,
+    FreeChatResumeAction,
     FreeChatSummarizeInput,
     FreeChatSummarizeOutput,
+    FreeChatSurface,
     InterviewExtractInput,
     InterviewExtractOutput,
     JobDomainMatch,
@@ -821,10 +823,17 @@ def test_free_chat_closed_sets_match_the_shared_types_source():
     assert _string_union_in(_TYPES_TS, "FREE_CHAT_REPLY_LANGUAGES") == list(
         get_args(FreeChatReplyLanguage)
     )
+    # ADR-0055 (#2275): the surfaces and the companion's résumé actions, same source.
+    assert _string_union_in(_TYPES_TS, "FREE_CHAT_SURFACES") == list(get_args(FreeChatSurface))
+    assert _string_union_in(_TYPES_TS, "FREE_CHAT_RESUME_ACTIONS") == list(
+        get_args(FreeChatResumeAction)
+    )
     # Non-vacuous: the regex found real members, not an empty list on both sides.
     assert "off_limits" in _string_union_in(_TYPES_TS, "FREE_CHAT_CATEGORIES")
     assert "news" in _string_union_in(_TYPES_TS, "FREE_CHAT_REFUSAL_TOPICS")
     assert "tamil" in _string_union_in(_TYPES_TS, "FREE_CHAT_REPLY_LANGUAGES")
+    assert "companion" in _string_union_in(_TYPES_TS, "FREE_CHAT_SURFACES")
+    assert "download" in _string_union_in(_TYPES_TS, "FREE_CHAT_RESUME_ACTIONS")
     # The reply categories are a subset of the categories: the model only ever answers for a
     # category the classifier can return.
     assert set(get_args(FreeChatReplyCategory)) <= set(get_args(FreeChatCategory))
@@ -889,6 +898,34 @@ def test_free_chat_bounds_match_the_zod_source_at_the_boundary():
     for bad in (-0.1, 1.1):
         with pytest.raises(ValidationError):
             FreeChatClassifyOutput(category="unclear", confidence=bad)
+
+
+def test_the_free_chat_surface_defaults_to_profiling_and_is_closed():
+    """ADR-0055 (#2275), like Zod's `.default("profiling")`: a caller that omits `surface` (every
+    caller before ADR-0055) is on the profiling surface and gets today's prompts. A value outside
+    the closed set is refused at the contract, never read as one or the other."""
+    turn = {"role": "worker", "text": "kuch"}
+    inputs = (
+        lambda **kw: FreeChatClassifyInput(text="x", mode="free", **kw),
+        lambda **kw: FreeChatReplyInput(category="casual", text="x", **kw),
+        lambda **kw: FreeChatNewsInput(text="x", recent_turns=[turn], **kw),
+    )
+    for build in inputs:
+        assert build().surface == "profiling"
+        assert build(surface="companion").surface == "companion"
+        for bad in ("Companion", "chat", "", None):
+            with pytest.raises(ValidationError):
+                build(surface=bad)
+
+
+def test_the_classify_output_names_no_resume_action_by_default():
+    """ADR-0055: `resume_action` is additive and defaulted to null, like `language`. Its
+    `.catch(null)` (an unlisted label is null, never a lost category) lives in the parser
+    (`app/free_chat/classify.py`), which reads it apart, exactly as it reads `language`."""
+    assert FreeChatClassifyOutput(category="resume", confidence=0.9).resume_action is None
+    for action in get_args(FreeChatResumeAction):
+        parsed = FreeChatClassifyOutput(category="resume", confidence=0.9, resume_action=action)
+        assert parsed.resume_action == action
 
 
 def test_free_chat_summary_bounds_match_the_zod_source_at_the_boundary():

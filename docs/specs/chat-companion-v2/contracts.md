@@ -328,7 +328,8 @@ modified; v2 turns emit **v2** of it.
 | Event | Version | Payload | Phase |
 |---|---|---|---|
 | `chat.companion_turn_served` | **v2** | v1 fields + `intent_source`, `v2_intent` (nullable), `confidence_bucket` (`lt50`/`50_70`/`70_90`/`gte90`/null), `outcome` | P1 |
-| `chat.companion_turn_served_v3` | **v3** | v2 fields, `intent_source` widened by `chip` (TD150/WP8); the ORCHESTRATOR now emits this | P1 |
+| `chat.companion_turn_served_v3` | **v3** | v2 fields, `intent_source` widened by `chip` (TD150/WP8). Emitted until ADR-0055; kept registered | P1 |
+| `chat.companion_turn_served_v4` | **v4** | v3 fields, `v2_intent` ∈ `COMPANION_V3_INTENTS` (+ `download_resume`/`resume_menu`/`casual`/`off_limits`/`distress`), `outcome` ∈ `COMPANION_V3_OUTCOMES` (+ `answered`), plus `free_category`, `resume_action`, `refusal_topic`, `reply_language`, `news_outcome` (all nullable) and `news_source_count` (0–3). The ORCHESTRATOR emits this on both paths (ADR-0055); the brain's fields are null under the kill switch | v3 |
 | `chat.companion_edit_proposed` | v1 | `proposal_id`, `row_count`, `sections[]`, `dropped_count`, `unsupported[]` | P1 |
 | `chat.companion_edit_confirmed` | v1 | `proposal_id`, `applied_count`, `sections[]`, `resume_regen` (`queued`/`capped`/`failed`) | P1 |
 | `chat.companion_edit_confirmed_v2` | **v2** | v1 fields, `resume_regen` += `skipped_no_consent` (TD150/WP8); the SERVICE now emits this | P1 |

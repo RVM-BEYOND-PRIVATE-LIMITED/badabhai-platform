@@ -475,6 +475,38 @@ export const V2_CAREER_ASK: CopyPair = {
   dev: "करियर के बारे में आपका क्या सवाल है? जैसे: 'नई स्किल कौन सी सीखूँ'।",
 };
 
+// ── Companion v3 — the free-chat brain's own lines (ADR-0055, #2275) ─────────────────────────
+//
+// The Bada Bhai chat runs the profiling free chat's brain, and serves that chat's reviewed lines
+// verbatim (`free-chat.copy.ts`: DISTRESS, OFF_LIMITS, LEGAL_MED_FIN, REPLY_FALLBACK, NEWS,
+// NEWS_UNAVAILABLE). These four are the lines the free chat cannot lend: its JOBS line promises
+// jobs "once the profile is made" and its NEWS_CAP offers to make a résumé — both untrue here,
+// where the profile and the résumé already exist. Owner-approved wording, 2026-10-14.
+
+/** A jobs question the deterministic resolver missed: the Jobs screen, behind "Sabhi jobs dekhein". */
+export const V3_JOBS: CopyPair = {
+  latin: "Aapke kaam ki jobs Jobs screen par hain. Neeche button dabakar dekhiye.",
+  dev: "आपके काम की जॉब्स जॉब्स स्क्रीन पर हैं। नीचे बटन दबाकर देखिए।",
+};
+
+/** The day's live-news answers are spent (ADR-0054 R5) — the companion's NEWS_CAP, with no offer. */
+export const V3_NEWS_CAP: CopyPair = {
+  latin: "Aaj ki khabrein ho gayin. Kal phir poochhiye.",
+  dev: "आज की ख़बरें हो गईं। कल फिर पूछिए।",
+};
+
+/** A download request, and a rendered résumé to hand over: the download chip sits below. */
+export const V3_DOWNLOAD_READY: CopyPair = {
+  latin: "Aapka resume taiyaar hai. Neeche button se download kar lijiye.",
+  dev: "आपका रिज़्यूमे तैयार है। नीचे बटन से डाउनलोड कर लीजिए।",
+};
+
+/** A download request while the first résumé is still being made: no chip, nothing to hand over. */
+export const V3_DOWNLOAD_PENDING: CopyPair = {
+  latin: "Aapka resume abhi ban raha hai. Thodi der baad download kijiye.",
+  dev: "आपका रिज़्यूमे अभी बन रहा है। थोड़ी देर बाद डाउनलोड कीजिए।",
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -526,4 +558,9 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
     ([topic, pair]) => [`V2_CAREER_REFUSE.${topic}`, pair] as const,
   ),
   ["V2_CAREER_ASK", V2_CAREER_ASK],
+  // ADR-0055 — the free-chat brain's own lines.
+  ["V3_JOBS", V3_JOBS],
+  ["V3_NEWS_CAP", V3_NEWS_CAP],
+  ["V3_DOWNLOAD_READY", V3_DOWNLOAD_READY],
+  ["V3_DOWNLOAD_PENDING", V3_DOWNLOAD_PENDING],
 ];

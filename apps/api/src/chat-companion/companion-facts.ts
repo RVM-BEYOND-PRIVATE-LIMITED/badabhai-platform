@@ -7,6 +7,7 @@
  * employer, nothing the worker typed.
  */
 import type { CompanionJobsScope, CompanionNudge, ResumeSource } from "@badabhai/types";
+import type { ResumeHistoryItem } from "../resume/resume.dto";
 
 /** The worker's current résumé, as `ResumeService.history()` reports its newest item. */
 export interface CompanionResumeFacts {
@@ -38,6 +39,56 @@ export interface CompanionResumeFacts {
  *   - `unknown`  — the history read FAILED: say nothing rather than guess.
  */
 export type CompanionResumeState = "ready" | "building" | "failed" | "none" | "unknown";
+
+/** An ISO instant from the wire DTO, or null when it does not parse. */
+export function parseInstant(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * The worker's CURRENT résumé (the history's newest item) as companion facts, or null when there is
+ * none. ONE mapping for the recap and the download answer (ADR-0055), so the two can never disagree
+ * about which résumé is current or what state it is in.
+ */
+export function currentResumeFacts(
+  current: ResumeHistoryItem | undefined,
+): CompanionResumeFacts | null {
+  if (current === undefined) return null;
+  return {
+    resumeId: current.resume_id,
+    source: current.source ?? null,
+    renderStatus: current.render_status,
+    generatedAt: parseInstant(current.generated_at),
+    tradeLabel: current.trade_label,
+    experienceYears: current.experience_years,
+    machines: current.machines ?? [],
+    city: current.city,
+  };
+}
+
+/**
+ * What a DOWNLOAD request may honestly be told (ADR-0055) — decided from the recap's own state:
+ *
+ *   - `ready`       — the résumé is `ready` AND its PDF is drawn (`rendered`): the one case
+ *                     `GET /resume/:id/download` hands a file over, so the only one offered a chip.
+ *                     A `pending` row past the grace is `ready` for the recap (its text shows) but
+ *                     has no PDF — the download route answers 409 — so it is not ready here;
+ *   - `building`    — a first build in flight: "abhi ban raha hai" is true;
+ *   - `unavailable` — failed, none, unknown, or a PDF that never came: nothing to hand over, and
+ *                     nothing promised about when.
+ */
+export type CompanionResumeDownload = "ready" | "building" | "unavailable";
+
+export function resumeDownloadOf(
+  state: CompanionResumeState,
+  resume: CompanionResumeFacts | null,
+): CompanionResumeDownload {
+  if (state === "ready" && resume?.renderStatus === "rendered") return "ready";
+  if (state === "building") return "building";
+  return "unavailable";
+}
 
 export function resumeStateOf(args: {
   readonly resume: CompanionResumeFacts | null;

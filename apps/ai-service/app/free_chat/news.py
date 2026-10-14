@@ -34,12 +34,15 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta, timezone
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
+from ..ai import prompt_registry
 from ..ai.gemini_client import LlmResult
 from ..contracts import (
     CompanionRecentTurn,
@@ -47,9 +50,24 @@ from ..contracts import (
     FreeChatNewsNoResults,
     FreeChatNewsRefuse,
     FreeChatNewsSource,
+    FreeChatSurface,
 )
 from ..output_floor import carries_hard_identifier
 from ..pseudonymize import contains_hard_identifier
+from .prompts import COMPANION_NEWS_SYSTEM_PROMPT, NEWS_SYSTEM_PROMPT, SurfacePrompt
+
+#: surface -> the news answer's :class:`SurfacePrompt` (ADR-0055). Read-only, and exhaustive over
+#: `FreeChatSurface` (pinned by a test). The companion variant differs only in where an everyday
+#: answer's last line steers (the app's jobs, not making the résumé); the task, the search tool,
+#: the approved sites and every wall here are the same on both surfaces.
+NEWS_PROMPTS: Mapping[FreeChatSurface, SurfacePrompt] = MappingProxyType(
+    {
+        "profiling": SurfacePrompt(prompt_registry.FREE_CHAT_NEWS, NEWS_SYSTEM_PROMPT),
+        "companion": SurfacePrompt(
+            prompt_registry.FREE_CHAT_NEWS_COMPANION, COMPANION_NEWS_SYSTEM_PROMPT
+        ),
+    }
+)
 
 #: THE SITES A NEWS SEARCH MAY READ FROM, AND THE ONLY HOSTS A TILE MAY POINT AT. Mirrors
 #: `FREE_CHAT_NEWS_DOMAINS` in `packages/types/src/index.ts` (owner-approved 2026-10-08, R4);

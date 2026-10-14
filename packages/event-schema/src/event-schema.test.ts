@@ -3150,8 +3150,10 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 229 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change)", () => {
-    expect(EVENT_NAMES).toHaveLength(229);
+  it("exposes all 230 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4)", () => {
+    expect(EVENT_NAMES).toHaveLength(230);
+    // ADR-0055 — the Bada Bhai chat's turn on the free-chat brain (a new name; v3 not mutated).
+    expect(isEventName("chat.companion_turn_served_v4")).toBe(true);
     // ADR-0051 §11 (R41) — the held free-chat reply language changed (a new name; no schema mutated).
     expect(isEventName("chat.free_chat_language_changed")).toBe(true);
     // Owner ruling 2026-10-07 — the payer pipeline board's own event (a new name; no schema mutated).
@@ -3463,6 +3465,8 @@ describe("registry", () => {
     // TD150 / WP8 — the versioned companions. Each is a NEW name, so the v1/v2 definitions and
     // their emitters stay exactly as shipped.
     "chat.companion_turn_served_v3": 3,
+    // ADR-0055 — the companion turn on the free-chat brain: a NEW name, v3 kept as shipped.
+    "chat.companion_turn_served_v4": 4,
     "chat.companion_edit_cancelled_v2": 2,
     "chat.companion_edit_confirmed_v2": 2,
     "chat.companion_faltu_strike_v2": 2,
