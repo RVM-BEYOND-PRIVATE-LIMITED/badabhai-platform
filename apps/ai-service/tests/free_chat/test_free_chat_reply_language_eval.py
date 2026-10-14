@@ -11,7 +11,9 @@ meaningful, never a score:
      absence of Hindi, Latin-only and the persona slips are the API walls' own shapes, a
      repeat is caught word for word or with a word swapped, never on a paraphrase, and the
      "would be walled" count re-runs the API gate's word walls (lists pinned to the TS source,
-     the English walls checked against the TS tests' own lines).
+     the English walls checked against the TS tests' own lines), and the Hindi leak (#2240)
+     counts Hindi function words in a regional reply's lines and chips, never a word the
+     language shares with Hindi.
   3. THE CLI against a fake transport: it sends `reply_language` (or omits it for the baseline),
      reports per language and kind, writes and re-scores a dump, and refuses a run that is not
      evidence (a mock, a failed call, a fallback model).
@@ -667,6 +669,76 @@ def test_a_walled_answer_is_counted_and_listed_by_wall() -> None:
     assert any("walled persona:great, english_promise" in miss for miss in score.misses)
 
 
+# ── 2c. the Hindi leak in a regional reply (g) (ADR-0051 §11 R43/R44, #2240) ─────────────────
+
+
+def test_the_leak_words_are_the_issues_list() -> None:
+    """R43's Hindi function words, with "accha" as the third spelling of "achha"/"acha"."""
+    assert gold.HINDI_LEAK_WORDS == {
+        "mein", "hai", "hain", "achha", "acha", "accha", "aur", "kya", "kaise",
+    }  # fmt: skip
+    assert gold.HINDI_LEAK_PHRASES == ("ke liye",)
+    # Shared words are never on it: Marathi and Gujarati say "nahi" and "kaam" too.
+    assert not {"nahi", "kaam", "ka", "ki", "ke", "se"} & gold.HINDI_LEAK_WORDS
+
+
+def test_the_device_reply_leaks_and_its_marathi_fix_does_not() -> None:
+    """The owner's device reply (2026-10-14), and the same in Marathi words."""
+    device = ["iya trades mein achha pay ahe", "dekhun tya field mein courses kara"]
+    assert gold.hindi_leak(device, "marathi") == ["mein", "achha", "mein"]
+    assert gold.hindi_leak(["ya trades madhe pay chhan aahe"], "marathi") == []
+
+
+def test_ke_liye_is_read_as_a_phrase_and_chips_count() -> None:
+    assert gold.hindi_leak(["ITI ke liye form bhara"], "tamil") == ["ke liye"]
+    assert gold.hindi_leak(["ke", "liye"], "tamil") == []  # never across two texts
+    assert gold.hindi_leak(["Welding pannunga", "Fitter ke liye course"], "tamil") == ["ke liye"]
+
+
+def test_gujarati_kya_is_where_never_a_leak() -> None:
+    assert gold.hindi_leak(["Tame kya thi sharu karsho?"], "gujarati") == []
+    assert gold.hindi_leak(["Tame kya rehsho?"], "marathi") == ["kya"]
+    assert gold.HINDI_LEAK_SHARED == {"gujarati": frozenset({"kya"})}
+
+
+def test_english_and_hinglish_are_never_read_for_a_leak() -> None:
+    line = ["Welding mein ITI course kariye, aur practice bhi."]
+    assert gold.hindi_leak(line, "hinglish") == []
+    assert gold.hindi_leak(line, "english") == []
+    assert gold.hindi_leak(line, "kannada") == ["mein", "aur"]
+
+
+def test_the_sample_replies_carry_no_leak() -> None:
+    for language in gold.REGIONAL:
+        assert gold.hindi_leak(SAMPLES[language], language) == [], language
+
+
+def test_a_leak_is_scored_counted_listed_and_kept_out_of_refusal_cases() -> None:
+    case = next(c for c in gold.CASES if c.id == "gu-1")
+    leaky = {
+        "status": "answer",
+        "lines": SAMPLES["gujarati"],
+        "followup_chips": ["Electrician ke liye course"],
+    }
+    result = gold.score_reply(case, leaky)
+    assert result.adhered and result.hindi_leak == ("ke liye",)
+    score = gold.evaluate(lambda c: leaky if c is case else _perfect(c))
+    assert (score.per_language["gujarati"].leaked, score.per_language["gujarati"].leak_scored) == (
+        1,
+        5,
+    )
+    regional = sum(c.reply_language in gold.REGIONAL for c in ANSWER_CASES)
+    assert (score.overall.leaked, score.overall.leak_scored) == (1, regional)
+    assert score.per_language["english"].leak_scored == 0
+    assert any("gu-1: hindi ke liye" in miss for miss in score.misses)
+    # A case that must refuse and answered is scored on the refusal, not counted for a leak.
+    health = next(c for c in REFUSE_CASES if c.reply_language == "marathi")
+    answered = {"status": "answer", "lines": ["Kamar dard mein aaram kara."]}
+    leaked = gold.evaluate(lambda _c: answered, [health])
+    assert leaked.overall.leak_scored == 0
+    assert leaked.misses == ["[marathi/latin/request] rq-refused-mr: answer, expected a refusal"]
+
+
 # ── 3. the CLI against a fake transport ──────────────────────────────────────────────────────
 
 
@@ -764,6 +836,13 @@ def test_the_report_prints_every_language_and_kind(
         assert f"MUST REFUSE {case.id} (expected {case.expected_topic}): answer" in out
         assert f"{case.id}: answer, expected a refusal" in out
     assert "spend INR" in out and "RESULT: PASS" in out
+    # (g) is printed on the regional rows and overall, never on English or Hinglish.
+    regional = sum(c.reply_language in gold.REGIONAL for c in ANSWER_CASES)
+    assert re.search(rf"^  overall .* hindi leak 0/{regional}", out, re.M)
+    assert re.search(r"^  marathi .* hindi leak 0/7", out, re.M)
+    assert not re.search(r"^  (english|hinglish) .* hindi leak", out, re.M)
+    summary = "hindi leak (regional replies with a Hindi function word in a line or chip)"
+    assert f"{summary}: 0/{regional}" in out
 
 
 def test_cases_runs_only_the_named_ones(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -820,6 +899,7 @@ def test_the_dump_carries_every_reply_and_rescores_without_a_call(
     assert rows[0]["lines"] == SAMPLES["hinglish"] and rows[0]["adhered"] is False
     assert rows[1]["adhered"] is True and rows[1]["model"] == _MODEL
     assert rows[1]["copy"] is False and rows[1]["walls"] == []
+    assert all(row["hindi_leak"] == [] for row in rows)
     assert rows[1]["expected_status"] == "answer"
     assert {row["expected_status"] for row in rows} == {"answer", "refuse"}
     capsys.readouterr()

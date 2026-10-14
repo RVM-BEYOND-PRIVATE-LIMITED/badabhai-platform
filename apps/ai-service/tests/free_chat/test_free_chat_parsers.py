@@ -1,6 +1,8 @@
 """The free-chat parsers (ADR-0051 §3.4, §8): model output is untrusted; every miss is ONE value.
 
-The classifier's miss is ``unclear`` / 0.0 / not blocked; the reply's miss is a refusal on
+The classifier's miss is ``unclear`` / 0.0 / not blocked / no language, and its language label
+(§11 R42) is read apart: a label outside the closed set is ``None`` without costing the category.
+The reply's miss is a refusal on
 ``unsafe_other``; the rolling summary's miss is a null summary, which keeps the previous one. Each
 mock response must parse to exactly that value, so a development environment behaves the way a
 broken model would.
@@ -79,6 +81,84 @@ def test_the_classify_mock_is_the_unclear_value() -> None:
     assert classify_logic.parse_classify_output(classify_logic.MOCK_RESPONSE) == (
         classify_logic.UNCLEAR
     )
+    # A mock classified nothing and named no language: the API keeps its word lists.
+    assert classify_logic.UNCLEAR.language is None
+
+
+# ── the classifier's language label (ADR-0051 §11 R42, #2240) ────────────────────────────────
+
+
+def test_the_label_set_is_the_contracts_reply_languages() -> None:
+    from typing import get_args
+
+    from app.contracts import FreeChatReplyLanguage
+
+    assert classify_logic.LANGUAGES == frozenset(get_args(FreeChatReplyLanguage))
+    assert len(classify_logic.LANGUAGES) == 7
+
+
+@pytest.mark.parametrize(
+    "language", ["english", "hinglish", "marathi", "gujarati", "kannada", "telugu", "tamil"]
+)
+def test_every_closed_language_is_read(language: str) -> None:
+    parsed = classify_logic.parse_classify_output(
+        json.dumps({"category": "career", "confidence": 0.9, "language": language})
+    )
+    assert (parsed.category, parsed.language) == ("career", language)
+
+
+def test_a_label_differing_only_in_case_or_whitespace_is_read() -> None:
+    for raw in ("Marathi", " marathi ", "MARATHI\n"):
+        assert classify_logic.parse_language(raw) == "marathi", raw
+    fenced = '```json\n{"category": "jobs", "confidence": 0.8, "language": "Tamil"}\n```'
+    assert classify_logic.parse_classify_output(fenced).language == "tamil"
+
+
+@pytest.mark.parametrize(
+    "language",
+    [
+        "hindi",  # the owner's rule maps Hindi to hinglish, but the MODEL must say so
+        "bengali",
+        "punjabi",
+        "marathi mixed with english",
+        "mar",
+        "",
+        "   ",
+        None,
+        7,
+        True,
+        ["marathi"],
+        {"name": "marathi"},
+    ],
+)
+def test_an_invalid_label_is_none_and_never_costs_the_category(language: object) -> None:
+    """R42: a label outside the closed set leaves the API's word lists in force. It is dropped
+    BEFORE the model is built, so the output stays valid and the category stays the model's."""
+    parsed = classify_logic.parse_classify_output(
+        json.dumps({"category": "resume", "confidence": 0.85, "language": language})
+    )
+    assert (parsed.category, parsed.confidence, parsed.blocked) == ("resume", 0.85, False)
+    assert parsed.language is None
+    assert classify_logic.parse_language(language) is None
+
+
+def test_a_missing_label_is_none() -> None:
+    parsed = classify_logic.parse_classify_output('{"category": "casual", "confidence": 0.9}')
+    assert (parsed.category, parsed.language) == ("casual", None)
+
+
+def test_a_contract_miss_carries_no_label_from_the_same_text() -> None:
+    """Every failure mode is ONE value: a junk category with a valid label is still UNCLEAR, and
+    UNCLEAR names no language, so an unreadable output never steers the reply's language."""
+    for content in (
+        '{"category": "smalltalk", "confidence": 0.9, "language": "marathi"}',
+        '{"category": "career", "confidence": 1.5, "language": "marathi"}',
+        '{"confidence": 0.9, "language": "marathi"}',
+        '{"category": "career", "confidence": 0.9, "language": "marathi"',  # truncated
+    ):
+        parsed = classify_logic.parse_classify_output(content)
+        assert parsed == classify_logic.UNCLEAR, content
+        assert parsed.language is None, content
 
 
 # ── the reply ────────────────────────────────────────────────────────────────────────────────
