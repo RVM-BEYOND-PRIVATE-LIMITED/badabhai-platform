@@ -58,6 +58,7 @@ import '../domain/chat_companion_keys.dart';
 import '../domain/chat_news_link.dart';
 import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
+import '../domain/chat_companion_v3_keys.dart';
 import '../domain/chat_resume_prompt.dart';
 import '../../resume_import/domain/resume_upload_intent.dart';
 import 'widgets/chat_end_divider.dart';
@@ -751,6 +752,29 @@ class _ChatViewState extends State<_ChatView>
     // in the bloc.
     if (option.optionKey == kResumePromptNoResumeKey) {
       context.read<ChatBloc>().add(ChatResumePromptDeclined(option.labelText));
+      return;
+    }
+    // #2276 (ADR-0055) — the companion's redo menu now offers the FORM road:
+    // "Form se resume banayein" opens the FULL walk for a new résumé, from step
+    // 1 with no section filter, through the same tier-aware entry every other
+    // road into the form uses. Never posted — the server only answers the label
+    // as text for an app that predates this key.
+    if (option.optionKey == kResumeMenuFormCreateKey) {
+      unawaited(
+        openTradeFormWithTier(
+          context,
+          entry: TierEntry.pushed,
+          fromStart: true,
+        ),
+      );
+      return;
+    }
+    // #2276 — "Resume download karein": the same thing the in-chat "Resume
+    // download" tile does, answered on the phone. Never posted.
+    if (option.optionKey == kCompanionResumeDownloadKey) {
+      context.read<ChatBloc>().add(
+            ChatResumeDownloadChipTapped(option.labelText),
+          );
       return;
     }
     switch (resumeMenuActionFor(option.optionKey)) {
