@@ -16,6 +16,7 @@ import type {
   FreeChatResumeAction,
 } from "@badabhai/types";
 import { resolveResumeMenu } from "../../chat/resume-menu";
+import type { KnownNameSource } from "../../common/redact-known-name";
 import type { RequestContext } from "../../common/request-context";
 import { SERVER_CONFIG } from "../../config/config.module";
 // VALUE imports: constructor parameters, resolved by Nest from the emitted `design:paramtypes`.
@@ -37,6 +38,7 @@ import {
   type FreeChatVerdict,
 } from "../../profiling/free-chat/free-chat.router";
 import { FREE_CHAT_COPY, FREE_CHAT_REFUSAL_LINES } from "../../profiling/free-chat/free-chat.copy";
+import { WorkerNameReader, type WorkerNameSources } from "../../workers/worker-name-sources";
 import type { CompanionTurn } from "../chat-companion.dto";
 import type { CompanionResumeDownload } from "../companion-facts";
 import {
@@ -78,6 +80,14 @@ export interface BrainInput {
   readonly ctx: RequestContext;
   readonly now: Date;
   readonly submissionId: string | null;
+}
+
+/**
+ * One brain turn's input plus the worker's own name for REDACTION — the request's two views of one
+ * lazy read (`WorkerNameReader`), shared by every model call the turn makes.
+ */
+interface NamedInput extends BrainInput {
+  readonly names: WorkerNameSources;
 }
 
 /** What the brain decided, for `chat.companion_turn_served_v4` — closed enums and a count only. */
@@ -198,26 +208,26 @@ function brainTurn(verdicted: Verdicted, served: Served): BrainTurn {
   };
 }
 
-/** The worker's own name is not known on this surface — see {@link callContextOf}. */
-const NO_KNOWN_NAME = async (): Promise<string | null> => null;
-
 /**
  * A free-chat model call made for the Bada Bhai chat: no chat session (the companion never reads or
- * writes one), and the `companion` surface on every AI input.
+ * writes one), the `companion` surface on every AI input, and the worker's OWN NAME to redact.
  *
- * NO OWN-NAME REDACTION HERE, DELIBERATELY. The companion module never reads the workers row
- * (ADR-0044), so it does not know the worker's name; ADR-0047 lifts the ban on raw PII in a prompt,
- * the orchestrator's gateway hop still masks the message while `AI_RAW_PII_ENABLED` is off, and the
- * G1 output floor (`screenFreeChatAnswer`'s hard-identifier wall) runs on every model line before a
- * worker reads it.
+ * OWN-NAME REDACTION, EXACTLY AS THE PROFILING CHAT (ADR-0051 privacy invariant; ADR-0054 §4, §8
+ * M1). The free-chat model calls replace the worker's name with `[NAME]` in the message, every
+ * recent turn and the trade label, whatever `AI_RAW_PII_ENABLED` says — and with that flag on in
+ * production the message reaches them raw, so this is the only thing keeping the name out. `name`
+ * is the request's `knownName` view for classify and reply (an undecryptable name reads as none, so
+ * they still run) and its `ownName` view for news, which then makes no search and serves its
+ * unavailable line (fail closed). The plaintext is only ever REMOVED from text: never shown, logged,
+ * evented or stored (ADR-0055 narrows ADR-0044 R8 to exactly this read).
  */
-function callContextOf(input: BrainInput): FreeChatCallContext {
+function callContextOf(input: NamedInput, name: KnownNameSource): FreeChatCallContext {
   return {
     workerId: input.workerId,
     sessionId: null,
     correlationId: input.ctx.correlationId,
     requestId: input.ctx.requestId,
-    knownName: NO_KNOWN_NAME,
+    knownName: name,
     surface: "companion",
   };
 }
@@ -257,6 +267,9 @@ export function distressTurn(): CompanionTurn {
  * AI NEVER DECIDES: the model names a category (and an action); every rule above is code. Every
  * model failure is a fixed line, never a partial turn. No employer-name backstop runs on the reply
  * (the owner allows company names here — the career handler's index check is not this path's).
+ *
+ * THE WORKER'S OWN NAME is read once per turn (`WorkerNameReader`) and used for ONE thing: to be
+ * removed from every classify, reply and news input (see {@link callContextOf}).
  */
 @Injectable()
 export class CompanionBrain {
@@ -267,9 +280,12 @@ export class CompanionBrain {
     private readonly calls: FreeChatModelCalls,
     private readonly registry: CompanionHandlerRegistry,
     private readonly resumes: CompanionResumeStatus,
+    // ADR-0055 — the worker's own name, read ONLY to redact it from the model calls below.
+    private readonly names: WorkerNameReader,
   ) {}
 
-  async route(input: BrainInput): Promise<BrainTurn> {
+  async route(brainInput: BrainInput): Promise<BrainTurn> {
+    const input: NamedInput = { ...brainInput, names: this.names.sourcesFor(brainInput.workerId) };
     const { verdict, resumeAction } = await this.calls.classifyWithAction(
       {
         text: input.promptText,
@@ -277,7 +293,7 @@ export class CompanionBrain {
         pendingQuestion: null,
         messages: contextLinesOf(input.recentTurns),
       },
-      callContextOf(input),
+      callContextOf(input, input.names.knownName),
     );
     if (verdict.kind === "unavailable")
       return brainTurn(UNAVAILABLE, await this.unclear(input, null));
@@ -292,7 +308,7 @@ export class CompanionBrain {
 
   /** A REAL verdict to its answer — the table in the class header. */
   private async dispatch(
-    input: BrainInput,
+    input: NamedInput,
     verdict: Extract<FreeChatVerdict, { kind: "verdict" }>,
     resumeAction: FreeChatResumeAction | null,
   ): Promise<Served> {
@@ -326,13 +342,13 @@ export class CompanionBrain {
   }
 
   /** The existing clarify handler; `v2Intent` is what the classifier said, null when it said nothing. */
-  private async unclear(input: BrainInput, v2Intent: CompanionV3Intent | null): Promise<Served> {
+  private async unclear(input: NamedInput, v2Intent: CompanionV3Intent | null): Promise<Served> {
     return { ...(await this.handle("unclear", input)), v2Intent };
   }
 
   /** A `resume` message, by what it wants. Edit and new go to the existing handlers, flags and all. */
   private async resume(
-    input: BrainInput,
+    input: NamedInput,
     action: FreeChatResumeAction | null,
     intent: CompanionV3Intent,
   ): Promise<Served> {
@@ -368,7 +384,7 @@ export class CompanionBrain {
    * module never reads (ADR-0044). The companion's own memory (the last six turns) is the context.
    */
   private async reply(
-    input: BrainInput,
+    input: NamedInput,
     category: FreeChatReplyCategory,
     verdict: FreeChatVerdict,
   ): Promise<Served> {
@@ -385,7 +401,7 @@ export class CompanionBrain {
         summary: null,
         replyLanguage: asked.replyLanguage,
       },
-      callContextOf(input),
+      callContextOf(input, input.names.knownName),
     );
     if (out === null) {
       return { ...asked, turn: this.fixedLine(FREE_CHAT_COPY.REPLY_FALLBACK), outcome: "fallback" };
@@ -429,7 +445,7 @@ export class CompanionBrain {
    * ride the companion's own turn event.
    */
   private async news(
-    input: BrainInput,
+    input: NamedInput,
     asked: { readonly v2Intent: CompanionV3Intent; readonly replyLanguage: FreeChatReplyLanguage },
   ): Promise<Served> {
     const resolution: FreeChatNewsResolution = await this.calls.requestNews(
@@ -439,7 +455,9 @@ export class CompanionBrain {
         workerContext: workerContextOf(input.profile),
         replyLanguage: asked.replyLanguage,
       },
-      callContextOf(input),
+      // The OWN-NAME view (ADR-0054 §8 M1): a name that cannot be decrypted rejects, and the news
+      // request then makes no search and serves its unavailable line.
+      callContextOf(input, input.names.ownName),
       input.now,
       input.submissionId,
     );
@@ -462,7 +480,7 @@ export class CompanionBrain {
   }
 
   /** One registered handler, by intent — the registry reads the phase flags, as on the v2 path. */
-  private handle(intent: CompanionV2Intent, input: BrainInput): Promise<HandlerResult> {
+  private handle(intent: CompanionV2Intent, input: NamedInput): Promise<HandlerResult> {
     return this.registry.resolve(intent).handle({
       workerId: input.workerId,
       profile: input.profile,

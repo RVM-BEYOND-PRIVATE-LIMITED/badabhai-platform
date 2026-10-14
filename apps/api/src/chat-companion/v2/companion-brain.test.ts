@@ -164,8 +164,31 @@ function setup(opts: Setup = {}) {
     new UnclearHandler(config),
   );
   const resumes = { downloadOf: vi.fn(async () => opts.download ?? "ready") };
-  const brain = new CompanionBrain(config, calls as never, registry, resumes as never);
-  return { brain, calls, edits, faltuStore, events, careerAi, employers, resumes, config };
+  // ADR-0055 — the worker's own name, for redaction: the two views of one read.
+  const knownName = vi.fn(async () => "Ramesh Yadav");
+  const ownName = vi.fn(async () => "Ramesh Yadav");
+  const names = { sourcesFor: vi.fn(() => ({ knownName, ownName })) };
+  const brain = new CompanionBrain(
+    config,
+    calls as never,
+    registry,
+    resumes as never,
+    names as never,
+  );
+  return {
+    brain,
+    calls,
+    edits,
+    faltuStore,
+    events,
+    careerAi,
+    employers,
+    resumes,
+    config,
+    names,
+    knownName,
+    ownName,
+  };
 }
 
 const input = (text: string, over: Partial<BrainInput> = {}): BrainInput => ({
@@ -217,8 +240,9 @@ describe("the classifier call — ONE, on the companion surface, with no session
       requestId: "req-1",
       surface: "companion",
     });
-    // ADR-0044: this module never reads the workers row — no name is known to redact.
-    expect(await ctx.knownName()).toBeNull();
+    // ADR-0055: the worker's own name, read once per turn for REDACTION — the knownName view.
+    expect(h.names.sourcesFor).toHaveBeenCalledWith(WORKER);
+    expect(ctx.knownName).toBe(h.knownName);
   });
 });
 

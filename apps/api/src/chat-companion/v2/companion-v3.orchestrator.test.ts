@@ -157,9 +157,14 @@ function setup(opts: { killSwitch?: boolean; freeClassify?: unknown; reply?: unk
       release: vi.fn(async () => undefined),
     } as never,
   );
-  const brain = new CompanionBrain(config, calls, registry, {
-    downloadOf: vi.fn(async () => "ready"),
-  } as never);
+  const brain = new CompanionBrain(
+    config,
+    calls,
+    registry,
+    { downloadOf: vi.fn(async () => "ready") } as never,
+    // ADR-0055 — no name on file: nothing to redact.
+    { sourcesFor: () => ({ knownName: async () => null, ownName: async () => null }) } as never,
+  );
   const route = vi.spyOn(brain, "route");
   const orchestrator = new CompanionV2Orchestrator(
     config,

@@ -20,6 +20,7 @@ import { ResumeImportRepository } from "../profiling/resume-import/resume-import
 import { ResumeSuggestionReader } from "../profiling/resume-import/resume-suggestion-reader";
 import { FreeChatModelCalls } from "../profiling/free-chat/free-chat-model-calls";
 import { FreeChatNewsCap } from "../profiling/free-chat/free-chat-news-cap.store";
+import { WorkerNameReader } from "../workers/worker-name-sources";
 import { ChatCompanionController } from "./chat-companion.controller";
 import { CompanionResumeStatus } from "./companion-resume-status";
 import { CompanionBrain } from "./v2/companion-brain";
@@ -79,6 +80,15 @@ import {
  * above. Their dependencies are @Global (`AiModule`) or registered here (the render queue the news
  * cap borrows its Redis connection from): two providers, and no module edge. The cap's Redis key is
  * the worker's, so the profiling chat and this one share one daily news allowance.
+ *
+ * ADR-0055 — THE ONE READ OF THE WORKERS ROW, AND WHAT IT IS FOR. `WorkerNameReader` reads
+ * `workers.full_name` (that column alone) and decrypts it through the @Global PII crypto service,
+ * solely so the free-chat brain can REMOVE the worker's own name from its model inputs — the
+ * profiling chat's own-name redaction, with `ChatService`'s exact semantics (one shared definition,
+ * `workerNameSources`). ADR-0044 R8 ("never reads the workers row") is NARROWED to exactly this: the
+ * name is never shown, logged, evented or stored here. The reader lives under `workers/`, so no file
+ * in this module imports the crypto service (the egress guard still holds); its dependencies are
+ * @Global (`WorkersModule`, `CryptoModule`): one provider, and no module edge.
  */
 @Module({
   imports: [
@@ -130,6 +140,8 @@ import {
     FreeChatModelCalls,
     FreeChatNewsCap,
     CompanionResumeStatus,
+    // ADR-0055 — the worker's own name, read only to redact it from the brain's model inputs.
+    WorkerNameReader,
     // ADR-0046 T7 — the edit path and the section writers it applies through (see the module
     // docblock for why they are provisioned here rather than imported).
     CompanionEditService,
