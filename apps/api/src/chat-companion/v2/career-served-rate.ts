@@ -1,8 +1,20 @@
 import { readFileSync } from "node:fs";
-import { parseArgs } from "node:util";
 import { CompanionCareerAnswerSchema } from "@badabhai/ai-contracts";
 import { z } from "zod";
+import {
+  CONTRACT_SCHEMA,
+  OVER_API_TIMEOUT,
+  describeIssues,
+  readJson,
+  readStrictFlags,
+  readText,
+  type Parsed,
+  type ReplayIo,
+} from "../../common/eval-replay";
 import { type CareerAnswerFailure, screenCareerAnswer } from "./career-output.validator";
+
+// The shared replay plumbing, re-exported under the names this module has always exported.
+export { CONTRACT_SCHEMA, OVER_API_TIMEOUT, type Parsed, type ReplayIo };
 
 /**
  * THE PHASE-3 §6 SERVED-RATE REPLAY (runbook `docs/ops/companion-v2-staging-evals-runbook.md`
@@ -80,17 +92,11 @@ const DUMP_ALL_WRITTEN = /^all answers: wrote (\d+) to /gm;
 /** `eval_cli.gate_failures`, printed by `_verdict` — the CLI's own "this run is not evidence". */
 const NOT_EVIDENCE = /^\s*FAIL (CONTAMINATED|INCOMPLETE|FALLBACK):/m;
 
-/** The two production fallbacks that run before the validator (steps 1 and 2 above). */
-export const OVER_API_TIMEOUT = "over_api_timeout";
-export const CONTRACT_SCHEMA = "contract_schema";
-
+/** The validator's reasons, plus the two production fallbacks that run before it (steps 1, 2). */
 export type NotServedReason =
   | CareerAnswerFailure
   | typeof OVER_API_TIMEOUT
   | typeof CONTRACT_SCHEMA;
-
-/** At most this many schema issues are named when a file is rejected. */
-const ISSUES_SHOWN = 5;
 
 const USAGE =
   "usage: node apps/api/dist/chat-companion/v2/career-served-rate.js " +
@@ -116,8 +122,6 @@ const DumpDocumentSchema = z.object({
   written: z.number().int().nonnegative(),
   samples: z.array(DumpSampleSchema),
 });
-
-export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** The counts `career.txt` carries for the replay. */
 export interface CareerSummary {
@@ -151,14 +155,6 @@ export interface ServedRateReport {
   /** Risky samples in the file — excluded from the rate. */
   riskyAnswered: number;
   passed: boolean;
-}
-
-/** Zod issues as `path: code` — never `message`, which can echo a value from the file. */
-function describeIssues(issues: readonly z.ZodIssue[]): string {
-  return issues
-    .slice(0, ISSUES_SHOWN)
-    .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.code}`)
-    .join("; ");
 }
 
 function firstDuplicate(ids: readonly string[]): string | null {
@@ -334,14 +330,6 @@ export function formatReport(report: ServedRateReport): string[] {
   ];
 }
 
-/** The process boundary, injected so the exit codes are testable without a process. */
-export interface ReplayIo {
-  /** The file's text; throws when it cannot be read. */
-  readFile(path: string): string;
-  out(line: string): void;
-  err(line: string): void;
-}
-
 function notMeasured(io: ReplayIo, error: string): ExitCode {
   io.err(`ERROR ${error}`);
   io.err("served rate NOT MEASURED");
@@ -350,15 +338,9 @@ function notMeasured(io: ReplayIo, error: string): ExitCode {
 
 /** `--file` and `--career-txt`, strictly: an unknown, repeated or positional argument is an error. */
 function parseCliArgs(argv: readonly string[]): Parsed<{ file: string; careerTxt: string }> {
-  let flags: ReturnType<typeof readFlags>;
-  try {
-    flags = readFlags(argv);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `${err instanceof Error ? err.message : "bad arguments"}; ${USAGE}`,
-    };
-  }
+  const read = readStrictFlags(argv, ["file", "career-txt"]);
+  if (!read.ok) return { ok: false, error: `${read.error}; ${USAGE}` };
+  const flags = read.value;
   if (flags.file === undefined) return { ok: false, error: `--file is required; ${USAGE}` };
   if (flags["career-txt"] === undefined) {
     return {
@@ -367,44 +349,6 @@ function parseCliArgs(argv: readonly string[]): Parsed<{ file: string; careerTxt
     };
   }
   return { ok: true, value: { file: flags.file, careerTxt: flags["career-txt"] } };
-}
-
-function readFlags(argv: readonly string[]) {
-  const { values, tokens } = parseArgs({
-    args: [...argv],
-    options: { file: { type: "string" }, "career-txt": { type: "string" } },
-    strict: true,
-    allowPositionals: false,
-    tokens: true,
-  });
-  // parseArgs keeps the LAST of a repeated option, so `--file a --file b` would silently score b.
-  const seen = new Set<string>();
-  for (const token of tokens) {
-    if (token.kind !== "option") continue;
-    if (seen.has(token.name)) throw new Error(`--${token.name} is given more than once`);
-    seen.add(token.name);
-  }
-  return values;
-}
-
-function readText(io: ReplayIo, path: string): Parsed<string> {
-  try {
-    return { ok: true, value: io.readFile(path) };
-  } catch (err) {
-    const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
-    return { ok: false, error: `cannot read ${path}${code ? ` (${code})` : ""}` };
-  }
-}
-
-function readJson(io: ReplayIo, path: string): Parsed<unknown> {
-  const text = readText(io, path);
-  if (!text.ok) return text;
-  try {
-    return { ok: true, value: JSON.parse(text.value) };
-  } catch {
-    // The parser's message quotes the text around the fault, which is model output: not shown.
-    return { ok: false, error: `${path} is not JSON` };
-  }
 }
 
 /** The CLI: 0 PASS, 1 FAIL, 2 NOT MEASURED. */

@@ -1,0 +1,24 @@
+free-chat classifier (baseline, no bar): 126/134 = 94.0% overall — scored after the API's confidence floor 0.60 (0 answers below it became unclear)
+  category resume      40/44 = 90.9%
+  category career      19/19 = 100.0%
+  category jobs        15/16 = 93.8%
+  category casual      25/26 = 96.2%
+  category trash       4/5 = 80.0%
+  category off_limits  8/8 = 100.0%
+  category distress    5/5 = 100.0%
+  category unclear     10/11 = 90.9%
+  mode     free        98/105 = 93.3%
+  mode     resume      28/29 = 96.6%
+predicted: resume (40), casual (26), career (19), jobs (16), unclear (16), off_limits (8), distress (5), trash (4)
+calls: 134 sent, 134 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 9.32 (router estimate)
+models: claude-haiku-4-5 (134); 0 served by a fallback model
+latency, round trip to the ai-service: p50 956 ms, p95 1756 ms; model call only: p50 934 ms, p95 1708 ms (excludes the API hop and validator, and a career turn's classify call)
+  MISS [resume] 'cricket kaun jeeta': expected casual, got unclear
+  MISS [free] 'naukri ke liye CV chahiye': expected resume, got jobs
+  MISS [free] 'yaavudadru kelasa ide na': expected jobs, got unclear
+  MISS [free +turns] 'thik hai': expected resume, got unclear
+  MISS [free +turns] 'achha': expected resume, got unclear
+  MISS [free +turns] 'okay': expected resume, got unclear
+  MISS [free +turns] 'achha': expected unclear, got casual
+  MISS [free] 'tula ghari yeun maarin': expected trash, got unclear
+RESULT: PASS
