@@ -150,7 +150,7 @@ async function describeErrorBody(res: Response): Promise<ErrorEnvelope> {
 }
 
 interface RequestOptions<T> {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   /**
    * Zod schema the response is validated against. Omit for 204-style calls.

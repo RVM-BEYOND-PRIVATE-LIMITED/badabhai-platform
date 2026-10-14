@@ -984,8 +984,82 @@ describe("revealMaskedResume — LIVE disclosure (XB-A body, no-oracle neutral)"
  *    page has no org_label/description/createdBy/payerId.
  *  - no-oracle: an unknown-or-not-owned id maps to a neutral `null`.
  */
+/**
+ * #2194 (ADR-0053 O-10) — a posting carries the TENANT's organisation name.
+ *
+ * `orgName` is the person's own account label. For a recruiter on a team with tenancy on, the
+ * posting belongs to the team, so publishing it under the recruiter's own org name named the
+ * wrong company on a worker-facing card. `postingOrgName` is the founder's company for exactly
+ * that case and equals `orgName` for everyone else.
+ */
+describe("postingOrgLabel — which org a posting is published under (#2194)", () => {
+  const SOLO = { orgName: "Acme Manufacturing", role: "employer" as const };
+
+  it("a solo payer, or tenancy off: the account org", async () => {
+    const { postingOrgLabel } = await import("./payer-api");
+    expect(postingOrgLabel({ ...SOLO, postingOrgName: "Acme Manufacturing" })).toBe(
+      "Acme Manufacturing",
+    );
+  });
+
+  it("a team member with tenancy on: the FOUNDER's org, not their own", async () => {
+    const { postingOrgLabel } = await import("./payer-api");
+    expect(
+      postingOrgLabel({ orgName: "Ravi Staffing", role: "agent", postingOrgName: "Sunrise Agency" }),
+    ).toBe("Sunrise Agency");
+  });
+
+  it("an OLDER API with no such field keeps today's behaviour", async () => {
+    const { postingOrgLabel } = await import("./payer-api");
+    expect(postingOrgLabel(SOLO)).toBe("Acme Manufacturing");
+  });
+
+  it("null (tenancy denied) falls back safely — the server refuses the create anyway", async () => {
+    const { postingOrgLabel } = await import("./payer-api");
+    expect(postingOrgLabel({ ...SOLO, postingOrgName: null })).toBe("Acme Manufacturing");
+    // And a blank one is not a label either.
+    expect(postingOrgLabel({ ...SOLO, postingOrgName: "   " })).toBe("Acme Manufacturing");
+  });
+
+  it("the role-aware fallback still covers a blank account org", async () => {
+    const { postingOrgLabel } = await import("./payer-api");
+    expect(postingOrgLabel({ orgName: "", role: "agent" })).toBe("Your agency");
+    expect(postingOrgLabel({ orgName: "", role: "employer" })).toBe("Your company");
+  });
+});
+
 describe("createPosting — LIVE: org_label from /payer/me, faceless body, PII dropped", () => {
   const PAYER_A = "11111111-1111-4111-8111-111111111111";
+
+  // #2194 — the end-to-end stamp, not just the pure mapper: a team member's posting must go out
+  // under the FOUNDER's company, which is the whole point of `postingOrgName`.
+  it("stamps org_label from postingOrgName when the tenant differs from the account", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/me")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: PAYER_A,
+            role: "agent",
+            status: "active",
+            orgName: "Ravi Staffing",
+            postingOrgName: "Sunrise Agency",
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse(jobPostingRow(), 201));
+    });
+    const { createPosting } = await import("./payer-api");
+    await createPosting({ roleTitle: "CNC Machinist", vacancies: 2 });
+
+    const postCall = fetchMock.mock.calls.find(
+      (c) =>
+        (c[0] as string).endsWith("/payer/job-postings") &&
+        (c[1] as RequestInit | undefined)?.method === "POST",
+    ) as [string, RequestInit] | undefined;
+    const body = JSON.parse(postCall![1].body as string) as Record<string, unknown>;
+    expect(body.org_label).toBe("Sunrise Agency");
+    expect(body.org_label).not.toBe("Ravi Staffing");
+  });
 
   it("resolves org_label from GET /payer/me, POSTs the RAW vacancies, never payer_id/created_by", async () => {
     fetchMock.mockImplementation((url: string) => {

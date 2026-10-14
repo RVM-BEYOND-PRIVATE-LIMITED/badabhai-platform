@@ -105,6 +105,16 @@ export const NAV: NavSection[] = [
         icon: "path",
         capability: "read_entities",
       },
+      // #2192 — the agency match-skill editor. Gated on the WRITE capability, not the read
+      // floor, because `AgencyJobsAdminController` puts the list, the detail read and the PUT
+      // all on `manage_agency_match_skills`: an admin without it has nothing to see here, so
+      // the entry stays hidden rather than routing them to a 403.
+      {
+        href: "/agency-jobs",
+        label: "Agency match skills",
+        icon: "tag",
+        capability: "manage_agency_match_skills",
+      },
     ],
   },
   {

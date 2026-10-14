@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { payerFetch } from "./payer-http";
+import { PayerConflictError } from "./payer-errors";
 import { orgRoleWireSchema } from "./contracts";
 import type { OrgRole } from "./auth/org-roles";
 
@@ -112,9 +113,50 @@ export async function removeOrgMember(input: {
 }
 
 /**
+ * The server's neutral 409 for an accept that would break a membership invariant (ADR-0053
+ * §3.5 / #2154: already in a team, anchors a team, or a vertical-role mismatch).
+ *
+ * MATCHED ON THE MESSAGE, not on a reason code, because the API deliberately sends none: the
+ * whole point of the refusal is that the caller cannot tell WHICH invariant failed.
+ *
+ * A DISTINCTIVE PHRASE rather than the whole sentence, normalised to letters and digits: the
+ * server today says "This invite can't be accepted with this account", and neither the
+ * contraction, an apostrophe nor a trailing full stop may silently drop this branch. No other
+ * refusal on this route says "accepted with this account" — the already-used 409 and the
+ * wrong-account 403 read nothing like it. A miss degrades to the generic neutral line, which is
+ * still safe copy: this can read as less specific, never as misleading.
+ */
+const INVITE_NOT_ACCEPTABLE_SERVER_MARKER = "accepted with this account";
+
+/** What the worker-facing copy says instead. Names no invariant and no organisation (#2193). */
+export const INVITE_NOT_ACCEPTABLE_COPY =
+  "You cannot join this team with this account. You may already be part of another team, or " +
+  "you own a team. Ask the person who invited you to use a different email.";
+
+const normalise = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+function isInviteNotAcceptable(error: unknown): boolean {
+  if (!(error instanceof PayerConflictError)) return false;
+  if (error.detail === null) return false;
+  return normalise(error.detail).includes(INVITE_NOT_ACCEPTABLE_SERVER_MARKER);
+}
+
+/**
  * Accept a teammate invite with the single-use token from the accept link. The accepting
  * identity is the session payer (the token never carries who accepts); a bad/expired/mismatched
  * token is reported NEUTRALLY. On success the caller becomes an active member of the inviting org.
+ *
+ * #2193 — ONE refusal is now told apart: the 409 the server raises when the ACCOUNT, not the
+ * link, is the problem. "That invite link is invalid or has expired" sent such a payer to the
+ * inviter for a fresh link, which would fail identically forever. Every other failure — the
+ * 404 invalid/expired token, the 403 wrong account, the already-used 409, a transport error —
+ * keeps the existing neutral line, so nothing else about this surface changes.
+ *
+ * Neither branch reveals which invariant failed or names an organisation (ADR-0053 §3.5).
  */
 export async function acceptOrgInvite(input: {
   token: string;
@@ -126,7 +168,10 @@ export async function acceptOrgInvite(input: {
       schema: orgMemberWireSchema,
     });
     return { ok: true, message: "You've joined the team." };
-  } catch {
+  } catch (err) {
+    if (isInviteNotAcceptable(err)) {
+      return { ok: false, error: INVITE_NOT_ACCEPTABLE_COPY };
+    }
     return { ok: false, error: "That invite link is invalid or has expired." };
   }
 }

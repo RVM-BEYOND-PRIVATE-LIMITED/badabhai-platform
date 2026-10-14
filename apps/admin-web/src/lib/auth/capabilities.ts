@@ -48,6 +48,11 @@ export const ADMIN_CAPABILITIES = [
   // the queue/detail/metrics READS sit on — this gates only the write that turns a queue row
   // into a recorded decision, mirroring the `read_ai_traces` vs list split one row up.
   "review_skill_candidates",
+  // SET the demand-match skills on one agency job (#2144 / #2192). `super_admin` only on the
+  // server until an owner widens the grant, and deliberately distinct from `read_entities`:
+  // that is what the agency-job READS sit on, while this gates only the PUT that changes which
+  // workers a posting can reach — the same read/write split `review_skill_candidates` makes.
+  "manage_agency_match_skills",
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
@@ -81,6 +86,9 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   force_close_posting: "Force-close postings",
   flag_worker: "Flag workers",
   review_skill_candidates: "Decide skill candidates",
+  // Says what it CHANGES, not where it lives: the selection decides which workers an agency
+  // posting reaches, which is the thing an operator is accountable for.
+  manage_agency_match_skills: "Set agency job match skills",
   // "View", not "Toggle" (owner ruling, #1900): the portal UI only ever READS switch state —
   // flipping one is an env/deploy action, never a portal control. (The same capability also
   // gates the API's audit-only `POST /admin/kill-switch/pause-request`, which this portal does
