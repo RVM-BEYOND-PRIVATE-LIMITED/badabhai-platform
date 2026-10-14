@@ -22,7 +22,9 @@ import 'package:badabhai_worker_app/features/resume/presentation/resume_history_
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_history_section.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/profiling_tier.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_args.dart';
+import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:badabhai_worker_app/router.dart' show Routes;
 import 'package:go_router/go_router.dart';
 
@@ -503,17 +505,29 @@ void main() {
     });
   });
 
-  group('the unfinished-profile card', () {
-    testWidgets('shows the SERVER\'s percentage and its missing fields', (
-      WidgetTester tester,
-    ) async {
-      summaryRepo = _FakeSummary(
-        const ProfileSummary(
-          tradeLabel: 'General Machinist',
-          strengthSignals: 6,
-          strengthMax: 10,
-          missingFields: <String>['salary', 'experience'],
-        ),
+  /// `mera_111.jpeg` — the card is about the FORM the worker was handed, and
+  /// nothing else. It used to render off the nine profile-strength slots,
+  /// which the form never writes, so it showed for a brand-new worker and came
+  /// straight back after "Resume poora karein" was walked to the end.
+  group('the unfinished-FORM card', () {
+    /// A summary that USED to draw the card: 2 of 9 slots, skills + machines
+    /// missing — exactly the screenshot. It must no longer matter.
+    const ProfileSummary screenshotSummary = ProfileSummary(
+      tradeLabel: 'CNC Turner/Operator',
+      strengthSignals: 2,
+      strengthMax: 9,
+      missingFields: <String>['skills', 'machines'],
+    );
+
+    Future<void> pumpWithForm(
+      WidgetTester tester, {
+      TradeForm? form,
+      bool formThrows = false,
+      ProfileSummary summary = screenshotSummary,
+    }) async {
+      summaryRepo = _FakeSummary(summary);
+      locator.registerSingleton<TradeFormRepository>(
+        _FakeTiers(TierState.disabled, form: form, formThrows: formThrows),
       );
       await pump(
         tester,
@@ -521,63 +535,73 @@ void main() {
           items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
         ),
       );
+      await tester.pump();
+    }
 
-      expect(find.textContaining(kResumeDraftPill), findsOneWidget);
-      expect(find.text('60% complete'), findsOneWidget);
-      expect(find.text(kResumeDraftCta), findsOneWidget);
-      // The missing fields are HUMANISED at the display edge — the worker
-      // reads 'salary ki ummeed', never the raw `salary` / `experience` slugs.
-      expect(
-        find.textContaining('Sirf salary ki ummeed aur'),
-        findsOneWidget,
+    testWidgets('a NEW worker who was never handed a form sees no card',
+        (WidgetTester tester) async {
+      // `loadForm()` → null is the server's 404: no form was ever handed over.
+      summaryRepo = _FakeSummary(screenshotSummary);
+      locator.registerSingleton<TradeFormRepository>(
+        _FakeTiers(TierState.disabled)..form = null,
       );
+      await pump(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
+        ),
+      );
+      await tester.pump();
+
+      expect(find.textContaining(kResumeDraftPill), findsNothing,
+          reason: 'profile slots missing is NOT an unfinished form');
     });
 
-    testWidgets('nothing missing: no draft card at all', (
-      WidgetTester tester,
-    ) async {
-      summaryRepo = _FakeSummary(
-        const ProfileSummary(tradeLabel: 'Welder', strengthSignals: 10),
-      );
-      await pump(
-        tester,
-        ResumeHistory(
-          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
-        ),
-      );
+    testWidgets('a FINISHED form shows no card, whatever the profile slots say',
+        (WidgetTester tester) async {
+      await pumpWithForm(tester, form: _completeForm());
+
+      expect(find.textContaining(kResumeDraftPill), findsNothing,
+          reason: 'mera_111.jpeg: the card came back after a complete walk');
+    });
+
+    testWidgets('a form left PART-WAY shows the card with the FORM\'s numbers',
+        (WidgetTester tester) async {
+      await pumpWithForm(tester, form: _incompleteForm());
+
+      expect(find.textContaining(kResumeDraftPill), findsOneWidget);
+      expect(find.text(kResumeDraftCta), findsOneWidget);
+      // 1 of 3 questions answered — not the profile's 2/9 = 22%.
+      expect(find.text('33% complete'), findsOneWidget);
+      expect(find.text('22% complete'), findsNothing);
+      expect(find.text('Sirf 2 sawaal baaki hain.'), findsOneWidget);
+      expect(find.textContaining('skills'), findsNothing,
+          reason: 'the line counts form questions, not profile slots');
+    });
+
+    testWidgets('a failed form read shows no card (never a guess)',
+        (WidgetTester tester) async {
+      await pumpWithForm(tester, formThrows: true);
       expect(find.textContaining(kResumeDraftPill), findsNothing);
     });
 
     testWidgets(
-        'the card goes away after the worker completes the form and returns '
-        '(tab refocus re-reads the summary)', (WidgetTester tester) async {
-      summaryRepo = _FakeSummary(
-        const ProfileSummary(
-          tradeLabel: 'General Machinist',
-          strengthSignals: 6,
-          strengthMax: 10,
-          missingFields: <String>['salary', 'experience'],
-        ),
-      );
+        'finishing the form takes the card away on the way back '
+        '(tab refocus re-reads the form)', (WidgetTester tester) async {
+      summaryRepo = _FakeSummary(screenshotSummary);
+      final _FakeTiers forms = _FakeTiers(TierState.disabled);
+      locator.registerSingleton<TradeFormRepository>(forms);
       await pump(
         tester,
         ResumeHistory(
           items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
         ),
       );
+      await tester.pump();
       expect(find.textContaining(kResumeDraftPill), findsOneWidget);
 
-      // The worker completes "Resume poora karein" on the trade-form road, so
-      // the server no longer reports anything missing. The shell keeps this
-      // screen mounted under the pushed form, so returning must re-read —
-      // never keep showing mount-time state.
-      summaryRepo = _FakeSummary(
-        const ProfileSummary(
-          tradeLabel: 'General Machinist',
-          strengthSignals: 10,
-          strengthMax: 10,
-        ),
-      );
+      // The worker walks "Resume poora karein" to the end.
+      forms.form = _completeForm();
       final TabFocus tabFocus = locator<TabFocus>();
       tabFocus.value = TabIndex.chat;
       await tester.pump();
@@ -586,28 +610,6 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining(kResumeDraftPill), findsNothing);
-      verify(() => repo.loadResumeHistory()).called(greaterThan(1));
-    });
-
-    testWidgets('no denominator: no progress bar invented', (
-      WidgetTester tester,
-    ) async {
-      summaryRepo = _FakeSummary(
-        const ProfileSummary(
-          tradeLabel: 'Welder',
-          strengthSignals: 3,
-          missingFields: <String>['salary'],
-        ),
-      );
-      await pump(
-        tester,
-        ResumeHistory(
-          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
-        ),
-      );
-      expect(find.textContaining(kResumeDraftPill), findsOneWidget);
-      expect(find.textContaining('% complete'), findsNothing);
-      expect(find.byType(LinearProgressIndicator), findsNothing);
     });
   });
 
@@ -848,18 +850,87 @@ void main() {
   });
 }
 
-/// Answers only the one question `openTradeFormWithTier` asks. Hand-written
-/// rather than a mock so the tier gate's "never throws" contract is honoured
-/// without stubbing every other member of the repository.
+/// Answers the two reads this screen's road makes: `loadTierState()` (the tier
+/// gate in `openTradeFormWithTier`) and `loadForm()` (the "FORM ADHOORA HAI"
+/// card). Hand-written rather than a mock so the tier gate's "never throws"
+/// contract is honoured without stubbing every other member.
 class _FakeTiers implements TradeFormRepository {
-  _FakeTiers(this._state);
+  _FakeTiers(this._state, {TradeForm? form, this.formThrows = false})
+      : _form = form ?? _incompleteForm();
 
   final TierState _state;
+  TradeForm? _form;
+  final bool formThrows;
+
+  /// What the next `loadForm()` returns — a test swaps it to model the worker
+  /// finishing the form.
+  set form(TradeForm? value) => _form = value;
 
   @override
   Future<TierState> loadTierState() async => _state;
 
   @override
+  Future<TradeForm?> loadForm({bool upgradeView = false}) async {
+    if (formThrows) throw const NetworkFailure('offline');
+    return _form;
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) =>
-      throw UnsupportedError('not used by the tier gate: ${invocation.memberName}');
+      throw UnsupportedError('not used here: ${invocation.memberName}');
 }
+
+const VoiceQuestion _qMachine = VoiceQuestion(
+  id: 'turning_machine',
+  prompt: 'Aap kaunsi turning machine chalate hain?',
+  kind: VoiceQuestionKind.multiSelect,
+  options: <VoiceChoice>[VoiceChoice(key: 'cnc_lathe', label: 'CNC lathe')],
+);
+
+const VoiceQuestion _qFeature = VoiceQuestion(
+  id: 'machine_features',
+  prompt: 'Aapki machine mein kaunsa feature hai?',
+  kind: VoiceQuestionKind.multiSelect,
+  options: <VoiceChoice>[VoiceChoice(key: 'live_tooling', label: 'Live tooling')],
+);
+
+const VoiceQuestion _qMaterial = VoiceQuestion(
+  id: 'material_worked',
+  prompt: 'Aap kaunsi dhaatu par kaam karte hain?',
+  kind: VoiceQuestionKind.multiSelect,
+  options: <VoiceChoice>[VoiceChoice(key: 'mild_steel', label: 'Mild steel')],
+);
+
+const TradeFormSavedAnswer _answered = TradeFormSavedAnswer(
+  status: TradeFormAnswerStatus.answered,
+  optionKeys: <String>['x'],
+);
+
+TradeForm _formWith({required int answered}) {
+  final List<VoiceQuestion> qs = <VoiceQuestion>[_qMachine, _qFeature, _qMaterial];
+  return TradeForm(
+    kind: 'cnc_turner',
+    packId: 'qp_cnc_turning',
+    packVersion: 1,
+    sections: <TradeFormSection>[
+      TradeFormSection(
+        id: 'capability',
+        title: 'Machines',
+        screens: <TradeFormStep>[
+          for (int i = 0; i < qs.length; i++)
+            TradeFormQuestionStep(
+              question: qs[i],
+              searchable: false,
+              answer: i < answered ? _answered : null,
+            ),
+        ],
+      ),
+    ],
+  );
+}
+
+/// One of three answered: the card's own subject.
+TradeForm _incompleteForm() => _formWith(answered: 1);
+
+/// Every question answered — a FINISHED form.
+TradeForm _completeForm() => _formWith(answered: 3);

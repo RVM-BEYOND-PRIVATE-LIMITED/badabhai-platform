@@ -3,64 +3,45 @@ import 'dart:ui' show PathMetric;
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
-import '../../../../core/util/missing_field_label.dart';
-import '../../../profile_tab/domain/profile_summary.dart';
+import '../../domain/resume_form_progress.dart';
 
 const String kResumeDraftPill = 'FORM ADHOORA HAI';
 const String kResumeDraftProgressLabel = 'Form progress';
 const String kResumeDraftCta = 'Resume poora karein';
 
-/// "Sirf <a> aur <b> bharna baaki hai." — built from the server's OWN
-/// `missing_fields`, humanised at the display edge.
-String resumeDraftNote(List<String> missing) {
-  final List<String> labels = missing
-      .take(2)
-      .map(humanizeMissingField)
-      .where((String l) => l.trim().isNotEmpty)
-      .toList(growable: false);
-  if (labels.isEmpty) return '';
-  final String joined = labels.length == 1
-      ? labels.single
-      : '${labels.first} aur ${labels.last}';
-  return 'Sirf $joined bharna baaki hai.';
+/// "Sirf N sawaal baaki hain." — how many questions of the handed-over form
+/// are still unanswered, straight from the server's form.
+String resumeFormNote(int left) {
+  if (left <= 0) return '';
+  return left == 1 ? 'Sirf 1 sawaal baaki hai.' : 'Sirf $left sawaal baaki hain.';
 }
 
-/// The unfinished-profile card (design: Mere resume).
+/// The unfinished-FORM card (design: Mere resume).
 ///
-/// EVERY NUMBER HERE IS THE SERVER'S. The percentage is
-/// `strength_signals / strength_max` and the missing line is `missing_fields`,
-/// both from `GET /workers/me/profile-summary` — the same two fields the
-/// Profile tab's own strength row already reads. Nothing is estimated on the
-/// client, and the card does not render at all unless the server actually
-/// reports something missing.
+/// Shown only when the worker was handed a trade form and left part of it
+/// unanswered — see [ResumeFormProgress], which also explains why it no
+/// longer reads the profile-strength slots. Every number is the server's: the
+/// bar is answered / total questions of `GET /profiling/form`, and the note
+/// counts the questions left.
 class ResumeDraftCard extends StatelessWidget {
   const ResumeDraftCard({
     super.key,
-    required this.summary,
+    required this.progress,
     required this.onContinue,
+    this.tradeLabel,
   });
 
-  final ProfileSummary summary;
+  final ResumeFormProgress progress;
   final VoidCallback onContinue;
 
-  /// Null when the server gave no denominator — the bar is then not drawn,
-  /// because a progress bar without a total is a picture of a guess.
-  double? get _fraction {
-    final int? max = summary.strengthMax;
-    if (max == null || max <= 0) return null;
-    return (summary.strengthSignals / max).clamp(0.0, 1.0);
-  }
-
-  int? get _percent {
-    final double? f = _fraction;
-    return f == null ? null : (f * 100).round();
-  }
+  /// The worker's trade, for the heading. Null falls back to "Aapka profile".
+  final String? tradeLabel;
 
   @override
   Widget build(BuildContext context) {
-    final String note = resumeDraftNote(summary.missingFields);
-    final int? percent = _percent;
-    final String? trade = summary.tradeLabel;
+    final String note = resumeFormNote(progress.left);
+    final int percent = progress.percent;
+    final String? trade = tradeLabel;
     return DottedAmberBorder(
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -125,7 +106,7 @@ class ResumeDraftCard extends StatelessWidget {
                 color: OnboardingColors.ink900,
               ),
             ),
-            if (percent != null) ...<Widget>[
+            if (progress.total > 0) ...<Widget>[
               const SizedBox(height: 10),
               const Divider(height: 1, color: OnboardingColors.borderSubtle),
               const SizedBox(height: 10),
@@ -155,7 +136,7 @@ class ResumeDraftCard extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  value: _fraction,
+                  value: percent / 100,
                   minHeight: 7,
                   backgroundColor: OnboardingColors.borderDefault,
                   valueColor: const AlwaysStoppedAnimation<Color>(
