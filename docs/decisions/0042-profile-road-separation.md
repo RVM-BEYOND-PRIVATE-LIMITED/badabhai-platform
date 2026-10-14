@@ -76,6 +76,15 @@ question — the standard Haan/Nahi chips, `kind: ask` + `single_select`, **no n
   a re-ask.
 - Phase A's own draft is settled **on the offer** (the worker's words, not a document's claims), so
   a decline cannot walk back into a re-ask of the trade just named.
+- **The offer does not depend on the model answering** (#2245, 2026-10-14). Eligibility is the
+  deterministic router over the draft plus the catalogue pin, so the turn Phase A falls back on
+  serves the same offer when the router routes. There's no trade-confirm gate in front of it: the
+  fallen-back interview is deterministic, and the gate confirms only what a model turn inferred.
+  It is not served on a capped turn, on the skills lane, or for a trade the worker declined
+  without confirming another. Decline is today's engine path. `profile.form_offered` keeps its v1
+  payload. To tell a fallback offer apart from a led one, join on `profile.llm_interview_fallback`
+  for the same session: `llm_led_turns: 0` marks only a first-turn fallback, and an armed general
+  road records the lane as `model_unavailable` rather than `form_offered`.
 
 Two additive events: `profile.form_offered` (once per session; counts + closed kind) and
 `profile.form_offer_declined` (`reply: declined | unclear` — counted apart so the reader's miss
