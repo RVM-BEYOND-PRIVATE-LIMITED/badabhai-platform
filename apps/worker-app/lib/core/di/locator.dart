@@ -18,6 +18,8 @@ import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
 import '../session/chat_turn_resume_store.dart';
+import '../session/resume_redo_store.dart';
+import '../session/resume_import_signal.dart';
 import '../session/known_worker_facts_store.dart';
 import '../session/session_repository.dart';
 import '../push/push_token_service.dart';
@@ -227,6 +229,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // subscribes and hard-logs-out on OK. App-scoped, one instance.
   locator.registerLazySingleton<AccountDeletedSignal>(
       () => AccountDeletedSignal());
+  // "A résumé upload just completed" — read ONCE by the chat so it can answer
+  // the résumé prompt the worker left open. App-scoped: the upload screen and
+  // the chat are different routes with no shared ancestor.
+  locator.registerLazySingleton<ResumeImportSignal>(() => ResumeImportSignal());
 
   // Which shell tab is visible. The IndexedStack keeps every visited branch
   // mounted, so a tab root's create:/initState runs once and never again — this
@@ -602,6 +608,8 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
       // sync graph); a widget-test graph without it keeps the chat's
       // session-only default, so a served turn is never remembered.
       turnResume: _chatTurnResumeOrNull(),
+      // A re-do session's form opens blank and from step 1.
+      resumeRedo: _resumeRedoOrNull(),
       // Owner ask (2026-10-14) — the Bada Bhai tab's "Resume download" tile.
       // A graph without it simply never offers the tile.
       resumeRepository: locator.isRegistered<ResumeRepository>()
@@ -784,6 +792,15 @@ Future<void> initAuthLocator({
     );
   }
 
+  // Which chat session is a résumé RE-DO ("Chat se resume banayein"), so its
+  // form opens from the first question with nothing selected — across a cold
+  // start too. Same lazy prefs registration; cleared on logout.
+  if (!locator.isRegistered<ResumeRedoStore>()) {
+    locator.registerSingleton<ResumeRedoStore>(
+      const SharedPrefsResumeRedoStore(),
+    );
+  }
+
   // MOCK vs REAL pick lives in createAuthApi (kUseMocks), mirroring
   // createApiClient. The full signing chain (device id, locale, refresh, reauth)
   // is wired here from the singletons registered in setupLocator. A test-supplied
@@ -852,6 +869,11 @@ ChatTurnResumeStore? _chatTurnResumeOrNull() =>
         ? locator<ChatTurnResumeStore>()
         : null;
 
+/// The persisted [ResumeRedoStore] once [initAuthLocator] registered it, else
+/// null — a widget-test graph without it treats no session as a re-do.
+ResumeRedoStore? _resumeRedoOrNull() =>
+    locator.isRegistered<ResumeRedoStore>() ? locator<ResumeRedoStore>() : null;
+
 void _clearSessionScopedCaches() {
   if (locator.isRegistered<PhotoRepository>()) {
     locator<PhotoRepository>().onLogout();
@@ -887,6 +909,15 @@ void _clearSessionScopedCaches() {
   // chips for a conversation that is not theirs.
   if (locator.isRegistered<ChatTurnResumeStore>()) {
     unawaited(locator<ChatTurnResumeStore>().clearAll());
+  }
+  // And the previous worker's re-do mark: a session id is theirs, never ours.
+  if (locator.isRegistered<ResumeRedoStore>()) {
+    unawaited(locator<ResumeRedoStore>().clear());
+  }
+  // And a résumé-import signal nobody consumed: the next worker on a shared
+  // phone must not have a prompt answered on their behalf.
+  if (locator.isRegistered<ResumeImportSignal>()) {
+    locator<ResumeImportSignal>().clear();
   }
   // Evict the previous worker's DECODED photos from Flutter's global image cache,
   // so a re-login can never repaint them from memory even before a fresh fetch.

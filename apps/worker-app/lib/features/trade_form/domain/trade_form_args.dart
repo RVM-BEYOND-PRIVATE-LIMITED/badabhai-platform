@@ -8,7 +8,12 @@ import 'profiling_tier.dart';
 /// (the upgrade view), and two positional meanings on one untyped `extra` is
 /// how a section key silently becomes a boolean.
 class TradeFormArgs {
-  const TradeFormArgs({this.sectionKey, this.upgradeView = false, this.fromStart = false});
+  const TradeFormArgs({
+    this.sectionKey,
+    this.upgradeView = false,
+    this.fromStart = false,
+    this.fresh = false,
+  });
 
   /// The résumé-menu section walk's `option_key`, or null for the full walk.
   final String? sectionKey;
@@ -23,6 +28,15 @@ class TradeFormArgs {
   /// work history (employment) + certificates/education (qualifications) included —
   /// instead of landing on the last unanswered step (e.g. 15/15 machines).
   final bool fromStart;
+
+  /// A RE-DO of a résumé the worker already built ("Chat se resume banayein"):
+  /// walk the whole form from the first question to the last with NOTHING
+  /// pre-selected, so every answer is one the worker chose on this walk.
+  ///
+  /// Implies [fromStart]. Without it the form found every question already
+  /// answered and opened on the LAST one, showing its stored answer, at 100%,
+  /// with "Submit karein" — a re-do the worker could only submit, never make.
+  final bool fresh;
 }
 
 /// What the tier chooser needs to draw itself and to know how to leave.
@@ -37,6 +51,7 @@ class TierChoiceArgs {
     required this.entry,
     this.sectionKey,
     this.fromStart = false,
+    this.fresh = false,
   });
 
   final TierState state;
@@ -49,6 +64,9 @@ class TierChoiceArgs {
   /// Forwarded to the form untouched — a "resume poora karein" walk that passes
   /// through the chooser must still open from step 1 on the other side.
   final bool fromStart;
+
+  /// Forwarded to the form untouched — see [TradeFormArgs.fresh].
+  final bool fresh;
 }
 
 /// How the worker reached the tier chooser, which decides how they leave it.

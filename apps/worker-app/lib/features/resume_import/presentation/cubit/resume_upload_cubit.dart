@@ -1,4 +1,7 @@
 import 'package:equatable/equatable.dart';
+
+import '../../../../core/di/locator.dart';
+import '../../../../core/session/resume_import_signal.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/resume_document.dart';
@@ -135,12 +138,22 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
   ResumeUploadCubit({
     required ResumeDocumentPicker picker,
     required ResumeImporter importer,
+    this.fromChatPrompt = false,
   })  : _picker = picker,
         _importer = importer,
         super(const ResumeUploadState());
 
   final ResumeDocumentPicker _picker;
   final ResumeImporter _importer;
+
+  /// The worker reached this screen by tapping "Resume upload karein" in the
+  /// CHAT's résumé prompt (the screen's `autoUpload`), so a chat prompt is
+  /// standing open behind this screen and is owed an answer.
+  ///
+  /// False for the post-completion résumé menu and for a deep link: those leave
+  /// no prompt waiting, and raising the signal there would auto-answer an
+  /// unrelated prompt the worker has not been shown yet.
+  final bool fromChatPrompt;
 
   /// Door 1 — pick a document, upload it, and route on what the server says.
   Future<void> chooseDocument() async {
@@ -166,6 +179,15 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
     // EVERY branch below leaves the worker somewhere. There is no branch that
     // stays on this screen with an error, because that would be the dead end
     // ruling D9 forbids.
+    // The worker took the UPLOAD door and is coming back from a COMPLETED
+    // attempt. Raised for EVERY outcome, not just the happy ones: the chat's
+    // prompt asked which door they would take, and they took this one whatever
+    // the import then learned. `cameFromImport` below answers a DIFFERENT
+    // question (#1660's honest line) and is false on three of these branches,
+    // which is exactly why it cannot carry this.
+    if (fromChatPrompt && locator.isRegistered<ResumeImportSignal>()) {
+      locator<ResumeImportSignal>().markCompleted();
+    }
     emit(switch (outcome) {
       // RI-identity: EVERY successful upload goes to the chat first, form-routed or
       // not. The chat opens on the "is this you?" turn (confirm_first); Haan on a

@@ -16,6 +16,7 @@ class ChatTurnResumeState {
     required this.options,
     required this.freeChat,
     this.askedQuestionKey,
+    this.pendingQuestionKey,
   });
 
   final String sessionId;
@@ -26,6 +27,18 @@ class ChatTurnResumeState {
 
   /// The question key the last turn asked, or null when it asked none.
   final String? askedQuestionKey;
+
+  /// The question the last turn asked that is currently HIDDEN behind the
+  /// in-chat résumé prompt (`issue10.jpg`).
+  ///
+  /// While that prompt is on screen the server's real question is stashed in
+  /// memory and [askedQuestionKey] is deliberately null, so the pickers stay
+  /// hidden. The stash dies with the process: a worker who closed the app on
+  /// the prompt, reopened it and then answered the prompt had its chips cleared
+  /// and NOTHING put in their place — the state question's bubble was in the
+  /// transcript with no picker, no "Location bharein" button and no live ask.
+  /// Remembering it here is what lets the answer put the question back.
+  final String? pendingQuestionKey;
 }
 
 /// The last served chat turn's CHIPS and mode, remembered across a cold start
@@ -74,6 +87,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
   static const String kOptionsKey = 'bb_chat_turn_options';
   static const String kFreeChatKey = 'bb_chat_turn_free_chat';
   static const String kQuestionKey = 'bb_chat_turn_question';
+  static const String kPendingQuestionKey = 'bb_chat_turn_pending_question';
 
   /// Splits an entry into key and label. A unit separator, because a label is
   /// server copy that may hold any punctuation a comma-joined list would break
@@ -105,6 +119,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
         options: options,
         freeChat: prefs.getBool(kFreeChatKey) ?? false,
         askedQuestionKey: prefs.getString(kQuestionKey),
+        pendingQuestionKey: prefs.getString(kPendingQuestionKey),
       );
     } catch (_) {
       return null;
@@ -129,6 +144,14 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
       } else {
         await prefs.setString(kQuestionKey, questionKey);
       }
+      // Same null-safety: a turn with nothing hidden behind the résumé prompt
+      // must clear a previous pending key, or a finished question comes back.
+      final String? pending = state.pendingQuestionKey;
+      if (pending == null || pending.isEmpty) {
+        await prefs.remove(kPendingQuestionKey);
+      } else {
+        await prefs.setString(kPendingQuestionKey, pending);
+      }
     } catch (_) {
       // Best-effort: an unremembered turn just loses its chips on a cold start.
     }
@@ -142,6 +165,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
       await prefs.remove(kOptionsKey);
       await prefs.remove(kFreeChatKey);
       await prefs.remove(kQuestionKey);
+      await prefs.remove(kPendingQuestionKey);
     } catch (_) {
       // Best-effort: a teardown failure must never block sign-out.
     }

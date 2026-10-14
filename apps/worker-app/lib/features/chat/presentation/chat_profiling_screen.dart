@@ -22,6 +22,7 @@ import '../../../core/api/api_models.dart'
         FormOffer;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/session/resume_import_signal.dart';
 import '../../../core/nav/tab_focus.dart';
 import '../../../core/util/devanagari_guard.dart';
 import '../../../core/theme/app_motion.dart';
@@ -58,11 +59,13 @@ import '../domain/chat_companion_keys.dart';
 import '../domain/chat_news_link.dart';
 import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
+import '../domain/chat_year_questions.dart';
 import '../domain/chat_companion_v3_keys.dart';
 import '../domain/chat_resume_prompt.dart';
 import '../../resume_import/domain/resume_upload_intent.dart';
-import 'widgets/chat_end_divider.dart';
 import 'widgets/chat_location_card.dart';
+import 'widgets/chat_end_divider.dart';
+import 'widgets/chat_year_card.dart';
 import 'widgets/chat_news_tiles.dart';
 import 'widgets/chat_resume_download_tile.dart';
 import 'widgets/flying_name.dart';
@@ -348,6 +351,9 @@ class _ChatViewState extends State<_ChatView>
   /// follows the worker through the conversation.
   bool _emptyImportSaid = false;
 
+  /// One-shot: the prompt is answered once per completed upload.
+  bool _promptAnsweredAfterImport = false;
+
   /// An option/chip tap is dispatched and the reply has not arrived yet.
   ///
   /// SET SYNCHRONOUSLY IN THE HANDLER, because the options row is only removed
@@ -507,6 +513,38 @@ class _ChatViewState extends State<_ChatView>
       begin: 1.14,
       end: 1.0,
     ).animate(CurvedAnimation(parent: _namePop, curve: AppMotion.stamp));
+    // A FRESH mount that already carries a completed import (the route was
+    // rebuilt from scratch) — see [_checkImportSignal].
+    _checkImportSignal();
+  }
+
+  /// THE ARRIVAL EDGE from the résumé-upload screen.
+  ///
+  /// The upload screen leaves with `context.go('/chat')` while THIS screen is
+  /// still alive underneath it (the chip `push`ed, so the chat was never torn
+  /// down). GoRouter reuses the chat's element, so the worker lands back on a
+  /// screen whose [ChatBloc] never moved: no message was appended, `sending`
+  /// never flipped, `initializing` never flipped. The body's [BlocListener] is
+  /// gated on exactly those edges, so NOTHING on this screen runs on return —
+  /// which is why the prompt sat there unanswered until the worker tapped a
+  /// chip, and why the two earlier fixes (both hung off that listener) were
+  /// invisible on the device.
+  ///
+  /// So the check also runs on the WIDGET lifecycle, which does move: the route
+  /// rebuild hands this state a new [_ChatView] ([didUpdateWidget]), or builds a
+  /// new one ([initState]). Post-frame, so the dispatch never lands mid-build,
+  /// and `mounted`-guarded.
+  void _checkImportSignal() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _maybeAnswerPromptAfterImport(context.read<ChatBloc>().state);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChatView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _checkImportSignal();
   }
 
   @override
@@ -990,6 +1028,44 @@ class _ChatViewState extends State<_ChatView>
   /// return, a deep link). It stays a CONTINUE — the interview carries on
   /// underneath (ruling D9) — and it is a client-side explanation, never a
   /// fabricated assistant turn in the transcript.
+  /// The worker came back from the UPLOAD door — answer the prompt they left
+  /// open, so the chat moves on instead of re-asking.
+  ///
+  /// THE BUG THIS FIXES (`resume_upload.jpg` / `resume_upload2.jpg`): tapping
+  /// "Resume upload karein" opens the upload screen, the résumé is read, and the
+  /// worker lands back on the SAME prompt. The server's next turn — the one
+  /// carrying what the résumé taught it — is STASHED behind that prompt and is
+  /// only released when the prompt is answered. So the details appeared only
+  /// after tapping "Mere paas resume nahi hai", which is the opposite of what
+  /// that button means.
+  ///
+  /// [ChatResumePromptDeclined] is the EXISTING release: it appends the tapped
+  /// label as the worker's bubble, clears the prompt's chips and flushes the
+  /// stash. The label is the UPLOAD door, because that is the door they walked
+  /// through. Client-only — nothing is sent, so the intake transcript and every
+  /// server question are untouched.
+  ///
+  /// NOT keyed on `widget.fromResumeImport`: that rides the route extra, which
+  /// the upload cubit sets from `cameFromImport` — FALSE on an import that
+  /// learned nothing, on uploads-unavailable and on a failed read. Those are
+  /// exactly the branches where the worker was left stuck.
+  void _maybeAnswerPromptAfterImport(ChatState state) {
+    if (_promptAnsweredAfterImport) return;
+    if (state.initializing) return;
+    // Only ever acts on a prompt that is ACTUALLY on screen, so it can never
+    // skip or alter a question the worker has not been shown.
+    final bool promptOnScreen = state.suggestedOptions.any(
+      (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
+    );
+    if (!promptOnScreen) return;
+    if (!locator.isRegistered<ResumeImportSignal>()) return;
+    if (!locator<ResumeImportSignal>().consume()) return;
+    _promptAnsweredAfterImport = true;
+    context.read<ChatBloc>().add(
+          const ChatResumePromptDeclined(kResumePromptUploadLabel),
+        );
+  }
+
   void _maybeSayEmptyImport(ChatState state) {
     if (!widget.fromResumeImport || _emptyImportSaid) return;
     if (state.initializing || state.messages.isEmpty) return;
@@ -1392,7 +1468,17 @@ class _ChatViewState extends State<_ChatView>
       // #1698 — stops at the tier chooser ONLY when the server says this
       // worker still has to choose; every other answer pushes the form exactly
       // as this line always did.
-      await openTradeFormWithTier(context, entry: TierEntry.pushed);
+      //
+      // A RE-DO ("Chat se resume banayein") opens the form from the FIRST
+      // question with nothing selected. Left to resume, it found every question
+      // answered from the résumé being replaced and opened on the last one, at
+      // 100%, with "Submit karein" under a pre-ticked answer. Every other chat
+      // — a first résumé included — hands over exactly as before.
+      await openTradeFormWithTier(
+        context,
+        entry: TierEntry.pushed,
+        fresh: context.read<ChatBloc>().state.redoSession,
+      );
     } finally {
       // The worker can back out of the form and return to this (dead) chat
       // session — re-arm so the card stays tappable rather than permanently
@@ -1676,6 +1762,7 @@ class _ChatViewState extends State<_ChatView>
           _maybeOpenLocationDialog(state);
           _maybeAnswerHeldCity(state);
           _showEditNotice(state);
+          _maybeAnswerPromptAfterImport(state);
           _maybeSayEmptyImport(state);
           _maybeLeaveForResumeUpdate(state);
           // Release on the SETTLE EDGE (sending true → false), never on the
@@ -2023,6 +2110,15 @@ class _ChatViewState extends State<_ChatView>
             // the dialog can answer.
             else if (isChatLocationQuestion(state.askedQuestionKey))
               _locationLockedHint()
+            // `date_issue.jpeg` — a CALENDAR-YEAR question is answered from the
+            // picker above, never typed. The server serves it as
+            // `answer_type: number`, which only opened a number keypad: "2050"
+            // was typed, accepted and written to `training_year`. An impossible
+            // year must be UNREACHABLE, not merely wrong, so the box that
+            // accepted it is withdrawn for this turn (the same lock the location
+            // question already uses).
+            else if (isChatYearQuestion(state.askedQuestionKey))
+              _yearLockedHint()
             else
               _inputBar(
                 // ONE MIC PER SCREEN (#1862). In companion mode the v2 voice button
@@ -2491,6 +2587,12 @@ class _ChatViewState extends State<_ChatView>
     icon: Icons.place_outlined,
   );
 
+  /// `date_issue.jpeg` — the composer's replacement on a calendar-year turn.
+  Widget _yearLockedHint() => _lockedComposerBar(
+    text: kChatYearComposerHint,
+    icon: Icons.event_outlined,
+  );
+
   /// Shared locked-look composer replacement: same paper-bar frame as
   /// [_inputBar] (no layout jump when it swaps in), a muted icon and one line
   /// of muted, aap-form copy. No text field, no send, no mic.
@@ -2792,6 +2894,24 @@ class _ChatViewState extends State<_ChatView>
     // whatever is sent. D7: typed text on THESE two steps never writes the
     // record (only the card's Theek hai does) — an aside answered here re-asks
     // instead of becoming the worker's official state.
+    // `date_issue.jpeg` — a calendar-year question is answered from a picker
+    // whose list stops at the current year, so a future year is not refused: it
+    // is never offered. The chosen year is submitted as ordinary chat text,
+    // byte-identically to typing it, so the server sees the same answer it
+    // always did. BEFORE the location branch only because the two never
+    // overlap — a question is one or the other.
+    if (isChatYearQuestion(state.askedQuestionKey)) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('chat-year'),
+        child: ChatYearCard(
+          onPicked: (int year) => _sendText(
+            '$year',
+            // D7 — picker-composed, exactly as the location dialog's answer is.
+            answerSource: ChatAnswerSource.dialog,
+          ),
+        ),
+      );
+    }
     if (isChatLocationQuestion(state.askedQuestionKey)) {
       // THE CITY TURN IS ANSWERED BEFORE IT IS DRAWN when the worker already
       // gave the city on the state card — see [_heldCity]. Nothing renders in

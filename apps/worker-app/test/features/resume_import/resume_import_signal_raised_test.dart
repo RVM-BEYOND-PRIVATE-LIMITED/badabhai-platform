@@ -1,0 +1,127 @@
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/session/resume_import_signal.dart';
+import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_document.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_document_picker.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_importer.dart';
+import 'package:badabhai_worker_app/features/resume_import/presentation/resume_upload_screen.dart';
+import 'package:badabhai_worker_app/router.dart';
+
+class _FakePicker implements ResumeDocumentPicker {
+  @override
+  Future<ResumePickResult> pickResume() async => ResumePickResult.picked(
+        PickedResumeDocument(
+          kind: ResumeDocumentKind.pdf,
+          bytes: Uint8List(1024),
+        ),
+      );
+}
+
+class _FakeImporter implements ResumeImporter {
+  _FakeImporter(this.outcome);
+  final ResumeImportOutcome outcome;
+  @override
+  Future<ResumeImportOutcome> importResume(PickedResumeDocument d) async =>
+      outcome;
+}
+
+/// ── THE CUBIT RAISES THE SIGNAL ON *EVERY* COMPLETED ATTEMPT ───────────────
+///
+/// This is the link that broke twice. The chat's release used to hang off the
+/// route extra, which the cubit sets from `cameFromImport` — FALSE on an import
+/// that learned nothing and on uploads-unavailable. On those branches the chat
+/// was never told, so it re-asked the résumé prompt over a résumé the worker
+/// had just uploaded.
+///
+/// The signal says only "the worker walked through the upload door", which is
+/// true of every one of them.
+void main() {
+  Future<void> pumpUpload(
+    WidgetTester tester,
+    ResumeImportOutcome outcome, {
+    bool autoUpload = true,
+  }) async {
+    GoogleFonts.config.allowRuntimeFetching = false;
+    await locator.reset();
+    locator.registerLazySingleton<ResumeDocumentPicker>(() => _FakePicker());
+    locator.registerLazySingleton<ResumeImporter>(
+      () => _FakeImporter(outcome),
+    );
+    locator.registerLazySingleton<ResumeImportSignal>(
+      () => ResumeImportSignal(),
+    );
+    addTearDown(locator.reset);
+
+    tester.view.physicalSize = const Size(900, 1900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final GoRouter router = GoRouter(
+      initialLocation: Routes.resumeUpload,
+      routes: <RouteBase>[
+        GoRoute(
+          path: Routes.resumeUpload,
+          builder: (_, __) => ResumeUploadScreen(autoUpload: autoUpload),
+        ),
+        GoRoute(
+          path: Routes.chatProfiling,
+          builder: (_, __) => const Scaffold(body: Text('CHAT')),
+        ),
+        GoRoute(
+          path: Routes.tradeForm,
+          builder: (_, __) => const Scaffold(body: Text('FORM')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  final Map<String, ResumeImportOutcome> outcomes =
+      <String, ResumeImportOutcome>{
+    'routed to chat (learned something)': const ResumeImportRoutedToChat(),
+    // `cameFromImport` is FALSE here — the branch the device hit.
+    'routed to chat, learned NOTHING': const ResumeImportRoutedToChat(
+      learnedNothing: true,
+    ),
+    'routed to the form': const ResumeImportRoutedToForm(),
+    // `cameFromImport` is FALSE here too.
+    'uploads unavailable': const ResumeImportUnavailable(),
+  };
+
+  outcomes.forEach((String name, ResumeImportOutcome outcome) {
+    testWidgets('the signal is raised — $name', (WidgetTester tester) async {
+      await pumpUpload(tester, outcome);
+      expect(
+        locator<ResumeImportSignal>().consume(),
+        isTrue,
+        reason: 'the worker walked through the upload door on this outcome too',
+      );
+    });
+  });
+
+  testWidgets('NOT raised when no chat prompt sent the worker here',
+      (WidgetTester tester) async {
+    // The post-completion résumé menu and a deep link draw the two DOORS
+    // (`autoUpload` false). No prompt is standing open in the chat, so there is
+    // nothing to answer — and raising here would spend the signal on a prompt
+    // the worker has not been shown yet.
+    await pumpUpload(tester, const ResumeImportRoutedToChat(),
+        autoUpload: false);
+    await tester.tap(find.text('Resume upload karein'));
+    await tester.pumpAndSettle();
+
+    expect(locator<ResumeImportSignal>().consume(), isFalse);
+  });
+}

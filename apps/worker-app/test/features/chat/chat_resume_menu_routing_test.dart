@@ -100,6 +100,10 @@ void main() {
         ChatState(
           messages: <ChatMessage>[ChatMessage(text: 'Naya sawaal', fromWorker: false)],
           initializing: false,
+          // "Chat se resume banayein" is the only dispatcher of this event, so
+          // the session it mints is a résumé RE-DO: its form opens from the
+          // first question with nothing selected.
+          redoSession: true,
         ),
       ],
       verify: (ChatBloc b) {

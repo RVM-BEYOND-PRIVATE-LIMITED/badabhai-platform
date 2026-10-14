@@ -71,6 +71,9 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
     _cubit = ResumeUploadCubit(
       picker: locator<ResumeDocumentPicker>(),
       importer: locator<ResumeImporter>(),
+      // `autoUpload` IS "the chat's résumé prompt sent us here", so it is also
+      // the one arrival that leaves a prompt standing open behind this screen.
+      fromChatPrompt: widget.autoUpload,
     );
     // The choice was already made in the chat — auto-click door 1. Post-frame
     // so the first frame (the doors) still paints under the picker, and

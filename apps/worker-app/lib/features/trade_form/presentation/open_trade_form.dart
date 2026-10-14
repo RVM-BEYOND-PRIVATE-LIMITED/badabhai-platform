@@ -2,11 +2,13 @@ import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/session/resume_redo_store.dart';
 import '../../../core/util/push_once.dart';
 import '../../../router.dart';
 import '../domain/profiling_tier.dart';
 import '../domain/trade_form_args.dart';
 import '../domain/trade_form_repository.dart';
+import '../../chat/domain/chat_repository.dart';
 
 /// Opens the trade form, stopping at the tier chooser ONLY when the server says
 /// this worker still has to choose (#1698).
@@ -29,7 +31,17 @@ Future<void> openTradeFormWithTier(
   required TierEntry entry,
   String? sectionKey,
   bool fromStart = false,
+  bool fresh = false,
 }) async {
+  // A résumé RE-DO opens blank and from step 1, whichever road the worker took
+  // out of that chat — the form-offer card, the profile preview's confirm, or
+  // its "Badlo". Decided HERE, once, from the durable mark, so no road can
+  // quietly bypass it. Never for a section walk (it re-asks one section on
+  // purpose) or an upgrade (it narrows to what is still unanswered).
+  if (!fresh && sectionKey == null && entry != TierEntry.upgrade) {
+    fresh = await isResumeRedoSession();
+    if (!context.mounted) return;
+  }
   // Resolved from the locator only IF it is registered. Production always
   // registers it; a screen-level widget test wires only the graph its own
   // screen needs, and an additive gate must not be the thing that turns those
@@ -37,14 +49,16 @@ Future<void> openTradeFormWithTier(
   // who cannot reach their form. Same discipline as `ResumeCubit`'s optional
   // summary repository. Not registered ⇒ today's navigation, unchanged.
   if (!locator.isRegistered<TradeFormRepository>()) {
-    _openFormDirectly(context, entry: entry, sectionKey: sectionKey, fromStart: fromStart);
+    _openFormDirectly(context,
+        entry: entry, sectionKey: sectionKey, fromStart: fromStart, fresh: fresh);
     return;
   }
   final TierState tiers = await locator<TradeFormRepository>().loadTierState();
   if (!context.mounted) return;
 
   if (!tiers.shouldChooseTier) {
-    _openFormDirectly(context, entry: entry, sectionKey: sectionKey, fromStart: fromStart);
+    _openFormDirectly(context,
+        entry: entry, sectionKey: sectionKey, fromStart: fromStart, fresh: fresh);
     return;
   }
 
@@ -53,6 +67,7 @@ Future<void> openTradeFormWithTier(
     entry: entry,
     sectionKey: sectionKey,
     fromStart: fromStart,
+    fresh: fresh,
   );
   switch (entry) {
     case TierEntry.pushed:
@@ -63,6 +78,24 @@ Future<void> openTradeFormWithTier(
   }
 }
 
+/// Whether the live chat session is a résumé RE-DO ("Chat se resume banayein").
+///
+/// False whenever the graph cannot answer — no store or no chat repository
+/// registered (a screen-level widget test), or any read failing — which is
+/// exactly how the form opened before this existed.
+Future<bool> isResumeRedoSession() async {
+  if (!locator.isRegistered<ResumeRedoStore>() ||
+      !locator.isRegistered<ChatRepository>()) {
+    return false;
+  }
+  try {
+    final String? live = await locator<ChatRepository>().latestSessionId();
+    return await locator<ResumeRedoStore>().isRedo(live);
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Today's navigation, byte for byte — the branch every worker on every box
 /// takes while `PROFILING_TIERS_ENABLED` is off.
 void _openFormDirectly(
@@ -70,14 +103,18 @@ void _openFormDirectly(
   required TierEntry entry,
   String? sectionKey,
   bool fromStart = false,
+  bool fresh = false,
 }) {
   // The section key is still passed as a BARE STRING here, not wrapped: that is
   // what #1566 shipped and what the router has always read, and an unchanged
   // path should produce an unchanged request. The fromStart road wraps in
   // [TradeFormArgs] because it needs the second bit alongside the key.
-  if (fromStart) {
-    final TradeFormArgs args =
-        TradeFormArgs(sectionKey: sectionKey, fromStart: true);
+  if (fromStart || fresh) {
+    final TradeFormArgs args = TradeFormArgs(
+      sectionKey: sectionKey,
+      fromStart: true,
+      fresh: fresh,
+    );
     switch (entry) {
       case TierEntry.pushed:
         context.pushOnce(Routes.tradeForm, extra: args);

@@ -300,6 +300,21 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// navigation), so an ordinary re-entry starts fresh with `false`.
   bool _fromStart = false;
 
+  /// A RE-DO ("Chat se resume banayein"): the whole walk from step 1 with
+  /// NOTHING pre-selected. Implies [_fromStart]. Per-cubit, like it.
+  ///
+  /// Without it a worker re-making a résumé they already built found every
+  /// question answered from last time and landed on the LAST one — its stored
+  /// answer ticked, the bar at 100%, "Submit karein" under it. They could only
+  /// re-submit the old résumé, never make a new one.
+  bool _fresh = false;
+
+  /// The questions answered on THIS walk. In a [_fresh] walk these are the only
+  /// answers shown and the only ones counted: the server still holds every
+  /// answer from the résumé being replaced, and both its `answered` count and a
+  /// `schema_stale` re-fetch would otherwise bring them straight back.
+  final Set<String> _answeredThisWalk = <String>{};
+
   /// Marker types already saved for this worker.
   Set<TradeFormMarkerType> _doneMarkers = <TradeFormMarkerType>{};
 
@@ -538,13 +553,22 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         _ => false,
       };
 
-  Future<void> load({String? sectionKey, bool upgradeView = false, bool fromStart = false}) async {
+  Future<void> load({
+    String? sectionKey,
+    bool upgradeView = false,
+    bool fromStart = false,
+    bool fresh = false,
+  }) async {
     // A non-null argument (re)arms the section walk; null KEEPS whatever is
     // armed — the error-state retry calls `load()` bare and must not widen a
     // section walk back to the full form. Same for fromStart: once armed it
     // stays armed for this cubit, so a retry never drops back to a resumed walk.
     if (sectionKey != null) _sectionKey = sectionKey;
     if (fromStart) _fromStart = true;
+    if (fresh) {
+      _fresh = true;
+      _fromStart = true;
+    }
     // A (re)load starts a new walk: nothing typed before it can still be on
     // screen, so no draft — question or marker — can still be reachable
     // either.
@@ -569,18 +593,24 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       // Prefill below still runs, so marker pages open with saved values.
       if (_fromStart) _doneMarkers.clear();
       final Set<WorkerFact> known = await _knownFacts.knownFacts();
-      List<TradeFormFlatStep> flat = _applySection(_flatten(form));
+      List<TradeFormFlatStep> flat = _freshView(_applySection(_flatten(form)));
       // PREFILL BEFORE THE FIRST FRAME (#1710). The pages seed their state in
       // `initState` and have no `didUpdateWidget`, so a record that arrived
       // after the page was built would never reach it — the read has to be
       // part of the load, not a race beside it.
-      await _loadSavedMarkers(flat);
+      //
+      // NOT on a re-do: the work-history, certificate/education and
+      // preferences pages open BLANK there, for the same reason the questions
+      // do. An untouched marker page still writes nothing, so walking past one
+      // never erases what the server holds.
+      if (!_fresh) await _loadSavedMarkers(flat);
       // An upgrade view may now have nothing left to ask on a page whose
       // revealed fields are all answered — drop those (see `_tierSkipped`).
       flat = _dropAnsweredUpgradePages(flat);
       final int total = form.questionSteps.length;
-      final int answeredCount =
-          form.questionSteps.where((TradeFormQuestionStep q) => q.isAnswered).length;
+      final int answeredCount = _fresh
+          ? _answeredIn(flat)
+          : form.questionSteps.where((TradeFormQuestionStep q) => q.isAnswered).length;
       final int resumeIndex = _resumeIndex(flat);
       emit(state.copyWith(
         status: TradeFormStatus.ready,
@@ -611,6 +641,41 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       ));
     }
   }
+
+  /// [flat] as a re-do walk shows it: every question's stored answer and résumé
+  /// suggestion removed, except an answer given on THIS walk. Identity on every
+  /// other walk.
+  ///
+  /// Done here, in the cubit, rather than in the question page: the page seeds
+  /// its selection from `step.answer` in one place, and resumability, the
+  /// progress count and "is this the last step" all read the same field — so
+  /// one removal makes all four agree that nothing has been answered yet.
+  List<TradeFormFlatStep> _freshView(List<TradeFormFlatStep> flat) {
+    if (!_fresh) return flat;
+    return <TradeFormFlatStep>[
+      for (final TradeFormFlatStep f in flat)
+        switch (f.step) {
+          final TradeFormQuestionStep q
+              when !_answeredThisWalk.contains(q.question.id) =>
+            TradeFormFlatStep(
+              sectionTitle: f.sectionTitle,
+              step: TradeFormQuestionStep(
+                question: q.question,
+                searchable: q.searchable,
+              ),
+            ),
+          _ => f,
+        },
+    ];
+  }
+
+  /// How many questions in [flat] hold an answer — on a re-do, exactly the
+  /// ones answered on this walk.
+  int _answeredIn(List<TradeFormFlatStep> flat) => flat
+      .where((TradeFormFlatStep f) =>
+          f.step is TradeFormQuestionStep &&
+          (f.step as TradeFormQuestionStep).isAnswered)
+      .length;
 
   List<TradeFormFlatStep> _flatten(TradeForm form) => <TradeFormFlatStep>[
         for (final TradeFormSection section in form.sections)
@@ -779,6 +844,9 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       );
       final List<TradeFormFlatStep> banked =
           _bankAnswer(state.flatSteps, step, saved);
+      _answeredThisWalk.add(step.question.id);
+      final int answeredNow =
+          _fresh ? _answeredIn(banked) : result.answered;
       // The server holds it now — the unsent draft (if any) is superseded.
       // On FAILURE below nothing is dropped: the worker stays on the question
       // with everything he typed still in place.
@@ -803,7 +871,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         emit(state.copyWith(
           status: TradeFormStatus.done,
           flatSteps: banked,
-          answered: result.answered,
+          answered: answeredNow,
           total: result.total,
           submitError: null,
         ));
@@ -813,7 +881,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         status: TradeFormStatus.ready,
         flatSteps: banked,
         currentIndex: next,
-        answered: result.answered,
+        answered: answeredNow,
         total: result.total,
         submitError: null,
       ));
@@ -892,7 +960,11 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       // A section walk re-fetches the WHOLE form here by design (the
       // just-answered question may gate others server-side); the armed
       // section re-applies so the resync cannot widen the walk mid-stride.
-      final List<TradeFormFlatStep> flat = _applySection(_flatten(form));
+      // A re-do keeps its blank view across the re-fetch: only answers given on
+      // THIS walk come back, never the replaced résumé's.
+      final List<TradeFormFlatStep> flat =
+          _freshView(_applySection(_flatten(form)));
+      final int resyncAnswered = _fresh ? _answeredIn(flat) : result.answered;
       final int answeredIdx = flat.indexWhere((TradeFormFlatStep f) =>
           f.step is TradeFormQuestionStep &&
           (f.step as TradeFormQuestionStep).question.id == result.questionKey);
@@ -913,7 +985,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         emit(state.copyWith(
           status: TradeFormStatus.done,
           flatSteps: flat,
-          answered: result.answered,
+          answered: resyncAnswered,
           total: result.total,
           submitError: null,
           doneMarkers: _doneSnapshot,
@@ -925,7 +997,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         status: TradeFormStatus.ready,
         flatSteps: flat,
         currentIndex: nextIdx,
-        answered: result.answered,
+        answered: resyncAnswered,
         total: result.total,
         submitError: null,
         doneMarkers: _doneSnapshot,

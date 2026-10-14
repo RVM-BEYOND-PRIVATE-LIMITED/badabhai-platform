@@ -19,6 +19,7 @@ import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_reason.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../../../core/session/chat_turn_resume_store.dart';
+import '../../../../core/session/resume_redo_store.dart';
 import '../../../../core/session/known_worker_facts_store.dart';
 import '../../../../core/util/title_case.dart';
 import '../../domain/chat_answered_facts.dart';
@@ -306,6 +307,7 @@ class ChatState extends Equatable {
     this.predictedQuestionKey,
     this.askedQuestionKey,
     this.questionRestored = false,
+    this.redoSession = false,
     this.sessionEndedAfterIndex,
     this.formOffer,
     this.resumePending = false,
@@ -455,6 +457,16 @@ class ChatState extends Equatable {
   /// Cleared when a new session starts and when the tab enters companion mode —
   /// the recap is not the interview transcript.
   final int? sessionEndedAfterIndex;
+
+  /// This chat is a RE-DO of a résumé the worker already built — minted by
+  /// "Chat se resume banayein" (the only dispatcher of [ChatSessionRestarted]).
+  ///
+  /// The form-offer hand-over reads it to open the form from the first
+  /// question with nothing selected. Without it the form found every question
+  /// answered from the résumé being replaced and opened on the LAST one, at
+  /// 100%, with only "Submit karein" to press. Persisted per session id in
+  /// `ResumeRedoStore`, so a cold start mid-re-do still knows.
+  final bool redoSession;
 
   /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), from the
   /// LATEST turn — null on every turn except the one that hands over.
@@ -616,6 +628,7 @@ class ChatState extends Equatable {
     String? askedQuestionKey,
     bool clearAskedQuestionKey = false,
     bool? questionRestored,
+    bool? redoSession,
     // #2224 — set ONCE, on the turn that closes the interview, and cleared only
     // by a restart or companion mode. Never re-pointed: a later turn on an
     // already-closed session must leave the marker where it is.
@@ -682,6 +695,7 @@ class ChatState extends Equatable {
           ? null
           : (askedQuestionKey ?? this.askedQuestionKey),
       questionRestored: questionRestored ?? this.questionRestored,
+      redoSession: redoSession ?? this.redoSession,
       sessionEndedAfterIndex: clearSessionEndedAfterIndex
           ? null
           : (sessionEndedAfterIndex ?? this.sessionEndedAfterIndex),
@@ -736,6 +750,7 @@ class ChatState extends Equatable {
     predictedQuestionKey,
     askedQuestionKey,
     questionRestored,
+    redoSession,
     sessionEndedAfterIndex,
     formOffer,
     resumePending,
@@ -833,11 +848,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatAnalyticsSink? analyticsSink,
     KnownWorkerFactsStore? knownFacts,
     ChatTurnResumeStore? turnResume,
+    ResumeRedoStore? resumeRedo,
     DateTime Function()? clock,
     ResumeRepository? resumeRepository,
   }) : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
        _knownFacts = knownFacts,
        _turnResume = turnResume,
+       _resumeRedo = resumeRedo,
        _resumeRepo = resumeRepository,
        _clock = clock ?? DateTime.now,
        super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
@@ -997,6 +1014,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// its chips on a reload, exactly as before.
   final ChatTurnResumeStore? _turnResume;
 
+  /// Which session is a résumé re-do — see [ChatState.redoSession]. Null in a
+  /// graph that does not register it: no session is then a re-do, which is
+  /// exactly the behaviour before it existed.
+  final ResumeRedoStore? _resumeRedo;
+
   /// The question the latest processed turn asked (`asked_question_id`), i.e.
   /// what the worker's next message answers. Null before the first reply and
   /// on a resumed transcript, where nothing is recorded.
@@ -1025,6 +1047,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// (shown) the moment the prompt is answered — by either chip, or by typing
   /// past it. Null whenever no prompt is pending.
   ChatTurn? _stashedPostResumeTurn;
+
+  /// `issue10.jpg` — the question [_stashedPostResumeTurn] WOULD have carried,
+  /// recovered from the turn store after a cold start killed the stash.
+  ///
+  /// A worker who closed the app while the résumé prompt stood, reopened it and
+  /// then answered the prompt hit the stash-less branch below: the chips were
+  /// cleared and nothing took their place, so the state question sat in the
+  /// transcript with no picker and no live ask — a dead end. This is the key
+  /// that puts the question back. One-shot: spent on the first answer.
+  String? _restoredPendingQuestionKey;
 
   /// Capture one name answer TENTATIVELY. Does NOT reveal: whether the name is
   /// complete is the SERVER's call, read from its next question in
@@ -1204,10 +1236,39 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       );
     }
 
+    // A re-do survives a cold start: its form must still open blank. A FOLLOW-UP
+    // emit, never part of the first one above — that emit is the #344 ordering
+    // contract and stays a single await deep.
+    if (await _isRedoSession()) emit(state.copyWith(redoSession: true));
+
     // #2030 ask 3 — and the chips that redraw cannot carry. LAST, so a served
     // opening (a fresh open, a résumé confirm) is never overwritten by a
     // remembered turn: [_restoreTurn] bails the moment the state has options.
     await _restoreTurn(emit);
+  }
+
+  /// Records the live session as a résumé re-do. Best-effort: a miss only costs
+  /// the re-do its blank form, which is what the app did before.
+  Future<void> _markRedoSession() async {
+    final ResumeRedoStore? store = _resumeRedo;
+    if (store == null) return;
+    try {
+      final String? id = await _repo.latestSessionId();
+      if (id != null) await store.markRedo(id);
+    } catch (_) {
+      // Bookkeeping must never break the interview.
+    }
+  }
+
+  /// Whether the live session is the one "Chat se resume banayein" minted.
+  Future<bool> _isRedoSession() async {
+    final ResumeRedoStore? store = _resumeRedo;
+    if (store == null) return false;
+    try {
+      return await store.isRedo(await _repo.latestSessionId());
+    } catch (_) {
+      return false;
+    }
   }
 
   /// #2030 ask 3 — persist the last served turn's chips and the free-chat mode.
@@ -1215,7 +1276,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// Keyed by the live session id, so a later restore can refuse chips that
   /// belong to a session the worker has since left. No session id (a mock, a
   /// failed open) stores nothing rather than storing unattributable chips.
-  void _rememberTurn(List<ChatOption> options, {String? askedQuestionKey}) {
+  void _rememberTurn(
+    List<ChatOption> options, {
+    String? askedQuestionKey,
+    String? pendingQuestionKey,
+  }) {
     final ChatTurnResumeStore? store = _turnResume;
     if (store == null) return;
     unawaited(() async {
@@ -1234,6 +1299,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             // the app) is offered again as a "Location bharein" button on
             // reopen instead of vanishing.
             askedQuestionKey: askedQuestionKey,
+            // `issue10.jpg` — the question the résumé prompt is standing in
+            // front of. Null on every other turn, which CLEARS it.
+            pendingQuestionKey: pendingQuestionKey,
           ),
         );
       } catch (_) {
@@ -1273,6 +1341,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (saved.options.isEmpty && saved.askedQuestionKey == null) return;
     final String? live = await _repo.latestSessionId();
     if (live == null || live != saved.sessionId) return;
+    // `issue10.jpg` — session-scoped, so it can never put a question back onto
+    // a session the worker has left.
+    _restoredPendingQuestionKey = saved.pendingQuestionKey;
     // Re-checked after the awaits: a send may have landed while they ran, and
     // its chips are the live ones.
     if (state.suggestedOptions.isNotEmpty || _inFlightSends > 0) return;
@@ -1712,6 +1783,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       _rememberTurn(
         showResumePrompt ? resumeOptions : turn.suggestedOptions,
         askedQuestionKey: showResumePrompt ? null : turn.askedQuestionId,
+        // `issue10.jpg` — the prompt HIDES this turn's question (the key is
+        // nulled above so the pickers stay down). The stash that holds it is in
+        // memory and dies with the process, so the key is persisted here: it is
+        // the only thing that can put the question back when the prompt is
+        // answered after a cold start.
+        pendingQuestionKey: showResumePrompt ? turn.askedQuestionId : null,
       );
       // #2224 — the marker goes after the bubble that CLOSED the interview, and
       // only the FIRST such turn sets it: a later reply on an already-closed
@@ -2400,9 +2477,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     emit(const ChatState(messages: <ChatMessage>[kChatOpeningMessage]));
     try {
       final ChatSessionOpening? opening = await _repo.startNewSession();
+      // "Chat se resume banayein" is the ONLY dispatcher of this event, so the
+      // session just minted is a re-do by definition. Remembered per session
+      // id, BEFORE the emit, so a cold start straight after still knows.
+      await _markRedoSession();
       emit(
         state.copyWith(
           initializing: false,
+          redoSession: true,
           messages: _withOpener(opening),
           resumePending: opening?.resumePending ?? false,
           suggestedOptions: opening?.options,
@@ -2514,8 +2596,19 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final ChatTurn? stashed = _stashedPostResumeTurn;
     _stashedPostResumeTurn = null;
     if (stashed == null) {
-      // Cold-start restore: the prompt's chips were redrawn without their
-      // stashed question (it already lives in the history). Just clear.
+      // COLD-START RESTORE. The prompt's chips were redrawn from the turn store
+      // without their stashed question — the stash is in memory and died with
+      // the process — and the question's BUBBLE already lives in the redrawn
+      // history, so nothing is appended for it.
+      //
+      // `issue10.jpg` — but the question must still be made LIVE again. Clearing
+      // the chips and stopping here left the worker looking at "Aap kis state
+      // mein rehte hain?" with no State picker, no "Location bharein" button and
+      // no ask to record an answer against: a dead end he could not type his way
+      // out of. [_restoredPendingQuestionKey] is that question, recovered from
+      // the same store that redrew the chips.
+      final String? pending = _restoredPendingQuestionKey;
+      _restoredPendingQuestionKey = null;
       emit(
         state.copyWith(
           messages: <ChatMessage>[
@@ -2527,9 +2620,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           questionKind: ChatQuestionKind.ask,
           inputMode: ChatInputMode.text,
           clearAnswerType: true,
+          // Exactly what the uninterrupted flow does when the stash is flushed:
+          // the hidden question becomes the live ask. Null leaves the state
+          // untouched, so a turn with nothing hidden behaves as before.
+          askedQuestionKey: pending,
+          clearAskedQuestionKey: false,
         ),
       );
-      _rememberTurn(const <ChatOption>[]);
+      _askedQuestionId = pending;
+      _rememberTurn(const <ChatOption>[], askedQuestionKey: pending);
       return;
     }
     emit(
@@ -2558,6 +2657,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ),
     );
     _askedQuestionId = stashed.askedQuestionId;
+    // The live stash won; a remembered one can only be stale now.
+    _restoredPendingQuestionKey = null;
     // OWNER ASK (2026-10-12) — carry the stashed turn's QUESTION, not just its
     // chips. The identity intake's state/city question is served as this stashed
     // turn (it follows the name, behind the résumé prompt), so dropping the key
@@ -2731,6 +2832,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final ChatTurn? stashed = _stashedPostResumeTurn;
     if (stashed == null) return;
     _stashedPostResumeTurn = null;
+    _restoredPendingQuestionKey = null;
     _resumePromptShown = true;
     emit(
       state.copyWith(
