@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -38,29 +36,15 @@ ResumeHistory _rendered() => const ResumeHistory(
 
 /// ── #2276 (ADR-0055): the Bada Bhai chat's two new chips ──────────────────
 void main() {
-  // The server keys, mirrored. `companion-v3-keys.ts` arrives with backend
-  // #2279; until it is on this branch the pair is SKIPPED (shown as skipped in
-  // the run, never silently passed) and goes live the moment the file lands.
-  group('the v3 keys match the server byte-for-byte', () {
-    final File server = File('../api/src/chat-companion/companion-v3-keys.ts');
-    final Object skip = server.existsSync()
-        ? false
-        : 'companion-v3-keys.ts is not on this branch yet (backend #2279)';
-
-    String serverConst(String name) {
-      final RegExpMatch? m =
-          RegExp('export const $name = "([^"]+)"').firstMatch(server.readAsStringSync());
-      return m!.group(1)!;
-    }
-
-    test('resume_form_create', () {
-      expect(kResumeMenuFormCreateKey, serverConst('RESUME_MENU_FORM_CREATE_KEY'));
-    }, skip: skip);
-
-    test('companion_resume_download', () {
-      expect(kCompanionResumeDownloadKey,
-          serverConst('COMPANION_RESUME_DOWNLOAD_KEY'));
-    }, skip: skip);
+  // NO PARITY PAIR YET, ON PURPOSE. The server's `companion-v3-keys.ts` lands
+  // with backend #2279, and the TD144 guard (`worker-app-parity-filter.guard
+  // .test.ts`) requires every server file a worker-app test reads to EXIST and
+  // to sit in CI's `worker-app-parity` filter. The two key values were checked
+  // byte-for-byte against #2279's file; the parity pair and its filter entry go
+  // in once that file is on `main`.
+  test('the v3 keys are the server literal strings', () {
+    expect(kResumeMenuFormCreateKey, 'resume_form_create');
+    expect(kCompanionResumeDownloadKey, 'companion_resume_download');
   });
 
   group('the chips on the real screen', () {
