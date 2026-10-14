@@ -214,39 +214,21 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            // OWNER ASK — the top-right TOGGLE: a worker who cannot find their
-            // city in the list taps "city khud bharein" and types it; the same
-            // spot then reads "city select kren" and swaps the dropdown back.
-            if (widget.askCity)
-              Align(
-                alignment: Alignment.centerRight,
-                child: Semantics(
-                  button: true,
-                  label: _cityManual
-                      ? kChatLocationDropdownToggle
-                      : kChatLocationManualCityToggle,
-                  child: InkWell(
-                    onTap: _toggleCityMode,
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 4,
-                      ),
-                      child: Text(
-                        _cityManual
-                            ? kChatLocationDropdownToggle
-                            : kChatLocationManualCityToggle,
-                        style: OnboardingTypography.inter(
-                          size: 12,
-                          weight: FontWeight.w600,
-                          color: OnboardingColors.errorRed,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+            // OWNER ASK — the city-mode switch: a worker who cannot find their
+            // city in the list switches to "city khud bharein" and types it,
+            // and back to "city select kren" for the dropdown. Redesigned
+            // (2026-10-14) from a red text link that swapped its own label into
+            // a two-option switch with BOTH labels always visible and the live
+            // one filled — same texts, same behaviour.
+            if (widget.askCity) ...<Widget>[
+              _CityModeSwitch(
+                manual: _cityManual,
+                onChanged: (bool manual) {
+                  if (manual != _cityManual) _toggleCityMode();
+                },
               ),
+              const SizedBox(height: 12),
+            ],
             // BOTH WAYS ARE ON SCREEN AT ONCE (#1462): a worker who refuses the
             // permission still has the pickers, and one who grants it later
             // still has the button.
@@ -491,3 +473,117 @@ const Map<LocationLookupFailureReason, String> kChatLocationGpsErrors =
       LocationLookupFailureReason.unknown:
           'Location nahi mil paayi. Neeche khud chunein.',
     };
+
+/// The two-option city-mode switch at the top of the location card: "city
+/// select kren" (pick from the list) ⇄ "city khud bharein" (type it).
+///
+/// Both options are always on screen and the live one is filled navy, so the
+/// worker sees what each tap does instead of reading a link whose label flips.
+/// Deliberately small — a mode switch, not the card's action — and every
+/// label scales down rather than wrapping, so a 2.0 system font cannot push the
+/// switch onto two lines.
+class _CityModeSwitch extends StatelessWidget {
+  const _CityModeSwitch({required this.manual, required this.onChanged});
+
+  /// True while the city is typed by hand.
+  final bool manual;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: OnboardingColors.chipBg,
+        borderRadius: BorderRadius.circular(OnboardingRadii.pillSm * 3),
+        border: Border.all(color: OnboardingColors.borderDefault),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: _CityModeOption(
+              icon: Icons.place_rounded,
+              label: kChatLocationDropdownToggle,
+              selected: !manual,
+              onTap: () => onChanged(false),
+            ),
+          ),
+          const SizedBox(width: 3),
+          Expanded(
+            child: _CityModeOption(
+              icon: Icons.edit_rounded,
+              label: kChatLocationManualCityToggle,
+              selected: manual,
+              onTap: () => onChanged(true),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CityModeOption extends StatelessWidget {
+  const _CityModeOption({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color ink = selected
+        ? OnboardingColors.paperWhite
+        : OnboardingColors.shiftBlue;
+    final BorderRadius radius =
+        BorderRadius.circular(OnboardingRadii.pillSm * 3);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      child: Material(
+        color: selected ? OnboardingColors.shiftBlue : Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: selected ? null : onTap,
+          borderRadius: radius,
+          child: ConstrainedBox(
+            // The 40px tap floor: small to look at, never small to hit.
+            constraints: const BoxConstraints(minHeight: 40),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(icon, size: 15, color: ink),
+                      const SizedBox(width: 5),
+                      Text(
+                        label,
+                        maxLines: 1,
+                        style: OnboardingTypography.inter(
+                          size: 12,
+                          weight: FontWeight.w700,
+                          color: ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

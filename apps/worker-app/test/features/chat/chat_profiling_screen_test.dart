@@ -2241,5 +2241,65 @@ void main() {
         expect(find.text(kChatLocationManualCityToggle), findsOneWidget);
       },
     );
+
+    // OWNER ASK (2026-10-14) — the red flipping link became a two-option
+    // switch: BOTH labels always on screen, the live one marked selected.
+    testWidgets('the city-mode switch shows BOTH options and marks the live one',
+        (WidgetTester tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await openLocation(tester);
+
+      expect(find.text(kChatLocationDropdownToggle), findsOneWidget);
+      expect(find.text(kChatLocationManualCityToggle), findsOneWidget);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(kChatLocationDropdownToggle)),
+        containsSemantics(isButton: true, isSelected: true),
+        reason: 'the list is the default mode',
+      );
+
+      await tester.tap(find.text(kChatLocationManualCityToggle));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(kChatLocationManualCityToggle)),
+        containsSemantics(isButton: true, isSelected: true),
+      );
+      // Tapping the option that is already live does nothing.
+      await tester.tap(find.text(kChatLocationManualCityToggle));
+      await tester.pumpAndSettle();
+      expect(find.text(kChatLocationCityManualHint), findsOneWidget);
+      handle.dispose();
+    });
+  });
+
+  testWidgets('the city-mode switch never overflows at 320 wide, text scale 2.0',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(320, 900),
+            textScaler: TextScaler.linear(2.0),
+          ),
+          child: Scaffold(
+            body: SingleChildScrollView(
+              child: ChatLocationCard(
+                askState: true,
+                askCity: true,
+                onSubmit: ({String? state, String? city}) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(kChatLocationDropdownToggle), findsOneWidget);
+    expect(find.text(kChatLocationManualCityToggle), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

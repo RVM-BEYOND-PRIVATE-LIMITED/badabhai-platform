@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/session/resume_redo_store.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/onboarding/form_flow_parts.dart';
@@ -123,6 +124,7 @@ class TradeFormScreen extends StatelessWidget {
     this.sectionKey,
     this.upgradeView = false,
     this.fromStart = false,
+    this.fresh = false,
   });
 
   /// The served menu's section key, or null for the full walk.
@@ -141,11 +143,20 @@ class TradeFormScreen extends StatelessWidget {
   /// them onto the last unanswered step.
   final bool fromStart;
 
+  /// A re-do: from the first question, nothing pre-selected — see
+  /// [TradeFormArgs.fresh].
+  final bool fresh;
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider<TradeFormCubit>(
       create: (_) => locator<TradeFormCubit>()
-        ..load(sectionKey: sectionKey, upgradeView: upgradeView, fromStart: fromStart),
+        ..load(
+          sectionKey: sectionKey,
+          upgradeView: upgradeView,
+          fromStart: fromStart,
+          fresh: fresh,
+        ),
       child: const _TradeFormView(),
     );
   }
@@ -165,6 +176,13 @@ class _TradeFormView extends StatelessWidget {
           // profiling path already uses (see profile_preview_screen.dart).
           // force: true so the server overlay runs against the fresh pack
           // answers the worker just saved (resume-draft-overlay.ts).
+          //
+          // A finished RE-DO is spent: the next visit to the form (a section
+          // edit, the Résumé tab) must open normally, not blank again. A new
+          // "Chat se resume banayein" marks its own session afresh.
+          if (locator.isRegistered<ResumeRedoStore>()) {
+            unawaited(locator<ResumeRedoStore>().clear());
+          }
           context.go(Routes.building, extra: true);
         }
       },

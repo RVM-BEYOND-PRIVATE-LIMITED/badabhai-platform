@@ -28,6 +28,8 @@
 /// or `below_10`-style token can reach the screen.
 library;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../../../core/api/api_models.dart';
 import '../../../../core/util/education_label.dart';
 import '../../../../core/util/pay_format.dart';
@@ -533,12 +535,19 @@ ResumeProfileFacts resolveProfileFacts({
     // spot all three document shapes meet, and leaves the trade sheet's two-line
     // masthead verbatim. The bold headline stays on both sheets.
     final bool general = isGeneralSheetDocument(document);
+    final String? salary = _tradeSheetSalary(document);
+    final String? line2 = _nullIfEmpty(_clean(document.headline.line2 ?? ''));
     return ResumeProfileFacts(
       subtitle: _nullIfEmpty(_clean(document.headline.line1 ?? '')),
+      // `salary_issue.jpg` — the expected salary printed TWICE: once as
+      // "expects ₹1,00,000 / month" under "WORKER PROFILE", once in the green
+      // Expected Salary box right below it. The box is the one place money is
+      // shown, so the line drops its own salary segment WHENEVER the box draws.
+      // City and availability on the same line are kept.
       secondLine: general
           ? null
-          : _nullIfEmpty(_clean(document.headline.line2 ?? '')),
-      salary: _tradeSheetSalary(document),
+          : (salary == null ? line2 : withoutExpectsSegment(line2)),
+      salary: salary,
       // #1796 — on the road only. `brief` is absent on every other document,
       // but the guard is explicit so a server that ever sent one on a
       // `bb_trade` sheet could not put it on a trade worker's card.
@@ -579,6 +588,25 @@ ResumeProfileFacts resolveProfileFacts({
     secondLine: location,
     salary: _formatTextSalary(_entry(parsed, 'Expected salary')),
   );
+}
+
+/// The server's verdict subhead with its salary segment removed, or null when
+/// nothing else is left on it.
+///
+/// `resume-sheet-rows.ts` composes the line as
+/// `{city} · available {availability} · expects {salary}`, dropping empty
+/// segments WITH their separator, so the salary is always the LAST segment and
+/// is always introduced by the word `expects`. Cutting at that segment — rather
+/// than re-splitting the whole line on ` · `, which a value may itself contain
+/// — leaves everything before it exactly as the server wrote it.
+@visibleForTesting
+String? withoutExpectsSegment(String? line) {
+  if (line == null) return null;
+  const String marker = 'expects ';
+  if (line.startsWith(marker)) return null; // the salary was the whole line
+  final int cut = line.lastIndexOf(' · $marker');
+  if (cut < 0) return line;
+  return _nullIfEmpty(line.substring(0, cut).trim());
 }
 
 /// The trade sheet's salary comes from a fact row whose value the server has

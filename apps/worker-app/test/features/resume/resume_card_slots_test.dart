@@ -368,9 +368,43 @@ void main() {
 
       expect(facts.subtitle, 'CNC Turner · 8 yrs · Fanuc · 2-axis');
       // The city/availability line has no spec slot but carries real data, so
-      // it is kept rather than dropped.
-      expect(facts.secondLine, 'Faridabad · Available now · expects ₹32,000');
+      // it is kept rather than dropped — WITHOUT its salary segment, because
+      // the money box below already shows the salary (`salary_issue.jpg`).
+      expect(facts.secondLine, 'Faridabad · Available now');
       expect(facts.salary, '₹24,000 – ₹28,000 / month');
+    });
+
+    // `salary_issue.jpg` — the expected salary printed twice on the card.
+    group('the salary is shown ONCE — in the money box', () {
+      test('a salary-only line disappears entirely', () {
+        expect(withoutExpectsSegment('expects ₹1,00,000 / month'), isNull);
+      });
+
+      test('city and availability stay; only the salary segment goes', () {
+        expect(
+          withoutExpectsSegment('Faridabad · Available now · expects ₹32,000'),
+          'Faridabad · Available now',
+        );
+        expect(
+          withoutExpectsSegment('Faridabad · expects ₹32,000 / month'),
+          'Faridabad',
+        );
+      });
+
+      test('a line with no salary is untouched', () {
+        expect(
+          withoutExpectsSegment('Faridabad · Available now'),
+          'Faridabad · Available now',
+        );
+        expect(withoutExpectsSegment(null), isNull);
+      });
+
+      test('a value containing the separator is never re-split', () {
+        expect(
+          withoutExpectsSegment('Sector 5 · Noida · Available now · expects ₹20,000'),
+          'Sector 5 · Noida · Available now',
+        );
+      });
     });
 
     test('a generic document composes its own line and formats its NUMERIC '

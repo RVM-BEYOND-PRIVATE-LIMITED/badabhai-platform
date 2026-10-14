@@ -73,6 +73,7 @@ class TierChoiceScreen extends StatefulWidget {
     this.entry = TierEntry.pushed,
     this.sectionKey,
     this.fromStart = false,
+    this.fresh = false,
   });
 
   /// Already fetched by the caller, so the screen never opens on a spinner and
@@ -88,6 +89,10 @@ class TierChoiceScreen extends StatefulWidget {
   /// Forwarded to the form untouched — a "resume poora karein" walk that passes
   /// through the chooser must still open from step 1 on the other side.
   final bool fromStart;
+
+  /// Forwarded to the form untouched — a re-do that passes through the chooser
+  /// must still open blank and from step 1 (see [TradeFormArgs.fresh]).
+  final bool fresh;
 
   @override
   State<TierChoiceScreen> createState() => _TierChoiceScreenState();
@@ -174,10 +179,18 @@ class _TierChoiceScreenState extends State<TierChoiceScreen> {
     // side — including when the tap itself earned the narrowed upgrade view
     // (narrowed form, walked from its own step 1).
     final Object? extra = upgrade
-        ? TradeFormArgs(upgradeView: true, fromStart: widget.fromStart)
-        : (widget.sectionKey == null && !widget.fromStart
+        ? TradeFormArgs(
+            upgradeView: true,
+            fromStart: widget.fromStart,
+            fresh: widget.fresh,
+          )
+        : (widget.sectionKey == null && !widget.fromStart && !widget.fresh
               ? null
-              : TradeFormArgs(sectionKey: widget.sectionKey, fromStart: widget.fromStart));
+              : TradeFormArgs(
+                  sectionKey: widget.sectionKey,
+                  fromStart: widget.fromStart,
+                  fresh: widget.fresh,
+                ));
     // `go` in every case: the tier screen has done its job and must not sit on
     // the stack behind the form, where Back would offer a choice the worker
     // has already made (and the server would answer `unchanged`).

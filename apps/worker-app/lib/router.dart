@@ -590,6 +590,7 @@ GoRouter _buildRouter() {
             sectionKey: args.sectionKey,
             upgradeView: args.upgradeView,
             fromStart: args.fromStart,
+            fresh: args.fresh,
           );
         },
       ),
@@ -611,6 +612,7 @@ GoRouter _buildRouter() {
             entry: extra.entry,
             sectionKey: extra.sectionKey,
             fromStart: extra.fromStart,
+            fresh: extra.fresh,
           );
         },
       ),

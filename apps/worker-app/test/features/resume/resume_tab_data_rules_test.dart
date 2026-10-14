@@ -82,10 +82,11 @@ void main() {
           find.text('CNC Turner · 8 yrs · Fanuc · 2-axis'),
           findsOneWidget,
         );
-        expect(
-          find.text('Faridabad · Available now · expects ₹32,000'),
-          findsOneWidget,
-        );
+        // City and availability kept; the salary segment is NOT repeated on
+        // this line (`salary_issue.jpg`) — the money box below is the one
+        // place the salary shows.
+        expect(find.text('Faridabad · Available now'), findsOneWidget);
+        expect(find.textContaining('expects ₹'), findsNothing);
         // The salary the server already formatted, in the money box.
         expect(find.byType(KitSalaryBox), findsOneWidget);
         expect(find.text('₹24,000 – ₹28,000 / month'), findsOneWidget);
