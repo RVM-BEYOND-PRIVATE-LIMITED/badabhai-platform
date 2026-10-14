@@ -3,12 +3,21 @@
     python -m app.free_chat.eval_cli --base-url http://localhost:8000
     python -m app.free_chat.eval_cli --base-url http://localhost:8000 \\
         --expect-model gemini-2.5-flash-lite --pace-ms 4500
+    python -m app.free_chat.eval_cli --base-url http://localhost:8000 --language \\
+        --expect-model claude-haiku-4-5
 
 SCORES A RUNNING SERVICE over the labelled set (`eval_free_classify_gold`) through
 ``POST /free-chat/classify``, and prints the accuracy per category and per mode, what the misses
 were classified as, and the p50/p95 latency. CI never runs this: the suite is mock-only, and the
 deterministic half (the set's shape, the scorer, this CLI against a fake transport) lives in
 `tests/free_chat/`.
+
+``--language`` (ADR-0051 §11 R42, #2240) scores the classifier's OTHER answer instead: the
+language label, over the language set (`eval_free_language_gold`), each line posted alone in free
+mode. It prints the accuracy overall, per language, per script and on Latin-letter Marathi (the
+device test's case), what each miss was labelled, and every miss. A null label is a miss: the API
+falls back to its word lists then. Both modes print the largest ``output_tokens`` the router
+measured, against the route's cap, so a third JSON key is seen to fit the budget.
 
 NO ACCURACY BAR, BY OWNER RULING. The feature is live on merge (R18) and this set is what the
 prompt is improved against (R20), so a low accuracy is a number to record, not a failure. The
@@ -34,13 +43,15 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # ONE CALL LAYER FOR EVERY STAGING EVAL: timing, retries, the mock/fallback contamination rules
 # and the report lines are the companion eval's, imported rather than copied, so a fix to how a
 # run is judged reaches this CLI too.
+from ..ai.model_config import get_route
 from ..companion.eval_cli import (
     CallLog,
+    Reply,
     _call,
     _label,
     _print_calls,
@@ -48,9 +59,12 @@ from ..companion.eval_cli import (
     _verdict,
     gate_failures,
 )
+from ..config import get_settings
 from . import eval_free_classify_gold as gold
+from . import eval_free_language_gold as language_gold
 
 ROUTE = "/free-chat/classify"
+TASK_TYPE = "profiling_free_classify"
 
 #: The API's confidence floor for a free-chat verdict (ADR-0051 §3.2: "below 0.6" is clarify).
 #: The classify prompt names the same number, pinned by a test.
@@ -69,6 +83,29 @@ class FreeClassifyRun:
     min_confidence: float
     #: Answers the model gave a category other than `unclear` for, below the floor.
     floored: int
+    #: ``ai_metadata.output_tokens`` of every model answer, late ones included.
+    output_tokens: list[int] = field(default_factory=list)
+
+
+@dataclass
+class FreeLanguageRun:
+    score: language_gold.LanguageScore
+    calls: CallLog
+    #: ``ai_metadata.output_tokens`` of every model answer, late ones included.
+    output_tokens: list[int] = field(default_factory=list)
+
+
+def _note_tokens(reply: Reply | None, tokens: list[int]) -> None:
+    """Record the output tokens the router measured for a model answer (a count, never text)."""
+    meta = reply.payload.get("ai_metadata") if reply is not None else None
+    count = meta.get("output_tokens") if isinstance(meta, dict) else None
+    if isinstance(count, int) and not isinstance(count, bool):
+        tokens.append(count)
+
+
+def output_token_cap() -> int:
+    """The classify route's output cap, read from the route table this service runs."""
+    return get_route(TASK_TYPE, get_settings()).max_output_tokens
 
 
 def run_free_classify_eval(
@@ -82,24 +119,25 @@ def run_free_classify_eval(
     a blocked, failed, mocked or late answer is unavailable (a miss for every category)."""
     calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
     floored = 0
+    tokens: list[int] = []
 
     def predict(case: gold.Case) -> str | None:
         nonlocal floored
-        body = _served(
-            _call(
-                base_url,
-                ROUTE,
-                {
-                    "text": case.text,
-                    "recent_turns": [{"role": role, "text": text} for role, text in case.turns],
-                    "mode": case.mode,
-                    "pending_question": case.question,
-                },
-                calls,
-                _label(case.text),
-                api_timeout_ms=API_TIMEOUT_MS,
-            )
+        reply = _call(
+            base_url,
+            ROUTE,
+            {
+                "text": case.text,
+                "recent_turns": [{"role": role, "text": text} for role, text in case.turns],
+                "mode": case.mode,
+                "pending_question": case.question,
+            },
+            calls,
+            _label(case.text),
+            api_timeout_ms=API_TIMEOUT_MS,
         )
+        _note_tokens(reply, tokens)
+        body = _served(reply)
         if body is None or body.get("blocked"):
             return None
         confidence = body.get("confidence")
@@ -110,12 +148,52 @@ def run_free_classify_eval(
         category = body.get("category")
         return category if isinstance(category, str) else None
 
-    return FreeClassifyRun(gold.evaluate(predict), calls, min_confidence, floored)
+    return FreeClassifyRun(gold.evaluate(predict), calls, min_confidence, floored, tokens)
+
+
+def run_free_language_eval(
+    base_url: str, *, pace_ms: int = 0, expect_model: str | None = None
+) -> FreeLanguageRun:
+    """Score the classifier's language label (R42) as the API reads it: a blocked, failed,
+    mocked or late answer, or a null label, is no label (the API's word lists decide then).
+
+    Each line is posted ALONE, in free mode, with no question and no turns: the label reads the
+    worker's last message only. The confidence floor is NOT applied: it gates the category, and
+    the label rides any real verdict.
+    """
+    calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
+    tokens: list[int] = []
+
+    def predict(case: language_gold.Case) -> str | None:
+        reply = _call(
+            base_url,
+            ROUTE,
+            {"text": case.text, "recent_turns": [], "mode": "free", "pending_question": None},
+            calls,
+            _label(case.text),
+            api_timeout_ms=API_TIMEOUT_MS,
+        )
+        _note_tokens(reply, tokens)
+        body = _served(reply)
+        if body is None or body.get("blocked"):
+            return None
+        language = body.get("language")
+        return language if isinstance(language, str) else None
+
+    return FreeLanguageRun(language_gold.evaluate(predict), calls, tokens)
 
 
 def _fraction(correct: int, total: int) -> str:
     share = 0.0 if total == 0 else correct / total
     return f"{correct}/{total} = {share:.1%}"
+
+
+def _print_tokens(tokens: list[int]) -> None:
+    cap = output_token_cap()
+    if tokens:
+        print(f"output tokens: max {max(tokens)} of the route's cap {cap} ({len(tokens)} answers)")
+    else:
+        print(f"output tokens: none measured (route cap {cap})")
 
 
 def print_report(run: FreeClassifyRun) -> None:
@@ -131,8 +209,32 @@ def print_report(run: FreeClassifyRun) -> None:
         print(f"  mode     {mode:<11} {_fraction(correct, total)}")
     predicted = ", ".join(f"{label} ({count})" for label, count in score.predicted.items())
     print(f"predicted: {predicted}")
+    _print_tokens(run.output_tokens)
     _print_calls(run.calls, None)
     for miss in score.misses[:30]:
+        print(f"  MISS {miss}")
+
+
+def print_language_report(run: FreeLanguageRun) -> None:
+    """The language label's accuracy, every slice the issue names, and EVERY miss (no cap)."""
+    score = run.score
+    print(
+        "free-chat language label (baseline, no bar): "
+        f"{_fraction(score.correct, score.total)} overall"
+    )
+    for language, (correct, total) in score.per_language.items():
+        print(f"  language {language:<9} {_fraction(correct, total)}")
+    for (language, script), (correct, total) in score.per_script.items():
+        print(f"  script   {language + '/' + script:<16} {_fraction(correct, total)}")
+    latin_marathi = score.per_script.get(("marathi", "latin"), (0, 0))
+    print(f"Latin-letter Marathi: {_fraction(*latin_marathi)}")
+    predicted = ", ".join(f"{label} ({count})" for label, count in score.predicted.items())
+    print(f"predicted: {predicted}")
+    for expected, got in score.confusion.items():
+        print(f"  {expected} missed as: " + ", ".join(f"{k} ({n})" for k, n in got.items()))
+    _print_tokens(run.output_tokens)
+    _print_calls(run.calls, None)
+    for miss in score.misses:
         print(f"  MISS {miss}")
 
 
@@ -160,6 +262,12 @@ def main(argv: list[str] | None = None) -> int:
         help="the route's primary model id; any answer from another model fails the run "
         "(the only way to catch a run the fallback answered entirely)",
     )
+    parser.add_argument(
+        "--language",
+        action="store_true",
+        help="score the language label (ADR-0051 R42) over the language set instead of the "
+        "category over the category set",
+    )
     args = parser.parse_args(argv)
     if args.pace_ms < 0:
         parser.error("--pace-ms must be >= 0")
@@ -167,6 +275,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--expect-model must name a model")
     if not 0.0 <= args.min_confidence <= 1.0:
         parser.error("--min-confidence must be within 0..1")
+
+    if args.language:
+        language_run = run_free_language_eval(
+            args.base_url, pace_ms=args.pace_ms, expect_model=args.expect_model
+        )
+        print_language_report(language_run)
+        return _verdict(gate_failures(language_run.calls, None))
 
     run = run_free_classify_eval(
         args.base_url,

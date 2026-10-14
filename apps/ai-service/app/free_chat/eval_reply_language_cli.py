@@ -8,10 +8,11 @@
 
 SCORES A RUNNING SERVICE over the reply-language set (`eval_free_reply_language`) through
 ``POST /free-chat/reply``, and prints, per reply language, per case kind and overall: language
-adherence, non-Latin replies, persona slips, verbatim repeats, example copies and the replies the
-API's word walls would throw away, then how many of the cases that must refuse did, plus the
-misses. CI never runs this: the suite is mock-only, and the deterministic half (the set's shape,
-the scorer, this CLI against a fake transport) lives in `tests/free_chat/`.
+adherence, non-Latin replies, persona slips, verbatim repeats, example copies, the replies the
+API's word walls would throw away and (on regional replies) the Hindi leak (#2240), then how many
+of the cases that must refuse did, plus the misses. CI never runs this: the suite is mock-only,
+and the deterministic half (the set's shape, the scorer, this CLI against a fake transport) lives
+in `tests/free_chat/`.
 
 TWO RUNS MAKE ONE MEASUREMENT. Without ``--omit-language`` the case's ``reply_language`` rides
 the request, as the §11 API sends it. ``--omit-language`` sends none, so THE TARGET SERVICE'S
@@ -115,10 +116,12 @@ def _tally_line(name: str, tally: gold.Tally) -> str:
     must_refuse = (
         f"  must refuse {tally.refused_ok}/{tally.must_refuse} refused" if tally.must_refuse else ""
     )
+    # (g) only where a regional reply was scored: English and Hinglish are never read for it.
+    leak = f"  hindi leak {tally.leaked}/{tally.leak_scored}" if tally.leak_scored else ""
     return (
         f"  {name:<9} language {_rate(tally.adhered, tally.answered):<12} "
         f"non-Latin {tally.non_latin}  slips {tally.slipped}  repeats {tally.repeated}  "
-        f"example copies {tally.copied}  walled {tally.walled}{must_refuse}  "
+        f"example copies {tally.copied}  walled {tally.walled}{leak}{must_refuse}  "
         f"(cases {tally.cases}, refused {tally.refused}, unavailable {tally.unavailable})"
     )
 
@@ -141,6 +144,11 @@ def print_report(run: ReplyLanguageRun) -> None:
     for kind, tally in score.per_kind.items():
         print(_tally_line(kind, tally))
     print(_tally_line("overall", score.overall))
+    leak = score.overall
+    print(
+        "hindi leak (regional replies with a Hindi function word in a line or chip): "
+        f"{_rate(leak.leaked, leak.leak_scored)}"
+    )
     for result in score.results:
         if result.case.expected_status == gold.REFUSE:
             topic = f" on {result.topic}" if result.topic else ""
@@ -209,6 +217,7 @@ def write_dump(path: Path, run: ReplyLanguageRun) -> None:
                 "repeat": result.repeat,
                 "copy": result.copy,
                 "walls": list(result.walls),
+                "hindi_leak": list(result.hindi_leak),
                 "markers": dict(result.counts),
             }
         )
