@@ -16,6 +16,7 @@
    carry the LANGUAGE rules (mirror the worker's language, mixed with English, Latin letters,
    each language's respectful "you") and name every regional word the API's free-chat gate
    rejects — the lists pinned EQUAL to `free-chat-regional-walls.ts`, read from its source.
+   The soft job promise's job words, forms and fillers (#2184) are pinned the same way.
 8. Reply language (§11, #2181): a "Reply language:" line is followed exactly, and only the one
    at the top of the last message counts; it rides the USER message (one fixed line per
    language, with an example that passes every wall), so the system prompt does not vary with
@@ -205,6 +206,10 @@ def _regional_list(const: str) -> tuple[str, ...]:
         "REGIONAL_SENSITIVE_WORDS",
         "REGIONAL_RESPECTFUL_YOU",
         "REGIONAL_JUDGEMENT_WORDS",
+        # #2184: the soft job promise's job words, forms and fillers, in the same file.
+        "SOFT_PROMISE_JOB_WORDS",
+        "SOFT_PROMISE_WILL_GET_PHRASES",
+        "SOFT_PROMISE_FILLERS",
         # ADR-0051 §11 (#2181): the English promise and rating walls, in the same file.
         "ENGLISH_PROMISE_TOKENS",
         "ENGLISH_SURELY_WORDS",

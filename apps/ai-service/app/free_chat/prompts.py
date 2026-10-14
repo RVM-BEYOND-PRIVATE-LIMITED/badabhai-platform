@@ -134,9 +134,29 @@ REGIONAL_SURELY_WORDS = (
 REGIONAL_WILL_GET_WORDS = (
     "kidaikkum", "kidaikum", "kedaikkum", "kedaikum",
     "dorukutundi", "dorukuthundi", "vastundi", "vasthundi",
-    "sigutte", "siguthe", "sigatte",
+    "sigutte", "siguthe", "sigatte", "milthade", "miltade",
     "milel", "bhetel",
     "malse", "malshe",
+)  # fmt: skip
+#: #2184 (R11): the soft job promise, the same file's wall. A job word followed by a future
+#: "will get" form (these Hinglish phrases, or any regional will-get word above) in one clause is a
+#: promise with no "pakka" and no surely word: "phir job mil jayegi", "sthira kelasa milthade".
+#: Only the fillers may sit between. A question, or a listed take-back, disclaimer or condition
+#: phrase unsays it (the API's lists; the eval restates them), and "kaam milne ki sambhavna
+#: badhegi" is other words, so that advice stays served. The prompt puts the job words INSIDE the
+#: rule sentence: listed apart, like a banned list, they read as words never to write, and a reply
+#: about work cannot avoid "job" or "kaam". Pinned EQUAL to the API's lists.
+SOFT_PROMISE_JOB_WORDS = (
+    "job", "naukri", "naukari", "kaam", "nokri", "velai", "udyogam", "kelasa", "kelsa", "udyoga",
+)  # fmt: skip
+SOFT_PROMISE_WILL_GET_PHRASES = (
+    "mil jayegi", "mil jaayegi", "mil jaegi", "mil jayega", "mil jaayega", "mil jaega",
+    "mil hi jayegi", "mil hi jayega", "mil hi jaegi", "mil hi jaega", "milegi hi", "lag jayegi",
+    "lag jaayegi", "lag jaegi",
+)  # fmt: skip
+SOFT_PROMISE_FILLERS = (
+    "bhi", "aapko", "jaldi", "turant", "zaroor", "zarur", "jaroor", "jarur", "hi", "to",
+    "aasani se",
 )  # fmt: skip
 REGIONAL_SENSITIVE_WORDS = (
     "vakkil", "vakeel", "neethimandram", "marundhu", "marunthu", "maruthuvam", "kadan",
@@ -210,9 +230,36 @@ def _or_list(words: tuple[str, ...]) -> str:
     return quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} or {quoted[-1]}"
 
 
+def _comma_list(words: tuple[str, ...]) -> str:
+    """``words`` quoted and comma-separated as prose: "a", "b", "c"."""
+    return ", ".join(f'"{word}"' for word in words)
+
+
+def _prose(text: str, width: int = 96) -> str:
+    """``text`` indented 2 and wrapped at ``width`` BETWEEN words, never inside a quoted phrase
+    ("aasani se" stays whole, so a parity pin on the quoted phrase holds)."""
+    words: list[str] = []
+    for token in text.split():
+        if words and words[-1].count('"') % 2:
+            words[-1] += f" {token}"
+        else:
+            words.append(token)
+    lines: list[str] = []
+    line = ""
+    for word in words:
+        if line and len(line) + len(word) + 3 > width:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}" if line else word
+    lines.append(line)
+    return "\n".join(f"  {line}" for line in lines)
+
+
 def render_regional_words() -> str:
     """The regional and English walls as the answer rules state them: one labelled, quoted list
-    per wall (the English ones after the regional ones, ADR-0051 §11)."""
+    per wall (the English ones after the regional ones, ADR-0051 §11), and the soft job promise's
+    forms and job words after the regional will-get words it shares (#2184)."""
     return "\n".join(
         (
             '  Familiar address, or an informal "you":',
@@ -221,6 +268,16 @@ def render_regional_words() -> str:
             _quoted_list(REGIONAL_SURELY_WORDS),
             "  Will get:",
             _quoted_list(REGIONAL_WILL_GET_WORDS),
+            _prose(
+                f"Never put a job word ({_comma_list(SOFT_PROMISE_JOB_WORDS)})"
+                ' directly before a "will get" word above or one of these forms, even with'
+                f" {_or_list(SOFT_PROMISE_FILLERS)} between:"
+            ),
+            _quoted_list(SOFT_PROMISE_WILL_GET_PHRASES),
+            _prose(
+                'A job word alone is fine. Say "kaam milne ki sambhavna badhegi" instead, in the'
+                " reply's language."
+            ),
             "  Legal, medical and financial words:",
             _quoted_list(REGIONAL_SENSITIVE_WORDS),
             f"  {_or_list(REGIONAL_RESPECTFUL_YOU)} directly before any of:",

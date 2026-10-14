@@ -18,6 +18,17 @@ import {
   REGIONAL_SURELY_WORDS,
   REGIONAL_WILL_GET_WORDS,
   regionalWallFailure,
+  SOFT_PROMISE_CONDITIONS,
+  SOFT_PROMISE_DISCLAIMER_BREAKS,
+  SOFT_PROMISE_DISCLAIMERS,
+  SOFT_PROMISE_FILLERS,
+  SOFT_PROMISE_IF_WORDS,
+  SOFT_PROMISE_JOB_WORDS,
+  SOFT_PROMISE_NEW_STATEMENT,
+  SOFT_PROMISE_QUESTION_WORDS,
+  SOFT_PROMISE_TAKE_BACKS,
+  SOFT_PROMISE_THEN_WORDS,
+  SOFT_PROMISE_WILL_GET_PHRASES,
 } from "./free-chat-regional-walls";
 
 /**
@@ -248,6 +259,248 @@ describe("the English walls (§11)", () => {
     }
     expect(ENGLISH_SENSITIVE_WORDS).not.toContain("doctor");
     expect(ENGLISH_SENSITIVE_WORDS).not.toContain("doctors");
+  });
+});
+
+/**
+ * #2184 (ADR-0051 R11): a job word followed by a future "will get" form, in one clause, is a
+ * promise with no "pakka" and no surely word. Before this wall the gate SERVED every line in the
+ * first table, the issue's two among them.
+ */
+describe("the soft job promise (#2184)", () => {
+  it.each([
+    ["the issue's Hinglish line", "Phir job mil jayegi."],
+    ["an adjective before the job word", "Course ke baad aapko achhi job mil jayegi."],
+    ["kaam, after a comma", "Mehnat kariye, kaam mil jayega."],
+    ["mil jaayega", "Aapko yahan kaam mil jaayega."],
+    ["mil jaayegi", "Is certificate se naukri mil jaayegi."],
+    ["lag jayegi", "ITI ke baad naukri lag jayegi."],
+    ["lag jaayegi on naukari", "Certificate se naukari lag jaayegi."],
+    ["milegi hi", "Is skill se job milegi hi."],
+    // The "jaega" / "jaegi" spellings; the first is a real Haiku reply from the #2181 eval.
+    ["mil jaega", "phir apne aap kaam mil jaega"],
+    ["lag jaegi", "certificate se naukri lag jaegi"],
+    ["mil jaegi", "Course ke baad job mil jaegi."],
+    // The "hi" of certainty inside the verb.
+    ["mil hi jayegi", "Mehnat karte rahiye, job mil hi jayegi."],
+    ["mil hi jaega", "Kaam mil hi jaega."],
+    ["a filler between", "Experience ke saath job bhi mil jayegi."],
+    ["two fillers between", "Job aapko jaldi mil jayegi."],
+    ["zaroor between", "Job zaroor mil jayegi."],
+    ["jaroor between", "Aapko job jaroor mil jayegi."],
+    ["jaldi hi between", "Job jaldi hi mil jayegi."],
+    ["to between", "Kaam to mil jayega."],
+    ["aasani se between", "Job aasani se mil jayegi."],
+    ["upper case", "JOB MIL JAYEGI"],
+    // A negation word alone never unsays it: only a listed take-back, disclaimer or condition.
+    ["a negation that is no disclaimer, before", "Tension mat lijiye job mil jayegi."],
+    ["'shak nahi ki' is no disclaimer", "Isme koi shak nahi ki aapko job mil jayegi"],
+    ["a later negation, after 'aur'", "Aapko job mil jayegi aur salary ki tension nahi rahegi."],
+    ["a later negation, naukri", "Course ke baad naukri lag jayegi aur ghar baithna nahi padega."],
+    ["a later 'shak nahi'", "Aapko job mil jayegi isme koi shak nahi."],
+    ["a later 'mat', after a dash", "Job mil jayegi — chinta mat kijiye."],
+    ["a later 'mat', no stop", "Job mil jayegi bas himmat mat haariye."],
+    ["a later 'mat', in brackets", "Job mil jayegi (bas mehnat mat chhodiye)."],
+    // A "to" BEFORE the job word is no condition.
+    ["a 'to' before the job word", "agar ITI karenge to job mil jayegi"],
+    // A bare "to" after the form is "so": the job is the promised result (re-review, #2184).
+    ["'to' as 'so', twice", "Mehnat karoge to job mil jayegi to fir ghar ki tension khatam."],
+    ["'to' as 'so'", "Job mil jayegi to tension mat lijiye."],
+    ["'to' as 'so', kaam", "Kaam mil jayega to chinta ki koi baat nahi."],
+    // A take-back followed by "ki" / "hai ki" opens a new statement and unsays that, not the job.
+    [
+      "zaroori nahi ki, after a comma",
+      "Job mil jayegi, zaroori nahi ki shuru mein salary zyada ho.",
+    ],
+    [
+      "yeh zaroori nahi ki, after a comma",
+      "Naukri lag jayegi, yeh zaroori nahi ki pehli company hi best ho.",
+    ],
+    [
+      "aisa nahi hai ki, after a comma",
+      "Aapko kaam mil jayega, aisa nahi hai ki aapko kuch nahi karna padega.",
+    ],
+    ["aisa nahi ki, same clause", "Job mil jayegi aisa nahi ki mehnat nahi karni padegi."],
+    // A "but", or a new subject after a "hai", ends a disclaimer's reach.
+    ["par after a disclaimer", "Main yeh nahi keh sakta ki kitna samay lagega par job mil jayegi."],
+    [
+      "lekin after a disclaimer",
+      "Zaroori nahi ki ITI hi karein lekin diploma se bhi job mil jayegi.",
+    ],
+    ["a new subject after 'hai'", "Yeh mat sochiye ki umar zyada hai aapko bhi job mil jayegi"],
+    ["the issue's Kannada line", "Sthira kelasa milthade."],
+    ["Kannada sigutte", "Neevu ITI maadidre kelasa sigutte."],
+    ["Kannada kelsa", "Kelsa sigutte."],
+    ["Kannada with the English noun", "Certificate idre job sigutte."],
+    ["Tamil", "ITI mudichaa velai kidaikkum."],
+    ["Telugu vastundi", "Course chesthe udyogam vastundi."],
+    ["Telugu dorukutundi", "Meeru nerchukunte job dorukutundi."],
+    ["Marathi", "Course kela tar naukri milel."],
+    ["Gujarati", "Course karsho to nokri malse."],
+  ])("%s: %j → promise", (_what, line) => {
+    expect(failure([line])).toBe("promise");
+    expect(regionalWallFailure(line)).toBe("promise");
+  });
+
+  it.each([
+    // The issue's advice, and the brief's question.
+    ["advice: the chance grows", "Koshish kariye, kaam milne ki sambhavna badhegi."],
+    ["advice: it gets easier", "Certificate se job milne mein aasani hogi."],
+    ["a question", "Kya aapko job mil jayegi, yeh company par nirbhar hai."],
+    ["a question word after the form", "Is course ke baad job mil jayegi kya"],
+    ["a question, the jaegi spelling", "kya job mil jaegi"],
+    ["the clause a '?' closes", "Is course ke baad job mil jayegi? Yeh company par depend hai."],
+    ["'milegi' alone is not a form", "Job turant nahi milegi, thoda samay lagega."],
+    // A take-back right after the form, in the clause or across a comma or semicolon.
+    ["a take-back in the clause", "Job mil jayegi ya nahi, yeh aapki skill par depend karta hai."],
+    ["a take-back across a comma", "Sirf certificate se job mil jayegi, aisa nahi hai."],
+    ["'yeh zaroori nahi' across a comma", "Job turant mil jayegi, yeh zaroori nahi."],
+    ["a Marathi take-back across a comma", "Naukri milel, asa nahi; anubhav pan lagto."],
+    // A disclaimer earlier in the clause than the job word.
+    ["nahi keh sakta ki", "Main yeh nahi keh sakta ki job mil jayegi."],
+    ["zaroori nahi ki", "Zaroori nahi ki turant job mil jayegi, thoda samay lag sakta hai."],
+    ["aisa nahi hai ki", "Aisa nahi hai ki sirf certificate se job mil jayegi."],
+    ["mat sochiye ki", "Yeh mat sochiye ki sirf degree se job mil jayegi."],
+    // A condition word right after the form: the job is the condition.
+    ["jab ... to", "Jab job mil jayegi to offer letter zaroor lijiye."],
+    ["jab ... tab", "Jab naukri lag jayegi tab aap ESI card banwa sakte hain."],
+    ["jab ... tab, across a comma", "Jab naukri lag jayegi, tab aap ESI card banwa sakte hain."],
+    ["agar ... to, across a comma", "Agar job mil jayegi, to offer letter lijiye."],
+    ["Tamil bodhu", "Velai kidaikkum bodhu offer letter vaangunga."],
+    // Not a filler between, so not a job promise.
+    ["understanding the work", "Kaam ki samajh mil jayegi."],
+    ["work experience", "Welding seekhiye, phir kaam ka experience mil jayega."],
+    ["work experience, the jaega spelling", "kaam ka experience mil jaega"],
+    ["the work gets easy", "Practice se kaam aasaan ho jayega."],
+    ["a job word alone", "Job ke liye resume zaroori hai."],
+    // "lag jaega" is not a form: it takes effort.
+    ["it will take some effort", "Is resume par thoda kaam lag jaega"],
+    // Each §9 language's "chance of getting a job increases": another word than the future verb.
+    ["Marathi chance", "Tumhi welding shikla tar kaam milnyachi shakyata vadhel."],
+    ["Gujarati chance", "Certificate hoy to nokri malvani shakyata vadhe chhe."],
+    ["Kannada chance", "Certificate idre kelasa sigo chance jaasti aagutte."],
+    ["Tamil chance", "Certificate irundhaa velai kidaikka vaaippu adhigam."],
+    ["Telugu chance", "Certificate unte udyogam dorike avakasam perugutundi."],
+    // And each language's question and take-back.
+    ["a Kannada question", "Certificate illade kelasa sigutte?"],
+    // A "?" after empty clauses still closes the last clause with words.
+    ["'...?'", "Job mil jayegi...?"],
+    ["a Marathi take-back", "Fakt certificate ne naukri milel asa nahi."],
+    ["a Tamil take-back", "Certificate mattum irundhaa velai kidaikkum nu illa."],
+    ["a Gujarati take-back", "Fakt course thi nokri malse evu nathi."],
+  ])("%s: %j is served", (_what, line) => {
+    expect(failure([line])).toBeNull();
+    expect(regionalWallFailure(line)).toBeNull();
+  });
+
+  it("a chip carrying a soft job promise rejects the whole answer", () => {
+    expect(failure(["Welding seekhiye."], ["phir job mil jayegi"])).toBe("promise");
+  });
+
+  it("'!?' closes the clause as a question: the regional wall serves it, the '!' wall does not", () => {
+    expect(regionalWallFailure("Job mil jayegi!?")).toBeNull();
+    expect(regionalWallFailure("Job mil jayegi! Phir?")).toBe("promise");
+    expect(failure(["Job mil jayegi!?"])).toBe("exclamation");
+  });
+
+  it("matches whole words: 'kaamyaab' and 'kaamyaabi' (success) are not job words", () => {
+    expect(regionalWallFailure("Kaamyaab mil jayega")).toBeNull();
+    expect(regionalWallFailure("Mehnat se kaamyaabi mil jayegi")).toBeNull();
+  });
+
+  it("a take-back is read across a comma or semicolon only, never across a sentence stop", () => {
+    expect(regionalWallFailure("Job mil jayegi, aisa nahi hai.")).toBeNull();
+    expect(regionalWallFailure("Job mil jayegi; aisa nahi hai.")).toBeNull();
+    expect(regionalWallFailure("Job mil jayegi. Aisa nahi hai ki aaram milega.")).toBe("promise");
+    // Only when the form ends the clause: a word after it is read first.
+    expect(regionalWallFailure("Job mil jayegi aapko, aisa nahi hai.")).toBe("promise");
+  });
+
+  it("a 'to' / 'tab' after the form is a condition only once 'jab' / 'agar' / 'jo' opened it", () => {
+    expect(regionalWallFailure("Jab job mil jayegi to offer letter lijiye.")).toBeNull();
+    expect(regionalWallFailure("Jo naukri mil jayegi, tab uski salary slip rakhiye.")).toBeNull();
+    expect(regionalWallFailure("Job mil jayegi to offer letter lijiye.")).toBe("promise");
+    expect(regionalWallFailure("Job mil jayegi, to tension mat lijiye.")).toBe("promise");
+    // A THEN word between the IF word and the job word closes the condition before the job.
+    expect(regionalWallFailure("Agar ITI karenge to job mil jayegi to ghar chalega.")).toBe(
+      "promise",
+    );
+    // Across a sentence stop, never: the IF word must sit in the job word's clause.
+    expect(regionalWallFailure("Agar mehnat karenge. Job mil jayegi to khushi hogi.")).toBe(
+      "promise",
+    );
+  });
+
+  it("a take-back unsays the promise only when no new 'ki' statement follows it", () => {
+    expect(regionalWallFailure("Job mil jayegi, aisa nahi hai.")).toBeNull();
+    expect(regionalWallFailure("Job mil jayegi aisa nahi hai ki aaram milega.")).toBe("promise");
+    expect(regionalWallFailure("Kaam mil jayega ki nahi, yeh aapki mehnat par hai.")).toBeNull();
+  });
+
+  it("a 'but' or a clause stop between a disclaimer and the job word ends its reach", () => {
+    expect(
+      regionalWallFailure("Zaroori nahi ki ITI hi karein, diploma se bhi job mil jayegi."),
+    ).toBe("promise");
+    expect(regionalWallFailure("Zaroori nahi ki ITI ke baad turant job mil jayegi.")).toBeNull();
+    expect(regionalWallFailure("Zaroori nahi ki ITI hi karein magar job mil jayegi.")).toBe(
+      "promise",
+    );
+  });
+
+  it("'milthade' joins the regional will-get list, so the surely pair reads it too", () => {
+    expect(REGIONAL_WILL_GET_WORDS).toContain("milthade");
+    expect(regionalWallFailure("Khanditavagi milthade.")).toBe("promise");
+  });
+
+  it("a live-news headline is not held to the soft job promise", () => {
+    expect(regionalPromise("Yuvaon ko naukri mil jayegi: mantri")).toBe(false);
+  });
+
+  it("the soft-promise lists are lowercase, deduplicated and fold to whole words", () => {
+    for (const list of [
+      SOFT_PROMISE_JOB_WORDS,
+      SOFT_PROMISE_QUESTION_WORDS,
+      SOFT_PROMISE_CONDITIONS,
+      SOFT_PROMISE_IF_WORDS,
+      SOFT_PROMISE_THEN_WORDS,
+    ]) {
+      expect(list.length).toBeGreaterThan(0);
+      expect(new Set(list).size).toBe(list.length);
+      for (const word of list) expect(word).toMatch(/^[a-z]+$/);
+    }
+    for (const list of [
+      SOFT_PROMISE_WILL_GET_PHRASES,
+      SOFT_PROMISE_FILLERS,
+      SOFT_PROMISE_TAKE_BACKS,
+      SOFT_PROMISE_NEW_STATEMENT,
+      SOFT_PROMISE_DISCLAIMERS,
+      SOFT_PROMISE_DISCLAIMER_BREAKS,
+    ]) {
+      expect(list.length).toBeGreaterThan(0);
+      expect(new Set(list).size).toBe(list.length);
+      for (const phrase of list) expect(phrase).toMatch(/^[a-z]+(?: [a-z]+)*$/);
+    }
+    for (const phrase of SOFT_PROMISE_WILL_GET_PHRASES) expect(phrase).toContain(" ");
+    // "se" is a filler only inside "aasani se", and "lag jaega" ("it takes effort") is no form.
+    expect(SOFT_PROMISE_FILLERS).not.toContain("se");
+    expect(SOFT_PROMISE_WILL_GET_PHRASES).not.toContain("lag jaega");
+    // A negation word alone never unsays the promise: every take-back and disclaimer is a phrase.
+    for (const phrase of [...SOFT_PROMISE_TAKE_BACKS, ...SOFT_PROMISE_DISCLAIMERS]) {
+      expect(phrase).toContain(" ");
+    }
+    // A bare "to" / "tab" is "so" and no condition: they are THEN words, needing an IF word.
+    expect(SOFT_PROMISE_CONDITIONS).not.toContain("to");
+    expect(SOFT_PROMISE_CONDITIONS).not.toContain("tab");
+  });
+
+  it("no question word is a job word, a filler or a will-get word", () => {
+    const shape = new Set([
+      ...SOFT_PROMISE_JOB_WORDS,
+      ...SOFT_PROMISE_FILLERS.flatMap((phrase) => phrase.split(" ")),
+      ...REGIONAL_WILL_GET_WORDS,
+      ...SOFT_PROMISE_WILL_GET_PHRASES.flatMap((phrase) => phrase.split(" ")),
+    ]);
+    for (const word of SOFT_PROMISE_QUESTION_WORDS) expect(shape.has(word)).toBe(false);
   });
 });
 

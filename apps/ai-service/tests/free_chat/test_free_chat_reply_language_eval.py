@@ -568,6 +568,89 @@ def test_the_english_sensitive_wall_and_the_sure_to_get_forms() -> None:
         assert gold.wall_hits([line]) == [f"english_promise:{phrase}"], line
 
 
+def _ts_list(const: str) -> tuple[str, ...]:
+    source = (_FREE_CHAT_TS / "free-chat-regional-walls.ts").read_text(encoding="utf-8")
+    match = re.search(rf"export const {const}: readonly string\[\] = \[(.*?)\];", source, re.S)
+    assert match, f"{const} moved in free-chat-regional-walls.ts"
+    return tuple(re.findall(r'"([^"]+)"', match.group(1)))
+
+
+@pytest.mark.parametrize(
+    "const",
+    [
+        "SOFT_PROMISE_QUESTION_WORDS",
+        "SOFT_PROMISE_TAKE_BACKS",
+        "SOFT_PROMISE_NEW_STATEMENT",
+        "SOFT_PROMISE_DISCLAIMERS",
+        "SOFT_PROMISE_DISCLAIMER_BREAKS",
+        "SOFT_PROMISE_CONDITIONS",
+        "SOFT_PROMISE_IF_WORDS",
+        "SOFT_PROMISE_THEN_WORDS",
+    ],
+)
+def test_the_soft_promise_unsaying_lists_are_the_apis(const: str) -> None:
+    """#2184: the question words, take-backs (and the "ki" that voids one), disclaimers (and the
+    words that end one's reach), and condition words that unsay a soft job promise are restated
+    in the eval (its shape lists are the prompt's, pinned in test_free_chat_prompts.py)."""
+    assert len(getattr(gold, const)) >= 1  # non-vacuous
+    assert getattr(gold, const) == _ts_list(const), const
+
+
+def _soft_promise_lines() -> tuple[list[str], list[str]]:
+    """The soft-job-promise lines of the API's own tests, (walled, served), read from the TS
+    source, so the eval's re-implementation is checked against the gate's fixtures."""
+    source = (_FREE_CHAT_TS / "free-chat-regional-walls.test.ts").read_text(encoding="utf-8")
+    block = source.split('describe("the soft job promise (#2184)"')[1].split("\ndescribe(")[0]
+    walled_block, rest = block.split("→ promise", 1)
+    served_block = rest.split("is served")[0]
+    row = r'\[\s*"((?:[^"\\]|\\.)*)",\s*"((?:[^"\\]|\\.)*)",?\s*\]'
+    walled = [line for _what, line in re.findall(row, walled_block)]
+    served = [line for _what, line in re.findall(row, served_block)]
+    return walled, served
+
+
+def test_the_soft_promise_matches_the_apis_own_test_lines() -> None:
+    """Every line the API's tests reject on the soft job promise is walled here, and every line
+    they serve is not, so the "walled" count reads what the gate reads."""
+    walled, served = _soft_promise_lines()
+    assert len(walled) >= 15 and len(served) >= 15  # non-vacuous
+    for line in walled:
+        assert "soft_promise" in gold.wall_hits([line]), line
+    for line in served:
+        assert gold.wall_hits([line]) == [], line
+    # The issue's two lines, by name.
+    assert gold.wall_hits(["Phir job mil jayegi."]) == ["soft_promise"]
+    assert gold.wall_hits(["Sthira kelasa milthade."]) == ["soft_promise"]
+    # The API's single-line cases: a take-back across a comma or semicolon only, only when the
+    # form ends the clause, and not before a new "ki" statement; "to" / "tab" a condition only
+    # after "jab" / "agar" / "jo"; a "but" or a clause stop ends a disclaimer's reach; a "?" after
+    # empty clauses still asks; whole job words only.
+    for line in (
+        "Job mil jayegi, aisa nahi hai.",
+        "Job mil jayegi; aisa nahi hai.",
+        "Kaam mil jayega ki nahi, yeh aapki mehnat par hai.",
+        "Jab job mil jayegi to offer letter lijiye.",
+        "Jo naukri mil jayegi, tab uski salary slip rakhiye.",
+        "Zaroori nahi ki ITI ke baad turant job mil jayegi.",
+        "Job mil jayegi!?",
+        "Mehnat se kaamyaabi mil jayegi",
+    ):
+        assert gold.wall_hits([line]) == [], line
+    for line in (
+        "Job mil jayegi. Aisa nahi hai ki aaram milega.",
+        "Job mil jayegi aapko, aisa nahi hai.",
+        "Job mil jayegi aisa nahi hai ki aaram milega.",
+        "Job mil jayegi to offer letter lijiye.",
+        "Job mil jayegi, to tension mat lijiye.",
+        "Agar ITI karenge to job mil jayegi to ghar chalega.",
+        "Agar mehnat karenge. Job mil jayegi to khushi hogi.",
+        "Zaroori nahi ki ITI hi karein, diploma se bhi job mil jayegi.",
+        "Zaroori nahi ki ITI hi karein magar job mil jayegi.",
+        "Job mil jayegi! Phir?",
+    ):
+        assert gold.wall_hits([line]) == ["soft_promise"], line
+
+
 def test_the_line_examples_and_the_sample_replies_pass_every_word_wall() -> None:
     for language in gold.LANGUAGES:
         assert gold.wall_hits([gold.line_example(language) or ""]) == [], language

@@ -1293,6 +1293,10 @@ def test_the_prompt_names_every_sensitive_promise_and_rating_word_the_validator_
         "REGIONAL_SENSITIVE_WORDS",
         "REGIONAL_RESPECTFUL_YOU",
         "REGIONAL_JUDGEMENT_WORDS",
+        # #2184: the soft job promise, which the same gate runs over a news answer's lines.
+        "SOFT_PROMISE_JOB_WORDS",
+        "SOFT_PROMISE_WILL_GET_PHRASES",
+        "SOFT_PROMISE_FILLERS",
     ],
 )
 def test_the_prompt_names_every_regional_word_the_api_gate_rejects(const: str) -> None:
@@ -1359,10 +1363,11 @@ def test_the_prompt_stays_bounded() -> None:
     line and the English promise and rating walls) to 9,542 / 1,456; the re-review's English
     walls (good / bad, "guaranteed" alone, four will-get verbs) and the English line's praise of
     the skill, not the worker, to 9,779 / 1,490; the owner-ordered English sensitive-advice wall
-    (2026-10-13, #2227) and the standalone "sure to get" forms to 10,126 / 1,528. A budget keeps
-    it from growing unnoticed."""
-    assert len(PROMPT) < 10300
-    assert len(PROMPT.split()) < 1560
+    (2026-10-13, #2227) and the standalone "sure to get" forms to 10,126 / 1,528; the soft job
+    promise (#2184: its forms with their spellings, fillers, job words inside the rule sentence,
+    Kannada "milthade") to 10,776 / 1,622. A budget keeps it from growing unnoticed."""
+    assert len(PROMPT) < 10800
+    assert len(PROMPT.split()) < 1630
 
 
 # ── 10. the security review's fixes (2026-10-08) ─────────────────────────────────────────────
