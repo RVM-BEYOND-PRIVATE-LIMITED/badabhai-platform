@@ -1022,9 +1022,16 @@ services:
       DEFAULT_CHEAP_MODEL: ${DEFAULT_CHEAP_MODEL:-gemini-2.5-flash-lite}
       DEFAULT_PRO_MODEL: ${DEFAULT_PRO_MODEL:-gemini-2.5-pro}
       DEFAULT_FALLBACK_MODEL: ${DEFAULT_FALLBACK_MODEL:-claude-haiku-4-5}
+      # #2170 — WHICH PROVIDER A TIER-ROUTED TASK TRIES FIRST. `anthropic` (owner decision
+      # 2026-10-14): DEFAULT_FALLBACK_MODEL (Claude Haiku) serves every tier task and the tier's
+      # Gemini model above becomes its fallback. `google` restores ADR-0008's Gemini-first order;
+      # set it only with a paid Gemini key and after the R32 evals on the Gemini models. An
+      # unrecognised value fails soft to `anthropic` — see `_primary_provider`.
+      AI_PRIMARY_PROVIDER: ${AI_PRIMARY_PROVIDER:-anthropic}
       # THE A/B LEVER, and the reason this raise is reversible without a deploy. `pro` is the
-      # shipped default; `AI_CHAT_MODEL_TIER=capable` puts the chat turn back on
-      # `gemini-2.5-flash` from the box. An UNRECOGNISED value fails soft to the route's shape
+      # shipped default; under `AI_PRIMARY_PROVIDER=google`, `AI_CHAT_MODEL_TIER=capable` puts the
+      # chat turn back on `gemini-2.5-flash` from the box (under `anthropic` the tier names only
+      # the chat turn's Gemini fallback). An UNRECOGNISED value fails soft to the route's shape
       # default (also `pro`) rather than taking the service down — see `_chat_tier`.
       AI_CHAT_MODEL_TIER: ${AI_CHAT_MODEL_TIER:-pro}
       # The spend guardrails, in the order they bite. Per-call is the LEAST likely to fire —

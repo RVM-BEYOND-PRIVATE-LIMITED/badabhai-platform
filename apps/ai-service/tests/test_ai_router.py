@@ -412,6 +412,9 @@ def _fallback_settings(**overrides):
         default_capable_model="gemini-2.5-flash",
         default_fallback_model="claude-haiku-4-5",
         ai_real_call_tasks="profile_extraction",
+        # These tests pin the router's chain MECHANICS on ADR-0008's original order (Gemini first),
+        # which is what `google` keeps. The shipped `anthropic` order has its own tests (#2170).
+        ai_primary_provider="google",
     )
     base.update(overrides)
     return Settings(**base)
@@ -664,3 +667,151 @@ def test_fallback_transport_available_credential_only_for_google():
     assert s.has_credential_for("anthropic") is True  # credential-only stays True
     # Unknown providers have no live transport.
     assert s.fallback_transport_available("openai") is False
+
+
+# --- Provider order (#2170, ADR-0008 amendment) ------------------------------
+# Owner decision 2026-10-14: Claude Haiku first on every tier task, the tier's Gemini model as
+# its fallback. For 21+ days every Gemini call on the box failed and fell back to Haiku, so each
+# call paid a failed Gemini attempt before the answer; Claude first removes that attempt.
+
+_TIER_TASKS = {
+    # task -> (tier, the Gemini model its tier resolves to under `_claude_first_settings`)
+    "profiling_free_classify": ("cheap", "gemini-flash-lite"),
+    "profile_extraction": ("capable", "gemini-2.5-flash"),
+    "profiling_chat_turn": ("pro", "gemini-2.5-pro"),
+}
+
+
+@pytest.fixture
+def fresh_ledger():
+    """A fresh in-process spend ledger, as `test_spend_cap.py` builds it. This file shares one
+    process ledger, whose rolling TD27 retry budget the earlier failure tests spend, and an
+    exhausted budget ends the chain before the fallback is reached."""
+    cost_tracker._ledger = cost_tracker.SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url=None)
+    )
+    yield
+    cost_tracker._ledger = None
+
+
+def _claude_first_settings(**overrides):
+    return _fallback_settings(
+        **{"ai_primary_provider": "anthropic", "default_pro_model": "gemini-2.5-pro", **overrides}
+    )
+
+
+def test_primary_provider_ships_as_anthropic():
+    # The committed default, read off the field: conftest pins the env var to it, so a bare
+    # Settings() would only echo the pin.
+    assert Settings.model_fields["ai_primary_provider"].default == "anthropic"
+
+
+@pytest.mark.parametrize("task", sorted(_TIER_TASKS))
+def test_claude_first_puts_haiku_before_each_tier_model(monkeypatch, task):
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    settings = _claude_first_settings()
+    tier, gemini = _TIER_TASKS[task]
+    route = get_route(task, settings)
+    assert route.tier == tier
+    assert resolve_model(task, settings) == "claude-haiku-4-5"
+    assert route.fallback_model == gemini
+    # The router reads the same two off the route, in this order.
+    assert AIRouter(settings)._candidate_models("claude-haiku-4-5", route.fallback_model) == [
+        "claude-haiku-4-5",
+        gemini,
+    ]
+
+
+def test_claude_first_serves_haiku_without_a_gemini_attempt(monkeypatch, fresh_ledger):
+    # The latency fix itself: a healthy Haiku answers and Gemini is never dispatched.
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    seen = _stub_dispatcher(
+        monkeypatch,
+        {"claude-haiku-4-5": LlmResult(content="HAIKU_OK", input_tokens=11, output_tokens=3)},
+    )
+    router = AIRouter(_claude_first_settings())
+    content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
+    assert content == "HAIKU_OK"
+    assert meta.success is True
+    assert meta.model_name == "claude-haiku-4-5"
+    assert seen == ["claude-haiku-4-5"]
+    assert meta.candidates_tried == ["claude-haiku-4-5"]
+
+
+def test_claude_first_falls_over_to_the_tier_gemini_model(monkeypatch, fresh_ledger):
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+
+    def _haiku_fail():
+        raise RuntimeError("haiku boom")
+
+    seen = _stub_dispatcher(
+        monkeypatch,
+        {
+            "claude-haiku-4-5": _haiku_fail,
+            "gemini": LlmResult(content="GEMINI_OK", input_tokens=9, output_tokens=2),
+        },
+    )
+    router = AIRouter(_claude_first_settings())
+    content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
+    assert content == "GEMINI_OK"
+    assert meta.model_name == "gemini-2.5-flash"
+    assert seen[0] == "claude-haiku-4-5"
+    assert seen[-1] == "gemini-2.5-flash"
+    assert meta.candidates_tried == ["claude-haiku-4-5", "gemini-2.5-flash"]
+
+
+def test_claude_first_leaves_routes_that_name_their_own_model(monkeypatch):
+    # The career answer, the free-chat reply and the news answer already decide their chain.
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    settings = _claude_first_settings(default_career_model="claude-career")
+    for task in ("companion_career_answer", "profiling_free_reply"):
+        route = get_route(task, settings)
+        assert (route.model, route.fallback_model) == ("claude-career", "gemini-2.5-flash")
+    news = get_route("profiling_free_news", settings)
+    assert (news.model, news.fallback_model) == ("claude-career", None)
+
+
+@pytest.mark.parametrize(
+    ("key", "sdk"),
+    [("", True), ("anth-key", False)],
+    ids=["no-anthropic-key", "no-anthropic-sdk"],
+)
+def test_claude_first_needs_a_usable_claude_transport(monkeypatch, key, sdk):
+    # A dead Claude transport put FIRST would fail every call once before Gemini answered; such a
+    # deployment keeps Gemini first, the router's own fallback gate.
+    _patch_anthropic_sdk(monkeypatch, installed=sdk)
+    settings = _claude_first_settings(anthropic_api_key=key)
+    assert resolve_model("profile_extraction", settings) == "gemini-2.5-flash"
+    assert get_route("profile_extraction", settings).fallback_model is None
+
+
+def test_claude_first_needs_a_claude_fallback_model(monkeypatch):
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    settings = _claude_first_settings(default_fallback_model="gemini-2.5-flash-lite")
+    assert resolve_model("profile_extraction", settings) == "gemini-2.5-flash"
+
+
+def test_claude_first_leaves_a_tier_that_already_resolves_to_claude(monkeypatch):
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    settings = _claude_first_settings(default_capable_model="claude-sonnet-x")
+    route = get_route("profile_extraction", settings)
+    assert (route.model, route.fallback_model) == (None, None)
+    assert resolve_model("profile_extraction", settings) == "claude-sonnet-x"
+
+
+@pytest.mark.parametrize(
+    ("value", "first"),
+    [
+        ("google", "gemini-2.5-flash"),
+        ("GOOGLE", "gemini-2.5-flash"),
+        (" google ", "gemini-2.5-flash"),
+        ("anthropic", "claude-haiku-4-5"),
+        # Unrecognised fails SOFT to the shipped default, never a crash on the request path.
+        ("nonsense", "claude-haiku-4-5"),
+        ("", "claude-haiku-4-5"),
+    ],
+)
+def test_primary_provider_is_env_tunable_and_fails_soft(monkeypatch, value, first):
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    settings = _claude_first_settings(ai_primary_provider=value)
+    assert resolve_model("profile_extraction", settings) == first

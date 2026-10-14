@@ -55,6 +55,14 @@ const MODEL_VARS = [
  */
 const TIER_VARS = ["AI_CHAT_MODEL_TIER"] as const;
 
+/**
+ * Not a model id either — the PROVIDER ORDER (#2170): `anthropic` puts Claude first on every
+ * tier task, `google` restores Gemini first. Same guarantees as the tier selector, and the drift
+ * guard matters more here: a compose literal that disagreed with `config.py` would put a
+ * different provider in front of every worker message than the code and the ADR say.
+ */
+const PROVIDER_ORDER_VARS = ["AI_PRIMARY_PROVIDER"] as const;
+
 const COST_CEILING_VARS = [
   "AI_MAX_CALL_COST_INR",
   "AI_MAX_DAILY_COST_INR",
@@ -117,11 +125,16 @@ describe("docker-compose.staging.yml — ai-service model routing is settable fr
     expect(pythonFieldDefault(configPy, "default_cheap_model")).toBeTruthy();
   });
 
-  it.each([...MODEL_VARS, ...TIER_VARS, ...COST_CEILING_VARS])("%s is declared on the ai-service", (name) => {
-    expect(ai.has(name), `${name} missing from the ai-service — the box cannot set it`).toBe(true);
-  });
+  it.each([...MODEL_VARS, ...TIER_VARS, ...PROVIDER_ORDER_VARS, ...COST_CEILING_VARS])(
+    "%s is declared on the ai-service",
+    (name) => {
+      expect(ai.has(name), `${name} missing from the ai-service — the box cannot set it`).toBe(
+        true,
+      );
+    },
+  );
 
-  it.each([...MODEL_VARS, ...TIER_VARS, ...COST_CEILING_VARS])(
+  it.each([...MODEL_VARS, ...TIER_VARS, ...PROVIDER_ORDER_VARS, ...COST_CEILING_VARS])(
     "%s carries a RESTATED default — a bare `${VAR:-}` would inject an empty string",
     (name) => {
       expect(
@@ -132,12 +145,15 @@ describe("docker-compose.staging.yml — ai-service model routing is settable fr
     },
   );
 
-  it.each([...MODEL_VARS, ...TIER_VARS])("%s matches the committed config.py default (drift guard)", (name) => {
-    // The whole cost of restating. Compose WINS over the library default, so a drifted literal
-    // here does not error — it quietly ships a different model than config.py claims.
-    const field = name.toLowerCase();
-    expect(composeDefault(ai.get(name))).toBe(pythonFieldDefault(configPy, field));
-  });
+  it.each([...MODEL_VARS, ...TIER_VARS, ...PROVIDER_ORDER_VARS])(
+    "%s matches the committed config.py default (drift guard)",
+    (name) => {
+      // The whole cost of restating. Compose WINS over the library default, so a drifted literal
+      // here does not error — it quietly ships a different model than config.py claims.
+      const field = name.toLowerCase();
+      expect(composeDefault(ai.get(name))).toBe(pythonFieldDefault(configPy, field));
+    },
+  );
 
   it.each(COST_CEILING_VARS)("%s matches the committed config.py default (drift guard)", (name) => {
     const field = name.toLowerCase();
