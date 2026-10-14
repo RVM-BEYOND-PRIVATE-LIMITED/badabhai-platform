@@ -4,7 +4,15 @@ import type { QuestionPackItem } from "@badabhai/ai-contracts";
 
 import { RFS_FIELD_IDS } from "@badabhai/db";
 
-import { NORMALIZED_FIELDS, captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
+import {
+  NORMALIZED_FIELDS,
+  captureAnswer,
+  hasFieldNormalizer,
+  isParserlessNumber,
+  matchOptions,
+  mayCommit,
+  typedAnswerResidue,
+} from "./answer-capture";
 import { recordAnswer, type CapturedValue } from "./answer-map";
 
 let order = 0;
@@ -755,5 +763,73 @@ describe("the yes/no fallback cannot reach past the question on screen", () => {
       ],
     });
     expect(captureAnswer("haan", ONLY_FALSE).values).toHaveLength(0);
+  });
+});
+
+/**
+ * #2250 — the words a typed answer's capture did NOT read. The free chat's résumé mode lets a bare
+ * typed answer skip its classifier, and reads this to tell "5 saal" from "5 saal, ab marna hai".
+ */
+describe("typedAnswerResidue — what a typed capture did not read", () => {
+  const OUTPUT = item({
+    question_key: "target_output",
+    target_kind: "attribute",
+    target_field: "target_output",
+    answer_type: "number",
+  });
+  const MATERIAL = item({
+    question_key: "q_material_worked",
+    target_kind: "attribute",
+    target_field: "material_worked",
+    answer_type: "multi_select",
+    options: [
+      { ...opt("mild_steel", "Loha ya mild steel"), value: "mild_steel" },
+      { ...opt("stainless", "Stainless steel"), value: "stainless" },
+    ],
+  });
+
+  it.each<[QuestionPackItem, string, readonly string[]]>([
+    [YEARS, "5 saal", []],
+    [YEARS, "5 saal, ab marna hai", ["ab", "marna", "hai"]],
+    [CITY, "main Pune se hoon", ["main", "se", "hoon"]],
+    [OUTPUT, "50", []],
+    [OUTPUT, "५० piece", ["piece"]],
+    [OUTPUT, "50 piece, marna hai", ["piece", "marna", "hai"]],
+    [MATERIAL, "mild steel aur stainless steel", ["aur"]],
+    [MATERIAL, "Loha ya mild steel, jeena nahi", ["jeena", "nahi"]],
+  ])("%#: %j", (question, text, residue) => {
+    expect(typedAnswerResidue(question, text)).toEqual(residue);
+  });
+
+  it("blanks a needle only as a whole word, so an option label never eats a distress word", () => {
+    const MAR = item({
+      question_key: "q_mar",
+      target_kind: "attribute",
+      target_field: "mar_field",
+      answer_type: "multi_select",
+      options: [{ ...opt("mar", "Mar"), value: "mar" }],
+    });
+    // The option is matched (substring), and the word it sits in is still read whole.
+    expect(only(captureAnswer("marna", MAR)).valueNormalized).toEqual(["mar"]);
+    expect(typedAnswerResidue(MAR, "marna")).toEqual(["marna"]);
+    expect(typedAnswerResidue(MAR, "mar")).toEqual([]);
+  });
+
+  it("blanks digits only on a number question with no parser", () => {
+    expect(isParserlessNumber(OUTPUT)).toBe(true);
+    expect(
+      isParserlessNumber(
+        item({ question_key: "q", target_field: "training_year", answer_type: "number" }),
+      ),
+    ).toBe(false);
+    expect(typedAnswerResidue(YEARS, "5 saal, 2 baar")).toEqual(["2", "baar"]);
+  });
+
+  it("matches options exactly as before the refactor", () => {
+    expect(matchOptions(MATERIAL, "mild steel aur stainless steel")).toEqual([
+      "mild_steel",
+      "stainless",
+    ]);
+    expect(matchOptions(MATERIAL, "stainless nahi, loha")).toEqual(["mild_steel"]);
   });
 });

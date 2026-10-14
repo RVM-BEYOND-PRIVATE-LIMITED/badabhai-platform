@@ -34,7 +34,7 @@ export {
   type NegationResult,
 } from "./negation.js";
 
-export { affirmationResidue, parseAffirmation } from "./affirmation.js";
+export { affirmationResidue, deniedAffirmationCues, parseAffirmation } from "./affirmation.js";
 
 export { canonicalCity, canonicalRegion, canonicalState } from "./gazetteer.js";
 

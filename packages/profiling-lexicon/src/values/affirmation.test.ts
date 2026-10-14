@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { classifyUtterance } from "../predicates/index.js";
-import { affirmationResidue, parseAffirmation } from "./affirmation.js";
+import { affirmationResidue, deniedAffirmationCues, parseAffirmation } from "./affirmation.js";
 
 /**
  * The yes/no reader for the 236 boolean pack items that carry no chips.
@@ -190,5 +190,46 @@ describe("affirmationResidue", () => {
     expect(parseAffirmation("haan")?.value).toBe(true);
     expect(parseAffirmation("karta hoon")?.value).toBe(true);
     expect(affirmationResidue("haan marna hai")).toEqual(["marna", "hai"]);
+  });
+});
+
+/**
+ * #2250 — every explicit cue a negator reaches. The free chat's résumé mode reads it to check
+ * "main theek nahi hoon" for distress, which `affirmationResidue` reads as bare.
+ */
+describe("deniedAffirmationCues", () => {
+  it.each([
+    ["main theek nahi hoon", ["theek"]],
+    ["main sahi nahi hoon", ["sahi"]],
+    ["not ok", ["ok"]],
+    ["i am not okay", ["okay"]],
+    ["nahi theek hai", ["theek hai"]],
+    ["ok nahi hai", ["ok"]],
+    ["bilkul theek nahi", ["bilkul", "theek"]],
+    ["ji nahi", ["ji"]],
+    ["bilkul nahi", ["bilkul"]],
+    ["मैं ठीक नहीं हूँ", ["ठीक"]],
+  ] as const)("finds the denied cue in %s", (text, denied) => {
+    expect(deniedAffirmationCues(text)).toEqual(denied);
+  });
+
+  it.each([
+    "haan",
+    "haan theek hai",
+    "theek hai",
+    "nahi",
+    "nahi karta",
+    "nahi, theek hai",
+    "theek hai na",
+  ])("finds none in %s", (text) => {
+    expect(deniedAffirmationCues(text)).toEqual([]);
+  });
+
+  it("agrees with parseAffirmation on the first cue", () => {
+    for (const text of ["main theek nahi hoon", "not ok", "haan ji", "bilkul nahi"]) {
+      expect(deniedAffirmationCues(text).length > 0).toBe(
+        parseAffirmation(text)?.negationVetoed === true,
+      );
+    }
   });
 });

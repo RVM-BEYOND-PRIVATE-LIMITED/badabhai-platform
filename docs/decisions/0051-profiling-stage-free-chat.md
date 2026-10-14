@@ -56,6 +56,7 @@ The owner wants a chat we control, like ChatGPT but scoped to BadaBhai, for the 
 | **R19** | **Release 1** ships without the cross-session conversation summary. **Release 2** adds it, carried across sessions and used by this chat only. |
 | **R20** | **Testing:** unit tests plus a labelled set of about 60 lines, used as a baseline to improve against, not as a gate. |
 | **R45** | **Bada Bhai never claims to be a person (owner, 2026-10-14, #2241).** When a worker sincerely asks ("aap insaan ho ya machine?"), Bada Bhai says plainly that it is the BadaBhai app's AI helper, not a person, keeping the big-brother warmth. The persona's age and years of work describe how it talks, not what it is. Enforced twice: a rule in the shared block of the casual, career and news prompts, and a wall in the API that throws away any line claiming to be human (§3.4), so the fallback line is served instead of a lie. The companion is unchanged: it already refuses the question. |
+| **R47** | **Every typed answer that carries other words is checked for distress (owner, 2026-10-14, #2250).** #2226's check covered typed yes/no answers only. Now a number, a field-normalised answer (years, city, salary, training year…) or a matched option keeps its skip, but any word outside the value capture read, other than filler, gets the distress-only check (§3.2). A number question with no parser is a typed answer only when the message carries a digit; otherwise it is classified like a free-text answer. A yes/no answer that denies a state word ("main theek nahi hoon", "not ok") is checked too. Only a distress verdict changes the outcome, and an outage passes the answer. |
 
 ## 3. Decision
 
@@ -101,25 +102,37 @@ A session that opens on a résumé-import turn (identity / batch-confirm) ──
 
 These skip the classifier and go to today's interview:
 - a tap on an offered option
-- a typed answer to a number or yes/no question
+- a typed answer: a number, a yes/no, a field-normalised value or a matched option (on a number question with
+  no parser, only a message that carries a digit)
 - a pending offer (résumé update, identity, batch-confirm, form offer, skills gate)
 - an abusive, empty, "pata nahi", hardship or question-back message, which goes to today's lexicon handling
 - a double-tapped free-chat chip, which re-serves the pending question as a no-op (not captured,
   not classified, counted toward no cap)
 - the turn cap
 
-**A typed yes/no that carries other words is checked for distress (#2226).** `parseAffirmation` reads
-"haan marna hai" ("yes, I want to die") as a yes, because a leading "haan" wins. Such an answer keeps its skip,
-but the classifier checks it first. An answer counts as carrying other words when a word is left after its yes/no
-cues and negators (`affirmationResidue`) that is not on the closed filler list (`YES_NO_FILLER_WORDS` in
-`free-chat.router.ts`: ji, sir, bhai, hai, main, mere, paas…). An emoji also counts as another word. A format
-character (#2228) is read both deleted and as a word gap, and both readings must be bare.
+**A typed answer that carries other words is checked for distress (#2226, #2250, R47).** Capture reads only
+the value. `parseAffirmation` reads "haan marna hai" ("yes, I want to die") as a yes, because a leading "haan"
+wins, and the years parser reads "5 saal, ab marna hai" as 5. Such an answer keeps its skip, but the classifier
+checks it first. An answer counts as carrying other words when a word is left over that is not on the closed
+filler list (`TYPED_ANSWER_FILLER_WORDS` in `free-chat.router.ts`: ji, sir, bhai, hai, main, mere, paas…):
+- **A yes/no answer:** what is left after its yes/no cues and negators (`affirmationResidue`). A negator that
+  denies a state word (theek, sahi, ok, acha: "main theek nahi hoon", "not ok") counts too
+  (`deniedAffirmationCues`). A denied "ji" or "bilkul" is only a no.
+- **Any other typed answer:** what is left after the field parser's span, every matched option label (as a whole
+  word) and, on a number question with no parser, its digits (`typedAnswerResidue` in `answer-capture.ts`).
+
+An emoji also counts as another word. A format character (#2228) is read both deleted and as a word gap, and
+both readings must be bare.
 - A `distress` verdict, at any confidence, gets the distress line. Nothing is stored, and the question stays
   pending.
 - Any other verdict, or an unavailable classifier, passes the answer to today's interview, exactly as before. A
   typed answer is never deflected, clarified or de-escalated.
-- "haan", "haan ji", "haan karta hoon" and "nahi" are bare: they make no classifier call.
-- Number, field-normalised and option answers keep today's skip.
+- "haan", "haan ji", "haan karta hoon", "nahi", "ji nahi", "5 saal", "Pune", "2015" and a bare option label are
+  bare: they make no classifier call.
+- **A number question with no parser** (`target_output`, `quantity_cooking`, `hours_per_day`, `piece_rate`)
+  stores any sentence word for word. So a message is a typed answer to it only when it carries a digit. "marna
+  hai" or "pachaas" there is classified like a free-text answer: distress gets the distress line, and off-topic
+  may be deflected.
 
 Everything else is classified:
 
@@ -315,7 +328,8 @@ Any widening of this list follows the same review as the copy.
 ## 6. Consequences
 
 - **Latency and cost.** One classifier call per typed résumé-mode answer that the skip list does not settle,
-  and per typed yes/no that carries other words (#2226).
+  and per typed answer that carries other words (#2226, #2250). A natural sentence ("main Pune se hoon") now
+  costs one call.
   Today's companion classifier runs at p95 1.6–2.4 s. Free mode adds one reply call for casual and career. No
   per-worker cap; cost is recorded per call (`ai.cost_recorded`). On the admin dashboard,
   `profiling_free_classify` counts toward cost-per-profile and `profiling_free_reply` does not.
@@ -690,5 +704,7 @@ Regional-language rulings R25–R28 taken 2026-10-07 (§9).
 Improvement-loop rulings R29–R38 taken 2026-10-08 (§10).
 Reply-language rulings R39–R41 taken 2026-10-08 (§11).
 Reply-language rulings R42–R44 taken 2026-10-14 (§11, #2240).
+AI-disclosure ruling R45 taken 2026-10-14 (#2241).
 Nudge ruling R46 taken 2026-10-14 (#2242).
+Typed-answer distress ruling R47 taken 2026-10-14 (#2250).
 ```
