@@ -1033,8 +1033,38 @@ class HttpPayerApiClient implements PayerApiClient {
       body: <String, dynamic>{'token': token},
     );
     // 404 bad/expired token · 403 email mismatch → the UI states the reason.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    // #2193 — and ONE 409 is told apart from the already-used/expired 409: the
+    // membership-invariant refusal, where the account (not the link) is what
+    // cannot accept. Matched on a distinctive phrase of the server's neutral
+    // message, because it deliberately carries no reason code; a miss just
+    // leaves the generic conflict line, which is still safe copy.
+    if (!res.isSuccess) {
+      throw PayerApiException(
+        res.statusCode,
+        code: _inviteRefusalCode(res),
+      );
+    }
     return OrgMemberView.fromJson(res.body);
+  }
+
+  /// [kOrgInviteNotAcceptableCode] when a 409 is the server's membership-invariant
+  /// refusal (`This invite can't be accepted with this account`), else null.
+  ///
+  /// Normalised to letters and digits and matched on the phrase, so neither the
+  /// contraction, an apostrophe nor a trailing full stop can silently drop the
+  /// branch. No other refusal on this route reads anything like it.
+  static String? _inviteRefusalCode(PayerResponse res) {
+    if (res.statusCode != 409) return null;
+    final Object? error = res.body['error'];
+    final Object? message = error is Map ? error['message'] : res.body['message'];
+    if (message is! String) return null;
+    final String flat = message
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim();
+    return flat.contains('accepted with this account')
+        ? kOrgInviteNotAcceptableCode
+        : null;
   }
 
   // --- Hiring capacity (ADR-0016) — allowance vs used (read-only) ------------

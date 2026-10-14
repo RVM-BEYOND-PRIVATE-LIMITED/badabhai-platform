@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -183,10 +184,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
   @override
   void initState() {
     super.initState();
-    // org_label is required by the company route; default it to the signed-in
-    // account name (editable) so the posting is attributed to the right org.
+    // org_label is required by the company route; default it to the org this
+    // account PUBLISHES under (editable) so the posting is attributed to the
+    // right org.
+    //
+    // #2194 (ADR-0053 O-10) — that is `postingOrgName`, not the account name. A
+    // recruiter on a team posts on the team's behalf, so a posting defaulted to
+    // their own account label named the wrong company on a worker-facing card.
+    // Falls back to the account name when the field is absent (an older API) or
+    // null (tenancy refuses this payer), which is this screen's old behaviour.
     final String orgName =
-        locator<AppSessionCubit>().state?.account.name ?? '';
+        postingOrgLabelFor(locator<AppSessionCubit>().state?.account);
     _org = TextEditingController(text: orgName);
     // Both branches offer the closed-taxonomy picker now (ADR-0050: a V1 twin is
     // served only on skills the agent picked). Load it lazily and fail soft: any

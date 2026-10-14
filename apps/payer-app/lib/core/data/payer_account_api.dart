@@ -15,6 +15,7 @@ class PayerMe extends Equatable {
     required this.orgName,
     required this.email,
     required this.phoneLast4,
+    this.postingOrgName,
   });
 
   final String id;
@@ -24,6 +25,17 @@ class PayerMe extends Equatable {
   final String email;
   final String phoneLast4;
 
+  /// ADR-0053 O-10 (#2189 / #2194) — the organisation name a posting this payer
+  /// publishes carries: their TENANT's. Equals [orgName] for a solo payer and
+  /// for everyone while tenancy is off; for a team member with tenancy on it is
+  /// the FOUNDER's company name, which is the name the posting must go out
+  /// under because the posting belongs to the team.
+  ///
+  /// `null` means either an older API that does not send the field, or tenancy
+  /// refusing this payer (they can publish nothing). Both fall back to
+  /// [orgName], which is what this app did before the field existed.
+  final String? postingOrgName;
+
   factory PayerMe.fromJson(Map<String, dynamic> json) => PayerMe(
         id: json['id'] as String? ?? '',
         role: json['role'] as String? ?? '',
@@ -31,11 +43,13 @@ class PayerMe extends Equatable {
         orgName: json['orgName'] as String? ?? '',
         email: json['email'] as String? ?? '',
         phoneLast4: json['phoneLast4'] as String? ?? '',
+        // ADDITIVE: absent on an older API, and null when tenancy refuses.
+        postingOrgName: json['postingOrgName'] as String?,
       );
 
   @override
   List<Object?> get props =>
-      <Object?>[id, role, status, orgName, email, phoneLast4];
+      <Object?>[id, role, status, orgName, email, phoneLast4, postingOrgName];
 }
 
 /// The Account-screen data seam: `GET /payer/me`, `PATCH /payer/me`, and a
@@ -112,6 +126,7 @@ class MockPayerAccountApi implements PayerAccountApi {
     orgName: 'Kalyani Industries',
     email: 'demo@badabhai.in',
     phoneLast4: '3210',
+    postingOrgName: 'Kalyani Industries',
   );
 
   @override
@@ -124,6 +139,8 @@ class MockPayerAccountApi implements PayerAccountApi {
       orgName: agent ? 'Apex Staffing' : 'Kalyani Industries',
       email: 'demo@badabhai.in',
       phoneLast4: _me.phoneLast4,
+      // The mock payer is their own tenant, so the two names agree.
+      postingOrgName: agent ? 'Apex Staffing' : 'Kalyani Industries',
     );
     return _me;
   }
@@ -136,6 +153,7 @@ class MockPayerAccountApi implements PayerAccountApi {
       status: _me.status,
       orgName: orgName ?? _me.orgName,
       email: _me.email,
+      postingOrgName: orgName ?? _me.postingOrgName,
       // A full phone is never stored — only the masked last 4 is kept.
       phoneLast4:
           (phone != null && phone.length >= 4) ? phone.substring(phone.length - 4) : _me.phoneLast4,
