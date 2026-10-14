@@ -419,7 +419,29 @@ class Settings(BaseSettings):
     # (Gemini) candidate fails, and only when anthropic_api_key is set and this
     # model's provider differs from the primary's. Claude Haiku 4.5 (no date
     # suffix per the Anthropic API).
+    #
+    # UNDER `ai_primary_provider="anthropic"` (the default since #2170) THIS IS THE PRIMARY of
+    # every tier-routed task, and the tier's Gemini model becomes its fallback (`get_route`).
     default_fallback_model: str = "claude-haiku-4-5"
+    # #2170 — WHICH PROVIDER A TIER-ROUTED TASK TRIES FIRST. Owner decision 2026-10-14: Claude
+    # Haiku serves, Gemini stays configured as the fallback (ADR-0008 amendment).
+    #
+    # `anthropic`: every task whose tier resolves to a Gemini model runs `default_fallback_model`
+    # first and keeps that Gemini model as its fallback. `google`: ADR-0008's original order,
+    # Gemini first. A route that names its own model (the career answer, the free-chat reply and
+    # news) is unaffected either way.
+    #
+    # WHY THE DEFAULT FLIPPED. For 21+ days every Gemini call on the box failed and fell back to
+    # Haiku, so every call paid a failed Gemini attempt first: the free-chat classifier ran at
+    # p50 1.75 s / p95 2.17 s against the API's 2.5 s wait, and timed-out messages were served the
+    # clarify fallback. Haiku first removes that attempt; it changes no model a worker meets,
+    # because Haiku was already what answered.
+    #
+    # Applies only when Claude's transport is usable (Anthropic key AND the `anthropic` SDK, the
+    # router's `fallback_transport_available`): any other deployment keeps Gemini first.
+    # Setting `google` is gated on a paid Gemini key and the R32 evals on the Gemini models
+    # (ADR-0051 §10, #2170). An unrecognised value fails soft to `anthropic`, the shipped default.
+    ai_primary_provider: str = "anthropic"
     # ADR-0046 O7 — the career answer's own model. Claude, deliberately: Phase 3 is the one
     # place a model WRITES what the worker reads. A SETTING rather than a tier because the
     # tier defaults are pinned by other tasks — `pro`/`capable` resolve to Gemini for the

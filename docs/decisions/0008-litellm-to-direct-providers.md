@@ -4,6 +4,7 @@
 - **Date:** 2026-06-15
 - **Phase:** 1 (Worker Profiling)
 - **Supersedes:** ADR-0001 decision #3 (LiteLLM adapter)
+- **Amended:** 2026-10-14 — Claude Haiku first, Gemini fallback (#2170; see the amendment below)
 
 ## Context
 
@@ -125,6 +126,47 @@ flip itself is a separate human-approved action.
 **Status:** accuracy / cost / error-rate / privacy / cap bars **MET** on the 2026-06-15
 run; **NOT yet flippable** — pending (a) latency measurement, (b) ≥2 more staging runs
 for stability, (c) the shared-store ledger + secrets-manager prerequisites.
+
+## Amendment 2026-10-14 — Claude Haiku first (#2170)
+
+**Owner decision (2026-10-14): production runs Claude Haiku as the primary model. Gemini stays
+configured as the fallback.** Decision 1's chain becomes **Claude Haiku → Gemini → deterministic
+mock** for every tier-routed task. The rest of this ADR stands.
+
+**Why.** From at least 2026-09-17 to 2026-10-14, every real call on the box was served by
+`claude-haiku-4-5` (`ai.cost_recorded`, #2170). The box's Gemini key is set, so real calls were
+armed, but Google rejected every call, so every Gemini-primary call paid a failed attempt and then
+fell back to Haiku. The free-chat classifier measured p50 1,752 ms / p95 2,167 ms over 216 calls,
+against the API's 2.5 s wait (2026-10-07 to 10-14), and 4 of 189 worker messages timed out into the
+clarify fallback. Putting Haiku first removes the failed attempt. It changes no model a worker
+meets, because Haiku already answered every call.
+
+**How.** `AI_PRIMARY_PROVIDER` (`config.py` `ai_primary_provider`, default `anthropic`; compose
+pass-through with the same default). Under `anthropic`, `get_route` gives every task whose tier
+resolves to a Gemini model `DEFAULT_FALLBACK_MODEL` (Claude Haiku) as its model, and that tier's
+Gemini model as its fallback. That is ADR-0046 O7's career-answer chain, applied to every tier
+task. Unchanged:
+- routes that already name their own model (the career answer, the free-chat reply and news);
+- tier defaults and the extraction pin (`DEFAULT_CAPABLE_MODEL=gemini-2.5-flash`);
+- the master gates (decision 6: `GEMINI_FLASH_API_KEY` is still required for any real call);
+- a deployment without a usable Claude transport (no Anthropic key, or no `anthropic` SDK),
+  which keeps Gemini first rather than failing a dead Claude attempt on every call.
+
+**Evidence base.** Every eval behind a live prompt was scored on Haiku: the free-chat
+classifier and reply (ADR-0051 §10, R32) and the 2026-06-15 extraction gate run above. So Haiku
+first is also the order the evidence covers.
+
+**Reverting to Gemini first** is `AI_PRIMARY_PROVIDER=google` on the box plus a redeploy. Two
+gates come first:
+1. A paid, working Gemini key, since `gemini-2.5-pro` is closed to new projects (HTTP 404 on
+   2026-10-14) and `AI_CHAT_MODEL_TIER` would need a live model.
+2. The R32 evals re-run on the Gemini models, e.g. the free-chat classifier with
+   `--expect-model gemini-2.5-flash-lite`, and the R31 bar holding there.
+
+**Consequence: one live provider.** While the Gemini key fails, the Gemini fallback fails too, so
+an Anthropic outage still leaves the box on the deterministic mock. That is what happened on
+2026-10-14, when the Anthropic credit ran out. A working Gemini key restores the second provider
+without changing the order.
 
 ## Related
 

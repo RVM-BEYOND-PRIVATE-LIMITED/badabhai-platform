@@ -108,6 +108,9 @@ def _storm_settings(**overrides) -> Settings:
         default_pro_model="gemini-2.5-pro",
         default_fallback_model="claude-haiku-4-5",
         ai_real_call_tasks="profiling_chat_turn,profile_extraction",
+        # The storm these tests reproduce ran on ADR-0008's original order, Gemini first. Since
+        # #2170 that order is `google`; the shipped default puts Claude first.
+        ai_primary_provider="google",
     )
     base.update(overrides)
     return Settings(**base)

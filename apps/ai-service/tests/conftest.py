@@ -77,6 +77,11 @@ def _force_mock_only_env() -> None:
     # precisely so raising it cannot move extraction. Mirrors config.py `default_pro_model`.
     os.environ["DEFAULT_PRO_MODEL"] = "gemini-2.5-pro"
     os.environ["DEFAULT_FALLBACK_MODEL"] = "claude-haiku-4-5"
+    # #2170 — the provider order, at its committed default (Claude first). Inert in a bare
+    # Settings(), whose Anthropic key is blanked above. A test that sets that key AND has the
+    # `anthropic` SDK (installed locally, absent in CI) gets Claude first, so a test that needs
+    # either order states it: ai_primary_provider="google", or the SDK patched present.
+    os.environ["AI_PRIMARY_PROVIDER"] = "anthropic"
     # Drop the eval target so the skip-gated per-field real test stays SKIPPED
     # even when a developer .env sets it.
     os.environ.pop("AI_EVAL_BASE_URL", None)
