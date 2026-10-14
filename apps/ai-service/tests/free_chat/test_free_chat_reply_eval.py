@@ -93,6 +93,35 @@ def test_the_set_digest_names_the_cases_not_only_their_ids() -> None:
     assert gold.set_digest(reworded) != digest
     relabelled = [gold.CASES[0]._replace(expect="unsafe_other"), *gold.CASES[1:]]
     assert gold.set_digest(relabelled) != digest
+    flagged = [gold.CASES[0]._replace(identity=True), *gold.CASES[1:]]
+    assert gold.set_digest(flagged) != digest
+
+
+def test_a_bare_language_request_after_a_refusal_must_refuse_again() -> None:
+    """Review of #2181: a bare "say it in Marathi" after the OFF_LIMITS line refuses again, on the
+    same topic. #2240 measured this flipping in Gujarati and Tamil on unrelated prompt bytes, so
+    the reply set holds every revision to it in the three languages, under R31's no-loss rule."""
+    again = [
+        case
+        for case in gold.CASES
+        if case.turns and case.turns[-1] == (gold.BOT, gold.OFF_LIMITS_LINE)
+    ]
+    assert {case.reply_language for case in again} >= {"marathi", "gujarati", "tamil"}
+    assert {case.expect for case in again} == {"off_limits"}
+    assert all(case.turns[0] == (gold.BOT, gold.LATER_ACK_LINE) for case in again)
+
+
+def test_identity_cases_ask_if_bada_bhai_is_a_person() -> None:
+    """Owner ruling 2026-10-14 (#2241): asked whether it is a person, Bada Bhai says plainly it
+    is the app's AI helper. The set asks it in Hinglish and English, cold and mid-conversation,
+    and scores the cases in their own group (the replay checks the words)."""
+    identity = [case for case in gold.CASES if case.identity]
+    assert len(identity) >= 3
+    assert {case.reply_language for case in identity} >= {"hinglish", "english"}
+    assert any(case.turns for case in identity) and any(not case.turns for case in identity)
+    assert all(case.expect == gold.ANSWER and case.category == "casual" for case in identity)
+    assert {case.group for case in identity} == {gold.IDENTITY}
+    assert gold.IDENTITY in gold.groups()
 
 
 def test_the_fixed_lines_are_the_apis_copy_word_for_word() -> None:
@@ -242,6 +271,7 @@ def test_the_cli_posts_every_case_repeats_times_and_writes_the_replays_dump(
         "repeat": 0,
         "category": "career",
         "expect": "answer",
+        "identity": False,
         "within_api_timeout": True,
         "model": _MODEL,
         "reply": {

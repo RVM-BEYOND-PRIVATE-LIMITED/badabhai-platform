@@ -146,6 +146,7 @@ def dump_document(run: ReplyRun, not_evidence: list[str]) -> dict:
                 "repeat": sample.repeat,
                 "category": sample.case.category,
                 "expect": sample.case.expect,
+                "identity": sample.case.identity,
                 "within_api_timeout": sample.in_time,
                 "model": model if isinstance(model, str) else None,
                 "reply": _reply_fields(sample.body),
