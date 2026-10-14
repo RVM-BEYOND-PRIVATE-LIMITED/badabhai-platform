@@ -543,7 +543,7 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
      box AI call failed from about 12:28 IST until the top-up. Estimate the cost, get the owner's OK, and never run
      streams in parallel.
 7. **Still owed:**
-   - measuring v3 (follow-up issue);
+   - measuring v3 (#2242);
    - the flash-lite re-run before #2170 switches the box (the local key is free tier);
    - deleting the session transcript that holds the pasted sample (R35, owner).
 

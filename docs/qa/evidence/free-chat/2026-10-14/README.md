@@ -80,7 +80,7 @@ It also told the casual prompt to answer a greeting with one question, to answer
 - The same baseline prompt scored 131/138 two hours later.
 - At temperature 0.5, 3 repeats cannot resolve a 1–3% effect. Use 10.
 
-**Draft v3** drops the tease rule and steers "pakka" (meaning "skilled") to "achhe se seekh lenge". It was **not measured**: the Anthropic credit ran out mid-run (§4). It is tracked as a follow-up.
+**Draft v3** drops the tease rule and steers "pakka" (meaning "skilled") to "achhe se seekh lenge". It was **not measured**: the Anthropic credit ran out mid-run (§4). It is tracked as #2242.
 
 ## 4. Operational note: evals draw on the production Anthropic account
 
@@ -103,6 +103,6 @@ It also told the casual prompt to answer a greeting with one question, to answer
 
 ## Still owed
 
-- **Measure draft v3** against main at 10 repeats, sequentially, with the owner's OK on cost (about ₹300). Ship it only past R31.
+- **Measure draft v3** (#2242) against main at 10 repeats, sequentially, with the owner's OK on cost (about ₹300). Ship it only past R31.
 - **Flash-lite classifier re-run** (R32) before #2170 switches the box. The local Gemini key is still free tier.
 - **R35 (owner):** delete the operator session transcript holding the pasted sample, including its subagent transcripts.
