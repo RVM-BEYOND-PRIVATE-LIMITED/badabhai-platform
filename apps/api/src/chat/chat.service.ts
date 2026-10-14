@@ -8,8 +8,8 @@ import { withinRedisDeadline } from "../queue/redis-deadline";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { type KnownNameSource, onceRetrying } from "../common/redact-known-name";
-import { decryptWorkerName, type WorkerNameRead } from "../common/worker-name-read";
+import type { KnownNameSource } from "../common/redact-known-name";
+import { workerNameSources, type WorkerNameSources } from "../workers/worker-name-sources";
 import { ProfilesService } from "../profiles/profiles.service";
 import {
   ProfilingOrchestrator,
@@ -2601,34 +2601,13 @@ export class ChatService {
    * ONLY, never the token or the decrypted value.
    */
   private workerNameSources(workerId: string): WorkerNameSources {
-    const read = onceRetrying(() => this.readWorkerName(workerId));
-    return {
-      knownName: async () => {
-        const result = await read();
-        return result.ok ? result.name : null;
-      },
-      ownName: async () => {
-        const result = await read();
-        if (!result.ok) throw new Error("the worker's own name could not be decrypted");
-        return result.name;
-      },
-    };
-  }
-
-  /**
-   * One read of `workers.full_name`: the name, nothing on file, or a decrypt that failed. The
-   * decision is the shared `decryptWorkerName` (also the free-chat probe's); this adds the warning.
-   */
-  private async readWorkerName(workerId: string): Promise<WorkerNameRead> {
-    const worker = await this.workers.findById(workerId);
-    const read = decryptWorkerName(worker?.fullName, this.pii);
-    if (!read.ok) {
-      this.logger.warn(
-        `could not decrypt full_name for worker ${workerId}; ` +
-          `reply stays name-less, the outbound turn is not name-redacted, and no news search is made`,
-      );
-    }
-    return read;
+    // ADR-0055 — the definition is shared with the Bada Bhai chat (`workers/worker-name-sources.ts`);
+    // this surface still reads the token through `findById` and warns under its own logger.
+    return workerNameSources(workerId, {
+      readToken: async () => (await this.workers.findById(workerId))?.fullName,
+      pii: this.pii,
+      logger: this.logger,
+    });
   }
 
   /**
@@ -2782,12 +2761,6 @@ export class ChatService {
       );
     }
   }
-}
-
-/** The two views of one name read — see `ChatService.workerNameSources`. */
-interface WorkerNameSources {
-  readonly knownName: KnownNameSource;
-  readonly ownName: KnownNameSource;
 }
 
 // ---------------------------------------------------------------------------
