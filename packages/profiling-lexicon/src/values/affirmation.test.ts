@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { classifyUtterance } from "../predicates/index.js";
-import { parseAffirmation } from "./affirmation.js";
+import { affirmationResidue, parseAffirmation } from "./affirmation.js";
 
 /**
  * The yes/no reader for the 236 boolean pack items that carry no chips.
@@ -134,5 +134,61 @@ describe("parseAffirmation", () => {
     expect(parseAffirmation("nahi haan")?.negationVetoed).toBe(true);
     expect(parseAffirmation("haan")?.negationVetoed).toBe(false);
     expect(parseAffirmation("nahi")?.negationVetoed).toBe(false);
+  });
+});
+
+/**
+ * #2226 — the words of a yes/no answer that no cue accounts for. The free chat's résumé mode lets a
+ * BARE typed yes/no skip its classifier, and reads this to tell "haan ji" from "haan marna hai".
+ */
+describe("affirmationResidue", () => {
+  it.each([
+    "haan",
+    "Haan",
+    "haan ji",
+    "ji haan",
+    "hanji",
+    "haan karta hoon",
+    "kar leta hoon",
+    "haan kiya hai",
+    "haan ji bilkul",
+    "nahi",
+    "nahi karta",
+    "bilkul nahi",
+    "nahi aata",
+    "हाँ",
+    "जी हाँ",
+    "नहीं",
+  ])("leaves nothing of a bare answer: %s", (text) => {
+    expect(affirmationResidue(text)).toEqual([]);
+  });
+
+  it.each([
+    ["haan marna hai", ["marna", "hai"]],
+    ["Haan mar jaunga", ["mar", "jaunga"]],
+    ["nahi jeena", ["jeena"]],
+    ["jeena nahi hai", ["jeena", "hai"]],
+    ["haan, 5 saal se karta hoon", ["5", "saal", "se"]],
+    ["nahi, mere paas nahi hai", ["mere", "paas", "hai"]],
+    ["Haan sir", ["sir"]],
+    ["मैं नहीं करता", ["मैं"]],
+    ["हाँ मरना है", ["मरना", "है"]],
+  ] as const)("keeps the words no cue or negator accounts for: %s", (text, residue) => {
+    expect(affirmationResidue(text)).toEqual(residue);
+  });
+
+  it("blanks a cue rather than deleting it, so its neighbours stay two words", () => {
+    // A Devanagari cue is bounded only against Devanagari, so it can sit flush against Latin
+    // letters. Deleting it would fuse "jeena" and "marna" into one word no list could read.
+    expect(affirmationResidue("jeenaहाँmarna")).toEqual(["jeena", "marna"]);
+  });
+
+  it("leaves the shared global patterns at rest for parseAffirmation", () => {
+    // `parseAffirmation`'s `matchAll` copies a pattern's `lastIndex`: one left mid-string by a long
+    // residue would make it miss a cue at the start of a short answer.
+    affirmationResidue("theek hai, main bilkul karta hoon aur haan kiya hai");
+    expect(parseAffirmation("haan")?.value).toBe(true);
+    expect(parseAffirmation("karta hoon")?.value).toBe(true);
+    expect(affirmationResidue("haan marna hai")).toEqual(["marna", "hai"]);
   });
 });

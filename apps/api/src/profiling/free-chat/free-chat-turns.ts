@@ -95,12 +95,15 @@ import {
 } from "./free-chat.copy";
 import {
   confidenceBucketOf,
+  isBareYesNo,
   isFreeChatChip,
   isResumeChip,
+  isYesNoQuestion,
   matchesDistress,
   matchesOfferedOption,
   postClassifyFree,
   postClassifyResume,
+  postDistressCheck,
   preClassifyFree,
   preClassifyResume,
   readLanguageAnswer,
@@ -258,7 +261,8 @@ export class FreeChatTurns {
    * RÉSUMÉ MODE — today's interview, with an off-topic message deflected (ADR-0051 §3.2, the résumé
    * table). Distress first; then every message today's interview already reads deterministically
    * passes with no model call (the skip list); then the classifier, whose UNAVAILABLE answer also
-   * passes — an AI outage never degrades the interview.
+   * passes — an AI outage never degrades the interview. A typed yes/no that carries other words is
+   * classified too, but only a distress verdict changes what happens to it (#2226).
    */
   private async routeResumeMode(t: FreeChatTurn, state: FreeChatState): Promise<FreeChatRouted> {
     const pass = (): FreeChatRouted => ({
@@ -294,7 +298,9 @@ export class FreeChatTurns {
 
     const verdict = await this.classifyMemo(t, "resume", pending);
     const facts = verdictFacts(verdict);
-    const action = postClassifyResume(verdict);
+    // #2226 — a typed yes/no carrying other words: only a distress verdict changes its outcome.
+    const action =
+      pre.kind === "distress_check" ? postDistressCheck(verdict) : postClassifyResume(verdict);
     switch (action.kind) {
       case "pass":
         return pass();
@@ -533,6 +539,7 @@ export class FreeChatTurns {
     pending: FreeChatHeldTurn | null,
   ): ResumeSkipFacts {
     const env = t.envelope;
+    const typedAnswer = isTypedAnswer(t.input.text, t.askedItem);
     return {
       capped: t.capped,
       pendingOffer:
@@ -545,7 +552,9 @@ export class FreeChatTurns {
       gateOpen: env.llmGateOpen || env.generalRoad.gateOpen,
       offeredOption: matchesOfferedOption(t.input.text, env.lastTurn?.options ?? []),
       lexiconClass: classifyUtterance(t.input.text).cls,
-      typedAnswer: isTypedAnswer(t.input.text, t.askedItem),
+      typedAnswer,
+      typedAnswerCarriesWords:
+        typedAnswer && isYesNoQuestion(t.askedItem) && !isBareYesNo(t.input.text),
       hasPendingQuestion: pending !== null,
       asideCapReached: state.asides >= FREE_CHAT_ASIDE_CAP,
     };
