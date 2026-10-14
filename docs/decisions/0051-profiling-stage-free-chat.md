@@ -579,7 +579,7 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
      box AI call failed from about 12:28 IST until the top-up. Estimate the cost, get the owner's OK, and never run
      streams in parallel.
 7. **Still owed:**
-   - measuring v3 (#2242);
+   - measuring v3 (#2242): done in round 2 below, R31 HOLD;
    - the flash-lite re-run before #2170 switches the box (the local key is free tier);
    - deleting the session transcript that holds the pasted sample (R35, owner).
 
@@ -615,8 +615,9 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
    In production the classifier and the lexicon stand in front of the reply; this measures the reply's own layer.
 6. **Shipped this round:** the eval set and the replay's identity group, and the nudge hold (R46, #2266). No prompt
    changed.
-7. **Next round:** v3 plus a rule that a message mixing a complaint or tease with a refused topic refuses on that
-   topic, measured against this round's main baseline (same set digest), and the two misses in 5.
+7. **Next round (#2272):** v3 plus a rule that a message mixing a complaint or tease with a refused topic refuses on
+   that topic, measured against this round's main baseline (same set digest), and the two misses in 5. #2242 is
+   closed: its measurement is done.
 
 ## 11. Reply language (owner rulings 2026-10-08, #2181)
 
