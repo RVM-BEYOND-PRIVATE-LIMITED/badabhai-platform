@@ -570,17 +570,22 @@ class ApiClient {
   Future<List<SessionMessage>> listSessionMessages({
     required String sessionId,
     required String authToken,
+  }) async =>
+      (await listSessionTranscript(sessionId: sessionId, authToken: authToken))
+          .messages;
+
+  /// #2258 — the same read as [listSessionMessages], plus the server's
+  /// `session_ended_at`, so a cold reopen can draw the "End of conversation"
+  /// marker the live close draws.
+  Future<SessionTranscript> listSessionTranscript({
+    required String sessionId,
+    required String authToken,
   }) async {
     final Map<String, dynamic> json = await _get(
       '/chat/sessions/$sessionId/messages',
       authToken: authToken,
     );
-    final List<dynamic> rows =
-        json['messages'] as List<dynamic>? ?? <dynamic>[];
-    return rows
-        .whereType<Map<String, dynamic>>()
-        .map(SessionMessage.fromJson)
-        .toList();
+    return SessionTranscript.fromJson(json);
   }
 
   /// Extracts the worker's profile from their chat answers.

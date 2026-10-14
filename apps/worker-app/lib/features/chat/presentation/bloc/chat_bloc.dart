@@ -1168,7 +1168,24 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       history = const <ChatMessage>[];
     }
     final List<ChatMessage>? redrawn = _historyRedraw(history);
-    if (redrawn != null) emit(state.copyWith(messages: redrawn));
+    if (redrawn != null) {
+      // #2258 — a COLD REOPEN of a finished interview draws the same "End of
+      // conversation" marker the live close draws (Part A, #2224): after the
+      // bubble the repository marked as the one the session closed on. A
+      // marker a live close already placed in this process is never moved, and
+      // no `session_ended_at` (a live session, an older API) means none.
+      final int closedAt =
+          redrawn.lastIndexWhere((ChatMessage m) => m.closesSession);
+      emit(
+        state.copyWith(
+          messages: redrawn,
+          sessionEndedAfterIndex: state.sessionEndedAfterIndex == null &&
+                  closedAt >= 0
+              ? closedAt
+              : null,
+        ),
+      );
+    }
 
     // #2030 ask 3 — and the chips that redraw cannot carry. LAST, so a served
     // opening (a fresh open, a résumé confirm) is never overwritten by a
