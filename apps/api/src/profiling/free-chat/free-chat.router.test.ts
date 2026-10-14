@@ -31,10 +31,12 @@ import {
 
 const T0 = new Date("2026-10-06T10:00:00.000Z");
 const FREE = enterMode(greetingState(), "free", "chip", T0);
+// The language label (§11 R42) is no routing fact: every rule here reads category and confidence.
 const v = (category: FreeChatCategory, confidence = 0.9): FreeChatVerdict => ({
   kind: "verdict",
   category,
   confidence,
+  language: null,
 });
 
 describe("reading the worker's words deterministically", () => {

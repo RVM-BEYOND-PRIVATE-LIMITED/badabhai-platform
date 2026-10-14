@@ -45,8 +45,61 @@ describe("freeChatClassify / freeChatReply", () => {
       mode: "free",
       pending_question: null,
     });
-    expect(out).toEqual({ category: "career", confidence: 0.8, blocked: false, ai_metadata: null });
+    // ADR-0051 R42 — a body with no `language` (an ai-service older than the field) parses, and the
+    // label defaults to null: the API's word lists stay in force.
+    expect(out).toEqual({
+      category: "career",
+      confidence: 0.8,
+      blocked: false,
+      ai_metadata: null,
+      language: null,
+    });
     expect(fetchMock.mock.calls[0]![0]).toBe("http://ai-service:8000/free-chat/classify");
+  });
+
+  it("parses the classifier's language label from the closed reply-language set (R42)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response({
+          category: "career",
+          confidence: 0.8,
+          blocked: false,
+          ai_metadata: null,
+          language: "marathi",
+        }),
+      ),
+    );
+    const out = await new AiService(config).freeChatClassify({
+      text: "cam programmer kitee kamai karato?",
+      recent_turns: [],
+      mode: "free",
+      pending_question: null,
+    });
+    expect(out?.language).toBe("marathi");
+  });
+
+  it("a label OUTSIDE the closed set fails the whole parse — null, never a guessed language", async () => {
+    // The contract's enum is strict: the ai-service must null an unlisted label itself (#2240).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response({
+          category: "career",
+          confidence: 0.8,
+          blocked: false,
+          ai_metadata: null,
+          language: "bhojpuri",
+        }),
+      ),
+    );
+    const out = await new AiService(config).freeChatClassify({
+      text: "x",
+      recent_turns: [],
+      mode: "free",
+      pending_question: null,
+    });
+    expect(out).toBeNull();
   });
 
   it("posts the reply to /free-chat/reply and parses an answer or a refusal", async () => {

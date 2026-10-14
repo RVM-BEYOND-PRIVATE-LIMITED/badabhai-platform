@@ -2938,6 +2938,106 @@ describe("§11 R40 — with none kept, every reply call carries the message's ow
   });
 });
 
+/** A real verdict that also names the message's language (ADR-0051 §11 R42). */
+const labelled = (category: Category, language: FreeChatReplyLanguage | null) => ({
+  ...verdict(category),
+  language,
+});
+
+/** The owner's device line (2026-10-14): unlisted Marathi spellings, which the word lists read as Hinglish. */
+const DEVICE_LINE = "cam programmer kitee kamai karato?";
+
+/** The input of the last news call. */
+const newsInput = (world: ReturnType<typeof makeWorld>) =>
+  world.ai.freeChatNews.mock.calls.at(-1)![0] as { reply_language: unknown };
+
+describe("§11 R42 — the classifier names the message's language; the word lists are the backup", () => {
+  it("the device line: the classifier's Marathi reaches the reply call", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["CAM programmer la sadharan 25000 te 40000 milta."]));
+    await world.say(DEVICE_LINE);
+    expect(replyInput(world)).toMatchObject({ reply_language: "marathi", category: "career" });
+  });
+
+  it.each([
+    ["names no language", labelled("career", null)],
+    ["predates the field (no key at all)", verdict("career")],
+  ])("a classifier that %s leaves the word lists in force: Hinglish", async (_label, answered) => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(answered);
+    world.replyWith(answer(["CAM programmer ko aam taur par 25000 se 40000 milta hai."]));
+    await world.say(DEVICE_LINE);
+    expect(replyInput(world).reply_language).toBe("hinglish");
+  });
+
+  it("an UNAVAILABLE classifier (a mock carrying a label) makes no reply call at all — the clarify line", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs({
+      ...labelled("career", "marathi"),
+      ai_metadata: { ...REAL_META, real_call: false },
+    });
+    const turn = await world.say(DEVICE_LINE);
+    expect(turn.reply).toBe(FREE_CHAT_COPY.FREE_CLARIFY.latin);
+    expect(world.ai.freeChatReply).not.toHaveBeenCalled();
+  });
+
+  it("a regional script still decides by code, whatever the label", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(labelled("casual", "hinglish"));
+    world.replyWith(answer(["Vanakkam."]));
+    await world.say("எனக்கு வேலை வேணும்");
+    expect(replyInput(world).reply_language).toBe("tamil");
+  });
+
+  it("a KEPT language still beats the label", async () => {
+    const world = makeWorld({ keptLanguage: "tamil" });
+    await inFreeMode(world);
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["CAM programmer-ku sambalam 25000 to 40000."]));
+    await world.say(DEVICE_LINE);
+    expect(replyInput(world).reply_language).toBe("tamil");
+  });
+
+  it("an EXPLICIT request still beats the label, and still asks", async () => {
+    const world = makeWorld();
+    await world.greet();
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["Welder-ku sambalam 15000 to 20000 varum."]));
+    const turn = await world.say("tamil la sollunga welder salary evlo");
+    expect(replyInput(world)).toMatchObject({ reply_language: "tamil", category: "career" });
+    expect(turn.reply.endsWith(languageAskLine("tamil").latin)).toBe(true);
+  });
+
+  it("a news turn follows the same label", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith({ status: "refuse", topic: "news", ai_metadata: null });
+    await world.say("aajchi navin batmi kaai?");
+    expect(replyInput(world).reply_language).toBe("marathi");
+    expect(newsInput(world).reply_language).toBe("marathi");
+  });
+
+  it("the label rides the memoised verdict: a lost CAS neither re-classifies nor loses it", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.ai.freeChatClassify.mockClear();
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["CAM programmer la sadharan 25000 te 40000 milta."]));
+    world.buffer.saveWithCas.mockImplementationOnce(async () => false);
+    const turn = await world.say(DEVICE_LINE);
+    expect(turn.reply).toBe("CAM programmer la sadharan 25000 te 40000 milta.");
+    expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+    expect(world.ai.freeChatReply).toHaveBeenCalledOnce();
+    expect(replyInput(world).reply_language).toBe("marathi");
+  });
+});
+
 describe("§11 — résumé mode and the kill switch are unchanged (R27)", () => {
   it("résumé mode: a language request is classified and deflected as today — no reply, no ask", async () => {
     const world = makeWorld();
