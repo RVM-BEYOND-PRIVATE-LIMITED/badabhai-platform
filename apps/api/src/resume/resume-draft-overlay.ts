@@ -23,7 +23,8 @@ import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-re
  * (the trade map), two readers (sheet + text) — instead of inventing a second
  * pack→label mapping that could disagree with the sheet.
  *
- * THE SPLIT. Capability rows labelled `Machines` / `Controllers` feed the
+ * THE SPLIT. Capability rows labelled `Machines` / `Controllers` (and each
+ * trade's equipment-row equivalent, see `MACHINE_ROW_LABELS`) feed the
  * `Machines:` line (the text has no Controllers line; dropping Fanuc silently
  * would lose a worker-confirmed claim, so it rides with the machines).
  * Every other chip/tick row feeds `Skills:`. Fact rows (single measurements
@@ -54,8 +55,29 @@ export interface DraftOverlayResult {
   readonly overlaidSkills: boolean;
 }
 
-/** Capability-row labels that feed the `Machines:` text line. */
-const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set(["Machines", "Controllers"]);
+/**
+ * Capability-row labels that feed the `Machines:` text line — every trade's machine, controller,
+ * equipment or tool row, under whatever name its sheet prints it.
+ *
+ * #2257 — THE EQUIPMENT TRADES. This set began as the machining packs' two labels, so a welder's
+ * "Equipment", a fitter's "Equipment worked on" or a CAM programmer's "Machines programmed for"
+ * fell through to `Skills:`, and the profile-summary strength (which reads this split) could never
+ * clear `machines` for those trades. Each row added here sits at the trade map's 2x rank — the
+ * guideline's "machines and controllers" tier — so it is the same claim, worded for the trade.
+ * Instrument rows ("Tools & instruments", "Instruments & tools") stay skills: measuring is a
+ * capability, not the machine the worker runs. `resume-draft-overlay.test.ts` holds every label
+ * to a real row, and every trade with a machine question to at least one of them.
+ */
+export const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set([
+  "Machines",
+  "Controllers",
+  "Equipment",
+  "Equipment worked on",
+  "Equipment maintained",
+  "Tools used",
+  "Machines programmed for",
+  "Controllers posted to",
+]);
 
 /**
  * The live trade-sheet capability rows split into the two text lines (see THE SPLIT above):

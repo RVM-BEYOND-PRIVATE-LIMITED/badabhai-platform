@@ -33,6 +33,10 @@ the résumé uses:
 | experience        | the pack's tenure gate (`tenureQuestionKey`)                        |
 | machines / skills | the trade-sheet capability rows, split as the résumé text lines are |
 
+The split is `MACHINE_ROW_LABELS` (`resume-draft-overlay.ts`): each trade's machine, controller,
+equipment or tool row counts as machines (#2257), every other row as skills. `qp_cad_drafting` and
+`qp_quality_inspection` ask no machine question, so `machines` stays open for them.
+
 Rules for the form path:
 
 - **The row is never re-scored and nothing is written back.** Copying form answers onto the row

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { DraftProfileSchema, type DraftProfile } from "@badabhai/ai-contracts";
 import type { WorkerPackAnswer } from "@badabhai/db";
-import { overlayFreshCapabilityLines } from "./resume-draft-overlay";
+import { MACHINE_ROW_LABELS, overlayFreshCapabilityLines } from "./resume-draft-overlay";
+import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 
 const PROFILE_TIME = new Date("2026-09-01T10:00:00Z");
 const LATER_TIME = new Date("2026-09-18T12:00:00Z");
@@ -227,5 +228,43 @@ describe("overlayFreshCapabilityLines", () => {
     expect(result.overlaidMachines).toBe(false);
     expect(result.overlaidSkills).toBe(false);
     expect(result.draft).toBe(BASE_DRAFT);
+  });
+
+  it("puts a welder's equipment on the Machines line, not under Skills (#2257)", () => {
+    const result = overlayFreshCapabilityLines({
+      draft: BASE_DRAFT,
+      packAnswers: [answer({ packId: "qp_welding_trade", answeredAt: LATER_TIME })],
+      profileCreatedAt: PROFILE_TIME,
+      packId: "qp_welding_trade",
+      attributes: { welding_equipment: ["tig_machine"], welding_process: ["tig"] },
+    });
+    expect(result.draft.machines).toEqual(["TIG set"]);
+    expect(result.draft.skill_labels).not.toContain("TIG set");
+  });
+});
+
+describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)", () => {
+  /** Chip/tick rows only: fact rows never reach either text line. */
+  const listRows = TRADE_RESUME_MAPS.flatMap((map) =>
+    map.capability
+      .filter((row) => row.kind !== "fact")
+      .map((row) => ({ packId: map.pack_id, label: row.label })),
+  );
+
+  it("names only labels some trade's sheet actually prints", () => {
+    const printed = new Set(listRows.map((row) => row.label));
+    for (const label of MACHINE_ROW_LABELS) expect(printed.has(label), label).toBe(true);
+  });
+
+  it("gives every trade with a machine question a Machines-line row", () => {
+    // The two exceptions ask no machine question at all: a draughtsman's software and an
+    // inspector's instruments are capability, not machines. A new trade must land on one side.
+    const NO_MACHINE_QUESTION = new Set(["qp_cad_drafting", "qp_quality_inspection"]);
+    for (const { pack_id } of TRADE_RESUME_MAPS) {
+      const hasMachineRow = listRows.some(
+        (row) => row.packId === pack_id && MACHINE_ROW_LABELS.has(row.label),
+      );
+      expect(hasMachineRow, pack_id).toBe(!NO_MACHINE_QUESTION.has(pack_id));
+    }
   });
 });
