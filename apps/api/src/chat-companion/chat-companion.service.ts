@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { WorkerProfile } from "@badabhai/db";
 import type { CompanionIntent, CompanionJobsScope, CompanionNudge, ResumeSource } from "@badabhai/types";
@@ -11,7 +11,9 @@ import { JobsRepository } from "../jobs/jobs.repository";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { ResumeService } from "../resume/resume.service";
 import { ttsField } from "../profiling/question-tts-text";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { toProfileSummary } from "../workers/profile-summary.mapper";
+import { readProfileFormFacts, type ProfileFormFacts } from "../workers/profile-form-facts";
 import type { ResumeMenuChoice } from "../chat/resume-menu";
 import { ChatCompanionPolicy } from "./chat-companion.policy";
 import { ChatCompanionRepository } from "./chat-companion.repository";
@@ -120,6 +122,9 @@ export class ChatCompanionService {
     // from `message` for an open task-chip tap, a cooled-down free-text message and a v1 miss,
     // and from `open` for the cool-down read. A v1 resolver hit never touches it.
     private readonly v2: CompanionV2Orchestrator,
+    // #2201 — the worker's form answers, so the gap nudge never asks for a fact the Profile card
+    // already counts. Optional so hand-built constructions keep the row-only gap.
+    @Optional() private readonly attributes?: WorkerAttributesRepository,
   ) {}
 
   /**
@@ -299,10 +304,16 @@ export class ChatCompanionService {
   // ── facts ────────────────────────────────────────────────────────────────────────────────
 
   private async readFacts(workerId: string, profile: WorkerProfile, now: Date): Promise<CompanionFacts> {
-    const [history, applied, wanted] = await Promise.all([
+    const attributes = this.attributes;
+    const [history, applied, wanted, formFacts] = await Promise.all([
       this.settle("resume history", workerId, () => this.resumes.history(workerId, now)),
       this.settle("applied count", workerId, () => this.repo.countApplied(workerId)),
       this.settle("wanted skills", workerId, () => this.skills.listWantedSkillIds(workerId)),
+      attributes === undefined
+        ? undefined
+        : this.settle("form answers", workerId, async () =>
+            readProfileFormFacts(await attributes.loadTradeSheet(workerId)),
+          ),
     ]);
 
     const current = history?.items[0];
@@ -332,7 +343,7 @@ export class ChatCompanionService {
       pendingUpdate: history?.pending_update?.status ?? null,
       appliedCount: applied ?? null,
       jobs: await this.readJobs(workerId, wanted, now),
-      missingField: this.firstFillableGap(profile),
+      missingField: this.firstFillableGap(profile, formFacts ?? null),
     };
   }
 
@@ -391,12 +402,22 @@ export class ChatCompanionService {
 
   /**
    * The first profile gap a worker can fill, in the summary's own order. The summary is computed
-   * from the profile row alone — `hasPhoto: true` because the companion never reads the workers
-   * row (and never nudges for a photo), `workerCity: null` because no city is shown from here.
+   * from the profile row plus the worker's form answers (#2201) — the same inputs the Profile card
+   * scores, so the nudge never asks for a fact the card already counts. `hasPhoto: true` because
+   * the companion never reads the workers row (and never nudges for a photo), `workerCity: null`
+   * because no city is shown from here. A failed form read (`null`) falls back to the row alone.
    */
-  private firstFillableGap(profile: WorkerProfile): string | null {
+  private firstFillableGap(
+    profile: WorkerProfile,
+    formFacts: ProfileFormFacts | null,
+  ): string | null {
     try {
-      const summary = toProfileSummary({ ...profile, hasPhoto: true, workerCity: null });
+      const summary = toProfileSummary({
+        ...profile,
+        hasPhoto: true,
+        workerCity: null,
+        formFacts,
+      });
       return summary.missing_fields.find((f) => MISSING_FIELD_LABELS[f] !== undefined) ?? null;
     } catch {
       return null;

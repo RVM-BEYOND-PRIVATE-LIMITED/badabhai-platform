@@ -7,6 +7,7 @@ import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { WorkersRepository } from "./workers.repository";
 import { WorkersService } from "./workers.service";
 import { WorkersController } from "./workers.controller";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 
 /** Global: worker identity is needed by auth, consent, chat, profiles, etc. */
 @Global()
@@ -26,7 +27,11 @@ import { WorkersController } from "./workers.controller";
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
   controllers: [WorkersController],
-  providers: [WorkersRepository, WorkersService],
+  // `WorkerAttributesRepository` is RE-PROVIDED, not imported (#2201): the profile-summary
+  // strength reads the form's attribute bag, and importing ProfilesModule would pull its whole
+  // module graph into this @Global one. The repository is stateless over the shared DATABASE token,
+  // so a second instance changes nothing (the AgencyModule re-provide precedent).
+  providers: [WorkersRepository, WorkersService, WorkerAttributesRepository],
   // `WorkersService` is exported for ADR-0048's identity intake (ProfilingModule), which must write
   // the name and location through the ONE write path each has — encryption and events included —
   // rather than around it. Reached through this @Global export, so ProfilingModule gains no import

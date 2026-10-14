@@ -59,6 +59,8 @@ const HISTORY = {
 
 function make(over: {
   mode?: "interview" | "companion";
+  /** #2201 — the worker's form attribute bag; `"throws"` fails the read. Absent = no repository. */
+  formAttributes?: Record<string, unknown> | "throws";
   history?: unknown;
   historyThrows?: boolean;
   applied?: number;
@@ -140,6 +142,14 @@ function make(over: {
     events as never,
     edits as never,
     v2 as never,
+    over.formAttributes === undefined
+      ? undefined
+      : ({
+          loadTradeSheet: vi.fn(async () => {
+            if (over.formAttributes === "throws") throw new Error("x");
+            return { packId: null, attributes: over.formAttributes };
+          }),
+        } as never),
   );
   return { svc, policy, repo, resumes, skills, jobs, events, edits, v2 };
 }
@@ -277,6 +287,22 @@ describe("ChatCompanionService.open", () => {
     if (res.mode !== "companion") throw new Error("expected companion");
     expect(res.reply).toContain("Profile mein salary ki ummeed jodne se resume behtar banega.");
     expect(res.reply).not.toContain("machine ki jaankari");
+  });
+
+  it("#2201: never nudges for a salary the worker already gave on the form", async () => {
+    const res = await make({ rows: [], formAttributes: { salary_expected_max: 25000 } }).svc.open(
+      WORKER,
+      CTX,
+      NOW,
+    );
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).not.toContain("salary ki ummeed");
+  });
+
+  it("#2201: a failed form-answer read falls back to the row's own gap", async () => {
+    const res = await make({ rows: [], formAttributes: "throws" }).svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).toContain("Profile mein salary ki ummeed jodne se resume behtar banega.");
   });
 
   it("a failed render is reported as not downloadable, never as made", async () => {
@@ -434,13 +460,14 @@ describe("digest_key — what the app compares on a tab refocus", () => {
 
 describe("the companion's reach", () => {
   it("is constructed from repositories, the history projection and the INERT v2 layer", () => {
-    // Nine collaborators: seven read-only or the event spine, plus (ADR-0046 T6) the v2
+    // Ten collaborators: eight read-only or the event spine (the eighth is #2201's
+    // WorkerAttributesRepository, read-only, for the gap nudge), plus (ADR-0046 T6) the v2
     // orchestrator and (T7/T8) the edit service. The two v2 collaborators reach a model only
     // through AiService, only from the v2 branches, and only while their flags are on — every v1
     // path still makes zero model calls, which the flag-off suite proves. A refactor that routes
     // a V1 read through MatchFeedService.getFeed / ApplicationsService.getFeed /
     // JobsService.searchJobs / ChatService still fails here first.
-    expect(ChatCompanionService.length).toBe(9);
+    expect(ChatCompanionService.length).toBe(10);
   });
 });
 

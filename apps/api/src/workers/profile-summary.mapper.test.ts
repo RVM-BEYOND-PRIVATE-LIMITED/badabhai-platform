@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toProfileSummary, type ProfileSummarySource } from "./profile-summary.mapper";
+import { NO_FORM_FACTS, type ProfileFormFacts } from "./profile-form-facts";
 
 /**
  * `GET /workers/me/profile-summary` — the worker's own Profile tab.
@@ -79,8 +80,9 @@ describe("toProfileSummary — labels never move a business number", () => {
    * engine can actually use (§3).
    */
   it("does not raise strength", () => {
-    expect(from({ rawProfile: { role_label: "tandoor cook", domain_label: "catering" } }).strength)
-      .toBe(from().strength);
+    expect(
+      from({ rawProfile: { role_label: "tandoor cook", domain_label: "catering" } }).strength,
+    ).toBe(from().strength);
   });
 
   it("still reports role and trade as missing", () => {
@@ -123,8 +125,9 @@ describe("toProfileSummary — the raw_profile blob is read, never spread", () =
 
   it("treats a blank label as absent", () => {
     // "" is a value the model can emit; a blank headline is worse than the app's own copy.
-    expect(from({ rawProfile: { role_label: "   ", domain_label: "" } }).trade.display_name)
-      .toBeNull();
+    expect(
+      from({ rawProfile: { role_label: "   ", domain_label: "" } }).trade.display_name,
+    ).toBeNull();
   });
 });
 
@@ -193,5 +196,96 @@ describe("toProfileSummary — which city wins (#1428)", () => {
     expect(from({ workerCity: "   ", locationPreference: { current_city: "Pune" } }).city).toBe(
       "Pune",
     );
+  });
+});
+
+describe("toProfileSummary — the worker's own form answers fill strength blanks (#2201)", () => {
+  const ALL_FORM: ProfileFormFacts = {
+    hasSalary: true,
+    hasPreferredLocations: true,
+    hasAvailability: true,
+    hasExperience: true,
+    hasMachines: true,
+    hasSkills: true,
+  };
+
+  /**
+   * THE REPORTED SHAPE: a form-road CNC turner whose row carries the two ids (#2205) and
+   * nothing else. Before #2201 every form answer was invisible to the card and it sat at 2/9.
+   */
+  const FORM_TURNER: Partial<ProfileSummarySource> = {
+    canonicalRoleId: "role_cnc_turner",
+    canonicalTradeId: "cnc_turning",
+  };
+
+  it("a fully answered form clears every form-fillable dimension, +1 each", () => {
+    const before = from(FORM_TURNER);
+    expect(before.strength).toBe(2);
+    expect(before.missing_fields).toEqual([
+      "skills",
+      "machines",
+      "experience",
+      "salary",
+      "location",
+      "availability",
+      "photo",
+    ]);
+
+    const after = from({ ...FORM_TURNER, formFacts: ALL_FORM });
+    expect(after.strength).toBe(8);
+    // Photo is the one dimension no form answer can fill.
+    expect(after.missing_fields).toEqual(["photo"]);
+  });
+
+  it("each form fact moves exactly its own dimension", () => {
+    const cases: [keyof ProfileFormFacts, string][] = [
+      ["hasSkills", "skills"],
+      ["hasMachines", "machines"],
+      ["hasExperience", "experience"],
+      ["hasSalary", "salary"],
+      ["hasPreferredLocations", "location"],
+      ["hasAvailability", "availability"],
+    ];
+    for (const [fact, key] of cases) {
+      const res = from({ formFacts: { ...NO_FORM_FACTS, [fact]: true } });
+      expect(res.strength, fact).toBe(1);
+      expect(res.missing_fields, fact).not.toContain(key);
+      expect(res.missing_fields, fact).toHaveLength(8);
+    }
+  });
+
+  it("a dimension the ROW fills scores exactly what it did before — the form never re-scores it", () => {
+    const row: Partial<ProfileSummarySource> = {
+      skills: ["skill_a", "skill_b", "skill_c"],
+      machines: ["mach_vmc", "mach_hmc"],
+      experience: { total_years: 4 },
+      salaryExpectation: { amount_min: 18000 },
+      locationPreference: { preferred_cities: ["Pune"] },
+      availability: { status: "immediate" },
+    };
+    expect(from({ ...row, formFacts: ALL_FORM }).strength).toBe(from(row).strength);
+    expect(from(row).strength).toBe(3 + 2 + 4);
+  });
+
+  it("null / absent form facts score the profile row alone (pre-#2201 behaviour)", () => {
+    expect(from({ ...FORM_TURNER, formFacts: null })).toEqual(from(FORM_TURNER));
+    expect(from({ ...FORM_TURNER, formFacts: NO_FORM_FACTS })).toEqual(from(FORM_TURNER));
+  });
+
+  it("form facts never reach the wire — presence only", () => {
+    const res = from({ ...FORM_TURNER, formFacts: ALL_FORM });
+    expect(res.skills).toEqual([]);
+    expect(res.machines).toEqual([]);
+    expect(res.experience_years).toBeNull();
+    expect(res.city).toBeNull();
+    expect(Object.keys(res)).toEqual(Object.keys(from(FORM_TURNER)));
+  });
+
+  it("an `unknown` row availability is still filled by the worker's own answer", () => {
+    const res = from({
+      availability: { status: "unknown" },
+      formFacts: { ...NO_FORM_FACTS, hasAvailability: true },
+    });
+    expect(res.missing_fields).not.toContain("availability");
   });
 });

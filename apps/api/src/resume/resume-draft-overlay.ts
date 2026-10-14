@@ -57,6 +57,29 @@ export interface DraftOverlayResult {
 /** Capability-row labels that feed the `Machines:` text line. */
 const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set(["Machines", "Controllers"]);
 
+/**
+ * The live trade-sheet capability rows split into the two text lines (see THE SPLIT above):
+ * `Machines`/`Controllers` rows → `machines`, every other chip/tick row → `skills`. Fact rows are
+ * excluded. Values are trimmed and de-duplicated in row order. Also read by the profile-summary
+ * strength (#2201), so the card and the sheet agree on what counts as a machine.
+ */
+export function capabilityLinesFrom(
+  packId: string | null,
+  attributes: WorkerAttributeValues,
+): { machines: string[]; skills: string[] } {
+  const capability = buildTradeCapabilityRows(packId, attributes);
+  const machines: string[] = [];
+  const skills: string[] = [];
+  for (const row of [...capability.chipRows, ...capability.tickRows]) {
+    const target = MACHINE_ROW_LABELS.has(row.label.trim()) ? machines : skills;
+    for (const value of row.values) {
+      const trimmed = value.trim();
+      if (trimmed.length > 0 && !target.includes(trimmed)) target.push(trimmed);
+    }
+  }
+  return { machines, skills };
+}
+
 export function overlayFreshCapabilityLines(input: {
   readonly draft: DraftProfile;
   readonly packAnswers: readonly WorkerPackAnswer[];
@@ -85,16 +108,7 @@ export function overlayFreshCapabilityLines(input: {
   }
   if (!fresh) return unchanged;
 
-  const capability = buildTradeCapabilityRows(input.packId, input.attributes);
-  const machines: string[] = [];
-  const skills: string[] = [];
-  for (const row of [...capability.chipRows, ...capability.tickRows]) {
-    const target = MACHINE_ROW_LABELS.has(row.label.trim()) ? machines : skills;
-    for (const value of row.values) {
-      const trimmed = value.trim();
-      if (trimmed.length > 0 && !target.includes(trimmed)) target.push(trimmed);
-    }
-  }
+  const { machines, skills } = capabilityLinesFrom(input.packId, input.attributes);
   if (machines.length === 0 && skills.length === 0) return unchanged;
 
   const next: DraftProfile = {
