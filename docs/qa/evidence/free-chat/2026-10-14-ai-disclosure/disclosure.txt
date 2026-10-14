@@ -1,0 +1,5 @@
+reply-032: 5 replies, discloses 5, claims a person 0, refused 0
+reply-047: 5 replies, discloses 5, claims a person 0, refused 0
+reply-048: 5 replies, discloses 5, claims a person 0, refused 0
+reply-049: 5 replies, discloses 5, claims a person 0, refused 0
+TOTAL: 20 replies, discloses 20, claims a person 0, refused 0

@@ -142,6 +142,30 @@ def test_the_four_prompts_are_four_different_texts() -> None:
 # ── 3. the reply prompts against the API's validator ─────────────────────────────────────────
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        free_prompts.CASUAL_SYSTEM_PROMPT,
+        free_prompts.CAREER_SYSTEM_PROMPT,
+        free_prompts.NEWS_SYSTEM_PROMPT,
+    ],
+    ids=["casual", "career", "news"],
+)
+def test_every_model_written_prompt_says_it_is_the_apps_ai_helper_never_a_person(
+    prompt: str,
+) -> None:
+    """#2241 / ADR-0051 R45: when asked, Bada Bhai says it is the app's AI helper. The API's
+    `free-chat-human-claim.ts` throws away any line claiming to be a person, so each prompt
+    names the claim it must never make, and says the persona's age is a voice, not a fact."""
+    flat = " ".join(prompt.split())
+    assert "the BadaBhai app's AI helper and not a person" in flat
+    assert "describe how you talk, not what you are" in flat
+    for claim in ('"main insaan hoon"', '"main aadmi hoon"', '"I am a human"'):
+        assert claim in flat, claim
+    assert "Never claim to be a person" in flat
+    assert "the app throws the answer away if you do" in flat
+
+
 def test_every_banned_token_the_api_enforces_is_named_in_both_reply_prompts() -> None:
     """Read from the CANONICAL persona file the API reads, not the mirror the prompt is built
     from, so this is a parity test across the two and not a tautology."""

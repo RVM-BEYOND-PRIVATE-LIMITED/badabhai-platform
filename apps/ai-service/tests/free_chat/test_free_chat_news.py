@@ -1370,9 +1370,11 @@ def test_the_prompt_stays_bounded() -> None:
     promise (#2184: its forms with their spellings, fillers, job words inside the rule sentence,
     Kannada "milthade") to 10,776 / 1,622; no Hindi in a regional answer (ADR-0051 R43/R44,
     #2240: the work-words sentence and each language's "say ..., never ..." words) to 11,424 /
-    1,714. A budget keeps it from growing unnoticed."""
-    assert len(PROMPT) < 11450
-    assert len(PROMPT.split()) < 1720
+    1,714; Bada Bhai is the app's AI helper, never a person (ADR-0051 R45, #2241: the shared
+    walls' disclosure rule and the three claims it names) to 11,792 / 1,788. A budget keeps it
+    from growing unnoticed."""
+    assert len(PROMPT) < 11820
+    assert len(PROMPT.split()) < 1795
 
 
 # ── 10. the security review's fixes (2026-10-08) ─────────────────────────────────────────────

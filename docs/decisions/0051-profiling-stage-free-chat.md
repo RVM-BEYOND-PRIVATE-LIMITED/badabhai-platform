@@ -55,6 +55,7 @@ The owner wants a chat we control, like ChatGPT but scoped to BadaBhai, for the 
 | **R18** | **Go-live: live on merge**, with no flag gate and no eval gate. A default-on kill switch is the only lever. |
 | **R19** | **Release 1** ships without the cross-session conversation summary. **Release 2** adds it, carried across sessions and used by this chat only. |
 | **R20** | **Testing:** unit tests plus a labelled set of about 60 lines, used as a baseline to improve against, not as a gate. |
+| **R45** | **Bada Bhai never claims to be a person (owner, 2026-10-14, #2241).** When a worker sincerely asks ("aap insaan ho ya machine?"), Bada Bhai says plainly that it is the BadaBhai app's AI helper, not a person, keeping the big-brother warmth. The persona's age and years of work describe how it talks, not what it is. Enforced twice: a rule in the shared block of the casual, career and news prompts, and a wall in the API that throws away any line claiming to be human (§3.4), so the fallback line is served instead of a lie. The companion is unchanged: it already refuses the question. |
 
 ## 3. Decision
 
@@ -170,6 +171,10 @@ unavailable.
   - promise, sensitive (legal/medical/financial), rating
   - PII
 - It also rejects `{{` and `}}`, because replies are interpolated.
+- **The AI-disclosure wall (R45, #2241):** it rejects any line or chip that claims Bada Bhai is a person, in Hinglish
+  ("main insaan hoon", "main aadmi hoon"), English ("I am a human") or a regional language in Latin letters ("naanu
+  manushya"). The honest answer ("main AI helper hoon, insaan nahi", "I am not a human") passes. The rule is
+  `free-chat-human-claim.ts`, and it covers news answers too.
 - Any failure serves `REPLY_FALLBACK`. A refusal topic serves its fixed line.
 
 ### 3.5 Transcript hygiene
