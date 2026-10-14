@@ -320,5 +320,39 @@ void main() {
       expect(result.success, isFalse);
       expect(result.message, 'This invite was sent to a different email.');
     });
+
+    // #2193 — the refusal that is about the ACCOUNT, not the link. Telling this
+    // payer their link expired sent them back to the inviter for a fresh one,
+    // which would fail identically every time.
+    test('the membership-invariant 409 points at the account, not the link',
+        () async {
+      api.throwOnAccept = const PayerApiException(
+        409,
+        code: kOrgInviteNotAcceptableCode,
+      );
+
+      final OrgActionResult result = await cubit.acceptInvite('tok-1');
+
+      expect(result.success, isFalse);
+      expect(result.message, kInviteNotAcceptableMessage);
+      expect(result.message, isNot(contains('link')));
+      expect(api.fetches, 0);
+    });
+
+    test('it names no organisation, no email and no invariant', () {
+      expect(kInviteNotAcceptableMessage, isNot(contains('@')));
+      for (final String leak in <String>['A1', 'A2', 'A3', 'owner of', 'anchor']) {
+        expect(kInviteNotAcceptableMessage, isNot(contains(leak)));
+      }
+    });
+
+    test('a PLAIN 409 keeps the generic line', () async {
+      api.throwOnAccept = const PayerApiException(409);
+
+      final OrgActionResult result = await cubit.acceptInvite('tok-1');
+
+      expect(result.success, isFalse);
+      expect(result.message, "Couldn't accept the invite right now.");
+    });
   });
 }

@@ -623,6 +623,16 @@ class PayerApiException implements Exception {
       'PayerApiException($statusCode${code == null ? '' : ', $code'})';
 }
 
+/// #2193 — the [PayerApiException.code] for an invite the server refuses because
+/// of the ACCOUNT, not the link (ADR-0053 §3.5: already in a team, anchors a
+/// team, or a vertical-role mismatch).
+///
+/// The server sends a neutral 409 with no reason code ON PURPOSE — the caller
+/// must not learn WHICH invariant failed. The HTTP client stamps this code from
+/// the message so the UI can say "this account", instead of sending the payer
+/// back to the inviter for a fresh link that would fail identically forever.
+const String kOrgInviteNotAcceptableCode = 'org_invite_not_acceptable';
+
 /// #1652 — the [PayerApiException.code] for a job edit whose body both SETS and
 /// CLEARS the same field, which both edit PATCHes reject with a 400.
 ///

@@ -162,6 +162,9 @@ PayerAccount _accountFromMe(PayerMe me) {
     name: me.orgName,
     plan: agent ? 'Agency · supply + demand' : 'Company account',
     initials: _initialsFrom(me.orgName),
+    // #2194 — carried separately from [name]: the header still shows the
+    // person's OWN account, while a posting goes out under their tenant's.
+    postingOrgName: me.postingOrgName,
   );
 }
 

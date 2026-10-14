@@ -66,12 +66,21 @@ class OrgCubit extends Cubit<OrgState> {
 
   /// Accept a teammate invite with the single-use [token] from the accept link.
   /// 404 (bad/expired token) / 403 (email mismatch) surface honestly.
+  ///
+  /// #2193 — and so does the one refusal that is about the ACCOUNT rather than
+  /// the link. Telling such a payer their link expired sent them back to the
+  /// inviter for a new one, which would fail the same way every time; the
+  /// guidance instead points at the account and at the one thing that can fix
+  /// it. It still names no organisation and no invariant (ADR-0053 §3.5).
   Future<OrgActionResult> acceptInvite(String token) async {
     try {
       await _api.acceptOrgInvite(token: token);
       await load();
       return const OrgActionResult.ok('Invite accepted — welcome to the team.');
     } on PayerApiException catch (e) {
+      if (e.code == kOrgInviteNotAcceptableCode) {
+        return const OrgActionResult.fail(kInviteNotAcceptableMessage);
+      }
       return OrgActionResult.fail(switch (e.statusCode) {
         404 => 'That invite link is invalid or has expired.',
         403 => 'This invite was sent to a different email.',
@@ -82,6 +91,16 @@ class OrgCubit extends Cubit<OrgState> {
     }
   }
 }
+
+/// #2193 — what a payer whose ACCOUNT cannot accept the invite is told.
+///
+/// Names the account as the problem and the one action that resolves it, while
+/// naming no organisation, no email and no invariant: the server's refusal is
+/// deliberately no-oracle (ADR-0053 §3.5) and this copy must not undo that.
+const String kInviteNotAcceptableMessage =
+    'You cannot join this team with this account. You may already be part of '
+    'another team, or you own a team. Ask the person who invited you to use a '
+    'different email.';
 
 /// The outcome of a one-shot Team action — a success/neutral flag + a human
 /// message the screen shows as a toast. Never carries PII.
