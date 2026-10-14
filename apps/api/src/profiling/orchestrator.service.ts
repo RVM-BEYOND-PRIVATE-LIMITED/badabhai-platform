@@ -140,7 +140,13 @@ import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
 import type { KnownNameSource } from "../common/redact-known-name";
 import { seedFromWorkerRecord } from "./worker-record-seed";
-import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
+import {
+  captureAnswer,
+  hasFieldNormalizer,
+  matchOptions,
+  mayCommit,
+  withinFieldBound,
+} from "./answer-capture";
 // ADR-0051 — the profiling-stage free chat. `FreeChatService` is a VALUE import: it is a
 // constructor parameter below, and Nest resolves it from the emitted `design:paramtypes`.
 import {
@@ -6007,7 +6013,11 @@ function settleFromLlmDraft(
   // not cover that one turn — see the call site's note), and once every entry DOES resolve, the
   // sum must OVERRIDE whatever number the opener turn wrote — never the reverse, and never for
   // any other field. `isSettled` is therefore ignored on purpose here, in this one direction only.
-  if (years !== null) {
+  //
+  // #2253 — A SUM ABOVE THE 0–60 BOUND IS NOT WRITTEN, never clamped: eight entries the model read
+  // as decades each say the entries are wrong, not that the worker has 60 years. Whatever the
+  // question already holds stands, and an empty question is asked.
+  if (years !== null && withinFieldBound("experience_years", years)) {
     const item = items.find((candidate) => candidate.target_field === "experience_years");
     if (item) {
       next = recordAnswer(

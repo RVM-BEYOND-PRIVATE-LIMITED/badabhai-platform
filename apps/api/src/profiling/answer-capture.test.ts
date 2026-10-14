@@ -302,6 +302,21 @@ describe("the remaining typed fields", () => {
     }
   });
 
+  it("types experience only from 0 to 60 years, refusing more for a re-ask (#2253)", () => {
+    expect(only(captureAnswer("5 saal", YEARS)).valueNormalized).toBe(5);
+    expect(only(captureAnswer("60 saal", YEARS)).valueNormalized).toBe(60);
+    // The parser READS "80 saal" as 80; the 0–60 bound refuses it, and the turn re-asks.
+    for (const text of ["61 saal", "80 saal ka tajurba", "99 saal"]) {
+      const capture = captureAnswer(text, YEARS);
+      expect(capture.values, text).toHaveLength(0);
+      expect(capture.outOfRange, text).toBe(true);
+    }
+    // A cross-question mention settles nothing above the bound either.
+    expect(
+      captureAnswer("welder hoon, 80 saal", YEARS, { crossQuestion: true }).values,
+    ).toHaveLength(0);
+  });
+
   it("keeps a target_kind:none question as free text", () => {
     const none = item({ question_key: "q_any", target_kind: "none", target_field: null });
     expect(only(captureAnswer("kuch bhi", none)).targetField).toBeNull();

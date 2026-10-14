@@ -1,3 +1,5 @@
+import { withinExperienceYearsRange } from "../profiling/parse-gates";
+
 import type { ResumeEmployment, ResumeRoleStint } from "./resume-renderer.service";
 import { titleCaseName } from "./resume-text-case";
 
@@ -362,7 +364,10 @@ export function totalEmployedYears(
   const months = spans.reduce((sum: number, m) => sum + (m ?? 0), 0);
   if (months <= 0) return null;
   // One decimal, matching `totalYearsFrom` — so the two sources cannot disagree about rounding.
-  return Math.round((months / 12) * 10) / 10;
+  const years = Math.round((months / 12) * 10) / 10;
+  // #2253 — ABOVE THE 0–60 BOUND IS NO TOTAL, for the same all-or-nothing reason: dates that sum
+  // past sixty years are wrong dates, and printing them is a false number. Never clamped.
+  return withinExperienceYearsRange(years) ? years : null;
 }
 
 /**

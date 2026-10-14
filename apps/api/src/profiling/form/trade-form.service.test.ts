@@ -1794,4 +1794,12 @@ describe("#1459 — the per-trade tier is pre-settled from the chat's experience
     expect(keys).toContain("turning_test_advanced");
     expect(keys).toContain("iti_project_work");
   });
+
+  it("experience_years above the 0–60 bound derives nothing — stored before #2253", async () => {
+    const { service } = await makeService({ pack: TENURE_PACK, chatExperienceYears: 80 });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_experience");
+    expect(keys).toContain("turning_test_advanced");
+    expect(keys).toContain("iti_project_work");
+  });
 });

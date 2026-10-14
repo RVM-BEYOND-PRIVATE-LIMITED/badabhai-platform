@@ -18,6 +18,7 @@ import {
   countByGate,
   isCityUnrecognized,
   stringsIn,
+  withinExperienceYearsRange,
   type PiiCertifier,
 } from "./parse-gates";
 
@@ -126,6 +127,15 @@ describe("GATE 3 — TYPE / ENUM / RANGE", () => {
     );
     expect(checkTypeRange("experience_years", 0, undefined)).toBeNull();
     expect(checkTypeRange("experience_years", 60, undefined)).toBeNull();
+  });
+
+  it("states the 0–60 experience bound once, for every writer (#2253)", () => {
+    for (const ok of [0, 0.5, 7, 60]) {
+      expect(withinExperienceYearsRange(ok), String(ok)).toBe(true);
+    }
+    for (const bad of [-1, 60.1, 80, Number.NaN, Number.POSITIVE_INFINITY, "7", null]) {
+      expect(withinExperienceYearsRange(bad), String(bad)).toBe(false);
+    }
   });
 
   it("REJECTS a salary outside INR-per-month, which is how a 12x period error shows up", () => {

@@ -122,6 +122,11 @@ function assign(
   // No entry = not an RFS field. A NULL draftPath = deliberately not carried (work_history,
   // languages). Both write nothing, and the crosswalk records which is which.
   if (!entry || entry.draftPath === null) return;
+  // #2253 — a value its field's business bound refuses ("80 saal" of experience) never reaches the
+  // draft, whoever wrote it: capture refuses one now, and this drops one stored before the bound.
+  // A refused map value overwrites nothing, so an in-bound overlay value written first stands;
+  // with none, the field stays empty.
+  if (!withinFieldBound(fieldId, value)) return;
 
   if (entry.splitter) {
     const parts = split?.(value);

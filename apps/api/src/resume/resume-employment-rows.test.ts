@@ -446,4 +446,17 @@ describe("totalEmployedYears", () => {
   it("needs a clock to close an open-ended job, and refuses rather than guessing one", () => {
     expect(totalEmployedYears([employment({ endYm: null })], null)).toBeNull();
   });
+
+  it("prints NOTHING past the 0–60 bound — wrong dates, never clamped (#2253)", () => {
+    // Two overlapping 40-year spans sum to 80 years: a false number, not a veteran.
+    const decades = [
+      employment({ startYm: "1986-01", endYm: "2025-12" }),
+      employment({ startYm: "1986-01", endYm: "2025-12" }),
+    ];
+    expect(totalEmployedYears(decades, AS_OF)).toBeNull();
+    // Exactly 60 years still prints.
+    expect(totalEmployedYears([employment({ startYm: "1966-01", endYm: "2025-12" })], AS_OF)).toBe(
+      60,
+    );
+  });
 });

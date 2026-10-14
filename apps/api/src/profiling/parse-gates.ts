@@ -97,6 +97,23 @@ export interface GateResult {
 
 /** The bounds the plan fixes. Stated once, here, so the gate and its tests cannot drift. */
 export const EXPERIENCE_YEARS_RANGE = { min: 0, max: 60 } as const;
+
+/**
+ * #2253 — a count of years of experience the platform can believe: a finite number inside
+ * {@link EXPERIENCE_YEARS_RANGE}, both ends included. ONE rule for every writer of
+ * `experience_years` (owner ruling 2026-10-14): this gate, chat capture (`BOUND_BY_FIELD`), the
+ * projector, Phase A's work-history sum, the general road's employment total and the trade form's
+ * tier pre-settle. "80 saal" is refused and re-asked, never clamped to 60.
+ */
+export function withinExperienceYearsRange(value: unknown): boolean {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= EXPERIENCE_YEARS_RANGE.min &&
+    value <= EXPERIENCE_YEARS_RANGE.max
+  );
+}
+
 export const SALARY_INR_PER_MONTH_RANGE = { min: 1_000, max: 500_000 } as const;
 export const AVAILABILITY_VALUES = [
   "immediate",
@@ -227,9 +244,7 @@ export function checkTypeRange(
   switch (fieldId) {
     case "experience_years": {
       if (typeof value !== "number" || !Number.isFinite(value)) return "not_a_number";
-      if (value < EXPERIENCE_YEARS_RANGE.min || value > EXPERIENCE_YEARS_RANGE.max) {
-        return "experience_years_out_of_range";
-      }
+      if (!withinExperienceYearsRange(value)) return "experience_years_out_of_range";
       return null;
     }
     case "salary_expected":

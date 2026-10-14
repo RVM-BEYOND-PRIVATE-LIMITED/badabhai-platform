@@ -35,7 +35,8 @@ import { cleanList, cleanScalar } from "../resume/resume-clean";
  *        `job_reach`), and R7 keeps these skills off every matching input until the owner revisits.
  *   `role_label` / `domain_label` — the stamp's certified labels, when they survive the screen.
  *   `experience.total_years` — `totalEmployedYears` over the stored employment, and ONLY that (R5):
- *        null when there is no row or any row is undated, and a value the projection produced from
+ *        null when there is no row, any row is undated, or the sum passes the 0–60 bound (#2253),
+ *        and a value the projection produced from
  *        the chat's experience answer never survives. The chat forgets that answer on entering the
  *        skills lane anyway; this is the second wall, not the first.
  *   `resume_profile` — null. It is the Phase C container, and no Phase C call happened.
