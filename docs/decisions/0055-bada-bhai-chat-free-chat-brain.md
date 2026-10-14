@@ -11,6 +11,7 @@
   - [ADR-0051](0051-profiling-stage-free-chat.md): the free chat whose brain it now runs.
   - [ADR-0054](0054-free-chat-live-news.md): live news, now on this screen too.
   - [ADR-0047](0047-lift-pii-restriction.md): the masking policy. G1 stays enforced.
+  - [ADR-0044](0044-post-completion-chat-companion.md) R8 is narrowed: see §4.
 
 ---
 
@@ -70,16 +71,38 @@ the brain is on (`CHAT_COMPANION_V2_ENABLED` on and the kill switch off):
 **Wiring.** The companion module may not reach `ChatRepository` (ADR-0044's egress guard). So the free chat's model
 calls were split into `FreeChatModelCalls`, which `FreeChatService` now extends unchanged. The companion module
 provides its own instance of `FreeChatModelCalls` and of `FreeChatNewsCap`. The news cap's Redis key is the
-worker's, so both chats share one daily allowance of 5. The companion has no chat session: the calls carry
-`sessionId: null` and the own-name redaction thunk returns null, because the module never reads the workers row.
-The gateway hop still masks the message while `AI_RAW_PII_ENABLED` is off. The G1 output wall still runs on every
-model line. The profiling chat's rolling summary is not read here: it lives on a chat session row.
+worker's, so both chats share one daily allowance of 5. The companion has no chat session, so the calls carry
+`sessionId: null`. The profiling chat's rolling summary is not read here: it lives on a chat session row.
+
+**Own-name redaction (security gate, 2026-10-14).** The brain removes the worker's own name from every classify,
+reply and news input, with the profiling chat's exact semantics (the ADR-0051 privacy invariant; ADR-0054 §4 and
+§8 M1).
+- **Why it is needed.** With `AI_RAW_PII_ENABLED=true` in production, the gateway hop is skipped and the message
+  reaches the model raw. So the gateway cannot be relied on here: own-name redaction is what keeps the name out.
+- **How the name is read.** `WorkerNameReader` reads `workers.full_name`, and that column alone
+  (`findFullNameToken`). It decrypts the name once per turn and offers two views of that one read. The definition
+  (`workerNameSources`) is shared with `ChatService`.
+- **The two views.**
+  - `knownName` feeds classify and reply. A name that will not decrypt reads as none, so they still run.
+  - `ownName` feeds news. A name that will not decrypt rejects, so news makes no search and serves its
+    unavailable line (fail closed).
+- **What the plaintext is used for.** Only to be removed from text (`redactKnownName` → `[NAME]`). It is never
+  shown, logged, evented, stored or sent anywhere.
+- **Output side.** The G1 output wall still runs on every model line.
+
+Two other rules hold on this path:
+- A message the classifier calls trash (at any confidence) is never stored in the companion memory.
+- Neither is a message answered with the distress line.
 
 ## 4. What it supersedes
 
 - **ADR-0046 O2** (jobs deferred), **O9** (Hinglish-only career answers) and **O10** (career refusals of figures
   and companies) — on this screen, while the brain is on.
 - **ADR-0051 R1** ("the companion is untouched").
+- **ADR-0044 R8 is NARROWED** ("the companion never reads the `workers` row, so it never decrypts a name"). It
+  still holds for the recap, the menus and every reply. The one exception is the free-chat brain: it reads
+  `workers.full_name` solely to redact the worker's own name from model egress (ADR-0051 privacy invariant,
+  ADR-0054 §4 / §8 M1). It never uses the name to show, log or store it. There is still no vocative on this screen.
 
 ## 5. Kill switch
 
