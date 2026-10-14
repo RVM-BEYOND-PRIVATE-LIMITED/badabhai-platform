@@ -666,7 +666,8 @@ export class FreeChatTurns {
    * A casual or career message (ADR-0051 §3.2, rules 6-7): the model's reply through the
    * deterministic gate, its refusal as reviewed copy, or the fallback line. The "Resume banayein"
    * chip is always attached, and every third casual reply carries the nudge (R9) — except the reply
-   * right after a résumé offer (#2172, see {@link followsResumeOffer}).
+   * right after a résumé offer (#2172, see {@link followsResumeOffer}), and a reply that already
+   * asks a question, which holds the nudge for the next casual reply that does not (#2242).
    *
    * ADR-0051 §11 — written in `plan.language`. When the plan carries an ASK (an explicit request for
    * a language the worker does not keep yet, R41), an ANSWERED reply is followed by the fixed line
@@ -731,11 +732,20 @@ export class FreeChatTurns {
     // count still moves and the nudge is not re-owed: the next one rides the next multiple, as if
     // the counter had been reset — so a run with no offer in it keeps the cadence exactly. NOR
     // BESIDE THE LANGUAGE ASK (§11): one appended question, and its chips are the ask's.
-    const nudge =
-      ask === null &&
+    //
+    // NOR ON A REPLY THAT ALREADY ASKS (#2242, owner ruling 2026-10-14): the nudge is a question,
+    // and one bubble asks one. Unlike the two rules above this one HOLDS the nudge rather than
+    // dropping it — `nudgeOwed` carries it to the next casual reply that asks nothing, and a career
+    // turn in between leaves it owed. Any "?" in a line counts, not only on the last line: the gate
+    // allows one "?" anywhere, so the last line is not the only place a question can sit.
+    const nudgeDue =
       category === "casual" &&
-      casualReplies % FREE_CHAT_NUDGE_EVERY === 0 &&
-      !followsResumeOffer(t.envelope);
+      (casualReplies % FREE_CHAT_NUDGE_EVERY === 0 || state.nudgeOwed === true);
+    const nudgeBarred = ask !== null || followsResumeOffer(t.envelope);
+    const replyAsks = screened.answer.lines.some((line) => line.includes("?"));
+    const nudge = nudgeDue && !nudgeBarred && !replyAsks;
+    const nudgeOwed =
+      category === "casual" ? nudgeDue && !nudgeBarred && replyAsks : state.nudgeOwed === true;
     const lines =
       ask !== null
         ? [...screened.answer.lines, languageAskLine(ask).latin]
@@ -753,13 +763,16 @@ export class FreeChatTurns {
       // MODEL-WRITTEN: never read aloud, and no Devanagari twin exists for it (R17).
       readAloud: false,
     };
+    const { nudgeOwed: _wasOwed, ...carried } = state;
     const next: FreeChatState = {
-      ...state,
+      ...carried,
       casualReplies,
       // §11 — a bare request on the NEXT turn re-answers in this reply's category.
       lastReplyCategory: category,
       lastServed: "answered",
       ...(ask === null ? {} : { language: { kept: keptLanguageOf(state), offer: ask } }),
+      // #2242 — absent, never `false`, when nothing is owed: the envelope stays as it was before.
+      ...(nudgeOwed ? { nudgeOwed: true as const } : {}),
     };
     return this.serveAside(
       t,
