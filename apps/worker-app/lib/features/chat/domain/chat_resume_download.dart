@@ -70,6 +70,25 @@ const Set<String> _kDownloadWords = <String>{
 /// composer strips Devanagari today (#1411); these keep the rule honest if a
 /// dictated or pasted message ever reaches the bloc anyway.
 const List<String> _kDownloadDevanagari = <String>['डाउनलोड', 'पीडीएफ'];
+const List<String> _kResumeDevanagari = <String>[
+  'रिज़्यूमे',
+  'रिज्यूमे',
+  'बायोडाटा',
+];
+
+/// The words that name the résumé itself, for [isResumeDownloadRequest]'s
+/// stricter reading (an open interview, where "PDF banana aata hai" is an
+/// answer about a skill, not a request).
+const Set<String> _kResumeWords = <String>{
+  'resume',
+  'résumé',
+  'cv',
+  'biodata',
+  'rejume',
+  'rezume',
+  'rizume',
+  'resyume',
+};
 
 final RegExp _kWordSplit = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
 
@@ -89,13 +108,22 @@ String? downloadableResumeIdIn(ResumeHistory history) {
 
 /// Whether [text] asks for the worker's résumé to be downloaded.
 ///
-/// Pure and deterministic: lowercase, split into words, look for a download
-/// word. Never logs and never keeps the text.
-bool isResumeDownloadRequest(String text) {
+/// A download word is enough on the companion, where no question is open. With
+/// [requireResumeWord] — an interview, where every typed message is an answer —
+/// the message must ALSO name the résumé ("resume download karna hai"), so an
+/// answer that merely mentions a PDF or a download is still posted as one.
+///
+/// Pure and deterministic: lowercase, split into words, look the words up.
+/// Never logs and never keeps the text.
+bool isResumeDownloadRequest(String text, {bool requireResumeWord = false}) {
   final String normalized = text.trim().toLowerCase();
   if (normalized.isEmpty) return false;
-  if (_kDownloadDevanagari.any(normalized.contains)) return true;
-  return normalized
-      .split(_kWordSplit)
-      .any((String word) => _kDownloadWords.contains(word));
+  final Set<String> words = normalized.split(_kWordSplit).toSet();
+  final bool download =
+      _kDownloadDevanagari.any(normalized.contains) ||
+      words.any(_kDownloadWords.contains);
+  if (!download) return false;
+  if (!requireResumeWord) return true;
+  return _kResumeDevanagari.any(normalized.contains) ||
+      words.any(_kResumeWords.contains);
 }

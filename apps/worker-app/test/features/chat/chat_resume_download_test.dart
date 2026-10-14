@@ -77,6 +77,34 @@ void main() {
         expect(isResumeDownloadRequest(other), isFalse);
       });
     }
+
+    // On an interview every typed message is an answer, so the ask must name
+    // the résumé as well — a skill answer that mentions a PDF stays an answer.
+    test('requireResumeWord: a download word alone is not enough', () {
+      for (final String answer in <String>[
+        'PDF banana aata hai',
+        'app download kiya hai',
+        'download',
+      ]) {
+        expect(
+          isResumeDownloadRequest(answer, requireResumeWord: true),
+          isFalse,
+          reason: answer,
+        );
+      }
+      for (final String ask in <String>[
+        _ask,
+        'CV ka pdf chahiye',
+        'biodata download',
+        'रिज़्यूमे डाउनलोड करना है',
+      ]) {
+        expect(
+          isResumeDownloadRequest(ask, requireResumeWord: true),
+          isTrue,
+          reason: ask,
+        );
+      }
+    });
   });
 
   group('downloadableResumeIdIn', () {
@@ -316,6 +344,123 @@ void main() {
       bloc.add(const ChatResumeDownloadOffered());
       await pumpEventQueue();
       verify(() => resumes.loadResumeHistory()).called(1);
+      await bloc.close();
+    });
+
+    test('on an interview, an answer that only mentions a PDF is posted as the answer', () async {
+      final ChatBloc bloc = build()
+        ..add(const ChatStarted())
+        ..add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.resumeDownloadTile, isTrue);
+
+      bloc.add(const ChatMessageSent('PDF banana aata hai'));
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isFalse);
+      verify(
+        () => repo.sendMessage(
+          'PDF banana aata hai',
+          submissionId: any(named: 'submissionId'),
+          answerSource: any(named: 'answerSource'),
+        ),
+      ).called(1);
+
+      // Naming the résumé makes it an ask, even mid-interview.
+      bloc.add(const ChatMessageSent('mera resume download karna hai'));
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.messages.last.text, kChatResumeDownloadReply);
+      verifyNever(
+        () => repo.sendMessage(
+          'mera resume download karna hai',
+          submissionId: any(named: 'submissionId'),
+          answerSource: any(named: 'answerSource'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    test('a CHIP tap is never held back, whatever its label says', () async {
+      final ChatBloc bloc = await openTab();
+
+      bloc.add(
+        const ChatMessageSent(
+          'Resume download',
+          optionKey: 'some_chip',
+          servedOption: true,
+        ),
+      );
+      await pumpEventQueue();
+
+      verify(
+        () => repo.sendCompanionMessage('Resume download', submissionId: any(named: 'submissionId')),
+      ).called(1);
+      expect(bloc.state.messages.last.text, isNot(kChatResumeDownloadReply));
+      await bloc.close();
+    });
+
+    test('an ask typed while a reply is still in flight is posted, not answered locally', () async {
+      final ChatBloc bloc = await openTab();
+      final Completer<ChatTurn?> pending = Completer<ChatTurn?>();
+      when(
+        () => repo.sendCompanionMessage('naye jobs dikhao', submissionId: any(named: 'submissionId')),
+      ).thenAnswer((_) => pending.future);
+
+      bloc.add(const ChatMessageSent('naye jobs dikhao'));
+      await pumpEventQueue();
+      expect(bloc.state.sending, isTrue);
+      bloc.add(const ChatMessageSent(_ask));
+      await pumpEventQueue();
+
+      verify(
+        () => repo.sendCompanionMessage(_ask, submissionId: any(named: 'submissionId')),
+      ).called(1);
+      expect(
+        bloc.state.messages.map((ChatMessage m) => m.text),
+        isNot(contains(kChatResumeDownloadReply)),
+      );
+      pending.complete(_companion('Kisi job par dabakar poori jaankari dekhein.'));
+      await pumpEventQueue();
+      await bloc.close();
+    });
+
+    test('the recap replacing an interview on refocus keeps the tile', () async {
+      when(() => repo.forgetSession()).thenReturn(null);
+      final ChatBloc bloc = build()
+        ..add(const ChatStarted())
+        ..add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.resumeDownloadTile, isTrue);
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isTrue);
+      expect(bloc.state.messages.map((ChatMessage m) => m.text).toList(), <String>[_recap]);
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.downloadableResumeId, _resumeId);
+      await bloc.close();
+    });
+
+    test('two offers before the first read returns share ONE read and count ONE offer', () async {
+      final Completer<ResumeHistory> slow = Completer<ResumeHistory>();
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) => slow.future);
+      final ChatBloc bloc = build()
+        ..add(const ChatCompanionStarted())
+        ..add(const ChatResumeDownloadOffered())
+        ..add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      slow.complete(_history());
+      await pumpEventQueue();
+
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      verify(() => resumes.loadResumeHistory()).called(1);
+      expect(
+        events.where((BbAnalyticsEvent e) => e.name == 'chat_resume_download_offered'),
+        hasLength(1),
+      );
       await bloc.close();
     });
 

@@ -1358,8 +1358,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // would be answered as a résumé question (the recap, or the edit flow),
     // neither of which hands over the file. A worker with no résumé to
     // download falls through to the ordinary send, exactly as before.
+    //
+    // TYPED messages only (a chip tap is an answer the server served), and
+    // never while a reply is still in flight: an optimistic predicted bubble
+    // is replaced by the real reply when it lands, and a local line appended
+    // after it would be overwritten or swept away by that reconcile.
     if (_resumeDownloadArmed &&
-        isResumeDownloadRequest(text) &&
+        event.optionKey == null &&
+        !event.servedOption &&
+        !state.sending &&
+        _isDownloadAsk(text) &&
         await _answerResumeDownloadRequest(text, emit)) {
       return;
     }
@@ -2163,6 +2171,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           suggestedOptions: recap.suggestedOptions,
           questionKind: recap.questionKind,
           companion: true,
+          // The "Resume download" tile is the TAB's, not the interview's: the
+          // same refocus that brought the recap re-offers it, and its read can
+          // land before this one, so it is carried, never dropped.
+          downloadableResumeId: state.downloadableResumeId,
+          resumeDownloadTile: state.resumeDownloadTile,
         ),
         recap,
       ),
@@ -2268,10 +2281,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // (append-only, so [index] stays valid).
     _flushStashedResumeTurn(emit);
 
+    // A retry moves the conversation on — the download tile goes (below).
+    _conversationMoves++;
+
     // Optimistically un-fail it while the retry is in flight.
     emit(
       state.copyWith(
         messages: _withStatus(state.messages, index, ChatSendStatus.sent),
+        resumeDownloadTile: false,
         sending: true,
         followups: const <String>[],
         suggestedOptions:
@@ -2343,6 +2360,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // The worker ASKED for this interview; a refocus must not take it away.
     _holdInterview = true;
     _inFlightSends = 0;
+    // A new interview is the conversation moving on: the fresh state below has
+    // no download tile, and an offer still reading must not bring it back.
+    _conversationMoves++;
     emit(const ChatState(messages: <ChatMessage>[kChatOpeningMessage]));
     try {
       final ChatSessionOpening? opening = await _repo.startNewSession();
@@ -2419,7 +2439,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // A SPOKEN "resume download karna hai" was already posted by the voice
     // pipeline and answered by the server, so it cannot be held back like a
     // typed one — but the worker still gets the tile under that answer.
-    if (_resumeDownloadArmed && isResumeDownloadRequest(event.transcript)) {
+    if (_resumeDownloadArmed && _isDownloadAsk(event.transcript)) {
       add(const ChatResumeDownloadOffered(asked: true));
     }
     // #1316 — a voice answer is an answered ask too: the transcript was already
@@ -2452,6 +2472,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         : event.label.trim();
     _resumePromptShown = true;
     _resumeLocalBubbles++;
+    // An answer moves the conversation on — the download tile goes.
+    _conversationMoves++;
+    if (state.resumeDownloadTile) {
+      emit(state.copyWith(resumeDownloadTile: false));
+    }
     final ChatTurn? stashed = _stashedPostResumeTurn;
     _stashedPostResumeTurn = null;
     if (stashed == null) {
@@ -2533,13 +2558,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // The worker moved the conversation on while the read was out: keep the
     // résumé for a later ask, but do not pop the tile back up under them.
     final bool show = _conversationMoves == movesAtStart;
+    // Counted on the hidden → shown EDGE only, so a refocus while the tile is
+    // already up (or two offers sharing one read) is not a second offer.
+    final bool appears = show && !state.resumeDownloadTile;
     emit(
       state.copyWith(
         downloadableResumeId: resumeId,
         resumeDownloadTile: show ? true : null,
       ),
     );
-    if (show) {
+    if (appears) {
       _analytics(
         BbAnalytics.chatResumeDownloadOffered(
           trigger: event.asked ? 'ask' : 'open',
@@ -2547,6 +2575,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       );
     }
   }
+
+  /// Whether [text] is a "download my résumé" ask in the chat as it stands: a
+  /// download word on the companion; on an interview, where every message is an
+  /// answer, it must name the résumé too (see [isResumeDownloadRequest]).
+  bool _isDownloadAsk(String text) =>
+      isResumeDownloadRequest(text, requireResumeWord: !state.companion);
 
   /// A typed "download my résumé", answered on the phone: the worker's bubble,
   /// a fixed local line and the tile — nothing is posted.
@@ -2558,7 +2592,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     Emitter<ChatState> emit,
   ) async {
     final String? resumeId = await _downloadableResumeId();
-    if (resumeId == null) return false;
+    // A send that started while the history was being read owns the next
+    // bubble (see the in-flight rule at the call site): post this one as usual.
+    if (resumeId == null || state.sending) return false;
     // A local-only worker bubble: the #1316 interview indices skip it.
     _resumeLocalBubbles++;
     emit(
@@ -2582,17 +2618,27 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   /// The résumé the tile should save, from `GET /resume/history` (see
   /// [downloadableResumeIdIn]). A read is reused for
-  /// [_downloadableRefreshMinGap], so flipping tabs costs no requests.
-  Future<String?> _downloadableResumeId() async {
+  /// [_downloadableRefreshMinGap], and a read already on its way is shared, so
+  /// flipping tabs costs no extra requests.
+  Future<String?> _downloadableResumeId() {
     final ResumeRepository? repo = _resumeRepo;
-    if (repo == null) return null;
+    if (repo == null) return Future<String?>.value();
     final String? known = state.downloadableResumeId;
     final DateTime? readAt = _downloadableReadAt;
     if (known != null &&
         readAt != null &&
         _clock().difference(readAt) < _downloadableRefreshMinGap) {
-      return known;
+      return Future<String?>.value(known);
     }
+    return _downloadableRead ??= _readDownloadableResumeId(
+      repo,
+    ).whenComplete(() => _downloadableRead = null);
+  }
+
+  /// The history read in flight, if any — see [_downloadableResumeId].
+  Future<String?>? _downloadableRead;
+
+  Future<String?> _readDownloadableResumeId(ResumeRepository repo) async {
     ResumeHistory history;
     try {
       history = await repo.loadResumeHistory();
@@ -2685,7 +2731,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (!state.companion || proposal == null || state.sending) return;
     if (event.rowIds.isEmpty) return;
     _inFlightSends++;
-    emit(state.copyWith(sending: true));
+    _conversationMoves++;
+    // Haan on the card moves the conversation on — the download tile goes.
+    emit(state.copyWith(sending: true, resumeDownloadTile: false));
     try {
       final CompanionEditResult result = await _repo.confirmCompanionEdit(
         proposal.proposalId,
@@ -2715,7 +2763,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final EditProposal? proposal = state.editProposal;
     if (!state.companion || proposal == null || state.sending) return;
     _inFlightSends++;
-    emit(state.copyWith(sending: true));
+    _conversationMoves++;
+    // Nahi on the card moves the conversation on — the download tile goes.
+    emit(state.copyWith(sending: true, resumeDownloadTile: false));
     try {
       final CompanionEditResult result = await _repo.cancelCompanionEdit(
         proposal.proposalId,
