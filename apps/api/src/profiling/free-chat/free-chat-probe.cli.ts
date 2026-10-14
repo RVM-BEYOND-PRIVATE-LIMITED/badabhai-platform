@@ -32,7 +32,7 @@
  *
  * NAMES. Part B masks the worker's own name (`free-chat-probe.mask.ts`). The name is read with
  * `WorkersRepository.findFullNameToken` — the `full_name` column alone — and decrypted by the shared
- * `decryptWorkerName`, the same decision `ChatService.readWorkerName` makes. A name that is missing,
+ * `decryptWorkerName`, the same decision `workerNameSources` makes. A name that is missing,
  * blank or will not decrypt drops the line. The plaintext lives only in this process's memory.
  *
  * NEVER PRINTED: the DATABASE_URL, any key, any id. A failure is printed as the probe's own refusal

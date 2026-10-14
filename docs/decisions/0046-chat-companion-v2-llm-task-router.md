@@ -1,5 +1,9 @@
 # ADR-0046: Bada Bhai companion v2 — an LLM task router on the chat tab
 
+> **2026-10-14 — partly superseded by [ADR-0055](0055-bada-bhai-chat-free-chat-brain.md).** A v1 miss is now
+> classified and answered by the profiling free chat's brain. This supersedes O2, O9 and O10 on this screen; the v2
+> path below runs only under the kill switch `CHAT_FREE_CHAT_DISABLED`.
+
 - **Status:** **Accepted — signed by the owner (CEO / Prakash) on 2026-10-05.** Owner rulings O1–O17
   were taken on 2026-09-28 in the design session. Build may start behind flags that default off.
   **Turning any v2 flag on in production required the owner's signature at the foot, and required

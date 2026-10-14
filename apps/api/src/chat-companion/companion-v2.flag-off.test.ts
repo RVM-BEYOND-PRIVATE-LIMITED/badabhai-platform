@@ -44,9 +44,13 @@ describe("v2 off: the v1 paths are untouched", () => {
     expect(
       EVENT_REGISTRY["chat.companion_turn_served"].payload.safeParse(event.payload).success,
     ).toBe(true);
-    // NEVER the v2 event name, whatever the text was.
+    // NEVER a v2 turn event name (v3 before ADR-0055, v4 since), whatever the text was.
     for (const call of h.events.emit.mock.calls) {
-      expect((call[0] as { event_name: string }).event_name).not.toBe("chat.companion_turn_served_v3");
+      expect([
+        "chat.companion_turn_served_v2",
+        "chat.companion_turn_served_v3",
+        "chat.companion_turn_served_v4",
+      ]).not.toContain((call[0] as { event_name: string }).event_name);
     }
   });
 

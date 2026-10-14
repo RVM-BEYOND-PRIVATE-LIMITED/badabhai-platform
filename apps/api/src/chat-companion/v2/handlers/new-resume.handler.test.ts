@@ -55,6 +55,30 @@ describe("NewResumeHandler (ADR-0046 P2) — the redo flow, or the fallback line
     expect(CompanionTurnSchema.safeParse(turn).success).toBe(true);
   });
 
+  it("ADR-0055 — on the free-chat brain the redo menu offers the form road; the kill switch keeps it shipped", async () => {
+    const consents = {
+      findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
+    };
+    const config = (killSwitch: boolean) =>
+      ({
+        CHAT_COMPANION_V2_ENABLED: true,
+        CHAT_COMPANION_V2_EDIT_ENABLED: true,
+        CHAT_COMPANION_V2_NEW_RESUME_ENABLED: true,
+        CHAT_FREE_CHAT_DISABLED: killSwitch,
+      }) as unknown as ServerConfig;
+
+    const brain = await new NewResumeHandler(config(false), consents as never).handle(INPUT);
+    expect(brain.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "resume_upload",
+      "resume_form_create",
+      "resume_chat_create",
+    ]);
+    expect(CompanionTurnSchema.safeParse(brain.turn).success).toBe(true);
+
+    const shipped = await new NewResumeHandler(config(true), consents as never).handle(INPUT);
+    expect(shipped.turn.suggested_options.map((o) => o.option_key)).toEqual(["resume_upload", "resume_chat_create"]);
+  });
+
   it("consent missing the purpose, revoked, absent or unreadable — the v1 fallback line, fail closed", async () => {
     const cases: Array<() => Promise<unknown>> = [
       async () => ({ revokedAt: null, purposes: ["profiling"] }),

@@ -70,6 +70,9 @@ function setup(
   const config = {
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
+    // ADR-0055 — the kill switch ON: this suite is the v2 path's regression pin.
+    CHAT_COMPANION_V2_ENABLED: true,
+    CHAT_FREE_CHAT_DISABLED: true,
     ...(opts.rawPii === undefined ? {} : { AI_RAW_PII_ENABLED: opts.rawPii }),
   } as unknown as ServerConfig;
   const events = {
@@ -122,6 +125,9 @@ function setup(
     faltuStore as never,
     replays,
     { set: vi.fn(async () => undefined), take: vi.fn(async () => null), clear: vi.fn(async () => undefined) } as never,
+    // ADR-0055 — the free-chat brain. This suite pins the KILL-SWITCH path (`CHAT_FREE_CHAT_DISABLED`
+    // on): the v2 classifier, byte for byte, so the brain must never be reached.
+    { route: vi.fn(async () => { throw new Error("the brain was reached under the kill switch"); }) } as never,
   );
   return { orchestrator, ai, memory, edits, events, cost, faltuStore, replayRedis };
 }
@@ -328,7 +334,7 @@ describe("CompanionV2Orchestrator — AI_RAW_PII_ENABLED lifts the prompt maskin
         await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
         expect(h.memory.append).toHaveBeenCalled();
       });
-      expect(logs).toContain("chat.companion_turn_served_v3 not recorded for worker");
+      expect(logs).toContain("chat.companion_turn_served_v4 not recorded for worker");
       expect(logs).not.toContain(RAW);
       expect(logs).not.toContain("Tata Motors");
       expect(logs).not.toContain("9876543210");

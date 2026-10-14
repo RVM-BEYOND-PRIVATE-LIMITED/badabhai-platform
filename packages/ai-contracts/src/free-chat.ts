@@ -28,6 +28,8 @@ import {
   FREE_CHAT_REFUSAL_TOPICS,
   FREE_CHAT_REPLY_CATEGORIES,
   FREE_CHAT_REPLY_LANGUAGES,
+  FREE_CHAT_RESUME_ACTIONS,
+  FREE_CHAT_SURFACES,
 } from "@badabhai/types";
 
 import { AICallMetadataSchema } from "./common";
@@ -67,6 +69,13 @@ export const FreeChatReplyLanguageSchema = z.enum(FREE_CHAT_REPLY_LANGUAGES);
 const ReplyLanguageFieldSchema = FreeChatReplyLanguageSchema.nullable().default(null);
 
 /**
+ * ADR-0055 (#2275) — the screen the call serves. Additive and defaulted to `profiling`: every
+ * existing caller sends nothing and gets today's prompts byte for byte. `companion` (the Bada Bhai
+ * chat after the profile is confirmed) swaps only the prompt lines that assume no résumé yet.
+ */
+const SurfaceFieldSchema = z.enum(FREE_CHAT_SURFACES).default("profiling");
+
+/**
  * The modes a message can be classified IN. `greeting` is never sent: the greeting's Haan /
  * Baad mein is read deterministically, and anything else typed there is classified as `free`.
  */
@@ -84,6 +93,8 @@ export const FreeChatClassifyInputSchema = z.object({
   recent_turns: z.array(CompanionRecentTurnSchema).max(CLASSIFY_TURNS_MAX).default([]),
   mode: z.enum(FREE_CHAT_CLASSIFY_MODES),
   pending_question: z.string().min(1).max(PENDING_QUESTION_MAX).nullable().default(null),
+  /** ADR-0055 — `companion` asks for `resume_action` too; the companion always sends mode `free`. */
+  surface: SurfaceFieldSchema,
 });
 export type FreeChatClassifyInput = z.infer<typeof FreeChatClassifyInputSchema>;
 
@@ -107,6 +118,13 @@ export const FreeChatClassifyOutputSchema = z.object({
    * advisory, and an unlisted label must never throw away the category it came with.
    */
   language: z.enum(FREE_CHAT_REPLY_LANGUAGES).nullable().default(null).catch(null),
+  /**
+   * ADR-0055 — on the companion surface, what a `resume` message wants (edit / new / download).
+   * Additive and defaulted like `language`, and CAUGHT to null for the same reason: null (the
+   * profiling surface, an older service, any other category, or an unlisted label) leaves the
+   * companion's deterministic résumé menu to ask, and never costs the category.
+   */
+  resume_action: z.enum(FREE_CHAT_RESUME_ACTIONS).nullable().default(null).catch(null),
 });
 export type FreeChatClassifyOutput = z.infer<typeof FreeChatClassifyOutputSchema>;
 
@@ -127,6 +145,8 @@ export const FreeChatReplyInputSchema = z.object({
   summary: z.string().min(1).max(SUMMARY_MAX).nullable().default(null),
   /** ADR-0051 §11 — the language to reply in; null = the prompt's own rules, as before. */
   reply_language: ReplyLanguageFieldSchema,
+  /** ADR-0055 — `companion`: the worker's résumé is already made. */
+  surface: SurfaceFieldSchema,
 });
 export type FreeChatReplyInput = z.infer<typeof FreeChatReplyInputSchema>;
 
@@ -216,6 +236,8 @@ export const FreeChatNewsInputSchema = z.object({
   worker_ref: z.string().min(1).nullable().default(null),
   /** ADR-0051 §11 — the language to answer in, as for the reply; null = the prompt's own rules. */
   reply_language: ReplyLanguageFieldSchema,
+  /** ADR-0055 — `companion`: an everyday answer steers back to work and jobs, not the résumé. */
+  surface: SurfaceFieldSchema,
 });
 export type FreeChatNewsInput = z.infer<typeof FreeChatNewsInputSchema>;
 

@@ -97,7 +97,8 @@ export class WorkersRepository {
    * EXPLICIT projection, deliberately NOT `findById` (`select()` = SELECT *, which also hands back
    * the encrypted phone and its hash): a caller that needs only the name to MASK it — the free-chat
    * probe (ADR-0051 §10) — never pulls another PII column into its process. Decrypt it with the
-   * shared `decryptWorkerName`. `ChatService.readWorkerName` still reads through `findById`.
+   * shared `decryptWorkerName`. `WorkerNameReader` (the Bada Bhai chat, ADR-0055) reads through it
+   * too; `ChatService` still reads through `findById`.
    */
   async findFullNameToken(id: string): Promise<string | null> {
     const rows = await this.db

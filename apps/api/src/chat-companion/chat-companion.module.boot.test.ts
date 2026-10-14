@@ -9,6 +9,8 @@ import { AuthModule } from "../auth/auth.module";
 import { AppConfigModule } from "../config/config.module";
 import { ConsentModule } from "../consent/consent.module";
 import { ConsentRepository } from "../consent/consent.repository";
+import { CryptoModule } from "../common/crypto.module";
+import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EmployerNameIndex } from "../employers/employer-name-index.service";
 import { EmployersModule } from "../employers/employers.module";
 import { DatabaseModule } from "../database/database.module";
@@ -51,6 +53,8 @@ describe("ChatCompanionModule wiring", () => {
       "ChatCompanionPolicy",
       "ChatCompanionRepository",
       "ChatCompanionService",
+      // ADR-0055 — the free-chat brain and the résumé read behind its download answer.
+      "CompanionBrain",
       // ADR-0046 T7 — the edit path plus ITS OWN instances of the five section writers and the
       // repositories they need (provisioned here, not imported — see the module docblock).
       "CompanionEditService",
@@ -58,6 +62,7 @@ describe("ChatCompanionModule wiring", () => {
       "CompanionHandlerRegistry",
       // ADR-0046 T5 — the v2 Redis stores (memory + the pending edit card).
       "CompanionMemoryStore",
+      "CompanionResumeStatus",
       // The served-turn replay cache that makes a retried submission idempotent.
       "CompanionTurnReplayStore",
       "CompanionV2Orchestrator",
@@ -66,6 +71,10 @@ describe("ChatCompanionModule wiring", () => {
       // ADR-0046 P2 — the faltu strike handler and its Redis store.
       "FaltuHandler",
       "FaltuStore",
+      // ADR-0055 — the free chat's model calls and news cap: this module's OWN instances (no route
+      // to `ChatRepository`, which `FreeChatService` writes through).
+      "FreeChatModelCalls",
+      "FreeChatNewsCap",
       "JobsDeferredHandler",
       // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
       "NewResumeHandler",
@@ -81,6 +90,8 @@ describe("ChatCompanionModule wiring", () => {
       "WorkerEmploymentService",
       "WorkerLanguagesRepository",
       "WorkerLanguagesService",
+      // ADR-0055 — the worker's own name, for the free-chat brain's own-name redaction ONLY.
+      "WorkerNameReader",
       "WorkerOccupationsRepository",
       "WorkerOccupationsService",
       "WorkerPreferencesService",
@@ -129,6 +140,30 @@ describe("ChatCompanionModule wiring", () => {
     // ADR-0046 O12 — the v2 emitters inject `AiCostRecorder` (classify in the orchestrator,
     // edit-parse in the edit service). @Global + exported, so no import edge is added.
     expect(getMeta("exports", AiModule)).toContain(AiCostRecorder);
+  });
+
+  it("ADR-0055 — the free chat's model calls it provides reach no chat table either", () => {
+    // `FreeChatModelCalls` is provided HERE (not `FreeChatService`, which writes the profiling
+    // chat's session row). Its own source is pinned: no chat repository, no transcript buffer, no
+    // events (its spend goes through the @Global cost recorder only).
+    const source = readFileSync(join(__dirname, "../profiling/free-chat/free-chat-model-calls.ts"), "utf8");
+    expect(source).not.toMatch(/chat\.repository|chat-transcript\.buffer|events\.service/);
+    const providers = getMeta("providers", ChatCompanionModule).map((p) => (p as { name: string }).name);
+    expect(providers).not.toContain("FreeChatService");
+    expect(providers).not.toContain("ChatRepository");
+  });
+
+  it("ADR-0055 — its one read of the workers row is the name reader: full_name alone, via @Global crypto", () => {
+    // ADR-0044 R8 is NARROWED, not dropped: the brain reads the worker's name ONLY to redact it.
+    // The reader projects `full_name` alone (never `findById`'s SELECT *, which carries the phone)
+    // and reaches the crypto service through the @Global module, from outside this directory.
+    const source = readFileSync(join(__dirname, "../workers/worker-name-sources.ts"), "utf8");
+    const reader = source.slice(source.indexOf("export class WorkerNameReader"));
+    expect(reader).toContain("findFullNameToken");
+    expect(reader).not.toContain("findById");
+    expect(isGlobal(CryptoModule)).toBe(true);
+    expect(getMeta("exports", CryptoModule)).toContain(PiiCryptoService);
+    expect(getMeta("imports", ChatCompanionModule)).not.toContain(CryptoModule);
   });
 
   it("does NOT import the chat, profiles or profiling modules — a leaf with no route to a chat writer", () => {

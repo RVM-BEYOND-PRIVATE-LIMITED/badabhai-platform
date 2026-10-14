@@ -13,9 +13,10 @@ the answer the worker would actually read. A permissive parse is deliberate: a b
 reach that validator to be judged, not be rejected here with the same outcome and a worse
 diagnosis.
 
-TWO PROMPTS, ONE TASK. The API sends the category it already decided (``casual`` or
-``career``); :data:`REPLY_PROMPTS` maps it to its registry name, its local text and its message
-label. The model never picks its own prompt.
+TWO PROMPTS PER SURFACE, ONE TASK. The API sends the category it already decided (``casual`` or
+``career``) and, since ADR-0055 (#2275), the surface (``profiling`` by default, or
+``companion``); :func:`reply_prompt` maps the pair to its registry name, its local text and its
+message label. The model never picks its own prompt.
 """
 
 from __future__ import annotations
@@ -34,10 +35,16 @@ from ..contracts import (
     FreeChatRefuse,
     FreeChatReplyCategory,
     FreeChatReplyOutput,
+    FreeChatSurface,
 )
 from ..llm_input_policy import llm_input_gate
 from ..profiling.canonical_roles import coerce_json_text
-from .prompts import CAREER_SYSTEM_PROMPT, CASUAL_SYSTEM_PROMPT
+from .prompts import (
+    CAREER_SYSTEM_PROMPT,
+    CASUAL_SYSTEM_PROMPT,
+    COMPANION_CAREER_SYSTEM_PROMPT,
+    COMPANION_CASUAL_SYSTEM_PROMPT,
+)
 
 #: The deterministic mock-posture answer: a refusal on the catch-all topic. A mock model answered
 #: nothing, and the refusal line is reviewed copy, the safest thing a dev environment can show.
@@ -69,6 +76,35 @@ REPLY_PROMPTS: Mapping[FreeChatReplyCategory, ReplyPrompt] = MappingProxyType(
         ),
     }
 )
+
+#: ADR-0055: the companion surface's reply prompts. The same categories and message labels as
+#: :data:`REPLY_PROMPTS`, each with its companion variant and that variant's own registry name.
+COMPANION_REPLY_PROMPTS: Mapping[FreeChatReplyCategory, ReplyPrompt] = MappingProxyType(
+    {
+        "casual": ReplyPrompt(
+            prompt_registry.FREE_CHAT_CASUAL_COMPANION,
+            COMPANION_CASUAL_SYSTEM_PROMPT,
+            "WORKER MESSAGE",
+        ),
+        "career": ReplyPrompt(
+            prompt_registry.FREE_CHAT_CAREER_COMPANION,
+            COMPANION_CAREER_SYSTEM_PROMPT,
+            "WORKER QUESTION",
+        ),
+    }
+)
+
+#: surface -> category -> :class:`ReplyPrompt`. Read-only, and exhaustive over `FreeChatSurface`
+#: (pinned by a test, like each inner map over `FreeChatReplyCategory`).
+REPLY_PROMPTS_BY_SURFACE: Mapping[FreeChatSurface, Mapping[FreeChatReplyCategory, ReplyPrompt]] = (
+    MappingProxyType({"profiling": REPLY_PROMPTS, "companion": COMPANION_REPLY_PROMPTS})
+)
+
+
+def reply_prompt(category: FreeChatReplyCategory, surface: FreeChatSurface) -> ReplyPrompt:
+    """The prompt the API's category and surface pick. Both are closed enums the contract has
+    already validated, so the lookup cannot miss."""
+    return REPLY_PROMPTS_BY_SURFACE[surface][category]
 
 _REPLY_OUTPUT: TypeAdapter[FreeChatAnswer | FreeChatRefuse] = TypeAdapter(FreeChatReplyOutput)
 

@@ -511,6 +511,121 @@ describe("chat.companion_turn_served_v3 (TD150) — intent_source gains `chip`",
   });
 });
 
+// ── ADR-0055 (#2275) — the Bada Bhai chat runs the free-chat brain ──────────────────────────
+
+describe("chat.companion_turn_served_v4 (ADR-0055) — the brain's facts, ids and enums only", () => {
+  const v4 = (over: Record<string, unknown> = {}) => ({
+    ...turnV2Payload(),
+    intent_source: "llm",
+    v2_intent: "career_talk",
+    confidence_bucket: "gte90",
+    outcome: "answered",
+    free_category: "career",
+    resume_action: null,
+    refusal_topic: null,
+    reply_language: "hinglish",
+    news_outcome: null,
+    news_source_count: 0,
+    ...over,
+  });
+  const ok = (over: Record<string, unknown> = {}) =>
+    validateEvent(envelope("chat.companion_turn_served_v4", 4, v4(over))).success;
+
+  it("is registered v4 in the chat domain, and v3 stays registered", () => {
+    expect(isEventName("chat.companion_turn_served_v4")).toBe(true);
+    expect(EVENT_REGISTRY["chat.companion_turn_served_v4"]).toMatchObject({
+      version: 4,
+      domain: "chat",
+    });
+    expect(EVENT_REGISTRY["chat.companion_turn_served_v3"]).toMatchObject({ version: 3 });
+  });
+
+  it("accepts every widened intent and the `answered` outcome — which v3 refuses", () => {
+    for (const intent of [
+      ...V2_INTENTS,
+      "download_resume",
+      "resume_menu",
+      "casual",
+      "off_limits",
+      "distress",
+    ]) {
+      expect(
+        ok({ v2_intent: intent, free_category: null, confidence_bucket: null, outcome: "served" }),
+        intent,
+      ).toBe(true);
+    }
+    for (const outcome of [...OUTCOMES, "answered"]) {
+      expect(ok({ outcome }), outcome).toBe(true);
+    }
+    // v3's sets are untouched: neither a new intent nor `answered` parses there.
+    const v3 = { ...turnV2Payload(), intent_source: "llm" };
+    expect(
+      validateEvent(envelope("chat.companion_turn_served_v3", 3, { ...v3, v2_intent: "casual" }))
+        .success,
+    ).toBe(false);
+    expect(
+      validateEvent(envelope("chat.companion_turn_served_v3", 3, { ...v3, outcome: "answered" }))
+        .success,
+    ).toBe(false);
+  });
+
+  it("accepts a v2-path turn with every brain field null (the kill switch)", () => {
+    expect(
+      ok({
+        v2_intent: "edit_resume",
+        outcome: "proposed",
+        free_category: null,
+        reply_language: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("carries a résumé action, a refusal topic and a news ending", () => {
+    expect(
+      ok({
+        v2_intent: "download_resume",
+        outcome: "served",
+        free_category: "resume",
+        resume_action: "download",
+        reply_language: null,
+      }),
+    ).toBe(true);
+    expect(ok({ outcome: "refused", refusal_topic: "legal_medical_financial" })).toBe(true);
+    expect(ok({ news_outcome: "answered", news_source_count: 3 })).toBe(true);
+    expect(ok({ outcome: "served", news_outcome: "capped", news_source_count: 0 })).toBe(true);
+  });
+
+  it("refuses facts that contradict each other", () => {
+    // A category with no classifier bucket; an action off a non-résumé category.
+    expect(ok({ confidence_bucket: null })).toBe(false);
+    expect(ok({ resume_action: "edit" })).toBe(false);
+    // A refusal topic on a turn that did not refuse.
+    expect(ok({ refusal_topic: "news" })).toBe(false);
+    // Tiles without an answered news request, an answered one without tiles, too many tiles.
+    expect(ok({ news_outcome: "no_results", news_source_count: 1 })).toBe(false);
+    expect(ok({ news_outcome: "answered", news_source_count: 0 })).toBe(false);
+    expect(ok({ news_outcome: "answered", news_source_count: 4 })).toBe(false);
+    // A news request with no reply language; the v1 jobs refine still holds.
+    expect(ok({ news_outcome: "unavailable", reply_language: null })).toBe(false);
+    expect(ok({ jobs_scope: null, new_jobs_count: 3 })).toBe(false);
+  });
+
+  it("refuses an out-of-set value and stays STRICT — no worker or model text can ride along", () => {
+    expect(ok({ free_category: "gossip" })).toBe(false);
+    expect(ok({ reply_language: "bhojpuri" })).toBe(false);
+    expect(ok({ resume_action: "print", free_category: "resume" })).toBe(false);
+    for (const smuggle of [
+      { text: "mera naam Ramesh hai" },
+      { reply: "Welder ki salary aam taur par 15-20 hazaar hoti hai." },
+      { news_url: "https://www.thehindu.com/x" },
+    ]) {
+      const result = validateEvent(envelope("chat.companion_turn_served_v4", 4, v4(smuggle)));
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.stage).toBe("payload");
+    }
+  });
+});
+
 describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
   it("accepts the renamed reasons plus `superseded`", () => {
     expect(EVENT_REGISTRY["chat.companion_edit_cancelled_v2"]).toMatchObject({ version: 2, domain: "chat" });

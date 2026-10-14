@@ -44,6 +44,7 @@ describe("freeChatClassify / freeChatReply", () => {
       recent_turns: [],
       mode: "free",
       pending_question: null,
+      surface: "profiling",
     });
     // ADR-0051 R42 — a body with no `language` (an ai-service older than the field) parses, and the
     // label defaults to null: the API's word lists stay in force.
@@ -53,6 +54,7 @@ describe("freeChatClassify / freeChatReply", () => {
       blocked: false,
       ai_metadata: null,
       language: null,
+      resume_action: null,
     });
     expect(fetchMock.mock.calls[0]![0]).toBe("http://ai-service:8000/free-chat/classify");
   });
@@ -75,6 +77,7 @@ describe("freeChatClassify / freeChatReply", () => {
       recent_turns: [],
       mode: "free",
       pending_question: null,
+      surface: "profiling",
     });
     expect(out?.language).toBe("marathi");
   });
@@ -99,6 +102,7 @@ describe("freeChatClassify / freeChatReply", () => {
       recent_turns: [],
       mode: "free",
       pending_question: null,
+      surface: "profiling",
     });
     expect(out).toEqual({
       category: "career",
@@ -106,6 +110,7 @@ describe("freeChatClassify / freeChatReply", () => {
       blocked: false,
       ai_metadata: null,
       language: null,
+      resume_action: null,
     });
   });
 
@@ -123,6 +128,7 @@ describe("freeChatClassify / freeChatReply", () => {
       worker_context: { trade_label: null, experience_bucket: null },
       summary: null,
       reply_language: null,
+      surface: "profiling" as const,
     };
     expect(await ai.freeChatReply(input)).toMatchObject({
       status: "answer",
@@ -144,6 +150,7 @@ describe("freeChatClassify / freeChatReply", () => {
         recent_turns: [],
         mode: "free",
         pending_question: null,
+        surface: "profiling",
       }),
     ).toBeNull();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
@@ -155,6 +162,7 @@ describe("freeChatClassify / freeChatReply", () => {
         worker_context: { trade_label: null, experience_bucket: null },
         summary: null,
         reply_language: null,
+        surface: "profiling" as const,
       }),
     ).toBeNull();
   });
@@ -179,6 +187,7 @@ describe("freeChatClassify / freeChatReply", () => {
         recent_turns: [],
         mode: "free",
         pending_question: null,
+        surface: "profiling",
       });
       const reply = ai.freeChatReply({
         category: "career",
@@ -187,6 +196,7 @@ describe("freeChatClassify / freeChatReply", () => {
         worker_context: { trade_label: null, experience_bucket: null },
         summary: null,
         reply_language: null,
+        surface: "profiling" as const,
       });
       await vi.advanceTimersByTimeAsync(2_400);
       expect(signals[0]?.aborted).toBe(false);
@@ -283,6 +293,7 @@ describe("freeChatNews — ADR-0054 live news", () => {
     worker_context: { trade_label: null, experience_bucket: null },
     worker_ref: "11111111-1111-4111-8111-111111111111",
     reply_language: null,
+    surface: "profiling" as const,
   };
 
   it("posts to /free-chat/news and parses an answer, no_results or a refusal", async () => {

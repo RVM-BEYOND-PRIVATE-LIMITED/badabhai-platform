@@ -12,7 +12,8 @@ export type WorkerNameRead =
 
 /**
  * ONE decision for turning a stored `workers.full_name` token into a {@link WorkerNameRead}, shared
- * by every reader of the worker's own name — `ChatService.readWorkerName` and the free-chat probe
+ * by every reader of the worker's own name — `workerNameSources` (the profiling chat and, since
+ * ADR-0055, the Bada Bhai chat) and the free-chat probe
  * (ADR-0051 §10) — so the two cannot drift on what "no name" and "unreadable" mean.
  *
  * `full_name` is encrypted at rest (TD21). The plaintext is returned, never logged: a caller that

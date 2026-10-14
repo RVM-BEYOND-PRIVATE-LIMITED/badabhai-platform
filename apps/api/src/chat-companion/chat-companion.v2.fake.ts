@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import { ChatCompanionService } from "./chat-companion.service";
 import { V2_CLARIFY, V2_FALTU_COOLDOWN } from "./companion-replies";
+import { distressTurn } from "./v2/companion-brain";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
 
 /**
@@ -12,6 +13,10 @@ import { v2CopyTurn } from "./v2/companion-v2-compose";
  *
  * `faltu` DEFAULTS FALSE, deliberately: the P1 suites must see the phase-1 pipeline unless they
  * opt in, so adding the P2 gate cannot silently change what they are asserting.
+ *
+ * `killSwitch` DEFAULTS TRUE for the same reason (ADR-0055): `CHAT_FREE_CHAT_DISABLED` on is today's
+ * v2 path byte for byte, so every suite written before the free-chat brain stays a regression pin
+ * of that path. The brain's own suites opt in with `killSwitch: false` — production's default.
  */
 
 export const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -76,6 +81,8 @@ export function makeCompanionServiceForV2(opts: {
   precedence?: boolean;
   /** WP6 — what the pending-intent store answers (one-shot in production; the spy is fixed). */
   pendingIntent?: "edit_resume" | "career_talk" | null;
+  /** ADR-0055 — `CHAT_FREE_CHAT_DISABLED`. On by default: the suites pin the v2 path. */
+  killSwitch?: boolean;
 }) {
   const policy = {
     resolve: vi.fn(async () => ({ mode: "companion", profile: PROFILE })),
@@ -108,6 +115,8 @@ export function makeCompanionServiceForV2(opts: {
     handleDirectIntent: vi.fn(
       async (_w: string, _p: unknown, _d: unknown, _i: string) => v2CopyTurn(V2_CLARIFY),
     ),
+    // ADR-0055 — the distress word list's route (before the cool-down and v1).
+    handleDistress: vi.fn(async () => distressTurn()),
   };
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
@@ -120,6 +129,7 @@ export function makeCompanionServiceForV2(opts: {
     CHAT_COMPANION_V2_FALTU_ENABLED: opts.faltu ?? false,
     CHAT_COMPANION_V2_CAREER_ENABLED: opts.career ?? false,
     CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED: opts.precedence ?? false,
+    CHAT_FREE_CHAT_DISABLED: opts.killSwitch ?? true,
   };
   const svc = new ChatCompanionService(
     config as never,
