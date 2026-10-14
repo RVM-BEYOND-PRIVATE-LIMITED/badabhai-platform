@@ -13,6 +13,9 @@ import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../profile_tab/domain/profile_summary.dart';
 import '../../trade_form/domain/trade_form_args.dart' show TierEntry;
+import '../../trade_form/domain/trade_form_models.dart' show TradeForm;
+import '../../trade_form/domain/trade_form_repository.dart';
+import '../domain/resume_form_progress.dart';
 import '../../trade_form/presentation/open_trade_form.dart';
 import '../../profile_tab/domain/profile_summary_repository.dart';
 import 'cubit/resume_cubit.dart';
@@ -99,10 +102,19 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
   /// and two concurrent summary reads would settle in either order.
   bool _summaryLoading = false;
 
+  /// The handed-over trade form's progress — the ONLY input to the
+  /// "FORM ADHOORA HAI" card. Null when there is no form (never handed one,
+  /// or not read yet), which draws no card.
+  ResumeFormProgress? _formProgress;
+
+  /// Guards [_loadFormProgress], for the same overlap reason.
+  bool _formLoading = false;
+
   @override
   void initState() {
     super.initState();
     _loadSummary();
+    _loadFormProgress();
   }
 
   /// Re-reads everything on this screen that another road can change: the
@@ -114,6 +126,28 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
     if (!mounted) return;
     context.read<ResumeCubit>().loadHistory();
     _loadSummary();
+    // A just-finished form must take the card away on the way back.
+    _loadFormProgress();
+  }
+
+  /// Reads `GET /profiling/form` for the card. FAIL-SILENT, and on any failure
+  /// the card is NOT drawn: a résumé list must never be able to fail because
+  /// this optional read did, and "your form is unfinished" is not a claim to
+  /// make on a guess. A 404 (never handed a form) reads as null — no card.
+  Future<void> _loadFormProgress() async {
+    if (_formLoading) return;
+    if (!locator.isRegistered<TradeFormRepository>()) return;
+    _formLoading = true;
+    try {
+      final TradeForm? form = await locator<TradeFormRepository>().loadForm();
+      if (!mounted) return;
+      setState(() => _formProgress =
+          form == null ? null : ResumeFormProgress.fromForm(form));
+    } catch (_) {
+      if (mounted) setState(() => _formProgress = null);
+    } finally {
+      _formLoading = false;
+    }
   }
 
   Future<void> _loadSummary() async {
@@ -187,8 +221,14 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
     final double width = MediaQuery.sizeOf(context).width;
     final EdgeInsets side = KitInsets.list(width);
     final ProfileSummary? summary = _summary;
-    final ProfileSummary? draft =
-        summary != null && summary.missingFields.isNotEmpty ? summary : null;
+    // `mera_111.jpeg` — shown ONLY when the worker was handed a trade form and
+    // left part of it unanswered. Not the profile-strength slots: those are
+    // read from a record the form never writes, so they kept this card up for
+    // brand-new workers and straight after a finished walk (see
+    // [ResumeFormProgress]).
+    final ResumeFormProgress? form = _formProgress;
+    final ResumeFormProgress? draft =
+        form != null && form.isIncomplete ? form : null;
     return ListView(
       padding: EdgeInsets.fromLTRB(side.left, 14, side.right, 28),
       children: <Widget>[
@@ -221,11 +261,12 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
             const SizedBox(height: 12),
           ],
         ],
-        // The unfinished-profile card. Shown ONLY when the server itself
-        // reports missing fields — never as a permanent nag.
+        // The unfinished-FORM card. Shown ONLY when the server's own form still
+        // has unanswered questions — never as a permanent nag.
         if (draft != null) ...<Widget>[
           ResumeDraftCard(
-            summary: draft,
+            progress: draft,
+            tradeLabel: summary?.tradeLabel,
             // THROUGH `openTradeFormWithTier`, like every other road into the
             // form (#1785). This card pushed `Routes.tradeForm` directly, so a
             // worker the server answered `needs_choice` for went straight into
