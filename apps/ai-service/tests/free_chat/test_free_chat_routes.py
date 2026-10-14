@@ -194,6 +194,46 @@ def test_real_call_rides_back_exactly_as_the_router_measured_it(
     assert reply["status"] == ("answer" if real_verdict else "refuse")
 
 
+def test_a_real_classification_returns_its_language_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADR-0051 §11 R42: the label rides back as parsed, beside a real verdict's metadata."""
+    meta = _meta("profiling_free_classify", real_call=True)
+    payload = '{"category": "career", "confidence": 0.9, "language": "marathi"}'
+    monkeypatch.setattr(free_chat_router.router, "run", _fake_run(payload, meta=meta))
+    body = client.post(
+        "/free-chat/classify", json=_classify({"text": "cam programmer kiti kamai karto"})
+    ).json()
+    assert (body["category"], body["language"]) == ("career", "marathi")
+    assert _is_real_verdict(body)
+
+
+def test_an_unlisted_label_rides_back_as_null(monkeypatch: pytest.MonkeyPatch) -> None:
+    meta = _meta("profiling_free_classify", real_call=True)
+    payload = '{"category": "career", "confidence": 0.9, "language": "bengali"}'
+    monkeypatch.setattr(free_chat_router.router, "run", _fake_run(payload, meta=meta))
+    body = client.post("/free-chat/classify", json=_classify()).json()
+    assert (body["category"], body["language"]) == ("career", None)
+
+
+@pytest.mark.parametrize(("real_call", "success"), [(False, True), (True, False)])
+def test_the_mock_and_a_failed_call_name_no_language(
+    monkeypatch: pytest.MonkeyPatch, real_call: bool, success: bool
+) -> None:
+    """Unarmed, or every provider failed: the router serves the mock, which names no language,
+    so the API keeps today's word-list detection."""
+    meta = _meta("profiling_free_classify", real_call=real_call, success=success)
+    monkeypatch.setattr(
+        free_chat_router.router, "run", _fake_run(classify_logic.MOCK_RESPONSE, meta=meta)
+    )
+    body = client.post("/free-chat/classify", json=_classify()).json()
+    assert body["language"] is None
+    assert not _is_real_verdict(body)
+
+
+def test_the_unarmed_router_names_no_language() -> None:
+    """The REAL router, unarmed (conftest): the mock's answer carries no language."""
+    assert client.post("/free-chat/classify", json=_classify()).json()["language"] is None
+
+
 def test_the_routes_run_their_own_task_types(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: list[dict] = []
     monkeypatch.setattr(free_chat_router.router, "run", _fake_run("{}", captured))
@@ -217,6 +257,8 @@ def test_classify_blocks_a_message_before_the_router(monkeypatch: pytest.MonkeyP
         "confidence": 0.0,
         "blocked": True,
         "ai_metadata": None,
+        # R42: no provider read the message, so no language: the API's word lists decide.
+        "language": None,
     }
 
 

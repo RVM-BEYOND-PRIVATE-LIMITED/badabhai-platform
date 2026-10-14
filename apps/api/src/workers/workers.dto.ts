@@ -223,7 +223,11 @@ export interface WorkerProfileSummary {
   trade: WorkerProfileSummaryTrade;
   /** First of `location_preference.preferred_cities`, `null` when absent/empty. */
   city: string | null;
-  /** Recomputed on read (countFields-equivalent); `0` when no profile. Never stored. */
+  /**
+   * Recomputed on read over the profile row plus the worker's own form answers (#2201); `0` when
+   * no profile. Never stored. NOTE: the row's skills/machines score per item, so this can exceed
+   * `strength_max` (pre-existing); a form-filled group scores +1.
+   */
   strength: number;
   /**
    * Max possible strength (always 9 — the 9 field groups treated as binary, each

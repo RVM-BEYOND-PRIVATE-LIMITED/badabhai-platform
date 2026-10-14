@@ -315,6 +315,33 @@ describe("the reply language in the envelope (ADR-0051 §11)", () => {
   });
 });
 
+describe("the owed nudge (#2242) — free mode only, absent when nothing is owed", () => {
+  const free = enterMode(greetingState(), "free", "chip", T0);
+
+  it("round-trips in free mode and survives the one-message lapse", () => {
+    const owed: FreeChatState = { ...free, nudgeOwed: true };
+    expect(narrowFreeChat(JSON.parse(JSON.stringify(owed)))).toEqual(owed);
+    expect(lapsedOf(owed).nudgeOwed).toBe(true);
+  });
+
+  it("an envelope written before it parses with no key at all", () => {
+    expect("nudgeOwed" in narrowFreeChat(JSON.parse(JSON.stringify(free)))!).toBe(false);
+  });
+
+  it("reads only a literal true, and only in free mode", () => {
+    for (const nudgeOwed of [false, "true", 1, null]) {
+      expect("nudgeOwed" in narrowFreeChat({ ...free, nudgeOwed })!).toBe(false);
+    }
+    const resume = { ...enterMode(null, "resume", "chip", T0), nudgeOwed: true };
+    expect("nudgeOwed" in narrowFreeChat(resume)!).toBe(false);
+  });
+
+  it("is dropped by a move into résumé mode", () => {
+    const owed: FreeChatState = { ...free, nudgeOwed: true };
+    expect("nudgeOwed" in enterMode(owed, "resume", "chip", T0)).toBe(false);
+  });
+});
+
 describe("the kept language's durable record — conversation_state.free_chat_language", () => {
   const SESSION = "33333333-3333-4333-8333-333333333333";
 

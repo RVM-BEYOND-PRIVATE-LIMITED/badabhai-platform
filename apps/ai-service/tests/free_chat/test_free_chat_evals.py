@@ -9,13 +9,19 @@ meaningful, never an accuracy:
   3. THE CLI, against a fake transport: it sends the mode and the question, applies the API's
      confidence floor, reports per category and p95, never fails on accuracy, and still refuses
      a run that is not evidence (a mock, a failed call, a fallback model).
+  4. THE LANGUAGE SET (§11 R42, #2240): the device lines with the owner's labels, every regional
+     language in Latin letters and its own script, Devanagari Marathi against Hindi, short lines
+     that are not the prompt's examples; its scorer; and ``--language``, which posts each line
+     alone in free mode and reads the label without the category's floor.
 
 Fabricated eval text only.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import get_args
@@ -24,9 +30,10 @@ import httpx
 import pytest
 
 from app.companion import eval_cli as call_layer
-from app.contracts import FreeChatCategory, FreeChatClassifyMode
+from app.contracts import FreeChatCategory, FreeChatClassifyMode, FreeChatReplyLanguage
 from app.free_chat import eval_cli
 from app.free_chat import eval_free_classify_gold as gold
+from app.free_chat import eval_free_language_gold as language_gold
 from app.free_chat.prompts import CLASSIFY_SYSTEM_PROMPT
 
 _REPO = Path(__file__).resolve().parents[4]
@@ -43,12 +50,13 @@ def test_the_categories_and_modes_are_the_contracts() -> None:
 
 
 def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
-    # About sixty Hindi/Hinglish/English lines, plus the regional lines (ADR-0051 §9) and the
-    # improvement loop's held-out round-1 lines (§10, #2128).
-    blocks = (gold.REGIONAL_ROWS, gold.ROUND1_ROWS)
+    # About sixty Hindi/Hinglish/English lines, plus the regional lines (ADR-0051 §9), the
+    # improvement loop's held-out round-1 lines and its masked-sample rewrites (§10, #2128).
+    blocks = (gold.REGIONAL_ROWS, gold.ROUND1_ROWS, gold.SAMPLE_ROWS)
     assert 55 <= len(gold.CASES) - sum(len(block) for block in blocks) <= 70
     assert 15 <= len(gold.REGIONAL_ROWS) <= 25
     assert 30 <= len(gold.ROUND1_ROWS) <= 45
+    assert 5 <= len(gold.SAMPLE_ROWS) <= 15
     assert all(isinstance(case, gold.Case) for case in gold.CASES)
     counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(gold.CATEGORIES)
@@ -60,8 +68,9 @@ def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
 
 def test_resume_mode_is_about_twenty_lines_with_answers_and_off_topic() -> None:
     resume_mode = [case for case in gold.CASES if case.mode == "resume"]
-    # About twenty, plus the regional and round-1 guards (a "not now" that answers the question).
-    assert 18 <= len(resume_mode) <= 28
+    # About twenty, plus the regional and round-1 guards (a "not now" that answers the question)
+    # and the masked sample's pay question mid-interview.
+    assert 18 <= len(resume_mode) <= 32
     answers = [case for case in resume_mode if case.category == "resume"]
     off_topic = {case.category for case in resume_mode if case.category != "resume"}
     assert len(answers) >= 10
@@ -123,6 +132,8 @@ def test_recent_turns_are_well_formed_and_carry_reviewed_bot_lines() -> None:
         gold.OFF_LIMITS_LINE,
         gold.LATER_ACK_LINE,
         gold.FREE_CLARIFY_LINE,
+        gold.REPLY_FALLBACK_LINE,
+        gold.Q_OPENER,
     ):
         assert line in served, line
 
@@ -227,6 +238,22 @@ def test_round1_lines_are_not_copies_of_the_baseline_misses() -> None:
         tokens = set(row[0].casefold().split())
         for miss, miss_tokens in words.items():
             assert not tokens or not (tokens <= miss_tokens or miss_tokens <= tokens), (row, miss)
+
+
+def test_the_masked_sample_rewrites_keep_the_struggled_shape() -> None:
+    """Round 1's masked production sample (2026-10-14): the struggled lines were career questions
+    the classifier read right. The rewrites keep that shape measured: comparisons, pay and
+    software questions, a re-ask after the fallback line and after an answer, and a pay question
+    mid-interview, which is career (résumé mode deflects it), never a résumé answer."""
+    cases = [gold.Case(*row) for row in gold.SAMPLE_ROWS]
+    assert {case.category for case in cases} == {"career"}
+    assert {case.mode for case in cases} == set(gold.MODES)
+    last_bot = {case.turns[-1][1] for case in cases if case.turns}
+    assert gold.REPLY_FALLBACK_LINE in last_bot
+    assert len(last_bot) >= 2  # and after an answer, not only after the fallback line
+    (mid_interview,) = [case for case in cases if case.mode == "resume"]
+    assert mid_interview.question == gold.Q_OPENER
+    assert all(gold.Case(*row) in gold.CASES for row in gold.SAMPLE_ROWS)
 
 
 def test_every_regional_language_asks_for_a_job_in_both_scripts() -> None:
@@ -559,3 +586,201 @@ def test_the_api_timeout_is_the_api_clients_own_once_it_calls_the_route() -> Non
         "timeout was found: update this pattern to the client's call shape"
     )
     assert {float(ms.replace("_", "")) for ms in found} == {eval_cli.API_TIMEOUT_MS}
+
+
+# ── 4. the language set and --language (ADR-0051 §11 R42, #2240) ─────────────────────────────
+
+
+def test_the_language_labels_are_the_contracts() -> None:
+    assert language_gold.LANGUAGES == get_args(FreeChatReplyLanguage)
+
+
+def test_the_language_set_is_about_eighty_to_a_hundred_unique_lines() -> None:
+    assert 80 <= len(language_gold.CASES) <= 100
+    texts = [case.text for case in language_gold.CASES]
+    assert len(set(texts)) == len(texts), "duplicate lines"
+    assert {case.language for case in language_gold.CASES} == set(language_gold.LANGUAGES)
+
+
+def test_the_device_lines_are_in_with_the_owners_labels() -> None:
+    labels = {case.text: case.language for case in language_gold.CASES}
+    assert labels["cam programmer kitee kamai karato?"] == "marathi"
+    assert labels["mala adhik utpanna denara ekhada navin vyavsay shikayacha aahe."] == "marathi"
+    assert labels["cnc turner kitna kamata hai yana"] == "hinglish"
+    assert len(language_gold.DEVICE_LINES) == 3
+
+
+def test_every_regional_language_is_in_latin_and_its_own_script() -> None:
+    counts = Counter(
+        (case.language, language_gold.script_of(case.text)) for case in language_gold.CASES
+    )
+    for language in ("marathi", "gujarati", "kannada", "telugu", "tamil", "hinglish"):
+        assert counts[(language, "latin")] >= 4, language
+        assert counts[(language, "native")] >= 4, language
+    assert counts[("english", "latin")] >= 5
+    # Latin Marathi is the device test's case: the largest slice.
+    assert counts[("marathi", "latin")] >= 12
+
+
+def test_each_native_line_is_in_its_languages_script() -> None:
+    blocks = {
+        "hinglish": "DEVANAGARI",
+        "marathi": "DEVANAGARI",
+        "gujarati": "GUJARATI",
+        "kannada": "KANNADA",
+        "telugu": "TELUGU",
+        "tamil": "TAMIL",
+    }
+    for case in language_gold.CASES:
+        letters = {
+            unicodedata.name(ch, "").split()[0]
+            for ch in case.text
+            if ch.isalpha() and not unicodedata.name(ch, "").startswith("LATIN")
+        }
+        if letters:
+            assert letters == {blocks[case.language]}, case.text
+
+
+def test_devanagari_marathi_and_hindi_ask_the_same_questions() -> None:
+    """One script, two labels: the five Devanagari Marathi lines have Hindi twins."""
+    native = [c for c in language_gold.CASES if language_gold.script_of(c.text) == "native"]
+    devanagari = [c for c in native if re.search("[ऀ-ॿ]", c.text)]
+    assert Counter(c.language for c in devanagari) == {"marathi": 5, "hinglish": 5}
+
+
+def test_the_short_lines_are_hinglish_and_not_the_prompts_examples() -> None:
+    """Too short or unsure is hinglish (R42); the prompt quotes "hello" and "yes" for that rule,
+    so the set measures the rule on other words, and echoes no quoted example at all."""
+    quoted = {q.casefold() for q in re.findall(r'"([^"]+)"', CLASSIFY_SYSTEM_PROMPT)}
+    assert {"hello", "yes", "kiti", "karto"} <= quoted  # non-vacuous
+    assert [c.text for c in language_gold.CASES if c.text.casefold() in quoted] == []
+    short = [c for c in language_gold.CASES if len(c.text.split()) == 1]
+    assert len(short) >= 5
+    assert all(c.language == "hinglish" for c in short)
+
+
+def test_the_language_set_carries_no_bidi_or_invisible_character() -> None:
+    for case in language_gold.CASES:
+        assert not any(unicodedata.category(ch) == "Cf" for ch in case.text), case.text
+
+
+def test_every_language_line_is_a_valid_free_classify_request() -> None:
+    from app.contracts import FreeChatClassifyInput
+
+    for case in language_gold.CASES:
+        FreeChatClassifyInput(text=case.text, mode="free", pending_question=None, recent_turns=[])
+
+
+def test_the_language_json_is_the_set() -> None:
+    rows = json.loads(language_gold.as_json())
+    assert rows == [{"text": c.text, "language": c.language} for c in language_gold.CASES]
+
+
+def test_a_perfect_labeller_scores_one_and_none_is_a_miss() -> None:
+    perfect = language_gold.evaluate(lambda case: case.language)
+    assert (perfect.correct, perfect.accuracy, perfect.misses) == (perfect.total, 1.0, [])
+    assert all(c == t for c, t in perfect.per_script.values())
+    none = language_gold.evaluate(lambda _case: None)
+    assert none.correct == 0
+    assert none.predicted == {language_gold.UNAVAILABLE: len(language_gold.CASES)}
+
+
+def test_a_hinglish_labeller_scores_the_hinglish_lines_and_lists_every_miss() -> None:
+    score = language_gold.evaluate(lambda _case: "hinglish")
+    hinglish = sum(c.language == "hinglish" for c in language_gold.CASES)
+    assert score.correct == hinglish
+    assert len(score.misses) == len(language_gold.CASES) - hinglish
+    assert score.per_script[("marathi", "latin")][0] == 0
+    assert (
+        "[latin] 'cam programmer kitee kamai karato?': expected marathi, got hinglish"
+        in score.misses
+    )
+    assert score.confusion["marathi"] == {"hinglish": 23}
+
+
+def _language_verdict(language: object, output_tokens: int = 30, **meta) -> dict:
+    return {
+        "category": "career",
+        "confidence": 0.9,
+        "blocked": False,
+        "language": language,
+        "ai_metadata": {**_meta(**meta), "output_tokens": output_tokens},
+    }
+
+
+def _small_language_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        language_gold,
+        "CASES",
+        [
+            language_gold.Case("cam programmer kitee kamai karato?", "marathi"),
+            language_gold.Case("मुझे वेल्डिंग सीखनी है", "hinglish"),
+            language_gold.Case("hmm", "hinglish"),
+        ],
+    )
+
+
+def test_the_language_cli_posts_each_line_alone_in_free_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _small_language_set(monkeypatch)
+    service = FakeService(monkeypatch, lambda _p, _b: _language_verdict("marathi"))
+    assert eval_cli.main(["--base-url", _BASE, "--language", "--expect-model", _PRIMARY]) == 0
+    assert service.calls[0] == (
+        "/free-chat/classify",
+        {
+            "text": "cam programmer kitee kamai karato?",
+            "recent_turns": [],
+            "mode": "free",
+            "pending_question": None,
+        },
+    )
+    out = capsys.readouterr().out
+    assert "free-chat language label (baseline, no bar): 1/3 = 33.3% overall" in out
+    assert re.search(r"language marathi\s+1/1 = 100\.0%", out)
+    assert "Latin-letter Marathi: 1/1 = 100.0%" in out
+    assert "hinglish missed as: marathi (2)" in out
+    assert "output tokens: max 30 of the route's cap 64 (3 answers)" in out
+    assert "MISS [native] 'मुझे वेल्डिंग सीखनी है': expected hinglish, got marathi" in out
+    assert "RESULT: PASS" in out
+
+
+def test_the_language_cli_ignores_the_floor_but_not_a_blocked_late_or_null_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The floor gates the CATEGORY; the label rides any real verdict. A blocked, late or null
+    one is no label (the API's word lists decide)."""
+    _small_language_set(monkeypatch)
+    late_ms = eval_cli.API_TIMEOUT_MS + 1
+
+    def answer(_path: str, body: dict):
+        if body["text"].startswith("cam"):
+            return {**_language_verdict("marathi"), "confidence": 0.2}  # below the floor: kept
+        if body["text"] == "hmm":
+            return _language_verdict(None)
+        return _language_verdict("hinglish"), late_ms
+
+    FakeService(monkeypatch, answer)
+    run = eval_cli.run_free_language_eval(_BASE)
+    assert run.score.correct == 1
+    assert run.score.predicted == {language_gold.UNAVAILABLE: 2, "marathi": 1}
+    assert run.output_tokens == [30, 30, 30]  # a late answer still spent its tokens
+
+
+def test_a_mocked_language_run_is_not_evidence(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _small_language_set(monkeypatch)
+    FakeService(monkeypatch, lambda _p, _b: _language_verdict(None, real_call=False))
+    assert eval_cli.main(["--base-url", _BASE, "--language"]) == 1
+    assert "CONTAMINATED" in capsys.readouterr().out
+
+
+def test_the_category_report_prints_the_output_tokens_against_the_cap(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _small_set(monkeypatch)
+    FakeService(monkeypatch, lambda _p, _b: _language_verdict("hinglish", output_tokens=31))
+    assert eval_cli.main(["--base-url", _BASE]) == 0
+    assert "output tokens: max 31 of the route's cap 64 (3 answers)" in capsys.readouterr().out
+    assert eval_cli.output_token_cap() == 64

@@ -63,6 +63,7 @@ const cost = (
   latency: number,
   inr: number,
   success = true,
+  model = "fabricated-model",
 ) =>
   event<"ai.cost_recorded">({
     ai_call_id: id(next + 4000),
@@ -71,7 +72,7 @@ const cost = (
     worker_id: id(501),
     session_id: id(701),
     task_type: task,
-    model: "fabricated-model",
+    model,
     provider: "fabricated",
     real_call: true,
     tokens_in: 10,
@@ -159,6 +160,8 @@ function data(): FreeChatProbeData {
       cost("profiling_free_classify", 400, 0.01),
       cost("profiling_free_classify", 900, 0.01),
       cost("profiling_free_classify", 1500, 0.02),
+      // Served by the route's fallback (#2170): its own row, so R32 can read the served model.
+      cost("profiling_free_classify", 1700, 0.03, true, "a-fabricated-fallback"),
       cost("profiling_free_reply", 2000, 0.05, false),
     ]),
   };
@@ -244,10 +247,21 @@ describe("small helpers", () => {
     ).toBe(95);
   });
 
-  it("groups the free chat's AI spend by task × real_call × success", () => {
+  it("groups the free chat's AI spend by task × served model × real_call × success", () => {
     expect(summarizeCosts(data().costs.events)).toEqual([
       {
         task: "profiling_free_classify",
+        model: "a-fabricated-fallback",
+        realCall: true,
+        success: true,
+        n: 1,
+        p50Ms: 1700,
+        p95Ms: 1700,
+        costInr: 0.03,
+      },
+      {
+        task: "profiling_free_classify",
+        model: "fabricated-model",
         realCall: true,
         success: true,
         n: 3,
@@ -257,6 +271,7 @@ describe("small helpers", () => {
       },
       {
         task: "profiling_free_reply",
+        model: "fabricated-model",
         realCall: true,
         success: false,
         n: 1,
@@ -298,9 +313,15 @@ describe("the report", () => {
     expect(text).toContain("changes=3");
     expect(text).toMatch(/-\s+\| marathi \| accepted \| 2/);
     expect(text).toMatch(/marathi \| -\s+\| declined \| 1/);
+    // The served model is a column (ADR-0051 R32): a fallback-served call is its own row.
+    expect(text).toMatch(/task\s+\| model\s+\| real_call \| success/);
     expect(text).toMatch(
-      /profiling_free_classify \| true\s+\| true\s+\| 3 \| 900\s+\| 1500\s+\| 0\.04/,
+      /profiling_free_classify \| a-fabricated-fallback \| true\s+\| true\s+\| 1 \| 1700\s+\| 1700\s+\| 0\.03/,
     );
+    expect(text).toMatch(
+      /profiling_free_classify \| fabricated-model\s+\| true\s+\| true\s+\| 3 \| 900\s+\| 1500\s+\| 0\.04/,
+    );
+    expect(text).toContain("calls=5");
   });
 
   it("prints part B with ordinals, masked lines and the drop tally — and NO id anywhere", () => {

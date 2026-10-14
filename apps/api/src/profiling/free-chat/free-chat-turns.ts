@@ -72,7 +72,7 @@ import {
   stampLastTurn,
 } from "../turn-shapes";
 import { screenFreeChatAnswer } from "./free-chat-output.validator";
-import { detectReplyLanguage, parseLanguageRequest } from "./free-chat-language";
+import { messageLanguage, parseLanguageRequest } from "./free-chat-language";
 import { NEWS_TURN_OUTCOMES, newsServedOf, type FreeChatNewsResolution } from "./free-chat-news";
 import {
   FREE_CHAT_COPY,
@@ -95,12 +95,15 @@ import {
 } from "./free-chat.copy";
 import {
   confidenceBucketOf,
+  isBareYesNo,
   isFreeChatChip,
   isResumeChip,
+  isYesNoQuestion,
   matchesDistress,
   matchesOfferedOption,
   postClassifyFree,
   postClassifyResume,
+  postDistressCheck,
   preClassifyFree,
   preClassifyResume,
   readLanguageAnswer,
@@ -258,7 +261,8 @@ export class FreeChatTurns {
    * RÉSUMÉ MODE — today's interview, with an off-topic message deflected (ADR-0051 §3.2, the résumé
    * table). Distress first; then every message today's interview already reads deterministically
    * passes with no model call (the skip list); then the classifier, whose UNAVAILABLE answer also
-   * passes — an AI outage never degrades the interview.
+   * passes — an AI outage never degrades the interview. A typed yes/no that carries other words is
+   * classified too, but only a distress verdict changes what happens to it (#2226).
    */
   private async routeResumeMode(t: FreeChatTurn, state: FreeChatState): Promise<FreeChatRouted> {
     const pass = (): FreeChatRouted => ({
@@ -294,7 +298,9 @@ export class FreeChatTurns {
 
     const verdict = await this.classifyMemo(t, "resume", pending);
     const facts = verdictFacts(verdict);
-    const action = postClassifyResume(verdict);
+    // #2226 — a typed yes/no carrying other words: only a distress verdict changes its outcome.
+    const action =
+      pre.kind === "distress_check" ? postDistressCheck(verdict) : postClassifyResume(verdict);
     switch (action.kind) {
       case "pass":
         return pass();
@@ -355,7 +361,8 @@ export class FreeChatTurns {
    * the cool-down, the cap and the abuse lexicon keep their precedence: a pending ask's answer,
    * then a BARE request (no classifier call), then the classifier for everything else — and a
    * classified casual or career reply is written in the requested language (with the ask), else
-   * the kept language, else the message's own.
+   * the kept language, else the message's own — which this turn's verdict names (R42,
+   * `messageLanguage`), with the word lists as the backup.
    */
   private async routeFreeMode(t: FreeChatTurn, entering: FreeChatState): Promise<FreeChatRouted> {
     const { text, now } = t.input;
@@ -509,7 +516,7 @@ export class FreeChatTurns {
           facts,
           requested !== null
             ? askPlan(requested.language, keptLanguageOf(current))
-            : followPlan(keptLanguageOf(current), text),
+            : followPlan(keptLanguageOf(current), text, verdict),
         );
       case "fixed":
         return this.serveFreeLine(
@@ -532,6 +539,7 @@ export class FreeChatTurns {
     pending: FreeChatHeldTurn | null,
   ): ResumeSkipFacts {
     const env = t.envelope;
+    const typedAnswer = isTypedAnswer(t.input.text, t.askedItem);
     return {
       capped: t.capped,
       pendingOffer:
@@ -544,7 +552,9 @@ export class FreeChatTurns {
       gateOpen: env.llmGateOpen || env.generalRoad.gateOpen,
       offeredOption: matchesOfferedOption(t.input.text, env.lastTurn?.options ?? []),
       lexiconClass: classifyUtterance(t.input.text).cls,
-      typedAnswer: isTypedAnswer(t.input.text, t.askedItem),
+      typedAnswer,
+      typedAnswerCarriesWords:
+        typedAnswer && isYesNoQuestion(t.askedItem) && !isBareYesNo(t.input.text),
       hasPendingQuestion: pending !== null,
       asideCapReached: state.asides >= FREE_CHAT_ASIDE_CAP,
     };
@@ -656,7 +666,8 @@ export class FreeChatTurns {
    * A casual or career message (ADR-0051 §3.2, rules 6-7): the model's reply through the
    * deterministic gate, its refusal as reviewed copy, or the fallback line. The "Resume banayein"
    * chip is always attached, and every third casual reply carries the nudge (R9) — except the reply
-   * right after a résumé offer (#2172, see {@link followsResumeOffer}).
+   * right after a résumé offer (#2172, see {@link followsResumeOffer}), and a reply that already
+   * asks a question, which holds the nudge for the next casual reply that does not (#2242).
    *
    * ADR-0051 §11 — written in `plan.language`. When the plan carries an ASK (an explicit request for
    * a language the worker does not keep yet, R41), an ANSWERED reply is followed by the fixed line
@@ -721,11 +732,20 @@ export class FreeChatTurns {
     // count still moves and the nudge is not re-owed: the next one rides the next multiple, as if
     // the counter had been reset — so a run with no offer in it keeps the cadence exactly. NOR
     // BESIDE THE LANGUAGE ASK (§11): one appended question, and its chips are the ask's.
-    const nudge =
-      ask === null &&
+    //
+    // NOR ON A REPLY THAT ALREADY ASKS (#2242, owner ruling 2026-10-14): the nudge is a question,
+    // and one bubble asks one. Unlike the two rules above this one HOLDS the nudge rather than
+    // dropping it — `nudgeOwed` carries it to the next casual reply that asks nothing, and a career
+    // turn in between leaves it owed. Any "?" in a line counts, not only on the last line: the gate
+    // allows one "?" anywhere, so the last line is not the only place a question can sit.
+    const nudgeDue =
       category === "casual" &&
-      casualReplies % FREE_CHAT_NUDGE_EVERY === 0 &&
-      !followsResumeOffer(t.envelope);
+      (casualReplies % FREE_CHAT_NUDGE_EVERY === 0 || state.nudgeOwed === true);
+    const nudgeBarred = ask !== null || followsResumeOffer(t.envelope);
+    const replyAsks = screened.answer.lines.some((line) => line.includes("?"));
+    const nudge = nudgeDue && !nudgeBarred && !replyAsks;
+    const nudgeOwed =
+      category === "casual" ? nudgeDue && !nudgeBarred && replyAsks : state.nudgeOwed === true;
     const lines =
       ask !== null
         ? [...screened.answer.lines, languageAskLine(ask).latin]
@@ -743,13 +763,16 @@ export class FreeChatTurns {
       // MODEL-WRITTEN: never read aloud, and no Devanagari twin exists for it (R17).
       readAloud: false,
     };
+    const { nudgeOwed: _wasOwed, ...carried } = state;
     const next: FreeChatState = {
-      ...state,
+      ...carried,
       casualReplies,
       // §11 — a bare request on the NEXT turn re-answers in this reply's category.
       lastReplyCategory: category,
       lastServed: "answered",
       ...(ask === null ? {} : { language: { kept: keptLanguageOf(state), offer: ask } }),
+      // #2242 — absent, never `false`, when nothing is owed: the envelope stays as it was before.
+      ...(nudgeOwed ? { nudgeOwed: true as const } : {}),
     };
     return this.serveAside(
       t,
@@ -1232,7 +1255,7 @@ type ServedExtra = Partial<
 /**
  * The language ONE model reply is written in, and whether the reply then ASKS to keep it (R41).
  * Precedence: an explicit request in the message (bare, or classified casual / career), then the
- * kept language, then the message's own.
+ * kept language, then the message's own (the classifier's label, else the word lists — R42).
  */
 interface ReplyLanguagePlan {
   readonly language: FreeChatReplyLanguage;
@@ -1251,9 +1274,16 @@ function askPlan(
   return { language: requested, ask: requested === kept ? null : requested };
 }
 
-/** No request: the kept language, else the language of the worker's message (R40). No ask. */
-function followPlan(kept: FreeChatReplyLanguage | null, text: string): ReplyLanguagePlan {
-  return { language: kept ?? detectReplyLanguage(text), ask: null };
+/**
+ * No request: the kept language, else the language of the worker's message (R40) as
+ * {@link messageLanguage} reads it — the classifier's label where code is not certain (R42). No ask.
+ */
+function followPlan(
+  kept: FreeChatReplyLanguage | null,
+  text: string,
+  verdict: FreeChatVerdict,
+): ReplyLanguagePlan {
+  return { language: kept ?? messageLanguage(text, verdict), ask: null };
 }
 
 /** The ask's two chips: "Haan, {Language} mein" · "Nahi". */
@@ -1574,7 +1604,11 @@ function isTypedAnswer(text: string, item: QuestionPackItem | null): boolean {
     hasFieldNormalizer(item.target_field) ||
     item.answer_type === "number" ||
     item.answer_type === "boolean";
-  return typed && captureAnswer(text, item).values.length > 0;
+  if (!typed) return false;
+  // #2233 — a value READ and refused by its field's bound ("2050" for the training year) is still
+  // a typed answer: the interview re-asks it deterministically, with no classifier call.
+  const capture = captureAnswer(text, item);
+  return capture.values.length > 0 || capture.outOfRange;
 }
 
 /**

@@ -215,6 +215,8 @@ interface WorldOpts {
    * another row), or "throws" for a read that fails. Absent: none on file.
    */
   keptLanguage?: FreeChatReplyLanguage | "throws";
+  /** The universal pack the registry serves. Absent: {@link UNIVERSAL_PACK}. */
+  universal?: QuestionPack;
 }
 
 /** ADR-0051 §11 — an earlier session of the same worker, carrying a kept language. */
@@ -267,7 +269,7 @@ function makeWorld(opts: WorldOpts = {}) {
     }),
   };
   const registry = {
-    loadUniversal: vi.fn(async () => UNIVERSAL_PACK),
+    loadUniversal: vi.fn(async () => opts.universal ?? UNIVERSAL_PACK),
     loadPinned: vi.fn(async () => null),
     resolveForOccupation: vi.fn(async () => null),
   };
@@ -1159,17 +1161,18 @@ describe("résumé mode — a deflection re-serves the pending question and spen
   });
 });
 
-describe("résumé mode — the skip list asks no model", () => {
-  async function onQuestion(world: ReturnType<typeof makeWorld>, upTo: "years" | "tools") {
-    await inResumeMode(world);
-    world.classifyAs(verdict("resume"), verdict("resume"));
-    await world.say("main welder hoon");
-    const next = await world.say("welder");
-    expect(next.questionKey).toBe(YEARS.question_key);
-    if (upTo === "tools") await world.say("5 saal");
-    world.ai.freeChatClassify.mockClear();
-  }
+/** Résumé mode with a pack question on screen: the number (YEARS) or the yes/no (TOOLS). */
+async function onQuestion(world: ReturnType<typeof makeWorld>, upTo: "years" | "tools") {
+  await inResumeMode(world);
+  world.classifyAs(verdict("resume"), verdict("resume"));
+  await world.say("main welder hoon");
+  const next = await world.say("welder");
+  expect(next.questionKey).toBe(YEARS.question_key);
+  if (upTo === "tools") await world.say("5 saal");
+  world.ai.freeChatClassify.mockClear();
+}
 
+describe("résumé mode — the skip list asks no model", () => {
   it("a typed number for a number question", async () => {
     const world = makeWorld();
     await onQuestion(world, "years");
@@ -1212,6 +1215,123 @@ describe("résumé mode — the skip list asks no model", () => {
       to: "resume",
       trigger: "locked_at_open",
     });
+  });
+});
+
+// #2226 — a typed yes/no that carries other words keeps its skip, behind a distress check: the
+// classifier runs, and only a distress verdict changes what happens to the answer.
+describe("résumé mode — a typed yes/no carrying other words is checked for distress (#2226)", () => {
+  const toolsAnswer = (world: ReturnType<typeof makeWorld>) =>
+    world.envelope().answerMap.find((r) => r.question_key === TOOLS.question_key);
+
+  it.each(["haan marna hai", "haan mar jaunga", "nahi jeena", "हाँ मरना है"])(
+    "%j with a distress verdict gets the helpline, and nothing is stored",
+    async (text) => {
+      const world = makeWorld();
+      await onQuestion(world, "tools");
+      world.classifyAs(verdict("distress", 0.3));
+      const turn = await world.say(text);
+      expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+      expect(turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+      expect(toolsAnswer(world)).toBeUndefined();
+      expect(world.emitted("chat.free_chat_turn_served").at(-1)!.payload).toMatchObject({
+        mode: "resume",
+        decided_by: "classifier",
+        category: "distress",
+        outcome: "fixed_line",
+      });
+      // The question is still held: the worker's next bare answer answers it.
+      const next = await world.say("haan");
+      expect(toolsAnswer(world)?.value_normalized).toBe(true);
+      expect(next.questionKey).toBe(CITY.question_key);
+    },
+  );
+
+  it.each([
+    ["haan", true],
+    ["haan ji", true],
+    ["haan karta hoon", true],
+    ["nahi", false],
+  ] as const)("%j answers the question with no classifier call", async (text, value) => {
+    const world = makeWorld();
+    await onQuestion(world, "tools");
+    const turn = await world.say(text);
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(toolsAnswer(world)?.value_normalized).toBe(value);
+    expect(turn.questionKey).toBe(CITY.question_key);
+  });
+
+  it.each(["resume", "career", "casual", "jobs", "off_limits", "trash", "unclear"] as const)(
+    "a %s verdict never deflects it: it answers the question",
+    async (category) => {
+      const world = makeWorld();
+      await onQuestion(world, "tools");
+      world.classifyAs(verdict(category));
+      const served = world.emitted("chat.free_chat_turn_served").length;
+      const turn = await world.say("haan, 5 saal se karta hoon");
+      expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+      expect(toolsAnswer(world)?.value_normalized).toBe(true);
+      expect(turn.questionKey).toBe(CITY.question_key);
+      expect(turn.reply).not.toContain(FREE_CHAT_COPY.LOCK_DEFLECT.latin);
+      // A pass-through is today's interview, and emits no served turn.
+      expect(world.emitted("chat.free_chat_turn_served")).toHaveLength(served);
+    },
+  );
+
+  it.each([
+    // The AI client folds a failed call and a timeout into null; it never throws.
+    ["a failed call", () => Promise.resolve(null)],
+    [
+      "a mock distress (no real call)",
+      () =>
+        Promise.resolve({
+          ...verdict("distress"),
+          ai_metadata: { ...REAL_META, real_call: false },
+        }),
+    ],
+  ])("an unavailable classifier (%s) passes it to the interview, as before", async (_l, out) => {
+    const world = makeWorld();
+    await onQuestion(world, "tools");
+    world.ai.freeChatClassify.mockImplementationOnce(out);
+    const turn = await world.say("haan marna hai");
+    expect(turn.reply).not.toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(toolsAnswer(world)?.value_normalized).toBe(true);
+    expect(turn.questionKey).toBe(CITY.question_key);
+  });
+
+  it("a number question keeps today's skip, whatever else the answer carries", async () => {
+    const world = makeWorld();
+    await onQuestion(world, "years");
+    await world.say("5 saal se kar raha hoon");
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+  });
+});
+
+describe("résumé mode — a value its field's bound refuses (#2233)", () => {
+  it("a future training year is a typed answer: re-asked, with no classifier call", async () => {
+    const TRAINING_YEAR = item({
+      question_key: "training_year",
+      target_kind: "attribute",
+      target_field: "training_year",
+      answer_type: "number",
+      prompt_text: "Training kis saal ki thi?",
+    });
+    const world = makeWorld({
+      universal: { ...UNIVERSAL_PACK, items: [TRADE, TRAINING_YEAR] },
+    });
+    await inResumeMode(world);
+    world.classifyAs(verdict("resume"), verdict("resume"));
+    await world.say("main welder hoon");
+    expect((await world.say("welder")).questionKey).toBe(TRAINING_YEAR.question_key);
+    world.ai.freeChatClassify.mockClear();
+
+    const turn = await world.say("2050");
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(turn.questionKey).toBe(TRAINING_YEAR.question_key);
+    expect(turn.reply).toBe(TRAINING_YEAR.prompt_text);
+    expect(
+      world.envelope().answerMap.find((r) => r.question_key === TRAINING_YEAR.question_key)?.status,
+    ).not.toBe("answered");
   });
 });
 
@@ -2542,6 +2662,93 @@ describe("#2172 — the casual reply right after a résumé offer never carries 
   });
 });
 
+/** A casual reply that ends on its own question — a greeting answered with one (#2242). */
+async function casualAsking(world: World, n: number, lines?: string[]) {
+  world.classifyAs(verdict("casual"));
+  world.replyWith(answer(lines ?? [`Namaste, baat ${n}.`, "Aaj ka kaam kaisa raha?"]));
+  return world.say(`namaste ${n}`);
+}
+
+describe("#2242 — one question per bubble: a reply that asks holds the nudge, never drops it", () => {
+  it("a due reply that asks is served alone, and the next casual reply that asks nothing carries the nudge", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+
+    const asking = await casualAsking(world, 6);
+    expect(asking.reply).toBe("Namaste, baat 6.\nAaj ka kaam kaisa raha?");
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+    expect(lastTurnServed(world)).toMatchObject({ outcome: "answered", nudge: false });
+
+    // Off the multiple (7), but owed: it rides now, and the debt is cleared.
+    const next = await casual(world, 7);
+    expect(next.reply).toBe(`Theek hai, baat 7.\n${FREE_CHAT_COPY.CASUAL_NUDGE.latin}`);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+    expect(lastTurnServed(world)).toMatchObject({ nudge: true });
+
+    // The cadence is the counter's again: the next one rides the next multiple (9).
+    const after: boolean[] = [];
+    for (let n = 8; n <= 9; n++) after.push(nudged(await casual(world, n)));
+    expect(after).toEqual([false, true]);
+  });
+
+  it("stays owed across a career answer and another reply that asks", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    await casualAsking(world, 6);
+
+    world.classifyAs(verdict("career"));
+    world.replyWith(answer(["Welder ka kaam har sheher mein milta hai."]));
+    const career = await world.say("welder ka kaam kahan milta hai");
+    expect(nudged(career)).toBe(false);
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+
+    expect(nudged(await casualAsking(world, 7))).toBe(false);
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+
+    expect(nudged(await casual(world, 8))).toBe(true);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+  });
+
+  it("reads a question on ANY line, not only the last", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    const turn = await casualAsking(world, 6, [
+      "Aaj ka kaam kaisa raha?",
+      "Aaram bhi zaroori hai.",
+    ]);
+    expect(nudged(turn)).toBe(false);
+    expect(world.envelope().freeChat!.nudgeOwed).toBe(true);
+  });
+
+  it("an owed nudge meeting a résumé offer is dropped like a due one (#2172), not carried further", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    await casualAsking(world, 6);
+
+    world.classifyAs(verdict("jobs"));
+    expect((await world.say("job chahiye")).reply).toBe(FREE_CHAT_COPY.JOBS.latin);
+    const declined = await decline(world);
+    expect(declined.reply).toBe(DECLINE_REPLY);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+
+    // Casual reply 8 is not a multiple and owes nothing; 9 is the next multiple.
+    expect(nudged(await casual(world, 8))).toBe(false);
+    expect(nudged(await casual(world, 9))).toBe(true);
+  });
+
+  it("a due reply that asks nothing is nudged exactly as before, and writes no flag", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    primeNudge(world);
+    expect(nudged(await casual(world, 6))).toBe(true);
+    expect(world.envelope().freeChat).not.toHaveProperty("nudgeOwed");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // ADR-0051 §11 — the reply language (R39–R41)
 // ---------------------------------------------------------------------------
@@ -2935,6 +3142,106 @@ describe("§11 R40 — with none kept, every reply call carries the message's ow
     expect(
       (world.ai.freeChatNews.mock.calls.at(-1)![0] as { reply_language: unknown }).reply_language,
     ).toBe("tamil");
+  });
+});
+
+/** A real verdict that also names the message's language (ADR-0051 §11 R42). */
+const labelled = (category: Category, language: FreeChatReplyLanguage | null) => ({
+  ...verdict(category),
+  language,
+});
+
+/** The owner's device line (2026-10-14): unlisted Marathi spellings, which the word lists read as Hinglish. */
+const DEVICE_LINE = "cam programmer kitee kamai karato?";
+
+/** The input of the last news call. */
+const newsInput = (world: ReturnType<typeof makeWorld>) =>
+  world.ai.freeChatNews.mock.calls.at(-1)![0] as { reply_language: unknown };
+
+describe("§11 R42 — the classifier names the message's language; the word lists are the backup", () => {
+  it("the device line: the classifier's Marathi reaches the reply call", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["CAM programmer la sadharan 25000 te 40000 milta."]));
+    await world.say(DEVICE_LINE);
+    expect(replyInput(world)).toMatchObject({ reply_language: "marathi", category: "career" });
+  });
+
+  it.each([
+    ["names no language", labelled("career", null)],
+    ["predates the field (no key at all)", verdict("career")],
+  ])("a classifier that %s leaves the word lists in force: Hinglish", async (_label, answered) => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(answered);
+    world.replyWith(answer(["CAM programmer ko aam taur par 25000 se 40000 milta hai."]));
+    await world.say(DEVICE_LINE);
+    expect(replyInput(world).reply_language).toBe("hinglish");
+  });
+
+  it("an UNAVAILABLE classifier (a mock carrying a label) makes no reply call at all — the clarify line", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs({
+      ...labelled("career", "marathi"),
+      ai_metadata: { ...REAL_META, real_call: false },
+    });
+    const turn = await world.say(DEVICE_LINE);
+    expect(turn.reply).toBe(FREE_CHAT_COPY.FREE_CLARIFY.latin);
+    expect(world.ai.freeChatReply).not.toHaveBeenCalled();
+  });
+
+  it("a regional script still decides by code, whatever the label", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(labelled("casual", "hinglish"));
+    world.replyWith(answer(["Vanakkam."]));
+    await world.say("எனக்கு வேலை வேணும்");
+    expect(replyInput(world).reply_language).toBe("tamil");
+  });
+
+  it("a KEPT language still beats the label", async () => {
+    const world = makeWorld({ keptLanguage: "tamil" });
+    await inFreeMode(world);
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["CAM programmer-ku sambalam 25000 to 40000."]));
+    await world.say(DEVICE_LINE);
+    expect(replyInput(world).reply_language).toBe("tamil");
+  });
+
+  it("an EXPLICIT request still beats the label, and still asks", async () => {
+    const world = makeWorld();
+    await world.greet();
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["Welder-ku sambalam 15000 to 20000 varum."]));
+    const turn = await world.say("tamil la sollunga welder salary evlo");
+    expect(replyInput(world)).toMatchObject({ reply_language: "tamil", category: "career" });
+    expect(turn.reply.endsWith(languageAskLine("tamil").latin)).toBe(true);
+  });
+
+  it("a news turn follows the same label", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith({ status: "refuse", topic: "news", ai_metadata: null });
+    await world.say("aajchi navin batmi kaai?");
+    expect(replyInput(world).reply_language).toBe("marathi");
+    expect(newsInput(world).reply_language).toBe("marathi");
+  });
+
+  it("the label rides the memoised verdict: a lost CAS neither re-classifies nor loses it", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.ai.freeChatClassify.mockClear();
+    world.classifyAs(labelled("career", "marathi"));
+    world.replyWith(answer(["CAM programmer la sadharan 25000 te 40000 milta."]));
+    world.buffer.saveWithCas.mockImplementationOnce(async () => false);
+    const turn = await world.say(DEVICE_LINE);
+    expect(turn.reply).toBe("CAM programmer la sadharan 25000 te 40000 milta.");
+    expect(world.ai.freeChatClassify).toHaveBeenCalledOnce();
+    expect(world.ai.freeChatReply).toHaveBeenCalledOnce();
+    expect(replyInput(world).reply_language).toBe("marathi");
   });
 });
 

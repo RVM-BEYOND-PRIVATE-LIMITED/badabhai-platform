@@ -9,7 +9,7 @@ The INR cost table is an ESTIMATE used only for guardrails/alerts (not billing).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from ..config import Settings
@@ -40,7 +40,8 @@ class TaskRoute:
     max_retries: int
     #: An EXPLICIT model for a task that must not ride a tier default — ADR-0046 O7's career
     #: answer, whose primary is Claude while every tier resolves to Gemini. `None` = resolve
-    #: from `tier`. Additive: every existing construction leaves it unset.
+    #: from `tier`. Additive: every existing construction leaves it unset; `get_route` sets it
+    #: last for a tier task when Claude goes first (`ai_primary_provider`, #2170).
     model: str | None = None
     #: The cross-provider fallback for THIS task, used when the global
     #: `default_fallback_model` is the SAME provider as the primary (Claude primary → Gemini
@@ -186,21 +187,80 @@ def _chat_tier(settings: Settings) -> ModelTier:
     return _ROUTE_SHAPES["profiling_chat_turn"][0]
 
 
+def _primary_provider(settings: Settings) -> str:
+    """`ai_primary_provider` from config, failing SOFT to the shipped default (`anthropic`).
+
+    Soft for `_chat_tier`'s reason: an unrecognised value must not take the service down at
+    request time, and the shipped default is the order production has served all along.
+    """
+    provider = settings.ai_primary_provider.strip().lower()
+    return provider if provider in ("anthropic", "google") else "anthropic"
+
+
+def _tier_model(tier: ModelTier, settings: Settings) -> str:
+    """The configured model of one tier.
+
+    EXHAUSTIVE OVER ``ModelTier`` ON PURPOSE — `pro` is matched explicitly rather than being
+    folded into the capable branch, so that adding a fourth tier without a branch here falls to
+    the CHEAP default and is caught by the tier round-trip test, instead of quietly resolving to
+    whatever the last branch happened to return.
+    """
+    if tier == "pro":
+        return settings.default_pro_model
+    if tier == "capable":
+        return settings.default_capable_model
+    return settings.default_cheap_model
+
+
+def _apply_primary_provider(route: TaskRoute, settings: Settings) -> TaskRoute:
+    """Put Claude first on a tier-routed task when `ai_primary_provider` says so (#2170).
+
+    The route then names `default_fallback_model` as its model and keeps the tier's Gemini model
+    as its fallback: the career answer's chain (O7), applied to every tier task. The router needs
+    no change, because it already reads both off the route.
+
+    Left alone: a route that names its own model (its chain is already decided), a tier that
+    already resolves to Claude, a fallback that is not Claude, and a deployment whose Claude
+    transport is not usable (no Anthropic key, or no `anthropic` SDK). The last one is the
+    router's own fallback gate (`fallback_transport_available`), for its reason: a dead Claude
+    transport put FIRST would fail every call once before Gemini answered, and spend the per-call
+    retries and the TD27 retry budget doing it. Such a deployment keeps Gemini first.
+    """
+    if route.model is not None or _primary_provider(settings) != "anthropic":
+        return route
+    tier_model = _tier_model(route.tier, settings)
+    claude = settings.default_fallback_model
+    if (
+        provider_for_model(tier_model) == "anthropic"
+        or provider_for_model(claude) != "anthropic"
+        or not settings.fallback_transport_available("anthropic")
+    ):
+        return route
+    return replace(route, model=claude, fallback_model=tier_model)
+
+
 def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
     """Resolve a task's route, reading the tunable numbers from settings.
 
     ``settings`` is optional so existing callers and tests that only need the
     static shape (``get_route("profile_extraction").json_mode``) keep working; when
     omitted the committed defaults are used.
-    """
-    shape = _ROUTE_SHAPES.get(task_type)
-    if shape is None:
-        raise ValueError(f"Unknown AI task type: {task_type!r}")
 
+    The provider order is applied last (`_apply_primary_provider`), so every route below states
+    only its shape and numbers.
+    """
     if settings is None:
         from ..config import get_settings
 
         settings = get_settings()
+    return _apply_primary_provider(_route(task_type, settings), settings)
+
+
+def _route(task_type: str, settings: Settings) -> TaskRoute:
+    """A task's route before the provider order is applied."""
+    shape = _ROUTE_SHAPES.get(task_type)
+    if shape is None:
+        raise ValueError(f"Unknown AI task type: {task_type!r}")
 
     default_tier, json_mode = shape
     if task_type == "profiling_chat_turn":
@@ -388,10 +448,13 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
         return TaskRoute(
             task_type,
             default_tier,
-            # THE COMPANION CLASSIFIER'S NUMBERS, for its reasons (ADR-0051 §3.3). 48 tokens: the
-            # worst-case answer `{"category": "off_limits", "confidence": 0.95}` is ~15 tokens,
-            # and the API waits ~2.5 s, so the output cap is part of the worst-case latency.
-            max_output_tokens=48,
+            # THE COMPANION CLASSIFIER'S SHAPE, for its reasons (ADR-0051 §3.3), with a larger cap
+            # since R42 (#2240): the answer gained a third key, `language`, and now measures mean
+            # 29.8 / max 32 tokens on claude-haiku-4-5 (was ~15). `language` is the LAST key, so a
+            # truncated answer fails the JSON parse and loses the category with it; a fenced or
+            # pretty-printed fallback adds ~6-10 tokens. 64 keeps 2x headroom over the measured
+            # max. The API waits ~2.5 s, and the cap only costs latency on a runaway answer.
+            max_output_tokens=64,
             # TEMPERATURE ZERO: a closed-set choice, and the same résumé-mode answer must route
             # the same way on a retry.
             temperature=0.0,
@@ -498,25 +561,18 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
 
 
 def resolve_model(task_type: str, settings: Settings) -> str:
-    """Resolve the concrete model id for a task from current settings.
-
-    EXHAUSTIVE OVER ``ModelTier`` ON PURPOSE — `pro` is matched explicitly rather than being
-    folded into the capable branch, so that adding a fourth tier without a branch here falls to
-    the CHEAP default and is caught by the tier round-trip test, instead of quietly resolving to
-    whatever the last branch happened to return.
+    """Resolve the concrete model id for a task from current settings: the model tried FIRST.
 
     A ROUTE MAY NAME ITS OWN MODEL (ADR-0046 O7's career answer): `route.model` wins over the
     tier, because the tier defaults are pinned by other tasks and a task whose primary must be
-    a DIFFERENT provider cannot be expressed as a tier without moving them.
+    a DIFFERENT provider cannot be expressed as a tier without moving them. Under
+    `ai_primary_provider="anthropic"` every tier task names Claude this way (#2170), so this
+    returns `default_fallback_model` for them, and the tier model is the route's fallback.
     """
     route = get_route(task_type, settings)
     if route.model is not None:
         return route.model
-    if route.tier == "pro":
-        return settings.default_pro_model
-    if route.tier == "capable":
-        return settings.default_capable_model
-    return settings.default_cheap_model
+    return _tier_model(route.tier, settings)
 
 
 # (input_per_1k, output_per_1k) INR estimates. Unknown models fall back to a

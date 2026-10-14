@@ -11,7 +11,9 @@ meaningful, never a score:
      absence of Hindi, Latin-only and the persona slips are the API walls' own shapes, a
      repeat is caught word for word or with a word swapped, never on a paraphrase, and the
      "would be walled" count re-runs the API gate's word walls (lists pinned to the TS source,
-     the English walls checked against the TS tests' own lines).
+     the English walls checked against the TS tests' own lines), and the Hindi leak (#2240)
+     counts Hindi function words in a regional reply's lines and chips, never a word the
+     language shares with Hindi.
   3. THE CLI against a fake transport: it sends `reply_language` (or omits it for the baseline),
      reports per language and kind, writes and re-scores a dump, and refuses a run that is not
      evidence (a mock, a failed call, a fallback model).
@@ -568,6 +570,89 @@ def test_the_english_sensitive_wall_and_the_sure_to_get_forms() -> None:
         assert gold.wall_hits([line]) == [f"english_promise:{phrase}"], line
 
 
+def _ts_list(const: str) -> tuple[str, ...]:
+    source = (_FREE_CHAT_TS / "free-chat-regional-walls.ts").read_text(encoding="utf-8")
+    match = re.search(rf"export const {const}: readonly string\[\] = \[(.*?)\];", source, re.S)
+    assert match, f"{const} moved in free-chat-regional-walls.ts"
+    return tuple(re.findall(r'"([^"]+)"', match.group(1)))
+
+
+@pytest.mark.parametrize(
+    "const",
+    [
+        "SOFT_PROMISE_QUESTION_WORDS",
+        "SOFT_PROMISE_TAKE_BACKS",
+        "SOFT_PROMISE_NEW_STATEMENT",
+        "SOFT_PROMISE_DISCLAIMERS",
+        "SOFT_PROMISE_DISCLAIMER_BREAKS",
+        "SOFT_PROMISE_CONDITIONS",
+        "SOFT_PROMISE_IF_WORDS",
+        "SOFT_PROMISE_THEN_WORDS",
+    ],
+)
+def test_the_soft_promise_unsaying_lists_are_the_apis(const: str) -> None:
+    """#2184: the question words, take-backs (and the "ki" that voids one), disclaimers (and the
+    words that end one's reach), and condition words that unsay a soft job promise are restated
+    in the eval (its shape lists are the prompt's, pinned in test_free_chat_prompts.py)."""
+    assert len(getattr(gold, const)) >= 1  # non-vacuous
+    assert getattr(gold, const) == _ts_list(const), const
+
+
+def _soft_promise_lines() -> tuple[list[str], list[str]]:
+    """The soft-job-promise lines of the API's own tests, (walled, served), read from the TS
+    source, so the eval's re-implementation is checked against the gate's fixtures."""
+    source = (_FREE_CHAT_TS / "free-chat-regional-walls.test.ts").read_text(encoding="utf-8")
+    block = source.split('describe("the soft job promise (#2184)"')[1].split("\ndescribe(")[0]
+    walled_block, rest = block.split("→ promise", 1)
+    served_block = rest.split("is served")[0]
+    row = r'\[\s*"((?:[^"\\]|\\.)*)",\s*"((?:[^"\\]|\\.)*)",?\s*\]'
+    walled = [line for _what, line in re.findall(row, walled_block)]
+    served = [line for _what, line in re.findall(row, served_block)]
+    return walled, served
+
+
+def test_the_soft_promise_matches_the_apis_own_test_lines() -> None:
+    """Every line the API's tests reject on the soft job promise is walled here, and every line
+    they serve is not, so the "walled" count reads what the gate reads."""
+    walled, served = _soft_promise_lines()
+    assert len(walled) >= 15 and len(served) >= 15  # non-vacuous
+    for line in walled:
+        assert "soft_promise" in gold.wall_hits([line]), line
+    for line in served:
+        assert gold.wall_hits([line]) == [], line
+    # The issue's two lines, by name.
+    assert gold.wall_hits(["Phir job mil jayegi."]) == ["soft_promise"]
+    assert gold.wall_hits(["Sthira kelasa milthade."]) == ["soft_promise"]
+    # The API's single-line cases: a take-back across a comma or semicolon only, only when the
+    # form ends the clause, and not before a new "ki" statement; "to" / "tab" a condition only
+    # after "jab" / "agar" / "jo"; a "but" or a clause stop ends a disclaimer's reach; a "?" after
+    # empty clauses still asks; whole job words only.
+    for line in (
+        "Job mil jayegi, aisa nahi hai.",
+        "Job mil jayegi; aisa nahi hai.",
+        "Kaam mil jayega ki nahi, yeh aapki mehnat par hai.",
+        "Jab job mil jayegi to offer letter lijiye.",
+        "Jo naukri mil jayegi, tab uski salary slip rakhiye.",
+        "Zaroori nahi ki ITI ke baad turant job mil jayegi.",
+        "Job mil jayegi!?",
+        "Mehnat se kaamyaabi mil jayegi",
+    ):
+        assert gold.wall_hits([line]) == [], line
+    for line in (
+        "Job mil jayegi. Aisa nahi hai ki aaram milega.",
+        "Job mil jayegi aapko, aisa nahi hai.",
+        "Job mil jayegi aisa nahi hai ki aaram milega.",
+        "Job mil jayegi to offer letter lijiye.",
+        "Job mil jayegi, to tension mat lijiye.",
+        "Agar ITI karenge to job mil jayegi to ghar chalega.",
+        "Agar mehnat karenge. Job mil jayegi to khushi hogi.",
+        "Zaroori nahi ki ITI hi karein, diploma se bhi job mil jayegi.",
+        "Zaroori nahi ki ITI hi karein magar job mil jayegi.",
+        "Job mil jayegi! Phir?",
+    ):
+        assert gold.wall_hits([line]) == ["soft_promise"], line
+
+
 def test_the_line_examples_and_the_sample_replies_pass_every_word_wall() -> None:
     for language in gold.LANGUAGES:
         assert gold.wall_hits([gold.line_example(language) or ""]) == [], language
@@ -582,6 +667,76 @@ def test_a_walled_answer_is_counted_and_listed_by_wall() -> None:
     score = gold.evaluate(lambda c: walled if c is case else _perfect(c))
     assert score.overall.walled == score.per_language["english"].walled == 1
     assert any("walled persona:great, english_promise" in miss for miss in score.misses)
+
+
+# ── 2c. the Hindi leak in a regional reply (g) (ADR-0051 §11 R43/R44, #2240) ─────────────────
+
+
+def test_the_leak_words_are_the_issues_list() -> None:
+    """R43's Hindi function words, with "accha" as the third spelling of "achha"/"acha"."""
+    assert gold.HINDI_LEAK_WORDS == {
+        "mein", "hai", "hain", "achha", "acha", "accha", "aur", "kya", "kaise",
+    }  # fmt: skip
+    assert gold.HINDI_LEAK_PHRASES == ("ke liye",)
+    # Shared words are never on it: Marathi and Gujarati say "nahi" and "kaam" too.
+    assert not {"nahi", "kaam", "ka", "ki", "ke", "se"} & gold.HINDI_LEAK_WORDS
+
+
+def test_the_device_reply_leaks_and_its_marathi_fix_does_not() -> None:
+    """The owner's device reply (2026-10-14), and the same in Marathi words."""
+    device = ["iya trades mein achha pay ahe", "dekhun tya field mein courses kara"]
+    assert gold.hindi_leak(device, "marathi") == ["mein", "achha", "mein"]
+    assert gold.hindi_leak(["ya trades madhe pay chhan aahe"], "marathi") == []
+
+
+def test_ke_liye_is_read_as_a_phrase_and_chips_count() -> None:
+    assert gold.hindi_leak(["ITI ke liye form bhara"], "tamil") == ["ke liye"]
+    assert gold.hindi_leak(["ke", "liye"], "tamil") == []  # never across two texts
+    assert gold.hindi_leak(["Welding pannunga", "Fitter ke liye course"], "tamil") == ["ke liye"]
+
+
+def test_gujarati_kya_is_where_never_a_leak() -> None:
+    assert gold.hindi_leak(["Tame kya thi sharu karsho?"], "gujarati") == []
+    assert gold.hindi_leak(["Tame kya rehsho?"], "marathi") == ["kya"]
+    assert gold.HINDI_LEAK_SHARED == {"gujarati": frozenset({"kya"})}
+
+
+def test_english_and_hinglish_are_never_read_for_a_leak() -> None:
+    line = ["Welding mein ITI course kariye, aur practice bhi."]
+    assert gold.hindi_leak(line, "hinglish") == []
+    assert gold.hindi_leak(line, "english") == []
+    assert gold.hindi_leak(line, "kannada") == ["mein", "aur"]
+
+
+def test_the_sample_replies_carry_no_leak() -> None:
+    for language in gold.REGIONAL:
+        assert gold.hindi_leak(SAMPLES[language], language) == [], language
+
+
+def test_a_leak_is_scored_counted_listed_and_kept_out_of_refusal_cases() -> None:
+    case = next(c for c in gold.CASES if c.id == "gu-1")
+    leaky = {
+        "status": "answer",
+        "lines": SAMPLES["gujarati"],
+        "followup_chips": ["Electrician ke liye course"],
+    }
+    result = gold.score_reply(case, leaky)
+    assert result.adhered and result.hindi_leak == ("ke liye",)
+    score = gold.evaluate(lambda c: leaky if c is case else _perfect(c))
+    assert (score.per_language["gujarati"].leaked, score.per_language["gujarati"].leak_scored) == (
+        1,
+        5,
+    )
+    regional = sum(c.reply_language in gold.REGIONAL for c in ANSWER_CASES)
+    assert (score.overall.leaked, score.overall.leak_scored) == (1, regional)
+    assert score.per_language["english"].leak_scored == 0
+    assert any("gu-1: hindi ke liye" in miss for miss in score.misses)
+    # A case that must refuse and answered is scored on the refusal, not counted for a leak.
+    health = next(c for c in REFUSE_CASES if c.reply_language == "marathi")
+    answered = {"status": "answer", "lines": ["Kamar dard mein aaram kara."]}
+    leaked = gold.evaluate(lambda _c: answered, [health])
+    assert leaked.overall.leak_scored == 0
+    assert leaked.misses == ["[marathi/latin/request] rq-refused-mr: answer, expected a refusal"]
 
 
 # ── 3. the CLI against a fake transport ──────────────────────────────────────────────────────
@@ -681,6 +836,13 @@ def test_the_report_prints_every_language_and_kind(
         assert f"MUST REFUSE {case.id} (expected {case.expected_topic}): answer" in out
         assert f"{case.id}: answer, expected a refusal" in out
     assert "spend INR" in out and "RESULT: PASS" in out
+    # (g) is printed on the regional rows and overall, never on English or Hinglish.
+    regional = sum(c.reply_language in gold.REGIONAL for c in ANSWER_CASES)
+    assert re.search(rf"^  overall .* hindi leak 0/{regional}", out, re.M)
+    assert re.search(r"^  marathi .* hindi leak 0/7", out, re.M)
+    assert not re.search(r"^  (english|hinglish) .* hindi leak", out, re.M)
+    summary = "hindi leak (regional replies with a Hindi function word in a line or chip)"
+    assert f"{summary}: 0/{regional}" in out
 
 
 def test_cases_runs_only_the_named_ones(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -737,6 +899,7 @@ def test_the_dump_carries_every_reply_and_rescores_without_a_call(
     assert rows[0]["lines"] == SAMPLES["hinglish"] and rows[0]["adhered"] is False
     assert rows[1]["adhered"] is True and rows[1]["model"] == _MODEL
     assert rows[1]["copy"] is False and rows[1]["walls"] == []
+    assert all(row["hindi_leak"] == [] for row in rows)
     assert rows[1]["expected_status"] == "answer"
     assert {row["expected_status"] for row in rows} == {"answer", "refuse"}
     capsys.readouterr()

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ROLES } from "@badabhai/taxonomy";
 
+import { isCredentialYear } from "./credential-year";
 import { OCCUPATIONS_MAX } from "./worker-occupations.dto";
 import { WorkerOccupationsRepository } from "./worker-occupations.repository";
 import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
@@ -31,8 +32,6 @@ export interface ChatAttribute {
 
 const TRAINING_NAME_MAX = 120;
 const TRAINING_PROVIDER_MAX = 120;
-const YEAR_MIN = 1950;
-const YEAR_MAX = 2100;
 
 function stringValue(attributes: readonly ChatAttribute[], key: string): string | null {
   const attribute = attributes.find((candidate) => candidate.attributeKey === key);
@@ -55,18 +54,14 @@ export function trainingEntryFromChatAttributes(
   const name = stringValue(attributes, "training_name");
   if (name === null) return null;
   const rawProvider = stringValue(attributes, "training_provider");
-  const yearAttribute = attributes.find((candidate) => candidate.attributeKey === "training_year");
-  const rawYear =
-    yearAttribute && typeof yearAttribute.value === "number" ? yearAttribute.value : null;
+  const rawYear = attributes.find((candidate) => candidate.attributeKey === "training_year")?.value;
   return {
     name: name.slice(0, TRAINING_NAME_MAX),
     provider: rawProvider === null ? null : rawProvider.slice(0, TRAINING_PROVIDER_MAX),
-    // The DB CHECK owns this bound too (`wt_year_chk`); refusing here keeps a bad answer askable
-    // instead of failing the extraction on the insert.
-    year:
-      rawYear !== null && Number.isInteger(rawYear) && rawYear >= YEAR_MIN && rawYear <= YEAR_MAX
-        ? rawYear
-        : null,
+    // The qualifications page's own bound, 1950..the current year (#2233). A year in the future is
+    // a typo that would print on the résumé. The DB CHECK (`wt_year_chk`, 1950..2100) is the wider
+    // bound that is always true; refusing here keeps the row and drops only the year.
+    year: isCredentialYear(rawYear) ? rawYear : null,
   };
 }
 
@@ -114,7 +109,9 @@ export class ChatTableWritesService {
   ): Promise<{ trainingWritten: boolean; occupationsWritten: number }> {
     const training = trainingEntryFromChatAttributes(attributes);
     const trainingWritten =
-      training === null ? false : await this.qualifications.appendTrainingIfEmpty(workerId, training);
+      training === null
+        ? false
+        : await this.qualifications.appendTrainingIfEmpty(workerId, training);
 
     const roleIds = roleIdsFromChatAttributes(attributes);
     const occupationsWritten =

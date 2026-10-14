@@ -80,6 +80,12 @@ Model names are env-driven, so routing changes need no code change. Defaults:
 `DEFAULT_CAPABLE_MODEL=gemini-2.5-flash`, with `DEFAULT_FALLBACK_MODEL=claude-haiku-4-5`
 (the cross-provider fallback, used only when `ANTHROPIC_API_KEY` is set).
 
+**Provider order (#2170, ADR-0008 amendment).** `AI_PRIMARY_PROVIDER` decides which of the two
+goes first. The default, `anthropic`, runs `DEFAULT_FALLBACK_MODEL` (Claude Haiku) first on
+every tier task whenever Claude's transport is usable (`ANTHROPIC_API_KEY` set and the
+`anthropic` SDK installed), with the tier's Gemini model as the fallback.
+`google` restores Gemini first.
+
 ## Cost tracking
 
 Every call returns `AICallMetadata`: `ai_call_id`, `task_type`, `model_name`,

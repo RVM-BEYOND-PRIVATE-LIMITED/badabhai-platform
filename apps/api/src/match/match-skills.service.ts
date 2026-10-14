@@ -109,6 +109,18 @@ export class MatchSkillsService {
   }
 
   /**
+   * The vocabulary PLUS the live `match_config.max_skills_per_posting` cap — the Admin Portal
+   * agency match-skill editor's read (#2207, for #2192). One read gives the editor both halves of
+   * the rule the server enforces on save ({@link validateSelection}), so it never hard-codes an id,
+   * a label or a count. The cap is read per call, never cached here, for the same reason
+   * `reachPreview` reads it: an ops change to `match_config` must reach the editor without a deploy.
+   */
+  async listVocabulary(): Promise<{ skills: MatchSkillDto[]; max_skills_per_posting: number }> {
+    const cfg = await this.config.get();
+    return { ...this.listSkills(), max_skills_per_posting: cfg.maxSkillsPerPosting };
+  }
+
+  /**
    * The live reach preview — "reaches 61 workers / +18 / +24 / +37" plus the E13
    * zero-reach warning, BEFORE the payer pays.
    *

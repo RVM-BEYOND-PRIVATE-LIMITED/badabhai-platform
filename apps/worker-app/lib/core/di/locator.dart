@@ -602,6 +602,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
       // sync graph); a widget-test graph without it keeps the chat's
       // session-only default, so a served turn is never remembered.
       turnResume: _chatTurnResumeOrNull(),
+      // Owner ask (2026-10-14) — the Bada Bhai tab's "Resume download" tile.
+      // A graph without it simply never offers the tile.
+      resumeRepository: locator.isRegistered<ResumeRepository>()
+          ? locator<ResumeRepository>()
+          : null,
     ),
   );
   locator.registerFactory<ProfileCubit>(

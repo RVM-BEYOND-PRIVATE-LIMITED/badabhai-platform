@@ -39,8 +39,15 @@ over both):
 (f) WOULD BE WALLED: a word or phrase the API's reply gate throws the whole answer away for, so
     the worker would read the fallback line: the persona v3.2 tokens (`checkPersonaTokens`), the
     career validator's promise, sensitive-advice and rating patterns, and the free chat's
-    regional and English walls (§9, §11). Only the WORD walls are re-run here; the shape, script
-    (b), abuse and identifier checks are not, so this count is a floor.
+    regional and English walls (§9, §11) and soft job promise (#2184). Only the WORD walls are
+    re-run here; the shape, script (b), abuse and identifier checks are not, so this count is a
+    floor.
+(g) HINDI LEAK (R43/R44, #2240): on a case whose reply language is regional (not English, not
+    Hinglish), a Hindi function word in the lines OR the chips (:data:`HINDI_LEAK_WORDS`,
+    :data:`HINDI_LEAK_PHRASES`), the leak the owner's device showed ("iya trades mein achha pay
+    ahe"). A word a language shares with Hindi is never a leak in it
+    (:data:`HINDI_LEAK_SHARED`: Gujarati "kya" is "where"). Counted on every answered regional
+    reply, whether or not its language adhered, because a worker reads the Hindi either way.
 
 A HEURISTIC, AND STATED AS ONE. Marker words are the frequent function words, pronouns and verb
 endings of each language as romanized by a model; a word two languages share ("kaam", "nahi",
@@ -646,8 +653,21 @@ _EN_YOU = _phrases(walls.ENGLISH_RESPECTFUL_YOU)
 _EN_JUDGEMENT = _phrases(walls.ENGLISH_JUDGEMENT_WORDS)
 
 #: The API's `CLAUSE_STOP`: a sentence stop (`?` `!` `;` a danda, a line break, a `.` not inside
-#: a number) or a comma not inside a number. The English pairs are read one clause at a time.
-_CLAUSE_STOP = re.compile(r"[?!;\u0964\u0965\n\r]|(?<!\d)[.,]|[.,](?!\d)")
+#: a number) or a comma not inside a number. The English pairs are read one clause at a time. The
+#: stop is CAPTURED, so a split keeps it for the soft job promise ("?" and the comma carry-over).
+_CLAUSE_STOP = re.compile(r"([?!;\u0964\u0965\n\r]|(?<!\d)[.,]|[.,](?!\d))")
+
+#: One clause: its folded words, and the stop that ends it ("" at the end).
+Clause = tuple[list[str], str]
+
+
+def _clauses_of(text: str) -> list[Clause]:
+    """The API's `clausesOf`: each clause's folded words, with the stop it ends at."""
+    pieces = _CLAUSE_STOP.split(text)
+    return [
+        (_fold_words(pieces[i]), pieces[i + 1] if i + 1 < len(pieces) else "")
+        for i in range(0, len(pieces), 2)
+    ]
 
 
 def _has_phrase(words: list[str], phrases: tuple[tuple[str, ...], ...]) -> bool:
@@ -664,10 +684,10 @@ def _only_surely(words: list[str]) -> bool:
     return True
 
 
-def _english_clauses(text: str) -> list[list[str]]:
-    """The API's `englishClauses`: each clause's folded words, a clause that is only a surely
-    phrase joined to the next one (or the previous, at the end)."""
-    clauses = [words for part in _CLAUSE_STOP.split(text) if (words := _fold_words(part))]
+def _english_clauses(parts: list[Clause]) -> list[list[str]]:
+    """The API's `englishClauses`: each clause's folded words, empty clauses dropped, a clause
+    that is only a surely phrase joined to the next one (or the previous, at the end)."""
+    clauses = [words for words, _stop in parts if words]
     out: list[list[str]] = []
     carry: list[str] = []
     for words in clauses:
@@ -710,6 +730,118 @@ def _english_rating(words: list[str]) -> bool:
     return False
 
 
+#: The API's soft job promise (#2184): what unsays it, restated because the eval runs where the
+#: API source is not (the shape's own lists are the prompt's, pinned there). Pinned EQUAL to
+#: `free-chat-regional-walls.ts` by tests/free_chat/test_free_chat_reply_language_eval.py.
+SOFT_PROMISE_QUESTION_WORDS = ("kya", "kab", "kahan", "kaise")
+SOFT_PROMISE_TAKE_BACKS = (
+    "ya nahi", "ya nahin", "ki nahi", "aisa nahi", "yeh zaroori nahi", "zaroori nahi",
+    "asa nahi", "evu nathi", "nu illa", "nu illai",
+)  # fmt: skip
+SOFT_PROMISE_NEW_STATEMENT = ("ki", "hai ki")
+SOFT_PROMISE_DISCLAIMERS = (
+    "zaroori nahi ki", "nahi keh sakta ki", "nahi keh sakte ki", "nahi keh sakti ki",
+    "nahi kar sakta ki", "aisa nahi hai ki", "mat sochiye ki", "mat samjhiye ki",
+)  # fmt: skip
+SOFT_PROMISE_DISCLAIMER_BREAKS = ("par", "lekin", "magar", "but", "phir bhi", "hai aapko")
+SOFT_PROMISE_CONDITIONS = ("bodhu", "podhu")
+SOFT_PROMISE_IF_WORDS = ("jab", "agar", "jo")
+SOFT_PROMISE_THEN_WORDS = ("to", "tab")
+_SOFT_WILL_GET = _phrases((*walls.SOFT_PROMISE_WILL_GET_PHRASES, *walls.REGIONAL_WILL_GET_WORDS))
+_SOFT_FILLERS = _phrases(walls.SOFT_PROMISE_FILLERS)
+_SOFT_TAKE_BACKS = _phrases(SOFT_PROMISE_TAKE_BACKS)
+_SOFT_NEW_STATEMENT = _phrases(SOFT_PROMISE_NEW_STATEMENT)
+_SOFT_DISCLAIMERS = _phrases(SOFT_PROMISE_DISCLAIMERS)
+_SOFT_DISCLAIMER_BREAKS = _phrases(SOFT_PROMISE_DISCLAIMER_BREAKS)
+#: The stops a take-back is read across: a comma or a semicolon, never a sentence stop.
+_SOFT_STOPS = (",", ";")
+
+
+def _takes_back_at(words: list[str], at: int) -> bool:
+    """The API's `takesBackAt`: a take-back at ``words[at]`` that opens no new "ki" statement."""
+    size = _phrase_at(words, at, _SOFT_TAKE_BACKS)
+    return bool(size) and not _phrase_at(words, at + size, _SOFT_NEW_STATEMENT)
+
+
+def _unsaid_after(parts: list[Clause], k: int, end: int, opened: bool) -> bool:
+    """The API's `unsaidAfter`: a take-back, or a THEN word closing an opened condition, right
+    after the form or opening the next clause across a comma or semicolon; or a standalone
+    condition word right after the form."""
+    words, stop = parts[k]
+    if end < len(words):
+        after = words[end]
+        return (
+            _takes_back_at(words, end)
+            or after in SOFT_PROMISE_CONDITIONS
+            or (opened and after in SOFT_PROMISE_THEN_WORDS)
+        )
+    if stop not in _SOFT_STOPS or k + 1 >= len(parts):
+        return False
+    following = parts[k + 1][0]
+    return _takes_back_at(following, 0) or (
+        opened and bool(following) and following[0] in SOFT_PROMISE_THEN_WORDS
+    )
+
+
+def _opens_condition(words: list[str], i: int) -> bool:
+    """The API's `opensCondition`: an IF word before the job word, no THEN word between."""
+    for word in reversed(words[:i]):
+        if word in SOFT_PROMISE_THEN_WORDS:
+            return False
+        if word in SOFT_PROMISE_IF_WORDS:
+            return True
+    return False
+
+
+def _disclaimed(words: list[str], i: int) -> bool:
+    """The API's `disclaimed`: a disclaimer before the job word, with no break between."""
+    for at in range(len(words)):
+        size = _phrase_at(words, at, _SOFT_DISCLAIMERS)
+        if (
+            size
+            and at + size <= i
+            and not _has_phrase(words[at + size : i], _SOFT_DISCLAIMER_BREAKS)
+        ):
+            return True
+    return False
+
+
+def _closed_by_question(parts: list[Clause], k: int) -> bool:
+    """The API's `closedByQuestion`: a "?" ends clause ``k`` or an empty clause right after it."""
+    for at in range(k, len(parts)):
+        words, stop = parts[at]
+        if at > k and words:
+            return False
+        if stop == "?":
+            return True
+    return False
+
+
+def _soft_job_promise_at(parts: list[Clause], k: int) -> bool:
+    """The API's `softJobPromiseAt`: a job word, then (past only the fillers) a will-get form, in
+    clause ``k``; not when the clause asks, a disclaimer reaches the job word, or the form is
+    taken back or made a condition right after."""
+    words = parts[k][0]
+    if _closed_by_question(parts, k) or any(w in SOFT_PROMISE_QUESTION_WORDS for w in words):
+        return False
+    for i, word in enumerate(words):
+        if word not in walls.SOFT_PROMISE_JOB_WORDS:
+            continue
+        j = i + 1
+        while size := _phrase_at(words, j, _SOFT_FILLERS):
+            j += size
+        form = _phrase_at(words, j, _SOFT_WILL_GET)
+        if not form or _disclaimed(words, i):
+            continue
+        if not _unsaid_after(parts, k, j + form, _opens_condition(words, i)):
+            return True
+    return False
+
+
+def _soft_job_promise(parts: list[Clause]) -> bool:
+    return any(_soft_job_promise_at(parts, k) for k in range(len(parts)))
+
+
 def _label(match: str, number_shape: str) -> str:
     """A matched wall word for the report, or ``number_shape`` when the match carries digits: a
     report names the wall's words, never figures out of a reply."""
@@ -731,7 +863,8 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
     for text in texts:
         scan = _scan_form(text)
         words = _fold_words(text)
-        clauses = _english_clauses(text)
+        parts = _clauses_of(text)
+        clauses = _english_clauses(parts)
         hits += [f"persona:{token}" for token in _persona_hits(scan)]
         hits += [f"regional_persona:{w}" for w in words if w in walls.REGIONAL_PERSONA_TOKENS]
         promise = _PROMISE.search(scan)
@@ -749,6 +882,8 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
         ]
         if any(_english_promise(clause) for clause in clauses):
             hits.append("english_promise")
+        if _soft_job_promise(parts):
+            hits.append("soft_promise")
         sensitive = _SENSITIVE.search(scan)
         if sensitive:
             hits.append(f"sensitive:{sensitive.group(0).lower()}")
@@ -762,6 +897,40 @@ def wall_hits(texts: Iterable[str]) -> list[str]:
         if any(_english_rating(clause) for clause in clauses):
             hits.append("english_rating")
     return hits
+
+
+# ── (g) Hindi function words in a regional reply ─────────────────────────────────────────────
+
+#: The Hindi function words R43 bars from a regional reply (the issue's list, with "accha", the
+#: third common spelling of "achha"/"acha"). Single words, matched whole on the folded tokens.
+HINDI_LEAK_WORDS = frozenset(
+    {"mein", "hai", "hain", "achha", "acha", "accha", "aur", "kya", "kaise"}
+)
+#: The same, as word sequences ("ke liye" is two words).
+HINDI_LEAK_PHRASES: tuple[str, ...] = ("ke liye",)
+#: Words a regional language SHARES with Hindi, so never a leak in it: Gujarati "kya" is "where"
+#: ("kya thi" is "from where"). Marathi "nahi" and "kaam" are not on the leak list at all.
+HINDI_LEAK_SHARED: Mapping[str, frozenset[str]] = {"gujarati": frozenset({"kya"})}
+_LEAK_PHRASES = tuple(tuple(phrase.split()) for phrase in HINDI_LEAK_PHRASES)
+
+
+def hindi_leak(texts: Iterable[str], language: str) -> list[str]:
+    """The Hindi function words in ``texts`` (a reply's lines and chips), per text the words and
+    then the phrases, when the reply should be ``language``. Empty for English and Hinglish, which
+    are not scored for it."""
+    if language not in REGIONAL:
+        return []
+    shared = HINDI_LEAK_SHARED.get(language, frozenset())
+    found: list[str] = []
+    for text in texts:
+        tokens = _tokens(text)
+        found += [t for t in tokens if t in HINDI_LEAK_WORDS and t not in shared]
+        found += [
+            " ".join(tokens[i : i + size])
+            for i in range(len(tokens))
+            if (size := _phrase_at(tokens, i, _LEAK_PHRASES))
+        ]
+    return found
 
 
 # ── scoring ──────────────────────────────────────────────────────────────────────────────────
@@ -786,6 +955,8 @@ class CaseResult:
     copy: bool = False
     #: The word walls the API's gate would reject it on, (f): the worker would see the fallback.
     walls: tuple[str, ...] = ()
+    #: The Hindi function words in a regional reply's lines and chips, (g). Empty otherwise.
+    hindi_leak: tuple[str, ...] = ()
     #: The refusal topic, when the reply refused.
     topic: str | None = None
     counts: Mapping[str, int] = field(default_factory=dict)
@@ -825,6 +996,7 @@ def score_reply(case: Case, payload: Mapping | None) -> CaseResult:
         repeat=verbatim_repeat(lines, case.turns),
         copy=example_copy(lines, line_example(case.reply_language)),
         walls=tuple(wall_hits(lines + chips)),
+        hindi_leak=tuple(hindi_leak(lines + chips, case.reply_language)),
         counts=marker_counts(text),
     )
 
@@ -848,6 +1020,10 @@ class Tally:
     copied: int = 0
     #: Answers the API's gate would throw away on a word wall, (f).
     walled: int = 0
+    #: (g) Answered replies whose language is regional (the ones scored for a Hindi leak), and how
+    #: many of them carried a Hindi function word.
+    leak_scored: int = 0
+    leaked: int = 0
     #: Cases that expect a refusal, and how many were refused.
     must_refuse: int = 0
     refused_ok: int = 0
@@ -869,6 +1045,9 @@ class Tally:
             self.repeated += result.repeat
             self.copied += result.copy
             self.walled += bool(result.walls)
+            if result.case.reply_language in REGIONAL:
+                self.leak_scored += 1
+                self.leaked += bool(result.hindi_leak)
 
 
 @dataclass(frozen=True)
@@ -908,6 +1087,8 @@ def _miss(result: CaseResult) -> str | None:
             reasons.append("copies the line's example")
         if result.walls:
             reasons.append("walled " + ", ".join(result.walls))
+        if result.hindi_leak and case.expected_status == ANSWER:
+            reasons.append("hindi " + ", ".join(result.hindi_leak))
     if not reasons:
         return None
     return f"[{case.reply_language}/{case.script}/{case.kind}] {case.id}: " + "; ".join(reasons)

@@ -98,9 +98,21 @@ export function isHardship(text: string): boolean {
   return HARDSHIP_RE.test(text || "");
 }
 
-/** `signals.is_abusive`. The message is still buffered for audit, but flagged out of the parse input. */
+/** Every Unicode format character: zero-width space, soft hyphen, word joiner, BOM, ZWJ/ZWNJ. */
+const FORMAT_CHARS = /\p{Cf}/gu;
+
+/**
+ * `signals.is_abusive`. The message is still buffered for audit, but flagged out of the parse input.
+ *
+ * #2237 — TWO READINGS of every format character, and either one matching is a match: the rule
+ * the free-chat distress list uses (#2228). DELETED, so one hidden inside a word cannot split it
+ * past the list. AS-IS, because the pattern is word-bounded and already reads one between words as
+ * a gap, which deleting alone would lose. `signals.is_abusive` reads both the same way, and the
+ * corpus pins the parity.
+ */
 export function isAbusive(text: string): boolean {
-  return ABUSE_RE.test(text || "");
+  const message = text || "";
+  return ABUSE_RE.test(message) || ABUSE_RE.test(message.replace(FORMAT_CHARS, ""));
 }
 
 /**

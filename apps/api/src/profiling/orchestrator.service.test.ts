@@ -481,6 +481,49 @@ describe("capture and advance", () => {
   });
 });
 
+describe("#2233 — a training year in the future is re-asked, never written", () => {
+  const TRAINING_YEAR = item({
+    question_key: "training_year",
+    target_kind: "attribute",
+    target_field: "training_year",
+    answer_type: "number",
+    prompt_text: "Training kis saal ki thi?",
+  });
+  const packs = {
+    occupation: OCCUPATION_PACK,
+    universal: pack("qp_universal", [TRAINING_YEAR, CITY]),
+  };
+  const onTrainingYear = { servedQuestionKey: "training_year", askCounts: { training_year: 1 } };
+  const trainingRecord = (store: Map<string, TranscriptBuffer>) =>
+    store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === "training_year");
+
+  it("re-asks the question on '2050' and stores nothing", async () => {
+    const { orchestrator, store } = makeWorld({ packs });
+    seed(store, onTrainingYear);
+    const result = await orchestrator.takeTurn(say("2050"));
+    // The same question again, ahead of the mandatory city the engine would otherwise pick.
+    expect(result.questionKey).toBe("training_year");
+    expect(result.reply).toBe(TRAINING_YEAR.prompt_text);
+    // A counted ask, so the bound is the question's own `max_asks`.
+    expect(store.get(SESSION)?.profiling?.askCounts.training_year).toBe(2);
+    expect(trainingRecord(store)?.status).not.toBe("answered");
+    expect(trainingRecord(store)?.value_normalized ?? null).toBeNull();
+
+    // The worker's next, real year answers it.
+    await orchestrator.takeTurn(say("2019", new Date(T0.getTime() + 60_000)));
+    expect(trainingRecord(store)).toMatchObject({ status: "answered", value_normalized: 2019 });
+  });
+
+  it("at the last ask, a future year moves on as unanswered — still never stored", async () => {
+    const { orchestrator, store } = makeWorld({ packs });
+    seed(store, { servedQuestionKey: "training_year", askCounts: { training_year: 2 } });
+    const result = await orchestrator.takeTurn(say("2050 mein"));
+    expect(result.questionKey).not.toBe("training_year");
+    expect(trainingRecord(store)?.status).toBe("unanswered");
+    expect(trainingRecord(store)?.value_normalized ?? null).toBeNull();
+  });
+});
+
 describe("the hard cases, each one deterministic", () => {
   it("'nahi pata' settles the question — never re-asked, never blocks completion", async () => {
     const { orchestrator, store } = makeWorld();

@@ -55,6 +55,7 @@ The owner wants a chat we control, like ChatGPT but scoped to BadaBhai, for the 
 | **R18** | **Go-live: live on merge**, with no flag gate and no eval gate. A default-on kill switch is the only lever. |
 | **R19** | **Release 1** ships without the cross-session conversation summary. **Release 2** adds it, carried across sessions and used by this chat only. |
 | **R20** | **Testing:** unit tests plus a labelled set of about 60 lines, used as a baseline to improve against, not as a gate. |
+| **R45** | **Bada Bhai never claims to be a person (owner, 2026-10-14, #2241).** When a worker sincerely asks ("aap insaan ho ya machine?"), Bada Bhai says plainly that it is the BadaBhai app's AI helper, not a person, keeping the big-brother warmth. The persona's age and years of work describe how it talks, not what it is. Enforced twice: a rule in the shared block of the casual, career and news prompts, and a wall in the API that throws away any line claiming to be human (§3.4), so the fallback line is served instead of a lie. The companion is unchanged: it already refuses the question. |
 
 ## 3. Decision
 
@@ -90,7 +91,7 @@ A session that opens on a résumé-import turn (identity / batch-confirm) ──
 | 8 | classifier → `distress`, at ANY confidence (it bypasses the 0.6 floor) | the distress line |
 | 9 | classifier → `resume` | enter résumé mode; a message that already describes the work becomes the first answer |
 | 10 | → `career` | model reply (career prompt) → validator → served, or the fallback |
-| 11 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply, never on the reply right after a résumé offer (R38's lines; #2172) |
+| 11 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply, never on the reply right after a résumé offer (R38's lines; #2172), and held to the next casual reply when this one already asks a question (R46; #2242) |
 | 12 | → `jobs` | the jobs line + chip |
 | 13 | → `off_limits` | the off-limits line, no strike |
 | 14 | → `trash` | strike; 3 in a day → 30-minute cool-down |
@@ -106,6 +107,19 @@ These skip the classifier and go to today's interview:
 - a double-tapped free-chat chip, which re-serves the pending question as a no-op (not captured,
   not classified, counted toward no cap)
 - the turn cap
+
+**A typed yes/no that carries other words is checked for distress (#2226).** `parseAffirmation` reads
+"haan marna hai" ("yes, I want to die") as a yes, because a leading "haan" wins. Such an answer keeps its skip,
+but the classifier checks it first. An answer counts as carrying other words when a word is left after its yes/no
+cues and negators (`affirmationResidue`) that is not on the closed filler list (`YES_NO_FILLER_WORDS` in
+`free-chat.router.ts`: ji, sir, bhai, hai, main, mere, paas…). An emoji also counts as another word. A format
+character (#2228) is read both deleted and as a word gap, and both readings must be bare.
+- A `distress` verdict, at any confidence, gets the distress line. Nothing is stored, and the question stays
+  pending.
+- Any other verdict, or an unavailable classifier, passes the answer to today's interview, exactly as before. A
+  typed answer is never deflected, clarified or de-escalated.
+- "haan", "haan ji", "haan karta hoon" and "nahi" are bare: they make no classifier call.
+- Number, field-normalised and option answers keep today's skip.
 
 Everything else is classified:
 
@@ -157,6 +171,10 @@ unavailable.
   - promise, sensitive (legal/medical/financial), rating
   - PII
 - It also rejects `{{` and `}}`, because replies are interpolated.
+- **The AI-disclosure wall (R45, #2241):** it rejects any line or chip that claims Bada Bhai is a person, in Hinglish
+  ("main insaan hoon", "main aadmi hoon"), English ("I am a human") or a regional language in Latin letters ("naanu
+  manushya"). The honest answer ("main AI helper hoon, insaan nahi", "I am not a human") passes. The rule is
+  `free-chat-human-claim.ts`, and it covers news answers too.
 - Any failure serves `REPLY_FALLBACK`. A refusal topic serves its fixed line.
 
 ### 3.5 Transcript hygiene
@@ -290,10 +308,14 @@ Any widening of this list follows the same review as the copy.
   hyphen, BOM, ZWJ/ZWNJ) is read two ways, and either reading matching is a match. Deleted, so one hidden inside a
   word ("mar<ZWSP>na chahta") cannot split it past the list. As a word gap, so one used between words still matches as
   before.
+- **The abuse lexicon reads them the same two ways (#2237):** `isAbusive` in `@badabhai/profiling-lexicon` and its
+  Python twin `signals.is_abusive`. So "chu<ZWSP>tiya" is a strike here, and the interview's de-escalation count
+  (`classifyUtterance`) sees it too. The shared utterance corpus pins the parity.
 
 ## 6. Consequences
 
-- **Latency and cost.** One classifier call per typed résumé-mode answer that the skip list does not settle.
+- **Latency and cost.** One classifier call per typed résumé-mode answer that the skip list does not settle,
+  and per typed yes/no that carries other words (#2226).
   Today's companion classifier runs at p95 1.6–2.4 s. Free mode adds one reply call for casual and career. No
   per-worker cap; cost is recorded per call (`ai.cost_recorded`). On the admin dashboard,
   `profiling_free_classify` counts toward cost-per-profile and `profiling_free_reply` does not.
@@ -400,6 +422,15 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
   - **persona:** familiar address (anna, thambi, machan, bhau, dada, maga, …) and the informal "you";
   - **promise:** "pakku" alone, or a "surely" word and a "will get" word in one line (the regional
     "zaroor milegi"). A "surely" word alone is advice, just as "zaroor try kijiye" is;
+  - **soft job promise (#2184):** a job word followed by a future "will get" form in one clause, with only a filler
+    such as "bhi" or "aapko" between ("phir job mil jayegi", "sthira kelasa milthade", "naukri milel"); no surely
+    word is needed. Advice ("kaam milne ki sambhavna badhegi"), a question ("kya aapko job mil jayegi, …"), a listed
+    take-back right after the form, read across a comma too ("job mil jayegi ya nahi, …", "…job mil jayegi, aisa
+    nahi hai"; not when a new "ki" statement follows it), a listed disclaimer before it with no "par" / "lekin"
+    between ("nahi keh sakta ki …") and the job as a condition ("jab job mil jayegi to …") stay served; a negation
+    word alone, or a bare "to" meaning "so" ("job mil jayegi to tension mat lijiye"), does not. Accepted limit: a
+    scam warning that quotes the promise across a comma ("jo agent kehta hai ki paise dene se naukri lag jayegi, woh
+    fraud ho sakta hai") is walled;
   - **sensitive advice:** each language's words for lawyer, court, medicine, treatment, loan, insurance and
     investment;
   - **rating:** a respectful "you" directly before a judgement word (the regional "aap achhe").
@@ -450,7 +481,7 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
    - sessions with repeated deflections. The order is unknown, because a résumé-mode message that goes to the
      interview records no event;
    - mode changes, summary outcomes and news outcomes;
-   - `ai.cost_recorded` for the four free-chat tasks.
+   - `ai.cost_recorded` for the four free-chat tasks, by the model that served each call (R32 reads it here).
 
    With `--sample`, on the box only (R34), it adds the masked struggled messages (R29): clarify, fallback or
    deflected turns, and classifier verdicts acted on at 0.5–0.7 confidence, from eligible workers only (R36). A turn
@@ -463,12 +494,21 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 
    `badabhai-api` is the container name fixed in `docker-compose.yml`. A bare `docker compose … exec` stops on the
    staging file's required `API_IMAGE` / `AI_SERVICE_IMAGE` variables.
-2. **Grow the labelled set.** Each weak spot becomes fabricated lines in `eval_free_classify_gold.py`, written fresh
-   rather than copied from the sample.
+2. **Grow the labelled set.** Each weak spot becomes fabricated lines, written fresh rather than copied from the
+   sample: a misread message in the classifier's set (`eval_free_classify_gold.py`); a reply the worker was not
+   served in the reply's set (`eval_free_reply_gold.py`).
 3. **Score the baseline** on the current prompt (R32), on the model production actually serves: read the served
-   `model` from `ai.cost_recorded`. On 2026-10-08 that was `claude-haiku-4-5` for every call, because the box's
-   Gemini calls all fall back (#2170).
+   `model` from the probe's cost table. On 2026-10-08 that was `claude-haiku-4-5` for every call, because the box's
+   Gemini calls all fall back (#2170). The reply's primary is Haiku by design (`default_career_model`).
+   - **Classifier:** `python -m app.free_chat.eval_cli --expect-model <model>`.
+   - **Reply:** `python -m app.free_chat.eval_free_reply_cli --expect-model <model> --repeats 10 --dump-file <f>`,
+     then `node apps/api/dist/profiling/free-chat/free-chat-reply-served.js --file <f>`. The replay puts every reply
+     through the API's own contract and `screenFreeChatAnswer`, so the number is what a worker would be served, not
+     what the model wrote. An outcome of `fallback` in the probe with a successful reply cost event is this gate.
 4. **Revise the prompt.** Bump its registry version and score again in the same sitting. Ship only past R31.
+   For the reply, `--baseline <baseline dump>` applies R31: overall hits up, no refusal topic (`off_limits`,
+   `distress`, `legal_medical_financial`, `news`) loses a line, `career` and `casual` drop by at most one line. Both
+   runs must be one model, one case set, one repeat count.
 5. **Delete the pasted copy** (R35).
 
 **Known limits (accepted):**
@@ -495,6 +535,40 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 - **No privacy notice yet** tells workers their chats help improve the bot (owner action, alongside the §8 note;
   risks register R67).
 
+**Round 1 record (2026-10-08 to 2026-10-14).** Evidence: `docs/qa/evidence/free-chat/2026-10-14/`.
+
+1. **Classifier revised** on the first probe (#2176): 82.5% to 93.7% on Haiku, past R31. It added the R37 and R38
+   lines.
+2. **Masked sample.** The owner ran it on the box over 2026-10-07 to 2026-10-14. Of 21 struggled turns, 4 were
+   eligible (R36). All 4 were career questions, and the classifier read every one right.
+3. **Classifier re-scored.** 8 fabricated rewrites were added (`SAMPLE_ROWS`). On Haiku it scores 126/134 = 94.0%, so
+   no revision this round.
+4. **The weak spot was the reply.** 9 of 75 free-mode reply turns served `REPLY_FALLBACK`, every one from a reply that
+   came back in time and in contract, so the API's gate threw them away. The new reply set (46 cases, Haiku) shows
+   why:
+   - lines over 20 words;
+   - two questions in one casual answer;
+   - Devanagari verb endings;
+   - "pakka" (in any sense);
+   - "bahut acha".
+5. **Draft revision: not shipped.** It did not pass R31: 131/138 against main's 131/138 at 3 repeats, with career −3
+   and off_limits −1. On 9 clean repeats it was 379 against 375 of 414:
+   - it cut two-question rejections (11 → 5), persona rejections (8 → 2) and long lines (9 → 3);
+   - its "a tease is never a refusal" rule moved a tease-plus-politics message from `off_limits` to `unsafe_other` 8
+     times in 9;
+   - "pakka" meaning "skilled" rejections rose from 4 to 9.
+
+   A v3 without those two rules was not measured, because the Anthropic credit ran out.
+6. **Lessons for the next round:**
+   - At temperature 0.5, run the reply eval at 10 repeats. At 3, the same prompt scored 117 and 131.
+   - Local evals draw on the production Anthropic account. On 2026-10-14 they used the last of its credit, and every
+     box AI call failed from about 12:28 IST until the top-up. Estimate the cost, get the owner's OK, and never run
+     streams in parallel.
+7. **Still owed:**
+   - measuring v3 (#2242);
+   - the flash-lite re-run before #2170 switches the box (the local key is free tier);
+   - deleting the session transcript that holds the pasted sample (R35, owner).
+
 ## 11. Reply language (owner rulings 2026-10-08, #2181)
 
 §9 asked the reply model to choose its own language, and on the production model it would not. Before this change,
@@ -507,15 +581,25 @@ Understanding was never the problem: the Marathi question was classified and ans
 
 | # | Ruling |
 |---|---|
-| **R39** | **Code detects the language, the model follows.** The API decides each reply's language with word lists, in Latin letters and in each language's script. It passes the result to the reply and news calls as `reply_language`, and the prompt follows it. The model no longer chooses. |
-| **R40** | **Every reply mirrors the worker's message.** English in, English out: plain, simple English (this supersedes R26 for English). Hindi or Hinglish, in either script, gets Hinglish. Marathi, Gujarati, Kannada, Telugu or Tamil gets that language mixed with English. Anything unsure gets Hinglish. Always Latin letters (R26). The fixed lines stay Hinglish (R27). The worker should feel they are chatting with someone who speaks every language they do. |
+| **R39** | **Code detects the language, the model follows.** _(Detection amended by R42: the classifier names the language, the word lists are the backup.)_ The API decides each reply's language with word lists, in Latin letters and in each language's script. It passes the result to the reply and news calls as `reply_language`, and the prompt follows it. The model no longer chooses. |
+| **R40** | **Every reply mirrors the worker's message.** English in, English out: plain, simple English (this supersedes R26 for English). Hindi or Hinglish, in either script, gets Hinglish. Marathi, Gujarati, Kannada, Telugu or Tamil gets that language mixed with English (narrowed by R44: English work words only, no Hindi). Anything unsure gets Hinglish. Always Latin letters (R26). The fixed lines stay Hinglish (R27). The worker should feel they are chatting with someone who speaks every language they do. |
 | **R41** | **An explicit language request.** For example "marathi mai jawab do" or "reply in Tamil". That one reply comes in the requested language. Then the fixed ask "Kya aage ki saari baat {Language} mein karein?" follows, with the chips "Haan, {Language} mein" and "Nahi". **Haan:** "Theek hai, ab se {Language} mein baat karenge." Every reply then uses that language for the whole chat, across returns, until another request. **Nahi:** "Theek hai. Aap jis bhasha mein likhenge, usi mein jawab dunga." Each reply follows the message again. Copy approved as drafted. |
+| **R42** | **The AI names the language (owner, 2026-10-14, #2240).** The free-chat classifier, which already reads every free-mode message, also returns that message's language from the closed reply-language set (`FreeChatClassifyOutput.language`). That label is the message's language for R40. The word lists stay only as the backup, when the label is missing. In free mode an unavailable classifier already serves the clarify line, so that means a real verdict with no label. The classify prompt change holds category accuracy (118/126 before and after; distress, trash and off_limits lose no line). R31's "goes up" is the bar for accuracy-tuning rounds, not for this added field. A Gujarati, Tamil, Telugu or Kannada script still decides by code, because it is certain. The precedence is otherwise unchanged: an explicit request (R41), then a kept language, then this message's language. Why: the device test's "cam programmer kitee kamai karato?" carried no listed Marathi word ("kitee", "karato" are unlisted spellings), so it fell to Hinglish. |
+| **R43** | **Better prompt first, same model (owner, 2026-10-14).** The reply prompts get stricter per-language instructions and real examples, with no Hindi function words in a non-Hindi reply. For example, Marathi says "madhe", "aahe", "chhan", "sathi", never "mein", "hai", "achha", "ke liye". Measured on the reply-language eval on the production model before shipping. A stronger model is not part of this ruling. |
+| **R44** | **Trade words may stay English (owner, 2026-10-14).** A reply is in the worker's language, in Latin letters only. Work words people actually say in English (welding, CNC, resume, course, salary) may stay English. Hindi words in a non-Hindi reply are not allowed. |
+| **R46** | **One question per bubble (owner, 2026-10-14, #2242).** The résumé nudge (R9) is a question, so it is never appended to a casual reply that already asks one (any line with a "?"). The nudge is held, not dropped: the next casual reply that asks nothing carries it, and a career answer in between keeps it waiting. The two existing skips still drop a due nudge without holding it: the reply right after a résumé offer (#2172) and a reply that carries the language ask (§11). The cadence is otherwise the counter's. |
 
 **How it works:**
-- **Free mode only.** The résumé lock and interview are unchanged (R27). So are the classifier, which still reads the
-  meaning in any language, and the conversation notes, which stay in English (§8).
-- **Detection (API, pure, literal regexes):**
-  - A Gujarati, Tamil, Telugu or Kannada script decides the language.
+- **Free mode only.** The résumé lock and interview are unchanged (R27), and so are the conversation notes, which stay
+  in English (§8). The classifier still reads the meaning in any language, and since R42 also names the message's
+  language.
+- **Detection, in order (R42, #2240):**
+  1. A Gujarati, Tamil, Telugu or Kannada script decides by code (certain). When two of those scripts tie, the
+     classifier's label decides.
+  2. Otherwise (Latin or Devanagari), a REAL classifier verdict's `language` decides.
+  3. Otherwise, the word lists below. In free mode an unavailable classifier already serves the clarify line, so in
+     practice the word lists back up a real verdict that carries no label.
+- **The word lists (API, pure, literal regexes; the backup since R42):**
   - Devanagari is Marathi when Marathi markers outweigh Hindi ones, otherwise Hinglish.
   - Latin text is scored against per-language marker words. Examples: Marathi "aahe", "mala", "kay"; Gujarati "chhe",
     "mare", "kem"; Tamil "enakku", "eppadi"; Telugu "naaku", "ela"; Kannada "nanage", "hege". English is told apart
@@ -605,4 +689,6 @@ Release 2 rulings R21–R24 taken 2026-10-07 (§8).
 Regional-language rulings R25–R28 taken 2026-10-07 (§9).
 Improvement-loop rulings R29–R38 taken 2026-10-08 (§10).
 Reply-language rulings R39–R41 taken 2026-10-08 (§11).
+Reply-language rulings R42–R44 taken 2026-10-14 (§11, #2240).
+Nudge ruling R46 taken 2026-10-14 (#2242).
 ```

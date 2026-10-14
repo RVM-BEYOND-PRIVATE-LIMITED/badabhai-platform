@@ -204,9 +204,10 @@ export class FreeChatService {
   /**
    * Classify one message. A REAL verdict needs `blocked === false`, `ai_metadata.real_call ===
    * true` and a call that did not fail; anything else — a mock, a blocked input, a timeout, a
-   * schema miss, a null — is `unavailable` (ADR-0051 §3.2). The spend is recorded once, here,
-   * before any branch: the caller memoises this promise per `takeTurn`, so a lost CAS never pays
-   * twice.
+   * schema miss, a null — is `unavailable` (ADR-0051 §3.2). A real verdict also carries the
+   * message's language label (§11 R42). The spend is recorded once, here, before any branch: the
+   * caller memoises this promise per `takeTurn`, so a lost CAS never pays twice — nor re-asks the
+   * language.
    */
   async classify(req: FreeChatClassifyRequest, ctx: FreeChatCallContext): Promise<FreeChatVerdict> {
     const name = await this.knownNameOf(ctx);
@@ -641,13 +642,22 @@ export class FreeChatService {
   }
 }
 
-/** A real verdict, or `unavailable` — see {@link FreeChatService.classify}. */
+/**
+ * A real verdict, or `unavailable` — see {@link FreeChatService.classify}. A real verdict carries
+ * the classifier's language label (ADR-0051 R42); a missing one reads as null, so a body that never
+ * met the schema's default (an older service's shape) leaves the word lists in force.
+ */
 export function verdictOf(out: FreeChatClassifyOutput | null): FreeChatVerdict {
   if (out === null || out.blocked) return UNAVAILABLE_VERDICT;
   const meta = out.ai_metadata;
   if (meta === null || meta.real_call !== true || meta.success === false)
     return UNAVAILABLE_VERDICT;
-  return { kind: "verdict", category: out.category, confidence: out.confidence };
+  return {
+    kind: "verdict",
+    category: out.category,
+    confidence: out.confidence,
+    language: out.language ?? null,
+  };
 }
 
 /** `text` cut to at most `max` UTF-16 units without splitting a surrogate pair. */

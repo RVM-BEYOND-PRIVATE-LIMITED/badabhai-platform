@@ -123,6 +123,21 @@ class BbAnalytics {
   static BbAnalyticsEvent companionJobOpened() =>
       const BbAnalyticsEvent('companion_job_opened');
 
+  /// Owner ask (2026-10-14) — the Bada Bhai chat put its "Resume download"
+  /// tile on screen. [trigger] is a fixed token: `open` (the tab opened or came
+  /// back into focus) or `ask` (the worker asked for their résumé). COUNTS
+  /// ONLY: never the résumé id, never the worker's words.
+  static BbAnalyticsEvent chatResumeDownloadOffered({
+    required String trigger,
+  }) => BbAnalyticsEvent('chat_resume_download_offered', <String, Object>{
+    'trigger': trigger,
+  });
+
+  /// The tile's button was tapped. The download itself is on the server spine
+  /// (`resume.downloaded`); this only says it was started from the chat.
+  static BbAnalyticsEvent chatResumeDownloadTapped() =>
+      const BbAnalyticsEvent('chat_resume_download_tapped');
+
   static BbAnalyticsEvent profilingAnswerSpoken({required int questionIndex}) =>
       BbAnalyticsEvent('profiling_answer_spoken', <String, Object>{
         'question_index': questionIndex,
@@ -169,6 +184,8 @@ class BbAnalytics {
         companionOpened(),
         companionChipTapped(keyClass: 'job'),
         companionJobOpened(),
+        chatResumeDownloadOffered(trigger: 'open'),
+        chatResumeDownloadTapped(),
         finishingFormEntered,
         finishingPageReached(pageIndex: 4),
         finishingFormSubmitted,

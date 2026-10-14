@@ -5,9 +5,12 @@ import {
   detectReplyLanguage,
   languageNamed,
   languageTokens,
+  messageLanguage,
   parseLanguageRequest,
   readTypedLanguageAnswer,
 } from "./free-chat-language";
+import { UNAVAILABLE_VERDICT } from "./free-chat.router";
+import { verdictOf } from "./free-chat.service";
 import {
   ENGLISH_LATIN_WORDS,
   HINDI_DEVANAGARI_WORDS,
@@ -18,7 +21,8 @@ import {
 } from "./free-chat-language.lexicon";
 
 /**
- * ADR-0051 §11 (R39–R41) — the reply language, decided by code. Every line below is FABRICATED for
+ * ADR-0051 §11 (R39–R42) — the reply language: the classifier's label where code is not certain
+ * (R42), the word lists as the backup. Every line below is FABRICATED for
  * this suite: no worker's words. Each block is a corpus the detector or the parser must read, and
  * the false-friend block is the one that keeps the word lists honest: a word two languages share
  * decides nothing.
@@ -255,6 +259,132 @@ describe("detectReplyLanguage — the language each message is written in (R39, 
     expect([...seen].sort()).toEqual(
       ["english", "gujarati", "hinglish", "kannada", "marathi", "tamil", "telugu"].sort(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// messageLanguage — the classifier names the language, the word lists are the backup (R42)
+// ---------------------------------------------------------------------------
+
+/** A REAL classifier answer's metadata — `real_call: true` and a call that did not fail. */
+const REAL_META = {
+  ai_call_id: "call-classify",
+  task_type: "profiling_free_classify",
+  model_name: "claude-haiku-4-5",
+  provider: "anthropic",
+  real_call: true,
+  input_tokens: 10,
+  output_tokens: 2,
+  estimated_cost_inr: 0.01,
+  latency_ms: 300,
+  success: true,
+  error_code: null,
+  cost_alert: false,
+  above_target: false,
+  attempt_count: 1,
+  candidates_tried: [],
+  failure_reason: null,
+};
+
+/**
+ * The turn's verdict as the orchestrator holds it: the ai-service's answer through `verdictOf`, the
+ * same fold the router reads — REAL and labelled `language` unless `over` says otherwise.
+ */
+const classified = (language: FreeChatReplyLanguage | null, over: Record<string, unknown> = {}) =>
+  verdictOf({
+    category: "career",
+    confidence: 0.9,
+    blocked: false,
+    ai_metadata: REAL_META,
+    language,
+    ...over,
+  } as never);
+
+/** The owner's device line (2026-10-14): "kitee" and "karato" are unlisted Marathi spellings. */
+const DEVICE_LINE = "cam programmer kitee kamai karato?";
+
+/** Every corpus line above with today's word-list answer — what the backup must still return. */
+const WORD_LIST_CORPUS: readonly Case[] = [
+  ...ENGLISH,
+  ...HINGLISH_LATIN,
+  ...HINDI_DEVANAGARI,
+  ...MARATHI,
+  ...GUJARATI,
+  ...TAMIL,
+  ...TELUGU,
+  ...KANNADA,
+  ...UNSURE,
+  ...FALSE_FRIENDS,
+  ...MIXED_SCRIPT,
+  ...SCRIPT_NEUTRAL,
+];
+
+/** A regional script beside the Latin, or the Devanagari, it may carry — code is certain. */
+const REGIONAL_SCRIPT: readonly Case[] = [
+  ["எனக்கு வேலை வேணும்", "tamil"],
+  ["நான் CNC operator, எனக்கு job வேணும்", "tamil"],
+  ["నాకు ఉద్యోగం కావాలి", "telugu"],
+  ["ನನಗೆ ಕೆಲಸ ಬೇಕು", "kannada"],
+  ["ನನಗೆ ಕೆಲಸ ಬೇಕು है", "kannada"],
+  ["મને નોકરી જોઈએ છે", "gujarati"],
+];
+
+describe("messageLanguage — the classifier names the language, the word lists are the backup (R42)", () => {
+  it("the AI label wins for Latin text: the device line is Marathi, where the word lists said Hinglish", () => {
+    expect(detectReplyLanguage(DEVICE_LINE)).toBe("hinglish");
+    expect(messageLanguage(DEVICE_LINE, classified("marathi"))).toBe("marathi");
+  });
+
+  it.each([
+    ["वेल्डिंग शिकायचंय", "marathi"],
+    ["नवीन धंदा शिकायचा", "marathi"],
+    // The label decides even where the word lists read Marathi.
+    ["मला नोकरी पाहिजे", "hinglish"],
+  ] as const)("the AI label wins for Devanagari %j → %s", (text, label) => {
+    expect(detectReplyLanguage(text)).not.toBe(label);
+    expect(messageLanguage(text, classified(label))).toBe(label);
+  });
+
+  it.each(["english", "hinglish", "marathi", "gujarati", "tamil", "telugu", "kannada"] as const)(
+    "any label in the closed set decides Latin text: %s",
+    (label) => {
+      expect(messageLanguage(DEVICE_LINE, classified(label))).toBe(label);
+    },
+  );
+
+  it.each(REGIONAL_SCRIPT)(
+    "a regional SCRIPT still decides %j → %s, whatever the AI says",
+    (text, expected) => {
+      for (const label of ["marathi", "hinglish", "english", "tamil", "kannada", null] as const) {
+        expect(messageLanguage(text, classified(label))).toBe(expected);
+      }
+    },
+  );
+
+  it("two regional scripts tied decide nothing in code — so the label does", () => {
+    expect(detectReplyLanguage("ம మ")).toBe("hinglish");
+    expect(messageLanguage("ம మ", classified("telugu"))).toBe("telugu");
+  });
+
+  it.each([
+    ["the classifier answered nothing", verdictOf(null)],
+    ["unavailable", UNAVAILABLE_VERDICT],
+    [
+      "a mock (real_call false)",
+      classified("marathi", { ai_metadata: { ...REAL_META, real_call: false } }),
+    ],
+    ["a blocked input", classified("marathi", { blocked: true })],
+    [
+      "a failed call (timeout, provider error)",
+      classified("marathi", { ai_metadata: { ...REAL_META, success: false } }),
+    ],
+    ["no metadata", classified("marathi", { ai_metadata: null })],
+    ["a real verdict with no label", classified(null)],
+  ])("%s → the word lists, unchanged on the whole corpus", (_label, verdict) => {
+    expect(messageLanguage(DEVICE_LINE, verdict)).toBe("hinglish");
+    for (const [text, expected] of WORD_LIST_CORPUS) {
+      expect(messageLanguage(text, verdict), text).toBe(expected);
+    }
   });
 });
 

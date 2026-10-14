@@ -219,6 +219,44 @@ void main() {
             (PayerApiException e) => e.statusCode, 'statusCode', 403)),
       );
     });
+
+    // #2193 — the membership-invariant 409 is told apart from the already-used
+    // 409, from the server's MESSAGE: it deliberately carries no reason code.
+    test('the membership-invariant 409 is stamped with a code', () async {
+      for (final String wording in <String>[
+        "This invite can't be accepted with this account",
+        'This invite cannot be accepted with this account.',
+      ]) {
+        final h = _harness(<String, http.Response>{
+          'POST /payer/org/invites/accept': _json(<String, dynamic>{
+            'statusCode': 409,
+            'error': <String, dynamic>{'message': wording},
+          }, 409),
+        });
+        await expectLater(
+          h.api.acceptOrgInvite(token: 'already-in-a-team-1234'),
+          throwsA(isA<PayerApiException>().having((PayerApiException e) => e.code,
+              'code', kOrgInviteNotAcceptableCode)),
+        );
+      }
+    });
+
+    test('an already-used 409 is NOT stamped', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/org/invites/accept': _json(<String, dynamic>{
+          'statusCode': 409,
+          'error': <String, dynamic>{
+            'message': 'Invite has already been used or has expired',
+          },
+        }, 409),
+      });
+      await expectLater(
+        h.api.acceptOrgInvite(token: 'used-token-12345678'),
+        throwsA(isA<PayerApiException>()
+            .having((PayerApiException e) => e.code, 'code', isNull)
+            .having((PayerApiException e) => e.isConflict, 'isConflict', true)),
+      );
+    });
   });
 
   group('P4b — hiring capacity', () {

@@ -39,11 +39,8 @@ import type {
   ResumeSuggestion,
   ResumeSuggestionReader,
 } from "./resume-import/resume-suggestion-reader";
-import {
-  TRADE_CONFIRM_OPTIONS,
-  TRADE_DESIRED_PROMPT,
-  tradeConfirmPrompt,
-} from "./trade-confirm";
+import { TRADE_CONFIRM_OPTIONS, TRADE_DESIRED_PROMPT, tradeConfirmPrompt } from "./trade-confirm";
+import { FORM_OFFER_OPTIONS, offerPrompt } from "./trade-form-offer";
 
 /**
  * The reply cache's stamp for a turn that is about to be written — `ProfilingOrchestrator`'s
@@ -169,6 +166,34 @@ export function outstandingTradeGate(envelope: ProfilingEnvelope): {
     return { prompt: TRADE_DESIRED_PROMPT, options: [], answerType: "text", inputMode: "text" };
   }
   return null;
+}
+
+/**
+ * The trade-form offer, still on screen for a session being REOPENED (#2245).
+ *
+ * THE FIFTH MEMBER OF THE SAME PRECEDENCE. The offer belongs to no pack, and until this existed it
+ * was redrawn only by {@link outstandingLlmAsk} replaying `lastTurn` — which reads nothing once
+ * `leads()` is false. Two offers are served with `leads()` false: the one served on the turn Phase
+ * A falls back, and the one served on a led `done`. A cold start on either re-served a pack
+ * question while the offer stayed pending, so the worker's next "haan" to that question was read
+ * as accepting the form; and `viewSession` reported no chips, so a voice-form tap on
+ * `form_offer_yes` was refused as an unknown option.
+ *
+ * REBUILT FROM `formOfferPrompt`, not `lastTurn`: the kind is stored precisely so the offer honours
+ * the trade it was made for, and the copy is ours — the same line and chips a fresh offer serves.
+ */
+export function outstandingFormOffer(envelope: ProfilingEnvelope): {
+  prompt: string;
+  options: readonly QuestionPackOption[];
+  answerType: AnswerType;
+} | null {
+  const pending = envelope.formOfferPrompt;
+  if (pending?.state !== "pending") return null;
+  return {
+    prompt: offerPrompt(pending.kind),
+    options: [...FORM_OFFER_OPTIONS],
+    answerType: "single_select",
+  };
 }
 
 /**

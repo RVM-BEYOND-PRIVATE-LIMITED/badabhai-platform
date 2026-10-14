@@ -566,3 +566,21 @@ re-prioritise, re-budget and re-surface the question — a product call, not a f
 no matcher change (corpus-wide blast radius). Chip-tapping workers capture exactly;
 typed variants remain a known fill gap for the programme's fill-rate tracking, not a
 defect to patch around.
+
+### 2026-10-14 - training_year: 1950 to the current year, enforced server-side and re-asked (#2233)
+
+Owner ruling on where the bound lives; the re-ask is the issue's own acceptance criterion. A
+chat `training_year` is bounded the same way as the qualifications page:
+1950 to the **current** year, read on every call (`profiles/credential-year.ts`, #1407).
+"2050" used to be stored, because the lexicon parser only stops at the database's 2100.
+- **Server-side, keyed on the field, not a pack `min`/`max`.** A static number in a pack
+  cannot say "the current year", and would go stale every January. `BOUND_BY_FIELD` in
+  `answer-capture.ts` holds the rule. The projector (answer maps captured before the fix) and
+  the `worker_training` write read the same rule.
+- **A refused year is re-asked, as a counted ask, within the item's own `max_asks`.** This is a
+  deliberate exception to "non-mandatory items are ask-once" (2026-09-18 above). It applies only
+  to a value the parser read and the bound refused (`Capture.outOfRange`), never to a miss.
+  Past its asks the question is recorded unanswered, and nothing is stored.
+- **Existing data:** an owner-approved read-only count on 2026-10-14 found no `training_year`
+  values at all in `worker_attributes`, `worker_training`, `worker_pack_answer` or the chat-session
+  answer maps. Nothing to clean up.

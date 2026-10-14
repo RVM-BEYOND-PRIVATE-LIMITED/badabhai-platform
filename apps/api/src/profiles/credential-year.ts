@@ -42,6 +42,20 @@ export function currentYear(now: Date = new Date()): number {
 }
 
 /**
+ * The same bound for a year that does not arrive in a request body: the chat's `training_year`
+ * answer, read at capture, at projection and at the `worker_training` write (#2233). One rule, so
+ * the chat can never accept a year the qualifications page refuses.
+ */
+export function isCredentialYear(value: unknown, now: Date = new Date()): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= CREDENTIAL_YEAR_FLOOR &&
+    value <= currentYear(now)
+  );
+}
+
+/**
  * A four-digit award year: not before living memory, and not in the future.
  *
  * Not nullable and not optional on purpose — the two callers differ (`.nullable().default(null)`

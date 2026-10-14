@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { QuestionPackItem } from "@badabhai/ai-contracts";
 
@@ -232,6 +232,66 @@ describe("the remaining typed fields", () => {
     expect(only(captureAnswer("15 din lagenge", notice)).valueNormalized).toBe(15);
     expect(captureAnswer("15 din nahi lagenge", notice).values).toHaveLength(0);
     expect(captureAnswer("10 din pehle join kiya tha", notice).values).toHaveLength(0);
+  });
+
+  it("types a training year only from 1950 to the current year (#2233)", () => {
+    const training = item({
+      question_key: "training_year",
+      target_kind: "attribute",
+      target_field: "training_year",
+      answer_type: "number",
+    });
+    const thisYear = new Date().getFullYear();
+    expect(only(captureAnswer("2019 mein ki thi", training)).valueNormalized).toBe(2019);
+    expect(only(captureAnswer(String(thisYear), training)).valueNormalized).toBe(thisYear);
+    // A future year is a typo. The parser READS it and the bound refuses it, so it is never stored
+    // and is reported as `outOfRange`: the turn re-asks the question.
+    for (const text of ["2050", String(thisYear + 1), "2099 mein"]) {
+      const capture = captureAnswer(text, training);
+      expect(capture.values, text).toHaveLength(0);
+      expect(capture.outOfRange, text).toBe(true);
+    }
+    // Outside the parser's own 1950..2100 it is a plain miss, as before: nothing read, nothing to
+    // re-ask, and the ask-once question moves on.
+    for (const text of ["1949", "2150", "kabhi nahi"]) {
+      const capture = captureAnswer(text, training);
+      expect(capture.values, text).toHaveLength(0);
+      expect(capture.outOfRange, text).toBe(false);
+    }
+    // A year the worker refuses is the negation veto's, not the bound's.
+    expect(captureAnswer("2050 nahi", training).outOfRange).toBe(false);
+  });
+
+  it("cross-question fill never settles a future training year (#2233)", () => {
+    const training = item({
+      question_key: "training_year",
+      target_kind: "attribute",
+      target_field: "training_year",
+      answer_type: "number",
+    });
+    const passing = captureAnswer("welding ka ITI, 2050 mein", training, { crossQuestion: true });
+    expect(passing.values).toHaveLength(0);
+    expect(
+      only(captureAnswer("welding ka ITI, 2019 mein", training, { crossQuestion: true }))
+        .valueNormalized,
+    ).toBe(2019);
+  });
+
+  it("moves the training-year ceiling with the clock, read on every capture (#2233)", () => {
+    const training = item({
+      question_key: "training_year",
+      target_kind: "attribute",
+      target_field: "training_year",
+      answer_type: "number",
+    });
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2031-06-15T00:00:00Z"));
+      expect(only(captureAnswer("2031", training)).valueNormalized).toBe(2031);
+      expect(captureAnswer("2032", training).values).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps a target_kind:none question as free text", () => {

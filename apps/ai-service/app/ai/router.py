@@ -360,9 +360,11 @@ class AIRouter:
             json_mode=route.json_mode,
         )
 
-        # Ordered provider-fallback chain: primary (Gemini) first, then the
-        # configured cross-provider fallback (Claude Haiku) IFF its key is set
-        # AND its provider differs from the primary's. Each candidate is tried in
+        # Ordered provider-fallback chain: the primary first, then the
+        # cross-provider fallback IFF its key is set AND its provider differs from
+        # the primary's. Which provider is primary is the route's business
+        # (`ai_primary_provider`, #2170: Claude Haiku first, Gemini as the
+        # fallback, unless the box sets `google`). Each candidate is tried in
         # turn; the first success wins. messages are pseudonymized once, upstream,
         # and reused unchanged for every candidate (privacy invariant intact).
         candidates = self._candidate_models(primary_model, route.fallback_model) if real else []

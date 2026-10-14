@@ -1180,8 +1180,9 @@ describe("Companion v2 contract parity (contracts.py mirror)", () => {
     // `.default([])` wraps the array, so the members are asserted through a PARSE (which is
     // also the behaviour that matters: what the schema actually accepts).
     expect(
-      CompanionEditParseOutputSchema.parse({ unsupported: [...COMPANION_V2_UNSUPPORTED_EDIT_TARGETS] })
-        .unsupported,
+      CompanionEditParseOutputSchema.parse({
+        unsupported: [...COMPANION_V2_UNSUPPORTED_EDIT_TARGETS],
+      }).unsupported,
     ).toEqual([...COMPANION_V2_UNSUPPORTED_EDIT_TARGETS]);
     expect(() => CompanionEditParseOutputSchema.parse({ unsupported: ["phone"] })).toThrow();
     // Non-vacuous: the fixtures/source actually carry members.
@@ -1194,7 +1195,9 @@ describe("Companion v2 contract parity (contracts.py mirror)", () => {
     const banned = ["worker_id", "worker_ref", "worker_name", "name", "phone", "address"];
     for (const [contractName, shape] of shapes) {
       for (const field of banned) {
-        expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(field);
+        expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(
+          field,
+        );
       }
     }
   });
@@ -1212,10 +1215,12 @@ describe("Companion v2 contract parity (contracts.py mirror)", () => {
     // The edit-parse text cap is the companion message DTO's own bound, so a message the API
     // accepted can never be refused by this contract.
     const base = { catalogue: [], snapshot: [], max_rows: 3 };
-    expect(CompanionEditParseInputSchema.parse({ ...base, text: "x".repeat(4000) }).text).toHaveLength(
-      4000,
-    );
-    expect(() => CompanionEditParseInputSchema.parse({ ...base, text: "x".repeat(4001) })).toThrow();
+    expect(
+      CompanionEditParseInputSchema.parse({ ...base, text: "x".repeat(4000) }).text,
+    ).toHaveLength(4000);
+    expect(() =>
+      CompanionEditParseInputSchema.parse({ ...base, text: "x".repeat(4001) }),
+    ).toThrow();
   });
 
   it("bounds max_rows and confidence", () => {
@@ -1224,9 +1229,9 @@ describe("Companion v2 contract parity (contracts.py mirror)", () => {
     expect(() => CompanionEditParseInputSchema.parse({ ...base, max_rows: 0 })).toThrow();
     expect(() => CompanionEditParseInputSchema.parse({ ...base, max_rows: 11 })).toThrow();
 
-    expect(CompanionClassifyOutputSchema.parse({ intent: "unclear", confidence: 0.6 }).confidence).toBe(
-      0.6,
-    );
+    expect(
+      CompanionClassifyOutputSchema.parse({ intent: "unclear", confidence: 0.6 }).confidence,
+    ).toBe(0.6);
     for (const confidence of [-0.1, 1.1]) {
       expect(() =>
         CompanionClassifyOutputSchema.parse({ intent: "unclear", confidence }),
@@ -1248,7 +1253,13 @@ describe("Companion v2 contract parity (contracts.py mirror)", () => {
       field: "skill",
       value: "welding",
     });
-    expect(row).toEqual({ op: "add", section: "skills", ref: null, field: "skill", value: "welding" });
+    expect(row).toEqual({
+      op: "add",
+      section: "skills",
+      ref: null,
+      field: "skill",
+      value: "welding",
+    });
     // ref/field/value may be OMITTED (they default to null, mirroring the Pydantic defaults),
     // which is what lets the API drop a malformed row rather than fail the transport — but op
     // and section are the row's identity and stay required.
@@ -1307,7 +1318,9 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
 
   it("the closed sets come from @badabhai/types, not a private copy", () => {
     expect(FreeChatClassifyOutputSchema.shape.category.options).toEqual([...FREE_CHAT_CATEGORIES]);
-    expect(FreeChatReplyInputSchema.shape.category.options).toEqual([...FREE_CHAT_REPLY_CATEGORIES]);
+    expect(FreeChatReplyInputSchema.shape.category.options).toEqual([
+      ...FREE_CHAT_REPLY_CATEGORIES,
+    ]);
     expect(FreeChatRefuseSchema.shape.topic.options).toEqual([...FREE_CHAT_REFUSAL_TOPICS]);
     // Non-vacuous: eight categories, two of them model-written.
     expect(FREE_CHAT_CATEGORIES).toHaveLength(8);
@@ -1325,7 +1338,9 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     for (const [contractName, shape] of shapes) {
       for (const field of banned) {
         if (allowed[contractName]?.includes(field)) continue;
-        expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(field);
+        expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(
+          field,
+        );
       }
     }
   });
@@ -1333,7 +1348,9 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
   it("ADR-0054 H2: the news input's worker_ref is an optional, nullable, non-empty spend ref", () => {
     expect(FreeChatNewsInputSchema.parse({ text: "aaj ka mausam" }).worker_ref).toBeNull();
     expect(FreeChatNewsInputSchema.parse({ text: "x", worker_ref: null }).worker_ref).toBeNull();
-    expect(FreeChatNewsInputSchema.parse({ text: "x", worker_ref: "w-ref-1" }).worker_ref).toBe("w-ref-1");
+    expect(FreeChatNewsInputSchema.parse({ text: "x", worker_ref: "w-ref-1" }).worker_ref).toBe(
+      "w-ref-1",
+    );
     expect(FreeChatNewsInputSchema.safeParse({ text: "x", worker_ref: "" }).success).toBe(false);
     // The carve-out is the news input's alone.
     expect(Object.keys(FreeChatReplyInputSchema.shape)).not.toContain("worker_ref");
@@ -1342,21 +1359,31 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
   it("caps the classify text, the turns and the pending question", () => {
     const turn = { role: "worker", text: "kuch" };
     const base = { mode: "free" };
-    expect(FreeChatClassifyInputSchema.parse({ ...base, text: "x".repeat(1000) }).text).toHaveLength(1000);
+    expect(
+      FreeChatClassifyInputSchema.parse({ ...base, text: "x".repeat(1000) }).text,
+    ).toHaveLength(1000);
     expect(() => FreeChatClassifyInputSchema.parse({ ...base, text: "x".repeat(1001) })).toThrow();
     expect(() =>
       FreeChatClassifyInputSchema.parse({ ...base, text: "hi", recent_turns: [turn, turn, turn] }),
     ).toThrow();
     expect(
-      FreeChatClassifyInputSchema.parse({ mode: "resume", text: "5 saal", pending_question: "q".repeat(500) })
-        .pending_question,
+      FreeChatClassifyInputSchema.parse({
+        mode: "resume",
+        text: "5 saal",
+        pending_question: "q".repeat(500),
+      }).pending_question,
     ).toHaveLength(500);
     expect(() =>
-      FreeChatClassifyInputSchema.parse({ mode: "resume", text: "5 saal", pending_question: "q".repeat(501) }),
+      FreeChatClassifyInputSchema.parse({
+        mode: "resume",
+        text: "5 saal",
+        pending_question: "q".repeat(501),
+      }),
     ).toThrow();
     const replyBase = { category: "casual", text: "kaise ho" };
     expect(
-      FreeChatReplyInputSchema.parse({ ...replyBase, recent_turns: Array(6).fill(turn) }).recent_turns,
+      FreeChatReplyInputSchema.parse({ ...replyBase, recent_turns: Array(6).fill(turn) })
+        .recent_turns,
     ).toHaveLength(6);
     expect(() =>
       FreeChatReplyInputSchema.parse({ ...replyBase, recent_turns: Array(7).fill(turn) }),
@@ -1364,7 +1391,9 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
   });
 
   it("classifies only in free or résumé mode — the greeting is read deterministically", () => {
-    expect(FreeChatClassifyInputSchema.parse({ text: "hi", mode: "free" }).pending_question).toBeNull();
+    expect(
+      FreeChatClassifyInputSchema.parse({ text: "hi", mode: "free" }).pending_question,
+    ).toBeNull();
     expect(() => FreeChatClassifyInputSchema.parse({ text: "hi", mode: "greeting" })).toThrow();
   });
 
@@ -1379,33 +1408,70 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     expect(out.blocked).toBe(false);
     expect(out.ai_metadata).toBeNull();
     for (const confidence of [-0.1, 1.1]) {
-      expect(() => FreeChatClassifyOutputSchema.parse({ category: "casual", confidence })).toThrow();
+      expect(() =>
+        FreeChatClassifyOutputSchema.parse({ category: "casual", confidence }),
+      ).toThrow();
+    }
+  });
+
+  it("the language label (R42) defaults to null, and an unlisted label is caught to null, keeping the category", () => {
+    expect(
+      FreeChatClassifyOutputSchema.parse({ category: "casual", confidence: 0.8 }).language,
+    ).toBeNull();
+    expect(
+      FreeChatClassifyOutputSchema.parse({
+        category: "career",
+        confidence: 0.8,
+        language: "marathi",
+      }).language,
+    ).toBe("marathi");
+    for (const language of ["bhojpuri", "Marathi", "", 7]) {
+      const out = FreeChatClassifyOutputSchema.parse({
+        category: "career",
+        confidence: 0.8,
+        language,
+      });
+      expect(out.category).toBe("career");
+      expect(out.language).toBeNull();
     }
   });
 
   it("the reply is a closed union: an answer of 1-4 lines, or one refusal topic", () => {
-    expect(FreeChatAnswerSchema.parse({ status: "answer", lines: ["Theek hai."] }).followup_chips).toEqual(
-      [],
-    );
-    expect(FreeChatReplyOutputSchema.parse({ status: "answer", lines: ["Theek hai."] }).status).toBe(
-      "answer",
-    );
+    expect(
+      FreeChatAnswerSchema.parse({ status: "answer", lines: ["Theek hai."] }).followup_chips,
+    ).toEqual([]);
+    expect(
+      FreeChatReplyOutputSchema.parse({ status: "answer", lines: ["Theek hai."] }).status,
+    ).toBe("answer");
     expect(() => FreeChatReplyOutputSchema.parse({ status: "answer", lines: [] })).toThrow();
     expect(() =>
       FreeChatReplyOutputSchema.parse({ status: "answer", lines: ["a", "b", "c", "d", "e"] }),
     ).toThrow();
-    expect(FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "news" }).status).toBe("refuse");
-    expect(() => FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "salary_promise" })).toThrow();
+    expect(FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "news" }).status).toBe(
+      "refuse",
+    );
+    expect(() =>
+      FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "salary_promise" }),
+    ).toThrow();
   });
 
   it("Release 2: the reply carries an optional summary, defaulted so an older caller still parses", () => {
-    expect(FreeChatReplyInputSchema.parse({ category: "casual", text: "kaise ho" }).summary).toBeNull();
     expect(
-      FreeChatReplyInputSchema.parse({ category: "casual", text: "kaise ho", summary: "s".repeat(1200) })
-        .summary,
+      FreeChatReplyInputSchema.parse({ category: "casual", text: "kaise ho" }).summary,
+    ).toBeNull();
+    expect(
+      FreeChatReplyInputSchema.parse({
+        category: "casual",
+        text: "kaise ho",
+        summary: "s".repeat(1200),
+      }).summary,
     ).toHaveLength(1200);
     expect(() =>
-      FreeChatReplyInputSchema.parse({ category: "casual", text: "kaise ho", summary: "s".repeat(1201) }),
+      FreeChatReplyInputSchema.parse({
+        category: "casual",
+        text: "kaise ho",
+        summary: "s".repeat(1201),
+      }),
     ).toThrow();
   });
 
@@ -1413,7 +1479,9 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     const turn = { role: "worker", text: "aaj thak gaya" };
     expect(FreeChatSummarizeInputSchema.parse({ turns: [turn] }).previous_summary).toBeNull();
     expect(() => FreeChatSummarizeInputSchema.parse({ turns: [] })).toThrow();
-    expect(FreeChatSummarizeInputSchema.parse({ turns: Array(24).fill(turn) }).turns).toHaveLength(24);
+    expect(FreeChatSummarizeInputSchema.parse({ turns: Array(24).fill(turn) }).turns).toHaveLength(
+      24,
+    );
     expect(() => FreeChatSummarizeInputSchema.parse({ turns: Array(25).fill(turn) })).toThrow();
     expect(() =>
       FreeChatSummarizeInputSchema.parse({ turns: [turn], previous_summary: "p".repeat(1201) }),
@@ -1424,26 +1492,42 @@ describe("Free chat contract parity (contracts.py mirror)", () => {
     const empty = FreeChatSummarizeOutputSchema.parse({});
     expect(empty.summary).toBeNull();
     expect(empty.ai_metadata).toBeNull();
-    expect(FreeChatSummarizeOutputSchema.parse({ summary: "x".repeat(2000) }).summary).toHaveLength(2000);
+    expect(FreeChatSummarizeOutputSchema.parse({ summary: "x".repeat(2000) }).summary).toHaveLength(
+      2000,
+    );
     expect(() => FreeChatSummarizeOutputSchema.parse({ summary: "x".repeat(2001) })).toThrow();
   });
 
   it("ADR-0054: a news answer carries 1-4 lines, a kind and 1-3 sources", () => {
     const source = { url: "https://www.thehindu.com/a", title: "Headline", site: "thehindu.com" };
-    const answer = { status: "answer", kind: "work", lines: ["Ek line"], sources: [source], search_count: 1 };
+    const answer = {
+      status: "answer",
+      kind: "work",
+      lines: ["Ek line"],
+      sources: [source],
+      search_count: 1,
+    };
     const parsed = FreeChatNewsOutputSchema.parse(answer);
     expect(parsed.status).toBe("answer");
     expect(FreeChatNewsAnswerSchema.parse(answer).ai_metadata).toBeNull();
     expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, sources: [] })).toThrow();
-    expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, sources: Array(4).fill(source) })).toThrow();
-    expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, lines: Array(5).fill("l") })).toThrow();
+    expect(() =>
+      FreeChatNewsAnswerSchema.parse({ ...answer, sources: Array(4).fill(source) }),
+    ).toThrow();
+    expect(() =>
+      FreeChatNewsAnswerSchema.parse({ ...answer, lines: Array(5).fill("l") }),
+    ).toThrow();
     expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, kind: "politics" })).toThrow();
     expect(() => FreeChatNewsAnswerSchema.parse({ ...answer, search_count: 4 })).toThrow();
   });
 
   it("ADR-0054: no_results and refuse are the other two news outcomes the model can return", () => {
-    expect(FreeChatNewsOutputSchema.parse({ status: "no_results", search_count: 2 }).status).toBe("no_results");
-    expect(FreeChatNewsOutputSchema.parse({ status: "refuse", topic: "off_limits" }).status).toBe("refuse");
+    expect(FreeChatNewsOutputSchema.parse({ status: "no_results", search_count: 2 }).status).toBe(
+      "no_results",
+    );
+    expect(FreeChatNewsOutputSchema.parse({ status: "refuse", topic: "off_limits" }).status).toBe(
+      "refuse",
+    );
     expect(() => FreeChatNewsOutputSchema.parse({ status: "refuse", topic: "gossip" })).toThrow();
     expect(FreeChatNewsInputSchema.parse({ text: "aaj ka mausam" }).recent_turns).toEqual([]);
   });

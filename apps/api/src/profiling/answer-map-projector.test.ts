@@ -133,6 +133,34 @@ describe("THE FAIL-CLOSED PATH — a real profile from the answer map alone", ()
     expect(attributes).toEqual([]);
   });
 
+  it("drops a training year its bound refuses — an answer map captured before #2233", () => {
+    const thisYear = new Date().getFullYear();
+    const year = (value: unknown) =>
+      projectProfile([
+        answer({
+          question_key: "training_year",
+          target_field: "training_year",
+          value_normalized: value,
+        }),
+      ]).attributes;
+    expect(year(2019)).toEqual([
+      { attributeKey: "training_year", valueKind: "number", value: 2019, source: "answer_map" },
+    ]);
+    expect(year(thisYear)).toHaveLength(1);
+    for (const refused of [2050, thisYear + 1, 1949, 2019.5]) {
+      expect(year(refused), String(refused)).toEqual([]);
+    }
+  });
+
+  it("bounds only training_year — another number attribute is projected as before", () => {
+    const { attributes } = projectProfile([
+      answer({ question_key: "commute", target_field: "commute_max_km", value_normalized: 2050 }),
+    ]);
+    expect(attributes).toEqual([
+      { attributeKey: "commute_max_km", valueKind: "number", value: 2050, source: "answer_map" },
+    ]);
+  });
+
   it("ignores an RFS id the crosswalk does not know", () => {
     const { draft } = projectProfile([
       answer({ question_key: "q", target_field: "invented_field", value_normalized: "x" }),

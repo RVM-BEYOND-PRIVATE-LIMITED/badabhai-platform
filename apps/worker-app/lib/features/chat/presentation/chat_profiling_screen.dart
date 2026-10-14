@@ -60,8 +60,10 @@ import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
 import '../domain/chat_resume_prompt.dart';
 import '../../resume_import/domain/resume_upload_intent.dart';
+import 'widgets/chat_end_divider.dart';
 import 'widgets/chat_location_card.dart';
 import 'widgets/chat_news_tiles.dart';
+import 'widgets/chat_resume_download_tile.dart';
 import 'widgets/flying_name.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
@@ -250,9 +252,15 @@ class ChatProfilingScreen extends StatelessWidget {
         assistantTab && BbRemoteConfig.instance.chatCompanionEnabled;
     final Widget view = _ChatView(fromResumeImport: fromResumeImport);
     return BlocProvider<ChatBloc>(
-      create: (_) =>
-          locator<ChatBloc>()
-            ..add(companion ? ChatCompanionStarted() : ChatStarted()),
+      create: (_) {
+        final ChatBloc bloc = locator<ChatBloc>()
+          ..add(companion ? ChatCompanionStarted() : ChatStarted());
+        // Owner ask (2026-10-14) — the TAB offers the "Resume download" tile
+        // the moment it opens (when the worker has a résumé to download). The
+        // onboarding `/chat` never does, so its interview is untouched.
+        if (assistantTab) bloc.add(const ChatResumeDownloadOffered());
+        return bloc;
+      },
       // Wrapped whatever the lever said at mount: the tree must not change shape
       // when the lever does, and a tab that opened as the interview needs the
       // refocus as much as one that opened on the recap.
@@ -290,6 +298,10 @@ class _CompanionRefocus extends StatelessWidget {
       tabFocus: locator<TabFocus>(),
       index: TabIndex.chat,
       onFocused: () {
+        // Owner ask (2026-10-14) — coming back to the tab is opening the chat
+        // again, so the "Resume download" tile is offered again, whatever the
+        // companion lever says.
+        context.read<ChatBloc>().add(const ChatResumeDownloadOffered());
         if (!BbRemoteConfig.instance.chatCompanionEnabled) return;
         context.read<ChatBloc>().add(const ChatCompanionRefreshRequested());
       },
@@ -1660,7 +1672,18 @@ class _ChatViewState extends State<_ChatView>
           _wasSending = state.sending;
           _onMessagesChanged(state.messages);
         },
-        child: BlocBuilder<ChatBloc, ChatState>(
+        // Owner ask (2026-10-14) — the "Resume download" tile appearing on its
+        // own (the tab's résumé read landing after the transcript drew) is not
+        // a message, so the listener above never sees it. Bring it into view
+        // when the worker is reading the bottom, exactly as a reply would be —
+        // and touch nothing else (ticks, custom-answer mode stay as they are).
+        child: BlocListener<ChatBloc, ChatState>(
+          listenWhen: (ChatState prev, ChatState curr) =>
+              !prev.resumeDownloadTile && curr.resumeDownloadTile,
+          listener: (BuildContext context, ChatState state) {
+            if (_isNearBottom) _animateToBottom();
+          },
+          child: BlocBuilder<ChatBloc, ChatState>(
           builder: (BuildContext context, ChatState state) {
             if (state.initializing) {
               // Branded, captioned loader — the design system bans bare Material
@@ -1690,6 +1713,26 @@ class _ChatViewState extends State<_ChatView>
                 break;
               }
             }
+            // #2224 — the index the "End of conversation" marker follows, or
+            // null while the session is live. Clamped to the transcript the
+            // builder is about to draw: a redraw that REPLACED the transcript
+            // (the companion recap, a history redraw) must never leave the
+            // marker pointing past its end.
+            final int? endAfter =
+                state.sessionEndedAfterIndex != null &&
+                    state.sessionEndedAfterIndex! < state.messages.length
+                ? state.sessionEndedAfterIndex
+                : null;
+            // Owner ask (2026-10-14) — the "Resume download" tile is ONE EXTRA
+            // ROW at the very end of the transcript, under the latest bubble,
+            // so it reads as part of the conversation and scrolls away with it.
+            // Like the "End of conversation" marker it is not a `ChatMessage`,
+            // and being LAST it shifts no message's index.
+            final String? downloadResumeId = state.resumeDownloadTile
+                ? state.downloadableResumeId
+                : null;
+            final int messageRows =
+                state.messages.length + (endAfter == null ? 0 : 1);
             return Stack(
               children: <Widget>[
                 // bottom: false — the docked composer panel consumes the
@@ -1719,8 +1762,33 @@ class _ChatViewState extends State<_ChatView>
                                   horizontal: listGutter,
                                   vertical: AppSpacing.s2,
                                 ),
-                                itemCount: state.messages.length,
-                                itemBuilder: (BuildContext context, int i) {
+                                // #2224 — the "End of conversation" marker is
+                                // ONE EXTRA ROW, sitting directly after the
+                                // bubble that closed the interview. It is not a
+                                // fabricated `ChatMessage`: the bloc's per-ask
+                                // indices (retry-by-index, the companion
+                                // offset, the résumé local bubbles) all assume
+                                // every entry in `state.messages` is a real
+                                // bubble, so the row is inserted HERE and every
+                                // index below it is read back out.
+                                itemCount:
+                                    messageRows +
+                                    (downloadResumeId == null ? 0 : 1),
+                                itemBuilder: (BuildContext context, int row) {
+                                  if (downloadResumeId != null &&
+                                      row == messageRows) {
+                                    return _resumeDownloadTile(
+                                      downloadResumeId,
+                                      bubbleMaxWidth,
+                                    );
+                                  }
+                                  if (endAfter != null && row == endAfter + 1) {
+                                    return const ChatEndDivider();
+                                  }
+                                  // Rows after the marker address a message one
+                                  // place earlier in the list.
+                                  final int i =
+                                      (endAfter != null && row > endAfter) ? row - 1 : row;
                                   final ChatMessage m = state.messages[i];
                                   final bool failed =
                                       m.status == ChatSendStatus.failed;
@@ -1839,6 +1907,7 @@ class _ChatViewState extends State<_ChatView>
               ],
             );
           },
+          ),
         ),
       ),
     );
@@ -2817,6 +2886,24 @@ class _ChatViewState extends State<_ChatView>
       );
     }
     return const SizedBox.shrink(key: ValueKey<String>('none'));
+  }
+
+  /// Owner ask (2026-10-14) — the "Resume download" tile, on bada bhai's side
+  /// of the transcript and inside a bubble's width cap. Keyed by the résumé, so
+  /// a NEW résumé gets a fresh tile (and a fresh file-name read).
+  Widget _resumeDownloadTile(String resumeId, double maxWidth) {
+    final ChatBloc bloc = context.read<ChatBloc>();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: ChatResumeDownloadTile(
+          key: ValueKey<String>('chat_resume_download_tile:$resumeId'),
+          mintUrl: () => bloc.resumeDownloadUrl(resumeId),
+          onTapped: () => bloc.add(const ChatResumeDownloadTapped()),
+        ),
+      ),
+    );
   }
 
   /// "Bada Bhai type kar raha hai…" — shown while a reply is in flight so a

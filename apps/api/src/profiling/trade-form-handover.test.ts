@@ -6,11 +6,14 @@ import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 
 import type { TranscriptBuffer } from "../chat/chat-transcript.buffer";
 import {
+  emptyGeneralRoad,
   emptyProfilingEnvelope,
+  emptyTradeConfirm,
   narrowProfilingEnvelope,
   type ProfilingEnvelope,
 } from "./conversation-state";
 import type { LlmTurnResult } from "./llm-turn.service";
+import { MAX_ENGINE_TURNS } from "./next-question";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { FORM_OFFER_OPTIONS, offerPrompt } from "./trade-form-offer";
 import { TRADE_FORM_OFFERS } from "./trade-form-router";
@@ -50,6 +53,8 @@ import { TRADE_FORM_OFFERS } from "./trade-form-router";
  *      session may close because the worker said no.
  *   4. The offer must survive a reload. It is stored state, not a per-turn re-derivation.
  *   5. The events must carry no labels. They are the model's free text about a named worker.
+ *   6. The offer must not depend on the model answering (#2245). A fallback with a form trade
+ *      pinned is offered the form; a fallback with nothing to route on reaches the engine.
  */
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -176,9 +181,11 @@ function makeWorld(turn: LlmTurnResult | null, identifyPatch: Partial<ProfilingE
   };
   const events = { emit: vi.fn(async (_params: unknown) => undefined) };
   const llm = {
-    // LEADS UNTIL THE STAGE SAYS OTHERWISE, which is the real `leads()` rule — gating on the
-    // stage rather than a flag is what lets the handover switch Phase A off by writing `done`.
-    leads: (envelope: ProfilingEnvelope) => envelope.llmStage !== "done",
+    // LEADS UNTIL THE STAGE SAYS OTHERWISE OR THE MODEL HAS GONE, which is the real `leads()`
+    // rule — gating on the stage rather than a flag is what lets the handover switch Phase A off
+    // by writing `done`, and the sticky fallback is what keeps a fallen-back session on the
+    // engine for every turn after it (#2245's decline path depends on that).
+    leads: (envelope: ProfilingEnvelope) => envelope.llmStage !== "done" && !envelope.llmFallback,
     take: vi.fn(async () => turn),
   };
 
@@ -215,6 +222,22 @@ const say = (text: string) => ({
 });
 
 const saved = (store: Map<string, TranscriptBuffer>) => store.get(SESSION)?.profiling;
+
+/** Retrieval's pin for "cnc turning" — the catalogue's label, not anything a model wrote. */
+const PINNED: Partial<ProfilingEnvelope> = {
+  occupationFamilyId: "fam_cnc_turning",
+  occupation: {
+    job_domain_id: "jd_nco_7223_6002",
+    label: "CNC Operator-Turning",
+    isco_unit_code: "7223",
+    match_status: "matched_lexical",
+    match_score: 0.97,
+    match_layer: "l0_exact",
+    pack_id: null,
+    pack_version: null,
+    catalog_version: "v1",
+  },
+};
 
 type EmittedEvent = { event_name: string; payload: Record<string, unknown> };
 const emitted = (
@@ -254,6 +277,8 @@ describe("the trade-form offer", () => {
       expect(saved(store)?.formKind).toBeNull();
       expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "pending" });
       expect(saved(store)?.llmStage).not.toBe("done");
+      // The led offer pauses an LLM stretch; `serveFormOffer` leaves `phase` to its caller.
+      expect(saved(store)?.phase).toBe("llm_interview");
     });
 
     it("offers on the turn the trade is confirmed, and spends an ask", async () => {
@@ -405,21 +430,6 @@ describe("the trade-form offer", () => {
    * the suite ever put a real occupation pin in front of the router.
    */
   describe("the occupation pin is routing evidence", () => {
-    const PINNED: Partial<ProfilingEnvelope> = {
-      occupationFamilyId: "fam_cnc_turning",
-      occupation: {
-        job_domain_id: "jd_nco_7223_6002",
-        label: "CNC Operator-Turning",
-        isco_unit_code: "7223",
-        match_status: "matched_lexical",
-        match_score: 0.97,
-        match_layer: "l0_exact",
-        pack_id: null,
-        pack_version: null,
-        catalog_version: "v1",
-      },
-    };
-
     it("offers on the pin alone, with the model still silent — after the gate confirms it", async () => {
       // EXACTLY THE PRODUCTION TURN. The worker types "cnc turning", retrieval pins it, and the
       // model answers by asking about materials without filling either label. Before the pinned
@@ -497,15 +507,233 @@ describe("the trade-form offer", () => {
       expect(saved(store)?.formOfferPrompt ?? null).toBeNull();
     });
 
-    it("a Phase A fallback is untouched by the offer", async () => {
-      // `take` returning null is the model going away. The offer sits in the other branch and
-      // must not fire here, where there is no draft to route on.
+    it("a Phase A fallback with nothing to route on is untouched by the offer", async () => {
+      // `take` returning null is the model going away. With no draft and no pin there is no
+      // routing evidence, so the fallback's offer (#2245) stays silent and the engine asks.
       const { orchestrator, store } = makeWorld(null);
       const result = await orchestrator.takeTurn(say("main cnc turner hoon"));
       expect(result.formOffer ?? null).toBeNull();
       expect(saved(store)?.formKind).toBeNull();
       expect(saved(store)?.formOfferPrompt ?? null).toBeNull();
       expect(saved(store)?.llmFallback).toBe(true);
+    });
+  });
+
+  /**
+   * ═══ THE OFFER OUTLIVES THE MODEL (#2245) ═══
+   *
+   * Production 2026-10-14: two CNC sessions lost their FIRST Phase A call, fell back for good, and
+   * were walked through the fixed turning questions — with the turning pin already on the
+   * envelope. Eligibility is deterministic and the pin is retrieval's, so the turn the model goes
+   * away serves the same offer the led branch would have. No trade-confirm gate in front of it:
+   * from here on the interview is deterministic, and `tradeGateFor` confirms only what a model
+   * turn inferred.
+   */
+  describe("a Phase A fallback with a form trade pinned", () => {
+    it("is OFFERED the form on the turn the model goes away — the production case", async () => {
+      const { orchestrator, store, llm } = makeWorld(null, PINNED);
+      const result = await orchestrator.takeTurn(say("cnc turning"));
+
+      expect(llm.take).toHaveBeenCalledTimes(1);
+      expect(result.kind).toBe("ask");
+      expect(result.reply).toBe(offerPrompt("cnc_turner"));
+      expect(result.options).toEqual([...FORM_OFFER_OPTIONS]);
+      expect(result.questionKey).toBeNull();
+      expect(result.complete).toBe(false);
+      expect(saved(store)?.llmFallback).toBe(true);
+      expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "pending" });
+      expect(saved(store)?.formKind).toBeNull();
+      // THE OFFER IS AN ASK on this path too.
+      expect(saved(store)?.engineAsks).toBe(1);
+      // `phase` feeds the packs' predicates; a fallen-back session is not in an LLM stretch.
+      expect(saved(store)?.phase).not.toBe("llm_interview");
+    });
+
+    it("ACCEPTING runs the same handover, settling the trade the worker just said Haan to", async () => {
+      const { orchestrator, store } = makeWorld(null, PINNED);
+      await orchestrator.takeTurn(say("cnc turning"));
+      const result = await orchestrator.takeTurn(say("form_offer_yes"));
+
+      expect(result.kind).toBe("close");
+      expect(result.completionReason).toBe("form_handoff");
+      expect(result.formOffer).toEqual(TRADE_FORM_OFFERS.cnc_turner);
+      const trade = saved(store)?.answerMap.find((a) => a.question_key === "primary_trade");
+      expect(trade?.status).toBe("answered");
+      expect(saved(store)?.formKind).toBe("cnc_turner");
+    });
+
+    it("DECLINING is today's path — the engine asks on, the model is never called again", async () => {
+      const { orchestrator, store, llm } = makeWorld(null, PINNED);
+      await orchestrator.takeTurn(say("cnc turning"));
+      const declined = await orchestrator.takeTurn(say("form_offer_no"));
+
+      expect(declined.kind).not.toBe("close");
+      expect(declined.formOffer ?? null).toBeNull();
+      expect(declined.reply).not.toBe(offerPrompt("cnc_turner"));
+      expect(saved(store)?.formKind).toBeNull();
+      expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "settled" });
+
+      const later = await orchestrator.takeTurn(say("Pune"));
+      expect(later.reply).not.toBe(offerPrompt("cnc_turner"));
+      // The fallback stays sticky: neither the decline nor the next turn went back to the model.
+      expect(llm.take).toHaveBeenCalledTimes(1);
+    });
+
+    it("records the offer once, beside the fallback event, with no labels", async () => {
+      const { orchestrator, events } = makeWorld(null, PINNED);
+      await orchestrator.takeTurn(say("cnc turning"));
+      await orchestrator.takeTurn(say("form_offer_no"));
+
+      expect(emitted(events, "profile.llm_interview_fallback")).toHaveLength(1);
+      const offered = emitted(events, "profile.form_offered");
+      expect(offered).toHaveLength(1);
+      // A FIRST-TURN fallback: zero led turns. A fallback later in the interview carries its led
+      // count, so the funnel tells the two offers apart by the fallback event, not by this field.
+      expect(offered[0]!.payload).toEqual({
+        worker_id: WORKER,
+        session_id: SESSION,
+        form_kind: "cnc_turner",
+        llm_led_turns: 0,
+        asks: 0,
+      });
+      expect(JSON.stringify(offered[0]!.payload)).not.toContain("Turning");
+    });
+
+    it("does NOT offer when the worker names a competing machine in the same breath", async () => {
+      const { orchestrator, store } = makeWorld(null, PINNED);
+      const result = await orchestrator.takeTurn(say("cnc turning aur vmc dono karta hoon"));
+
+      expect(result.reply).not.toBe(offerPrompt("cnc_turner"));
+      expect(saved(store)?.formOfferPrompt ?? null).toBeNull();
+      expect(saved(store)?.llmFallback).toBe(true);
+    });
+
+    it("does NOT offer a trade the worker said Nahi to and has not confirmed a replacement for", async () => {
+      const { orchestrator, store } = makeWorld(null, {
+        ...PINNED,
+        tradeConfirm: { ...emptyTradeConfirm(), pastLabel: "CNC Operator-Turning", rounds: 1 },
+      });
+      const result = await orchestrator.takeTurn(say("cnc turning"));
+
+      expect(result.reply).not.toBe(offerPrompt("cnc_turner"));
+      expect(saved(store)?.formOfferPrompt ?? null).toBeNull();
+    });
+
+    it("does NOT offer on the general road's skills lane", async () => {
+      const { orchestrator, store } = makeWorld(null, {
+        ...PINNED,
+        generalRoad: { ...emptyGeneralRoad(), armed: true, lane: "skills" },
+      });
+      const result = await orchestrator.takeTurn(say("cnc turning"));
+
+      expect(result.reply).not.toBe(offerPrompt("cnc_turner"));
+      expect(saved(store)?.formOfferPrompt ?? null).toBeNull();
+    });
+
+    it("a pin into some other family still routes nobody", async () => {
+      const { orchestrator, store } = makeWorld(null, {
+        occupationFamilyId: "fam_tailoring",
+        occupation: { ...PINNED.occupation!, label: "Tailor", job_domain_id: "jd_x" },
+      });
+      await orchestrator.takeTurn(say("main tailor hoon"));
+      expect(saved(store)?.formOfferPrompt ?? null).toBeNull();
+      expect(saved(store)?.llmFallback).toBe(true);
+    });
+
+    it("DOES offer once a replacement trade was confirmed after a Nahi", async () => {
+      const { orchestrator, store } = makeWorld(null, {
+        ...PINNED,
+        tradeConfirm: { ...emptyTradeConfirm(), confirmed: true, rounds: 1 },
+      });
+      const result = await orchestrator.takeTurn(say("cnc turning"));
+
+      expect(result.reply).toBe(offerPrompt("cnc_turner"));
+      expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "pending" });
+    });
+
+    it("does NOT offer on a capped turn — the interview is closing", async () => {
+      const { orchestrator, store } = makeWorld(null, PINNED);
+      store.set(SESSION, { ...store.get(SESSION)!, turnCount: MAX_ENGINE_TURNS });
+      const result = await orchestrator.takeTurn(say("cnc turning"));
+
+      expect(result.reply).not.toBe(offerPrompt("cnc_turner"));
+      expect(saved(store)?.formOfferPrompt ?? null).toBeNull();
+    });
+
+    it("a fallback mid-interview offers too, after settling what Phase A had learned", async () => {
+      // Gate served by a led turn, Haan, and THEN the model goes away on the confirmed turn.
+      const { orchestrator, store, events, llm } = makeWorld(null, PINNED);
+      llm.take.mockResolvedValueOnce(led("CNC Machining", "CNC Turner"));
+      const gated = await orchestrator.takeTurn(say("main cnc turner hoon"));
+      expect(gated.reply).toBe("CNC Turner — kya aap yahi kaam karna chahte hain?");
+
+      const result = await orchestrator.takeTurn(say("Haan"));
+      expect(result.reply).toBe(offerPrompt("cnc_turner"));
+      expect(saved(store)?.llmFallback).toBe(true);
+      const trade = saved(store)?.answerMap.find((a) => a.question_key === "primary_trade");
+      expect(trade?.status).toBe("answered");
+      expect(emitted(events, "profile.form_offered")[0]!.payload.llm_led_turns).toBe(1);
+    });
+  });
+
+  /**
+   * ═══ A PENDING OFFER SURVIVES A REOPEN, WHOEVER SERVED IT (#2245) ═══
+   *
+   * Both readers of a reopened session used to find the offer only through `outstandingLlmAsk`,
+   * which reads nothing once `leads()` is false — true for an offer served on the fallback turn
+   * AND for one served on a led `done`. The reopen then served a pack question with the offer
+   * still pending, and the worker's next "haan" to THAT question handed them to the form.
+   */
+  describe("a pending offer, reopened", () => {
+    const open = (orchestrator: ProfilingOrchestrator) =>
+      orchestrator.openTurn({
+        sessionId: SESSION,
+        workerId: WORKER,
+        now: new Date(T0.getTime() + 60_000),
+        ctx: CTX as never,
+      });
+
+    it("openTurn re-serves a fallback offer, writes nothing, and the Haan still accepts it", async () => {
+      const { orchestrator, store } = makeWorld(null, PINNED);
+      await orchestrator.takeTurn(say("cnc turning"));
+      const before = saved(store);
+
+      const reopened = await open(orchestrator);
+      expect(reopened.replayed).toBe(true);
+      expect(reopened.reply).toBe(offerPrompt("cnc_turner"));
+      expect(reopened.options).toEqual([...FORM_OFFER_OPTIONS]);
+      expect(reopened.questionKey).toBeNull();
+      // RE-SERVE ONLY: no ask spent, no pack question claimed.
+      expect(saved(store)?.rev).toBe(before?.rev);
+      expect(saved(store)?.servedQuestionKey ?? null).toBeNull();
+
+      const accepted = await orchestrator.takeTurn(say("form_offer_yes"));
+      expect(accepted.completionReason).toBe("form_handoff");
+    });
+
+    it("viewSession reports the offer and its chips, so a voice-form tap resolves", async () => {
+      const { orchestrator } = makeWorld(null, PINNED);
+      await orchestrator.takeTurn(say("cnc turning"));
+
+      const view = await orchestrator.viewSession(SESSION, T0);
+      expect(view?.served).toMatchObject({
+        questionKey: null,
+        promptText: offerPrompt("cnc_turner"),
+        answerType: "single_select",
+        options: [...FORM_OFFER_OPTIONS],
+      });
+    });
+
+    it("openTurn re-serves an offer made on a led `done` — the same gap, closed by the same rule", async () => {
+      const { orchestrator, store } = makeWorld(led("CNC Machining", "CNC Turner", "done"));
+      await orchestrator.takeTurn(say("main cnc turner hoon"));
+      await orchestrator.takeTurn(say("Haan"));
+      expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "pending" });
+      expect(saved(store)?.llmStage).toBe("done");
+
+      const reopened = await open(orchestrator);
+      expect(reopened.reply).toBe(offerPrompt("cnc_turner"));
+      expect(reopened.options).toEqual([...FORM_OFFER_OPTIONS]);
     });
   });
 });

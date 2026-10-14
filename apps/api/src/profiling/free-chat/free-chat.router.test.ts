@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { parseAffirmation } from "@badabhai/profiling-lexicon";
+import type { QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
 import type { FreeChatCategory } from "@badabhai/types";
 
 import { greetingState, enterMode, registerStrike, FREE_CHAT_ASIDE_CAP } from "./free-chat.state";
@@ -9,18 +11,22 @@ import {
   FREE_CHAT_MIN_CONFIDENCE,
   GREETING_DECLINE_WORDS,
   GREETING_FILLER_WORDS,
+  isBareYesNo,
   isFreeChatChip,
   isResumeChip,
+  isYesNoQuestion,
   matchesDistress,
   matchesOfferedOption,
   postClassifyFree,
   postClassifyResume,
+  postDistressCheck,
   preClassifyFree,
   preClassifyResume,
   readGreetingChoice,
   readLanguageAnswer,
   UNAVAILABLE_VERDICT,
   type FreeChatVerdict,
+  YES_NO_FILLER_WORDS,
   type ResumeSkipFacts,
 } from "./free-chat.router";
 
@@ -31,10 +37,21 @@ import {
 
 const T0 = new Date("2026-10-06T10:00:00.000Z");
 const FREE = enterMode(greetingState(), "free", "chip", T0);
+// The language label (§11 R42) is no routing fact: every rule here reads category and confidence.
 const v = (category: FreeChatCategory, confidence = 0.9): FreeChatVerdict => ({
   kind: "verdict",
   category,
   confidence,
+  language: null,
+});
+
+/** A pack option carrying `value`: a yes/no select carries booleans, any other select text. */
+const packOption = (value: unknown): QuestionPackOption => ({
+  option_key: String(value).toLowerCase(),
+  label_text: String(value),
+  value,
+  implies_skill_id: null,
+  is_none_of_above: false,
 });
 
 describe("reading the worker's words deterministically", () => {
@@ -91,6 +108,73 @@ describe("reading the worker's words deterministically", () => {
     for (const word of GREETING_FILLER_WORDS) {
       expect(distressWords.has(word), word).toBe(false);
       expect(GREETING_DECLINE_WORDS.has(word) || word === "mat", word).toBe(false);
+    }
+  });
+
+  it.each([
+    "haan",
+    "Haan ji",
+    "haan karta hoon",
+    "nahi",
+    "nahi karta",
+    "haan hai",
+    "Haan sir",
+    "haan bhai",
+    "haan mere paas hai",
+    "nahi, mere paas nahi hai",
+    "जी हाँ",
+    "मैं नहीं करता",
+    "हाँ, मेरे पास है",
+  ])("a typed yes/no that is only an answer: %j (#2226)", (text) => {
+    expect(isBareYesNo(text)).toBe(true);
+  });
+
+  it.each([
+    "haan marna hai",
+    "haan mar jaunga",
+    "nahi jeena",
+    "jeena nahi hai",
+    "haan sab khatam",
+    "haan, 5 saal se karta hoon",
+    "हाँ मरना है",
+    // A hidden format character inside "jeena" / "jina" / "जीना" splits it into a yes cue and the
+    // tag negator "na" when read as a gap; the deleted reading still sees the word.
+    "haan jee\u200Bna nahi hai",
+    "haan ji\u200Bna nahi hai",
+    "haan jee\u00ADna nahi",
+    "जी\u200Dना नहीं है",
+    "haan\u200Bmarna",
+    // An emoji is never filler.
+    "haan 😭💀",
+    "nahi 😭",
+  ])("a typed yes/no that carries other words: %j (#2226)", (text) => {
+    expect(isBareYesNo(text)).toBe(false);
+  });
+
+  it("reads a format character between two bare words as bare (#2226)", () => {
+    expect(isBareYesNo("haan\u200Bji")).toBe(true);
+  });
+
+  it.each<[Pick<QuestionPackItem, "answer_type" | "options"> | null, boolean]>([
+    [{ answer_type: "boolean", options: [] }, true],
+    [{ answer_type: "single_select", options: [packOption(true), packOption(false)] }, true],
+    [{ answer_type: "single_select", options: [packOption("MIG"), packOption("TIG")] }, false],
+    [{ answer_type: "number", options: [] }, false],
+    [{ answer_type: "text", options: [] }, false],
+    [null, false],
+  ])("a yes/no question: %j → %s (#2226)", (item, yesNo) => {
+    expect(isYesNoQuestion(item)).toBe(yesNo);
+  });
+
+  it("the yes/no filler list holds no negation and no word of a distress phrase (#2226)", () => {
+    const distressWords = new Set(
+      DISTRESS_PHRASES.flatMap((phrase) => phrase.normalize("NFC").toLowerCase().split(" ")),
+    );
+    for (const word of YES_NO_FILLER_WORDS) {
+      expect(distressWords.has(word), word).toBe(false);
+      expect(GREETING_DECLINE_WORDS.has(word), word).toBe(false);
+      expect(parseAffirmation(word)?.value, word).not.toBe(false);
+      expect(word, word).toBe(word.normalize("NFC").toLowerCase());
     }
   });
 
@@ -248,6 +332,13 @@ describe("free mode — the deterministic rules come first", () => {
     expect(pre("aaj mausam accha hai")).toBe("classify");
   });
 
+  it.each(["chu\u200Btiya", "bhos\u00ADdike", "gaa\u2060ndu", "haan\u200Bchutiya"])(
+    "an invisible format character cannot hide a lexicon word from the strike: %j (#2237)",
+    (text) => {
+      expect(pre(text)).toBe("strike");
+    },
+  );
+
   it("the cool-down blocks typing and the classifier — but not the chip, and not distress", () => {
     let state = FREE;
     for (let i = 0; i < 3; i++) state = registerStrike(state, T0).state;
@@ -301,6 +392,7 @@ describe("résumé mode — the skip list, then the classifier", () => {
     offeredOption: false,
     lexiconClass: "answer",
     typedAnswer: false,
+    typedAnswerCarriesWords: false,
     hasPendingQuestion: true,
     asideCapReached: false,
     ...over,
@@ -329,6 +421,47 @@ describe("résumé mode — the skip list, then the classifier", () => {
 
   it("checks distress before the skip list", () => {
     expect(preClassifyResume("marna chahta hoon", facts({ capped: true })).kind).toBe("distress");
+  });
+
+  // #2226 — a typed yes/no that carries other words keeps its skip, behind a distress check.
+  const carrying = { typedAnswer: true, typedAnswerCarriesWords: true };
+
+  it("checks a typed yes/no that carries other words for distress", () => {
+    expect(preClassifyResume("haan marna hai", facts(carrying)).kind).toBe("distress_check");
+  });
+
+  it("reads the carried words only on a typed answer", () => {
+    expect(preClassifyResume("kuch bhi", facts({ typedAnswerCarriesWords: true })).kind).toBe(
+      "classify",
+    );
+  });
+
+  it.each([
+    ["the turn cap", { capped: true }],
+    ["a pending offer", { pendingOffer: true }],
+    ["an open gate", { gateOpen: true }],
+    ["a tapped option", { offeredOption: true }],
+    ["the lexicon's dont_know class", { lexiconClass: "dont_know" as const }],
+    ["nothing on screen to re-ask", { hasPendingQuestion: false }],
+    ["the aside cap", { asideCapReached: true }],
+  ])("every other skip still wins over the check: %s", (_label, over) => {
+    expect(preClassifyResume("haan marna hai", facts({ ...carrying, ...over })).kind).toBe("pass");
+  });
+
+  it.each([
+    [UNAVAILABLE_VERDICT, "pass"],
+    [v("distress"), "distress"],
+    [v("distress", 0.3), "distress"],
+    [v("resume"), "pass"],
+    [v("resume", 0.59), "pass"],
+    [v("unclear"), "pass"],
+    [v("trash"), "pass"],
+    [v("career"), "pass"],
+    [v("casual"), "pass"],
+    [v("jobs"), "pass"],
+    [v("off_limits"), "pass"],
+  ])("the distress check: %j → %s", (verdict, kind) => {
+    expect(postDistressCheck(verdict).kind).toBe(kind);
   });
 
   it.each([

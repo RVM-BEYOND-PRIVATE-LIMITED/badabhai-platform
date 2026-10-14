@@ -13,12 +13,39 @@
 | `confirmed_at`   | `worker_profiles.confirmed_at` (ISO-8601)                                                                                                                                                                                                                       | `null` until confirmed                                                                                               |
 | `trade`          | `{ canonical_trade_id, canonical_role_id, display_name }`; `display_name` = `getRole(canonicalRoleId)?.name` (taxonomy) → else `resolveTradeContent(...)?.display_name` → else `null`                                                                           | every part nullable — extraction may not have canonicalized yet; client shows a "complete your profile" hint on null |
 | `city`           | `workers.current_city` FIRST (#1428 — the worker own onboarding answer, owner ruling 2026-09-05), then `locationPreference.current_city`, then `locationPreference.preferred_cities[0]` (defensive `asObject` narrowing — the JSONB is untyped at the DB layer) | `null` when all three are absent/empty                                                                               |
-| `strength`       | **recomputed** on read, `countFields`-equivalent over the stored row (see below)                                                                                                                                                                                | `0` when no profile                                                                                                  |
+| `strength`       | **recomputed** on read over the stored row plus the worker's own form answers (#2201, see below)                                                                                                                                                                | `0` when no profile                                                                                                  |
 
-**`strength` recompute** (mirror of `profile-extraction.processor.ts#countFields`, over the stored row):
+**`strength` recompute** (over the stored row):
 +1 `canonical_role_id`, +1 `canonical_trade_id`, +`skills.length`, +`machines.length`,
 +1 `experience.total_years != null`, +1 salary min/max present, +1 `preferred_cities` non-empty,
-+1 `availability.status !== "unknown"`. Deliberately **not stored** — no new column, no drift.
++1 `availability.status !== "unknown"`, +1 photo. Deliberately **not stored**: no new column, no drift.
+
+**#2201 — form answers fill blanks.** The trade form writes `worker_attributes`, never these
+columns. A dimension the row leaves empty therefore scores **+1** when the worker's own form answer
+fills it (`apps/api/src/workers/profile-form-facts.ts`). Each fact is read through the same reader
+the résumé uses:
+
+| Dimension         | Form source                                                         |
+| ----------------- | ------------------------------------------------------------------- |
+| salary            | `salary_expected_min` / `salary_expected_max` (`resolveSalaryBand`) |
+| location          | `preferred_locations`                                               |
+| availability      | the structured `availability` answer, vocabulary-narrowed           |
+| experience        | the pack's tenure gate (`tenureQuestionKey`)                        |
+| machines / skills | the trade-sheet capability rows, split as the résumé text lines are |
+
+The split is `MACHINE_ROW_LABELS` (`resume-draft-overlay.ts`): each trade's machine, controller,
+equipment or tool row counts as machines (#2257), every other row as skills. `qp_cad_drafting` and
+`qp_quality_inspection` ask no machine question, so `machines` stays open for them.
+
+Rules for the form path:
+
+- **The row is never re-scored and nothing is written back.** Copying form answers onto the row
+  would merge stores that `worker-field-precedence.ts` keeps apart, and would move what reach and
+  matching read.
+- **Presence only:** no form value reaches the wire.
+- **No `countFields` mirror:** strength no longer mirrors `profile-extraction.processor.ts#countFields`.
+  That count scores the draft at extraction time for the event's `field_count`, so it cannot see
+  later form answers.
 
 ## Explicitly DROPPED (do not build)
 

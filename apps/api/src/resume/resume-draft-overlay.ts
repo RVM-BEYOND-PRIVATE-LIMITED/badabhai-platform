@@ -23,7 +23,8 @@ import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-re
  * (the trade map), two readers (sheet + text) — instead of inventing a second
  * pack→label mapping that could disagree with the sheet.
  *
- * THE SPLIT. Capability rows labelled `Machines` / `Controllers` feed the
+ * THE SPLIT. Capability rows labelled `Machines` / `Controllers` (and each
+ * trade's equipment-row equivalent, see `MACHINE_ROW_LABELS`) feed the
  * `Machines:` line (the text has no Controllers line; dropping Fanuc silently
  * would lose a worker-confirmed claim, so it rides with the machines).
  * Every other chip/tick row feeds `Skills:`. Fact rows (single measurements
@@ -54,8 +55,52 @@ export interface DraftOverlayResult {
   readonly overlaidSkills: boolean;
 }
 
-/** Capability-row labels that feed the `Machines:` text line. */
-const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set(["Machines", "Controllers"]);
+/**
+ * Capability-row labels that feed the `Machines:` text line — every trade's machine, controller,
+ * equipment or tool row, under whatever name its sheet prints it.
+ *
+ * #2257 — THE EQUIPMENT TRADES. This set began as the machining packs' two labels, so a welder's
+ * "Equipment", a fitter's "Equipment worked on" or a CAM programmer's "Machines programmed for"
+ * fell through to `Skills:`, and the profile-summary strength (which reads this split) could never
+ * clear `machines` for those trades. Each row added here sits at the trade map's 2x rank — the
+ * guideline's "machines and controllers" tier — so it is the same claim, worded for the trade.
+ * Instrument rows ("Tools & instruments", "Instruments & tools") stay skills: measuring is a
+ * capability, not the machine the worker runs. `resume-draft-overlay.test.ts` holds every label
+ * to a real row, and every trade with a machine question to at least one of them.
+ */
+export const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set([
+  "Machines",
+  "Controllers",
+  "Equipment",
+  "Equipment worked on",
+  "Equipment maintained",
+  "Tools used",
+  "Machines programmed for",
+  "Controllers posted to",
+]);
+
+/**
+ * The live trade-sheet capability rows split into the two text lines (see THE SPLIT above):
+ * `Machines`/`Controllers` rows → `machines`, every other chip/tick row → `skills`. Fact rows are
+ * excluded. Values are trimmed and de-duplicated in row order. Also read by the profile-summary
+ * strength (#2201), so the card and the sheet agree on what counts as a machine.
+ */
+export function capabilityLinesFrom(
+  packId: string | null,
+  attributes: WorkerAttributeValues,
+): { machines: string[]; skills: string[] } {
+  const capability = buildTradeCapabilityRows(packId, attributes);
+  const machines: string[] = [];
+  const skills: string[] = [];
+  for (const row of [...capability.chipRows, ...capability.tickRows]) {
+    const target = MACHINE_ROW_LABELS.has(row.label.trim()) ? machines : skills;
+    for (const value of row.values) {
+      const trimmed = value.trim();
+      if (trimmed.length > 0 && !target.includes(trimmed)) target.push(trimmed);
+    }
+  }
+  return { machines, skills };
+}
 
 export function overlayFreshCapabilityLines(input: {
   readonly draft: DraftProfile;
@@ -85,16 +130,7 @@ export function overlayFreshCapabilityLines(input: {
   }
   if (!fresh) return unchanged;
 
-  const capability = buildTradeCapabilityRows(input.packId, input.attributes);
-  const machines: string[] = [];
-  const skills: string[] = [];
-  for (const row of [...capability.chipRows, ...capability.tickRows]) {
-    const target = MACHINE_ROW_LABELS.has(row.label.trim()) ? machines : skills;
-    for (const value of row.values) {
-      const trimmed = value.trim();
-      if (trimmed.length > 0 && !target.includes(trimmed)) target.push(trimmed);
-    }
-  }
+  const { machines, skills } = capabilityLinesFrom(input.packId, input.attributes);
   if (machines.length === 0 && skills.length === 0) return unchanged;
 
   const next: DraftProfile = {
