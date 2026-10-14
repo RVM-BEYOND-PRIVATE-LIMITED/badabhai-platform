@@ -95,8 +95,11 @@ function pct(n: number, total: number): string {
 
 const SEP = " | ";
 
-/** Rows as aligned columns, a header first. Every cell is an enum, a label or a number. */
-function table(header: readonly string[], rows: readonly (readonly string[])[]): string[] {
+/**
+ * Rows as aligned columns, a header first. Every cell is an enum, a label or a number. Shared with
+ * the reply served-rate replay (`free-chat-reply-served.ts`), which prints the same kind of table.
+ */
+export function table(header: readonly string[], rows: readonly (readonly string[])[]): string[] {
   if (rows.length === 0) return ["  (none)"];
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)));
   const line = (cells: readonly string[]) =>
@@ -258,9 +261,14 @@ function languageSection(read: ProbeEvents<"chat.free_chat_language_changed">): 
   ];
 }
 
-/** One `ai.cost_recorded` group: a free-chat task × real_call × success. */
+/**
+ * One `ai.cost_recorded` group: a free-chat task × the model that SERVED it × real_call × success.
+ * The model is a column because ADR-0051 R32 scores a prompt on the model production actually
+ * serves, and on 2026-10-08 that was the fallback for every call (#2170), not the route's primary.
+ */
 export interface CostRow {
   readonly task: string;
+  readonly model: string;
   readonly realCall: boolean;
   readonly success: boolean;
   readonly n: number;
@@ -269,10 +277,14 @@ export interface CostRow {
   readonly costInr: number;
 }
 
-/** The free chat's AI spend, grouped; tasks in the ADR's order, real calls first. */
+/**
+ * The free chat's AI spend, grouped; tasks in the ADR's order, then the model by name, real calls
+ * first.
+ */
 export function summarizeCosts(events: readonly ProbeEvent<"ai.cost_recorded">[]): CostRow[] {
   interface Group {
     readonly task: string;
+    readonly model: string;
     readonly realCall: boolean;
     readonly success: boolean;
     readonly latencies: number[];
@@ -280,11 +292,12 @@ export function summarizeCosts(events: readonly ProbeEvent<"ai.cost_recorded">[]
   }
   const groups = new Map<string, Group>();
   for (const { payload } of events) {
-    const key = `${payload.task_type}|${payload.real_call}|${payload.success}`;
+    const key = `${payload.task_type}|${payload.model}|${payload.real_call}|${payload.success}`;
     let group = groups.get(key);
     if (group === undefined) {
       group = {
         task: payload.task_type,
+        model: payload.model,
         realCall: payload.real_call,
         success: payload.success,
         latencies: [],
@@ -300,6 +313,7 @@ export function summarizeCosts(events: readonly ProbeEvent<"ai.cost_recorded">[]
     .map(
       (g): CostRow => ({
         task: g.task,
+        model: g.model,
         realCall: g.realCall,
         success: g.success,
         n: g.latencies.length,
@@ -311,6 +325,7 @@ export function summarizeCosts(events: readonly ProbeEvent<"ai.cost_recorded">[]
     .sort(
       (a, b) =>
         taskOrder(a.task) - taskOrder(b.task) ||
+        a.model.localeCompare(b.model) ||
         Number(b.realCall) - Number(a.realCall) ||
         Number(b.success) - Number(a.success),
     );
@@ -323,9 +338,10 @@ function costSection(read: ProbeEvents<"ai.cost_recorded">): string[] {
     `-- ai.cost_recorded (${FREE_CHAT_AI_TASKS.join(", ")}) --`,
     `  calls=${read.events.length}${readNote(read)} estimated_cost_inr total=${total.toFixed(2)}`,
     ...table(
-      ["task", "real_call", "success", "n", "p50_ms", "p95_ms", "cost_inr"],
+      ["task", "model", "real_call", "success", "n", "p50_ms", "p95_ms", "cost_inr"],
       rows.map((r) => [
         r.task,
+        r.model,
         String(r.realCall),
         String(r.success),
         String(r.n),

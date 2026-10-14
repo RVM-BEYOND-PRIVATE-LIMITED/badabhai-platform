@@ -56,6 +56,8 @@ Q_CERT = "Koi certificate hai, jaise ITI?"
 Q_CONTROL = "Fanuc ya Siemens?"
 Q_LEFT_JOB = "Pichli naukri kyun chhodi?"
 Q_SHIFT = "Night shift mein kaam kar lenge?"
+#: The interview's first question, verbatim from the API's OPENER copy (pinned by a test).
+Q_OPENER = "Theek hai. Aap kaun sa kaam karte hain, aur kitna tajurba hai?"
 
 #: One recent turn as the API sends it: (role, text), role "worker" or "bada_bhai".
 Turn = tuple[str, str]
@@ -77,6 +79,8 @@ NEWS_CAP_LINE = "Aaj ki khabrein ho gayin. Kal phir poochhiye. Tab tak resume ba
 OFF_LIMITS_LINE = "Is baare mein main baat nahi karta. Kaam ya resume ki baat karein?"
 LATER_ACK_LINE = "Theek hai. Jab mann ho, resume bana lenge. Tab tak kuch bhi poochhiye."
 FREE_CLARIFY_LINE = "Samajh nahi aaya. Aap kya karna chahte hain?"
+#: What the worker sees when a reply is thrown away by the API's gate; they often ask again.
+REPLY_FALLBACK_LINE = "Is par abhi kuch keh nahi paunga. Kaam ya resume ki koi baat poochhiye."
 
 
 def after_jobs(worker_ask: str) -> tuple[Turn, ...]:
@@ -366,6 +370,26 @@ ROUND1_ROWS: list[tuple] = [
     ("Surat ma koi nokri chhe", "free", None, "jobs"),
     ("મને નોકરી જોઈએ છે", "free", None, "jobs"),
 ]
+
+# ── ADR-0051 §10 round 1, the masked production sample (#2128, 2026-10-14) ──
+# The sample's struggled lines were all career questions, and the classifier read every one of
+# them right; the turn failed later, at the reply's gate (`eval_free_reply_gold`). These lines keep
+# that shape measured: which trade or machine to choose, which pays more, which software to learn,
+# typed with the usual spelling slips, asked again after the fallback line or after an answer, and
+# a pay question mid-interview (career, so résumé mode deflects it). Written fresh from the shape,
+# never copied from the sample (owner ruling R29).
+SAMPLE_ROWS: list[tuple] = [
+    ("milling ya turning, kis line mein jaana theek rahega", "free", None, "career"),
+    ("hmc aur vmc me kaunsi machine ki demand jyada he", "free", None, "career"),
+    ("design ke liye catia sikhu ya creo", "free", None, "career"),
+    ("dono me kisme pagar acchi milti he, fitter ya turner", "free", None, "career"),
+    ("grinding operator ko mahine ka kitna milta hai", "free", None, "career"),
+    ("aur isme aage kya seekhna padega", "free", None, "career",
+     after_bot("vmc kya hota hai", "VMC ek CNC machine hai jisme spindle khada rehta hai.")),
+    ("toh batao lathe ya cnc kaunsa sahi he", "free", None, "career",
+     after_bot("tool room me kya kaam hota hai", REPLY_FALLBACK_LINE)),
+    ("press operator ko kitni pagar milti hai", "resume", Q_OPENER, "career"),
+]
 # fmt: on
 
-CASES: list[Case] = [Case(*row) for row in _ROWS + REGIONAL_ROWS + ROUND1_ROWS]
+CASES: list[Case] = [Case(*row) for row in _ROWS + REGIONAL_ROWS + ROUND1_ROWS + SAMPLE_ROWS]
