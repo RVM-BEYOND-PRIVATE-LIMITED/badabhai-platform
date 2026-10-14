@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -149,6 +150,14 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("asshole", None),
         ("abey chutiye sun", None),
         ("chutiya।", "danda-terminated"),
+        # #2237 — a Unicode format character (Cf) INSIDE the word is deleted, not a split.
+        ("chu\u200btiya", "#2237: zero-width space inside the word"),
+        ("bhos\u00addike", "#2237: soft hyphen inside the word"),
+        ("gaa\u2060ndu", "#2237: word joiner inside the word"),
+        ("mada\u200drchod", "#2237: zero-width joiner inside the word"),
+        ("\ufeffchutiya", "#2237: a BOM before the word"),
+        # …and one BETWEEN words still reads as a gap, which deleting alone would lose.
+        ("haan\u200bchutiya", "#2237: zero-width space as the only gap"),
     ]),
     # --------------------------------------------- abuse EXCLUSIONS (must NOT fire) --
     ("abx", [
@@ -160,6 +169,9 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("kutta nahi", "measured false positive — excluded outright"),
         ("saala bearing jam ho gaya", "'saal' = years appears in almost every experience answer"),
         ("harami machine hai", "mild/context-dependent — excluded"),
+        # #2237 — deleting a format character never turns an exclusion into abuse.
+        ("bastard\u200b file chalata hu", "#2237: zero-width space beside an excluded tool name"),
+        ("m\u00ad/c chalata hu", "#2237: soft hyphen inside shop-floor shorthand"),
     ]),
     # --------------------------------------------------------------- question back --
     ("qb", [
@@ -940,6 +952,17 @@ def _refuse_to_drop_a_row(lines: list[str]) -> None:
         )
 
 
+def _escape_format_chars(line: str) -> str:
+    """Write every Unicode format character (Cf) as its JSON escape (#2237).
+
+    The file is written with ``ensure_ascii=False`` so Devanagari stays readable. An invisible
+    character written raw would make a reviewed fixture say something no reviewer can see, so
+    it alone is escaped. Every JSON reader decodes the escape back to the same text."""
+    return "".join(
+        json.dumps(ch)[1:-1] if unicodedata.category(ch) == "Cf" else ch for ch in line
+    )
+
+
 def main() -> None:
     seen_text: dict[str, str] = {}
     lines: list[str] = []
@@ -961,7 +984,8 @@ def main() -> None:
             }
             if note:
                 record["note"] = note
-            lines.append(json.dumps(record, ensure_ascii=False, sort_keys=False))
+            line = json.dumps(record, ensure_ascii=False, sort_keys=False)
+            lines.append(_escape_format_chars(line))
 
     _refuse_to_drop_a_row(lines)
 

@@ -6,9 +6,11 @@
  * turns the other side red — which is the entire reason the data lives in JSON.
  */
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
-import { loadUtteranceFixtures } from "../internal/fixtures.js";
+import { fixturePath, loadUtteranceFixtures } from "../internal/fixtures.js";
 import {
   asksQuestionBack,
   classifyUtterance,
@@ -31,6 +33,13 @@ const PREDICATE_BY_NAME: Readonly<Record<string, (text: string) => boolean>> = {
 const fixtures = loadUtteranceFixtures();
 
 describe("parity corpus", () => {
+  it("writes every invisible format character as an escape, never raw (#2237)", () => {
+    // The corpus carries texts with zero-width spaces and soft hyphens on purpose. Written raw,
+    // a reviewed fixture would say something no reviewer can see; the generator escapes them.
+    expect(readFileSync(fixturePath(), "utf8")).not.toMatch(/\p{Cf}/u);
+    expect(fixtures.some((f) => /\p{Cf}/u.test(f.text))).toBe(true);
+  });
+
   it("holds at least the 300 cases Phase 3 requires", () => {
     // Pinned so the corpus cannot be quietly shrunk to make a failure go away. Deleting cases
     // is the cheapest possible way to turn this suite green and the most expensive to notice.

@@ -15,6 +15,7 @@ identity PII (phone/name/employer), which the pseudonymizer masks.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -1578,10 +1579,22 @@ def asks_about_job_prospects(text: str) -> bool:
 _ABUSE_RE = lexicon.compile_pattern(_PREDICATES["abuse"])
 
 
+def _without_format_chars(text: str) -> str:
+    """``text`` with every Unicode format character (category Cf) deleted."""
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+
+
 def is_abusive(text: str) -> bool:
     """True when the message carries unambiguous abuse (§5). Deliberately narrow —
-    see the exclusions above. Local, no network."""
-    return bool(_ABUSE_RE.search(text or ""))
+    see the exclusions above. Local, no network.
+
+    #2237 — TWO READINGS of every Unicode format character (Cf: zero-width space, soft
+    hyphen, word joiner, BOM, ZWJ/ZWNJ), and either one matching is a match. DELETED, so
+    one hidden inside a word cannot split it past the list. AS-IS, because the pattern is
+    word-bounded and already reads one between words as a gap, which deleting alone would
+    lose. The TS twin (`isAbusive`) reads both the same way; the corpus pins the parity."""
+    message = text or ""
+    return bool(_ABUSE_RE.search(message) or _ABUSE_RE.search(_without_format_chars(message)))
 
 # P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT
 # the one being asked overwrite an already-collected value (see interview_engine).
