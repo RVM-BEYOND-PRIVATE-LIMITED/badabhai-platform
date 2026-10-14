@@ -479,7 +479,7 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
    `model` from the probe's cost table. On 2026-10-08 that was `claude-haiku-4-5` for every call, because the box's
    Gemini calls all fall back (#2170). The reply's primary is Haiku by design (`default_career_model`).
    - **Classifier:** `python -m app.free_chat.eval_cli --expect-model <model>`.
-   - **Reply:** `python -m app.free_chat.eval_free_reply_cli --expect-model <model> --repeats 3 --dump-file <f>`,
+   - **Reply:** `python -m app.free_chat.eval_free_reply_cli --expect-model <model> --repeats 10 --dump-file <f>`,
      then `node apps/api/dist/profiling/free-chat/free-chat-reply-served.js --file <f>`. The replay puts every reply
      through the API's own contract and `screenFreeChatAnswer`, so the number is what a worker would be served, not
      what the model wrote. An outcome of `fallback` in the probe with a successful reply cost event is this gate.
@@ -522,21 +522,28 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 3. **Classifier re-scored.** 8 fabricated rewrites were added (`SAMPLE_ROWS`). On Haiku it scores 126/134 = 94.0%, so
    no revision this round.
 4. **The weak spot was the reply.** 9 of 75 free-mode reply turns served `REPLY_FALLBACK`, every one from a reply that
-   came back in time and in contract. The reply set (44 cases × 3 repeats, Haiku) found why:
+   came back in time and in contract, so the API's gate threw them away. The new reply set (46 cases, Haiku) shows
+   why:
    - lines over 20 words;
    - two questions in one casual answer;
    - Devanagari verb endings;
-   - soft promises;
-   - "bahut acha";
-   - a refused tease.
-5. **Reply revised.** The shared answer rules and the casual prompt were revised. The score went from 117/132 = 88.6%
-   to 126/132 = 95.5%:
-   - casual 27 → 33;
-   - career 78 → 81;
-   - every refusal kept.
+   - "pakka" (in any sense);
+   - "bahut acha".
+5. **Draft revision: not shipped.** It did not pass R31: 131/138 against main's 131/138 at 3 repeats, with career −3
+   and off_limits −1. On 9 clean repeats it was 379 against 375 of 414:
+   - it cut two-question rejections (11 → 5), persona rejections (8 → 2) and long lines (9 → 3);
+   - its "a tease is never a refusal" rule moved a tease-plus-politics message from `off_limits` to `unsafe_other` 8
+     times in 9;
+   - "pakka" meaning "skilled" rejections rose from 4 to 9.
 
-   R31: SHIP.
-6. **Still owed:**
+   A v3 without those two rules was not measured, because the Anthropic credit ran out.
+6. **Lessons for the next round:**
+   - At temperature 0.5, run the reply eval at 10 repeats. At 3, the same prompt scored 117 and 131.
+   - Local evals draw on the production Anthropic account. On 2026-10-14 they used the last of its credit, and every
+     box AI call failed from about 12:28 IST until the top-up. Estimate the cost, get the owner's OK, and never run
+     streams in parallel.
+7. **Still owed:**
+   - measuring v3 (follow-up issue);
    - the flash-lite re-run before #2170 switches the box (the local key is free tier);
    - deleting the session transcript that holds the pasted sample (R35, owner).
 

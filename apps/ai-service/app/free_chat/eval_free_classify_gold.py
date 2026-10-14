@@ -388,7 +388,7 @@ SAMPLE_ROWS: list[tuple] = [
      after_bot("vmc kya hota hai", "VMC ek CNC machine hai jisme spindle khada rehta hai.")),
     ("toh batao lathe ya cnc kaunsa sahi he", "free", None, "career",
      after_bot("tool room me kya kaam hota hai", REPLY_FALLBACK_LINE)),
-    ("press operator ko kitni pagar milti hai", "resume", Q_OPENER, "career"),
+    ("ye batao, packing waalon ka mahina kitne se shuru hota hai", "resume", Q_OPENER, "career"),
 ]
 # fmt: on
 

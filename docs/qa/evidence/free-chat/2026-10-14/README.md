@@ -1,8 +1,11 @@
 # Free-chat improvement loop, round 1 close-out (#2128, ADR-0051 §10), 2026-10-14
 
-Every case here is fabricated. The JSON files hold model output over fabricated input, with no
-worker data. The masked production sample (part B) is **not** stored anywhere in the repo (R29).
-Only its findings are summarised below.
+Every eval case here is fabricated. The JSON files hold model output over fabricated input, with no worker
+data. The masked production sample (part B) is **not** stored anywhere in the repo (R29). Only its findings
+are summarised below.
+
+**Outcome:** the labelled sets grew, a reply served-rate eval now exists, and the probe shows the served model.
+**No prompt changed this round:** the one reply revision measured did not pass R31.
 
 ## 1. What production showed (probe, 2026-10-07 to 2026-10-14, part A counts only)
 
@@ -22,53 +25,84 @@ Only its findings are summarised below.
 - **The classifier latency** is the #2170 pattern: Haiku answers after a failed Gemini attempt.
 - **The masked sample (4 eligible lines of 21 struggled)** held only career questions. They were trade comparisons, pay comparisons and "which software", and the classifier read every one of them right.
 
-**The weak spot was the reply, not the classifier.**
+## 2. Classifier: labelled set grown, re-scored, no revision
 
-## 2. Classifier: labelled set grown, re-scored (no revision)
-
-- **Rewrites added.** `SAMPLE_ROWS` (8 lines) in `eval_free_classify_gold.py` are rewrites of the sample's shape, not copies.
+- **Rewrites added.** `SAMPLE_ROWS` (8 lines) in `eval_free_classify_gold.py` are rewrites of the sample's shape.
+  - The security review asked for one of them to be rewritten further, away from a sampled line's word order. The other 7 are as scored.
 - **The run** (`classify.txt`) used `claude-haiku-4-5`, the model production serves (R32, #2170): **126/134 = 94.0%**.
-  - All 8 new lines were classified right.
-  - The other 126 lines score as in round 1 (118/126).
-- **No prompt change**, so R31 does not apply.
+  - All 8 sample lines were classified right; the other 126 score as in round 1.
+  - The reworded line ("packing waalon ka mahina…", résumé mode, `career`) was **not** re-scored, because the Anthropic credit ran out (§4).
 
-## 3. Reply: new served-rate eval, prompt revised
+## 3. Reply: new served-rate eval; the draft revision did not pass R31
 
-- **The set** is `eval_free_reply_gold.py`: 44 cases.
+**The eval** has three parts:
+- **The set:** `eval_free_reply_gold.py`, 46 cases.
   - 28 career: comparisons, pay, which software or course, and follow-ups inside a conversation, including a re-ask after the fallback line.
   - 12 casual.
-  - 4 must-refuse guards: `off_limits`, `legal_medical_financial`, `news`, `distress`.
-- **The run:** `eval_free_reply_cli.py --repeats 3 --expect-model claude-haiku-4-5`. The reply's primary model is Haiku (`default_career_model`), so a local run measures exactly what production serves.
-- **The score** comes from `free-chat-reply-served.js` (apps/api), which replays each dump through `FreeChatReplyOutputSchema` and `screenFreeChatAnswer`, the gate production runs.
+  - 6 must-refuse: off_limits, legal_medical_financial, news, distress, plus two teases mixed with a refusal topic.
+- **The run:** `eval_free_reply_cli.py --expect-model claude-haiku-4-5 --repeats N`. The reply's primary is Haiku (`default_career_model`), so a local run measures the production model.
+- **The score:** `free-chat-reply-served.js` (apps/api) replays a dump through `FreeChatReplyOutputSchema` and `screenFreeChatAnswer`, and applies R31 with `--baseline`.
 
-| Run | Hits (of 132) | casual | career | must-refuse | Fallback reasons |
+**The draft (v2)** changed the shared answer rules:
+- a 12–15-word line target;
+- Latin verb endings;
+- one question, only as the last line;
+- no "bahut acha";
+- no soft promise ("kaam mil jayega", "kaam pakka hai").
+
+It also told the casual prompt to answer a greeting with one question, to answer a tease "never with a refusal, unless it touches a refusal topic", and to answer a goodbye warmly.
+
+| Run (46 cases, `claude-haiku-4-5`) | Hits | casual | career | off_limits | Fallback reasons |
 |---|---|---|---|---|---|
-| Baseline (prompt on main) | 117 = 88.6% | 27/36 | 78/84 | 12/12 | line_too_long 4, too_many_questions 4, non_latin 3, promise 2, persona 1 |
-| Revised (this PR) | 126 = 95.5% | 33/36 | 81/84 | 12/12 | line_too_long 3, too_many_questions 2, persona 1 |
+| Baseline, main's prompt, 3 repeats (`reply-baseline.json`) | 131/138 | 30/36 | 83/84 | 6/6 | too_many_questions 4, non_latin 2, line_too_long 1 |
+| Draft v2, 3 repeats (`draft-v2/`) | 131/138 | 34/36 | 80/84 | 5/6 | line_too_long 2, non_latin, persona, promise, too_many_questions 1 each |
 
-- **R31, read for the reply: SHIP** (`served-revised.txt`). Overall hits went up, no must-refuse group lost a line, and career and casual both went up.
-- **Intermediate draft.** It differed only in the "bahut acha" rule and scored 128/132. The two runs are within sampling noise of each other, and the final wording was kept because it covers the adverb use too ("kaam bahut acha karna").
+**R31: HOLD** (`draft-v2/served-vs-baseline.txt`). The overall score did not go up, career dropped 3 lines, and off_limits lost 1 line.
 
-**What the revision changed** (shared answer rules, plus three casual sentences):
+**A larger pair (10 repeats) was run to separate the effect from noise.**
+- Each local service's in-process ₹200/day cap turned the last repeat into mock answers, so the CLI marked both runs CONTAMINATED and they are not committed.
+- On repeats 0–8, which are all real Haiku answers (414 replies each):
+  - **overall:** baseline 375, draft 379;
+  - **casual and career:** casual 93 → 99, career 229 → 234;
+  - **off_limits: 17 → 10.** The "tease is never a refusal" rule moved the tease-plus-politics case to `unsafe_other` 8 times in 9;
+  - **gate rejections:**
 
-- **Line length.** Lines aim for 12–15 words, under the 20-word wall.
-- **Script.** Every Hindi word is in Latin letters down to its ending.
-- **Questions.** At most one question, and only as the last line.
-- **"bahut acha".** It is banned in any sense, with replacements offered.
-- **Soft promises.** No "kaam mil jayega"; the prompt offers "kaam milne ki sambhavna badhegi" instead.
-- **Casual replies.** A greeting gets a greeting and ONE question. Teasing or a complaint gets a polite answer, never a refusal (R37). A goodbye gets one warm line.
+    | Reason | Baseline | Draft |
+    |---|---|---|
+    | too_many_questions | 11 | 5 |
+    | persona ("bahut acha") | 8 | 2 |
+    | line_too_long | 9 | 3 |
+    | promise ("pakka" meaning "skilled") | 4 | 9 |
+    | non_latin | 6 | 8 |
+
+**Noise, for the record.**
+- An earlier 3-repeat pair, on a 44-case version of the set (before the R29 rewording), read 117 → 126.
+- The same baseline prompt scored 131/138 two hours later.
+- At temperature 0.5, 3 repeats cannot resolve a 1–3% effect. Use 10.
+
+**Draft v3** drops the tease rule and steers "pakka" (meaning "skilled") to "achhe se seekh lenge". It was **not measured**: the Anthropic credit ran out mid-run (§4). It is tracked as a follow-up.
+
+## 4. Operational note: evals draw on the production Anthropic account
+
+- **The laptop's ai-service key is the account the production box uses.** Today's local runs cost about ₹750, some of them as two parallel streams. Then the account ran out of credit.
+- **A read-only `ai.cost_recorded` scan** (owner-approved) found:
+  - 10 of 21 real calls `llm_call_failed` in the 11:00 IST hour;
+  - no successful AI call after 12:27 IST (the scan ran at 12:38).
+- **Since #2170 the box serves only Haiku**, so every AI call in production failed in that window.
+- **Before a large eval run:** estimate the cost (about ₹0.33 per reply call, ₹0.07 per classify call), get the owner's OK, and never run streams in parallel against that key.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `classify.txt` | Classifier eval on Haiku, 134 lines |
-| `reply-baseline.json`, `reply-revised.json` | The two reply eval dumps (model output over fabricated input) |
-| `reply-revised-cli.txt` | The revised run's CLI output: calls, model, latency, spend |
-| `served-baseline.txt`, `served-revised.txt` | The API-gate replay, alone and with the R31 comparison |
+| `classify.txt` | Classifier eval on Haiku, 134 lines (before the one R29 rewording) |
+| `reply-baseline.json`, `reply-baseline-cli.txt` | Baseline reply run (main's prompt), 46 cases × 3 |
+| `served-baseline.txt` | The baseline through the API gate |
+| `draft-v2/reply-revised.json`, `draft-v2/reply-revised-cli.txt` | The draft's run, 46 cases × 3 (not shipped) |
+| `draft-v2/served-vs-baseline.txt` | The draft through the gate, and R31 against the baseline: HOLD |
 
-**Baseline run's CLI totals:** 132 calls, all answered by `claude-haiku-4-5`, 0 mock, 0 failed, 0 late. Spend was ₹44.07. Round-trip latency was p50 2,609 ms and p95 3,478 ms.
+## Still owed
 
-## Not done here
-
-- **The flash-lite re-run (R32)** is still owed before #2170 switches the box to Gemini. The local key is still free tier: `GenerateRequestsPerMinutePerProjectPerModel-FreeTier`, a 429 after 11 calls on 2026-10-14.
+- **Measure draft v3** against main at 10 repeats, sequentially, with the owner's OK on cost (about ₹300). Ship it only past R31.
+- **Flash-lite classifier re-run** (R32) before #2170 switches the box. The local Gemini key is still free tier.
+- **R35 (owner):** delete the operator session transcript holding the pasted sample, including its subagent transcripts.

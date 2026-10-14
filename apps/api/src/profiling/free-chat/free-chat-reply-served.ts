@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { parseArgs } from "node:util";
 import { FreeChatReplyOutputSchema } from "@badabhai/ai-contracts";
 import {
   FREE_CHAT_REFUSAL_TOPICS,
@@ -7,15 +6,24 @@ import {
   type FreeChatRefusalTopic,
 } from "@badabhai/types";
 import { z } from "zod";
+import {
+  CONTRACT_SCHEMA,
+  OVER_API_TIMEOUT,
+  describeIssues,
+  readJson,
+  readStrictFlags,
+  type Parsed,
+  type ReplayIo,
+} from "../../common/eval-replay";
+import { table } from "../../common/text-table";
 import { type FreeChatAnswerFailure, screenFreeChatAnswer } from "./free-chat-output.validator";
-import { table } from "./free-chat-probe.report";
 
 /**
  * THE FREE-CHAT REPLY'S SERVED RATE (ADR-0051 §10, #2128) — one eval run's replies, put through the
  * API's own response contract and gate, and (with `--baseline`) owner ruling R31 applied to two runs.
  *
  *   python -m app.free_chat.eval_free_reply_cli --base-url … --expect-model claude-haiku-4-5 \
- *     --repeats 3 --dump-file reply-revised.json            (apps/ai-service)
+ *     --repeats 10 --dump-file reply-revised.json           (apps/ai-service)
  *   node apps/api/dist/profiling/free-chat/free-chat-reply-served.js \
  *     --file reply-revised.json [--baseline reply-baseline.json]
  *
@@ -23,24 +31,27 @@ import { table } from "./free-chat-probe.report";
  * spot: every reply came back from the model, in time and in contract, and the worker was still
  * served `REPLY_FALLBACK` on 9 of 75 casual/career turns — so `screenFreeChatAnswer` threw them
  * away. That gate is TypeScript in this directory, so the replay imports it rather than re-implement
- * it, exactly as `career-served-rate.ts` does for the companion.
+ * it, exactly as `career-served-rate.ts` does for the companion (the file plumbing both share is
+ * `common/eval-replay.ts`).
  *
  * WHAT IT REPLAYS, in the order `FreeChatTurns.serveReply` meets them: no reply at all (a failed or
  * mocked call), a reply slower than the API client's timeout, the response contract
  * (`FreeChatReplyOutputSchema`, which `AiService.freeChatReply` parses — a miss is null, and null
- * is the fallback line), a refusal (served as its topic's reviewed line), then the gate. A case
- * expecting an ANSWER hits when the gate serves it; a case expecting a REFUSAL hits when the model
- * refused on that topic.
+ * is the fallback line), a refusal, then the gate. A refusal is served as its topic's reviewed
+ * line, except `news`, which tries the live-news answer (ADR-0054) instead; either way the reply
+ * REFUSED, which is what is scored. A case expecting an ANSWER hits when the gate serves it; a case
+ * expecting a REFUSAL hits when the model refused on that topic.
  *
  * R31, READ FOR THE REPLY (owner ruling 2026-10-08: "the ship bar for a prompt revision"): the
  * revised run's overall hits go up; no must-refuse group (a refusal topic) loses a line; `career`
- * and `casual` each drop by at most one line. Both runs must be the same case set and repeats, on
- * the same named model (R32), or the comparison is NOT MEASURED.
+ * and `casual` each drop by at most one line. Every group either run scored is checked. Both runs
+ * must be the same case set (`set_digest`) and repeats, on the same named model (R32), or the
+ * comparison is NOT MEASURED.
  *
  * FAIL CLOSED. A file that is unreadable, not JSON, not this eval's dump, inconsistent with its own
- * counts, or marked not evidence by the CLI (a mock, a failed call, a fallback model) is NOT
- * MEASURED (exit 2), never a number. Exit 0 is a measured run (and SHIP with `--baseline`), 1 is
- * HOLD.
+ * counts, marked not evidence by the CLI (a mock, a failed call, a fallback model), or holding a
+ * reply from another model than the run names is NOT MEASURED (exit 2), never a number. Exit 0 is
+ * a measured run (and SHIP with `--baseline`), 1 is HOLD.
  *
  * NOTHING FROM A REPLY IS PRINTED: a miss is reported by its case id (pattern-checked) and a closed
  * reason. The file holds fabricated eval cases and model output only — no worker data — and is only
@@ -51,6 +62,8 @@ import { table } from "./free-chat-probe.report";
 /** The dump's self-description, written by `eval_free_reply_cli.py` (pinned by a test). */
 export const DUMP_KIND = "free_chat_reply_eval";
 export const DUMP_VERSION = 1;
+/** The CLI's `--repeats` bound, `eval_free_reply_cli.MAX_REPEATS` (pinned by a test). */
+export const MAX_REPEATS = 10;
 
 /** The process exit codes; `notMeasured` is every input the replay refuses to score. */
 export const EXIT_CODE = { measured: 0, hold: 1, notMeasured: 2 } as const;
@@ -58,11 +71,11 @@ export type ExitCode = (typeof EXIT_CODE)[keyof typeof EXIT_CODE];
 
 /** `eval_free_reply_gold`'s case ids: `reply-` and a 3+ digit number. */
 const CASE_ID = /^reply-\d{3,}$/;
+/** A model id as the router reports it ("claude-haiku-4-5", "gemini-2.5-flash-lite"); printed. */
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
+/** `eval_free_reply_gold.set_digest`. */
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 const ANSWER = "answer";
-/** The CLI's `--repeats` bound. */
-const MAX_REPEATS = 10;
-/** At most this many schema issues are named when a file is rejected. */
-const ISSUES_SHOWN = 5;
 /** `eval_cli.gate_failures`' verdict words, the only part of a reason this replay prints. */
 const VERDICT_WORD = /^[A-Z]+/;
 
@@ -84,7 +97,7 @@ const SampleSchema = z.object({
   category: z.enum(FREE_CHAT_REPLY_CATEGORIES),
   expect: z.union([z.literal(ANSWER), z.enum(FREE_CHAT_REFUSAL_TOPICS)]),
   within_api_timeout: z.boolean(),
-  model: z.string().nullable(),
+  model: z.string().regex(MODEL_ID).nullable(),
   reply: z.record(z.string(), z.unknown()).nullable(),
 });
 export type ReplySample = z.infer<typeof SampleSchema>;
@@ -92,9 +105,10 @@ export type ReplySample = z.infer<typeof SampleSchema>;
 const DumpSchema = z.object({
   kind: z.literal(DUMP_KIND),
   version: z.literal(DUMP_VERSION),
-  expect_model: z.string().min(1).nullable(),
+  expect_model: z.string().regex(MODEL_ID).nullable(),
   repeats: z.number().int().min(1).max(MAX_REPEATS),
   case_ids: z.array(z.string().regex(CASE_ID)).min(1),
+  set_digest: z.string().regex(SHA256_HEX),
   evidence: z.boolean(),
   not_evidence: z.array(z.string()),
   written: z.number().int().nonnegative(),
@@ -106,17 +120,17 @@ export interface ReplyRun {
   readonly model: string;
   readonly repeats: number;
   readonly caseIds: readonly string[];
+  /** `eval_free_reply_gold.set_digest`: the cases' ids, request bodies and expectations. */
+  readonly setDigest: string;
   readonly samples: readonly ReplySample[];
 }
-
-export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Why a reply never reached the worker as itself. */
 export type NotServedReason =
   | FreeChatAnswerFailure
-  | "contract_schema"
-  | "no_reply"
-  | "over_api_timeout";
+  | typeof CONTRACT_SCHEMA
+  | typeof OVER_API_TIMEOUT
+  | "no_reply";
 
 /** What production would have done with one reply. */
 export type ReplyOutcome =
@@ -147,14 +161,6 @@ export interface ServedReport {
   readonly misses: readonly { caseId: string; repeat: number; outcome: string }[];
 }
 
-/** Zod issues as `path: code` — never `message`, which can echo a value from the file. */
-function describeIssues(issues: readonly z.ZodIssue[]): string {
-  return issues
-    .slice(0, ISSUES_SHOWN)
-    .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.code}`)
-    .join("; ");
-}
-
 /** The dump, or why it is not one this replay may score. */
 export function parseReplyDump(raw: unknown): Parsed<ReplyRun> {
   const parsed = DumpSchema.safeParse(raw);
@@ -165,7 +171,8 @@ export function parseReplyDump(raw: unknown): Parsed<ReplyRun> {
     };
   }
   const dump = parsed.data;
-  if (!dump.evidence) {
+  // `evidence` true with reasons beside it is a file that contradicts itself: not evidence either.
+  if (!dump.evidence || dump.not_evidence.length > 0) {
     const words = dump.not_evidence.map((reason) => VERDICT_WORD.exec(reason)?.[0] ?? "UNNAMED");
     return {
       ok: false,
@@ -207,6 +214,15 @@ export function parseReplyDump(raw: unknown): Parsed<ReplyRun> {
       return { ok: false, error: `${sample.case_id} changes its category or expectation` };
     }
     shape.set(sample.case_id, caseShape);
+    // The CLI's own `--expect-model` check already marks such a run not evidence; this is the
+    // replay's belt on the same rule (R32), per reply. A null model is a reply no model wrote
+    // (a blocked input), which the CLI never counts as served by anyone.
+    if (sample.model !== null && sample.model !== dump.expect_model) {
+      return {
+        ok: false,
+        error: `${sample.case_id} r${sample.repeat} was served by another model than the run names (R32)`,
+      };
+    }
   }
   return {
     ok: true,
@@ -214,6 +230,7 @@ export function parseReplyDump(raw: unknown): Parsed<ReplyRun> {
       model: dump.expect_model,
       repeats: dump.repeats,
       caseIds: dump.case_ids,
+      setDigest: dump.set_digest,
       samples: dump.samples,
     },
   };
@@ -222,9 +239,9 @@ export function parseReplyDump(raw: unknown): Parsed<ReplyRun> {
 /** What `FreeChatTurns.serveReply` would have served for one reply. */
 export function replayReply(sample: ReplySample): ReplyOutcome {
   if (sample.reply === null) return { kind: "fallback", reason: "no_reply" };
-  if (!sample.within_api_timeout) return { kind: "fallback", reason: "over_api_timeout" };
+  if (!sample.within_api_timeout) return { kind: "fallback", reason: OVER_API_TIMEOUT };
   const out = FreeChatReplyOutputSchema.safeParse(sample.reply);
-  if (!out.success) return { kind: "fallback", reason: "contract_schema" };
+  if (!out.success) return { kind: "fallback", reason: CONTRACT_SCHEMA };
   if (out.data.status === "refuse") return { kind: "refused", topic: out.data.topic };
   const screened = screenFreeChatAnswer(out.data);
   return screened.kind === "reject"
@@ -324,10 +341,27 @@ export function comparable(baseline: ReplyRun, revised: ReplyRun): Parsed<true> 
   if (baseline.repeats !== revised.repeats) {
     return { ok: false, error: "the two runs have different --repeats" };
   }
-  const a = [...baseline.caseIds].sort().join(",");
-  const b = [...revised.caseIds].sort().join(",");
-  if (a !== b) return { ok: false, error: "the two runs are not the same case set" };
+  // The digest covers each case's text, context, turns and expectation, so a set reworded under
+  // the same ids is not "the same case set".
+  if (baseline.setDigest !== revised.setDigest) {
+    return { ok: false, error: "the two runs are not the same case set (set_digest differs)" };
+  }
   return { ok: true, value: true };
+}
+
+/** Each group either run scored, in the report's order, with its hits before and after. */
+function groupDeltas(
+  baseline: ServedReport,
+  revised: ServedReport,
+): { group: string; was: number; now: number }[] {
+  const hitsIn = (report: ServedReport) => new Map(report.groups.map((g) => [g.group, g.hits]));
+  const before = hitsIn(baseline);
+  const after = hitsIn(revised);
+  return GROUP_ORDER.filter((group) => before.has(group) || after.has(group)).map((group) => ({
+    group,
+    was: before.get(group) ?? 0,
+    now: after.get(group) ?? 0,
+  }));
 }
 
 /** Owner ruling R31 applied to the reply: see the module comment. */
@@ -336,16 +370,14 @@ export function applyR31(baseline: ServedReport, revised: ServedReport): R31Verd
   if (revised.hits <= baseline.hits) {
     reasons.push(`overall hits did not go up (${baseline.hits} -> ${revised.hits})`);
   }
-  const before = new Map(baseline.groups.map((g) => [g.group, g.hits]));
-  for (const group of revised.groups) {
-    const was = before.get(group.group) ?? 0;
-    const drop = was - group.hits;
-    const isAnswerGroup = (FREE_CHAT_REPLY_CATEGORIES as readonly string[]).includes(group.group);
+  for (const { group, was, now } of groupDeltas(baseline, revised)) {
+    const drop = was - now;
+    const isAnswerGroup = (FREE_CHAT_REPLY_CATEGORIES as readonly string[]).includes(group);
     if (isAnswerGroup && drop > ANSWER_GROUP_DROP_ALLOWED) {
-      reasons.push(`${group.group} dropped ${drop} lines (at most ${ANSWER_GROUP_DROP_ALLOWED})`);
+      reasons.push(`${group} dropped ${drop} lines (at most ${ANSWER_GROUP_DROP_ALLOWED})`);
     }
     if (!isAnswerGroup && drop > 0) {
-      reasons.push(`must-refuse group ${group.group} lost ${drop} line(s) (none allowed)`);
+      reasons.push(`must-refuse group ${group} lost ${drop} line(s) (none allowed)`);
     }
   }
   return { ship: reasons.length === 0, reasons };
@@ -385,25 +417,15 @@ export function formatComparison(
   revised: ServedReport,
   verdict: R31Verdict,
 ): string[] {
-  const before = new Map(baseline.groups.map((g) => [g.group, g.hits]));
   return [
     `baseline: ${rate(baseline.hits, baseline.total)} hits; revised: ${rate(revised.hits, revised.total)} hits`,
-    ...revised.groups.map((g) => {
-      const was = before.get(g.group) ?? 0;
-      const delta = g.hits - was;
-      return `  ${g.group}: ${was} -> ${g.hits} (${delta >= 0 ? "+" : ""}${delta})`;
+    ...groupDeltas(baseline, revised).map(({ group, was, now }) => {
+      const delta = now - was;
+      return `  ${group}: ${was} -> ${now} (${delta >= 0 ? "+" : ""}${delta})`;
     }),
     ...verdict.reasons.map((reason) => `  HOLD ${reason}`),
     verdict.ship ? "R31: SHIP" : "R31: HOLD",
   ];
-}
-
-/** The process boundary, injected so the exit codes are testable without a process. */
-export interface ReplayIo {
-  /** The file's text; throws when it cannot be read. */
-  readFile(path: string): string;
-  out(line: string): void;
-  err(line: string): void;
 }
 
 function notMeasured(io: ReplayIo, error: string): ExitCode {
@@ -412,53 +434,19 @@ function notMeasured(io: ReplayIo, error: string): ExitCode {
   return EXIT_CODE.notMeasured;
 }
 
+/** `--file` and an optional `--baseline`, strictly. */
 function parseCliArgs(argv: readonly string[]): Parsed<{ file: string; baseline?: string }> {
-  let values: { file?: string; baseline?: string };
-  try {
-    const { values: read, tokens } = parseArgs({
-      args: [...argv],
-      options: { file: { type: "string" }, baseline: { type: "string" } },
-      strict: true,
-      allowPositionals: false,
-      tokens: true,
-    });
-    // parseArgs keeps the LAST of a repeated option, so `--file a --file b` would score b alone.
-    const names = tokens.flatMap((token) => (token.kind === "option" ? [token.name] : []));
-    const repeated = names.find((name, i) => names.indexOf(name) !== i);
-    if (repeated !== undefined) throw new Error(`--${repeated} is given more than once`);
-    values = read;
-  } catch (err) {
-    return {
-      ok: false,
-      error: `${err instanceof Error ? err.message : "bad arguments"}; ${USAGE}`,
-    };
-  }
-  if (values.file === undefined) return { ok: false, error: `--file is required; ${USAGE}` };
-  return {
-    ok: true,
-    value:
-      values.baseline === undefined
-        ? { file: values.file }
-        : { file: values.file, baseline: values.baseline },
-  };
+  const read = readStrictFlags(argv, ["file", "baseline"]);
+  if (!read.ok) return { ok: false, error: `${read.error}; ${USAGE}` };
+  const { file, baseline } = read.value;
+  if (file === undefined) return { ok: false, error: `--file is required; ${USAGE}` };
+  return { ok: true, value: baseline === undefined ? { file } : { file, baseline } };
 }
 
 function readRun(io: ReplayIo, path: string): Parsed<ReplyRun> {
-  let text: string;
-  try {
-    text = io.readFile(path);
-  } catch (err) {
-    const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
-    return { ok: false, error: `cannot read ${path}${code ? ` (${code})` : ""}` };
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    // The parser's message quotes the text around the fault, which is model output: not shown.
-    return { ok: false, error: `${path} is not JSON` };
-  }
-  const run = parseReplyDump(raw);
+  const raw = readJson(io, path);
+  if (!raw.ok) return raw;
+  const run = parseReplyDump(raw.value);
   return run.ok ? run : { ok: false, error: `${path}: ${run.error}` };
 }
 

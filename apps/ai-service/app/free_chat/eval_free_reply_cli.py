@@ -1,13 +1,14 @@
 """The free-chat reply's served-rate eval (ADR-0051 §10, #2128), against a running service.
 
     python -m app.free_chat.eval_free_reply_cli --base-url http://localhost:8000 \\
-        --expect-model claude-haiku-4-5 --repeats 3 --dump-file reply-baseline.json
+        --expect-model claude-haiku-4-5 --dump-file reply-baseline.json
     node apps/api/dist/profiling/free-chat/free-chat-reply-served.js --file reply-baseline.json
     node apps/api/dist/profiling/free-chat/free-chat-reply-served.js \\
         --file reply-revised.json --baseline reply-baseline.json
 
 RUNS THE SET (`eval_free_reply_gold`) through ``POST /free-chat/reply`` ``--repeats`` times (the
-route samples at 0.5, so one pass is one draw), and writes EVERY reply to ``--dump-file``. The
+route samples at 0.5, so one pass is one draw; round 1 measured the same prompt at 117 and 131
+of 138 on two 3-repeat runs, so the default is 10), and writes EVERY reply to ``--dump-file``. The
 score is the API's: ``free-chat-reply-served.ts`` replays the dump through the response contract
 and ``screenFreeChatAnswer``, the gate production runs, and with ``--baseline`` applies owner
 ruling R31 to say whether a prompt revision may ship. This CLI prints only what it can know
@@ -17,6 +18,12 @@ NOT EVIDENCE, BY THE COMPANION EVAL'S SHARED RULES: a mock answer (is ``profilin
 armed in the target's ``AI_REAL_CALL_TASKS``?), a failed call, or an answer from a model other
 than ``--expect-model``. The exit code is non-zero then, and the dump records it (``evidence``
 false), so the replay refuses to score it.
+
+COST, AND WHOSE MONEY. A 10-repeat run is about 460 Haiku calls, roughly ₹150, on whatever
+Anthropic account the target service holds. The laptop's key is the PRODUCTION account (round 1
+drained its credit and the box's AI calls failed with it), so get the owner's OK first, run one
+stream at a time, and mind the local service's in-process ₹200/day cap: past it, answers turn to
+mocks and the run is not evidence.
 
 WHAT IT PRINTS AND WRITES. Stdout carries counts, case ids and timings, never a reply. The dump
 holds the fabricated case ids and each reply's contract fields (status, lines, chips, topic), the
@@ -42,6 +49,8 @@ from .eval_reply_language_cli import API_TIMEOUT_MS, ROUTE
 #: The dump's self-description, read by the TS replay (pinned there).
 DUMP_KIND = "free_chat_reply_eval"
 DUMP_VERSION = 1
+#: The ``--repeats`` bound; the replay's schema allows the same (pinned there).
+MAX_REPEATS = 10
 
 #: The contract fields a reply keeps in the dump; `ai_metadata` is the router's, not the reply.
 _REPLY_FIELDS = ("status", "lines", "followup_chips", "topic")
@@ -148,6 +157,7 @@ def dump_document(run: ReplyRun, not_evidence: list[str]) -> dict:
         "expect_model": run.calls.expect_model,
         "repeats": run.repeats,
         "case_ids": [case.id for case in run.cases],
+        "set_digest": gold.set_digest(run.cases),
         "evidence": not not_evidence,
         "not_evidence": not_evidence,
         "written": len(rows),
@@ -161,9 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repeats",
         type=int,
-        default=3,
+        default=10,
         metavar="N",
-        help="run the whole set N times (default 3): the route samples, one pass is one draw",
+        help="run the whole set N times (default 10): the route samples, one pass is one draw",
     )
     parser.add_argument(
         "--pace-ms",
@@ -174,9 +184,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--expect-model",
-        default=None,
+        required=True,
         metavar="MODEL",
-        help="the model the run must be served by; any answer from another model fails the run",
+        help="the model the run must be served by; any answer from another model fails the run "
+        "(required: the replay scores a run only on the model it names, R32)",
     )
     parser.add_argument(
         "--dump-file",
@@ -186,11 +197,11 @@ def main(argv: list[str] | None = None) -> int:
         help="write every reply here (JSON), for free-chat-reply-served.js to score",
     )
     args = parser.parse_args(argv)
-    if not 1 <= args.repeats <= 10:
-        parser.error("--repeats must be within 1..10")
+    if not 1 <= args.repeats <= MAX_REPEATS:
+        parser.error(f"--repeats must be within 1..{MAX_REPEATS}")
     if args.pace_ms < 0:
         parser.error("--pace-ms must be >= 0")
-    if args.expect_model is not None and not args.expect_model.strip():
+    if not args.expect_model.strip():
         parser.error("--expect-model must name a model")
 
     run = run_free_reply_eval(

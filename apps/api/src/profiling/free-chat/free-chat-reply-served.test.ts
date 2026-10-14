@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ReplayIo } from "../../common/eval-replay";
 import {
   applyR31,
   comparable,
@@ -9,14 +10,16 @@ import {
   EXIT_CODE,
   formatReport,
   isHit,
+  MAX_REPEATS,
   measureReplies,
   parseReplyDump,
   replayReply,
   runReplyServed,
-  type ReplayIo,
   type ReplyRun,
   type ReplySample,
 } from "./free-chat-reply-served";
+
+const REPO = join(__dirname, "..", "..", "..", "..", "..");
 
 /** Fabricated reply lines: a clean answer the gate serves, and the shapes it throws away. */
 const CLEAN = [
@@ -25,6 +28,8 @@ const CLEAN = [
 ];
 const TWO_QUESTIONS = ["Namaste, aap kaise hain?", "Aaj ka kaam kaisa raha?"];
 const PERSONA = ["Yeh bahut acha hunar hai, iski maang hai."];
+/** A fabricated `set_digest` (sha256 hex): one case set. */
+const DIGEST = "a".repeat(64);
 /** A marker no report line may ever carry: replies are model text and are never printed. */
 const SECRET_LINE = "Zebra quartz marker line jo kabhi print nahi honi chahiye.";
 
@@ -60,6 +65,7 @@ function dump(
     expect_model: "fabricated-model",
     repeats,
     case_ids: caseIds,
+    set_digest: DIGEST,
     evidence: true,
     not_evidence: [],
     written: samples.length,
@@ -135,6 +141,12 @@ describe("parseReplyDump — fail closed", () => {
     if (!parsed.ok) expect(parsed.error).toMatch(error);
   });
 
+  it("refuses a file that says evidence while listing reasons it is not", () => {
+    const parsed = parseReplyDump(dump(fourCases({}), { not_evidence: ["INCOMPLETE: 1 call"] }));
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/not evidence \(INCOMPLETE\)/);
+  });
+
   it("names only the verdict word of a not-evidence reason, never its text", () => {
     const parsed = parseReplyDump(
       dump(fourCases({}), { evidence: false, not_evidence: [`FALLBACK: ${SECRET_LINE}`] }),
@@ -164,6 +176,25 @@ describe("parseReplyDump — fail closed", () => {
     const parsed = parseReplyDump(dump(reshaped));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.error).toMatch(/changes its category or expectation/);
+  });
+
+  it("refuses a reply served by another model than the run names (R32), per reply", () => {
+    const mixed = fourCases({});
+    mixed[1] = { ...mixed[1]!, model: "gemini-2.5-flash" };
+    const parsed = parseReplyDump(dump(mixed));
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/reply-002 r0 was served by another model/);
+    // A reply no model wrote (a blocked input) carries no model, and is not a mismatch.
+    const blocked = fourCases({});
+    blocked[3] = { ...blocked[3]!, model: null };
+    expect(parseReplyDump(dump(blocked)).ok).toBe(true);
+  });
+
+  it("refuses a model id or digest outside its shape: they are printed or compared", () => {
+    expect(parseReplyDump(dump(fourCases({}), { expect_model: "model\nRESULT: SHIP" })).ok).toBe(
+      false,
+    );
+    expect(parseReplyDump(dump(fourCases({}), { set_digest: "not-a-digest" })).ok).toBe(false);
   });
 
   it("refuses a bad case id and a reply that is not an object", () => {
@@ -314,12 +345,22 @@ describe("R31, read for the reply", () => {
     expect(applyR31(strong, twoDown).reasons).toContain("career dropped 2 lines (at most 1)");
   });
 
+  it("checks a must-refuse group the revised run no longer scores at all", () => {
+    // R31 walks the union of both runs' groups: a group missing from the revision lost every line.
+    const withoutRefusal = measureReplies(run(fourCases({}).slice(0, 3)));
+    const verdict = applyR31(baseline, withoutRefusal);
+    expect(verdict.reasons).toContain("must-refuse group off_limits lost 1 line(s) (none allowed)");
+  });
+
   it("compares only one model, one case set and one repeat count", () => {
     const a = run(fourCases({}));
     expect(comparable(a, a).ok).toBe(true);
     expect(comparable(a, { ...a, model: "another-model" }).ok).toBe(false);
     expect(comparable(a, { ...a, repeats: 2 }).ok).toBe(false);
-    expect(comparable(a, { ...a, caseIds: ["reply-001"] }).ok).toBe(false);
+    // Same ids, reworded cases: the digest tells them apart.
+    const reworded = comparable(a, { ...a, setDigest: "b".repeat(64) });
+    expect(reworded.ok).toBe(false);
+    if (!reworded.ok) expect(reworded.error).toMatch(/set_digest differs/);
   });
 });
 
@@ -377,7 +418,12 @@ describe("the CLI", () => {
       ["--file", "a.json", "--baseline", "b.json"],
       {
         "a.json": strong,
-        "b.json": JSON.stringify(dump(fourCases({}), { expect_model: "other" })),
+        "b.json": JSON.stringify(
+          dump(
+            fourCases({}).map((s) => ({ ...s, model: "other" })),
+            { expect_model: "other" },
+          ),
+        ),
       },
     ],
   ])("is NOT MEASURED (exit 2) on %s, echoing nothing from the file", (_name, argv, files) => {
@@ -389,13 +435,48 @@ describe("the CLI", () => {
 });
 
 describe("the writer agrees with the reader", () => {
-  it("pins the dump's kind and version to eval_free_reply_cli.py", () => {
-    const repo = join(__dirname, "..", "..", "..", "..", "..");
+  it("pins the dump's kind, version and repeats bound to eval_free_reply_cli.py", () => {
     const cli = readFileSync(
-      join(repo, "apps", "ai-service", "app", "free_chat", "eval_free_reply_cli.py"),
+      join(REPO, "apps", "ai-service", "app", "free_chat", "eval_free_reply_cli.py"),
       "utf8",
     );
     expect(cli).toContain(`DUMP_KIND = "${DUMP_KIND}"`);
     expect(cli).toContain(`DUMP_VERSION = ${DUMP_VERSION}`);
+    expect(cli).toContain(`MAX_REPEATS = ${MAX_REPEATS}`);
+  });
+
+  it("scores the committed round-1 evidence dumps, and the draft against main HOLDs", () => {
+    const dir = join(REPO, "docs", "qa", "evidence", "free-chat", "2026-10-14");
+    const read = (name: string) => {
+      const parsed = parseReplyDump(JSON.parse(readFileSync(join(dir, name), "utf8")));
+      if (!parsed.ok) throw new Error(`${name}: ${parsed.error}`);
+      return parsed.value;
+    };
+    const baseline = read("reply-baseline.json");
+    const draft = read(join("draft-v2", "reply-revised.json"));
+    expect(comparable(baseline, draft).ok).toBe(true);
+    // The recorded verdict: the draft did not pass R31, which is why round 1 shipped no reply prompt.
+    expect(applyR31(measureReplies(baseline), measureReplies(draft)).ship).toBe(false);
+  });
+});
+
+describe("the replay is pinned to the production path it mirrors", () => {
+  const source = (...parts: string[]) =>
+    readFileSync(join(REPO, "apps", "api", "src", ...parts), "utf8");
+
+  it("parses the reply with FreeChatReplyOutputSchema under the client's 10 s timeout", () => {
+    expect(source("ai", "ai.service.ts")).toMatch(
+      /this\.post\("\/free-chat\/reply", input, FreeChatReplyOutputSchema, 10000, ctx\)/,
+    );
+  });
+
+  it("serves the fallback on null, a refusal as copy, and screens an answer with the same gate", () => {
+    const turns = source("profiling", "free-chat", "free-chat-turns.ts");
+    const serveReply = turns.slice(turns.indexOf("private async serveReply("));
+    const body = serveReply.slice(0, serveReply.indexOf("\n  }\n"));
+    const order = ["out === null", 'out.status === "refuse"', "screenFreeChatAnswer(out)"];
+    const at = order.map((needle) => body.indexOf(needle));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
 });

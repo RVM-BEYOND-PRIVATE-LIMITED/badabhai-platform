@@ -77,6 +77,24 @@ def test_the_set_covers_both_categories_and_the_guarded_refusals() -> None:
     assert sum(1 for case in gold.CASES if len(case.turns) > 3) >= 5
 
 
+def test_a_tease_mixed_with_a_refusal_topic_must_still_refuse() -> None:
+    """Security review of round 1: a tease or complaint wrapped round a refusal topic must still
+    refuse on that topic, for distress and for off_limits, so a revision cannot trade the helpline
+    or the off-limits line for politeness unseen (a draft rule did exactly that, 8 times in 9)."""
+    mixed = {case.expect for case in gold.CASES if case.id in ("reply-045", "reply-046")}
+    assert mixed == {"distress", "off_limits"}
+
+
+def test_the_set_digest_names_the_cases_not_only_their_ids() -> None:
+    digest = gold.set_digest(gold.CASES)
+    assert re.fullmatch(r"[0-9a-f]{64}", digest)
+    assert gold.set_digest(list(gold.CASES)) == digest  # deterministic
+    reworded = [gold.CASES[0]._replace(text="kuch aur"), *gold.CASES[1:]]
+    assert gold.set_digest(reworded) != digest
+    relabelled = [gold.CASES[0]._replace(expect="unsafe_other"), *gold.CASES[1:]]
+    assert gold.set_digest(relabelled) != digest
+
+
 def test_the_fixed_lines_are_the_apis_copy_word_for_word() -> None:
     copy = (
         _REPO / "apps" / "api" / "src" / "profiling" / "free-chat" / "free-chat.copy.ts"
@@ -110,7 +128,7 @@ def test_no_case_is_one_of_the_reply_prompts_quoted_examples() -> None:
         for prompt in (free_prompts.CASUAL_SYSTEM_PROMPT, free_prompts.CAREER_SYSTEM_PROMPT)
         for q in re.findall(r'"([^"]+)"', prompt)
     }
-    assert "namaste. aaj ka kaam kaisa raha?" in quoted  # non-vacuous
+    assert "yeh hunar har factory mein kaam aata hai" in quoted  # non-vacuous
     assert [case.text for case in gold.CASES if case.text.casefold() in quoted] == []
 
 
@@ -180,8 +198,10 @@ def _small_set(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _run(tmp_path: Path, *argv: str) -> tuple[int, dict]:
+    """The CLI on the fake service, always naming the model (``--expect-model`` is required)."""
     path = tmp_path / "dump.json"
-    code = cli.main(["--base-url", _BASE, "--dump-file", str(path), *argv])
+    base = ["--base-url", _BASE, "--dump-file", str(path), "--expect-model", _MODEL]
+    code = cli.main([*base, *argv])
     return code, json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -190,7 +210,7 @@ def test_the_cli_posts_every_case_repeats_times_and_writes_the_replays_dump(
 ) -> None:
     _small_set(monkeypatch)
     service = FakeService(monkeypatch, _answer())
-    code, doc = _run(tmp_path, "--repeats", "2", "--expect-model", _MODEL)
+    code, doc = _run(tmp_path, "--repeats", "2")
     assert code == 0
     assert [path for path, _b in service.calls] == ["/free-chat/reply"] * 6
     assert service.calls[1][1] == gold.request_body(gold.CASES[1])
@@ -209,6 +229,7 @@ def test_the_cli_posts_every_case_repeats_times_and_writes_the_replays_dump(
         "written": 6,
     }
     assert doc["case_ids"] == ["reply-001", "reply-002", "reply-003"]
+    assert doc["set_digest"] == gold.set_digest(gold.CASES)
     assert [(s["case_id"], s["repeat"]) for s in doc["samples"]][:4] == [
         ("reply-001", 0),
         ("reply-002", 0),
@@ -259,19 +280,19 @@ def test_a_late_reply_is_recorded_as_late(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 @pytest.mark.parametrize(
-    ("answer", "argv", "verdict"),
+    ("answer", "verdict"),
     [
-        (_answer(real_call=False), (), "CONTAMINATED"),
-        (_answer(model="gemini-2.5-flash"), ("--expect-model", _MODEL), "FALLBACK"),
-        (lambda _b: 503, (), "INCOMPLETE"),
+        (_answer(real_call=False), "CONTAMINATED"),
+        (_answer(model="gemini-2.5-flash"), "FALLBACK"),
+        (lambda _b: 503, "INCOMPLETE"),
     ],
 )
 def test_a_run_that_is_not_evidence_fails_and_says_so_in_the_dump(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, answer, argv, verdict: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, answer, verdict: str
 ) -> None:
     _small_set(monkeypatch)
     FakeService(monkeypatch, answer)
-    code, doc = _run(tmp_path, "--repeats", "1", *argv)
+    code, doc = _run(tmp_path, "--repeats", "1")
     assert code == 1
     assert doc["evidence"] is False
     assert any(reason.startswith(verdict) for reason in doc["not_evidence"])
@@ -288,11 +309,14 @@ def test_a_mocked_or_failed_call_is_no_reply_in_the_dump(
 
 def test_the_cli_refuses_bad_arguments(tmp_path: Path) -> None:
     dump = str(tmp_path / "d.json")
+    named = ["--base-url", _BASE, "--dump-file", dump, "--expect-model", _MODEL]
     for argv in (
-        ["--base-url", _BASE, "--dump-file", dump, "--repeats", "0"],
-        ["--base-url", _BASE, "--dump-file", dump, "--repeats", "11"],
-        ["--base-url", _BASE, "--dump-file", dump, "--pace-ms", "-1"],
+        [*named, "--repeats", "0"],
+        [*named, "--repeats", str(cli.MAX_REPEATS + 1)],
+        [*named, "--pace-ms", "-1"],
         ["--base-url", _BASE, "--dump-file", dump, "--expect-model", " "],
+        # No --expect-model: the replay would refuse the run, so the CLI refuses to spend on it.
+        ["--base-url", _BASE, "--dump-file", dump],
         ["--base-url", _BASE],
     ):
         with pytest.raises(SystemExit):

@@ -427,15 +427,6 @@ _SHARED_WALLS = """\
 
 #: The answer rules both reply prompts share, word for word: one validator checks both, so one
 #: block states what it checks. The banned-token and regional-word slots are filled at import.
-#:
-#: ROUND 1 OF THE IMPROVEMENT LOOP (ADR-0051 §10, #2128, 2026-10-14). Production served
-#: REPLY_FALLBACK on 9 of 75 reply turns, every one a reply the API's gate threw away. On the reply
-#: set (`eval_free_reply_gold`, 44 cases x 3, `claude-haiku-4-5`) the gate's reasons were lines
-#: of 21-24 words, two questions in a greeting reply, a verb ending written in Devanagari, a soft
-#: promise ("kaam pakka hai") and "bahut acha" in praise of a course. So a line now AIMS under
-#: the 20-word wall, the Latin rule names the endings, the one question must be the last line,
-#: and "bahut acha" and the soft promise each get a sentence with the words to use instead.
-#: Served 117/132 -> 126/132, every refusal kept (R31: SHIP).
 _ANSWER_RULES = (
     """\
 Reply with JSON only, one of:
@@ -443,22 +434,16 @@ Reply with JSON only, one of:
 {"status": "refuse", "topic": "<topic>"}
 
 Rules for an answer:
-- 1 to 4 lines. Each line is one short sentence of about 12 to 15 words: the app throws the
-  whole answer away when any line passes 20 words.
-- LATIN script only, never Devanagari, Gujarati, Kannada, Telugu or Tamil script. Every Hindi
-  word is in Latin letters down to its ending: "karte hain", "sakte hain", "banne ke liye".
+- 1 to 4 lines. Each line at most 20 words. LATIN script only, never Devanagari, Gujarati,
+  Kannada, Telugu or Tamil script.
 - At most 3 followup_chips, each at most 4 words: short topics the worker might ask about
   next, written WITHOUT a "?".
-- No "!", no emoji, no "{" or "}" inside a line or chip. At most ONE question in the whole
-  answer (lines and chips together), and only as the last line: every other line is a
-  statement. Never address the worker by name. No phone number, email or website.
+- No "!", no emoji, no "{" or "}" inside a line or chip, at most one "?" in the whole answer
+  (lines and chips together). Never address the worker by name. No phone number, email or
+  website.
 - Never use any of these words or phrases, in a line or in a chip, in upper or lower case. The
   app throws the whole answer away if one appears:
 <<PERSONA_BANNED_TOKENS>>
-- Never write "bahut acha", "bahut accha" or "bahut achha", in any sense. For a skill, a course
-  or a choice say "yeh kaam ka hunar hai" or "iski maang hai"; for work done well, "dhyan se".
-- Never say work will surely come: not "kaam mil jayega", "job lag jayegi" or "kaam pakka
-  hai". Say "kaam milne ki sambhavna badhegi".
 """
     + _SHARED_WALLS
     + """\
@@ -489,10 +474,6 @@ Where it fits naturally, connect back to the worker's work or skills, without pu
 WORKER CONTEXT names the worker's trade and experience when known (null when not). Do not ask
 the worker to make a resume: the app does that itself. Never promise a job, a salary or an
 interview.
-
-Answer a greeting with a greeting and ONE short question about the worker's day or work, for
-example "Namaste. Aaj ka kaam kaisa raha?". Teasing, a mild insult or a complaint about you or
-the app gets a calm, polite answer, never a refusal. Thanks or a goodbye gets one warm line.
 
 You must REFUSE, with fixed wording you do not write yourself, when the message is about:
 - politics, religion, caste, romance or dating, loans or money lending, health or medicine:

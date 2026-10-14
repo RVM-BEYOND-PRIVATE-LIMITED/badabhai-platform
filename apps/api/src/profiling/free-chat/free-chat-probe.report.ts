@@ -12,6 +12,7 @@ import {
   type FreeChatOutcome,
 } from "@badabhai/types";
 import type { EventName } from "@badabhai/event-schema";
+import { table } from "../../common/text-table";
 import {
   FREE_CHAT_AI_TASKS,
   FREE_CHAT_PROBE_SCRIPT,
@@ -91,20 +92,6 @@ export function percentile(values: readonly number[], p: number): number | null 
 
 function pct(n: number, total: number): string {
   return total === 0 ? "0.0%" : `${((n / total) * 100).toFixed(1)}%`;
-}
-
-const SEP = " | ";
-
-/**
- * Rows as aligned columns, a header first. Every cell is an enum, a label or a number. Shared with
- * the reply served-rate replay (`free-chat-reply-served.ts`), which prints the same kind of table.
- */
-export function table(header: readonly string[], rows: readonly (readonly string[])[]): string[] {
-  if (rows.length === 0) return ["  (none)"];
-  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)));
-  const line = (cells: readonly string[]) =>
-    `  ${cells.map((c, i) => c.padEnd(widths[i] ?? 0)).join(SEP)}`.trimEnd();
-  return [line(header), line(widths.map((w) => "-".repeat(w))), ...rows.map(line)];
 }
 
 function readNote<N extends EventName>(read: ProbeEvents<N>): string {
