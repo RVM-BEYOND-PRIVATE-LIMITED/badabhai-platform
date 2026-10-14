@@ -21,6 +21,7 @@ import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cu
 import 'package:badabhai_worker_app/features/resume/presentation/resume_history_screen.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_history_section.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/profiling_tier.dart';
+import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_args.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 import 'package:badabhai_worker_app/router.dart' show Routes;
 import 'package:go_router/go_router.dart';
@@ -726,6 +727,10 @@ void main() {
   /// tiers live, a worker the server answered `needs_choice` for went straight
   /// into the full walk and never saw the Easy / Medium / Hard chooser.
   group('the draft card goes through the tier gate (#1785)', () {
+    /// What the CTA handed the form route — read by the #2200 test below.
+    Object? tradeFormExtra;
+    setUp(() => tradeFormExtra = null);
+
     /// A summary with missing fields, which is what makes the card appear.
     ProfileSummary draftSummary() => const ProfileSummary(
           strengthSignals: 2,
@@ -755,8 +760,10 @@ void main() {
           ),
           GoRoute(
             path: Routes.tradeForm,
-            builder: (_, __) =>
-                const Scaffold(body: Center(child: Text('TRADE FORM'))),
+            builder: (_, GoRouterState state) {
+              tradeFormExtra = state.extra;
+              return const Scaffold(body: Center(child: Text('TRADE FORM')));
+            },
           ),
         ],
       );
@@ -814,6 +821,29 @@ void main() {
 
       expect(find.text('TRADE FORM'), findsOneWidget);
       expect(find.text('TIER CHOOSER'), findsNothing);
+    });
+
+    // #2200 — "Resume poora karein" opened a continuation that asked ONE
+    // question and showed "Submit karein": the walk resumed past every
+    // answered question and every locally-done marker onto the last step. The
+    // card must open the WHOLE walk from step 1 — work history, certificates
+    // and education included — so nothing is skipped before Submit.
+    testWidgets('Continue opens the WHOLE walk from step 1 (#2200)',
+        (WidgetTester tester) async {
+      summaryRepo = _FakeSummary(draftSummary());
+      locator.registerFactory<TradeFormRepository>(
+        () => _FakeTiers(TierState.disabled),
+      );
+      await pumpRouted(tester);
+      await tapContinue(tester);
+
+      expect(find.text('TRADE FORM'), findsOneWidget);
+      expect(tradeFormExtra, isA<TradeFormArgs>());
+      final TradeFormArgs args = tradeFormExtra! as TradeFormArgs;
+      expect(args.fromStart, isTrue,
+          reason: 'a resumed walk lands on the last step with only Submit');
+      expect(args.sectionKey, isNull, reason: 'the full form, not one section');
+      expect(args.upgradeView, isFalse, reason: 'every step, not a narrowed view');
     });
   });
 }
