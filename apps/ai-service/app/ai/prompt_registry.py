@@ -100,6 +100,15 @@ FREE_CHAT_SUMMARY = "profiling-free-summary"
 # no_results / refused / rejected mix is exactly what a prompt edit moves, and the answer is the
 # one free-chat text built from web pages, so "which prompt wrote it" must be answerable.
 FREE_CHAT_NEWS = "profiling-free-news"
+# ADR-0055 (#2275) - the Bada Bhai chat after the profile runs the free chat's brain on the SAME
+# tasks (`profiling_free_*`, so the box's armed task list is unchanged), with these companion
+# variants of four prompts. Each has its own name because one task now carries both surfaces:
+# "which surface's prompt answered" must be answerable from one generation record, and a
+# Langfuse copy of a profiling prompt must never be served on the companion, or the reverse.
+FREE_CHAT_CLASSIFY_COMPANION = "profiling-free-classify-companion"
+FREE_CHAT_CASUAL_COMPANION = "profiling-free-casual-companion"
+FREE_CHAT_CAREER_COMPANION = "profiling-free-career-companion"
+FREE_CHAT_NEWS_COMPANION = "profiling-free-news-companion"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -232,8 +241,8 @@ def install_default_prompts() -> None:
     the OIE cutover left behind — registering either would claim prompt management over text no
     provider ever sees. The list has grown with the routes: the original three (the Phase A
     turn, the Phase C extract, the profile parse), then the general road, #1350's polish, the
-    ADR-0041 import trio, ADR-0046's companion prompts, ADR-0051's free-chat four and ADR-0054's
-    news answer.
+    ADR-0041 import trio, ADR-0046's companion prompts, ADR-0051's free-chat four, ADR-0054's
+    news answer and ADR-0055's companion-surface variants of four of them.
 
     Imports are LOCAL to this function, deliberately: it is called from the FastAPI
     lifespan, so the profiling package is imported after app construction rather than at
@@ -285,3 +294,11 @@ def install_default_prompts() -> None:
     # ADR-0054: a module constant with the reply prompts' import-time substitutions only; the
     # request's date rides the user message, so the registered text is the route's literal.
     register(FREE_CHAT_NEWS, lambda: free_chat_prompts.NEWS_SYSTEM_PROMPT)
+    # ADR-0055: the companion surface's variants, module constants built at import from the
+    # profiling prompts by named swaps, so each registered text is its route's literal too.
+    register(
+        FREE_CHAT_CLASSIFY_COMPANION, lambda: free_chat_prompts.COMPANION_CLASSIFY_SYSTEM_PROMPT
+    )
+    register(FREE_CHAT_CASUAL_COMPANION, lambda: free_chat_prompts.COMPANION_CASUAL_SYSTEM_PROMPT)
+    register(FREE_CHAT_CAREER_COMPANION, lambda: free_chat_prompts.COMPANION_CAREER_SYSTEM_PROMPT)
+    register(FREE_CHAT_NEWS_COMPANION, lambda: free_chat_prompts.COMPANION_NEWS_SYSTEM_PROMPT)

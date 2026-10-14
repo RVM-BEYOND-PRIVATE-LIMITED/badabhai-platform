@@ -79,6 +79,11 @@ REGIONAL_LANGUAGES = {
 REPLY_PROMPTS = {
     "casual": free_prompts.CASUAL_SYSTEM_PROMPT,
     "career": free_prompts.CAREER_SYSTEM_PROMPT,
+    # ADR-0055 (#2275): the companion surface's variants are held to every reply-prompt rule and
+    # wall below too (the regional and English lists pinned EQUAL to the API's included). Each
+    # differs from its profiling prompt by one swapped sentence (test_free_chat_companion_surface).
+    "companion-casual": free_prompts.COMPANION_CASUAL_SYSTEM_PROMPT,
+    "companion-career": free_prompts.COMPANION_CAREER_SYSTEM_PROMPT,
 }
 
 
