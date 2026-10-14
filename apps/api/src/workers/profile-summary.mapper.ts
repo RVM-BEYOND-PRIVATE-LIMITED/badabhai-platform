@@ -1,6 +1,7 @@
 import type { ProfileSource, ProfileStatus } from "@badabhai/types";
 import { getRole, labelForTaxonomyId } from "@badabhai/taxonomy";
 import { resolveTradeContent } from "../resume/trade-content";
+import { FORM_FILLABLE_SLOTS, type FormFillableSlot } from "./profile-summary-form-slots";
 import type { WorkerProfileSummary } from "./workers.dto";
 
 /**
@@ -10,6 +11,10 @@ import type { WorkerProfileSummary } from "./workers.dto";
  * read narrows the shape, optional-accesses the key, and falls back to `null`/`0`
  * on anything missing or unparseable — a malformed row must NEVER throw a 500 at
  * the worker.
+ *
+ * #2257 — strength and `missing_fields` also fold in `formFilledSlots`: which slots the
+ * worker's own form answers fill, already reduced to slot names by the pure
+ * `profile-summary-form-slots.ts`. No attribute value reaches this mapper.
  *
  * FACELESS BY CONSTRUCTION: the input is the profile row only (canonical ids +
  * signal JSONB). Name/phone live on `workers` and never enter this mapper — the
@@ -51,6 +56,12 @@ export interface ProfileSummarySource {
    * Outranks anything in `locationPreference` — see {@link readCity}.
    */
   workerCity?: string | null;
+  /**
+   * #2257 — the strength slots the worker's own form answers fill (`formFilledSlots`). Optional:
+   * a caller that reads only the profile row (the companion's nudge) passes nothing and scores
+   * exactly as before. See {@link slotScore} for how the two sources combine.
+   */
+  formFilledSlots?: ReadonlySet<FormFillableSlot>;
 }
 
 type Json = Record<string, unknown>;
@@ -175,7 +186,7 @@ function readExperienceYears(experience: unknown): number | null {
  * answer to fall back to.
  *
  * PRESENTATION ONLY. `computeStrength` and `computeMissingFields` deliberately do NOT consult
- * these labels — see the note on `computeStrength`.
+ * these labels — see the note on `profileSlotScore`.
  */
 function readDisplayName(
   roleId: string | null,
@@ -197,43 +208,99 @@ function readDisplayName(
 }
 
 /**
- * Profile strength, RECOMPUTED on read — the exact `countFields` algorithm from
- * profile-extraction.processor.ts, re-derived over the STORED row's JSONB (with
- * defensive narrowing instead of the processor's typed DraftProfile):
+ * The nine strength slots, in `missing_fields` order — largest weight first, which is the order
+ * the app's strength card reads its single nudge from.
+ */
+const STRENGTH_SLOTS = [
+  "role",
+  "trade",
+  "skills",
+  "machines",
+  "experience",
+  "salary",
+  "location",
+  "availability",
+  "photo",
+] as const;
+
+type StrengthSlot = (typeof STRENGTH_SLOTS)[number];
+
+const STRENGTH_MAX = STRENGTH_SLOTS.length;
+
+/**
+ * One slot's contribution from the PROFILE ROW — the exact `countFields` algorithm from
+ * profile-extraction.processor.ts, re-derived over the STORED row's JSONB (with defensive
+ * narrowing instead of the processor's typed DraftProfile):
  * +1 canonical_role_id, +1 canonical_trade_id, +skills.length, +machines.length,
  * +1 experience.total_years != null, +1 salary amount_min/amount_max present,
  * +1 preferred_cities non-empty, +1 availability.status !== "unknown",
  * +1 has_photo (TD77b — photo-in-strength).
  * Deliberately NOT stored (no new column, no drift with the processor's value).
  *
- * THE INTERVIEW'S LABELS ARE DELIBERATELY NOT COUNTED HERE, and `computeMissingFields` below
- * does not consult them either. `readDisplayName` reads them, but that is PRESENTATION — what
- * the worker's header says. Strength is a BUSINESS signal count that must stay identical to
- * `countFields` in profile-extraction.processor.ts, and the two dimensions it scores are
+ * THE INTERVIEW'S LABELS ARE DELIBERATELY NOT COUNTED HERE. `readDisplayName` reads them, but
+ * that is PRESENTATION — what the worker's header says. The two dimensions scored here are
  * "canonicalized role" and "canonicalized trade": a free-text label is precisely the state
  * canonicalization has not yet resolved. Counting it would tell a worker their profile is
- * stronger than the match engine can actually use it, and would silently move a number the
- * product hangs behaviour off (§3 — AI never owns business decisions).
- *
+ * stronger than the match engine can actually use it (§3 — AI never owns business decisions).
  * Same rule for `missing_fields`: "role"/"trade" mean "no canonical id", which stays true.
  */
-const STRENGTH_MAX = 9;
+function profileSlotScore(slot: StrengthSlot, p: ProfileSummarySource): number {
+  switch (slot) {
+    case "role":
+      return p.canonicalRoleId ? 1 : 0;
+    case "trade":
+      return p.canonicalTradeId ? 1 : 0;
+    case "skills":
+      return Array.isArray(p.skills) ? p.skills.length : 0;
+    case "machines":
+      return Array.isArray(p.machines) ? p.machines.length : 0;
+    case "experience":
+      return asObject(p.experience)?.total_years != null ? 1 : 0;
+    case "salary": {
+      const salary = asObject(p.salaryExpectation);
+      return salary != null && (salary.amount_min != null || salary.amount_max != null) ? 1 : 0;
+    }
+    case "location": {
+      const cities = asObject(p.locationPreference)?.preferred_cities;
+      return Array.isArray(cities) && cities.length > 0 ? 1 : 0;
+    }
+    case "availability": {
+      const status = readAvailabilityStatus(p.availability);
+      return status != null && status !== "unknown" ? 1 : 0;
+    }
+    case "photo":
+      return p.hasPhoto ? 1 : 0;
+  }
+}
+
+/**
+ * One slot's score: the profile row's, or — only where the row left the slot EMPTY — a flat 1
+ * when the worker's own form answer fills it (#2257).
+ *
+ * FILL-ONLY, NEVER ADDITIVE. A profile that already scores a slot keeps exactly the score it had,
+ * so every chat-road worker's number is byte-identical to before; the fold can only move a slot
+ * from empty to filled. And a filled slot scores 1, not a count of form answers: the profile's
+ * `skills.length` is the extraction's own count, and inventing a second count over pack answers
+ * would let one tapped chip outweigh a whole slot.
+ *
+ * ONE FUNCTION FEEDS BOTH NUMBERS, so `strength` and `missing_fields` cannot disagree about a
+ * slot — the "must stay in sync" rule these two used to state in prose is now structural.
+ */
+function slotScore(slot: StrengthSlot, p: ProfileSummarySource): number {
+  const fromProfile = profileSlotScore(slot, p);
+  if (fromProfile > 0) return fromProfile;
+  return isFormFillable(slot) && p.formFilledSlots?.has(slot) === true ? 1 : 0;
+}
+
+const FORM_FILLABLE: ReadonlySet<string> = new Set(FORM_FILLABLE_SLOTS);
+
+/** `role` / `trade` / `photo` never fold — see {@link FORM_FILLABLE_SLOTS}. */
+function isFormFillable(slot: StrengthSlot): slot is FormFillableSlot {
+  return FORM_FILLABLE.has(slot);
+}
 
 function computeStrength(p: ProfileSummarySource): number {
-  let n = 0;
-  if (p.canonicalRoleId) n += 1;
-  if (p.canonicalTradeId) n += 1;
-  n += Array.isArray(p.skills) ? p.skills.length : 0;
-  n += Array.isArray(p.machines) ? p.machines.length : 0;
-  if (asObject(p.experience)?.total_years != null) n += 1;
-  const salary = asObject(p.salaryExpectation);
-  if (salary != null && (salary.amount_min != null || salary.amount_max != null)) n += 1;
-  const cities = asObject(p.locationPreference)?.preferred_cities;
-  if (Array.isArray(cities) && cities.length > 0) n += 1;
-  const status = readAvailabilityStatus(p.availability);
-  if (status != null && status !== "unknown") n += 1;
-  if (p.hasPhoto) n += 1;
-  return n;
+  return STRENGTH_SLOTS.reduce((n, slot) => n + slotScore(slot, p), 0);
 }
 
 /**
@@ -255,26 +322,9 @@ function readRawProfileString(rawProfile: unknown, key: RawProfileStringKey): st
   return nonBlankStringOrNull(asObject(rawProfile)?.[key]);
 }
 
-/**
- * Which of the 9 field-group slots are empty/missing. Each maps to exactly one
- * key in missing_fields. Must stay in sync with computeStrength's dimension set.
- */
+/** The slots that score nothing from either source, in {@link STRENGTH_SLOTS} order. */
 function computeMissingFields(p: ProfileSummarySource): string[] {
-  const missing: string[] = [];
-  if (!p.canonicalRoleId) missing.push("role");
-  if (!p.canonicalTradeId) missing.push("trade");
-  if (!Array.isArray(p.skills) || p.skills.length === 0) missing.push("skills");
-  if (!Array.isArray(p.machines) || p.machines.length === 0) missing.push("machines");
-  if (asObject(p.experience)?.total_years == null) missing.push("experience");
-  const salary = asObject(p.salaryExpectation);
-  if (salary == null || (salary.amount_min == null && salary.amount_max == null))
-    missing.push("salary");
-  const cities = asObject(p.locationPreference)?.preferred_cities;
-  if (!Array.isArray(cities) || cities.length === 0) missing.push("location");
-  const status = readAvailabilityStatus(p.availability);
-  if (status == null || status === "unknown") missing.push("availability");
-  if (!p.hasPhoto) missing.push("photo");
-  return missing;
+  return STRENGTH_SLOTS.filter((slot) => slotScore(slot, p) === 0);
 }
 
 /** No-profile-yet summary: everything null/zero/empty, `profile_status: "none"`. */
@@ -286,17 +336,7 @@ const NO_PROFILE: WorkerProfileSummary = {
   city: null,
   strength: 0,
   strength_max: STRENGTH_MAX,
-  missing_fields: [
-    "role",
-    "trade",
-    "skills",
-    "machines",
-    "experience",
-    "salary",
-    "location",
-    "availability",
-    "photo",
-  ],
+  missing_fields: [...STRENGTH_SLOTS],
   skills: [],
   machines: [],
   experience_years: null,

@@ -314,11 +314,16 @@ const CONFIRMED_PROFILE = {
   phoneHash: "deadbeef",
 };
 
-function summarySetup(profile: unknown, workerOverrides: Record<string, unknown> = {}) {
+function summarySetup(
+  profile: unknown,
+  workerOverrides: Record<string, unknown> = {},
+  attributes: () => Promise<unknown[]> = async () => [],
+) {
   const worker = { id: "w-1", photoStorageKey: null, ...workerOverrides };
   const repo = {
     latestProfile: vi.fn(async (_workerId: string) => profile),
     findById: vi.fn(async (_id: string) => worker),
+    listSummaryAttributes: vi.fn(async (_workerId: string) => attributes()),
   };
   const pii = { encrypt: vi.fn() };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
@@ -480,6 +485,91 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
     expect(JSON.stringify(res)).not.toMatch(/ciphertext|deadbeef|phone|full_?name/i);
     // deliberately event-less: a read is not a material state change (§1)
     expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkersService.getProfileSummary — the form fold (#2257)", () => {
+  /**
+   * The reported worker: a CNC turner whose form completion stamped the canonical ids (#2202)
+   * and whose every other answer lives in `worker_attributes`. The profile row the extraction
+   * minted carries none of them.
+   */
+  const FORM_ROAD_PROFILE = {
+    ...CONFIRMED_PROFILE,
+    source: "form",
+    canonicalTradeId: "trade_cnc_machining",
+    canonicalRoleId: "role_cnc_turner",
+    skills: [],
+    machines: [],
+    experience: {},
+    salaryExpectation: {},
+    locationPreference: {},
+    availability: {},
+  };
+  const attr = (over: Record<string, unknown>) => ({
+    packId: null,
+    valueNumber: null,
+    valueText: null,
+    valueTextList: null,
+    valueJson: null,
+    ...over,
+  });
+  const FORM_ANSWERS = [
+    attr({
+      packId: "qp_cnc_turning",
+      attributeKey: "turning_experience",
+      valueText: "three_to_seven",
+    }),
+    attr({
+      packId: "qp_cnc_turning",
+      attributeKey: "turning_machine",
+      valueTextList: ["cnc_lathe"],
+    }),
+    attr({
+      packId: "qp_cnc_turning",
+      attributeKey: "controller_brand",
+      valueTextList: ["fanuc", "siemens"],
+    }),
+    attr({ attributeKey: "salary_expected_max", valueNumber: "25000.0000" }),
+    attr({ attributeKey: "preferred_locations", valueTextList: ["Pune"] }),
+    attr({ attributeKey: "availability", valueJson: { status: "immediate" } }),
+  ];
+
+  it("counts the form's answers: only the photo is left", async () => {
+    const { svc, repo } = summarySetup(FORM_ROAD_PROFILE, {}, async () => FORM_ANSWERS);
+    const res = await svc.getProfileSummary("w-1");
+    expect(repo.listSummaryAttributes).toHaveBeenCalledWith("w-1");
+    expect(res.missing_fields).toEqual(["photo"]);
+    expect(res.strength).toBe(8);
+  });
+
+  it("returns slot names only — never an attribute value", async () => {
+    const { svc } = summarySetup(FORM_ROAD_PROFILE, {}, async () => [
+      ...FORM_ANSWERS,
+      attr({
+        packId: "qp_cnc_turning",
+        attributeKey: "iti_project_work",
+        valueText: "SECRET ANSWER",
+      }),
+    ]);
+    const res = await svc.getProfileSummary("w-1");
+    expect(JSON.stringify(res)).not.toMatch(/SECRET ANSWER|25000|cnc_lathe/);
+  });
+
+  it("degrades to the profile-only strength when the attribute read fails", async () => {
+    const { svc } = summarySetup(FORM_ROAD_PROFILE, {}, async () => {
+      throw new Error("connection reset");
+    });
+    const res = await svc.getProfileSummary("w-1");
+    expect(res.strength).toBe(2);
+    expect(res.missing_fields).toContain("skills");
+  });
+
+  it("leaves the no-profile summary alone, whatever the attributes say", async () => {
+    const { svc } = summarySetup(undefined, {}, async () => FORM_ANSWERS);
+    const res = await svc.getProfileSummary("w-1");
+    expect(res.profile_status).toBe("none");
+    expect(res.strength).toBe(0);
   });
 });
 

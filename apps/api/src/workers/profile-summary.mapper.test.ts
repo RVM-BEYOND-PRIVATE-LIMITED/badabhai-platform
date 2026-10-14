@@ -72,8 +72,9 @@ describe("toProfileSummary — the trade headline", () => {
 
 describe("toProfileSummary — labels never move a business number", () => {
   /**
-   * THE FENCE. `strength` must stay identical to `countFields` in the extraction processor, and
-   * `missing_fields` drives what the product asks the worker to complete. Both score
+   * THE FENCE. The profile row's half of `strength` must stay identical to `countFields` in the
+   * extraction processor, and `missing_fields` drives what the product asks the worker to
+   * complete. Both score
    * CANONICALIZATION, and a free-text label is precisely the state canonicalization has not
    * resolved yet — counting it would tell a worker their profile is stronger than the match
    * engine can actually use (§3).
@@ -87,6 +88,67 @@ describe("toProfileSummary — labels never move a business number", () => {
     const s = from({ rawProfile: { role_label: "tandoor cook", domain_label: "catering" } });
     expect(s.missing_fields).toContain("role");
     expect(s.missing_fields).toContain("trade");
+  });
+});
+
+describe("toProfileSummary — the worker's own form answers fill empty slots (#2257)", () => {
+  /**
+   * THE DEFECT. The form writes `worker_attributes`, never `worker_profiles`, so a turner who
+   * completed it sat at 2/9 with `skills` and `machines` reported missing while his résumé
+   * printed both. The fold lets a form-filled slot count where the profile row is empty.
+   */
+  const FORM_ROAD = { canonicalRoleId: "role_cnc_turner", canonicalTradeId: "trade_cnc_machining" };
+
+  it("clears every slot the form filled and counts each once", () => {
+    const s = from({
+      ...FORM_ROAD,
+      formFilledSlots: new Set([
+        "skills",
+        "machines",
+        "experience",
+        "salary",
+        "location",
+        "availability",
+      ] as const),
+    });
+    expect(s.missing_fields).toEqual(["photo"]);
+    expect(s.strength).toBe(8);
+  });
+
+  it("keeps the remaining slots in their weighted order", () => {
+    const s = from({ ...FORM_ROAD, formFilledSlots: new Set(["machines", "salary"] as const) });
+    expect(s.missing_fields).toEqual(["skills", "experience", "location", "availability", "photo"]);
+    expect(s.strength).toBe(4);
+  });
+
+  it("never adds to a slot the profile row already scores", () => {
+    // FILL-ONLY: a chat worker's number must be byte-identical with or without the fold.
+    const profile = { skills: ["skill_turning", "skill_fanuc"], experience: { total_years: 4 } };
+    expect(
+      from({ ...profile, formFilledSlots: new Set(["skills", "experience"] as const) }).strength,
+    ).toBe(from(profile).strength);
+  });
+
+  it("scores exactly as before when no form slots are passed", () => {
+    // The companion's nudge reads the profile row alone and passes nothing.
+    const s = from(FORM_ROAD);
+    expect(s.strength).toBe(2);
+    expect(s.missing_fields).toEqual([
+      "skills",
+      "machines",
+      "experience",
+      "salary",
+      "location",
+      "availability",
+      "photo",
+    ]);
+  });
+
+  it("does not leak into the displayed skills or machines lists", () => {
+    // The fold moves the count and the nudge only; the lists stay the profile row's.
+    const s = from({ formFilledSlots: new Set(["skills", "machines"] as const) });
+    expect(s.skills).toEqual([]);
+    expect(s.machines).toEqual([]);
   });
 });
 

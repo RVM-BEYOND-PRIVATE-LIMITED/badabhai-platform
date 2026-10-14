@@ -20,6 +20,7 @@ import { EventsService } from "../events/events.service";
 import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "./workers.repository";
+import { formFilledSlots, type SummaryAttributeRow } from "./profile-summary-form-slots";
 import { toProfileSummary } from "./profile-summary.mapper";
 import type {
   ConfirmPhotoDto,
@@ -670,25 +671,56 @@ export class WorkersService {
    * (countFields-equivalent — deliberately never stored). No profile row yet →
    * the `"none"` summary, not a 404 (the app renders "complete your profile").
    *
-   * NO PII: only the profile row is read — the worker's name/phone never enter
-   * this path (returning the name is an OPEN §2 escalation, see
-   * docs/worker-profile-summary-spec.md).
+   * #2257 — the strength also folds in the worker's `worker_attributes` (the
+   * trade form's and the preferences page's answers): a slot the profile row
+   * left empty counts when the worker's own answer fills it.
+   *
+   * NO PII: the worker's name/phone never enter this path (returning the name
+   * is an OPEN §2 escalation, see docs/worker-profile-summary-spec.md), and
+   * the attribute fold returns slot names, never an answer.
    *
    * DELIBERATELY NO EVENT: a read-only self-view is not a material state change
    * (CLAUDE.md §1 — the event spine records state changes, not reads), so this
    * emits nothing.
    */
   async getProfileSummary(workerId: string): Promise<WorkerProfileSummary> {
-    const [profile, worker] = await Promise.all([
+    const [profile, worker, attributes] = await Promise.all([
       this.workers.latestProfile(workerId),
       this.workers.findById(workerId),
+      this.summaryAttributes(workerId),
     ]);
     if (!profile) return toProfileSummary(null);
     const hasPhoto =
       typeof worker?.photoStorageKey === "string" && worker.photoStorageKey.length > 0;
     // #1428 — the worker's own onboarding city outranks the extraction's (owner ruling
     // 2026-09-05). Threaded from the `workers` row, which this method already reads for the photo.
-    return toProfileSummary({ ...profile, hasPhoto, workerCity: worker?.currentCity ?? null });
+    return toProfileSummary({
+      ...profile,
+      hasPhoto,
+      workerCity: worker?.currentCity ?? null,
+      // #2257 — the slots the worker's own form answers fill, which the profile row never sees.
+      formFilledSlots: formFilledSlots(attributes),
+    });
+  }
+
+  /**
+   * #2257 — the attribute rows the strength fold reads, or none.
+   *
+   * DEGRADES RATHER THAN FAILS. The fold only ever fills slots the profile row left empty, so
+   * without it the worker sees the profile-only strength they saw before #2257 — a smaller number,
+   * never a wrong one — where a thrown read would 500 their whole Profile tab. Ids only in the log.
+   */
+  private async summaryAttributes(workerId: string): Promise<SummaryAttributeRow[]> {
+    try {
+      return await this.workers.listSummaryAttributes(workerId);
+    } catch (error) {
+      this.logger.warn(
+        `profile-summary form fold skipped for worker ${workerId} (${
+          error instanceof Error ? error.name : "UnknownError"
+        }); strength reads the profile row alone`,
+      );
+      return [];
+    }
   }
 
   /**

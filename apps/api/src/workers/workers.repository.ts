@@ -4,6 +4,7 @@ import {
   CURRENT_PROFILE_ORDER,
   type Database,
   workers,
+  workerAttributes,
   workerProfiles,
   workerCredentials,
   workerDevices,
@@ -433,6 +434,39 @@ export class WorkersRepository {
       .orderBy(...CURRENT_PROFILE_ORDER)
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * #2257 — the worker's `worker_attributes` rows, in the columns the profile-summary fold reads
+   * (`profile-summary-form-slots.ts`). The form and the preferences page write here and never to
+   * `worker_profiles`, so this is where their answers are.
+   *
+   * EVERY ROW, NOT A KEY LIST: the machine, tenure and skill keys are per pack and the pure fold
+   * owns which of them count, exactly as `loadTradeSheet` and `findPackAttributeOptions` read the
+   * whole bag. `value_text` can hold a free-text answer; the fold reads it only through closed
+   * slug lookups, and only the slot names it derives reach the response.
+   */
+  async listSummaryAttributes(workerId: string): Promise<
+    {
+      packId: string | null;
+      attributeKey: string;
+      valueNumber: string | null;
+      valueText: string | null;
+      valueTextList: string[] | null;
+      valueJson: Record<string, unknown> | null;
+    }[]
+  > {
+    return this.db
+      .select({
+        packId: workerAttributes.packId,
+        attributeKey: workerAttributes.attributeKey,
+        valueNumber: workerAttributes.valueNumber,
+        valueText: workerAttributes.valueText,
+        valueTextList: workerAttributes.valueTextList,
+        valueJson: workerAttributes.valueJson,
+      })
+      .from(workerAttributes)
+      .where(eq(workerAttributes.workerId, workerId));
   }
 
   /**

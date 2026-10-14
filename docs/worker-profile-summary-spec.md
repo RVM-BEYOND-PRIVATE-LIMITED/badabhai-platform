@@ -4,7 +4,7 @@
 > no schema change, no new event. Guards: `@UseGuards(WorkerAuthGuard, ConsentGuard)` (same
 > order as `PATCH /workers/me/name`); identity from `@CurrentWorker` — never a path/body id.
 
-## Response (all fields derived from the LATEST `worker_profiles` row via `WorkersRepository.latestProfile`)
+## Response (derived from the LATEST `worker_profiles` row via `WorkersRepository.latestProfile`; `strength` / `missing_fields` also fold in the worker's `worker_attributes`, see below)
 
 | Field            | Source                                                                                                                                                                                                                                                          | Nullability / fallback                                                                                               |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -18,7 +18,29 @@
 **`strength` recompute** (mirror of `profile-extraction.processor.ts#countFields`, over the stored row):
 +1 `canonical_role_id`, +1 `canonical_trade_id`, +`skills.length`, +`machines.length`,
 +1 `experience.total_years != null`, +1 salary min/max present, +1 `preferred_cities` non-empty,
-+1 `availability.status !== "unknown"`. Deliberately **not stored** — no new column, no drift.
++1 `availability.status !== "unknown"`, +1 photo uploaded. Deliberately **not stored** — no new
+column, no drift. `missing_fields` names the slots that score 0, in that order.
+
+**Form fold (#2257).** The trade form and the preferences page write `worker_attributes`, never
+`worker_profiles`, so the summary also reads the worker's attribute rows
+(`WorkersRepository.listSummaryAttributes`). A slot the profile row leaves at 0 scores **1** when
+the worker's own answer fills it; a slot the row already scores is unchanged (fill-only, so
+chat-road numbers are byte-identical). Role, trade and photo never fold. Rules
+(`workers/profile-summary-form-slots.ts`):
+
+| Slot           | Filled by                                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `skills`       | pack answers that imply a taxonomy skill through `packAnswerEvidence` (the same table the skills rebuild reads) |
+| `machines`     | the pack's machine/controller/equipment key (`PACK_MACHINE_KEYS`) holding a slug the résumé row would print     |
+| `experience`   | the role's tier answer (`tenureQuestionKey`) under its own pack                                                 |
+| `salary`       | `salary_expected_min` or `salary_expected_max` > 0                                                              |
+| `location`     | `preferred_locations` non-empty                                                                                 |
+| `availability` | `availability.status` in the closed `AVAILABILITY_STATUSES` set                                                 |
+
+`qp_cad_drafting` and `qp_quality_inspection` ask no machine question, so their `machines` slot
+stays open on the form road. A failed attribute read degrades to the profile-only score.
+Presentation only: no ranking reads `strength` or `missing_fields`, and the displayed
+`skills` / `machines` lists are still the profile row's.
 
 ## Explicitly DROPPED (do not build)
 
