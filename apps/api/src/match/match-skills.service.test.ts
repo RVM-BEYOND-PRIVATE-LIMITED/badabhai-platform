@@ -205,6 +205,23 @@ describe("MatchSkillsService — the max-skills CAP is enforced SERVER-SIDE", ()
   });
 });
 
+describe("MatchSkillsService.listVocabulary — the admin editor's read (#2207)", () => {
+  it("serves the SAME vocabulary as listSkills plus the configured cap", async () => {
+    const { svc } = setup({ maxSkillsPerPosting: 4 });
+    expect(await svc.listVocabulary()).toEqual({
+      skills: svc.listSkills().skills,
+      max_skills_per_posting: 4,
+    });
+  });
+
+  it("reads the cap per call, so a match_config change reaches the editor without a deploy", async () => {
+    const { svc, cfg } = setup({ maxSkillsPerPosting: 3 });
+    expect((await svc.listVocabulary()).max_skills_per_posting).toBe(3);
+    (cfg as { maxSkillsPerPosting: number }).maxSkillsPerPosting = 7;
+    expect((await svc.listVocabulary()).max_skills_per_posting).toBe(7);
+  });
+});
+
 describe("MatchSkillsService — closed-set membership", () => {
   it("rejects an id outside the vocabulary and NAMES it (a form needs to say which)", async () => {
     const { svc } = setup();
