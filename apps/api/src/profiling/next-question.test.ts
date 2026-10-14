@@ -10,7 +10,9 @@ import {
   MAX_ASKS_PER_QUESTION,
   MAX_CONSECUTIVE_CLARIFIES,
   MAX_ENGINE_ASKS,
+  MAX_ENGINE_TURNS,
   nextQuestion,
+  reAsk,
   servedText,
   type EnginePacks,
   type EngineState,
@@ -513,5 +515,55 @@ describe("before an occupation is pinned", () => {
     // No why_text on this item: the clarify falls back to re-serving the question itself rather
     // than emitting an empty message.
     expect(clarify(s, universalOnly)?.promptText).toBe("city?");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2233 — a value its field's bound refused is re-asked, within the question's own asks
+// ---------------------------------------------------------------------------
+
+describe("reAsk — the question on screen again, as a counted ask (#2233)", () => {
+  const YEAR = item({ question_key: "training_year", answer_type: "number", max_asks: 2 });
+  const LATER = item({ question_key: "later_q" });
+  const packs = packsOf([], [YEAR, LATER]);
+  const onScreen = afterAsk(state({ phase: "universal_tail" }), "training_year");
+
+  it("re-serves an ask-once item the engine itself would move past", () => {
+    // Selection alone moves on: the item is not mandatory, so it is asked once.
+    expect(nextQuestion(onScreen, packs).questionKey).toBe("later_q");
+    expect(reAsk(onScreen, packs, "training_year")).toMatchObject({
+      kind: "ask",
+      questionKey: "training_year",
+      promptText: YEAR.prompt_text,
+      phase: "universal_tail",
+      isReserve: true,
+    });
+  });
+
+  it("serves the retry wording on the re-ask when the item has one", () => {
+    const worded = item({ question_key: "worded", retry_text: "Saal batayein." });
+    const asked = afterAsk(state(), "worded");
+    expect(reAsk(asked, packsOf([worded]), "worded")?.promptText).toBe("Saal batayein.");
+    expect(reAsk(asked, packsOf([worded]), "worded")?.phase).toBe("occupation_specific");
+  });
+
+  it("is null once the question has spent its asks", () => {
+    const spent = afterAsk(onScreen, "training_year");
+    expect(reAsk(spent, packs, "training_year")).toBeNull();
+  });
+
+  it("is null for a settled question, an unknown key, or a hard bound", () => {
+    const settled = {
+      ...onScreen,
+      answers: recordDeclined(onScreen.answers, "training_year", onScreen.turn),
+    };
+    expect(reAsk(settled, packs, "training_year")).toBeNull();
+    expect(reAsk(onScreen, packs, "nope")).toBeNull();
+    expect(reAsk({ ...onScreen, engineAsks: MAX_ENGINE_ASKS }, packs, "training_year")).toBeNull();
+    expect(
+      reAsk({ ...onScreen, abusiveTurns: MAX_ABUSIVE_TURNS }, packs, "training_year"),
+    ).toBeNull();
+    expect(reAsk({ ...onScreen, needsDisambiguation: true }, packs, "training_year")).toBeNull();
+    expect(reAsk({ ...onScreen, turn: MAX_ENGINE_TURNS + 1 }, packs, "training_year")).toBeNull();
   });
 });

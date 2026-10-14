@@ -222,6 +222,7 @@ import {
   clarify,
   joinClarify,
   nextQuestion,
+  reAsk,
   servedText,
   CLOSING_REPLY_TEXT,
   DE_ESCALATION_REPLY_TEXT,
@@ -3111,7 +3112,15 @@ export class ProfilingOrchestrator {
       if (offer) next = { ...next, resumeConfirm: { importId: offer.importId, state: "settled" } };
     }
 
-    const decision = nextQuestion(toEngineState(next, turn), engine);
+    // #2233 — A VALUE ITS BOUND REFUSED ("2050" for the training year) IS RE-ASKED, as a counted
+    // ask under the question's own `max_asks`. The engine alone would move on, because a
+    // non-mandatory item is ask-once. Past its asks, `reAsk` is null and the question is recorded
+    // unanswered below, with nothing stored.
+    const engineState = toEngineState(next, turn);
+    const decision =
+      (capture.outOfRange && askedItem !== null
+        ? reAsk(engineState, engine, askedItem.question_key)
+        : null) ?? nextQuestion(engineState, engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
     // chose against what was on screen, rather than by re-deriving the ask ceiling here — one

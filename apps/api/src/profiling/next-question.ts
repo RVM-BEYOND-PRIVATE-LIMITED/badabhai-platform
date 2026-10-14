@@ -355,17 +355,8 @@ export function nextQuestion(state: EngineState, packs: EnginePacks): Decision {
   const { answered, total } = progressOf(allItems, state.answers);
 
   // --- Hard bounds, checked before anything else can serve a question ------
-  if (state.abusiveTurns >= MAX_ABUSIVE_TURNS) {
-    return close("abuse_cap", total, answered);
-  }
-  if (state.engineAsks >= MAX_ENGINE_ASKS) {
-    return close("ask_budget", total, answered);
-  }
-  // The derived turn backstop. Unreachable while every non-advancing turn class respects its own
-  // bound — which is exactly why it is here: it is the wall that holds when one of them does not.
-  if (state.turn > MAX_ENGINE_TURNS) {
-    return close("turn_cap", total, answered);
-  }
+  const bounded = hardClose(state, total, answered);
+  if (bounded !== null) return bounded;
 
   // --- IDENTIFY / DISAMBIGUATE -------------------------------------------
   // Both are driven by retrieval, not by the pack: until an occupation is pinned there is no
@@ -399,6 +390,51 @@ export function nextQuestion(state: EngineState, packs: EnginePacks): Decision {
 
   // Drained: every question is settled, out of asks, or ineligible.
   return close("complete", total, answered);
+}
+
+/** The close a hard bound forces, or null while none is hit. */
+function hardClose(state: EngineState, total: number, answered: number): Decision | null {
+  if (state.abusiveTurns >= MAX_ABUSIVE_TURNS) {
+    return close("abuse_cap", total, answered);
+  }
+  if (state.engineAsks >= MAX_ENGINE_ASKS) {
+    return close("ask_budget", total, answered);
+  }
+  // The derived turn backstop. Unreachable while every non-advancing turn class respects its own
+  // bound — which is exactly why it is here: it is the wall that holds when one of them does not.
+  if (state.turn > MAX_ENGINE_TURNS) {
+    return close("turn_cap", total, answered);
+  }
+  return null;
+}
+
+/**
+ * #2233 — re-serve the question on screen as a COUNTED ask, because the worker's answer was read
+ * and refused by its field's business bound ("2050" for a training year).
+ *
+ * Selection alone would not do it: a non-mandatory item is ask-once, so the engine would move on
+ * and leave it unanswered. Bounded like every other re-ask. The item must still be servable (under
+ * its own `max_asks`, eligible, unsettled), and no hard bound may be hit. Null otherwise, and the
+ * caller lets {@link nextQuestion} move on, which records it unanswered.
+ */
+export function reAsk(
+  state: EngineState,
+  packs: EnginePacks,
+  questionKey: string,
+): Decision | null {
+  const allItems = [...(packs.occupation?.items ?? []), ...packs.universal.items];
+  const { answered, total } = progressOf(allItems, state.answers);
+  if (hardClose(state, total, answered) !== null || state.needsDisambiguation) return null;
+
+  const occupationItem = packs.occupation?.items.find((item) => item.question_key === questionKey);
+  const item =
+    occupationItem ??
+    packs.universal.items.find((candidate) => candidate.question_key === questionKey);
+  if (item === undefined || !isServable(item, state, state.answers)) return null;
+  return serve(item, state, occupationItem ? "occupation_specific" : "universal_tail", {
+    answered,
+    total,
+  });
 }
 
 function serve(

@@ -7,7 +7,11 @@
  *
  * THE BOUND IS THE DATABASE'S. `wt_year_chk` accepts 1950..2100, and a chat answer outside it
  * would fail the `worker_training` insert — the app-feel failure this programme exists to avoid.
- * A year the bound refuses returns null, so the question is re-asked rather than lost.
+ * A year outside it returns null, so nothing is stored, rather than an insert failing at write time.
+ *
+ * NOT THE BUSINESS BOUND. A training year in the future is a typo, and the API refuses one at
+ * capture (#2233): its ceiling is the current year, read on every parse (`credential-year.ts` in
+ * `apps/api`). This parser keeps the database's wider bound because it has no clock.
  *
  * TS-ONLY, DELIBERATELY — see `commute.ts` for the same reasoning: the answer map carries the
  * normalized value across the language boundary.

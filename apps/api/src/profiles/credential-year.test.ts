@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { CREDENTIAL_YEAR_FLOOR, credentialYearSchema, currentYear } from "./credential-year";
+import {
+  CREDENTIAL_YEAR_FLOOR,
+  credentialYearSchema,
+  currentYear,
+  isCredentialYear,
+} from "./credential-year";
 import { SetMyPreferencesSchema } from "./worker-preferences.dto";
 
 /**
@@ -66,6 +71,21 @@ describe("credential award year", () => {
     }
     // And back, on the same module instance — a frozen ceiling could not do this either.
     expect(credentialYearSchema.safeParse(future).success).toBe(false);
+  });
+
+  it("isCredentialYear holds the same bound for a value that is not a request body (#2233)", () => {
+    const now = new Date("2026-10-14T00:00:00Z");
+    expect(isCredentialYear(2026, now)).toBe(true);
+    expect(isCredentialYear(CREDENTIAL_YEAR_FLOOR, now)).toBe(true);
+    expect(isCredentialYear(2027, now)).toBe(false);
+    expect(isCredentialYear(2050, now)).toBe(false);
+    expect(isCredentialYear(CREDENTIAL_YEAR_FLOOR - 1, now)).toBe(false);
+    expect(isCredentialYear(2019.5, now)).toBe(false);
+    expect(isCredentialYear("2019", now)).toBe(false);
+    expect(isCredentialYear(null, now)).toBe(false);
+    // With no `now`, the ceiling is today's year, read on the call.
+    expect(isCredentialYear(thisYear)).toBe(true);
+    expect(isCredentialYear(thisYear + 1)).toBe(false);
   });
 
   it("currentYear reads the date it is given", () => {

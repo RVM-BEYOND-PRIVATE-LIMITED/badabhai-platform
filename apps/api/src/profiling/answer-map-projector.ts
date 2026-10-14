@@ -23,6 +23,8 @@ import {
   type ProfileValueSource,
 } from "@badabhai/types";
 
+import { withinFieldBound } from "./answer-capture";
+
 /**
  * Where a projected value came from. Observability, and the audit of what the LLM contributed.
  *
@@ -244,6 +246,10 @@ function collectAttribute(
   // inventory; coercing an object into "[object Object]" would put a row there that no query can
   // ever match and no reader can interpret.
   if (typed === null) return;
+  // #2233 — a value its field's business bound refuses is dropped. Capture already refuses one,
+  // so this holds the line for an answer map captured BEFORE the bound (a session in flight at
+  // deploy): a future training year never reaches `worker_attributes` on a later extraction.
+  if (!withinFieldBound(fieldId, typed.value)) return;
   into.set(fieldId, { attributeKey: fieldId, ...typed, source });
 }
 
