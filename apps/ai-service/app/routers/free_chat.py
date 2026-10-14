@@ -29,6 +29,11 @@ the input and no provider was reached at all.
 MODEL OUTPUT IS UNTRUSTED AND THE ROUTES RETURN IT AS PARSED: the parsers in ``app.free_chat``
 validate and fall back, and the API re-validates every reply and news line before a worker reads
 it. Nothing here decides or writes anything.
+
+TWO SURFACES, THE SAME TASKS (ADR-0055, #2275). The Bada Bhai chat after the profile calls these
+same routes with ``surface: "companion"``; the surface picks the prompt variant (and its registry
+name, so a trace says which ran), never the task type, so the box's armed task list is unchanged.
+The privacy order, the fail-closed shapes and the parsers are the same on both surfaces.
 """
 
 from __future__ import annotations
@@ -58,8 +63,6 @@ from ..free_chat import news as news_logic
 from ..free_chat import reply as reply_logic
 from ..free_chat import summary as summary_logic
 from ..free_chat.prompts import (
-    CLASSIFY_SYSTEM_PROMPT,
-    NEWS_SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     build_free_classify_messages,
     build_free_news_messages,
@@ -118,10 +121,12 @@ async def free_chat_classify(body: FreeChatClassifyInput) -> FreeChatClassifyOut
     """One message to one category. ``blocked`` is the input gate's refusal, never the model's."""
     raw_pii = get_settings().ai_raw_pii_enabled
     result = llm_input_gate(body.text, raw=raw_pii)
-    # THE QUESTION IS RENDERED IN RÉSUMÉ MODE ONLY: free mode has no question on screen
-    # (the contract says null there), and a stray one would bias a free message toward
-    # `resume`. A question that is never rendered is never gated either.
-    question = body.pending_question if body.mode == "resume" else None
+    # THE QUESTION IS RENDERED IN RÉSUMÉ MODE ONLY, AND ON THE PROFILING SURFACE ONLY: free mode
+    # has no question on screen (the contract says null there), and a stray one would bias a free
+    # message toward `resume`; the companion (ADR-0055) has no interview at all. A question that
+    # is never rendered is never gated either.
+    renders_question = body.mode == "resume" and body.surface == "profiling"
+    question = body.pending_question if renders_question else None
     question_result = llm_input_gate(question, raw=raw_pii) if question is not None else None
     refused = _first_refusal(text=result, pending_question=question_result)
     if refused is not None:
@@ -137,14 +142,17 @@ async def free_chat_classify(body: FreeChatClassifyInput) -> FreeChatClassifyOut
             category="unclear", confidence=0.0, blocked=True, ai_metadata=None
         )
 
-    resolved = resolve_prompt(prompt_registry.FREE_CHAT_CLASSIFY)
-    system_prompt = resolved.text if resolved is not None else CLASSIFY_SYSTEM_PROMPT
+    # THE SURFACE PICKS THE PROMPT (ADR-0055); the task type is the same on both.
+    classify_prompt = classify_logic.CLASSIFY_PROMPTS[body.surface]
+    resolved = resolve_prompt(classify_prompt.name)
+    system_prompt = resolved.text if resolved is not None else classify_prompt.text
     messages = build_free_classify_messages(
         result.text,
         mask_recent_turns(body.recent_turns, raw=raw_pii),
         body.mode,
         question_result.text if question_result is not None else None,
         system_prompt,
+        surface=body.surface,
     )
     content, meta = await router.run(
         FREE_CLASSIFY_TASK_TYPE,
@@ -153,7 +161,7 @@ async def free_chat_classify(body: FreeChatClassifyInput) -> FreeChatClassifyOut
         real_call_allowed=True,
         prompt=resolved,
     )
-    parsed = classify_logic.parse_classify_output(content)
+    parsed = classify_logic.parse_classify_output(content, surface=body.surface)
     return parsed.model_copy(update={"ai_metadata": meta})
 
 
@@ -175,8 +183,8 @@ async def free_chat_reply(body: FreeChatReplyInput) -> FreeChatAnswer | FreeChat
         # Fail closed: reviewed refusal copy, never a model line and never the raw text.
         return FreeChatRefuse(status="refuse", topic="unsafe_other", ai_metadata=None)
 
-    # THE CATEGORY PICKS THE PROMPT; the API decided the category, the model never does.
-    reply_prompt = reply_logic.REPLY_PROMPTS[body.category]
+    # THE CATEGORY AND THE SURFACE PICK THE PROMPT; the API decided both, the model never does.
+    reply_prompt = reply_logic.reply_prompt(body.category, body.surface)
     resolved = resolve_prompt(reply_prompt.name)
     system_prompt = resolved.text if resolved is not None else reply_prompt.text
     messages = build_free_reply_messages(
@@ -284,8 +292,10 @@ async def free_chat_news(
             extra={"extra": {"field": "recent_turns", "dropped": dropped}},
         )
 
-    resolved = resolve_prompt(prompt_registry.FREE_CHAT_NEWS)
-    system_prompt = resolved.text if resolved is not None else NEWS_SYSTEM_PROMPT
+    # THE SURFACE PICKS THE PROMPT (ADR-0055); the tool, the sites and the walls are the same.
+    news_prompt = news_logic.NEWS_PROMPTS[body.surface]
+    resolved = resolve_prompt(news_prompt.name)
+    system_prompt = resolved.text if resolved is not None else news_prompt.text
     messages = build_free_news_messages(
         result.text,
         mask_recent_turns(turns, raw=raw_pii),

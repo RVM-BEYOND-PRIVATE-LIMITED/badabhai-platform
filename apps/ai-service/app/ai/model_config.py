@@ -452,9 +452,13 @@ def _route(task_type: str, settings: Settings) -> TaskRoute:
             # since R42 (#2240): the answer gained a third key, `language`, and now measures mean
             # 29.8 / max 32 tokens on claude-haiku-4-5 (was ~15). `language` is the LAST key, so a
             # truncated answer fails the JSON parse and loses the category with it; a fenced or
-            # pretty-printed fallback adds ~6-10 tokens. 64 keeps 2x headroom over the measured
-            # max. The API waits ~2.5 s, and the cap only costs latency on a runaway answer.
-            max_output_tokens=64,
+            # pretty-printed fallback adds ~6-10 tokens. 64 kept 2x headroom over the measured
+            # max. ADR-0055 (#2275): the companion surface asks for a FOURTH key after it,
+            # `resume_action` (`"resume_action": "download"` is ~8 more tokens), so 80, the same
+            # ~2x over an estimated companion max of ~40 (NOT measured: no eval ran with PR A).
+            # The profiling answer is unchanged and never nears the cap. The API waits ~2.5 s,
+            # and the cap only costs latency on a runaway answer.
+            max_output_tokens=80,
             # TEMPERATURE ZERO: a closed-set choice, and the same résumé-mode answer must route
             # the same way on a retry.
             temperature=0.0,
