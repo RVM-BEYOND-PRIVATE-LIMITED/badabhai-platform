@@ -86,18 +86,13 @@ describe("chat.companion_turn_served_v2", () => {
       version: 2,
       domain: "chat",
     });
-    expect(EVENT_REGISTRY["chat.companion_turn_served"]).toMatchObject({
-      version: 1,
-      domain: "chat",
-    });
+    expect(EVENT_REGISTRY["chat.companion_turn_served"]).toMatchObject({ version: 1, domain: "chat" });
   });
 
   it("validates a full v2 turn and normalizes it through createEvent", () => {
     const parsed = validateEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload()));
     expect(parsed.success).toBe(true);
-    const event = createEvent(
-      envelope("chat.companion_turn_served_v2", 2, turnV2Payload()) as never,
-    );
+    const event = createEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload()) as never);
     expect(event.payload).toMatchObject({
       worker_id: UUID_B,
       intent_source: "llm",
@@ -110,8 +105,9 @@ describe("chat.companion_turn_served_v2", () => {
   it("accepts every intent, source, bucket and outcome of the closed sets", () => {
     for (const v2_intent of V2_INTENTS) {
       expect(
-        validateEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload({ v2_intent })))
-          .success,
+        validateEvent(
+          envelope("chat.companion_turn_served_v2", 2, turnV2Payload({ v2_intent })),
+        ).success,
         v2_intent,
       ).toBe(true);
     }
@@ -175,9 +171,7 @@ describe("chat.companion_turn_served_v2", () => {
       { outcome: "ok" },
       { trigger: "tap" },
     ]) {
-      const result = validateEvent(
-        envelope("chat.companion_turn_served_v2", 2, turnV2Payload(bad)),
-      );
+      const result = validateEvent(envelope("chat.companion_turn_served_v2", 2, turnV2Payload(bad)));
       expect(result.success, JSON.stringify(bad)).toBe(false);
       if (!result.success) expect(result.error.stage).toBe("payload");
     }
@@ -198,7 +192,9 @@ describe("chat.companion_turn_served_v2", () => {
   });
 
   it("rejects the event under v1's version number — one version per name", () => {
-    const result = validateEvent(envelope("chat.companion_turn_served_v2", 1, turnV2Payload()));
+    const result = validateEvent(
+      envelope("chat.companion_turn_served_v2", 1, turnV2Payload()),
+    );
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.stage).toBe("version");
   });
@@ -240,9 +236,9 @@ describe("chat.companion_edit_proposed", () => {
       version: 1,
       domain: "chat",
     });
-    expect(validateEvent(envelope("chat.companion_edit_proposed", 1, proposed())).success).toBe(
-      true,
-    );
+    expect(
+      validateEvent(envelope("chat.companion_edit_proposed", 1, proposed())).success,
+    ).toBe(true);
     expect(
       validateEvent(
         envelope(
@@ -360,8 +356,9 @@ describe("chat.companion_edit_cancelled", () => {
     });
     for (const reason of ["worker", "expired", "stale"] as const) {
       expect(
-        validateEvent(envelope("chat.companion_edit_cancelled", 1, { proposal_id: UUID_C, reason }))
-          .success,
+        validateEvent(
+          envelope("chat.companion_edit_cancelled", 1, { proposal_id: UUID_C, reason }),
+        ).success,
         reason,
       ).toBe(true);
     }
@@ -487,45 +484,28 @@ describe("chat.companion_turn_served_v3 (TD150) — intent_source gains `chip`",
   });
 
   it("is registered v3 and accepts `chip` alongside every v2 source, keeping v2's set intact", () => {
-    expect(EVENT_REGISTRY["chat.companion_turn_served_v3"]).toMatchObject({
-      version: 3,
-      domain: "chat",
-    });
+    expect(EVENT_REGISTRY["chat.companion_turn_served_v3"]).toMatchObject({ version: 3, domain: "chat" });
     for (const source of ["v1_deterministic", "chip", "lexicon", "llm", "guard", "fallback"]) {
       expect(
-        validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ intent_source: source })))
-          .success,
+        validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ intent_source: source }))).success,
         source,
       ).toBe(true);
     }
     // v2's five-value set is untouched (no `chip` there), so old rows stay valid.
     for (const source of INTENT_SOURCES) {
       expect(
-        validateEvent(
-          envelope("chat.companion_turn_served_v2", 2, {
-            ...turnV2Payload(),
-            intent_source: source,
-          }),
-        ).success,
+        validateEvent(envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: source })).success,
         source,
       ).toBe(true);
     }
-    expect(
-      validateEvent(
-        envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: "chip" }),
-      ).success,
-    ).toBe(false);
+    expect(validateEvent(envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: "chip" })).success).toBe(false);
   });
 
   it("repeats v2's jobs refine and stays STRICT", () => {
     expect(
-      validateEvent(
-        envelope("chat.companion_turn_served_v3", 3, v3({ jobs_scope: null, new_jobs_count: 3 })),
-      ).success,
+      validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ jobs_scope: null, new_jobs_count: 3 }))).success,
     ).toBe(false);
-    const smuggled = validateEvent(
-      envelope("chat.companion_turn_served_v3", 3, v3({ text: "mera naam badlo" })),
-    );
+    const smuggled = validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ text: "mera naam badlo" })));
     expect(smuggled.success).toBe(false);
     if (!smuggled.success) expect(smuggled.error.stage).toBe("payload");
   });
@@ -648,15 +628,10 @@ describe("chat.companion_turn_served_v4 (ADR-0055) — the brain's facts, ids an
 
 describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
   it("accepts the renamed reasons plus `superseded`", () => {
-    expect(EVENT_REGISTRY["chat.companion_edit_cancelled_v2"]).toMatchObject({
-      version: 2,
-      domain: "chat",
-    });
+    expect(EVENT_REGISTRY["chat.companion_edit_cancelled_v2"]).toMatchObject({ version: 2, domain: "chat" });
     for (const reason of ["worker_declined", "expired", "stale", "superseded"]) {
       expect(
-        validateEvent(
-          envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason }),
-        ).success,
+        validateEvent(envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason })).success,
         reason,
       ).toBe(true);
     }
@@ -664,16 +639,10 @@ describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
 
   it("refuses v1's `worker` and any other word, and stays STRICT", () => {
     expect(
-      validateEvent(
-        envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "worker" }),
-      ).success,
+      validateEvent(envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "worker" })).success,
     ).toBe(false);
     const smuggled = validateEvent(
-      envelope("chat.companion_edit_cancelled_v2", 2, {
-        proposal_id: UUID_B,
-        reason: "stale",
-        value: "Tata Motors",
-      }),
+      envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "stale", value: "Tata Motors" }),
     );
     expect(smuggled.success).toBe(false);
   });
@@ -681,10 +650,7 @@ describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
 
 describe("chat.companion_edit_confirmed_v2 (TD150) — skipped_no_consent", () => {
   it("accepts the consent skip alongside the three v1 values", () => {
-    expect(EVENT_REGISTRY["chat.companion_edit_confirmed_v2"]).toMatchObject({
-      version: 2,
-      domain: "chat",
-    });
+    expect(EVENT_REGISTRY["chat.companion_edit_confirmed_v2"]).toMatchObject({ version: 2, domain: "chat" });
     for (const resume_regen of ["queued", "capped", "failed", "skipped_no_consent"]) {
       expect(
         validateEvent(
@@ -726,10 +692,7 @@ describe("chat.companion_edit_confirmed_v2 (TD150) — skipped_no_consent", () =
 
 describe("chat.companion_edit_rolled_back (TD150) — new v1", () => {
   it("is registered v1 and accepts the apply_failed rollback", () => {
-    expect(EVENT_REGISTRY["chat.companion_edit_rolled_back"]).toMatchObject({
-      version: 1,
-      domain: "chat",
-    });
+    expect(EVENT_REGISTRY["chat.companion_edit_rolled_back"]).toMatchObject({ version: 1, domain: "chat" });
     expect(
       validateEvent(
         envelope("chat.companion_edit_rolled_back", 1, {
@@ -748,9 +711,7 @@ describe("chat.companion_edit_rolled_back (TD150) — new v1", () => {
       { proposal_id: UUID_B, row_count: 0, sections: ["skills"], reason: "apply_failed" },
       { proposal_id: UUID_B, row_count: 1, sections: [], reason: "apply_failed" },
     ]) {
-      expect(validateEvent(envelope("chat.companion_edit_rolled_back", 1, bad)).success).toBe(
-        false,
-      );
+      expect(validateEvent(envelope("chat.companion_edit_rolled_back", 1, bad)).success).toBe(false);
     }
     const smuggled = validateEvent(
       envelope("chat.companion_edit_rolled_back", 1, {
@@ -767,10 +728,7 @@ describe("chat.companion_edit_rolled_back (TD150) — new v1", () => {
 
 describe("the submission-id v2s (TD150) — faltu strike and career answer", () => {
   it("faltu_strike_v2 accepts the v1 shape plus a nullable submission_id", () => {
-    expect(EVENT_REGISTRY["chat.companion_faltu_strike_v2"]).toMatchObject({
-      version: 2,
-      domain: "chat",
-    });
+    expect(EVENT_REGISTRY["chat.companion_faltu_strike_v2"]).toMatchObject({ version: 2, domain: "chat" });
     for (const submission_id of [null, UUID_C]) {
       expect(
         validateEvent(
@@ -795,10 +753,7 @@ describe("the submission-id v2s (TD150) — faltu strike and career answer", () 
   });
 
   it("career_answered_v2 accepts the v1 shape plus a nullable submission_id, STRICT", () => {
-    expect(EVENT_REGISTRY["chat.companion_career_answered_v2"]).toMatchObject({
-      version: 2,
-      domain: "chat",
-    });
+    expect(EVENT_REGISTRY["chat.companion_career_answered_v2"]).toMatchObject({ version: 2, domain: "chat" });
     for (const submission_id of [null, UUID_C]) {
       expect(
         validateEvent(
