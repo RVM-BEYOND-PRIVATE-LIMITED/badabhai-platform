@@ -267,6 +267,22 @@ class ChatResumeDownloadTapped extends ChatEvent {
   const ChatResumeDownloadTapped();
 }
 
+/// #2276 (ADR-0055) — the server's "Resume download karein" chip
+/// (`companion_resume_download`) was tapped.
+///
+/// Answered ON THE PHONE exactly like a typed download ask: the worker's
+/// bubble, the fixed line and the "Resume download" tile. Never posted — unless
+/// there is no résumé to download after all, when the label goes to the server
+/// as ordinary text so the worker is still answered.
+class ChatResumeDownloadChipTapped extends ChatEvent {
+  const ChatResumeDownloadChipTapped(this.label);
+
+  final String label;
+
+  @override
+  List<Object?> get props => <Object?>[label];
+}
+
 // ---------------- State ----------------
 
 class ChatState extends Equatable {
@@ -842,6 +858,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // The Bada Bhai tab's "Resume download" tile (owner ask, 2026-10-14).
     on<ChatResumeDownloadOffered>(_onResumeDownloadOffered);
     on<ChatResumeDownloadTapped>(_onResumeDownloadTapped);
+    on<ChatResumeDownloadChipTapped>(_onResumeDownloadChipTapped);
   }
 
   final ChatRepository _repo;
@@ -2666,6 +2683,22 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     }
     _downloadableReadAt = _clock();
     return downloadableResumeIdIn(history);
+  }
+
+  /// #2276 — the server's download chip. Same answer as a typed ask
+  /// ([_answerResumeDownloadRequest]); the server sends this chip only when a
+  /// PDF is rendered, so the fallback below is a race, not a road.
+  Future<void> _onResumeDownloadChipTapped(
+    ChatResumeDownloadChipTapped event,
+    Emitter<ChatState> emit,
+  ) async {
+    final String label = event.label.trim();
+    if (label.isEmpty || state.sending) return;
+    _conversationMoves++;
+    if (await _answerResumeDownloadRequest(label, emit)) return;
+    // No résumé to download after all (or no résumé repository in this graph):
+    // let the server answer the words, rather than leave the tap unanswered.
+    add(ChatMessageSent(label));
   }
 
   void _onResumeDownloadTapped(
