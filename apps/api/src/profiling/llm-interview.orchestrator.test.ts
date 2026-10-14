@@ -822,6 +822,36 @@ describe("Phase A ends and the template tail takes over", () => {
     expect(map.find((a) => a.target_field === "experience_years")?.value_normalized).toBe(4);
   });
 
+  it("never writes a work-history sum above 60 years — the pack asks instead (#2253)", async () => {
+    // Eight jobs the model read as a decade each sum to 80 years: the entries are wrong, so the
+    // total is not written, and never clamped to 60.
+    const decade = {
+      role_label: "cook",
+      duration_text: "10 saal",
+      duration_months: 120,
+      work_done: "",
+    };
+    const { orchestrator, store } = makeWorld({
+      take: {
+        kind: "done",
+        patch: {
+          llmStage: "done",
+          llmDraft: {
+            domain_label: "cooking",
+            role_label: "cook",
+            skills: [],
+            experiences: Array.from({ length: 8 }, () => ({ ...decade })),
+          },
+        },
+      },
+    });
+    await orchestrator.takeTurn(say("bas itna hi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.target_field === "experience_years")).toBeUndefined();
+    expect(map.find((a) => a.target_field === "trade")?.value_normalized).toBe("cook");
+  });
+
   it("leaves `experience_years` for the pack when an entry carries no duration", async () => {
     // Summing over an entry the model could not put a number on UNDERSTATES the worker, and
     // understating experience is the one direction that costs them jobs.

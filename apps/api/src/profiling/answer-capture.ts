@@ -29,6 +29,7 @@ import {
 
 import { isCredentialYear } from "../profiles/credential-year";
 import type { AnswerMap, CapturedValue } from "./answer-map";
+import { withinExperienceYearsRange } from "./parse-gates";
 
 /** What one worker turn produced. */
 export interface Capture {
@@ -114,9 +115,14 @@ const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> =
  * page's own, 1950 to the CURRENT year, read on every call (`credential-year.ts`). A value it
  * refuses is NOT an answer: capture reports it as `outOfRange`, the turn re-asks the question, and
  * the projector drops one already stored.
+ *
+ * #2253 — `experience_years` is a duration, so its bound is the platform's 0–60 years
+ * (`EXPERIENCE_YEARS_RANGE`, which the LLM and résumé parse gates and the corrections API already
+ * enforce). The parser reads "80 saal" as 80; this refuses it.
  */
 const BOUND_BY_FIELD: Readonly<Record<string, (value: unknown) => boolean>> = {
   training_year: (value) => isCredentialYear(value),
+  experience_years: (value) => withinExperienceYearsRange(value),
 };
 
 /** Does `value` meet its field's business bound? True for a field that declares none. */

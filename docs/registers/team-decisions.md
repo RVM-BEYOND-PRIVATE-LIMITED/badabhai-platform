@@ -584,3 +584,22 @@ chat `training_year` is bounded the same way as the qualifications page:
 - **Existing data:** an owner-approved read-only count on 2026-10-14 found no `training_year`
   values at all in `worker_attributes`, `worker_training`, `worker_pack_answer` or the chat-session
   answer maps. Nothing to clean up.
+
+### 2026-10-14 - experience_years: 0 to 60 years for every writer, re-asked in chat (#2253)
+
+Owner ruling. Experience is a duration, and no worker age or date of birth is held anywhere, so
+the bound is fixed: the platform's existing **0–60 years** (`EXPERIENCE_YEARS_RANGE` in
+`parse-gates.ts`), which the LLM and résumé parse gates, the corrections API and the worker app's
+review screen already enforced. Only the deterministic writers were unbounded: the lexicon parser
+reads "80 saal" as 80.
+- **One predicate, `withinExperienceYearsRange`, for every writer.** Chat capture
+  (`BOUND_BY_FIELD`) refuses the value and re-asks, the same counted re-ask as `training_year`
+  above. The projector drops a stored value from the draft (`assign()`). Phase A's work-history
+  sum and the general road's employment total (`totalEmployedYears`, which the résumé headline
+  also prints) are not written above the bound. The trade form's tier pre-settle derives nothing
+  from such a value.
+- **Refused, never clamped.** A total past 60 years means wrong entries or wrong dates, not a
+  60-year veteran.
+- **Existing data:** an owner-approved read-only count on 2026-10-14 found no `experience_years`
+  values in `worker_profiles.experience`, `worker_pack_answer` or the chat-session answer maps.
+  The database held 2 workers and 2 chat sessions. Nothing to clean up.

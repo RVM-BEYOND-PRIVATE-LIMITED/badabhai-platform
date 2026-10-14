@@ -152,6 +152,37 @@ describe("THE FAIL-CLOSED PATH — a real profile from the answer map alone", ()
     }
   });
 
+  it("drops experience above 0–60 years from the DRAFT — an answer map captured before #2253", () => {
+    const years = (value: unknown) =>
+      projectProfile([
+        answer({
+          question_key: "experience_years",
+          target_field: "experience_years",
+          value_normalized: value,
+        }),
+      ]).draft.experience_years;
+    expect(years(7)?.value).toBe(7);
+    expect(years(0)?.value).toBe(0);
+    expect(years(60)?.value).toBe(60);
+    for (const refused of [61, 80, 99.5, -1]) {
+      expect(years(refused), String(refused)).toBeUndefined();
+    }
+  });
+
+  it("a refused map value overwrites nothing: the overlay's in-bound years stand (#2253)", () => {
+    const { draft } = projectProfile(
+      [
+        answer({
+          question_key: "experience_years",
+          target_field: "experience_years",
+          value_normalized: 80,
+        }),
+      ],
+      { experience_years: parsed(12) },
+    );
+    expect(draft.experience_years).toEqual({ value: 12, source: "llm_parse" });
+  });
+
   it("bounds only training_year — another number attribute is projected as before", () => {
     const { attributes } = projectProfile([
       answer({ question_key: "commute", target_field: "commute_max_km", value_normalized: 2050 }),

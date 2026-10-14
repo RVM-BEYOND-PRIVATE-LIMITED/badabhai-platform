@@ -524,6 +524,25 @@ describe("#2233 — a training year in the future is re-asked, never written", (
   });
 });
 
+describe("#2253 — experience above 60 years is re-asked, never written", () => {
+  const yearsRecord = (store: Map<string, TranscriptBuffer>) =>
+    store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === "q_years");
+
+  it("re-asks the question on '80 saal ka tajurba' and stores nothing", async () => {
+    const { orchestrator, store } = makeWorld();
+    seed(store, { servedQuestionKey: "q_years", askCounts: { q_years: 1 } });
+    const result = await orchestrator.takeTurn(say("80 saal ka tajurba"));
+    expect(result.questionKey).toBe("q_years");
+    expect(result.reply).toBe(YEARS.prompt_text);
+    expect(yearsRecord(store)?.status).not.toBe("answered");
+    expect(yearsRecord(store)?.value_normalized ?? null).toBeNull();
+
+    // The worker's next, believable count answers it.
+    await orchestrator.takeTurn(say("8 saal", new Date(T0.getTime() + 60_000)));
+    expect(yearsRecord(store)).toMatchObject({ status: "answered", value_normalized: 8 });
+  });
+});
+
 describe("the hard cases, each one deterministic", () => {
   it("'nahi pata' settles the question — never re-asked, never blocks completion", async () => {
     const { orchestrator, store } = makeWorld();

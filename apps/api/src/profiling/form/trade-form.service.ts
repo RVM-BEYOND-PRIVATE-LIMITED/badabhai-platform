@@ -24,6 +24,7 @@ import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../../queue/queue.constants";
 import { WorkersRepository } from "../../workers/workers.repository";
+import { withinFieldBound } from "../answer-capture";
 import { projectProfile } from "../answer-map-projector";
 import { packAnswerRowFor, otherAnswerValue } from "../pack-answer-row";
 import { OtherAnswerPolishService } from "../other-answer-polish.service";
@@ -737,11 +738,13 @@ export class TradeFormService {
     if (stored !== undefined && stored.status !== "unanswered") return null;
 
     const source = await this.answers.findLatestAnswerByQuestionKey(workerId, "experience_years");
+    // #2253 — a stored answer above the 0–60 bound (captured before it) derives nothing either:
+    // the tenure question stays visible, and the worker's own tap decides the tier.
     if (
       source === undefined ||
       source.status !== "answered" ||
       typeof source.answerNumber !== "number" ||
-      !Number.isFinite(source.answerNumber)
+      !withinFieldBound("experience_years", source.answerNumber)
     ) {
       return null;
     }
