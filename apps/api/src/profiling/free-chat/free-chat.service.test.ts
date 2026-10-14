@@ -155,6 +155,8 @@ describe("classify — G2: the worker's own name leaves NO input field", () => {
       ],
       mode: "resume",
       pending_question: "[NAME] ji, aap kaun sa kaam karte hain?",
+      // ADR-0055 — the contract's default: a profiling call names its own surface.
+      surface: "profiling",
     });
   });
 
@@ -595,6 +597,8 @@ describe("news — G2, R9 and the ledger (ADR-0054 §3.2, §8)", () => {
       // ADR-0051 §11: the contract's default (the prompt's own language rules) until the API
       // passes a detected language (#2181).
       reply_language: null,
+      // ADR-0055 — the contract's default: a profiling call names its own surface.
+      surface: "profiling",
     });
     // No summary on the news input — the reply alone reads it (R24).
     expect("summary" in sent).toBe(false);
