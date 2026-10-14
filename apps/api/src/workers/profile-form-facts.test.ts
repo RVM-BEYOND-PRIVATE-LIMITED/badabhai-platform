@@ -99,4 +99,21 @@ describe("readProfileFormFacts (#2201)", () => {
         .hasMachines,
     ).toBe(false);
   });
+
+  it("counts an equipment trade's equipment row as machines (#2257)", () => {
+    // A welder's "Equipment", a fitter's "Equipment worked on", an assembler's "Tools used":
+    // each trade's machine row, so the card stops asking these workers for machines they gave.
+    const cases: [string, Record<string, unknown>][] = [
+      ["qp_welding_trade", { welding_equipment: ["tig_machine"] }],
+      ["qp_fitter", { fitter_equipment: ["centrifugal_pump"] }],
+      ["qp_assembly_line", { assembly_tool: ["torque_wrench"] }],
+      ["qp_maintenance_tech", { maintenance_equipment: ["cnc_machines"] }],
+    ];
+    for (const [packId, attributes] of cases) {
+      expect(readProfileFormFacts({ packId, attributes }), packId).toMatchObject({
+        hasMachines: true,
+        hasSkills: false,
+      });
+    }
+  });
 });
