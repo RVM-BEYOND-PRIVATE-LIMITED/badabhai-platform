@@ -88,11 +88,16 @@ individual rights requests. Bulk crypto-shred is reserved for:
 - **Human-authored free text**, which is stored in **plaintext** and therefore has no
   key to destroy: `voice_notes.transcript_text`/`transcript_english` and
   `chat_messages.body_text` (PII there is incidental — **R12**), and
+  `companion_messages.body_text` (#2297, ADR-0056 — the Bada Bhai chat's 7-day history: the
+  worker's own words and Bada Bhai's replies) and `companion_conversation_summaries.summary`
+  (the model-written notes about that conversation, screened for identifiers before storing),
+  where PII is incidental as in `chat_messages` and the retention is 7 days (a daily sweep), and
   `worker_feedback.message` (#997), where it is expected rather than incidental: the
   worker is writing to us on purpose and may include their own name, employer or
   number, and an admin has to be able to read it, so putting it under a crypto
   envelope would defeat the feature rather than protect it. Tier 2 is not a lever on
   any of these. Tier 1 — deleting the rows, which the `ON DELETE cascade` from
-  `workers` does for `worker_feedback` with no code of its own — is the only erasure
+  `workers` does for `worker_feedback`, `companion_messages` and
+  `companion_conversation_summaries` with no code of their own — is the only erasure
   path they have. Contained meanwhile by the same RLS+REVOKE lockout as every other
   spine table; a backend, backup or DB-level read still sees the plaintext.

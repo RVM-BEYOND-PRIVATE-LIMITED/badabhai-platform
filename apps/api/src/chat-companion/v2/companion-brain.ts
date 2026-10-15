@@ -293,7 +293,8 @@ export function distressTurn(): CompanionTurn {
  *
  *   distress (any confidence, R10)  → the DISTRESS line, no chips
  *   unavailable / unclear / < 0.6   → the existing UnclearHandler (clarify + task chips)
- *   trash                           → the existing FaltuHandler (strike / cool-down), never stored
+ *   trash                           → the existing FaltuHandler (strike / cool-down), never model
+ *                                     context (kept only in the worker's 7-day history, ADR-0056)
  *   off_limits                      → the free chat's OFF_LIMITS line
  *   career / casual                 → the free chat's REPLY through its gate (₹ ranges and company
  *                                     names allowed, R11), model-written so never read aloud; a
@@ -387,7 +388,8 @@ export class CompanionBrain {
   ): Promise<Served> {
     // DISTRESS BYPASSES THE FLOOR (ADR-0051 R10): a helpline offered to a worker who did not need
     // it costs one line; a clarify served to one who did is the failure R10 exists to prevent.
-    // A distress message is never stored either: it is not replayed to a later model call.
+    // A distress message is never model context either: it is not replayed to a later model call.
+    // It is stored only for the worker's own 7-day history (ADR-0056).
     if (verdict.category === "distress") {
       return { turn: distressTurn(), v2Intent: "distress", outcome: "served", remember: false };
     }
@@ -406,7 +408,8 @@ export class CompanionBrain {
           outcome: "served",
         };
       case "trash":
-        // The existing strike path; a message the classifier called trash is never stored.
+        // The existing strike path; a message the classifier called trash is never model context
+        // (stored only for the worker's own 7-day history, ADR-0056).
         return { ...(await this.handle("faltu", input)), v2Intent: intent, remember: false };
       case "resume":
         return this.resume(input, resumeAction, intent);

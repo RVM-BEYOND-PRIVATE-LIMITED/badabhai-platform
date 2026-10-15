@@ -61,7 +61,7 @@ the brain is on (`CHAT_COMPANION_V2_ENABLED` on and the kill switch off):
    |---|---|
    | distress (any confidence, ADR-0051 R10) | `DISTRESS`, no chips |
    | unavailable, `unclear`, below `FREE_CHAT_MIN_CONFIDENCE` (0.6) | the existing `UnclearHandler` (clarify) |
-   | trash | the existing `FaltuHandler`. The message is never stored. |
+   | trash | the existing `FaltuHandler`. The message is never model context (since [ADR-0056](0056-bada-bhai-chat-history.md) it is stored only for the worker's own 7-day history). |
    | off_limits | `OFF_LIMITS` + the task chips |
    | career / casual | the free chat's reply through `screenFreeChatAnswer` (no employer-name backstop), `read_aloud: false`, the model's follow-up chips. A refusal serves its reviewed line. A `news` refusal sends the question to the live-news request, which serves `news_links` tiles. Its cap line is `V3_NEWS_CAP`. A failure serves `REPLY_FALLBACK`. |
    | jobs | `V3_JOBS` + "Sabhi jobs dekhein" |
@@ -97,7 +97,9 @@ reply and news input, with the profiling chat's exact semantics (the ADR-0051 pr
 - **Output side.** The G1 output wall still runs on every model line.
 
 Two other rules hold on this path:
-- A message the classifier calls trash (at any confidence) is never stored in the companion memory.
+- A message the classifier calls trash (at any confidence) is never model context: it never enters the companion
+  memory and is never replayed to a model. Since [ADR-0056](0056-bada-bhai-chat-history.md) it is stored only for
+  the worker's own 7-day history (`companion_messages`, `model_context = false`).
 - Neither is a message answered with the distress line.
 
 ## 4. What it supersedes

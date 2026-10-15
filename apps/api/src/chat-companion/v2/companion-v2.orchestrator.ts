@@ -140,7 +140,8 @@ function clipText(text: string, max: number): string {
  *      `unclear`; a confidence below the configured floor is `unclear` too;
  *   5. the registry picks the handler from the closed intent set;
  *   6. append the pair to memory — the step-2 text, so raw while the flag is on — never for a
- *      message the classifier called `faltu` (abuse the lexicon missed is still never stored);
+ *      message the classifier called `faltu` (abuse the lexicon missed is still never model
+ *      context: it is kept only in the worker's own 7-day history, ADR-0056);
  *   7. emit `chat.companion_turn_served_v4` — ids, counts and closed enums only.
  *
  * ADR-0055 (#2275) — THE FREE-CHAT BRAIN. While `companionBrainOn` (the kill switch
@@ -188,7 +189,8 @@ export class CompanionV2Orchestrator {
    * ADR-0055 — THE DISTRESS WORD LIST HIT, before the v1 resolver (the service's gate; the free
    * chat's own list, `matchesDistress`). The Tele-MANAS line alone — no chips — and the v4 event
    * with `intent_source: "lexicon"`. No gateway, no model, no memory: a deterministic answer to a
-   * message that is never stored, the way the abuse lexicon's is not.
+   * message that is never model context, the way the abuse lexicon's is not — it is stored only for
+   * the worker's own 7-day history (ADR-0056), never replayed to a model.
    */
   async handleDistress(
     workerId: string,
@@ -406,7 +408,8 @@ export class CompanionV2Orchestrator {
 
   /**
    * The gateway refused or was unreachable: the clarify line, as a FAIL-CLOSED turn (never kept for
-   * a retry, never stored). One definition for every route that reaches the gateway.
+   * a retry, never model context; it is stored only for the worker's own 7-day history, ADR-0056).
+   * One definition for every route that reaches the gateway.
    */
   private clarifyFallback(): ServedTurn {
     return {
@@ -524,7 +527,8 @@ export class CompanionV2Orchestrator {
     // 0. THE ABUSE LEXICON (P2, O11), only while the faltu phase is on. It runs BEFORE the
     //    gateway because nothing crosses a boundary on this path: the answer is fixed copy and
     //    a strike count. A flagged message therefore costs no gateway hop and no model call,
-    //    and — because the finish below passes no memory pair — it is never stored anywhere.
+    //    and — because the finish below passes no memory pair — it is never model context: it is
+    //    stored only for the worker's own 7-day history (ADR-0056), never replayed to a model.
     if (this.config.CHAT_COMPANION_V2_FALTU_ENABLED && isAbusive(dto.text)) {
       const handled = await this.registry.resolve("faltu").handle({
         workerId,
@@ -662,8 +666,9 @@ export class CompanionV2Orchestrator {
     });
 
     // 5 + 6. MEMORY, THEN THE SPINE. A message the CLASSIFIER called faltu — at any confidence,
-    //    with the faltu phase on or off — is never stored, exactly like one the lexicon caught:
-    //    pseudonymizing masks PII, not abuse, and memory is replayed to later model calls.
+    //    with the faltu phase on or off — is never model context, exactly like one the lexicon
+    //    caught: pseudonymizing masks PII, not abuse, and memory is replayed to later model calls.
+    //    It is stored only for the worker's own 7-day history (ADR-0056).
     return this.routed(workerId, ctx, dto, now, {
       turn: handled.turn,
       intentSource,
