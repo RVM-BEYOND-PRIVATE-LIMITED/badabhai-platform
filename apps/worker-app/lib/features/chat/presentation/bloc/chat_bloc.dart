@@ -1500,7 +1500,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // never while a reply is still in flight: an optimistic predicted bubble
     // is replaced by the real reply when it lands, and a local line appended
     // after it would be overwritten or swept away by that reconcile.
+    //
+    // #2302 — NOT on the companion: the Bada Bhai chat keeps 7 days of what the
+    // SERVER sees (#2297), so an ask answered here vanished on reopen. The
+    // server answers download asks itself there (the ready line + the
+    // `companion_resume_download` chip, or the not-ready line), so it is posted
+    // like any other message. The interview keeps the local answer.
     if (_resumeDownloadArmed &&
+        !state.companion &&
         event.optionKey == null &&
         !event.servedOption &&
         !state.sending &&
