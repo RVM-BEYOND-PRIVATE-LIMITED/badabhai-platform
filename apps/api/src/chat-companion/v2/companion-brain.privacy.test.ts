@@ -48,6 +48,12 @@ const NEWS_MSG_REDACTED = "main [NAME] hoon, aaj ki khabar batao";
 const PII_MSG = "main Ramesh Yadav hoon, 9876543210 pe call karo, Tata Motors mein kaam karta tha";
 const PII_WORDS = /Ramesh|Yadav|9876543210|Tata|Motors/;
 
+/** A rolling summary carrying the worker's own name and a phone number (ADR-0055 R4 cases). */
+const SUMMARY_WITH_PII =
+  "- Ramesh Yadav welder hai, 9876543210 pe call karta hai, Bharat Forge Pune mein kaam kiya";
+/** What only the summary carries — none of it may leave through anything but the reply input. */
+const SUMMARY_MARKERS = /Bharat Forge|9876543210|welder hai/;
+
 /** The gateway's mask, as the ai-service pseudonymizer would write it. */
 const mask = (text: string): string =>
   text
@@ -88,6 +94,8 @@ interface Setup {
   reply?: unknown;
   /** What `workers.full_name` holds: a decryptable token (default), none, or one that will not decrypt. */
   name?: "on_file" | "none" | "undecryptable";
+  /** ADR-0055 R4 — the rolling summary the read-only reader returns (default: none). */
+  summary?: string | null;
 }
 
 function setup(opts: Setup) {
@@ -117,7 +125,7 @@ function setup(opts: Setup) {
   };
   const memory = {
     read: vi.fn(async () => [{ role: "bada_bhai", text: "Namaste Ramesh ji, kaise hain?" }]),
-    append: vi.fn(async () => undefined),
+    append: vi.fn(async (..._args: unknown[]) => undefined),
   };
   const events = { emit: vi.fn(async (params: unknown) => params) };
   const cost = { record: vi.fn(async () => undefined) };
@@ -168,8 +176,8 @@ function setup(opts: Setup) {
     registry,
     { downloadOf: vi.fn(async () => "ready") } as never,
     reader,
-    // ADR-0055 R4 — no rolling summary on file.
-    { latestText: vi.fn(async () => null) } as never,
+    // ADR-0055 R4 — the rolling summary (none unless the case sets one).
+    { latestText: vi.fn(async () => opts.summary ?? null) } as never,
   );
   const route = vi.spyOn(brain, "route");
   const orchestrator = new CompanionV2Orchestrator(
@@ -191,7 +199,7 @@ function setup(opts: Setup) {
   );
   const send = (text: string) =>
     orchestrator.handleMessage(WORKER, PROFILE, { text, submission_id: SUBMISSION }, CTX, NOW);
-  return { ai, events, newsCap, workers, pii, route, send };
+  return { ai, events, memory, newsCap, workers, pii, route, send };
 }
 
 const inputOf = (spy: { mock: { calls: unknown[][] } }) =>
@@ -293,5 +301,34 @@ describe.each([true, false])("AI_RAW_PII_ENABLED=%s on the brain path (ADR-0055 
     expect(JSON.stringify(logged)).not.toMatch(PII_WORDS);
     if (path !== "throw") expect(v4.payload).toMatchObject({ outcome: "fallback" });
     else expect(v4.payload).toMatchObject({ intent_source: "fallback", outcome: "clarify" });
+  });
+
+  // ADR-0055 R4 — the rolling summary, read through the REAL model calls. A stored summary is
+  // screened for identifiers when it is folded, but this one carries the worker's own name AND a
+  // phone number, to prove where it can and cannot go.
+  it("the rolling summary reaches the REPLY only, own-name redacted — nowhere else", async () => {
+    const h = setup({ rawPii, summary: SUMMARY_WITH_PII });
+    await h.send(NEWS_MSG);
+
+    // The reply gets it, with the worker's name as [NAME] (`summaryForModel`, G2).
+    const replied = h.ai.freeChatReply.mock.calls[0]![0] as { summary: string | null };
+    expect(replied.summary).toContain("[NAME]");
+    expect(replied.summary).toContain("Bharat Forge");
+    expect(replied.summary).not.toMatch(/Ramesh|Yadav/);
+
+    // The classifier (ADR-0051 R24) and the news call never see it.
+    expect(h.ai.freeChatNews).toHaveBeenCalledTimes(1);
+    for (const spy of [h.ai.freeChatClassify, h.ai.freeChatNews]) {
+      expect(JSON.stringify(spy.mock.calls[0]![0])).not.toMatch(SUMMARY_MARKERS);
+      expect("summary" in (spy.mock.calls[0]![0] as object)).toBe(false);
+    }
+
+    // Not a log line, not an event (the v4 turn included), not a memory write.
+    const events = h.events.emit.mock.calls.map((c) => c[0] as { event_name: string });
+    expect(events.map((e) => e.event_name)).toContain("chat.companion_turn_served_v4");
+    expect(JSON.stringify(events)).not.toMatch(SUMMARY_MARKERS);
+    expect(JSON.stringify(logged)).not.toMatch(SUMMARY_MARKERS);
+    expect(h.memory.append).toHaveBeenCalled();
+    expect(JSON.stringify(h.memory.append.mock.calls)).not.toMatch(SUMMARY_MARKERS);
   });
 });
