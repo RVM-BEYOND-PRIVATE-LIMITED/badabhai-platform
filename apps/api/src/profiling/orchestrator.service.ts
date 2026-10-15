@@ -188,6 +188,7 @@ import {
 } from "./turn-shapes";
 import {
   answerSetHash,
+  changesAnswer,
   forgetAnswer,
   isSettled,
   recordAnswer,
@@ -197,6 +198,7 @@ import {
   toAnswerMap,
   toCapturedProjection,
   type AnswerMap,
+  type CapturedValue,
 } from "./answer-map";
 import { packAnswerRowFor } from "./pack-answer-row";
 import {
@@ -2449,6 +2451,7 @@ export class ProfilingOrchestrator {
       envelope,
       answers,
       capture.correcting,
+      capture.values.length > 0,
       turn,
     );
 
@@ -3271,9 +3274,21 @@ export class ProfilingOrchestrator {
    *
    * Gated three ways, because this is the path most able to do damage. Only fields with a TYPED
    * normalizer participate (`hasFieldNormalizer` — a free-text item's "normalizer" is the identity
-   * and would swallow the whole message); only unsettled questions are considered; and
+   * and would swallow the whole message); only unsettled questions are FILLED; and
    * {@link mayCommit} enforces first-write-wins, so a city mentioned while answering the salary
    * question can FILL an empty slot but can never overwrite one the worker already established.
+   *
+   * THE ONE ESCAPE: AN EXPLICIT, UNAMBIGUOUS CORRECTION (#2307, owner ruling 2026-10-16). A settled
+   * question is overwritten only when ALL of these hold:
+   *   - the message carries a correction marker (`correcting`, the lexicon's "nahi nahi", "galat",
+   *     "actually" …);
+   *   - the question on screen took NOTHING from it (`onScreenAnswered` false) — when it did, the
+   *     correction is about that answer, which rule 1 already wrote; "sorry, 2 saal pehle Pune aaya"
+   *     on the city question must never also rewrite the years;
+   *   - EXACTLY ONE settled question's typed parser reads a DIFFERENT value from it. Two candidates
+   *     is a guess about which one the worker meant, and a guess never overwrites an answer.
+   * The old value stays on the record as `superseded` history (`recordAnswer`). Silent by design
+   * while ADR-0057 is unarmed; its Haan/Nahi gate (#2312) is what confirms an overwrite when armed.
    */
   private fillCrossQuestion(
     items: readonly QuestionPackItem[],
@@ -3281,13 +3296,21 @@ export class ProfilingOrchestrator {
     envelope: ProfilingEnvelope,
     answers: AnswerMap,
     correcting: boolean,
+    onScreenAnswered: boolean,
     turn: number,
   ): AnswerMap {
     let filled = answers;
+    const corrections: (readonly CapturedValue[])[] = [];
     for (const item of items) {
       if (item.question_key === envelope.servedQuestionKey) continue;
       if (!hasFieldNormalizer(item.target_field)) continue;
-      if (isSettled(filled, item.question_key)) continue;
+      if (isSettled(filled, item.question_key)) {
+        if (correcting && !onScreenAnswered) {
+          const values = captureAnswer(text, item, { crossQuestion: true }).values;
+          if (values.some((value) => changesAnswer(answers, value))) corrections.push(values);
+        }
+        continue;
+      }
       if (!mayCommit(filled, item.question_key, envelope.servedQuestionKey, correcting)) continue;
 
       // The SAME capture path as the asked question, deliberately: the normalizers, the chip
@@ -3303,6 +3326,10 @@ export class ProfilingOrchestrator {
       for (const value of capture.values) {
         filled = recordAnswer(filled, value, turn);
       }
+    }
+    const [onlyCorrection] = corrections;
+    if (corrections.length === 1 && onlyCorrection) {
+      for (const value of onlyCorrection) filled = recordAnswer(filled, value, turn);
     }
     return filled;
   }

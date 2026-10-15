@@ -209,6 +209,19 @@ export function isSettled(map: AnswerMap, questionKey: string): boolean {
 }
 
 /**
+ * Would writing `value` change what the record SAYS — a different value, or a value where the
+ * record holds no answer (absent, declined, unanswered)?
+ *
+ * The same sameness rule `recordAnswer` uses to decide whether a write is a rewrite, so a worker
+ * repeating an established answer is never mistaken for a worker correcting it (#2307).
+ */
+export function changesAnswer(map: AnswerMap, value: CapturedValue): boolean {
+  const previous = map[value.questionKey];
+  if (previous === undefined || previous.status !== "answered") return true;
+  return !sameNormalized(previous.value_normalized, value.valueNormalized);
+}
+
+/**
  * The flattened `captured` projection the v1 contract still carries.
  *
  * Kept populated so every existing reader keeps working across the cutover — deleting it would be
