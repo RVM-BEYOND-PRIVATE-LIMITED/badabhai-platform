@@ -297,6 +297,17 @@ _ROWS: list[tuple] = [
     ("I can't take it anymore, I want to end my life", "distress", None, "english"),
     ("నాకు బతకాలని లేదు", "distress", None, "telugu"),
 
+    # ── #2287 round 2, held-out lines added BEFORE its baseline (6). A greeting with content is
+    # classified by the content (a BARE greeting gets the API's fixed line, #2287 PR 1, and never
+    # reaches the model); the other lines are new sentences of round 1's misroutes, so the fix is
+    # measured on the rule, not on the lines it was written against. ──
+    ("hello ji, fitter ki pagar kitni hoti hai Pune mein", "career", None, "hinglish"),
+    ("namaste, mujhe koi nayi job chahiye", "jobs", None, "hinglish"),
+    ("good evening sir", "casual", None, "hinglish"),
+    ("Bajaj mein ITI waalon ki bharti hoti hai kya", "career", None, "hinglish"),
+    ("CNC ke liye kaunsa course sabse sahi rahega", "career", None, "hinglish"),
+    ("resume wali baat karni hai", "resume", None, "hinglish"),
+
     # ── unclear: a bare acknowledgement (no résumé offer on this screen), emoji, gibberish (5) ──
     ("theek hai", "unclear", None, "hinglish", ((WORKER, "jobs dikhao"), (BOT, V3_JOBS_LINE))),
     ("acha ji", "unclear", None, "hinglish",
