@@ -135,15 +135,6 @@ export function editSectionMenu(): ResumeMenuChoice {
 }
 
 /**
- * #2295 — the edit section menu's chips alone, so a tap is the menu's own exact chip and is
- * answered as one. What an edit turn that ends with no card offers on the brain: the worker picks
- * the section instead of guessing another phrasing.
- */
-export function editSectionChips(): V2Option[] {
-  return editSectionMenu().options.map((option) => ({ ...option }));
-}
-
-/**
  * A MODEL-WRITTEN career answer (ADR-0046 P3). `read_aloud: false` is the contract with the
  * app (O9): the model's text has no reviewed Devanagari twin and must never be spoken, so the
  * field is present and false rather than absent — an absent field would let a shipped client

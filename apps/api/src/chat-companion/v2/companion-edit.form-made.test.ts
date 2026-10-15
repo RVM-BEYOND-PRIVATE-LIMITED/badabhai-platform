@@ -1,8 +1,9 @@
 import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
-import { RESUME_SECTIONS } from "../../chat/resume-menu";
+import { COMPANION_NEW_JOBS_KEY } from "../companion-keys";
 import { V2_EDIT_NONE, V2_EDIT_PLACEHOLDER, V2_EDIT_STALE } from "../companion-replies";
+import { COMPANION_TASK_EDIT_RESUME_KEY } from "../companion-task-keys";
 import type { CompanionTurn } from "../chat-companion.dto";
 import { profileRow, setup, WORKER_ID } from "./companion-edit.fake";
 
@@ -21,6 +22,9 @@ import { profileRow, setup, WORKER_ID } from "./companion-edit.fake";
  * résumé prints that attribute while the worker has no Languages-page rows, and the edit path read
  * only the rows — so it saw no language, and an add replaced everything the form stored on the
  * sheet. The edit path now reads and writes the store the résumé prints (`languageSourceOf`).
+ *
+ * Since the owner ruling of 2026-10-15 (#2295) the edit card runs only under the kill switch — on
+ * the brain every edit ask gets the edit section menu — so this suite runs with the kill switch on.
  */
 
 const CTX = { correlationId: "c-1", requestId: "r-1" } as never;
@@ -104,7 +108,9 @@ function formTurner(recorded: Recorded, over: Parameters<typeof setup>[0] = {}) 
     employmentViews: EMPLOYMENT,
     qualificationLists: { educations: [ITI] },
     preferenceValues: PREFERENCES,
-    brain: "on",
+    // The edit card runs only under the kill switch (#2295 ruling): on the brain an edit ask gets
+    // the edit section menu and never reaches `propose`.
+    brain: "kill_switch",
     ...over,
   });
 }
@@ -136,7 +142,7 @@ const cardRows = (turn: CompanionTurn) =>
   }));
 
 const keys = (turn: CompanionTurn) => turn.suggested_options.map((option) => option.option_key);
-const SECTION_KEYS = RESUME_SECTIONS.map((section) => section.key);
+const TASK_KEYS = [COMPANION_TASK_EDIT_RESUME_KEY, COMPANION_NEW_JOBS_KEY];
 
 beforeEach(() => {
   for (const level of ["log", "warn", "error"] as const) {
@@ -328,13 +334,13 @@ describe("#2295 — the other recorded outputs on the same form-made profile", (
       "clarify",
     ],
   ] as const)(
-    "%s → no card, and the EDIT SECTION chips on the brain",
+    "%s → no card: its line, with the task chips",
     async (_why, recorded, line, outcome) => {
       const h = formTurner(recorded);
       const proposed = await propose(h, recorded.text);
       expect(proposed.outcome).toBe(outcome);
       expect(proposed.turn.reply).toBe(line.latin);
-      expect(keys(proposed.turn)).toEqual(SECTION_KEYS);
+      expect(keys(proposed.turn)).toEqual(TASK_KEYS);
     },
   );
 });
