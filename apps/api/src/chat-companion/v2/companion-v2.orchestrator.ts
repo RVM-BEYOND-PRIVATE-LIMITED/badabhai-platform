@@ -308,6 +308,13 @@ export class CompanionV2Orchestrator {
    * The memory pair and the v2 event are written exactly as a classified turn's — except
    * `intent_source: "v1_deterministic"` (it IS a deterministic pre-v1 route) and no confidence
    * bucket (no classifier answered). A gateway refusal fails closed to the clarify line.
+   *
+   * IDEMPOTENT ON THE SUBMISSION, like the other two routes (ADR-0055 security note, 2026-10-15).
+   * With the brain on this route runs in production for every edit phrasing and pending intent, so
+   * it shares their replay shell (`onceServed`): a resent `submission_id` is answered with the turn
+   * already served — no second lexicon strike, no second edit parse, no second proposal card — and
+   * a duplicate that arrives while the first still runs gets the in-flight line. Steps 0-2 are the
+   * shared `prepare`, so this route and the classified ones cannot differ in what reaches a model.
    */
   async handleDirectIntent(
     workerId: string,
@@ -317,57 +324,59 @@ export class CompanionV2Orchestrator {
     ctx: RequestContext,
     now: Date = new Date(),
   ): Promise<CompanionTurn> {
-    if (this.config.CHAT_COMPANION_V2_FALTU_ENABLED && isAbusive(dto.text)) {
-      const handled = await this.registry.resolve("faltu").handle({
-        workerId,
-        profile,
-        text: "",
-        recentTurns: [],
-        ctx,
-        now,
-        submissionId: dto.submission_id ?? null,
-      });
-      return this.finish(workerId, ctx, dto, now, {
-        turn: handled.turn,
-        intentSource: "lexicon",
-        v2Intent: "faltu",
-        confidenceBucket: null,
-        outcome: handled.outcome,
-        memoryPair: null,
-      });
-    }
-    const promptText = await this.promptTextOf(dto.text, ctx);
-    if (promptText === null) {
-      return this.finish(workerId, ctx, dto, now, {
-        turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
-        intentSource: "fallback",
-        v2Intent: null,
-        confidenceBucket: null,
-        outcome: "clarify",
-        memoryPair: null,
-      });
-    }
-    const recent = await this.memory.read(workerId);
+    return this.onceServed(workerId, dto, () =>
+      this.routeDirect(workerId, profile, dto, intent, ctx, now),
+    );
+  }
+
+  /** The direct route itself: steps 0-2, then the intent's own handler (no classifier). */
+  private async routeDirect(
+    workerId: string,
+    profile: WorkerProfile,
+    dto: CompanionMessageDto,
+    intent: PendingIntent,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<RoutedTurn> {
+    const prepared = await this.prepare(workerId, profile, dto, ctx, now);
+    if (prepared.kind === "lexicon") return this.routed(workerId, ctx, dto, now, prepared.out);
+    if (prepared.kind === "blocked")
+      return this.routed(workerId, ctx, dto, now, this.clarifyFallback());
     const handled = await this.registry.resolve(intent).handle({
       workerId,
       profile,
-      text: promptText,
-      recentTurns: recent,
+      text: prepared.promptText,
+      recentTurns: prepared.recent,
       ctx,
       now,
       submissionId: dto.submission_id ?? null,
     });
-    return this.finish(workerId, ctx, dto, now, {
+    return this.routed(workerId, ctx, dto, now, {
       turn: handled.turn,
       intentSource: "v1_deterministic",
       v2Intent: intent,
       confidenceBucket: null,
       outcome: handled.outcome,
       memoryPair: {
-        workerText: clipText(promptText, CLASSIFY_TEXT_MAX),
+        workerText: clipText(prepared.promptText, CLASSIFY_TEXT_MAX),
         reply: handled.turn.reply,
       },
     });
+  }
+
+  /**
+   * The gateway refused or was unreachable: the clarify line, as a FAIL-CLOSED turn (never kept for
+   * a retry, never stored). One definition for every route that reaches the gateway.
+   */
+  private clarifyFallback(): ServedTurn {
+    return {
+      turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
+      intentSource: "fallback",
+      v2Intent: null,
+      confidenceBucket: null,
+      outcome: "clarify",
+      memoryPair: null,
+    };
   }
 
   /**
@@ -552,16 +561,8 @@ export class CompanionV2Orchestrator {
     const prepared = await this.prepare(workerId, profile, dto, ctx, now);
     if (prepared.kind === "lexicon") return this.routed(workerId, ctx, dto, now, prepared.out);
     // The gateway refused or was unreachable: the clarify line, as a fail-closed turn.
-    if (prepared.kind === "blocked") {
-      return this.routed(workerId, ctx, dto, now, {
-        turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
-        intentSource: "fallback",
-        v2Intent: null,
-        confidenceBucket: null,
-        outcome: "clarify",
-        memoryPair: null,
-      });
-    }
+    if (prepared.kind === "blocked")
+      return this.routed(workerId, ctx, dto, now, this.clarifyFallback());
     const { promptText, recent } = prepared;
 
     // ADR-0055 — THE FREE-CHAT BRAIN classifies and answers instead of steps 3-4, on the same

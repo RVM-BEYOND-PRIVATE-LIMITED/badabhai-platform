@@ -201,6 +201,7 @@ function setup(opts: { killSwitch?: boolean; verdict?: Verdict; summary?: string
     countStrike: vi.fn(async () => 1),
     startCooldown: vi.fn(async () => null),
   };
+  const replayed = new Map<string, CompanionTurn>();
   const pending = {
     set: vi.fn(async () => undefined),
     take: vi.fn(async () => null),
@@ -254,9 +255,12 @@ function setup(opts: { killSwitch?: boolean; verdict?: Verdict; summary?: string
     events as never,
     cost as never,
     faltuStore as never,
+    // An in-memory stand-in for the Redis replay cache, keyed as the store keys it.
     {
-      read: vi.fn(async () => null),
-      remember: vi.fn(async () => undefined),
+      read: vi.fn(async (w: string, s: string) => replayed.get(`${w}:${s}`) ?? null),
+      remember: vi.fn(async (w: string, s: string, turn: CompanionTurn) => {
+        replayed.set(`${w}:${s}`, turn);
+      }),
       claim: vi.fn(async () => "claimed"),
       release: vi.fn(async () => undefined),
     } as never,
@@ -317,6 +321,17 @@ describe("R1 — résumé words and menu aliases reach the brain (or the edit ha
       intent_source: "v1_deterministic",
       v2_intent: "edit_resume",
     });
+  });
+
+  it("a RESENT edit phrasing (same submission_id): one edit parse, one card, the same turn replayed", async () => {
+    const h = setup();
+    const first = await h.send("skills mein Marathi jod do");
+    const second = await h.send("skills mein Marathi jod do");
+    expect(h.edits.propose).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+    expect(second.edit_proposal?.proposal_id).toBe(CARD.edit_proposal!.proposal_id);
+    // The replayed turn records nothing again: one v4 event for the one turn served.
+    expect(h.eventNames()).toEqual(["chat.companion_turn_served_v4"]);
   });
 
   it("'resume mein welding add karo' → the brain's résumé/edit → the edit card", async () => {
