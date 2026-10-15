@@ -5430,6 +5430,30 @@ export const ChatFreeChatSummaryUpdatedPayload = z
 export type ChatFreeChatSummaryUpdatedPayload = z.infer<typeof ChatFreeChatSummaryUpdatedPayload>;
 
 /**
+ * #2297 (ADR-0056) — ONE ROLLING-SUMMARY FOLD OF THE BADA BHAI CHAT ENDED. Stored lines that aged
+ * out of the reply's recent-turn window were sent to the summarizer (the same task and validation
+ * as `chat.free_chat_summary_updated`): `outcome` says whether a new summary was stored
+ * (`updated`), the model's was refused by the API's validation (`rejected`, previous kept) or
+ * the call produced none (`unavailable`, previous kept). `folded_messages` is how many stored
+ * lines the fold covered; `summary_chars` the stored summary's length, set only for `updated`.
+ *
+ * The companion has no chat session, so the worker is the subject and no session id rides it.
+ * NEVER THE SUMMARY OR ANY LINE. Counts and a closed enum only; `.strict()` keeps it that way.
+ */
+export const ChatCompanionSummaryUpdatedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    outcome: z.enum(FREE_CHAT_SUMMARY_OUTCOMES),
+    folded_messages: z.number().int().positive(),
+    summary_chars: z.number().int().positive().nullable(),
+  })
+  .strict()
+  .refine((v) => (v.summary_chars !== null) === (v.outcome === "updated"), {
+    message: "summary_chars is set iff outcome is 'updated'",
+  });
+export type ChatCompanionSummaryUpdatedPayload = z.infer<typeof ChatCompanionSummaryUpdatedPayload>;
+
+/**
  * ADR-0054 (#2127) — ONE LIVE-NEWS REQUEST ENDED. A casual or career reply refused on `news`, and
  * the free chat tried the searched answer instead. `outcome` is what the worker got: a summary
  * with "read more" tiles (`answered`), or a fixed line because the search found nothing
