@@ -63,6 +63,7 @@ import {
 } from "./companion-v2-compose";
 import type { HandlerResult } from "./handlers/handler";
 import { workerContextOf } from "./handlers/career-talk.handler";
+import { isResumeOfferChip } from "./companion-resume-offer-chip";
 import { CompanionHandlerRegistry } from "./handlers/registry";
 
 /** One v1-miss message, as the orchestrator hands it to the brain after the gateway and memory. */
@@ -505,8 +506,19 @@ export class CompanionBrain {
           `${screened.droppedChips} follow-up chip(s) dropped`,
       );
     }
+    // #2287 (owner ruling 2026-10-15) — the worker already HAS a résumé here, so a model chip that
+    // offers to make one is dropped; the lines and every other chip are served. The profiling chat's
+    // own "Resume banayein" chip is untouched: this runs on the companion surface only.
     const { lines, followup_chips } = screened.answer;
-    return { ...asked, turn: v2CareerAnswerTurn(lines, followup_chips), outcome: "answered" };
+    const chips = followup_chips.filter((chip) => !isResumeOfferChip(chip));
+    if (chips.length < followup_chips.length) {
+      // The COUNT only — never the chip, which is model text.
+      this.logger.log(
+        `companion brain reply served for worker ${input.workerId} with ` +
+          `${followup_chips.length - chips.length} résumé-offer chip(s) dropped`,
+      );
+    }
+    return { ...asked, turn: v2CareerAnswerTurn(lines, chips), outcome: "answered" };
   }
 
   /**
