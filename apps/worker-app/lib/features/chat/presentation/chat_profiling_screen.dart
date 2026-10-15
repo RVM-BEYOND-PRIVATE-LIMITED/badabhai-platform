@@ -254,7 +254,10 @@ class ChatProfilingScreen extends StatelessWidget {
     // the tab comes back into focus (see [_CompanionRefocus]).
     final bool companion =
         assistantTab && BbRemoteConfig.instance.chatCompanionEnabled;
-    final Widget view = _ChatView(fromResumeImport: fromResumeImport);
+    final Widget view = _ChatView(
+      fromResumeImport: fromResumeImport,
+      assistantTab: assistantTab,
+    );
     return BlocProvider<ChatBloc>(
       create: (_) {
         final ChatBloc bloc = locator<ChatBloc>()
@@ -318,9 +321,13 @@ class _CompanionRefocus extends StatelessWidget {
 }
 
 class _ChatView extends StatefulWidget {
-  const _ChatView({this.fromResumeImport = false});
+  const _ChatView({this.fromResumeImport = false, this.assistantTab = false});
 
   final bool fromResumeImport;
+
+  /// This is the Bada Bhai TAB (see [ChatProfilingScreen.assistantTab]). Only
+  /// the tab offers the "Resume download" tile; the onboarding `/chat` never.
+  final bool assistantTab;
 
   @override
   State<_ChatView> createState() => _ChatViewState();
@@ -746,16 +753,34 @@ class _ChatViewState extends State<_ChatView>
   }
 
   /// Owner ruling (2026-10-15), case 2 — a résumé screen pushed from this
-  /// chat (the form, an upload, a section walk, Resume Edit) can change the
-  /// résumé, and a pushed route coming back is not a tab refocus. So when it
-  /// closes the chat re-checks, and offers the tile only if the résumé actually
-  /// changed. The bloc is read NOW, never through a context after the gap.
-  void _recheckResumeTileAfter(Future<Object?> pushed) {
+  /// chat (an upload, a section walk, Resume Edit) can change the résumé, and a
+  /// pushed route coming back is not a tab refocus. So when it closes, the TAB
+  /// re-checks and offers the tile only if the résumé actually changed.
+  ///
+  /// [watchIfSaved] — Resume Edit pops a value only when it SAVED, and its
+  /// re-render lands seconds AFTER the pop; a one-shot check would read the
+  /// old render, so a save starts the bounded watch instead.
+  ///
+  /// The onboarding `/chat` never re-checks: it offers no tile. The bloc is
+  /// read NOW, never through a context after the gap.
+  void _recheckResumeTileAfter(
+    Future<Object?> pushed, {
+    bool watchIfSaved = false,
+  }) {
+    if (!widget.assistantTab) return;
     final ChatBloc bloc = context.read<ChatBloc>();
     unawaited(
-      pushed.whenComplete(() {
-        if (!bloc.isClosed) bloc.add(const ChatResumeDownloadOffered());
-      }),
+      pushed.then<void>(
+        (Object? result) {
+          if (bloc.isClosed) return;
+          bloc.add(
+            watchIfSaved && result != null
+                ? const ChatResumeChangeWatchRequested()
+                : const ChatResumeDownloadOffered(),
+          );
+        },
+        onError: (Object _) {},
+      ),
     );
   }
 
@@ -815,7 +840,10 @@ class _ChatViewState extends State<_ChatView>
     // road into the form uses. Never posted — the server only answers the label
     // as text for an app that predates this key.
     if (option.optionKey == kResumeMenuFormCreateKey) {
-      _recheckResumeTileAfter(
+      // No tile re-check here: this future settles as the form OPENS, and the
+      // form road ends on the Résumé tab (Building → Résumé), so coming back to
+      // this tab is a refocus — which re-checks the résumé itself.
+      unawaited(
         openTradeFormWithTier(
           context,
           entry: TierEntry.pushed,
@@ -883,6 +911,7 @@ class _ChatViewState extends State<_ChatView>
         }
         _recheckResumeTileAfter(
           context.pushOnce(Routes.resumeEdit, extra: option.optionKey),
+          watchIfSaved: true,
         );
         return;
       case ResumeMenuAction.sendToServer:

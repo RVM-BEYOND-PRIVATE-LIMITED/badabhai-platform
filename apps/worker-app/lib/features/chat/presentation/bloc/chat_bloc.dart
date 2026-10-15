@@ -276,18 +276,17 @@ class ChatResumeDownloadTapped extends ChatEvent {
   const ChatResumeDownloadTapped();
 }
 
-/// Case 2 INSIDE the chat: the worker said Haan on an edit card, so a new
-/// résumé is being generated. Watch the history for it and offer the tile when
-/// it lands. [baseline] is the résumé version the edit replaces.
+/// Case 2 while the worker is STILL IN THE CHAT: their résumé was just changed
+/// — Haan on an applied edit card (the bloc dispatches this itself), or a
+/// Resume Edit saved from the chat's résumé menu (the screen does) — and the
+/// new version lands seconds later (a generation, or a re-render). Watch the
+/// history for a résumé not offered yet and offer the tile when it lands.
 ///
-/// Private: only the bloc dispatches it, after a served confirm.
-class _ChatResumeChangeWatched extends ChatEvent {
-  const _ChatResumeChangeWatched(this.baseline);
-
-  final String baseline;
-
-  @override
-  List<Object?> get props => <Object?>[baseline];
+/// Bounded ([ChatBloc.resumeChangeWatchAttempts]), and it stands down the
+/// moment the conversation moves on: the résumé is then still "not offered",
+/// so the next visit to the chat offers it.
+class ChatResumeChangeWatchRequested extends ChatEvent {
+  const ChatResumeChangeWatchRequested();
 }
 
 /// #2276 (ADR-0055) — the server's "Resume download karein" chip
@@ -900,7 +899,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<ChatResumeDownloadOffered>(_onResumeDownloadOffered);
     on<ChatResumeDownloadTapped>(_onResumeDownloadTapped);
     on<ChatResumeDownloadChipTapped>(_onResumeDownloadChipTapped);
-    on<_ChatResumeChangeWatched>(_onResumeChangeWatched);
+    on<ChatResumeChangeWatchRequested>(_onResumeChangeWatched);
   }
 
   final ChatRepository _repo;
@@ -920,10 +919,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// rule still holds for the life of the chat.
   final ResumeDownloadOfferStore _offers;
 
-  /// Case 2 inside the chat — how long the post-edit watch
-  /// ([_ChatResumeChangeWatched]) looks for the new résumé: [resumeChangeWatchAttempts]
-  /// reads, [resumeChangeWatchInterval] apart (about a minute — a generation is
-  /// a model call). Static and mutable ONLY as a test seam, like
+  /// Case 2 inside the chat — how long [ChatResumeChangeWatchRequested] looks
+  /// for the new résumé: [resumeChangeWatchAttempts] reads,
+  /// [resumeChangeWatchInterval] apart (about a minute — a generation is a model
+  /// call). Static and mutable ONLY as a test seam, like
   /// `ResumeCubit.documentPollMaxAttempts`.
   static int resumeChangeWatchAttempts = 15;
   static Duration resumeChangeWatchInterval = const Duration(seconds: 4);
@@ -2726,13 +2725,20 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     String trigger = 'ask';
     if (!event.asked) {
       final String? offered = await _offers.lastOffered();
-      if (offered == resume.version) {
+      if (!isUnofferedResume(offered, resume)) {
         // Cases 1 and 2 are spent for THIS résumé: opening the chat again is
         // not a reason to offer it. The id is kept current for an ask.
+        //
+        // Offered while its first render was still running, the token lacks a
+        // render stamp; catch it up now, quietly, so a LATER re-render (a
+        // Resume Edit) is still seen as a change.
+        if (resume.renderedAt.isNotEmpty && offered != resume.token) {
+          await _offers.markOffered(resume.token);
+        }
         emit(state.copyWith(downloadableResumeId: resume.id));
         return;
       }
-      // Case 1 (never offered on this phone) or case 2 (a different version).
+      // Case 1 (never offered on this phone) or case 2 (it changed since).
       trigger = offered == null ? 'first' : 'changed';
     }
     if (_conversationMoves != movesAtStart) {
@@ -2763,7 +2769,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (appears) {
       _analytics(BbAnalytics.chatResumeDownloadOffered(trigger: trigger));
     }
-    await _offers.markOffered(resume.version);
+    await _offers.markOffered(resume.token);
   }
 
   /// Whether [text] is a "download my résumé" ask in the chat as it stands: a
@@ -2804,7 +2810,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     );
     _analytics(BbAnalytics.chatResumeDownloadOffered(trigger: 'ask'));
     // Seen now, so the next open does not offer this same résumé again.
-    await _offers.markOffered(resume.version);
+    await _offers.markOffered(resume.token);
     return true;
   }
 
@@ -2838,21 +2844,25 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     return downloadableResumeIn(history);
   }
 
-  /// Case 2 inside the chat — see [_ChatResumeChangeWatched]. Bounded, and it
-  /// stands down the moment the worker moves the conversation on: the new
-  /// résumé is then still "not offered yet", so the next visit offers it.
+  /// Case 2 inside the chat — see [ChatResumeChangeWatchRequested]. Compared
+  /// against the STORE (what was last offered), never against a read taken
+  /// beside the change, which could already see the new version and so never
+  /// fire.
   Future<void> _onResumeChangeWatched(
-    _ChatResumeChangeWatched event,
+    ChatResumeChangeWatchRequested event,
     Emitter<ChatState> emit,
   ) async {
     if (_resumeRepo == null) return;
+    _resumeDownloadArmed = true;
     final int movesAtStart = _conversationMoves;
     for (int attempt = 0; attempt < resumeChangeWatchAttempts; attempt++) {
       await Future<void>.delayed(resumeChangeWatchInterval);
       if (isClosed || _conversationMoves != movesAtStart) return;
       final DownloadableResume? resume = await _downloadableResume();
       if (isClosed || _conversationMoves != movesAtStart) return;
-      if (resume == null || resume.version == event.baseline) continue;
+      if (resume == null) continue;
+      if (!isUnofferedResume(await _offers.lastOffered(), resume)) continue;
+      if (isClosed || _conversationMoves != movesAtStart) return;
       await _offerTile(resume, emit, trigger: 'changed');
       return;
     }
@@ -2958,9 +2968,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _conversationMoves++;
     // Haan on the card moves the conversation on — the download tile goes.
     emit(state.copyWith(sending: true, resumeDownloadTile: false));
-    // Case 2 — the résumé version this edit is about to replace, read beside
-    // the confirm (its generation is queued, so it lands well after this read).
-    final Future<DownloadableResume?> before = _downloadableResume();
     try {
       final CompanionEditResult result = await _repo.confirmCompanionEdit(
         proposal.proposalId,
@@ -2968,9 +2975,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       );
       _inFlightSends--;
       await _applyEditResult(result, emit);
-      if (result.outcome == CompanionEditOutcome.served) {
-        final String? baseline = (await before)?.version;
-        if (baseline != null) add(_ChatResumeChangeWatched(baseline));
+      // Case 2 — the card was APPLIED (a served turn that no longer carries
+      // it; a turn handing the same card back wrote nothing), so a new résumé
+      // is on its way: watch for it while the worker is still here.
+      if (result.outcome == CompanionEditOutcome.served &&
+          result.turn?.editProposal == null) {
+        add(const ChatResumeChangeWatchRequested());
       }
     } on Failure catch (failure) {
       // Keep the card (see the doc above) — drop the spinner and say what went

@@ -7,8 +7,8 @@
 /// WHEN IT IS SHOWN — exactly three cases (owner ruling, 2026-10-15):
 ///   1. the worker's first visit to the chat after their first profiling;
 ///   2. their résumé CHANGED — an edit, or a new résumé — since it was last
-///      offered (measured by [DownloadableResume.version], persisted on the
-///      phone by `ResumeDownloadOfferStore`);
+///      offered ([isUnofferedResume] over [DownloadableResume.token], persisted
+///      on the phone by `ResumeDownloadOfferStore`);
 ///   3. they ASK for it — "mujhe mera resume download karna hai", "resume
 ///      dikhao", "show my resume" ([isResumeDownloadRequest]), or the server's
 ///      own download chip.
@@ -114,8 +114,14 @@ const List<String> _kShowStems = <String>[
   'print',
 ];
 
-/// "Where is my résumé" — whole words, read like a show stem.
-const Set<String> _kWhereWords = <String>{'kahan', 'kaha', 'kidhar', 'where'};
+/// "Where is my résumé" — whole words, read like a show stem. Not "kaha": it
+/// is also "said" ("maine kaha tha resume mein…").
+const Set<String> _kWhereWords = <String>{'kahan', 'kidhar', 'where'};
+
+/// "IN the résumé" — "resume mein welding bhi dikhao" asks for something to be
+/// shown ON the résumé, an edit, not for the file. A show stem beside one of
+/// these is not an ask. Not "me": "show me my resume" is.
+const Set<String> _kInsideWords = <String>{'mein', 'mei', 'andar'};
 
 /// Word STEMS that make a résumé message a change or a NEW résumé — "naya
 /// resume bana ke dikhao", "resume badal ke bhejo". Those belong to the server's
@@ -135,6 +141,9 @@ const List<String> _kChangeStems = <String>[
   'galat',
   'hata',
   'jod',
+  'add',
+  'daal',
+  'likh',
   'delete',
 ];
 
@@ -142,16 +151,44 @@ final RegExp _kWordSplit = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
 
 /// The résumé the tile downloads, and WHICH VERSION of it that is.
 class DownloadableResume {
-  const DownloadableResume({required this.id, required this.version});
+  const DownloadableResume({
+    required this.id,
+    required this.version,
+    this.renderedAt = '',
+  });
 
   /// What `GET /resume/:id/download` is called with.
   final String id;
 
   /// `<id>@<generated_at>` — changes when the worker gets a NEW résumé (a new
-  /// row, or a re-generated one: every generate stamps `generated_at`) and does
-  /// NOT change when a pending render merely finishes. It is what "the résumé
-  /// changed since the tile was last offered" (case 2) compares.
+  /// row, or a re-generated one: every generate stamps `generated_at`).
   final String version;
+
+  /// When its PDF last finished rendering, or '' while pending / unknown. A
+  /// Resume Edit of the name, photo or night shift re-renders the PDF WITHOUT
+  /// re-generating it, and this stamp is the only thing that moves.
+  final String renderedAt;
+
+  /// What the offer store records: the version and the render stamp.
+  String get token => '$version#$renderedAt';
+}
+
+/// Whether [current] is a résumé the tile has NOT been offered for yet, given
+/// the [offered] token the store holds (case 1: nothing offered; case 2: it
+/// changed since).
+///
+/// "Changed" is a new or re-generated résumé, or the SAME résumé re-rendered
+/// (a Resume Edit) — but only when both render stamps are known: a pending
+/// render that merely finishes is the résumé that was offered, not a new one.
+bool isUnofferedResume(String? offered, DownloadableResume current) {
+  if (offered == null || offered.isEmpty) return true;
+  final int cut = offered.lastIndexOf('#');
+  final String offeredVersion = cut < 0 ? offered : offered.substring(0, cut);
+  final String offeredRender = cut < 0 ? '' : offered.substring(cut + 1);
+  if (offeredVersion != current.version) return true;
+  return offeredRender.isNotEmpty &&
+      current.renderedAt.isNotEmpty &&
+      offeredRender != current.renderedAt;
 }
 
 /// The résumé the tile downloads: the row the server marks CURRENT in
@@ -170,6 +207,7 @@ DownloadableResume? downloadableResumeIn(ResumeHistory history) {
   return DownloadableResume(
     id: current.resumeId,
     version: '${current.resumeId}@$generatedAt',
+    renderedAt: current.renderedAt?.toUtc().toIso8601String() ?? '',
   );
 }
 
@@ -183,7 +221,8 @@ DownloadableResume? downloadableResumeIn(ResumeHistory history) {
 ///
 /// A SHOW / SEND word always needs the résumé named beside it ("jobs dikhao" is
 /// a jobs question), and never counts beside a change or new-résumé word ("naya
-/// resume bana ke dikhao" is the server's).
+/// resume bana ke dikhao" is the server's) or an "in the résumé" word ("resume
+/// mein welding bhi dikhao" is an edit).
 ///
 /// Pure and deterministic: lowercase, split into words, look the words up.
 /// Never logs and never keeps the text.
@@ -207,5 +246,7 @@ bool isResumeDownloadRequest(String text, {bool requireResumeWord = false}) {
   );
   final bool asksToSee =
       startsWithAny(_kShowStems) || words.any(_kWhereWords.contains);
-  return asksToSee && !startsWithAny(_kChangeStems);
+  return asksToSee &&
+      !startsWithAny(_kChangeStems) &&
+      !words.any(_kInsideWords.contains);
 }
