@@ -1,6 +1,10 @@
 import type { ServerConfig } from "@badabhai/config";
 import type { CompanionV2EditSection } from "@badabhai/types";
-import type { ResumeMenuChoice } from "../../chat/resume-menu";
+import {
+  RESUME_MENU_EDIT_LABEL,
+  resolveResumeMenu,
+  type ResumeMenuChoice,
+} from "../../chat/resume-menu";
 import { ttsField } from "../../profiling/question-tts-text";
 import type { FreeChatNewsLinkWire } from "../../profiling/free-chat/free-chat-news-links";
 import type { CompanionTurn, EditProposal } from "../chat-companion.dto";
@@ -119,6 +123,16 @@ export function taskChips(config: ServerConfig): V2Option[] {
     is_none_of_above: false,
   });
   return chips;
+}
+
+/**
+ * #2295 — the résumé's EDIT SECTION chips, read from the shipped edit menu itself
+ * (`resolveResumeMenu`), so a tap is the menu's own exact chip and is answered as one. What an edit
+ * turn that ends with no card offers on the brain: the worker picks the section instead of guessing
+ * another phrasing.
+ */
+export function editSectionChips(): V2Option[] {
+  return resolveResumeMenu(RESUME_MENU_EDIT_LABEL).options.map((option) => ({ ...option }));
 }
 
 /**

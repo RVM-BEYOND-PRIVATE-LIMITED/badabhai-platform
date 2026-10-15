@@ -122,6 +122,11 @@ export function setup(
       trainings?: readonly Record<string, unknown>[];
     };
     preferenceValues?: Record<string, unknown>;
+    /**
+     * ADR-0055 — the free-chat brain: `on` (v2 on, kill switch off) or `kill_switch` (v2 on, kill
+     * switch on). Absent keeps the minimal config every older suite was written against.
+     */
+    brain?: "on" | "kill_switch";
     /** What the résumé seam decides on Haan (default `queued`). */
     regen?: ChatEditRegeneration;
     /** The résumé seam breaks its never-throws contract. */
@@ -288,6 +293,9 @@ export function setup(
     CHAT_COMPANION_V2_EDIT_MAX_ROWS: opts.maxRows ?? 3,
     CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS: 600,
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
+    ...(opts.brain === undefined
+      ? {}
+      : { CHAT_COMPANION_V2_ENABLED: true, CHAT_FREE_CHAT_DISABLED: opts.brain === "kill_switch" }),
   } as unknown as ServerConfig;
 
   const service = new CompanionEditService(

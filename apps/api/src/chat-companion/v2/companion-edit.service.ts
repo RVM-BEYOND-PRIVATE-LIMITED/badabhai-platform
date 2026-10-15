@@ -30,6 +30,7 @@ import {
   type EditProposal,
   type EditProposalRow,
 } from "../chat-companion.dto";
+import { companionBrainOn } from "../companion-brain-switch";
 import {
   V2_EDIT_CANCELLED,
   V2_EDIT_CARD_INTRO,
@@ -68,7 +69,13 @@ import {
   type EditState,
   type SnapshotRow,
 } from "./edit-snapshot";
-import { sectionsOf, taskChips, v2CopyTurn, v2EditCardTurn } from "./companion-v2-compose";
+import {
+  editSectionChips,
+  sectionsOf,
+  taskChips,
+  v2CopyTurn,
+  v2EditCardTurn,
+} from "./companion-v2-compose";
 
 /**
  * The edit-parse contract's own bounds — `CompanionEditParseInputSchema`'s `snapshot.max(64)` and
@@ -343,6 +350,11 @@ export class CompanionEditService {
    * delete ("Never from chat": a job, 2026-10-01; a certificate, education or training, TD151(1)
    * 2026-10-05) — `profileScreenOnly` — or anything the model itself filed as `other`
    * (contracts §2.2: asked, but not editable here). Else the clarify line.
+   *
+   * #2295 — ON THE BRAIN, THE PLACEHOLDER AND CLARIFY LINES OFFER THE EDIT SECTION MENU'S CHIPS
+   * instead of the task chips: the worker asked to change the résumé, and the section is the next
+   * step whether chat could not make the change or did not understand it. The lines are unchanged,
+   * and so is every chip under the kill switch.
    */
   private noCard(
     text: string,
@@ -354,10 +366,11 @@ export class CompanionEditService {
       unsupported.includes("contact") ||
       identityAskIn(text) !== null;
     if (identity) return { turn: v2CopyTurn(V2_EDIT_IDENTITY, taskChips(this.config)), outcome: "served" };
+    const chips = companionBrainOn(this.config) ? editSectionChips() : taskChips(this.config);
     if (profileScreenOnly || unsupported.includes("other")) {
-      return { turn: v2CopyTurn(V2_EDIT_PLACEHOLDER, taskChips(this.config)), outcome: "served" };
+      return { turn: v2CopyTurn(V2_EDIT_PLACEHOLDER, chips), outcome: "served" };
     }
-    return { turn: v2CopyTurn(V2_EDIT_NONE, taskChips(this.config)), outcome: "clarify" };
+    return { turn: v2CopyTurn(V2_EDIT_NONE, chips), outcome: "clarify" };
   }
 
   /**
