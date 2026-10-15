@@ -16,7 +16,7 @@ import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import type { CompanionMessageDto, CompanionTurn } from "../chat-companion.dto";
-import { companionBrainOn } from "../companion-brain-switch";
+import { companionBrainOn, companionRoutePrecedenceOn } from "../companion-brain-switch";
 import {
   V2_CAREER_ASK,
   V2_CLARIFY,
@@ -25,7 +25,13 @@ import {
   type CopyPair,
 } from "../companion-replies";
 // VALUE import: a constructor parameter (Nest resolves it by its class token).
-import { CompanionBrain, distressTurn, type BrainFacts, type BrainTurn } from "./companion-brain";
+import {
+  CompanionBrain,
+  distressTurn,
+  type BrainFacts,
+  type BrainInput,
+  type BrainTurn,
+} from "./companion-brain";
 import { CompanionMemoryStore } from "./companion-memory.store";
 import { taskChipLabel, type CompanionTaskChipIntent } from "./companion-task-chips";
 import { taskChips, v2CooldownTurn, v2CopyTurn } from "./companion-v2-compose";
@@ -80,6 +86,19 @@ const NO_BRAIN_FACTS: BrainFacts = {
   newsOutcome: null,
   newsSourceCount: 0,
 };
+
+/**
+ * Steps 0-2 of a classified route (`prepare`): the abuse lexicon answered it, the gateway refused it,
+ * or the message is ready for a classifier — the gateway's copy and the memory.
+ */
+type Prepared =
+  | { readonly kind: "lexicon"; readonly out: ServedTurn }
+  | { readonly kind: "blocked" }
+  | {
+      readonly kind: "ready";
+      readonly promptText: string;
+      readonly recent: CompanionRecentTurn[];
+    };
 
 /** A served v1-miss turn, and whether a retry of the same submission may be answered with it. */
 interface RoutedTurn {
@@ -241,7 +260,11 @@ export class CompanionV2Orchestrator {
     // WP6: the tap remembers the task for the NEXT message (edit/career), or clears a stale one
     // (any other task chip). Best-effort — the tap's own answer is already in hand either way.
     if (this.routePrecedenceOn()) {
-      if (intent === "edit_resume" || intent === "career_talk") {
+      // ADR-0055 R1: while the brain is on it answers career talk itself (the free-chat reply, which
+      // supersedes the v2 career handler on this screen), so only the edit task is remembered.
+      const remembers =
+        intent === "edit_resume" || (intent === "career_talk" && !companionBrainOn(this.config));
+      if (remembers) {
         await this.pending.set(workerId, intent);
       } else {
         await this.pending.clear(workerId);
@@ -259,12 +282,12 @@ export class CompanionV2Orchestrator {
     });
   }
 
-  /** `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED` (TD146, WP6) — default off. */
+  /**
+   * WP6's route precedence (TD146): its own default-off flag, or the free-chat brain (ADR-0055 R1).
+   * The service reads the same definition, so the pending intent is set exactly while it is taken.
+   */
   private routePrecedenceOn(): boolean {
-    return (
-      this.config.CHAT_COMPANION_V2_ENABLED &&
-      this.config.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED === true
-    );
+    return companionRoutePrecedenceOn(this.config);
   }
 
   /** Consume the worker's pending intent (one-shot). Null when absent, expired or unreadable. */
@@ -368,8 +391,52 @@ export class CompanionV2Orchestrator {
     ctx: RequestContext,
     now: Date = new Date(),
   ): Promise<CompanionTurn> {
+    return this.onceServed(workerId, dto, () => this.route(workerId, profile, dto, ctx, now));
+  }
+
+  /**
+   * ADR-0055 R2 (owner ruling 2026-10-15) — a TYPED message v1 would answer with its jobs list,
+   * while the brain is on. The same shell as {@link handleMessage} (replay, in-flight claim) and the
+   * same steps 0-2 (lexicon, gateway, memory), then the brain's ONE classify (`routeJobsWord`).
+   *
+   * NULL MEANS "v1's JOBS ANSWER": the brain had nothing better to say (`jobs`, `unclear`, below the
+   * floor, an unavailable classifier), the gateway refused the message, or the brain threw. The
+   * service then serves TODAY's job chips and records v1's own event; no memory, no v4 event, and
+   * nothing is kept for a retry (a retry of a deferred message classifies again). Every other
+   * verdict is a brain turn, recorded on the v4 event like any v1 miss.
+   */
+  async handleJobsMessage(
+    workerId: string,
+    profile: WorkerProfile,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date = new Date(),
+  ): Promise<CompanionTurn | null> {
+    return this.onceServed(workerId, dto, () => this.routeJobs(workerId, profile, dto, ctx, now));
+  }
+
+  /**
+   * THE REPLAY SHELL around one classified route (see {@link handleMessage} for why each step is
+   * there). A route that returns null served nothing here — the caller answers — so nothing is
+   * kept for a retry.
+   */
+  private async onceServed(
+    workerId: string,
+    dto: CompanionMessageDto,
+    run: () => Promise<RoutedTurn>,
+  ): Promise<CompanionTurn>;
+  private async onceServed(
+    workerId: string,
+    dto: CompanionMessageDto,
+    run: () => Promise<RoutedTurn | null>,
+  ): Promise<CompanionTurn | null>;
+  private async onceServed(
+    workerId: string,
+    dto: CompanionMessageDto,
+    run: () => Promise<RoutedTurn | null>,
+  ): Promise<CompanionTurn | null> {
     const submissionId = dto.submission_id;
-    if (submissionId === undefined) return (await this.route(workerId, profile, dto, ctx, now)).turn;
+    if (submissionId === undefined) return (await run())?.turn ?? null;
 
     const replayed = await this.replays.read(workerId, submissionId);
     if (replayed !== null) return replayed;
@@ -384,7 +451,8 @@ export class CompanionV2Orchestrator {
     const claim = await this.replays.claim(workerId, submissionId);
     if (claim === "held") return v2CopyTurn(V2_IN_FLIGHT, taskChips(this.config));
     try {
-      const routed = await this.route(workerId, profile, dto, ctx, now);
+      const routed = await run();
+      if (routed === null) return null;
       if (routed.replayable) await this.replays.remember(workerId, submissionId, routed.turn);
       return routed.turn;
     } finally {
@@ -392,13 +460,18 @@ export class CompanionV2Orchestrator {
     }
   }
 
-  private async route(
+  /**
+   * STEPS 0-2 OF EVERY CLASSIFIED ROUTE — the abuse lexicon, the gateway, the memory — in the
+   * privacy order (class header). Shared by the v1-miss route and the jobs-word route (ADR-0055 R2),
+   * so the two can never differ in what reaches a model or Redis.
+   */
+  private async prepare(
     workerId: string,
     profile: WorkerProfile,
     dto: CompanionMessageDto,
     ctx: RequestContext,
     now: Date,
-  ): Promise<RoutedTurn> {
+  ): Promise<Prepared> {
     // 0. THE ABUSE LEXICON (P2, O11), only while the faltu phase is on. It runs BEFORE the
     //    gateway because nothing crosses a boundary on this path: the answer is fixed copy and
     //    a strike count. A flagged message therefore costs no gateway hop and no model call,
@@ -413,20 +486,73 @@ export class CompanionV2Orchestrator {
         now,
         submissionId: dto.submission_id ?? null,
       });
-      return this.routed(workerId, ctx, dto, now, {
-        turn: handled.turn,
-        intentSource: "lexicon",
-        v2Intent: "faltu",
-        confidenceBucket: null,
-        outcome: handled.outcome,
-        memoryPair: null,
-      });
+      return {
+        kind: "lexicon",
+        out: {
+          turn: handled.turn,
+          intentSource: "lexicon",
+          v2Intent: "faltu",
+          confidenceBucket: null,
+          outcome: handled.outcome,
+          memoryPair: null,
+        },
+      };
     }
 
     // 1. THE GATEWAY FIRST (see `promptTextOf`). `null` is the AI service being unreachable or
-    //    the gateway refusing. Both serve the clarify line and neither reaches a model or Redis.
+    //    the gateway refusing. Neither reaches a model or Redis; the caller decides the answer.
     const promptText = await this.promptTextOf(dto.text, ctx);
-    if (promptText === null) {
+    if (promptText === null) return { kind: "blocked" };
+
+    // 2. MEMORY — pseudonymized at rest, raw while `AI_RAW_PII_ENABLED` is on. The classifier sees
+    //    at most the last two turns; the FULL read (up to MEMORY_TURNS) rides the handler input,
+    //    because the Phase 3 career answer reads up to six and a second Redis hop would buy nothing.
+    return { kind: "ready", promptText, recent: await this.memory.read(workerId) };
+  }
+
+  /**
+   * ADR-0055 R2 — the jobs-word route: steps 0-2, then the brain's `routeJobsWord`. Null (v1's jobs
+   * answer) when the gateway refused the message, when the brain defers, or when it throws — a
+   * jobs message never ends worse than v1 would have answered it.
+   */
+  private async routeJobs(
+    workerId: string,
+    profile: WorkerProfile,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<RoutedTurn | null> {
+    const prepared = await this.prepare(workerId, profile, dto, ctx, now);
+    if (prepared.kind === "lexicon") return this.routed(workerId, ctx, dto, now, prepared.out);
+    if (prepared.kind === "blocked") return null;
+    let decided: BrainTurn | null;
+    try {
+      decided = await this.brain.routeJobsWord(
+        brainInputOf(workerId, profile, dto, ctx, now, prepared.promptText, prepared.recent),
+      );
+    } catch (err) {
+      this.logger.error(
+        `companion brain failed on a jobs message for worker ${workerId}; v1's jobs answer is served (${
+          err instanceof Error ? err.name : "UnknownError"
+        })`,
+      );
+      return null;
+    }
+    if (decided === null) return null;
+    return this.routed(workerId, ctx, dto, now, brainServed(decided, prepared.promptText));
+  }
+
+  private async route(
+    workerId: string,
+    profile: WorkerProfile,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<RoutedTurn> {
+    const prepared = await this.prepare(workerId, profile, dto, ctx, now);
+    if (prepared.kind === "lexicon") return this.routed(workerId, ctx, dto, now, prepared.out);
+    // The gateway refused or was unreachable: the clarify line, as a fail-closed turn.
+    if (prepared.kind === "blocked") {
       return this.routed(workerId, ctx, dto, now, {
         turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
         intentSource: "fallback",
@@ -436,11 +562,7 @@ export class CompanionV2Orchestrator {
         memoryPair: null,
       });
     }
-
-    // 2. MEMORY — pseudonymized at rest, raw while `AI_RAW_PII_ENABLED` is on. The classifier sees
-    //    at most the last two turns; the FULL read (up to MEMORY_TURNS) rides the handler input,
-    //    because the Phase 3 career answer reads up to six and a second Redis hop would buy nothing.
-    const recent = await this.memory.read(workerId);
+    const { promptText, recent } = prepared;
 
     // ADR-0055 — THE FREE-CHAT BRAIN classifies and answers instead of steps 3-4, on the same
     // gateway text and the same memory. The kill switch keeps the v2 steps below, byte for byte.
@@ -533,16 +655,9 @@ export class CompanionV2Orchestrator {
   ): Promise<RoutedTurn> {
     let decided: BrainTurn;
     try {
-      decided = await this.brain.route({
-        workerId,
-        profile,
-        rawText: dto.text,
-        promptText,
-        recentTurns: recent,
-        ctx,
-        now,
-        submissionId: dto.submission_id ?? null,
-      });
+      decided = await this.brain.route(
+        brainInputOf(workerId, profile, dto, ctx, now, promptText, recent),
+      );
     } catch (err) {
       this.logger.error(
         `companion brain failed for worker ${workerId}; the clarify line is served (${
@@ -558,17 +673,7 @@ export class CompanionV2Orchestrator {
         memoryPair: null,
       });
     }
-    return this.routed(workerId, ctx, dto, now, {
-      turn: decided.turn,
-      intentSource: decided.intentSource,
-      v2Intent: decided.v2Intent,
-      confidenceBucket: decided.confidenceBucket,
-      outcome: decided.outcome,
-      memoryPair: decided.remember
-        ? { workerText: clipText(promptText, CLASSIFY_TEXT_MAX), reply: decided.turn.reply }
-        : null,
-      brain: decided.facts,
-    });
+    return this.routed(workerId, ctx, dto, now, brainServed(decided, promptText));
   }
 
   /**
@@ -700,6 +805,46 @@ export class CompanionV2Orchestrator {
       );
     }
   }
+}
+
+/** The brain's input for one message: the gateway's copy, the memory, the turn's ids. */
+function brainInputOf(
+  workerId: string,
+  profile: WorkerProfile,
+  dto: CompanionMessageDto,
+  ctx: RequestContext,
+  now: Date,
+  promptText: string,
+  recent: readonly CompanionRecentTurn[],
+): BrainInput {
+  return {
+    workerId,
+    profile,
+    rawText: dto.text,
+    promptText,
+    recentTurns: recent,
+    ctx,
+    now,
+    submissionId: dto.submission_id ?? null,
+  };
+}
+
+/**
+ * A brain turn as the spine and the memory take it: the pair is stored unless the brain says not to
+ * (trash, distress), and the brain's facts ride the v4 event.
+ */
+function brainServed(decided: BrainTurn, promptText: string): ServedTurn {
+  return {
+    turn: decided.turn,
+    intentSource: decided.intentSource,
+    v2Intent: decided.v2Intent,
+    confidenceBucket: decided.confidenceBucket,
+    outcome: decided.outcome,
+    memoryPair: decided.remember
+      ? { workerText: clipText(promptText, CLASSIFY_TEXT_MAX), reply: decided.turn.reply }
+      : null,
+    brain: decided.facts,
+  };
 }
 
 /** The contracts §4 buckets: lt50 / 50_70 / 70_90 / gte90. */

@@ -38,6 +38,7 @@ import {
   type FreeChatVerdict,
 } from "../../profiling/free-chat/free-chat.router";
 import { FREE_CHAT_COPY, FREE_CHAT_REFUSAL_LINES } from "../../profiling/free-chat/free-chat.copy";
+import { FreeChatSummaryReader } from "../../profiling/free-chat/free-chat-summary.reader";
 import { WorkerNameReader, type WorkerNameSources } from "../../workers/worker-name-sources";
 import type { CompanionTurn } from "../chat-companion.dto";
 import type { CompanionResumeDownload } from "../companion-facts";
@@ -182,6 +183,35 @@ const NEWS_FIXED_OUTCOMES: Readonly<
   capped: "served",
 };
 
+/** A REAL verdict, as the dispatch reads it. */
+type RealVerdict = Extract<FreeChatVerdict, { kind: "verdict" }>;
+
+/**
+ * ADR-0055 R2 (owner ruling 2026-10-15) — does a TYPED JOBS-WORD message go back to v1's jobs
+ * answer? Yes when the brain has nothing better to say than v1 already would: a `jobs` or
+ * `unclear` verdict, or any verdict below the floor — except distress, which bypasses the floor
+ * (R10). (An unavailable classifier defers too; the caller checks it first.) Fail safe: every
+ * doubt is TODAY's job chips.
+ */
+function defersToV1Jobs(verdict: RealVerdict): boolean {
+  if (verdict.category === "distress") return false;
+  return (
+    verdict.category === "jobs" ||
+    verdict.category === "unclear" ||
+    verdict.confidence < FREE_CHAT_MIN_CONFIDENCE
+  );
+}
+
+/** The classifier's facts for a real verdict — the v4 event's `llm` source, bucket and category. */
+function verdictedOf(verdict: RealVerdict, resumeAction: FreeChatResumeAction | null): Verdicted {
+  return {
+    intentSource: "llm",
+    confidenceBucket: confidenceBucketOf(verdict.confidence),
+    freeCategory: verdict.category,
+    resumeAction,
+  };
+}
+
 /** The intent a real verdict is routed on — recorded even below the floor, as v2's is. */
 function intentOf(
   category: FreeChatCategory,
@@ -278,6 +308,11 @@ export function distressTurn(): CompanionTurn {
  *
  * THE WORKER'S OWN NAME is read once per turn (`WorkerNameReader`) and used for ONE thing: to be
  * removed from every classify, reply and news input (see {@link callContextOf}).
+ *
+ * TWO ENTRIES, ONE CLASSIFY (owner rulings 2026-10-15). `route` answers a v1 miss and every weak
+ * alias (R1, R3). `routeJobsWord` answers a TYPED message v1 would give its jobs list (R2): the same
+ * table, except that `jobs`, `unclear`, a verdict below the floor and an unavailable classifier
+ * hand the message back to v1's jobs answer instead of the lines above.
  */
 @Injectable()
 export class CompanionBrain {
@@ -290,9 +325,43 @@ export class CompanionBrain {
     private readonly resumes: CompanionResumeStatus,
     // ADR-0055 — the worker's own name, read ONLY to redact it from the model calls below.
     private readonly names: WorkerNameReader,
+    // ADR-0055 R4 — the profiling chat's rolling summary, READ-ONLY, for the reply alone.
+    private readonly summaries: FreeChatSummaryReader,
   ) {}
 
+  /** A v1 miss (or a weak alias, R1): classified once and answered per category. */
   async route(brainInput: BrainInput): Promise<BrainTurn> {
+    const { input, verdict, resumeAction } = await this.classify(brainInput);
+    if (verdict.kind === "unavailable")
+      return brainTurn(UNAVAILABLE, await this.unclear(input, null));
+    return brainTurn(
+      verdictedOf(verdict, resumeAction),
+      await this.dispatch(input, verdict, resumeAction),
+    );
+  }
+
+  /**
+   * ADR-0055 R2 (owner ruling 2026-10-15) — a TYPED message v1 would answer with its jobs list,
+   * classified FIRST: the same ONE classify call, and the same dispatch for every verdict the brain
+   * can answer better (distress, trash, off_limits, career/casual, a résumé ask). Null when it
+   * cannot ({@link defersToV1Jobs}): the caller serves TODAY's v1 jobs answer and its event, and
+   * this classify call is already on the ledger (`FreeChatModelCalls` records it).
+   */
+  async routeJobsWord(brainInput: BrainInput): Promise<BrainTurn | null> {
+    const { input, verdict, resumeAction } = await this.classify(brainInput);
+    if (verdict.kind === "unavailable" || defersToV1Jobs(verdict)) return null;
+    return brainTurn(
+      verdictedOf(verdict, resumeAction),
+      await this.dispatch(input, verdict, resumeAction),
+    );
+  }
+
+  /** The turn's ONE classifier call, with the worker's own name to redact (read lazily, once). */
+  private async classify(brainInput: BrainInput): Promise<{
+    readonly input: NamedInput;
+    readonly verdict: FreeChatVerdict;
+    readonly resumeAction: FreeChatResumeAction | null;
+  }> {
     const input: NamedInput = { ...brainInput, names: this.names.sourcesFor(brainInput.workerId) };
     const { verdict, resumeAction } = await this.calls.classifyWithAction(
       {
@@ -303,21 +372,13 @@ export class CompanionBrain {
       },
       callContextOf(input, input.names.knownName),
     );
-    if (verdict.kind === "unavailable")
-      return brainTurn(UNAVAILABLE, await this.unclear(input, null));
-    const verdicted: Verdicted = {
-      intentSource: "llm",
-      confidenceBucket: confidenceBucketOf(verdict.confidence),
-      freeCategory: verdict.category,
-      resumeAction,
-    };
-    return brainTurn(verdicted, await this.dispatch(input, verdict, resumeAction));
+    return { input, verdict, resumeAction };
   }
 
   /** A REAL verdict to its answer — the table in the class header. */
   private async dispatch(
     input: NamedInput,
-    verdict: Extract<FreeChatVerdict, { kind: "verdict" }>,
+    verdict: RealVerdict,
     resumeAction: FreeChatResumeAction | null,
   ): Promise<Served> {
     // DISTRESS BYPASSES THE FLOOR (ADR-0051 R10): a helpline offered to a worker who did not need
@@ -389,8 +450,10 @@ export class CompanionBrain {
   /**
    * A CASUAL OR CAREER REPLY — the free chat's reply call and gate, on the companion surface.
    *
-   * The profiling chat's rolling summary is NOT read: it lives on a chat session row, which this
-   * module never reads (ADR-0044). The companion's own memory (the last six turns) is the context.
+   * ADR-0055 R4 — the context is the companion's own memory (the last six turns) AND the profiling
+   * chat's rolling summary, read-only and fail-soft (`FreeChatSummaryReader`). The reply alone reads
+   * it: the classifier never does (ADR-0051 R24), nor does news. The model calls redact the worker's
+   * own name out of it again (`summaryForModel`). The companion never writes or folds it.
    */
   private async reply(
     input: NamedInput,
@@ -407,7 +470,7 @@ export class CompanionBrain {
         text: input.promptText,
         messages: contextLinesOf(input.recentTurns),
         workerContext: workerContextOf(input.profile),
-        summary: null,
+        summary: await this.summaries.latestText(input.workerId),
         replyLanguage: asked.replyLanguage,
       },
       callContextOf(input, input.names.knownName),

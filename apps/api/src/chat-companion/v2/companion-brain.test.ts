@@ -113,6 +113,8 @@ interface Setup {
   reply?: unknown;
   news?: FreeChatNewsResolution;
   download?: CompanionResumeDownload;
+  /** ADR-0055 R4 — what the summary reader returns (null: none, or unreadable). */
+  summary?: string | null;
 }
 
 function setup(opts: Setup = {}) {
@@ -168,14 +170,18 @@ function setup(opts: Setup = {}) {
   const knownName = vi.fn(async () => "Ramesh Yadav");
   const ownName = vi.fn(async () => "Ramesh Yadav");
   const names = { sourcesFor: vi.fn(() => ({ knownName, ownName })) };
+  // ADR-0055 R4 — the profiling chat's rolling summary, read-only (null = none / unreadable).
+  const summaries = { latestText: vi.fn(async (_workerId: string) => opts.summary ?? null) };
   const brain = new CompanionBrain(
     config,
     calls as never,
     registry,
     resumes as never,
     names as never,
+    summaries as never,
   );
   return {
+    summaries,
     brain,
     calls,
     edits,
@@ -623,6 +629,64 @@ describe("resume — the classifier's action decides, the existing flows answer"
       input("resume ke baare mein"),
     );
     expect(keys(building)).toEqual([RESUME_MENU_EDIT_KEY, RESUME_MENU_REDO_KEY]);
+  });
+});
+
+describe("routeJobsWord (ADR-0055 R2) — a typed jobs-word message, ONE classify", () => {
+  it.each<[string, Setup]>([
+    ["jobs", { verdict: verdict("jobs") }],
+    ["unclear", { verdict: verdict("unclear") }],
+    ["below the floor", { verdict: verdict("career", 0.4) }],
+    ["trash below the floor", { verdict: verdict("trash", 0.4) }],
+    ["an unavailable classifier", { verdict: { kind: "unavailable" } }],
+  ])("%s → null (v1's jobs answer), after exactly one classify", async (_why, opts) => {
+    const h = setup(opts);
+    expect(await h.brain.routeJobsWord(input("job chahiye"))).toBeNull();
+    expect(h.calls.classifyWithAction).toHaveBeenCalledTimes(1);
+    expect(h.calls.reply).not.toHaveBeenCalled();
+  });
+
+  it("distress at ANY confidence is the helpline, never deferred", async () => {
+    const h = setup({ verdict: verdict("distress", 0.2) });
+    const out = await h.brain.routeJobsWord(input("job nahi mili, marna hai"));
+    expect(out?.turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(out).toMatchObject({ v2Intent: "distress", remember: false });
+  });
+
+  it("career, trash, off_limits and résumé verdicts get the brain's own answers", async () => {
+    const career = await setup({ verdict: verdict("career") }).brain.routeJobsWord(input("x"));
+    expect(career).toMatchObject({ v2Intent: "career_talk", outcome: "answered" });
+    const trash = await setup({ verdict: verdict("trash") }).brain.routeJobsWord(input("x"));
+    expect(trash).toMatchObject({ v2Intent: "faltu", remember: false });
+    const off = await setup({ verdict: verdict("off_limits") }).brain.routeJobsWord(input("x"));
+    expect(off?.turn.reply).toBe(FREE_CHAT_COPY.OFF_LIMITS.latin);
+    const resume = await setup({
+      verdict: verdict("resume"),
+      resumeAction: "download",
+    }).brain.routeJobsWord(input("x"));
+    expect(resume).toMatchObject({ v2Intent: "download_resume" });
+  });
+});
+
+describe("the rolling summary (ADR-0055 R4) — the reply's alone", () => {
+  it("is read for the reply and handed to it; the classifier's request has no summary", async () => {
+    const h = setup({ verdict: verdict("career"), summary: "- Welder, 5 saal" });
+    await h.brain.route(input("salary kitni hai"));
+    expect(h.summaries.latestText).toHaveBeenCalledWith(WORKER);
+    expect(h.calls.reply.mock.calls[0]![0]).toMatchObject({ summary: "- Welder, 5 saal" });
+    expect("summary" in (h.calls.classifyWithAction.mock.calls[0]![0] as object)).toBe(false);
+  });
+
+  it("a missing or unreadable summary (the reader's null) is a reply with summary null", async () => {
+    const h = setup({ verdict: verdict("casual"), summary: null });
+    await h.brain.route(input("kaise ho"));
+    expect(h.calls.reply.mock.calls[0]![0]).toMatchObject({ summary: null });
+  });
+
+  it("no other answer reads it — not news, not a fixed line", async () => {
+    const h = setup({ verdict: verdict("jobs") });
+    await h.brain.route(input("x"));
+    expect(h.summaries.latestText).not.toHaveBeenCalled();
   });
 });
 

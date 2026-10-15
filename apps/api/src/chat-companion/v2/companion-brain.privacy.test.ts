@@ -168,6 +168,8 @@ function setup(opts: Setup) {
     registry,
     { downloadOf: vi.fn(async () => "ready") } as never,
     reader,
+    // ADR-0055 R4 — no rolling summary on file.
+    { latestText: vi.fn(async () => null) } as never,
   );
   const route = vi.spyOn(brain, "route");
   const orchestrator = new CompanionV2Orchestrator(

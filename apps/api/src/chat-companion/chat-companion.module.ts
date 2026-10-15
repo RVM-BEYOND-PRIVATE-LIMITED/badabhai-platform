@@ -20,6 +20,7 @@ import { ResumeImportRepository } from "../profiling/resume-import/resume-import
 import { ResumeSuggestionReader } from "../profiling/resume-import/resume-suggestion-reader";
 import { FreeChatModelCalls } from "../profiling/free-chat/free-chat-model-calls";
 import { FreeChatNewsCap } from "../profiling/free-chat/free-chat-news-cap.store";
+import { FreeChatSummaryReader } from "../profiling/free-chat/free-chat-summary.reader";
 import { WorkerNameReader } from "../workers/worker-name-sources";
 import { ChatCompanionController } from "./chat-companion.controller";
 import { CompanionResumeStatus } from "./companion-resume-status";
@@ -89,6 +90,11 @@ import {
  * name is never shown, logged, evented or stored here. The reader lives under `workers/`, so no file
  * in this module imports the crypto service (the egress guard still holds); its dependencies are
  * @Global (`WorkersModule`, `CryptoModule`): one provider, and no module edge.
+ *
+ * ADR-0055 R4 — THE ONE READ OF A CHAT TABLE. `FreeChatSummaryReader` runs one SELECT on
+ * `chat_sessions` (the profiling chat's rolling summary, read-only, for the brain's reply) on the
+ * @Global database handle. It shares its query with `ChatRepository` through a leaf file and never
+ * touches that class, so no chat-table WRITER is reachable from here: one provider, no module edge.
  */
 @Module({
   imports: [
@@ -142,6 +148,9 @@ import {
     CompanionResumeStatus,
     // ADR-0055 — the worker's own name, read only to redact it from the brain's model inputs.
     WorkerNameReader,
+    // ADR-0055 R4 — the profiling chat's rolling summary, READ-ONLY, for the brain's reply alone:
+    // one SELECT on the @Global database handle, no ChatRepository, so no chat-table writer.
+    FreeChatSummaryReader,
     // ADR-0046 T7 — the edit path and the section writers it applies through (see the module
     // docblock for why they are provisioned here rather than imported).
     CompanionEditService,

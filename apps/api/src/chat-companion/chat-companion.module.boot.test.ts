@@ -75,6 +75,8 @@ describe("ChatCompanionModule wiring", () => {
       // to `ChatRepository`, which `FreeChatService` writes through).
       "FreeChatModelCalls",
       "FreeChatNewsCap",
+      // ADR-0055 R4 — the rolling summary, read-only (one SELECT, no ChatRepository).
+      "FreeChatSummaryReader",
       "JobsDeferredHandler",
       // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
       "NewResumeHandler",
@@ -151,6 +153,19 @@ describe("ChatCompanionModule wiring", () => {
     const providers = getMeta("providers", ChatCompanionModule).map((p) => (p as { name: string }).name);
     expect(providers).not.toContain("FreeChatService");
     expect(providers).not.toContain("ChatRepository");
+  });
+
+  it("ADR-0055 R4 — the summary reader reads one query and reaches no chat writer", () => {
+    // The reader runs the ONE shared SELECT (`selectLatestFreeChatSummary`) on the @Global database
+    // handle: no ChatRepository (whose writers it would otherwise carry), no write of any kind.
+    const reader = readFileSync(
+      join(__dirname, "../profiling/free-chat/free-chat-summary.reader.ts"),
+      "utf8",
+    );
+    expect(reader).toContain("selectLatestFreeChatSummary");
+    expect(reader).not.toMatch(/chat\.repository|\.insert\(|\.update\(|\.delete\(|merge[A-Z]/);
+    const query = readFileSync(join(__dirname, "../chat/free-chat-summary.query.ts"), "utf8");
+    expect(query).not.toMatch(/\.insert\(|\.update\(|\.delete\(|from "\.\/chat\.repository"/);
   });
 
   it("ADR-0055 — its one read of the workers row is the name reader: full_name alone, via @Global crypto", () => {
