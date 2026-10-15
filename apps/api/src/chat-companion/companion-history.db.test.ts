@@ -183,6 +183,22 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
     expect(read.value[0]).toMatchObject({ role: "bada_bhai", tts_text: V2_CLARIFY.dev });
   });
 
+  it("concurrent opens store ONE recap (the per-worker advisory lock)", async () => {
+    const recap = {
+      workerId: worker,
+      role: "bada_bhai" as const,
+      bodyText: "recap",
+      createdAt: ago(1_000),
+    };
+    const wrote = await Promise.all(
+      Array.from({ length: 8 }, () => repo.appendIfNoneSince(recap, ago(7 * DAY_MS))),
+    );
+    expect(wrote.filter(Boolean)).toHaveLength(1);
+    const [{ n } = { n: -1 }] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM companion_messages WHERE worker_id = ${worker}::uuid`;
+    expect(n).toBe(1);
+  });
+
   it("model lines: only `model_context` rows, the newest N, oldest first", async () => {
     await line(worker, ago(50_000), { text: "a", modelContext: true });
     await line(worker, ago(40_000), { text: "distress", modelContext: false });
