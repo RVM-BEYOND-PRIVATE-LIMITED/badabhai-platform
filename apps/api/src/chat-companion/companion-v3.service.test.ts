@@ -103,6 +103,38 @@ describe("the distress word list runs BEFORE the v1 resolver (and the cool-down)
   });
 });
 
+describe("a bare greeting (#2287) — after the chips, distress and the cool-down", () => {
+  it("is answered by the greeting route on the brain", async () => {
+    const h = makeCompanionServiceForV2(BRAIN);
+    await message(h, "Namaste ji");
+    expect(h.v2.handleGreeting).toHaveBeenCalledWith(
+      WORKER,
+      { text: "Namaste ji", submission_id: SUBMISSION },
+      CTX,
+      NOW,
+    );
+    expect(h.v2.handleMessage).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("during a faltu cool-down it gets the cool-down line, not the greeting", async () => {
+    const h = makeCompanionServiceForV2({
+      ...BRAIN,
+      faltu: true,
+      cooling: "2026-09-26T10:30:00.000Z",
+    });
+    await message(h, "hello");
+    expect(h.v2.handleCooldown).toHaveBeenCalledTimes(1);
+    expect(h.v2.handleGreeting).not.toHaveBeenCalled();
+  });
+
+  it("KILL SWITCH ON: never the greeting route", async () => {
+    const h = makeCompanionServiceForV2(KILL_SWITCH);
+    await message(h, "hello");
+    expect(h.v2.handleGreeting).not.toHaveBeenCalled();
+  });
+});
+
 describe("the redo menu offers the form road on the brain", () => {
   it("'Apna resume dobara banayein' → upload · form · chat", async () => {
     const h = makeCompanionServiceForV2(BRAIN);

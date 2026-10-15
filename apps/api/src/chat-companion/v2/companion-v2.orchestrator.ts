@@ -22,6 +22,7 @@ import {
   V2_CLARIFY,
   V2_EDIT_ASK,
   V2_IN_FLIGHT,
+  V3_GREETING,
   type CopyPair,
 } from "../companion-replies";
 // VALUE import: a constructor parameter (Nest resolves it by its class token).
@@ -186,6 +187,32 @@ export class CompanionV2Orchestrator {
       turn: distressTurn(),
       intentSource: "lexicon",
       v2Intent: "distress",
+      confidenceBucket: null,
+      outcome: "served",
+      memoryPair: null,
+    });
+  }
+
+  /**
+   * #2287 (owner ruling 2026-10-15) — A BARE GREETING on the brain (the service's
+   * `isBareGreeting`): the fixed `V3_GREETING` line with the task chips the clarify line carries,
+   * and the v4 event as a deterministic route (`intent_source: "v1_deterministic"`, `v2_intent:
+   * "casual"`). No gateway, no model, no memory.
+   *
+   * REPLAY-SAFE BY DETERMINISM, so it needs no replay shell: a resent submission is answered with
+   * the same fixed turn (nothing here varies, counts or is stored), and the event is keyed on the
+   * submission id, so the spine keeps one row for it.
+   */
+  async handleGreeting(
+    workerId: string,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<CompanionTurn> {
+    return this.finish(workerId, ctx, dto, now, {
+      turn: v2CopyTurn(V3_GREETING, taskChips(this.config)),
+      intentSource: "v1_deterministic",
+      v2Intent: "casual",
       confidenceBucket: null,
       outcome: "served",
       memoryPair: null,
