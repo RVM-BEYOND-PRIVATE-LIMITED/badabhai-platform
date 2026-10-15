@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { AICallMetadataSchema, languageCode } from "./common";
 import { JOB_DOMAIN_MATCH_STATUSES } from "./occupation";
+import { ProfilingSchemaRowSchema } from "./profiling-understand";
 
 // Occupation Intelligence Engine (OIE) — the deterministic-profiling contracts.
 //
@@ -565,7 +566,7 @@ export type InputMode = (typeof INPUT_MODES)[number];
  * than defaulted, so a classic request body is byte-identical to today's. NAMED `skills_only`,
  * not `skills`, so a trace never confuses the mode with the `skills` STAGE value.
  */
-export const LLM_INTERVIEW_MODES = ["classic", "skills_only"] as const;
+export const LLM_INTERVIEW_MODES = ["classic", "skills_only", "bridge"] as const;
 export type LlmInterviewMode = (typeof LLM_INTERVIEW_MODES)[number];
 
 /** What the model has gathered so far. Sent back each turn so the call stays stateless. */
@@ -576,6 +577,25 @@ export const LlmInterviewDraftSchema = z.object({
   experiences: z.array(ExperienceEntrySchema).default([]),
 });
 export type LlmInterviewDraft = z.infer<typeof LlmInterviewDraftSchema>;
+
+/**
+ * Why a `bridge` line is being written (ADR-0057, #2310): `filled` acknowledges what the worker
+ * just told, `chat` answers their side message, `progress` says how much is left.
+ */
+export const LLM_BRIDGE_REASONS = ["filled", "chat", "progress"] as const;
+export type LlmBridgeReason = (typeof LLM_BRIDGE_REASONS)[number];
+
+/**
+ * What a `bridge` line leads from and into. `filled` names what was just noted ("label: value"
+ * lines); `next_question` is the pack question the API appends VERBATIM after the line, so the
+ * line can lead into it without repeating it.
+ */
+export const LlmBridgeContextSchema = z.object({
+  reason: z.enum(LLM_BRIDGE_REASONS),
+  filled: z.array(z.string().min(1).max(200)).max(20).default([]),
+  next_question: z.string().min(1).max(500).nullable().default(null),
+});
+export type LlmBridgeContext = z.infer<typeof LlmBridgeContextSchema>;
 
 export const LlmTurnInputSchema = z.object({
   schema_version: z.literal("oie.v1").default("oie.v1"),
@@ -604,6 +624,18 @@ export const LlmTurnInputSchema = z.object({
    * decides), and `experience_entry` is ignored.
    */
   interview_mode: z.enum(LLM_INTERVIEW_MODES).optional(),
+  /**
+   * ADR-0057 (#2310): the session's profiling schema, so the model never asks for a field that is
+   * already filled. Optional, so a request without it is byte-identical to today's.
+   */
+  schema_rows: z.array(ProfilingSchemaRowSchema).max(64).optional(),
+  /**
+   * ADR-0057 (#2310): the questions the engine can still serve — the only number a progress line
+   * may name. Absent when there is no honest count.
+   */
+  remaining_questions: z.number().int().nonnegative().optional(),
+  /** ADR-0057 (#2310): required in `bridge` mode, ignored otherwise. */
+  bridge: LlmBridgeContextSchema.optional(),
 });
 export type LlmTurnInput = z.infer<typeof LlmTurnInputSchema>;
 

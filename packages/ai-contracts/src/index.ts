@@ -203,6 +203,7 @@ export {
   ProfileParseOutputSchema,
   ExperienceEntrySchema,
   LlmInterviewDraftSchema,
+  LlmBridgeContextSchema,
   LlmTurnInputSchema,
   LlmTurnOutputSchema,
   InterviewExtractInputSchema,
@@ -211,6 +212,7 @@ export {
   WorkHistoryPolishOutputSchema,
   LLM_INTERVIEW_STAGES,
   LLM_INTERVIEW_MODES,
+  LLM_BRIDGE_REASONS,
   INPUT_MODES,
 } from "./oie";
 export type {
@@ -218,6 +220,8 @@ export type {
   ExperienceEntry,
   LlmInterviewStage,
   LlmInterviewMode,
+  LlmBridgeReason,
+  LlmBridgeContext,
   InputMode,
   LlmInterviewDraft,
   LlmTurnInput,
