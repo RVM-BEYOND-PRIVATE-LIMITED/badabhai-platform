@@ -33,6 +33,7 @@ import { EmployersModule } from "../employers/employers.module";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
 import { CompanionConversationMemory } from "./v2/companion-conversation-memory";
 import { CompanionSummaryService } from "./v2/companion-summary.service";
+import { CompanionResumeFacts } from "./v2/companion-resume-facts";
 import { CompanionHistoryRepository } from "./companion-history.repository";
 import { CompanionHistoryService } from "./companion-history.service";
 import { CompanionHistorySweepProcessor } from "./companion-history-sweep.processor";
@@ -173,6 +174,7 @@ import {
     CompanionHistoryService,
     CompanionConversationMemory,
     CompanionSummaryService,
+    CompanionResumeFacts,
     FreeChatFoldLock,
     CompanionHistorySweepProcessor,
     // ADR-0046 T7 — the edit path and the section writers it applies through (see the module

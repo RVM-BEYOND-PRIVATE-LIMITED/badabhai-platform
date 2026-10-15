@@ -2247,6 +2247,10 @@ class FreeChatReplyInput(BaseModel):
     reply_language: FreeChatReplyLanguage | None = None
     # ADR-0055: `companion`, the worker's résumé is already made. Additive and defaulted.
     surface: FreeChatSurface = "profiling"
+    # #2304: what the worker's résumé says (the edit snapshot's rows), companion surface only, so a
+    # question about their own résumé is answered from it. Stored values: the route masks them like
+    # the edit snapshot before the model. Additive and defaulted; ignored on the profiling surface.
+    resume_facts: list[CompanionEditSnapshotRow] | None = Field(default=None, max_length=40)
 
 
 class FreeChatAnswer(BaseModel):

@@ -1102,6 +1102,8 @@ export class FreeChatTurns {
             .then(() => t.fc.summary?.() ?? null)
             .catch(() => null),
           replyLanguage,
+          // #2304 — the résumé block is the Bada Bhai chat's: here the résumé is not made yet.
+          resumeFacts: null,
         },
         callCtxOf(t.input),
       ))();

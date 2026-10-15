@@ -167,6 +167,8 @@ function setup(opts: { killSwitch?: boolean; freeClassify?: unknown; reply?: unk
     { sourcesFor: () => ({ knownName: async () => null, ownName: async () => null }) } as never,
     // ADR-0055 R4 — no rolling summary on file.
     { latestText: vi.fn(async () => null) } as never,
+    // #2304 — no résumé facts read.
+    { factsFor: vi.fn(async () => null) } as never,
   );
   const route = vi.spyOn(brain, "route");
   const orchestrator = new CompanionV2Orchestrator(

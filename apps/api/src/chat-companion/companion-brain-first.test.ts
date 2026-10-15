@@ -260,6 +260,8 @@ function setup(
     new CompanionResumeStatus(config, resumes as never),
     { sourcesFor: () => ({ knownName: async () => null, ownName: async () => null }) } as never,
     summaries as never,
+    // #2304 — no résumé facts read.
+    { factsFor: vi.fn(async () => null) } as never,
   );
   const orchestrator = new CompanionV2Orchestrator(
     config,

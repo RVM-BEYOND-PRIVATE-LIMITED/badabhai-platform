@@ -1,0 +1,10 @@
+free-chat reply eval, companion surface: 53 cases x 10 repeats = 530 replies
+  answer 450, refuse 80
+  refused on: distress 10, legal_medical_financial 20, news 20, off_limits 28, unsafe_other 2
+  résumé-grounded (#2304): 60 of 60 answers on the mention cases name a value they expect
+calls: 530 sent, 530 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 208.96 (router estimate)
+models: claude-haiku-4-5 (530); 0 served by a fallback model
+latency, round trip to the ai-service: p50 2446 ms, p95 3275 ms; model call only: p50 2406 ms, p95 3233 ms (excludes the API hop and validator, and a career turn's classify call)
+the served rate is the API gate's: replay the dump with free-chat-reply-served.js (apps/api)
+wrote 530 replies to C:\bb2304\docs\qa\evidence\free-chat\companion-surface\2026-10-15-2304\reply-revision.json
+RESULT: PASS

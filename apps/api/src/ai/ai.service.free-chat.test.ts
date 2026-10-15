@@ -129,6 +129,7 @@ describe("freeChatClassify / freeChatReply", () => {
       summary: null,
       reply_language: null,
       surface: "profiling" as const,
+      resume_facts: null,
     };
     expect(await ai.freeChatReply(input)).toMatchObject({
       status: "answer",
@@ -163,6 +164,7 @@ describe("freeChatClassify / freeChatReply", () => {
         summary: null,
         reply_language: null,
         surface: "profiling" as const,
+        resume_facts: null,
       }),
     ).toBeNull();
   });
@@ -197,6 +199,7 @@ describe("freeChatClassify / freeChatReply", () => {
         summary: null,
         reply_language: null,
         surface: "profiling" as const,
+        resume_facts: null,
       });
       await vi.advanceTimersByTimeAsync(2_400);
       expect(signals[0]?.aborted).toBe(false);

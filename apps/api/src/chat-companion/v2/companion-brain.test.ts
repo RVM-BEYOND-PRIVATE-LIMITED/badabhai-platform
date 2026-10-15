@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
+import type { CompanionEditSnapshotRow } from "@badabhai/ai-contracts";
 import type { ServerConfig } from "@badabhai/config";
 import type { FreeChatResumeAction } from "@badabhai/types";
 import {
@@ -117,6 +118,8 @@ interface Setup {
   download?: CompanionResumeDownload;
   /** ADR-0055 R4 — what the summary reader returns (null: none, or unreadable). */
   summary?: string | null;
+  /** #2304 — what the résumé-facts reader returns (null: none, or unreadable). */
+  resumeFacts?: CompanionEditSnapshotRow[] | null;
 }
 
 function setup(opts: Setup = {}) {
@@ -174,6 +177,12 @@ function setup(opts: Setup = {}) {
   const names = { sourcesFor: vi.fn(() => ({ knownName, ownName })) };
   // ADR-0055 R4 — the profiling chat's rolling summary, read-only (null = none / unreadable).
   const summaries = { latestText: vi.fn(async (_workerId: string) => opts.summary ?? null) };
+  // #2304 — what the résumé says, read for the reply alone (null = none / unreadable).
+  const resumeFacts = {
+    factsFor: vi.fn(
+      async (_workerId: string, _profile: unknown, _text: string) => opts.resumeFacts ?? null,
+    ),
+  };
   const brain = new CompanionBrain(
     config,
     calls as never,
@@ -181,9 +190,11 @@ function setup(opts: Setup = {}) {
     resumes as never,
     names as never,
     summaries as never,
+    resumeFacts as never,
   );
   return {
     summaries,
+    resumeFacts,
     brain,
     calls,
     edits,
@@ -446,6 +457,7 @@ describe("career / casual — the free chat's reply and gate", () => {
       workerContext: { trade_label: null, experience_bucket: "3-7" },
       summary: null,
       replyLanguage: "hinglish",
+      resumeFacts: null,
     });
     expect(ctx).toMatchObject({ sessionId: null, surface: "companion" });
   });
@@ -725,6 +737,47 @@ describe("the rolling summary (ADR-0055 R4) — the reply's alone", () => {
     const h = setup({ verdict: verdict("jobs") });
     await h.brain.route(input("x"));
     expect(h.summaries.latestText).not.toHaveBeenCalled();
+  });
+});
+
+describe("what the résumé says (#2304) — the reply's alone", () => {
+  const FACTS: CompanionEditSnapshotRow[] = [
+    { ref: "pref", section: "preferences", fields: { expected_salary: "25000" } },
+  ];
+
+  it("is read for a career or casual reply, with the message, and handed to it", async () => {
+    for (const category of ["career", "casual"] as const) {
+      const h = setup({ verdict: verdict(category), resumeFacts: FACTS });
+      await h.brain.route(input("meri salary kitni hai", { promptText: "meri salary kitni hai" }));
+      expect(h.resumeFacts.factsFor).toHaveBeenCalledWith(
+        WORKER,
+        expect.anything(),
+        "meri salary kitni hai",
+      );
+      expect(h.calls.reply.mock.calls[0]![0]).toMatchObject({ resumeFacts: FACTS });
+      // The classifier's request carries no résumé: it routes on the message alone.
+      expect("resumeFacts" in (h.calls.classifyWithAction.mock.calls[0]![0] as object)).toBe(false);
+    }
+  });
+
+  it("an unreadable résumé (the reader's null) is a reply with no facts, never a lost reply", async () => {
+    const h = setup({ verdict: verdict("career"), resumeFacts: null });
+    const out = await h.brain.route(input("meri salary kitni hai"));
+    expect(h.calls.reply.mock.calls[0]![0]).toMatchObject({ resumeFacts: null });
+    expect(out.turn.reply).toBe("Theek hai.");
+  });
+
+  it("no other answer reads it — not a résumé ask, not jobs, not a fixed line", async () => {
+    for (const setupOpts of [
+      { verdict: verdict("jobs") },
+      { verdict: verdict("resume"), resumeAction: "edit" as const },
+      { verdict: verdict("off_limits") },
+      { verdict: verdict("distress") },
+    ]) {
+      const h = setup(setupOpts);
+      await h.brain.route(input("x"));
+      expect(h.resumeFacts.factsFor).not.toHaveBeenCalled();
+    }
   });
 });
 

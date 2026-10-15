@@ -148,11 +148,37 @@ def print_report(run: ReplyRun) -> None:
     print("  " + ", ".join(f"{status} {n}" for status, n in sorted(statuses.items())))
     if topics:
         print("  refused on: " + ", ".join(f"{t} {n}" for t, n in sorted(topics.items())))
+    grounded = grounded_counts(run)
+    if grounded is not None:
+        print(
+            f"  résumé-grounded (#2304): {grounded[0]} of {grounded[1]} answers on the "
+            f"mention cases name a value they expect"
+        )
     _print_calls(run.calls, None)
     print(
         "the served rate is the API gate's: replay the dump with "
         "free-chat-reply-served.js (apps/api)"
     )
+
+
+def grounded_counts(run: ReplyRun) -> tuple[int, int] | None:
+    """#2304: (grounded, total) over the samples of the cases that name ``mentions``, or None when
+    the set has none. An answer is GROUNDED when its lines name at least one expected value,
+    case-folded with commas dropped ("₹25,000" names "25000"). A refusal or no answer is a miss.
+    Counts only: the CLI never prints a reply."""
+    samples = [s for s in run.samples if getattr(s.case, "mentions", ())]
+    if not samples:
+        return None
+    hits = 0
+    for sample in samples:
+        body = sample.body
+        lines = body.get("lines") if body is not None and body.get("status") == "answer" else None
+        if not isinstance(lines, list):
+            continue
+        text = " ".join(str(line) for line in lines).casefold().replace(",", "")
+        if any(value.casefold() in text for value in sample.case.mentions):
+            hits += 1
+    return hits, len(samples)
 
 
 def _reply_fields(body: dict | None) -> dict | None:

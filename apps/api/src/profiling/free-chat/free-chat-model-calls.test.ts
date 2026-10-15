@@ -115,6 +115,7 @@ describe("FreeChatModelCalls — the Bada Bhai chat's surface (ADR-0055)", () =>
         workerContext: { trade_label: null, experience_bucket: null },
         summary: null,
         replyLanguage: "hinglish",
+        resumeFacts: null,
       },
       ctx,
     );

@@ -287,6 +287,7 @@ export type {
 // apps/ai-service/app/contracts.py and pinned by __fixtures__/free-chat.keys.json.
 export {
   FREE_CHAT_CLASSIFY_MODES,
+  FREE_CHAT_RESUME_FACTS_MAX,
   FreeChatClassifyInputSchema,
   FreeChatClassifyOutputSchema,
   FreeChatReplyInputSchema,

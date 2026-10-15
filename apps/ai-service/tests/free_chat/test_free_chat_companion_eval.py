@@ -57,6 +57,8 @@ _MODEL = "claude-haiku-4-5"
 
 #: The companion's copy file: every fixed bot line a case follows is quoted from it.
 _COMPANION_COPY = _REPO / "apps" / "api" / "src" / "chat-companion" / "companion-replies.ts"
+#: #2304: the résumé menu's copy (the edit section menu line a "no" may follow).
+_RESUME_MENU = _REPO / "apps" / "api" / "src" / "chat" / "resume-menu.ts"
 #: A jobs word inside a message (§9 R2 classifies these typed messages first).
 _JOBS_WORD = re.compile(r"\b(?:job|jobs|naukri|kaam|vacancy)\b", re.IGNORECASE)
 #: The regional languages and their scripts (Marathi shares Devanagari with Hindi).
@@ -73,6 +75,12 @@ _REGIONAL = ("marathi", "gujarati", "kannada", "telugu", "tamil")
 
 def _served_copy() -> set[str]:
     return set(re.findall(r'latin:\s*"([^"]+)"', _COMPANION_COPY.read_text(encoding="utf-8")))
+
+
+def _menu_copy() -> set[str]:
+    """The résumé menu's lines, verbatim (`RESUME_MENU_* = "..."` in the API's resume-menu.ts)."""
+    text = _RESUME_MENU.read_text(encoding="utf-8")
+    return set(re.findall(r'RESUME_MENU_\w+ =\s*"([^"]+)"', text))
 
 
 def _scripts(text: str) -> set[str]:
@@ -101,8 +109,9 @@ def test_the_labels_are_the_contracts_closed_sets() -> None:
             assert case.resume_action is None, case.text
 
 
-def test_the_set_is_about_sixty_lines_and_covers_every_category_and_action() -> None:
-    assert 55 <= len(gold.CASES) <= 75
+def test_the_set_is_about_eighty_lines_and_covers_every_category_and_action() -> None:
+    # 71 at #2287 round 2, + 14 held-out lines for #2304.
+    assert 80 <= len(gold.CASES) <= 90
     counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(profiling_gold.CATEGORIES)
     for category in profiling_gold.CATEGORIES:
@@ -132,10 +141,22 @@ def test_the_issues_named_lines_carry_their_labels() -> None:
     assert labels["namaste"] == ("casual", None)
 
 
-def test_a_new_detail_about_their_work_is_an_edit() -> None:
-    """ADR-0055: on this screen the résumé exists, so telling a new skill is changing it."""
+def test_telling_about_their_work_is_talk_and_an_ask_with_a_detail_is_an_edit() -> None:
+    """#2304 (owner rulings 2026-10-15): telling a new skill or their pay is NOT a résumé edit —
+    the reply answers it; ADR-0055's round-2 label said edit, and #2296 served the edit menu for
+    it. Asking what the résumé says is talk too. An ASK to put the detail on the résumé is still
+    an edit, a jobs ask beside a statement is still jobs, and a "no" after the menu is talk."""
     labels = {case.text: (case.category, case.resume_action) for case in gold.CASES}
-    assert labels["maine forklift chalana bhi seekh liya hai"] == ("resume", "edit")
+    assert labels["maine forklift chalana bhi seekh liya hai"] == ("career", None)
+    assert labels["abhi main fitter hoon, 19 hazaar milte hain"] == ("career", None)
+    assert labels["meri pagar kitni hai"] == ("career", None)
+    assert labels["mere resume mein kaun kaun si skills likhi hain"] == ("career", None)
+    assert labels["ab 26 hazaar milta hai, resume mein update kar do"] == ("resume", "edit")
+    assert labels["forklift bhi seekh liya hai, isko resume mein daal do"] == ("resume", "edit")
+    assert labels["CNC turner hoon, mere liye koi job hai kya"] == ("jobs", None)
+    (no,) = [case for case in gold.CASES if case.text == "nahi, resume theek hai"]
+    assert (no.category, no.resume_action) == ("casual", None)
+    assert no.turns[-1] == (gold.BOT, gold.EDIT_MENU_LINE)
 
 
 def test_jobs_word_lines_that_are_really_career_or_distress_are_measured() -> None:
@@ -208,7 +229,9 @@ def test_the_bot_turns_are_the_companions_copy_or_a_career_answer() -> None:
     ):
         assert line in served, line
     bot_lines = {text for case in gold.CASES for role, text in case.turns if role == gold.BOT}
-    assert bot_lines <= served | {gold.VMC_ANSWER}
+    # #2304: the edit section menu's line is the résumé menu's own copy, verbatim.
+    assert gold.EDIT_MENU_LINE in _menu_copy()
+    assert bot_lines <= served | _menu_copy() | {gold.VMC_ANSWER}
     assert {
         gold.V3_JOBS_LINE,
         gold.V3_DOWNLOAD_READY_LINE,
@@ -492,7 +515,8 @@ def test_every_reply_case_is_a_valid_companion_request() -> None:
 
 
 def test_the_reply_set_covers_the_groups_the_companion_answers() -> None:
-    assert 35 <= len(reply_gold.CASES) <= 45
+    # 44 at #2287 round 2, + 9 résumé cases for #2304.
+    assert 50 <= len(reply_gold.CASES) <= 56
     groups = Counter(case.group for case in reply_gold.CASES)
     assert groups["career"] >= 15 and groups["casual"] >= 8 and groups["identity"] >= 2
     # The refusals R31 guards: the reply's own layer keeps each of them on this screen too.

@@ -761,8 +761,12 @@ export class CompanionEditService {
 
   // ── state ─────────────────────────────────────────────────────────────────────────────────
 
-  /** Every section's current values, each read on its own; a failed read leaves it `undefined`. */
-  private async readState(workerId: string, profile: WorkerProfile): Promise<EditState> {
+  /**
+   * Every section's current values, each read on its own; a failed read leaves it `undefined`.
+   * Public for #2304: the Bada Bhai chat's reply reads what the résumé says through this same
+   * view (`CompanionResumeFacts`), so "what the résumé holds" has one definition. Never writes.
+   */
+  async readState(workerId: string, profile: WorkerProfile): Promise<EditState> {
     const [employment, languages, qualifications, occupations, preferences] = await Promise.all([
       this.settle("employment", workerId, () => this.employment.getForWorker(workerId)),
       this.settle("languages", workerId, () => this.languages.getForWorker(workerId)),
