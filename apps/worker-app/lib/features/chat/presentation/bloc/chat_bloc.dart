@@ -2127,6 +2127,34 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _analytics(BbAnalytics.companionOpened());
     _companionDigestKey = opening.digestKey;
     _companionReadAt = _clock();
+    final CompanionHistory? history = result.history;
+    if (history != null && history.messages.isNotEmpty) {
+      // #2298 — a conversation from the last 7 days is drawn INSTEAD of the
+      // recap (owner ruling): the old chat, no new recap bubble. Its chips are
+      // its last Bada Bhai message's.
+      emit(
+        _withCompanionTurn(
+          state.copyWith(
+            initializing: false,
+            sessionFailed: false,
+            companion: true,
+            companionUnreachable: false,
+            clearSessionEndedAfterIndex: true,
+            messages: <ChatMessage>[
+              ...history.messages,
+              ...state.messages.skip(1),
+            ],
+            followups: history.followups,
+            suggestedOptions: history.suggestedOptions,
+            questionKind: opening.questionKind,
+            inputMode: ChatInputMode.text,
+            clearAnswerType: true,
+          ),
+          opening,
+        ),
+      );
+      return;
+    }
     // The recap REPLACES the canned interview question in bubble 0: a finished
     // worker is not asked "aap kaun sa kaam karte hain?". Rebuilt from `state`
     // at emit time (#344), though the composer is not shown while initializing.
@@ -2270,8 +2298,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (!_companionReadDue(force: event.force)) return;
     final List<ChatMessage> before = state.messages;
     ChatTurn? recap;
+    CompanionHistory? history;
     try {
-      recap = (await _repo.openCompanion()).turn;
+      final CompanionOpening opening = await _repo.openCompanion();
+      recap = opening.turn;
+      history = opening.history;
     } catch (_) {
       recap = null;
     }
@@ -2295,23 +2326,30 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // A FRESH state, not a copy: the interview's latches (the ready CTA, the
     // progress bar, the trade label) belong to the interview, and the recap
     // stands alone, as it does when the tab opens on it (ADR-0044 R4).
+    // #2298 — a conversation from the last 7 days is drawn instead of the
+    // recap, exactly as when the tab opens on it.
+    final bool drawHistory = history != null && history.messages.isNotEmpty;
     emit(
       _withCompanionTurn(
         ChatState(
-          messages: <ChatMessage>[
-            ChatMessage(
-              text: recap.reply,
-              fromWorker: false,
-              ttsText: recap.ttsText,
-              canReadAloud: recap.readAloud != false,
-              // Reviewed server-composed lines → bullets; a model-written turn
-              // (`read_aloud: false`) stays verbatim prose.
-              bulleted: recap.readAloud != false,
-            ),
-          ],
+          messages: drawHistory
+              ? history.messages
+              : <ChatMessage>[
+                  ChatMessage(
+                    text: recap.reply,
+                    fromWorker: false,
+                    ttsText: recap.ttsText,
+                    canReadAloud: recap.readAloud != false,
+                    // Reviewed server-composed lines → bullets; a model-written
+                    // turn (`read_aloud: false`) stays verbatim prose.
+                    bulleted: recap.readAloud != false,
+                  ),
+                ],
           initializing: false,
-          followups: recap.followups,
-          suggestedOptions: recap.suggestedOptions,
+          followups: drawHistory ? history.followups : recap.followups,
+          suggestedOptions: drawHistory
+              ? history.suggestedOptions
+              : recap.suggestedOptions,
           questionKind: recap.questionKind,
           companion: true,
           // The "Resume download" tile is the TAB's, not the interview's: the
