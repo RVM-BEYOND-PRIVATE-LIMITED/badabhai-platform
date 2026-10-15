@@ -319,10 +319,14 @@ def test_the_companion_classifier_says_the_resume_is_made_and_what_resume_means(
     for rule in (
         'the user message gives "mode: companion" and the message:',
         "in companion mode the worker's resume is already made and their profile is confirmed.",
-        "there, resume means anything about their own resume or profile: changing, adding or "
+        "there, resume means only their own resume or profile: changing, adding or "
         "removing something in it (including telling a new detail about their own work, skill, "
         "language, city or salary), making a new resume, or getting the resume file.",
-        "asking to see jobs, openings or their applications in the app is jobs.",
+        # #2287 round 2, fixes 5, 4 and 2 of the #2285 eval.
+        "asking which certificate, course or skill is good is career.",
+        "whether a company or trade hires, what it pays or how to get in is career; asking to see "
+        "jobs, openings or their applications in the app is jobs.",
+        "a greeting, alone or with small talk, is casual, never a bare acknowledgement.",
         "bada bhai never offers to make a resume there, so the free-mode rules about that offer "
         "do not apply: a bare acknowledgement there is unclear.",
     ):
@@ -341,7 +345,8 @@ def test_the_companion_classifier_asks_for_the_resume_action_last() -> None:
         '"resume_action": when the category is resume, "edit" to change, add or remove something '
         'in it, or for a new detail about their work; "new" to make a fresh resume from the start '
         '("dobara banana"); "download" to get, send, share, print, save or see the resume file or '
-        "pdf; null if unsure. for any other category, null."
+        "pdf; null if unsure, or when it names the resume but no action. for any other category, "
+        "null."
     )
     assert rule in folded
     # The closed set, every member named, quoted.
@@ -372,11 +377,26 @@ def test_the_companion_classifier_keeps_every_label_the_priority_and_the_languag
 
 def test_the_companion_classifier_stays_short_for_p95() -> None:
     """It runs on every typed companion message the API's v1 resolver and lists do not settle.
-    3,912 chars / 628 words at ADR-0055 (the profiling one is 3,087 / 489); unmeasured on a model
-    (no eval ran with PR A), so the budget only keeps it from growing unnoticed."""
+    3,912 chars / 628 words at ADR-0055 (the profiling one is 3,087 / 489); 4,160 / 675 after
+    #2287 round 2's three classify rules, raised deliberately with the round's measured latency
+    beside it (docs/qa/evidence/free-chat/companion-surface/2026-10-15-round2). The budget keeps
+    it from growing unnoticed."""
     prompt = free_prompts.COMPANION_CLASSIFY_SYSTEM_PROMPT
-    assert len(prompt) < 4000
-    assert len(prompt.split()) < 640
+    assert len(prompt) < 4300
+    assert len(prompt.split()) < 700
+
+
+def test_the_companion_greeting_rule_names_no_gold_greeting() -> None:
+    """#2287 round 2: the classify rule says what a greeting IS, never which words, so the gold
+    set's greetings ("hello", "good evening sir") measure the rule rather than an echo."""
+    from app.free_chat import eval_free_classify_companion_gold as companion_gold
+
+    block = _folded(free_prompts._COMPANION_CLASSIFY_BLOCK)
+    assert "a greeting, alone or with small talk, is casual" in block
+    greetings = [case.text for case in companion_gold.CASES if case.category == "casual"]
+    for word in ("hello", "namaste", "hi", "good evening"):
+        assert not re.search(rf"\b{word}\b", block), word
+    assert {"hello", "namaste", "good evening sir"} <= set(greetings)
 
 
 def test_the_companion_casual_and_career_say_the_resume_is_made() -> None:
