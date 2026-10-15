@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -36,15 +38,36 @@ ResumeHistory _rendered() => const ResumeHistory(
 
 /// ── #2276 (ADR-0055): the Bada Bhai chat's two new chips ──────────────────
 void main() {
-  // NO PARITY PAIR YET, ON PURPOSE. The server's `companion-v3-keys.ts` lands
-  // with backend #2279, and the TD144 guard (`worker-app-parity-filter.guard
-  // .test.ts`) requires every server file a worker-app test reads to EXIST and
-  // to sit in CI's `worker-app-parity` filter. The two key values were checked
-  // byte-for-byte against #2279's file; the parity pair and its filter entry go
-  // in once that file is on `main`.
-  test('the v3 keys are the server literal strings', () {
-    expect(kResumeMenuFormCreateKey, 'resume_form_create');
-    expect(kCompanionResumeDownloadKey, 'companion_resume_download');
+  // #2282 — the v3 keys AND labels, byte for byte against the server's own
+  // file. Listed in CI's `worker-app-parity` filter, so a server-only change
+  // to that file runs this job (TD144). SKIPPED, visibly, only where the file
+  // is not on disk (a checkout older than #2279); on `main` it always runs, and
+  // the TD144 guard fails CI if the listed file ever disappears.
+  group('the v3 keys match the server byte-for-byte', () {
+    final File server = File('../api/src/chat-companion/companion-v3-keys.ts');
+    final Object skip = server.existsSync()
+        ? false
+        : 'companion-v3-keys.ts is not in this checkout (needs #2279)';
+
+    String serverConst(String name) {
+      final RegExpMatch? m = RegExp('export const $name = "([^"]+)";')
+          .firstMatch(server.readAsStringSync());
+      expect(m, isNotNull, reason: '$name must stay a plain string constant');
+      return m!.group(1)!;
+    }
+
+    test('resume_form_create — key and label', () {
+      expect(kResumeMenuFormCreateKey, serverConst('RESUME_MENU_FORM_CREATE_KEY'));
+      expect(kResumeMenuFormCreateLabel,
+          serverConst('RESUME_MENU_FORM_CREATE_LABEL'));
+    }, skip: skip);
+
+    test('companion_resume_download — key and label', () {
+      expect(kCompanionResumeDownloadKey,
+          serverConst('COMPANION_RESUME_DOWNLOAD_KEY'));
+      expect(kCompanionResumeDownloadLabel,
+          serverConst('COMPANION_RESUME_DOWNLOAD_LABEL'));
+    }, skip: skip);
   });
 
   group('the chips on the real screen', () {
