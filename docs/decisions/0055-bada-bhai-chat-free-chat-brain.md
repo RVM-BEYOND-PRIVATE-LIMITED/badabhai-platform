@@ -4,6 +4,9 @@
   **Live on merge:** no new flag. The only lever is the existing kill switch `CHAT_FREE_CHAT_DISABLED`.
   ADR-0044 R8 narrowing (own-name read for redaction only) — signed by the owner, Divyanshu, 2026-10-15.
   Brain-first routing (rulings R1–R4, §9) — owner rulings of 2026-10-15.
+  **Amended by [ADR-0056](0056-bada-bhai-chat-history.md) (2026-10-15, #2297):** the chat keeps its conversation
+  for 7 days; on the brain the recent turns come from it (Redis as the fallback) and the reply reads this chat's own
+  rolling summary first, the profiling chat's (R4) only when there is none.
 - **Date:** 2026-10-14
 - **Owner:** Divyanshu (Backend Platform)
 - **Tracking:** #2275
