@@ -17,7 +17,7 @@ import {
   COMPANION_NEW_JOBS_LABEL,
   COMPANION_JOBS_TAB_LABEL,
 } from "./companion-keys";
-import { V2_EDIT_CARD_INTRO } from "./companion-replies";
+import { V2_EDIT_CARD_INTRO, V3_GREETING } from "./companion-replies";
 import { CompanionResumeStatus } from "./companion-resume-status";
 import {
   COMPANION_TASK_CAREER_LABEL,
@@ -441,13 +441,79 @@ describe("R2 — a typed jobs-word message is classified first", () => {
   });
 });
 
-describe("R3 — greetings reach the brain, not the recap", () => {
-  it.each(["hello", "namaste", "status"])("%j → a casual model reply", async (text) => {
+describe("R3 as amended (#2287) — a BARE greeting gets the fixed line; status gets the recap", () => {
+  it.each([
+    "hello",
+    "Namaste ji",
+    "hi bada bhai",
+    "good morning sir",
+    "🙏 namaste",
+    "ram ram",
+    "नमस्ते जी",
+  ])("%j → V3_GREETING with the clarify line's chips, and NO model call", async (text) => {
     const h = setup({ verdict: { category: "casual" } });
     const turn = await h.send(text);
-    expect(turn.reply).toBe(REPLY_LINE);
-    expect(h.ai.freeChatClassify).toHaveBeenCalledTimes(1);
+    expect(turn.reply).toBe(V3_GREETING.latin);
+    expect(turn.tts_text).toBe(V3_GREETING.dev);
+    // The very chips the clarify line carries.
+    const clarify = await setup({ verdict: "unavailable" }).send("kuch to gadbad hai");
+    expect(turn.suggested_options).toEqual(clarify.suggested_options);
+    expect(turn.suggested_options.length).toBeGreaterThan(0);
+    // Zero model calls: no gateway, no classifier, no reply.
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(h.ai.freeChatReply).not.toHaveBeenCalled();
+    expect(h.ai.companionClassify).not.toHaveBeenCalled();
+    // Recorded as a deterministic route on the v4 event, which parses.
     expect(h.eventNames()).toEqual(["chat.companion_turn_served_v4"]);
+    expect(h.v4().payload).toMatchObject({
+      intent_source: "v1_deterministic",
+      v2_intent: "casual",
+      outcome: "served",
+      free_category: null,
+      confidence_bucket: null,
+    });
+    const parsed = EVENT_REGISTRY["chat.companion_turn_served_v4"].payload.safeParse(
+      h.v4().payload,
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  it.each(["hello, welder ki salary kitni hai", "namaste bada bhai kaise ho aap"])(
+    "%j — a greeting WITH content still reaches the brain",
+    async (text) => {
+      const h = setup({ verdict: { category: "career" } });
+      const turn = await h.send(text);
+      expect(turn.reply).toBe(REPLY_LINE);
+      expect(h.ai.freeChatClassify).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("'status' → v1's recap again, with no model call", async () => {
+    const h = setup({ verdict: { category: "casual" } });
+    await h.send("status");
+    expect(h.v1Intent()).toBe("digest");
+    expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
+  });
+
+  it("a bare greeting leaves a pending task intent for the next message", async () => {
+    const h = setup();
+    await h.send("hello");
+    expect(h.pending.take).not.toHaveBeenCalled();
+  });
+
+  it("REPLAY-SAFE BY DETERMINISM: a resent greeting is the same turn, on one event key", async () => {
+    const h = setup();
+    const first = await h.send("namaste");
+    const second = await h.send("namaste");
+    expect(second).toEqual(first);
+    const keys = h.events.emit.mock.calls.map(
+      (c) => (c[0] as { idempotencyKey?: string }).idempotencyKey,
+    );
+    expect(keys).toEqual([
+      `chat.companion_turn_served_v4:message:${WORKER}:${SUBMISSION}`,
+      `chat.companion_turn_served_v4:message:${WORKER}:${SUBMISSION}`,
+    ]);
   });
 });
 
@@ -504,6 +570,16 @@ describe("the KILL SWITCH — every example is today's flow", () => {
     expect(h.ai.companionClassify).toHaveBeenCalledTimes(1);
     expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
   });
+
+  it.each(["hello", "Namaste ji", "good morning sir", "🙏 namaste"])(
+    "%j never gets the fixed greeting line — no free-chat call either",
+    async (text) => {
+      const h = setup({ killSwitch: true });
+      const turn = await h.send(text);
+      expect(turn.reply).not.toBe(V3_GREETING.latin);
+      expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
+    },
+  );
 
   it("a career task-chip tap still sets no pending intent (the flag is off)", async () => {
     const h = setup({ killSwitch: true });

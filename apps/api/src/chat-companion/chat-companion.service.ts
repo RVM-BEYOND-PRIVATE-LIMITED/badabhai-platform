@@ -17,6 +17,7 @@ import { toProfileSummary } from "../workers/profile-summary.mapper";
 import { readProfileFormFacts, type ProfileFormFacts } from "../workers/profile-form-facts";
 import type { ResumeMenuChoice } from "../chat/resume-menu";
 import { companionBrainOn, companionRoutePrecedenceOn } from "./companion-brain-switch";
+import { isBareGreeting } from "./companion-greeting";
 import {
   formCreateAck,
   isFormCreateChoice,
@@ -37,6 +38,7 @@ import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import {
   isCompanionChipTap,
   isWeakCompanionAlias,
+  mentionsStatusWord,
   resolveCompanionText,
 } from "./companion-intents";
 import { looksLikeEditRequest } from "./v2/edit-precheck";
@@ -197,6 +199,11 @@ export class ChatCompanionService {
     // v1 would answer with job chips, and a worker blocked from typing is still given the helpline,
     // never the cool-down line. No chip's label can match a distress phrase, so no tap is lost.
     const distress = brainOn && taskChip === null && !chipTap && matchesDistress(dto.text);
+    // #2287 (owner ruling 2026-10-15) — a BARE greeting ("hello", "Namaste ji", "🙏 namaste") gets
+    // the fixed V3_GREETING line on the brain, with no model call. After the chips, distress and
+    // the cool-down; anything with content beside the greeting still reaches the brain.
+    const greeting =
+      brainOn && taskChip === null && !chipTap && !distress && isBareGreeting(dto.text);
     // The cool-down gate sits BEFORE the v1 resolver and blocks FREE TEXT only: exact chip taps
     // (v1's own and the open task chips') are never gated, so a cooled-down worker can still
     // reach the résumé and jobs. Read only while the faltu phase is on; a Redis failure reads
@@ -221,9 +228,10 @@ export class ChatCompanionService {
       await this.v2.clearPendingIntent(workerId);
     }
     const resolution = resolveCompanionText(dto.text);
-    // A distress message never consumes the one-shot pending intent: the helpline answers it.
+    // A distress message never consumes the one-shot pending intent: the helpline answers it. Nor
+    // does a bare greeting (#2287): it carries no task, so the intent waits for the next message.
     const pending =
-      precedenceOn && taskChip === null && cooling === null && !chipTap && !distress
+      precedenceOn && taskChip === null && cooling === null && !chipTap && !distress && !greeting
         ? await this.v2.takePendingIntent(workerId)
         : null;
     const editPrecheck =
@@ -246,16 +254,25 @@ export class ChatCompanionService {
       await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);
     } else if (cooling !== null) {
       turn = await this.v2.handleCooldown(workerId, dto, ctx, now, cooling);
+    } else if (greeting) {
+      // #2287 — the fixed greeting line and the task chips; the orchestrator records the v4 event.
+      turn = await this.v2.handleGreeting(workerId, dto, ctx, now);
     } else if (pending !== null) {
       // A deterministic v1-bypass route: no v1 resolver, no classifier (WP6).
       turn = await this.v2.handleDirectIntent(workerId, mode.profile, dto, pending, ctx, now);
     } else if (editPrecheck) {
       turn = await this.v2.handleDirectIntent(workerId, mode.profile, dto, "edit_resume", ctx, now);
-    } else if (precedenceOn && !chipTap && isWeakCompanionAlias(dto.text)) {
+    } else if (
+      precedenceOn &&
+      !chipTap &&
+      !(brainOn && mentionsStatusWord(dto.text)) &&
+      isWeakCompanionAlias(dto.text)
+    ) {
       // A v1 WEAK ALIAS is not a named intent: under route precedence it goes to the classifier,
       // which is how a career phrasing v1 would have swallowed ("welding ka kaam seekhna hai…")
       // reaches the career handler. Exact chips, jobs/applications/guarantee/status and the
-      // other named answers never arrive here (`isWeakCompanionAlias`).
+      // other named answers never arrive here (`isWeakCompanionAlias`). #2287: on the brain, the
+      // word "status" is a status question too — v1's recap answers it, not the classifier.
       turn = await this.v2.handleMessage(workerId, mode.profile, dto, ctx, now);
     } else if (
       brainOn &&

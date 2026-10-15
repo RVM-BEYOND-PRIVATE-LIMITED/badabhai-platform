@@ -151,6 +151,18 @@ export function isCompanionStatusQuestion(text: string): boolean {
   return normalized.length > 0 && STATUS_PHRASES.some((p) => normalized.includes(p));
 }
 
+/** The one word of {@link GREETING_WORDS} that asks for the worker's status rather than greeting. */
+const STATUS_WORD = "status";
+
+/**
+ * Does the message carry the word "status"? v1 answers it with the recap (it sits in the greeting
+ * list, so v1 calls it a weak alias). #2287 (owner ruling 2026-10-15): on the free-chat brain it is
+ * a STATUS question again — the recap, not the classifier — so the weak-alias diversion skips it.
+ */
+export function mentionsStatusWord(text: string): boolean {
+  return tokens(normalizeResumeMenuText(text)).has(STATUS_WORD);
+}
+
 /**
  * Whether v1's answer for this text would come from a WEAK alias — the résumé menu's substring
  * aliases, the résumé / greeting words, or the bare "kaam" — rather than a NAMED intent.

@@ -507,6 +507,19 @@ export const V3_DOWNLOAD_PENDING: CopyPair = {
   dev: "आपका रिज़्यूमे अभी बन रहा है। थोड़ी देर बाद डाउनलोड कीजिए।",
 };
 
+/**
+ * A BARE greeting ("hello", "Namaste ji", "🙏 namaste") on the brain (#2287, owner ruling
+ * 2026-10-15): who Bada Bhai is and what to ask, with the task chips — fixed copy, no model call.
+ * The #2285 eval showed the model failing exactly here (a bare "hello" classified unclear, a
+ * "namaste" answered with two questions and rejected). The twin spells "AI" in Devanagari ("एआई",
+ * read the same), as every twin here is Devanagari only.
+ */
+export const V3_GREETING: CopyPair = {
+  latin:
+    "Namaste, main Bada Bhai hoon, BadaBhai app ka AI helper. Kaam, career ya resume ki koi bhi baat poochhiye.",
+  dev: "नमस्ते, मैं बड़ा भाई हूँ, बड़ाभाई ऐप का एआई हेल्पर। काम, करियर या रिज़्यूमे की कोई भी बात पूछिए।",
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -563,4 +576,6 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["V3_NEWS_CAP", V3_NEWS_CAP],
   ["V3_DOWNLOAD_READY", V3_DOWNLOAD_READY],
   ["V3_DOWNLOAD_PENDING", V3_DOWNLOAD_PENDING],
+  // #2287 — the fixed answer to a bare greeting.
+  ["V3_GREETING", V3_GREETING],
 ];

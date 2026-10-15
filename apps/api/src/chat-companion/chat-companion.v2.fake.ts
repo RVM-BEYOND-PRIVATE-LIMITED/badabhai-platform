@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { ChatCompanionService } from "./chat-companion.service";
 import type { CompanionTurn } from "./chat-companion.dto";
-import { V2_CLARIFY, V2_FALTU_COOLDOWN } from "./companion-replies";
+import { V2_CLARIFY, V2_FALTU_COOLDOWN, V3_GREETING } from "./companion-replies";
 import { distressTurn } from "./v2/companion-brain";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
 
@@ -120,6 +120,8 @@ export function makeCompanionServiceForV2(opts: {
     ),
     // ADR-0055 — the distress word list's route (before the cool-down and v1).
     handleDistress: vi.fn(async () => distressTurn()),
+    // #2287 — a bare greeting's fixed line.
+    handleGreeting: vi.fn(async () => v2CopyTurn(V3_GREETING)),
     // ADR-0055 R2 — a typed jobs-word message, classified first; null = v1's jobs answer.
     handleJobsMessage: vi.fn(async (..._args: unknown[]) => opts.jobsVerdict ?? null),
   };
