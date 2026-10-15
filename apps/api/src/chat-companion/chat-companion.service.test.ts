@@ -3,8 +3,15 @@ import { validateEvent } from "@badabhai/event-schema";
 import { resolveResumeMenu, RESUME_MENU_EDIT_LABEL } from "../chat/resume-menu";
 import { ChatCompanionService, digestKey } from "./chat-companion.service";
 import { COMPANION_JOB_KEY_PREFIX, COMPANION_RESUME_KEY } from "./companion-keys";
-import { V2_CLARIFY, V2_EDIT_CANCELLED, V2_EDIT_DONE, V2_EDIT_STALE } from "./companion-replies";
+import {
+  FALLBACK,
+  V2_CLARIFY,
+  V2_EDIT_CANCELLED,
+  V2_EDIT_DONE,
+  V2_EDIT_STALE,
+} from "./companion-replies";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
+import { makeCompanionServiceForV2 } from "./chat-companion.v2.fake";
 import type { CompanionHistoryItem } from "./chat-companion.dto";
 import { fakeCompanionHistory } from "./companion-history.fake";
 import type { HistoryRead } from "./companion-history.service";
@@ -129,6 +136,7 @@ function make(over: {
   const v2 = {
     handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
     rememberedForModel: vi.fn((_turn: unknown) => false),
+    isEcho: vi.fn((_turn: unknown) => false),
   };
   const { history: stored, summaries } = fakeCompanionHistory(over.stored);
   const config = {
@@ -588,6 +596,20 @@ describe("#2297 — the stored conversation", () => {
     if (today.mode !== "companion" || res.mode !== "companion") throw new Error("companion");
     const { history: _history, ...recap } = today;
     expect(res).toEqual(recap);
+  });
+
+  it("the recap is stored from the VALIDATED response — the very object the worker was served", async () => {
+    const h = make({ stored: { ok: true, value: [] } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    expect(h.stored.keepRecap.mock.calls[0]![1]).toBe(res);
+  });
+
+  it("an open that fails its schema serves the fallback and stores NO recap", async () => {
+    const v2 = makeCompanionServiceForV2({ v2: true, faltu: true, cooling: 123 as never });
+    const res = await v2.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).toBe(FALLBACK.latin);
+    expect(v2.history.keepRecap).not.toHaveBeenCalled();
   });
 
   it("interview mode reads no history", async () => {

@@ -178,12 +178,17 @@ export class ChatCompanionService {
     // (oldest first) INSTEAD of the recap, which still rides the response for an older app. With
     // none, the recap is drawn as today AND stored, so it heads the conversation from now on. An
     // unreadable store (`ok: false`, e.g. migration 0135 not applied) is today's open, untouched.
-    if (history.ok && history.value.length === 0) this.history.keepRecap(workerId, turn, now);
     const opened =
       history.ok && history.value.length > 0 ? { ...turn, history: history.value } : turn;
 
     const checked = CompanionOpenResponseSchema.safeParse(opened);
-    return checked.success ? checked.data : this.fallbackTurn(checked.error.issues, workerId);
+    if (!checked.success) return this.fallbackTurn(checked.error.issues, workerId);
+    // Stored only AFTER the response passed its schema, and from the VALIDATED turn: a recap the
+    // app was never shown is never written.
+    if (history.ok && history.value.length === 0 && checked.data.mode === "companion") {
+      this.history.keepRecap(workerId, checked.data, now);
+    }
+    return checked.data;
   }
 
   /** The faltu phase is live: v2 AND its own flag (the cool-down exists only then). */
@@ -367,9 +372,14 @@ export class ChatCompanionService {
     const served = checked.success
       ? checked.data
       : this.fallbackTurn(checked.error.issues, workerId);
-    // A fallback served in place of a turn that failed its schema is never model context.
-    const modelContext = checked.success && this.v2.rememberedForModel(turn);
-    this.keepTurn(workerId, dto, served, modelContext, ctx, now, brainOn);
+    // Model context only on the brain (under the kill switch no stored line ever reaches a model),
+    // and never for a fallback served in place of a turn that failed its schema.
+    const modelContext = brainOn && checked.success && this.v2.rememberedForModel(turn);
+    // An ECHO — the in-flight line or a replay answering a submission another request owns — is
+    // never written: only the real served turn is stored, once (its own request writes it).
+    if (!this.v2.isEcho(turn)) {
+      this.keepTurn(workerId, dto, served, modelContext, ctx, now, brainOn);
+    }
     return { mode: "companion", turn: served };
   }
 

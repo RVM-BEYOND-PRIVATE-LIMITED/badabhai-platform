@@ -127,6 +127,8 @@ export function makeCompanionServiceForV2(opts: {
     handleJobsMessage: vi.fn(async (..._args: unknown[]) => opts.jobsVerdict ?? null),
     // #2297 — whether a served turn went into the memory (marks its stored lines for a model).
     rememberedForModel: vi.fn((_turn: unknown) => false),
+    // #2297 — whether a served turn is an in-flight / replay echo (never written to history).
+    isEcho: vi.fn((_turn: unknown) => false),
   };
   const { history, summaries } = fakeCompanionHistory();
   const config = {

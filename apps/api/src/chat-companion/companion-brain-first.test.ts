@@ -19,7 +19,7 @@ import {
   COMPANION_NEW_JOBS_LABEL,
   COMPANION_JOBS_TAB_LABEL,
 } from "./companion-keys";
-import { V2_EDIT_CARD_INTRO, V3_GREETING } from "./companion-replies";
+import { V2_EDIT_CARD_INTRO, V2_IN_FLIGHT, V3_GREETING } from "./companion-replies";
 import { CompanionResumeStatus } from "./companion-resume-status";
 import {
   COMPANION_TASK_CAREER_LABEL,
@@ -165,6 +165,8 @@ function setup(
     verdict?: Verdict;
     summary?: string | null;
     pendingIntent?: "edit_resume" | "career_talk";
+    /** #2297 — another request already holds this submission (the in-flight claim is `held`). */
+    inFlight?: boolean;
   } = {},
 ) {
   const config = {
@@ -277,7 +279,7 @@ function setup(
       remember: vi.fn(async (w: string, s: string, turn: CompanionTurn) => {
         replayed.set(`${w}:${s}`, turn);
       }),
-      claim: vi.fn(async () => "claimed"),
+      claim: vi.fn(async () => (opts.inFlight ? "held" : "claimed")),
       release: vi.fn(async () => undefined),
     } as never,
     pending as never,
@@ -689,20 +691,28 @@ describe("#2297 — the stored conversation on the brain", () => {
     expect(kept(h)[0].modelContext).toBe(false);
   });
 
-  it("a RESENT submission (the replay cache) is handed over again and never as new context", async () => {
+  it("a RESENT submission (the replay cache) is NOT written again: the real turn, once", async () => {
     const h = setup({ verdict: { category: "casual" } });
-    await h.send("aaj mausam kaisa hai");
-    await h.send("aaj mausam kaisa hai");
-    const calls = h.stored.keepTurn.mock.calls;
-    expect(calls).toHaveLength(2);
-    // The replayed turn is a different object: the store's unique index makes it write nothing.
-    expect(calls[1]![0].modelContext).toBe(false);
+    const first = await h.send("aaj mausam kaisa hai");
+    const replay = await h.send("aaj mausam kaisa hai");
+    expect(replay).toEqual(first);
+    expect(h.stored.keepTurn).toHaveBeenCalledTimes(1);
+    expect(h.stored.keepTurn.mock.calls[0]![0].turn).toEqual(first);
   });
 
-  it("under the kill switch the turn is still stored (history is UI), but no fold is attached", async () => {
+  it("an IN-FLIGHT duplicate is never written: its placeholder line must not take the real turn's place", async () => {
+    const h = setup({ verdict: { category: "casual" }, inFlight: true });
+    const turn = await h.send("aaj mausam kaisa hai");
+    expect(turn.reply).toBe(V2_IN_FLIGHT.latin);
+    expect(h.stored.keepTurn).not.toHaveBeenCalled();
+  });
+
+  it("under the kill switch the turn is still stored (history is UI), never as model context, and no fold is attached", async () => {
     const h = setup({ killSwitch: true });
     await h.send("aaj mausam kaisa hai");
-    expect(kept(h)[1]).toBeUndefined();
+    const [line, fold] = kept(h);
+    expect(line.modelContext).toBe(false);
+    expect(fold).toBeUndefined();
   });
 });
 

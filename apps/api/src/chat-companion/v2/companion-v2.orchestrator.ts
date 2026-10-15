@@ -162,6 +162,12 @@ export class CompanionV2Orchestrator {
    * lines a later model call may read; a WeakSet, so nothing outlives the turn.
    */
   private readonly remembered = new WeakSet<CompanionTurn>();
+  /**
+   * #2297 — the ECHOES this class returned, by identity: the in-flight line answering a duplicate
+   * while the first request still runs, and the replay of a turn already served. Neither is a turn
+   * of its own, so neither is ever written to the stored conversation.
+   */
+  private readonly echoes = new WeakSet<CompanionTurn>();
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
@@ -482,7 +488,7 @@ export class CompanionV2Orchestrator {
     if (submissionId === undefined) return (await run())?.turn ?? null;
 
     const replayed = await this.replays.read(workerId, submissionId);
-    if (replayed !== null) return replayed;
+    if (replayed !== null) return this.echo(replayed);
 
     // TD150/WP8 — THE IN-FLIGHT CLAIM. A duplicate that arrives WHILE the first request still
     // runs has no replay to read yet; without this it would run the whole pipeline again (a
@@ -492,7 +498,7 @@ export class CompanionV2Orchestrator {
     // in the finally whether the route succeeded or threw. A Redis refusal fails open: the
     // duplicate is processed as before, exactly like an unreadable replay cache.
     const claim = await this.replays.claim(workerId, submissionId);
-    if (claim === "held") return v2CopyTurn(V2_IN_FLIGHT, taskChips(this.config));
+    if (claim === "held") return this.echo(v2CopyTurn(V2_IN_FLIGHT, taskChips(this.config)));
     try {
       const routed = await run();
       if (routed === null) return null;
@@ -777,6 +783,21 @@ export class CompanionV2Orchestrator {
    */
   rememberedForModel(turn: CompanionTurn): boolean {
     return this.remembered.has(turn);
+  }
+
+  /**
+   * #2297 (ADR-0056) — is this turn an ECHO of a submission another request owns: the in-flight
+   * line, or the replay of a turn already served? An echo is never written to the stored
+   * conversation — the request that owns the submission stores the real turn, once. (Writing the
+   * in-flight line would land FIRST and the real reply would then be skipped as its duplicate.)
+   */
+  isEcho(turn: CompanionTurn): boolean {
+    return this.echoes.has(turn);
+  }
+
+  private echo(turn: CompanionTurn): CompanionTurn {
+    this.echoes.add(turn);
+    return turn;
   }
 
   /**
