@@ -1388,7 +1388,12 @@ final String reply;
 /// unknown `mode`, a missing or blank `reply`, a non-object — reads as
 /// `companion: false`, and the tab runs exactly today's chat.
 class CompanionOpen extends Equatable {
-  const CompanionOpen({required this.companion, this.turn, this.digestKey});
+  const CompanionOpen({
+    required this.companion,
+    this.turn,
+    this.digestKey,
+    this.history = const <CompanionHistoryMessage>[],
+  });
 
   /// Not a companion worker (or the server flag is off): run today's chat.
   static const CompanionOpen interview = CompanionOpen(companion: false);
@@ -1400,10 +1405,20 @@ class CompanionOpen extends Equatable {
       return interview;
     }
     final Object? key = json['digest_key'];
+    final Object? history = json['history'];
     return CompanionOpen(
       companion: true,
       turn: ChatReply.fromJson(json),
       digestKey: key is String && key.isNotEmpty ? key : null,
+      // #2298 — absent / non-list -> none (an older API build, or the table not
+      // migrated yet): the recap is drawn as before. A bad entry is dropped,
+      // never thrown (#371).
+      history: history is List
+          ? history
+                .map<CompanionHistoryMessage?>(CompanionHistoryMessage.fromJson)
+                .whereType<CompanionHistoryMessage>()
+                .toList(growable: false)
+          : const <CompanionHistoryMessage>[],
     );
   }
 
@@ -1416,8 +1431,87 @@ class CompanionOpen extends Equatable {
   /// decide whether anything changed. Never shown.
   final String? digestKey;
 
+  /// #2298 — the Bada Bhai chat of the last 7 days, oldest first (the server
+  /// caps it at 200). Empty means draw the recap, as before.
+  final List<CompanionHistoryMessage> history;
+
   @override
-  List<Object?> get props => <Object?>[companion, turn, digestKey];
+  List<Object?> get props => <Object?>[companion, turn, digestKey, history];
+}
+
+/// #2298 — one stored message of the Bada Bhai chat (`GET /chat/companion`
+/// `history[]`, contract #2297).
+class CompanionHistoryMessage extends Equatable {
+  const CompanionHistoryMessage({
+    required this.fromWorker,
+    required this.text,
+    this.ttsText,
+    this.readAloud,
+    this.suggestedOptions = const <ChatOption>[],
+    this.suggestedFollowups = const <String>[],
+    this.newsLinks = const <ChatNewsLink>[],
+  });
+
+  /// One wire item, or null when it cannot be drawn honestly: a non-map, an
+  /// unknown role, or blank text. Never throws (#371).
+  static CompanionHistoryMessage? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final Object? role = raw['role'];
+    final Object? text = raw['text'];
+    if (role != 'worker' && role != 'bada_bhai') return null;
+    if (text is! String || text.trim().isEmpty) return null;
+    final Object? tts = raw['tts_text'];
+    final Object? readAloud = raw['read_aloud'];
+    final Object? options = raw['suggested_options'];
+    final Object? followups = raw['suggested_followups'];
+    final Object? links = raw['news_links'];
+    return CompanionHistoryMessage(
+      fromWorker: role == 'worker',
+      text: text,
+      ttsText: tts is String && tts.trim().isNotEmpty ? tts : null,
+      readAloud: readAloud is bool ? readAloud : null,
+      suggestedOptions: options is List
+          ? options
+                .map<ChatOption?>(ChatOption.fromJson)
+                .whereType<ChatOption>()
+                .toList(growable: false)
+          : const <ChatOption>[],
+      suggestedFollowups: followups is List
+          ? followups.whereType<String>().toList(growable: false)
+          : const <String>[],
+      newsLinks: links is List
+          ? links
+                .map<ChatNewsLink?>(ChatNewsLink.fromJson)
+                .whereType<ChatNewsLink>()
+                .toList(growable: false)
+          : const <ChatNewsLink>[],
+    );
+  }
+
+  final bool fromWorker;
+  final String text;
+
+  /// The Devanagari read-aloud twin — fixed lines only.
+  final String? ttsText;
+
+  /// `false` on a model-written line: no speaker, plain prose.
+  final bool? readAloud;
+
+  /// Meaningful only on the LAST Bada Bhai message.
+  final List<ChatOption> suggestedOptions;
+  final List<String> suggestedFollowups;
+  final List<ChatNewsLink> newsLinks;
+
+  @override
+  List<Object?> get props => <Object?>[
+    fromWorker,
+    text,
+    ttsText,
+    readAloud,
+    suggestedOptions,
+    suggestedFollowups,
+    newsLinks,
+  ];
 }
 
 /// #2258 — one chat session's redraw: its messages, and when it ended.

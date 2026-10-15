@@ -355,6 +355,7 @@ class ChatRepositoryImpl implements ChatRepository {
       return CompanionOpening(
         CompanionOpenOutcome.companion,
         _companionTurn(reply, digestKey: open.digestKey),
+        _companionHistory(open.history),
       );
     } catch (error, stack) {
       // Best-effort, but never silent: a companion that cannot be reached falls
@@ -490,6 +491,38 @@ class ChatRepositoryImpl implements ChatRepository {
   /// already carried the proposal, so the suite stayed green over dead wiring —
   /// which is why `chat_companion_repository_test.dart` now drives this hop from
   /// a raw JSON body instead.
+  /// #2298 — the stored chat as bubbles, with the same rules a live turn gets
+  /// (read-aloud only on reviewed lines, bullets on those, news tiles on their
+  /// own bubble), and only the LAST Bada Bhai message's chips. Null when there
+  /// is nothing to draw.
+  CompanionHistory? _companionHistory(List<CompanionHistoryMessage> rows) {
+    if (rows.isEmpty) return null;
+    CompanionHistoryMessage? lastBot;
+    for (final CompanionHistoryMessage row in rows.reversed) {
+      if (!row.fromWorker) {
+        lastBot = row;
+        break;
+      }
+    }
+    return CompanionHistory(
+      messages: <ChatMessage>[
+        for (final CompanionHistoryMessage row in rows)
+          row.fromWorker
+              ? ChatMessage(text: row.text, fromWorker: true)
+              : ChatMessage(
+                  text: row.text,
+                  fromWorker: false,
+                  ttsText: row.ttsText,
+                  canReadAloud: row.readAloud != false,
+                  bulleted: row.readAloud != false,
+                  newsLinks: row.newsLinks,
+                ),
+      ],
+      followups: lastBot?.suggestedFollowups ?? const <String>[],
+      suggestedOptions: lastBot?.suggestedOptions ?? const <ChatOption>[],
+    );
+  }
+
   ChatTurn _companionTurn(ChatReply reply, {String? digestKey}) => ChatTurn(
         reply: reply.reply,
         followups: reply.suggestedFollowups,

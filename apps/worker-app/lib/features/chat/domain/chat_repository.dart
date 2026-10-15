@@ -1,3 +1,4 @@
+import '../../../core/api/api_models.dart' show ChatOption;
 import 'chat_message.dart';
 import 'chat_session_opening.dart';
 import 'chat_turn.dart';
@@ -30,7 +31,7 @@ enum CompanionOpenOutcome {
 
 /// The result of one companion open.
 class CompanionOpening {
-  const CompanionOpening(this.outcome, [this.turn]);
+  const CompanionOpening(this.outcome, [this.turn, this.history]);
 
   const CompanionOpening.interview() : this(CompanionOpenOutcome.interview);
   const CompanionOpening.unreachable() : this(CompanionOpenOutcome.unreachable);
@@ -40,9 +41,27 @@ class CompanionOpening {
   /// The recap, present only for [CompanionOpenOutcome.companion].
   final ChatTurn? turn;
 
+  /// #2298 — the Bada Bhai chat of the last 7 days, drawn INSTEAD of the recap.
+  /// Null when there is none: the recap is drawn, as before.
+  final CompanionHistory? history;
+
   bool get isCompanion =>
       outcome == CompanionOpenOutcome.companion && turn != null;
   bool get isUnreachable => outcome == CompanionOpenOutcome.unreachable;
+}
+
+/// #2298 — the stored Bada Bhai chat, ready to draw: its bubbles oldest first,
+/// and the chips of its LAST Bada Bhai message (earlier messages show none).
+class CompanionHistory {
+  const CompanionHistory({
+    required this.messages,
+    this.followups = const <String>[],
+    this.suggestedOptions = const <ChatOption>[],
+  });
+
+  final List<ChatMessage> messages;
+  final List<String> followups;
+  final List<ChatOption> suggestedOptions;
 }
 
 /// What a companion edit confirm/cancel call actually did (ADR-0046 §5.2).
