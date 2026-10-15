@@ -12,8 +12,14 @@ import {
   MAX_ENGINE_ASKS,
   MAX_ENGINE_TURNS,
   nextQuestion,
+  progressReplyText,
   reAsk,
+  remainingQuestions,
   servedText,
+  withoutProgressLead,
+  PROGRESS_REPLY_MAX_COUNT,
+  PROGRESS_REPLY_NO_COUNT_TEXT,
+  PROGRESS_REPLY_PAIRS,
   type EnginePacks,
   type EngineState,
 } from "./next-question";
@@ -450,6 +456,64 @@ describe("progress counts a declination as progress", () => {
       answered: 1,
       total: 2,
     });
+  });
+});
+
+describe("#2308 — the progress line names a count the engine can stand behind", () => {
+  it("names the count, singular for one, owner copy without an exclamation mark", () => {
+    expect(progressReplyText(4)).toBe("Thoda sa aur. Bas 4 sawaal bache hain.");
+    expect(progressReplyText(1)).toBe("Thoda sa aur. Bas 1 sawaal bacha hai.");
+  });
+
+  it("an unknown, impossible or too-large count is the no-count line, never a number", () => {
+    for (const remaining of [null, 0, -1, 2.5, PROGRESS_REPLY_MAX_COUNT + 1]) {
+      expect(progressReplyText(remaining)).toBe(PROGRESS_REPLY_NO_COUNT_TEXT);
+    }
+    expect(PROGRESS_REPLY_NO_COUNT_TEXT).toBe("Thoda sa aur, jaldi ho jayega.");
+  });
+
+  it("pairs every line with its Devanagari twin, no-count first then one per count", () => {
+    expect(PROGRESS_REPLY_PAIRS).toHaveLength(PROGRESS_REPLY_MAX_COUNT + 1);
+    expect(PROGRESS_REPLY_PAIRS[0]).toEqual([PROGRESS_REPLY_NO_COUNT_TEXT, "थोड़ा सा और, जल्दी हो जाएगा।"]);
+    expect(PROGRESS_REPLY_PAIRS[1]).toEqual([progressReplyText(1), "थोड़ा सा और। बस 1 सवाल बचा है।"]);
+    expect(PROGRESS_REPLY_PAIRS[3]).toEqual([progressReplyText(3), "थोड़ा सा और। बस 3 सवाल बचे हैं।"]);
+  });
+
+  it("strips one leading progress line, so asking twice never stacks two", () => {
+    const question = "Aap kis sheher mein rehte hain?";
+    expect(withoutProgressLead(`${progressReplyText(3)} ${question}`)).toBe(question);
+    expect(withoutProgressLead(`${PROGRESS_REPLY_NO_COUNT_TEXT} ${question}`)).toBe(question);
+    expect(withoutProgressLead(PROGRESS_REPLY_NO_COUNT_TEXT)).toBe("");
+    expect(withoutProgressLead(question)).toBe(question);
+  });
+
+  it("counts what the engine can still serve — not total minus answered", () => {
+    const onScreen = item({ question_key: "on_screen" });
+    const askedOnce = item({ question_key: "asked_once" });
+    const mandatoryReAsk = item({ question_key: "mandatory", is_mandatory: true });
+    const later = item({ question_key: "later", min_turn: 9 });
+    const gated = item({ question_key: "gated", ask_if: { op: "answered", field: "never" } });
+    const fresh = item({ question_key: "fresh" });
+    const done = item({ question_key: "done" });
+    const answers = recordAnswer(
+      {},
+      { questionKey: "done", targetField: null, valueRaw: "x", valueNormalized: "x", evidence: null },
+      1,
+    );
+    const current = state({
+      answers,
+      askCounts: { on_screen: 1, asked_once: 1, mandatory: 1 },
+      servedQuestionKey: "on_screen",
+    });
+    // on screen (asked now) + mandatory re-ask + min_turn wait + never asked = 4. The ask-once
+    // item, the unmet ask_if and the answered one are not ahead.
+    expect(
+      remainingQuestions(
+        current,
+        [onScreen, askedOnce, mandatoryReAsk, later, gated, fresh, done],
+        "on_screen",
+      ),
+    ).toBe(4);
   });
 });
 

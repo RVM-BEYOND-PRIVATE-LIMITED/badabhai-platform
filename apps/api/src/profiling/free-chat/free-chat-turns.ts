@@ -56,6 +56,7 @@ import {
   CLOSING_REPLY_TEXT as CLOSING_REPLY,
   DE_ESCALATION_REPLY_TEXT as DE_ESCALATION_REPLY,
   HARDSHIP_REPLY_TEXTS as HARDSHIP_REPLIES,
+  withoutProgressLead,
 } from "../next-question";
 import type {
   Decided,
@@ -1560,9 +1561,11 @@ function structuredQuestion(
 function lastServedQuestion(envelope: ProfilingEnvelope, leads: boolean): FreeChatHeldTurn | null {
   const asked = outstandingLlmAsk(envelope, leads);
   if (asked) {
-    return isReAskable(asked.prompt)
+    // #2308 — a progress answer put the question back UNDER its line; re-ask the question alone.
+    const prompt = withoutProgressLead(asked.prompt);
+    return isReAskable(prompt)
       ? {
-          reply: asked.prompt,
+          reply: prompt,
           kind: "ask",
           questionKey: null,
           options: [...asked.options],
@@ -1577,10 +1580,10 @@ function lastServedQuestion(envelope: ProfilingEnvelope, leads: boolean): FreeCh
     last !== null &&
     last.kind !== "close" &&
     last.questionKey === null &&
-    isReAskable(last.reply)
+    isReAskable(withoutProgressLead(last.reply))
   ) {
     return {
-      reply: last.reply,
+      reply: withoutProgressLead(last.reply),
       kind: last.kind === "disambiguate" ? "disambiguate" : "ask",
       questionKey: null,
       options: [...last.options],

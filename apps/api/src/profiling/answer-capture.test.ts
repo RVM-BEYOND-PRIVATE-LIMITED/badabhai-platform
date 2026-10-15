@@ -75,6 +75,16 @@ describe("the hard cases, each one deterministic", () => {
     expect(capture.excludeFromParse).toBe(false);
   });
 
+  it("#2308: a progress question is never captured — not even by a free-text question", () => {
+    // A free-text item's normalizer is the identity, so before #2308 "aur kitna bacha hai" was
+    // stored verbatim as the answer to whatever free-text question was on screen.
+    const freeText = { ...CITY, question_key: "q_training", target_field: "training_name" };
+    const capture = captureAnswer("aur kitna bacha hai", freeText);
+    expect(capture.turnClass).toBe("progress_question");
+    expect(capture.values).toHaveLength(0);
+    expect(capture.declined).toBe(false);
+  });
+
   it("hardship is acknowledged, never captured as a profile field", () => {
     const capture = captureAnswer("ghar chalana mushkil hai", CITY);
     expect(capture.turnClass).toBe("hardship");

@@ -32,6 +32,7 @@ import {
   MAX_ENGINE_ASKS,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
+  PROGRESS_REPLY_NO_COUNT_TEXT,
 } from "./next-question";
 import {
   CHECKPOINT_EVERY_ASKS,
@@ -858,6 +859,83 @@ describe("cross-question capture — free information, never an overwrite", () =
     await orchestrator.takeTurn(say("main pune me rehta hu"));
     const saved = store.get(SESSION)?.profiling;
     expect(saved?.answerMap.find((a) => a.question_key === "q_process")).toBeUndefined();
+  });
+});
+
+describe("#2308 — \"aur kitna bacha hai?\" is answered, never stored, never spends the question", () => {
+  const TRAINING = item({
+    question_key: "q_training",
+    target_kind: "rfs",
+    target_field: "training_name",
+    prompt_text: "Koi training ki hai? Uska naam bataiye.",
+  });
+  const LANGS = item({
+    question_key: "q_langs",
+    target_kind: "rfs",
+    target_field: "languages",
+    answer_type: "multi_select",
+    max_asks: 1,
+    prompt_text: "Kaun si bhasha bolte hain?",
+    options: [
+      { option_key: "hindi", label_text: "Hindi", implies_skill_id: null, is_none_of_above: false },
+      { option_key: "english", label_text: "English", implies_skill_id: null, is_none_of_above: false },
+    ],
+  });
+  const PACKS = { occupation: null, universal: pack("qp_universal", [CITY, YEARS, TRAINING, LANGS]) };
+  const recordOf = (store: ReturnType<typeof makeWorld>["store"], key: string) =>
+    store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === key);
+
+  it("a free-text question on screen does NOT store the sentence as its answer", async () => {
+    const { orchestrator, store } = makeWorld({ packs: PACKS });
+    seed(store, { servedQuestionKey: "q_training", engineAsks: 1, askCounts: { q_training: 1 } });
+    const result = await orchestrator.takeTurn(say("aur kitna bacha hai"));
+    expect(recordOf(store, "q_training")).toBeUndefined();
+    // On screen + city + years + languages: every one of them is still ahead.
+    expect(result.reply).toBe(`Thoda sa aur. Bas 4 sawaal bache hain. ${TRAINING.prompt_text}`);
+    expect(result.questionKey).toBe("q_training");
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+    expect(store.get(SESSION)?.profiling?.askCounts.q_training).toBe(1);
+  });
+
+  it("a single-ask question on screen is put back, never recorded unanswered", async () => {
+    const { orchestrator, store } = makeWorld({ packs: PACKS });
+    seed(store, { servedQuestionKey: "q_langs", engineAsks: 1, askCounts: { q_langs: 1 } });
+    const result = await orchestrator.takeTurn(say("kitne sawaal aur hain?"));
+    expect(recordOf(store, "q_langs")).toBeUndefined();
+    expect(result.questionKey).toBe("q_langs");
+    expect(result.options.map((o) => o.option_key)).toEqual(["hindi", "english"]);
+    expect(result.reply.endsWith(LANGS.prompt_text)).toBe(true);
+  });
+
+  it("with no pack question on screen: no count, and what was shown goes back under the line", async () => {
+    const { orchestrator, store } = makeWorld({ packs: PACKS });
+    const modelQuestion = "Aap kis machine pe kaam karte hain?";
+    seed(store, {
+      servedQuestionKey: null,
+      lastTurn: {
+        inboundHash: "unrelated",
+        reply: modelQuestion,
+        formOffer: null,
+        gateKind: null,
+        generalFormOffer: null,
+        kind: "ask",
+        questionKey: null,
+        at: T0.toISOString(),
+        options: [{ option_key: "llm_a", label_text: "VMC", implies_skill_id: null, is_none_of_above: false }],
+        progress: { answered: 0, total: 0 },
+        whyText: null,
+        answerType: null,
+        lookahead: null,
+        inputMode: "text",
+        replays: 0,
+      },
+    });
+    const first = await orchestrator.takeTurn(say("aur kitna bacha hai", new Date(T0.getTime() + 60_000)));
+    expect(first.reply).toBe(`${PROGRESS_REPLY_NO_COUNT_TEXT} ${modelQuestion}`);
+    expect(first.options.map((o) => o.label_text)).toEqual(["VMC"]);
+    // Asked twice: one lead, never two.
+    const second = await orchestrator.takeTurn(say("kab khatam hoga", new Date(T0.getTime() + 120_000)));
+    expect(second.reply).toBe(`${PROGRESS_REPLY_NO_COUNT_TEXT} ${modelQuestion}`);
   });
 });
 

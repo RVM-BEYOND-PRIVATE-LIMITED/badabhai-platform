@@ -622,7 +622,13 @@ export function captureAnswer(
   if (turnClass === "abusive") {
     return noValue(turnClass, { excludeFromParse: true });
   }
-  if (turnClass === "empty" || turnClass === "hardship" || turnClass === "question_back") {
+  if (
+    turnClass === "empty" ||
+    turnClass === "hardship" ||
+    turnClass === "question_back" ||
+    // #2308: "aur kitna bacha hai?" asks, it does not answer — never stored as a free-text value.
+    turnClass === "progress_question"
+  ) {
     // None of these is an answer, and none of them is the worker's fault. They consume a TURN and
     // are handled by the orchestrator (acknowledge, clarify, or simply wait) — never an ASK.
     return noValue(turnClass);

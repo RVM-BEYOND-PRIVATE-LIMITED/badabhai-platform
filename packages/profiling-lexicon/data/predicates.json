@@ -94,6 +94,31 @@
     "BOTH must match — see `asksQuestionBack`."
   ],
 
+  "progressQuestion": {
+    "source": "{WB}kit(?:na|ne|ni|naa)(?!\\s*bhi{WE})[^.?!]{0,20}?{WB}(?:bach[aei]|baa?ki|baa?qi|(?:reh|rah)\\s*ga(?:ya|ye|yi)|remaining|left){WE}|{WB}kit(?:na|ne|ni|naa)[^.?!]{0,12}?{WB}(?:sawa+l|swa+l|questions?|prashn){WE}|{WB}kab\\s*(?:tak\\s*)?(?:khatam|khatm|khtm)\\s*(?:hoga|hogi|ho\\s*jayega|ho\\s*jaega|karoge|karenge){WE}|{WB}kitni\\s*der\\s*(?:aur\\s*)?(?:lagegi|lgegi){WE}|{WB}kitna\\s*(?:time|samay|waqt)\\s*(?:aur\\s*)?(?:lagega|lgega){WE}|{WB}how\\s*(?:many|much)\\s*(?:more\\s*)?(?:questions?|is\\s*left|left|remaining){WE}|{WB}how\\s*long\\s*(?:more|will\\s*(?:this|it)\\s*take){WE}|{WB}(?:questions?|steps?)\\s*(?:are\\s*|is\\s*)?(?:left|remaining){WE}|{DB}कितन(?:ा|े|ी)\\s*(?:और\\s*)?(?:बचा|बचे|बाकी|बाक़ी){DE}|{DB}कितने\\s*(?:और\\s*)?सवाल{DE}|{DB}कब\\s*(?:तक\\s*)?खत्म{DE}",
+    "flags": "i"
+  },
+  "$comment_progressQuestion": [
+    "#2308 (ADR-0057): the worker asks how much of the interview is LEFT — 'aur kitna bacha hai',",
+    "'kitne sawaal aur hain', 'kab khatam hoga'. It is not an answer to anything: today it is stored",
+    "verbatim as the answer to a free-text question, or costs the worker a single-ask question.",
+    "",
+    "EVERY BRANCH NEEDS A REMAINDER WORD OR A QUESTION NOUN NEXT TO A QUANTITY WORD — 'kitna' alone",
+    "is the salary vocabulary ('kitna milega'), and 'bacha'/'baaki' alone is ordinary speech ('baaki",
+    "sab theek hai', '15 din baaki hai notice mein').",
+    "",
+    "  'kitna bhi' (any amount) is EXCLUDED by the lookahead: 'kitna bhi de do, baaki aap dekh lo'",
+    "      is a salary answer whose 'baaki' sits within reach of 'kitna'.",
+    "  'kab khatam' needs a future verb right after it: a statement about the worker's own notice",
+    "      uses 'jab … khatam hoga', never 'kab'.",
+    "  'kitna time lagega' is a QUESTION the worker asks either way; answering it with the progress",
+    "      line and the question again costs nothing.",
+    "",
+    "Precedence (classifyUtterance): after `correction`, which carries a value, and BEFORE",
+    "`dont_know`, because 'pata nahi kitna bacha hai' asks a question and declines nothing.",
+    "Measured on the parity corpus: no existing case changes class."
+  ],
+
   "abuse": {
     "source": "{WB}(?:chutiy[ae]|chutiye|bhosdi[a-z0-9_]*|bhosad[a-z0-9_]*|madarchod[a-z0-9_]*|maderchod[a-z0-9_]*|behenchod[a-z0-9_]*|bhenchod[a-z0-9_]*|benchod[a-z0-9_]*|gaandu|gandu|fuck[a-z0-9_]*|bitch|asshole){WE}",
     "flags": "i"

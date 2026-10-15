@@ -24,6 +24,7 @@ UtteranceClass = Literal[
     "correction",
     "hardship",
     "question_back",
+    "progress_question",
     "abusive",
     "empty",
     "off_topic",
@@ -69,6 +70,11 @@ def asks_question_back(text: str) -> bool:
     return signals.asks_about_job_prospects(text)
 
 
+def asks_progress(text: str) -> bool:
+    """#2308: "aur kitna bacha hai?" — the worker asks how much of the interview is left."""
+    return signals.asks_progress(text)
+
+
 def has_first_person_claim(text: str) -> bool:
     """TD98/TD101: does the worker claim this of THEMSELVES?"""
     return signals.has_first_person_claim(text)
@@ -93,6 +99,8 @@ def classify_utterance(text: str) -> UtteranceSignal:
         return UtteranceSignal("abusive", "abuse")
     if is_correction(message):
         return UtteranceSignal("correction", "correction_markers")
+    if asks_progress(message):
+        return UtteranceSignal("progress_question", "progress_question")
     if is_dont_know(message):
         return UtteranceSignal("dont_know", "dont_know")
     if asks_question_back(message):
@@ -110,5 +118,6 @@ PREDICATE_BY_NAME = {
     "isHardship": is_hardship,
     "isAbusive": is_abusive,
     "asksQuestionBack": asks_question_back,
+    "asksProgress": asks_progress,
     "hasFirstPersonClaim": has_first_person_claim,
 }
