@@ -99,20 +99,52 @@ const Set<String> _kResumeWords = <String>{
   'resyume',
 };
 
-/// Word STEMS that ask to SEE or GET the résumé — "resume dikhao / dikhaiye",
-/// "resume dekhna hai", "show my resume", "resume bhej do", "send my cv",
-/// "resume print karna hai". Matched as word PREFIXES, so every ending a worker
-/// types is covered. Never enough alone: "jobs dikhao" is a jobs question, so
+/// Words that ask to SEE or GET the résumé — "resume dikhao / dikhaiye",
+/// "resume dekhna hai", "show my resume", "send my cv", "resume print karna
+/// hai". WHOLE words, never prefixes (#2291): a prefix also caught the worker
+/// TALKING about the résumé — "kya company ne mera resume dekha?", "resume
+/// bheja tha", "resume bhejne ke baad kya hoga" — and those questions must
+/// reach the server. Never enough alone: "jobs dikhao" is a jobs question, so
 /// the message must also name the résumé.
-const List<String> _kShowStems = <String>[
-  'dikha',
-  'dikhla',
-  'dekh',
+const Set<String> _kShowWords = <String>{
+  'dikhao',
+  'dikhaao',
+  'dikhado',
+  'dikhaiye',
+  'dikhayiye',
+  'dikhaiyega',
+  'dikhaye',
+  'dikhana',
+  'dikhlao',
+  'dekhna',
+  'dekhni',
+  'dekhao',
   'show',
-  'bhej',
+  // The tum-form imperative of "bhej" is left out on purpose: the persona guard
+  // bans it as a literal, and "resume bhej do" / "bhejiye" cover the ask.
+  'bhejiye',
+  'bhejdo',
+  'bhejna',
   'send',
   'print',
-];
+  'printout',
+};
+
+/// A bare root asks only with a "give" word right after it — "resume bhej
+/// do", "cv dikha dijiye", "resume dikha sakte ho?". Alone ("resume dekh ke
+/// job milegi?") it is talk.
+const Set<String> _kShowRoots = <String>{'dikha', 'dikhla', 'dekh', 'bhej'};
+const Set<String> _kGiveWords = <String>{
+  'do',
+  'de',
+  'dijiye',
+  'dijie',
+  'dena',
+  'dein',
+  'sakte',
+  'sakti',
+  'sakta',
+};
 
 /// "Where is my résumé" — whole words, read like a show stem. Not "kaha": it
 /// is also "said" ("maine kaha tha resume mein…").
@@ -244,8 +276,16 @@ bool isResumeDownloadRequest(String text, {bool requireResumeWord = false}) {
   bool startsWithAny(List<String> stems) => words.any(
     (String w) => stems.any((String stem) => w.startsWith(stem)),
   );
-  final bool asksToSee =
-      startsWithAny(_kShowStems) || words.any(_kWhereWords.contains);
+  final List<String> tokens = normalized
+      .split(_kWordSplit)
+      .where((String w) => w.isNotEmpty)
+      .toList();
+  bool asksToSee =
+      words.any(_kShowWords.contains) || words.any(_kWhereWords.contains);
+  for (int i = 0; !asksToSee && i + 1 < tokens.length; i++) {
+    asksToSee =
+        _kShowRoots.contains(tokens[i]) && _kGiveWords.contains(tokens[i + 1]);
+  }
   return asksToSee &&
       !startsWithAny(_kChangeStems) &&
       !words.any(_kInsideWords.contains);

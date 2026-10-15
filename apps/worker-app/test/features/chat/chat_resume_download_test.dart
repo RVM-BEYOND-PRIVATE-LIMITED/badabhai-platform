@@ -85,6 +85,9 @@ void main() {
       'resume bhej do',
       'resume print karna hai',
       'show me my resume',
+      'cv dikha dijiye',
+      'mera resume dikha sakte ho?',
+      'send my cv',
     ]) {
       test('"$ask" is a download request', () {
         expect(isResumeDownloadRequest(ask), isTrue);
@@ -112,6 +115,16 @@ void main() {
       'resume mein experience dikhana hai',
       'maine kaha tha resume mein welding add karo',
       'resume mein naam likh do',
+      // TALK about the résumé — a question about it, never an ask (#2291).
+      // Show words are whole words, so these reach the server.
+      'kya company ne mera resume dekha?',
+      'kitne logon ne mera resume dekha hai',
+      'mera resume kis company ko bheja gaya?',
+      'resume bheja tha company ko, reply nahi aaya',
+      'resume bhejne ke baad kya hoga',
+      'resume dekh ke job milegi kya',
+      'maine resume dekha',
+      'resume printing wali company ko bhi jayega?',
     ]) {
       test('"$other" is NOT a download request', () {
         expect(isResumeDownloadRequest(other), isFalse);
