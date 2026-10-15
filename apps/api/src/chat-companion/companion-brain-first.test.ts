@@ -5,8 +5,10 @@ import type { ServerConfig } from "@badabhai/config";
 import { EVENT_REGISTRY } from "@badabhai/event-schema";
 import {
   RESUME_MENU_CHAT_CREATE_KEY,
+  RESUME_MENU_EDIT_REPLY,
   RESUME_MENU_REDO_LABEL,
   RESUME_MENU_UPLOAD_KEY,
+  RESUME_SECTIONS,
 } from "../chat/resume-menu";
 import { FreeChatModelCalls } from "../profiling/free-chat/free-chat-model-calls";
 import { FREE_CHAT_COPY } from "../profiling/free-chat/free-chat.copy";
@@ -544,8 +546,46 @@ describe("R4 — the reply gets the rolling summary; the classifier never does",
   });
 });
 
+describe("#2295 — a GENERIC edit request gets the edit section menu, with no model call", () => {
+  it.each([
+    "resume edit karein",
+    "mera resume update karna hai",
+    "resume badalna hai",
+    "edit my resume",
+  ])(
+    "%j → the edit section menu on v1's resume_menu event: no classifier, no edit parse",
+    async (text) => {
+      const h = setup();
+      const turn = await h.send(text);
+      expect(turn.reply).toBe(RESUME_MENU_EDIT_REPLY);
+      expect(keys(turn)).toEqual(RESUME_SECTIONS.map((section) => section.key));
+      expect(h.edits.propose).not.toHaveBeenCalled();
+      expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
+      expect(h.ai.companionClassify).not.toHaveBeenCalled();
+      expect(h.eventNames()).toEqual(["chat.companion_turn_served"]);
+      expect(h.v1Intent()).toBe("resume_menu");
+    },
+  );
+
+  it("consumes no pending intent and clears a stale one, as the menu's edit chip would", async () => {
+    const h = setup();
+    await h.send("resume edit karein");
+    expect(h.pending.take).not.toHaveBeenCalled();
+    expect(h.pending.clear).toHaveBeenCalledWith(WORKER);
+  });
+
+  it("a CONCRETE change beside the generic ask still goes straight to the edit handler", async () => {
+    const h = setup();
+    const turn = await h.send("resume mein salary 25000 kar do");
+    expect(turn.edit_proposal).toEqual(CARD.edit_proposal);
+    expect(h.edits.propose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("the KILL SWITCH — every example is today's flow", () => {
   it.each([
+    ["resume edit karein", "resume_menu"],
+    ["resume badalna hai", "resume_menu"],
     ["resume mein welding add karo", "digest"],
     ["resume ka pdf bhejo", "digest"],
     ["naya resume banana hai", "resume_menu"],
