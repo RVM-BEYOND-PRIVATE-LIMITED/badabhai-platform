@@ -506,6 +506,42 @@ def test_the_reply_set_covers_the_groups_the_companion_answers() -> None:
     assert with_trade >= len(reply_gold.CASES) // 2
 
 
+_REPLY_PROMPTS = {
+    ("profiling", "casual"): free_prompts.CASUAL_SYSTEM_PROMPT,
+    ("profiling", "career"): free_prompts.CAREER_SYSTEM_PROMPT,
+    ("companion", "casual"): free_prompts.COMPANION_CASUAL_SYSTEM_PROMPT,
+    ("companion", "career"): free_prompts.COMPANION_CAREER_SYSTEM_PROMPT,
+}
+
+
+def _offered_topics(prompt: str) -> set[str]:
+    """The refusal topics a reply prompt offers the model ("The topic is one of: ...")."""
+    match = re.search(r"The topic is one of:(.*?)\.", prompt, re.DOTALL)
+    assert match, "the prompt no longer names its topics"
+    return set(re.findall(r'"([a-z_]+)"', match.group(1)))
+
+
+@pytest.mark.parametrize(
+    ("surface", "labelled"),
+    [("profiling", profiling_reply_gold), ("companion", reply_gold)],
+)
+def test_every_must_refuse_case_expects_a_topic_its_prompt_offers(surface, labelled) -> None:
+    """A refusal the category's prompt cannot give is a set error, not a model miss: the casual
+    prompt offers no legal_medical_financial, so a casual health question refuses on off_limits
+    (the 2026-10-15 companion run found reply-135 labelled the other way)."""
+    assert _offered_topics(free_prompts.CASUAL_SYSTEM_PROMPT) == {
+        "off_limits",
+        "distress",
+        "news",
+        "unsafe_other",
+    }
+    assert "legal_medical_financial" in _offered_topics(free_prompts.CAREER_SYSTEM_PROMPT)
+    for case in labelled.CASES:
+        if case.expect != profiling_reply_gold.ANSWER:
+            offered = _offered_topics(_REPLY_PROMPTS[(surface, case.category)])
+            assert case.expect in offered, case.id
+
+
 def test_the_rolling_summary_rides_a_few_cases_well_formed() -> None:
     """ADR-0055 §9 R4: the companion reply reads the profiling chat's notes. A few cases carry
     notes as the summarizer writes them (English bullets, no braces, within the API's cap)."""
