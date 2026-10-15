@@ -256,6 +256,10 @@ class TestServiceAuthEnabled:
         # recent turns, and it is the one route whose call carries the web search tool (paid per
         # search), so an ungated route here would spend money for anyone who could reach it. The
         # same bearer gates it; the API's reply gate and tile checks are its second lock.
+        #
+        # 24 -> 25 with ADR-0057 (#2309): POST /profiling/understand. It carries the worker's
+        # message, recent turns, the question on screen and every schema value, so the same
+        # bearer gates it; the API's re-validation of every key, ref and value is its second lock.
         assert post_paths == [
             "/companion/career",
             "/companion/classify",
@@ -272,6 +276,7 @@ class TestServiceAuthEnabled:
             "/profile/parse",
             "/profiling/extract",
             "/profiling/turn",
+            "/profiling/understand",
             "/profiling/work-history/polish",
             "/pseudonymize",
             "/resume/generate",

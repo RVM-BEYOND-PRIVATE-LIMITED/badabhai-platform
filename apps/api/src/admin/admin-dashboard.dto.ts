@@ -211,6 +211,10 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   // ADR-0054 — live news in the free chat: an answer to a worker's news question, which builds
   // nothing in the profile. `false`, same side as the reply it stands in for.
   profiling_free_news: false,
+  // ADR-0057 (#2309) — the profiling turn's understanding. `true`: it reads every typed message ON
+  // the profiling interview and its fills build the profile, so it is spent on building one — the
+  // classifier's side of the ratio, which in résumé mode it replaces.
+  profiling_turn_understand: true,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

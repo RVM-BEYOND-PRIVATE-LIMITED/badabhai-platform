@@ -1095,6 +1095,7 @@ ROUTER_CALLERS = frozenset(
         "routers/profile.py",
         "routers/companion.py",
         "routers/free_chat.py",
+        "routers/profiling_understand.py",  # ADR-0057: message gated first, then mask_request
         "routers/resume.py",
         "resume_import/resume_parse.py",
         "resume_import/resume_summary.py",
@@ -1720,6 +1721,7 @@ FLAG_READERS = frozenset(
         "routers/profile.py",
         "routers/companion.py",
         "routers/free_chat.py",
+        "routers/profiling_understand.py",  # ADR-0057: passes `raw` to its gate and masker
         "routers/voice.py",
         "routers/resume.py",
         "ai/langfuse_tracing.py",  # the tracer's constructor picks the SDK hook

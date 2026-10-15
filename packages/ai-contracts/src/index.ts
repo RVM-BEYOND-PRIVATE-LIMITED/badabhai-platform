@@ -321,3 +321,26 @@ export type {
   FreeChatNewsRefuse,
   FreeChatNewsOutput,
 } from "./free-chat";
+
+// The profiling turn's understanding (ADR-0057, #2309). Mirrored in
+// apps/ai-service/app/contracts.py and pinned by __fixtures__/profiling-understand.keys.json.
+export {
+  ProfilingSchemaEntrySchema,
+  ProfilingSchemaRowSchema,
+  ProfilingOnScreenSchema,
+  ProfilingProgressSchema,
+  ProfilingTurnUnderstandInputSchema,
+  ProfilingFillSchema,
+  ProfilingEditSchema,
+  ProfilingTurnUnderstandOutputSchema,
+} from "./profiling-understand";
+export type {
+  ProfilingSchemaEntry,
+  ProfilingSchemaRow,
+  ProfilingOnScreen,
+  ProfilingProgress,
+  ProfilingTurnUnderstandInput,
+  ProfilingFill,
+  ProfilingEdit,
+  ProfilingTurnUnderstandOutput,
+} from "./profiling-understand";

@@ -175,7 +175,11 @@ NestJS boot assertion).
   way; see its kill-switch entry below. So is its live news answer, `profiling_free_news`
   (ADR-0054: Claude + the web search tool, billed per search), appended only after the app
   release that renders the news tiles (R7); unarmed, it returns its mock and workers keep the
-  "coming soon" news line.
+  "coming soon" news line. The profiling turn's understanding, `profiling_turn_understand`
+  (ADR-0057, #2309: one call per typed profiling-chat message), is appended the same way, and
+  only after its eval records a PASS (`python -m app.profiling.eval_understand_cli`, evidence
+  under `docs/qa/evidence/turn-understanding/`); unarmed, it returns its mock, which the API reads
+  as unavailable and runs today's interview unchanged.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
