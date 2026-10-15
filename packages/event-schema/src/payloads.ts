@@ -1227,6 +1227,10 @@ const aiTaskType = z.enum([
   // `model_config._ROUTE_SHAPES` and charged per call (tokens plus each search). Added in the SAME
   // change that names its contract.
   "profiling_free_news",
+  // ADR-0057 (#2309) — THE PROFILING TURN'S UNDERSTANDING, routed in `model_config._ROUTE_SHAPES`
+  // and charged once per typed profiling-chat message while `CHAT_TURN_UNDERSTANDING_ENABLED` is
+  // armed. Added in the SAME change that routes it; its API caller lands in #2311.
+  "profiling_turn_understand",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",

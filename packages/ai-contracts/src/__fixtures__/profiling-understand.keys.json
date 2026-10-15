@@ -1,0 +1,11 @@
+{
+  "_comment": "ADR-0057 (#2309, the profiling turn's understanding). The Zod shapes live in packages/ai-contracts/src/profiling-understand.ts and the Pydantic mirror in apps/ai-service/app/contracts.py; BOTH suites assert against this file, so a field added on one side only turns the other side red. The recent-turn shape is the companion's and is pinned by companion.keys.json.",
+  "ProfilingSchemaEntry": ["ref", "value"],
+  "ProfilingSchemaRow": ["key", "label", "kind", "options", "value", "status", "entries"],
+  "ProfilingOnScreen": ["key", "text", "options"],
+  "ProfilingProgress": ["answered", "total"],
+  "ProfilingTurnUnderstandInput": ["text", "recent_turns", "on_screen", "schema_rows", "page_owned", "progress"],
+  "ProfilingFill": ["key", "value"],
+  "ProfilingEdit": ["op", "key", "ref", "value"],
+  "ProfilingTurnUnderstandOutput": ["intent", "confidence", "fills", "edits", "page_owned_mentions", "blocked", "ai_metadata"]
+}

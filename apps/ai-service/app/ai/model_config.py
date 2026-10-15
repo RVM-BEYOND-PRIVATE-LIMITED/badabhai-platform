@@ -153,6 +153,11 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # the web search is an Anthropic server tool and no other provider can run it. `json_mode`
     # because the answer is a discriminated object (answer / no_results / refuse).
     "profiling_free_news": ("cheap", True),
+    # ADR-0057 (#2309) - the profiling turn's understanding, on EVERY typed profiling message. CHEAP
+    # for the classifier's reason: a closed intent plus contained extraction over one short message,
+    # on the live interview path where latency is the cost that matters (Haiku is first anyway,
+    # `AI_PRIMARY_PROVIDER`). `json_mode` because the answer is parsed as an object.
+    "profiling_turn_understand": ("cheap", True),
 }
 
 #: ADR-0054 - the news answer's per-attempt deadline. The API waits 25 s for `/free-chat/news`;
@@ -464,6 +469,24 @@ def _route(task_type: str, settings: Settings) -> TaskRoute:
             # the same way on a retry.
             temperature=0.0,
             json_mode=json_mode,
+            max_retries=settings.ai_chat_max_retries,
+        )
+    if task_type == "profiling_turn_understand":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # LARGER THAN A CLASSIFIER'S, SMALL FOR A WRITER'S. The answer is an intent plus up to
+            # 20 fills and 10 edits of short values; a typical turn carries 0-3 of them (~60-150
+            # tokens), and the owner's worst case (trade, years, travel and a mention in one line)
+            # is ~120. 768 leaves a long multi-fact message room without inviting commentary the
+            # contract does not carry; a truncated answer loses its closing brace and fails the
+            # parse, which the API reads as unavailable and runs today's pipeline (ADR-0057 §3.6).
+            max_output_tokens=768,
+            # TEMPERATURE ZERO: the same message against the same schema must be read the same way
+            # on a retry, or an overwrite card could appear on one attempt and not the next.
+            temperature=0.0,
+            json_mode=json_mode,
+            # The chat surface's retry count: this call sits on a worker's message.
             max_retries=settings.ai_chat_max_retries,
         )
     if task_type == "profiling_free_reply":

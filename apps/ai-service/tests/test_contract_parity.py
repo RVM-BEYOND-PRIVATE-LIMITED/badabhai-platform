@@ -1094,3 +1094,90 @@ def test_the_reply_language_is_optional_nullable_and_closed(model, base):
     for bad in ("hindi", "devanagari", "English", "bengali", "", "reply in Tamil", 1):
         with pytest.raises(ValidationError):
             model(**base, reply_language=bad)
+
+
+# --- The profiling turn's understanding (ADR-0057, #2309) ------------------------------------
+#
+# Mirrors `packages/ai-contracts/src/profiling-understand.ts`. Imported here rather than in the
+# block at the top so this section reads on its own, like the free chat's above.
+from app.contracts import (  # noqa: E402
+    ProfilingEdit,
+    ProfilingEditOp,
+    ProfilingFieldKind,
+    ProfilingFieldStatus,
+    ProfilingFill,
+    ProfilingOnScreen,
+    ProfilingProgress,
+    ProfilingSchemaEntry,
+    ProfilingSchemaRow,
+    ProfilingTurnIntent,
+    ProfilingTurnUnderstandInput,
+    ProfilingTurnUnderstandOutput,
+)
+
+_UNDERSTAND_FIXTURE = _FIXTURE_DIR / "profiling-understand.keys.json"
+
+_UNDERSTAND_MODELS = {
+    "ProfilingSchemaEntry": ProfilingSchemaEntry,
+    "ProfilingSchemaRow": ProfilingSchemaRow,
+    "ProfilingOnScreen": ProfilingOnScreen,
+    "ProfilingProgress": ProfilingProgress,
+    "ProfilingTurnUnderstandInput": ProfilingTurnUnderstandInput,
+    "ProfilingFill": ProfilingFill,
+    "ProfilingEdit": ProfilingEdit,
+    "ProfilingTurnUnderstandOutput": ProfilingTurnUnderstandOutput,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_UNDERSTAND_MODELS))
+def test_profiling_understand_models_match_the_zod_shape(name: str):
+    golden = _read_golden(_UNDERSTAND_FIXTURE)
+    assert name in golden, f"fixture is missing {name}"
+    assert sorted(_UNDERSTAND_MODELS[name].model_fields) == sorted(golden[name])
+
+
+def test_the_profiling_understand_fixture_declares_no_model_the_python_side_lacks():
+    golden = _read_golden(_UNDERSTAND_FIXTURE)
+    declared = {k for k in golden if not k.startswith("_")}
+    assert declared == set(_UNDERSTAND_MODELS)
+
+
+def test_profiling_understand_closed_sets_match_the_shared_types_source():
+    """The API's handlers and the `profiling.turn_understood` event read these lists too; key-name
+    parity cannot see a value that drifted on one side."""
+    assert _string_union_in(_TYPES_TS, "PROFILING_TURN_INTENTS") == list(
+        get_args(ProfilingTurnIntent)
+    )
+    assert _string_union_in(_TYPES_TS, "PROFILING_FIELD_STATUSES") == list(
+        get_args(ProfilingFieldStatus)
+    )
+    assert _string_union_in(_TYPES_TS, "PROFILING_FIELD_KINDS") == list(
+        get_args(ProfilingFieldKind)
+    )
+    assert _string_union_in(_TYPES_TS, "PROFILING_EDIT_OPS") == list(get_args(ProfilingEditOp))
+
+
+def test_profiling_understand_bounds_hold_as_behaviour():
+    row = {
+        "key": "experience_years",
+        "label": "Experience",
+        "kind": "duration",
+        "status": "missing",
+    }
+    ProfilingTurnUnderstandInput(text="x" * 4000, schema_rows=[row])
+    with pytest.raises(ValidationError):
+        ProfilingTurnUnderstandInput(text="x" * 4001, schema_rows=[row])
+    with pytest.raises(ValidationError):
+        ProfilingTurnUnderstandInput(
+            text="hi", schema_rows=[{**row, "key": f"k{i}"} for i in range(65)]
+        )
+    # The fail-safe answer: an empty response is unclear with nothing proposed.
+    assert ProfilingTurnUnderstandOutput().model_dump() == {
+        "intent": "unclear",
+        "confidence": 0.0,
+        "fills": [],
+        "edits": [],
+        "page_owned_mentions": [],
+        "blocked": False,
+        "ai_metadata": None,
+    }

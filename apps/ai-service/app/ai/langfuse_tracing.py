@@ -151,6 +151,9 @@ _TASK_TRACE: dict[str, tuple[str, str]] = {
     # ADR-0054: the searched news answer. Same feature tag: its tokens and search fees are part of
     # "what does the free chat cost", and it builds nothing in the profile.
     "profiling_free_news": ("answer-free-chat-news", "free_chat"),
+    # ADR-0057 (#2309): the profiling turn's understanding. "profiling": it runs on the interview
+    # itself and its fills build the profile, so its cost belongs to cost-per-profile's question.
+    "profiling_turn_understand": ("understand-profiling-turn", "profiling"),
 }
 
 #: Workflow names — the ROOT trace names. Business operations, not AI tasks: a workflow is

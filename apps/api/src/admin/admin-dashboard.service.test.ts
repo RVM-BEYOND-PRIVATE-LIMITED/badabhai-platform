@@ -297,6 +297,9 @@ describe("AI cost — what a finished profile costs", () => {
       // lock), so it is spent ON the profiling interview. Its sibling `profiling_free_reply`
       // (casual/career free chat) builds nothing and stays out.
       "profiling_free_classify",
+      // ADR-0057 (#2309) — the turn's understanding reads every typed message ON the interview and
+      // its fills build the profile; in résumé mode it replaces the classifier above. Same side.
+      "profiling_turn_understand",
     ]);
     expect(asked.profilingTaskTypes).not.toContain("profiling_free_reply");
     expect(asked.profilingTaskTypes).not.toContain("resume_generation");
