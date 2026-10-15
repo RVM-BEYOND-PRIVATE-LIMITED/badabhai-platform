@@ -369,6 +369,49 @@ describe("the fixed-line categories", () => {
   });
 });
 
+describe("#2287 — a model chip offering to MAKE a résumé is dropped on this screen", () => {
+  const LINES = ["Welding ka certificate ITI se milta hai.", "Course 6 mahine ka hota hai."];
+
+  it("serves the lines and the other two chips; logs the COUNT, never the chip", async () => {
+    const info = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const h = setup({
+      reply: answer(LINES, [
+        "Resume banane mein madad",
+        "Kaunsa certificate chahiye",
+        "Course kahan milega",
+      ]),
+    });
+    const out = await h.brain.route(input("welding certificate kaise milega"));
+    expect(out.turn.reply).toBe(LINES.join("\n"));
+    expect(out.turn.suggested_followups).toEqual([
+      "Kaunsa certificate chahiye",
+      "Course kahan milega",
+    ]);
+    expect(out.turn.read_aloud).toBe(false);
+    expect(out).toMatchObject({ outcome: "answered" });
+    expect(CompanionTurnSchema.safeParse(out.turn).success).toBe(true);
+    const logged = info.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain("1 résumé-offer chip(s) dropped");
+    expect(logged).not.toContain("Resume banane");
+  });
+
+  it("an answer whose ONLY chip is an offer is served with no chips (a closing turn)", async () => {
+    const h = setup({ reply: answer(LINES, ["Naya resume"]) });
+    const out = await h.brain.route(input("x"));
+    expect(out.turn.reply).toBe(LINES.join("\n"));
+    expect(out.turn.suggested_followups).toEqual([]);
+    expect(out.turn.question_kind).toBe("close");
+  });
+
+  it("chips that are not offers are all kept, and nothing is logged", async () => {
+    const info = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const h = setup({ reply: answer(LINES, ["Resume mein skill jodo", "Resume download"]) });
+    const out = await h.brain.route(input("x"));
+    expect(out.turn.suggested_followups).toEqual(["Resume mein skill jodo", "Resume download"]);
+    expect(info.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain("résumé-offer");
+  });
+});
+
 describe("career / casual — the free chat's reply and gate", () => {
   it("serves the model's lines (₹ ranges and company names ALLOWED), never read aloud", async () => {
     const lines = [
