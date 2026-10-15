@@ -146,6 +146,8 @@ The existing companion suites now pin that path with the switch on.
   - Render `news_links` on companion turns.
 - **AI service.** The `companion` surface prompts and `resume_action` (PR A of #2275).
 - **No box change.** The free-chat tasks are already armed for the profiling chat.
+- **Eval (#2285, 2026-10-15).** The companion prompts were measured with fabricated sets: classify 95.4% and reply
+  66/80 on Haiku. Greetings misroute; fixes are proposed. See [the evidence](../qa/evidence/free-chat/companion-surface/2026-10-15/README.md).
 
 ## 9. Brain-first routing (owner rulings, 2026-10-15)
 

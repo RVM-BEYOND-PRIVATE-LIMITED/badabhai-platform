@@ -29,6 +29,13 @@ WHAT IT PRINTS AND WRITES. Stdout carries counts, case ids and timings, never a 
 holds the fabricated case ids and each reply's contract fields (status, lines, chips, topic), the
 serving model and whether it came inside the API's timeout: model output over fabricated input,
 written only to the path the operator names.
+
+``--surface companion`` (ADR-0055, #2285) runs the Bada Bhai chat's set instead
+(`eval_free_reply_companion_gold`): every body carries ``surface: "companion"``, so the route
+answers with the companion's casual and career prompts. The API serves a companion reply through
+the same gate, so the same replay scores the dump; the dump names its surface, and its
+``set_digest`` (over the companion bodies) keeps it from ever comparing as the profiling set.
+The default, ``profiling``, posts exactly the bodies it always did.
 """
 
 from __future__ import annotations
@@ -39,10 +46,14 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
+from typing import get_args
 
 # ONE CALL LAYER FOR EVERY STAGING EVAL: timing, retries and the mock/fallback contamination rules
 # are the companion eval's, imported rather than copied.
 from ..companion.eval_cli import CallLog, _call, _label, _print_calls, _verdict, gate_failures
+from ..contracts import FreeChatSurface
+from . import eval_free_reply_companion_gold as companion_gold
 from . import eval_free_reply_gold as gold
 from .eval_reply_language_cli import API_TIMEOUT_MS, ROUTE
 
@@ -55,10 +66,21 @@ MAX_REPEATS = 10
 #: The contract fields a reply keeps in the dump; `ai_metadata` is the router's, not the reply.
 _REPLY_FIELDS = ("status", "lines", "followup_chips", "topic")
 
+#: Every surface the route serves (`FreeChatSurface`), and the default: the profiling chat.
+SURFACES: tuple[str, ...] = get_args(FreeChatSurface)
+DEFAULT_SURFACE = "profiling"
+
+#: surface -> its labelled set. Exhaustive over `FreeChatSurface` (pinned by a test). Each module
+#: has ``CASES``, ``request_body`` and ``set_digest``, read at run time.
+SURFACE_SETS: dict[str, ModuleType] = {"profiling": gold, "companion": companion_gold}
+
+#: A case of either set: the profiling set's or the companion's (`summary` added), same fields.
+Case = gold.Case | companion_gold.Case
+
 
 @dataclass(frozen=True)
 class Sample:
-    case: gold.Case
+    case: Case
     repeat: int
     #: The route's body, or None when the call gave nothing the API could act on.
     body: dict | None
@@ -72,7 +94,8 @@ class ReplyRun:
     samples: list[Sample]
     calls: CallLog
     repeats: int
-    cases: list[gold.Case]
+    cases: list[Case]
+    surface: str = DEFAULT_SURFACE
 
 
 def run_free_reply_eval(
@@ -81,16 +104,19 @@ def run_free_reply_eval(
     repeats: int = 1,
     pace_ms: int = 0,
     expect_model: str | None = None,
+    surface: str = DEFAULT_SURFACE,
 ) -> ReplyRun:
-    """Every case, ``repeats`` times, in set order per pass."""
+    """Every case of ``surface``'s set, ``repeats`` times, in set order per pass."""
+    labelled = SURFACE_SETS[surface]
+    cases = list(labelled.CASES)
     calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
     samples: list[Sample] = []
     for repeat in range(repeats):
-        for case in gold.CASES:
+        for case in cases:
             reply = _call(
                 base_url,
                 ROUTE,
-                gold.request_body(case),
+                labelled.request_body(case),
                 calls,
                 _label(case.text),
                 api_timeout_ms=API_TIMEOUT_MS,
@@ -103,7 +129,7 @@ def run_free_reply_eval(
                     reply.in_time if reply is not None else True,
                 )
             )
-    return ReplyRun(samples, calls, repeats, list(gold.CASES))
+    return ReplyRun(samples, calls, repeats, cases, surface)
 
 
 def print_report(run: ReplyRun) -> None:
@@ -115,7 +141,8 @@ def print_report(run: ReplyRun) -> None:
         if status == "refuse":
             topics[str(sample.body.get("topic"))] += 1
     print(
-        f"free-chat reply eval: {len(run.cases)} cases x {run.repeats} repeats = "
+        f"free-chat reply eval, {run.surface} surface: {len(run.cases)} cases x {run.repeats} "
+        f"repeats = "
         f"{len(run.samples)} replies"
     )
     print("  " + ", ".join(f"{status} {n}" for status, n in sorted(statuses.items())))
@@ -158,7 +185,10 @@ def dump_document(run: ReplyRun, not_evidence: list[str]) -> dict:
         "expect_model": run.calls.expect_model,
         "repeats": run.repeats,
         "case_ids": [case.id for case in run.cases],
-        "set_digest": gold.set_digest(run.cases),
+        "set_digest": SURFACE_SETS[run.surface].set_digest(run.cases),
+        # ADR-0055 (#2285): which surface's set and prompts ran. Additive: the replay ignores it,
+        # and the digest already keeps the two sets apart.
+        "surface": run.surface,
         "evidence": not not_evidence,
         "not_evidence": not_evidence,
         "written": len(rows),
@@ -197,6 +227,13 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="write every reply here (JSON), for free-chat-reply-served.js to score",
     )
+    parser.add_argument(
+        "--surface",
+        choices=SURFACES,
+        default=DEFAULT_SURFACE,
+        help="which chat's set and prompts to run (ADR-0055): profiling (default) or companion, "
+        "the Bada Bhai chat (`eval_free_reply_companion_gold`, surface sent in every body)",
+    )
     args = parser.parse_args(argv)
     if not 1 <= args.repeats <= MAX_REPEATS:
         parser.error(f"--repeats must be within 1..{MAX_REPEATS}")
@@ -210,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         repeats=args.repeats,
         pace_ms=args.pace_ms,
         expect_model=args.expect_model,
+        surface=args.surface,
     )
     print_report(run)
     failed = gate_failures(run.calls, None)
