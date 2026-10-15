@@ -3,6 +3,7 @@ import { ChatCompanionService } from "./chat-companion.service";
 import type { CompanionTurn } from "./chat-companion.dto";
 import { V2_CLARIFY, V2_FALTU_COOLDOWN, V3_GREETING } from "./companion-replies";
 import { distressTurn } from "./v2/companion-brain";
+import { fakeCompanionHistory } from "./companion-history.fake";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
 
 /**
@@ -124,7 +125,10 @@ export function makeCompanionServiceForV2(opts: {
     handleGreeting: vi.fn(async () => v2CopyTurn(V3_GREETING)),
     // ADR-0055 R2 — a typed jobs-word message, classified first; null = v1's jobs answer.
     handleJobsMessage: vi.fn(async (..._args: unknown[]) => opts.jobsVerdict ?? null),
+    // #2297 — whether a served turn went into the memory (marks its stored lines for a model).
+    rememberedForModel: vi.fn((_turn: unknown) => false),
   };
+  const { history, summaries } = fakeCompanionHistory();
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
@@ -148,6 +152,8 @@ export function makeCompanionServiceForV2(opts: {
     events as never,
     edits as never,
     v2 as never,
+    history as never,
+    summaries as never,
   );
-  return { svc, policy, repo, resumes, skills, jobs, events, edits, v2 };
+  return { svc, policy, repo, resumes, skills, jobs, events, edits, v2, history, summaries };
 }

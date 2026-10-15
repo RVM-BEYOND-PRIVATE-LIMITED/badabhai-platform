@@ -33,7 +33,7 @@ import {
   type BrainInput,
   type BrainTurn,
 } from "./companion-brain";
-import { CompanionMemoryStore } from "./companion-memory.store";
+import { CompanionConversationMemory } from "./companion-conversation-memory";
 import { taskChipLabel, type CompanionTaskChipIntent } from "./companion-task-chips";
 import { taskChips, v2CooldownTurn, v2CopyTurn } from "./companion-v2-compose";
 import { FaltuStore } from "./faltu.store";
@@ -156,11 +156,18 @@ function clipText(text: string, max: number): string {
 @Injectable()
 export class CompanionV2Orchestrator {
   private readonly logger = new Logger(CompanionV2Orchestrator.name);
+  /**
+   * #2297 — the turns whose pair went into the memory (`memoryPair` set), by IDENTITY of the turn
+   * object this class returned. Read once by the service when it stores the turn, to mark the
+   * lines a later model call may read; a WeakSet, so nothing outlives the turn.
+   */
+  private readonly remembered = new WeakSet<CompanionTurn>();
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly ai: AiService,
-    private readonly memory: CompanionMemoryStore,
+    // #2297 — the recent turns a model reads: the stored conversation on the brain, Redis otherwise.
+    private readonly memory: CompanionConversationMemory,
     private readonly registry: CompanionHandlerRegistry,
     private readonly events: EventsService,
     private readonly cost: AiCostRecorder,
@@ -755,9 +762,21 @@ export class CompanionV2Orchestrator {
         role: "bada_bhai",
         text: clipText(out.memoryPair.reply, MEMORY_REPLY_MAX),
       });
+      this.remembered.add(out.turn);
     }
     await this.record(workerId, ctx, dto, now, out);
     return out.turn;
+  }
+
+  /**
+   * #2297 (ADR-0056) — may a LATER model call read this turn? True exactly when its pair went into
+   * the memory, so the stored conversation feeds a model the same turns the Redis memory did: never
+   * a distress turn, a trash verdict, a chip tap or a guard line (ADR-0055 F3/F4). Keyed by the
+   * IDENTITY of the turn this class returned; any other object — a v1 turn, a replayed one — is
+   * false.
+   */
+  rememberedForModel(turn: CompanionTurn): boolean {
+    return this.remembered.has(turn);
   }
 
   /**
