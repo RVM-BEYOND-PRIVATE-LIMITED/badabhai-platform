@@ -21,6 +21,10 @@ import { normalizeResumeMenuText } from "../../chat/resume-menu";
  * A FALSE POSITIVE costs one edit-parse call and the "kya badalna hai" line; a false negative
  * leaves today's v1 answer. Nothing here writes, logs or calls a model; the text is classified
  * and dropped.
+ *
+ * ON THE BRAIN (#2295, owner ruling 2026-10-15) a text either predicate below recognises is
+ * answered with the résumé's EDIT SECTION MENU instead, with no model call
+ * (`editAsksGetSectionMenu`); the edit handler is the kill-switch route only.
  */
 
 /** Multi-word Hinglish imperatives — matched as substrings, so spacing is the only variable. */

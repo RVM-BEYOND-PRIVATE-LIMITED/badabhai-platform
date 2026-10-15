@@ -158,7 +158,14 @@ const output = (verdict: Verdict) =>
 
 const REPLY_LINE = "Welding ka kaam Tata Steel Ltd jaisi jagah bhi milta hai.";
 
-function setup(opts: { killSwitch?: boolean; verdict?: Verdict; summary?: string | null } = {}) {
+function setup(
+  opts: {
+    killSwitch?: boolean;
+    verdict?: Verdict;
+    summary?: string | null;
+    pendingIntent?: "edit_resume" | "career_talk";
+  } = {},
+) {
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
@@ -206,7 +213,7 @@ function setup(opts: { killSwitch?: boolean; verdict?: Verdict; summary?: string
   const replayed = new Map<string, CompanionTurn>();
   const pending = {
     set: vi.fn(async () => undefined),
-    take: vi.fn(async () => null),
+    take: vi.fn(async () => opts.pendingIntent ?? null),
     clear: vi.fn(async () => undefined),
   };
   const edits = { propose: vi.fn(async () => ({ turn: CARD, outcome: "proposed" })) };
@@ -301,7 +308,7 @@ function setup(opts: { killSwitch?: boolean; verdict?: Verdict; summary?: string
     events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
       .find((e) => e.event_name === "chat.companion_turn_served_v4")!;
-  return { svc, ai, events, edits, pending, summaries, send, eventNames, v1Intent, v4 };
+  return { svc, ai, events, cost, edits, pending, summaries, send, eventNames, v1Intent, v4 };
 }
 
 const keys = (turn: CompanionTurn) => turn.suggested_options.map((o) => o.option_key);
@@ -313,38 +320,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe("R1 — résumé words and menu aliases reach the brain (or the edit handler)", () => {
-  it("'skills mein Marathi jod do' → the edit card, straight from the edit pattern (no classifier)", async () => {
-    const h = setup();
-    expect((await h.send("skills mein Marathi jod do")).edit_proposal).toEqual(CARD.edit_proposal);
-    expect(h.edits.propose).toHaveBeenCalledTimes(1);
-    expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
-    expect(h.v4().payload).toMatchObject({
-      intent_source: "v1_deterministic",
-      v2_intent: "edit_resume",
-    });
-  });
-
-  it("a RESENT edit phrasing (same submission_id): one edit parse, one card, the same turn replayed", async () => {
-    const h = setup();
-    const first = await h.send("skills mein Marathi jod do");
-    const second = await h.send("skills mein Marathi jod do");
-    expect(h.edits.propose).toHaveBeenCalledTimes(1);
-    expect(second).toEqual(first);
-    expect(second.edit_proposal?.proposal_id).toBe(CARD.edit_proposal!.proposal_id);
-    // The replayed turn records nothing again: one v4 event for the one turn served.
-    expect(h.eventNames()).toEqual(["chat.companion_turn_served_v4"]);
-  });
-
-  it("'resume mein welding add karo' → the brain's résumé/edit → the edit card", async () => {
-    const h = setup({ verdict: { category: "resume", resume_action: "edit" } });
-    expect((await h.send("resume mein welding add karo")).edit_proposal).toEqual(
-      CARD.edit_proposal,
-    );
-    expect(h.ai.freeChatClassify).toHaveBeenCalledTimes(1);
-    expect(h.eventNames()).not.toContain("chat.companion_turn_served");
-  });
-
+describe("R1 — résumé words and menu aliases reach the brain (edits: the #2295 block below)", () => {
   it("'resume ka pdf bhejo' → the brain's résumé/download → the download chip", async () => {
     const h = setup({ verdict: { category: "resume", resume_action: "download" } });
     const turn = await h.send("resume ka pdf bhejo");
@@ -380,10 +356,7 @@ describe("R1 — résumé words and menu aliases reach the brain (or the edit ha
     }
   });
 
-  it("a task-chip tap leaves the EDIT task pending; career talk is the brain's own (no pending)", async () => {
-    const edit = setup();
-    await edit.send(COMPANION_TASK_EDIT_RESUME_LABEL);
-    expect(edit.pending.set).toHaveBeenCalledWith(WORKER, "edit_resume");
+  it("a career task-chip tap leaves no pending intent: career talk is the brain's own", async () => {
     const career = setup();
     await career.send(COMPANION_TASK_CAREER_LABEL);
     expect(career.pending.set).not.toHaveBeenCalled();
@@ -546,19 +519,33 @@ describe("R4 — the reply gets the rolling summary; the classifier never does",
   });
 });
 
-describe("#2295 — a GENERIC edit request gets the edit section menu, with no model call", () => {
+/**
+ * #2295 — OWNER RULING 2026-10-15: on the brain, ANYTHING related to résumé edit gets the résumé's
+ * EDIT SECTION MENU ("Resume ka kaun sa hissa theek karna hai" + the six section chips), never the
+ * AI edit card. The deterministic routes answer with no model call on v1's `resume_menu` event; the
+ * classifier's résumé/edit answers on v4 with only the classify call on the ledger.
+ */
+describe("#2295 ruling — every résumé-edit ask gets the EDIT SECTION MENU, never the edit card", () => {
+  const SECTION_KEYS = RESUME_SECTIONS.map((section) => section.key);
+  const expectEditMenu = (turn: CompanionTurn) => {
+    expect(turn.reply).toBe(RESUME_MENU_EDIT_REPLY);
+    expect(keys(turn)).toEqual(SECTION_KEYS);
+    expect(turn.edit_proposal).toBeUndefined();
+  };
+
   it.each([
     "resume edit karein",
     "mera resume update karna hai",
     "resume badalna hai",
     "edit my resume",
+    "skills mein Marathi jod do",
+    "meri salary 25000 kar do",
+    "resume mein salary 25000 kar do",
   ])(
-    "%j → the edit section menu on v1's resume_menu event: no classifier, no edit parse",
+    "%j — a DETERMINISTIC edit ask: the menu on v1's resume_menu event, no model call",
     async (text) => {
       const h = setup();
-      const turn = await h.send(text);
-      expect(turn.reply).toBe(RESUME_MENU_EDIT_REPLY);
-      expect(keys(turn)).toEqual(RESUME_SECTIONS.map((section) => section.key));
+      expectEditMenu(await h.send(text));
       expect(h.edits.propose).not.toHaveBeenCalled();
       expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
       expect(h.ai.companionClassify).not.toHaveBeenCalled();
@@ -567,18 +554,68 @@ describe("#2295 — a GENERIC edit request gets the edit section menu, with no m
     },
   );
 
-  it("consumes no pending intent and clears a stale one, as the menu's edit chip would", async () => {
+  it.each(["Fanuc hata do", "Siemens ki jagah Mitsubishi likho", "resume mein welding add karo"])(
+    "%j — the classifier's résumé/edit: the menu on v4 (edit_resume / edit / served), no edit parse",
+    async (text) => {
+      const h = setup({ verdict: { category: "resume", resume_action: "edit" } });
+      expectEditMenu(await h.send(text));
+      expect(h.edits.propose).not.toHaveBeenCalled();
+      expect(h.ai.freeChatClassify).toHaveBeenCalledTimes(1);
+      // The classify call is the turn's only spend on the ledger.
+      expect(h.cost.record).toHaveBeenCalledTimes(1);
+      expect(h.eventNames()).toEqual(["chat.companion_turn_served_v4"]);
+      const v4 = h.v4();
+      expect(v4.payload).toMatchObject({
+        intent_source: "llm",
+        v2_intent: "edit_resume",
+        free_category: "resume",
+        resume_action: "edit",
+        outcome: "served",
+      });
+      expect(
+        EVENT_REGISTRY["chat.companion_turn_served_v4"].payload.safeParse(v4.payload).success,
+      ).toBe(true);
+    },
+  );
+
+  it("a PENDING edit intent: the menu, with no model call", async () => {
+    const h = setup({ pendingIntent: "edit_resume" });
+    expectEditMenu(await h.send("night shift chalega"));
+    expect(h.pending.take).toHaveBeenCalledWith(WORKER);
+    expect(h.edits.propose).not.toHaveBeenCalled();
+    expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(h.v1Intent()).toBe("resume_menu");
+  });
+
+  it("a pending CAREER intent is untouched by the ruling", async () => {
+    const h = setup({ pendingIntent: "career_talk" });
+    const turn = await h.send("aage kya karun");
+    expect(turn.reply).not.toBe(RESUME_MENU_EDIT_REPLY);
+    expect(h.v4().payload).toMatchObject({ v2_intent: "career_talk" });
+    expect(h.edits.propose).not.toHaveBeenCalled();
+  });
+
+  it("the 'Resume badlo' task chip: the menu, and no pending intent (a stale one is cleared)", async () => {
     const h = setup();
-    await h.send("resume edit karein");
+    expectEditMenu(await h.send(COMPANION_TASK_EDIT_RESUME_LABEL));
+    expect(h.pending.set).not.toHaveBeenCalled();
+    expect(h.pending.clear).toHaveBeenCalledWith(WORKER);
+    expect(h.v1Intent()).toBe("resume_menu");
+  });
+
+  it("a typed edit ask consumes no pending intent and clears a stale one, as the menu's chip would", async () => {
+    const h = setup({ pendingIntent: "career_talk" });
+    expectEditMenu(await h.send("resume edit karein"));
     expect(h.pending.take).not.toHaveBeenCalled();
     expect(h.pending.clear).toHaveBeenCalledWith(WORKER);
   });
 
-  it("a CONCRETE change beside the generic ask still goes straight to the edit handler", async () => {
+  it("a RESENT edit ask is the same menu again, with no model call", async () => {
     const h = setup();
-    const turn = await h.send("resume mein salary 25000 kar do");
-    expect(turn.edit_proposal).toEqual(CARD.edit_proposal);
-    expect(h.edits.propose).toHaveBeenCalledTimes(1);
+    const first = await h.send("skills mein Marathi jod do");
+    const second = await h.send("skills mein Marathi jod do");
+    expect(second).toEqual(first);
+    expect(h.edits.propose).not.toHaveBeenCalled();
   });
 });
 
@@ -609,6 +646,14 @@ describe("the KILL SWITCH — every example is today's flow", () => {
     expect((await h.send("skills mein Marathi jod do")).edit_proposal).toEqual(CARD.edit_proposal);
     expect(h.ai.companionClassify).toHaveBeenCalledTimes(1);
     expect(h.ai.freeChatClassify).not.toHaveBeenCalled();
+  });
+
+  it("the edit task chip is TODAY's ask, never the edit section menu", async () => {
+    const h = setup({ killSwitch: true });
+    const turn = await h.send(COMPANION_TASK_EDIT_RESUME_LABEL);
+    expect(turn.reply).not.toBe(RESUME_MENU_EDIT_REPLY);
+    expect(h.eventNames()).toEqual(["chat.companion_turn_served_v4"]);
+    expect(h.v4().payload).toMatchObject({ v2_intent: "edit_resume" });
   });
 
   it.each(["hello", "Namaste ji", "good morning sir", "🙏 namaste"])(

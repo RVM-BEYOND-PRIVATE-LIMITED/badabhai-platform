@@ -15,12 +15,12 @@ import { WorkerAttributesRepository } from "../profiles/worker-attributes.reposi
 import { matchesDistress } from "../profiling/free-chat/free-chat.router";
 import { toProfileSummary } from "../workers/profile-summary.mapper";
 import { readProfileFormFacts, type ProfileFormFacts } from "../workers/profile-form-facts";
+import type { ResumeMenuChoice } from "../chat/resume-menu";
 import {
-  RESUME_MENU_EDIT_LABEL,
-  resolveResumeMenu,
-  type ResumeMenuChoice,
-} from "../chat/resume-menu";
-import { companionBrainOn, companionRoutePrecedenceOn } from "./companion-brain-switch";
+  companionBrainOn,
+  companionRoutePrecedenceOn,
+  editAsksGetSectionMenu,
+} from "./companion-brain-switch";
 import { isBareGreeting } from "./companion-greeting";
 import {
   formCreateAck,
@@ -47,6 +47,7 @@ import {
 } from "./companion-intents";
 import { isGenericEditRequest, looksLikeEditRequest } from "./v2/edit-precheck";
 import { resolveCompanionTaskChip } from "./v2/companion-task-chips";
+import { editSectionMenu } from "./v2/companion-v2-compose";
 import {
   composeFor,
   replyText,
@@ -216,19 +217,23 @@ export class ChatCompanionService {
       this.faltuOn() && taskChip === null && !chipTap && !distress
         ? await this.v2.cooldownUntil(workerId, now)
         : null;
-    // #2295 — a GENERIC edit request ("resume edit karein") names no change, so the edit parse has
-    // nothing to read (measured: empty rows and the clarify line). On the brain it gets the résumé's
-    // EDIT section menu with no model call — v1's own answer before #2284's precedence sent it to
-    // the edit handler — exactly as if the worker had tapped "Apna resume edit karein". Free text
-    // only, after the chips, distress, a greeting and the cool-down; the kill switch leaves it as is.
-    const genericEdit =
-      brainOn &&
+    // #2295 (owner ruling 2026-10-15) — ON THE BRAIN, EVERY RÉSUMÉ-EDIT ASK GETS THE EDIT SECTION
+    // MENU, never the AI edit card (`editAsksGetSectionMenu`). The DETERMINISTIC edit routes are
+    // recognised here, so they make no model call at all and record v1's `resume_menu` event, as a
+    // tap on "Apna resume edit karein" does: the edit task chip, a typed edit ask (the edit pattern,
+    // either shape, or a generic ask — after the chips, distress, a greeting and the cool-down) and,
+    // below, a pending edit intent. An ask only the classifier recognises reaches the same menu
+    // through the handler registry. The kill switch leaves every route as it is.
+    const menuForEdits = editAsksGetSectionMenu(this.config);
+    const editChipTap = menuForEdits && taskChip === "edit_resume";
+    const typedEditAsk =
+      menuForEdits &&
       taskChip === null &&
       !chipTap &&
       !distress &&
       !greeting &&
       cooling === null &&
-      isGenericEditRequest(dto.text);
+      (isGenericEditRequest(dto.text) || looksLikeEditRequest(dto.text));
 
     // WP6 (TD146) — ROUTE PRECEDENCE, behind its own default-off flag AND, since ADR-0055 R1 (owner
     // ruling 2026-10-15, "brain first"), whenever the free-chat brain is on. Off — the kill switch
@@ -240,9 +245,9 @@ export class ChatCompanionService {
     // menu. Exact chip taps and every NAMED v1 intent keep their zero-model answers.
     const precedenceOn = companionRoutePrecedenceOn(this.config);
     // Another chip clears a stale pending intent (the edit/career task chips set their own in
-    // `handleTaskChip`), and so does a generic edit request, which is answered as the menu's edit
-    // chip is (#2295). Best-effort: the answer is served either way.
-    if (precedenceOn && ((chipTap && taskChip === null) || genericEdit)) {
+    // `handleTaskChip`), and so does an edit ask answered with the menu, as the menu's edit chip is
+    // (#2295). Best-effort: the answer is served either way.
+    if (precedenceOn && ((chipTap && taskChip === null) || editChipTap || typedEditAsk)) {
       await this.v2.clearPendingIntent(workerId);
     }
     const resolution = resolveCompanionText(dto.text);
@@ -255,10 +260,13 @@ export class ChatCompanionService {
       !chipTap &&
       !distress &&
       !greeting &&
-      !genericEdit
+      !typedEditAsk
         ? await this.v2.takePendingIntent(workerId)
         : null;
+    const editMenu = editChipTap || typedEditAsk || (menuForEdits && pending === "edit_resume");
+    // The edit pattern straight to the edit handler — the kill-switch route (on the brain, the menu).
     const editPrecheck =
+      !menuForEdits &&
       precedenceOn &&
       pending === null &&
       taskChip === null &&
@@ -267,7 +275,20 @@ export class ChatCompanionService {
       this.config.CHAT_COMPANION_V2_EDIT_ENABLED &&
       looksLikeEditRequest(dto.text);
     let turn: CompanionTurn;
-    if (taskChip !== null) {
+    if (editMenu) {
+      // #2295 — the edit section menu, served and recorded as v1's menu serves it.
+      turn = this.menuTurn(editSectionMenu());
+      await this.record(
+        workerId,
+        ctx,
+        now,
+        "message",
+        "resume_menu",
+        null,
+        null,
+        dto.submission_id ?? null,
+      );
+    } else if (taskChip !== null) {
       turn = await this.v2.handleTaskChip(workerId, mode.profile, dto, taskChip, ctx, now);
     } else if (distress) {
       // ADR-0055 — the helpline, alone. The orchestrator records the v4 event (`lexicon`).
@@ -281,19 +302,6 @@ export class ChatCompanionService {
     } else if (greeting) {
       // #2287 — the fixed greeting line and the task chips; the orchestrator records the v4 event.
       turn = await this.v2.handleGreeting(workerId, dto, ctx, now);
-    } else if (genericEdit) {
-      // #2295 — the edit section menu, served and recorded as v1's menu alias served it.
-      turn = this.menuTurn(resolveResumeMenu(RESUME_MENU_EDIT_LABEL));
-      await this.record(
-        workerId,
-        ctx,
-        now,
-        "message",
-        "resume_menu",
-        null,
-        null,
-        dto.submission_id ?? null,
-      );
     } else if (pending !== null) {
       // A deterministic v1-bypass route: no v1 resolver, no classifier (WP6).
       turn = await this.v2.handleDirectIntent(workerId, mode.profile, dto, pending, ctx, now);

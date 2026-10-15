@@ -126,13 +126,21 @@ export function taskChips(config: ServerConfig): V2Option[] {
 }
 
 /**
- * #2295 — the résumé's EDIT SECTION chips, read from the shipped edit menu itself
- * (`resolveResumeMenu`), so a tap is the menu's own exact chip and is answered as one. What an edit
- * turn that ends with no card offers on the brain: the worker picks the section instead of guessing
- * another phrasing.
+ * #2295 — the résumé's EDIT SECTION MENU, exactly as the shipped menu serves it after a tap on "Apna
+ * resume edit karein" (`resolveResumeMenu` stays the one source of its copy and its six chips). What
+ * every résumé-edit ask is answered with on the brain (`editAsksGetSectionMenu`).
+ */
+export function editSectionMenu(): ResumeMenuChoice {
+  return resolveResumeMenu(RESUME_MENU_EDIT_LABEL);
+}
+
+/**
+ * #2295 — the edit section menu's chips alone, so a tap is the menu's own exact chip and is
+ * answered as one. What an edit turn that ends with no card offers on the brain: the worker picks
+ * the section instead of guessing another phrasing.
  */
 export function editSectionChips(): V2Option[] {
-  return resolveResumeMenu(RESUME_MENU_EDIT_LABEL).options.map((option) => ({ ...option }));
+  return editSectionMenu().options.map((option) => ({ ...option }));
 }
 
 /**

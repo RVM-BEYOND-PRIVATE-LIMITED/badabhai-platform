@@ -299,7 +299,9 @@ export function distressTurn(): CompanionTurn {
  *                                     names allowed, R11), model-written so never read aloud; a
  *                                     refusal → its reviewed line, `news` → the live-news request
  *   jobs                            → V3_JOBS + "Sabhi jobs dekhein"
- *   resume + edit / new             → the existing edit / new-résumé handlers (their phase flags)
+ *   resume + edit                   → the résumé's EDIT SECTION MENU (#2295; the registry, never the
+ *                                     AI edit card on the brain)
+ *   resume + new                    → the existing new-résumé handler (its phase flag)
  *   resume + download               → V3_DOWNLOAD_READY + the download chip, or the honest line
  *   resume + no action              → the résumé root menu (+ the download chip when ready)
  *
@@ -417,7 +419,11 @@ export class CompanionBrain {
     return { ...(await this.handle("unclear", input)), v2Intent };
   }
 
-  /** A `resume` message, by what it wants. Edit and new go to the existing handlers, flags and all. */
+  /**
+   * A `resume` message, by what it wants. Edit and new go through the handler registry: new to the
+   * existing handler, flags and all; edit to the résumé's edit section menu (#2295,
+   * `editAsksGetSectionMenu`), so a classified edit ask makes no edit-parse call.
+   */
   private async resume(
     input: NamedInput,
     action: FreeChatResumeAction | null,
