@@ -135,7 +135,8 @@ _TURNER_RESUME = (
     _pref(expected_salary_min="20000", expected_salary="25000", salary_period="month", shift="day"),
     *_rows("s", "skills", "skill", "CNC turning", "Fanuc programming", "Vernier caliper"),
     {"ref": "e1", "section": "employment",
-     "fields": {"employer_name": "Kalyani Steels", "role_label": "CNC Turner", "start_ym": "2018-04"}},
+     "fields": {"employer_name": "Kalyani Steels", "role_label": "CNC Turner",
+                "start_ym": "2018-04"}},
     *_rows("pc", "preferences", "preferred_cities", "Pune", "Chakan"),
 )  # fmt: skip
 

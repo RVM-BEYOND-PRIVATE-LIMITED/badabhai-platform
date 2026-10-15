@@ -63,7 +63,8 @@ COMPANION_FALLBACK_LINE = (
     "Main aapke resume, applications aur naye jobs mein madad kar sakta hoon. Neeche se chunein."
 )
 COMPANION_CLARIFY_LINE = "Samajh nahi aaya. Aap inme se kya karna chahte hain?"
-#: The résumé's edit section menu line (`RESUME_MENU_EDIT_REPLY`, `apps/api/src/chat/resume-menu.ts`),
+#: The résumé's edit section menu line (`RESUME_MENU_EDIT_REPLY` in the API's
+#: `apps/api/src/chat/resume-menu.ts`),
 #: which every edit ask gets on the brain (#2295).
 EDIT_MENU_LINE = "Resume ka kaun sa hissa theek karna hai. Neeche se chunein."
 
