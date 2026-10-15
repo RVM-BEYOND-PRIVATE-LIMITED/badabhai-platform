@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import { ChatCompanionService } from "./chat-companion.service";
+import type { CompanionTurn } from "./chat-companion.dto";
 import { V2_CLARIFY, V2_FALTU_COOLDOWN } from "./companion-replies";
 import { distressTurn } from "./v2/companion-brain";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
@@ -83,6 +84,8 @@ export function makeCompanionServiceForV2(opts: {
   pendingIntent?: "edit_resume" | "career_talk" | null;
   /** ADR-0055 — `CHAT_FREE_CHAT_DISABLED`. On by default: the suites pin the v2 path. */
   killSwitch?: boolean;
+  /** ADR-0055 R2 — the brain's answer to a typed jobs-word message; null/absent defers to v1. */
+  jobsVerdict?: CompanionTurn | null;
 }) {
   const policy = {
     resolve: vi.fn(async () => ({ mode: "companion", profile: PROFILE })),
@@ -117,6 +120,8 @@ export function makeCompanionServiceForV2(opts: {
     ),
     // ADR-0055 — the distress word list's route (before the cool-down and v1).
     handleDistress: vi.fn(async () => distressTurn()),
+    // ADR-0055 R2 — a typed jobs-word message, classified first; null = v1's jobs answer.
+    handleJobsMessage: vi.fn(async (..._args: unknown[]) => opts.jobsVerdict ?? null),
   };
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,

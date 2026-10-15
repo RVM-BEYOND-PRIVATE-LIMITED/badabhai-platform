@@ -2,6 +2,8 @@
 
 - **Status:** **Accepted — owner Divyanshu, 2026-10-14.** Rulings 1–4 below were taken on 2026-10-14.
   **Live on merge:** no new flag. The only lever is the existing kill switch `CHAT_FREE_CHAT_DISABLED`.
+  ADR-0044 R8 narrowing (own-name read for redaction only) — signed by the owner, Divyanshu, 2026-10-15.
+  Brain-first routing (rulings R1–R4, §9) — owner rulings of 2026-10-15.
 - **Date:** 2026-10-14
 - **Owner:** Divyanshu (Backend Platform)
 - **Tracking:** #2275
@@ -46,7 +48,8 @@ the brain is on (`CHAT_COMPANION_V2_ENABLED` on and the kill switch off):
 3. **New: the distress word list** (`matchesDistress`, the free chat's own list) runs before the cool-down and
    before v1. A hit serves `DISTRESS` (the Tele-MANAS line) with no chips. No gateway call, no model, no memory.
 4. The faltu cool-down (unchanged).
-5. The v1 deterministic resolver (unchanged). On the brain, its redo menu also offers the form road.
+5. The v1 deterministic resolver. On the brain, its redo menu also offers the form road, and since 2026-10-15 the
+   brain answers first around it: weak aliases, greetings and typed jobs messages (§9).
 6. The abuse lexicon sends the message to the existing `FaltuHandler` (unchanged). The gateway and memory are also unchanged.
 7. **New: one classifier call.** `FreeChatModelCalls.classifyWithAction` runs in mode `free` with surface
    `companion`. Its context is the companion memory. It returns the category and the résumé action:
@@ -72,7 +75,7 @@ the brain is on (`CHAT_COMPANION_V2_ENABLED` on and the kill switch off):
 calls were split into `FreeChatModelCalls`, which `FreeChatService` now extends unchanged. The companion module
 provides its own instance of `FreeChatModelCalls` and of `FreeChatNewsCap`. The news cap's Redis key is the
 worker's, so both chats share one daily allowance of 5. The companion has no chat session, so the calls carry
-`sessionId: null`. The profiling chat's rolling summary is not read here: it lives on a chat session row.
+`sessionId: null`. The reply also reads the profiling chat's rolling summary, read-only (§9 R4).
 
 **Own-name redaction (security gate, 2026-10-14).** The brain removes the worker's own name from every classify,
 reply and news input, with the profiling chat's exact semantics (the ADR-0051 privacy invariant; ADR-0054 §4 and
@@ -130,11 +133,8 @@ The existing companion suites now pin that path with the switch on.
 ## 7. Out of scope
 
 - The sticky language ask (LANG_ASK / kept language).
-- Folding companion turns into the rolling summary.
-- `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED`, which stays off.
+- Writing or folding the rolling summary from the companion. It only reads it (§9 R4).
 - A companion-surface classifier eval set.
-- The distress word list is unchanged. "job nahi mili marna hai" is not on it, so it is answered by v1 (a strong
-  jobs word) before any classifier sees it. Widening the list is a copy review for the owner.
 
 ## 8. Follow-ups
 
@@ -146,3 +146,34 @@ The existing companion suites now pin that path with the switch on.
   - Render `news_links` on companion turns.
 - **AI service.** The `companion` surface prompts and `resume_action` (PR A of #2275).
 - **No box change.** The free-chat tasks are already armed for the profiling chat.
+
+## 9. Brain-first routing (owner rulings, 2026-10-15)
+
+The first cut left the v1 resolver ahead of the brain. So the brain never heard:
+- a résumé word, a menu alias or a section word (the recap or a section menu answered);
+- a greeting (the recap answered);
+- a typed jobs message ("job nahi mili, marna hai" got job chips, and "marna hai" is not on the distress list).
+
+The owner ruled "brain first" for these. All four rulings apply only while the brain is on. With the kill switch
+on, every flow is the pre-2026-10-15 one, byte for byte.
+
+| # | Ruling |
+|---|---|
+| **R1** | **Résumé words and menu aliases.** WP6's route precedence (TD146) runs whenever the brain is on, as well as under its own flag (`companionRoutePrecedenceOn`). Its order is reused, not forked. A pending task-chip intent routes the next message. An edit phrasing (`looksLikeEditRequest`) goes straight to the edit handler. A weak v1 alias goes to the brain. One deviation: a "Career ki baat" tap leaves no pending intent while the brain is on, because the brain's reply answers career talk on this screen (§4), not the v2 career handler. |
+| **R2** | **Typed jobs messages: classify first.** A typed message that v1 would answer with its jobs list (a strong jobs word) is classified once by the brain (`routeJobsWord`). The job-chip and jobs-tab taps stay exact chips and are never classified. These verdicts serve today's v1 jobs answer (job chips + "Sabhi jobs dekhein") and today's v1 event: `jobs`, `unclear`, any verdict below the floor, or an unavailable classifier. So do a refused gateway and a brain that throws. The classify cost is already on the ledger. Distress (any confidence), trash, off_limits, career/casual and résumé get the brain's answer and the v4 event. |
+| **R3** | **Greetings** ("hello", "namaste", "status") reach the brain through R1's weak-alias route, normally as a casual reply. The recap on tab open is unchanged. |
+| **R4** | **The rolling summary.** The casual/career reply reads the profiling chat's rolling summary, read-only. The classifier never gets it (ADR-0051 R24), and neither does news. |
+
+R4 implementation:
+- `FreeChatSummaryReader` runs one SELECT, the query `ChatRepository.findLatestFreeChatSummary` shares (`selectLatestFreeChatSummary`).
+- It uses the @Global database handle, so no `ChatRepository` and no chat-table writer is reachable from the companion.
+- It fails soft: any read error is `summary: null` and a warning with the worker id only.
+- `FreeChatModelCalls.reply` redacts the worker's own name out of the summary again.
+- The companion never writes or folds the summary.
+
+**What this supersedes.** ADR-0044's and ADR-0046's "v1 first, zero model calls" rule no longer holds for three
+kinds of message: weak aliases (résumé words, menu aliases, section words, greetings, the bare "kaam") and typed
+jobs messages. This applies on this screen and only while the brain is on. These keep their zero-model answers:
+- exact chips (the menu's own chip labels, the companion's job and jobs-tab chips, the task chips);
+- the named applications, guarantee and status intents.
+

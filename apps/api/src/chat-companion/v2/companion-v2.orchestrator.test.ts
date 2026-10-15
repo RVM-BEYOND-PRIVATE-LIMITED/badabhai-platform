@@ -658,6 +658,61 @@ describe("a RETRIED submission (same submission_id) is answered once", () => {
     expect(await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW)).toEqual(first);
   });
 
+  // ADR-0055 security note (2026-10-15): with the brain on, the DIRECT route (an edit phrasing or a
+  // pending intent) runs in production — it shares the same replay shell.
+  const direct = (h: ReturnType<typeof setup>, dto: { text: string; submission_id: string }) =>
+    h.orchestrator.handleDirectIntent(WORKER, PROFILE, dto, "edit_resume", CTX, NOW);
+
+  it("the DIRECT route replays a retry: one edit parse, one card, one memory pair, one event", async () => {
+    const h = setup();
+    const dto = { text: "Marathi bhasha jod do", submission_id: SID };
+    const first = await direct(h, dto);
+    const retry = await direct(h, dto);
+
+    expect(retry).toEqual(first);
+    expect(h.edits.propose).toHaveBeenCalledTimes(1);
+    expect(h.ai.pseudonymize).toHaveBeenCalledTimes(1);
+    expect(h.memory.append).toHaveBeenCalledTimes(2);
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    expect(h.replays.remember).toHaveBeenCalledWith(WORKER, SID, first);
+  });
+
+  it("the DIRECT route: a retried abusive message is ONE strike", async () => {
+    const h = setup({ faltuEnabled: true });
+    const abusive = { text: "chutiya bhai kya kar raha hai", submission_id: SID };
+    const first = await direct(h, abusive);
+    const retry = await direct(h, abusive);
+    expect(retry).toEqual(first);
+    expect(h.faltuStore.countStrike).toHaveBeenCalledTimes(1);
+    expect(h.edits.propose).not.toHaveBeenCalled();
+  });
+
+  it("the DIRECT route: a CONCURRENT duplicate waits — no gateway, no parse, no card", async () => {
+    const h = setup();
+    h.held.add(`${WORKER}:${SID}`);
+    const turn = await h.orchestrator.handleDirectIntent(
+      WORKER,
+      PROFILE,
+      { text: "Marathi bhasha jod do", submission_id: SID },
+      "edit_resume",
+      CTX,
+      NOW,
+    );
+    expect(turn.reply).toBe(V2_IN_FLIGHT.latin);
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.edits.propose).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("the DIRECT route: a gateway refusal is fail-closed and NOT kept for the retry", async () => {
+    const h = setup({ pseudo: null });
+    const dto = { text: "Marathi bhasha jod do", submission_id: SID };
+    const first = await direct(h, dto);
+    expect(first.reply).toBe(V2_CLARIFY.latin);
+    expect(h.replays.remember).not.toHaveBeenCalled();
+    expect(h.edits.propose).not.toHaveBeenCalled();
+  });
+
   it("a claim Redis refuses is fail-open: the duplicate is processed as before", async () => {
     const h = setup();
     h.replays.claim.mockResolvedValueOnce("unavailable" as never);

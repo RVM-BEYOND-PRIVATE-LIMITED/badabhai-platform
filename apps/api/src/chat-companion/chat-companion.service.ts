@@ -16,7 +16,7 @@ import { matchesDistress } from "../profiling/free-chat/free-chat.router";
 import { toProfileSummary } from "../workers/profile-summary.mapper";
 import { readProfileFormFacts, type ProfileFormFacts } from "../workers/profile-form-facts";
 import type { ResumeMenuChoice } from "../chat/resume-menu";
-import { companionBrainOn } from "./companion-brain-switch";
+import { companionBrainOn, companionRoutePrecedenceOn } from "./companion-brain-switch";
 import {
   formCreateAck,
   isFormCreateChoice,
@@ -206,13 +206,15 @@ export class ChatCompanionService {
         ? await this.v2.cooldownUntil(workerId, now)
         : null;
 
-    // WP6 (TD146) — ROUTE PRECEDENCE, behind its own default-off flag. With it off none of the
-    // helpers below run and the flow is byte-for-byte today's. With it on: a pending intent left
-    // by a chip tap routes the next free-text message straight to its handler, and a narrow
-    // reviewed edit pattern routes edit phrasings to the edit handler — both BEFORE v1 and with
-    // no classifier call. Exact chip taps and every NAMED v1 intent keep their zero-model answers.
-    const precedenceOn =
-      v2On && this.config.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED === true;
+    // WP6 (TD146) — ROUTE PRECEDENCE, behind its own default-off flag AND, since ADR-0055 R1 (owner
+    // ruling 2026-10-15, "brain first"), whenever the free-chat brain is on. Off — the kill switch
+    // on and the flag off — none of the helpers below run and the flow is byte-for-byte today's.
+    // On: a pending intent left by a chip tap routes the next free-text message straight to its
+    // handler, a narrow reviewed edit pattern routes edit phrasings to the edit handler — both
+    // BEFORE v1 and with no classifier call — and a WEAK v1 alias (a résumé word, a menu alias or
+    // section word, a greeting, the bare "kaam") goes to the classifier instead of v1's recap or
+    // menu. Exact chip taps and every NAMED v1 intent keep their zero-model answers.
+    const precedenceOn = companionRoutePrecedenceOn(this.config);
     // Another chip clears a stale pending intent (the edit/career task chips set their own in
     // `handleTaskChip`). Best-effort: the chip's answer is served either way.
     if (precedenceOn && chipTap && taskChip === null) {
@@ -255,6 +257,19 @@ export class ChatCompanionService {
       // reaches the career handler. Exact chips, jobs/applications/guarantee/status and the
       // other named answers never arrive here (`isWeakCompanionAlias`).
       turn = await this.v2.handleMessage(workerId, mode.profile, dto, ctx, now);
+    } else if (
+      brainOn &&
+      !chipTap &&
+      resolution.kind === "intent" &&
+      resolution.intent === "jobs"
+    ) {
+      // ADR-0055 R2 (owner ruling 2026-10-15) — a TYPED message v1 would answer with its jobs list
+      // (a strong jobs word; never the job / jobs-tab chips, which are exact taps) is classified
+      // FIRST: "job nahi mili, marna hai" is distress, "Tata mein welder ki job milti hai?" is a
+      // career question. The brain answers what it is sure of; `null` — jobs, unclear, below the
+      // floor, an unavailable classifier — is TODAY's jobs answer and v1's own event, unchanged.
+      const brainTurn = await this.v2.handleJobsMessage(workerId, mode.profile, dto, ctx, now);
+      turn = brainTurn ?? (await this.v1Turn(workerId, mode.profile, "jobs", dto, ctx, now));
     } else if (resolution.kind === "resume_menu") {
       // ADR-0055 — on the brain, the redo submenu offers the form road too (no other menu changes).
       turn = this.menuTurn(brainOn ? withFormCreateOption(resolution.menu) : resolution.menu);
@@ -266,10 +281,7 @@ export class ChatCompanionService {
       // zero model calls. The orchestrator owns the v2 event.
       turn = await this.v2.handleMessage(workerId, mode.profile, dto, ctx, now);
     } else {
-      const facts = await this.readFacts(workerId, mode.profile, now);
-      const composed = composeFor(resolution.intent, facts);
-      turn = this.toTurn(composed);
-      await this.record(workerId, ctx, now, "message", resolution.intent, composed, facts, dto.submission_id ?? null);
+      turn = await this.v1Turn(workerId, mode.profile, resolution.intent, dto, ctx, now);
     }
 
     const checked = CompanionTurnSchema.safeParse(turn);
@@ -277,6 +289,26 @@ export class ChatCompanionService {
       mode: "companion",
       turn: checked.success ? checked.data : this.fallbackTurn(checked.error.issues, workerId),
     };
+  }
+
+  /**
+   * ONE NAMED v1 ANSWER, composed from the facts and recorded on v1's own event — the deterministic
+   * zero-model turn. Also what a jobs-word message the brain hands back is answered with (R2), so
+   * the deferred turn is today's turn, byte for byte.
+   */
+  private async v1Turn(
+    workerId: string,
+    profile: WorkerProfile,
+    intent: Exclude<CompanionIntent, "resume_menu">,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<CompanionTurn> {
+    const facts = await this.readFacts(workerId, profile, now);
+    const composed = composeFor(intent, facts);
+    const turn = this.toTurn(composed);
+    await this.record(workerId, ctx, now, "message", intent, composed, facts, dto.submission_id ?? null);
+    return turn;
   }
 
   /**

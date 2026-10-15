@@ -20,3 +20,25 @@ export type CompanionBrainFlags = Pick<
 export function companionBrainOn(config: CompanionBrainFlags): boolean {
   return config.CHAT_COMPANION_V2_ENABLED === true && config.CHAT_FREE_CHAT_DISABLED !== true;
 }
+
+/** The flags that decide whether WP6's route precedence runs. */
+export type CompanionPrecedenceFlags = CompanionBrainFlags &
+  Pick<ServerConfig, "CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED">;
+
+/**
+ * DOES WP6's ROUTE PRECEDENCE RUN? (TD146; ADR-0055 R1, owner ruling 2026-10-15 "brain first") — the
+ * one definition the service's routing and the orchestrator's pending intent both read.
+ *
+ * Its own flag turns it on as before; so does the free-chat brain. While the brain is on, a message
+ * v1 would only have answered through a WEAK alias (a résumé word, a menu alias or section word, a
+ * greeting, the bare "kaam") goes to the brain, an edit phrasing goes straight to the edit handler,
+ * and a pending task-chip intent routes the next message — the WP6 order, reused, not forked. Exact
+ * chips and every NAMED v1 intent (jobs, applications, guarantee, status) keep their own answers.
+ * With the kill switch on and the flag off it is off, and the flow is today's byte for byte.
+ */
+export function companionRoutePrecedenceOn(config: CompanionPrecedenceFlags): boolean {
+  return (
+    config.CHAT_COMPANION_V2_ENABLED === true &&
+    (config.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED === true || companionBrainOn(config))
+  );
+}
