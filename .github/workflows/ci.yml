@@ -215,6 +215,10 @@ jobs:
               # keys; the app mirrors both, so a rename here must re-run the
               # worker-app job or the mirror drifts unnoticed.
               - 'apps/api/src/chat-companion/companion-task-keys.ts'
+              # ADR-0055 (#2282) — the Bada Bhai chat's v3 chip keys. Their own
+              # file for the same reason as the task keys; the app mirrors keys
+              # and labels in `chat_companion_v3_keys.dart`.
+              - 'apps/api/src/chat-companion/companion-v3-keys.ts'
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'
