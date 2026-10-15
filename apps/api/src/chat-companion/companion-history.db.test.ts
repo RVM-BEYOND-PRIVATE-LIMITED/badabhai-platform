@@ -299,6 +299,19 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
 
   it("the history read is one index scan of companion_messages_worker_created_idx, with no sort", async () => {
     for (let i = 0; i < 30; i++) await line(worker, ago(i * 1_000));
+    // A table of many workers, as production's is: with one worker's lines alone the planner may
+    // just as well walk the time index (companion_messages_created_at_idx) and filter by worker.
+    const others = await Promise.all(Array.from({ length: 20 }, () => newWorker()));
+    await repo.append(
+      others.flatMap((other) =>
+        Array.from({ length: 20 }, (_, i) => ({
+          workerId: other,
+          role: "worker" as const,
+          bodyText: `other ${i}`,
+          createdAt: ago(i * 1_000),
+        })),
+      ),
+    );
     await client.sql`ANALYZE companion_messages`;
     // ONE connection for the settings and the EXPLAIN (the client is a pool). Seq and bitmap scans
     // are switched off so the plan is the index's: were its order not the query's (the NULLS
