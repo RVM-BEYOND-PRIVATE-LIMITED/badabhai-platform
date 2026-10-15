@@ -284,4 +284,17 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
     expect(text).toContain("Index Scan using companion_messages_worker_created_idx");
     expect(text).not.toContain("Sort");
   });
+
+  it("the sweep's batch select is a range over companion_messages_created_at_idx", async () => {
+    await client.sql`ANALYZE companion_messages`;
+    const text = await client.sql.begin(async (tx) => {
+      await tx`SET LOCAL enable_seqscan = off`;
+      await tx`SET LOCAL enable_bitmapscan = off`;
+      const plan = await tx<{ "QUERY PLAN": string }[]>`
+        EXPLAIN SELECT id FROM companion_messages
+        WHERE created_at < ${ago(7 * DAY_MS).toISOString()}::timestamptz LIMIT 5000`;
+      return plan.map((r) => r["QUERY PLAN"]).join(" | ");
+    });
+    expect(text).toContain("companion_messages_created_at_idx");
+  });
 });

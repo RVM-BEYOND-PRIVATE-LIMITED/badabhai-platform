@@ -82,7 +82,8 @@ written. The worker's own name is redacted by the model call, as before.
 - A summary whose conversation has expired is ignored, and the sweep deletes it.
 
 **Retention.** `CompanionHistorySweepProcessor` (queue `companion-history-sweep`) runs daily.
-- It deletes lines older than 7 days, in bounded batches.
+- It deletes lines older than 7 days, in bounded batches, as a range over `companion_messages_created_at_idx`
+  (migration 0135), so a tick costs the rows it deletes, never a scan of the table.
 - It then deletes every summary whose worker has no line left in the window.
 - Nothing else deletes rows.
 
@@ -128,5 +129,3 @@ request uses the tables.
 - The worker app drawing `history` (#2298, Rishi).
 - Storing the turns of the confirm and cancel edit routes (`POST /chat/companion/edits/:id/confirm|cancel`). Only
   `POST /chat/companion/message` turns and the recap are stored.
-- A `created_at`-only index for the daily sweep: a daily scan of a table that holds 7 days of lines is acceptable.
-  Revisit if the sweep ever shows up in the database's slow log.

@@ -20,8 +20,9 @@
 -- Name and phone stay encrypted in `workers` only. ERASURE is the worker_id cascade on both
 -- tables: the account-deletion hard delete removes every line and the summary.
 --
--- RETENTION: `CompanionHistorySweepProcessor` (daily) deletes lines older than 7 days and every
--- summary whose worker has no line left in the window. Nothing else deletes rows.
+-- RETENTION: `CompanionHistorySweepProcessor` (daily) deletes lines older than 7 days - a range
+-- over `companion_messages_created_at_idx`, so a tick never scans the table - and every summary
+-- whose worker has no line left in the window. Nothing else deletes rows.
 --
 -- ADDITIVE ONLY. Two new, empty tables; no existing column, constraint or row moves.
 --
@@ -90,6 +91,7 @@ ALTER TABLE "companion_messages" ENABLE ROW LEVEL SECURITY;--> statement-breakpo
 ALTER TABLE "companion_conversation_summaries" ADD CONSTRAINT "companion_conversation_summaries_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "companion_messages" ADD CONSTRAINT "companion_messages_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "companion_messages_worker_created_idx" ON "companion_messages" USING btree ("worker_id","created_at" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX "companion_messages_created_at_idx" ON "companion_messages" USING btree ("created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "companion_messages_submission_uq" ON "companion_messages" USING btree ("worker_id","submission_id","role") WHERE "companion_messages"."submission_id" IS NOT NULL;--> statement-breakpoint
 -- ===========================================================================
 -- DENY BY DEFAULT - RLS forced, every role revoked, and NO POLICY, on both tables.

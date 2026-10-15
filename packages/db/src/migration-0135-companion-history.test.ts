@@ -47,9 +47,9 @@ describe("the fixture is real (no assertion below is vacuous)", () => {
 });
 
 describe("0135 is additive", () => {
-  it("creates exactly two tables and two indexes", () => {
+  it("creates exactly two tables and three indexes", () => {
     expect([...FLAT.matchAll(/CREATE TABLE/g)]).toHaveLength(2);
-    expect([...FLAT.matchAll(/CREATE (UNIQUE )?INDEX/g)]).toHaveLength(2);
+    expect([...FLAT.matchAll(/CREATE (UNIQUE )?INDEX/g)]).toHaveLength(3);
   });
 
   it("alters only the new tables", () => {
@@ -122,6 +122,12 @@ describe("companion_messages", () => {
   it("serves the history read from one index: (worker_id, created_at DESC NULLS FIRST)", () => {
     expect(FLAT).toContain(
       `CREATE INDEX "companion_messages_worker_created_idx" ON "${MESSAGES}" USING btree ("worker_id","created_at" DESC NULLS FIRST)`,
+    );
+  });
+
+  it("serves the daily retention sweep from its own index: (created_at)", () => {
+    expect(FLAT).toContain(
+      `CREATE INDEX "companion_messages_created_at_idx" ON "${MESSAGES}" USING btree ("created_at")`,
     );
   });
 

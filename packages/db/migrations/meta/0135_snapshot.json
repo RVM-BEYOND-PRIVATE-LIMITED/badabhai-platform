@@ -7973,6 +7973,21 @@
           "method": "btree",
           "with": {}
         },
+        "companion_messages_created_at_idx": {
+          "name": "companion_messages_created_at_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "companion_messages_submission_uq": {
           "name": "companion_messages_submission_uq",
           "columns": [

@@ -79,6 +79,9 @@ export const companionMessages = pgTable(
     // only a matching index serves filter + sort + limit without a separate sort. The column is
     // NOT NULL, so this changes no result — only the plan. Also backs the worker_id cascade.
     index("companion_messages_worker_created_idx").on(t.workerId, t.createdAt.desc().nullsFirst()),
+    // The daily retention sweep's predicate (`created_at < now() - 7 days`, every worker at once):
+    // without it each tick scans the whole table. Ascending — the sweep takes the oldest first.
+    index("companion_messages_created_at_idx").on(t.createdAt),
     // A replayed turn (the same submission) never inserts twice: one worker line and one reply
     // per submission. Partial — a send without a submission id has nothing to dedupe on.
     uniqueIndex("companion_messages_submission_uq")
