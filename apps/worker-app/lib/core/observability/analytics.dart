@@ -123,10 +123,11 @@ class BbAnalytics {
   static BbAnalyticsEvent companionJobOpened() =>
       const BbAnalyticsEvent('companion_job_opened');
 
-  /// Owner ask (2026-10-14) — the Bada Bhai chat put its "Resume download"
-  /// tile on screen. [trigger] is a fixed token: `open` (the tab opened or came
-  /// back into focus) or `ask` (the worker asked for their résumé). COUNTS
-  /// ONLY: never the résumé id, never the worker's words.
+  /// The Bada Bhai chat put its "Resume download" tile on screen. [trigger] is
+  /// a fixed token, one per case of the owner ruling (2026-10-15): `first` (the
+  /// first visit after profiling), `changed` (the résumé changed since it was
+  /// last offered) or `ask` (the worker asked for their résumé). COUNTS ONLY:
+  /// never the résumé id, never the worker's words.
   static BbAnalyticsEvent chatResumeDownloadOffered({
     required String trigger,
   }) => BbAnalyticsEvent('chat_resume_download_offered', <String, Object>{
@@ -184,7 +185,7 @@ class BbAnalytics {
         companionOpened(),
         companionChipTapped(keyClass: 'job'),
         companionJobOpened(),
-        chatResumeDownloadOffered(trigger: 'open'),
+        chatResumeDownloadOffered(trigger: 'first'),
         chatResumeDownloadTapped(),
         finishingFormEntered,
         finishingPageReached(pageIndex: 4),
