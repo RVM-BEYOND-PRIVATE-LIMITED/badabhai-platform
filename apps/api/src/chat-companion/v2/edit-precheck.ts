@@ -118,7 +118,8 @@ const GENERIC_EDIT_WORDS = [
   ...GENERIC_VERBS,
   "editing",
   "changes",
-  "correct",
+  // "correction" only: a bare "correct" is mostly a statement ("resume correct hai", "is my cv
+  // correct") — the request form is the phrase "correct kar" below.
   "correction",
   "badalna",
   "badalni",
@@ -136,10 +137,10 @@ const GENERIC_EDIT_WORDS = [
 ] as const;
 
 /**
- * "Theek" and "sahi" ask for a change only beside a "karna" verb: "resume theek karna hai" is a
- * request, "resume theek hai" (the résumé is fine) is not.
+ * "Theek", "sahi" and "correct" ask for a change only beside a "karna" verb: "resume theek karna
+ * hai" is a request, "resume theek hai" / "resume correct hai" (the résumé is fine) is not.
  */
-const GENERIC_EDIT_PHRASES = ["theek kar", "thik kar", "sahi kar"] as const;
+const GENERIC_EDIT_PHRASES = ["theek kar", "thik kar", "sahi kar", "correct kar"] as const;
 
 /**
  * The words that carry no change of their own — pronouns, particles and the "I want to / please do"
@@ -193,6 +194,7 @@ const GENERIC_FILLER_WORDS = [
   "theek",
   "thik",
   "sahi",
+  "correct",
   "sakta",
   "sakti",
   "sakte",

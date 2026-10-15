@@ -69,6 +69,7 @@ describe("isGenericEditRequest — an edit word + a résumé subject, and nothin
     ["profile update kar do", "profile + an imperative"],
     ["biodata sudharna hai", "biodata + sudharna"],
     ["resume theek karna hai", "theek beside a karna verb"],
+    ["resume correct karna hai", "correct beside a karna verb"],
     ["kya resume edit ho sakta hai?", "a can-I question about editing"],
     ["resume edit", "the edit word and the subject alone"],
   ])("%j — %s", (text, _why) => {
@@ -82,6 +83,8 @@ describe("isGenericEditRequest — an edit word + a résumé subject, and nothin
     ["Fanuc hata do resume se", "a value"],
     ["resume edit karna hai, city galat hai", "a field word"],
     ["resume theek hai", "'theek' without a karna verb is a statement"],
+    ["resume correct hai", "'correct' without a karna verb is a statement"],
+    ["is my cv correct", "an English question about the résumé, not a request"],
     ["resume update ho gaya?", "a status question"],
     ["resume update hua kya", "a status question"],
     ["resume chahiye", "no edit word"],
