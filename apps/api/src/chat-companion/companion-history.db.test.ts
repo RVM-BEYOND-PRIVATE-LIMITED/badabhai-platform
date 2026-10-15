@@ -31,6 +31,10 @@ const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   process.env.DATABASE_URL ??
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
+// LOCAL ONLY, like `free-chat-probe.db`: this suite inserts workers and RUNS THE SWEEP, which
+// deletes every line older than 7 days in the database it is pointed at. A developer whose
+// DATABASE_URL names a shared or production database must get a refusal, never a sweep.
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|::1|\[::1\])$/i;
 
 const TAG = randomUUID().slice(0, 8);
 const NOW = new Date("2026-10-15T10:00:00.000Z");
@@ -70,6 +74,11 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
   }
 
   beforeAll(async () => {
+    if (!LOCAL_HOST.test(new URL(DATABASE_URL).hostname)) {
+      throw new Error(
+        "companion-history.db inserts rows and runs the 7-day sweep; it runs against a LOCAL database only",
+      );
+    }
     client = createDbClient(DATABASE_URL, { max: 4 });
     repo = new CompanionHistoryRepository(client.db);
     history = new CompanionHistoryService(repo);
