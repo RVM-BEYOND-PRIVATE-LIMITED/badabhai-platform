@@ -947,6 +947,13 @@
       "when": 1791438567323,
       "tag": "0134_payer_applicant_stages",
       "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1792067253821,
+      "tag": "0135_companion_history",
+      "breakpoints": true
     }
   ]
 }

@@ -55,14 +55,23 @@ describe("ChatCompanionModule wiring", () => {
       "ChatCompanionService",
       // ADR-0055 — the free-chat brain and the résumé read behind its download answer.
       "CompanionBrain",
+      // #2297 (ADR-0056) — the recent turns a model reads: the stored conversation, Redis as the
+      // fallback.
+      "CompanionConversationMemory",
       // ADR-0046 T7 — the edit path plus ITS OWN instances of the five section writers and the
       // repositories they need (provisioned here, not imported — see the module docblock).
       "CompanionEditService",
       // ADR-0046 T6 — the v2 turn pipeline and its handlers.
       "CompanionHandlerRegistry",
+      // #2297 (ADR-0056) — the stored 7-day conversation, its retention sweep and (below) the
+      // rolling summary folded from it.
+      "CompanionHistoryRepository",
+      "CompanionHistoryService",
+      "CompanionHistorySweepProcessor",
       // ADR-0046 T5 — the v2 Redis stores (memory + the pending edit card).
       "CompanionMemoryStore",
       "CompanionResumeStatus",
+      "CompanionSummaryService",
       // The served-turn replay cache that makes a retried submission idempotent.
       "CompanionTurnReplayStore",
       "CompanionV2Orchestrator",
@@ -73,6 +82,8 @@ describe("ChatCompanionModule wiring", () => {
       "FaltuStore",
       // ADR-0055 — the free chat's model calls and news cap: this module's OWN instances (no route
       // to `ChatRepository`, which `FreeChatService` writes through).
+      // #2297 — the free chat's fold lock, under its own per-worker companion key.
+      "FreeChatFoldLock",
       "FreeChatModelCalls",
       "FreeChatNewsCap",
       // ADR-0055 R4 — the rolling summary, read-only (one SELECT, no ChatRepository).
@@ -179,6 +190,16 @@ describe("ChatCompanionModule wiring", () => {
     expect(isGlobal(CryptoModule)).toBe(true);
     expect(getMeta("exports", CryptoModule)).toContain(PiiCryptoService);
     expect(getMeta("imports", ChatCompanionModule)).not.toContain(CryptoModule);
+  });
+
+  it("#2297 — the stored conversation is the companion's own tables; the POLICY never reads them", () => {
+    // The interview-mode decision stays on chat_sessions and the profile: history is not a session.
+    const policy = readFileSync(join(__dirname, "chat-companion.policy.ts"), "utf8");
+    expect(policy).not.toMatch(/companion[-_]?history|companionMessages|companion_messages/i);
+    // The repository names only its own two tables — never a chat table.
+    const repo = readFileSync(join(__dirname, "companion-history.repository.ts"), "utf8");
+    expect(repo).toContain("companionMessages");
+    expect(repo).not.toMatch(/chatMessages|chatSessions|chat_messages|chat_sessions/);
   });
 
   it("does NOT import the chat, profiles or profiling modules — a leaf with no route to a chat writer", () => {

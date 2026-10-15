@@ -151,6 +151,11 @@ const LOCKED_TABLES = [
   // opaque posting id, an opaque worker id, a closed stage, an opaque payer id, timestamps.
   // Deny-by-default, FORCE, no policy.
   "payer_applicant_stages",
+  // 0135: the Bada Bhai chat's 7-day conversation (#2297) — the worker's own words and Bada Bhai's
+  // replies, keyed by worker id; and the model-written rolling summary of it. Deny-by-default,
+  // FORCE, no policy; erasure is the worker_id cascade on both.
+  "companion_messages",
+  "companion_conversation_summaries",
   // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
   // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
   // FORCE, no policy.

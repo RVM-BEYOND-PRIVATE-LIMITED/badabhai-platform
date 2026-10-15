@@ -1406,6 +1406,14 @@ export const EVENT_REGISTRY = {
     payload: p.ChatFreeChatSummaryUpdatedPayload,
   },
 
+  // #2297 (ADR-0056) — one rolling-summary fold of the Bada Bhai chat: updated / rejected /
+  // unavailable, how many stored lines it covered and the stored length. Never the summary. v1.
+  "chat.companion_summary_updated": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionSummaryUpdatedPayload,
+  },
+
   // ADR-0054 (#2127) — one live-news request in the free chat: answered with sources, or which
   // fixed line it fell back to. Counts and closed enums only; never the question or a URL. v1.
   "chat.free_chat_news_served": {

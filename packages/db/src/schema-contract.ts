@@ -837,6 +837,37 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "posting, keyed by worker id; an open grant exposes every payer's hiring triage to every " +
       "PostgREST role while every surface keeps working",
   },
+  // 0135: THE API tolerates both tables MISSING (#2297, ADR-0056 — every read and write treats
+  // 42P01 as "no history"), so a deploy ahead of the migration breaks no request and neither table
+  // is a `table` entry. Both are listed for their locks. APPLY AT ANY TIME AFTER THE DEPLOY.
+  {
+    id: "0135-companion-messages-rls",
+    migration: "0135_companion_history",
+    kind: "rls",
+    table: "companion_messages",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table holds every worker's Bada Bhai chat for 7 days in his own words, keyed " +
+      "by worker id; an open grant exposes that prose to every PostgREST role while every " +
+      "surface keeps working",
+  },
+  {
+    id: "0135-companion-conversation-summaries-rls",
+    migration: "0135_companion_history",
+    kind: "rls",
+    table: "companion_conversation_summaries",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table holds the model-written notes about each worker's conversation, keyed " +
+      "by worker id; an open grant exposes them to every PostgREST role while every surface " +
+      "keeps working",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

@@ -33,7 +33,7 @@ import {
   type BrainInput,
   type BrainTurn,
 } from "./companion-brain";
-import { CompanionMemoryStore } from "./companion-memory.store";
+import { CompanionConversationMemory } from "./companion-conversation-memory";
 import { taskChipLabel, type CompanionTaskChipIntent } from "./companion-task-chips";
 import { taskChips, v2CooldownTurn, v2CopyTurn } from "./companion-v2-compose";
 import { FaltuStore } from "./faltu.store";
@@ -140,7 +140,8 @@ function clipText(text: string, max: number): string {
  *      `unclear`; a confidence below the configured floor is `unclear` too;
  *   5. the registry picks the handler from the closed intent set;
  *   6. append the pair to memory — the step-2 text, so raw while the flag is on — never for a
- *      message the classifier called `faltu` (abuse the lexicon missed is still never stored);
+ *      message the classifier called `faltu` (abuse the lexicon missed is still never model
+ *      context: it is kept only in the worker's own 7-day history, ADR-0056);
  *   7. emit `chat.companion_turn_served_v4` — ids, counts and closed enums only.
  *
  * ADR-0055 (#2275) — THE FREE-CHAT BRAIN. While `companionBrainOn` (the kill switch
@@ -156,11 +157,24 @@ function clipText(text: string, max: number): string {
 @Injectable()
 export class CompanionV2Orchestrator {
   private readonly logger = new Logger(CompanionV2Orchestrator.name);
+  /**
+   * #2297 — the turns whose pair went into the memory (`memoryPair` set), by IDENTITY of the turn
+   * object this class returned. Read once by the service when it stores the turn, to mark the
+   * lines a later model call may read; a WeakSet, so nothing outlives the turn.
+   */
+  private readonly remembered = new WeakSet<CompanionTurn>();
+  /**
+   * #2297 — the ECHOES this class returned, by identity: the in-flight line answering a duplicate
+   * while the first request still runs, and the replay of a turn already served. Neither is a turn
+   * of its own, so neither is ever written to the stored conversation.
+   */
+  private readonly echoes = new WeakSet<CompanionTurn>();
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly ai: AiService,
-    private readonly memory: CompanionMemoryStore,
+    // #2297 — the recent turns a model reads: the stored conversation on the brain, Redis otherwise.
+    private readonly memory: CompanionConversationMemory,
     private readonly registry: CompanionHandlerRegistry,
     private readonly events: EventsService,
     private readonly cost: AiCostRecorder,
@@ -175,7 +189,8 @@ export class CompanionV2Orchestrator {
    * ADR-0055 — THE DISTRESS WORD LIST HIT, before the v1 resolver (the service's gate; the free
    * chat's own list, `matchesDistress`). The Tele-MANAS line alone — no chips — and the v4 event
    * with `intent_source: "lexicon"`. No gateway, no model, no memory: a deterministic answer to a
-   * message that is never stored, the way the abuse lexicon's is not.
+   * message that is never model context, the way the abuse lexicon's is not — it is stored only for
+   * the worker's own 7-day history (ADR-0056), never replayed to a model.
    */
   async handleDistress(
     workerId: string,
@@ -393,7 +408,8 @@ export class CompanionV2Orchestrator {
 
   /**
    * The gateway refused or was unreachable: the clarify line, as a FAIL-CLOSED turn (never kept for
-   * a retry, never stored). One definition for every route that reaches the gateway.
+   * a retry, never model context; it is stored only for the worker's own 7-day history, ADR-0056).
+   * One definition for every route that reaches the gateway.
    */
   private clarifyFallback(): ServedTurn {
     return {
@@ -475,7 +491,7 @@ export class CompanionV2Orchestrator {
     if (submissionId === undefined) return (await run())?.turn ?? null;
 
     const replayed = await this.replays.read(workerId, submissionId);
-    if (replayed !== null) return replayed;
+    if (replayed !== null) return this.echo(replayed);
 
     // TD150/WP8 — THE IN-FLIGHT CLAIM. A duplicate that arrives WHILE the first request still
     // runs has no replay to read yet; without this it would run the whole pipeline again (a
@@ -485,7 +501,7 @@ export class CompanionV2Orchestrator {
     // in the finally whether the route succeeded or threw. A Redis refusal fails open: the
     // duplicate is processed as before, exactly like an unreadable replay cache.
     const claim = await this.replays.claim(workerId, submissionId);
-    if (claim === "held") return v2CopyTurn(V2_IN_FLIGHT, taskChips(this.config));
+    if (claim === "held") return this.echo(v2CopyTurn(V2_IN_FLIGHT, taskChips(this.config)));
     try {
       const routed = await run();
       if (routed === null) return null;
@@ -511,7 +527,8 @@ export class CompanionV2Orchestrator {
     // 0. THE ABUSE LEXICON (P2, O11), only while the faltu phase is on. It runs BEFORE the
     //    gateway because nothing crosses a boundary on this path: the answer is fixed copy and
     //    a strike count. A flagged message therefore costs no gateway hop and no model call,
-    //    and — because the finish below passes no memory pair — it is never stored anywhere.
+    //    and — because the finish below passes no memory pair — it is never model context: it is
+    //    stored only for the worker's own 7-day history (ADR-0056), never replayed to a model.
     if (this.config.CHAT_COMPANION_V2_FALTU_ENABLED && isAbusive(dto.text)) {
       const handled = await this.registry.resolve("faltu").handle({
         workerId,
@@ -649,8 +666,9 @@ export class CompanionV2Orchestrator {
     });
 
     // 5 + 6. MEMORY, THEN THE SPINE. A message the CLASSIFIER called faltu — at any confidence,
-    //    with the faltu phase on or off — is never stored, exactly like one the lexicon caught:
-    //    pseudonymizing masks PII, not abuse, and memory is replayed to later model calls.
+    //    with the faltu phase on or off — is never model context, exactly like one the lexicon
+    //    caught: pseudonymizing masks PII, not abuse, and memory is replayed to later model calls.
+    //    It is stored only for the worker's own 7-day history (ADR-0056).
     return this.routed(workerId, ctx, dto, now, {
       turn: handled.turn,
       intentSource,
@@ -755,9 +773,36 @@ export class CompanionV2Orchestrator {
         role: "bada_bhai",
         text: clipText(out.memoryPair.reply, MEMORY_REPLY_MAX),
       });
+      this.remembered.add(out.turn);
     }
     await this.record(workerId, ctx, dto, now, out);
     return out.turn;
+  }
+
+  /**
+   * #2297 (ADR-0056) — may a LATER model call read this turn? True exactly when its pair went into
+   * the memory, so the stored conversation feeds a model the same turns the Redis memory did: never
+   * a distress turn, a trash verdict, a chip tap or a guard line (ADR-0055 F3/F4). Keyed by the
+   * IDENTITY of the turn this class returned; any other object — a v1 turn, a replayed one — is
+   * false.
+   */
+  rememberedForModel(turn: CompanionTurn): boolean {
+    return this.remembered.has(turn);
+  }
+
+  /**
+   * #2297 (ADR-0056) — is this turn an ECHO of a submission another request owns: the in-flight
+   * line, or the replay of a turn already served? An echo is never written to the stored
+   * conversation — the request that owns the submission stores the real turn, once. (Writing the
+   * in-flight line would land FIRST and the real reply would then be skipped as its duplicate.)
+   */
+  isEcho(turn: CompanionTurn): boolean {
+    return this.echoes.has(turn);
+  }
+
+  private echo(turn: CompanionTurn): CompanionTurn {
+    this.echoes.add(turn);
+    return turn;
   }
 
   /**

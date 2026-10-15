@@ -42,6 +42,7 @@ import { profileCorrections } from "./profile-correction";
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
+import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
 import {
@@ -123,6 +124,7 @@ export * from "./profile-correction";
 export * from "./worker-profiling-tier";
 export * from "./worker-resume-skin";
 export * from "./payer-applicant-stage";
+export * from "./companion";
 export * from "./job";
 export * from "./payer";
 export * from "./match";
@@ -306,6 +308,9 @@ export const schema = {
   workerResumeSkins,
   // Owner ruling 2026-10-07 — the payer applicant pipeline board (migration 0134).
   payerApplicantStages,
+  // #2297 — the Bada Bhai chat's 7-day conversation and its rolling summary (migration 0135).
+  companionMessages,
+  companionConversationSummaries,
   chatSessions,
   voiceNotes,
   chatMessages,

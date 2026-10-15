@@ -77,7 +77,7 @@ export const NewsLinkWireSchema = z.object({
 });
 
 /** 1-3 tiles, ABSENT (never null, never empty) when a message has none. */
-const NewsLinksWireSchema = z.array(NewsLinkWireSchema).min(1).max(FREE_CHAT_NEWS_LINKS_MAX);
+export const NewsLinksWireSchema = z.array(NewsLinkWireSchema).min(1).max(FREE_CHAT_NEWS_LINKS_MAX);
 
 /**
  * Outbound shape of POST /chat/message (CHAT-UE-1). Mirrors the return object

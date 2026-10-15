@@ -61,27 +61,48 @@ export class FreeChatFoldLock {
     return `chat:free-chat:fold:${sessionId}`;
   }
 
+  /**
+   * #2297 (ADR-0056) — the Bada Bhai chat's fold lock: ONE fold in flight per WORKER (the companion
+   * has no session). Its own namespace, so it can never collide with a session's key.
+   */
+  private static companionKey(workerId: string): string {
+    return `companion:fold:${workerId}`;
+  }
+
   private async client(): Promise<RedisLockClient> {
     return (await this.queue.client) as unknown as RedisLockClient;
   }
 
   /** Take the session's fold lock: the token that releases it, or null — held elsewhere, or no Redis. */
   async acquire(sessionId: string): Promise<string | null> {
+    return this.acquireKey(FreeChatFoldLock.key(sessionId), `session=${sessionId}`);
+  }
+
+  /** Free the lock if it is still ours. Best effort: the TTL frees it anyway. Never throws. */
+  async release(sessionId: string, token: string): Promise<void> {
+    await this.releaseKey(FreeChatFoldLock.key(sessionId), token, `session=${sessionId}`);
+  }
+
+  /** #2297 — take the worker's companion fold lock (same semantics as {@link acquire}). */
+  async acquireCompanion(workerId: string): Promise<string | null> {
+    return this.acquireKey(FreeChatFoldLock.companionKey(workerId), `worker=${workerId}`);
+  }
+
+  /** #2297 — free the worker's companion fold lock if it is still ours. Never throws. */
+  async releaseCompanion(workerId: string, token: string): Promise<void> {
+    await this.releaseKey(FreeChatFoldLock.companionKey(workerId), token, `worker=${workerId}`);
+  }
+
+  private async acquireKey(key: string, ref: string): Promise<string | null> {
     const token = randomUUID();
     try {
       const result = await withinRedisDeadline(async () =>
-        (await this.client()).set(
-          FreeChatFoldLock.key(sessionId),
-          token,
-          "EX",
-          FREE_CHAT_FOLD_LOCK_TTL_SECONDS,
-          "NX",
-        ),
+        (await this.client()).set(key, token, "EX", FREE_CHAT_FOLD_LOCK_TTL_SECONDS, "NX"),
       );
       return result === "OK" ? token : null;
     } catch (err) {
       this.logger.warn(
-        `free-chat fold lock unavailable session=${sessionId}; no fold now (${
+        `free-chat fold lock unavailable ${ref}; no fold now (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
@@ -89,15 +110,14 @@ export class FreeChatFoldLock {
     }
   }
 
-  /** Free the lock if it is still ours. Best effort: the TTL frees it anyway. Never throws. */
-  async release(sessionId: string, token: string): Promise<void> {
+  private async releaseKey(key: string, token: string, ref: string): Promise<void> {
     try {
       await withinRedisDeadline(async () =>
-        (await this.client()).eval(RELEASE_SCRIPT, 1, FreeChatFoldLock.key(sessionId), token),
+        (await this.client()).eval(RELEASE_SCRIPT, 1, key, token),
       );
     } catch (err) {
       this.logger.warn(
-        `free-chat fold lock not released session=${sessionId}; it lapses on its TTL (${
+        `free-chat fold lock not released ${ref}; it lapses on its TTL (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );

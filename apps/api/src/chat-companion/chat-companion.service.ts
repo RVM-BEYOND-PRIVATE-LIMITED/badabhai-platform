@@ -38,6 +38,8 @@ import {
   type ConfirmEditDto,
 } from "./chat-companion.dto";
 import { CompanionEditService } from "./v2/companion-edit.service";
+import { CompanionSummaryService } from "./v2/companion-summary.service";
+import { CompanionHistoryService } from "./companion-history.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import {
   isCompanionChipTap,
@@ -106,7 +108,9 @@ export function digestKey(composed: ComposedTurn): string {
  *
  * WHAT IT NEVER DOES, BY CONSTRUCTION:
  *   - write `chat_sessions` or `chat_messages` (it has no access to either writer: those rows are
- *     the extraction transcript and the résumé's quote source);
+ *     the extraction transcript and the résumé's quote source). Its OWN conversation lives in
+ *     `companion_messages` (#2297, ADR-0056), written through `CompanionHistoryService` after the
+ *     turn — best-effort, never blocking, never failing a turn;
  *   - call a model (reviewed copy, closed intents, deterministic rules);
  *   - read the `workers` row (no name, no phone, no ciphertext ever enters this class);
  *   - call the services that record impressions or searches (`MatchFeedService.getFeed`,
@@ -135,6 +139,10 @@ export class ChatCompanionService {
     // from `message` for an open task-chip tap, a cooled-down free-text message and a v1 miss,
     // and from `open` for the cool-down read. A v1 resolver hit never touches it.
     private readonly v2: CompanionV2Orchestrator,
+    // #2297 (ADR-0056) — the stored 7-day conversation (written after every turn, read on open)
+    // and the rolling summary folded from it (the brain only).
+    private readonly history: CompanionHistoryService,
+    private readonly summaries: CompanionSummaryService,
     // #2201 — the worker's form answers, so the gap nudge never asks for a fact the Profile card
     // already counts. Optional so hand-built constructions keep the row-only gap.
     @Optional() private readonly attributes?: WorkerAttributesRepository,
@@ -154,9 +162,10 @@ export class ChatCompanionService {
     const mode = await this.policy.resolve(workerId);
     if (mode.mode === "interview") return { mode: "interview" };
 
-    const [facts, cooling] = await Promise.all([
+    const [facts, cooling, history] = await Promise.all([
       this.readFacts(workerId, mode.profile, now),
       this.faltuOn() ? this.v2.cooldownUntil(workerId, now) : Promise.resolve(null),
+      this.history.window(workerId, now),
     ]);
     const composed = composeFor("digest", facts);
     const turn: CompanionTurn = {
@@ -165,8 +174,21 @@ export class ChatCompanionService {
     };
     await this.record(workerId, ctx, now, "open", "digest", composed, facts, null);
 
-    const checked = CompanionOpenResponseSchema.safeParse(turn);
-    return checked.success ? checked.data : this.fallbackTurn(checked.error.issues, workerId);
+    // #2297 (ADR-0056) — THE STORED CONVERSATION. With lines in the last 7 days the app draws them
+    // (oldest first) INSTEAD of the recap, which still rides the response for an older app. With
+    // none, the recap is drawn as today AND stored, so it heads the conversation from now on. An
+    // unreadable store (`ok: false`, e.g. migration 0135 not applied) is today's open, untouched.
+    const opened =
+      history.ok && history.value.length > 0 ? { ...turn, history: history.value } : turn;
+
+    const checked = CompanionOpenResponseSchema.safeParse(opened);
+    if (!checked.success) return this.fallbackTurn(checked.error.issues, workerId);
+    // Stored only AFTER the response passed its schema, and from the VALIDATED turn: a recap the
+    // app was never shown is never written.
+    if (history.ok && history.value.length === 0 && checked.data.mode === "companion") {
+      this.history.keepRecap(workerId, checked.data, now);
+    }
+    return checked.data;
   }
 
   /** The faltu phase is live: v2 AND its own flag (the cool-down exists only then). */
@@ -347,10 +369,58 @@ export class ChatCompanionService {
     }
 
     const checked = CompanionTurnSchema.safeParse(turn);
-    return {
-      mode: "companion",
-      turn: checked.success ? checked.data : this.fallbackTurn(checked.error.issues, workerId),
-    };
+    const served = checked.success
+      ? checked.data
+      : this.fallbackTurn(checked.error.issues, workerId);
+    // Model context only on the brain (under the kill switch no stored line ever reaches a model),
+    // and never for a fallback served in place of a turn that failed its schema.
+    const modelContext = brainOn && checked.success && this.v2.rememberedForModel(turn);
+    // An ECHO — the in-flight line or a replay answering a submission another request owns — is
+    // never written: only the real served turn is stored, once (its own request writes it).
+    if (!this.v2.isEcho(turn)) {
+      this.keepTurn(workerId, dto, served, modelContext, ctx, now, brainOn);
+    }
+    return { mode: "companion", turn: served };
+  }
+
+  /**
+   * #2297 (ADR-0056) — STORE THE SERVED TURN, after it is computed and off the request path: the
+   * worker's message as sent and the reply as served. `modelContext` marks its lines for a later
+   * model call — true exactly when the v2 pipeline put the pair into the memory
+   * (`rememberedForModel`, asked of the object the pipeline returned), so a distress turn or a
+   * trash verdict never reaches a model again (ADR-0055 F3/F4). On the brain, a stored turn then
+   * schedules the rolling summary's fold.
+   */
+  private keepTurn(
+    workerId: string,
+    dto: CompanionMessageDto,
+    served: CompanionTurn,
+    modelContext: boolean,
+    ctx: RequestContext,
+    now: Date,
+    brainOn: boolean,
+  ): void {
+    const fold = brainOn
+      ? async () => {
+          this.summaries.schedule({
+            workerId,
+            correlationId: ctx.correlationId,
+            requestId: ctx.requestId,
+            at: now,
+          });
+        }
+      : undefined;
+    this.history.keepTurn(
+      {
+        workerId,
+        workerText: dto.text,
+        submissionId: dto.submission_id ?? null,
+        turn: served,
+        modelContext,
+        at: now,
+      },
+      fold,
+    );
   }
 
   /**

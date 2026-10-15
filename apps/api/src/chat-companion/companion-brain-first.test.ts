@@ -19,7 +19,7 @@ import {
   COMPANION_NEW_JOBS_LABEL,
   COMPANION_JOBS_TAB_LABEL,
 } from "./companion-keys";
-import { V2_EDIT_CARD_INTRO, V3_GREETING } from "./companion-replies";
+import { V2_EDIT_CARD_INTRO, V2_IN_FLIGHT, V3_GREETING } from "./companion-replies";
 import { CompanionResumeStatus } from "./companion-resume-status";
 import {
   COMPANION_TASK_CAREER_LABEL,
@@ -40,6 +40,7 @@ import {
 } from "./v2/handlers/fixed-line.handlers";
 import { NewResumeHandler } from "./v2/handlers/new-resume.handler";
 import { CompanionHandlerRegistry } from "./v2/handlers/registry";
+import { fakeCompanionHistory } from "./companion-history.fake";
 
 /**
  * ADR-0055, ROUND 2 (owner rulings 2026-10-15, "brain first") — the Bada Bhai chat's routing END TO
@@ -164,6 +165,8 @@ function setup(
     verdict?: Verdict;
     summary?: string | null;
     pendingIntent?: "edit_resume" | "career_talk";
+    /** #2297 — another request already holds this submission (the in-flight claim is `held`). */
+    inFlight?: boolean;
   } = {},
 ) {
   const config = {
@@ -205,6 +208,8 @@ function setup(
   const events = { emit: vi.fn(async (params: unknown) => params) };
   const cost = { record: vi.fn(async () => undefined) };
   const memory = { read: vi.fn(async () => []), append: vi.fn(async () => undefined) };
+  // #2297 — the stored conversation (readable, empty) and the summary fold, as spies.
+  const { history: stored, summaries: folds } = fakeCompanionHistory();
   const faltuStore = {
     cooldownUntil: vi.fn(async () => null),
     countStrike: vi.fn(async () => 1),
@@ -266,11 +271,15 @@ function setup(
     faltuStore as never,
     // An in-memory stand-in for the Redis replay cache, keyed as the store keys it.
     {
-      read: vi.fn(async (w: string, s: string) => replayed.get(`${w}:${s}`) ?? null),
+      // A copy, as a JSON round trip through Redis hands back: never the object first served.
+      read: vi.fn(async (w: string, s: string) => {
+        const turn = replayed.get(`${w}:${s}`);
+        return turn === undefined ? null : structuredClone(turn);
+      }),
       remember: vi.fn(async (w: string, s: string, turn: CompanionTurn) => {
         replayed.set(`${w}:${s}`, turn);
       }),
-      claim: vi.fn(async () => "claimed"),
+      claim: vi.fn(async () => (opts.inFlight ? "held" : "claimed")),
       release: vi.fn(async () => undefined),
     } as never,
     pending as never,
@@ -291,6 +300,8 @@ function setup(
     events as never,
     { confirm: vi.fn(), cancel: vi.fn(), propose: vi.fn() } as never,
     orchestrator,
+    stored as never,
+    folds as never,
   );
   const send = async (text: string): Promise<CompanionTurn> => {
     const result = await svc.message(WORKER, { text, submission_id: SUBMISSION }, CTX, NOW);
@@ -308,7 +319,21 @@ function setup(
     events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
       .find((e) => e.event_name === "chat.companion_turn_served_v4")!;
-  return { svc, ai, events, cost, edits, pending, summaries, send, eventNames, v1Intent, v4 };
+  return {
+    svc,
+    ai,
+    events,
+    cost,
+    edits,
+    pending,
+    summaries,
+    stored,
+    folds,
+    send,
+    eventNames,
+    v1Intent,
+    v4,
+  };
 }
 
 const keys = (turn: CompanionTurn) => turn.suggested_options.map((o) => o.option_key);
@@ -616,6 +641,78 @@ describe("#2295 ruling — every résumé-edit ask gets the EDIT SECTION MENU, n
     const second = await h.send("skills mein Marathi jod do");
     expect(second).toEqual(first);
     expect(h.edits.propose).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #2297 (ADR-0056) — every served turn is handed to the stored conversation, marked for a later
+ * model call EXACTLY when the pipeline put it into the memory (so never distress or trash, ADR-0055
+ * F3/F4), and on the brain a stored turn schedules the rolling summary's fold.
+ */
+describe("#2297 — the stored conversation on the brain", () => {
+  const kept = (h: ReturnType<typeof setup>) => {
+    expect(h.stored.keepTurn).toHaveBeenCalledTimes(1);
+    return h.stored.keepTurn.mock.calls[0]!;
+  };
+
+  it("a casual reply is stored as model context, and its fold is scheduled once stored", async () => {
+    const h = setup({ verdict: { category: "casual" } });
+    const turn = await h.send("aaj mausam kaisa hai");
+    const [line, fold] = kept(h);
+    expect(line).toMatchObject({
+      workerId: WORKER,
+      workerText: "aaj mausam kaisa hai",
+      submissionId: SUBMISSION,
+      modelContext: true,
+      at: NOW,
+    });
+    expect(line.turn).toEqual(turn);
+    expect(fold).toBeDefined();
+    await fold!();
+    expect(h.folds.schedule).toHaveBeenCalledWith({
+      workerId: WORKER,
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+      at: NOW,
+    });
+  });
+
+  it.each<[string, string, Verdict]>([
+    ["distress (the word list)", "ab marna chahta hoon", { category: "casual" }],
+    ["a trash verdict", "asdf qwer zxcv", { category: "trash", confidence: 0.95 }],
+    [
+      "the edit section menu (a deterministic v1 turn)",
+      "resume edit karein",
+      { category: "casual" },
+    ],
+  ])("%s is stored for the worker, but NEVER as model context", async (_why, text, verdict) => {
+    const h = setup({ verdict });
+    await h.send(text);
+    expect(kept(h)[0].modelContext).toBe(false);
+  });
+
+  it("a RESENT submission (the replay cache) is NOT written again: the real turn, once", async () => {
+    const h = setup({ verdict: { category: "casual" } });
+    const first = await h.send("aaj mausam kaisa hai");
+    const replay = await h.send("aaj mausam kaisa hai");
+    expect(replay).toEqual(first);
+    expect(h.stored.keepTurn).toHaveBeenCalledTimes(1);
+    expect(h.stored.keepTurn.mock.calls[0]![0].turn).toEqual(first);
+  });
+
+  it("an IN-FLIGHT duplicate is never written: its placeholder line must not take the real turn's place", async () => {
+    const h = setup({ verdict: { category: "casual" }, inFlight: true });
+    const turn = await h.send("aaj mausam kaisa hai");
+    expect(turn.reply).toBe(V2_IN_FLIGHT.latin);
+    expect(h.stored.keepTurn).not.toHaveBeenCalled();
+  });
+
+  it("under the kill switch the turn is still stored (history is UI), never as model context, and no fold is attached", async () => {
+    const h = setup({ killSwitch: true });
+    await h.send("aaj mausam kaisa hai");
+    const [line, fold] = kept(h);
+    expect(line.modelContext).toBe(false);
+    expect(fold).toBeUndefined();
   });
 });
 

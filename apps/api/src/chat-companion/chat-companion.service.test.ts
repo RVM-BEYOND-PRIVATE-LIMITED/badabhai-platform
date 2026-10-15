@@ -3,8 +3,18 @@ import { validateEvent } from "@badabhai/event-schema";
 import { resolveResumeMenu, RESUME_MENU_EDIT_LABEL } from "../chat/resume-menu";
 import { ChatCompanionService, digestKey } from "./chat-companion.service";
 import { COMPANION_JOB_KEY_PREFIX, COMPANION_RESUME_KEY } from "./companion-keys";
-import { V2_CLARIFY, V2_EDIT_CANCELLED, V2_EDIT_DONE, V2_EDIT_STALE } from "./companion-replies";
+import {
+  FALLBACK,
+  V2_CLARIFY,
+  V2_EDIT_CANCELLED,
+  V2_EDIT_DONE,
+  V2_EDIT_STALE,
+} from "./companion-replies";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
+import { makeCompanionServiceForV2 } from "./chat-companion.v2.fake";
+import type { CompanionHistoryItem } from "./chat-companion.dto";
+import { fakeCompanionHistory } from "./companion-history.fake";
+import type { HistoryRead } from "./companion-history.service";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SUBMISSION = "22222222-2222-4222-8222-222222222222";
@@ -75,6 +85,8 @@ function make(over: {
   v2?: boolean;
   confirm?: unknown;
   cancel?: unknown;
+  /** #2297 — what the stored-conversation read answers (default: readable and empty). */
+  stored?: HistoryRead<CompanionHistoryItem[]>;
 } = {}) {
   const policy = {
     resolve: vi.fn(async () =>
@@ -123,7 +135,10 @@ function make(over: {
   };
   const v2 = {
     handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
+    rememberedForModel: vi.fn((_turn: unknown) => false),
+    isEcho: vi.fn((_turn: unknown) => false),
   };
+  const { history: stored, summaries } = fakeCompanionHistory(over.stored);
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
@@ -144,6 +159,8 @@ function make(over: {
     events as never,
     edits as never,
     v2 as never,
+    stored as never,
+    summaries as never,
     over.formAttributes === undefined
       ? undefined
       : ({
@@ -153,7 +170,7 @@ function make(over: {
           }),
         } as never),
   );
-  return { svc, policy, repo, resumes, skills, jobs, events, edits, v2 };
+  return { svc, policy, repo, resumes, skills, jobs, events, edits, v2, stored, summaries };
 }
 
 type Emitted = { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string };
@@ -462,14 +479,15 @@ describe("digest_key — what the app compares on a tab refocus", () => {
 
 describe("the companion's reach", () => {
   it("is constructed from repositories, the history projection and the INERT v2 layer", () => {
-    // Ten collaborators: eight read-only or the event spine (the eighth is #2201's
+    // Twelve collaborators: eight read-only or the event spine (the eighth is #2201's
     // WorkerAttributesRepository, read-only, for the gap nudge), plus (ADR-0046 T6) the v2
     // orchestrator and (T7/T8) the edit service. The two v2 collaborators reach a model only
     // through AiService, only from the v2 branches, and only while their flags are on — every v1
     // path still makes zero model calls, which the flag-off suite proves. A refactor that routes
     // a V1 read through MatchFeedService.getFeed / ApplicationsService.getFeed /
-    // JobsService.searchJobs / ChatService still fails here first.
-    expect(ChatCompanionService.length).toBe(10);
+    // JobsService.searchJobs / ChatService still fails here first. #2297 adds two: the stored
+    // conversation (its own tables, no model) and the rolling summary fold (the brain only).
+    expect(ChatCompanionService.length).toBe(12);
   });
 });
 
@@ -530,5 +548,104 @@ describe("ChatCompanionService.confirmEdit / cancelEdit (ADR-0046 T8)", () => {
 
     const unknown = make({ v2: true, cancel: { kind: "not_found" } });
     expect(await unknown.svc.cancelEdit(WORKER, PROPOSAL, CTX)).toEqual({ mode: "not_found" });
+  });
+});
+
+/**
+ * #2297 (ADR-0056) — THE STORED CONVERSATION, as the service uses it: the open draws the stored
+ * lines (the recap still rides the response), stores the recap only when there are none, and
+ * leaves today's open untouched when the store cannot be read; every message turn is handed to
+ * the store, after it is computed, exactly as served.
+ */
+describe("#2297 — the stored conversation", () => {
+  const LINE: CompanionHistoryItem = {
+    id: "44444444-4444-4444-8444-444444444444",
+    role: "worker",
+    text: "pichli baat",
+    created_at: "2026-09-25T10:00:00.000Z",
+  };
+
+  it("no line in the window: today's recap, AND the recap is stored to head the conversation", async () => {
+    const h = make({ stored: { ok: true, value: [] } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    expect(res.mode).toBe("companion");
+    expect(res).not.toHaveProperty("history");
+    expect(h.stored.window).toHaveBeenCalledWith(WORKER, NOW);
+    expect(h.stored.keepRecap).toHaveBeenCalledTimes(1);
+    const [worker, recap, at] = h.stored.keepRecap.mock.calls[0]!;
+    expect(worker).toBe(WORKER);
+    expect((recap as { reply: string }).reply).toBe(res.mode === "companion" ? res.reply : "");
+    expect(at).toBe(NOW);
+  });
+
+  it("lines in the window: they ride `history`, the recap fields stay, and nothing is stored", async () => {
+    const h = make({ stored: { ok: true, value: [LINE] } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.history).toEqual([LINE]);
+    expect(res.reply.length).toBeGreaterThan(0); // the recap, for an older app
+    expect(h.stored.keepRecap).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable store (migration 0135 not applied): today's open exactly, nothing stored", async () => {
+    const h = make({ stored: { ok: false } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    expect(res).not.toHaveProperty("history");
+    expect(h.stored.keepRecap).not.toHaveBeenCalled();
+    const today = await make({ stored: { ok: true, value: [LINE] } }).svc.open(WORKER, CTX, NOW);
+    if (today.mode !== "companion" || res.mode !== "companion") throw new Error("companion");
+    const { history: _history, ...recap } = today;
+    expect(res).toEqual(recap);
+  });
+
+  it("the recap is stored from the VALIDATED response — the very object the worker was served", async () => {
+    const h = make({ stored: { ok: true, value: [] } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    expect(h.stored.keepRecap.mock.calls[0]![1]).toBe(res);
+  });
+
+  it("an open that fails its schema serves the fallback and stores NO recap", async () => {
+    const v2 = makeCompanionServiceForV2({ v2: true, faltu: true, cooling: 123 as never });
+    const res = await v2.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).toBe(FALLBACK.latin);
+    expect(v2.history.keepRecap).not.toHaveBeenCalled();
+  });
+
+  it("interview mode reads no history", async () => {
+    const h = make({ mode: "interview" });
+    await h.svc.open(WORKER, CTX, NOW);
+    expect(h.stored.window).not.toHaveBeenCalled();
+  });
+
+  it("a message turn is stored after it is computed: the text as sent, the turn as served", async () => {
+    const h = make();
+    const result = await h.svc.message(
+      WORKER,
+      { text: "naye jobs", submission_id: "55555555-5555-4555-8555-555555555555" },
+      CTX,
+      NOW,
+    );
+    if (result.mode !== "companion") throw new Error("expected companion");
+    expect(h.stored.keepTurn).toHaveBeenCalledTimes(1);
+    const [kept, fold] = h.stored.keepTurn.mock.calls[0]!;
+    expect(kept).toEqual({
+      workerId: WORKER,
+      workerText: "naye jobs",
+      submissionId: "55555555-5555-4555-8555-555555555555",
+      turn: result.turn,
+      // A v1 turn never entered the memory, so a later model call never reads it.
+      modelContext: false,
+      at: NOW,
+    });
+    // This harness pins the kill switch: no summary fold is attached.
+    expect(fold).toBeUndefined();
+    expect(h.summaries.schedule).not.toHaveBeenCalled();
+  });
+
+  it("interview mode stores nothing", async () => {
+    const h = make({ mode: "interview" });
+    await h.svc.message(WORKER, { text: "hi" }, CTX, NOW);
+    expect(h.stored.keepTurn).not.toHaveBeenCalled();
   });
 });
