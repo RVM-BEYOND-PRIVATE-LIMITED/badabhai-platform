@@ -114,6 +114,19 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
     expect(read.value[1]).not.toHaveProperty("tts_text");
   });
 
+  it("the repository skips a replayed line instead of failing on the unique index", async () => {
+    const submission = randomUUID();
+    const replayed = {
+      workerId: worker,
+      role: "worker" as const,
+      bodyText: "x",
+      submissionId: submission,
+      createdAt: ago(10_000),
+    };
+    expect(await repo.append([replayed])).toBe(1);
+    expect(await repo.append([{ ...replayed, createdAt: ago(5_000) }])).toBe(0);
+  });
+
   it("a REPLAYED submission inserts nothing", async () => {
     const submission = randomUUID();
     const kept = {
