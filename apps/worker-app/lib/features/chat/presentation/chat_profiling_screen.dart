@@ -259,9 +259,11 @@ class ChatProfilingScreen extends StatelessWidget {
       create: (_) {
         final ChatBloc bloc = locator<ChatBloc>()
           ..add(companion ? ChatCompanionStarted() : ChatStarted());
-        // Owner ask (2026-10-14) — the TAB offers the "Resume download" tile
-        // the moment it opens (when the worker has a résumé to download). The
-        // onboarding `/chat` never does, so its interview is untouched.
+        // Owner ruling (2026-10-15) — the TAB checks, as it opens, whether the
+        // worker has a résumé the "Resume download" tile was never offered for
+        // (the first visit after profiling, or a new / edited résumé). Any
+        // other open stays quiet. The onboarding `/chat` never checks, so its
+        // interview is untouched.
         if (assistantTab) bloc.add(const ChatResumeDownloadOffered());
         return bloc;
       },
@@ -302,9 +304,10 @@ class _CompanionRefocus extends StatelessWidget {
       tabFocus: locator<TabFocus>(),
       index: TabIndex.chat,
       onFocused: () {
-        // Owner ask (2026-10-14) — coming back to the tab is opening the chat
-        // again, so the "Resume download" tile is offered again, whatever the
-        // companion lever says.
+        // Owner ruling (2026-10-15) — coming back to the tab re-checks the
+        // résumé, whatever the companion lever says: the tile comes back ONLY
+        // when the résumé changed while the worker was away (an edit on the
+        // Résumé tab, a new résumé). Same résumé, no tile.
         context.read<ChatBloc>().add(const ChatResumeDownloadOffered());
         if (!BbRemoteConfig.instance.chatCompanionEnabled) return;
         context.read<ChatBloc>().add(const ChatCompanionRefreshRequested());
@@ -742,6 +745,20 @@ class _ChatViewState extends State<_ChatView>
     context.read<ChatBloc>().add(const ChatCompanionRefreshRequested());
   }
 
+  /// Owner ruling (2026-10-15), case 2 — a résumé screen pushed from this
+  /// chat (the form, an upload, a section walk, Resume Edit) can change the
+  /// résumé, and a pushed route coming back is not a tab refocus. So when it
+  /// closes the chat re-checks, and offers the tile only if the résumé actually
+  /// changed. The bloc is read NOW, never through a context after the gap.
+  void _recheckResumeTileAfter(Future<Object?> pushed) {
+    final ChatBloc bloc = context.read<ChatBloc>();
+    unawaited(
+      pushed.whenComplete(() {
+        if (!bloc.isClosed) bloc.add(const ChatResumeDownloadOffered());
+      }),
+    );
+  }
+
   void _sendChoice(ChatOption option) {
     // ADR-0044 — the companion's app-routed chips FIRST. None of them is ever
     // posted; every other key (interview chips, the résumé menu, the companion's
@@ -798,7 +815,7 @@ class _ChatViewState extends State<_ChatView>
     // road into the form uses. Never posted — the server only answers the label
     // as text for an app that predates this key.
     if (option.optionKey == kResumeMenuFormCreateKey) {
-      unawaited(
+      _recheckResumeTileAfter(
         openTradeFormWithTier(
           context,
           entry: TierEntry.pushed,
@@ -827,14 +844,16 @@ class _ChatViewState extends State<_ChatView>
         // again. The post-completion menu keeps the doors: its chips never
         // include the prompt's client-only `no_resume` key, which is what tells
         // the two apart.
-        context.pushOnce(
-          Routes.resumeUpload,
-          extra:
-              bloc.state.suggestedOptions.any(
-                (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
-              )
-              ? const ResumeUploadAutoIntent()
-              : null,
+        _recheckResumeTileAfter(
+          context.pushOnce(
+            Routes.resumeUpload,
+            extra:
+                bloc.state.suggestedOptions.any(
+                  (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
+                )
+                ? const ResumeUploadAutoIntent()
+                : null,
+          ),
         );
         return;
       case ResumeMenuAction.startFreshChat:
@@ -857,10 +876,14 @@ class _ChatViewState extends State<_ChatView>
             option.optionKey == kResumeMenuAvailabilitySalaryKey ||
             option.optionKey == kResumeMenuWorkHistoryKey ||
             option.optionKey == kResumeMenuEducationKey) {
-          context.pushOnce(Routes.tradeForm, extra: option.optionKey);
+          _recheckResumeTileAfter(
+            context.pushOnce(Routes.tradeForm, extra: option.optionKey),
+          );
           return;
         }
-        context.pushOnce(Routes.resumeEdit, extra: option.optionKey);
+        _recheckResumeTileAfter(
+          context.pushOnce(Routes.resumeEdit, extra: option.optionKey),
+        );
         return;
       case ResumeMenuAction.sendToServer:
         break;

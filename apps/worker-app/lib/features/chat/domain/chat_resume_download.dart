@@ -2,9 +2,18 @@
 ///
 /// A tile with ONE button — "Resume download" — that saves the worker's current
 /// résumé PDF straight into the phone's Downloads, the worker never leaving the
-/// chat. It is offered when the tab opens, put away once the conversation moves
-/// on, and offered again whenever the worker asks for their résumé
-/// ("mujhe mera resume download karna hai").
+/// chat.
+///
+/// WHEN IT IS SHOWN — exactly three cases (owner ruling, 2026-10-15):
+///   1. the worker's first visit to the chat after their first profiling;
+///   2. their résumé CHANGED — an edit, or a new résumé — since it was last
+///      offered (measured by [DownloadableResume.version], persisted on the
+///      phone by `ResumeDownloadOfferStore`);
+///   3. they ASK for it — "mujhe mera resume download karna hai", "resume
+///      dikhao", "show my resume" ([isResumeDownloadRequest]), or the server's
+///      own download chip.
+/// Any other open of the chat stays quiet, and the tile is put away the moment
+/// the conversation moves on.
 ///
 /// THE ASK IS ANSWERED ON THE PHONE, NEVER POSTED. A download request is not an
 /// interview answer and not a companion question: posted mid-interview it would
@@ -45,9 +54,9 @@ const String kChatResumeDownloadReplyTts =
 /// WHOLE words: "download" and the spellings a worker types for it, plus "pdf"
 /// (the résumé is the only PDF this chat can hand over).
 ///
-/// DELIBERATELY NARROW. "Resume chahiye", "resume bhejo" or "resume update"
-/// are left to the server: on the companion they are a new résumé or an edit,
-/// and stealing them here would answer the wrong question.
+/// DELIBERATELY NARROW. "Resume chahiye" or "resume update" are left to the
+/// server: on the companion they are a new résumé or an edit, and stealing them
+/// here would answer the wrong question.
 const Set<String> _kDownloadWords = <String>{
   'download',
   'downloads',
@@ -90,7 +99,60 @@ const Set<String> _kResumeWords = <String>{
   'resyume',
 };
 
+/// Word STEMS that ask to SEE or GET the résumé — "resume dikhao / dikhaiye",
+/// "resume dekhna hai", "show my resume", "resume bhej do", "send my cv",
+/// "resume print karna hai". Matched as word PREFIXES, so every ending a worker
+/// types is covered. Never enough alone: "jobs dikhao" is a jobs question, so
+/// the message must also name the résumé.
+const List<String> _kShowStems = <String>[
+  'dikha',
+  'dikhla',
+  'dekh',
+  'show',
+  'bhej',
+  'send',
+  'print',
+];
+
+/// "Where is my résumé" — whole words, read like a show stem.
+const Set<String> _kWhereWords = <String>{'kahan', 'kaha', 'kidhar', 'where'};
+
+/// Word STEMS that make a résumé message a change or a NEW résumé — "naya
+/// resume bana ke dikhao", "resume badal ke bhejo". Those belong to the server's
+/// edit / new-résumé flows, so a show stem beside one of these is not an ask.
+/// A download word still is ("naya resume download karna hai").
+const List<String> _kChangeStems = <String>[
+  'naya',
+  'nayi',
+  'new',
+  'bana',
+  'badal',
+  'badl',
+  'update',
+  'edit',
+  'sudhar',
+  'change',
+  'galat',
+  'hata',
+  'jod',
+  'delete',
+];
+
 final RegExp _kWordSplit = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+
+/// The résumé the tile downloads, and WHICH VERSION of it that is.
+class DownloadableResume {
+  const DownloadableResume({required this.id, required this.version});
+
+  /// What `GET /resume/:id/download` is called with.
+  final String id;
+
+  /// `<id>@<generated_at>` — changes when the worker gets a NEW résumé (a new
+  /// row, or a re-generated one: every generate stamps `generated_at`) and does
+  /// NOT change when a pending render merely finishes. It is what "the résumé
+  /// changed since the tile was last offered" (case 2) compares.
+  final String version;
+}
 
 /// The résumé the tile downloads: the row the server marks CURRENT in
 /// `GET /resume/history`, or null when there is none to hand over.
@@ -99,31 +161,51 @@ final RegExp _kWordSplit = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
 /// available" every time, and a button that can only fail is worse than no
 /// button. A render still in progress IS offered: the tile waits it out the way
 /// the Resume tab's Download does.
-String? downloadableResumeIdIn(ResumeHistory history) {
+DownloadableResume? downloadableResumeIn(ResumeHistory history) {
   final ResumeHistoryItem? current = history.current;
   if (current == null || current.resumeId.isEmpty) return null;
   if (current.hasFailedRender) return null;
-  return current.resumeId;
+  final String generatedAt =
+      current.generatedAt?.toUtc().toIso8601String() ?? '';
+  return DownloadableResume(
+    id: current.resumeId,
+    version: '${current.resumeId}@$generatedAt',
+  );
 }
 
-/// Whether [text] asks for the worker's résumé to be downloaded.
+/// Whether [text] asks for the worker's résumé — to download it, or to see or
+/// get it ("resume dikhao", "show my resume", "resume bhej do").
 ///
-/// A download word is enough on the companion, where no question is open. With
+/// A DOWNLOAD word is enough on the companion, where no question is open. With
 /// [requireResumeWord] — an interview, where every typed message is an answer —
 /// the message must ALSO name the résumé ("resume download karna hai"), so an
 /// answer that merely mentions a PDF or a download is still posted as one.
+///
+/// A SHOW / SEND word always needs the résumé named beside it ("jobs dikhao" is
+/// a jobs question), and never counts beside a change or new-résumé word ("naya
+/// resume bana ke dikhao" is the server's).
 ///
 /// Pure and deterministic: lowercase, split into words, look the words up.
 /// Never logs and never keeps the text.
 bool isResumeDownloadRequest(String text, {bool requireResumeWord = false}) {
   final String normalized = text.trim().toLowerCase();
   if (normalized.isEmpty) return false;
-  final Set<String> words = normalized.split(_kWordSplit).toSet();
+  final Set<String> words = normalized
+      .split(_kWordSplit)
+      .where((String w) => w.isNotEmpty)
+      .toSet();
+  final bool namesResume =
+      _kResumeDevanagari.any(normalized.contains) ||
+      words.any(_kResumeWords.contains);
   final bool download =
       _kDownloadDevanagari.any(normalized.contains) ||
       words.any(_kDownloadWords.contains);
-  if (!download) return false;
-  if (!requireResumeWord) return true;
-  return _kResumeDevanagari.any(normalized.contains) ||
-      words.any(_kResumeWords.contains);
+  if (download) return !requireResumeWord || namesResume;
+  if (!namesResume) return false;
+  bool startsWithAny(List<String> stems) => words.any(
+    (String w) => stems.any((String stem) => w.startsWith(stem)),
+  );
+  final bool asksToSee =
+      startsWithAny(_kShowStems) || words.any(_kWhereWords.contains);
+  return asksToSee && !startsWithAny(_kChangeStems);
 }

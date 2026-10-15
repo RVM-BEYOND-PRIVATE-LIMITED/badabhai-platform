@@ -18,6 +18,7 @@ import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
 import '../session/chat_turn_resume_store.dart';
+import '../session/resume_download_offer_store.dart';
 import '../session/resume_redo_store.dart';
 import '../session/resume_import_signal.dart';
 import '../session/known_worker_facts_store.dart';
@@ -615,6 +616,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
       resumeRepository: locator.isRegistered<ResumeRepository>()
           ? locator<ResumeRepository>()
           : null,
+      // Owner ruling (2026-10-15) — which résumé the tile was last offered for,
+      // so opening the chat offers it only for a new or changed résumé.
+      resumeDownloadOffers: locator.isRegistered<ResumeDownloadOfferStore>()
+          ? locator<ResumeDownloadOfferStore>()
+          : null,
     ),
   );
   locator.registerFactory<ProfileCubit>(
@@ -801,6 +807,15 @@ Future<void> initAuthLocator({
     );
   }
 
+  // Which résumé version the Bada Bhai chat's "Resume download" tile was last
+  // offered for (owner ruling, 2026-10-15), so a cold start does not offer the
+  // same résumé again. Same lazy prefs registration; cleared on logout.
+  if (!locator.isRegistered<ResumeDownloadOfferStore>()) {
+    locator.registerSingleton<ResumeDownloadOfferStore>(
+      const SharedPrefsResumeDownloadOfferStore(),
+    );
+  }
+
   // MOCK vs REAL pick lives in createAuthApi (kUseMocks), mirroring
   // createApiClient. The full signing chain (device id, locale, refresh, reauth)
   // is wired here from the singletons registered in setupLocator. A test-supplied
@@ -913,6 +928,11 @@ void _clearSessionScopedCaches() {
   // And the previous worker's re-do mark: a session id is theirs, never ours.
   if (locator.isRegistered<ResumeRedoStore>()) {
     unawaited(locator<ResumeRedoStore>().clear());
+  }
+  // And which of their résumés the chat tile was offered for: the next worker
+  // on a shared phone is offered their own résumé on their first visit.
+  if (locator.isRegistered<ResumeDownloadOfferStore>()) {
+    unawaited(locator<ResumeDownloadOfferStore>().clear());
   }
   // And a résumé-import signal nobody consumed: the next worker on a shared
   // phone must not have a prompt answered on their behalf.

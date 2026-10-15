@@ -4,8 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatOption, ChatQuestionKind, ResumeHistory, ResumeHistoryItem;
+    show
+        ChatOption,
+        ChatQuestionKind,
+        EditProposal,
+        EditProposalRow,
+        ResumeHistory,
+        ResumeHistoryItem;
 import 'package:badabhai_worker_app/core/observability/analytics.dart';
+import 'package:badabhai_worker_app/core/session/resume_download_offer_store.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_resume_download.dart';
@@ -21,16 +28,24 @@ const String _resumeId = '22222222-2222-4222-8222-222222222222';
 const String _recap = 'Namaste. Aapki profile taiyaar hai.';
 const String _ask = 'mujhe mera resume download karna hai';
 
-ResumeHistory _history({String? renderStatus = 'rendered', bool current = true}) =>
-    ResumeHistory(
-      items: <ResumeHistoryItem>[
-        ResumeHistoryItem(
-          resumeId: _resumeId,
-          renderStatus: renderStatus,
-          isCurrent: current,
-        ),
-      ],
-    );
+const String _otherResumeId = '44444444-4444-4444-8444-444444444444';
+final DateTime _firstGeneratedAt = DateTime.utc(2026, 10, 14, 9);
+
+ResumeHistory _history({
+  String? renderStatus = 'rendered',
+  bool current = true,
+  String resumeId = _resumeId,
+  DateTime? generatedAt,
+}) => ResumeHistory(
+  items: <ResumeHistoryItem>[
+    ResumeHistoryItem(
+      resumeId: resumeId,
+      renderStatus: renderStatus,
+      isCurrent: current,
+      generatedAt: generatedAt ?? _firstGeneratedAt,
+    ),
+  ],
+);
 
 ChatTurn _companion(String reply) => ChatTurn(
   reply: reply,
@@ -43,9 +58,11 @@ ChatTurn _companion(String reply) => ChatTurn(
   digestKey: 'k1',
 );
 
-/// Owner ask (2026-10-14) — the Bada Bhai tab's "Resume download" tile: shown
-/// when the tab opens, put away when the conversation moves on, shown again
-/// when the worker asks for their résumé — and that ask is never posted.
+/// The Bada Bhai tab's "Resume download" tile. OWNER RULING (2026-10-15): it
+/// is shown in exactly three cases — (1) the first visit after profiling,
+/// (2) a résumé that changed since it was last offered, (3) the worker asking
+/// for it (that ask is never posted). Any other open of the chat stays quiet,
+/// and the conversation moving on puts it away.
 void main() {
   group('isResumeDownloadRequest', () {
     for (final String ask in <String>[
@@ -57,6 +74,14 @@ void main() {
       'resume dawnload karna h',
       'cv download?',
       'रिज़्यूमे डाउनलोड करना है',
+      // Case 3 is wider than "download" — see or get the résumé.
+      'mera resume dikhao',
+      'Resume dikhaiye',
+      'show my resume',
+      'resume dekhna hai',
+      'mera cv kahan hai',
+      'resume bhej do',
+      'resume print karna hai',
     ]) {
       test('"$ask" is a download request', () {
         expect(isResumeDownloadRequest(ask), isTrue);
@@ -72,6 +97,13 @@ void main() {
       'mera resume chahiye',
       'naya resume banana hai',
       'downloader',
+      // A show word with no résumé named is some other question.
+      'salary dikhao',
+      'show jobs',
+      // A show word beside a change / new-résumé word is the server's.
+      'naya resume bana ke dikhao',
+      'resume badal ke bhejo',
+      'resume update karke dikhao',
     ]) {
       test('"$other" is NOT a download request', () {
         expect(isResumeDownloadRequest(other), isFalse);
@@ -97,6 +129,7 @@ void main() {
         'CV ka pdf chahiye',
         'biodata download',
         'रिज़्यूमे डाउनलोड करना है',
+        'mera resume dikhao',
       ]) {
         expect(
           isResumeDownloadRequest(ask, requireResumeWord: true),
@@ -107,17 +140,32 @@ void main() {
     });
   });
 
-  group('downloadableResumeIdIn', () {
+  group('downloadableResumeIn', () {
     test('the CURRENT row, rendered or still rendering', () {
-      expect(downloadableResumeIdIn(_history()), _resumeId);
-      expect(downloadableResumeIdIn(_history(renderStatus: 'pending')), _resumeId);
-      expect(downloadableResumeIdIn(_history(renderStatus: null)), _resumeId);
+      expect(downloadableResumeIn(_history())?.id, _resumeId);
+      expect(downloadableResumeIn(_history(renderStatus: 'pending'))?.id, _resumeId);
+      expect(downloadableResumeIn(_history(renderStatus: null))?.id, _resumeId);
     });
 
     test('nothing for no history, no current row, or a FAILED render', () {
-      expect(downloadableResumeIdIn(ResumeHistory.empty), isNull);
-      expect(downloadableResumeIdIn(_history(current: false)), isNull);
-      expect(downloadableResumeIdIn(_history(renderStatus: 'failed')), isNull);
+      expect(downloadableResumeIn(ResumeHistory.empty), isNull);
+      expect(downloadableResumeIn(_history(current: false)), isNull);
+      expect(downloadableResumeIn(_history(renderStatus: 'failed')), isNull);
+    });
+
+    test('the VERSION moves with a new or re-generated résumé, not with a render', () {
+      final String v1 = downloadableResumeIn(_history(renderStatus: 'pending'))!.version;
+      expect(downloadableResumeIn(_history())!.version, v1, reason: 'render finished');
+      expect(
+        downloadableResumeIn(_history(generatedAt: DateTime.utc(2026, 10, 15)))!.version,
+        isNot(v1),
+        reason: 're-generated',
+      );
+      expect(
+        downloadableResumeIn(_history(resumeId: _otherResumeId))!.version,
+        isNot(v1),
+        reason: 'a new résumé',
+      );
     });
   });
 
@@ -126,11 +174,15 @@ void main() {
     late MockResumeRepository resumes;
     late List<BbAnalyticsEvent> events;
     late DateTime now;
+    late InMemoryResumeDownloadOfferStore offers;
 
     setUp(() {
       repo = MockChatRepository();
       resumes = MockResumeRepository();
       events = <BbAnalyticsEvent>[];
+      offers = InMemoryResumeDownloadOfferStore();
+      ChatBloc.resumeChangeWatchInterval = Duration.zero;
+      ChatBloc.resumeChangeWatchAttempts = 3;
       now = DateTime(2026, 10, 14, 12);
       when(() => repo.loadHistory()).thenAnswer((_) async => const <ChatMessage>[]);
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
@@ -150,11 +202,17 @@ void main() {
       when(() => resumes.loadResumeHistory()).thenAnswer((_) async => _history());
     });
 
+    tearDown(() {
+      ChatBloc.resumeChangeWatchInterval = const Duration(seconds: 4);
+      ChatBloc.resumeChangeWatchAttempts = 15;
+    });
+
     ChatBloc build({bool withResumes = true}) => ChatBloc(
       repo,
       analyticsSink: events.add,
       clock: () => now,
       resumeRepository: withResumes ? resumes : null,
+      resumeDownloadOffers: offers,
     );
 
     Future<ChatBloc> openTab({bool withResumes = true}) async {
@@ -167,15 +225,18 @@ void main() {
 
     Iterable<String> eventNames() => events.map((BbAnalyticsEvent e) => e.name);
 
-    test('the tab opening offers the tile for the current résumé', () async {
+    List<Object> offeredTriggers() => <Object>[
+      for (final BbAnalyticsEvent e in events)
+        if (e.name == 'chat_resume_download_offered') e.parameters['trigger']!,
+    ];
+
+    test('case 1: the first visit offers the tile for the current résumé', () async {
       final ChatBloc bloc = await openTab();
 
       expect(bloc.state.resumeDownloadTile, isTrue);
       expect(bloc.state.downloadableResumeId, _resumeId);
-      final BbAnalyticsEvent offered = events.singleWhere(
-        (BbAnalyticsEvent e) => e.name == 'chat_resume_download_offered',
-      );
-      expect(offered.parameters, <String, Object>{'trigger': 'open'});
+      expect(offeredTriggers(), <Object>['first']);
+      expect(await offers.lastOffered(), downloadableResumeIn(_history())!.version);
       await bloc.close();
     });
 
@@ -311,6 +372,12 @@ void main() {
 
       expect(bloc.state.resumeDownloadTile, isFalse);
       expect(bloc.state.downloadableResumeId, _resumeId);
+      // It was never SEEN, so it is not spent: the next open offers it.
+      expect(await offers.lastOffered(), isNull);
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) async => _history());
+      bloc.add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isTrue);
       await bloc.close();
     });
 
@@ -328,22 +395,160 @@ void main() {
       await bloc.close();
     });
 
-    test('a refocus inside a minute re-offers the tile without a second read', () async {
+    test('opening the chat again with the SAME résumé stays quiet', () async {
       final ChatBloc bloc = await openTab();
       bloc.add(const ChatMessageSent('naye jobs dikhao'));
       await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isFalse);
 
-      now = now.add(const Duration(seconds: 30));
+      // The worker flips away and back (a refocus) — twice.
+      bloc
+        ..add(const ChatResumeDownloadOffered())
+        ..add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+
+      expect(bloc.state.resumeDownloadTile, isFalse);
+      expect(offeredTriggers(), <Object>['first']);
+      // The résumé is still known, so an ask needs no second thought.
+      expect(bloc.state.downloadableResumeId, _resumeId);
+      await bloc.close();
+    });
+
+    test('a cold start (a new chat on the same phone) does not offer the same résumé again', () async {
+      final ChatBloc first = await openTab();
+      expect(first.state.resumeDownloadTile, isTrue);
+      await first.close();
+
+      final ChatBloc second = await openTab();
+      expect(second.state.resumeDownloadTile, isFalse);
+      expect(offeredTriggers(), <Object>['first']);
+      await second.close();
+    });
+
+    test('case 2: a résumé that CHANGED while away is offered on the next open', () async {
+      final ChatBloc bloc = await openTab();
+      bloc.add(const ChatMessageSent('naye jobs dikhao'));
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isFalse);
+
+      // Edited on the Résumé tab: the same row, re-generated.
+      when(() => resumes.loadResumeHistory()).thenAnswer(
+        (_) async => _history(generatedAt: DateTime.utc(2026, 10, 15, 8)),
+      );
       bloc.add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isTrue);
+
+      // A brand-new résumé (a new row) counts the same way.
+      bloc.add(const ChatMessageSent('naye jobs dikhao'));
+      await pumpEventQueue();
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(resumeId: _otherResumeId));
+      bloc.add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.downloadableResumeId, _otherResumeId);
+
+      expect(offeredTriggers(), <Object>['first', 'changed', 'changed']);
+      await bloc.close();
+    });
+
+    test('case 3 always answers, and marks the résumé offered for the next open', () async {
+      // The worker has already been offered this résumé on an earlier visit.
+      await offers.markOffered(downloadableResumeIn(_history())!.version);
+      final ChatBloc bloc = await openTab();
+      expect(bloc.state.resumeDownloadTile, isFalse);
+
+      bloc.add(const ChatMessageSent('mera resume dikhao'));
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.messages.last.text, kChatResumeDownloadReply);
+      verifyNever(
+        () => repo.sendCompanionMessage(
+          'mera resume dikhao',
+          submissionId: any(named: 'submissionId'),
+        ),
+      );
+      expect(offeredTriggers(), <Object>['ask']);
+      await bloc.close();
+    });
+
+    test('case 2 inside the chat: Haan on an edit card offers the regenerated résumé when it lands', () async {
+      const String proposalId = '55555555-5555-4555-8555-555555555555';
+      final EditProposal card = EditProposal(
+        proposalId: proposalId,
+        expiresAt: DateTime.now().add(const Duration(minutes: 10)),
+        rows: const <EditProposalRow>[
+          EditProposalRow(rowId: 'r1', sectionLabel: 'Skills', op: 'add', after: 'Welding'),
+        ],
+      );
+      ResumeHistory current = _history();
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) async => current);
+      final ChatBloc bloc = await openTab();
+      when(
+        () => repo.sendCompanionMessage('Resume badlo', submissionId: any(named: 'submissionId')),
+      ).thenAnswer(
+        (_) async => ChatTurn(
+          reply: 'Yeh badlav karne hain?',
+          companion: true,
+          editProposal: card,
+        ),
+      );
+      bloc.add(const ChatMessageSent('Resume badlo'));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal, isNotNull);
+      expect(bloc.state.resumeDownloadTile, isFalse);
+
+      when(
+        () => repo.confirmCompanionEdit(proposalId, <String>['r1'], submissionId: any(named: 'submissionId')),
+      ).thenAnswer((_) async {
+        // The queued generation lands: the same row, re-generated.
+        current = _history(generatedAt: DateTime.utc(2026, 10, 15, 8));
+        return CompanionEditResult.served(
+          const ChatTurn(reply: 'Badlav ho gaya. Aapka resume update ho raha hai.', companion: true),
+        );
+      });
+      bloc.add(const ChatEditProposalConfirmed(<String>['r1']));
       await pumpEventQueue();
 
       expect(bloc.state.resumeDownloadTile, isTrue);
-      verify(() => resumes.loadResumeHistory()).called(1);
+      expect(offeredTriggers(), <Object>['first', 'changed']);
+      await bloc.close();
+    });
 
-      now = now.add(const Duration(minutes: 2));
-      bloc.add(const ChatResumeDownloadOffered());
+    test('an edit whose résumé never changes offers nothing', () async {
+      const String proposalId = '66666666-6666-4666-8666-666666666666';
+      final ChatBloc bloc = await openTab();
+      when(
+        () => repo.sendCompanionMessage('Resume badlo', submissionId: any(named: 'submissionId')),
+      ).thenAnswer(
+        (_) async => ChatTurn(
+          reply: 'Yeh badlav karne hain?',
+          companion: true,
+          editProposal: EditProposal(
+            proposalId: proposalId,
+            expiresAt: DateTime.now().add(const Duration(minutes: 10)),
+            rows: const <EditProposalRow>[
+              EditProposalRow(rowId: 'r1', sectionLabel: 'Skills', op: 'add', after: 'Welding'),
+            ],
+          ),
+        ),
+      );
+      bloc.add(const ChatMessageSent('Resume badlo'));
       await pumpEventQueue();
-      verify(() => resumes.loadResumeHistory()).called(1);
+      when(
+        () => repo.confirmCompanionEdit(proposalId, <String>['r1'], submissionId: any(named: 'submissionId')),
+      ).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          const ChatTurn(reply: 'Resume abhi update nahi hua.', companion: true),
+        ),
+      );
+      bloc.add(const ChatEditProposalConfirmed(<String>['r1']));
+      await pumpEventQueue();
+
+      expect(bloc.state.resumeDownloadTile, isFalse);
+      expect(offeredTriggers(), <Object>['first']);
       await bloc.close();
     });
 
