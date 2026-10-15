@@ -1,8 +1,12 @@
 # ADR-0057: The profiling chat reads every typed turn against the résumé schema
 
-- **Status:** **Proposed.** It records the owner's rulings of 2026-10-15 and 2026-10-16 (Divyanshu) and needs the owner's signature before work begins. Until then it is unsigned.
-  - On acceptance, the status line of [ADR-0051](0051-profiling-stage-free-chat.md) gains "Amended by ADR-0057 (R7, §3.3)".
-  - Nothing ships live on merge. Every behaviour is behind `CHAT_TURN_UNDERSTANDING_ENABLED` (default off).
+- **Status:** **Accepted — signed by the owner, Divyanshu, 2026-10-16.** It records the owner's rulings of 2026-10-15 and 2026-10-16.
+  - [ADR-0051](0051-profiling-stage-free-chat.md)'s status now carries "Amended by ADR-0057 (R7, §3.3)".
+  - Nothing ships live on merge. Every behaviour is behind `CHAT_TURN_UNDERSTANDING_ENABLED` (default off), except the two deterministic defect fixes #2307 and #2308.
+  - Owner rulings of 2026-10-16 on the work items:
+    - **#2307:** a correction rewrites an earlier answer only when it is unambiguous: a correction marker, nothing taken by the question on screen, and exactly one earlier answer it reads a different value for.
+    - **#2308:** progress copy "Thoda sa aur! Bas {n} sawaal bache hain." (no count: "Thoda sa aur, jaldi ho jayega!").
+    - **The §6 eval bar is confirmed as proposed.**
 - **Date:** 2026-10-16
 - **Owner:** Divyanshu (Backend Platform)
 - **Tracking:** #2306. Children: #2307 #2308 #2309 #2310 #2311 #2312 #2313, and #2314 (worker-app, Rishi).

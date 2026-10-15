@@ -750,6 +750,104 @@ describe("cross-question capture — free information, never an overwrite", () =
     );
   });
 
+  describe("#2307 — an explicit, unambiguous correction overwrites an established answer", () => {
+    const AVAIL = item({
+      question_key: "q_avail",
+      target_kind: "rfs",
+      target_field: "availability",
+      prompt_text: "Kab se kaam shuru kar sakte hain?",
+    });
+    const WITH_AVAIL = {
+      occupation: null,
+      universal: pack("qp_universal", [CITY, YEARS, AVAIL]),
+    };
+    const answered = (questionKey: string, targetField: string, value: unknown, raw: string) => ({
+      question_key: questionKey,
+      target_field: targetField,
+      value_raw: raw,
+      value_normalized: value,
+      status: "answered" as const,
+      evidence: null,
+      turn: 1,
+      history: [],
+    });
+    const recordOf = (store: ReturnType<typeof makeWorld>["store"], key: string) =>
+      store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === key);
+
+    it("rewrites the one earlier answer it names, keeping the old value as history", async () => {
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [answered("q_years", "experience_years", 5, "5 saal")],
+      });
+      await orchestrator.takeTurn(say("nahi nahi, 7 saal ka tajurba hai"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(7);
+      expect(recordOf(store, "q_years")?.history[0]).toMatchObject({
+        value_normalized: 5,
+        status: "superseded",
+      });
+    });
+
+    it("WITHOUT a correction marker the first write still wins", async () => {
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [answered("q_years", "experience_years", 5, "5 saal")],
+      });
+      await orchestrator.takeTurn(say("7 saal ka tajurba hai"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(5);
+    });
+
+    it("NEVER rewrites an earlier answer when the question on screen took the message", async () => {
+      // "sorry, 2 saal pehle Pune aaya" on the city question is a city answer. The years it also
+      // happens to parse are not the correction's target.
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_city",
+        askCounts: { q_city: 1 },
+        answerMap: [answered("q_years", "experience_years", 5, "5 saal")],
+      });
+      await orchestrator.takeTurn(say("sorry, 2 saal pehle Pune aaya"));
+      expect(recordOf(store, "q_city")?.value_normalized).toBe("Pune");
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(5);
+    });
+
+    it("NEVER guesses between two earlier answers it could rewrite", async () => {
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [
+          answered("q_years", "experience_years", 5, "5 saal"),
+          answered("q_city", "current_city", "Mumbai", "mumbai"),
+        ],
+      });
+      await orchestrator.takeTurn(say("galat likha, 7 saal aur pune me rehta hu"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(5);
+      expect(recordOf(store, "q_city")?.value_normalized).toBe("Mumbai");
+    });
+
+    it("a correction that repeats the established value is not a rewrite", async () => {
+      // One candidate that changes nothing is no candidate: the city rewrite below must still be
+      // the ONLY one, so it lands — and the years record grows no history.
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [
+          answered("q_years", "experience_years", 7, "7 saal"),
+          answered("q_city", "current_city", "Mumbai", "mumbai"),
+        ],
+      });
+      await orchestrator.takeTurn(say("galat likha, 7 saal aur pune me rehta hu"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(7);
+      expect(recordOf(store, "q_years")?.history).toHaveLength(0);
+      expect(recordOf(store, "q_city")?.value_normalized).toBe("Pune");
+    });
+  });
+
   it("does NOT swallow the whole message into every free-text question", async () => {
     // A free-text item's "normalizer" is the identity, so without the typed-field gate every
     // free-text question in the pack would be filled the moment a worker said anything.

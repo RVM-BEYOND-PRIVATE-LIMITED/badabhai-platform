@@ -520,9 +520,11 @@ export class ProfilingSessionService {
    *
    * THE REVIEW SCREEN IS THE ONLY PATH TO SUBMIT (#632), so this is the last moment before the
    * profile is built and the value reaches the matcher. A worker who sees a wrong value here and
-   * cannot fix it submits it or abandons — and in chat they would simply have said so, because the
-   * correction lexicon picks it up mid-conversation. This route is that affordance, for a surface
-   * that has no mid-conversation left.
+   * cannot fix it submits it or abandons. In chat they could have said so, but the correction
+   * lexicon only rewrites an earlier answer when the correction is unambiguous: a marker ("nahi
+   * nahi", "galat"), nothing taken by the question on screen, and exactly one earlier answer it can
+   * read a different value for (#2307, `fillCrossQuestion`). This route is the affordance for
+   * everything else, on a surface that has no mid-conversation left.
    *
    * WHAT THIS METHOD OWNS is only what a SURFACE owns: whose session it is, turning a tap or a clip
    * into words, and drawing the result. Every engine rule — supersession, the overwrite escape, the
