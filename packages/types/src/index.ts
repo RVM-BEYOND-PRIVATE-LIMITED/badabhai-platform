@@ -389,6 +389,10 @@ export type FreeChatModeTrigger = (typeof FREE_CHAT_MODE_TRIGGERS)[number];
 // (mock, timeout, blocked, error) and the previous one was kept.
 export const FREE_CHAT_SUMMARY_OUTCOMES = ["updated", "rejected", "unavailable"] as const;
 export type FreeChatSummaryOutcome = (typeof FREE_CHAT_SUMMARY_OUTCOMES)[number];
+// #2297 — WHO SAID ONE STORED LINE OF THE BADA BHAI CHAT (`companion_messages.role`, migration
+// 0135): the worker, or Bada Bhai. The same two words the companion's memory turns use.
+export const COMPANION_MESSAGE_ROLES = ["worker", "bada_bhai"] as const;
+export type CompanionMessageRole = (typeof COMPANION_MESSAGE_ROLES)[number];
 // ADR-0054 (#2127) — LIVE NEWS IN THE FREE CHAT. What a news answer was about: `work` (jobs,
 // factories, wages, skill schemes, safety rules) or `everyday` (weather, match scores, fuel
 // prices). An everyday answer ends by steering the worker back toward their profile.

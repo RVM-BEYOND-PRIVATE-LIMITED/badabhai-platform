@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { nonEmptyMessageSchema, safeTextSchema, uuidSchema } from "@badabhai/validators";
-import { COMPANION_V2_EDIT_OPS } from "@badabhai/types";
-import { PostMessageResponseSchema } from "../chat/chat.dto";
+import { COMPANION_MESSAGE_ROLES, COMPANION_V2_EDIT_OPS } from "@badabhai/types";
+import { NewsLinksWireSchema, PostMessageResponseSchema } from "../chat/chat.dto";
 
 /**
  * `POST /chat/companion/message` body. The same text rules as `POST /chat/message` — non-empty,
@@ -115,9 +115,55 @@ export type CancelEditDto = z.infer<typeof CancelEditSchema>;
 export const CompanionInterviewSchema = z.object({ mode: z.literal("interview") }).strict();
 export type CompanionInterview = z.infer<typeof CompanionInterviewSchema>;
 
+/** #2297 (ADR-0056) — the stored conversation is drawn from the last 7 days, at most this many lines. */
+export const COMPANION_HISTORY_MAX = 200;
+
+/**
+ * #2297 (ADR-0056) — ONE STORED LINE of the Bada Bhai chat, as `GET /chat/companion` returns it
+ * in `history`: the worker's message, or Bada Bhai's reply with what its live turn carried. The
+ * contract the app builds against (#2298): every optional field is ABSENT, never null, when the
+ * line has none — `tts_text` on fixed lines only, `read_aloud: false` on model-written lines, the
+ * chips (meaningful on the last `bada_bhai` line only) and the news tiles.
+ */
+export const CompanionHistoryItemSchema = z
+  .object({
+    id: uuidSchema,
+    role: z.enum(COMPANION_MESSAGE_ROLES),
+    text: z.string().min(1),
+    tts_text: z.string().min(1).optional(),
+    read_aloud: z.literal(false).optional(),
+    suggested_options: z
+      .array(
+        z
+          .object({
+            option_key: z.string(),
+            label_text: z.string(),
+            is_none_of_above: z.boolean(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .optional(),
+    suggested_followups: z.array(z.string()).min(1).optional(),
+    news_links: NewsLinksWireSchema.optional(),
+    created_at: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type CompanionHistoryItem = z.infer<typeof CompanionHistoryItemSchema>;
+
+/**
+ * The companion turn `GET /chat/companion` answers with: the recap, as ever, plus (#2297) the
+ * conversation of the last 7 days, OLDEST FIRST, when there is one. ADDITIVE — absent when there
+ * is no stored line (the app draws the recap, as today) and on every message turn.
+ */
+export const CompanionOpenTurnSchema = CompanionTurnSchema.extend({
+  history: z.array(CompanionHistoryItemSchema).min(1).max(COMPANION_HISTORY_MAX).optional(),
+});
+export type CompanionOpenTurn = z.infer<typeof CompanionOpenTurnSchema>;
+
 /** `GET /chat/companion`. */
 export const CompanionOpenResponseSchema = z.discriminatedUnion("mode", [
   CompanionInterviewSchema,
-  CompanionTurnSchema,
+  CompanionOpenTurnSchema,
 ]);
 export type CompanionOpenResponse = z.infer<typeof CompanionOpenResponseSchema>;

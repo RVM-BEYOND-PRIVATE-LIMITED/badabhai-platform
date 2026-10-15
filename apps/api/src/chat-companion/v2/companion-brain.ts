@@ -38,7 +38,6 @@ import {
   type FreeChatVerdict,
 } from "../../profiling/free-chat/free-chat.router";
 import { FREE_CHAT_COPY, FREE_CHAT_REFUSAL_LINES } from "../../profiling/free-chat/free-chat.copy";
-import { FreeChatSummaryReader } from "../../profiling/free-chat/free-chat-summary.reader";
 import { WorkerNameReader, type WorkerNameSources } from "../../workers/worker-name-sources";
 import type { CompanionTurn } from "../chat-companion.dto";
 import type { CompanionResumeDownload } from "../companion-facts";
@@ -64,6 +63,7 @@ import {
 import type { HandlerResult } from "./handlers/handler";
 import { workerContextOf } from "./handlers/career-talk.handler";
 import { isResumeOfferChip } from "./companion-resume-offer-chip";
+import { CompanionSummaryService } from "./companion-summary.service";
 import { CompanionHandlerRegistry } from "./handlers/registry";
 
 /** One v1-miss message, as the orchestrator hands it to the brain after the gateway and memory. */
@@ -293,7 +293,8 @@ export function distressTurn(): CompanionTurn {
  *
  *   distress (any confidence, R10)  → the DISTRESS line, no chips
  *   unavailable / unclear / < 0.6   → the existing UnclearHandler (clarify + task chips)
- *   trash                           → the existing FaltuHandler (strike / cool-down), never stored
+ *   trash                           → the existing FaltuHandler (strike / cool-down), never model
+ *                                     context (kept only in the worker's 7-day history, ADR-0056)
  *   off_limits                      → the free chat's OFF_LIMITS line
  *   career / casual                 → the free chat's REPLY through its gate (₹ ranges and company
  *                                     names allowed, R11), model-written so never read aloud; a
@@ -328,8 +329,9 @@ export class CompanionBrain {
     private readonly resumes: CompanionResumeStatus,
     // ADR-0055 — the worker's own name, read ONLY to redact it from the model calls below.
     private readonly names: WorkerNameReader,
-    // ADR-0055 R4 — the profiling chat's rolling summary, READ-ONLY, for the reply alone.
-    private readonly summaries: FreeChatSummaryReader,
+    // #2297 — the rolling summary the reply alone reads: this chat's own while its conversation is
+    // alive, else the profiling chat's (ADR-0055 R4).
+    private readonly summaries: CompanionSummaryService,
   ) {}
 
   /** A v1 miss (or a weak alias, R1): classified once and answered per category. */
@@ -386,7 +388,8 @@ export class CompanionBrain {
   ): Promise<Served> {
     // DISTRESS BYPASSES THE FLOOR (ADR-0051 R10): a helpline offered to a worker who did not need
     // it costs one line; a clarify served to one who did is the failure R10 exists to prevent.
-    // A distress message is never stored either: it is not replayed to a later model call.
+    // A distress message is never model context either: it is not replayed to a later model call.
+    // It is stored only for the worker's own 7-day history (ADR-0056).
     if (verdict.category === "distress") {
       return { turn: distressTurn(), v2Intent: "distress", outcome: "served", remember: false };
     }
@@ -405,7 +408,8 @@ export class CompanionBrain {
           outcome: "served",
         };
       case "trash":
-        // The existing strike path; a message the classifier called trash is never stored.
+        // The existing strike path; a message the classifier called trash is never model context
+        // (stored only for the worker's own 7-day history, ADR-0056).
         return { ...(await this.handle("faltu", input)), v2Intent: intent, remember: false };
       case "resume":
         return this.resume(input, resumeAction, intent);
@@ -457,10 +461,13 @@ export class CompanionBrain {
   /**
    * A CASUAL OR CAREER REPLY — the free chat's reply call and gate, on the companion surface.
    *
-   * ADR-0055 R4 — the context is the companion's own memory (the last six turns) AND the profiling
-   * chat's rolling summary, read-only and fail-soft (`FreeChatSummaryReader`). The reply alone reads
-   * it: the classifier never does (ADR-0051 R24), nor does news. The model calls redact the worker's
-   * own name out of it again (`summaryForModel`). The companion never writes or folds it.
+   * ADR-0055 R4, #2297 — the context is the companion's recent turns (the last six stored lines a
+   * model may read, Redis as the fallback) AND a rolling summary: the Bada Bhai chat's own while its
+   * notes are live (their newest line still in the window), else the profiling chat's, read-only
+   * (`CompanionSummaryService`). Both
+   * fail soft. The reply alone reads it: the classifier never does (ADR-0051 R24), nor does news.
+   * The model calls redact the worker's own name out of it again (`summaryForModel`). The
+   * profiling chat's summary is never written or folded here.
    */
   private async reply(
     input: NamedInput,

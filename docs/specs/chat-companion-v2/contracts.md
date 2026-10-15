@@ -415,6 +415,12 @@ otherwise (the open is then byte-for-byte what it was).
 Old apps ignore unknown keys (`ChatReply.fromJson` reads named keys only). `.strict()` stays: the
 fields are declared, so the schema still rejects undeclared ones.
 
+**`history` on the open (#2297, [ADR-0056](../../decisions/0056-bada-bhai-chat-history.md)).** `GET /chat/companion`
+in companion mode may also carry `history`: the stored lines of the last 7 days, oldest first, at most 200
+(`CompanionHistoryItemSchema`: `id`, `role` `worker`/`bada_bhai`, `text`, and when present `tts_text`,
+`read_aloud: false`, `suggested_options`, `suggested_followups`, `news_links`, plus `created_at`). Absent, never empty,
+when there is no line; never on a message turn. The recap fields stay on the response for older apps.
+
 **Row labels (2026-09-30, lane a3 — BUG-CARD-LABELS, POLISH-language-slugs).** `section_label`
 names only the section, so two rows of one section could not be told apart ("Pasand: Nahi → Haan"
 — travel, relocation or a room?), and single-word slugs (`hindi`, `pan`, `cbse`, `immediate`)
@@ -554,6 +560,7 @@ client. All keys are prefixed `companion:v2:`.
 | `cooldown:{workerId}` | flag | `FALTU_COOLDOWN_MINUTES` | faltu handler | no cool-down |
 | `turn:{workerId}:{submissionId}` | JSON, the v2 turn served for a v1-miss message | 600 s | orchestrator | fail open: the retry is processed as a new message |
 | `inflight:{workerId}:{submissionId}` | flag, `SET NX EX` — one request at a time per submission (TD150/WP8) | 60 s | orchestrator (`handleMessage`), released in a `finally` | fail open (`unavailable`): the duplicate is processed as before; a concurrent duplicate gets `V2_IN_FLIGHT` with no model call, strike or event |
+| `companion:fold:{workerId}` (#2297; NOT under `companion:v2:`) | flag, `SET NX EX` — one rolling-summary fold per worker (`FreeChatFoldLock.acquireCompanion`) | 60 s | the summary fold, released in a `finally` | fails closed: no fold now, the next turn retries |
 
 **"If Redis fails" includes "Redis never answers" (2026-09-30).** The shared BullMQ connection runs
 with `maxRetriesPerRequest: null` and the default offline queue, so a command against a downed Redis

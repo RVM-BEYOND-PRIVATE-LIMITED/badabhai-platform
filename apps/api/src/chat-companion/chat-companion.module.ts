@@ -4,7 +4,7 @@ import { AuthModule } from "../auth/auth.module";
 import { ConsentModule } from "../consent/consent.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { ResumeModule } from "../resume/resume.module";
-import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import { COMPANION_HISTORY_SWEEP_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { ProfilesRepository } from "../profiles/profiles.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerEmploymentService } from "../profiles/worker-employment.service";
@@ -21,6 +21,7 @@ import { ResumeSuggestionReader } from "../profiling/resume-import/resume-sugges
 import { FreeChatModelCalls } from "../profiling/free-chat/free-chat-model-calls";
 import { FreeChatNewsCap } from "../profiling/free-chat/free-chat-news-cap.store";
 import { FreeChatSummaryReader } from "../profiling/free-chat/free-chat-summary.reader";
+import { FreeChatFoldLock } from "../profiling/free-chat/free-chat-fold.lock";
 import { WorkerNameReader } from "../workers/worker-name-sources";
 import { ChatCompanionController } from "./chat-companion.controller";
 import { CompanionResumeStatus } from "./companion-resume-status";
@@ -30,6 +31,11 @@ import { ChatCompanionRepository } from "./chat-companion.repository";
 import { ChatCompanionService } from "./chat-companion.service";
 import { EmployersModule } from "../employers/employers.module";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
+import { CompanionConversationMemory } from "./v2/companion-conversation-memory";
+import { CompanionSummaryService } from "./v2/companion-summary.service";
+import { CompanionHistoryRepository } from "./companion-history.repository";
+import { CompanionHistoryService } from "./companion-history.service";
+import { CompanionHistorySweepProcessor } from "./companion-history-sweep.processor";
 import { EditProposalStore } from "./v2/edit-proposal.store";
 import { FaltuStore } from "./v2/faltu.store";
 import { PendingIntentStore } from "./v2/pending-intent.store";
@@ -95,6 +101,13 @@ import {
  * `chat_sessions` (the profiling chat's rolling summary, read-only, for the brain's reply) on the
  * @Global database handle. It shares its query with `ChatRepository` through a leaf file and never
  * touches that class, so no chat-table WRITER is reachable from here: one provider, no module edge.
+ *
+ * #2297 (ADR-0056) — THE BADA BHAI CHAT'S OWN CONVERSATION. `companion_messages` and
+ * `companion_conversation_summaries` (migration 0135) are this module's own tables, read and
+ * written only through `CompanionHistoryRepository` on the @Global database handle — never a chat
+ * table. The rolling summary's fold borrows the free chat's lock (`FreeChatFoldLock`, on the
+ * render queue's Redis connection already registered here) under its own per-worker key, and the
+ * daily retention sweep runs on its own queue.
  */
 @Module({
   imports: [
@@ -111,6 +124,8 @@ import {
     // `AdminMfaSecretStore` precedent). Registering an existing queue name here only borrows
     // the connection: nothing in this module enqueues to it.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // #2297 — the daily retention sweep of the stored conversation.
+    BullModule.registerQueue({ name: COMPANION_HISTORY_SWEEP_QUEUE }),
   ],
   controllers: [ChatCompanionController],
   providers: [
@@ -151,6 +166,15 @@ import {
     // ADR-0055 R4 — the profiling chat's rolling summary, READ-ONLY, for the brain's reply alone:
     // one SELECT on the @Global database handle, no ChatRepository, so no chat-table writer.
     FreeChatSummaryReader,
+    // #2297 (ADR-0056) — the stored 7-day conversation, the recent turns read from it (Redis as the
+    // fallback), the rolling summary folded from it (under the free chat's lock, per worker) and
+    // the daily retention sweep.
+    CompanionHistoryRepository,
+    CompanionHistoryService,
+    CompanionConversationMemory,
+    CompanionSummaryService,
+    FreeChatFoldLock,
+    CompanionHistorySweepProcessor,
     // ADR-0046 T7 — the edit path and the section writers it applies through (see the module
     // docblock for why they are provisioned here rather than imported).
     CompanionEditService,

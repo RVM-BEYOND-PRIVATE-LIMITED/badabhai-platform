@@ -21,7 +21,9 @@
   phone/name ciphertext) + all `ON DELETE CASCADE` PII children — `worker_consents`,
   `worker_devices`, `worker_credentials` (PIN), `worker_profiles`, `chat_sessions`,
   `chat_messages`, `voice_notes`, `generated_resumes`, `worker_answers`, `applications`,
-  `resume_downloads`, `worker_flags`, `worker_feedback` — plus Supabase Storage objects
+  `resume_downloads`, `worker_flags`, `worker_feedback`, `companion_messages`,
+  `companion_conversation_summaries` (#2297, the Bada Bhai chat's 7-day history and its rolling
+  summary — the worker's own words and model notes about them) — plus Supabase Storage objects
   (resume PDFs + archived conversations). `AccountDeletionService.execute` is byte-for-byte
   the Phase-5 cascade; only its trigger moved (sweep instead of the confirm request).
   `worker_feedback` (#997) is the newest child and the one worth naming explicitly: it holds
