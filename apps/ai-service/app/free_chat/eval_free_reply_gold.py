@@ -138,6 +138,7 @@ def _after_refusal(health_question: str) -> tuple[Turn, ...]:
     later line, the question, and the API's OFF_LIMITS line."""
     return ((BOT, LATER_ACK_LINE), (WORKER, health_question), (BOT, OFF_LIMITS_LINE))
 
+
 # fmt: off
 CASES: list[Case] = [
     # ── career: which trade or machine to choose (8) ──
@@ -254,18 +255,28 @@ CASES: list[Case] = [
 # fmt: on
 
 
+def digest_of(rows: list[list]) -> str:
+    """A sha256 over ``[id, request body, expectation, identity]`` rows, in order. Shared with the
+    companion set (`eval_free_reply_companion_gold`), whose request body differs."""
+    text = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def set_digest(cases: list[Case]) -> str:
     """A sha256 over every case's id, request body, expectation and identity flag, in set order.
     A dump carries it, so the replay compares two runs only when they ran the SAME cases, not
     just the same ids.
     """
-    payload = [[case.id, request_body(case), case.expect, case.identity] for case in cases]
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return digest_of([[case.id, request_body(case), case.expect, case.identity] for case in cases])
+
+
+def groups_of(cases: list) -> tuple[str, ...]:
+    """Every group ``cases`` score, in a fixed order: the categories, identity, then the refusal
+    topics (the replay's order)."""
+    present = {case.group for case in cases}
+    return tuple(g for g in (*CATEGORIES, IDENTITY, *REFUSAL_TOPICS) if g in present)
 
 
 def groups() -> tuple[str, ...]:
-    """Every group the set scores, in a fixed order: the categories, identity, then the refusal
-    topics (the replay's order)."""
-    present = {case.group for case in CASES}
-    return tuple(g for g in (*CATEGORIES, IDENTITY, *REFUSAL_TOPICS) if g in present)
+    """Every group the set scores (:func:`groups_of` over :data:`CASES`)."""
+    return groups_of(CASES)

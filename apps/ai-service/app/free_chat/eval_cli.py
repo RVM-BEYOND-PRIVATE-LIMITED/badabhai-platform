@@ -5,6 +5,8 @@
         --expect-model gemini-2.5-flash-lite --pace-ms 4500
     python -m app.free_chat.eval_cli --base-url http://localhost:8000 --language \\
         --expect-model claude-haiku-4-5
+    python -m app.free_chat.eval_cli --base-url http://localhost:8000 --surface companion \\
+        --expect-model claude-haiku-4-5
 
 SCORES A RUNNING SERVICE over the labelled set (`eval_free_classify_gold`) through
 ``POST /free-chat/classify``, and prints the accuracy per category and per mode, what the misses
@@ -18,6 +20,14 @@ mode. It prints the accuracy overall, per language, per script and on Latin-lett
 device test's case), what each miss was labelled, and every miss. A null label is a miss: the API
 falls back to its word lists then. Both modes print the largest ``output_tokens`` the router
 measured, against the route's cap, so a third JSON key is seen to fit the budget.
+
+``--surface companion`` (ADR-0055, #2285) scores the Bada Bhai chat's classifier instead, over its
+own set (`eval_free_classify_companion_gold`), each line posted as the companion brain posts it:
+mode ``free``, no question, ``surface: "companion"`` (so the route renders "Mode: companion"). One
+call per line scores all three answers the brain reads: the category (as the brain acts on it:
+distress at any confidence, every other category below the floor is ``unclear``), the
+``resume_action`` on the résumé lines, and the language label. The default, ``profiling``, posts
+exactly the bodies it always did.
 
 NO ACCURACY BAR, BY OWNER RULING. The feature is live on merge (R18) and this set is what the
 prompt is improved against (R20), so a low accuracy is a number to record, not a failure. The
@@ -44,6 +54,8 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import dataclass, field
+from statistics import fmean
+from typing import get_args
 
 # ONE CALL LAYER FOR EVERY STAGING EVAL: timing, retries, the mock/fallback contamination rules
 # and the report lines are the companion eval's, imported rather than copied, so a fix to how a
@@ -60,6 +72,8 @@ from ..companion.eval_cli import (
     gate_failures,
 )
 from ..config import get_settings
+from ..contracts import FreeChatSurface
+from . import eval_free_classify_companion_gold as companion_gold
 from . import eval_free_classify_gold as gold
 from . import eval_free_language_gold as language_gold
 
@@ -74,6 +88,12 @@ MIN_CONFIDENCE = 0.6
 #: worker: the API treats it as unavailable. Pinned to `apps/api/src/ai/ai.service.ts` by a test
 #: once that client calls the route.
 API_TIMEOUT_MS = 2_500.0
+
+#: Every surface the route serves (`FreeChatSurface`), and the default: the profiling chat.
+SURFACES: tuple[str, ...] = get_args(FreeChatSurface)
+DEFAULT_SURFACE = "profiling"
+#: The one category the companion brain acts on below the floor (ADR-0051 R10, ADR-0055 §3).
+_FLOOR_EXEMPT = "distress"
 
 
 @dataclass
@@ -91,6 +111,17 @@ class FreeClassifyRun:
 class FreeLanguageRun:
     score: language_gold.LanguageScore
     calls: CallLog
+    #: ``ai_metadata.output_tokens`` of every model answer, late ones included.
+    output_tokens: list[int] = field(default_factory=list)
+
+
+@dataclass
+class CompanionClassifyRun:
+    score: companion_gold.CompanionClassifyScore
+    calls: CallLog
+    min_confidence: float
+    #: Answers the model gave a category other than `unclear` or `distress` for, below the floor.
+    floored: int
     #: ``ai_metadata.output_tokens`` of every model answer, late ones included.
     output_tokens: list[int] = field(default_factory=list)
 
@@ -183,15 +214,71 @@ def run_free_language_eval(
     return FreeLanguageRun(language_gold.evaluate(predict), calls, tokens)
 
 
+def run_companion_classify_eval(
+    base_url: str,
+    min_confidence: float = MIN_CONFIDENCE,
+    *,
+    pace_ms: int = 0,
+    expect_model: str | None = None,
+) -> CompanionClassifyRun:
+    """Score the companion surface's classifier as the companion brain acts on it
+    (`companion-brain.ts`): distress at any confidence; any other category below
+    ``min_confidence`` is the clarify handler (``unclear``), whose résumé action is never acted
+    on; a blocked, failed, mocked or late answer is unavailable. The language label rides any
+    real answer, the floor aside, as on the profiling surface (R42)."""
+    calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
+    floored = 0
+    tokens: list[int] = []
+
+    def predict(case: companion_gold.Case) -> companion_gold.Prediction | None:
+        nonlocal floored
+        reply = _call(
+            base_url,
+            ROUTE,
+            companion_gold.request_body(case),
+            calls,
+            _label(case.text),
+            api_timeout_ms=API_TIMEOUT_MS,
+        )
+        _note_tokens(reply, tokens)
+        body = _served(reply)
+        if body is None or body.get("blocked"):
+            return None
+        category = body.get("category")
+        if not isinstance(category, str):
+            return None
+        label = body.get("language")
+        language = label if isinstance(label, str) else None
+        confidence = body.get("confidence")
+        sure = isinstance(confidence, int | float) and confidence >= min_confidence
+        if category != _FLOOR_EXEMPT and not sure:
+            if category != "unclear":
+                floored += 1
+            return companion_gold.Prediction("unclear", None, language)
+        action = body.get("resume_action")
+        return companion_gold.Prediction(
+            category, action if isinstance(action, str) else None, language
+        )
+
+    score = companion_gold.evaluate(predict)
+    return CompanionClassifyRun(score, calls, min_confidence, floored, tokens)
+
+
 def _fraction(correct: int, total: int) -> str:
     share = 0.0 if total == 0 else correct / total
     return f"{correct}/{total} = {share:.1%}"
 
 
 def _print_tokens(tokens: list[int]) -> None:
+    """The largest answer against the route's cap, the mean, and how many answers REACHED the cap
+    (a truncated JSON object fails the parse and becomes `unclear`)."""
     cap = output_token_cap()
     if tokens:
-        print(f"output tokens: max {max(tokens)} of the route's cap {cap} ({len(tokens)} answers)")
+        at_cap = sum(1 for count in tokens if count >= cap)
+        print(
+            f"output tokens: max {max(tokens)} of the route's cap {cap} ({len(tokens)} answers); "
+            f"mean {fmean(tokens):.1f}, {at_cap} at the cap"
+        )
     else:
         print(f"output tokens: none measured (route cap {cap})")
 
@@ -213,6 +300,43 @@ def print_report(run: FreeClassifyRun) -> None:
     _print_calls(run.calls, None)
     for miss in score.misses[:30]:
         print(f"  MISS {miss}")
+
+
+def print_companion_report(run: CompanionClassifyRun) -> None:
+    """The companion surface: category, résumé action and language, and EVERY miss of each."""
+    score = run.score
+    print(
+        "free-chat classifier, companion surface (baseline, no bar): "
+        f"{_fraction(score.correct, score.total)} category overall — scored as the companion "
+        f"brain acts on it, floor {run.min_confidence:.2f} (distress exempt; {run.floored} answers "
+        "below it became unclear)"
+    )
+    for category, (correct, total) in score.per_category.items():
+        print(f"  category {category:<11} {_fraction(correct, total)}")
+    for language, (correct, total) in score.category_by_language.items():
+        if total:
+            print(f"  category on {language:<9} lines {_fraction(correct, total)}")
+    predicted = ", ".join(f"{label} ({count})" for label, count in score.predicted.items())
+    print(f"predicted: {predicted}")
+    print(
+        f"resume_action on the resume lines: {_fraction(score.action_correct, score.action_total)}"
+        " (category resume AND the action); given category resume: "
+        f"{_fraction(*score.action_given_resume)}"
+    )
+    for action, (correct, total) in score.per_action.items():
+        print(f"  action   {action:<11} {_fraction(correct, total)}")
+    print(f"language label: {_fraction(score.language_correct, score.language_total)}")
+    for language, (correct, total) in score.per_language.items():
+        if total:
+            print(f"  language {language:<9} {_fraction(correct, total)}")
+    _print_tokens(run.output_tokens)
+    _print_calls(run.calls, None)
+    for miss in score.category_misses:
+        print(f"  MISS category {miss}")
+    for miss in score.action_misses:
+        print(f"  MISS action {miss}")
+    for miss in score.language_misses:
+        print(f"  MISS language {miss}")
 
 
 def print_language_report(run: FreeLanguageRun) -> None:
@@ -268,6 +392,13 @@ def main(argv: list[str] | None = None) -> int:
         help="score the language label (ADR-0051 R42) over the language set instead of the "
         "category over the category set",
     )
+    parser.add_argument(
+        "--surface",
+        choices=SURFACES,
+        default=DEFAULT_SURFACE,
+        help="which chat's classifier to score (ADR-0055): profiling (default) or companion, the "
+        "Bada Bhai chat, over its own set (category, resume_action and language in one run)",
+    )
     args = parser.parse_args(argv)
     if args.pace_ms < 0:
         parser.error("--pace-ms must be >= 0")
@@ -275,6 +406,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--expect-model must name a model")
     if not 0.0 <= args.min_confidence <= 1.0:
         parser.error("--min-confidence must be within 0..1")
+    if args.language and args.surface != DEFAULT_SURFACE:
+        parser.error("--language scores the profiling set; --surface companion scores its labels")
+
+    if args.surface == "companion":
+        companion_run = run_companion_classify_eval(
+            args.base_url,
+            args.min_confidence,
+            pace_ms=args.pace_ms,
+            expect_model=args.expect_model,
+        )
+        print_companion_report(companion_run)
+        return _verdict(gate_failures(companion_run.calls, None))
 
     if args.language:
         language_run = run_free_language_eval(
