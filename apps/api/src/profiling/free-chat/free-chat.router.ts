@@ -749,6 +749,8 @@ const LEXICON_OWNED: ReadonlySet<UtteranceClass> = new Set([
   "dont_know",
   "hardship",
   "question_back",
+  // #2308 — the interview answers it deterministically, with the real remaining count.
+  "progress_question",
 ]);
 
 export type ResumeModePre =

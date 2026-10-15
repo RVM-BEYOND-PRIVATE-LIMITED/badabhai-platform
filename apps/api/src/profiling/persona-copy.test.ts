@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { checkPersonaTokens, personaCorpus } from "@badabhai/profiling-lexicon";
 
 import { IDENTIFY_TYPE_PROMPT } from "./identify.service";
+import { PROGRESS_REPLY_TEXTS } from "./next-question";
 import {
   CLOSING_REPLY,
   DE_ESCALATION_REPLY,
@@ -32,6 +33,8 @@ const ENGINE_COPY: ReadonlyArray<readonly [name: string, text: string]> = [
   ["IDENTIFY_TYPE_PROMPT", IDENTIFY_TYPE_PROMPT],
   ["ESCAPE_TYPE_PROMPT", ESCAPE_TYPE_PROMPT],
   ...HARDSHIP_REPLIES.map((t, i) => [`HARDSHIP_REPLIES[${i}]`, t] as const),
+  // #2308 — the progress lines, every count. Owner ruling 2026-10-16: no "!" — the rule wins.
+  ...PROGRESS_REPLY_TEXTS.map((t, i) => [`PROGRESS_REPLY_TEXTS[${i}]`, t] as const),
 ];
 
 describe("the engine's own replies are on-persona", () => {

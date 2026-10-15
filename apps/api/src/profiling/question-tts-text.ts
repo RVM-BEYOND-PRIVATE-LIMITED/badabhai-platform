@@ -4,6 +4,8 @@ import {
   DE_ESCALATION_REPLY_TEXT,
   DISAMBIGUATION_PROMPT_TEXT,
   HARDSHIP_REPLY_TEXTS,
+  PROGRESS_REPLY_PAIRS,
+  PROGRESS_REPLY_TEXTS,
 } from "./next-question";
 import { normalizeReplyText } from "./reply-closure";
 import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
@@ -139,6 +141,10 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
   // roman and Devanagari halves are authored side by side in ONE object (the ADR's approved copy),
   // so an edit to one half cannot leave the other behind the way an imported constant would here.
   ...Object.fromEntries(FREE_CHAT_TTS_ENTRIES),
+
+  // next-question.ts (#2308) — the progress lines, one per remaining count plus the no-count line.
+  // Spread from the pairs for the free chat's reason above: both halves are authored side by side.
+  ...Object.fromEntries(PROGRESS_REPLY_PAIRS),
 };
 
 /**
@@ -1228,6 +1234,8 @@ const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string
     const devanagari = TTS_TEXT_BY_REPLY.get(roman);
     return devanagari === undefined ? [] : [[roman, devanagari] as const];
   }),
+  // #2308 — a progress line leads the question it puts back, so it composes the same way.
+  ...PROGRESS_REPLY_PAIRS.map(([roman, devanagari]) => [normalizeReplyText(roman), devanagari] as const),
 ];
 
 /**
@@ -1283,6 +1291,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   CHAT_OPENING_TEXT,
   ...IDENTITY_INTAKE_REPLIES,
   ...FREE_CHAT_REPLIES,
+  ...PROGRESS_REPLY_TEXTS,
 ];
 
 export { DEVANAGARI_RE };

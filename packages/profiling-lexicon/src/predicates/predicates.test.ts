@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { fixturePath, loadUtteranceFixtures } from "../internal/fixtures.js";
 import {
+  asksProgress,
   asksQuestionBack,
   classifyUtterance,
   hasFirstPersonClaim,
@@ -27,6 +28,7 @@ const PREDICATE_BY_NAME: Readonly<Record<string, (text: string) => boolean>> = {
   isHardship,
   isAbusive,
   asksQuestionBack,
+  asksProgress,
   hasFirstPersonClaim,
 };
 
@@ -60,6 +62,7 @@ describe("parity corpus", () => {
       "correction",
       "hardship",
       "question_back",
+      "progress_question",
       "abusive",
       "empty",
       "off_topic",

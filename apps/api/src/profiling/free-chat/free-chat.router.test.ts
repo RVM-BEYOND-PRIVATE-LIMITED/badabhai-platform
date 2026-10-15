@@ -506,6 +506,7 @@ describe("résumé mode — the skip list, then the classifier", () => {
     ["the lexicon's dont_know class", { lexiconClass: "dont_know" as const }],
     ["the lexicon's hardship class", { lexiconClass: "hardship" as const }],
     ["the lexicon's question_back class", { lexiconClass: "question_back" as const }],
+    ["the lexicon's progress_question class (#2308)", { lexiconClass: "progress_question" as const }],
     ["a typed answer", { typedAnswer: true }],
     ["nothing on screen to re-ask", { hasPendingQuestion: false }],
     ["the aside cap", { asideCapReached: true }],

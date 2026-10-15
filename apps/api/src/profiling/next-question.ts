@@ -268,10 +268,16 @@ function contextOf(state: EngineState): EvaluationContext {
  * signals and must survive abandonment, so a pack hoists them into the middle of the occupation
  * block with `min_turn`. Moving a question is a pack edit, not a code change.
  */
-function isServable(item: QuestionPackItem, state: EngineState, answers: AnswerMap): boolean {
+function isServable(
+  item: QuestionPackItem,
+  state: EngineState,
+  answers: AnswerMap,
+  /** `remainingQuestions` counts a question that is only waiting for its `min_turn` as ahead. */
+  ignoreMinTurn = false,
+): boolean {
   if (isSettled(answers, item.question_key)) return false;
   if (askCount(state, item.question_key) >= askCeiling(item)) return false;
-  if (item.min_turn !== null && state.turn < item.min_turn) return false;
+  if (!ignoreMinTurn && item.min_turn !== null && state.turn < item.min_turn) return false;
   if (item.max_turn !== null && state.turn > item.max_turn) return false;
   // A follow-up (depth 1) is only reachable once its parent has a usable answer. The pack
   // validator rejects cycles and depth > 1, so one hop is the whole rule.
@@ -308,6 +314,28 @@ function selectItem(
     servable.find((item) => askCount(state, item.question_key) === 0) ??
     null
   );
+}
+
+/**
+ * #2308 — how many questions are still ahead: what a worker asking "aur kitna bacha hai?" is told.
+ *
+ * NOT `total - answered`. The progress bar's total counts every item, including follow-ups whose
+ * `ask_if` will never pass (a training year with no training) and non-mandatory items already
+ * asked once (ask-once: {@link selectItem} never returns to them). Telling a worker "Bas 5" when
+ * the engine will ask 3 is a number it cannot stand behind. So this counts what {@link selectItem}
+ * can still return — servable and either mandatory or never asked — with a `min_turn` wait counted
+ * as ahead, plus the question on screen, which is being asked right now.
+ */
+export function remainingQuestions(
+  state: EngineState,
+  items: readonly QuestionPackItem[],
+  onScreenKey: string | null,
+): number {
+  return items.filter((item) => {
+    if (item.question_key === onScreenKey) return !isSettled(state.answers, item.question_key);
+    if (!isServable(item, state, state.answers, true)) return false;
+    return item.is_mandatory || askCount(state, item.question_key) === 0;
+  }).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +545,73 @@ export const CLOSING_REPLY_TEXT = "Aapki baat poori ho chuki hai. Profile taiyaa
 
 /** The disambiguation question, verbatim — asked ABOUT the packs, so it lives in none of them. */
 export const DISAMBIGUATION_PROMPT_TEXT = "Aap in mein se kaun sa kaam karte hain?";
+
+/**
+ * #2308 (ADR-0057) — the answer to "aur kitna bacha hai?" when no honest count exists: the model
+ * leads (its questions belong to no pack), or the count is past {@link PROGRESS_REPLY_MAX_COUNT}.
+ * Owner copy of 2026-10-16, with the "!" dropped by the owner's ruling (the persona rule wins).
+ */
+export const PROGRESS_REPLY_NO_COUNT_TEXT = "Thoda sa aur, jaldi ho jayega.";
+
+/**
+ * The largest remaining count the line names. It bounds the reply closure (one clip per count),
+ * and past it a number stops being encouraging; the no-count line says the true thing instead.
+ */
+export const PROGRESS_REPLY_MAX_COUNT = 30;
+
+/**
+ * The progress line for `remaining` questions — the owner's copy, "Thoda sa aur. Bas {n} sawaal
+ * bache hain.", singular for one. A count that is unknown, below one or past the max is the
+ * no-count line: never a number the engine cannot stand behind.
+ */
+export function progressReplyText(remaining: number | null): string {
+  if (
+    remaining === null ||
+    !Number.isInteger(remaining) ||
+    remaining < 1 ||
+    remaining > PROGRESS_REPLY_MAX_COUNT
+  ) {
+    return PROGRESS_REPLY_NO_COUNT_TEXT;
+  }
+  return remaining === 1
+    ? "Thoda sa aur. Bas 1 sawaal bacha hai."
+    : `Thoda sa aur. Bas ${remaining} sawaal bache hain.`;
+}
+
+/**
+ * The Devanagari twin of {@link progressReplyText}, AUTHORED BESIDE IT so an edit to one half
+ * cannot leave the other behind — the free-chat copy's reason for its paired table, and the reason
+ * `question-tts-text.ts` spreads these pairs rather than restating them.
+ */
+function progressReplyDevanagari(remaining: number | null): string {
+  const latin = progressReplyText(remaining);
+  if (latin === PROGRESS_REPLY_NO_COUNT_TEXT) return "थोड़ा सा और, जल्दी हो जाएगा।";
+  return remaining === 1
+    ? "थोड़ा सा और। बस 1 सवाल बचा है।"
+    : `थोड़ा सा और। बस ${remaining} सवाल बचे हैं।`;
+}
+
+/** Every progress line the engine can serve, `[roman, devanagari]` — no-count first, then 1…max. */
+export const PROGRESS_REPLY_PAIRS: readonly (readonly [roman: string, devanagari: string])[] = [
+  null,
+  ...Array.from({ length: PROGRESS_REPLY_MAX_COUNT }, (_, i) => i + 1),
+].map((remaining) => [progressReplyText(remaining), progressReplyDevanagari(remaining)] as const);
+
+/** Every progress line the engine can serve — the no-count line, then one per count. */
+export const PROGRESS_REPLY_TEXTS: readonly string[] = PROGRESS_REPLY_PAIRS.map(([roman]) => roman);
+
+/**
+ * `reply` without a leading progress line — what was on screen UNDER it. A worker who asks twice
+ * gets the question back under one line, never under two. A reply that IS a progress line, with
+ * nothing under it, is the empty string.
+ */
+export function withoutProgressLead(reply: string): string {
+  for (const line of PROGRESS_REPLY_TEXTS) {
+    if (reply === line) return "";
+    if (reply.startsWith(`${line} `)) return reply.slice(line.length + 1);
+  }
+  return reply;
+}
 
 /**
  * `why_text`, then the question again — one message, because the client renders one bubble.

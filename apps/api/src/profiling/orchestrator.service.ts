@@ -230,8 +230,11 @@ import {
   clarify,
   joinClarify,
   nextQuestion,
+  progressReplyText,
   reAsk,
+  remainingQuestions,
   servedText,
+  withoutProgressLead,
   CLOSING_REPLY_TEXT,
   DE_ESCALATION_REPLY_TEXT,
   HARDSHIP_REPLY_TEXTS,
@@ -239,6 +242,7 @@ import {
   MAX_CONSECUTIVE_HARDSHIP,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
+  PROGRESS_REPLY_NO_COUNT_TEXT,
   type CompletionReason,
   type EnginePacks,
 } from "./next-question";
@@ -2160,6 +2164,70 @@ export class ProfilingOrchestrator {
         });
       }
       // Past the clarify bound: fall through to ordinary selection and move the interview on.
+    }
+
+    // --- #2308: "aur kitna bacha hai?" — answer it, then put the same question back ----------
+    //
+    // NEVER AN ANSWER AND NEVER AN ASK, exactly like the question-back above: capture returned no
+    // value, nothing is recorded, no budget is spent. Before #2308 this sentence was stored
+    // verbatim as the answer to a free-text question, or cost the worker a single-ask question.
+    //
+    // A PACK QUESTION ON SCREEN gets the real count (`remainingQuestions`) and the question again,
+    // in its served wording. ANYTHING ELSE ON SCREEN — the model's question, an offer, a gate — has
+    // no honest count, so the line carries none, and the last thing the worker was shown is put
+    // back under it with its chips and input mode (`lastTurn`, which is literally that). An earlier
+    // progress line is stripped first, so asking twice never stacks two leads. Past the turn cap
+    // this falls through, so a worker who only ever asks it still reaches the cap's close.
+    if (capture.turnClass === "progress_question" && !capped) {
+      next = { ...next, silentTurns: 0 };
+      const state = toEngineState(next, turn);
+      const progress = progressOf(progressItems, answers);
+      const unansweredEssentials = essentialsOf(items, answers);
+      if (reservableItem) {
+        const line = progressReplyText(
+          remainingQuestions(state, progressItems, reservableItem.question_key),
+        );
+        return this.turn(buffer, next, input, {
+          reply: `${line} ${servedText(reservableItem, askCount(state, reservableItem.question_key))}`,
+          kind: "ask",
+          questionKey: reservableItem.question_key,
+          options: reservableItem.options,
+          ...shapeOf(items, reservableItem.question_key),
+          progress,
+          unansweredEssentials,
+          complete: false,
+          completionReason: null,
+          replayed: false,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        });
+      }
+      const shown = envelope.lastTurn;
+      const shownQuestion =
+        shown !== null && shown.kind !== "close" && shown.questionKey === null
+          ? withoutProgressLead(shown.reply)
+          : "";
+      return this.turn(buffer, next, input, {
+        reply: shownQuestion
+          ? `${PROGRESS_REPLY_NO_COUNT_TEXT} ${shownQuestion}`
+          : PROGRESS_REPLY_NO_COUNT_TEXT,
+        kind: shownQuestion && shown?.kind === "disambiguate" ? "disambiguate" : "ask",
+        questionKey: null,
+        options: shownQuestion && shown ? shown.options : [],
+        whyText: shownQuestion && shown ? shown.whyText : null,
+        answerType: shownQuestion && shown ? shown.answerType : null,
+        inputMode: shownQuestion && shown ? shown.inputMode : "text",
+        gateKind: shownQuestion && shown ? shown.gateKind : null,
+        progress,
+        unansweredEssentials,
+        complete: false,
+        completionReason: null,
+        replayed: false,
+        excludeFromParse: false,
+        unavailable: false,
+        checkpointDue: false,
+      });
     }
 
     // --- The résumé identity answer, settled (RI-identity) --------------------
