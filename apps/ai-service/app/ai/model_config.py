@@ -455,7 +455,8 @@ def _route(task_type: str, settings: Settings) -> TaskRoute:
             # pretty-printed fallback adds ~6-10 tokens. 64 kept 2x headroom over the measured
             # max. ADR-0055 (#2275): the companion surface asks for a FOURTH key after it,
             # `resume_action` (`"resume_action": "download"` is ~8 more tokens), so 80, the same
-            # ~2x over an estimated companion max of ~40 (NOT measured: no eval ran with PR A).
+            # ~2x over the companion max. MEASURED on claude-haiku-4-5 (#2285, #2287 round 2):
+            # mean 37.0-37.1, max 39, none at the cap, before and after round 2's classify rules.
             # The profiling answer is unchanged and never nears the cap. The API waits ~2.5 s,
             # and the cap only costs latency on a runaway answer.
             max_output_tokens=80,

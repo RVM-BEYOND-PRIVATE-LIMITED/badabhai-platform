@@ -1,0 +1,41 @@
+free-chat classifier, companion surface (baseline, no bar): 71/71 = 100.0% category overall — scored as the companion brain acts on it, floor 0.60 (distress exempt; 0 answers below it became unclear)
+  category resume      24/24 = 100.0%
+  category career      12/12 = 100.0%
+  category jobs        8/8 = 100.0%
+  category casual      9/9 = 100.0%
+  category trash       3/3 = 100.0%
+  category off_limits  5/5 = 100.0%
+  category distress    5/5 = 100.0%
+  category unclear     5/5 = 100.0%
+  category on english   lines 8/8 = 100.0%
+  category on hinglish  lines 50/50 = 100.0%
+  category on marathi   lines 2/2 = 100.0%
+  category on gujarati  lines 3/3 = 100.0%
+  category on kannada   lines 3/3 = 100.0%
+  category on telugu    lines 2/2 = 100.0%
+  category on tamil     lines 3/3 = 100.0%
+predicted: resume (24), career (12), casual (9), jobs (8), distress (5), off_limits (5), unclear (5), trash (3)
+resume_action on the resume lines: 22/24 = 91.7% (category resume AND the action); given category resume: 22/24 = 91.7%
+  action   edit        9/9 = 100.0%
+  action   new         4/4 = 100.0%
+  action   download    7/7 = 100.0%
+  action   null        2/4 = 50.0%
+language label: 67/71 = 94.4%
+  language english   8/8 = 100.0%
+  language hinglish  47/50 = 94.0%
+  language marathi   2/2 = 100.0%
+  language gujarati  3/3 = 100.0%
+  language kannada   3/3 = 100.0%
+  language telugu    2/2 = 100.0%
+  language tamil     2/3 = 66.7%
+output tokens: max 39 of the route's cap 80 (71 answers); mean 37.0, 0 at the cap
+calls: 71 sent, 71 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 8.07 (router estimate)
+models: claude-haiku-4-5 (71); 0 served by a fallback model
+latency, round trip to the ai-service: p50 1183 ms, p95 1373 ms; model call only: p50 1154 ms, p95 1331 ms (excludes the API hop and validator, and a career turn's classify call)
+  MISS action [companion] 'mera resume': expected resume/null, got resume/download
+  MISS action [companion] 'resume wali baat karni hai': expected resume/null, got resume/edit
+  MISS language [companion] 'skills mein Marathi jod do': expected hinglish, got marathi
+  MISS language [companion] 'electrician ku evlo sambalam varum': expected tamil, got telugu
+  MISS language [companion] 'hello': expected hinglish, got english
+  MISS language [companion] 'good evening sir': expected hinglish, got english
+RESULT: PASS

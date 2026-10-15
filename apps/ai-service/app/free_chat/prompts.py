@@ -803,16 +803,25 @@ COMPANION_MODE = "companion"
 
 #: What the companion classifier adds, inserted before the priority line so the labels it reads
 #: against come first. Owner rulings, ADR-0055 (2026-10-14): on this screen the résumé is ALREADY
-#: MADE, so `resume` is anything about the worker's own résumé or profile (an edit, a new detail
-#: about their work, a fresh résumé, the file), seeing jobs or applications in the app is `jobs`,
-#: and with no résumé offer ever made there, a bare acknowledgement is `unclear`.
+#: MADE, so `resume` is only the worker's own résumé or profile (an edit, a new detail about their
+#: work, a fresh résumé, the file), seeing jobs or applications in the app is `jobs`, and with no
+#: résumé offer ever made there, a bare acknowledgement is `unclear`.
+#:
+#: #2287 round 2 (fixes 2, 4, 5 of the #2285 eval): which certificate, course or skill is good,
+#: and whether a company or trade hires, what it pays or how to get in, are `career` (round 1 read
+#: one as a résumé detail and one as `jobs`); a greeting is `casual`, never the bare
+#: acknowledgement rule's `unclear` (round 1 read "hello" as unclear). The greeting rule names no
+#: greeting word, so the gold set's greetings measure the rule, not an echo.
 _COMPANION_CLASSIFY_BLOCK = """\
 In companion mode the worker's resume is ALREADY MADE and their profile is confirmed. There,
-resume means anything about their own resume or profile: changing, adding or removing
+resume means only their own resume or profile: changing, adding or removing
 something in it (including telling a new detail about their own work, skill, language, city
-or salary), making a new resume, or getting the resume file. Asking to see jobs, openings or
-their applications in the app is jobs. Bada Bhai never offers to make a resume there, so the
-free-mode rules about that offer do not apply: a bare acknowledgement there is unclear.
+or salary), making a new resume, or getting the resume file. Asking which certificate, course
+or skill is good is career. Whether a company or trade hires, what it pays or how to get in is
+career; asking to see jobs, openings or their applications in the app is jobs. A greeting,
+alone or with small talk, is casual, never a bare acknowledgement. Bada Bhai never offers to
+make a resume there, so the free-mode rules about that offer do not apply: a bare
+acknowledgement there is unclear.
 """
 
 #: The fourth key's rule (ADR-0055), stated after the language rule and LAST in the JSON, so the
@@ -823,7 +832,7 @@ _COMPANION_RESUME_ACTION_RULE = """\
 "resume_action": when the category is resume, "edit" to change, add or remove something in it,
 or for a new detail about their work; "new" to make a fresh resume from the start
 ("dobara banana"); "download" to get, send, share, print, save or see the resume file or PDF;
-null if unsure. For any other category, null.
+null if unsure, or when it names the resume but no action. For any other category, null.
 """
 
 _CLASSIFY_JSON_LINE = (
@@ -838,8 +847,9 @@ _COMPANION_CLASSIFY_JSON_LINE = (
 #: The companion classifier (registered as ``FREE_CHAT_CLASSIFY_COMPANION``): the profiling
 #: classifier with its first line and its request description swapped for the companion's, the
 #: companion block before the priority line, and the résumé-action rule before a four-key JSON
-#: line. UNMEASURED at merge (no eval run, ADR-0055 PR A): the profiling classifier's numbers do
-#: not carry over, and the companion's gold set is the next step before its numbers are quoted.
+#: line. MEASURED on its own gold set (`eval_free_classify_companion_gold`) on claude-haiku-4-5:
+#: #2285 (2026-10-15) and #2287 round 2, evidence under
+#: `docs/qa/evidence/free-chat/companion-surface/`; the profiling numbers do not carry over.
 COMPANION_CLASSIFY_SYSTEM_PROMPT = _swapped(
     CLASSIFY_SYSTEM_PROMPT,
     ("BadaBhai profiling chat router.", "BadaBhai chat router."),

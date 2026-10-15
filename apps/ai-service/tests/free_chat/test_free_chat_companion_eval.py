@@ -102,7 +102,7 @@ def test_the_labels_are_the_contracts_closed_sets() -> None:
 
 
 def test_the_set_is_about_sixty_lines_and_covers_every_category_and_action() -> None:
-    assert 55 <= len(gold.CASES) <= 70
+    assert 55 <= len(gold.CASES) <= 75
     counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(profiling_gold.CATEGORIES)
     for category in profiling_gold.CATEGORIES:

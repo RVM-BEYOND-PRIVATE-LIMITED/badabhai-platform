@@ -148,6 +148,8 @@ The existing companion suites now pin that path with the switch on.
 - **No box change.** The free-chat tasks are already armed for the profiling chat.
 - **Eval (#2285, 2026-10-15).** The companion prompts were measured with fabricated sets: classify 95.4% and reply
   66/80 on Haiku. Greetings misroute; fixes are proposed. See [the evidence](../qa/evidence/free-chat/companion-surface/2026-10-15/README.md).
+- **Prompt round 2 (#2287, 2026-10-15).** R31 HELD the full revision (career −16); only the classify fixes shipped
+  (68/71 → 71/71). The greeting reply fix is to be re-run alone. See [the evidence](../qa/evidence/free-chat/companion-surface/2026-10-15-round2/README.md).
 
 ## 9. Brain-first routing (owner rulings, 2026-10-15)
 
