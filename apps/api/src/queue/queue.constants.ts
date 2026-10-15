@@ -76,6 +76,17 @@ export const LEARN_LABELS_QUEUE = "learn-labels";
 /** Stable BullMQ job-scheduler id for the learn-labels sweep (twin doctrine). */
 export const LEARN_LABELS_SWEEP_SCHEDULER_ID = "learn-labels-sweep";
 
+/**
+ * #2297 (ADR-0056) — the Bada Bhai chat's retention sweep: once a day, delete the stored lines
+ * older than 7 days and every rolling summary whose conversation has expired. The repeatable tick
+ * carries NO payload: the age predicate over `companion_messages` is authoritative, so a lost or
+ * duplicated Redis job is harmless.
+ */
+export const COMPANION_HISTORY_SWEEP_QUEUE = "companion-history-sweep";
+
+/** Stable BullMQ job-scheduler id for the companion history sweep (twin doctrine). */
+export const COMPANION_HISTORY_SWEEP_SCHEDULER_ID = "companion-history-sweep";
+
 /** ADR-0034 worker push-notification queue. */
 export const PUSH_QUEUE = "worker-push";
 
