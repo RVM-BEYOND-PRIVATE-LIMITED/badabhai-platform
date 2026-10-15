@@ -194,6 +194,17 @@ describe("the header's rollback is executable as written", () => {
     expect([...steps].sort((a, b) => a - b)).toEqual(steps); // in that order
   });
 
+  it("the owner sequence applies ONLY 0135 and records ONLY its ledger row", () => {
+    // Migrations kept dark on purpose (0128/0129/0134) must never be swept along: no "adopt every
+    // clean entry below" step, no `db:migrate`, and the adoption pinned to this one tag.
+    expect(RAW).toContain(
+      "npx tsx adopt-migrations.ts --only 0135_companion_history --apply --expect-host <HOST>",
+    );
+    expect(RAW).toContain("NEVER run `pnpm db:migrate` against");
+    expect(RAW).not.toContain("adopt every clean entry below");
+    expect(RAW).not.toContain("with NO --only");
+  });
+
   it("states the deploy order: no flag, the API tolerates the missing tables", () => {
     expect(RAW).toContain("NO FLAG");
     expect(RAW).toContain("42P01");

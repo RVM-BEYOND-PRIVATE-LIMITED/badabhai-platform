@@ -35,14 +35,37 @@
 -- `schema-contract.ts`, so `db:audit:schema-contract` reports them missing until it is applied;
 -- listed in LOCKED_TABLES in the e2e RLS spine.
 --
---   1. Merge (the deploy is safe; the tables are not read by anything that can fail on them).
---   2. Run `adopt-migrations.ts` verify-only with NO --only, and adopt every clean entry below
---      0135 in one run. Any entry that fails verification must be APPLIED first: once a later
---      row is recorded, `db:migrate` skips every journal entry below MAX(created_at), applied or
---      not (adopt-migrations itself can still record rows below the watermark).
---   3. Apply this file in ONE transaction:  BEGIN; SET LOCAL lock_timeout = '3s'; <statements>;
---      COMMIT;  and retry on 55P03.
---   4. Adopt 0135's ledger row and run `db:audit:schema-contract`.
+-- THE OWNER'S SEQUENCE - applies ONLY 0135 and records ONLY its ledger row. Every lower entry that
+-- is unapplied on purpose (a dark feature: 0128, 0129, 0134 ...) is neither verified, applied nor
+-- recorded. Run from the MAIN checkout on a clean tree at origin/main after the merge (the journal
+-- must contain 0135). DATABASE_URL is never typed or printed: adopt-migrations.ts and
+-- audit-schema-contract.ts load it from the repo-root .env themselves and print only its host.
+--   0. Merge. The deploy is safe on its own: the tables are not read by anything that can fail.
+--   1. Read-only pre-check, from packages/db:
+--        npx tsx adopt-migrations.ts --only 0135_companion_history
+--      Expect "[adopt] target host=<HOST>" (note <HOST>) and "✗ 0135_companion_history - <n>
+--      mismatch(es)", every one MISSING: nothing is applied yet, so exit 1 is expected here.
+--   2. Apply 0135 and nothing else: Supabase dashboard, production project, SQL Editor, a new
+--      query holding exactly
+--        BEGIN;
+--        SET LOCAL lock_timeout = '3s';
+--        <the full contents of packages/db/migrations/0135_companion_history.sql, unedited>
+--        COMMIT;
+--      and Run. "canceling statement due to lock timeout" (55P03) means nothing was applied:
+--      run it again.
+--   3. Read-only verify, from packages/db:
+--        npx tsx adopt-migrations.ts --only 0135_companion_history
+--      Expect "✓ 0135_companion_history" and "clean=1 mismatched=0".
+--   4. Record ONLY 0135's ledger row, from packages/db:
+--        npx tsx adopt-migrations.ts --only 0135_companion_history --apply --expect-host <HOST>
+--      Expect "recorded 1 of 1 verified migration(s)".
+--   5. Audit (read-only), from packages/db:  pnpm db:audit:schema-contract
+--      Expect "OK 0135_companion_history rls companion_messages" and "... companion_conversation_
+--      summaries"; entries of migrations kept dark on purpose still read MISSING.
+-- No flag and no redeploy: the next request uses the tables. NEVER run `pnpm db:migrate` against
+-- production - it would apply every unrecorded entry above the ledger watermark, dark ones too. After
+-- step 4 the watermark is 0135's `when`, so `db:migrate` skips any lower entry still unrecorded:
+-- apply each of those later the same way (by hand, then adopt-migrations --only <its tag>).
 --
 -- LOCKS. CREATE TABLE touches nothing live. Each FK takes SHARE ROW EXCLUSIVE on `workers` for its
 -- (empty-table, instant) validation; that lock still queues behind any long-running transaction
