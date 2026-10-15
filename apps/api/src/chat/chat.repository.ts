@@ -14,6 +14,7 @@ import {
   type WorkerPackAnswer,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { selectLatestFreeChatSummary } from "./free-chat-summary.query";
 // TYPE-ONLY: the stored summary's and kept language's shapes are defined once, beside their
 // readers. No runtime edge.
 import type { FreeChatSummary } from "../profiling/free-chat/free-chat-summary";
@@ -699,21 +700,8 @@ export class ChatRepository {
   async findLatestFreeChatSummary(
     workerId: string,
   ): Promise<{ id: string; summary: unknown } | undefined> {
-    const rows = await this.db
-      .select({
-        id: chatSessions.id,
-        summary: sql<unknown>`${chatSessions.conversationState} -> 'free_chat_summary'`,
-      })
-      .from(chatSessions)
-      .where(
-        and(
-          eq(chatSessions.workerId, workerId),
-          sql`${chatSessions.conversationState} -> 'free_chat_summary' ->> 'text' IS NOT NULL`,
-        ),
-      )
-      .orderBy(desc(chatSessions.startedAt))
-      .limit(1);
-    return rows[0];
+    // ADR-0055 R4 — the query is shared with the Bada Bhai chat's read-only summary reader.
+    return selectLatestFreeChatSummary(this.db, workerId);
   }
 
   /**
