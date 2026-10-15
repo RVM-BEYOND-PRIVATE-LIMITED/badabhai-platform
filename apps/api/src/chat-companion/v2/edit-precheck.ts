@@ -21,6 +21,10 @@ import { normalizeResumeMenuText } from "../../chat/resume-menu";
  * A FALSE POSITIVE costs one edit-parse call and the "kya badalna hai" line; a false negative
  * leaves today's v1 answer. Nothing here writes, logs or calls a model; the text is classified
  * and dropped.
+ *
+ * ON THE BRAIN (#2295, owner ruling 2026-10-15) a text either predicate below recognises is
+ * answered with the résumé's EDIT SECTION MENU instead, with no model call
+ * (`editAsksGetSectionMenu`); the edit handler is the kill-switch route only.
  */
 
 /** Multi-word Hinglish imperatives — matched as substrings, so spacing is the only variable. */
@@ -108,4 +112,150 @@ export function looksLikeEditRequest(text: string): boolean {
   const verb = VERB_PHRASES.some((p) => normalized.includes(p)) || has(VERB_WORDS);
   if (verb && has(FIELD_WORDS)) return true;
   return has(GENERIC_VERBS) && has(GENERIC_SUBJECTS);
+}
+
+/**
+ * The edit words a GENERIC request is made of: the English verbs above, plus the Hinglish ones a
+ * worker types for "change my résumé" without saying what ("resume badalna hai", "cv sahi karna").
+ */
+const GENERIC_EDIT_WORDS = [
+  ...GENERIC_VERBS,
+  "editing",
+  "changes",
+  // "correction" only: a bare "correct" is mostly a statement ("resume correct hai", "is my cv
+  // correct") — the request form is the phrase "correct kar" below.
+  "correction",
+  "badalna",
+  "badalni",
+  "badalne",
+  "badlna",
+  "badlo",
+  "badle",
+  "badal",
+  "badlav",
+  "badlaav",
+  "sudhar",
+  "sudharna",
+  "sudhaarna",
+  "sudharo",
+] as const;
+
+/**
+ * "Theek", "sahi" and "correct" ask for a change only beside a "karna" verb: "resume theek karna
+ * hai" is a request, "resume theek hai" / "resume correct hai" (the résumé is fine) is not.
+ */
+const GENERIC_EDIT_PHRASES = ["theek kar", "thik kar", "sahi kar", "correct kar"] as const;
+
+/**
+ * The words that carry no change of their own — pronouns, particles and the "I want to / please do"
+ * frame. CLOSED ON PURPOSE: a word missing here makes a message NOT generic, which is today's path.
+ * "Will it be / has it been" forms (hoga, hua, gaya) are absent, so a question about an update is
+ * never read as a request for one.
+ */
+const GENERIC_FILLER_WORDS = [
+  "mera",
+  "meri",
+  "mere",
+  "apna",
+  "apni",
+  "apne",
+  "mujhe",
+  "mujhko",
+  "main",
+  "mai",
+  "mein",
+  "me",
+  "ko",
+  "ka",
+  "ki",
+  "ke",
+  "se",
+  "par",
+  "pe",
+  "hai",
+  "hain",
+  "karna",
+  "karni",
+  "karne",
+  "karein",
+  "karen",
+  "kare",
+  "karo",
+  "kar",
+  "karwana",
+  "do",
+  "dena",
+  "dijiye",
+  "de",
+  "chahta",
+  "chahti",
+  "chahte",
+  "chahiye",
+  "hoon",
+  "hun",
+  "hu",
+  "ho",
+  "theek",
+  "thik",
+  "sahi",
+  "correct",
+  "sakta",
+  "sakti",
+  "sakte",
+  "kaise",
+  "kya",
+  "kuch",
+  "thoda",
+  "abhi",
+  "please",
+  "plz",
+  "pls",
+  "ji",
+  "bhai",
+  "bhaiya",
+  "sir",
+  "i",
+  "my",
+  "want",
+  "to",
+  "the",
+  "a",
+  "need",
+  "can",
+  "you",
+  "it",
+  "is",
+  "this",
+] as const;
+
+const GENERIC_ALLOWED: ReadonlySet<string> = new Set<string>([
+  ...GENERIC_EDIT_WORDS,
+  ...GENERIC_SUBJECTS,
+  ...GENERIC_FILLER_WORDS,
+]);
+
+/**
+ * #2295 — A GENERIC EDIT REQUEST: the worker asks to change the résumé and names NO change — "resume
+ * edit karein", "mera resume update karna hai", "resume badalna hai". The edit parse has nothing to
+ * read in such a message (measured: empty rows, the clarify line, a model call spent), so the caller
+ * answers it with the résumé's EDIT SECTION MENU instead — the answer v1's menu alias gave before the
+ * brain's route precedence (#2284) sent it to the model.
+ *
+ * DETERMINISTIC, AND AN ALLOWLIST. True only when the message has an edit word AND a résumé subject
+ * AND every other word is a closed filler. A field word ("salary"), a value ("25000", "Pune",
+ * "Fanuc") or any word not on the lists makes it NOT generic, which is today's path — the edit parse
+ * — so a concrete change is never swallowed by the menu. A status question is never generic.
+ */
+export function isGenericEditRequest(text: string): boolean {
+  const normalized = normalizeResumeMenuText(text);
+  if (normalized.length === 0 || isCompanionStatusQuestion(normalized)) return false;
+  const words = tokensOf(normalized);
+  const editWord =
+    words.some((w) => (GENERIC_EDIT_WORDS as readonly string[]).includes(w)) ||
+    GENERIC_EDIT_PHRASES.some((p) => normalized.includes(p));
+  return (
+    editWord &&
+    words.some((w) => (GENERIC_SUBJECTS as readonly string[]).includes(w)) &&
+    words.every((w) => GENERIC_ALLOWED.has(w))
+  );
 }

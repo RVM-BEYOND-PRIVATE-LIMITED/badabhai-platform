@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../../../config/config.module";
 import { V2_CLARIFY, V2_JOBS_DEFERRED, V2_PHASE_OFF, type CopyPair } from "../../companion-replies";
-import { taskChips, v2CopyTurn } from "../companion-v2-compose";
+import { editSectionMenu, taskChips, v2CopyTurn, v2MenuTurn } from "../companion-v2-compose";
 import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler";
 
 /**
@@ -32,6 +32,17 @@ export class PhaseOffHandler implements CompanionV2Handler {
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
   async handle(_input: HandlerInput): Promise<HandlerResult> {
     return fixedLineTurn(this.config, V2_PHASE_OFF, "phase_off");
+  }
+}
+
+/**
+ * #2295 (owner ruling 2026-10-15) — a résumé-edit ask on the brain: the résumé's EDIT SECTION MENU,
+ * never the AI edit card. Pure — no config, no reads, no model — so the registry holds its own
+ * instance; `editAsksGetSectionMenu` decides when it answers.
+ */
+export class EditSectionMenuHandler implements CompanionV2Handler {
+  async handle(_input: HandlerInput): Promise<HandlerResult> {
+    return { turn: v2MenuTurn(editSectionMenu()), outcome: "served" };
   }
 }
 

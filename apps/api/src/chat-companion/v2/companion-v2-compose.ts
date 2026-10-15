@@ -1,6 +1,10 @@
 import type { ServerConfig } from "@badabhai/config";
 import type { CompanionV2EditSection } from "@badabhai/types";
-import type { ResumeMenuChoice } from "../../chat/resume-menu";
+import {
+  RESUME_MENU_EDIT_LABEL,
+  resolveResumeMenu,
+  type ResumeMenuChoice,
+} from "../../chat/resume-menu";
 import { ttsField } from "../../profiling/question-tts-text";
 import type { FreeChatNewsLinkWire } from "../../profiling/free-chat/free-chat-news-links";
 import type { CompanionTurn, EditProposal } from "../chat-companion.dto";
@@ -119,6 +123,15 @@ export function taskChips(config: ServerConfig): V2Option[] {
     is_none_of_above: false,
   });
   return chips;
+}
+
+/**
+ * #2295 — the résumé's EDIT SECTION MENU, exactly as the shipped menu serves it after a tap on "Apna
+ * resume edit karein" (`resolveResumeMenu` stays the one source of its copy and its six chips). What
+ * every résumé-edit ask is answered with on the brain (`editAsksGetSectionMenu`).
+ */
+export function editSectionMenu(): ResumeMenuChoice {
+  return resolveResumeMenu(RESUME_MENU_EDIT_LABEL);
 }
 
 /**

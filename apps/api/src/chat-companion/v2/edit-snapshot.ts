@@ -73,6 +73,41 @@ export function rowCarriesField(source: SnapshotRow, field: string): boolean {
   return Object.hasOwn(source.fields, field);
 }
 
+/**
+ * #2295 — WHERE THE WORKER'S LANGUAGES LIVE, read the way the résumé reads them.
+ *
+ * TWO STORES, ONE PRINTED. The Languages page writes `worker_languages` rows (with how the worker
+ * knows each); the trade and general forms write the `languages` PREFERENCE ATTRIBUTE (a bare
+ * list). The sheet prints the rows when there are any, else the attribute
+ * (`qualification?.languages ?? preferences.languages`, `resume-render-input.ts`). The edit path
+ * read only the rows, so for a form-made worker it saw NO languages: "Hindi hatao" had nothing to
+ * address, and an add wrote a first row — after which the sheet printed that row alone and every
+ * language the form had stored vanished from the résumé.
+ *
+ * So the edit path reads and writes the store the sheet prints: the rows when there are any, else
+ * the attribute when it holds languages, else the (empty) rows as before. FAIL CLOSED: with no
+ * readable row and either a withheld row or an unreadable (or partially withheld) attribute, what
+ * the sheet prints is unknown, so the section is unreadable — never carded, never applied — rather
+ * than written over.
+ */
+export type LanguageSource =
+  | { readonly store: "rows"; readonly entries: MyLanguagesResponse["languages"] }
+  | { readonly store: "attribute"; readonly slugs: readonly string[] };
+
+export function languageSourceOf(state: EditState): LanguageSource | undefined {
+  if (state.languages === undefined) return undefined;
+  if (state.languages.languages.length > 0) {
+    return { store: "rows", entries: state.languages.languages };
+  }
+  // No row was readable — but one that was withheld (`partial`) still outranks the attribute.
+  if (state.languages.partial) return undefined;
+  if (state.preferences === undefined || state.preferences.partial.includes("languages")) {
+    return undefined;
+  }
+  const slugs = state.preferences.values.languages ?? [];
+  return slugs.length > 0 ? { store: "attribute", slugs } : { store: "rows", entries: [] };
+}
+
 /** Whether the section's read succeeded, i.e. whether it can be carded, checked and applied. */
 export function sectionReadable(state: EditState, section: CompanionV2EditSection): boolean {
   switch (section) {
@@ -81,7 +116,7 @@ export function sectionReadable(state: EditState, section: CompanionV2EditSectio
     case "skills":
       return state.draft !== undefined;
     case "languages":
-      return state.languages !== undefined;
+      return languageSourceOf(state) !== undefined;
     case "qualifications":
       return state.qualifications !== undefined;
     case "occupations":
@@ -166,12 +201,21 @@ export function snapshotRows(state: EditState): SnapshotRow[] {
       });
     });
   }
-  state.languages?.languages.forEach((entry, index) => {
+  // The attribute's members carry their store in the target, so a card built against one store is
+  // stale — never applied to the other — if the worker's languages move between them meanwhile.
+  const languages = languageSourceOf(state);
+  const languageSlugs =
+    languages === undefined
+      ? []
+      : languages.store === "rows"
+        ? languages.entries.map((entry) => entry.language)
+        : languages.slugs;
+  languageSlugs.forEach((language, index) => {
     rows.push({
       ref: `l${index + 1}`,
       section: "languages",
-      fields: { language: entry.language },
-      target: { language: entry.language },
+      fields: { language },
+      target: languages?.store === "attribute" ? { language, store: "attribute" } : { language },
     });
   });
   if (state.qualifications !== undefined) {

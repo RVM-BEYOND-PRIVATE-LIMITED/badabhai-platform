@@ -2,10 +2,16 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { CompanionV2Intent } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../../config/config.module";
+import { editAsksGetSectionMenu } from "../../companion-brain-switch";
 import { CareerTalkHandler } from "./career-talk.handler";
 import { EditResumeHandler } from "./edit-resume.handler";
 import { FaltuHandler } from "./faltu.handler";
-import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./fixed-line.handlers";
+import {
+  EditSectionMenuHandler,
+  JobsDeferredHandler,
+  PhaseOffHandler,
+  UnclearHandler,
+} from "./fixed-line.handlers";
 import { NewResumeHandler } from "./new-resume.handler";
 import type { CompanionV2Handler } from "./handler";
 
@@ -19,9 +25,15 @@ import type { CompanionV2Handler } from "./handler";
  * `CHAT_COMPANION_V2_CAREER_ENABLED` is on; every intent whose phase is not built (jobs by O2's
  * deferral) gets the fixed phase-off line. An intent is STILL CLASSIFIED while its phase is off —
  * the metrics must show demand — it just cannot act.
+ *
+ * #2295 (owner ruling 2026-10-15): while `editAsksGetSectionMenu` (the free-chat brain is on),
+ * `edit_resume` gets the résumé's edit section menu whatever the edit phase flag says — never the
+ * AI edit card. Under the kill switch the table is as above.
  */
 @Injectable()
 export class CompanionHandlerRegistry {
+  private readonly editSectionMenu = new EditSectionMenuHandler();
+
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly editResume: EditResumeHandler,
@@ -36,6 +48,7 @@ export class CompanionHandlerRegistry {
   resolve(intent: CompanionV2Intent): CompanionV2Handler {
     switch (intent) {
       case "edit_resume":
+        if (editAsksGetSectionMenu(this.config)) return this.editSectionMenu;
         return this.config.CHAT_COMPANION_V2_EDIT_ENABLED ? this.editResume : this.phaseOff;
       case "new_resume":
         return this.config.CHAT_COMPANION_V2_NEW_RESUME_ENABLED ? this.newResume : this.phaseOff;

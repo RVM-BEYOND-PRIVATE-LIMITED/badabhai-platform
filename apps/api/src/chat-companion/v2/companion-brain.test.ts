@@ -6,9 +6,11 @@ import type { FreeChatResumeAction } from "@badabhai/types";
 import {
   RESUME_MENU_CHAT_CREATE_KEY,
   RESUME_MENU_EDIT_KEY,
+  RESUME_MENU_EDIT_REPLY,
   RESUME_MENU_REDO_KEY,
   RESUME_MENU_ROOT_REPLY,
   RESUME_MENU_UPLOAD_KEY,
+  RESUME_SECTIONS,
 } from "../../chat/resume-menu";
 import type { FreeChatNewsResolution } from "../../profiling/free-chat/free-chat-news";
 import { FREE_CHAT_COPY } from "../../profiling/free-chat/free-chat.copy";
@@ -587,20 +589,13 @@ describe("live news (ADR-0054) — the reply's `news` refusal hands over", () =>
 });
 
 describe("resume — the classifier's action decides, the existing flows answer", () => {
-  it("edit → the EXISTING edit handler: the card, from the gateway text", async () => {
+  it("edit → the résumé's EDIT SECTION MENU (#2295 ruling): no edit parse, still edit_resume", async () => {
     const h = setup({ verdict: verdict("resume"), resumeAction: "edit" });
-    const out = await h.brain.route(
-      input("hindi hata do", { promptText: "hindi hata do (masked)" }),
-    );
-    expect(out.turn).toBe(CARD);
-    expect(h.edits.propose).toHaveBeenCalledWith(
-      WORKER,
-      PROFILE,
-      "hindi hata do (masked)",
-      CTX,
-      NOW,
-    );
-    expect(out).toMatchObject({ v2Intent: "edit_resume", outcome: "proposed" });
+    const out = await h.brain.route(input("hindi hata do"));
+    expect(out.turn.reply).toBe(RESUME_MENU_EDIT_REPLY);
+    expect(keys(out)).toEqual(RESUME_SECTIONS.map((section) => section.key));
+    expect(h.edits.propose).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ v2Intent: "edit_resume", outcome: "served" });
     expect(out.facts).toMatchObject({ freeCategory: "resume", resumeAction: "edit" });
   });
 

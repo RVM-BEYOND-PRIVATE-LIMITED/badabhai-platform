@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { EVENT_REGISTRY } from "@badabhai/event-schema";
+import { RESUME_MENU_EDIT_REPLY, RESUME_SECTIONS } from "../../chat/resume-menu";
 import { FreeChatModelCalls } from "../../profiling/free-chat/free-chat-model-calls";
 import { FREE_CHAT_COPY } from "../../profiling/free-chat/free-chat.copy";
 import { V2_CLARIFY, V2_EDIT_CARD_INTRO } from "../companion-replies";
@@ -277,7 +278,7 @@ describe("kill switch OFF (production's default) — the v1 miss runs the free-c
     });
   });
 
-  it("a résumé edit reaches the EXISTING edit handler; its event records the action", async () => {
+  it("a résumé edit gets the EDIT SECTION MENU (#2295 ruling), no edit parse; its event records the action", async () => {
     const h = setup({ freeClassify: classified("resume", "edit") });
     const turn = await h.orchestrator.handleMessage(
       WORKER,
@@ -286,12 +287,15 @@ describe("kill switch OFF (production's default) — the v1 miss runs the free-c
       CTX,
       NOW,
     );
-    expect(turn).toBe(CARD);
-    expect(h.edits.propose).toHaveBeenCalledWith(WORKER, PROFILE, "masked text", CTX, NOW);
+    expect(turn.reply).toBe(RESUME_MENU_EDIT_REPLY);
+    expect(turn.suggested_options.map((o) => o.option_key)).toEqual(
+      RESUME_SECTIONS.map((section) => section.key),
+    );
+    expect(h.edits.propose).not.toHaveBeenCalled();
     const event = turnEvent(h.events);
     expect(event.payload).toMatchObject({
       v2_intent: "edit_resume",
-      outcome: "proposed",
+      outcome: "served",
       free_category: "resume",
       resume_action: "edit",
     });

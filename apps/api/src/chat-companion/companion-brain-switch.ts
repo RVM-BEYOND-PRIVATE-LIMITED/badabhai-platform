@@ -21,6 +21,26 @@ export function companionBrainOn(config: CompanionBrainFlags): boolean {
   return config.CHAT_COMPANION_V2_ENABLED === true && config.CHAT_FREE_CHAT_DISABLED !== true;
 }
 
+/**
+ * IS A RÉSUMÉ-EDIT ASK ANSWERED WITH THE EDIT SECTION MENU? (#2295, owner ruling 2026-10-15) — the
+ * ONE switch, read by the two places an edit ask is routed.
+ *
+ * On the brain, ANYTHING related to editing the résumé gets the résumé's EDIT SECTION MENU — "Resume
+ * ka kaun sa hissa theek karna hai" and the six section chips, which the app routes into the trade
+ * form's walk or Resume Edit — and never the AI edit card. Under the kill switch the v2 path is
+ * today's, edit card included.
+ *
+ *   - `CompanionHandlerRegistry.resolve("edit_resume")` serves the menu instead of the edit
+ *     handler, so every route that resolves the edit intent — the brain's `resume` + `edit` verdict
+ *     among them — makes no edit-parse call.
+ *   - `ChatCompanionService.message` recognises the DETERMINISTIC edit routes (the edit pattern, a
+ *     generic ask, a pending edit intent, the edit task chip) before they reach the orchestrator,
+ *     so they answer with no model call at all and record v1's `resume_menu` event.
+ */
+export function editAsksGetSectionMenu(config: CompanionBrainFlags): boolean {
+  return companionBrainOn(config);
+}
+
 /** The flags that decide whether WP6's route precedence runs. */
 export type CompanionPrecedenceFlags = CompanionBrainFlags &
   Pick<ServerConfig, "CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED">;

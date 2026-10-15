@@ -740,7 +740,12 @@ export class CompanionEditService {
         await this.profiles.setResumeSkillLabels(profile.id, plan.next, tx);
         return;
       case "languages":
-        await this.languages.replaceForWorker(workerId, plan.dto, ctx, { tx });
+        // #2295 — the store the résumé prints: the Languages page's rows, or the form's attribute.
+        if (plan.store === "attribute") {
+          await this.preferences.setForWorker(workerId, plan.dto, ctx, { tx });
+        } else {
+          await this.languages.replaceForWorker(workerId, plan.dto, ctx, { tx });
+        }
         return;
       case "qualifications":
         await this.qualifications.replaceForWorker(workerId, plan.dto, ctx, { tx });

@@ -122,6 +122,17 @@ export function setup(
       trainings?: readonly Record<string, unknown>[];
     };
     preferenceValues?: Record<string, unknown>;
+    /** The preferences GET's `partial` keys (values it withheld). */
+    preferencesPartial?: readonly string[];
+    /** The preferences GET throws, so that section (and what reads it) is unreadable. */
+    preferencesReadFails?: boolean;
+    /** The worker_languages GET's `partial` flag (rows it withheld). */
+    languagesPartial?: boolean;
+    /**
+     * ADR-0055 — the free-chat brain: `on` (v2 on, kill switch off) or `kill_switch` (v2 on, kill
+     * switch on). Absent keeps the minimal config every older suite was written against.
+     */
+    brain?: "on" | "kill_switch";
     /** What the résumé seam decides on Haan (default `queued`). */
     regen?: ChatEditRegeneration;
     /** The résumé seam breaks its never-throws contract. */
@@ -195,7 +206,7 @@ export function setup(
   const languages = {
     getForWorker: vi.fn(async () => ({
       languages: opts.languageEntries ?? [],
-      partial: false,
+      partial: opts.languagesPartial ?? false,
       dropped_count: 0,
     })),
     replaceForWorker: vi.fn(async (...args: unknown[]) => {
@@ -228,25 +239,28 @@ export function setup(
     }),
   };
   const preferences = {
-    getForWorker: vi.fn(async () => ({
-      values: {
-        shift: null,
-        job_type: null,
-        willing_to_travel: null,
-        willing_to_relocate: null,
-        accommodation_needed: null,
-        salary_expected_max: null,
-        salary_expected_min: null,
-        availability: null,
-        preferred_cities: null,
-        work_types: null,
-        documents_ready: null,
-        languages: null,
-        ...(opts.preferenceValues ?? {}),
-      },
-      partial: [],
-      dropped_count: 0,
-    })),
+    getForWorker: vi.fn(async () => {
+      if (opts.preferencesReadFails) throw new Error("preferences read boom");
+      return {
+        values: {
+          shift: null,
+          job_type: null,
+          willing_to_travel: null,
+          willing_to_relocate: null,
+          accommodation_needed: null,
+          salary_expected_max: null,
+          salary_expected_min: null,
+          availability: null,
+          preferred_cities: null,
+          work_types: null,
+          documents_ready: null,
+          languages: null,
+          ...(opts.preferenceValues ?? {}),
+        },
+        partial: opts.preferencesPartial ?? [],
+        dropped_count: opts.preferencesPartial?.length ?? 0,
+      };
+    }),
     setForWorker: vi.fn(async (...args: unknown[]) => {
       write("preferences", txOf(args[3]), args);
       return { worker_id: WORKER_ID, keys_written: 1, keys_cleared: 0 };
@@ -288,6 +302,9 @@ export function setup(
     CHAT_COMPANION_V2_EDIT_MAX_ROWS: opts.maxRows ?? 3,
     CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS: 600,
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
+    ...(opts.brain === undefined
+      ? {}
+      : { CHAT_COMPANION_V2_ENABLED: true, CHAT_FREE_CHAT_DISABLED: opts.brain === "kill_switch" }),
   } as unknown as ServerConfig;
 
   const service = new CompanionEditService(

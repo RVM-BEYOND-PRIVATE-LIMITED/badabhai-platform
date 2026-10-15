@@ -21,6 +21,7 @@ import {
 } from "../../profiles/worker-qualifications.dto";
 import type { StoredEditProposalRow } from "./edit-proposal.store";
 import {
+  languageSourceOf,
   qualificationFingerprint,
   qualificationListOfField,
   type EditState,
@@ -51,7 +52,13 @@ export type ResumeSkillLists =
 export type SectionPlan =
   | { readonly section: "employment"; readonly dto: SetMyEmploymentDto }
   | { readonly section: "skills"; readonly next: ResumeSkillLists }
-  | { readonly section: "languages"; readonly dto: SetMyLanguagesDto }
+  | { readonly section: "languages"; readonly store: "rows"; readonly dto: SetMyLanguagesDto }
+  /** #2295 — the `languages` preference attribute, written through the preferences writer. */
+  | {
+      readonly section: "languages";
+      readonly store: "attribute";
+      readonly dto: SetMyPreferencesDto;
+    }
   | { readonly section: "qualifications"; readonly dto: SetMyQualificationsDto }
   | { readonly section: "occupations"; readonly dto: SetMyOccupationsDto }
   | { readonly section: "preferences"; readonly dto: SetMyPreferencesDto };
@@ -67,8 +74,13 @@ export function planSection(
       return { section, dto: planEmployment(required(state.employment), rows) };
     case "skills":
       return { section, next: planSkills(required(state.draft), rows) };
-    case "languages":
-      return { section, dto: planLanguages(required(state.languages), rows) };
+    case "languages": {
+      // The store the résumé prints (#2295, `languageSourceOf`) — the one the card was read from.
+      const source = required(languageSourceOf(state));
+      return source.store === "rows"
+        ? { section, store: "rows", dto: planLanguages(source.entries, rows) }
+        : { section, store: "attribute", dto: planLanguageAttribute(source.slugs, rows) };
+    }
     case "qualifications":
       return { section, dto: planQualifications(required(state.qualifications), rows) };
     case "occupations":
@@ -161,10 +173,10 @@ function newLabels(existing: readonly string[], adds: readonly string[]): string
 }
 
 function planLanguages(
-  current: NonNullable<EditState["languages"]>,
+  current: NonNullable<EditState["languages"]>["languages"],
   rows: readonly StoredEditProposalRow[],
 ): SetMyLanguagesDto {
-  let entries = current.languages.map((entry) => ({ ...entry }));
+  let entries = current.map((entry) => ({ ...entry }));
   for (const row of rows) {
     if (row.op === "delete") {
       const language = String(row.target?.["language"] ?? "");
@@ -184,6 +196,28 @@ function planLanguages(
       can_write: entry.can_write,
     })),
   });
+}
+
+/**
+ * The `languages` preference attribute after the card's rows (#2295): deletes by slug, then the
+ * adds not already there, sent as the ONE touched key (`touched_only`, as `planPreferences` sends
+ * its keys) — so no other preference is re-saved, and removing the last language clears the list.
+ * A bare slug list, as the form stored it: no ability is invented for a language the worker named.
+ */
+function planLanguageAttribute(
+  current: readonly string[],
+  rows: readonly StoredEditProposalRow[],
+): SetMyPreferencesDto {
+  let slugs = [...current];
+  for (const row of rows) {
+    if (row.op === "delete") {
+      const language = String(row.target?.["language"] ?? "");
+      slugs = slugs.filter((slug) => slug !== language);
+    } else if (row.op === "add" && !slugs.includes(row.value!)) {
+      slugs.push(row.value!);
+    }
+  }
+  return SetMyPreferencesSchema.parse({ touched_only: true, languages: slugs });
 }
 
 /**
