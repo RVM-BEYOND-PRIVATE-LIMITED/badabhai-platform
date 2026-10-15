@@ -76,15 +76,16 @@ written. The worker's own name is redacted by the model call, as before.
   - Each fold emits `chat.companion_summary_updated` v1, with counts and a closed outcome only.
 
 **Which summary the reply reads.**
-- The reply reads this chat's own summary while its conversation is alive: some line in the 7 days before the
-  turn.
+- The reply reads this chat's own summary while it is live: the newest line it covers (`folded_through`) is in
+  the 7 days before the turn.
 - Otherwise it reads the profiling chat's summary, as before (ADR-0055 R4).
-- A summary whose conversation has expired is ignored, and the sweep deletes it.
+- A summary whose newest covered line has left the window has expired: it is ignored even if the worker writes
+  again before the sweep runs (a fresh line never revives it), and the sweep deletes it.
 
 **Retention.** `CompanionHistorySweepProcessor` (queue `companion-history-sweep`) runs daily.
 - It deletes lines older than 7 days, in bounded batches, as a range over `companion_messages_created_at_idx`
   (migration 0135), so a tick costs the rows it deletes, never a scan of the table.
-- It then deletes every summary whose worker has no line left in the window.
+- It then deletes every expired summary (its `folded_through` has left the window).
 - Nothing else deletes rows.
 
 ## 4. The kill switch

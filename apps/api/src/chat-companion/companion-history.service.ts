@@ -147,15 +147,15 @@ export class CompanionHistoryService {
   }
 
   /**
-   * The worker's summary record while its conversation is alive — some stored line in the 7 days
-   * before `at` — else `value: undefined` (none, or expired).
+   * The worker's summary record while it is LIVE — the newest line it covers lies in the 7 days
+   * before `at` — else `value: undefined` (none, or expired; a fresh line never revives one).
    */
   async liveSummary(
     workerId: string,
     at: Date,
   ): Promise<HistoryRead<CompanionSummaryRecord | undefined>> {
     return this.soft("summary read", workerId, () =>
-      this.repo.findLiveSummary(workerId, historyWindowStart(at), at),
+      this.repo.findLiveSummary(workerId, historyWindowStart(at)),
     );
   }
 
@@ -219,7 +219,8 @@ export class CompanionHistoryService {
 
   /**
    * THE DAILY RETENTION TICK: delete every line older than 7 days (in bounded batches), then every
-   * summary whose worker has no line left in the window. A missing table is "nothing to sweep".
+   * EXPIRED summary (the newest line it covers has left the window). A missing table is "nothing to
+   * sweep".
    */
   async sweep(now: Date): Promise<CompanionHistorySweepResult> {
     const cutoff = historyWindowStart(now);
@@ -230,7 +231,7 @@ export class CompanionHistoryService {
         linesDeleted += deleted;
         if (deleted < SWEEP_BATCH_LIMIT) break;
       }
-      const summariesDeleted = await this.repo.deleteSummariesWithoutLinesSince(cutoff);
+      const summariesDeleted = await this.repo.deleteExpiredSummaries(cutoff);
       return { linesDeleted, summariesDeleted, tablesMissing: false };
     } catch (error) {
       if (sqlStateOf(error) === PG_UNDEFINED_TABLE) {

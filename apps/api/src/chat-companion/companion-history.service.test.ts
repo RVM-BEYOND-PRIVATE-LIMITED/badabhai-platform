@@ -42,7 +42,7 @@ function setup(over: Partial<Record<string, (...args: never[]) => Promise<unknow
     findLiveSummary: vi.fn(async (..._args: unknown[]) => undefined),
     upsertSummary: vi.fn(async (..._args: unknown[]) => true),
     deleteLinesBefore: vi.fn(async (..._args: unknown[]) => 0),
-    deleteSummariesWithoutLinesSince: vi.fn(async (..._args: unknown[]) => 0),
+    deleteExpiredSummaries: vi.fn(async (..._args: unknown[]) => 0),
     // An override stays a spy, so a test can both script it and assert on it.
     ...Object.fromEntries(Object.entries(over).map(([name, impl]) => [name, vi.fn(impl)])),
   };
@@ -148,6 +148,22 @@ describe("the window read", () => {
     if (!read.ok) throw new Error("expected ok");
     const turn = { ...v2CopyTurn(V2_CLARIFY), history: read.value };
     expect(CompanionOpenTurnSchema.safeParse(turn).success).toBe(true);
+  });
+});
+
+describe("the summary's liveness", () => {
+  it("is judged by its own watermark against the window ending at the turn", async () => {
+    const h = setup({
+      findLiveSummary: async () => ({ summary: "- Notes.", foldedThrough: NOW }),
+    });
+    expect(await h.service.liveSummary(WORKER, NOW)).toEqual({
+      ok: true,
+      value: { summary: "- Notes.", foldedThrough: NOW },
+    });
+    expect(h.repo.findLiveSummary).toHaveBeenCalledWith(
+      WORKER,
+      new Date(NOW.getTime() - COMPANION_HISTORY_WINDOW_DAYS * DAY_MS),
+    );
   });
 });
 
@@ -346,11 +362,11 @@ describe("storing the recap", () => {
 });
 
 describe("the retention sweep", () => {
-  it("deletes in bounded batches until a short one, then the summaries without a live line", async () => {
+  it("deletes in bounded batches until a short one, then the expired summaries", async () => {
     const batches = [5_000, 5_000, 12];
     const h = setup({
       deleteLinesBefore: async () => batches.shift() ?? 0,
-      deleteSummariesWithoutLinesSince: async () => 3,
+      deleteExpiredSummaries: async () => 3,
     });
     expect(await h.service.sweep(NOW)).toEqual({
       linesDeleted: 10_012,
@@ -359,6 +375,6 @@ describe("the retention sweep", () => {
     });
     const cutoff = new Date(NOW.getTime() - 7 * DAY_MS);
     expect(h.repo.deleteLinesBefore).toHaveBeenCalledWith(cutoff, 5_000);
-    expect(h.repo.deleteSummariesWithoutLinesSince).toHaveBeenCalledWith(cutoff);
+    expect(h.repo.deleteExpiredSummaries).toHaveBeenCalledWith(cutoff);
   });
 });

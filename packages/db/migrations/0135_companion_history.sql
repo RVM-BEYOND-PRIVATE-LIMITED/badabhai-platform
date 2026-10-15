@@ -21,8 +21,9 @@
 -- tables: the account-deletion hard delete removes every line and the summary.
 --
 -- RETENTION: `CompanionHistorySweepProcessor` (daily) deletes lines older than 7 days - a range
--- over `companion_messages_created_at_idx`, so a tick never scans the table - and every summary
--- whose worker has no line left in the window. Nothing else deletes rows.
+-- over `companion_messages_created_at_idx`, so a tick never scans the table - and every EXPIRED
+-- summary (`folded_through`, the newest line it covers, has left the window). Nothing else deletes
+-- rows.
 --
 -- ADDITIVE ONLY. Two new, empty tables; no existing column, constraint or row moves.
 --

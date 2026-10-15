@@ -460,7 +460,8 @@ export class CompanionBrain {
    *
    * ADR-0055 R4, #2297 — the context is the companion's recent turns (the last six stored lines a
    * model may read, Redis as the fallback) AND a rolling summary: the Bada Bhai chat's own while its
-   * conversation is alive, else the profiling chat's, read-only (`CompanionSummaryService`). Both
+   * notes are live (their newest line still in the window), else the profiling chat's, read-only
+   * (`CompanionSummaryService`). Both
    * fail soft. The reply alone reads it: the classifier never does (ADR-0051 R24), nor does news.
    * The model calls redact the worker's own name out of it again (`summaryForModel`). The
    * profiling chat's summary is never written or folded here.

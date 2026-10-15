@@ -14,8 +14,9 @@ import { V2_CLARIFY } from "./companion-replies";
  *  - replay: the same submission inserts nothing (the partial unique index, ON CONFLICT DO NOTHING);
  *  - the recap is stored only while the worker has no line in the window;
  *  - the model lines: only `model_context` rows, the newest N;
- *  - the summary: live only while a line lies in the window before the turn; monotonic upsert;
- *  - the sweep: lines past 7 days and summaries with no live line, nothing else;
+ *  - the summary: live only while the newest line it covers is in the window (a fresh line never
+ *    revives an expired one); monotonic upsert;
+ *  - the sweep: lines past 7 days and expired summaries, nothing else;
  *  - erasure: deleting the worker removes his lines and his summary (the FK cascade);
  *  - the plan: the history read is ONE index scan, no separate sort.
  *
@@ -195,13 +196,11 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
     ]);
   });
 
-  it("the summary is live only while a line lies in the 7 days before the turn; upserts are monotonic", async () => {
+  it("the summary is live only while its newest covered line is in the window; upserts are monotonic", async () => {
     expect(
       await history.storeSummary(worker, { summary: "- a", foldedThrough: ago(DAY_MS) }, false),
     ).toBe(true);
-    // No line at all → not live.
-    expect(await history.liveSummary(worker, NOW)).toEqual({ ok: true, value: undefined });
-    await line(worker, ago(2 * DAY_MS));
+    // Its own watermark decides, not the worker's lines: live with no line at all.
     expect(await history.liveSummary(worker, NOW)).toEqual({
       ok: true,
       value: { summary: "- a", foldedThrough: ago(DAY_MS) },
@@ -223,34 +222,50 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
     ).toBe(true);
     const live = await history.liveSummary(worker, NOW);
     expect(live).toEqual({ ok: true, value: { summary: null, foldedThrough: ago(5 * DAY_MS) } });
-    // Judged as of a turn 9 days later, the conversation has expired.
+    // Judged as of a turn 9 days later, its newest line has left the window.
     expect(await history.liveSummary(worker, new Date(NOW.getTime() + 9 * DAY_MS))).toEqual({
       ok: true,
       value: undefined,
     });
   });
 
-  it("the sweep deletes lines past 7 days and summaries with no live line — nothing else", async () => {
+  it("NO REVIVAL: an expired summary stays expired when the worker writes again before the sweep", async () => {
+    // Notes about a conversation whose lines all left the window 3 days ago…
+    await history.storeSummary(
+      worker,
+      { summary: "- Old notes.", foldedThrough: ago(10 * DAY_MS) },
+      true,
+    );
+    // …and the worker is back today, before any sweep has run.
+    await line(worker, ago(60_000), { modelContext: true });
+    expect(await history.liveSummary(worker, NOW)).toEqual({ ok: true, value: undefined });
+  });
+
+  it("the sweep deletes lines past 7 days and expired summaries — nothing else", async () => {
     const quiet = await newWorker();
+    const back = await newWorker();
     await line(worker, ago(10 * DAY_MS), { text: "old" });
     await line(worker, ago(DAY_MS), { text: "fresh" });
     await line(quiet, ago(9 * DAY_MS), { text: "old only" });
+    await line(back, ago(60_000), { text: "back today" });
     await history.storeSummary(worker, { summary: "- kept", foldedThrough: ago(DAY_MS) }, true);
     await history.storeSummary(
       quiet,
       { summary: "- expired", foldedThrough: ago(9 * DAY_MS) },
       true,
     );
+    // Expired although its worker wrote today: the sweep deletes it by its own watermark.
+    await history.storeSummary(back, { summary: "- stale", foldedThrough: ago(8 * DAY_MS) }, true);
     const result = await history.sweep(NOW);
     expect(result.tablesMissing).toBe(false);
     expect(result.linesDeleted).toBeGreaterThanOrEqual(2);
     const left = await client.sql<{ body_text: string }[]>`
       SELECT body_text FROM companion_messages
-      WHERE worker_id IN (${worker}::uuid, ${quiet}::uuid) ORDER BY created_at`;
-    expect(left.map((r) => r.body_text)).toEqual(["fresh"]);
+      WHERE worker_id IN (${worker}::uuid, ${quiet}::uuid, ${back}::uuid) ORDER BY created_at`;
+    expect(left.map((r) => r.body_text)).toEqual(["fresh", "back today"]);
     const summaries = await client.sql<{ worker_id: string }[]>`
       SELECT worker_id FROM companion_conversation_summaries
-      WHERE worker_id IN (${worker}::uuid, ${quiet}::uuid)`;
+      WHERE worker_id IN (${worker}::uuid, ${quiet}::uuid, ${back}::uuid)`;
     expect(summaries.map((r) => r.worker_id)).toEqual([worker]);
   });
 

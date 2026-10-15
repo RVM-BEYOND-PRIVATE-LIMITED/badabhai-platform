@@ -15,7 +15,8 @@ export const COMPANION_HISTORY_SWEEP_EVERY_MS = 24 * 3_600_000;
 
 /**
  * #2297 (ADR-0056) — THE BADA BHAI CHAT'S RETENTION SWEEP: once a day, delete every stored line
- * older than 7 days and every rolling summary whose worker has no line left in the window. The
+ * older than 7 days and every EXPIRED rolling summary (the newest line it covers has left the
+ * window). The
  * decisions are `CompanionHistoryService.sweep`'s; this processor only registers the daily tick and
  * logs counts.
  *

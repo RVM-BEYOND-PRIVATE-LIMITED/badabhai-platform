@@ -110,8 +110,9 @@ export const companionMessages = pgTable(
 // whose summary is null, which every reader treats as "no summary". Without it the same refused
 // batch would be re-sent on every turn.
 //
-// LIVE FOR 7 DAYS. A summary is read only while the worker has a stored line in the last 7 days;
-// the daily sweep deletes one whose conversation has expired. Erasure is the `worker_id` cascade.
+// LIVE FOR 7 DAYS. A summary is read only while the newest line it covers (`folded_through`) is
+// in the last 7 days — a fresh line never revives an expired one — and the daily sweep deletes an
+// expired one. Erasure is the `worker_id` cascade.
 // ===========================================================================
 export const companionConversationSummaries = pgTable("companion_conversation_summaries", {
   workerId: uuid("worker_id")

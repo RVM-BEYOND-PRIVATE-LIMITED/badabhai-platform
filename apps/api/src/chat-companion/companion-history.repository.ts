@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, exists, gt, inArray, lt, notExists, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, lte, sql } from "drizzle-orm";
 import {
   companionConversationSummaries,
   companionMessages,
@@ -145,13 +145,17 @@ export class CompanionHistoryRepository {
   }
 
   /**
-   * The worker's summary record — only while the conversation it belongs to is alive: some stored
-   * line lies in (`since`, `before`). Undefined otherwise (none, or expired).
+   * The worker's summary record — only while it is LIVE: the newest line it covers
+   * (`folded_through`) is still inside the window (after `since`). Undefined otherwise (none, or
+   * expired).
+   *
+   * BY ITS OWN WATERMARK, NEVER BY "ANY LINE". A record whose lines have all left the window has
+   * expired even when the worker has written since — a fresh line before the daily sweep must not
+   * revive notes about a conversation that is gone (#2297 security review).
    */
   async findLiveSummary(
     workerId: string,
     since: Date,
-    before: Date,
   ): Promise<CompanionSummaryRecord | undefined> {
     const rows = await this.db
       .select({
@@ -162,18 +166,7 @@ export class CompanionHistoryRepository {
       .where(
         and(
           eq(companionConversationSummaries.workerId, workerId),
-          exists(
-            this.db
-              .select({ one: sql`1` })
-              .from(companionMessages)
-              .where(
-                and(
-                  eq(companionMessages.workerId, workerId),
-                  gt(companionMessages.createdAt, since),
-                  lt(companionMessages.createdAt, before),
-                ),
-              ),
-          ),
+          gt(companionConversationSummaries.foldedThrough, since),
         ),
       )
       .limit(1);
@@ -229,23 +222,14 @@ export class CompanionHistoryRepository {
     return deleted.length;
   }
 
-  /** RETENTION: delete every summary whose worker has no line after `cutoff`. Returns how many. */
-  async deleteSummariesWithoutLinesSince(cutoff: Date): Promise<number> {
+  /**
+   * RETENTION: delete every EXPIRED summary — the newest line it covers is at or before `cutoff`
+   * (the liveness rule of {@link findLiveSummary}, inverted). Returns how many.
+   */
+  async deleteExpiredSummaries(cutoff: Date): Promise<number> {
     const deleted = await this.db
       .delete(companionConversationSummaries)
-      .where(
-        notExists(
-          this.db
-            .select({ one: sql`1` })
-            .from(companionMessages)
-            .where(
-              and(
-                eq(companionMessages.workerId, companionConversationSummaries.workerId),
-                gt(companionMessages.createdAt, cutoff),
-              ),
-            ),
-        ),
-      )
+      .where(lte(companionConversationSummaries.foldedThrough, cutoff))
       .returning({ workerId: companionConversationSummaries.workerId });
     return deleted.length;
   }

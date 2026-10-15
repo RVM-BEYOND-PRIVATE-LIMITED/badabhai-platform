@@ -101,7 +101,7 @@ function realCallOf(out: FreeChatSummarizeOutput | null): out is FreeChatSummari
  * same contract, the same API validation of what comes back.
  *
  * READ — {@link latestText}, by the brain's casual/career REPLY with every query (never by the
- * classifier, ADR-0051 R24): this summary while the worker's conversation is alive (a stored line in
+ * classifier, ADR-0051 R24): this summary while it is live (the newest line it covers is in
  * the last 7 days), else the profiling chat's summary (#2284 R4). Every failure reads as "none".
  *
  * FOLD — {@link schedule}d after a served turn's lines are stored, on the brain only. Off the
@@ -138,7 +138,8 @@ export class CompanionSummaryService {
   // ── read ───────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * The summary the brain's reply carries: the companion's own while its conversation is alive,
+   * The summary the brain's reply carries: the companion's own while it is live (its newest line is
+   * still in the window — a fresh line never revives an expired one),
    * else the profiling chat's (#2284 R4). Null when there is neither. Never throws.
    */
   async latestText(workerId: string): Promise<string | null> {
