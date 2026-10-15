@@ -333,37 +333,43 @@ void main() {
       await bloc.close();
     });
 
-    test('asking for the résumé brings the tile back and posts NOTHING', () async {
+    test('#2302: on the companion a typed download ask is POSTED once — the server answers it, nothing local', () async {
+      const String serverLine = 'Aapka resume taiyaar hai. Neeche button dabakar download karein.';
       final ChatBloc bloc = await openTab();
       bloc.add(const ChatMessageSent('naye jobs dikhao'));
       await pumpEventQueue();
+      when(
+        () => repo.sendCompanionMessage(_ask, submissionId: any(named: 'submissionId')),
+      ).thenAnswer(
+        (_) async => const ChatTurn(
+          reply: serverLine,
+          companion: true,
+          suggestedOptions: <ChatOption>[
+            ChatOption(optionKey: 'companion_resume_download', labelText: 'Resume download karein'),
+          ],
+        ),
+      );
       final int before = bloc.state.messages.length;
 
       bloc.add(const ChatMessageSent(_ask));
       await pumpEventQueue();
 
-      expect(bloc.state.resumeDownloadTile, isTrue);
-      final List<ChatMessage> added = bloc.state.messages.sublist(before);
-      expect(added.map((ChatMessage m) => m.text), <String>[_ask, kChatResumeDownloadReply]);
-      expect(added.first.fromWorker, isTrue);
-      expect(added.last.fromWorker, isFalse);
-      expect(added.last.ttsText, kChatResumeDownloadReplyTts);
-      verifyNever(
+      verify(
         () => repo.sendCompanionMessage(_ask, submissionId: any(named: 'submissionId')),
-      );
-      verifyNever(
-        () => repo.sendMessage(
-          any(),
-          submissionId: any(named: 'submissionId'),
-          answerSource: any(named: 'answerSource'),
-        ),
-      );
+      ).called(1);
+      final List<ChatMessage> added = bloc.state.messages.sublist(before);
+      expect(added.map((ChatMessage m) => m.text), <String>[_ask, serverLine]);
       expect(
-        events.where((BbAnalyticsEvent e) => e.name == 'chat_resume_download_offered').last.parameters,
-        <String, Object>{'trigger': 'ask'},
+        bloc.state.messages.map((ChatMessage m) => m.text),
+        isNot(contains(kChatResumeDownloadReply)),
+        reason: 'no local reply: it would vanish from the 7-day history',
       );
-      // The chips the worker had are left alone: the ask answered no question.
-      expect(bloc.state.suggestedOptions, isNotEmpty);
+      // The server's own download chip is what the worker taps.
+      expect(
+        bloc.state.suggestedOptions.map((ChatOption o) => o.optionKey),
+        contains('companion_resume_download'),
+      );
+      expect(offeredTriggers(), isNot(contains('ask')));
       await bloc.close();
     });
 
@@ -497,19 +503,19 @@ void main() {
       await bloc.close();
     });
 
-    test('case 3 always answers, and marks the résumé offered for the next open', () async {
+    test('case 3 on the companion is the SERVER\'s chip: its tap answers on the phone and marks the résumé offered', () async {
       // The worker has already been offered this résumé on an earlier visit.
       await offers.markOffered(downloadableResumeIn(_history())!.token);
       final ChatBloc bloc = await openTab();
       expect(bloc.state.resumeDownloadTile, isFalse);
 
-      bloc.add(const ChatMessageSent('mera resume dikhao'));
+      bloc.add(const ChatResumeDownloadChipTapped('Resume download karein'));
       await pumpEventQueue();
       expect(bloc.state.resumeDownloadTile, isTrue);
       expect(bloc.state.messages.last.text, kChatResumeDownloadReply);
       verifyNever(
         () => repo.sendCompanionMessage(
-          'mera resume dikhao',
+          'Resume download karein',
           submissionId: any(named: 'submissionId'),
         ),
       );
