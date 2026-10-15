@@ -49,6 +49,10 @@ import 'failure.dart';
     icon: Icons.hourglass_top_rounded,
     reason: message,
   ),
+  ResumePdfUnavailableFailure(:final String message) => (
+    icon: Icons.error_outline_rounded,
+    reason: message,
+  ),
   // Voice failures carry step-specific honest copy in [Failure.message]
   // (e.g. "Transcript ready nahi hua…"), which is ALWAYS a client-side
   // constant — never a server body (see mapError) — so it is safe to show.

@@ -7,6 +7,7 @@ import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_pill.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
@@ -76,13 +77,14 @@ void main() {
     required int day,
     ResumeSource? source = ResumeSource.chat,
     bool current = false,
+    String renderStatus = 'rendered',
   }) => ResumeHistoryItem(
     resumeId: id,
     profileId: 'p1',
     source: source,
     trigger: ResumeTrigger.profileConfirmed,
     generatedAt: DateTime.utc(2026, 9, day),
-    renderStatus: 'rendered',
+    renderStatus: renderStatus,
     renderedAt: DateTime.utc(2026, 9, day),
     isCurrent: current,
   );
@@ -220,6 +222,57 @@ void main() {
 
     expect(find.text('Download'), findsNWidgets(2));
   });
+
+  // G4 / G5 — a NAHI BANI card used to carry the same live Download and Share
+  // as a READY one: every tap spun for 75s on "PDF taiyaar ho rahi hai…" and
+  // then claimed the PDF was still being made.
+  testWidgets(
+    'a NAHI BANI card: Download and Share are disabled with the reason under '
+    'them — the READY and BAN RAHA HAI cards beside it stay live',
+    (WidgetTester tester) async {
+      await pump(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[
+            item(id: 'r3', day: 20, current: true, renderStatus: 'failed'),
+            item(id: 'r2', day: 15, renderStatus: 'pending'),
+            item(id: 'r1', day: 12),
+          ],
+        ),
+      );
+
+      Finder card(String pill) => find.ancestor(
+        of: find.text(pill),
+        matching: find.byType(ResumeFileCard),
+      );
+      BbButton button(Finder inCard, String label) => tester.widget<BbButton>(
+        find.descendant(of: inCard, matching: find.widgetWithText(BbButton, label)),
+      );
+
+      expect(button(card('● NAHI BANI'), 'Download').onPressed, isNull);
+      expect(button(card('● NAHI BANI'), 'Share').onPressed, isNull);
+      expect(
+        find.descendant(
+          of: card('● NAHI BANI'),
+          matching: find.text(kResumePdfUnavailableMessage),
+        ),
+        findsOneWidget,
+      );
+      for (final String pill in <String>['● READY', '● BAN RAHA HAI']) {
+        expect(button(card(pill), 'Download').onPressed, isNotNull, reason: pill);
+        expect(button(card(pill), 'Share').onPressed, isNotNull, reason: pill);
+      }
+      // The reason is said once — on the card it belongs to.
+      expect(find.text(kResumePdfUnavailableMessage), findsOneWidget);
+
+      await tester.tap(
+        find.descendant(of: card('● NAHI BANI'), matching: find.text('Download')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      verifyNever(() => repo.resumeDownloadUrlFor(any()));
+    },
+  );
 
   testWidgets('no history: an honest empty state, never an error', (
     WidgetTester tester,

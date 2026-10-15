@@ -717,6 +717,123 @@ void main() {
         );
       },
     );
+
+    // ── A FAILED PDF on the tab (G4 / G5) ─────────────────────────────────
+
+    ResumeHistory currentAt(String renderStatus) => ResumeHistory(
+      items: <ResumeHistoryItem>[
+        ResumeHistoryItem(resumeId: 'r1', renderStatus: renderStatus, isCurrent: true),
+      ],
+    );
+
+    test('pdfFailed is the document\'s "failed", else the history\'s current row — '
+        'and unknown is NOT failed', () async {
+      expect((await generateWith('failed')).state.pdfFailed, isTrue);
+      expect((await generateWith('rendered')).state.pdfFailed, isFalse);
+      expect((await generateWith('pending')).state.pdfFailed, isFalse);
+
+      final ResumeCubit unknown = await generateWith(null);
+      expect(unknown.state.pdfFailed, isFalse);
+      when(() => repo.loadResumeHistory()).thenAnswer((_) async => currentAt('failed'));
+      await unknown.loadHistory();
+      expect(unknown.state.pdfFailed, isTrue);
+    });
+
+    test('a download that LEARNS the render failed redraws the pair — '
+        'refreshPdfState re-reads it, carrying everything else', () async {
+      final ResumeCubit cubit = await generateWith('pending');
+      expect(cubit.state.pdfFailed, isFalse);
+      when(() => repo.loadResumeDocument()).thenAnswer(
+        (_) async => const ResumeDocumentSnapshot(document: sheet, renderStatus: 'failed'),
+      );
+      when(() => repo.loadResumeHistory()).thenAnswer((_) async => currentAt('failed'));
+
+      await cubit.refreshPdfState();
+
+      expect(cubit.state.pdfFailed, isTrue);
+      expect(cubit.state.resumeText, 'RESUME TEXT');
+      expect(cubit.state.document, sheet);
+      expect(cubit.state.history.current?.hasFailedRender, isTrue);
+    });
+
+    test('an edit that re-renders a FAILED PDF is picked up while the worker '
+        'stays — the pair comes back without a tab switch', () async {
+      ResumeCubit.pdfRecheckInterval = Duration.zero;
+      addTearDown(() => ResumeCubit.pdfRecheckInterval = const Duration(seconds: 3));
+      final ResumeCubit cubit = await generateWith('failed');
+      when(() => repo.loadResumeHistory()).thenAnswer((_) async => currentAt('rendered'));
+      int reads = 0;
+      when(() => repo.loadResumeDocument()).thenAnswer((_) async {
+        reads++;
+        // The in-place re-render lands on the third look.
+        return ResumeDocumentSnapshot(
+          document: sheet,
+          renderStatus: reads < 3 ? 'failed' : 'rendered',
+        );
+      });
+
+      await cubit.recheckFailedPdf();
+
+      expect(cubit.state.pdfFailed, isFalse);
+      expect(cubit.state.pdfRendered, isTrue);
+      expect(reads, 3);
+    });
+
+    test('the re-check is bounded, a render that fails again changes nothing, '
+        'and a PDF that did not fail is never re-checked', () async {
+      ResumeCubit.pdfRecheckInterval = Duration.zero;
+      ResumeCubit.pdfRecheckAttempts = 4;
+      addTearDown(() {
+        ResumeCubit.pdfRecheckInterval = const Duration(seconds: 3);
+        ResumeCubit.pdfRecheckAttempts = 10;
+      });
+      int reads = 0;
+      final ResumeCubit failed = await generateWith('failed');
+      when(() => repo.loadResumeDocument()).thenAnswer((_) async {
+        reads++;
+        return const ResumeDocumentSnapshot(document: sheet, renderStatus: 'failed');
+      });
+      await failed.recheckFailedPdf();
+      expect(failed.state.pdfFailed, isTrue);
+      expect(reads, 4);
+
+      final ResumeCubit fine = await generateWith('rendered');
+      reads = 0;
+      when(() => repo.loadResumeDocument()).thenAnswer((_) async {
+        reads++;
+        return const ResumeDocumentSnapshot(document: sheet, renderStatus: 'rendered');
+      });
+      await fine.recheckFailedPdf();
+      expect(reads, 0);
+    });
+
+    test('the history and a given-up update ride through a résumé reload — '
+        '"Pichle resume" is not wiped, and "update ho raha hai" does not come back', () async {
+      ResumeCubit.updateWatchBudget = Duration.zero;
+      addTearDown(() => ResumeCubit.updateWatchBudget = const Duration(minutes: 3));
+      final ResumeCubit cubit = await generateWith('rendered');
+      when(() => repo.loadResumeHistory()).thenAnswer(
+        (_) async => const ResumeHistory(
+          items: <ResumeHistoryItem>[
+            ResumeHistoryItem(resumeId: 'r1', renderStatus: 'rendered', isCurrent: true),
+          ],
+          pendingUpdate: PendingUpdate(status: 'in_progress'),
+        ),
+      );
+      // The client's own deadline runs out on an update the server still
+      // calls in progress: the tab shows the FAILED card.
+      await cubit.watchResumeUpdate();
+      expect(cubit.state.updateFailed, isTrue);
+
+      // An edit return (a prefs-only reload) and a tab-focus refresh.
+      await cubit.refreshNightShift();
+      expect(cubit.state.updateFailed, isTrue);
+      expect(cubit.state.history.items, hasLength(1));
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+      await cubit.refresh();
+      expect(cubit.state.updateFailed, isTrue);
+      expect(cubit.state.history.items, hasLength(1));
+    });
   });
 
   // R7 — the DRAFT pill. ai-service stamps "WORKER PROFILE (DRAFT)" on every

@@ -14,7 +14,8 @@ import '../../../../core/api/api_models.dart'
         EditProposal,
         FormOffer,
         PredictedQuestion,
-        ResumeHistory;
+        ResumeHistory,
+        ResumeHistoryItem;
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_reason.dart';
 import '../../../../core/observability/analytics.dart';
@@ -921,10 +922,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   /// Case 2 inside the chat — how long [ChatResumeChangeWatchRequested] looks
   /// for the new résumé: [resumeChangeWatchAttempts] reads,
-  /// [resumeChangeWatchInterval] apart (about a minute — a generation is a model
-  /// call). Static and mutable ONLY as a test seam, like
+  /// [resumeChangeWatchInterval] apart (about two minutes — a generation is a
+  /// model call, and a section walk's re-render is queued a full minute after
+  /// its save). Static and mutable ONLY as a test seam, like
   /// `ResumeCubit.documentPollMaxAttempts`.
-  static int resumeChangeWatchAttempts = 15;
+  static int resumeChangeWatchAttempts = 30;
   static Duration resumeChangeWatchInterval = const Duration(seconds: 4);
 
   /// How many times the worker has moved the conversation on (a send, a voice
@@ -2748,10 +2750,17 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (_resumeRepo == null) return;
     _resumeDownloadArmed = true;
     final int movesAtStart = _conversationMoves;
-    final DownloadableResume? resume = await _downloadableResume();
+    final ResumeHistory history = await _resumeHistory();
+    final DownloadableResume? resume = downloadableResumeIn(history);
     if (resume == null) {
-      // Nothing to download — no résumé yet, a failed render, an unreadable
-      // history. No tile, and no stale id left behind for an ask to use.
+      // An EMPTY history says nothing: no résumé yet, or a read that failed —
+      // offline, a 5xx, a timeout all come back as the empty history. A tile
+      // already on screen stays, with its id for an ask: clearing it here took
+      // the tile away on a network blip, mid-download even, and the version
+      // already marked offered never brought it back.
+      if (history.items.isEmpty) return;
+      // The history SAYS there is nothing to download — no current row, or a
+      // failed render. No tile, and no stale id left behind for an ask to use.
       emit(
         state.copyWith(
           clearDownloadableResumeId: true,
@@ -2817,18 +2826,86 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       isResumeDownloadRequest(text, requireResumeWord: !state.companion);
 
   /// A typed "download my résumé" (case 3), answered on the phone: the
-  /// worker's bubble, a fixed local line and the tile — nothing is posted.
+  /// worker's bubble, a fixed local line and — when there is a PDF to hand
+  /// over — the tile. Nothing is posted.
   ///
-  /// Returns false, having changed nothing, when there is no résumé to
-  /// download; the caller then posts the message exactly as it always has.
+  /// The line is HONEST about the PDF: ready, still being made (the tile waits
+  /// the render out), or FAILED — no tile then, since its download can only
+  /// answer 409. A failed one used to be posted instead: on an interview it
+  /// was captured as the open question's answer, and on the companion it got
+  /// whatever the classifier made of it.
+  ///
+  /// Returns false, having changed nothing, when there is no résumé to speak
+  /// of; the caller then posts the message exactly as it always has.
   Future<bool> _answerResumeDownloadRequest(
     String text,
     Emitter<ChatState> emit,
   ) async {
-    final DownloadableResume? resume = await _downloadableResume();
+    final ResumeHistory history = await _resumeHistory();
     // A send that started while the history was being read owns the next
     // bubble (see the in-flight rule at the call site): post this one as usual.
-    if (resume == null || state.sending) return false;
+    if (state.sending) return false;
+    final DownloadableResume? resume = downloadableResumeIn(history);
+    if (resume != null) {
+      _answerLocally(
+        text,
+        resume.pending ? _kPendingReply : _kReadyReply,
+        emit,
+        tileFor: resume.id,
+      );
+      _analytics(BbAnalytics.chatResumeDownloadOffered(trigger: 'ask'));
+      // Seen now, so the next open does not offer this same résumé again.
+      await _offers.markOffered(resume.token);
+      return true;
+    }
+    if (history.current?.hasFailedRender ?? false) {
+      _answerLocally(text, _kFailedReply, emit);
+      return true;
+    }
+    // An EMPTY read — it failed, or there is truly nothing — while this tab
+    // still holds the résumé it offered earlier: the ask gets that one, in the
+    // state it was last SEEN in (a résumé last seen rendering is never "taiyaar").
+    final String? known = state.downloadableResumeId;
+    if (history.items.isEmpty && known != null) {
+      final DownloadableResume? seen = _lastDownloadable;
+      final bool pending = seen != null && seen.id == known && seen.pending;
+      _answerLocally(
+        text,
+        pending ? _kPendingReply : _kReadyReply,
+        emit,
+        tileFor: known,
+      );
+      _analytics(BbAnalytics.chatResumeDownloadOffered(trigger: 'ask'));
+      return true;
+    }
+    return false;
+  }
+
+  /// The three local answers to a download ask, with their read-aloud twins.
+  static const ChatMessage _kReadyReply = ChatMessage(
+    text: kChatResumeDownloadReply,
+    fromWorker: false,
+    ttsText: kChatResumeDownloadReplyTts,
+  );
+  static const ChatMessage _kPendingReply = ChatMessage(
+    text: kChatResumeDownloadPendingReply,
+    fromWorker: false,
+    ttsText: kChatResumeDownloadPendingReplyTts,
+  );
+  static const ChatMessage _kFailedReply = ChatMessage(
+    text: kChatResumeDownloadFailedReply,
+    fromWorker: false,
+    ttsText: kChatResumeDownloadFailedReplyTts,
+  );
+
+  /// Appends the worker's [text] and Bada Bhai's [reply], both local, and puts
+  /// the tile up for [tileFor] — or, when null, takes it (and its id) away.
+  void _answerLocally(
+    String text,
+    ChatMessage reply,
+    Emitter<ChatState> emit, {
+    String? tileFor,
+  }) {
     // A local-only worker bubble: the #1316 interview indices skip it.
     _resumeLocalBubbles++;
     emit(
@@ -2836,50 +2913,62 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         messages: <ChatMessage>[
           ...state.messages,
           ChatMessage(text: text, fromWorker: true),
-          const ChatMessage(
-            text: kChatResumeDownloadReply,
-            fromWorker: false,
-            ttsText: kChatResumeDownloadReplyTts,
-          ),
+          reply,
         ],
-        downloadableResumeId: resume.id,
-        resumeDownloadTile: true,
+        downloadableResumeId: tileFor,
+        clearDownloadableResumeId: tileFor == null,
+        resumeDownloadTile: tileFor != null,
       ),
     );
-    _analytics(BbAnalytics.chatResumeDownloadOffered(trigger: 'ask'));
-    // Seen now, so the next open does not offer this same résumé again.
-    await _offers.markOffered(resume.token);
-    return true;
   }
 
-  /// The résumé the tile should save, read FRESH from `GET /resume/history`
-  /// (see [downloadableResumeIn]) — never from a cache, because "did the résumé
+  /// The worker's résumé history, read FRESH from `GET /resume/history` (see
+  /// [downloadableResumeIn]) — never from a cache, because "did the résumé
   /// change since it was last offered" (case 2) is exactly what a cached read
   /// would answer wrongly. A read already on its way is shared, so a refocus
   /// racing an offer still costs one request.
-  Future<DownloadableResume?> _downloadableResume() {
+  ///
+  /// EMPTY means unknown: the repository answers a failed read (offline, a
+  /// 5xx, a timeout) with the same empty history as "no résumé yet".
+  Future<ResumeHistory> _resumeHistory() {
     final ResumeRepository? repo = _resumeRepo;
-    if (repo == null) return Future<DownloadableResume?>.value();
-    return _downloadableRead ??= _readDownloadableResume(
+    if (repo == null) return Future<ResumeHistory>.value(ResumeHistory.empty);
+    return _historyRead ??= _readResumeHistory(
       repo,
-    ).whenComplete(() => _downloadableRead = null);
+    ).whenComplete(() => _historyRead = null);
   }
 
-  /// The history read in flight, if any — see [_downloadableResume].
-  Future<DownloadableResume?>? _downloadableRead;
+  /// The history read in flight, if any — see [_resumeHistory].
+  Future<ResumeHistory>? _historyRead;
 
-  Future<DownloadableResume?> _readDownloadableResume(
-    ResumeRepository repo,
-  ) async {
+  Future<ResumeHistory> _readResumeHistory(ResumeRepository repo) async {
     ResumeHistory history;
     try {
       history = await repo.loadResumeHistory();
     } catch (_) {
       // The contract is "never throws"; anything that does anyway is an
-      // unreadable history, and an unreadable history offers no download.
+      // unreadable history — read as the empty one, which offers nothing.
       history = ResumeHistory.empty;
     }
-    return downloadableResumeIn(history);
+    // Every read that SAID something is remembered; an empty one says nothing.
+    if (history.items.isNotEmpty) _lastDownloadable = downloadableResumeIn(history);
+    return history;
+  }
+
+  /// The downloadable résumé the last non-empty history read found (null when
+  /// it found none) — so an ask answered while the history cannot be read
+  /// still says what was last SEEN: ready, or still rendering.
+  DownloadableResume? _lastDownloadable;
+
+  /// The render state (`'pending' | 'rendered' | 'failed'`) of [resumeId]'s
+  /// PDF as `GET /resume/history` reports it, or null when unknown — what the
+  /// tile's download waits on between mints (`pollSignedResumeUrl`): unlike a
+  /// mint, this read is not charged to the server's per-IP download cap.
+  Future<String?> resumeRenderStatus(String resumeId) async {
+    for (final ResumeHistoryItem item in (await _resumeHistory()).items) {
+      if (item.resumeId == resumeId) return item.renderStatus;
+    }
+    return null;
   }
 
   /// Case 2 inside the chat — see [ChatResumeChangeWatchRequested]. Compared
@@ -2896,7 +2985,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     for (int attempt = 0; attempt < resumeChangeWatchAttempts; attempt++) {
       await Future<void>.delayed(resumeChangeWatchInterval);
       if (isClosed || _conversationMoves != movesAtStart) return;
-      final DownloadableResume? resume = await _downloadableResume();
+      final DownloadableResume? resume = downloadableResumeIn(
+        await _resumeHistory(),
+      );
       if (isClosed || _conversationMoves != movesAtStart) return;
       if (resume == null) continue;
       if (!isUnofferedResume(await _offers.lastOffered(), resume)) continue;
@@ -2916,6 +3007,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String label = event.label.trim();
     if (label.isEmpty || state.sending) return;
     _conversationMoves++;
+    // A render that failed since the chip was served is answered here too,
+    // with the honest line — only "no résumé at all" falls through.
     if (await _answerResumeDownloadRequest(label, emit)) return;
     // No résumé to download after all (or no résumé repository in this graph):
     // let the server answer the words, rather than leave the tap unanswered.

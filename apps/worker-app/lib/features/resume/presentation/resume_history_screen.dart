@@ -20,7 +20,6 @@ import '../../trade_form/presentation/open_trade_form.dart';
 import '../../profile_tab/domain/profile_summary_repository.dart';
 import 'cubit/resume_cubit.dart';
 import 'resume_preview_screen.dart';
-import 'widgets/resume_action_row.dart';
 import 'widgets/resume_draft_card.dart';
 import 'widgets/resume_file_card.dart';
 import 'widgets/resume_history_section.dart';
@@ -253,9 +252,11 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
             ResumeFileCard(
               item: item,
               summary: _summary,
-              actions: ResumeActionRow(
-                share: ResumeShareButton(resumeId: item.resumeId),
-                download: ResumeDownloadButton(resumeId: item.resumeId),
+              // A NAHI BANI card's PDF failed: its pair is drawn disabled with
+              // the reason, exactly as on the Resume tab.
+              actions: ResumePdfActions(
+                resumeId: item.resumeId,
+                pdfFailed: item.hasFailedRender,
               ),
             ),
             const SizedBox(height: 12),

@@ -159,6 +159,140 @@ void main() {
         );
       }
     });
+
+    // The investor demo's four phrases — on the companion AND on a tab that is
+    // on the interview (an unfinished form, or the companion lever off).
+    test('the four demo asks are asks on the companion and on an interview', () {
+      for (final String ask in <String>[
+        'resume dikhao',
+        'resume bhej do',
+        'resume download',
+        'pdf bhej do',
+      ]) {
+        expect(isResumeDownloadRequest(ask), isTrue, reason: ask);
+        expect(
+          isResumeDownloadRequest(ask, requireResumeWord: true),
+          isTrue,
+          reason: '$ask (interview)',
+        );
+      }
+    });
+
+    test('requireResumeWord: a download word that ASKS for the file is a request; '
+        'one that only mentions a PDF or a download is still an answer', () {
+      for (final String ask in <String>[
+        'pdf bhej do',
+        'PDF bhej do bhai',
+        'pdf dikhao',
+        'pdf dikha do',
+        'mujhe pdf dikhaiye',
+        'पीडीएफ भेज दो',
+      ]) {
+        expect(
+          isResumeDownloadRequest(ask, requireResumeWord: true),
+          isTrue,
+          reason: ask,
+        );
+      }
+      for (final String answer in <String>[
+        'PDF banana aata hai',
+        'app download kiya hai',
+        'download',
+        'pdf bheja tha',
+        'kya maine pdf bheja tha',
+        'drawing ki pdf padh leta hoon',
+        // A worker DESCRIBING a skill — ability, infinitive, English verbs —
+        // is answering the open question, never asking for the file.
+        'haan, pdf print kar leta hoon',
+        'computer pe pdf dekh sakta hoon',
+        'mobile se pdf bhejna aata hai',
+        'WhatsApp pe PDF bhejna aata hai',
+        'Haan, mobile se PDF bhej sakta hoon',
+        'PDF print karna aata hai',
+        'MS Office, PDF, print sab aata hai',
+        'files download karke email se send karta hoon',
+        'download karke dekh sakta hoon',
+        'pdf send kar deta hoon',
+        'pdf kahan milega',
+        'पीडीएफ भेज दोगे?',
+        // A show word beside an edit / new-résumé / "in it" word stays the
+        // server's, exactly as it does for a named résumé.
+        'pdf mein naam badal ke bhej do',
+        'naya pdf bana ke dikhao',
+      ]) {
+        expect(
+          isResumeDownloadRequest(answer, requireResumeWord: true),
+          isFalse,
+          reason: answer,
+        );
+      }
+    });
+
+    // The dictation mic's Send posts the recogniser's text as it came, and a
+    // Hindi-locale recogniser writes a spoken "resume dikhao" in Hindi script.
+    test('a SPOKEN ask in Hindi script is an ask — both nukta spellings', () {
+      for (final String ask in <String>[
+        'रिज़्यूमे दिखाओ',
+        'रिज़्यूमे दिखाओ',
+        'मेरा रिज़्यूमे भेज दो',
+        'रिज्यूमे भेजिए',
+        'रिज़्यूमे डाउनलोड',
+        'मेरा रिज़्यूमे कहाँ है',
+        'पीडीएफ़ भेज दो',
+      ]) {
+        expect(isResumeDownloadRequest(ask), isTrue, reason: ask);
+        expect(
+          isResumeDownloadRequest(ask, requireResumeWord: true),
+          isTrue,
+          reason: '$ask (interview)',
+        );
+      }
+    });
+
+    test('Hindi-script TALK about the résumé, an edit or a new one is never an ask', () {
+      for (final String talk in <String>[
+        'क्या कंपनी ने मेरा रिज़्यूमे देखा?',
+        'रिज़्यूमे भेजा था',
+        'रिज़्यूमे दिखाया था',
+        'रिज़्यूमे में वेल्डिंग भी दिखाओ',
+        'नया रिज़्यूमे बना के दिखाओ',
+        'रिज़्यूमे बदल के भेज दो',
+        'नौकरी दिखाओ',
+        // WHOLE tokens, like the Latin rule: "will you send it?" is talk.
+        'रिज़्यूमे कंपनी को भेज दोगे?',
+        'क्या आप मेरा रिज़्यूमे कंपनी को भेज दोगे',
+        // The edit / new-résumé words a recogniser writes in Hindi script.
+        'रिज़्यूम चेंज करके भेज दो',
+        'रिज़्यूम गलत है ठीक करके भेज दो',
+        'नयी रिज़्यूम भेज दो',
+        'न्यू रिज़्यूम दिखाओ',
+        'स्किल जोड़कर रिज्यूमे दिखाओ',
+      ]) {
+        expect(isResumeDownloadRequest(talk), isFalse, reason: talk);
+      }
+    });
+
+    test('a precomposed nukta letter reads exactly like letter + nukta sign — '
+        'in the ask AND in its guards', () {
+      // ज़ (U+095B), फ़ (U+095E), ड़ (U+095C) and ग़ (U+095A) as ONE code point.
+      final String za = String.fromCharCode(0x095B);
+      final String fa = String.fromCharCode(0x095E);
+      final String rra = String.fromCharCode(0x095C);
+      final String gha = String.fromCharCode(0x095A);
+      for (final String ask in <String>[
+        'रि$za्यूमे दिखाओ',
+        'रि$za्यूमे डाउनलोड',
+        'पीडीए$fa भेज दो',
+      ]) {
+        expect(isResumeDownloadRequest(ask, requireResumeWord: true), isTrue, reason: ask);
+      }
+      for (final String edit in <String>[
+        'स्किल जो$rraकर रिज्यूमे दिखाओ',
+        'रि$za्यूम $ghaलत है ठीक करके भेज दो',
+      ]) {
+        expect(isResumeDownloadRequest(edit), isFalse, reason: edit);
+      }
+    });
   });
 
   group('downloadableResumeIn', () {
@@ -172,6 +306,12 @@ void main() {
       expect(downloadableResumeIn(ResumeHistory.empty), isNull);
       expect(downloadableResumeIn(_history(current: false)), isNull);
       expect(downloadableResumeIn(_history(renderStatus: 'failed')), isNull);
+    });
+
+    test('a still-rendering résumé is flagged pending; rendered and unknown are not', () {
+      expect(downloadableResumeIn(_history(renderStatus: 'pending'))!.pending, isTrue);
+      expect(downloadableResumeIn(_history())!.pending, isFalse);
+      expect(downloadableResumeIn(_history(renderStatus: null))!.pending, isFalse);
     });
 
     test('isUnofferedResume: new, re-generated and RE-rendered count; a first render does not', () {
@@ -247,7 +387,7 @@ void main() {
 
     tearDown(() {
       ChatBloc.resumeChangeWatchInterval = const Duration(seconds: 4);
-      ChatBloc.resumeChangeWatchAttempts = 15;
+      ChatBloc.resumeChangeWatchAttempts = 30;
     });
 
     ChatBloc build({bool withResumes = true}) => ChatBloc(
@@ -784,6 +924,211 @@ void main() {
       expect(eventNames(), contains('chat_resume_download_tapped'));
       expect(await bloc.resumeDownloadUrl(_resumeId), 'mock://pdf');
       verify(() => resumes.resumeDownloadUrlFor(_resumeId)).called(1);
+      await bloc.close();
+    });
+
+    // ── Honest answers (G4) ────────────────────────────────────────────────
+
+    test('an ask while the PDF is still being made says so — never "taiyaar hai" — '
+        'and still offers the tile, which waits the render out', () async {
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(renderStatus: 'pending'));
+      final ChatBloc bloc = await openTab();
+      bloc.add(const ChatMessageSent('naye jobs dikhao'));
+      await pumpEventQueue();
+
+      bloc.add(const ChatMessageSent('resume dikhao'));
+      await pumpEventQueue();
+
+      expect(bloc.state.messages.last.text, kChatResumeDownloadPendingReply);
+      expect(bloc.state.messages.last.ttsText, kChatResumeDownloadPendingReplyTts);
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.downloadableResumeId, _resumeId);
+      verifyNever(
+        () => repo.sendCompanionMessage('resume dikhao', submissionId: any(named: 'submissionId')),
+      );
+      await bloc.close();
+    });
+
+    test('on the companion, every demo ask for a résumé whose PDF FAILED gets the '
+        'honest line and no tile — and is never posted', () async {
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(renderStatus: 'failed'));
+      final ChatBloc bloc = await openTab();
+
+      for (final String ask in <String>[
+        'resume dikhao',
+        'resume bhej do',
+        'resume download',
+        'pdf bhej do',
+      ]) {
+        bloc.add(ChatMessageSent(ask));
+        await pumpEventQueue();
+        final List<ChatMessage> tail = bloc.state.messages.sublist(
+          bloc.state.messages.length - 2,
+        );
+        expect(tail.map((ChatMessage m) => m.text), <String>[ask, kChatResumeDownloadFailedReply]);
+        expect(tail.last.ttsText, kChatResumeDownloadFailedReplyTts);
+        expect(bloc.state.resumeDownloadTile, isFalse, reason: ask);
+        expect(bloc.state.downloadableResumeId, isNull, reason: ask);
+      }
+      verifyNever(
+        () => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId')),
+      );
+      // Nothing was offered, so nothing is counted as offered.
+      expect(eventNames(), isNot(contains('chat_resume_download_offered')));
+      await bloc.close();
+    });
+
+    test('on an INTERVIEW, an ask for a failed PDF is answered, never captured as '
+        'the open question\'s answer', () async {
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(renderStatus: 'failed'));
+      final ChatBloc bloc = build()
+        ..add(const ChatStarted())
+        ..add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isFalse);
+
+      bloc.add(const ChatMessageSent('mera resume download karna hai'));
+      await pumpEventQueue();
+
+      expect(bloc.state.messages.last.text, kChatResumeDownloadFailedReply);
+      expect(bloc.state.resumeDownloadTile, isFalse);
+      verifyNever(
+        () => repo.sendMessage(
+          any(),
+          submissionId: any(named: 'submissionId'),
+          answerSource: any(named: 'answerSource'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    test('the server download chip, tapped after the render failed: the honest '
+        'line, nothing posted', () async {
+      final ChatBloc bloc = await openTab();
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(renderStatus: 'failed'));
+
+      bloc.add(const ChatResumeDownloadChipTapped('Resume download karein'));
+      await pumpEventQueue();
+
+      expect(bloc.state.messages.last.text, kChatResumeDownloadFailedReply);
+      expect(bloc.state.resumeDownloadTile, isFalse);
+      verifyNever(
+        () => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId')),
+      );
+      await bloc.close();
+    });
+
+    test('"pdf bhej do" on an interview is an ask, not the open question\'s answer', () async {
+      final ChatBloc bloc = build()
+        ..add(const ChatStarted())
+        ..add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isFalse);
+      bloc.add(const ChatMessageSent('5 saal'));
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isFalse);
+
+      bloc.add(const ChatMessageSent('pdf bhej do'));
+      await pumpEventQueue();
+
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.messages.last.text, kChatResumeDownloadReply);
+      verifyNever(
+        () => repo.sendMessage(
+          'pdf bhej do',
+          submissionId: any(named: 'submissionId'),
+          answerSource: any(named: 'answerSource'),
+        ),
+      );
+      await bloc.close();
+    });
+
+    // ── An unreadable history is not "no résumé" (G1 / G2) ─────────────────
+
+    test('a refocus whose history read FAILED keeps the tile on screen, with its id', () async {
+      final ChatBloc bloc = await openTab();
+      expect(bloc.state.resumeDownloadTile, isTrue);
+
+      // The worker flips away and back; that read fails — offline, a 5xx and a
+      // timeout all come back from the repository as the empty history.
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) async => ResumeHistory.empty);
+      bloc.add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.downloadableResumeId, _resumeId);
+      await bloc.close();
+    });
+
+    test('a history that SAYS the render failed does take the tile away', () async {
+      final ChatBloc bloc = await openTab();
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(renderStatus: 'failed'));
+
+      bloc.add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+
+      expect(bloc.state.resumeDownloadTile, isFalse);
+      expect(bloc.state.downloadableResumeId, isNull);
+      await bloc.close();
+    });
+
+    test('an ask whose history read failed still gets the tile for the résumé the '
+        'tab already offered — nothing posted', () async {
+      final ChatBloc bloc = await openTab();
+      bloc.add(const ChatMessageSent('naye jobs dikhao'));
+      await pumpEventQueue();
+      expect(bloc.state.resumeDownloadTile, isFalse);
+
+      when(() => resumes.loadResumeHistory()).thenThrow(StateError('offline'));
+      bloc.add(const ChatMessageSent(_ask));
+      await pumpEventQueue();
+
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.downloadableResumeId, _resumeId);
+      expect(bloc.state.messages.last.text, kChatResumeDownloadReply);
+      verifyNever(
+        () => repo.sendCompanionMessage(_ask, submissionId: any(named: 'submissionId')),
+      );
+      await bloc.close();
+    });
+
+    test('an ask whose read failed says what was last SEEN — a résumé last seen '
+        'rendering is never "taiyaar hai"', () async {
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(renderStatus: 'pending'));
+      final ChatBloc bloc = await openTab();
+      bloc.add(const ChatMessageSent('naye jobs dikhao'));
+      await pumpEventQueue();
+
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) async => ResumeHistory.empty);
+      bloc.add(const ChatMessageSent('resume dikhao'));
+      await pumpEventQueue();
+
+      expect(bloc.state.messages.last.text, kChatResumeDownloadPendingReply);
+      expect(bloc.state.resumeDownloadTile, isTrue);
+      expect(bloc.state.downloadableResumeId, _resumeId);
+      await bloc.close();
+    });
+
+    test('the tile\'s wait reads its résumé\'s render state from the history', () async {
+      when(
+        () => resumes.loadResumeHistory(),
+      ).thenAnswer((_) async => _history(renderStatus: 'pending'));
+      final ChatBloc bloc = await openTab();
+
+      expect(await bloc.resumeRenderStatus(_resumeId), 'pending');
+      expect(await bloc.resumeRenderStatus(_otherResumeId), isNull);
       await bloc.close();
     });
   });

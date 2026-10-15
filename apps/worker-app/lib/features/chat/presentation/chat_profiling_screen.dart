@@ -761,11 +761,20 @@ class _ChatViewState extends State<_ChatView>
   /// re-render lands seconds AFTER the pop; a one-shot check would read the
   /// old render, so a save starts the bounded watch instead.
   ///
+  /// [watch] — the bounded watch whatever the route pops. A section walk pops
+  /// null even after saving answers (its Back leaves mid-walk), and the
+  /// re-render its saves queue runs a full minute later (the server's
+  /// `RESUME_REFRESH_DELAY_MS`), so a one-shot check at the pop always read
+  /// the old render and the tile never came while the worker stayed. The
+  /// watch compares against the offer store, so a walk that changed nothing
+  /// offers nothing.
+  ///
   /// The onboarding `/chat` never re-checks: it offers no tile. The bloc is
   /// read NOW, never through a context after the gap.
   void _recheckResumeTileAfter(
     Future<Object?> pushed, {
     bool watchIfSaved = false,
+    bool watch = false,
   }) {
     if (!widget.assistantTab) return;
     final ChatBloc bloc = context.read<ChatBloc>();
@@ -774,7 +783,7 @@ class _ChatViewState extends State<_ChatView>
         (Object? result) {
           if (bloc.isClosed) return;
           bloc.add(
-            watchIfSaved && result != null
+            watch || (watchIfSaved && result != null)
                 ? const ChatResumeChangeWatchRequested()
                 : const ChatResumeDownloadOffered(),
           );
@@ -906,6 +915,7 @@ class _ChatViewState extends State<_ChatView>
             option.optionKey == kResumeMenuEducationKey) {
           _recheckResumeTileAfter(
             context.pushOnce(Routes.tradeForm, extra: option.optionKey),
+            watch: true,
           );
           return;
         }
@@ -1146,9 +1156,25 @@ class _ChatViewState extends State<_ChatView>
       );
   }
 
+  /// How many messages [_onMessagesChanged] last saw, so it can tell which
+  /// ones a change APPENDED.
+  int _messagesSeen = 0;
+
   void _onMessagesChanged(List<ChatMessage> messages) {
     if (messages.isEmpty) return;
-    final bool ownMessage = messages.last.fromWorker;
+    // The worker's own message is any bubble of theirs this change APPENDED,
+    // not just the last one: a "resume download" ask is answered on the phone
+    // in ONE emit (their bubble, then Bada Bhai's line), so the last bubble is
+    // the bot's — read alone, that took the worker's own ask for a received
+    // message and, with the keyboard up (it shrinks the list without moving
+    // it), left the answer and its download tile below the fold.
+    final int appendedFrom = messages.length > _messagesSeen
+        ? _messagesSeen
+        : messages.length - 1;
+    _messagesSeen = messages.length;
+    final bool ownMessage = messages
+        .skip(appendedFrom)
+        .any((ChatMessage m) => m.fromWorker);
     if (ownMessage || _isNearBottom) {
       // Own message always follows the worker down; a received one only when
       // they were already reading the bottom.
@@ -1841,8 +1867,17 @@ class _ChatViewState extends State<_ChatView>
         // when the worker is reading the bottom, exactly as a reply would be —
         // and touch nothing else (ticks, custom-answer mode stay as they are).
         child: BlocListener<ChatBloc, ChatState>(
-          listenWhen: (ChatState prev, ChatState curr) =>
-              !prev.resumeDownloadTile && curr.resumeDownloadTile,
+          listenWhen: (ChatState prev, ChatState curr) {
+            // A transcript REPLACED by a shorter one (the recap taking over an
+            // interview, a fresh session) is not an append, and the listener
+            // above never sees it. Put back the count [_onMessagesChanged]
+            // measures appends from — left stale, the next ask's own bubble,
+            // landing in one emit with its answer, read as a received message.
+            if (curr.messages.length < prev.messages.length) {
+              _messagesSeen = curr.messages.length;
+            }
+            return !prev.resumeDownloadTile && curr.resumeDownloadTile;
+          },
           listener: (BuildContext context, ChatState state) {
             if (_isNearBottom) _animateToBottom();
           },
@@ -3096,7 +3131,15 @@ class _ChatViewState extends State<_ChatView>
         child: ChatResumeDownloadTile(
           key: ValueKey<String>('chat_resume_download_tile:$resumeId'),
           mintUrl: () => bloc.resumeDownloadUrl(resumeId),
+          // A still-rendering PDF is waited out on the history read, never on
+          // repeated mints — each mint is charged to the server's download cap.
+          renderStatus: () => bloc.resumeRenderStatus(resumeId),
           onTapped: () => bloc.add(const ChatResumeDownloadTapped()),
+          // The render failed since the offer: re-read the history, which
+          // takes away a tile whose every tap would meet the same 409.
+          onPdfUnavailable: () {
+            if (!bloc.isClosed) bloc.add(const ChatResumeDownloadOffered());
+          },
         ),
       ),
     );
