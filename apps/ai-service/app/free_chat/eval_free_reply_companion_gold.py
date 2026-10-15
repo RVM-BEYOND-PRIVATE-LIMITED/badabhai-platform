@@ -17,6 +17,11 @@ cases, the companion memory's turns (worker/bot pairs, never the recap), and
 profiling set's (the replay's case-id pattern is the same; ``set_digest`` keeps the two runs
 apart anyway).
 
+#2304 — WHAT THE RÉSUMÉ SAYS. A case may carry ``resume_facts``, the rows the API sends (the edit
+snapshot's shape), and ``mentions``: the values a GROUNDED answer names, at least one of them
+(case-folded, commas ignored, so "₹25,000" names "25000"). The CLI counts the grounded answers on
+those cases; the served rate is still the replay's.
+
 WHAT IT GUARDS. Career questions the free-chat rules now answer on this screen (typical ₹ ranges
 and company names, ADR-0055 ruling 2), a follow-up that needs the summary or the memory, greetings
 (§9 R3), R37's mild jab, the identity rule (R45), and the refusals the reply's own layer must keep:
@@ -54,6 +59,10 @@ class Case(NamedTuple):
     identity: bool = False
     #: ADR-0055 §9 R4: the profiling chat's rolling summary, as the API stored it (English notes).
     summary: str | None = None
+    #: #2304: what the résumé says, as the API sends it (`FreeChatReplyInput.resume_facts`).
+    resume_facts: tuple[dict, ...] | None = None
+    #: #2304: the values a grounded answer names (at least one), checked by the CLI.
+    mentions: tuple[str, ...] = ()
 
     @property
     def group(self) -> str:
@@ -79,6 +88,8 @@ def request_body(case: Case) -> dict:
     }
     if case.summary is not None:
         body["summary"] = case.summary
+    if case.resume_facts is not None:
+        body["resume_facts"] = [dict(row) for row in case.resume_facts]
     return body
 
 
@@ -101,6 +112,33 @@ _WELDER_NOTES = (
     "- Worker is a welder, 3-7 years, interested in work abroad.\n"
     "- Asked about the 6G welding certificate; Bada Bhai suggested an approved training centre."
 )
+#: #2304: the résumé's edit section menu line (`RESUME_MENU_EDIT_REPLY`, the API's copy).
+_EDIT_MENU_LINE = "Resume ka kaun sa hissa theek karna hai. Neeche se chunein."
+#: A fabricated reply to a worker telling their pay (a memory turn).
+_PAY_TOLD_ANSWER = "CNC turner ke liye yeh theek hai. Tajurba badhne par aur badhta hai."
+
+
+def _pref(**fields: str) -> dict:
+    """The résumé's preferences row as the API sends it."""
+    return {"ref": "pref", "section": "preferences", "fields": fields}
+
+
+def _rows(prefix: str, section: str, field: str, *values: str) -> tuple[dict, ...]:
+    """One résumé row per value (skills, cities), refs numbered as the API mints them."""
+    return tuple(
+        {"ref": f"{prefix}{i}", "section": section, "fields": {field: value}}
+        for i, value in enumerate(values, start=1)
+    )
+
+
+_TURNER_RESUME = (
+    _pref(expected_salary_min="20000", expected_salary="25000", salary_period="month", shift="day"),
+    *_rows("s", "skills", "skill", "CNC turning", "Fanuc programming", "Vernier caliper"),
+    {"ref": "e1", "section": "employment",
+     "fields": {"employer_name": "Kalyani Steels", "role_label": "CNC Turner", "start_ym": "2018-04"}},
+    *_rows("pc", "preferences", "preferred_cities", "Pune", "Chakan"),
+)  # fmt: skip
+
 _TIRED_NOTES = (
     "- Worker is an electrician on rotating shifts.\n"
     "- Said last time that the night shifts were tiring; Bada Bhai suggested rest and water."
@@ -202,6 +240,36 @@ CASES: list[Case] = [
     Case("reply-143", "career", "hi, welding ke baad aage kya seekhun", ANSWER,
          trade_label="Welder", experience_bucket="1-3"),
     Case("reply-144", "casual", "aur sunao, kya naya hai", ANSWER),
+
+    # ── #2304, added BEFORE its baseline (9): what the résumé says (owner rulings 2026-10-15). A
+    # question about their own résumé is answered FROM it (`mentions`), or from the earlier turns;
+    # a worker telling their pay gets a reply to what they said; a "no" after the edit menu is
+    # talk. Every case carries the facts the API would send for a CNC turner's résumé. ──
+    Case("reply-145", "career", "meri pagar kitni hai", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME,
+         mentions=("20000", "25000")),
+    Case("reply-146", "career", "mere resume mein kaun kaun si skills likhi hain", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME,
+         mentions=("cnc turning", "fanuc", "vernier")),
+    Case("reply-147", "career", "resume mein kaunsa shehar likha hai", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME,
+         mentions=("pune", "chakan")),
+    Case("reply-148", "career", "kab se CNC turner ka kaam kar raha hoon, resume mein kya hai",
+         ANSWER, trade_label="CNC Turner", experience_bucket="3-7",
+         resume_facts=_TURNER_RESUME, mentions=("2018",)),
+    Case("reply-149", "career", "What salary is on my resume?", ANSWER, reply_language="english",
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME,
+         mentions=("20000", "25000")),
+    Case("reply-150", "career", "maine pehle kitni kamai batayi thi", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME,
+         turns=after(("abhi 23000 kamata hu", _PAY_TOLD_ANSWER)), mentions=("23000",)),
+    Case("reply-151", "career", "abhi CNC turner hoon, 23 hazaar milte hain", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME),
+    Case("reply-152", "career", "mere resume mein kaunsa certificate hai", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME),
+    Case("reply-153", "casual", "nahi, resume theek hai", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME,
+         turns=after(("resume edit karna hai", _EDIT_MENU_LINE))),
 ]
 # fmt: on
 

@@ -16,7 +16,8 @@
     "worker_context",
     "summary",
     "reply_language",
-    "surface"
+    "surface",
+    "resume_facts"
   ],
   "FreeChatAnswer": ["status", "lines", "followup_chips", "ai_metadata"],
   "FreeChatRefuse": ["status", "topic", "ai_metadata"],

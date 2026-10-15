@@ -41,6 +41,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ..ai import prompt_registry
+from ..companion import edit_parse as edit_parse_logic
 from ..companion.classify import mask_recent_turns
 from ..config import get_settings
 from ..contracts import (
@@ -70,7 +71,7 @@ from ..free_chat.prompts import (
     build_free_summary_messages,
 )
 from ..llm_input_policy import llm_input_gate
-from ..pseudonymize import PseudonymizationResult
+from ..pseudonymize import PseudonymizationResult, TokenScope
 from ._shared import logger, resolve_prompt, router
 
 api_router = APIRouter()
@@ -174,8 +175,11 @@ async def free_chat_reply(body: FreeChatReplyInput) -> FreeChatAnswer | FreeChat
     the parser maps every unreadable output to ``refuse/unsafe_other``, and the API re-validates
     the content before serving a line.
     """
+    # ONE token scope for the message and the résumé's values (#2304), as on the edit parse, so
+    # the same employer carries the same placeholder in both. Request-scoped; holds no original.
+    scope = TokenScope()
     raw_pii = get_settings().ai_raw_pii_enabled
-    result = llm_input_gate(body.text, raw=raw_pii)
+    result = llm_input_gate(body.text, raw=raw_pii, scope=scope)
     if result.blocked:
         logger.warning(
             "free chat reply blocked", extra={"extra": {"reason": result.blocked_reason}}
@@ -197,6 +201,13 @@ async def free_chat_reply(body: FreeChatReplyInput) -> FreeChatAnswer | FreeChat
         message_label=reply_prompt.message_label,
         # §11 (R39): the language CODE chose, rendered from a closed table (nothing to mask).
         reply_language=body.reply_language,
+        # #2304: what the résumé says, on the companion surface only. Stored values pass the
+        # gateway like the edit snapshot's; a value it refuses is nulled, and so not rendered.
+        resume_facts=(
+            edit_parse_logic.mask_snapshot(body.resume_facts, raw=raw_pii, scope=scope)
+            if body.surface == "companion" and body.resume_facts
+            else None
+        ),
     )
     content, meta = await router.run(
         FREE_REPLY_TASK_TYPE,

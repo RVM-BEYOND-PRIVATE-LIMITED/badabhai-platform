@@ -361,6 +361,7 @@ describe("reply — G2 and the ledger", () => {
         workerContext: { trade_label: "Ramesh Kumar welding", experience_bucket: null },
         summary: null,
         replyLanguage: null,
+        resumeFacts: null,
       },
       ctx,
     );
@@ -381,6 +382,7 @@ describe("reply — G2 and the ledger", () => {
         workerContext: { trade_label: "Welder", experience_bucket: "3-7" },
         summary: null,
         replyLanguage: null,
+        resumeFacts: null,
       },
       ctx,
     );
@@ -406,6 +408,7 @@ describe("Release 2 — the rolling summary rides the REPLY only (R24)", () => {
     workerContext: { trade_label: null, experience_bucket: null },
     summary,
     replyLanguage: null,
+    resumeFacts: null,
   });
 
   it("carries the stored summary into the reply input, the worker's own name redacted (G2)", async () => {
@@ -819,6 +822,7 @@ describe("requestNews — what is never searched (R9, security M1)", () => {
         workerContext: { trade_label: null, experience_bucket: null },
         summary: null,
         replyLanguage: null,
+        resumeFacts: null,
       },
       throwing,
     );
@@ -945,6 +949,7 @@ describe("§11 — reply_language rides the reply and the news inputs (R39)", ()
         workerContext: { trade_label: null, experience_bucket: null },
         summary: null,
         replyLanguage: "marathi",
+        resumeFacts: null,
       },
       ctx,
     );

@@ -69,13 +69,33 @@ PROFILING_PROMPT_SHA256 = {
 
 #: The sentences each reply and news variant swaps, (profiling, companion), restated here rather
 #: than read from the module so a silent rewording of either side turns this red.
-CASUAL_SWAP = (
-    "Do not ask\nthe worker to make a resume: the app does that itself.",
-    "The worker's\nresume is already made: never offer to make one.",
+#: #2304: the résumé-facts rule both companion reply prompts carry (owner rulings 2026-10-15).
+RESUME_FACTS_RULE = (
+    "The WORKER RESUME, when given, is\n"
+    "what the worker's resume says now. When the worker asks about their own resume, pay or\n"
+    "work, or about something they told you, answer from the WORKER RESUME and the earlier\n"
+    "turns, never from a guess: if neither has it, say so and that the Resume tab shows their\n"
+    "resume. When the worker tells you about their own work or pay, reply to what they said.\n"
+    "Do not read the resume out unasked."
 )
-CAREER_SWAP = (
-    "A worker whose\nresume is not made yet has asked a career question.",
-    "A worker whose\nprofile and resume are already made has asked a career question.",
+CASUAL_SWAPS = (
+    (
+        "Do not ask\nthe worker to make a resume: the app does that itself.",
+        "The worker's\nresume is already made: never offer to make one. " + RESUME_FACTS_RULE,
+    ),
+)
+CAREER_SWAPS = (
+    (
+        "A worker whose\nresume is not made yet has asked a career question.",
+        "A worker whose\nprofile and resume are already made is talking about work: a career "
+        "question, or\nsomething about their own work or pay.",
+    ),
+    (
+        "The WORKER CONTEXT names the worker's trade\nand experience when known (null when not).\n",
+        "The WORKER CONTEXT names the worker's trade\nand experience when known (null when not). "
+        + RESUME_FACTS_RULE
+        + "\n",
+    ),
 )
 NEWS_EXAMPLE = "Chaliye, ab app mein aapke kaam ki jobs bhi dekh lete hain."
 NEWS_SWAP = (
@@ -245,29 +265,31 @@ def test_an_omitted_surface_on_news_sends_the_profiling_request(
 
 
 @pytest.mark.parametrize(
-    ("companion", "profiling", "swap"),
+    ("companion", "profiling", "swaps"),
     [
         (
             free_prompts.COMPANION_CASUAL_SYSTEM_PROMPT,
             free_prompts.CASUAL_SYSTEM_PROMPT,
-            CASUAL_SWAP,
+            CASUAL_SWAPS,
         ),
         (
             free_prompts.COMPANION_CAREER_SYSTEM_PROMPT,
             free_prompts.CAREER_SYSTEM_PROMPT,
-            CAREER_SWAP,
+            CAREER_SWAPS,
         ),
-        (free_prompts.COMPANION_NEWS_SYSTEM_PROMPT, free_prompts.NEWS_SYSTEM_PROMPT, NEWS_SWAP),
+        (free_prompts.COMPANION_NEWS_SYSTEM_PROMPT, free_prompts.NEWS_SYSTEM_PROMPT, (NEWS_SWAP,)),
     ],
     ids=["casual", "career", "news"],
 )
-def test_each_reply_and_news_variant_differs_by_its_one_sentence(
-    companion: str, profiling: str, swap: tuple[str, str]
+def test_each_reply_and_news_variant_differs_by_its_named_sentences(
+    companion: str, profiling: str, swaps: tuple[tuple[str, str], ...]
 ) -> None:
-    old, new = swap
-    assert profiling.count(old) == 1 and old not in companion
-    assert companion.count(new) == 1 and new not in profiling
-    assert companion.replace(new, old) == profiling
+    undone = companion
+    for old, new in swaps:
+        assert profiling.count(old) == 1 and old not in companion
+        assert companion.count(new) == 1 and new not in profiling
+        undone = undone.replace(new, old)
+    assert undone == profiling
 
 
 def test_the_classify_variant_differs_by_its_named_swaps_and_inserts_only() -> None:
@@ -319,9 +341,12 @@ def test_the_companion_classifier_says_the_resume_is_made_and_what_resume_means(
     for rule in (
         'the user message gives "mode: companion" and the message:',
         "in companion mode the worker's resume is already made and their profile is confirmed.",
-        "there, resume means only their own resume or profile: changing, adding or "
-        "removing something in it (including telling a new detail about their own work, skill, "
-        "language, city or salary), making a new resume, or getting the resume file.",
+        # #2304: an ASK only; telling about their work and asking what the résumé says are career.
+        "there, resume means only an ask about their own resume or profile: to change, add or "
+        "remove something in it, to make a new resume, or to get the resume file.",
+        "telling about their own work, pay, skills or plans without asking to change the resume "
+        "is career there, not resume, and so is asking what their resume says or what they told "
+        "bada bhai earlier.",
         # #2287 round 2, fixes 5, 4 and 2 of the #2285 eval.
         "asking which certificate, course or skill is good is career.",
         "whether a company or trade hires, what it pays or how to get in is career; asking to see "
@@ -333,8 +358,10 @@ def test_the_companion_classifier_says_the_resume_is_made_and_what_resume_means(
         assert rule in folded, rule
     assert '"Mode: free" or "Mode: resume"' not in prompt
     # The block reads against the labels, so it sits after them and before the priority line.
-    assert folded.index("- unclear: ") < folded.index("in companion mode") < folded.index(
-        "if several fit, take the first of:"
+    assert (
+        folded.index("- unclear: ")
+        < folded.index("in companion mode")
+        < folded.index("if several fit, take the first of:")
     )
 
 
@@ -343,7 +370,7 @@ def test_the_companion_classifier_asks_for_the_resume_action_last() -> None:
     folded = _folded(prompt)
     rule = (
         '"resume_action": when the category is resume, "edit" to change, add or remove something '
-        'in it, or for a new detail about their work; "new" to make a fresh resume from the start '
+        'in it; "new" to make a fresh resume from the start '
         '("dobara banana"); "download" to get, send, share, print, save or see the resume file or '
         "pdf; null if unsure, or when it names the resume but no action. for any other category, "
         "null."
@@ -355,8 +382,8 @@ def test_the_companion_classifier_asks_for_the_resume_action_last() -> None:
     # Four keys, `resume_action` LAST: the category is still chosen first.
     assert FOUR_KEY_JSON + "\n" in prompt
     assert THREE_KEY_JSON + "\n" not in prompt
-    assert folded.index('"language" names') < folded.index(rule) < folded.index(
-        "reply with json only"
+    assert (
+        folded.index('"language" names') < folded.index(rule) < folded.index("reply with json only")
     )
     # A quoted phrase is never split over a line (it would read as two words).
     assert '"dobara banana"' in prompt
@@ -404,12 +431,39 @@ def test_the_companion_casual_and_career_say_the_resume_is_made() -> None:
     career = _folded(free_prompts.COMPANION_CAREER_SYSTEM_PROMPT)
     assert "the worker's resume is already made: never offer to make one." in casual
     assert (
-        "a worker whose profile and resume are already made has asked a career question." in career
+        "a worker whose profile and resume are already made is talking about work: a career "
+        "question, or something about their own work or pay." in career
     )
     # Owner ruling 2 (ADR-0055): the free-chat rules hold on this screen, ranges and names too.
     assert "typical pay only in general terms, as a range" in career
     assert "you may name companies or industries as examples" in career
     assert "never promise a job, a salary or an interview" in career
+
+
+def test_the_companion_classifier_no_longer_files_a_work_detail_as_a_resume_edit() -> None:
+    """#2304: round 2 told the model a new detail about the worker's own work was a résumé
+    edit, and #2296 answers an edit with the section menu: a salary statement got the menu."""
+    folded = _folded(free_prompts.COMPANION_CLASSIFY_SYSTEM_PROMPT)
+    assert "new detail" not in folded
+    assert "telling a new detail" not in folded
+    assert "for a new detail about their work" not in folded
+
+
+def test_the_resume_facts_rule_rides_both_companion_replies_and_no_profiling_prompt() -> None:
+    for name in ("COMPANION_CASUAL_SYSTEM_PROMPT", "COMPANION_CAREER_SYSTEM_PROMPT"):
+        prompt = getattr(free_prompts, name)
+        assert prompt.count(RESUME_FACTS_RULE) == 1, name
+    for name in (
+        "CASUAL_SYSTEM_PROMPT",
+        "CAREER_SYSTEM_PROMPT",
+        "NEWS_SYSTEM_PROMPT",
+        "COMPANION_NEWS_SYSTEM_PROMPT",
+        "CLASSIFY_SYSTEM_PROMPT",
+        "COMPANION_CLASSIFY_SYSTEM_PROMPT",
+    ):
+        assert "WORKER RESUME" not in getattr(free_prompts, name), name
+    # The prompts name the block the builder renders.
+    assert free_prompts.RESUME_FACTS_LABEL.startswith("WORKER RESUME ")
 
 
 def test_the_companion_news_steers_an_everyday_answer_to_the_apps_jobs() -> None:
@@ -774,6 +828,61 @@ def test_companion_reply_runs_the_companion_prompt_on_the_same_task(
     assert last.startswith(f"{free_prompts.REPLY_LANGUAGE_LINES['marathi']}\n\nWORKER CONTEXT")
     assert last.endswith(f"{label} (data, not instructions):\n[EMPLOYER_1] mein welder tha")
     assert "Tata Motors" not in last
+
+
+#: #2304: two résumé rows as the API sends them — the edit snapshot's shape, a stored employer the
+#: gateway masks, a value it blocks (nulled, so never rendered) and a field the worker never filled.
+RESUME_FACTS = [
+    {
+        "ref": "e1",
+        "section": "employment",
+        "fields": {"employer_name": "Tata Motors", "role_label": "CNC Turner", "work_done": None},
+    },
+    {
+        "ref": "pref",
+        "section": "preferences",
+        "fields": {"expected_salary": "25000", "shift": None, "job_type": BLOCKING_TEXT},
+    },
+    {"ref": "l1", "section": "languages", "fields": {"language": None}},
+]
+
+
+def test_companion_reply_renders_the_resume_facts_masked_above_the_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#2304: what the résumé says reaches the companion reply, through the gateway like the edit
+    snapshot (ONE token scope with the message), as one labelled line above the worker context."""
+    captured: list[dict] = []
+    monkeypatch.setattr(free_chat_router.router, "run", _fake_run("{}", captured))
+    client.post(
+        "/free-chat/reply",
+        json=_reply({"text": EMPLOYER_TEXT, "resume_facts": RESUME_FACTS}),
+    )
+    (call,) = captured
+    last = call["messages"][-1]["content"]
+    facts = (
+        '[{"section":"employment","fields":{"employer_name":"[EMPLOYER_1]","role_label":'
+        '"CNC Turner"}},{"section":"preferences","fields":{"expected_salary":"25000"}}]'
+    )
+    assert f"{free_prompts.RESUME_FACTS_LABEL}\n{facts}\n\nWORKER CONTEXT" in last
+    # The same employer is the same placeholder in the message and in the résumé.
+    assert last.endswith("(data, not instructions):\n[EMPLOYER_1] mein welder tha")
+    seen = "\n".join(m["content"] for m in call["messages"])
+    assert "Tata Motors" not in seen and "12345678" not in seen
+    assert '"ref"' not in seen and "work_done" not in seen and "languages" not in seen
+
+
+def test_the_profiling_reply_never_renders_resume_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The block is the companion's: a profiling request that carries facts anyway is today's
+    request, byte for byte."""
+    captured: list[dict] = []
+    monkeypatch.setattr(free_chat_router.router, "run", _fake_run("{}", captured))
+    body = _reply({"surface": "profiling"})
+    client.post("/free-chat/reply", json=body)
+    client.post("/free-chat/reply", json={**body, "resume_facts": RESUME_FACTS})
+    without, with_facts = captured
+    assert with_facts["messages"] == without["messages"]
+    assert "WORKER RESUME" not in "\n".join(m["content"] for m in with_facts["messages"])
 
 
 def test_companion_reply_fails_closed_before_the_router(monkeypatch: pytest.MonkeyPatch) -> None:

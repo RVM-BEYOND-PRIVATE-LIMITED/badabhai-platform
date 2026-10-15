@@ -1,10 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 import {
+  FREE_CHAT_RESUME_FACTS_MAX,
   FreeChatClassifyInputSchema,
   FreeChatNewsInputSchema,
   FreeChatReplyInputSchema,
   type CompanionCareerWorkerContext,
+  type CompanionEditSnapshotRow,
   type CompanionRecentTurn,
   type FreeChatClassifyMode,
   type FreeChatClassifyOutput,
@@ -55,6 +57,12 @@ export const REPLY_TURNS = 6;
 export const FREE_CHAT_NEWS_INFLIGHT_GRACE_MS = 60_000;
 /** The worker context's trade-label bound (`CompanionCareerWorkerContextSchema.trade_label`). */
 export const TRADE_LABEL_MAX = 64;
+/**
+ * #2304 — one résumé fact value as the reply reads it. The contract leaves a snapshot value
+ * unbounded (the edit parse sends whole values); a reply needs the gist, and forty rows of whole
+ * work descriptions would crowd out the conversation.
+ */
+export const RESUME_FACT_VALUE_MAX = 200;
 
 /** Who one model call belongs to — ids and the request's correlation only. */
 export interface FreeChatCallContext {
@@ -113,6 +121,13 @@ export interface FreeChatReplyRequest {
    * prompt's own rules in force; the free chat's turns always decide one.
    */
   readonly replyLanguage: FreeChatReplyLanguage | null;
+  /**
+   * #2304 — what the worker's résumé says (the edit snapshot's rows), on the Bada Bhai chat only,
+   * so a question about their own résumé is answered from it. REQUIRED for the same reason as
+   * `replyLanguage`: the profiling chat passes null on purpose, never by omission. Stored values,
+   * so the worker's own name is redacted out of each one here (G2) and the AI-service masks them.
+   */
+  readonly resumeFacts: readonly CompanionEditSnapshotRow[] | null;
 }
 
 /**
@@ -250,6 +265,7 @@ export class FreeChatModelCalls {
       summary: summaryForModel(req.summary, name),
       reply_language: req.replyLanguage,
       surface: ctx.surface,
+      resume_facts: resumeFactsForModel(req.resumeFacts, name),
     });
     if (!input.success) {
       this.logger.warn(
@@ -577,6 +593,34 @@ export function summaryForModel(summary: string | null, knownName: string | null
   if (summary === null) return null;
   const text = clip(redactKnownName(summary, knownName).trim(), FREE_CHAT_SUMMARY_MAX).trim();
   return text.length > 0 ? text : null;
+}
+
+/**
+ * #2304 — the résumé's rows as the reply's `resume_facts`: the worker's own name redacted out of
+ * every value (G2 — an employer or a work description may carry it), any `{{token}}` stripped, each
+ * value clipped to {@link RESUME_FACT_VALUE_MAX}, a value left blank nulled, and at most the
+ * contract's {@link FREE_CHAT_RESUME_FACTS_MAX} rows. Null for none: the reply then runs as before.
+ */
+export function resumeFactsForModel(
+  rows: readonly CompanionEditSnapshotRow[] | null | undefined,
+  knownName: string | null,
+): CompanionEditSnapshotRow[] | null {
+  // `undefined` too (a caller built without the type, e.g. a test double): no facts, never a throw.
+  if (rows == null || rows.length === 0) return null;
+  return rows.slice(0, FREE_CHAT_RESUME_FACTS_MAX).map((row) => ({
+    ref: row.ref,
+    section: row.section,
+    fields: Object.fromEntries(
+      Object.entries(row.fields).map(([field, value]) => {
+        if (value === null) return [field, null];
+        const text = clip(
+          redactKnownName(value.replace(/\{\{[^}]*\}\}/g, ""), knownName).trim(),
+          RESUME_FACT_VALUE_MAX,
+        ).trim();
+        return [field, text.length > 0 ? text : null];
+      }),
+    ),
+  }));
 }
 
 /**
