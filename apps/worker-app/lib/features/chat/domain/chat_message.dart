@@ -48,6 +48,7 @@ class ChatMessage extends Equatable {
     this.newsLinks = const <ChatNewsLink>[],
     this.bulleted = false,
     this.closesSession = false,
+    this.extractionReady = false,
   });
 
   final String text;
@@ -116,6 +117,18 @@ class ChatMessage extends Equatable {
   /// live close sets its marker from the turn itself.
   final bool closesSession;
 
+  /// #2331 — the session that closed on THIS bubble finished with the
+  /// build-profile CTA lit (the server's `extraction_ready`), so a COLD REOPEN
+  /// must draw the "Ho gaya — meri profile banaiye" button under the divider
+  /// without the worker sending anything.
+  ///
+  /// Set only by the transcript redraw (`ChatRepositoryImpl.loadHistory`), on
+  /// the SAME closing bubble as [closesSession] — one marker, one gate. Every
+  /// live bubble keeps `false`; the live close lights the bloc's flag from the
+  /// turn itself. It reads false on an abandoned session, a form handover and an
+  /// older API build, so those correctly show no CTA.
+  final bool extractionReady;
+
   ChatMessage copyWith({ChatSendStatus? status}) => ChatMessage(
     text: text,
     fromWorker: fromWorker,
@@ -135,6 +148,8 @@ class ChatMessage extends Equatable {
     bulleted: bulleted,
     // Preserved: a status flip must not move the "End of conversation" marker.
     closesSession: closesSession,
+    // Preserved: a status flip must not drop the #2331 done-CTA gate.
+    extractionReady: extractionReady,
   );
 
   @override
@@ -148,5 +163,6 @@ class ChatMessage extends Equatable {
     canReadAloud,
     bulleted,
     closesSession,
+    extractionReady,
   ];
 }

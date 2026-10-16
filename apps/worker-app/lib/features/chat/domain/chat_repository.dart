@@ -186,6 +186,11 @@ abstract interface class ChatRepository {
   /// caller then leaves its opener untouched. BEST-EFFORT: implementations
   /// return `[]` rather than throw, so a hydration miss can never block the chat
   /// from opening.
+  ///
+  /// #2331 — the LAST bubble that closed the session carries [ChatMessage]
+  /// `closesSession` (the "End of conversation" marker, #2258) and
+  /// `extractionReady` (the transcript's `extraction_ready`), so a cold reopen of
+  /// a FINISHED interview can redraw the build-profile CTA too.
   Future<List<ChatMessage>> loadHistory();
 
   /// ADR-0044 — the post-completion COMPANION's opening recap, or null.

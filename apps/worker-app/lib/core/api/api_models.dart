@@ -1615,7 +1615,11 @@ class CompanionHistoryMessage extends Equatable {
 /// from any older API build. Parsed with [DateTime.tryParse], so an absent,
 /// null, non-string or malformed value is simply null — never a throw (#371).
 class SessionTranscript {
-  const SessionTranscript({required this.messages, this.sessionEndedAt});
+  const SessionTranscript({
+    required this.messages,
+    this.sessionEndedAt,
+    this.extractionReady = false,
+  });
 
   factory SessionTranscript.fromJson(Map<String, dynamic> json) {
     final List<dynamic> rows = json['messages'] as List<dynamic>? ?? <dynamic>[];
@@ -1626,11 +1630,21 @@ class SessionTranscript {
           .map(SessionMessage.fromJson)
           .toList(),
       sessionEndedAt: ended is String ? DateTime.tryParse(ended) : null,
+      // #2331 — `json['extraction_ready'] == true`, the #371 discipline: an
+      // absent key, a null, or any non-bool value reads as false, never true.
+      extractionReady: json['extraction_ready'] == true,
     );
   }
 
   final List<SessionMessage> messages;
   final DateTime? sessionEndedAt;
+
+  /// #2331 — the server's `extraction_ready`: present (and true) only when the
+  /// session FINISHED on a close that lit the build-profile CTA live. ABSENT on a
+  /// live session, an ABANDONED one (idle sweep / `abandonInterview`) and a
+  /// form handover, and from any older API build — so this stays false there and
+  /// the CTA correctly never appears on a cold reopen of those.
+  final bool extractionReady;
 }
 
 /// One row of GET /chat/sessions/:sessionId/messages (#502 transcript
