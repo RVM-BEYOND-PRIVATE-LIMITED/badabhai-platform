@@ -1453,6 +1453,15 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatCompanionTurnServedV4Payload,
   },
+
+  // ADR-0057 (#2311) — one typed profiling-chat message, understood: the intent, what was filled,
+  // which lead-in lines were served. Ids, counts, closed enums and catalogue keys only; never the
+  // worker's words or the model's. Appended at the tail per the append-only protocol. v1.
+  "profiling.turn_understood": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfilingTurnUnderstoodPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

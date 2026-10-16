@@ -27,6 +27,7 @@ import { FreeChatService } from "./free-chat/free-chat.service";
 import { FreeChatNewsCap } from "./free-chat/free-chat-news-cap.store";
 import { FreeChatFoldLock } from "./free-chat/free-chat-fold.lock";
 import { FreeChatSummaryService } from "./free-chat/free-chat-summary.service";
+import { TurnUnderstandingService } from "./understanding/turn-understanding.service";
 import { WorkersModule } from "../workers/workers.module";
 import { WorkersService } from "../workers/workers.service";
 import { LlmTurnService } from "./llm-turn.service";
@@ -126,6 +127,8 @@ describe("ProfilingModule wiring", () => {
       // lock is a CONSTRUCTOR dependency of the fold, so omitting it fails BOOT. Pinned for both.
       FreeChatFoldLock,
       FreeChatSummaryService,
+      // ADR-0057 (#2311) — the turn's understanding and its bridge line.
+      TurnUnderstandingService,
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,

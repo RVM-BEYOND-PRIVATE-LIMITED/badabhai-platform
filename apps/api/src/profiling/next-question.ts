@@ -597,6 +597,17 @@ export const PROGRESS_REPLY_PAIRS: readonly (readonly [roman: string, devanagari
   ...Array.from({ length: PROGRESS_REPLY_MAX_COUNT }, (_, i) => i + 1),
 ].map((remaining) => [progressReplyText(remaining), progressReplyDevanagari(remaining)] as const);
 
+/**
+ * ADR-0057 (#2311) — the pointer served when a worker mentions a Profile-page fact the chat does not
+ * keep (R2): expected salary, preferred cities, shift, education, certificates. Owner copy of
+ * 2026-10-16; its Devanagari twin is authored beside it for the same reason as the progress pairs.
+ */
+export const PROFILE_PAGE_POINTER_TEXT = "Ye aap baad mein Profile page pe bhar sakte hain.";
+export const PROFILE_PAGE_POINTER_PAIR = [
+  PROFILE_PAGE_POINTER_TEXT,
+  "ये आप बाद में प्रोफ़ाइल पेज पे भर सकते हैं।",
+] as const;
+
 /** Every progress line the engine can serve — the no-count line, then one per count. */
 export const PROGRESS_REPLY_TEXTS: readonly string[] = PROGRESS_REPLY_PAIRS.map(([roman]) => roman);
 

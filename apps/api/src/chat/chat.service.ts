@@ -1135,6 +1135,11 @@ export class ChatService {
       voiceNoteId,
       ...(opts?.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
       ...(opts?.answerSource === undefined ? {} : { answerSource: opts.answerSource }),
+      // ADR-0057 (#2311) — the chat surface only (`freeChat` is set by `postMessage` alone, never
+      // by the voice form), and only while `CHAT_TURN_UNDERSTANDING_ENABLED` is on.
+      ...(opts?.freeChat === true && this.config.CHAT_TURN_UNDERSTANDING_ENABLED === true
+        ? { understanding: true }
+        : {}),
       ...(opts?.freeChat === true
         ? {
             freeChat: this.freeChatTurnInput(

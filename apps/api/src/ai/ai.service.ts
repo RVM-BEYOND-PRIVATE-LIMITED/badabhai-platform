@@ -14,6 +14,7 @@ import {
   CompanionCareerOutputSchema,
   CompanionEditParseOutputSchema,
   FreeChatClassifyOutputSchema,
+  ProfilingTurnUnderstandOutputSchema,
   FreeChatReplyOutputSchema,
   FreeChatSummarizeOutputSchema,
   FreeChatNewsOutputSchema,
@@ -51,6 +52,8 @@ import {
   type CompanionEditParseInput,
   type CompanionEditParseOutput,
   type FreeChatClassifyInput,
+  type ProfilingTurnUnderstandInput,
+  type ProfilingTurnUnderstandOutput,
   type FreeChatClassifyOutput,
   type FreeChatReplyInput,
   type FreeChatReplyOutput,
@@ -458,6 +461,32 @@ export class AiService {
     ctx?: AiRequestContext,
   ): Promise<FreeChatClassifyOutput | null> {
     return this.post("/free-chat/classify", input, FreeChatClassifyOutputSchema, 2500, ctx);
+  }
+
+  /**
+   * ADR-0057 (#2311) — one typed profiling-chat message, read against the session's whole schema:
+   * one closed intent plus contained fills, edits and Profile-page mentions.
+   *
+   * FOUR SECONDS: the call sits on the worker's message, before the interview's own work, and a
+   * slower answer is worth less than today's turn — null on every failure (timeout, transport,
+   * schema miss), and the caller runs the turn exactly as today. The eval CLI scores against this
+   * same number (`eval_understand_cli.API_TIMEOUT_MS`, pinned by a test).
+   *
+   * The far side applies the masking policy in force (ADR-0047) and contains the output to the
+   * request; the caller has already redacted the worker's own name (G2) and re-validates every key,
+   * ref and value before anything is written. NOTHING in the answer is applied by this method.
+   */
+  async understandTurn(
+    input: ProfilingTurnUnderstandInput,
+    ctx?: AiRequestContext,
+  ): Promise<ProfilingTurnUnderstandOutput | null> {
+    return this.post(
+      "/profiling/understand",
+      input,
+      ProfilingTurnUnderstandOutputSchema,
+      4_000,
+      ctx,
+    );
   }
 
   /**

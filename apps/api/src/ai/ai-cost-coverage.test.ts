@@ -153,14 +153,7 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  * narrated here: a source-text matcher must not be coupled to a variable name, and an entry on
  * this list is a claim about TODAY that has to be re-derived, not inherited.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
-  "domain_match",
-  "tts_synthesis",
-  // ADR-0057 (#2309) — the contract and route landed first; the API caller, and its emitter, land
-  // in #2311. Named here for the length of that one gap, exactly as `profiling_free_news` and
-  // `profiling_free_summary` were; the disjointness check below forces it out in #2311.
-  "profiling_turn_understand",
-];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
@@ -198,6 +191,10 @@ describe("every task type that can spend is either emitted or named as unledgere
       // `FreeChatSummaryService.fold` in the change that calls it. The contract commit named it on
       // KNOWN_UNLEDGERED for the length of one PR; this is the commit that moved it here.
       "profiling_free_summary",
+      // ADR-0057 (#2311) — the turn's understanding, wired in `TurnUnderstandingService.understand`.
+      // The contract commit (#2309) named it on KNOWN_UNLEDGERED for the length of one PR; this is
+      // the commit that moved it here.
+      "profiling_turn_understand",
       "resume_generation",
       // RI-autofill's option mapping (owner override B). Emitter wired in
       // `ResumeOptionMapService.map`, in the SAME change that routed the task.

@@ -49,6 +49,9 @@ FILLS, every value the message states for a field, whatever question is on scree
 - A field whose status is "answered" and whose value the message now states DIFFERENTLY is an \
 EDIT, not a fill. The same value again is nothing.
 - A "list" field (skills, jobs) takes one fill per NEW entry. An entry it already has is nothing.
+- A NEW JOB in the "experience" list is one fill whose value is "role; duration; work done", \
+in that order, separated by ";" ("Fitter; 3 saal; machine assembly"). Leave a part empty when \
+the worker did not say it ("Fitter; 3 saal;"). NEVER write an employer's or company's name in it.
 - A statement about the worker's work is a FILL, never an edit: "main welder hoon" fills the \
 trade. It is an edit only when the worker says an earlier answer was wrong or asks to change it.
 

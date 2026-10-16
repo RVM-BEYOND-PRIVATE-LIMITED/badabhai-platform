@@ -167,6 +167,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_GENERAL_ROAD_ENABLED:\s*\$\{\{\s*secrets\.CHAT_GENERAL_ROAD_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_GENERAL_ROAD_ENABLED\b/,
     ],
+    // ADR-0057 (#2311) — the profiling turn, understood. A plain boolean flag, turned on in
+    // production ONLY by the environment secret, after the eval PASS and the box arming.
+    [
+      "CHAT_TURN_UNDERSTANDING_ENABLED",
+      /CHAT_TURN_UNDERSTANDING_ENABLED:\s*\$\{\{\s*secrets\.CHAT_TURN_UNDERSTANDING_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_TURN_UNDERSTANDING_ENABLED\b/,
+    ],
     // ADR-0048 (#1858) — the identity intake. A plain boolean flag, turned on in production ONLY
     // by the environment secret, in the same release that unroutes the app's /name screen.
     [
@@ -308,6 +315,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
+    ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
     // ADR-0051 — the kill switch's absent value is false, which keeps the free chat ON.
     ["CHAT_FREE_CHAT_DISABLED", "false"],
