@@ -27,9 +27,12 @@ class _FakePicker implements ResumeDocumentPicker {
 class _FakeImporter implements ResumeImporter {
   _FakeImporter(this.outcome);
   final ResumeImportOutcome outcome;
+  int calls = 0;
   @override
-  Future<ResumeImportOutcome> importResume(PickedResumeDocument d) async =>
-      outcome;
+  Future<ResumeImportOutcome> importResume(PickedResumeDocument d) async {
+    calls++;
+    return outcome;
+  }
 }
 
 /// ── THE CUBIT RAISES THE SIGNAL ON *EVERY* COMPLETED ATTEMPT ───────────────
@@ -43,17 +46,20 @@ class _FakeImporter implements ResumeImporter {
 /// The signal says only "the worker walked through the upload door", which is
 /// true of every one of them.
 void main() {
+  late _FakeImporter importer;
+  late GoRouter router;
+
   Future<void> pumpUpload(
     WidgetTester tester,
     ResumeImportOutcome outcome, {
     bool autoUpload = true,
+    bool directUpload = false,
   }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
+    importer = _FakeImporter(outcome);
     locator.registerLazySingleton<ResumeDocumentPicker>(() => _FakePicker());
-    locator.registerLazySingleton<ResumeImporter>(
-      () => _FakeImporter(outcome),
-    );
+    locator.registerLazySingleton<ResumeImporter>(() => importer);
     locator.registerLazySingleton<ResumeImportSignal>(
       () => ResumeImportSignal(),
     );
@@ -64,12 +70,15 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final GoRouter router = GoRouter(
+    router = GoRouter(
       initialLocation: Routes.resumeUpload,
       routes: <RouteBase>[
         GoRoute(
           path: Routes.resumeUpload,
-          builder: (_, __) => ResumeUploadScreen(autoUpload: autoUpload),
+          builder: (_, __) => ResumeUploadScreen(
+            autoUpload: autoUpload,
+            directUpload: directUpload,
+          ),
         ),
         GoRoute(
           path: Routes.chatProfiling,
@@ -78,6 +87,10 @@ void main() {
         GoRoute(
           path: Routes.tradeForm,
           builder: (_, __) => const Scaffold(body: Text('FORM')),
+        ),
+        GoRoute(
+          path: Routes.badaBhai,
+          builder: (_, __) => const Scaffold(body: Text('BADA BHAI TAB')),
         ),
       ],
     );
@@ -123,5 +136,41 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(locator<ResumeImportSignal>().consume(), isFalse);
+  });
+
+  // ── AN UPLOAD ENTRY OUTSIDE THE CHAT RAISES NOTHING ────────────────────────
+  //
+  // The Résumé tab, "Mere resume" and the Profile tab open this screen with
+  // `directUpload`: the picker opens on entry, exactly as for the chat prompt,
+  // but NO prompt is standing open behind it. A signal raised here would sit
+  // unconsumed until the next time the chat put the résumé prompt on screen —
+  // and answer THAT prompt with an upload the worker made somewhere else.
+  //
+  // Every outcome, for the same reason the raise above is pinned on every
+  // outcome: the import's result is not what decides it, the arrival is.
+  outcomes.forEach((String name, ResumeImportOutcome outcome) {
+    testWidgets('a direct arrival never raises the signal — $name',
+        (WidgetTester tester) async {
+      await pumpUpload(
+        tester,
+        outcome,
+        autoUpload: false,
+        directUpload: true,
+      );
+
+      // Vacuity guard: the attempt really ran to completion. Without it, a
+      // direct arrival that never opened the picker would pass for free.
+      expect(importer.calls, 1, reason: 'the picker opened and the import ran');
+      // An entry's attempt ends on the Bada Bhai tab (owner ruling 2026-10-16).
+      expect(
+        router.routerDelegate.currentConfiguration.matches.last.matchedLocation,
+        Routes.badaBhai,
+      );
+      expect(
+        locator<ResumeImportSignal>().consume(),
+        isFalse,
+        reason: 'no chat prompt sent the worker here, so none is owed an answer',
+      );
+    });
   });
 }

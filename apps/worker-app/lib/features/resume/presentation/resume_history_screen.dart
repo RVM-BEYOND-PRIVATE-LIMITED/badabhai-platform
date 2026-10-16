@@ -12,6 +12,7 @@ import '../../../core/widgets/kit/kit_content_column.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../profile_tab/domain/profile_summary.dart';
+import '../../resume_import/presentation/resume_upload_entry.dart';
 import '../../trade_form/domain/trade_form_args.dart' show TierEntry;
 import '../../trade_form/domain/trade_form_models.dart' show TradeForm;
 import '../../trade_form/domain/trade_form_repository.dart';
@@ -52,6 +53,9 @@ const String kResumeHelpBody =
 const String kResumeHistoryEmptyTitle = 'Abhi koi purana resume nahi.';
 const String kResumeHistoryEmptyBody =
     'Jab aap naya resume banayenge, purane yahin dikhte rahenge.';
+
+/// The "Resume upload karein" entry under the quick action.
+const Key kResumeHistoryUploadEntryKey = Key('resume-history-upload');
 
 /// "3 Files" — the count pill beside the title.
 String resumeFileCountLabel(int count) =>
@@ -232,6 +236,12 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
       padding: EdgeInsets.fromLTRB(side.left, 14, side.right, 28),
       children: <Widget>[
         const _QuickActionBanner(),
+        const SizedBox(height: 12),
+        // The other road to a new résumé, beside "+ Banayein": bring one the
+        // worker already has (the CEO's "upload at any point"). Under the
+        // banner, so it is drawn with résumés, with none, and over an
+        // unfinished form alike.
+        const ResumeUploadEntryButton(entryKey: kResumeHistoryUploadEntryKey),
         const SizedBox(height: 18),
         if (items.isEmpty)
           // Deliberately the EMPTY view, never an error view: the repository
