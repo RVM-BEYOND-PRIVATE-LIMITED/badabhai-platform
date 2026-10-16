@@ -192,17 +192,24 @@ export type ChatTurnOutcome =
   /**
    * The session was already finalized. No writes, no engine call — a late duplicate POST.
    * `generalFormOffer` is the card when it handed over to the general form (ADR-0045), read off
-   * the durable state, so it is re-served rather than the résumé menu.
+   * the durable state, so it is re-served rather than the résumé menu. `extractionReady` is
+   * whether the build-profile CTA belongs on this closed session ({@link closedSessionLitCta}).
    */
-  | { readonly kind: "session_over"; readonly generalFormOffer?: GeneralFormOffer | null }
+  | {
+      readonly kind: "session_over";
+      readonly generalFormOffer?: GeneralFormOffer | null;
+      readonly extractionReady: boolean;
+    }
   /**
    * A completed-but-unflushed buffer was re-driven. `flushed` says whether it landed this time;
-   * `generalFormOffer` is the card when the interview handed over to the general form.
+   * `generalFormOffer` is the card when the interview handed over to the general form;
+   * `handedToForm` says the interview handed over to ANY form, so the flush withheld extraction.
    */
   | {
       readonly kind: "reflushed";
       readonly flushed: boolean;
       readonly generalFormOffer?: GeneralFormOffer | null;
+      readonly handedToForm: boolean;
     }
   /**
    * The orchestrator wrote NOTHING: a lost CAS after two attempts, or no resolvable pack.
@@ -837,7 +844,7 @@ export class ChatService {
         if (outcome.generalFormOffer != null) {
           return this.generalFormResponse(dto.session_id, outcome.generalFormOffer);
         }
-        return this.terminalResponse(dto.session_id, dto.text);
+        return this.terminalResponse(dto.session_id, dto.text, outcome.extractionReady);
       case "reflushed":
         // A general handover keeps its card whether or not this re-drive landed: the handover
         // turn already served it (its own checkpoint made it durable), and a failed re-flush that
@@ -860,7 +867,10 @@ export class ChatService {
             suggested_followups: [],
             suggested_options: [],
             asked_question_id: null,
-            extraction_ready: outcome.flushed,
+            // #2333 — NOT on a trade-form handover. Its flush withholds extraction exactly as the
+            // handover turn withheld this CTA, and a re-drive must not hand back what that turn
+            // kept dark. (A general handover never reaches here: its card is served above.)
+            extraction_ready: outcome.flushed && !outcome.handedToForm,
             unanswered_essentials: [],
             session_ended: outcome.flushed,
             question_kind: "close",
@@ -1050,6 +1060,7 @@ export class ChatService {
       return {
         kind: "session_over",
         generalFormOffer: durableGeneralFormOffer(session.conversationState),
+        extractionReady: closedSessionLitCta(session),
       };
     }
 
@@ -1112,6 +1123,7 @@ export class ChatService {
         kind: "reflushed",
         flushed: reflushed,
         generalFormOffer: generalFormHandoverOf(buffer.profiling),
+        handedToForm: handedToForm(buffer),
       };
     }
 
@@ -1513,11 +1525,7 @@ export class ChatService {
     // (`messages`, `workerId`) can ride into the JSONB column.
     // THE INTERVIEW HANDED OVER TO A FORM. Read once here and used twice below, so the emit
     // and the persisted marker cannot disagree about whether extraction was withheld.
-    // ADR-0045: the GENERAL-form handover withholds extraction exactly as a trade handover does
-    // — the profile is built after the form, from the form — while `form_kind` stays null so the
-    // source stays "chat" and no trade form is ever served for it.
-    const handedToForm =
-      buffer.profiling?.formKind != null || buffer.profiling?.generalRoad?.handedOver === true;
+    const formHandover = handedToForm(buffer);
     const finalState: Record<string, unknown> = {
       role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
       turn_count: buffer.turnCount,
@@ -1584,7 +1592,7 @@ export class ChatService {
       answered_topics: this.slugFieldIds(Object.keys(buffer.captured).sort(), sessionId),
       // FALSE WHEN THE INTERVIEW HANDED OVER TO A FORM. This has to agree with the emit below
       // or a later re-drive would fire exactly the extraction this flush withheld.
-      extraction_ready_emitted: !handedToForm,
+      extraction_ready_emitted: !formHandover,
       // THE ANSWER MAP AND THE PINNED OCCUPATION, projected into the frozen contract shape.
       //
       // THIS IS WHAT MAKES THE PARSE CALL POSSIBLE AT ALL. The extraction job runs minutes
@@ -1677,7 +1685,7 @@ export class ChatService {
         //
         // The form owns this profile. It writes the answer map and the worker tables the
         // sheet actually reads, and nothing on that path needs the model.
-        if (!handedToForm) {
+        if (!formHandover) {
           await this.events.emit({
             event_name: "profile.extraction_ready",
             actor: { actor_type: "worker", actor_id: workerId },
@@ -1807,7 +1815,7 @@ export class ChatService {
     // WITHHELD ON A HANDOVER, for the reason spelled out at the emit above: generic extraction
     // on a two-turn transcript produces a container that outranks the answer map and blanks the
     // trade sheet. Gated here as well as on the event, because this call does not read it.
-    if (!handedToForm) {
+    if (!formHandover) {
       await this.autoTriggerExtraction(workerId, sessionId, ctx, {
         updateAccepted: buffer.profiling?.resumeUpdateOffer?.accepted === true,
       });
@@ -2402,11 +2410,20 @@ export class ChatService {
    * closing line with no chips, the dead session now serves a stateless,
    * deterministic menu (`resume-menu.ts`): edit-vs-redo on any text, then the
    * redo pair (upload / chat) or the 6 resume sections. No LLM, no writes, no
-   * PII in logs. `session_ended` + `extraction_ready` stay true so the client
-   * contract (drop the cached id, keep the CTA state) is unchanged; only the
-   * reply + chips differ, which old clients render as plain chips.
+   * PII in logs. `session_ended` stays true so the client drops its cached id;
+   * only the reply + chips differ, which old clients render as plain chips.
+   *
+   * #2333 — `extraction_ready` IS THE CLOSED SESSION'S OWN ANSWER, no longer a constant
+   * `true`. It is {@link closedSessionLitCta}, the same predicate the transcript redraw serves:
+   * a finished interview keeps the CTA, while an ABANDONED session (owner ruling 2026-10-16: a
+   * partial interview mints no profile) and a TRADE-FORM handover (the form is the way forward)
+   * stay dark. The client latches the flag, so a CTA a worker already earned is never yanked.
    */
-  private terminalResponse(sessionId: string, text = ""): PostMessageResponse {
+  private terminalResponse(
+    sessionId: string,
+    text: string,
+    extractionReady: boolean,
+  ): PostMessageResponse {
     const menu = resolveResumeMenu(text);
     return this.checkedResponse(
       {
@@ -2418,7 +2435,7 @@ export class ChatService {
         suggested_followups: menu.followups,
         suggested_options: menu.options,
         asked_question_id: null,
-        extraction_ready: true,
+        extraction_ready: extractionReady,
         unanswered_essentials: [],
         session_ended: true,
         // A menu is a single-select, not a question: `disambiguate` draws the
@@ -2874,25 +2891,53 @@ function sessionEndedField(session: { readonly status: string; readonly endedAt:
 }
 
 /**
- * The redraw field that re-lights the build-profile CTA on a cold reopen: `extraction_ready: true`
- * once the row is `ended` on a close that lit it live.
- *
- * READ OFF THE FLUSH'S OWN MARKER, never re-derived. `extraction_ready_emitted` is written in the
- * same transaction that ends the session, as `!handedToForm` — the decision `projectTurn` served as
- * `extraction_ready` on the closing turn — so the reopen and the live close cannot disagree. An
- * `abandoned` row never carries it (`abandonInterview` keeps it false: a profile is minted by a
- * FINISHED interview), and neither does a trade or general form handover.
+ * Did this interview hand over to a form? Then its flush withholds extraction and its close never
+ * lights the build-profile CTA. ADR-0045: the GENERAL-form handover withholds extraction exactly as
+ * a trade handover does — the profile is built after the form, from the form — while `form_kind`
+ * stays null so the source stays "chat" and no trade form is ever served for it.
  */
-function finishedReadyField(session: {
+function handedToForm(buffer: TranscriptBuffer): boolean {
+  return buffer.profiling?.formKind != null || buffer.profiling?.generalRoad?.handedOver === true;
+}
+
+/**
+ * Does the build-profile CTA belong on this CLOSED session? The one answer both closed-session
+ * surfaces serve — the transcript redraw ({@link finishedReadyField}, #2331) and a late POST's
+ * `session_over` reply (#2333) — so a reopen and the next message can never disagree.
+ *
+ *   - `ended` with the flush's own marker. `extraction_ready_emitted` is written in the same
+ *     transaction that ends the session, as `!handedToForm(buffer)` — the decision `projectTurn`
+ *     served as `extraction_ready` on the closing turn. Read off the row, never re-derived.
+ *   - `ended` with the general form DONE (ADR-0045 §5): from `general_form_completed_at` on, that
+ *     session is an ordinary finished interview. A trade form leaves no such mark on the session.
+ *   - NEVER `abandoned`. Owner ruling 2026-10-16 (#2333), and `abandonInterview`'s own rule: a
+ *     profile is minted by a FINISHED interview. The worker's way on is the résumé menu.
+ *
+ * FAILS CLOSED: an unreadable state, a missing or non-boolean marker, is "no".
+ */
+function closedSessionLitCta(session: {
   readonly status: string;
   readonly conversationState: unknown;
-}): { extraction_ready?: true } {
+}): boolean {
+  if (session.status !== "ended") return false;
   const state = session.conversationState;
   const emitted =
     typeof state === "object" &&
     state !== null &&
     (state as Record<string, unknown>).extraction_ready_emitted === true;
-  return session.status === "ended" && emitted ? { extraction_ready: true } : {};
+  return emitted || readGeneralFormCompletedAt(state) !== null;
+}
+
+/**
+ * The redraw field that re-lights the build-profile CTA on a cold reopen (#2331):
+ * `extraction_ready: true` when {@link closedSessionLitCta} says so. ABSENT otherwise — never false —
+ * so every other response is byte-identical.
+ */
+function finishedReadyField(session: {
+  readonly status: string;
+  readonly conversationState: unknown;
+}): { extraction_ready?: true } {
+  return closedSessionLitCta(session) ? { extraction_ready: true } : {};
 }
 
 /** The redraw field for an ENDED session: its card, from the durable stamp, when it handed over. */
