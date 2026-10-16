@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -14,6 +15,8 @@ import '../../../../core/api/api_models.dart'
         EditProposal,
         FormOffer,
         PredictedQuestion,
+        ProfilingEditProposal,
+        ProfilingEditRow,
         ResumeHistory;
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_reason.dart';
@@ -331,6 +334,7 @@ class ChatState extends Equatable {
     this.redoSession = false,
     this.sessionEndedAfterIndex,
     this.formOffer,
+    this.profilingEdit,
     this.resumePending = false,
     this.resumeUpdateQueued = false,
     this.companion = false,
@@ -500,6 +504,12 @@ class ChatState extends Equatable {
   /// — but the reset keeps the invariant true defensively rather than by luck.
   final FormOffer? formOffer;
 
+  /// ADR-0057 R10 (#2314) — the profiling chat's pending change/delete
+  /// confirmation, drawn as a tile in place of the Haan / Nahi chips.
+  /// TURN-SCOPED exactly like [formOffer]: set from a live reply (or a cold
+  /// start's redraw) and cleared the moment the worker acts again.
+  final ProfilingEditProposal? profilingEdit;
+
   /// #1689 — the server ACCEPTED the worker's "Haan" to "Aapki nayi jaankari se
   /// resume update kar doon?" and is doing the whole update itself: extract,
   /// auto-confirm, generate.
@@ -661,6 +671,8 @@ class ChatState extends Equatable {
     // previous turn's card, which `formOffer ?? this.formOffer` cannot express
     // on its own — every non-null-in-the-wire turn passes this explicitly.
     bool clearFormOffer = false,
+    ProfilingEditProposal? profilingEdit,
+    bool clearProfilingEdit = false,
     // #1559 / #1583 — TURN-SCOPED like formOffer, so clearing it takes the same
     // explicit flag.
     ChatAnswerType? answerType,
@@ -721,6 +733,9 @@ class ChatState extends Equatable {
           ? null
           : (sessionEndedAfterIndex ?? this.sessionEndedAfterIndex),
       formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
+      profilingEdit: clearProfilingEdit
+          ? null
+          : (profilingEdit ?? this.profilingEdit),
       answerType: clearAnswerType ? null : (answerType ?? this.answerType),
       // Sticky: once a résumé-confirm session, always (the opening is applied
       // exactly once and never un-opens).
@@ -774,6 +789,7 @@ class ChatState extends Equatable {
     redoSession,
     sessionEndedAfterIndex,
     formOffer,
+    profilingEdit,
     resumePending,
     resumeUpdateQueued,
     companion,
@@ -1312,6 +1328,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     List<ChatOption> options, {
     String? askedQuestionKey,
     String? pendingQuestionKey,
+    ProfilingEditProposal? profilingEdit,
   }) {
     final ChatTurnResumeStore? store = _turnResume;
     if (store == null) return;
@@ -1334,12 +1351,33 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             // `issue10.jpg` — the question the résumé prompt is standing in
             // front of. Null on every other turn, which CLEARS it.
             pendingQuestionKey: pendingQuestionKey,
+            // #2314 — the tile is redrawn on reopen. Null on every other
+            // turn, which CLEARS it.
+            profilingEditJson: profilingEdit == null
+                ? null
+                : jsonEncode(<String, Object?>{
+                    'proposal_id': profilingEdit.proposalId,
+                    'rows': <Map<String, Object?>>[
+                      for (final ProfilingEditRow r in profilingEdit.rows)
+                        r.toJson(),
+                    ],
+                  }),
           ),
         );
       } catch (_) {
         // Best-effort by contract: never let bookkeeping break a served turn.
       }
     }());
+  }
+
+  /// The remembered tile, or null for none / anything unreadable.
+  static ProfilingEditProposal? _decodeProfilingEdit(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return ProfilingEditProposal.fromJson(jsonDecode(raw));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// #2030 ask 3 — redraw the chips a cold start would otherwise lose.
@@ -1397,6 +1435,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       state.copyWith(
         suggestedOptions: options,
         followups: <String>[for (final ChatOption o in options) o.labelText],
+        // #2314 — a pending change/delete confirmation comes back with its
+        // chips, so the reopened chat shows the same tile.
+        profilingEdit: _decodeProfilingEdit(saved.profilingEditJson),
         freeChat: saved.freeChat,
         askedQuestionKey: restoredQuestion,
         // Never clears: a null [restoredQuestion] means "nothing to restore",
@@ -1603,6 +1644,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           // filtered out above by the `predicted.questionKey != null` guard, so
           // this branch can never itself be predicting a handover card back in.
           clearFormOffer: true,
+          clearProfilingEdit: true,
           // The conversation moved on — the download tile goes.
           resumeDownloadTile: false,
         ),
@@ -1641,6 +1683,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           // handover turn also ends the session, so this send is rare, but a stale
           // card must never survive it.
           clearFormOffer: true,
+          clearProfilingEdit: true,
           // The conversation moved on — the download tile goes.
           resumeDownloadTile: false,
         ),
@@ -1828,6 +1871,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // the only thing that can put the question back when the prompt is
         // answered after a cold start.
         pendingQuestionKey: showResumePrompt ? turn.askedQuestionId : null,
+        profilingEdit: showResumePrompt ? null : turn.profilingEdit,
       );
       // #2224 — the marker goes after the bubble that CLOSED the interview, and
       // only the FIRST such turn sets it: a later reply on an already-closed
@@ -1910,6 +1954,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             // here, byte-identical, and redraws the same card.
             formOffer: turn.formOffer,
             clearFormOffer: turn.formOffer == null,
+            // ADR-0057 R10 (#2314) — THIS turn's edit/delete tile, or none.
+            // Never on the résumé-prompt turn (its chips are the prompt's).
+            profilingEdit: showResumePrompt ? null : turn.profilingEdit,
+            clearProfilingEdit:
+                showResumePrompt || turn.profilingEdit == null,
             // #1689 — 'queued' only on the terminal turn that settled a "Haan".
             // Passed on EVERY turn so an ordinary one clears it.
             resumeUpdateQueued: turn.resumeUpdateQueued,
@@ -2486,6 +2535,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             ChatInputMode.text, // #770 — bring the composer back on retry
         clearFormOffer:
             true, // #1340 — drop a stale card while the retry is in flight
+        clearProfilingEdit: true, // #2314 — same for the edit tile
         clearAnswerType: true, // #1559 / #1583 — the reply brings its own shape
       ),
     );
@@ -2621,6 +2671,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // predates #1339 and the handover flow is text-only today), so a stale
         // card from a previous typed turn must not survive a voice answer.
         clearFormOffer: true,
+        clearProfilingEdit: true,
         // #1559 / #1583 — the merge carries no answer_type either: the answered
         // question's tick row / Haan-Nahi / keypad must not outlive it.
         clearAnswerType: true,

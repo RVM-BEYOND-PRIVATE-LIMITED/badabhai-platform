@@ -10,6 +10,7 @@ import '../../../core/api/api_models.dart'
         ChatProgress,
         ChatQuestionKind,
         EditProposal,
+        ProfilingEditProposal,
         FormOffer,
         PredictedQuestion;
 
@@ -44,6 +45,7 @@ class ChatTurn extends Equatable {
     this.digestKey,
     this.sessionEnded = false,
     this.editProposal,
+    this.profilingEdit,
     this.cooldownUntil,
     this.readAloud,
     this.newsLinks = const <ChatNewsLink>[],
@@ -185,6 +187,11 @@ class ChatTurn extends Equatable {
   /// When present, the UI shows the checkbox card with Haan/Nahi buttons.
   final EditProposal? editProposal;
 
+  /// ADR-0057 R10 (#2314) — the PROFILING chat's change/delete confirmation,
+  /// drawn as a tile over the turn's own Haan / Nahi chips. Interview turns
+  /// only; null everywhere else.
+  final ProfilingEditProposal? profilingEdit;
+
   /// ADR-0046 Phase 2 — the faltu cool-down. Carried, not acted on in P1.
   /// While the current time is before this, the companion UI shows a wait state.
   final DateTime? cooldownUntil;
@@ -222,6 +229,7 @@ class ChatTurn extends Equatable {
         digestKey,
         sessionEnded,
         editProposal,
+        profilingEdit,
         cooldownUntil,
         readAloud,
         newsLinks,
