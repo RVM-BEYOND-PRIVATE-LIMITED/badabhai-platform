@@ -681,6 +681,13 @@ const int kTradeFormMaxPreferredCities = 5;
 /// [kTradeFormMaxPreferredCities].
 const int kTradeFormMaxLanguages = 6;
 
+/// Server cap (`availability.notice_period_days`'s `.max(180)` in
+/// `worker-preferences.dto.ts`) — the same 0–180 the profile-edit
+/// "Notice period (din)" field accepts. A plain client-side bound: one
+/// out-of-range part 400s the WHOLE preferences save (the object is
+/// `.strict()`), losing the shift / cities / salary edits sent with it.
+const int kTradeFormMaxNoticeDays = 180;
+
 /// The closed-set preferences a worker sets on a `preferences` marker screen.
 ///
 /// Deliberately carries NO education/credential fields any more — this
@@ -701,6 +708,10 @@ class TradeFormPreferences extends Equatable {
     this.willingToRelocate = false,
     this.accommodationNeeded = false,
     this.salaryExpectedMax,
+    this.availabilityStatus,
+    this.availableFrom,
+    this.noticePeriodDays,
+    this.availabilityWithheld = false,
     this.touched = const <String>{},
   });
 
@@ -713,11 +724,35 @@ class TradeFormPreferences extends Equatable {
   final bool accommodationNeeded;
   final int? salaryExpectedMax;
 
-  /// Wire keys of the list and yes/no fields the worker CHANGED, set by
-  /// [copyWith] (every page edit goes through it). [toJson] sends those fields
-  /// only when touched — the same idea as [TradeFormQualifications]'s touched
-  /// flags — so an untouched `[]` or `false` is never sent and the server
-  /// leaves the stored value alone.
+  /// The three parts of the stored `availability` object (ADR-0042 D9, the
+  /// Availability, Terms & Salary walk's status + notice pages). ONE object on
+  /// the wire, and the PUT REPLACES it whole — so a status-only body would
+  /// null the stored date and notice. [toJson] therefore always sends all
+  /// three, the edited part(s) plus the stored rest.
+  ///
+  /// [availabilityStatus] is a closed slug (`immediate` | `within_week` |
+  /// `within_month` | `serving_notice`); [noticePeriodDays] is 0–180
+  /// ([kTradeFormMaxNoticeDays]).
+  final String? availabilityStatus;
+
+  /// The worker's stated start day (`YYYY-MM-DD`). Never edited on these
+  /// pages — CARRIED, so a status or notice edit re-sends it instead of
+  /// wiping it.
+  final String? availableFrom;
+  final int? noticePeriodDays;
+
+  /// True when `GET /workers/me/work-preferences` WITHHELD the stored
+  /// availability (`partial` — a stored object today's schema refuses). The
+  /// three parts above then start blank although something is stored, so
+  /// clearing them must never send `availability: null`: that would delete a
+  /// record the worker was never shown. Editing a part still replaces it.
+  final bool availabilityWithheld;
+
+  /// Wire keys of the list, yes/no and availability fields the worker
+  /// CHANGED, set by [copyWith] (every page edit goes through it). [toJson]
+  /// sends those fields only when touched — the same idea as
+  /// [TradeFormQualifications]'s touched flags — so an untouched `[]` or
+  /// `false` is never sent and the server leaves the stored value alone.
   ///
   /// Since #1710 the page also PREFILLS from `GET /workers/me/work-preferences`
   /// (see `TradeFormRepository.loadSavedPreferences`), so an untouched field
@@ -734,6 +769,8 @@ class TradeFormPreferences extends Equatable {
     bool? willingToRelocate,
     bool? accommodationNeeded,
     Object? salaryExpectedMax = _sentinel,
+    Object? availabilityStatus = _sentinel,
+    Object? noticePeriodDays = _sentinel,
   }) {
     return TradeFormPreferences(
       languages: languages ?? this.languages,
@@ -746,6 +783,14 @@ class TradeFormPreferences extends Equatable {
       salaryExpectedMax: salaryExpectedMax == _sentinel
           ? this.salaryExpectedMax
           : salaryExpectedMax as int?,
+      availabilityStatus: availabilityStatus == _sentinel
+          ? this.availabilityStatus
+          : availabilityStatus as String?,
+      availableFrom: availableFrom,
+      noticePeriodDays: noticePeriodDays == _sentinel
+          ? this.noticePeriodDays
+          : noticePeriodDays as int?,
+      availabilityWithheld: availabilityWithheld,
       touched: <String>{
         ...touched,
         if (languages != null) _kPrefLanguagesKey,
@@ -753,6 +798,8 @@ class TradeFormPreferences extends Equatable {
         if (preferredCities != null) _kPrefCitiesKey,
         if (willingToRelocate != null) _kPrefRelocateKey,
         if (accommodationNeeded != null) _kPrefAccommodationKey,
+        if (availabilityStatus != _sentinel || noticePeriodDays != _sentinel)
+          _kPrefAvailabilityKey,
       },
     );
   }
@@ -792,6 +839,25 @@ class TradeFormPreferences extends Equatable {
     if (salaryExpectedMax != null) {
       body['salary_expected_max'] = salaryExpectedMax;
     }
+    // AVAILABILITY: only when the worker touched a part, and then the WHOLE
+    // object — the PUT replaces the stored json row, so any part left out
+    // would be wiped. Every part cleared means the worker withdrew the answer
+    // (`null` deletes the row) — unless the stored object was withheld, in
+    // which case "cleared" only means "never shown", and nothing is sent.
+    if (touched.contains(_kPrefAvailabilityKey)) {
+      final bool empty = availabilityStatus == null &&
+          availableFrom == null &&
+          noticePeriodDays == null;
+      if (!empty) {
+        body[_kPrefAvailabilityKey] = <String, dynamic>{
+          'status': availabilityStatus,
+          'available_from': availableFrom,
+          'notice_period_days': noticePeriodDays,
+        };
+      } else if (!availabilityWithheld) {
+        body[_kPrefAvailabilityKey] = null;
+      }
+    }
     return body;
   }
 
@@ -805,6 +871,10 @@ class TradeFormPreferences extends Equatable {
         willingToRelocate,
         accommodationNeeded,
         salaryExpectedMax,
+        availabilityStatus,
+        availableFrom,
+        noticePeriodDays,
+        availabilityWithheld,
         touched,
       ];
 }
@@ -816,6 +886,7 @@ const String _kPrefDocumentsKey = 'documents_ready';
 const String _kPrefCitiesKey = 'preferred_cities';
 const String _kPrefRelocateKey = 'willing_to_relocate';
 const String _kPrefAccommodationKey = 'accommodation_needed';
+const String _kPrefAvailabilityKey = 'availability';
 
 /// One row of work history for the `employment` marker screen.
 ///

@@ -254,7 +254,9 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     }
     // EVERY FIELD NULL MEANS NO STORED ROW, which the caller must be able to
     // tell apart from a stored "none of these" (an empty list). Coalescing the
-    // two is the erase this whole read exists to prevent.
+    // two is the erase this whole read exists to prevent. A WITHHELD value
+    // (`partial`) is still a stored row — the walk must know it is there (see
+    // [TradeFormPreferences.availabilityWithheld]).
     if (dto.languages == null &&
         dto.documentsReady == null &&
         dto.preferredCities == null &&
@@ -262,7 +264,9 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
         dto.shift == null &&
         dto.willingToRelocate == null &&
         dto.accommodationNeeded == null &&
-        dto.salaryExpectedMax == null) {
+        dto.salaryExpectedMax == null &&
+        dto.availability == null &&
+        dto.partial.isEmpty) {
       return null;
     }
     // `touched` IS DELIBERATELY LEFT EMPTY. Prefilling is not touching: a page
@@ -280,6 +284,12 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       willingToRelocate: dto.willingToRelocate ?? false,
       accommodationNeeded: dto.accommodationNeeded ?? false,
       salaryExpectedMax: dto.salaryExpectedMax,
+      // All three parts, the date included: the walk edits status + notice
+      // only, but a save re-sends the whole object (the PUT replaces it).
+      availabilityStatus: dto.availability?.status,
+      availableFrom: dto.availability?.availableFrom,
+      noticePeriodDays: dto.availability?.noticeDays,
+      availabilityWithheld: dto.partial.contains('availability'),
     );
   }
 

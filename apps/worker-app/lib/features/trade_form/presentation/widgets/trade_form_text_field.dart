@@ -39,6 +39,7 @@ class TradeFormTextField extends StatefulWidget {
     this.errorText,
     this.autofocus = false,
     this.prefixIcon,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -67,6 +68,12 @@ class TradeFormTextField extends StatefulWidget {
   /// Optional leading glyph inside the box — e.g. the search magnifier on the
   /// cities picker's browse box. Null (the default) renders exactly as before.
   final Widget? prefixIcon;
+
+  /// Extra input formatters, applied AFTER the always-on Devanagari block —
+  /// e.g. digits-only for the notice-period box, where a number keyboard alone
+  /// still lets `-`, `.` and `,` through. Null (the default) renders exactly
+  /// as before.
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   State<TradeFormTextField> createState() => _TradeFormTextFieldState();
@@ -99,6 +106,7 @@ class _TradeFormTextFieldState extends State<TradeFormTextField> {
           DevanagariBlockFormatter(
             onBlocked: () => setState(() => _devanagariBlocked = true),
           ),
+          ...?widget.inputFormatters,
         ],
         cursorColor: OnboardingColors.shiftBlue,
         style: numeric
