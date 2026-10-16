@@ -24,6 +24,7 @@ import { FreeChatSummaryService } from "./free-chat/free-chat-summary.service";
 import { LlmTurnService } from "./llm-turn.service";
 import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
+import { TurnUnderstandingService } from "./understanding/turn-understanding.service";
 import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
 import { PackRepository } from "./pack.repository";
@@ -187,6 +188,11 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // registered above: two providers, and no module edge.
     FreeChatFoldLock,
     FreeChatSummaryService,
+    // ADR-0057 (#2311) — the profiling turn's understanding and its bridge line. A trailing optional
+    // constructor dependency of the orchestrator like the ones above: omitting it would not fail
+    // boot, it would silently understand nothing with the flag on. `AiService`, `AiCostRecorder`
+    // and `AiTraceRecorder` come from `AiModule`, imported above: a provider, and no module edge.
+    TurnUnderstandingService,
     ProfilingOrchestrator,
     ProfilingSessionService,
     ProfilingVoiceRepository,

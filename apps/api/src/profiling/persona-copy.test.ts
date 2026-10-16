@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { checkPersonaTokens, personaCorpus } from "@badabhai/profiling-lexicon";
 
 import { IDENTIFY_TYPE_PROMPT } from "./identify.service";
-import { PROGRESS_REPLY_TEXTS } from "./next-question";
+import { PROFILE_PAGE_POINTER_TEXT, PROGRESS_REPLY_TEXTS } from "./next-question";
 import {
   CLOSING_REPLY,
   DE_ESCALATION_REPLY,
@@ -35,6 +35,8 @@ const ENGINE_COPY: ReadonlyArray<readonly [name: string, text: string]> = [
   ...HARDSHIP_REPLIES.map((t, i) => [`HARDSHIP_REPLIES[${i}]`, t] as const),
   // #2308 — the progress lines, every count. Owner ruling 2026-10-16: no "!" — the rule wins.
   ...PROGRESS_REPLY_TEXTS.map((t, i) => [`PROGRESS_REPLY_TEXTS[${i}]`, t] as const),
+  // ADR-0057 (#2311) — the Profile-page pointer.
+  ["PROFILE_PAGE_POINTER_TEXT", PROFILE_PAGE_POINTER_TEXT],
 ];
 
 describe("the engine's own replies are on-persona", () => {

@@ -46,8 +46,8 @@ from . import eval_understand_gold as gold
 ROUTE = "/profiling/understand"
 TASK_TYPE = "profiling_turn_understand"
 
-#: The API's timeout for this route. Pinned to `apps/api/src/ai/ai.service.ts` by a test once that
-#: client calls the route (#2311); until then this is the planned number.
+#: The API's timeout for this route (`AiService.understandTurn`), pinned by a test: an answer
+#: slower than it never reaches a worker.
 API_TIMEOUT_MS = 4_000.0
 
 

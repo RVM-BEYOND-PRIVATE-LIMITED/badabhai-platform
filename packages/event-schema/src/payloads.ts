@@ -55,6 +55,7 @@ import {
   FREE_CHAT_LANGUAGE_TRIGGERS,
   APPLICANT_POSTING_KINDS,
   APPLICANT_STAGES,
+  PROFILING_TURN_INTENTS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -5555,3 +5556,47 @@ export const ChatFreeChatLanguageChangedPayload = z
     message: "accepted sets a language (to non-null); declined clears it (to null)",
   });
 export type ChatFreeChatLanguageChangedPayload = z.infer<typeof ChatFreeChatLanguageChangedPayload>;
+
+// ── ADR-0057 (#2311) — the profiling turn, understood ─────────────────────────────────────────
+
+/**
+ * ONE TYPED PROFILING-CHAT MESSAGE WAS UNDERSTOOD — what `profiling_turn_understand` read it as and
+ * what the API did with it. Emitted once per turn that got a REAL verdict, after the turn's write
+ * wins; an unavailable call (mock, blocked, timeout, off-contract) emits nothing here — its spend
+ * is on `ai.cost_recorded` and the turn ran exactly as today.
+ *
+ * `fills_proposed` is what the model offered after the ai-service's containment; `fills_applied`
+ * is what the API wrote (empty fields only, ADR-0057 R4) and `fill_keys` names them — closed
+ * catalogue keys, never values. `edits_proposed` counts changes asked of filled fields (the
+ * Haan/Nahi gate is #2312). `bridge_served` and `pointer_served` say which lead-in lines the
+ * worker read.
+ *
+ * NEVER THE WORKER'S WORDS OR THE MODEL'S. Ids, counts, closed enums and catalogue keys only;
+ * `.strict()` keeps it that way.
+ */
+export const ProfilingTurnUnderstoodPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    intent: z.enum(PROFILING_TURN_INTENTS),
+    confidence_bucket: z.enum(COMPANION_V2_CONFIDENCE_BUCKETS),
+    fills_proposed: z.number().int().min(0).max(20),
+    fills_applied: z.number().int().min(0).max(20),
+    fill_keys: z.array(z.string().min(1).max(64)).max(20),
+    edits_proposed: z.number().int().min(0).max(10),
+    page_owned_mentions: z.number().int().min(0).max(16),
+    bridge_served: z.boolean(),
+    pointer_served: z.boolean(),
+    submission_id: uuidSchema.nullable(),
+  })
+  .strict()
+  .refine((v) => v.fills_applied <= v.fills_proposed, {
+    message: "the API cannot apply more fills than the model proposed",
+  })
+  .refine((v) => v.fill_keys.length === v.fills_applied, {
+    message: "fill_keys names exactly the applied fills",
+  })
+  .refine((v) => !v.pointer_served || v.page_owned_mentions > 0, {
+    message: "the Profile-page pointer is served only for a page-owned mention",
+  });
+export type ProfilingTurnUnderstoodPayload = z.infer<typeof ProfilingTurnUnderstoodPayload>;

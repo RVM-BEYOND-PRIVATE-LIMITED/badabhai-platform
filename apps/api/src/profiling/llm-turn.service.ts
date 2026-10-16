@@ -25,6 +25,7 @@ import type {
   ExperienceEntry,
   InputMode,
   LlmInterviewDraft,
+  ProfilingSchemaRow,
   TranscriptLine,
 } from "@badabhai/ai-contracts";
 import { hasFirstPersonClaim, parseAffirmation } from "@badabhai/profiling-lexicon";
@@ -33,7 +34,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
-import type { KnownNameSource } from "../common/redact-known-name";
+import { redactKnownName, type KnownNameSource } from "../common/redact-known-name";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { ProfilingEnvelope } from "./conversation-state";
 import { classifyLlmReply, EXPERIENCE_GATE_PROMPT } from "./llm-reply-guard";
@@ -149,6 +150,33 @@ export class LlmTurnService {
    * `null` means the caller runs the deterministic engine for this turn and marks the interview
    * fallen back; from then on {@link leads} is false and this is never called again.
    */
+  /**
+   * ADR-0057: the schema rows with the worker's own name redacted from every value (G2). The name
+   * is read again here, and an unreadable one means NO rows are sent — the context is an addition
+   * the turn does not need, so it fails closed while the turn itself goes on as today.
+   */
+  private async schemaContext(
+    rows: readonly ProfilingSchemaRow[],
+    ctx: { readonly knownName: KnownNameSource; readonly sessionId: string },
+  ): Promise<{ schema_rows?: ProfilingSchemaRow[] }> {
+    let name: string | null;
+    try {
+      name = await ctx.knownName();
+    } catch {
+      this.logger.warn(`known name unavailable session=${ctx.sessionId}; no profile context sent`);
+      return {};
+    }
+    return {
+      schema_rows: rows.map((row) => ({
+        ...row,
+        value: row.value === null ? null : redactKnownName(row.value, name) || null,
+        entries: row.entries
+          .map((entry) => ({ ...entry, value: redactKnownName(entry.value, name) }))
+          .filter((entry) => entry.value.trim().length > 0),
+      })),
+    };
+  }
+
   async take(
     envelope: ProfilingEnvelope,
     text: string,
@@ -174,6 +202,11 @@ export class LlmTurnService {
        */
       readonly knownName: KnownNameSource;
     },
+    /**
+     * ADR-0057 (#2310/#2311): the profile so far, so the model never asks for a field it shows
+     * filled. Absent — the flag off — and the request is today's byte for byte.
+     */
+    context?: { readonly schemaRows: readonly ProfilingSchemaRow[] },
   ): Promise<LlmTurnResult | null> {
     if (!this.leads(envelope)) return null;
 
@@ -218,6 +251,7 @@ export class LlmTurnService {
       // THE LAST ASK, not a cap already hit: a hit cap returned above without calling at all.
       // This is what lets the model spend its final question on the thing it most needs.
       force_close: asks + 1 >= MAX_LLM_ASKS,
+      ...(context === undefined ? {} : await this.schemaContext(context.schemaRows, ctx)),
     };
 
     const out = await this.ai.llmTurn(

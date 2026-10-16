@@ -351,6 +351,15 @@ services:
       # form and the owner's signature on ADR-0045. `:-false` so an unset or empty secret is off.
       CHAT_GENERAL_ROAD_ENABLED: ${CHAT_GENERAL_ROAD_ENABLED:-false}
 
+      # ---- THE PROFILING TURN, UNDERSTOOD (ADR-0057, #2311).
+      #
+      # On, every typed profiling-chat message is read against the session's whole schema: a
+      # volunteered value fills its empty field, a filled question is never asked again, a side
+      # message gets a short model line. OFF is today's interview exactly. Production ON only
+      # after the eval PASS and the box arming `profiling_turn_understand` (#2319). `:-false` so
+      # an unset or empty secret is off.
+      CHAT_TURN_UNDERSTANDING_ENABLED: ${CHAT_TURN_UNDERSTANDING_ENABLED:-false}
+
       # ---- THE IDENTITY INTAKE (ADR-0048, #1858) — name, state and city asked IN the chat.
       #
       # On, a new chat session for a worker whose record lacks a name, state or city opens by

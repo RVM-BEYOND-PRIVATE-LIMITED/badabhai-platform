@@ -185,6 +185,14 @@ NestJS boot assertion).
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
   session, so a flip reaches new sessions only. Bridged to staging/production through the GitHub
   secret of the same name; production ON only after the app release with the card and the form.
+- **The profiling turn, understood (ADR-0057, #2311)** — `CHAT_TURN_UNDERSTANDING_ENABLED` (default
+  off; off is the interview exactly as before). On, every TYPED profiling-chat message is read by
+  `profiling_turn_understand` against the session's whole schema: a value the worker volunteers
+  fills the empty field it belongs to (never overwrites one), a filled question is never asked
+  again, a side message over a pack question gets a short model line instead of the free chat's
+  fixed deflection (ADR-0051 R6 amended), and a Profile-page fact gets a pointer line. Any model
+  failure runs that turn exactly as today. Read per turn. Bridged through the GitHub secret of the
+  same name; production ON only after the eval PASS and the box arming the task (#2319).
 - **The identity intake (ADR-0048, #1858)** — `CHAT_IDENTITY_INTAKE_ENABLED` (default off; off is
   `POST /chat/session` and `POST /chat/message` exactly as before). On, a NEW chat session for a
   worker whose record lacks a name, a state or a city opens by asking for what is missing (first

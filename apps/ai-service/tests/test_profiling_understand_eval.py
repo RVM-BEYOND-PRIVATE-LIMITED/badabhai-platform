@@ -233,3 +233,19 @@ def test_the_cli_refuses_bad_arguments() -> None:
     ):
         with pytest.raises(SystemExit):
             eval_cli.main(argv)
+
+
+def test_the_api_timeout_is_the_api_clients_own() -> None:
+    """The eval scores what the API acts on, so its timeout must be the client's (#2311)."""
+    import re
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[3] / "apps" / "api" / "src" / "ai" / "ai.service.ts"
+    ).read_text(encoding="utf-8")
+    found = re.findall(r'"/profiling/understand",\s*input,\s*\w+,\s*([\d_]+)', source)
+    assert found, (
+        "ai.service.ts no longer calls /profiling/understand as "
+        "`this.post(route, input, Schema, ms)`: update this pattern to the client's call shape"
+    )
+    assert {float(ms.replace("_", "")) for ms in found} == {eval_cli.API_TIMEOUT_MS}

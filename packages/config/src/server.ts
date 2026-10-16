@@ -1613,6 +1613,16 @@ export const serverEnvSchema = z.object({
   // PRODUCTION ON ONLY AFTER the app release that draws the card and the form has shipped (an
   // older app would dead-end at the handover) and the owner has signed ADR-0045.
   CHAT_GENERAL_ROAD_ENABLED: booleanFromString,
+  // ADR-0057 (#2311) — THE PROFILING TURN, UNDERSTOOD. On, every typed profiling-chat message is
+  // read by `profiling_turn_understand` against the session's whole schema: a value the worker
+  // volunteers fills the empty field it belongs to, a filled question is never asked again, a
+  // side message gets a short model line instead of a fixed deflection, and a Profile-page fact
+  // gets a pointer. The model only proposes; code applies (CLAUDE.md §3). Any model failure runs
+  // that turn exactly as today.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. Read per turn. PRODUCTION ON ONLY AFTER the
+  // eval PASS is recorded (ADR-0057 §6) and the box arms `profiling_turn_understand` (#2319).
+  CHAT_TURN_UNDERSTANDING_ENABLED: booleanFromString,
   // ADR-0048 (#1858) — THE IDENTITY INTAKE. On, a NEW chat session for a worker whose record is
   // missing a name, a state or a city opens by asking for exactly what is missing — first name,
   // surname, state, city — as deterministic chat turns written through `WorkersService`, before

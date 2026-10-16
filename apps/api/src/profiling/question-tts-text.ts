@@ -6,6 +6,8 @@ import {
   HARDSHIP_REPLY_TEXTS,
   PROGRESS_REPLY_PAIRS,
   PROGRESS_REPLY_TEXTS,
+  PROFILE_PAGE_POINTER_PAIR,
+  PROFILE_PAGE_POINTER_TEXT,
 } from "./next-question";
 import { normalizeReplyText } from "./reply-closure";
 import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
@@ -145,6 +147,9 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
   // next-question.ts (#2308) — the progress lines, one per remaining count plus the no-count line.
   // Spread from the pairs for the free chat's reason above: both halves are authored side by side.
   ...Object.fromEntries(PROGRESS_REPLY_PAIRS),
+
+  // next-question.ts (ADR-0057 #2311) — the Profile-page pointer, authored beside its twin.
+  ...Object.fromEntries([PROFILE_PAGE_POINTER_PAIR]),
 };
 
 /**
@@ -1236,6 +1241,8 @@ const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string
   }),
   // #2308 — a progress line leads the question it puts back, so it composes the same way.
   ...PROGRESS_REPLY_PAIRS.map(([roman, devanagari]) => [normalizeReplyText(roman), devanagari] as const),
+  // ADR-0057 (#2311) — the pointer leads the question it sits above, so it composes the same way.
+  [normalizeReplyText(PROFILE_PAGE_POINTER_PAIR[0]), PROFILE_PAGE_POINTER_PAIR[1]] as const,
 ];
 
 /**
@@ -1292,6 +1299,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   ...IDENTITY_INTAKE_REPLIES,
   ...FREE_CHAT_REPLIES,
   ...PROGRESS_REPLY_TEXTS,
+  PROFILE_PAGE_POINTER_TEXT,
 ];
 
 export { DEVANAGARI_RE };

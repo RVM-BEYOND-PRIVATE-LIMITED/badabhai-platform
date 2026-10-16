@@ -52,9 +52,11 @@ import type {
   InputMode,
   QuestionPack,
   QuestionPackItem,
+  ProfilingTurnUnderstandOutput,
   QuestionPackOption,
   TranscriptLine,
 } from "@badabhai/ai-contracts";
+import { matchesOfferedOption } from "./free-chat/free-chat.router";
 
 import {
   ChatTranscriptBuffer,
@@ -243,9 +245,17 @@ import {
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
   PROGRESS_REPLY_NO_COUNT_TEXT,
+  PROFILE_PAGE_POINTER_TEXT,
   type CompletionReason,
   type EnginePacks,
 } from "./next-question";
+import { buildProfilingSchema, type ProfilingSchemaView } from "./understanding/profiling-schema";
+import {
+  applyFills,
+  newlyAnswered,
+  type AppliedUnderstanding,
+} from "./understanding/understanding-apply";
+import { TurnUnderstandingService } from "./understanding/turn-understanding.service";
 import { PackRegistryService } from "./pack-registry.service";
 
 /**
@@ -578,6 +588,11 @@ export interface TurnInput {
    */
   readonly answerSource?: IntakeAnswerSource;
   /**
+   * ADR-0057 (#2311) — read this typed message against the session's whole schema
+   * (`CHAT_TURN_UNDERSTANDING_ENABLED`). Only the chat sets it; absent is today's turn exactly.
+   */
+  readonly understanding?: boolean;
+  /**
    * The worker's own name, for the interview models' egress to redact out of what they read
    * (`redactedTurnText`, R32 / ADR-0047 G2). A THUNK, read only by a turn that actually calls a
    * model — `ChatService.runTurn` builds it once per request and shares it with the reply's
@@ -789,6 +804,10 @@ export class ProfilingOrchestrator {
     // lands. Trailing and optional again: without one nothing is folded and every reply is
     // Release 1's.
     private readonly freeChatSummary?: FreeChatSummaryService,
+    // ADR-0057 (#2311) — the turn's understanding and its bridge line. Trailing and optional for
+    // the same reason as every parameter above: without one no message is understood, and every
+    // existing construction is today's interview exactly.
+    private readonly understanding?: TurnUnderstandingService,
   ) {
     this.freeChatTurns =
       freeChat === undefined
@@ -810,6 +829,12 @@ export class ProfilingOrchestrator {
    * function the same question about newer facts.
    */
   async takeTurn(input: TurnInput): Promise<TurnResult> {
+    // ADR-0057 (#2311): the flag without the service is the flag off — for EVERY reader of the
+    // input, the free chat included, so an off-topic message is never let past the deflection to
+    // an interview that cannot understand it.
+    if (input.understanding === true && this.understanding === undefined) {
+      input = { ...input, understanding: false };
+    }
     // OUTSIDE THE RETRY LOOP, deliberately: what this measures is what the turn COST, and a lost
     // CAS that forced a second decision genuinely cost the worker both. Timing each attempt
     // separately would report the cheap winning attempt and hide contention entirely — which is
@@ -833,6 +858,9 @@ export class ProfilingOrchestrator {
       identity: null,
       pendingImport: null,
     };
+    // ADR-0057 (#2311) — the understanding and bridge calls, memoised for the same reason, plus
+    // the outcome of the decision currently being made (reset at the top of every `decide` run).
+    const understandRefs: UnderstandingRefs = { understand: null, bridge: null, outcome: null };
 
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
@@ -958,8 +986,20 @@ export class ProfilingOrchestrator {
         continue;
       }
 
-      const decided = await this.decide(buffer, envelope, input, fresh, citySeed, freeRefs);
-      if (!decided) return unavailable();
+      const undecorated = await this.decide(
+        buffer,
+        envelope,
+        input,
+        fresh,
+        citySeed,
+        freeRefs,
+        understandRefs,
+      );
+      if (!undecorated) return unavailable();
+      // ADR-0057 (#2311) — the lines above the question (the Profile-page pointer, the bridge
+      // line), composed BEFORE the CAS so the reply, the transcript and `lastTurn` say the same.
+      const leadIns = await this.composeLeadIns(undecorated, input, understandRefs);
+      const decided = leadIns.decided;
 
       // ADR-0048 — THE INTAKE'S RECORD WRITE LANDS BEFORE THE CAS, AND FAILS CLOSED. After the
       // CAS would be worse in the one way that matters: the conversation would already have moved
@@ -1001,6 +1041,8 @@ export class ProfilingOrchestrator {
         // the decision that landed (the same after-the-CAS rule) — and, after a casual or career
         // reply, the rolling summary's fold, scheduled OFF the request path. Never throws.
         await this.recordFreeChatEffects(envelope, measured, decided.freeChat, input);
+        // ADR-0057 (#2311) — `profiling.turn_understood`, only for the decision that landed.
+        await this.recordUnderstanding(understandRefs.outcome, leadIns, input);
         return decided.result;
       }
 
@@ -1750,7 +1792,10 @@ export class ProfilingOrchestrator {
     fresh: boolean,
     citySeed: CitySeedRef,
     freeRefs: FreeChatRefs,
+    understandRefs: UnderstandingRefs = { understand: null, bridge: null, outcome: null },
   ): Promise<Decided | null> {
+    // A lost CAS re-runs this decision from the winner's state: its outcome starts empty again.
+    understandRefs.outcome = null;
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
       this.logger.error(
@@ -2179,54 +2224,16 @@ export class ProfilingOrchestrator {
     // progress line is stripped first, so asking twice never stacks two leads. Past the turn cap
     // this falls through, so a worker who only ever asks it still reaches the cap's close.
     if (capture.turnClass === "progress_question" && !capped) {
-      next = { ...next, silentTurns: 0 };
-      const state = toEngineState(next, turn);
-      const progress = progressOf(progressItems, answers);
-      const unansweredEssentials = essentialsOf(items, answers);
-      if (reservableItem) {
-        const line = progressReplyText(
-          remainingQuestions(state, progressItems, reservableItem.question_key),
-        );
-        return this.turn(buffer, next, input, {
-          reply: `${line} ${servedText(reservableItem, askCount(state, reservableItem.question_key))}`,
-          kind: "ask",
-          questionKey: reservableItem.question_key,
-          options: reservableItem.options,
-          ...shapeOf(items, reservableItem.question_key),
-          progress,
-          unansweredEssentials,
-          complete: false,
-          completionReason: null,
-          replayed: false,
-          excludeFromParse: false,
-          unavailable: false,
-          checkpointDue: false,
-        });
-      }
-      const shown = envelope.lastTurn;
-      const shownQuestion =
-        shown !== null && shown.kind !== "close" && shown.questionKey === null
-          ? withoutProgressLead(shown.reply)
-          : "";
-      return this.turn(buffer, next, input, {
-        reply: shownQuestion
-          ? `${PROGRESS_REPLY_NO_COUNT_TEXT} ${shownQuestion}`
-          : PROGRESS_REPLY_NO_COUNT_TEXT,
-        kind: shownQuestion && shown?.kind === "disambiguate" ? "disambiguate" : "ask",
-        questionKey: null,
-        options: shownQuestion && shown ? shown.options : [],
-        whyText: shownQuestion && shown ? shown.whyText : null,
-        answerType: shownQuestion && shown ? shown.answerType : null,
-        inputMode: shownQuestion && shown ? shown.inputMode : "text",
-        gateKind: shownQuestion && shown ? shown.gateKind : null,
-        progress,
-        unansweredEssentials,
-        complete: false,
-        completionReason: null,
-        replayed: false,
-        excludeFromParse: false,
-        unavailable: false,
-        checkpointDue: false,
+      return this.progressTurn({
+        buffer,
+        next,
+        input,
+        envelope,
+        turn,
+        items,
+        progressItems,
+        answers,
+        reservableItem,
       });
     }
 
@@ -2486,6 +2493,59 @@ export class ProfilingOrchestrator {
     // --- Answer classes: write what the worker said -------------------------
     next = { ...next, silentTurns: 0, clarifyCount: 0, hardshipTurns: 0 };
 
+    // --- ADR-0057 (#2311): the turn, understood ------------------------------
+    //
+    // AFTER EVERY DETERMINISTIC WALL ABOVE — abuse, silence, hardship, a question back, a progress
+    // question, the pending offers and gates, all of which have returned — and BEFORE anything is
+    // written, so a side message never lands as the answer to a free-text question. The model only
+    // READS: `applyFills` decides what is written (empty fields only, R4), and `composeLeadIns`
+    // the lines above the question. Any failure is null, and null is today's turn exactly.
+    const understood = await this.understandTurn({
+      buffer,
+      next,
+      input,
+      capture,
+      askedItem,
+      identifyOwnsTurn,
+      capped,
+      progressItems,
+      answers,
+      refs: understandRefs,
+    });
+    if (understood !== null && understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE) {
+      // A PROGRESS QUESTION THE LEXICON DID NOT CATCH: the #2308 answer, exactly.
+      if (understood.out.intent === "progress") {
+        understandRefs.outcome = outcomeOf(understood.out, null, null);
+        return this.progressTurn({
+          buffer,
+          next,
+          input,
+          envelope,
+          turn,
+          items,
+          progressItems,
+          answers,
+          reservableItem,
+        });
+      }
+      // A SIDE MESSAGE WITH NOTHING IN IT, over a pack question: the question again, unspent,
+      // nothing recorded, with a short model line above it (`composeLeadIns`). Under the model's
+      // own question (Phase A) the turn goes on: the classic prompt answers a side message itself.
+      if (understood.out.intent === "chat" && understood.out.fills.length === 0 && reservableItem) {
+        understandRefs.outcome = outcomeOf(understood.out, null, { reason: "chat", noted: [] });
+        return this.reserveTurn({
+          buffer,
+          next,
+          input,
+          turn,
+          items,
+          progressItems,
+          answers,
+          item: reservableItem,
+        });
+      }
+    }
+
     // NOT UNDER AN OFFER (#1506): the key on the envelope is stale there, and "pata nahi" said
     // over trade chips must not decline whichever pack question happened to precede them.
     if (capture.turnClass === "dont_know" && envelope.servedQuestionKey && !identifyOwnsTurn) {
@@ -2510,6 +2570,8 @@ export class ProfilingOrchestrator {
       envelope.servedQuestionKey === null &&
       this.llm.leads(envelope) &&
       !isOpenerReplyTurn(envelope);
+    // ADR-0057 (#2311): what the cross-question fill catches is noted too (the bridge line).
+    const beforeCrossFill = answers;
     answers = this.fillCrossQuestion(
       // ADR-0045 R5: on the skills lane experience is NEVER cross-filled — total experience comes
       // only from the general form's work history, and `isOpenerReplyTurn` can read true again
@@ -2522,6 +2584,33 @@ export class ProfilingOrchestrator {
       capture.values.length > 0,
       turn,
     );
+    if (understood !== null) {
+      // AFTER the deterministic capture and cross-fill, which keep first claim on every value:
+      // `applyFills` writes only fields still empty, so it can never overrule them.
+      const applied = applyFills({
+        view: understood.view,
+        fills: understood.out.fills,
+        answers,
+        draft: next.llmDraft,
+        onScreenKey: askedItem?.question_key ?? null,
+        phaseALeads: this.llm.leads(next),
+        turn,
+      });
+      answers = applied.answers;
+      next = { ...next, llmDraft: applied.draft };
+      const noted = [
+        ...newlyAnswered(beforeCrossFill, answers, understood.view, [
+          ...(askedItem === null ? [] : [askedItem.question_key]),
+          ...applied.appliedKeys,
+        ]),
+        ...applied.noted,
+      ];
+      understandRefs.outcome = outcomeOf(
+        understood.out,
+        applied,
+        noted.length > 0 ? { reason: "filled", noted } : null,
+      );
+    }
 
     // --- THE GENERAL ROAD'S SKILLS STAGE (ADR-0045) --------------------------
     //
@@ -2720,6 +2809,11 @@ export class ProfilingOrchestrator {
         input.text,
         transcriptOf(buffer),
         modelTurnCtxOf(input),
+        // ADR-0057 (#2310/#2311): with the flag on, the model sees the profile so far and never
+        // asks for a field it shows filled. Absent, the request is today's byte for byte.
+        this.understandingArmed(input)
+          ? { schemaRows: buildProfilingSchema(progressItems, answers, next.llmDraft).rows }
+          : undefined,
       );
 
       if (led === null) {
@@ -3358,6 +3452,262 @@ export class ProfilingOrchestrator {
    * The old value stays on the record as `superseded` history (`recordAnswer`). Silent by design
    * while ADR-0057 is unarmed; its Haan/Nahi gate (#2312) is what confirms an overwrite when armed.
    */
+  /** Is the turn's understanding armed for this message? The flag, the service, and the chat. */
+  private understandingArmed(input: TurnInput): boolean {
+    return input.understanding === true && this.understanding !== undefined;
+  }
+
+  /**
+   * ADR-0057 (#2311) — read this typed message against the session's whole schema, or null.
+   *
+   * NULL — today's turn exactly — unless the flag is armed, the message is TYPED free text (a
+   * tapped chip, an identify offer and the turn cap all keep their deterministic owners), and the
+   * model returned a REAL verdict. Memoised per `takeTurn` and keyed by what it read, so a lost CAS
+   * neither pays twice nor reuses a reading made for another question.
+   */
+  private async understandTurn(args: {
+    readonly buffer: TranscriptBuffer;
+    readonly next: ProfilingEnvelope;
+    readonly input: TurnInput;
+    readonly capture: ReturnType<typeof captureAnswer>;
+    readonly askedItem: QuestionPackItem | null;
+    readonly identifyOwnsTurn: boolean;
+    readonly capped: boolean;
+    readonly progressItems: readonly QuestionPackItem[];
+    readonly answers: AnswerMap;
+    readonly refs: UnderstandingRefs;
+  }): Promise<{ readonly out: ProfilingTurnUnderstandOutput; readonly view: ProfilingSchemaView } | null> {
+    const { buffer, next, input, askedItem, refs } = args;
+    if (!this.understandingArmed(input) || this.understanding === undefined) return null;
+    if (args.capped || args.identifyOwnsTurn || input.text.trim().length === 0) return null;
+    if (next.llmGateOpen || next.generalRoad.gateOpen || next.tradeConfirm.open) return null;
+    if (args.capture.turnClass === "dont_know") return null;
+    const shown = next.lastTurn;
+    if (shown !== null && matchesOfferedOption(input.text, shown.options)) return null;
+
+    const view = buildProfilingSchema(args.progressItems, args.answers, next.llmDraft);
+    const key = `${next.servedQuestionKey ?? ""}\u0000${input.text}`;
+    if (refs.understand === null || refs.understand.key !== key) {
+      const understanding = this.understanding;
+      refs.understand = {
+        key,
+        promise: understanding.understand(
+          {
+            text: input.text,
+            history: buffer.messages.map((line) => ({ role: line.role, text: line.text })),
+            onScreen:
+              askedItem !== null
+                ? {
+                    key: askedItem.question_key,
+                    text: shown?.reply ?? askedItem.prompt_text,
+                    options: askedItem.options.map((option) => option.label_text),
+                  }
+                : shown !== null && shown.kind !== "close"
+                  ? { key: null, text: shown.reply, options: shown.options.map((o) => o.label_text) }
+                  : null,
+            schema: view.rows,
+            progress: progressOf(args.progressItems, args.answers),
+          },
+          understandingCtxOf(input),
+        ),
+      };
+    }
+    const out = await refs.understand.promise;
+    return out === null ? null : { out, view };
+  }
+
+  /**
+   * The #2308 progress answer (shared with a progress question only the model caught, #2311). See
+   * the progress branch in `decide` for the rules.
+   */
+  private progressTurn(args: {
+    readonly buffer: TranscriptBuffer;
+    readonly next: ProfilingEnvelope;
+    readonly input: TurnInput;
+    readonly envelope: ProfilingEnvelope;
+    readonly turn: number;
+    readonly items: readonly QuestionPackItem[];
+    readonly progressItems: readonly QuestionPackItem[];
+    readonly answers: AnswerMap;
+    readonly reservableItem: QuestionPackItem | null;
+  }): { buffer: TranscriptBuffer; result: TurnResult } {
+    const { buffer, input, envelope, turn, items, progressItems, answers, reservableItem } = args;
+    const next = { ...args.next, silentTurns: 0 };
+    const state = toEngineState(next, turn);
+    const progress = progressOf(progressItems, answers);
+    const unansweredEssentials = essentialsOf(items, answers);
+    if (reservableItem) {
+      const line = progressReplyText(
+        remainingQuestions(state, progressItems, reservableItem.question_key),
+      );
+      return this.turn(buffer, next, input, {
+        reply: `${line} ${servedText(reservableItem, askCount(state, reservableItem.question_key))}`,
+        kind: "ask",
+        questionKey: reservableItem.question_key,
+        options: reservableItem.options,
+        ...shapeOf(items, reservableItem.question_key),
+        progress,
+        unansweredEssentials,
+        complete: false,
+        completionReason: null,
+        replayed: false,
+        excludeFromParse: false,
+        unavailable: false,
+        checkpointDue: false,
+      });
+    }
+    const shown = envelope.lastTurn;
+    const shownQuestion =
+      shown !== null && shown.kind !== "close" && shown.questionKey === null
+        ? withoutProgressLead(shown.reply)
+        : "";
+    return this.turn(buffer, next, input, {
+      reply: shownQuestion
+        ? `${PROGRESS_REPLY_NO_COUNT_TEXT} ${shownQuestion}`
+        : PROGRESS_REPLY_NO_COUNT_TEXT,
+      kind: shownQuestion && shown?.kind === "disambiguate" ? "disambiguate" : "ask",
+      questionKey: null,
+      options: shownQuestion && shown ? shown.options : [],
+      whyText: shownQuestion && shown ? shown.whyText : null,
+      answerType: shownQuestion && shown ? shown.answerType : null,
+      inputMode: shownQuestion && shown ? shown.inputMode : "text",
+      gateKind: shownQuestion && shown ? shown.gateKind : null,
+      progress,
+      unansweredEssentials,
+      complete: false,
+      completionReason: null,
+      replayed: false,
+      excludeFromParse: false,
+      unavailable: false,
+      checkpointDue: false,
+    });
+  }
+
+  /**
+   * ADR-0057 (#2311) — the pack question on screen, served again in its served wording: a TURN,
+   * not an ASK, and nothing recorded. The bridge line above it is `composeLeadIns`'.
+   */
+  private reserveTurn(args: {
+    readonly buffer: TranscriptBuffer;
+    readonly next: ProfilingEnvelope;
+    readonly input: TurnInput;
+    readonly turn: number;
+    readonly items: readonly QuestionPackItem[];
+    readonly progressItems: readonly QuestionPackItem[];
+    readonly answers: AnswerMap;
+    readonly item: QuestionPackItem;
+  }): { buffer: TranscriptBuffer; result: TurnResult } {
+    const { buffer, input, turn, items, progressItems, answers, item } = args;
+    const next = { ...args.next, silentTurns: 0 };
+    const state = toEngineState(next, turn);
+    return this.turn(buffer, next, input, {
+      reply: servedText(item, askCount(state, item.question_key)),
+      kind: "ask",
+      questionKey: item.question_key,
+      options: item.options,
+      ...shapeOf(items, item.question_key),
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: false,
+      completionReason: null,
+      replayed: false,
+      excludeFromParse: false,
+      unavailable: false,
+      checkpointDue: false,
+    });
+  }
+
+  /**
+   * ADR-0057 (#2311) — the lines ABOVE the question this decision serves: the Profile-page pointer
+   * (a page-owned fact was mentioned, R2) and the bridge line (what was just noted, or a reply to
+   * a side message). Only over an ASK the worker is still answering; a close, a handover or an
+   * unavailable turn is left as decided. The bridge line is the model's and is memoised per turn;
+   * when it fails, the worker reads the bare question, as today.
+   */
+  private async composeLeadIns(
+    decided: Decided,
+    input: TurnInput,
+    refs: UnderstandingRefs,
+  ): Promise<LeadIns> {
+    const outcome = refs.outcome;
+    const result = decided.result;
+    const none: LeadIns = { decided, bridgeServed: false, pointerServed: false };
+    if (outcome === null || this.understanding === undefined) return none;
+    if (result.kind !== "ask" || result.complete || result.unavailable) return none;
+    if (result.reply.trim().length === 0) return none;
+
+    const lines: string[] = [];
+    const pointerServed = outcome.pointer;
+    if (pointerServed) lines.push(PROFILE_PAGE_POINTER_TEXT);
+    let bridgeServed = false;
+    // A BRIDGE LEADS INTO A PACK QUESTION ONLY: the engine's own words, appended verbatim. Under
+    // the model's question (Phase A) the classic turn already acknowledged what it heard.
+    if (outcome.bridge !== null && result.questionKey !== null) {
+      const key = `${outcome.bridge.reason}\u0000${result.reply}\u0000${outcome.bridge.noted.join("\u0001")}`;
+      if (refs.bridge === null || refs.bridge.key !== key) {
+        refs.bridge = {
+          key,
+          promise: this.understanding.bridge(
+            {
+              reason: outcome.bridge.reason,
+              noted: outcome.bridge.noted,
+              nextQuestion: result.reply,
+              remaining: null,
+              text: input.text,
+              stage: decided.buffer.profiling?.llmStage ?? "done",
+            },
+            understandingCtxOf(input),
+          ),
+        };
+      }
+      const line = await refs.bridge.promise;
+      if (line !== null) {
+        lines.push(line);
+        bridgeServed = true;
+      }
+    }
+    if (lines.length === 0) return none;
+    return { decided: withLeadIn(decided, lines.join(" ")), bridgeServed, pointerServed };
+  }
+
+  /** `profiling.turn_understood`, after the CAS, for a turn with a real verdict. Never throws. */
+  private async recordUnderstanding(
+    outcome: UnderstandingOutcome | null,
+    leadIns: LeadIns,
+    input: TurnInput,
+  ): Promise<void> {
+    if (outcome === null) return;
+    const out = outcome.out;
+    const appliedKeys = outcome.applied?.appliedKeys ?? [];
+    try {
+      await this.events.emit({
+        event_name: "profiling.turn_understood",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          intent: out.intent,
+          confidence_bucket: confidenceBucketOf(out.confidence),
+          fills_proposed: out.fills.length,
+          fills_applied: appliedKeys.length,
+          fill_keys: [...appliedKeys],
+          edits_proposed: out.edits.length,
+          page_owned_mentions: out.page_owned_mentions.length,
+          bridge_served: leadIns.bridgeServed,
+          pointer_served: leadIns.pointerServed,
+          submission_id: input.submissionId,
+        },
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `profiling.turn_understood not recorded session=${input.sessionId}: ${logSafeReason(err, "profiling.turn_understood emit")}`,
+      );
+    }
+  }
+
   private fillCrossQuestion(
     items: readonly QuestionPackItem[],
     text: string,
@@ -5379,6 +5729,84 @@ export class ProfilingOrchestrator {
       result,
     };
   }
+}
+
+/**
+ * ADR-0057 (#2311) — below this a verdict's INTENT is not acted on (the free chat's floor, ADR-0051
+ * §3.2); its contained fills are still applied, because each one is re-read by the field's parser.
+ */
+const UNDERSTANDING_MIN_CONFIDENCE = 0.6;
+
+/** The understanding call, the bridge call, and the outcome of the decision being made. */
+export interface UnderstandingRefs {
+  understand: { readonly key: string; readonly promise: Promise<ProfilingTurnUnderstandOutput | null> } | null;
+  bridge: { readonly key: string; readonly promise: Promise<string | null> } | null;
+  outcome: UnderstandingOutcome | null;
+}
+
+interface UnderstandingOutcome {
+  readonly out: ProfilingTurnUnderstandOutput;
+  readonly applied: AppliedUnderstanding | null;
+  /** The bridge line this decision asks for, if any. */
+  readonly bridge: { readonly reason: "filled" | "chat"; readonly noted: readonly string[] } | null;
+  /** A page-owned fact was mentioned: the Profile-page pointer goes above the question. */
+  readonly pointer: boolean;
+}
+
+interface LeadIns {
+  readonly decided: Decided;
+  readonly bridgeServed: boolean;
+  readonly pointerServed: boolean;
+}
+
+function outcomeOf(
+  out: ProfilingTurnUnderstandOutput,
+  applied: AppliedUnderstanding | null,
+  bridge: UnderstandingOutcome["bridge"],
+): UnderstandingOutcome {
+  return { out, applied, bridge, pointer: out.page_owned_mentions.length > 0 };
+}
+
+/** The four confidence buckets the free chat's events use. */
+function confidenceBucketOf(confidence: number): "lt50" | "50_70" | "70_90" | "gte90" {
+  if (confidence < 0.5) return "lt50";
+  if (confidence < 0.7) return "50_70";
+  if (confidence < 0.9) return "70_90";
+  return "gte90";
+}
+
+function understandingCtxOf(input: TurnInput) {
+  return {
+    workerId: input.workerId,
+    sessionId: input.sessionId,
+    correlationId: input.ctx.correlationId,
+    requestId: input.ctx.requestId,
+    knownName: input.knownName,
+  };
+}
+
+/**
+ * The decided turn with `lead` above its reply — in the result, the transcript's assistant line
+ * and `lastTurn` alike, so the replay cache, the flush and the client all say the same thing.
+ */
+function withLeadIn(decided: Decided, lead: string): Decided {
+  const before = decided.result.reply;
+  const reply = `${lead} ${before}`;
+  const messages = [...decided.buffer.messages];
+  const last = messages[messages.length - 1];
+  if (last !== undefined && last.role === "assistant" && last.text === before) {
+    messages[messages.length - 1] = { ...last, text: reply };
+  }
+  const profiling = decided.buffer.profiling;
+  const stamped =
+    profiling?.lastTurn && profiling.lastTurn.reply === before
+      ? { ...profiling, lastTurn: { ...profiling.lastTurn, reply } }
+      : profiling;
+  return {
+    ...decided,
+    result: { ...decided.result, reply },
+    buffer: { ...decided.buffer, messages, profiling: stamped },
+  };
 }
 
 /**

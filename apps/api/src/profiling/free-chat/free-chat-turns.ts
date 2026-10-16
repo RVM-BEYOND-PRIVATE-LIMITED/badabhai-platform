@@ -300,6 +300,12 @@ export class FreeChatTurns {
       return this.serveNoOp(t, { ...state, chipNoOps: { key, count: count + 1 } }, pending);
     }
     if (pre.kind === "pass" || pending === null) return pass();
+    // ADR-0057 (#2311, amends ADR-0051 R6): with the turn's understanding armed, an off-topic
+    // message is NOT classified and deflected here with fixed copy — it passes to the interview,
+    // whose understanding call reads it against the whole schema and answers a side message with a
+    // short model line above the question. The distress wall above and the distress CHECK on a
+    // typed answer carrying words (#2226, #2250) are unchanged: neither is the understanding's job.
+    if (pre.kind === "classify" && t.input.understanding === true) return pass();
 
     const verdict = await this.classifyMemo(t, "resume", pending);
     const facts = verdictFacts(verdict);

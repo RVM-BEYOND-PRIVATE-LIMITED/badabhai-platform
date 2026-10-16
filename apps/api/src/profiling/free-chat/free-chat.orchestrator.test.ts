@@ -181,6 +181,8 @@ const answer = (lines: string[], chips: string[] = []) => ({
 });
 
 interface WorldOpts {
+  /** ADR-0057 (#2311) — a fake turn-understanding service (absent: none wired). */
+  understanding?: { understand: unknown; bridge: unknown };
   /** The free chat service is NOT wired — a pre-ADR orchestrator, the byte-identity baseline. */
   withoutFreeChat?: boolean;
   /** `CHAT_FREE_CHAT_DISABLED=true`. */
@@ -413,6 +415,8 @@ function makeWorld(opts: WorldOpts = {}) {
     intake,
     opts.withoutFreeChat ? undefined : freeChat,
     opts.withoutFreeChat ? undefined : fold,
+    // ADR-0057 (#2311) — the turn's understanding, only when a test passes one.
+    opts.understanding as never,
   );
 
   const freeChatInput = () =>
@@ -430,7 +434,11 @@ function makeWorld(opts: WorldOpts = {}) {
 
   const say = (
     text: string,
-    extra: { armGeneralRoad?: boolean; answerSource?: "dialog" | "typed" } = {},
+    extra: {
+      armGeneralRoad?: boolean;
+      answerSource?: "dialog" | "typed";
+      understanding?: boolean;
+    } = {},
   ): Promise<TurnResult> =>
     orchestrator.takeTurn({
       sessionId,
@@ -442,6 +450,7 @@ function makeWorld(opts: WorldOpts = {}) {
       voiceNoteId: null,
       ...(extra.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
       answerSource: extra.answerSource ?? "dialog",
+      ...(extra.understanding === true ? { understanding: true } : {}),
       ...freeChatInput(),
       knownName: async () => null,
       ctx: CTX as never,
@@ -984,6 +993,44 @@ describe("résumé mode — a deflection re-serves the pending question and spen
     await world.say("welder");
     const settled = world.envelope().answerMap.find((r) => r.question_key === TRADE.question_key);
     expect(settled?.value_normalized).toBe("welder");
+  });
+
+  it("ADR-0057: with the understanding flag but no service, the deflection still runs", async () => {
+    // The flag alone is the flag off: an orchestrator that cannot understand must never let an
+    // off-topic message past the deflection, or it would land as the answer.
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("resume"));
+    await world.say("main welder hoon");
+    world.classifyAs(verdict("casual"));
+    const deflected = await world.say("aaj cricket match kaun jeeta", { understanding: true });
+    expect(deflected.reply).toBe(`${FREE_CHAT_COPY.LOCK_DEFLECT.latin} ${TRADE.prompt_text}`);
+  });
+
+  it("ADR-0057: with the understanding armed, an off-topic message skips the classifier", async () => {
+    // The understanding reads it instead, and its short line replaces the fixed deflection.
+    const understanding = {
+      understand: vi.fn(async () => ({
+        intent: "chat",
+        confidence: 0.9,
+        fills: [],
+        edits: [],
+        page_owned_mentions: [],
+        blocked: false,
+        ai_metadata: { real_call: true },
+      })),
+      bridge: vi.fn(async () => "Haan, match accha tha."),
+    };
+    const world = makeWorld({ understanding });
+    await inResumeMode(world);
+    world.classifyAs(verdict("resume"));
+    await world.say("main welder hoon");
+    const calls = world.ai.freeChatClassify.mock.calls.length;
+    const reply = await world.say("aaj cricket match kaun jeeta", { understanding: true });
+    expect(world.ai.freeChatClassify.mock.calls.length).toBe(calls);
+    expect(understanding.understand).toHaveBeenCalledTimes(1);
+    expect(reply.reply).toBe(`Haan, match accha tha. ${TRADE.prompt_text}`);
+    expect(reply.questionKey).toBe(TRADE.question_key);
   });
 
   it("a second deflection in a row still re-asks the bare question, not the previous bubble", async () => {
