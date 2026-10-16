@@ -191,10 +191,27 @@ class _TierChoiceScreenState extends State<TierChoiceScreen> {
                   fromStart: widget.fromStart,
                   fresh: widget.fresh,
                 ));
-    // `go` in every case: the tier screen has done its job and must not sit on
-    // the stack behind the form, where Back would offer a choice the worker
-    // has already made (and the server would answer `unchanged`).
-    context.go(Routes.tradeForm, extra: extra);
+    // PUSHED, so this screen stays underneath the form (owner ask, reported by
+    // KP): Back on the form's FIRST question — "Kitna tajurba hai" — returns
+    // here, to Easy / Medium / Hard, instead of leaving the whole flow. It used
+    // to be `go`, which replaced the stack and left that Back nowhere to land.
+    //
+    // Choosing again from here is the server's call, unchanged: the same tier
+    // is `unchanged` and simply reopens the form, a higher one is an upgrade,
+    // and a lower one is refused (409) with the server's own sentence shown.
+    unawaited(_pushForm(extra));
+  }
+
+  /// Pushes the form and, when the worker comes BACK from it, makes every card
+  /// tappable again — the tap above locked them while it was in flight, and a
+  /// screen returned to with dead cards would be a dead end.
+  Future<void> _pushForm(Object? extra) async {
+    await context.push<void>(Routes.tradeForm, extra: extra);
+    if (!mounted) return;
+    setState(() {
+      _choosing = false;
+      _pending = null;
+    });
   }
 
   void _back() {

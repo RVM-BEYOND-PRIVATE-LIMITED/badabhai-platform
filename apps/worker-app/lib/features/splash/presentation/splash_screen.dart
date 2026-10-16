@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/onboarding_theme.dart';
-import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../router.dart';
+import 'widgets/animated_get_started_button.dart';
 
 /// The splash artwork. It already carries the logo, the `BADABHAI` wordmark,
 /// the `SAB HOJAYEGA` tagline and the handshake — only the button is Flutter.
@@ -13,7 +13,7 @@ const String kSplashImageAsset = 'assets/fonts/image/screen.png';
 const Key kSplashImageKey = Key('splash_image');
 
 /// Splash + welcome — onboarding kit **Screen 1**: the full-screen splash
-/// artwork with the yellow "Get started" CTA docked at the bottom.
+/// artwork with the yellow, animated "Get started" CTA docked at the bottom.
 ///
 /// The image is painted edge to edge (behind the status bar) with
 /// [BoxFit.fill], over the kit's shift-blue — the artwork's own background
@@ -50,8 +50,9 @@ class SplashScreen extends StatelessWidget {
                   constraints: const BoxConstraints(
                     maxWidth: OnboardingLayout.maxContentWidth,
                   ),
-                  child: PrimaryActionButton(
-                    label: 'Get started',
+                  // Animated (CEO ask): rises in, and its label rolls through
+                  // the languages of India — see AnimatedGetStartedButton.
+                  child: AnimatedGetStartedButton(
                     onPressed: () => context.go(Routes.phoneLogin),
                   ),
                 ),

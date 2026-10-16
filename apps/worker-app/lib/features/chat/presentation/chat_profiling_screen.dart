@@ -321,6 +321,10 @@ class _CompanionRefocus extends StatelessWidget {
   }
 }
 
+/// How long the Bada Bhai tab's companion chips stay on screen each time they
+/// appear before folding away (`issue2.jpeg`, owner ask: 15 seconds).
+const Duration kCompanionChipsVisibleFor = Duration(seconds: 15);
+
 class _ChatView extends StatefulWidget {
   const _ChatView({this.fromResumeImport = false, this.assistantTab = false});
 
@@ -364,6 +368,29 @@ class _ChatViewState extends State<_ChatView>
 
   /// One-shot: the prompt is answered once per completed upload.
   bool _promptAnsweredAfterImport = false;
+
+  // ---- Bada Bhai tab: the companion's chips fold away (`issue2.jpeg`) ------
+  //
+  // On the Bada Bhai tab the companion's 3–4 follow-up chips sat docked above
+  // the composer for good, taking a large share of the screen. They now show
+  // for [kCompanionChipsVisibleFor] each time they APPEAR — a new reply's chips,
+  // or the tab coming back into focus — then fold away. COMPANION MODE ONLY:
+  // in the profiling interview the chips are the answers, and they never hide.
+
+  /// True once this chip set has had its time on screen.
+  bool _companionChipsHidden = false;
+
+  /// Counts down the visible window; restarted on every new appearance.
+  Timer? _companionChipsTimer;
+
+  /// The app-wide tab focus, listened to so a return to the Bada Bhai tab
+  /// re-shows the chips. Null where no shell registers it (a widget test).
+  TabFocus? _tabFocus;
+
+  /// The chip set whose window is running — its labels, joined. A listener edge
+  /// that carries the SAME chips (a `sending` flip, a name landing) must not
+  /// restart the 15 seconds; only a new set does.
+  String? _companionChipsFingerprint;
 
   /// An option/chip tap is dispatched and the reply has not arrived yet.
   ///
@@ -527,6 +554,41 @@ class _ChatViewState extends State<_ChatView>
     // A FRESH mount that already carries a completed import (the route was
     // rebuilt from scratch) — see [_checkImportSignal].
     _checkImportSignal();
+    if (locator.isRegistered<TabFocus>()) {
+      _tabFocus = locator<TabFocus>()..addListener(_onTabFocusChanged);
+    }
+  }
+
+  /// The Bada Bhai tab came back into focus: its chips get a fresh window.
+  void _onTabFocusChanged() {
+    if (!mounted) return;
+    if (_tabFocus?.value != TabIndex.chat) return;
+    if (!context.read<ChatBloc>().state.companion) return;
+    _showCompanionChips();
+  }
+
+  /// A new companion reply (or the recap on open) brought a NEW chip set: give
+  /// it its window. Anything else — interview turns, an unchanged set — leaves
+  /// the window alone.
+  void _maybeShowNewCompanionChips(ChatState state) {
+    if (!state.companion || state.sending) return;
+    final List<String> labels = state.suggestedOptions.isNotEmpty
+        ? <String>[for (final ChatOption o in state.suggestedOptions) o.labelText]
+        : state.followups;
+    if (labels.isEmpty) return;
+    final String fingerprint = labels.join('\u0001');
+    if (fingerprint == _companionChipsFingerprint) return;
+    _companionChipsFingerprint = fingerprint;
+    _showCompanionChips();
+  }
+
+  /// Shows the companion's chips and (re)starts their visible window.
+  void _showCompanionChips() {
+    _companionChipsTimer?.cancel();
+    if (_companionChipsHidden) setState(() => _companionChipsHidden = false);
+    _companionChipsTimer = Timer(kCompanionChipsVisibleFor, () {
+      if (mounted) setState(() => _companionChipsHidden = true);
+    });
   }
 
   /// THE ARRIVAL EDGE from the résumé-upload screen.
@@ -560,6 +622,8 @@ class _ChatViewState extends State<_ChatView>
 
   @override
   void dispose() {
+    _companionChipsTimer?.cancel();
+    _tabFocus?.removeListener(_onTabFocusChanged);
     // ADR-0048 — drop a mid-flight token before the route goes, so it cannot
     // linger over whatever is behind.
     _nameFlightEntry?.remove();
@@ -1842,6 +1906,7 @@ class _ChatViewState extends State<_ChatView>
           _maybeAnswerHeldCity(state);
           _showEditNotice(state);
           _maybeAnswerPromptAfterImport(state);
+          _maybeShowNewCompanionChips(state);
           _maybeSayEmptyImport(state);
           _maybeLeaveForResumeUpdate(state);
           // Release on the SETTLE EDGE (sending true → false), never on the
@@ -2599,6 +2664,13 @@ class _ChatViewState extends State<_ChatView>
     final bool hasOptions =
         state.suggestedOptions.isNotEmpty || state.followups.isNotEmpty;
     if (!hasOptions) return false;
+    // OWNER ASK (2026-10-15, `issue4`) — "Resume hai aapke paas?" is answered
+    // by its two chips only (upload / no résumé): no text field, no mic.
+    if (isResumePromptChips(
+      state.suggestedOptions.map((ChatOption o) => o.optionKey),
+    )) {
+      return true;
+    }
     // OWNER ASK (2026-10-12) — a turn that offers typing KEEPS the composer.
     // "Kuch aur" means exactly "answer in your own words", so the input is
     // enabled by default rather than replaced by the locked bar.
@@ -3001,6 +3073,12 @@ class _ChatViewState extends State<_ChatView>
         key: const ValueKey<String>('typing'),
         child: _typingIndicator(),
       );
+    }
+    // `issue2.jpeg` — the companion's chips have had their window: fold them
+    // away. The same `none` key every empty affordance uses, so the existing
+    // switcher cross-fades the change instead of snapping it.
+    if (state.companion && _companionChipsHidden) {
+      return const SizedBox.shrink(key: ValueKey<String>('none'));
     }
     // ADR-0048 (#1864) — THE TWO LOCATION QUESTIONS GET PICKERS, not a bare
     // text box. `/name` never asked a worker to spell their state, and moving

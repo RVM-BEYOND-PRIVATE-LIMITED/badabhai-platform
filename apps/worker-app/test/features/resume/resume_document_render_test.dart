@@ -721,10 +721,15 @@ void main() {
         );
         expect(find.widgetWithText(KitInfoChip, 'Aadhaar'), findsOneWidget);
         expect(find.widgetWithText(KitInfoChip, 'PAN'), findsOneWidget);
+        // `education.jpeg` — Education moved to its own "Education &
+        // Certificates" card. With no structured rows in this graph, the card
+        // shows the sheet's own line under an EDUCATION label.
+        expect(find.text('Education & Certificates'), findsOneWidget);
+        expect(find.text('ITI · Machinist · 2018'), findsOneWidget);
         expect(
-          find.textContaining('Education: ITI · Machinist · 2018',
-              findRichText: true),
-          findsOneWidget,
+          find.textContaining('Education: ITI', findRichText: true),
+          findsNothing,
+          reason: 'no longer a fact line inside the qualifications card',
         );
       },
     );
