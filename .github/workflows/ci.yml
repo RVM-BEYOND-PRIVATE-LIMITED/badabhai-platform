@@ -204,8 +204,10 @@ jobs:
             #
             # Keep this list equal to the set of `File('../api/...')` paths under
             # apps/worker-app/test — a test that starts reading another server file must add
-            # it here in the same PR. A `<dir>/**` entry is the same rule for a shared DATA
-            # directory a worker-app test reads (the TD144 guard checks both shapes).
+            # it here in the same PR. A `<dir>/**` entry does the same for a shared DATA
+            # directory a worker-app test reads (`'../../packages/…'`). The TD144 guard checks
+            # both directions: every entry here is read, and every shared read is listed
+            # here or recorded in the guard as a known gap.
             worker-app-parity:
               - 'apps/api/src/chat/chat-replies.ts'
               - 'apps/api/src/chat/resume-menu.ts'

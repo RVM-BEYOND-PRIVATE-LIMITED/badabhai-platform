@@ -121,13 +121,20 @@ void main() {
 
   // ── PARITY PIN: the Technical Skills walk of every shipped form trade ────
   //
-  // Built from the REAL packs (`form_pack_corpus.dart`), pack order, before any
-  // tier or `ask_if` narrowing (the server does that). The nine Batch-1 trades
-  // are byte-identical to the fail-open walk they had before 2026-10-16 —
-  // every one of their keys was already mapped. The seven Batch-2 trades are
-  // the fix: their tenure (`*_experience`) and self-level (`*_level`)
-  // questions leave, exactly as the machining ones always did; every
-  // capability question stays.
+  // Every key of every form pack AS SHIPPED 2026-10-16, before any tier or
+  // `ask_if` narrowing (the server does that): `expected` is what the walk
+  // keeps, in pack order; `dropped` is the rest of the pack. The nine Batch-1
+  // trades are byte-identical to the fail-open walk they had before — every
+  // one of their keys was already mapped. The seven Batch-2 trades are the
+  // fix: their tenure (`*_experience`) and self-level (`*_level`) questions
+  // leave, exactly as the machining ones always did; every capability
+  // question stays.
+  //
+  // A FROZEN SNAPSHOT, deliberately not read from the live packs: the packs
+  // are in ci.yml's `worker-app-parity` filter, so a live-corpus pin would
+  // turn every backend pack edit (a reorder, a shared key added) red in THIS
+  // lane. The live packs are guarded by `trade_form_topics_coverage_test.dart`
+  // instead — every key mapped — which is the one cross-lane failure wanted.
   group('Technical Skills, trade by trade (parity pin)', () {
     const Map<String, List<String>> expected = <String, List<String>>{
       // ── Batch 1 — unchanged ──
@@ -235,20 +242,87 @@ void main() {
       ],
     };
 
-    final Map<String, ShippedPack> formPacks = readFormPacks();
+    const Map<String, List<String>> dropped = <String, List<String>>{
+      'qp_cnc_turning': <String>[
+        'turning_experience', 'sector_worked', 'trade_test_status',
+        'iti_project_work',
+      ],
+      'qp_vmc_milling': <String>[
+        'milling_experience', 'sector_worked', 'trade_test_status',
+        'iti_project_work',
+      ],
+      'qp_cnc_grinding': <String>[
+        'grinding_experience', 'sector_worked', 'trade_test_status',
+        'iti_project_work',
+      ],
+      'qp_conventional_machining': <String>[
+        'machining_experience', 'machining_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_tool_die_making': <String>[
+        'toolroom_experience', 'toolroom_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_cam_programming': <String>[
+        'programming_experience', 'sector_worked', 'trade_test_status',
+        'iti_project_work',
+      ],
+      'qp_cad_drafting': <String>[
+        'drafting_experience', 'sector_drawn', 'cad_training_source',
+        'trade_test_status', 'sector_studied', 'iti_project_work',
+      ],
+      'qp_welding_trade': <String>[
+        'welding_experience', 'welder_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_powder_coating': <String>[
+        'coating_experience', 'coating_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_sheet_metal_fab': <String>[
+        'sheet_metal_experience', 'sheet_metal_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_press_operation': <String>[
+        'press_experience', 'press_level', 'sector_worked', 'trade_test_status',
+        'iti_project_work',
+      ],
+      'qp_fitter': <String>[
+        'fitting_experience', 'fitter_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_maintenance_tech': <String>[
+        'maintenance_experience', 'maintenance_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_industrial_electrician': <String>[
+        'electrical_experience', 'electrician_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_assembly_line': <String>[
+        'assembly_experience', 'assembly_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+      'qp_quality_inspection': <String>[
+        'inspection_experience', 'inspection_level', 'sector_worked',
+        'trade_test_status', 'iti_project_work',
+      ],
+    };
     final TradeFormStepFilter filter =
         tradeFormSectionFilterFor(kResumeMenuTechnicalSkillsKey)!;
 
     test('pins every known form trade, and only those', () {
       expect(expected.keys.toSet(), kKnownFormPackIds);
+      expect(dropped.keys.toSet(), kKnownFormPackIds);
     });
 
     for (final MapEntry<String, List<String>> trade in expected.entries) {
       test('${trade.key} asks exactly its capability questions', () {
-        final ShippedPack pack = formPacks[trade.key]!;
+        final List<String> drop = dropped[trade.key]!;
+        expect(trade.value.toSet().intersection(drop.toSet()), isEmpty);
         expect(
           <String>[
-            for (final String key in pack.questionKeys)
+            for (final String key in <String>[...trade.value, ...drop])
               if (filter(_step(key))) key,
           ],
           trade.value,
