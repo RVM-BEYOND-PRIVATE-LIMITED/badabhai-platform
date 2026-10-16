@@ -23,3 +23,14 @@ const String kResumePromptNoResumeKey = 'no_resume';
 /// Chip labels — the same words the retired two-door screen used.
 const String kResumePromptUploadLabel = 'Resume upload karein';
 const String kResumePromptNoResumeLabel = 'Mere paas resume nahi hai';
+
+/// Whether [optionKeys] are the résumé PROMPT's own two chips (upload + no
+/// résumé). OWNER ASK (2026-10-15, `issue4`): this question is answered by
+/// choosing one of them, so the composer and its mic are withheld while it
+/// stands. Keyed on both keys: the post-completion résumé menu carries the
+/// upload key but never `no_resume`, and must keep its composer.
+bool isResumePromptChips(Iterable<String> optionKeys) {
+  final Set<String> keys = optionKeys.toSet();
+  return keys.contains(kResumePromptUploadKey) &&
+      keys.contains(kResumePromptNoResumeKey);
+}

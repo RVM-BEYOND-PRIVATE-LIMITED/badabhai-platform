@@ -12,6 +12,7 @@ import '../../../core/widgets/onboarding/form_flow_parts.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
+import '../../../core/widgets/onboarding/keyboard_collapsing_header.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../voice/domain/speech_reader.dart';
@@ -547,37 +548,52 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     // context-only parts so the question, the field and the docked action
     // still fit. See [_keyboardCrowdsChrome] for the measurement.
     final bool crowded = _keyboardCrowdsChrome(context);
+    // `issue1.jpeg` — on the WORK HISTORY and EDUCATION & CERTIFICATES pages
+    // the whole navy header folds away while the soft keyboard is open, and
+    // comes back when it closes: those two pages are long forms, and with the
+    // header up the keyboard left almost nothing of the page visible. On these
+    // two pages the header's own drawing therefore NEVER reacts to the keyboard
+    // (no variant swap, no STEP-line removal) — it only folds — so its height
+    // cannot jump in the middle of the fold. Every other step is unchanged.
+    final bool foldsUnderKeyboard =
+        step is TradeFormEmploymentStep || step is TradeFormQualificationsStep;
+    final bool keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     // The header collapses on a short screen too, not only under a keyboard.
-    final bool headerCrowded = _chromeCrowdsChrome(context);
+    final bool headerCrowded = foldsUnderKeyboard
+        ? chromeCrowdsViewport(context)
+        : _chromeCrowdsChrome(context);
 
     return Scaffold(
       backgroundColor: FormFlowColors.canvas,
       body: Column(
         children: <Widget>[
-          ShiftBlueHeader(
-            title: state.currentSectionTitle ?? '',
-            titleColor: OnboardingColors.safetyYellow,
-            // The form-flow drawing is the one the user approved, so it is
-            // what ships — EXCEPT while the keyboard crowds a short screen,
-            // where it does not fit at all (see [_keyboardCrowdsChrome]).
-            // There the header falls back to the kit's collapsed drawing
-            // (back arrow + one-line title on a single row), which is the
-            // same collapse every other screen in the app already does.
-            variant: headerCrowded
-                ? OnboardingVariant.standard
-                : OnboardingVariant.formFlow,
-            compact: headerCrowded,
-            stepBadge: (total == 0 || crowded)
-                ? null
-                : _stepBadge(position, total, category),
-            // #1384 item 2 — a marker mid-way through its own internal pages
-            // walks BACKWARD through those first; only once it is back on
-            // its own first internal page does the SAME back arrow fall
-            // through to the outer-step behaviour every other step already
-            // has.
-            onBack: (isMarkerStep && _markerPage > 0)
-                ? () => _goToPreviousMarkerPage(step)
-                : (state.isFirstStep ? () => context.pop() : cubit.goBack),
+          KeyboardCollapsingHeader(
+            collapsed: foldsUnderKeyboard && keyboardOpen,
+            child: ShiftBlueHeader(
+              title: state.currentSectionTitle ?? '',
+              titleColor: OnboardingColors.safetyYellow,
+              // The form-flow drawing is the one the user approved, so it is
+              // what ships — EXCEPT while the keyboard crowds a short screen,
+              // where it does not fit at all (see [_keyboardCrowdsChrome]).
+              // There the header falls back to the kit's collapsed drawing
+              // (back arrow + one-line title on a single row), which is the
+              // same collapse every other screen in the app already does.
+              variant: headerCrowded
+                  ? OnboardingVariant.standard
+                  : OnboardingVariant.formFlow,
+              compact: headerCrowded,
+              stepBadge: (total == 0 || (crowded && !foldsUnderKeyboard))
+                  ? null
+                  : _stepBadge(position, total, category),
+              // #1384 item 2 — a marker mid-way through its own internal pages
+              // walks BACKWARD through those first; only once it is back on
+              // its own first internal page does the SAME back arrow fall
+              // through to the outer-step behaviour every other step already
+              // has.
+              onBack: (isMarkerStep && _markerPage > 0)
+                  ? () => _goToPreviousMarkerPage(step)
+                  : (state.isFirstStep ? () => context.pop() : cubit.goBack),
+            ),
           ),
           // Full width, directly under the header — outside the body padding.
           // Hidden only while the keyboard crowds the screen (see

@@ -14,7 +14,6 @@ import '../../../core/util/taxonomy_labels.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/kit/kit_card.dart';
 import '../../../core/widgets/kit/kit_content_column.dart';
@@ -27,7 +26,6 @@ import '../../resume_import/presentation/resume_upload_entry.dart';
 import '../domain/profile_summary.dart';
 import 'cubit/profile_tab_cubit.dart';
 import 'widgets/profile_identity_card.dart';
-import 'widgets/profile_strength_card.dart';
 
 /// #1524 — the chat-road badge on the Profile tab. A chat-sourced profile is
 /// labelled so it is never mistaken for the form road's trade-sheet profile.
@@ -136,16 +134,6 @@ class _ProfileTabView extends StatelessWidget {
       max: OnboardingLayout.maxTabContentWidth,
       gutter: 14,
     );
-    // #1322: at most ONE humanized nudge, derived from the server's strength
-    // band + ordered `missing_fields`. Collapses to nothing at Strong (and when
-    // nothing is missing) — never a grade, never an "N/9" score. Asked here so
-    // the gap around it collapses too.
-    final bool showNudge = profileStrengthNudgeVisible(
-      signals: s.strengthSignals,
-      max: s.strengthMax,
-      missingFields: s.missingFields,
-    );
-
     return ListView(
       padding: EdgeInsets.fromLTRB(side.left, 14, side.right, 24),
       children: <Widget>[
@@ -163,14 +151,9 @@ class _ProfileTabView extends StatelessWidget {
             ),
           ),
         ],
-        if (showNudge) ...<Widget>[
-          const SizedBox(height: 12),
-          ProfileStrengthCard(
-            signals: s.strengthSignals,
-            max: s.strengthMax,
-            missingFields: s.missingFields,
-          ),
-        ],
+        // OWNER ASK (2026-10-16) — the "Profile ko mazboot banayein" /
+        // "Profile lagbhag poori hai" strength card (#1322) is hidden for
+        // good: no nudge card on this tab, in any band.
         // #1579 — the empty-zone rule, enforced by construction: a section
         // with no content renders NOTHING (no heading, no gap, no claim-like
         // empty sentence). A section collectable through an existing one-tap
@@ -186,7 +169,7 @@ class _ProfileTabView extends StatelessWidget {
         const SizedBox(height: 12),
         _shortcutsCard(context),
         // Comfortable separation from the content above; logout sits last.
-        const SizedBox(height: 32),
+        const SizedBox(height: 20),
         _logoutButton(context),
         // TEST-ONLY (kEnableTestDelete): compiled out of a normal release, so a
         // stock build never carries it. Sits just below logout for QA.
@@ -511,83 +494,181 @@ class _ProfileTabView extends StatelessWidget {
   ///    Settings screen uses, so hiding the funnel hides it here too.
   Widget _shortcutsCard(BuildContext context) {
     final bool showInvite = !BbRemoteConfig.instance.inviteEntryHidden;
-    return KitCard(
-      padding: EdgeInsets.zero,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        child: Column(
-          children: <Widget>[
-            // HIDDEN FOR NOW: the 'Profile edit karein' shortcut — hidden with
-            // the row until the owner asks it back. Restored by re-adding the
-            // BbListRow below (with its trailing hairline).
-            BbListRow.kit(
-              icon: Icons.quiz_outlined,
-              title: 'Interview kit',
-              subtitle: '15 sawaal + jawaab',
-              onTap: () => context.pushOnce(Routes.kit),
+    // `issue3.jpeg` — the six shortcuts were six full-width rows (~110dp each)
+    // that pushed the tab past one screen. They are now a TWO-COLUMN GRID of
+    // compact tiles: every shortcut, icon, title, line and destination exactly
+    // as before — only the layout changed — so the whole tab fits one screen on
+    // an ordinary phone and nothing has to be scrolled to.
+    //
+    // HIDDEN FOR NOW: the 'Profile edit karein' shortcut — hidden until the
+    // owner asks it back. Restored by adding its tile below.
+    final List<Widget> tiles = <Widget>[
+      _ShortcutTile(
+        icon: Icons.quiz_outlined,
+        title: 'Interview kit',
+        subtitle: '15 sawaal + jawaab',
+        onTap: () => context.pushOnce(Routes.kit),
+      ),
+      _ShortcutTile(
+        icon: Icons.history_edu_outlined,
+        title: 'Mere resume',
+        subtitle: 'Purane resume dekhein aur download karein',
+        onTap: () => context.pushOnce(Routes.resumeHistory),
+      ),
+      // #2326 — the CEO's "upload at any point", beside the tile a worker
+      // opens looking for their résumés. Opens the picker straight away, and
+      // the attempt ends on the Bada Bhai tab (see `openResumeUploadEntry`).
+      _ShortcutTile(
+        key: kProfileResumeUploadRowKey,
+        icon: Icons.upload_file_rounded,
+        title: kResumeUploadEntryLabel,
+        subtitle: kResumeUploadEntryHint,
+        onTap: () => openResumeUploadEntry(context),
+      ),
+      // E4 (#1828) — the worker's own on/off for each kind of work he is
+      // shown to employers for.
+      _ShortcutTile(
+        icon: Icons.construction_rounded,
+        title: 'Mera kaam',
+        subtitle: 'Kaam dikhayein / band karein',
+        onTap: () => context.pushOnce(Routes.matchSkills),
+      ),
+      _ShortcutTile(
+        icon: Icons.work_history,
+        title: 'Applied jobs',
+        subtitle: 'Aapki apply ki gayi jobs',
+        onTap: () => context.pushOnce(Routes.appliedJobs),
+      ),
+      _ShortcutTile(
+        icon: Icons.forum_outlined,
+        title: 'Sandesh',
+        subtitle: 'Aapke sandesh aur jawaab',
+        onTap: () => context.pushOnce(Routes.inbox),
+      ),
+      if (showInvite)
+        _ShortcutTile(
+          icon: Icons.person_add_alt_1_outlined,
+          title: 'Dost ko invite karein',
+          subtitle: 'Referral link share karein',
+          onTap: () => context.pushOnce(Routes.invite),
+        ),
+    ];
+    return Column(
+      children: <Widget>[
+        for (int i = 0; i < tiles.length; i += 2) ...<Widget>[
+          if (i > 0) const SizedBox(height: _kShortcutGap),
+          // Equal heights in a row, so a two-line title never leaves its
+          // neighbour shorter.
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Expanded(child: tiles[i]),
+                const SizedBox(width: _kShortcutGap),
+                Expanded(
+                  child: i + 1 < tiles.length
+                      ? tiles[i + 1]
+                      : const SizedBox.shrink(),
+                ),
+              ],
             ),
-            _hairline,
-            BbListRow.kit(
-              icon: Icons.history_edu_outlined,
-              title: 'Mere resume',
-              subtitle: 'Purane resume dekhein aur download karein',
-              onTap: () => context.pushOnce(Routes.resumeHistory),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The space between shortcut tiles, both ways.
+const double _kShortcutGap = 10;
+
+/// One Profile shortcut as a compact tile (`issue3.jpeg`): the same icon, title,
+/// line and destination the full-width row had, stacked so two fit side by
+/// side.
+class _ShortcutTile extends StatelessWidget {
+  const _ShortcutTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final BorderRadius radius = BorderRadius.circular(OnboardingRadii.card);
+    return Semantics(
+      button: true,
+      label: '$title. $subtitle',
+      excludeSemantics: true,
+      child: Material(
+        color: OnboardingColors.paperWhite,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: const BorderSide(color: OnboardingColors.borderCard),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                // Icon and title on ONE line — the stacked icon row cost a
+                // whole line per tile, three times over.
+                Row(
+                  children: <Widget>[
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: OnboardingColors.pillMutedBg,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        icon,
+                        size: 18,
+                        color: OnboardingColors.shiftBlue,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: OnboardingTypography.anek(
+                          size: 14,
+                          weight: FontWeight.w700,
+                          height: 1.15,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: OnboardingTypography.inter(
+                    size: 11.5,
+                    height: 1.3,
+                    color: OnboardingColors.ink600,
+                  ),
+                ),
+              ],
             ),
-            _hairline,
-            // The CEO's "upload at any point", beside the row a worker opens
-            // looking for their résumés. Opens the picker straight away, and
-            // the attempt ends on the Bada Bhai tab (see
-            // `openResumeUploadEntry`).
-            BbListRow.kit(
-              key: kProfileResumeUploadRowKey,
-              icon: Icons.upload_file_rounded,
-              title: kResumeUploadEntryLabel,
-              subtitle: kResumeUploadEntryHint,
-              onTap: () => openResumeUploadEntry(context),
-            ),
-            _hairline,
-            // E4 (#1828) — the worker's own on/off for each kind of work
-            // he is shown to employers for.
-            BbListRow.kit(
-              icon: Icons.construction_rounded,
-              title: 'Mera kaam',
-              subtitle: 'Kaam dikhayein / band karein',
-              onTap: () => context.pushOnce(Routes.matchSkills),
-            ),
-            _hairline,
-            BbListRow.kit(
-              icon: Icons.work_history,
-              title: 'Applied jobs',
-              subtitle: 'Aapki apply ki gayi jobs',
-              onTap: () => context.pushOnce(Routes.appliedJobs),
-            ),
-            _hairline,
-            BbListRow.kit(
-              icon: Icons.forum_outlined,
-              title: 'Sandesh',
-              subtitle: 'Aapke sandesh aur jawaab',
-              onTap: () => context.pushOnce(Routes.inbox),
-            ),
-            if (showInvite) ...<Widget>[
-              _hairline,
-              BbListRow.kit(
-                icon: Icons.person_add_alt_1_outlined,
-                title: 'Dost ko invite karein',
-                subtitle: 'Referral link share karein',
-                onTap: () => context.pushOnce(Routes.invite),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
   }
-
-  Widget get _hairline => const Divider(
-    height: 1,
-    thickness: 1,
-    indent: 16,
-    endIndent: 16,
-    color: OnboardingColors.borderSubtle,
-  );
 }

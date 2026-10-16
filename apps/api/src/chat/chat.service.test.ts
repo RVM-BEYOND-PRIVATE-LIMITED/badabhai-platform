@@ -128,6 +128,12 @@ function answer(over: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * What `flushInterview` persists on an ORDINARY close: the CTA was lit (`!handedToForm`). A closed
+ * session's CTA is read off this marker (#2331, #2333), so a test of a finished session needs it.
+ */
+const FINISHED_STATE = { completion_reason: "complete", extraction_ready_emitted: true };
+
 function make(
   opts: {
     /** What the buffer holds BEFORE the turn. `null` = no buffer yet (first turn). */
@@ -794,7 +800,10 @@ describe("ChatService.postMessage — degradation is a true no-op", () => {
   });
 
   it("a message posted to an ALREADY FINALIZED session is terminal, free, and idempotent", async () => {
-    const { res, orchestrator, chat } = await run({ sessionStatus: "ended" });
+    const { res, orchestrator, chat } = await run({
+      sessionStatus: "ended",
+      conversationState: FINISHED_STATE,
+    });
     expect(res.session_ended).toBe(true);
     expect(res.extraction_ready).toBe(true);
     expect(orchestrator.takeTurn).not.toHaveBeenCalled();
@@ -1519,7 +1528,7 @@ describe("ChatService — tts_text, the read-aloud sibling (#896)", () => {
   });
 
   it("a TERMINAL turn into a finished session serves the resume menu", async () => {
-    const { res } = await run({ sessionStatus: "ended" });
+    const { res } = await run({ sessionStatus: "ended", conversationState: FINISHED_STATE });
     // Post-completion menu V1: any text on a dead session gets edit-vs-redo,
     // not the old fixed closing line. Flags are unchanged (client contract).
     expect(res.reply).toBe("Aap kya karna chahte hain. Neeche se chunein.");
@@ -1660,6 +1669,203 @@ describe("ChatService.listMessages — session_ended_at says the thread is over 
   it("a closed row with no ended_at has nowhere to put a marker: absent", async () => {
     const { svc } = make({ buffer: null, sessionStatus: "ended", sessionEndedAt: null });
     expect("session_ended_at" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+});
+
+describe("ChatService.listMessages — extraction_ready re-lights the build-profile CTA on reopen", () => {
+  const ENDED_AT = new Date("2026-10-16T09:29:00.000Z");
+  const rows = [
+    {
+      direction: "outbound",
+      bodyText: "Aapki nayi jaankari se resume update kar doon?",
+      createdAt: new Date(T0),
+    },
+    { direction: "inbound", bodyText: "Abhi nahi", createdAt: new Date(T0) },
+    {
+      direction: "outbound",
+      bodyText: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+      createdAt: new Date(T0),
+    },
+  ];
+
+  it("a FINISHED session whose close lit the CTA says so, on the durable branch", async () => {
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState: FINISHED_STATE,
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    const res = await svc.listMessages(WORKER, SESSION);
+    expect(res.extraction_ready).toBe(true);
+    expect(res.session_ended_at).toBe("2026-10-16T09:29:00.000Z");
+    expect(SessionMessagesResponseSchema.safeParse(res).success).toBe(true);
+  });
+
+  it("the row decides on the buffer branch too, in the moment the buffer outlives the close", async () => {
+    const { svc } = make({
+      buffer: {
+        messages: [
+          {
+            role: "assistant",
+            text: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+            at: T0,
+            voiceNoteId: null,
+          },
+        ],
+      },
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState: FINISHED_STATE,
+    });
+    expect((await svc.listMessages(WORKER, SESSION)).extraction_ready).toBe(true);
+  });
+
+  it("a FORM HANDOVER (trade or general) never lights it: the flush withheld extraction", async () => {
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState: {
+        completion_reason: "form_handoff",
+        form_kind: "cnc_turner",
+        extraction_ready_emitted: false,
+      },
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it("an ABANDONED session never lights it, whatever its state says", async () => {
+    // `abandonInterview` writes the marker false; a `true` here would be a stray copy, and an
+    // abandoned interview still mints no profile.
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "abandoned",
+      sessionEndedAt: ENDED_AT,
+      conversationState: FINISHED_STATE,
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it.each([
+    ["no state", null],
+    ["a non-object state", "corrupt"],
+    ["no marker", { completion_reason: "complete" }],
+    ["a non-boolean marker", { extraction_ready_emitted: "true" }],
+  ])("an ended row with %s fails closed: absent", async (_label, conversationState) => {
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState,
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it("a LIVE session's response is byte-identical: the key is absent, never false", async () => {
+    const durable = make({ buffer: null, conversationState: FINISHED_STATE });
+    durable.chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await durable.svc.listMessages(WORKER, SESSION))).toBe(false);
+
+    const buffered = make({
+      buffer: { messages: [{ role: "assistant", text: "Namaste", at: T0, voiceNoteId: null }] },
+      conversationState: FINISHED_STATE,
+    });
+    expect("extraction_ready" in (await buffered.svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+});
+
+describe("ChatService.postMessage — a closed session's CTA is its own answer (#2333)", () => {
+  /** What `flushInterview` persists when the interview hands over to a TRADE form. */
+  const TRADE_HANDOVER_STATE = {
+    completion_reason: "form_handoff",
+    form_kind: "cnc_turner",
+    extraction_ready_emitted: false,
+  };
+  const GENERAL_DONE_STATE = {
+    completion_reason: "general_form_handoff",
+    extraction_ready_emitted: false,
+    general_form_completed_at: "2026-09-26T10:00:00.000Z",
+  };
+
+  it("a FINISHED interview keeps the CTA on the résumé menu", async () => {
+    const { res } = await run({ sessionStatus: "ended", conversationState: FINISHED_STATE });
+    expect(res.extraction_ready).toBe(true);
+    expect(res.session_ended).toBe(true);
+  });
+
+  it("an ABANDONED session stays dark (owner ruling) — and still gets the menu to move on", async () => {
+    // A stray `true` marker cannot light it: an abandoned interview mints no profile.
+    const { res, orchestrator } = await run({
+      sessionStatus: "abandoned",
+      conversationState: FINISHED_STATE,
+    });
+    expect(res.extraction_ready).toBe(false);
+    // The client must still drop its cached id, and the worker still has a way on.
+    expect(res.session_ended).toBe(true);
+    expect(res.suggested_followups).toEqual([
+      "Apna resume edit karein",
+      "Apna resume dobara banayein",
+    ]);
+    expect(orchestrator.takeTurn).not.toHaveBeenCalled();
+  });
+
+  it("a TRADE-FORM handover stays dark: the form, not the chat, builds this profile", async () => {
+    const { res } = await run({ sessionStatus: "ended", conversationState: TRADE_HANDOVER_STATE });
+    expect(res.extraction_ready).toBe(false);
+    expect(res.session_ended).toBe(true);
+  });
+
+  it.each([
+    ["no state", null],
+    ["a non-object state", "corrupt"],
+    ["no marker", { completion_reason: "complete" }],
+    ["a non-boolean marker", { extraction_ready_emitted: "true" }],
+  ])("an ended session with %s fails closed: dark", async (_label, conversationState) => {
+    const { res } = await run({ sessionStatus: "ended", conversationState });
+    expect(res.extraction_ready).toBe(false);
+    expect(res.session_ended).toBe(true);
+  });
+
+  it.each([
+    ["finished", "ended", FINISHED_STATE, true],
+    ["abandoned", "abandoned", FINISHED_STATE, false],
+    ["trade handover", "ended", TRADE_HANDOVER_STATE, false],
+    ["general form done", "ended", GENERAL_DONE_STATE, true],
+    ["no state", "ended", null, false],
+  ])(
+    "a reopen and the next message agree — %s",
+    async (_label, sessionStatus, conversationState, lit) => {
+      const posted = await run({ sessionStatus, conversationState });
+      expect(posted.res.extraction_ready).toBe(lit);
+
+      const reopened = make({ buffer: null, sessionStatus, conversationState });
+      const transcript = await reopened.svc.listMessages(WORKER, SESSION);
+      expect(transcript.extraction_ready === true).toBe(lit);
+    },
+  );
+
+  it("a re-driven TRADE handover flush stays dark — the handover turn kept the CTA dark", async () => {
+    const { res, events, profiles } = await run({
+      buffer: {
+        ...COMPLETED,
+        completionReason: "form_handoff",
+        profiling: envelope({ answerMap: [answer()] as never, formKind: "cnc_turner" }),
+      },
+    });
+    expect(res.session_ended).toBe(true);
+    expect(res.extraction_ready).toBe(false);
+    expect(emittedNames(events)).not.toContain("profile.extraction_ready");
+    expect(profiles.extract).not.toHaveBeenCalled();
+  });
+
+  it("a re-driven ORDINARY flush still lights it once it lands", async () => {
+    const { res } = await run({ buffer: { ...COMPLETED, profiling: envelope() } });
+    expect(res.session_ended).toBe(true);
+    expect(res.extraction_ready).toBe(true);
   });
 });
 
@@ -2575,7 +2781,7 @@ describe("ChatService — the general road (ADR-0045)", () => {
   });
 
   it("a late POST to an ordinary ended session is the résumé menu exactly as before", async () => {
-    const { res } = await run({ sessionStatus: "ended" });
+    const { res } = await run({ sessionStatus: "ended", conversationState: FINISHED_STATE });
     expect(has(res, "general_form_offer")).toBe(false);
     expect(res.extraction_ready).toBe(true);
   });

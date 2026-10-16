@@ -14,6 +14,7 @@ import '../../../../core/widgets/kit/kit_micro_label.dart';
 import '../cubit/resume_cubit.dart';
 import 'resume_card_slots.dart';
 import 'resume_general_sheet_rows.dart';
+import 'resume_qualifications_card.dart';
 
 /// Gap between two v3 cards in the resume stack.
 const double kResumeCardGap = 12;
@@ -130,16 +131,26 @@ class ResumeDocumentView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ResumeSlots slots = mapTradeSheet(document);
+    // `education.jpeg` — Education and Certificates leave the "Qualification,
+    // documents & languages" card for a card of their own (see
+    // [ResumeQualificationsCard]); what they leave behind keeps its card.
+    final ({
+      List<ResumeExtraSection> sections,
+      List<ResumeFact> qualifications,
+    }) split = splitQualificationFacts(slots.extraSections);
     final List<Widget> cards = <Widget>[
       if (slots.hasCapabilityCard) _CapabilityCard(slots: slots),
       if (slots.hasMaterialsCard) _MaterialsCard(slots: slots),
       if (slots.hasOperationsCard) _OperationsCard(slots: slots),
-      for (final ResumeExtraSection section in slots.extraSections)
+      for (final ResumeExtraSection section in split.sections)
         _ExtraSectionCard(section: section),
       if (document.employments.isNotEmpty) _WorkHistoryCard(document: document),
       // A fresher has training INSTEAD of a work history, never both, so this
       // sits where the history would have been rather than after it.
       if (document.experiences.isNotEmpty) _TrainingCard(document: document),
+      // Right under the work history, the way a résumé reads.
+      if (split.qualifications.isNotEmpty)
+        ResumeQualificationsCard(fallback: split.qualifications),
       if (document.footerMeta != null && document.footerMeta!.isNotEmpty)
         Text(
           document.footerMeta!,
@@ -1049,4 +1060,51 @@ class _RevealLink extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The sheet's labels for the two rows that move to the "Education &
+/// Certificates" card. Exactly as `buildQualificationRows` writes them.
+const Set<String> kResumeQualificationFactLabels = <String>{
+  'Education',
+  'Certificates',
+};
+
+/// [sections] with their Education / Certificates facts taken out, and those
+/// facts — in the sheet's order — returned alongside.
+///
+/// A section that is left with nothing at all to draw is dropped rather than
+/// shown as an empty titled card. Everything else (documents, languages,
+/// training, any row this build does not know) stays exactly where it was.
+@visibleForTesting
+({List<ResumeExtraSection> sections, List<ResumeFact> qualifications})
+splitQualificationFacts(List<ResumeExtraSection> sections) {
+  final List<ResumeFact> moved = <ResumeFact>[];
+  final List<ResumeExtraSection> kept = <ResumeExtraSection>[];
+  for (final ResumeExtraSection section in sections) {
+    final List<ResumeFact> stay = <ResumeFact>[];
+    for (final ResumeFact fact in section.facts) {
+      if (kResumeQualificationFactLabels.contains(fact.label.trim())) {
+        moved.add(fact);
+      } else {
+        stay.add(fact);
+      }
+    }
+    if (stay.length == section.facts.length) {
+      kept.add(section);
+      continue;
+    }
+    final ResumeExtraSection rest = ResumeExtraSection(
+      id: section.id,
+      title: section.title,
+      chipGroups: section.chipGroups,
+      tickGroups: section.tickGroups,
+      facts: stay,
+    );
+    if (rest.chipGroups.isNotEmpty ||
+        rest.tickGroups.isNotEmpty ||
+        rest.facts.isNotEmpty) {
+      kept.add(rest);
+    }
+  }
+  return (sections: kept, qualifications: moved);
 }

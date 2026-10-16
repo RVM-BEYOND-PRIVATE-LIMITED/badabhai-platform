@@ -1830,10 +1830,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // question. The SERVER decides completion (see [_revealNameIfComplete]),
       // so a two-word first answer — which skips the surname — prompts here
       // too. The server's own reply is STASHED, not shown: the transcript gets
-      // the résumé bubble with its two chips, the pickers stay hidden
-      // (`askedQuestionKey` null) and the composer stays open so typing still
-      // works. Answering the prompt (either chip, or typing) flushes the
-      // stashed question. Never on a companion, blocked or closed-session turn.
+      // the résumé bubble with its two chips and the pickers stay hidden
+      // (`askedQuestionKey` null). The screen withholds the composer while the
+      // prompt stands (owner ask, 2026-10-15): it is answered by a chip.
+      // Answering the prompt (either chip; typing on an older redraw) flushes
+      // the stashed question. Never on a companion, blocked or closed-session turn.
       final bool showResumePrompt =
           revealedName != null &&
           !_resumePromptShown &&

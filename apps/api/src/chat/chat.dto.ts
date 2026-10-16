@@ -563,5 +563,22 @@ export const SessionMessagesResponseSchema = z.object({
    * and on a closed row that has no `ended_at` to place a marker at.
    */
   session_ended_at: z.string().datetime().optional(),
+  /**
+   * THE BUILD-MY-PROFILE CTA, REDRAWN. `true` when this session FINISHED (`ended`, never
+   * `abandoned`) on a close that lit the CTA live — the flush's persisted
+   * `extraction_ready_emitted`, which is `PostMessageResponse.extraction_ready` on the closing turn,
+   * made durable. Without it a cold reopen drew the "End of conversation" marker under the closing
+   * line and no "Ho gaya — meri profile banaiye" until the worker typed again.
+   *
+   * ALSO `true` once a general-form handover's form is DONE (ADR-0045 §5: from then on it is an
+   * ordinary finished interview). It is the same answer a late POST's `extraction_ready` gives on
+   * this closed session (#2333), so a reopen and the next message cannot disagree.
+   *
+   * ABSENT — never false, never null — on a live session, an abandoned one, and a close that handed
+   * over to a form (a trade form always, a general form until it is done), so every existing
+   * response is byte-identical and the CTA can only ever be lit, never yanked: it is a latch on
+   * the client.
+   */
+  extraction_ready: z.literal(true).optional(),
 });
 export type SessionMessagesResponse = z.infer<typeof SessionMessagesResponseSchema>;
