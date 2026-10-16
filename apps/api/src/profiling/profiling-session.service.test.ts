@@ -1221,7 +1221,7 @@ describe("finalize — durable, never a completion decision", () => {
         items: [],
         served: null,
       },
-      outcome: { kind: "reflushed", flushed: true },
+      outcome: { kind: "reflushed", flushed: true, handedToForm: false },
     });
 
     await expect(service.finalize(WORKER, SESSION, CTX)).resolves.toEqual({
@@ -1255,7 +1255,7 @@ describe("finalize — durable, never a completion decision", () => {
         items: [],
         served: null,
       },
-      outcome: { kind: "reflushed", flushed: false },
+      outcome: { kind: "reflushed", flushed: false, handedToForm: false },
     });
 
     await expect(service.finalize(WORKER, SESSION, CTX)).resolves.toMatchObject({
