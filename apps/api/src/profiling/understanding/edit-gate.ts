@@ -47,6 +47,7 @@ import { jobOf, textFor } from "./understanding-apply";
 
 export {
   editGateOpen,
+  MAX_EDIT_LEDGER,
   MAX_PROPOSAL_ROWS,
   narrowEditGate,
   type EditGateState,

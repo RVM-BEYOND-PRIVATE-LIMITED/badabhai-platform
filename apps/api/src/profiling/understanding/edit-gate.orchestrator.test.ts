@@ -303,9 +303,15 @@ describe("ADR-0057 #2312 — a change to a filled field is put to the worker, ne
       op: "edit",
     });
 
+    // #2313 (R9) — the change is on the ledger the flush persists for the profile build.
+    expect(held(store).editLedger).toEqual([
+      { key: "experience_years", op: "edit", targetField: "experience_years" },
+    ]);
+
     // A SECOND Haan (a double tap) finds no proposal: nothing is written twice.
     await orchestrator.takeTurn(say("Haan"));
     expect(emitted(events, "profiling.field_edit_confirmed")).toHaveLength(1);
+    expect(held(store).editLedger).toHaveLength(1);
     expect(recordOf(store, "experience_years")?.history).toHaveLength(1);
     expectValidEvents(events);
   });
@@ -317,6 +323,8 @@ describe("ADR-0057 #2312 — a change to a filled field is put to the worker, ne
     const done = await orchestrator.takeTurn(say("Nahi"));
     expect(recordOf(store, "experience_years")?.value_normalized).toBe(5);
     expect(done.reply).toBe(`Theek hai, kuch nahi badla. ${AVAIL.prompt_text}`);
+    // Nothing confirmed, nothing for the profile build to honour.
+    expect(held(store).editLedger).toEqual([]);
     expect(emitted(events, "profiling.field_edit_cancelled")[0]?.payload).toMatchObject({ reason: "declined" });
     expectValidEvents(events);
   });

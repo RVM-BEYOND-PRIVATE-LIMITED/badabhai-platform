@@ -150,6 +150,19 @@ The build then works as follows:
 
 A session with no edits builds exactly what it builds today.
 
+**As built (#2313):**
+- **The stamp.** The confirmed-change ledger is persisted as the strict, versioned `chat_edits` sibling key (v1). It is written by the checkpoint, the flush and the abandon sweep (the row's own stamp first, the envelope's second), and is absent when nothing was confirmed. It holds:
+  - the ledger (catalogue keys and ops);
+  - the settled list, only for a list the worker changed;
+  - the pack fields removed and never answered again.
+
+  A changed pack value needs no copy, because the answer map holds it.
+- **The build corrects its two transcript-read inputs before the merge** (`withChatEdits`), so the merge keeps its one precedence rule per field:
+  - a removed field is dropped from the parse overlay;
+  - Phase C's value is cleared for a changed pack field it would outrank (city, availability);
+  - a changed list is the chat's. Owner ruling 2026-10-16: the chat's list replaces Phase C's for that list.
+- **Phase C is not sent the settled draft as context.** Every field the chat can change is overridden deterministically after Phase C, so the context would change no stored value; it would only add tokens. This departs from the issue text on purpose.
+
 ### 3.6 Failure
 
 - **The understanding call fails** (unavailable, blocked, mock, timeout): that turn runs **today's pipeline unchanged**, with no write and no block. This fails safe in the sense of CLAUDE.md §3: no partial state is written, and the deterministic interview is complete on its own.

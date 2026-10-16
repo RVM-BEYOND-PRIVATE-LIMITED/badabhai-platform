@@ -3831,3 +3831,169 @@ describe("ADR-0045 §3.4 — a handed-over general-road session is built with ZE
     });
   });
 });
+
+describe("ADR-0057 R9 (#2313) — what the worker confirmed in chat outranks the transcript", () => {
+  // The transcript still says the OLD values: Phase C and the parse read it, and both used to win.
+  const OLD_JOB = {
+    role_label: "tandoor cook",
+    duration_text: "5 saal",
+    duration_months: 60,
+    work_done: "naan, roti",
+  };
+  const CONFIRMED_JOB = { ...OLD_JOB, duration_text: "2 saal", duration_months: 24 };
+  const EXTRACT = (over: Record<string, unknown> = {}) => ({
+    domain_label: "cooking",
+    role_label: "tandoor cook",
+    skills: ["tandoor"],
+    experiences: [OLD_JOB],
+    shift: null,
+    current_city: null,
+    preferred_locations: [],
+    availability: null,
+    expected_salary: null,
+    blocked: false,
+    is_mock: false,
+    ai_metadata: null,
+    ...over,
+  });
+  const CHAT = [
+    { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
+    { direction: "inbound", bodyText: "tandoor cook hu, 5 saal, main Pune mein rehta hoon" },
+    { direction: "outbound", bodyText: "Experience: 5 saal se 2 saal kar doon?" },
+    { direction: "inbound", bodyText: "Haan" },
+  ];
+  const stamp = (over: Record<string, unknown> = {}) => ({
+    v: 1,
+    ledger: [{ field_key: "experience", op: "edit", target_field: null }],
+    skills: null,
+    experiences: [CONFIRMED_JOB],
+    deleted_fields: [],
+    ...over,
+  });
+  const rawOf = (profiles: { create: { mock: { calls: unknown[][] } } }): DraftProfile =>
+    (profiles.create.mock.calls[0]![0] as { rawProfile: DraftProfile }).rawProfile;
+
+  it("a changed job reads as confirmed — on the profile AND in the résumé container", async () => {
+    const { proc, profiles } = make({
+      ...withMap({ chat_edits: stamp() }),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT(),
+    });
+    await proc.process(makeJob());
+    const raw = rawOf(profiles);
+    expect(raw.experiences).toEqual([CONFIRMED_JOB]);
+    expect(raw.resume_profile?.experiences).toEqual([CONFIRMED_JOB]);
+    // The list Phase C read for skills is untouched: only the list the worker changed is the chat's.
+    expect(raw.skill_labels).toEqual(["tandoor"]);
+  });
+
+  it("a deleted job never comes back", async () => {
+    const { proc, profiles } = make({
+      ...withMap({
+        chat_edits: stamp({
+          ledger: [{ field_key: "experience", op: "delete", target_field: null }],
+          experiences: [],
+        }),
+      }),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT(),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).experiences).toEqual([]);
+    expect(rawOf(profiles).resume_profile?.experiences ?? []).toEqual([]);
+  });
+
+  it("a changed skill list is the chat's", async () => {
+    const { proc, profiles } = make({
+      ...withMap({
+        chat_edits: stamp({
+          ledger: [{ field_key: "skills", op: "edit", target_field: null }],
+          skills: ["Tandoor", "Biryani"],
+          experiences: null,
+        }),
+      }),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT(),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).skill_labels).toEqual(["Tandoor", "Biryani"]);
+    expect(rawOf(profiles).experiences).toEqual([OLD_JOB]);
+  });
+
+  it("a changed city keeps the confirmed value — Phase C no longer outranks it", async () => {
+    const { proc, profiles } = make({
+      conversationState: {
+        ...withMap().conversationState,
+        answer_map: [
+          record(),
+          record({ question_key: "current_city", target_field: "current_city", value_normalized: "Mumbai" }),
+        ],
+        chat_edits: stamp({
+          ledger: [{ field_key: "current_city", op: "edit", target_field: "current_city" }],
+          experiences: null,
+        }),
+      },
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ current_city: "Pune" }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).location_preference.current_city).toBe("Mumbai");
+    expect(rawOf(profiles).resume_profile?.current_city ?? null).toBeNull();
+  });
+
+  it("a removed field stays removed — neither the parse nor Phase C fills it back", async () => {
+    const { proc, profiles } = make({
+      conversationState: {
+        ...withMap().conversationState,
+        answer_map: [record()],
+        chat_edits: stamp({
+          ledger: [{ field_key: "current_city", op: "delete", target_field: "current_city" }],
+          experiences: null,
+          deleted_fields: ["current_city"],
+        }),
+      },
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ current_city: "Pune" }),
+      parsed: {
+        fields: {
+          current_city: {
+            value: "Pune",
+            evidence: { message_index: 1, quote: "main Pune mein rehta hoon" },
+            source: "transcript",
+            normalization: "verbatim",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+    const row = profiles.create.mock.calls[0]![0] as { richProfileDraft: Record<string, unknown> };
+    expect(row.richProfileDraft.current_city ?? null).toBeNull();
+    expect(rawOf(profiles).location_preference.current_city ?? null).toBeNull();
+  });
+
+  it("a session with no confirmed change — or a stamp the strict reader refuses — builds today's profile", async () => {
+    const build = async (state: Record<string, unknown>) => {
+      const { proc, profiles } = make({
+        ...withMap(state),
+        messages: CHAT,
+        llmInterview: true,
+        interview: EXTRACT(),
+      });
+      await proc.process(makeJob());
+      // Everything the build wrote, but the wall-clock stamp of when it wrote it.
+      const { jobDomainMatchedAt: _at, ...row } = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      return row;
+    };
+    const today = await build({});
+    expect(await build({ chat_edits: { ...stamp(), v: 2 } })).toEqual(today);
+    expect((today as { rawProfile: DraftProfile }).rawProfile.experiences).toEqual([OLD_JOB]);
+  });
+});
