@@ -25,10 +25,14 @@
 /// business action itself — minting the signed PDF url — is still the server's:
 /// `GET /resume/:id/download` checks ownership and emits `resume.downloaded`.
 ///
-/// The line is HONEST about the PDF: ready ([kChatResumeDownloadReply]), still
-/// being made ([kChatResumeDownloadPendingReply] — the tile waits it out), or
-/// failed ([kChatResumeDownloadFailedReply], and no tile). Only a worker with
-/// no résumé at all is left to the server.
+/// #2302 — on the COMPANION a typed ask IS posted: the Bada Bhai chat keeps 7
+/// days of what the server sees, so a local answer vanished on reopen, and the
+/// server answers it with its own ready / not-ready line and its download chip.
+/// What is answered here is an ask on an INTERVIEW and that chip's tap, and the
+/// line is HONEST about the PDF: ready ([kChatResumeDownloadReply]), still being
+/// made ([kChatResumeDownloadPendingReply] — the tile waits it out), or failed
+/// ([kChatResumeDownloadFailedReply], and no tile). Only a worker with no
+/// résumé at all is left to the server.
 ///
 /// No model is involved anywhere here: the recognition is a closed word list.
 library;

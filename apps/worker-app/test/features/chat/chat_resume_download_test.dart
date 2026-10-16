@@ -935,34 +935,61 @@ void main() {
 
     // ── Honest answers (G4) ────────────────────────────────────────────────
 
+    // On the COMPANION a typed ask is the server's to answer (#2302, pinned
+    // above); the phone answers it on an INTERVIEW and on the server's own
+    // download chip, and there the answer is honest about the PDF.
+    Future<ChatBloc> openInterview() async {
+      final ChatBloc bloc = build()
+        ..add(const ChatStarted())
+        ..add(const ChatResumeDownloadOffered());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isFalse);
+      return bloc;
+    }
+
     test('an ask while the PDF is still being made says so — never "taiyaar hai" — '
         'and still offers the tile, which waits the render out', () async {
       when(
         () => resumes.loadResumeHistory(),
       ).thenAnswer((_) async => _history(renderStatus: 'pending'));
-      final ChatBloc bloc = await openTab();
-      bloc.add(const ChatMessageSent('naye jobs dikhao'));
-      await pumpEventQueue();
 
-      bloc.add(const ChatMessageSent('resume dikhao'));
+      // A typed ask on the interview.
+      final ChatBloc interview = await openInterview();
+      interview.add(const ChatMessageSent('5 saal'));
       await pumpEventQueue();
-
-      expect(bloc.state.messages.last.text, kChatResumeDownloadPendingReply);
-      expect(bloc.state.messages.last.ttsText, kChatResumeDownloadPendingReplyTts);
-      expect(bloc.state.resumeDownloadTile, isTrue);
-      expect(bloc.state.downloadableResumeId, _resumeId);
+      interview.add(const ChatMessageSent('mera resume dikhao'));
+      await pumpEventQueue();
+      expect(interview.state.messages.last.text, kChatResumeDownloadPendingReply);
+      expect(interview.state.messages.last.ttsText, kChatResumeDownloadPendingReplyTts);
+      expect(interview.state.resumeDownloadTile, isTrue);
+      expect(interview.state.downloadableResumeId, _resumeId);
       verifyNever(
-        () => repo.sendCompanionMessage('resume dikhao', submissionId: any(named: 'submissionId')),
+        () => repo.sendMessage(
+          'mera resume dikhao',
+          submissionId: any(named: 'submissionId'),
+          answerSource: any(named: 'answerSource'),
+        ),
       );
-      await bloc.close();
+      await interview.close();
+
+      // The server's download chip on the companion (a race: it is served for a
+      // rendered PDF, and a regenerate can start before the tap).
+      final ChatBloc companion = await openTab();
+      companion.add(const ChatMessageSent('naye jobs dikhao'));
+      await pumpEventQueue();
+      companion.add(const ChatResumeDownloadChipTapped('Resume download karein'));
+      await pumpEventQueue();
+      expect(companion.state.messages.last.text, kChatResumeDownloadPendingReply);
+      expect(companion.state.resumeDownloadTile, isTrue);
+      await companion.close();
     });
 
-    test('on the companion, every demo ask for a résumé whose PDF FAILED gets the '
-        'honest line and no tile — and is never posted', () async {
+    test('on an INTERVIEW, every demo ask for a résumé whose PDF FAILED gets the '
+        'honest line and no tile — never captured as the open question answer', () async {
       when(
         () => resumes.loadResumeHistory(),
       ).thenAnswer((_) async => _history(renderStatus: 'failed'));
-      final ChatBloc bloc = await openTab();
+      final ChatBloc bloc = await openInterview();
 
       for (final String ask in <String>[
         'resume dikhao',
@@ -981,36 +1008,14 @@ void main() {
         expect(bloc.state.downloadableResumeId, isNull, reason: ask);
       }
       verifyNever(
-        () => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId')),
-      );
-      // Nothing was offered, so nothing is counted as offered.
-      expect(eventNames(), isNot(contains('chat_resume_download_offered')));
-      await bloc.close();
-    });
-
-    test('on an INTERVIEW, an ask for a failed PDF is answered, never captured as '
-        'the open question\'s answer', () async {
-      when(
-        () => resumes.loadResumeHistory(),
-      ).thenAnswer((_) async => _history(renderStatus: 'failed'));
-      final ChatBloc bloc = build()
-        ..add(const ChatStarted())
-        ..add(const ChatResumeDownloadOffered());
-      await pumpEventQueue();
-      expect(bloc.state.companion, isFalse);
-
-      bloc.add(const ChatMessageSent('mera resume download karna hai'));
-      await pumpEventQueue();
-
-      expect(bloc.state.messages.last.text, kChatResumeDownloadFailedReply);
-      expect(bloc.state.resumeDownloadTile, isFalse);
-      verifyNever(
         () => repo.sendMessage(
           any(),
           submissionId: any(named: 'submissionId'),
           answerSource: any(named: 'answerSource'),
         ),
       );
+      // Nothing was offered, so nothing is counted as offered.
+      expect(eventNames(), isNot(contains('chat_resume_download_offered')));
       await bloc.close();
     });
 
@@ -1088,28 +1093,31 @@ void main() {
       await bloc.close();
     });
 
-    test('an ask whose history read failed still gets the tile for the résumé the '
-        'tab already offered — nothing posted', () async {
+    test('a download chip tapped while the history cannot be read still gets the '
+        'tile for the résumé the tab already offered — nothing posted', () async {
       final ChatBloc bloc = await openTab();
       bloc.add(const ChatMessageSent('naye jobs dikhao'));
       await pumpEventQueue();
       expect(bloc.state.resumeDownloadTile, isFalse);
 
       when(() => resumes.loadResumeHistory()).thenThrow(StateError('offline'));
-      bloc.add(const ChatMessageSent(_ask));
+      bloc.add(const ChatResumeDownloadChipTapped('Resume download karein'));
       await pumpEventQueue();
 
       expect(bloc.state.resumeDownloadTile, isTrue);
       expect(bloc.state.downloadableResumeId, _resumeId);
       expect(bloc.state.messages.last.text, kChatResumeDownloadReply);
       verifyNever(
-        () => repo.sendCompanionMessage(_ask, submissionId: any(named: 'submissionId')),
+        () => repo.sendCompanionMessage(
+          'Resume download karein',
+          submissionId: any(named: 'submissionId'),
+        ),
       );
       await bloc.close();
     });
 
-    test('an ask whose read failed says what was last SEEN — a résumé last seen '
-        'rendering is never "taiyaar hai"', () async {
+    test('...and it says what was last SEEN — a résumé last seen rendering is '
+        'never "taiyaar hai"', () async {
       when(
         () => resumes.loadResumeHistory(),
       ).thenAnswer((_) async => _history(renderStatus: 'pending'));
@@ -1118,7 +1126,7 @@ void main() {
       await pumpEventQueue();
 
       when(() => resumes.loadResumeHistory()).thenAnswer((_) async => ResumeHistory.empty);
-      bloc.add(const ChatMessageSent('resume dikhao'));
+      bloc.add(const ChatResumeDownloadChipTapped('Resume download karein'));
       await pumpEventQueue();
 
       expect(bloc.state.messages.last.text, kChatResumeDownloadPendingReply);

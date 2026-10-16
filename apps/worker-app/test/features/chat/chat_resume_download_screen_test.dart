@@ -285,9 +285,21 @@ void main() {
 
   for (final double scale in <double>[1.0, 1.3]) {
     testWidgets(
-      'phone at text x$scale, KEYBOARD UP: a typed ask scrolls its answer and '
-      'the tile into view — never just a "Naye message" pill',
+      'phone at text x$scale, KEYBOARD UP: a typed ask on the interview scrolls '
+      'its answer and the tile into view — never just a "Naye message" pill',
       (WidgetTester tester) async {
+        // The tab runs the INTERVIEW: a typed ask is answered on the phone
+        // there (on the companion it is the server's to answer — #2302).
+        when(() => repo.openCompanion()).thenAnswer(
+          (_) async => const CompanionOpening.interview(),
+        );
+        when(
+          () => repo.sendMessage(
+            any(),
+            submissionId: any(named: 'submissionId'),
+            answerSource: any(named: 'answerSource'),
+          ),
+        ).thenAnswer((_) async => const ChatTurn(reply: 'Aage batayein.'));
         await pumpTab(
           tester,
           logical: const Size(360, 640),
@@ -303,7 +315,7 @@ void main() {
         addTearDown(tester.view.resetViewInsets);
         await tester.pumpAndSettle();
 
-        await send(tester, 'resume download');
+        await send(tester, 'resume download karna hai');
 
         expect(find.text('Naye message'), findsNothing);
         expect(centerHitsButton(tester), isTrue);
@@ -317,8 +329,8 @@ void main() {
   }
 
   testWidgets(
-    'after the recap REPLACES an interview transcript, a typed ask (keyboard up) '
-    'still scrolls its answer and the tile into view',
+    'after the recap REPLACES an interview transcript, a download chip tapped with '
+    'the keyboard up still scrolls its answer and the tile into view',
     (WidgetTester tester) async {
       final String longRecap = <String>[
         'Namaste. Aapki profile taiyaar hai.',
@@ -354,7 +366,12 @@ void main() {
       tester.view.viewInsets = const FakeViewPadding(bottom: 600);
       addTearDown(tester.view.resetViewInsets);
       await tester.pumpAndSettle();
-      await send(tester, 'resume download');
+      // The server's "Resume download karein" chip, answered on the phone: the
+      // worker's bubble and the answer land in ONE emit.
+      BlocProvider.of<ChatBloc>(
+        tester.element(find.byType(TextField)),
+      ).add(const ChatResumeDownloadChipTapped('Resume download karein'));
+      await tester.pumpAndSettle();
 
       expect(find.text('Naye message'), findsNothing);
       expect(centerHitsButton(tester), isTrue);

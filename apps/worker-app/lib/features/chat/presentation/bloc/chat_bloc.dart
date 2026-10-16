@@ -2883,15 +2883,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   bool _isDownloadAsk(String text) =>
       isResumeDownloadRequest(text, requireResumeWord: !state.companion);
 
-  /// A typed "download my résumé" (case 3), answered on the phone: the
-  /// worker's bubble, a fixed local line and — when there is a PDF to hand
-  /// over — the tile. Nothing is posted.
+  /// A "download my résumé" (case 3) answered on the phone — typed on an
+  /// interview, or the server's download chip tapped (a typed ask on the
+  /// companion is the server's, #2302): the worker's bubble, a fixed local
+  /// line and — when there is a PDF to hand over — the tile. Nothing is posted.
   ///
   /// The line is HONEST about the PDF: ready, still being made (the tile waits
   /// the render out), or FAILED — no tile then, since its download can only
   /// answer 409. A failed one used to be posted instead: on an interview it
-  /// was captured as the open question's answer, and on the companion it got
-  /// whatever the classifier made of it.
+  /// was captured as the open question's answer.
   ///
   /// Returns false, having changed nothing, when there is no résumé to speak
   /// of; the caller then posts the message exactly as it always has.
