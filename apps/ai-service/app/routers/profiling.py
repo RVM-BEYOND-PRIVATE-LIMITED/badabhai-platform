@@ -46,13 +46,20 @@ from ..llm_input_policy import llm_input_gate, llm_input_masker
 from ..output_floor import carries_hard_identifier, floored_items, floored_scalar
 from ..profiling.canonical_roles import coerce_json_text
 from ..profiling.interview_prompts import (
+    bridge_system_prompt,
     extract_system_prompt,
     interview_system_prompt,
     skills_interview_system_prompt,
     work_history_polish_prompt,
 )
 from ..profiling.parse_masking import Masker, mask_transcript_lines
-from ..pseudonymize import certified_clean_skill_labels, is_certified_clean, pseudonymize
+from ..profiling.understand import mask_schema_rows
+from ..pseudonymize import (
+    TokenScope,
+    certified_clean_skill_labels,
+    is_certified_clean,
+    pseudonymize,
+)
 from ._shared import logger, resolve_prompt, router, workflow_scope
 
 api_router = APIRouter()
@@ -65,6 +72,13 @@ _SILENT = LlmTurnOutput(reply_text="", is_mock=True)
 
 #: ADR-0045 — the general road's skills stage. Absent (or "classic") is today's Phase A.
 SKILLS_ONLY_MODE = "skills_only"
+
+#: ADR-0057 (#2310) — the bridge line before a pack question the API appends verbatim.
+BRIDGE_MODE = "bridge"
+
+#: The bridge line's hard word cap. The prompt asks for 20; past 30 it is not a lead-in any more,
+#: and the API's fallback (the bare question) costs the worker less than a paragraph above it.
+BRIDGE_MAX_WORDS = 30
 
 _FORCE_CLOSE_NOTE = (
     "\n\nTHIS IS YOUR LAST TURN. Do not ask anything. Set phase_a_done true and reply with a "
@@ -112,8 +126,60 @@ def _turn_messages(
             "content": (
                 f"Conversation so far:\n{history or '(nothing yet)'}\n\n"
                 f"What you have gathered: {state}\n\n"
+                f"{_profile_context(body)}"
                 f"The worker just said: {masked_message or '(nothing yet - open the conversation)'}"
                 f"{closing}"
+            ),
+        },
+    ]
+
+
+def _profile_context(body: LlmTurnInput) -> str:
+    """ADR-0057 (#2310): the profile so far and the honest count, as the prompts name them.
+
+    EMPTY when the API sent neither, so a request without them renders byte-identically to today's.
+    ``body.schema_rows`` must already be masked (`mask_schema_rows`).
+    """
+    parts: list[str] = []
+    if body.schema_rows is not None:
+        rows = [
+            {
+                "field": row.label,
+                "status": row.status,
+                "value": row.value,
+                "entries": [entry.value for entry in row.entries],
+            }
+            for row in body.schema_rows
+        ]
+        parts.append(
+            "The profile so far: " + json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+        )
+    if body.remaining_questions is not None:
+        parts.append(f"Questions left: {body.remaining_questions}")
+    return "".join(f"{part}\n\n" for part in parts)
+
+
+def _bridge_turn_messages(
+    body: LlmTurnInput, masked_message: str, system_prompt: str
+) -> list[dict[str, str]]:
+    """The bridge line's rendering (ADR-0057 #2310): why the line is written, what was just noted,
+    the question the system asks next (so the line leads into it without repeating it), the honest
+    count, and the worker's message. ``body.bridge`` must already be masked."""
+    bridge = body.bridge
+    assert bridge is not None  # the route serves _SILENT before reaching here without one
+    noted = "\n".join(f"- {line}" for line in bridge.filled) or "(nothing)"
+    count = "unknown" if body.remaining_questions is None else str(body.remaining_questions)
+    return [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                f"Reason: {bridge.reason}\n"
+                f"Just noted:\n{noted}\n"
+                f"Questions left: {count}\n"
+                f"The system's next question (it follows your line): "
+                f"{bridge.next_question or '(none)'}\n\n"
+                f"The worker just said: {masked_message or '(nothing)'}"
             ),
         },
     ]
@@ -233,6 +299,47 @@ def _certified_skills_draft(draft: LlmInterviewDraft) -> LlmInterviewDraft:
     )
 
 
+def _fold_text(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", text.casefold()).split())
+
+
+def _bridge_output(out: LlmTurnOutput, body: LlmTurnInput) -> LlmTurnOutput | None:
+    """Pin the bridge line to what it may be (ADR-0057 #2310). `None` = serve `_SILENT`, and the
+    API sends the bare pack question, as today.
+
+    - ONE LINE, NO QUESTION: the system's question follows it, so a question mark here would put
+      two questions in one bubble.
+    - No placeholder in any shape, and at most `BRIDGE_MAX_WORDS` words.
+    - It must not repeat the next question: the worker would read it twice.
+    - Everything else is pinned empty — the line carries no chips, labels, skills or job, and
+      `blocked` belongs to the privacy gate, never to the model. `stage` is echoed: the API
+      owns progression.
+    """
+    reply = " ".join(out.reply_text.split())
+    if not reply or "?" in reply or "\uff1f" in reply:
+        return None
+    if _SKILLS_PLACEHOLDER.search(reply) or len(reply.split()) > BRIDGE_MAX_WORDS:
+        return None
+    question = body.bridge.next_question if body.bridge is not None else None
+    if question and _fold_text(question) and _fold_text(question) in _fold_text(reply):
+        return None
+    return out.model_copy(
+        update={
+            "reply_text": reply,
+            "stage": body.stage,
+            "input_mode": "text",
+            "suggested_answers": [],
+            "domain_label": None,
+            "role_label": None,
+            "skills": [],
+            "experience_entry": None,
+            "phase_a_done": False,
+            "blocked": False,
+            "blocked_reason": None,
+        }
+    )
+
+
 def _floored_turn(out: LlmTurnOutput) -> LlmTurnOutput | None:
     """One turn's output through the hard-identifier floor (`app/output_floor.py`, ADR-0047 G1),
     BOTH modes. `None` = serve `_SILENT`.
@@ -341,6 +448,23 @@ def _skills_only_output(out: LlmTurnOutput) -> LlmTurnOutput | None:
     )
 
 
+def _masked_bridge(body: LlmTurnInput, raw: bool, scope: TokenScope):
+    """The bridge context through the gateway: a refused noted line is dropped, a refused next
+    question becomes None (the line is then written without it)."""
+    bridge = body.bridge
+    assert bridge is not None
+    filled = []
+    for line in bridge.filled:
+        result = llm_input_gate(line, raw=raw, scope=scope)
+        if not result.blocked and result.text:
+            filled.append(result.text)
+    question = None
+    if bridge.next_question is not None:
+        result = llm_input_gate(bridge.next_question, raw=raw, scope=scope)
+        question = None if result.blocked or not result.text else result.text
+    return bridge.model_copy(update={"filled": filled, "next_question": question})
+
+
 @api_router.post("/profiling/turn", response_model=LlmTurnOutput)
 async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
     """One Phase A turn: the model asks the next question about domain/role/skills/experience.
@@ -358,6 +482,7 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
     settings = get_settings()
     raw_pii = settings.ai_raw_pii_enabled
     skills_only = body.interview_mode == SKILLS_ONLY_MODE
+    bridge = body.interview_mode == BRIDGE_MODE
 
     # ONE ROOT TRACE per turn, so the generation the router opens nests under a BUSINESS
     # operation instead of standing alone. Without it, a twelve-turn interview is twelve
@@ -396,6 +521,20 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
         # punished, precisely, for answering at length.
         history = mask_transcript_lines(body.history, llm_input_masker(raw=raw_pii))
         body = body.model_copy(update={"history": history})
+        # ADR-0057 (#2310): the schema values and the "just noted" lines are worker data, so they
+        # pass the gateway like every other model input, under one scope. The next question is
+        # authored pack copy; it is gated too, so the invariant holds without an exception.
+        scope = TokenScope()
+        if body.schema_rows is not None:
+            body = body.model_copy(
+                update={"schema_rows": mask_schema_rows(body.schema_rows, raw=raw_pii, scope=scope)}
+            )
+        if bridge:
+            if body.bridge is None:
+                # A bridge request with nothing to bridge is an API bug, never a worker's fault:
+                # fail closed to the bare question.
+                return _SILENT
+            body = body.model_copy(update={"bridge": _masked_bridge(body, raw_pii, scope)})
         # THE ONE PROMPT INPUT THE FLAG DOES NOT REACH, on purpose. The echoed draft is prompt
         # context only — `_parse_turn` and `_skills_only_output` never read it back, so nothing
         # withheld here is ever stored — and it stays CERTIFIED under either posture. It is the
@@ -414,6 +553,10 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
             resolved = resolve_prompt(prompt_registry.INTERVIEW_SKILLS_TURN)
             local_prompt = skills_interview_system_prompt
             render = _skills_turn_messages
+        elif bridge:
+            resolved = resolve_prompt(prompt_registry.INTERVIEW_BRIDGE_TURN)
+            local_prompt = bridge_system_prompt
+            render = _bridge_turn_messages
         else:
             resolved = resolve_prompt(prompt_registry.INTERVIEW_TURN)
             local_prompt = interview_system_prompt
@@ -459,6 +602,10 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
             return _SILENT
         if skills_only:
             out = _skills_only_output(out)
+            if out is None:
+                return _SILENT
+        if bridge:
+            out = _bridge_output(out, body)
             if out is None:
                 return _SILENT
 

@@ -138,7 +138,11 @@ ProfilingPhase = Literal[
 LlmInterviewStage = Literal["domain", "role", "skills", "experience", "done"]
 InputMode = Literal["text", "options_only"]
 # ADR-0045: which interview the model runs. Chosen by the API, never emitted by the model.
-LlmInterviewMode = Literal["classic", "skills_only"]
+# ADR-0057 (#2310): `bridge` writes one short line that leads into a pack question the API
+# appends verbatim — never a question of its own.
+LlmInterviewMode = Literal["classic", "skills_only", "bridge"]
+# ADR-0057 (#2310): why a bridge line is being written.
+LlmBridgeReason = Literal["filled", "chat", "progress"]
 OccupationMatchLayer = Literal["l0_exact", "l1_skeleton", "l2_trigram", "l3_vector"]
 # The five job-domain statuses PLUS the two deterministic-engine outcomes migration 0076
 # adds to the worker_profiles CHECK — declared ahead of 0076 because this file freezes at
@@ -508,6 +512,22 @@ class LlmInterviewDraft(BaseModel):
     experiences: list[ExperienceEntry] = Field(default_factory=list)
 
 
+class LlmBridgeContext(BaseModel):
+    """What a `bridge` line leads from and into (ADR-0057 #2310).
+
+    ``reason``: ``filled`` acknowledges what the worker just told (``filled`` names it as
+    "label: value" lines), ``chat`` answers their side message, ``progress`` says how much is left
+    (``LlmTurnInput.remaining_questions``). ``next_question`` is the pack question the API appends
+    after the line, verbatim, so the line can lead into it without repeating it.
+    """
+
+    reason: LlmBridgeReason
+    filled: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=20
+    )
+    next_question: str | None = Field(default=None, min_length=1, max_length=500)
+
+
 class LlmTurnInput(BaseModel):
     schema_version: Literal["oie.v1"] = "oie.v1"
     worker_ref: str = Field(min_length=1)
@@ -525,6 +545,14 @@ class LlmTurnInput(BaseModel):
     # ADR-0045: `skills_only` runs the general road's skills stage (role already known, ask ONLY for
     # skills). Absent/None is `classic`, today's Phase A — so a classic request is unchanged.
     interview_mode: LlmInterviewMode | None = None
+    # ADR-0057 (#2310): the session's profiling schema, so the model never asks for a field that
+    # is already filled. Absent/None keeps a request byte-identical to today's.
+    schema_rows: list[ProfilingSchemaRow] | None = Field(default=None, max_length=64)
+    # ADR-0057 (#2310): the questions the engine can still serve (`remainingQuestions` in the API),
+    # the only number a progress line may name. None when there is no honest count.
+    remaining_questions: int | None = Field(default=None, ge=0)
+    # ADR-0057 (#2310): required in `bridge` mode, ignored otherwise.
+    bridge: LlmBridgeContext | None = None
 
 
 class LlmTurnOutput(BaseModel):
@@ -2518,3 +2546,7 @@ class ProfilingTurnUnderstandOutput(BaseModel):
     blocked: bool = False
     # Per-call cost/token metadata; None when no provider was reached (the recorder no-ops).
     ai_metadata: AICallMetadata | None = None
+
+
+# `LlmTurnInput.schema_rows` names `ProfilingSchemaRow`, which is declared further down this file.
+LlmTurnInput.model_rebuild()

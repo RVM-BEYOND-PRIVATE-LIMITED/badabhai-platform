@@ -54,6 +54,10 @@ INTERVIEW_TURN = "worker-interview-turn"
 # INTERVIEW_TURN, because it is a different prompt on the same route: a trace must say WHICH
 # interview asked, and a dashboard over INTERVIEW_TURN must keep meaning the classic one.
 INTERVIEW_SKILLS_TURN = "worker-interview-skills-turn"
+# ADR-0057 (#2310) — the bridge line before a pack question. Its own name for the skills turn's
+# reason: a trace must say WHICH interview prompt wrote the line, and a dashboard over
+# INTERVIEW_TURN must keep meaning the classic one.
+INTERVIEW_BRIDGE_TURN = "worker-interview-bridge-turn"
 INTERVIEW_EXTRACT = "worker-interview-extract"
 PROFILE_PARSE = "profile-parse"
 # The one prompt licensed to COMPOSE printed text, by the owner ruling in #1350 that overrides
@@ -260,6 +264,7 @@ def install_default_prompts() -> None:
     )
     from ..free_chat import prompts as free_chat_prompts
     from ..profiling.interview_prompts import (
+        bridge_system_prompt,
         extract_system_prompt,
         interview_system_prompt,
         skills_interview_system_prompt,
@@ -273,6 +278,7 @@ def install_default_prompts() -> None:
 
     register(INTERVIEW_TURN, interview_system_prompt)
     register(INTERVIEW_SKILLS_TURN, skills_interview_system_prompt)
+    register(INTERVIEW_BRIDGE_TURN, bridge_system_prompt)
     register(INTERVIEW_EXTRACT, extract_system_prompt)
     register(PROFILE_PARSE, lambda: PARSE_SYSTEM_PROMPT)
     register(WORK_HISTORY_POLISH, work_history_polish_prompt)

@@ -61,6 +61,33 @@ MAX_EDITS = ProfilingTurnUnderstandOutput.model_fields["edits"].metadata[0].max_
 _INTENTS = frozenset(get_args(ProfilingTurnIntent))
 
 
+def mask_schema_rows(
+    rows: list[ProfilingSchemaRow],
+    *,
+    raw: bool,
+    scope: TokenScope,
+) -> list[ProfilingSchemaRow]:
+    """Every schema value and entry the model is shown, through the gateway, under ``scope``.
+
+    A refused value is NULLED and a refused entry DROPPED: the model still sees every key, so it
+    can still address a field, but never reads words the gateway refused. Shared by this route and
+    the interview turn's classic and bridge modes (ADR-0057 #2310), so the schema is masked one way.
+    """
+    masked: list[ProfilingSchemaRow] = []
+    for row in rows:
+        value = None
+        if row.value is not None:
+            result = llm_input_gate(row.value, raw=raw, scope=scope)
+            value = None if result.blocked else (result.text or None)
+        entries = []
+        for entry in row.entries:
+            result = llm_input_gate(entry.value, raw=raw, scope=scope)
+            if not result.blocked and result.text:
+                entries.append(entry.model_copy(update={"value": result.text}))
+        masked.append(row.model_copy(update={"value": value, "entries": entries}))
+    return masked
+
+
 def mask_request(
     body: ProfilingTurnUnderstandInput,
     *,
@@ -96,15 +123,7 @@ def mask_request(
         if text:
             on_screen = body.on_screen.model_copy(update={"text": text})
 
-    rows: list[ProfilingSchemaRow] = []
-    for row in body.schema_rows:
-        value = gated(row.value) if row.value is not None else None
-        entries = []
-        for entry in row.entries:
-            entry_value = gated(entry.value)
-            if entry_value:
-                entries.append(entry.model_copy(update={"value": entry_value}))
-        rows.append(row.model_copy(update={"value": value or None, "entries": entries}))
+    rows = mask_schema_rows(body.schema_rows, raw=raw, scope=scope)
 
     return body.model_copy(
         update={"recent_turns": turns, "on_screen": on_screen, "schema_rows": rows}
