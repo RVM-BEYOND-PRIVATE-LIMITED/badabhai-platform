@@ -612,6 +612,12 @@ class ChatRepositoryImpl implements ChatRepository {
           ttsText: closing.ttsText,
           newsLinks: closing.newsLinks,
           closesSession: true,
+          // #2331 — ride the session's `extraction_ready` onto the SAME closing
+          // bubble the "End of conversation" marker is on, so a cold reopen of a
+          // FINISHED interview draws the "Ho gaya" CTA under the divider. False
+          // (absent) on an abandoned session, a form handover and an older API,
+          // so the CTA stays dark there exactly as it should.
+          extractionReady: transcript.extractionReady,
         );
       }
       return messages;

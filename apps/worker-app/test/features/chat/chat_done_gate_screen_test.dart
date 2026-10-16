@@ -18,6 +18,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
@@ -126,6 +127,69 @@ void main() {
         matching: find.byType(ElevatedButton),
       );
       expect(tester.getSize(cta).height, greaterThanOrEqualTo(48));
+    });
+  });
+
+  // -------------------------------------------------- cold reopen (#2331)
+
+  // The live close already draws the CTA from the turn's `extraction_ready`
+  // (the group above). A COLD REOPEN has only the transcript, so the server's
+  // `extraction_ready` on the closing bubble (#2332) must redraw the same CTA —
+  // without the worker sending anything. Free chat and companion still hide it
+  // (pinned by chat_profiling_screen_test.dart and chat_companion_screen_test.dart).
+  group('cold reopen of a finished chat draws the done CTA (#2331)', () {
+    Future<void> pumpChat(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(500, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = GoRouter(
+        initialLocation: '/chat',
+        routes: <RouteBase>[
+          GoRoute(path: '/chat', builder: (_, __) => const ChatProfilingScreen()),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pump();
+      await tester.pumpAndSettle();
+    }
+
+    const List<ChatMessage> finished = <ChatMessage>[
+      ChatMessage(text: 'Kya kaam?', fromWorker: false),
+      ChatMessage(text: 'fitter', fromWorker: true),
+      ChatMessage(
+        text: 'Aapki baat poori ho gayi.',
+        fromWorker: false,
+        closesSession: true,
+        extractionReady: true,
+      ),
+    ];
+
+    testWidgets('a FINISHED close shows the CTA with no message sent',
+        (WidgetTester tester) async {
+      when(() => repo.loadHistory()).thenAnswer((_) async => finished);
+      await pumpChat(tester);
+
+      expect(find.text(kChatDoneReadyLabel), findsOneWidget);
+    });
+
+    testWidgets('a close WITHOUT the field (abandoned / handover) shows none',
+        (WidgetTester tester) async {
+      when(() => repo.loadHistory()).thenAnswer(
+        (_) async => const <ChatMessage>[
+          ChatMessage(text: 'Kya kaam?', fromWorker: false),
+          ChatMessage(text: 'fitter', fromWorker: true),
+          ChatMessage(
+            text: 'Aapki baat poori ho gayi.',
+            fromWorker: false,
+            closesSession: true,
+          ),
+        ],
+      );
+      await pumpChat(tester);
+
+      expect(find.text(kChatDoneReadyLabel), findsNothing);
     });
   });
 
