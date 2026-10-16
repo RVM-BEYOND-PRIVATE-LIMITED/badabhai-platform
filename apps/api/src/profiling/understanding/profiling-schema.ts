@@ -20,7 +20,9 @@ import { chatServableItems } from "../facts/worker-fact.ownership";
  * WHAT IS IN IT (R2: only what the chat itself captures):
  *   - every chat-servable pack item the engine can still select, keyed by its `question_key`;
  *   - the draft's skills and jobs, as two `list` rows whose entries carry per-request refs
- *     (`s1`, `x1`, …) — never a database id, never derivable from the worker's words.
+ *     (`s1`, `x1`, …) — never a database id, never derivable from the worker's words;
+ *   - the trade, once known — so a request to change it can be named (#2312: it is answered with
+ *     the Profile-page pointer, never changed here).
  * WHAT IS NOT: the worker's own name (G2 — the model never sees it), and every Profile-page fact,
  * which goes by NAME ONLY in {@link PAGE_OWNED_FACTS}, for the model to say it heard one.
  */
@@ -29,6 +31,12 @@ import { chatServableItems } from "../facts/worker-fact.ownership";
 export const SKILLS_KEY = "skills";
 /** The schema key of the draft's job list. */
 export const EXPERIENCE_KEY = "experience";
+/**
+ * The schema key of the worker's trade (#2312). Shown so a request to CHANGE it can be named — and
+ * answered with the Profile-page pointer, never a proposal (owner ruling 2026-10-16): the chat
+ * confirms the trade once, in Phase A. Only once a trade is known, so it is never a field to fill.
+ */
+export const ROLE_KEY = "role";
 
 /**
  * The Profile-page facts (ADR-0057 R2), by name only. The model may report hearing one; the chat
@@ -73,7 +81,7 @@ export function buildProfilingSchema(
   const rows: ProfilingSchemaRow[] = [];
   const items = new Map<string, QuestionPackItem>();
   for (const item of chatServableItems(selectableItems)) {
-    if (items.has(item.question_key) || rows.length >= MAX_ROWS - 2) continue;
+    if (items.has(item.question_key) || rows.length >= MAX_ROWS - 3) continue;
     items.set(item.question_key, item);
     rows.push(packRow(item, answers));
   }
@@ -93,6 +101,19 @@ export function buildProfilingSchema(
     return { ref, value: clip(jobLine(job), VALUE_MAX) };
   });
   rows.push(listRow(EXPERIENCE_KEY, "Kaam ka itihaas (role; samay; kaam)", jobs));
+
+  const trade = (draft.role_label ?? draft.domain_label ?? "").trim();
+  if (trade.length > 0) {
+    rows.push({
+      key: ROLE_KEY,
+      label: "Aapka kaam (trade)",
+      kind: "text",
+      options: [],
+      value: clip(trade, VALUE_MAX),
+      status: "answered",
+      entries: [],
+    });
+  }
 
   return { rows, items, skillRefs, experienceRefs };
 }

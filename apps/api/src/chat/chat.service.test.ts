@@ -107,6 +107,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     generalRoad: emptyGeneralRoad(),
     identityIntake: null,
     freeChat: null,
+    editGate: null,
     ...over,
   };
 }

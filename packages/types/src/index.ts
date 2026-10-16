@@ -548,6 +548,20 @@ export type ProfilingFieldKind = (typeof PROFILING_FIELD_KINDS)[number];
 // edit (ADR-0057 R4), so `add` is not here.
 export const PROFILING_EDIT_OPS = ["edit", "delete"] as const;
 export type ProfilingEditOp = (typeof PROFILING_EDIT_OPS)[number];
+// Why a proposed change was not applied (ADR-0057 §3.4, #2312) — the `profiling.field_edit_cancelled`
+// event records it. Additive: a new reason is a new member.
+//   declined     — the worker said Nahi.
+//   lapsed       — the worker typed something else while the proposal was on screen.
+//   stale        — the field changed beneath the proposal before the Haan landed.
+//   profile_page — a change the chat does not make (the trade or role); the worker is pointed to
+//                  the Profile page instead.
+export const PROFILING_EDIT_CANCEL_REASONS = [
+  "declined",
+  "lapsed",
+  "stale",
+  "profile_page",
+] as const;
+export type ProfilingEditCancelReason = (typeof PROFILING_EDIT_CANCEL_REASONS)[number];
 
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
