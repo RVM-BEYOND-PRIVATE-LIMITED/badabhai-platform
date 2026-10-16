@@ -25,9 +25,18 @@ class PrimaryActionButton extends StatelessWidget {
     this.isLoading = false,
     this.buttonKey,
     this.leadingIcon,
+    this.labelChild,
+    this.arrowOffset = Offset.zero,
   });
 
   final String label;
+
+  /// Drawn IN PLACE of the [label] text when set (the splash's animated,
+  /// many-language label). [label] stays the button's spoken name.
+  final Widget? labelChild;
+
+  /// Nudges the trailing arrow (logical pixels) — the splash's arrow bump.
+  final Offset arrowOffset;
 
   /// Null renders the disabled state (kit `disabledBg`).
   final VoidCallback? onPressed;
@@ -93,13 +102,21 @@ class PrimaryActionButton extends StatelessWidget {
                         Icon(leadingIcon, size: 20, color: ink),
                         const SizedBox(width: 8),
                       ],
-                      Text(
-                        label,
-                        style: OnboardingTypography.buttonLabel(color: ink),
-                      ),
+                      labelChild ??
+                          Text(
+                            label,
+                            style: OnboardingTypography.buttonLabel(color: ink),
+                          ),
                       if (showArrow) ...<Widget>[
                         const SizedBox(width: 8),
-                        Icon(Icons.arrow_forward_rounded, size: 20, color: ink),
+                        Transform.translate(
+                          offset: arrowOffset,
+                          child: Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 20,
+                            color: ink,
+                          ),
+                        ),
                       ],
                     ],
                   ),

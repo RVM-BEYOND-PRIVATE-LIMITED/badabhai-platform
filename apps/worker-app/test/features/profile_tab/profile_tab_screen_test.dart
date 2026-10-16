@@ -93,56 +93,35 @@ Future<void> _pump(
 void main() {
   tearDown(() async => locator.reset());
 
-  testWidgets(
-    'a WEAK profile shows exactly one humanized nudge for the largest missing '
-    'weight (missing_fields.first), never a number and never a raw slug',
-    (WidgetTester tester) async {
+  // OWNER ASK (2026-10-16) — the strength card ("Profile ko mazboot
+  // banayein" / "Profile lagbhag poori hai") is hidden for good, in EVERY
+  // band. The band rules themselves stay tested in profile_strength_card_test.
+  for (final ({String name, int signals}) band in <({String name, int signals})>[
+    (name: 'WEAK', signals: 1),
+    (name: 'FAIR', signals: 5),
+  ]) {
+    testWidgets('a ${band.name} profile shows NO strength card', (
+      WidgetTester tester,
+    ) async {
       await _pump(
         tester,
-        const ProfileSummary(
+        ProfileSummary(
           tradeLabel: 'Fitter',
-          strengthSignals: 1,
+          strengthSignals: band.signals,
           strengthMax: 9,
-          // Ordered largest-weight-first by the server; only `.first` is shown.
-          missingFields: <String>['role', 'skills', 'photo'],
+          missingFields: const <String>['role', 'skills', 'photo'],
         ),
       );
 
-      expect(find.text(kProfileStrengthWeakTitle), findsOneWidget);
-      expect(
-        find.text('Sabse zaroori: apna kaam / role jodein.'),
-        findsOneWidget,
-      );
-      // Only ONE nudge: the lower-weight missing slots are not surfaced.
-      expect(find.textContaining('apni skills'), findsNothing);
-      expect(find.textContaining('apni photo'), findsNothing);
-      // Never a grade: no "N/9" fraction and no percent anywhere on screen.
-      expect(find.textContaining('/9'), findsNothing);
-      expect(find.textContaining('%'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'a FAIR profile shows the single highest-value item, framed as one more thing',
-    (WidgetTester tester) async {
-      await _pump(
-        tester,
-        const ProfileSummary(
-          tradeLabel: 'CNC Operator',
-          strengthSignals: 5,
-          strengthMax: 9,
-          missingFields: <String>['salary', 'photo'],
-        ),
-      );
-
-      expect(find.text(kProfileStrengthFairTitle), findsOneWidget);
-      expect(
-        find.text('Ek aur cheez: salary ki ummeed jodein.'),
-        findsOneWidget,
-      );
       expect(find.text(kProfileStrengthWeakTitle), findsNothing);
-    },
-  );
+      expect(find.text(kProfileStrengthFairTitle), findsNothing);
+      expect(find.byType(ProfileStrengthCard), findsNothing);
+      expect(find.textContaining('Sabse zaroori'), findsNothing);
+      expect(find.textContaining('Ek aur cheez'), findsNothing);
+      // The rest of the profile still renders.
+      expect(find.text('Fitter'), findsOneWidget);
+    });
+  }
 
   testWidgets(
     'a STRONG profile is silent — the strength card collapses to nothing even '
