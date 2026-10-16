@@ -8,6 +8,7 @@ import 'package:badabhai_worker_app/core/widgets/onboarding/onboarding_body.dart
 import 'package:badabhai_worker_app/core/widgets/onboarding/questionnaire_bottom_bar.dart';
 import 'package:badabhai_worker_app/core/widgets/onboarding/selection_cards.dart';
 import 'package:badabhai_worker_app/core/widgets/onboarding/shift_blue_header.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_resume_menu.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/cubit/trade_form_cubit.dart';
@@ -453,13 +454,13 @@ void main() {
 
   tearDown(() => locator.reset());
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {String? sectionKey}) async {
     final GoRouter router = GoRouter(
       initialLocation: '/trade-form',
       routes: <RouteBase>[
         GoRoute(
           path: '/trade-form',
-          builder: (_, __) => const TradeFormScreen(),
+          builder: (_, __) => TradeFormScreen(sectionKey: sectionKey),
         ),
       ],
     );
@@ -477,6 +478,33 @@ void main() {
     // Never a blank/empty ready form.
     expect(find.text('Aage badhein'), findsNothing);
   });
+
+  // P6 (2026-10-16) — every résumé-section chip opens this screen with its
+  // key, and the server serves the chips to EVERY finished worker. One who was
+  // never handed a trade form (chat road / universal pack, or who declined the
+  // form offer) gets a 404 on each: the same honest state, never a blank or a
+  // half-built walk, on all four.
+  for (final String key in <String>[
+    kResumeMenuTechnicalSkillsKey,
+    kResumeMenuAvailabilitySalaryKey,
+    kResumeMenuWorkHistoryKey,
+    kResumeMenuEducationKey,
+  ]) {
+    testWidgets('$key on a 404 shows the same honest state',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => null);
+
+      await pump(tester, sectionKey: key);
+
+      expect(
+          find.text('Yahan abhi bharne ke liye kuch nahi hai'), findsOneWidget);
+      expect(
+          find.text('Aapke liye koi form taiyaar nahi kiya gaya hai. '
+              'Baad mein dobara dekhein.'),
+          findsOneWidget);
+      expect(find.text('Aage badhein'), findsNothing);
+    });
+  }
 
   testWidgets('a non-searchable question renders kit option cards; ticking '
       'one and pressing the docked bar submits and advances',

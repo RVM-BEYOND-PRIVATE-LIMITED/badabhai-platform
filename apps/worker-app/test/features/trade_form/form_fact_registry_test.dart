@@ -3,35 +3,19 @@ import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Every question key the nine live form packs (`formEnabled: true`) serve.
-/// The registry must never drop one of them from a real form.
-const List<String> _kFormPackQuestionKeys = <String>[
-  'advanced_capability', 'advanced_work', 'axis_capability', 'booth_type',
-  'cad_model_handling', 'cad_modules', 'cad_software', 'cad_training_source',
-  'cam_software', 'coating_checks', 'coating_defects', 'coating_equipment',
-  'coating_experience', 'coating_level', 'coating_material', 'coating_process',
-  'colour_change', 'controller_brand', 'design_input_source', 'design_work',
-  'die_design_work', 'die_troubleshooting', 'drafting_experience',
-  'drawing_check_work', 'drawing_reading', 'drawing_standards', 'drawing_type',
-  'drawing_work', 'dressing_method', 'edm_work', 'electrode_type',
-  'fabrication_work', 'film_thickness', 'grinding_experience',
-  'grinding_machine', 'grinding_type', 'gun_setting', 'heat_treatment_work',
-  'inspection_work', 'iti_project_work', 'iti_workshop_machines', 'joint_type',
-  'machine_programmed', 'machine_setting', 'machining_experience',
-  'machining_level', 'machining_machine', 'machining_operation',
-  'material_worked', 'measuring_tools', 'milling_experience', 'milling_machine',
-  'milling_operation', 'output_produced', 'oven_schedule', 'plate_thickness',
-  'post_processor_work', 'press_tonnage', 'programming_experience',
-  'programming_level', 'programming_mode', 'programming_work', 'quality_work',
-  'sector_drawn', 'sector_studied', 'sector_worked', 'setting_operation',
-  'setting_work', 'simulation_work', 'substrate_worked', 'surface_finish',
-  'surface_prep', 'tolerance_band', 'tool_grinding', 'tool_steel',
-  'tooling_made', 'toolroom_experience', 'toolroom_level', 'toolroom_machine',
-  'toolroom_work', 'trade_test_status', 'troubleshooting', 'turning_capacity',
-  'turning_experience', 'turning_machine', 'turning_operation', 'weld_defect',
-  'welder_level', 'welding_equipment', 'welding_experience', 'welding_position',
-  'welding_process', 'wheel_type', 'workholding',
-];
+import 'form_pack_corpus.dart';
+
+/// Every question key the shipped form packs serve — read from the corpus
+/// (`form_pack_corpus.dart`), never hand-kept: the hand-kept list that stood
+/// here ("the nine live form packs", 94 keys) missed all 68 keys of the seven
+/// form trades shipped 2026-09-24/25, so this registry's "never drop a real
+/// question" check never covered them. The registry must never drop one of
+/// them from a real form.
+List<String> _formPackQuestionKeys() => <String>{
+      for (final ShippedPack pack in readFormPacks().values)
+        ...pack.questionKeys,
+    }.toList()
+      ..sort();
 
 /// The eight `qp_universal@2` keys, in the order f455bb36 appends them.
 const List<String> _kUniversalKeys = <String>[
@@ -293,15 +277,16 @@ void main() {
       expect(identical(dedupeTradeForm(form), form), isTrue);
     });
 
-    test('the hardcoded form-pack key list is the real 94', () {
-      expect(_kFormPackQuestionKeys, hasLength(94));
-      expect(_kFormPackQuestionKeys.toSet(), hasLength(94));
+    test('the form-pack keys come from every known form pack', () {
+      // Non-vacuity: an empty scan would pass the survival check below.
+      expect(readFormPacks().keys.toSet(), containsAll(kKnownFormPackIds));
+      expect(_formPackQuestionKeys(), isNotEmpty);
     });
 
     test(
         'every real form-pack question survives in a form carrying all three '
         'markers', () {
-      for (final String key in _kFormPackQuestionKeys) {
+      for (final String key in _formPackQuestionKeys()) {
         final TradeForm out = dedupeTradeForm(_formOf(<TradeFormSection>[
           _section('capability', <TradeFormStep>[_q(key)]),
           _section('terms', const <TradeFormStep>[TradeFormPreferencesStep()]),

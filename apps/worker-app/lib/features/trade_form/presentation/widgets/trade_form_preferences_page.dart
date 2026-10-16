@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/api/api_client.dart'
-    show CityHubDto, CityOptionDto, WorkPrefOptionsDto;
+    show
+        CityHubDto,
+        CityOptionDto,
+        WorkPrefOptionsDto,
+        kAvailabilityStatusLabels;
 import '../../../../core/session/known_worker_facts_store.dart' show WorkerFact;
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/form_flow_parts.dart';
@@ -12,6 +17,7 @@ import '../../../chat/domain/chat_resume_menu.dart'
 import '../../domain/trade_form_models.dart';
 import 'design2_cities_page.dart';
 import 'trade_form_kit.dart';
+import 'trade_form_text_field.dart';
 
 /// The tile glyph for one option card, from its slug and label.
 typedef _OptionIcon = IconData Function(String optionKey, String label);
@@ -38,10 +44,36 @@ const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 const String _kSalaryLabel = 'Mahine ki salary kitni chahte hain?';
 const String _kOptionalNote = 'Jo laagu ho, wahi bharein — sab optional hai.';
+const String _kAvailabilityLabel = 'Kab se available hain?';
+const String _kNoticeLabel = 'Notice period kitne din ka hai?';
+// The profile-edit field's own words and hint, so one fact reads the same on
+// both surfaces.
+const String _kNoticeFieldLabel = 'Notice period (din)';
+const String _kNoticeHint = '0–180';
+const String _kNoticeRangeError =
+    'Notice period 0 se $kTradeFormMaxNoticeDays din ke beech likhein.';
+
+/// The notice box — a stable handle for tests.
+const Key kTradeFormNoticeFieldKey = Key('trade_form_notice_period_field');
 
 /// The marker's short internal pages, in walk order — see
 /// [TradeFormPreferencesPageState.pageCount].
-enum _PrefsPage { languages, documents, shift, jobType, cities, terms }
+///
+/// [_PrefsPage.availabilityStatus] and [_PrefsPage.noticePeriod] are asked
+/// ONLY inside the Availability, Terms & Salary section walk (see
+/// [TradeFormPreferencesPage.sectionKey]); onboarding never shows them. They
+/// sit before [_PrefsPage.terms] because the marker saves on its LAST internal
+/// page.
+enum _PrefsPage {
+  languages,
+  documents,
+  shift,
+  jobType,
+  cities,
+  availabilityStatus,
+  noticePeriod,
+  terms,
+}
 
 const Map<int, String> _kSalaryBands = <int, String>{
   15000: '₹10–15 hazaar',
@@ -95,6 +127,13 @@ class TradeFormPreferencesPage extends StatefulWidget {
   /// re-asks; the "ask once, skip if known" rule below is the onboarding
   /// behaviour, and applying it here would hide exactly the fields the worker
   /// tapped to change.
+  ///
+  /// The walk ALSO asks availability — when the worker can join
+  /// ("Kab se available hain?") and the notice period in days — on two pages
+  /// of their own (one question per page, the owner's rule for this marker).
+  /// They exist so this section can be CORRECTED after the résumé is built;
+  /// onboarding stays exactly as it was (#1793 kept availability off the
+  /// trade form's first pass).
   ///
   /// Hiding is free of data loss BY CONSTRUCTION: [TradeFormPreferences.toJson]
   /// sends a list/yes-no key only when the worker touched it, and a page that
@@ -170,7 +209,9 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// `work_preferences.education_*` columns is tracked for Prakash.
   ///
   /// Six pages at most; fewer when the chat already recorded the shift or the
-  /// preferred cities (see [TradeFormPreferencesPage.knownFacts]).
+  /// preferred cities (see [TradeFormPreferencesPage.knownFacts]). The
+  /// Availability walk is also six: shift, job type, cities, availability,
+  /// notice, terms.
   int get pageCount => _pages.length;
 
   late final List<_PrefsPage> _pages = <_PrefsPage>[
@@ -197,6 +238,8 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         widget.knownFacts.contains(WorkerFact.preferredCities),
       _PrefsPage.documents =>
         widget.tierScope.hides(kTierFieldDocumentsReady),
+      // Section-walk-only pages: never on the onboarding pass.
+      _PrefsPage.availabilityStatus || _PrefsPage.noticePeriod => true,
       _ => false,
     };
   }
@@ -227,6 +270,21 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// still submits the city's [CityOptionDto.value] alone). Null means no
   /// state picked yet, so the city search stays closed (see [_citiesPage]).
   String? _cityState;
+
+  /// The notice box. The BOX is what the worker sees; [_prefs] holds the last
+  /// VALID value. Seeded once from the stored notice (#1710's prefill).
+  late final TextEditingController _notice = TextEditingController(
+      text: _prefs.noticePeriodDays?.toString() ?? '');
+
+  /// True while the box holds a number the server would refuse (above
+  /// [kTradeFormMaxNoticeDays]). The refused number never reaches [_prefs] —
+  /// neither as itself nor as a clear — but the digits typed on the way to it
+  /// did: typing 2, 0, 0 leaves 20 there. So what stops a wrong save is the
+  /// GATE, not [_prefs]: [currentPageError] holds the worker on the notice
+  /// page AND refuses the marker's save (the terms page) while this is true.
+  /// (Profile edit's field has no such gate — typing 200 saves 20 — which is
+  /// exactly what this refuses to copy.)
+  bool _noticeInvalid = false;
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -265,6 +323,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     // stores without emitting, so this is safe inside dispose.
     widget.onDraftChanged?.call(_prefs);
     _search.dispose();
+    _notice.dispose();
     super.dispose();
   }
 
@@ -272,15 +331,25 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_prefs);
 
-  /// The one page on this marker that CAN still be entered wrong: `languages`
+  /// A page on this marker that CAN still be entered wrong: `languages`
   /// is capped at [kTradeFormMaxLanguages] server-side
   /// (`worker-preferences.dto.ts`), so a seventh tick would 400 the whole
   /// save on the LAST internal page (`terms`) — the exact dead end this guards
   /// against. Checked by `_WizardScaffoldState` before [goToNextPage]/[save].
+  ///
+  /// The notice page is the other: a number above [kTradeFormMaxNoticeDays]
+  /// would 400 the same save, so it holds the worker on the page instead —
+  /// and, belt and braces, the save itself (on the terms page) is refused
+  /// while the box still holds one (see [_noticeInvalid]).
   String? currentPageError() {
     if (_pages[_page] == _PrefsPage.languages &&
         _prefs.languages.length > kTradeFormMaxLanguages) {
       return _kLangSubtitle;
+    }
+    if (_noticeInvalid &&
+        (_pages[_page] == _PrefsPage.noticePeriod ||
+            _pages[_page] == _PrefsPage.terms)) {
+      return _kNoticeRangeError;
     }
     return null;
   }
@@ -294,6 +363,9 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         _PrefsPage.shift => _kShiftLabel,
         _PrefsPage.jobType => _kJobTypeLabel,
         _PrefsPage.cities => '$_kCitiesLabel\n$_kCitiesSubtitle',
+        _PrefsPage.availabilityStatus =>
+          '$_kAvailabilityLabel\n$_kOptionalNote',
+        _PrefsPage.noticePeriod => '$_kNoticeLabel\n$_kOptionalNote',
         _PrefsPage.terms => _salaryKnown
             ? '$_kRelocateLabel\n$_kAccommodationLabel'
             : '$_kRelocateLabel\n$_kAccommodationLabel\n$_kSalaryLabel',
@@ -372,6 +444,10 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         return _jobTypePage(options);
       case _PrefsPage.cities:
         return _citiesPage(options);
+      case _PrefsPage.availabilityStatus:
+        return _availabilityStatusPage(options);
+      case _PrefsPage.noticePeriod:
+        return _noticePeriodPage();
       case _PrefsPage.terms:
         return _relocateAccommodationSalaryPage();
     }
@@ -568,6 +644,77 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
             .toList()));
   }
 
+  /// "Kab se available hain?" — the stored `availability.status`, one card
+  /// per SERVED option (`availability_status`, the dictionary the PUT's strict
+  /// enum validates, so a card can never 400; the static copy only covers a
+  /// server that predates the key). Re-tapping the picked card clears it,
+  /// like every single-select here.
+  Widget _availabilityStatusPage(WorkPrefOptionsDto options) {
+    final Map<String, String> labels = options.availabilityStatus.isEmpty
+        ? kAvailabilityStatusLabels
+        : options.availabilityStatus;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        const TradeFormHeading(
+          title: _kAvailabilityLabel,
+          subtitle: _kOptionalNote,
+        ),
+        const SizedBox(height: FormFlowLayout.introToOptionsGap),
+        _singleCards(
+            labels,
+            _prefs.availabilityStatus,
+            _availabilityIcon,
+            (String slug) => setState(() => _prefs = _prefs.copyWith(
+                availabilityStatus:
+                    _prefs.availabilityStatus == slug ? null : slug))),
+      ],
+    );
+  }
+
+  /// "Notice period kitne din ka hai?" — whole days, 0 to
+  /// [kTradeFormMaxNoticeDays], optional. Digits only at the keyboard; an
+  /// emptied box clears the notice (the worker removed it), an out-of-range
+  /// number shows the range and holds the page (see [_noticeInvalid]).
+  Widget _noticePeriodPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        const TradeFormHeading(title: _kNoticeLabel, subtitle: _kOptionalNote),
+        const SizedBox(height: FormFlowLayout.introToOptionsGap),
+        const TradeFormFieldLabel(_kNoticeFieldLabel),
+        TradeFormTextField(
+          key: kTradeFormNoticeFieldKey,
+          controller: _notice,
+          hint: _kNoticeHint,
+          label: _kNoticeFieldLabel,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          maxLength: 3,
+          inputFormatters: <TextInputFormatter>[
+            FilteringTextInputFormatter.digitsOnly,
+          ],
+          errorText: _noticeInvalid ? _kNoticeRangeError : null,
+          onChanged: _onNoticeChanged,
+        ),
+      ],
+    );
+  }
+
+  void _onNoticeChanged(String text) {
+    final String typed = text.trim();
+    final int? days = typed.isEmpty ? null : int.tryParse(typed);
+    if (typed.isNotEmpty &&
+        (days == null || days < 0 || days > kTradeFormMaxNoticeDays)) {
+      setState(() => _noticeInvalid = true);
+      return;
+    }
+    setState(() {
+      _noticeInvalid = false;
+      _prefs = _prefs.copyWith(noticePeriodDays: days);
+    });
+  }
+
   Widget _relocateAccommodationSalaryPage() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -741,6 +888,15 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       if (mounted) messenger.hideCurrentMaterialBanner();
     });
   }
+
+  /// An availability card: the shared option rules, else a calendar glyph —
+  /// see [tradeFormOptionIcon].
+  static IconData _availabilityIcon(String optionKey, String label) =>
+      tradeFormOptionIcon(
+        optionKey: optionKey,
+        label: label,
+        fallback: Icons.event_available_rounded,
+      );
 
   /// A language card: the shared option rules, else the list's own icon — see
   /// [tradeFormOptionIcon].

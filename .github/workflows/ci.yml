@@ -204,7 +204,10 @@ jobs:
             #
             # Keep this list equal to the set of `File('../api/...')` paths under
             # apps/worker-app/test — a test that starts reading another server file must add
-            # it here in the same PR.
+            # it here in the same PR. A `<dir>/**` entry does the same for a shared DATA
+            # directory a worker-app test reads (`'../../packages/…'`). The TD144 guard checks
+            # both directions: every entry here is read, and every shared read is listed
+            # here or recorded in the guard as a known gap.
             worker-app-parity:
               - 'apps/api/src/chat/chat-replies.ts'
               - 'apps/api/src/chat/resume-menu.ts'
@@ -219,6 +222,11 @@ jobs:
               # file for the same reason as the task keys; the app mirrors keys
               # and labels in `chat_companion_v3_keys.dart`.
               - 'apps/api/src/chat-companion/companion-v3-keys.ts'
+              # The shipped question packs. `trade_form_topics_coverage_test` reads them
+              # (`form_pack_corpus.dart`) and goes red when a form pack carries a question key
+              # the app's topics table does not map — such a key silently leaves that trade's
+              # Technical Skills walk. A PR that edits only a pack must still run that guard.
+              - 'packages/db/data/question-packs/**'
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'

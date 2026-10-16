@@ -115,9 +115,10 @@ bool _chromeCrowdsChrome(BuildContext context) =>
 /// action docked in [QuestionnaireBottomBar] with a listen button when the
 /// device read-aloud is wired.
 class TradeFormScreen extends StatelessWidget {
-  /// Opens the whole form (null) or one résumé-section walk — currently the
-  /// Technical Skills + Availability, Terms & Salary pilots
-  /// (`trade_form_section_walk.dart`). The router feeds this from the Bada
+  /// Opens the whole form (null) or one résumé-section walk — currently
+  /// Technical Skills; Availability, Terms & Salary; Work History; and
+  /// Education & Certifications (`trade_form_section_walk.dart`), each opening
+  /// at its first step. The router feeds this from the Bada
   /// Bhai menu's `option_key` (`state.extra`); every other pusher passes
   /// nothing and gets exactly today's full walk.
   const TradeFormScreen({

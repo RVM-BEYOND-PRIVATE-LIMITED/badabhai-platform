@@ -44,6 +44,85 @@ void main() {
     });
   });
 
+  // P7 — the Availability walk's status + notice pages. The PUT REPLACES the
+  // stored `availability` json whole, so a touched body always carries all
+  // three parts: what the worker changed plus the stored rest.
+  group('TradeFormPreferences.toJson — availability is one whole object', () {
+    const TradeFormPreferences stored = TradeFormPreferences(
+      availabilityStatus: 'serving_notice',
+      availableFrom: '2026-11-01',
+      noticePeriodDays: 15,
+    );
+
+    test('untouched availability is never sent', () {
+      expect(stored.toJson(), <String, dynamic>{'touched_only': true});
+    });
+
+    test('a notice edit re-sends the stored status and date with it', () {
+      expect(stored.copyWith(noticePeriodDays: 30).toJson(), <String, dynamic>{
+        'touched_only': true,
+        'availability': <String, dynamic>{
+          'status': 'serving_notice',
+          'available_from': '2026-11-01',
+          'notice_period_days': 30,
+        },
+      });
+    });
+
+    test('a status edit re-sends the stored date and notice with it', () {
+      expect(stored.copyWith(availabilityStatus: 'within_month').toJson(),
+          <String, dynamic>{
+        'touched_only': true,
+        'availability': <String, dynamic>{
+          'status': 'within_month',
+          'available_from': '2026-11-01',
+          'notice_period_days': 15,
+        },
+      });
+    });
+
+    test('clearing one part keeps the others; clearing all withdraws it', () {
+      const TradeFormPreferences noDate = TradeFormPreferences(
+        availabilityStatus: 'serving_notice',
+        noticePeriodDays: 15,
+      );
+      expect(noDate.copyWith(noticePeriodDays: null).toJson()['availability'],
+          <String, dynamic>{
+        'status': 'serving_notice',
+        'available_from': null,
+        'notice_period_days': null,
+      });
+      expect(
+        noDate
+            .copyWith(noticePeriodDays: null)
+            .copyWith(availabilityStatus: null)
+            .toJson(),
+        <String, dynamic>{'touched_only': true, 'availability': null},
+      );
+    });
+
+    test('a WITHHELD stored object is never deleted by a cleared page', () {
+      const TradeFormPreferences withheld =
+          TradeFormPreferences(availabilityWithheld: true);
+      // Touched, then cleared again: the worker never saw the stored object,
+      // so "empty" here is not a withdrawal — nothing is sent.
+      expect(
+        withheld
+            .copyWith(availabilityStatus: 'immediate')
+            .copyWith(availabilityStatus: null)
+            .toJson(),
+        <String, dynamic>{'touched_only': true},
+      );
+      // A real edit still replaces it.
+      expect(withheld.copyWith(noticePeriodDays: 30).toJson()['availability'],
+          <String, dynamic>{
+        'status': null,
+        'available_from': null,
+        'notice_period_days': 30,
+      });
+    });
+  });
+
   group('WorkPreferences.toUpdateBody — only what the worker touched', () {
     test('an untouched form sends nothing', () {
       expect(const WorkPreferences().toUpdateBody(), isEmpty);

@@ -3,18 +3,40 @@
 /// and the TOPIC on the white progress strip ("CLAMPING & WORKHOLDING").
 ///
 /// Packs carry no grouping field, so these come from the question's own
-/// `question_key` — every key the nine form trades ship is listed, and an
-/// unknown key (a new pack version) falls back to its own words, readable, so
-/// nothing is ever blank or invented.
+/// `question_key` — every key the sixteen form trades ship is listed. The
+/// table is also the Technical Skills walk's keep/drop source
+/// (`trade_form_section_walk.dart`), which is why it must stay complete:
+/// `trade_form_topics_coverage_test.dart` reads the shipped packs and turns CI
+/// red the moment a form pack carries a key this table does not name. (It went
+/// stale once already — the seven form trades shipped 2026-09-24/25 added 68
+/// keys nobody listed, and their tenure/level questions fell into Technical
+/// Skills.)
+///
+/// For DISPLAY an unknown key (a pack newer than this app) still falls back to
+/// its own words, readable, so a header is never blank or invented — see
+/// [formTopicFor]. Deciding what a key MEANS uses [knownFormTopicFor], which
+/// never guesses.
 library;
 
-/// (category, topic) for [questionKey].
+/// (category, topic) for [questionKey], for display.
+///
+/// Never blank: a key the table does not know prints its own words.
 (String, String) formTopicFor(String questionKey) {
-  final (String, String)? known = _kTopics[questionKey];
+  final (String, String)? known = knownFormTopicFor(questionKey);
   if (known != null) return known;
   final String words = _readable(questionKey);
   return (words, words);
 }
+
+/// (category, topic) for [questionKey] when the table KNOWS the key, else
+/// null.
+///
+/// The readable-words fallback in [formTopicFor] is right for a header and
+/// wrong for a decision: a key's own words are not a category, so anything
+/// that keeps or drops a question by its category (the section walks) must
+/// read this and treat null as "unknown" — never as a category of its own.
+(String, String)? knownFormTopicFor(String questionKey) =>
+    _kTopics[questionKey];
 
 /// (category, topic) for the non-question marker pages.
 const (String, String) kPreferencesTopic =
@@ -46,6 +68,12 @@ const (String, String) _sector = ('Industry', 'Industry experience');
 const (String, String) _training = ('Training', 'ITI & certification');
 const (String, String) _process = ('Process', 'Process & technique');
 const (String, String) _tooling = ('Tooling & fixtures', 'Tools & dies');
+const (String, String) _equipment = ('Machines', 'Equipment');
+const (String, String) _changeover = ('Machine setting', 'Setting & changeover');
+const (String, String) _safety = ('Safety', 'Safety practice');
+const (String, String) _overhaul = ('Maintenance', 'Overhaul');
+const (String, String) _fluidPower =
+    ('Hydraulics & pneumatics', 'Hydraulic & pneumatic work');
 
 const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // Experience & level
@@ -118,4 +146,76 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'sector_worked': _sector, 'sector_drawn': _sector, 'sector_studied': _sector,
   'iti_project_work': _training, 'cad_training_source': _training,
   'trade_test_status': _training,
+
+  // ── The seven form trades shipped 2026-09-24/25 ──────────────────────────
+  // Their tenure (`*_experience`) and self-level (`*_level`) questions are
+  // Experience, exactly like the machining ones above; everything else is the
+  // trade's own capability. Shared keys (material_worked, measuring_tools,
+  // drawing_reading, sector_worked, iti_*, trade_test_status, press_tonnage)
+  // are already listed above.
+  //
+  // Sheet metal fabrication (qp_sheet_metal_fab)
+  'sheet_metal_experience': _experience, 'sheet_metal_level': _level,
+  'sheet_metal_machine': _machines,
+  'sheet_operation': ('Sheet metal operations', 'Operations & capability'),
+  'sheet_thickness': ('Sheet metal operations', 'Sheet thickness'),
+  'assembly_finishing': ('Sheet metal operations', 'Assembly & finishing'),
+  'press_brake_setting': _changeover,
+  'layout_calculation': ('Drawing & design', 'Layout & flat pattern'),
+  'nesting_software': _software,
+  // Press operation (qp_press_operation)
+  'press_experience': _experience, 'press_level': _level,
+  'press_machine': _machines, 'press_stroke_rate': _capability,
+  'press_setting': _changeover, 'press_die_type': _tooling,
+  'press_safety': _safety, 'press_defect': _trouble,
+  'press_maintenance': ('Maintenance', 'Machine upkeep'),
+  // Fitter (qp_fitter)
+  'fitting_experience': _experience, 'fitter_level': _level,
+  'fitter_equipment': _equipment,
+  'fitter_work_type': ('Fitting operations', 'Type of fitting work'),
+  'fitting_work': ('Fitting operations', 'Bench & assembly work'),
+  'fitting_alignment': ('Fitting operations', 'Alignment accuracy'),
+  'fitter_erection': ('Fitting operations', 'Erection & commissioning'),
+  'fitter_hydraulic_work': _fluidPower, 'fitter_overhaul': _overhaul,
+  'fitter_fault_finding': _trouble,
+  // Maintenance technician (qp_maintenance_tech)
+  'maintenance_experience': _experience, 'maintenance_level': _level,
+  'maintenance_equipment': _machines,
+  'maintenance_discipline': ('Maintenance', 'Type of maintenance'),
+  'maintenance_type': ('Maintenance', 'Maintenance work'),
+  'maintenance_response': ('Maintenance', 'Breakdown response'),
+  'maintenance_documentation': ('Maintenance', 'Records & documentation'),
+  'maintenance_fluid_power': _fluidPower, 'maintenance_overhaul': _overhaul,
+  'maintenance_fault_finding': _trouble,
+  // Industrial electrician (qp_industrial_electrician)
+  'electrical_experience': _experience, 'electrician_level': _level,
+  'electrical_equipment': _equipment,
+  'electrical_work_type': ('Electrical work', 'Type of electrical work'),
+  'panel_motor_work': ('Electrical work', 'Panels & motors'),
+  'electrical_voltage': ('Electrical work', 'Voltage range'),
+  'control_circuit': ('Electrical work', 'Control circuits'),
+  // A credential, but the résumé prints it in the trade's CAPABILITY block
+  // ('Licence', trade-resume-map.ts), so it stays a skill here.
+  'electrical_licence': ('Electrical work', 'Electrical licence'),
+  'electrical_safety': _safety, 'motor_fault': _trouble,
+  // Assembly line (qp_assembly_line)
+  'assembly_experience': _experience, 'assembly_level': _level,
+  'assembly_stage': ('Assembly operations', 'Line stages'),
+  'assembly_line_product': ('Assembly operations', 'Assemblies worked on'),
+  'assembly_joining': ('Assembly operations', 'Joining work'),
+  'assembly_takt_time': ('Assembly operations', 'Takt time'),
+  'assembly_station_count': ('Assembly operations', 'Stations handled'),
+  'assembly_responsibility': ('Assembly operations', 'Line responsibilities'),
+  'assembly_practice': ('Assembly operations', 'Shop-floor practice'),
+  'assembly_tool': ('Tooling & fixtures', 'Hand & power tools'),
+  'assembly_defect': _trouble,
+  // Quality inspection (qp_quality_inspection)
+  'inspection_experience': _experience, 'inspection_level': _level,
+  'inspection_stage': ('Quality & inspection', 'Inspection stages'),
+  'inspection_least_count': ('Quality & inspection', 'Least count'),
+  'inspection_standard': ('Quality & inspection', 'Quality standards'),
+  'inspection_documentation': ('Quality & inspection', 'Quality documents'),
+  'inspection_cmm_work': ('Quality & inspection', 'CMM work'),
+  'inspection_rejection_work': ('Quality & inspection', 'Rejection handling'),
+  'inspection_audit_work': ('Quality & inspection', 'Audits & customers'),
 };

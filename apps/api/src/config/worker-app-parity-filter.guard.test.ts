@@ -16,7 +16,13 @@
  *      path filter of its own;
  *   2. that filter actually triggers the `worker-app` gate;
  *   3. `worker-app-apk` still requires the app's OWN filter, so a server-only change gates
- *      the tests without publishing a byte-identical APK Release.
+ *      the tests without publishing a byte-identical APK Release;
+ *   4. a `<dir>/**` entry — a shared DATA directory rather than one server file (the question
+ *      packs, read by `trade_form_topics_coverage_test`) — names a directory that exists AND
+ *      that a worker-app test actually reads, so the filter cannot collect dead globs;
+ *   5. the other direction: every shared path a worker-app test reads (`'../../…'`) is
+ *      covered by the filter or written down in `KNOWN_UNFILTERED_READS` — so dropping the
+ *      question-packs entry, or a new test reading shared data unlisted, fails here.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -102,14 +108,78 @@ function serverPathsReadByAppTests(): string[] {
   return [...found].sort();
 }
 
+/**
+ * Every SHARED path a worker-app test reads (outside apps/ — `packages/…`, `docs/…`),
+ * repo-relative: a quoted `'../../<path>'` on a line that is not an import/export/part
+ * directive (`import '../../support/…'` is a Dart import, not a read).
+ */
+function sharedPathsReadByAppTests(): string[] {
+  const found = new Set<string>();
+  for (const file of dartFiles(APP_TESTS)) {
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+      if (/^\s*(import|export|part)\s/.test(line)) continue;
+      for (const m of line.matchAll(/'\.\.\/\.\.\/([^'$]+)'/g)) found.add(m[1] as string);
+    }
+  }
+  return [...found].sort();
+}
+
+/**
+ * Shared reads that predate the data-directory rule and are NOT in the filter — known
+ * TD144-class gaps, recorded (not fixed) by the PR that added the rule: a PR editing only one
+ * of these still skips the worker-app gate (`role-art/art/ORDER` is at least re-checked by the
+ * role-art generator's `--check` in the node job). Listing one in `worker-app-parity` is the
+ * fix and turns its entry here red; a NEW unfiltered read needs the same written reason.
+ */
+const KNOWN_UNFILTERED_READS: ReadonlySet<string> = new Set([
+  "docs/decisions/0051-profiling-stage-free-chat.md",
+  "packages/role-art/art/ORDER",
+  "packages/types/fixtures/job-card-contract.json",
+]);
+
+/** A `<dir>/**` filter entry: a whole shared data directory, not one server file. */
+function isDataDirGlob(path: string): boolean {
+  return path.endsWith("/**");
+}
+
 describe("TD144 — the worker-app parity filter", () => {
   const filter = filterPaths(CI, "worker-app-parity");
+  const serverFiles = filter.filter((path) => !isDataDirGlob(path));
+  const dataDirs = filter.filter(isDataDirGlob).map((glob) => glob.slice(0, -"/**".length));
 
   it("lists exactly the server files the worker-app parity tests read", () => {
     const read = serverPathsReadByAppTests();
     // Vacuity guard: a broken extractor must not pass by finding nothing on either side.
     expect(read.length).toBeGreaterThan(0);
-    expect([...filter].sort()).toEqual(read);
+    expect([...serverFiles].sort()).toEqual(read);
+  });
+
+  // Flutter runs tests from apps/worker-app, so `'../../packages/x'` is `packages/x`.
+  const sharedReads = sharedPathsReadByAppTests();
+  const listed = (path: string): boolean =>
+    serverFiles.includes(path) ||
+    dataDirs.some((dir) => path === dir || path.startsWith(`${dir}/`));
+
+  it("lists a data directory only when a worker-app test reads it", () => {
+    for (const dir of dataDirs) {
+      expect(
+        sharedReads.some((path) => path === dir || path.startsWith(`${dir}/`)),
+        dir,
+      ).toBe(true);
+    }
+  });
+
+  it("lists every shared path a worker-app test reads, or records it as a known gap", () => {
+    // Vacuity guard: the question-pack guard's own read must be found.
+    expect(sharedReads.length).toBeGreaterThan(0);
+    expect(
+      sharedReads.filter((path) => !listed(path) && !KNOWN_UNFILTERED_READS.has(path)),
+    ).toEqual([]);
+    // The gap list cannot rot: each entry is still read, and none has since been listed.
+    for (const path of KNOWN_UNFILTERED_READS) {
+      expect(sharedReads, path).toContain(path);
+      expect(listed(path), path).toBe(false);
+    }
   });
 
   it("re-runs when the app tests change: they are a turbo input of this package", () => {
@@ -120,7 +190,12 @@ describe("TD144 — the worker-app parity filter", () => {
   });
 
   it("names only files that exist", () => {
-    for (const path of filter) expect(existsSync(join(ROOT, path)), path).toBe(true);
+    for (const path of serverFiles) expect(existsSync(join(ROOT, path)), path).toBe(true);
+    for (const dir of dataDirs) {
+      expect(existsSync(join(ROOT, dir)) && statSync(join(ROOT, dir)).isDirectory(), dir).toBe(
+        true,
+      );
+    }
   });
 
   it("is exported by the changes job", () => {
