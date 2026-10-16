@@ -6,7 +6,6 @@ import 'package:http/testing.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
-import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/chat/data/chat_repository_impl.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
