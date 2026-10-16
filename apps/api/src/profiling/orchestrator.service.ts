@@ -271,6 +271,7 @@ import {
   type EditRow,
   type EditTarget,
 } from "./understanding/edit-gate";
+import { isBareNone, isFreeTextItem } from "./understanding/none-answer";
 import { buildProfilingSchema, type ProfilingSchemaView } from "./understanding/profiling-schema";
 import {
   applyFills,
@@ -2757,7 +2758,25 @@ export class ProfilingOrchestrator {
       // A COMPLETE answer, not a gap. Never re-asked, never blocks completion.
       answers = recordDeclined(answers, envelope.servedQuestionKey, turn);
     }
+    // #2328 — "I HAVE NONE" TO A FREE-TEXT QUESTION is a complete answer, never its value: the
+    // worker's "maine koi course nahin kiya" must not become the training's NAME, which would make
+    // the question `answered` and open its follow-ups ("kahan se", "kis saal"). Recorded DECLINED,
+    // the pack's own `ask_if: answered` skips them. A bare negative is read here with no model; a
+    // sentence is the model's `on_screen_none` (it classifies, the pack's rule decides — §3), acted
+    // on only above the confidence floor. Same guard as the don't-know above: never under an offer.
+    const onScreenNone =
+      askedItem !== null &&
+      !identifyOwnsTurn &&
+      isFreeTextItem(askedItem) &&
+      (isBareNone(input.text) ||
+        (understood !== null &&
+          understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE &&
+          understood.out.on_screen_none));
+    if (onScreenNone) {
+      answers = recordDeclined(answers, askedItem.question_key, turn);
+    }
     for (const value of capture.values) {
+      if (onScreenNone && value.questionKey === askedItem?.question_key) continue;
       answers = recordAnswer(answers, value, turn);
     }
     // #1505 F1: `phaseALeads` tells `crossFillItems` whether a PER-JOB model question is on
@@ -2788,7 +2807,8 @@ export class ProfilingOrchestrator {
       envelope,
       answers,
       capture.correcting,
-      capture.values.length > 0,
+      // A "none" took the turn too (#2328): it answered the question on screen.
+      capture.values.length > 0 || onScreenNone,
       turn,
       editGateArmed,
     );

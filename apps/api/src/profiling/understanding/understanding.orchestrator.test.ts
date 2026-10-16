@@ -102,6 +102,7 @@ function verdict(over: Partial<ProfilingTurnUnderstandOutput> = {}): ProfilingTu
     fills: [],
     edits: [],
     page_owned_mentions: [],
+    on_screen_none: false,
     blocked: false,
     ai_metadata: META as never,
     ...over,

@@ -2543,6 +2543,9 @@ class ProfilingTurnUnderstandOutput(BaseModel):
     page_owned_mentions: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
         default_factory=list, max_length=16
     )
+    # #2328: the worker says they have NONE of what the question on screen asks ("maine koi course
+    # nahi kiya"). Only ever true over a pack question; the API records that question declined.
+    on_screen_none: bool = False
     blocked: bool = False
     # Per-call cost/token metadata; None when no provider was reached (the recorder no-ops).
     ai_metadata: AICallMetadata | None = None
