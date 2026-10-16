@@ -320,6 +320,9 @@ class ChatRepositoryImpl implements ChatRepository {
         // update offer; null everywhere else, including on an older server.
         resumeUpdate: reply.resumeUpdate,
         sessionEnded: reply.sessionEnded,
+        // ADR-0057 R10 (#2314) — the profiling chat's edit/delete confirmation
+        // tile. INTERVIEW path only: the companion's own card is [editProposal].
+        profilingEdit: reply.profilingEdit,
       );
     } catch (error) {
       throw mapError(error);
