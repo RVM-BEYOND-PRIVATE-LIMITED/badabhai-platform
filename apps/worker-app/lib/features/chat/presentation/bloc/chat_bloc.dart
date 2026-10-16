@@ -1275,6 +1275,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // no `session_ended_at` (a live session, an older API) means none.
       final int closedAt =
           redrawn.lastIndexWhere((ChatMessage m) => m.closesSession);
+      // #2331 — a FINISHED session's transcript carries `extraction_ready` on its
+      // closing bubble. Latch it into the state so the cold reopen draws the
+      // "Ho gaya — meri profile banaiye" CTA under the divider WITHOUT the worker
+      // sending anything. Absent (abandoned / form handover / older API) leaves
+      // this false and the CTA dark. `copyWith` only ever lights the flag, never
+      // clears it, so a live close already seen in this process is never undone.
+      final bool redrawExtractionReady =
+          redrawn.any((ChatMessage m) => m.extractionReady);
       emit(
         state.copyWith(
           messages: redrawn,
@@ -1282,6 +1290,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
                   closedAt >= 0
               ? closedAt
               : null,
+          extractionReady: redrawExtractionReady,
         ),
       );
     }
