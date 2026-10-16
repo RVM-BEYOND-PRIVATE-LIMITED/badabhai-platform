@@ -943,6 +943,8 @@ export class ChatService {
             ...this.freeChatModeOf(outcome.envelope),
             // ADR-0054 — a replayed news answer shows its tiles again, as the response it repeats did.
             ...this.wireNewsLinks(outcome.turn.newsLinks),
+            // ADR-0057 (#2312) — a replayed confirmation draws its tile again. ABSENT otherwise.
+            ...wireEditProposal(outcome.turn),
           },
           dto.session_id,
         );
@@ -1443,6 +1445,8 @@ export class ChatService {
       ...this.freeChatModeOf(buffered.profiling),
       // ADR-0054 — an answered news turn's "read more" tiles. ABSENT on every other turn.
       ...this.wireNewsLinks(turn.newsLinks),
+      // ADR-0057 (#2312) — the change/remove confirmation's tile. ABSENT on every other turn.
+      ...wireEditProposal(turn),
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -2771,6 +2775,28 @@ export class ChatService {
 // ---------------------------------------------------------------------------
 // ADR-0045 — the general road on the wire
 // ---------------------------------------------------------------------------
+
+/**
+ * ADR-0057 (#2312) — `{ edit_proposal }` on the turn that puts a change to the worker, or `{}`:
+ * ABSENT, never null. Mapped field by field, so an internal row field (the value Haan writes, the
+ * list index) can never leak onto the wire.
+ */
+function wireEditProposal(turn: TurnResult): { edit_proposal?: PostMessageResponse["edit_proposal"] } {
+  const proposal = turn.editProposal;
+  if (proposal === undefined) return {};
+  return {
+    edit_proposal: {
+      proposal_id: proposal.proposal_id,
+      rows: proposal.rows.map((row) => ({
+        field_label: row.field_label,
+        op: row.op,
+        before: row.before,
+        after: row.after,
+        ...(row.warning !== undefined ? { warning: row.warning } : {}),
+      })),
+    },
+  };
+}
 
 /** The card, mapped field by field so an internal field can never leak onto the wire. */
 function toWireGeneralFormOffer(offer: GeneralFormOffer): { headline: string; cta_label: string } {

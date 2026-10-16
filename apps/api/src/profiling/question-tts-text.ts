@@ -7,6 +7,8 @@ import {
   PROGRESS_REPLY_PAIRS,
   PROGRESS_REPLY_TEXTS,
   PROFILE_PAGE_POINTER_PAIR,
+  EDIT_GATE_LEAD_PAIRS,
+  EDIT_GATE_LEAD_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
 } from "./next-question";
 import { normalizeReplyText } from "./reply-closure";
@@ -150,6 +152,9 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
 
   // next-question.ts (ADR-0057 #2311) — the Profile-page pointer, authored beside its twin.
   ...Object.fromEntries([PROFILE_PAGE_POINTER_PAIR]),
+
+  // next-question.ts (ADR-0057 #2312) — the edit gate's lead lines, authored beside their twins.
+  ...Object.fromEntries(EDIT_GATE_LEAD_PAIRS),
 };
 
 /**
@@ -1243,6 +1248,8 @@ const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string
   ...PROGRESS_REPLY_PAIRS.map(([roman, devanagari]) => [normalizeReplyText(roman), devanagari] as const),
   // ADR-0057 (#2311) — the pointer leads the question it sits above, so it composes the same way.
   [normalizeReplyText(PROFILE_PAGE_POINTER_PAIR[0]), PROFILE_PAGE_POINTER_PAIR[1]] as const,
+  // ADR-0057 (#2312) — the edit gate's lines lead the question the gate puts back.
+  ...EDIT_GATE_LEAD_PAIRS.map(([roman, devanagari]) => [normalizeReplyText(roman), devanagari] as const),
 ];
 
 /**
@@ -1300,6 +1307,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   ...FREE_CHAT_REPLIES,
   ...PROGRESS_REPLY_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
+  ...EDIT_GATE_LEAD_TEXTS,
 ];
 
 export { DEVANAGARI_RE };

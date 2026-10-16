@@ -126,6 +126,17 @@ typed text
 - A **double tap** applies once.
 - **A typed message while a proposal is pending** is understood normally, and the proposal lapses.
 
+**Owner rulings, 2026-10-16 (#2312):**
+- **Copy.** One change: "Experience: 5 saal se 2 saal kar doon?". A removal: "Training: CNC Basics hata doon? Ye wapas nahi aayega.". Several: "Ye badlaav kar doon?" over one line per row. A change with no value: "Theek hai, sahi Experience bataiye." over the field's own question. After the answer: "Theek hai, badal diya." / "Theek hai, hata diya." / "Theek hai, kuch nahi badla."
+- **The trade is not changed here.** It has its own confirmation in Phase A. A later request to change it gets "Ye badlaav aap baad mein Profile page pe kar sakte hain." above the question, never a proposal.
+- **A job change re-sums the total experience** from the jobs, by the #1505 rule the handover applies: every job must resolve to months, and the sum must be in bound.
+
+**As built:**
+- The gate runs on the **pack stretch** only; while Phase A leads, its own turn owns the draft.
+- A proposal stands in for the **pack question the turn would serve**. That question gets its ask back when the gate closes and is put back.
+- A close, a handover or a model turn never carries a proposal.
+- **#2307's one-candidate correction** is put to the worker instead of written, but only when the layer returned a real verdict. A failed call keeps today's silent correction (§3.6).
+
 ### 3.5 The profile build (R9)
 
 Jobs reach the profile **only** through the post-flush Phase C extraction, which re-reads the whole transcript (`profile-extraction.processor.ts:1905`). The flush therefore persists two things on `conversation_state`, as a versioned sibling key outside the frozen contract (the `general_road` stamp precedent):

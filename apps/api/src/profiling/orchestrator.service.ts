@@ -40,6 +40,8 @@ import {
 import type {
   ChatGateKind,
   FreeChatReplyLanguage,
+  ProfilingEditCancelReason,
+  ProfilingEditOp,
   ProfilingLane,
   ProfilingLaneReason,
   SkillsGateReply,
@@ -138,7 +140,6 @@ import {
   type IntakeWrite,
 } from "./identity-intake/identity-intake.service";
 import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
-import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
 import type { KnownNameSource } from "../common/redact-known-name";
 import { seedFromWorkerRecord } from "./worker-record-seed";
@@ -246,9 +247,29 @@ import {
   MAX_SILENT_TURNS,
   PROGRESS_REPLY_NO_COUNT_TEXT,
   PROFILE_PAGE_POINTER_TEXT,
+  ROLE_CHANGE_POINTER_PAIR,
   type CompletionReason,
   type EnginePacks,
 } from "./next-question";
+import {
+  applyEditProposal,
+  buildEditProposal,
+  editGateOpen,
+  editGateTurn,
+  editProposalWire,
+  editResolvedLead,
+  jobsTotalYears,
+  newProposalId,
+  readEditConfirmReply,
+  ROLE_KEY,
+  rowForAnswer,
+  showsEditConfirm,
+  type EditGateState,
+  type EditGateTurn,
+  type EditProposalWire,
+  type EditRow,
+  type EditTarget,
+} from "./understanding/edit-gate";
 import { buildProfilingSchema, type ProfilingSchemaView } from "./understanding/profiling-schema";
 import {
   applyFills,
@@ -481,6 +502,12 @@ export interface TurnResult {
    * empty and never null, so every existing body is byte-identical.
    */
   readonly newsLinks?: readonly FreeChatNewsLink[];
+  /**
+   * ADR-0057 (#2312) — on the turn that puts a change to an earlier answer to the worker, the rows
+   * the app draws as a tile (`edit_proposal`). ABSENT on every other turn, never null, so every
+   * existing body is byte-identical. The reply text and the Haan / Nahi chips carry it regardless.
+   */
+  readonly editProposal?: EditProposalWire;
 }
 
 /**
@@ -996,9 +1023,12 @@ export class ProfilingOrchestrator {
         understandRefs,
       );
       if (!undecorated) return unavailable();
+      // ADR-0057 (#2312) — the edit gate's question in place of the decided ask (or its line above
+      // it), BEFORE the lead-ins and the CAS, for the same reason they are.
+      const gated = this.composeEditGate(undecorated, understandRefs);
       // ADR-0057 (#2311) — the lines above the question (the Profile-page pointer, the bridge
       // line), composed BEFORE the CAS so the reply, the transcript and `lastTurn` say the same.
-      const leadIns = await this.composeLeadIns(undecorated, input, understandRefs);
+      const leadIns = await this.composeLeadIns(gated, input, understandRefs);
       const decided = leadIns.decided;
 
       // ADR-0048 — THE INTAKE'S RECORD WRITE LANDS BEFORE THE CAS, AND FAILS CLOSED. After the
@@ -1043,6 +1073,8 @@ export class ProfilingOrchestrator {
         await this.recordFreeChatEffects(envelope, measured, decided.freeChat, input);
         // ADR-0057 (#2311) — `profiling.turn_understood`, only for the decision that landed.
         await this.recordUnderstanding(understandRefs.outcome, leadIns, input);
+        // ADR-0057 (#2312) — the edit gate's rows: proposed, confirmed, cancelled. Same rule.
+        await this.recordEditGate(understandRefs.edit ?? null, input);
         return decided.result;
       }
 
@@ -1376,6 +1408,31 @@ export class ProfilingOrchestrator {
           whyText: null,
           answerType: typePrompt.answerType,
           inputMode: "text",
+          progress: progressOf(progressItems, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
+      // ADR-0057 (#2312) — THE EDIT GATE OUTRANKS THE PACK RE-SERVE, for the trade gate's reason
+      // below: a cold start mid-gate redraws its own question (rebuilt from its state by the one
+      // derivation the live turn uses), never the question it displaced. RE-SERVE ONLY.
+      const editGate = envelope.editGate === null ? null : editGateTurn(envelope.editGate, items);
+      if (editGate) {
+        return {
+          reply: editGate.reply,
+          kind: "ask",
+          questionKey: null,
+          options: editGate.options,
+          whyText: null,
+          answerType: editGate.answerType,
+          inputMode: editGate.inputMode,
+          ...(editGate.editProposal !== undefined ? { editProposal: editGate.editProposal } : {}),
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -1796,6 +1853,7 @@ export class ProfilingOrchestrator {
   ): Promise<Decided | null> {
     // A lost CAS re-runs this decision from the winner's state: its outcome starts empty again.
     understandRefs.outcome = null;
+    understandRefs.edit = null;
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
       this.logger.error(
@@ -2493,6 +2551,88 @@ export class ProfilingOrchestrator {
     // --- Answer classes: write what the worker said -------------------------
     next = { ...next, silentTurns: 0, clarifyCount: 0, hardshipTurns: 0 };
 
+    // --- ADR-0057 (#2312): THE EDIT GATE, ANSWERED ----------------------------
+    //
+    // AFTER every deterministic wall above (abuse, silence, hardship, a question back, a progress
+    // question and the pending offers and gates all outrank it, as they outrank the trade gate) and
+    // BEFORE the turn is understood. While the gate is open no pack question is on screen
+    // (`servedQuestionKey` is null), so the capture above found nothing to file this under.
+    //
+    // HAAN writes the proposal (`applyEditProposal` — each row re-checked, a moved field is `stale`
+    // and left alone); NAHI writes nothing; ANY OTHER MESSAGE lapses it and is read like any other
+    // (ADR-0057 §3.4) — "nahi, 3 saal" corrects the value rather than cancelling the change. Every
+    // one of these FALLS THROUGH, the trade gate's own pattern: the gate is cleared, the question it
+    // displaced gets its ask back, and the pipeline below serves the next question as it always does
+    // — so a close, an offer and a checkpoint keep their one owner. A tapped Haan / Nahi finds no
+    // value below (no question on screen; a bare yes/no has no typed parser) and, being a chip, is
+    // never sent to the model. `composeEditGate` puts the line saying what happened above it.
+    if (editGateOpen(next.editGate) && !capped) {
+      const gate = next.editGate as EditGateState;
+      const resume =
+        gate.resumeKey === null ? undefined : items.find((item) => item.question_key === gate.resumeKey);
+      if (gate.proposal !== null) {
+        const read = readEditConfirmReply(input.text);
+        if (read === "yes") {
+          const out = applyEditProposal({
+            rows: gate.proposal.rows,
+            items,
+            answers,
+            draft: next.llmDraft,
+            askCounts: next.askCounts,
+            turn,
+          });
+          answers = out.answers;
+          next = { ...withAnswers(next, answers), llmDraft: out.draft, askCounts: out.askCounts };
+          understandRefs.edit = editPlan({
+            lead: editResolvedLead(out.applied, true),
+            resolved: {
+              proposalId: gate.proposal.id,
+              confirmed: out.applied,
+              cancelled: out.stale.map((row) => ({ row, reason: "stale" as const })),
+            },
+          });
+        } else {
+          understandRefs.edit = editPlan({
+            lead: read === "no" ? editResolvedLead([], false) : null,
+            resolved: {
+              proposalId: gate.proposal.id,
+              confirmed: [],
+              cancelled: gate.proposal.rows.map((row) => ({
+                row,
+                reason: read === "no" ? ("declined" as const) : ("lapsed" as const),
+              })),
+            },
+          });
+        }
+        this.logger.log(
+          `edit gate ${read === "yes" ? "confirmed" : read === "no" ? "declined" : "lapsed"} ` +
+            `session=${input.sessionId} rows=${gate.proposal.rows.length}`,
+        );
+        next = { ...refundDisplaced(next, gate.resumeKey, answers), editGate: null };
+        // FALL THROUGH — see the block doc above.
+      } else if (gate.awaiting !== null) {
+        // THE ANSWER TO "sahi <field> bataiye", read through that field's own parser (or the skill
+        // certifier) — and put to the worker as a change, over the question it displaced, which
+        // stays displaced (no refund: it is still owed the ask it was counted for). A job needs the
+        // model to read, and anything unread lapses the ask: the turn below reads it like any other,
+        // with the ask line as what was on screen.
+        const row = rowForAnswer(
+          gate.awaiting,
+          input.text,
+          buildProfilingSchema(progressItems, answers, next.llmDraft),
+          answers,
+          next.llmDraft,
+        );
+        next = { ...next, editGate: null };
+        if (row !== null && resume !== undefined) {
+          understandRefs.edit = editPlan({ rows: [row] });
+          return this.reserveTurn({ buffer, next, input, turn, items, progressItems, answers, item: resume });
+        }
+        next = refundDisplaced(next, gate.resumeKey, answers);
+        // FALL THROUGH — see the block doc above.
+      }
+    }
+
     // --- ADR-0057 (#2311): the turn, understood ------------------------------
     //
     // AFTER EVERY DETERMINISTIC WALL ABOVE — abuse, silence, hardship, a question back, a progress
@@ -2544,6 +2684,57 @@ export class ProfilingOrchestrator {
           item: reservableItem,
         });
       }
+      // #2312 — A CHANGE OR A REMOVAL ASKED OVER A PACK QUESTION: the message is about an earlier
+      // answer, not this one, so nothing is filed under the question on screen (a free-text
+      // question would otherwise keep "experience 2 saal hai, 5 nahi" as its answer). Anything it
+      // volunteered for an EMPTY field is still written. The question goes back unspent, and
+      // `composeEditGate` puts the change to the worker in its place — the question is resumed
+      // once they answer. Only on the pack stretch: while the model leads, its turn owns the draft.
+      if (
+        (understood.out.intent === "edit" || understood.out.intent === "delete") &&
+        reservableItem &&
+        !this.llm.leads(next)
+      ) {
+        const applied = applyFills({
+          view: understood.view,
+          fills: understood.out.fills,
+          answers,
+          draft: next.llmDraft,
+          onScreenKey: reservableItem.question_key,
+          phaseALeads: false,
+          turn,
+        });
+        const plan = buildEditProposal({
+          view: understood.view,
+          answers: applied.answers,
+          draft: applied.draft,
+          edits: understood.out.edits,
+          conflicts: applied.conflicts,
+          correction: null,
+          phaseALeads: false,
+        });
+        if (plan.rows.length > 0 || plan.awaiting !== null || plan.rolePointer !== null) {
+          answers = applied.answers;
+          next = { ...withAnswers(next, answers), llmDraft: applied.draft };
+          understandRefs.outcome = outcomeOf(understood.out, applied, null);
+          understandRefs.edit = editPlan({
+            rows: plan.rows,
+            ask: plan.awaiting,
+            askTurn: askTurnOf(plan.awaiting, items),
+            rolePointer: plan.rolePointer?.op ?? null,
+          });
+          return this.reserveTurn({
+            buffer,
+            next,
+            input,
+            turn,
+            items,
+            progressItems,
+            answers,
+            item: reservableItem,
+          });
+        }
+      }
     }
 
     // NOT UNDER AN OFFER (#1506): the key on the envelope is stale there, and "pata nahi" said
@@ -2572,7 +2763,9 @@ export class ProfilingOrchestrator {
       !isOpenerReplyTurn(envelope);
     // ADR-0057 (#2311): what the cross-question fill catches is noted too (the bridge line).
     const beforeCrossFill = answers;
-    answers = this.fillCrossQuestion(
+    // #2312: the edit gate runs on the pack stretch, for a turn the layer actually understood.
+    const editGateArmed = understood !== null && !this.llm.leads(next);
+    const crossFilled = this.fillCrossQuestion(
       // ADR-0045 R5: on the skills lane experience is NEVER cross-filled — total experience comes
       // only from the general form's work history, and `isOpenerReplyTurn` can read true again
       // once the lane has cleared the draft's experiences.
@@ -2583,7 +2776,9 @@ export class ProfilingOrchestrator {
       capture.correcting,
       capture.values.length > 0,
       turn,
+      editGateArmed,
     );
+    answers = crossFilled.answers;
     if (understood !== null) {
       // AFTER the deterministic capture and cross-fill, which keep first claim on every value:
       // `applyFills` writes only fields still empty, so it can never overrule them.
@@ -2610,6 +2805,32 @@ export class ProfilingOrchestrator {
         applied,
         noted.length > 0 ? { reason: "filled", noted } : null,
       );
+      // #2312 — CHANGES TO FILLED FIELDS, put to the worker rather than written (R4): the model's
+      // change rows (when its reading clears the confidence floor), its fills that named a filled
+      // field, and the deterministic one-candidate correction held back above. `buildEditProposal`
+      // checks every row against this session's catalogue; `composeEditGate` puts what survives
+      // on screen over whichever pack question this turn goes on to serve.
+      if (editGateArmed) {
+        const plan = buildEditProposal({
+          view: understood.view,
+          answers,
+          draft: next.llmDraft,
+          edits:
+            understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE ? understood.out.edits : [],
+          conflicts: applied.conflicts,
+          correction: crossFilled.correction,
+          phaseALeads: false,
+        });
+        if (plan.rows.length > 0 || plan.awaiting !== null || plan.rolePointer !== null) {
+          understandRefs.edit = editPlan({
+            ...(understandRefs.edit ?? {}),
+            rows: plan.rows,
+            ask: plan.awaiting,
+            askTurn: askTurnOf(plan.awaiting, items),
+            rolePointer: plan.rolePointer?.op ?? null,
+          });
+        }
+      }
     }
 
     // --- THE GENERAL ROAD'S SKILLS STAGE (ADR-0045) --------------------------
@@ -3670,6 +3891,120 @@ export class ProfilingOrchestrator {
     return { decided: withLeadIn(decided, lines.join(" ")), bridgeServed, pointerServed };
   }
 
+  /**
+   * ADR-0057 (#2312) — the edit gate on screen. Over a decided PACK ASK only — the question the
+   * gate displaces, which `resumeKey` puts back once it closes; a close, a handover, a model turn
+   * or an unavailable turn is left exactly as decided, and a proposal that finds no ask to stand in
+   * for is dropped unasked (nothing was written for it). In place of that ask: the before → after
+   * proposal, else the ask for a field named as wrong. Above it: the trade pointer, and the line
+   * saying what the worker's Haan or Nahi did.
+   */
+  private composeEditGate(decided: Decided, refs: UnderstandingRefs): Decided {
+    const plan = refs.edit ?? null;
+    if (plan === null) return decided;
+    plan.proposed = null;
+    plan.pointerServed = false;
+    const result = decided.result;
+    if (result.kind !== "ask" || result.complete || result.unavailable) return decided;
+    if (result.reply.trim().length === 0) return decided;
+
+    const resumeKey = result.questionKey;
+    if (resumeKey !== null && plan.rows.length > 0) {
+      const proposal = { id: newProposalId(), rows: plan.rows };
+      const gate: EditGateState = { proposal, awaiting: null, resumeKey };
+      const shown = editGateTurn(gate, []);
+      if (shown !== null) {
+        plan.proposed = proposal;
+        return asEditGateTurn(decided, shown, gate);
+      }
+    }
+    if (resumeKey !== null && plan.ask !== null && plan.askTurn !== null) {
+      return asEditGateTurn(decided, plan.askTurn, { proposal: null, awaiting: plan.ask, resumeKey });
+    }
+    let out = decided;
+    if (plan.rolePointer !== null) {
+      out = withLeadIn(out, ROLE_CHANGE_POINTER_PAIR[0]);
+      plan.pointerServed = true;
+    }
+    if (plan.lead !== null) out = withLeadIn(out, plan.lead);
+    return out;
+  }
+
+  /**
+   * The edit gate's events, after the CAS, for the decision that landed — one per row: proposed
+   * (put on screen), confirmed (written on Haan), cancelled (Nahi, a lapse, a moved field, or the
+   * trade answered with the pointer). Catalogue keys and closed enums only. Never throws.
+   */
+  private async recordEditGate(plan: EditPlan | null, input: TurnInput): Promise<void> {
+    if (plan === null) return;
+    const actor = { actor_type: "worker" as const, actor_id: input.workerId };
+    const subject = { subject_type: "chat_session" as const, subject_id: input.sessionId };
+    const meta = { correlationId: input.ctx.correlationId, requestId: input.ctx.requestId };
+    const payloadOf = (proposalId: string, fieldKey: string, op: ProfilingEditOp) => ({
+      worker_id: input.workerId,
+      session_id: input.sessionId,
+      proposal_id: proposalId,
+      field_key: fieldKey,
+      op,
+      submission_id: input.submissionId,
+    });
+    const safely = async (name: string, emit: () => Promise<unknown>): Promise<void> => {
+      try {
+        await emit();
+      } catch (err) {
+        this.logger.warn(
+          `${name} not recorded session=${input.sessionId}: ${logSafeReason(err, `${name} emit`)}`,
+        );
+      }
+    };
+    const cancelled = (proposalId: string, fieldKey: string, op: ProfilingEditOp, reason: ProfilingEditCancelReason) =>
+      safely("profiling.field_edit_cancelled", () =>
+        this.events.emit({
+          event_name: "profiling.field_edit_cancelled",
+          actor,
+          subject,
+          payload: { ...payloadOf(proposalId, fieldKey, op), reason },
+          ...meta,
+        }),
+      );
+
+    if (plan.resolved !== null) {
+      const { proposalId } = plan.resolved;
+      for (const row of plan.resolved.confirmed) {
+        await safely("profiling.field_edit_confirmed", () =>
+          this.events.emit({
+            event_name: "profiling.field_edit_confirmed",
+            actor,
+            subject,
+            payload: payloadOf(proposalId, row.key, row.op),
+            ...meta,
+          }),
+        );
+      }
+      for (const { row, reason } of plan.resolved.cancelled) {
+        await cancelled(proposalId, row.key, row.op, reason);
+      }
+    }
+    const proposed = plan.proposed ?? null;
+    if (proposed !== null) {
+      for (const row of proposed.rows) {
+        await safely("profiling.field_edit_proposed", () =>
+          this.events.emit({
+            event_name: "profiling.field_edit_proposed",
+            actor,
+            subject,
+            payload: payloadOf(proposed.id, row.key, row.op),
+            ...meta,
+          }),
+        );
+      }
+    }
+    // The trade, answered with the pointer: a change asked and not made, under a one-off id.
+    if (plan.pointerServed === true && plan.rolePointer !== null) {
+      await cancelled(newProposalId(), ROLE_KEY, plan.rolePointer, "profile_page");
+    }
+  }
+
   /** `profiling.turn_understood`, after the CAS, for a turn with a real verdict. Never throws. */
   private async recordUnderstanding(
     outcome: UnderstandingOutcome | null,
@@ -3716,7 +4051,11 @@ export class ProfilingOrchestrator {
     correcting: boolean,
     onScreenAnswered: boolean,
     turn: number,
-  ): AnswerMap {
+    // ADR-0057 (#2312): hand the one correction back instead of writing it — the edit gate puts it
+    // to the worker. Only when the layer has a real verdict for this turn, so a failed call is
+    // today's silent correction exactly (§3.6).
+    deferCorrection = false,
+  ): { readonly answers: AnswerMap; readonly correction: readonly CapturedValue[] | null } {
     let filled = answers;
     const corrections: (readonly CapturedValue[])[] = [];
     for (const item of items) {
@@ -3747,9 +4086,10 @@ export class ProfilingOrchestrator {
     }
     const [onlyCorrection] = corrections;
     if (corrections.length === 1 && onlyCorrection) {
+      if (deferCorrection) return { answers: filled, correction: onlyCorrection };
       for (const value of onlyCorrection) filled = recordAnswer(filled, value, turn);
     }
-    return filled;
+    return { answers: filled, correction: null };
   }
 
   /**
@@ -3878,6 +4218,25 @@ export class ProfilingOrchestrator {
           promptText: typePrompt.prompt,
           answerType: typePrompt.answerType,
           options: [],
+          whyText: null,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
+
+    // ADR-0057 (#2312) — THE EDIT GATE, from the derivation `openTurn` uses — one precedence
+    // for both readers. `questionKey: null`, as for the trade gate below.
+    const editGate = envelope.editGate === null ? null : editGateTurn(envelope.editGate, items);
+    if (editGate) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: editGate.reply,
+          answerType: editGate.answerType,
+          options: editGate.options,
           whyText: null,
           progress: progressOf(progressItems, answers),
         },
@@ -5742,6 +6101,130 @@ export interface UnderstandingRefs {
   understand: { readonly key: string; readonly promise: Promise<ProfilingTurnUnderstandOutput | null> } | null;
   bridge: { readonly key: string; readonly promise: Promise<string | null> } | null;
   outcome: UnderstandingOutcome | null;
+  /** ADR-0057 (#2312) — what the decision being made does with the edit gate. */
+  edit?: EditPlan | null;
+}
+
+/**
+ * ADR-0057 (#2312) — the edit gate's part in one decision. `decide` fills it; `composeEditGate`
+ * puts it on screen over the decided ask (before the CAS); `recordEditGate` emits its events (after).
+ */
+interface EditPlan {
+  /** Changes to put to the worker in place of the decided ask, which they then resume. */
+  readonly rows: readonly EditRow[];
+  /** A field named as wrong with no new value, to ask for in place of the decided ask. */
+  readonly ask: EditTarget | null;
+  /** That ask's turn, built where the pack items are in hand (see `editGateTurn`). */
+  readonly askTurn: EditGateTurn | null;
+  /** A change to the trade: the Profile-page pointer leads the decided ask (never a proposal). */
+  readonly rolePointer: ProfilingEditOp | null;
+  /** After a Haan or a Nahi: the line above the decided ask. */
+  readonly lead: string | null;
+  /** The proposal this decision closed, and how. */
+  readonly resolved: {
+    readonly proposalId: string;
+    readonly confirmed: readonly EditRow[];
+    readonly cancelled: readonly { readonly row: EditRow; readonly reason: ProfilingEditCancelReason }[];
+  } | null;
+  /** Set by `composeEditGate` when a proposal was actually put on screen. */
+  proposed?: { readonly id: string; readonly rows: readonly EditRow[] } | null;
+  /** Set by `composeEditGate` when the trade pointer was actually served. */
+  pointerServed?: boolean;
+}
+
+/** The turn that asks for a field named as wrong — null when there is no such field. */
+function askTurnOf(target: EditTarget | null, items: readonly QuestionPackItem[]): EditGateTurn | null {
+  return target === null ? null : editGateTurn({ proposal: null, awaiting: target, resumeKey: null }, items);
+}
+
+function editPlan(fields: Partial<EditPlan>): EditPlan {
+  return {
+    rows: [],
+    ask: null,
+    askTurn: null,
+    rolePointer: null,
+    lead: null,
+    resolved: null,
+    proposed: null,
+    pointerServed: false,
+    ...fields,
+  };
+}
+
+/**
+ * Give back the ask a closed edit gate DISPLACED. The gate took the screen from a pack question
+ * that had been counted as asked; when the gate closes and the turn falls through to the engine,
+ * that question is picked — and counted — again. Without the refund a once-asked question would
+ * be spent by a confirmation it never got to show. Never for a question already settled.
+ */
+function refundDisplaced(envelope: ProfilingEnvelope, key: string | null, answers: AnswerMap): ProfilingEnvelope {
+  if (key === null || isSettled(answers, key)) return envelope;
+  const spent = envelope.askCounts[key] ?? 0;
+  if (spent <= 0) return envelope;
+  const { [key]: _spent, ...rest } = envelope.askCounts;
+  return {
+    ...envelope,
+    askCounts: spent > 1 ? { ...rest, [key]: spent - 1 } : rest,
+    engineAsks: Math.max(0, envelope.engineAsks - 1),
+  };
+}
+
+/**
+ * The decided ask, replaced by the edit gate's own question — in the result, the transcript's
+ * assistant line and `lastTurn` alike (the `withLeadIn` rule), with `servedQuestionKey` cleared and
+ * the gate stored, so the worker's next words answer the gate and never the displaced question.
+ */
+function asEditGateTurn(
+  decided: Decided,
+  turn: {
+    readonly reply: string;
+    readonly options: readonly QuestionPackOption[];
+    readonly answerType: AnswerType | null;
+    readonly inputMode: InputMode;
+    readonly editProposal?: EditProposalWire;
+  },
+  gate: EditGateState,
+): Decided {
+  const before = decided.result.reply;
+  const messages = [...decided.buffer.messages];
+  const last = messages[messages.length - 1];
+  if (last !== undefined && last.role === "assistant" && last.text === before) {
+    messages[messages.length - 1] = { ...last, text: turn.reply };
+  }
+  const profiling = decided.buffer.profiling;
+  const shown = {
+    reply: turn.reply,
+    questionKey: null,
+    options: [...turn.options],
+    whyText: null,
+    answerType: turn.answerType,
+    inputMode: turn.inputMode,
+  };
+  return {
+    ...decided,
+    result: {
+      ...decided.result,
+      ...shown,
+      lookahead: null,
+      ...(turn.editProposal !== undefined ? { editProposal: turn.editProposal } : {}),
+    },
+    buffer: {
+      ...decided.buffer,
+      messages,
+      profiling:
+        profiling == null
+          ? profiling
+          : {
+              ...profiling,
+              servedQuestionKey: null,
+              editGate: gate,
+              lastTurn:
+                profiling.lastTurn && profiling.lastTurn.reply === before
+                  ? { ...profiling.lastTurn, ...shown, lookahead: null }
+                  : profiling.lastTurn,
+            },
+    },
+  };
 }
 
 interface UnderstandingOutcome {
@@ -5868,7 +6351,12 @@ interface Replay {
  * two hand-written copies of a fourteen-field literal is how one of them quietly stops carrying
  * the chips, the lookahead or the input mode that a worker on a flaky link needs most.
  */
-function replayResultOf(last: LastTurn): TurnResult {
+function replayResultOf(last: LastTurn, gate: EditGateState | null = null): TurnResult {
+  // ADR-0057 (#2312) — REBUILT FROM THE GATE, not cached: a replayed confirmation draws its tile
+  // and keeps its two buttons, exactly as the response it repeats did — only while that proposal
+  // is still the one open, and only over its own chips.
+  const proposal = gate?.proposal ?? null;
+  const confirming = proposal !== null && last.questionKey === null && showsEditConfirm(last.options);
   return {
     reply: last.reply,
     // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
@@ -5893,7 +6381,7 @@ function replayResultOf(last: LastTurn): TurnResult {
     // it opens with the worker's own skills, so no prompt comparison can find it.
     inputMode:
       last.inputMode === "options_only" &&
-      (last.reply === EXPERIENCE_GATE_PROMPT || last.gateKind === "skills")
+      (last.reply === EXPERIENCE_GATE_PROMPT || last.gateKind === "skills" || confirming)
         ? "options_only"
         : "text",
     // FROM THE CACHE, like the four above. A handover replayed without its button is a dead end.
@@ -5907,6 +6395,7 @@ function replayResultOf(last: LastTurn): TurnResult {
     ...(last.readAloud === false ? { readAloud: false as const } : {}),
     // ADR-0054 — FROM THE CACHE, ABSENT when unset: a replayed news answer shows its tiles again.
     ...(last.newsLinks !== undefined ? { newsLinks: last.newsLinks } : {}),
+    ...(confirming ? { editProposal: editProposalWire(proposal) } : {}),
     unansweredEssentials: [],
     complete: false,
     completionReason: null,
@@ -6023,7 +6512,11 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
     // line above, which returns null with no clock consulted at all and cannot be re-broken here.
     const idAge = input.now.getTime() - new Date(last.at).getTime();
     if (!Number.isFinite(idAge) || idAge < 0 || idAge > ID_REPLAY_MAX_AGE_MS) return null;
-    return { consumesBudget: false, absorbedAs: "client_id", result: replayResultOf(last) };
+    return {
+      consumesBudget: false,
+      absorbedAs: "client_id",
+      result: replayResultOf(last, envelope.editGate),
+    };
   }
   // ASYMMETRIC AND ABSENT CASES BOTH FALL THROUGH TO THE CLOCK, and must. An id can only be
   // compared with an id: "inbound has one, the stamp does not" is the deploy straddle (an
@@ -6098,7 +6591,7 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
     // see `Replay.absorbedAs`. `stale` wins the label over `storm`: out past the fresh window the
     // budget is not what served it (#869), whatever `replays` happens to say.
     absorbedAs: stale ? "stale" : spent ? "storm" : "budget",
-    result: replayResultOf(last),
+    result: replayResultOf(last, envelope.editGate),
   };
 }
 
@@ -6496,16 +6989,10 @@ function settleFromLlmDraft(
   const trade = (draft.role_label ?? draft.domain_label ?? pinnedTrade ?? "").trim();
   // #1505 F2/ruling-1: `duration_months` FIRST (the ai-service's own parse, when it has one),
   // `parseDurationMonths(duration_text)` as the API-side fallback for an entry that reached here
-  // with no month count at all. `resolvedMonths` returning `null` for even ONE entry is what
-  // holds `years` unsettled below — a partial sum understates a worker's experience, and
-  // understating it is the one direction that costs them jobs.
-  const resolvedMonths = (entry: (typeof draft.experiences)[number]): number | null =>
-    entry.duration_months ?? parseDurationMonths(entry.duration_text);
-  const months = draft.experiences.map(resolvedMonths);
-  const years =
-    months.length > 0 && months.every((m): m is number => typeof m === "number")
-      ? Math.round(months.reduce((sum, m) => sum + m, 0) / 12)
-      : null;
+  // with no month count at all. One entry that resolves to nothing holds `years` unsettled below —
+  // a partial sum understates a worker's experience, and understating it is the one direction
+  // that costs them jobs. SHARED with the edit gate's re-sum (#2312), so the two cannot disagree.
+  const years = jobsTotalYears(draft.experiences);
 
   let next = answers;
   const settle = (field: string, raw: string, normalized: unknown): void => {

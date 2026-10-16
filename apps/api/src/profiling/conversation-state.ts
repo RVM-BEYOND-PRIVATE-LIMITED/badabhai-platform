@@ -83,6 +83,7 @@ import { MAX_SKILLS } from "./skill-certifier";
 import { narrowGeneralFormOffer, type GeneralFormOffer } from "./skills-gate";
 // One-directional: the free chat's state module imports nothing from this file.
 import { narrowFreeChat, type FreeChatState } from "./free-chat/free-chat.state";
+import { narrowEditGate, type EditGateState } from "./understanding/edit-gate.state";
 import { newsLinksField, type FreeChatNewsLink } from "./free-chat/free-chat-news-links";
 
 /**
@@ -908,6 +909,21 @@ export interface ProfilingEnvelope {
    * `free_chat_lock` key (`toFreeChatStatePatch`); nothing else here is persisted.
    */
   readonly freeChat: FreeChatState | null;
+
+  /**
+   * The Haan/Nahi gate on a filled field (ADR-0057 §3.4, #2312) — a change put to the worker, or
+   * a field named as wrong being asked for, and the pack question to put back once it closes.
+   * `null` whenever no such question is on screen, which is every session while
+   * `CHAT_TURN_UNDERSTANDING_ENABLED` is off. See {@link EditGateState}.
+   *
+   * ITS OWN STATE rather than a reserved `servedQuestionKey`, for the trade gate's reason: every
+   * capture branch reads that key as "the pack question on screen", and a Haan filed against it
+   * would answer a question no one asked. While it is open `servedQuestionKey` stays null.
+   *
+   * REDIS ONLY — DELIBERATELY ABSENT FROM `toConversationStatePatch`. A proposal is a question on
+   * screen; what it changes reaches Postgres through the answer map and the draft once confirmed.
+   */
+  readonly editGate: EditGateState | null;
 }
 
 /**
@@ -1141,6 +1157,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   generalRoad: true,
   identityIntake: true,
   freeChat: true,
+  editGate: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -1193,6 +1210,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     generalRoad: emptyGeneralRoad(),
     identityIntake: null,
     freeChat: null,
+    editGate: null,
   };
 }
 
@@ -1589,6 +1607,8 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // `resume` on its next turn (today's interview); see `narrowFreeChat` for why an unreadable
     // value also reads as null rather than being repaired.
     freeChat: narrowFreeChat(v.freeChat),
+    // ADR-0057 (#2312) — unreadable is no gate: the question is dropped, never half-applied.
+    editGate: narrowEditGate(v.editGate),
   };
 }
 

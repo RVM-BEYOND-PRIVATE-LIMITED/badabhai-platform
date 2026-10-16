@@ -80,6 +80,7 @@ describe("the profiling schema", () => {
 
   it("shows every chat-servable item with its status and value, and the two draft lists", () => {
     const keys = view.rows.map((row) => row.key);
+    // The trade is shown only once known (#2312): DRAFT names none.
     expect(keys).toEqual([...ITEMS.map((i) => i.question_key), SKILLS_KEY, EXPERIENCE_KEY]);
     const years = view.rows.find((row) => row.key === "experience_years");
     expect(years).toMatchObject({ kind: "duration", status: "answered", value: "5 saal" });
@@ -149,7 +150,7 @@ describe("applying the fills (R4: empty fields only)", () => {
       draft: EMPTY_DRAFT,
     });
     expect(out.answers.experience_years?.value_normalized).toBe(5);
-    expect(out.conflicts).toBe(1);
+    expect(out.conflicts).toEqual([{ key: "experience_years", value: "7" }]);
     expect(out.appliedKeys).toEqual([]);
   });
 

@@ -1462,6 +1462,24 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfilingTurnUnderstoodPayload,
   },
+  // ADR-0057 (#2312) — the Haan/Nahi gate on a filled field: a change put to the worker, written
+  // after their Haan, or not written (and why). One event per row; catalogue keys and closed
+  // enums only, never a value. Appended at the tail per the append-only protocol. v1.
+  "profiling.field_edit_proposed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfilingFieldEditProposedPayload,
+  },
+  "profiling.field_edit_confirmed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfilingFieldEditConfirmedPayload,
+  },
+  "profiling.field_edit_cancelled": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfilingFieldEditCancelledPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

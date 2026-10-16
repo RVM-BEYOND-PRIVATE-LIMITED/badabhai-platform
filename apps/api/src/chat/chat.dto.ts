@@ -1,7 +1,12 @@
 import { TRADE_FORM_KINDS } from "../profiling/trade-form-router";
 import { FREE_CHAT_NEWS_LINKS_MAX } from "../profiling/free-chat/free-chat-news-links";
 import { z } from "zod";
-import { CHAT_GATE_KINDS, FREE_CHAT_MODES, MESSAGE_DIRECTIONS } from "@badabhai/types";
+import {
+  CHAT_GATE_KINDS,
+  FREE_CHAT_MODES,
+  MESSAGE_DIRECTIONS,
+  PROFILING_EDIT_OPS,
+} from "@badabhai/types";
 import { ANSWER_TYPES } from "@badabhai/ai-contracts";
 import { uuidSchema, nonEmptyMessageSchema, safeTextSchema } from "@badabhai/validators";
 
@@ -78,6 +83,28 @@ export const NewsLinkWireSchema = z.object({
 
 /** 1-3 tiles, ABSENT (never null, never empty) when a message has none. */
 export const NewsLinksWireSchema = z.array(NewsLinkWireSchema).min(1).max(FREE_CHAT_NEWS_LINKS_MAX);
+
+/**
+ * ADR-0057 R10 (#2312) — the profiling chat's change/remove confirmation, as the app draws it (#2314,
+ * shipped in #2322): one row per change, `before → after` for an edit, `before` and a `warning`
+ * for a removal. Its Haan / Nahi are the turn's own chips, so the reply text and the chips carry the
+ * question on a client that does not draw it. DISTINCT FROM the companion's `edit_proposal` (its
+ * own endpoint, `row_id`s and a confirm route); the app reads each shape from its own surface.
+ */
+export const ProfilingEditProposalWireSchema = z.object({
+  proposal_id: uuidSchema,
+  rows: z
+    .array(
+      z.object({
+        field_label: z.string().min(1),
+        op: z.enum(PROFILING_EDIT_OPS),
+        before: z.string().min(1),
+        after: z.string().min(1).nullable(),
+        warning: z.string().min(1).optional(),
+      }),
+    )
+    .min(1),
+});
 
 /**
  * Outbound shape of POST /chat/message (CHAT-UE-1). Mirrors the return object
@@ -387,6 +414,13 @@ export const PostMessageResponseSchema = z.object({
    * too. A client that predates it shows the summary without tiles (ADR-0054 R7).
    */
   news_links: NewsLinksWireSchema.optional(),
+  /**
+   * ADR-0057 R10 (#2312) — on the turn that asks the worker to confirm a change to an earlier
+   * answer: the rows to draw as a tile (#2314). ADDITIVE AND ABSENT, never null, on every other turn
+   * and on every turn while `CHAT_TURN_UNDERSTANDING_ENABLED` is off. Present on that turn's replay
+   * too. A client that predates it reads the reply text and taps the Haan / Nahi chips.
+   */
+  edit_proposal: ProfilingEditProposalWireSchema.optional(),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 
