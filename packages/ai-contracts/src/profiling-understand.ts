@@ -129,6 +129,13 @@ export const ProfilingTurnUnderstandOutputSchema = z.object({
   fills: z.array(ProfilingFillSchema).max(20).default([]),
   edits: z.array(ProfilingEditSchema).max(10).default([]),
   page_owned_mentions: z.array(z.string().min(1).max(KEY_MAX)).max(16).default([]),
+  /**
+   * #2328 — the worker says they have NONE of what the question on screen asks ("maine koi course
+   * nahi kiya"). Only ever true over a pack question (contained by the ai-service). The API records
+   * that question DECLINED, so the follow-ups gated on its answer are skipped. Defaults to false,
+   * so a response from before this field is today's turn.
+   */
+  on_screen_none: z.boolean().default(false),
   blocked: z.boolean().default(false),
   /** Per-call cost/token metadata; null when no provider was reached (the cost recorder no-ops). */
   ai_metadata: AICallMetadataSchema.nullable().default(null),

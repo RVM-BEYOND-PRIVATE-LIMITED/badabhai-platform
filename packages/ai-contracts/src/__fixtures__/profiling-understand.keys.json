@@ -7,5 +7,5 @@
   "ProfilingTurnUnderstandInput": ["text", "recent_turns", "on_screen", "schema_rows", "page_owned", "progress"],
   "ProfilingFill": ["key", "value"],
   "ProfilingEdit": ["op", "key", "ref", "value"],
-  "ProfilingTurnUnderstandOutput": ["intent", "confidence", "fills", "edits", "page_owned_mentions", "blocked", "ai_metadata"]
+  "ProfilingTurnUnderstandOutput": ["intent", "confidence", "fills", "edits", "page_owned_mentions", "on_screen_none", "blocked", "ai_metadata"]
 }

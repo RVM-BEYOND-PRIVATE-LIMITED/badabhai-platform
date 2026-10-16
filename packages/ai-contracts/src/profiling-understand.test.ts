@@ -79,6 +79,8 @@ describe("Profiling turn understanding behaviour", () => {
       fills: [],
       edits: [],
       page_owned_mentions: [],
+      // #2328: a response from before the field is not a "none" — today's turn.
+      on_screen_none: false,
       blocked: false,
       ai_metadata: null,
     });

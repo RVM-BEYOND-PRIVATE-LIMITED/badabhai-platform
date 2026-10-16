@@ -51,7 +51,8 @@ from .canonical_roles import coerce_json_text
 #: The deterministic mock-posture answer: nothing understood, nothing proposed. The API reads a
 #: mock (`ai_metadata.real_call` false) as unavailable and runs today's pipeline for the turn.
 MOCK_RESPONSE = (
-    '{"intent": "unclear", "confidence": 0, "fills": [], "edits": [], "page_owned_mentions": []}'
+    '{"intent": "unclear", "confidence": 0, "fills": [], "edits": [], "page_owned_mentions": [], '
+    '"on_screen_none": false}'
 )
 
 #: The output caps — the contract's own bounds, read from it so the two cannot drift.
@@ -229,10 +230,16 @@ def parse_understanding(
             if isinstance(mention, str) and mention in page_owned and mention not in mentions:
                 mentions.append(mention)
 
+    # #2328: "none" answers a PACK question on screen, so it means nothing without one; and only a
+    # literal JSON true counts (a string or a number is not the model saying yes).
+    on_screen_key = request.on_screen.key if request.on_screen is not None else None
+    on_screen_none = raw.get("on_screen_none") is True and on_screen_key is not None
+
     return ProfilingTurnUnderstandOutput(
         intent=intent if isinstance(intent, str) and intent in _INTENTS else "unclear",
         confidence=min(max(confidence_value, 0.0), 1.0),
         fills=fills,
         edits=edits,
         page_owned_mentions=mentions,
+        on_screen_none=on_screen_none,
     )

@@ -1184,6 +1184,7 @@ def test_profiling_understand_bounds_hold_as_behaviour():
         "fills": [],
         "edits": [],
         "page_owned_mentions": [],
+        "on_screen_none": False,
         "blocked": False,
         "ai_metadata": None,
     }
