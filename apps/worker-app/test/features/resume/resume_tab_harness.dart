@@ -259,6 +259,13 @@ class ResumeTabHarness {
             return const _StubRoute(label: 'consent-stub');
           },
         ),
+        GoRoute(
+          path: Routes.resumeUpload,
+          builder: (_, GoRouterState state) {
+            pushed.add(PushedRoute(Routes.resumeUpload, state.extra));
+            return const _StubRoute(label: 'upload-stub');
+          },
+        ),
       ],
     );
     return MaterialApp.router(theme: AppTheme.light(), routerConfig: router);

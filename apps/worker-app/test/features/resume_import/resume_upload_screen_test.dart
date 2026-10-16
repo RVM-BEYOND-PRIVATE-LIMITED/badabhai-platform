@@ -14,6 +14,8 @@ import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/core/storage/signed_object_put.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
+import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart'
+    show kChatFromResumeImport;
 import 'package:badabhai_worker_app/features/resume_import/data/resume_importer_impl.dart';
 import 'package:badabhai_worker_app/features/resume_import/domain/resume_document.dart';
 import 'package:badabhai_worker_app/features/resume_import/domain/resume_document_picker.dart';
@@ -24,6 +26,7 @@ import 'package:badabhai_worker_app/router.dart';
 
 const String _kChatMarker = 'CHAT_SCREEN_MARKER';
 const String _kTradeFormMarker = 'TRADE_FORM_SCREEN_MARKER';
+const String _kBadaBhaiMarker = 'BADA_BHAI_TAB_MARKER';
 
 const String _kDoorUpload = 'Resume upload karein';
 const String _kDoorNoResume = 'Mere paas resume nahi hai';
@@ -63,6 +66,10 @@ ResumePickResult _picked() => ResumePickResult.picked(
       ),
     );
 
+/// The `extra` the chat route was last built with — what the screen told the
+/// chat about the arrival (`kChatFromResumeImport` or nothing).
+Object? _chatExtra;
+
 /// Pumps the screen with the two seams stubbed and a router carrying markers
 /// for both of its possible destinations.
 ///
@@ -74,11 +81,13 @@ Future<GoRouter> _pump(
   required ResumeImporter importer,
   Size size = const Size(900, 1900),
   bool autoUpload = false,
+  bool directUpload = false,
 }) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   locator.registerLazySingleton<ResumeDocumentPicker>(() => picker);
   locator.registerLazySingleton<ResumeImporter>(() => importer);
+  _chatExtra = null;
 
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -90,15 +99,25 @@ Future<GoRouter> _pump(
     routes: <RouteBase>[
       GoRoute(
         path: Routes.resumeUpload,
-        builder: (_, __) => ResumeUploadScreen(autoUpload: autoUpload),
+        builder: (_, __) => ResumeUploadScreen(
+          autoUpload: autoUpload,
+          directUpload: directUpload,
+        ),
       ),
       GoRoute(
         path: Routes.chatProfiling,
-        builder: (_, __) => const Scaffold(body: Text(_kChatMarker)),
+        builder: (_, GoRouterState state) {
+          _chatExtra = state.extra;
+          return const Scaffold(body: Text(_kChatMarker));
+        },
       ),
       GoRoute(
         path: Routes.tradeForm,
         builder: (_, __) => const Scaffold(body: Text(_kTradeFormMarker)),
+      ),
+      GoRoute(
+        path: Routes.badaBhai,
+        builder: (_, __) => const Scaffold(body: Text(_kBadaBhaiMarker)),
       ),
     ],
   );
@@ -228,6 +247,159 @@ void main() {
 
       expect(find.text('Hinglish mein baat karein'), findsNothing);
       expect(find.byKey(const Key('resume_door_chat')), findsNothing);
+    });
+  });
+
+  // An upload ENTRY outside the chat (the Résumé tab, "Mere resume", the
+  // Profile tab) arrives with `directUpload`. The worker already said what they
+  // came for, so the picker opens on entry, and a cancel or a rejection is the
+  // doors again, exactly as for door 1. Every way OUT lands on the Bada Bhai
+  // TAB, never the onboarding chat (owner ruling 2026-10-16). (Whether it
+  // raises the import signal is pinned in
+  // `resume_import_signal_raised_test.dart`.)
+  group('a direct arrival — an upload entry outside the chat', () {
+    testWidgets('opens the picker on entry, without a tap', (
+      WidgetTester tester,
+    ) async {
+      final _FakePicker picker = _FakePicker(_picked());
+      final _FakeImporter importer =
+          _FakeImporter(const ResumeImportRoutedToChat());
+      await _pump(
+        tester,
+        picker: picker,
+        importer: importer,
+        directUpload: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1);
+      expect(importer.calls, 1);
+    });
+
+    testWidgets('a cancelled pick falls back to the doors — never a dead end', (
+      WidgetTester tester,
+    ) async {
+      final _FakePicker picker = _FakePicker(
+        const ResumePickResult.rejected(ResumePickRejection.cancelled),
+      );
+      final _FakeImporter importer =
+          _FakeImporter(const ResumeImportRoutedToChat());
+      final GoRouter router = await _pump(
+        tester,
+        picker: picker,
+        importer: importer,
+        directUpload: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1, reason: 'the picker DID open on entry');
+      expect(_where(router), Routes.resumeUpload);
+      expect(find.byType(ResumeDoorTile), findsNWidgets(2));
+      expect(importer.calls, 0);
+      expect(find.byType(SnackBar), findsNothing);
+
+      // And the doors still work: door 1 opens the picker again.
+      picker.result = _picked();
+      await tester.tap(find.text(_kDoorUpload));
+      await tester.pumpAndSettle();
+      expect(picker.calls, 2);
+      expect(_where(router), Routes.badaBhai);
+    });
+
+    testWidgets('a rejected pick keeps the doors WITH the reason', (
+      WidgetTester tester,
+    ) async {
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(
+          const ResumePickResult.rejected(ResumePickRejection.unsupportedType),
+        ),
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+        directUpload: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(_where(router), Routes.resumeUpload);
+      expect(find.textContaining('Sirf PDF, DOCX, JPG ya PNG'), findsOneWidget);
+      expect(find.byType(ResumeDoorTile), findsNWidgets(2));
+    });
+
+    testWidgets('a finished import lands on the Bada Bhai TAB, never the '
+        'onboarding chat', (WidgetTester tester) async {
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+        directUpload: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(_where(router), Routes.badaBhai);
+      expect(find.text(_kBadaBhaiMarker), findsOneWidget);
+      expect(find.text(_kChatMarker), findsNothing,
+          reason: 'the onboarding chat reattaches a finished session');
+      expect(_chatExtra, isNull, reason: 'the onboarding chat is never built');
+      // `go`, never `push`: one page, so back cannot walk into the screen the
+      // worker has finished with.
+      expect(router.routerDelegate.currentConfiguration.matches.length, 1);
+    });
+
+    testWidgets('a closed upload door says so and lands on the Bada Bhai tab — '
+        'never a dead end', (WidgetTester tester) async {
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportUnavailable()),
+        directUpload: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Resume upload abhi shuru nahi hua hai'),
+        findsWidgets,
+      );
+      expect(_where(router), Routes.badaBhai);
+    });
+
+    testWidgets('a failed read says its one honest line and lands on the Bada '
+        'Bhai tab', (WidgetTester tester) async {
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportFailed()),
+        directUpload: true,
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.textContaining('Resume se jaankari nahi mil paayi'),
+        findsWidgets,
+      );
+      await tester.pumpAndSettle();
+      expect(_where(router), Routes.badaBhai);
+    });
+
+    testWidgets('door 2 after a cancel lands on the Bada Bhai tab too', (
+      WidgetTester tester,
+    ) async {
+      final _FakeImporter importer =
+          _FakeImporter(const ResumeImportRoutedToChat());
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(
+          const ResumePickResult.rejected(ResumePickRejection.cancelled),
+        ),
+        importer: importer,
+        directUpload: true,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(_kDoorNoResume));
+      await tester.pumpAndSettle();
+
+      expect(_where(router), Routes.badaBhai);
+      expect(importer.calls, 0);
     });
   });
 
@@ -374,6 +546,10 @@ void main() {
       expect(_where(router), Routes.chatProfiling);
       // A résumé that routed to chat WORKED — there is no bad news to deliver.
       expect(find.byType(SnackBar), findsNothing);
+      // #1660 — and the chat is told it came from an import, so it can say the
+      // honest line if no identity turn was staged. Only the onboarding road
+      // lands here; an entry's attempt ends on the Bada Bhai tab instead.
+      expect(_chatExtra, kChatFromResumeImport);
     });
 
     testWidgets(

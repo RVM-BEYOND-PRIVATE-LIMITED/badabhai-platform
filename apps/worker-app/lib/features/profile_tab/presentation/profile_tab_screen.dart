@@ -23,6 +23,7 @@ import '../../../core/widgets/kit/kit_info_chip.dart';
 import '../../../core/widgets/kit/kit_micro_label.dart';
 import '../../../core/widgets/kit/kit_tab_header.dart';
 import '../../../router.dart';
+import '../../resume_import/presentation/resume_upload_entry.dart';
 import '../domain/profile_summary.dart';
 import 'cubit/profile_tab_cubit.dart';
 import 'widgets/profile_identity_card.dart';
@@ -31,6 +32,9 @@ import 'widgets/profile_strength_card.dart';
 /// #1524 — the chat-road badge on the Profile tab. A chat-sourced profile is
 /// labelled so it is never mistaken for the form road's trade-sheet profile.
 const String kChatProfileSourceLabel = 'Chat se bani profile';
+
+/// The shortcuts card's "Resume upload karein" row.
+const Key kProfileResumeUploadRowKey = Key('profile-resume-upload-row');
 
 /// The tabbed Profile (UI kit v3) — distinct from the profiling ProfilePreview.
 ///
@@ -501,6 +505,8 @@ class _ProfileTabView extends StatelessWidget {
   ///  - Interview kit opens WITHIN the Profile branch (WA-3: nested under
   ///    /profile, so backing out of the kit lands on Profile, not Resume).
   ///  - Applied jobs is pushed full-screen from Profile (back → Profile).
+  ///  - Resume upload pushes the upload screen full-screen (back → Profile);
+  ///    the attempt ends on the Bada Bhai tab.
   ///  - Invite (route already present) is gated by the same B7 kill switch the
   ///    Settings screen uses, so hiding the funnel hides it here too.
   Widget _shortcutsCard(BuildContext context) {
@@ -526,6 +532,18 @@ class _ProfileTabView extends StatelessWidget {
               title: 'Mere resume',
               subtitle: 'Purane resume dekhein aur download karein',
               onTap: () => context.pushOnce(Routes.resumeHistory),
+            ),
+            _hairline,
+            // The CEO's "upload at any point", beside the row a worker opens
+            // looking for their résumés. Opens the picker straight away, and
+            // the attempt ends on the Bada Bhai tab (see
+            // `openResumeUploadEntry`).
+            BbListRow.kit(
+              key: kProfileResumeUploadRowKey,
+              icon: Icons.upload_file_rounded,
+              title: kResumeUploadEntryLabel,
+              subtitle: kResumeUploadEntryHint,
+              onTap: () => openResumeUploadEntry(context),
             ),
             _hairline,
             // E4 (#1828) — the worker's own on/off for each kind of work
