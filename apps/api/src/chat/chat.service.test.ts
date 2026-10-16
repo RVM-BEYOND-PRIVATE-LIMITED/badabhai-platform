@@ -1663,6 +1663,114 @@ describe("ChatService.listMessages — session_ended_at says the thread is over 
   });
 });
 
+describe("ChatService.listMessages — extraction_ready re-lights the build-profile CTA on reopen", () => {
+  const ENDED_AT = new Date("2026-10-16T09:29:00.000Z");
+  const rows = [
+    {
+      direction: "outbound",
+      bodyText: "Aapki nayi jaankari se resume update kar doon?",
+      createdAt: new Date(T0),
+    },
+    { direction: "inbound", bodyText: "Abhi nahi", createdAt: new Date(T0) },
+    {
+      direction: "outbound",
+      bodyText: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+      createdAt: new Date(T0),
+    },
+  ];
+  /** What `flushInterview` persists on an ordinary close (`!handedToForm`). */
+  const finishedState = { completion_reason: "complete", extraction_ready_emitted: true };
+
+  it("a FINISHED session whose close lit the CTA says so, on the durable branch", async () => {
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState: finishedState,
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    const res = await svc.listMessages(WORKER, SESSION);
+    expect(res.extraction_ready).toBe(true);
+    expect(res.session_ended_at).toBe("2026-10-16T09:29:00.000Z");
+    expect(SessionMessagesResponseSchema.safeParse(res).success).toBe(true);
+  });
+
+  it("the row decides on the buffer branch too, in the moment the buffer outlives the close", async () => {
+    const { svc } = make({
+      buffer: {
+        messages: [
+          {
+            role: "assistant",
+            text: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+            at: T0,
+            voiceNoteId: null,
+          },
+        ],
+      },
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState: finishedState,
+    });
+    expect((await svc.listMessages(WORKER, SESSION)).extraction_ready).toBe(true);
+  });
+
+  it("a FORM HANDOVER (trade or general) never lights it: the flush withheld extraction", async () => {
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState: {
+        completion_reason: "form_handoff",
+        form_kind: "cnc_turner",
+        extraction_ready_emitted: false,
+      },
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it("an ABANDONED session never lights it, whatever its state says", async () => {
+    // `abandonInterview` writes the marker false; a `true` here would be a stray copy, and an
+    // abandoned interview still mints no profile.
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "abandoned",
+      sessionEndedAt: ENDED_AT,
+      conversationState: finishedState,
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it.each([
+    ["no state", null],
+    ["a non-object state", "corrupt"],
+    ["no marker", { completion_reason: "complete" }],
+    ["a non-boolean marker", { extraction_ready_emitted: "true" }],
+  ])("an ended row with %s fails closed: absent", async (_label, conversationState) => {
+    const { svc, chat } = make({
+      buffer: null,
+      sessionStatus: "ended",
+      sessionEndedAt: ENDED_AT,
+      conversationState,
+    });
+    chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+
+  it("a LIVE session's response is byte-identical: the key is absent, never false", async () => {
+    const durable = make({ buffer: null, conversationState: finishedState });
+    durable.chat.listMessages.mockResolvedValue(rows);
+    expect("extraction_ready" in (await durable.svc.listMessages(WORKER, SESSION))).toBe(false);
+
+    const buffered = make({
+      buffer: { messages: [{ role: "assistant", text: "Namaste", at: T0, voiceNoteId: null }] },
+      conversationState: finishedState,
+    });
+    expect("extraction_ready" in (await buffered.svc.listMessages(WORKER, SESSION))).toBe(false);
+  });
+});
+
 describe("ChatService.startSession — the opener is reviewed copy, not a model call", () => {
   it("omits opening_text entirely when the flag is off", async () => {
     const { svc } = make();

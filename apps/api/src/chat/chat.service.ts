@@ -2573,6 +2573,7 @@ export class ChatService {
         // From the ROW, in this branch too: a buffer can outlive the close for a moment (the flush
         // commits before the key is dropped), and the row is what says the session is over.
         ...sessionEndedField(session),
+        ...finishedReadyField(session),
       };
     }
 
@@ -2602,6 +2603,7 @@ export class ChatService {
       })),
       ...durableGeneralRoadFields(session.conversationState),
       ...sessionEndedField(session),
+      ...finishedReadyField(session),
     };
   }
 
@@ -2869,6 +2871,28 @@ function sessionEndedField(session: { readonly status: string; readonly endedAt:
   return session.status !== "active" && session.endedAt !== null
     ? { session_ended_at: session.endedAt.toISOString() }
     : {};
+}
+
+/**
+ * The redraw field that re-lights the build-profile CTA on a cold reopen: `extraction_ready: true`
+ * once the row is `ended` on a close that lit it live.
+ *
+ * READ OFF THE FLUSH'S OWN MARKER, never re-derived. `extraction_ready_emitted` is written in the
+ * same transaction that ends the session, as `!handedToForm` — the decision `projectTurn` served as
+ * `extraction_ready` on the closing turn — so the reopen and the live close cannot disagree. An
+ * `abandoned` row never carries it (`abandonInterview` keeps it false: a profile is minted by a
+ * FINISHED interview), and neither does a trade or general form handover.
+ */
+function finishedReadyField(session: {
+  readonly status: string;
+  readonly conversationState: unknown;
+}): { extraction_ready?: true } {
+  const state = session.conversationState;
+  const emitted =
+    typeof state === "object" &&
+    state !== null &&
+    (state as Record<string, unknown>).extraction_ready_emitted === true;
+  return session.status === "ended" && emitted ? { extraction_ready: true } : {};
 }
 
 /** The redraw field for an ENDED session: its card, from the durable stamp, when it handed over. */
