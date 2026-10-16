@@ -57,6 +57,59 @@ void main() {
       expect(repo.resumeDownloadUrl(), throwsA(isA<ResumeNotReadyFailure>()));
     });
 
+    // The server's two 409s, in its REAL envelope (AllExceptionsFilter nests the
+    // ConflictException under `error`): a failed render is NOT a wait. Read as
+    // one, it held the worker on "PDF taiyaar ho rahi hai…" for the whole 75s
+    // poll and then told them it was still being made.
+    http.Response conflict(String message) => http.Response(
+      jsonEncode(<String, dynamic>{
+        'statusCode': 409,
+        'error': <String, dynamic>{
+          'statusCode': 409,
+          'message': message,
+          'error': 'Conflict',
+        },
+      }),
+      409,
+    );
+
+    test('409 "not available" (a FAILED render) -> ResumePdfUnavailableFailure, '
+        'for the current résumé and for a history entry alike', () async {
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async =>
+          conflict('Resume PDF is not available for download')));
+      await expectLater(
+        repo.resumeDownloadUrl(),
+        throwsA(isA<ResumePdfUnavailableFailure>()),
+      );
+      await expectLater(
+        repo.resumeDownloadUrlFor('r9'),
+        throwsA(isA<ResumePdfUnavailableFailure>()),
+      );
+    });
+
+    test('409 "still being rendered" stays a wait (ResumeNotReadyFailure)', () async {
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async =>
+          conflict('Resume PDF is still being rendered; please retry shortly')));
+      await expectLater(repo.resumeDownloadUrl(), throwsA(isA<ResumeNotReadyFailure>()));
+      await expectLater(
+        repo.resumeDownloadUrlFor('r9'),
+        throwsA(isA<ResumeNotReadyFailure>()),
+      );
+    });
+
+    test('a 409 the app cannot read FAILS SAFE to the wait, never to "failed"', () async {
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async =>
+          conflict('Something the server says one day')));
+      await expectLater(repo.resumeDownloadUrl(), throwsA(isA<ResumeNotReadyFailure>()));
+      final ResumeRepositoryImpl bare = _repo(
+        MockClient((http.Request req) async => http.Response('{}', 409)),
+      );
+      await expectLater(
+        bare.resumeDownloadUrlFor('r9'),
+        throwsA(isA<ResumeNotReadyFailure>()),
+      );
+    });
+
     test('500 -> ServerFailure (the 409 special-case does not swallow real errors)', () {
       final ResumeRepositoryImpl repo = _repo(MockClient(
           (http.Request req) async => http.Response('{}', 500)));

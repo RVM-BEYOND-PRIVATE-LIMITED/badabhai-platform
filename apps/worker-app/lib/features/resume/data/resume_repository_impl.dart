@@ -143,11 +143,12 @@ class ResumeRepositoryImpl implements ResumeRepository {
       );
       return dl.url;
     } on ApiException catch (e) {
-      // 409 on the download route specifically means the PDF isn't rendered yet
-      // (render pending / not enabled) — surface an honest "taiyaar ho rahi hai"
-      // instead of the generic server error the global mapper would produce.
+      // 409 on the download route specifically means there is no PDF to sign:
+      // still rendering (a wait) or a failed render (no wait helps) — see
+      // [_downloadConflict]. Either is honest copy, never the generic server
+      // error the global mapper would produce.
       if (e.statusCode == 409) {
-        throw const ResumeNotReadyFailure();
+        throw _downloadConflict(e);
       }
       throw mapError(e);
     } catch (error) {
@@ -168,17 +169,31 @@ class ResumeRepositoryImpl implements ResumeRepository {
       );
       return dl.url;
     } on ApiException catch (e) {
-      // Same 409 reading as [resumeDownloadUrl]: the pdf is not rendered yet,
-      // which is a wait, not a failure. An OLDER history entry can sit in this
-      // state too — a re-render was queued and has not landed.
+      // Same 409 reading as [resumeDownloadUrl]. An OLDER history entry can sit
+      // in either state — a re-render queued and not landed, or one that failed.
       if (e.statusCode == 409) {
-        throw const ResumeNotReadyFailure();
+        throw _downloadConflict(e);
       }
       throw mapError(e);
     } catch (error) {
       throw mapError(error);
     }
   }
+
+  /// Which of the download route's two 409s [e] is (`resume.service.ts`
+  /// `download`): "still being rendered" is a WAIT ([ResumeNotReadyFailure],
+  /// which the download poll rides out), "not available" is a FAILED render
+  /// ([ResumePdfUnavailableFailure], which no wait fixes — polling it held the
+  /// worker for 75s and then claimed the PDF was still being made).
+  ///
+  /// Read off the server's own message because the 409 carries no code. FAILS
+  /// SAFE: any 409 that does not say "not available" keeps today's wait, so a
+  /// reworded server line can only cost the honest early answer, never the
+  /// patience a slow first render needs.
+  static Failure _downloadConflict(ApiException e) =>
+      e.message.toLowerCase().contains('not available')
+      ? const ResumePdfUnavailableFailure()
+      : const ResumeNotReadyFailure();
 
   @override
   Future<void> reportSharedFor(String resumeId, String channel) async {
@@ -196,16 +211,18 @@ class ResumeRepositoryImpl implements ResumeRepository {
     }
   }
 
-  /// Latched once `GET /resume/history` proves absent, so the app probes a
-  /// server that does not have the route AT MOST ONCE PER RUN.
+  /// Latched once `GET /resume/history` proves absent (a 404), so the app
+  /// probes a server that does not have the route AT MOST ONCE PER RUN.
   ///
-  /// This is not an optimisation, it is damage control. On a server built
-  /// before ADR-0043 the literal path `/resume/history` falls through to
-  /// `@Get(":id")`, which is behind `InternalServiceGuard`, so the answer is a
-  /// **401** — and [ApiClient] treats a 401 on a worker-scoped call as "the
-  /// bearer may be stale" and spends one token REFRESH before surfacing it.
-  /// Polling that every tab focus would burn a refresh per visit for a feature
-  /// the server does not have.
+  /// ONLY a 404 latches. A 401 or 403 used to as well — damage control for a
+  /// server built before ADR-0043, where the literal path fell through to the
+  /// internal-only `@Get(":id")` and every probe cost a token refresh. Every
+  /// server the app talks to has had the route since ADR-0043 shipped, and on
+  /// one of those a 401 (a token renewal that failed once) or a 403 is a
+  /// moment, not a missing feature: latched, ONE of them blanked the history
+  /// for the rest of the run — and with it the Bada Bhai tab's "Resume
+  /// download" tile, which reads this same route, on every visit until the
+  /// app was killed.
   ///
   /// An INSTANCE field, not a static: this repository is a
   /// `registerLazySingleton`, so one instance already IS one app run — and a
@@ -221,19 +238,17 @@ class ResumeRepositoryImpl implements ResumeRepository {
     try {
       return await _api.getResumeHistory(authToken: token);
     } on ApiException catch (e) {
-      // 404 = the route is genuinely missing. 401/403 = this build is talking
-      // to a server whose `/resume/:id` catch-all swallowed the path (see
-      // [_historyRouteAbsent]) or whose consent gate refused it. All three mean
-      // the same thing to the Resume tab: there is no history to show.
+      // 404 = the route is genuinely missing: latched (see
+      // [_historyRouteAbsent]). A 401 / 403 is a failed token renewal or the
+      // consent gate — no history to show THIS time, and NOT latched, so the
+      // next read tries again.
       //
       // Swallowing a 401 HERE is safe precisely because this read is additive:
       // the tab's REAL resume read runs on the same session and surfaces a
       // genuine expiry itself, honestly, with the re-login path the app
       // already has. Hiding one optional section is never the thing that
       // should tell a worker their session died.
-      if (e.statusCode == 404 || e.statusCode == 401 || e.statusCode == 403) {
-        _historyRouteAbsent = true;
-      }
+      if (e.statusCode == 404) _historyRouteAbsent = true;
       return ResumeHistory.empty;
     } catch (_) {
       // Offline, 5xx, a malformed body: the section simply does not draw. NOT

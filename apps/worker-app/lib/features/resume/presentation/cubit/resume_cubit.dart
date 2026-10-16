@@ -4,7 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart'
-    show PendingUpdate, ResumeDocument, ResumeHistory;
+    show PendingUpdate, ResumeDocument, ResumeHistory, ResumeHistoryItem;
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
@@ -122,6 +122,18 @@ class ResumeState extends Equatable {
   /// absent / pending / failed are all "not ready".
   bool get pdfRendered => renderStatus == 'rendered';
 
+  /// True only when the server said the CURRENT résumé's PDF render FAILED —
+  /// [renderStatus] when the document read knew it, else the history's
+  /// current row. Its download answers 409 "not available" every time, so the
+  /// tab draws Download / Share disabled with the reason instead of buttons
+  /// that can only fail.
+  ///
+  /// Fails OPEN, the other way round from [pdfRendered]: unknown is not
+  /// failed, so a read that did not come back never takes away a download
+  /// that works — the same rule the history cards' NAHI BANI pill follows.
+  bool get pdfFailed =>
+      (renderStatus ?? history.current?.renderStatus) == 'failed';
+
   /// #1688 — an accepted update is still on its way. Fails closed: an unknown
   /// `pending_update.status` is NOT "in progress", so a future server value
   /// can never leave a worker watching a card forever.
@@ -195,7 +207,21 @@ class ResumeCubit extends Cubit<ResumeState> {
   Future<void> generate({bool force = false}) async {
     if (_loading) return; // never run two loads at once
     _loading = true;
-    emit(const ResumeState(status: ResumeStatus.loading));
+    // The history is CARRIED through every résumé emit in this cubit, never
+    // reset: it is read separately (`loadHistory`, raced against this load on
+    // every mount and tab focus), and a ResumeState built without it fell back
+    // to the empty default — so whichever load landed LAST wiped "Pichle
+    // resume", with every older résumé's Download, off the tab. `updateFailed`
+    // rides with it: carried alone, an in-progress `pending_update` would
+    // re-show "Resume update ho raha hai…" over an update the watch had already
+    // given up on.
+    emit(
+      ResumeState(
+        status: ResumeStatus.loading,
+        history: state.history,
+        updateFailed: state.updateFailed,
+      ),
+    );
     try {
       final String text = await _repo.generateResume(force: force);
       if (isClosed) return; // screen popped before generation resolved
@@ -224,6 +250,8 @@ class ResumeCubit extends Cubit<ResumeState> {
           // resolved yet. The screen shows a loader, not this text, until it
           // does (see ResumeState.awaitingDocument's own doc).
           awaitingDocument: true,
+          history: state.history,
+          updateFailed: state.updateFailed,
         ),
       );
       // B7 funnel milestone — the worker reached a generated resume. Fired from
@@ -260,6 +288,8 @@ class ResumeCubit extends Cubit<ResumeState> {
           // _loadDocumentWithRetry's own doc). Never leaves the worker on the
           // loader forever.
           awaitingDocument: false,
+          history: state.history,
+          updateFailed: state.updateFailed,
         ),
       );
     } on ProfileIncompleteFailure catch (_) {
@@ -317,6 +347,8 @@ class ResumeCubit extends Cubit<ResumeState> {
               status: ResumeStatus.ready,
               resumeText: retryText,
               awaitingDocument: true,
+              history: state.history,
+              updateFailed: state.updateFailed,
             ),
           );
           if (!_resumeReadyLogged) {
@@ -341,6 +373,8 @@ class ResumeCubit extends Cubit<ResumeState> {
           renderedAt: snapshot.renderedAt,
               profileConfirmed: confirmed,
               awaitingDocument: false,
+              history: state.history,
+              updateFailed: state.updateFailed,
             ),
           );
           return;
@@ -399,6 +433,8 @@ class ResumeCubit extends Cubit<ResumeState> {
           renderStatus: state.renderStatus,
           renderedAt: state.renderedAt,
           profileConfirmed: state.profileConfirmed,
+          history: state.history,
+          updateFailed: state.updateFailed,
         ),
       );
       final Future<bool> nightShiftFuture = _loadNightShiftReady();
@@ -417,6 +453,8 @@ class ResumeCubit extends Cubit<ResumeState> {
           renderStatus: snapshot.renderStatus,
           renderedAt: snapshot.renderedAt,
           profileConfirmed: confirmed,
+          history: state.history,
+          updateFailed: state.updateFailed,
         ),
       );
     } on ProfileIncompleteFailure {
@@ -477,6 +515,8 @@ class ResumeCubit extends Cubit<ResumeState> {
           status: ResumeStatus.ready,
           resumeText: text,
           awaitingDocument: true,
+          history: state.history,
+          updateFailed: state.updateFailed,
         ),
       );
       final Future<bool> nightShiftFuture = _loadNightShiftReady();
@@ -497,6 +537,8 @@ class ResumeCubit extends Cubit<ResumeState> {
           renderedAt: snapshot.renderedAt,
           profileConfirmed: confirmed,
           awaitingDocument: false,
+          history: state.history,
+          updateFailed: state.updateFailed,
         ),
       );
     } finally {
@@ -525,6 +567,8 @@ class ResumeCubit extends Cubit<ResumeState> {
         renderStatus: state.renderStatus,
           renderedAt: state.renderedAt,
         profileConfirmed: state.profileConfirmed,
+        history: state.history,
+        updateFailed: state.updateFailed,
       ),
     );
   }
@@ -750,6 +794,91 @@ class ResumeCubit extends Cubit<ResumeState> {
   Future<String?> resolveDownloadUrlFor(String resumeId) =>
       _repo.resumeDownloadUrlFor(resumeId);
 
+  /// The render state (`'pending' | 'rendered' | 'failed'`) of [resumeId]'s
+  /// PDF — or of the CURRENT résumé's when [resumeId] is null — as
+  /// `GET /resume/history` reports it. Null when the row is not listed or the
+  /// read failed.
+  ///
+  /// The download poll's wait (`pollSignedResumeUrl`'s `renderStatus`): this
+  /// read is not charged to the server's per-IP download cap, a mint is.
+  /// Emits NOTHING — it answers the poll, it does not refresh the screen.
+  Future<String?> renderStatusOf(String? resumeId) async {
+    final ResumeHistory history = await _readHistory();
+    if (resumeId == null) return history.current?.renderStatus;
+    for (final ResumeHistoryItem item in history.items) {
+      if (item.resumeId == resumeId) return item.renderStatus;
+    }
+    return null;
+  }
+
+  /// Re-reads the PDF's render state — the current résumé's from
+  /// `GET /resume/document`, every entry's from `GET /resume/history` — and
+  /// redraws with it, carrying everything else.
+  ///
+  /// For the moment a DOWNLOAD learns the render failed (a 409 "not
+  /// available", or the wait's read saying failed): the state on screen still
+  /// says pending, so without this the pair stayed live and every later tap
+  /// met the same 409. Best-effort, like every other background re-read here.
+  Future<void> refreshPdfState() async {
+    final ResumeDocumentSnapshot snapshot = await _loadDocument();
+    if (isClosed) return;
+    emit(_withRenderState(snapshot));
+    await loadHistory();
+  }
+
+  /// How long [recheckFailedPdf] looks for the re-render, and how often.
+  /// Mutable statics as test seams, like [documentPollInterval].
+  static int pdfRecheckAttempts = 10;
+  static Duration pdfRecheckInterval = const Duration(seconds: 3);
+
+  /// True while [recheckFailedPdf] runs, so two edit returns start one watch.
+  bool _recheckingPdf = false;
+
+  /// The current PDF FAILED and the worker just saved an edit that re-renders
+  /// it in place (a photo, the name, a preference). That render runs on the
+  /// server for some seconds AFTER the editor closes, and nothing else re-reads
+  /// the render state before the next tab focus — so the pair stayed drawn
+  /// "PDF nahi ban paayi" over a PDF that now exists.
+  ///
+  /// Watches `GET /resume/document`, bounded, and redraws the moment the state
+  /// moves off failed. A render that fails again changes nothing. No-op unless
+  /// the PDF is failed.
+  Future<void> recheckFailedPdf() async {
+    if (!state.pdfFailed || _recheckingPdf || isClosed) return;
+    _recheckingPdf = true;
+    try {
+      for (int attempt = 0; attempt < pdfRecheckAttempts; attempt++) {
+        await Future<void>.delayed(pdfRecheckInterval);
+        if (isClosed) return;
+        final ResumeDocumentSnapshot snapshot = await _loadDocument();
+        if (isClosed) return;
+        final String? status = snapshot.renderStatus;
+        if (status != null && status != 'failed') {
+          emit(_withRenderState(snapshot));
+          await loadHistory();
+          return;
+        }
+      }
+    } finally {
+      _recheckingPdf = false;
+    }
+  }
+
+  /// The state on screen with [snapshot]'s render state (and document, when it
+  /// brought one); everything else carried.
+  ResumeState _withRenderState(ResumeDocumentSnapshot snapshot) => ResumeState(
+    status: state.status,
+    resumeText: state.resumeText,
+    nightShiftReady: state.nightShiftReady,
+    document: snapshot.document ?? state.document,
+    awaitingDocument: state.awaitingDocument,
+    renderStatus: snapshot.renderStatus ?? state.renderStatus,
+    renderedAt: snapshot.renderedAt ?? state.renderedAt,
+    profileConfirmed: state.profileConfirmed,
+    history: state.history,
+    updateFailed: state.updateFailed,
+  );
+
   /// [reportShared] for one history entry. Best-effort, never thrown.
   Future<void> reportSharedFor(String resumeId, String channel) =>
       _repo.reportSharedFor(resumeId, channel);
@@ -902,6 +1031,8 @@ class ResumeCubit extends Cubit<ResumeState> {
         renderStatus: reloaded.renderStatus ?? state.renderStatus,
         renderedAt: reloaded.renderedAt ?? state.renderedAt,
         profileConfirmed: state.profileConfirmed,
+        history: state.history,
+        updateFailed: state.updateFailed,
       ),
     );
   }
@@ -931,6 +1062,8 @@ class ResumeCubit extends Cubit<ResumeState> {
         renderStatus: reloaded.renderStatus ?? state.renderStatus,
         renderedAt: reloaded.renderedAt ?? state.renderedAt,
         profileConfirmed: state.profileConfirmed,
+        history: state.history,
+        updateFailed: state.updateFailed,
       ),
     );
   }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/error/failure.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/pdf_downloader.dart';
@@ -42,7 +43,9 @@ class ChatResumeDownloadTile extends StatefulWidget {
   const ChatResumeDownloadTile({
     super.key,
     required this.mintUrl,
+    this.renderStatus,
     this.onTapped,
+    this.onPdfUnavailable,
     this.loadFileName = loadResumeDownloadFileName,
     this.download = _defaultDownload,
   });
@@ -52,8 +55,18 @@ class ChatResumeDownloadTile extends StatefulWidget {
   /// download's SnackBar both read it.
   final Future<String> Function() mintUrl;
 
+  /// Reads this résumé's render state for the wait after a "still rendering"
+  /// 409, so the wait does not re-mint (see [pollSignedResumeUrl]). Null mints
+  /// on every check, as before.
+  final Future<String?> Function()? renderStatus;
+
   /// Told once per tap, before the download starts — the counts-only analytics.
   final VoidCallback? onTapped;
+
+  /// Told when a tap learns the PDF is NOT AVAILABLE (its render failed after
+  /// the tile was offered), so the chat can take away a tile that can only
+  /// fail. The worker has already been told why, by the download's SnackBar.
+  final VoidCallback? onPdfUnavailable;
 
   /// Test seams. Production passes neither.
   final Future<String> Function() loadFileName;
@@ -94,22 +107,36 @@ class _ChatResumeDownloadTileState extends State<ChatResumeDownloadTile>
     setState(() => _busy = true);
     updateKeepAlive();
     widget.onTapped?.call();
-    final String fileName = await _fileName;
-    if (!mounted) return;
-    await widget.download(
-      context,
-      resolve: () => pollSignedResumeUrl(
-        mint: widget.mintUrl,
-        onPreparing: _markPreparing,
-      ),
-      fileName: fileName,
-    );
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _preparing = false;
-    });
-    updateKeepAlive();
+    try {
+      final String fileName = await _fileName;
+      if (!mounted) return;
+      await widget.download(
+        context,
+        resolve: () async {
+          try {
+            return await pollSignedResumeUrl(
+              mint: widget.mintUrl,
+              onPreparing: _markPreparing,
+              renderStatus: widget.renderStatus,
+            );
+          } on ResumePdfUnavailableFailure {
+            widget.onPdfUnavailable?.call();
+            rethrow;
+          }
+        },
+        fileName: fileName,
+      );
+    } finally {
+      // Released however the download ended: a latch left set is a button that
+      // never answers a tap again.
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _preparing = false;
+        });
+        updateKeepAlive();
+      }
+    }
   }
 
   @override

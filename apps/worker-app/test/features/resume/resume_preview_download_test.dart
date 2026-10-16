@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/api/api_models.dart'
+    show ResumeHistory, ResumeHistoryItem;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
@@ -21,7 +23,10 @@ import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repositor
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/resume_pdf_download.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_preview_screen.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_history_section.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_profile_card.dart';
 
 class MockResumeRepository extends Mock implements ResumeRepository {}
 
@@ -80,6 +85,9 @@ void main() {
     String resume = 'MOCK RESUME BODY',
     bool profileConfirmed = false,
     bool profileStatusUnknown = false,
+    String? renderStatus,
+    Future<ResumeHistory> Function()? history,
+    Future<ResumeDocumentSnapshot> Function()? document,
   }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
@@ -98,9 +106,17 @@ void main() {
     }
     // #1343 — the ordinary answer for a screen not exercising the structured
     // document; this file's own coverage lives in resume_document_render_test.dart.
-    when(
-      () => repo.loadResumeDocument(),
-    ).thenAnswer((_) async => const ResumeDocumentSnapshot());
+    // [renderStatus] is the PDF's state as that same read reports it.
+    when(() => repo.loadResumeDocument()).thenAnswer(
+      (_) =>
+          document?.call() ??
+          Future<ResumeDocumentSnapshot>.value(
+            ResumeDocumentSnapshot(renderStatus: renderStatus),
+          ),
+    );
+    when(() => repo.loadResumeHistory()).thenAnswer(
+      (_) => history?.call() ?? Future<ResumeHistory>.value(ResumeHistory.empty),
+    );
     // R7 — the DRAFT pill's only honest source. Injected rather than
     // registered so this file controls it per test.
     final ProfileSummaryRepository summaryRepo = FakeProfileSummaryRepository(
@@ -361,6 +377,264 @@ Trade: HMC Machining''';
       final Map<dynamic, dynamic> saveArgs =
           save.arguments as Map<dynamic, dynamic>;
       expect(saveArgs['fileName'], kFallbackResumeFileName);
+    },
+  );
+
+  // ── Honest about the PDF (G4 / G5) ─────────────────────────────────────────
+
+  BbButton buttonIn(WidgetTester tester, Finder scope, String label) =>
+      tester.widget<BbButton>(
+        find.descendant(of: scope, matching: find.widgetWithText(BbButton, label)),
+      );
+
+  final Finder profileCard = find.byType(ResumeProfileCard);
+
+  testWidgets(
+    'a FAILED render: Download and Share are disabled with the reason under '
+    'them, a tap mints nothing, and the banner does not claim "share-ready"',
+    (WidgetTester tester) async {
+      await pumpScreen(tester, name: 'Ramesh Kumar', renderStatus: 'failed');
+      await tester.pump();
+
+      expect(buttonIn(tester, profileCard, 'Download').onPressed, isNull);
+      expect(buttonIn(tester, profileCard, 'Share').onPressed, isNull);
+      expect(
+        find.descendant(of: profileCard, matching: find.text(kResumePdfUnavailableMessage)),
+        findsOneWidget,
+      );
+      expect(find.text('Bilkul free · share-ready'), findsNothing);
+      expect(find.text('Bilkul free'), findsOneWidget);
+
+      await tester.tap(
+        find.descendant(of: profileCard, matching: find.text('Download')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      verifyNever(() => repo.resumeDownloadUrl());
+      expect(find.text(kDownloadStartedNotice), findsNothing);
+    },
+  );
+
+  for (final String? status in <String?>['rendered', 'pending', null]) {
+    testWidgets('render "$status": Download and Share stay live, with no reason line', (
+      WidgetTester tester,
+    ) async {
+      await pumpScreen(tester, name: 'Ramesh Kumar', renderStatus: status);
+      await tester.pump();
+
+      expect(buttonIn(tester, profileCard, 'Download').onPressed, isNotNull);
+      expect(buttonIn(tester, profileCard, 'Share').onPressed, isNotNull);
+      expect(find.text(kResumePdfUnavailableMessage), findsNothing);
+      expect(find.text('Bilkul free · share-ready'), findsOneWidget);
+    });
+  }
+
+  ResumeHistory twoEntries() => ResumeHistory(
+    items: <ResumeHistoryItem>[
+      ResumeHistoryItem(
+        resumeId: 'r-now',
+        renderStatus: 'rendered',
+        isCurrent: true,
+        generatedAt: DateTime.utc(2026, 10, 14),
+      ),
+      ResumeHistoryItem(
+        resumeId: 'r-old',
+        renderStatus: 'failed',
+        generatedAt: DateTime.utc(2026, 10, 1),
+      ),
+    ],
+  );
+
+  testWidgets(
+    'the tab\'s history: a NAHI BANI entry is disabled with the reason, the '
+    'READY entry beside it stays live',
+    (WidgetTester tester) async {
+      await pumpScreen(
+        tester,
+        name: 'Ramesh Kumar',
+        renderStatus: 'rendered',
+        history: () async => twoEntries(),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder section = find.byType(ResumeHistorySection);
+      expect(section, findsOneWidget);
+      final List<BbButton> downloads = tester
+          .widgetList<BbButton>(
+            find.descendant(of: section, matching: find.widgetWithText(BbButton, 'Download')),
+          )
+          .toList();
+      expect(downloads, hasLength(2));
+      expect(downloads.first.onPressed, isNotNull, reason: 'the READY entry');
+      expect(downloads.last.onPressed, isNull, reason: 'the NAHI BANI entry');
+      expect(
+        find.descendant(of: section, matching: find.text(kResumePdfUnavailableMessage)),
+        findsOneWidget,
+      );
+      // The current résumé rendered: the profile card above is live.
+      expect(buttonIn(tester, profileCard, 'Download').onPressed, isNotNull);
+    },
+  );
+
+  testWidgets(
+    'the history SURVIVES a résumé load that lands after it — the section and '
+    'its Downloads stay on the tab',
+    (WidgetTester tester) async {
+      // Realistic ordering: the history answers fast, the résumé's own reads
+      // slowly. Every résumé emit used to rebuild the state without the
+      // history, so the LAST one to land wiped "Pichle resume" off the tab.
+      await pumpScreen(
+        tester,
+        name: 'Ramesh Kumar',
+        history: () async => twoEntries(),
+        document: () => Future<ResumeDocumentSnapshot>.delayed(
+          const Duration(milliseconds: 400),
+          () => const ResumeDocumentSnapshot(renderStatus: 'rendered'),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ResumeHistorySection), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ResumeHistorySection),
+          matching: find.widgetWithText(BbButton, 'Download'),
+        ),
+        findsNWidgets(2),
+      );
+    },
+  );
+
+  testWidgets(
+    'a still-rendering PDF is waited out on the history read and saved when it '
+    'lands — TWO mints, not one every 1.5s',
+    (WidgetTester tester) async {
+      String status = 'pending';
+      await pumpScreen(
+        tester,
+        name: 'Ramesh Kumar',
+        history: () async => ResumeHistory(
+          items: <ResumeHistoryItem>[
+            ResumeHistoryItem(resumeId: 'r1', renderStatus: status, isCurrent: true),
+          ],
+        ),
+      );
+      int mints = 0;
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async {
+        mints++;
+        // The server's own rule: no PDF to sign until the render lands. A wait
+        // that re-minted would meet this 409 on every one of its mints.
+        if (status != 'rendered') throw const ResumeNotReadyFailure();
+        return 'mock://downloads/resume/mock-resume-0001.pdf';
+      });
+
+      await tester.tap(find.descendant(of: profileCard, matching: find.text('Download')));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text(kResumePreparingLabel), findsOneWidget);
+      for (int i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 1500));
+      }
+      // The render lands.
+      status = 'rendered';
+      for (int i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 1500));
+      }
+      await tester.pumpAndSettle();
+
+      expect(mints, 2);
+      expect(find.text(kDownloadCompleteNotice), findsOneWidget);
+      expect(
+        channelCalls.where((MethodCall c) => c.method == 'saveToDownloads'),
+        hasLength(1),
+      );
+    },
+  );
+
+  testWidgets(
+    'a 409 "not available" (the render failed) ends the tap AT ONCE with the '
+    'honest reason — no 75s of "PDF taiyaar ho rahi hai…"',
+    (WidgetTester tester) async {
+      await pumpScreen(tester, name: 'Ramesh Kumar');
+      when(
+        () => repo.resumeDownloadUrl(),
+      ).thenAnswer((_) async => throw const ResumePdfUnavailableFailure());
+
+      await tester.tap(find.descendant(of: profileCard, matching: find.text('Download')));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text(kResumePdfUnavailableMessage), findsOneWidget);
+      expect(find.text(kResumePreparingLabel), findsNothing);
+      verify(() => repo.resumeDownloadUrl()).called(1);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('two taps inside ONE frame start ONE download — one mint, one file', (
+    WidgetTester tester,
+  ) async {
+    await pumpScreen(tester, name: 'Ramesh Kumar', renderStatus: 'rendered');
+    final Completer<String> gate = Completer<String>();
+    when(() => repo.resumeDownloadUrl()).thenAnswer((_) => gate.future);
+    final Finder download = find.descendant(of: profileCard, matching: find.text('Download'));
+
+    // No frame between the taps: the rebuilt `onPressed: null` has not landed.
+    await tester.tap(download);
+    await tester.tap(download);
+    gate.complete('mock://downloads/resume/mock-resume-0001.pdf');
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    verify(() => repo.resumeDownloadUrl()).called(1);
+    expect(
+      channelCalls.where((MethodCall c) => c.method == 'saveToDownloads'),
+      hasLength(1),
+    );
+  });
+
+  testWidgets(
+    'a render that FAILS while the tap waits: the honest reason, and the pair is '
+    'redrawn disabled — the next tap is not another live-looking dead end',
+    (WidgetTester tester) async {
+      String status = 'pending';
+      await pumpScreen(
+        tester,
+        name: 'Ramesh Kumar',
+        document: () async => ResumeDocumentSnapshot(renderStatus: status),
+        history: () async => ResumeHistory(
+          items: <ResumeHistoryItem>[
+            ResumeHistoryItem(resumeId: 'r1', renderStatus: status, isCurrent: true),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      when(
+        () => repo.resumeDownloadUrl(),
+      ).thenAnswer((_) async => throw const ResumeNotReadyFailure());
+      expect(buttonIn(tester, profileCard, 'Download').onPressed, isNotNull);
+
+      await tester.tap(find.descendant(of: profileCard, matching: find.text('Download')));
+      await tester.pump();
+      await tester.pump();
+      // The render fails on the server while the worker waits.
+      status = 'failed';
+      for (int i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 1500));
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.text(kResumePdfUnavailableMessage), findsWidgets);
+      expect(buttonIn(tester, profileCard, 'Download').onPressed, isNull);
+      expect(buttonIn(tester, profileCard, 'Share').onPressed, isNull);
+      expect(
+        find.descendant(of: profileCard, matching: find.text(kResumePdfUnavailableMessage)),
+        findsOneWidget,
+      );
+      verify(() => repo.resumeDownloadUrl()).called(1);
     },
   );
 }

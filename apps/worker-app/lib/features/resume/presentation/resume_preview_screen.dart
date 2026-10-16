@@ -147,7 +147,12 @@ class _ResumeViewState extends State<_ResumeView> {
     // always applies. Do NOT generate(force:true) here: that minted a new 'pending'
     // resume version and stalled the next Download ("PDF taiyaar ho rahi"). The
     // name/photo PDF re-render is handled server-side IN PLACE.
-    context.read<ResumeCubit>().refreshNightShift();
+    //
+    // ...and when the PDF had FAILED, that in-place re-render is the fix:
+    // watch for it, so the disabled pair comes back the moment it lands.
+    context.read<ResumeCubit>()
+      ..refreshNightShift()
+      ..recheckFailedPdf();
   }
 
   /// The Resume tab came back into view. Refetch the resume text AND the photo
@@ -222,7 +227,9 @@ class _ResumeViewState extends State<_ResumeView> {
     return KitStatusBanner(
       title: 'Resume taiyaar',
       pillLabel: state.pdfRendered ? 'READY' : null,
-      subline: 'Bilkul free · share-ready',
+      // Not "share-ready" over a PDF that failed: the card below says the
+      // file cannot be downloaded or shared.
+      subline: state.pdfFailed ? 'Bilkul free' : 'Bilkul free · share-ready',
       // #1058 — the green "stamp" seal lands once, on the transition INTO the
       // ready state (this banner only mounts when the resume is ready). It is
       // keyless so a background refresh/tab-refocus rebuild keeps the same
@@ -328,11 +335,9 @@ class _ResumeViewState extends State<_ResumeView> {
           profileConfirmed: state.profileConfirmed,
           onEditReturned: _onEditReturned,
           // Download the PDF (GET /resume/:id/download — real, worker-authed)
-          // as a deep-blue commitment, and SHARE that PDF in green (#336).
-          actions: const ResumeActionRow(
-            share: ResumeShareButton(),
-            download: ResumeDownloadButton(),
-          ),
+          // as a deep-blue commitment, and SHARE that PDF in green (#336) —
+          // both disabled, with the reason, when its render failed.
+          actions: ResumePdfActions(pdfFailed: state.pdfFailed),
         ),
         const SizedBox(height: kResumeCardGap),
         // #1808 — the skin picker. Draws NOTHING until the server says skins
@@ -355,9 +360,9 @@ class _ResumeViewState extends State<_ResumeView> {
         // history (an older server, or a worker with one resume).
         ResumeHistorySection(
           history: state.history,
-          actionsBuilder: (ResumeHistoryItem item) => ResumeActionRow(
-            share: ResumeShareButton(resumeId: item.resumeId),
-            download: ResumeDownloadButton(resumeId: item.resumeId),
+          actionsBuilder: (ResumeHistoryItem item) => ResumePdfActions(
+            resumeId: item.resumeId,
+            pdfFailed: item.hasFailedRender,
           ),
         ),
         if (state.history.items.isNotEmpty)
@@ -570,14 +575,54 @@ Future<String?> resolveSignedResumeUrl(
   ResumeCubit cubit, {
   required VoidCallback onPreparing,
   String? resumeId,
-}) => pollSignedResumeUrl(
-  // #1687 — a HISTORY card mints the url for ITS OWN resume; everything else
-  // means "the current one", which is what the session holds.
-  mint: () => resumeId == null
-      ? cubit.resolveDownloadUrl()
-      : cubit.resolveDownloadUrlFor(resumeId),
-  onPreparing: onPreparing,
-);
+}) async {
+  try {
+    return await pollSignedResumeUrl(
+      // #1687 — a HISTORY card mints the url for ITS OWN resume; everything
+      // else means "the current one", which is what the session holds.
+      mint: () => resumeId == null
+          ? cubit.resolveDownloadUrl()
+          : cubit.resolveDownloadUrlFor(resumeId),
+      onPreparing: onPreparing,
+      // The render wait reads the history, never re-mints: see
+      // pollSignedResumeUrl.
+      renderStatus: () => cubit.renderStatusOf(resumeId),
+    );
+  } on ResumePdfUnavailableFailure {
+    // The render failed — learned by THIS tap. Redraw the pair disabled with
+    // its reason: every later tap could only meet the same 409.
+    unawaited(cubit.refreshPdfState());
+    rethrow;
+  }
+}
+
+/// Share + Download for one résumé, HONEST ABOUT ITS PDF: a render the server
+/// says FAILED draws both disabled, with the reason under them — never a pair
+/// of working-looking buttons whose every tap ends in a 409.
+///
+/// The ONE place the Resume tab's profile card, its history section and
+/// "Mere resume" build the pair, so the three can never disagree about the
+/// same résumé. A render still in progress keeps them live: a tap waits it out
+/// ([pollSignedResumeUrl]) and says why with "PDF taiyaar ho rahi hai…".
+class ResumePdfActions extends StatelessWidget {
+  const ResumePdfActions({super.key, this.resumeId, required this.pdfFailed});
+
+  /// Null = the CURRENT résumé (the profile card); else one history entry.
+  final String? resumeId;
+
+  /// The server said this résumé's PDF render failed (`render_status:
+  /// failed`). Unknown is NOT failed.
+  final bool pdfFailed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ResumeActionRow(
+      share: ResumeShareButton(resumeId: resumeId, pdfFailed: pdfFailed),
+      download: ResumeDownloadButton(resumeId: resumeId, pdfFailed: pdfFailed),
+      note: pdfFailed ? kResumePdfUnavailableMessage : null,
+    );
+  }
+}
 
 /// "Download" — resolves a short-lived signed url via the cubit and
 /// downloads the PDF IN-APP into the device's Downloads, so the worker stays on
@@ -585,11 +630,19 @@ Future<String?> resolveSignedResumeUrl(
 /// The button stays busy (disabled) for the WHOLE download so a double-tap
 /// can't produce double files. The url is fetched in memory, never logged.
 class ResumeDownloadButton extends StatefulWidget {
-  const ResumeDownloadButton({super.key, this.resumeId});
+  const ResumeDownloadButton({
+    super.key,
+    this.resumeId,
+    this.pdfFailed = false,
+  });
 
   /// Null = the CURRENT resume (every caller before #1687). Non-null = one
   /// specific history entry, which downloads its own pdf.
   final String? resumeId;
+
+  /// The server said this PDF's render failed: the button is drawn DISABLED
+  /// (see [ResumePdfActions], which says why beside it).
+  final bool pdfFailed;
 
   @override
   State<ResumeDownloadButton> createState() => ResumeDownloadButtonState();
@@ -636,6 +689,9 @@ class ResumeDownloadButtonState extends State<ResumeDownloadButton> {
   }
 
   Future<void> _download() async {
+    // The rebuilt `onPressed: null` needs a frame; two taps inside one frame
+    // would otherwise both get here and save two files.
+    if (_loading || widget.pdfFailed) return;
     final ResumeCubit cubit = context.read<ResumeCubit>();
     setState(() => _loading = true);
     // Let the name land before the file is saved (#398). It was fire-and-forget,
@@ -683,7 +739,7 @@ class ResumeDownloadButtonState extends State<ResumeDownloadButton> {
       size: BbButtonSize.md,
       iconLeft: Icons.download_rounded,
       loading: _loading,
-      onPressed: _loading ? null : _download,
+      onPressed: _loading || widget.pdfFailed ? null : _download,
     );
   }
 }
@@ -807,11 +863,16 @@ class ResumeShareButton extends StatefulWidget {
     this.share,
     this.httpClient,
     this.resumeId,
+    this.pdfFailed = false,
   });
 
   /// Null = the CURRENT resume. Non-null = one history entry (#1687): it mints
   /// that entry's own signed url AND reports the share against that same id.
   final String? resumeId;
+
+  /// The server said this PDF's render failed: there is no file to share, so
+  /// the button is drawn DISABLED (see [ResumePdfActions]).
+  final bool pdfFailed;
 
   /// Injectable ONLY as test seams; production passes neither (same convention
   /// as [downloadSignedPdf]).
@@ -834,6 +895,8 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
   }
 
   Future<void> _share() async {
+    // Same-frame double tap: see ResumeDownloadButtonState._download.
+    if (_loading || widget.pdfFailed) return;
     final ResumeCubit cubit = context.read<ResumeCubit>();
     // Captured before the async gaps so we never touch `context` after an await
     // (use_build_context_synchronously).
@@ -960,7 +1023,7 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
       iconLeft: Icons.share_rounded,
       loading: _loading,
       // Busy for the WHOLE share so a double-tap can't open two sheets.
-      onPressed: _loading ? null : _share,
+      onPressed: _loading || widget.pdfFailed ? null : _share,
     );
   }
 }

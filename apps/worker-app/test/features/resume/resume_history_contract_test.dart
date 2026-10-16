@@ -213,6 +213,35 @@ void main() {
       },
     );
 
+    // ONE 401 (a token renewal that failed once) or 403 used to latch the
+    // route "absent" for the rest of the run: the history section vanished,
+    // and so did the Bada Bhai tab's "Resume download" tile, which reads the
+    // same route — on every visit, until the app was killed.
+    for (final int status in <int>[401, 403]) {
+      test(
+        'a $status is NOT latched — the next read asks again and gets the history',
+        () async {
+          int hits = 0;
+          final ResumeRepositoryImpl repo = _repo(
+            MockClient((http.Request req) async {
+              hits++;
+              if (hits == 1) return http.Response('{}', status);
+              return http.Response(
+                jsonEncode(<String, dynamic>{
+                  'items': <dynamic>[_item(id: 'r9', isCurrent: true)],
+                  'pending_update': null,
+                }),
+                200,
+              );
+            }),
+          );
+          expect(await repo.loadResumeHistory(), ResumeHistory.empty);
+          expect((await repo.loadResumeHistory()).current?.resumeId, 'r9');
+          expect(hits, 2);
+        },
+      );
+    }
+
     test(
       'a TRANSIENT failure is NOT latched — the feature comes back',
       () async {

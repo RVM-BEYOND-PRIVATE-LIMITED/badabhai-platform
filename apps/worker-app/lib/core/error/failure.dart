@@ -135,6 +135,26 @@ class ResumeNotReadyFailure extends Failure {
   ]);
 }
 
+/// Why a résumé whose PDF render FAILED cannot be downloaded or shared — the
+/// [ResumePdfUnavailableFailure] copy, and the reason line under a disabled
+/// Download / Share on every card that knows the render failed.
+const String kResumePdfUnavailableMessage =
+    'Is resume ki PDF nahi ban paayi, isliye abhi download ya share nahi ho '
+    'sakti.';
+
+/// HTTP 409 on the resume PDF download whose server message says the PDF is
+/// NOT AVAILABLE — its render FAILED (or it was taken out of service) — as
+/// opposed to [ResumeNotReadyFailure]'s "still being rendered".
+///
+/// Waiting changes nothing here, so the download path must NOT poll it: read as
+/// [ResumeNotReadyFailure], a failed PDF held the worker on "PDF taiyaar ho rahi
+/// hai…" for the whole 75s poll and then told them it was still being made.
+class ResumePdfUnavailableFailure extends Failure {
+  const ResumePdfUnavailableFailure([
+    super.message = kResumePdfUnavailableMessage,
+  ]);
+}
+
 /// The voice-note pipeline cannot complete right now: the server said voice
 /// uploads are not enabled (503 on `/voice/upload-url`), the recording could
 /// not be captured, or the transcript is not ready. Honest copy tells the

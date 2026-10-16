@@ -73,18 +73,43 @@ Future<String> loadResumeDownloadFileName() async {
 /// rather than an indefinite spinner. Only the not-ready case and a transient
 /// blip retry — every other failure surfaces immediately, as its typed
 /// [Failure], so `downloadSignedPdf` can name the real cause.
+///
+/// [renderStatus] — when the caller can READ the render's state (`'pending' |
+/// 'rendered' | 'failed'`, null when unknown), the wait after a "still
+/// rendering" 409 runs on THAT read, and [mint] is called again only once it
+/// stops saying pending. Every mint is charged to the server's per-IP hourly
+/// download cap (20 an hour), a 409 included, so re-minting every 1.5s spent
+/// the whole allowance on ONE tap at a slow render and then refused every
+/// download — ready ones too — with "Bahut requests". The read is not capped.
+/// A read that says failed ends the wait with [ResumePdfUnavailableFailure];
+/// one that cannot answer (null, or a throw) mints again, as before.
 Future<String?> pollSignedResumeUrl({
   required Future<String?> Function() mint,
   required void Function() onPreparing,
+  Future<String?> Function()? renderStatus,
 }) async {
+  // True once a "still rendering" 409 has handed the wait to [renderStatus].
+  bool waitOnStatus = false;
   for (int attempt = 0; attempt < _kReadyMaxAttempts; attempt++) {
     final bool lastAttempt = attempt == _kReadyMaxAttempts - 1;
+    if (waitOnStatus) {
+      final String? status = await _readRenderStatus(renderStatus!);
+      if (status == 'failed') throw const ResumePdfUnavailableFailure();
+      // Still rendering: wait again without spending a mint. The LAST attempt
+      // always mints, so a render that never lands still ends on the server's
+      // own honest 409.
+      if (status == 'pending' && !lastAttempt) {
+        await Future<void>.delayed(_kReadyPollInterval);
+        continue;
+      }
+    }
     try {
       return await mint();
     } on ResumeNotReadyFailure {
       if (lastAttempt) rethrow;
       // Say WHY the wait is happening — the PDF is rendering, nothing is wrong.
       onPreparing();
+      waitOnStatus = renderStatus != null;
       await Future<void>.delayed(_kReadyPollInterval);
     } catch (error) {
       // A transient 5xx / transport blip on the mint is the OTHER reason a
@@ -100,4 +125,14 @@ Future<String?> pollSignedResumeUrl({
     }
   }
   return null; // unreachable: the last attempt either returns or rethrows.
+}
+
+/// [read], with every failure read as "unknown" — the poll then mints, as it
+/// always did. A status read must never be the thing that fails a download.
+Future<String?> _readRenderStatus(Future<String?> Function() read) async {
+  try {
+    return await read();
+  } catch (_) {
+    return null;
+  }
 }

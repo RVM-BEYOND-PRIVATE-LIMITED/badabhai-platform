@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/onboarding_theme.dart';
+
 /// The profile card's two actions — share and download — always side by
 /// side (spec §4).
 ///
@@ -19,6 +21,7 @@ class ResumeActionRow extends StatelessWidget {
     super.key,
     required this.share,
     required this.download,
+    this.note,
   });
 
   /// The green share action (money / WhatsApp tone).
@@ -27,15 +30,51 @@ class ResumeActionRow extends StatelessWidget {
   /// The navy download action.
   final Widget download;
 
+  /// One line under the pair saying why it is disabled — a PDF whose render
+  /// failed. Null draws nothing.
+  final String? note;
+
   static const double _kGap = 10;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final Widget row = Row(
       children: <Widget>[
         Expanded(child: share),
         const SizedBox(width: _kGap),
         Expanded(child: download),
+      ],
+    );
+    final String? reason = note;
+    if (reason == null) return row;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        row,
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Icon(
+              Icons.error_rounded,
+              size: 16,
+              color: OnboardingColors.errorRed,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                reason,
+                style: OnboardingTypography.inter(
+                  size: 12,
+                  weight: FontWeight.w600,
+                  height: 1.4,
+                  color: OnboardingColors.errorRed,
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }

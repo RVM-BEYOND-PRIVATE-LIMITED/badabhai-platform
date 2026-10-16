@@ -1,5 +1,9 @@
+import 'dart:async' show runZonedGuarded;
+
+import 'package:flutter/gestures.dart' show HitTestEntry, HitTestResult;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart' show BlocProvider;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -8,6 +12,7 @@ import 'package:badabhai_worker_app/core/api/api_models.dart'
     show ChatOption, ChatQuestionKind, ResumeHistory, ResumeHistoryItem;
 import 'package:badabhai_worker_app/core/config/remote_config.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/util/pdf_downloader.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
@@ -15,9 +20,14 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_resume_download.da
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/features/chat/presentation/widgets/chat_resume_download_tile.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/resume_pdf_download.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_resume_menu.dart'
+    show kResumeMenuTechnicalSkillsKey;
+import 'package:badabhai_worker_app/router.dart' show Routes;
 
 class MockChatRepository extends Mock implements ChatRepository {}
 
@@ -102,11 +112,21 @@ void main() {
     await locator.reset();
   });
 
-  Future<void> pumpTab(WidgetTester tester, {bool assistantTab = true}) async {
-    tester.view.physicalSize = const Size(400, 1000);
-    tester.view.devicePixelRatio = 1.0;
+  Future<void> pumpTab(
+    WidgetTester tester, {
+    bool assistantTab = true,
+    Size logical = const Size(400, 1000),
+    double dpr = 1.0,
+    double? textScale,
+  }) async {
+    tester.view.physicalSize = Size(logical.width * dpr, logical.height * dpr);
+    tester.view.devicePixelRatio = dpr;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    if (textScale != null) {
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    }
     channelCalls = <MethodCall>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
       MethodCall call,
@@ -133,6 +153,19 @@ void main() {
             GoRoute(
               path: '/bada-bhai',
               builder: (_, __) => ChatProfilingScreen(assistantTab: assistantTab),
+            ),
+            // The chat's section walks push the trade form; Back pops null,
+            // saved answers or not.
+            GoRoute(
+              path: Routes.tradeForm,
+              builder: (BuildContext context, __) => Scaffold(
+                body: Center(
+                  child: TextButton(
+                    onPressed: () => context.pop(),
+                    child: const Text('SECTION FORM — BACK'),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -232,4 +265,324 @@ void main() {
       expect(find.text(_recap), findsOneWidget);
     },
   );
+
+  // ── The ask lands where the worker can see it ─────────────────────────────
+
+  const ValueKey<String> buttonKey = ValueKey<String>('chat_resume_download_button');
+
+  /// Whether a tap at the button's centre reaches the button — on screen, not
+  /// covered, not scrolled away.
+  bool centerHitsButton(WidgetTester tester) {
+    final Finder button = find.byKey(buttonKey);
+    if (button.evaluate().isEmpty) return false;
+    final HitTestResult result = tester.hitTestOnBinding(tester.getCenter(button));
+    final RenderObject target = tester.renderObject(button);
+    return result.path.any((HitTestEntry e) => e.target == target);
+  }
+
+  int saves() =>
+      channelCalls.where((MethodCall c) => c.method == 'saveToDownloads').length;
+
+  for (final double scale in <double>[1.0, 1.3]) {
+    testWidgets(
+      'phone at text x$scale, KEYBOARD UP: a typed ask on the interview scrolls '
+      'its answer and the tile into view — never just a "Naye message" pill',
+      (WidgetTester tester) async {
+        // The tab runs the INTERVIEW: a typed ask is answered on the phone
+        // there (on the companion it is the server's to answer — #2302).
+        when(() => repo.openCompanion()).thenAnswer(
+          (_) async => const CompanionOpening.interview(),
+        );
+        when(
+          () => repo.sendMessage(
+            any(),
+            submissionId: any(named: 'submissionId'),
+            answerSource: any(named: 'answerSource'),
+          ),
+        ).thenAnswer((_) async => const ChatTurn(reply: 'Aage batayein.'));
+        await pumpTab(
+          tester,
+          logical: const Size(360, 640),
+          dpr: 2.0,
+          textScale: scale,
+        );
+        for (int i = 0; i < 10; i++) {
+          await send(tester, 'naye jobs dikhao $i');
+        }
+        // The worker taps the composer: the soft keyboard shrinks the list
+        // without moving it, leaving it far from the end.
+        tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+        addTearDown(tester.view.resetViewInsets);
+        await tester.pumpAndSettle();
+
+        await send(tester, 'resume download karna hai');
+
+        expect(find.text('Naye message'), findsNothing);
+        expect(centerHitsButton(tester), isTrue);
+        await tester.tap(find.byKey(buttonKey));
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(saves(), 1);
+        expect(find.text(kDownloadCompleteNotice), findsOneWidget);
+      },
+    );
+  }
+
+  testWidgets(
+    'after the recap REPLACES an interview transcript, a download chip tapped with '
+    'the keyboard up still scrolls its answer and the tile into view',
+    (WidgetTester tester) async {
+      final String longRecap = <String>[
+        'Namaste. Aapki profile taiyaar hai.',
+        for (int i = 1; i <= 14; i++) 'Aapki jaankari ki line $i yahan hai.',
+      ].join('\n');
+      // The recap is drawn as bullet lines, so it is found by one of them.
+      final Finder recapLine = find.textContaining(
+        'Aapki jaankari ki line 14',
+        findRichText: true,
+      );
+      // The tab opened on the INTERVIEW: a finished transcript of 21 bubbles.
+      when(() => repo.openCompanion()).thenAnswer((_) async => const CompanionOpening.interview());
+      when(() => repo.loadHistory()).thenAnswer(
+        (_) async => <ChatMessage>[
+          for (int i = 0; i < 21; i++)
+            ChatMessage(text: 'purani baat $i', fromWorker: i.isOdd),
+        ],
+      );
+      when(() => repo.forgetSession()).thenReturn(null);
+      await pumpTab(tester, logical: const Size(360, 640), dpr: 2.0);
+      expect(recapLine, findsNothing);
+
+      // The server now answers companion: the recap REPLACES the transcript.
+      when(() => repo.openCompanion()).thenAnswer(
+        (_) async => CompanionOpening(CompanionOpenOutcome.companion, _companion(longRecap)),
+      );
+      BlocProvider.of<ChatBloc>(
+        tester.element(find.byType(TextField)),
+      ).add(const ChatCompanionRefreshRequested());
+      await tester.pumpAndSettle();
+      expect(recapLine, findsWidgets);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      // The server's "Resume download karein" chip, answered on the phone: the
+      // worker's bubble and the answer land in ONE emit.
+      BlocProvider.of<ChatBloc>(
+        tester.element(find.byType(TextField)),
+      ).add(const ChatResumeDownloadChipTapped('Resume download karein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Naye message'), findsNothing);
+      expect(centerHitsButton(tester), isTrue);
+    },
+  );
+
+  // ── Honest waits on the tile (G4) ─────────────────────────────────────────
+
+  testWidgets(
+    'a PDF that FAILED after the tile was offered says so at the first tap — '
+    'no 75s of "PDF taiyaar ho rahi hai…"',
+    (WidgetTester tester) async {
+      int mints = 0;
+      when(() => resumes.resumeDownloadUrlFor(_resumeId)).thenAnswer((_) async {
+        mints++;
+        throw const ResumePdfUnavailableFailure();
+      });
+      await pumpTab(tester);
+
+      await tester.tap(tileButton);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text(kResumePdfUnavailableMessage), findsOneWidget);
+      expect(find.text(kResumePreparingLabel), findsNothing);
+      expect(mints, 1);
+      expect(saves(), 0);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'a render that fails DURING the wait ends it with the honest reason, '
+    'after one mint',
+    (WidgetTester tester) async {
+      int reads = 0;
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) async {
+        reads++;
+        // The open's read offers it still rendering; then the render fails.
+        return reads == 1 ? _historyAt('pending') : _historyAt('failed');
+      });
+      int mints = 0;
+      when(() => resumes.resumeDownloadUrlFor(_resumeId)).thenAnswer((_) async {
+        mints++;
+        throw const ResumeNotReadyFailure();
+      });
+      await pumpTab(tester);
+
+      await tester.tap(tileButton);
+      await tester.pump();
+      await tester.pump();
+      for (int i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 1500));
+      }
+
+      expect(find.text(kResumePdfUnavailableMessage), findsOneWidget);
+      expect(mints, 1);
+      expect(saves(), 0);
+      await tester.pumpAndSettle();
+      // ...and the tile goes: the history now says failed, and a button whose
+      // every tap would meet the same 409 is not left on screen.
+      expect(find.byKey(buttonKey), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a still-rendering PDF is waited out on the history read and saved when it '
+    'lands — TWO mints, not one every 1.5s (each is charged to the server\'s '
+    'per-IP download cap)',
+    (WidgetTester tester) async {
+      int reads = 0;
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) async {
+        reads++;
+        // The open's read and two waits see it rendering; then it lands.
+        return reads <= 3 ? _historyAt('pending') : _historyAt('rendered');
+      });
+      int mints = 0;
+      when(() => resumes.resumeDownloadUrlFor(_resumeId)).thenAnswer((_) async {
+        mints++;
+        // The server's own rule: no PDF to sign until the render lands — which
+        // only the history reads above can see. A wait that re-minted instead
+        // of reading would meet this 409 on every one of its mints.
+        if (reads <= 3) throw const ResumeNotReadyFailure();
+        return 'mock://downloads/resume/mock-resume-0001.pdf';
+      });
+      await pumpTab(tester);
+
+      await tester.tap(tileButton);
+      await tester.pump();
+      await tester.pump();
+      expect(find.text(kResumePreparingLabel), findsOneWidget);
+      for (int i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 1500));
+      }
+      await tester.pumpAndSettle();
+
+      expect(mints, 2);
+      expect(saves(), 1);
+      expect(find.text(kDownloadCompleteNotice), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the tile releases its busy latch however a download ends — even one that '
+    'throws leaves a button that answers the next tap',
+    (WidgetTester tester) async {
+      int downloads = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChatResumeDownloadTile(
+              mintUrl: () async => 'mock://x',
+              loadFileName: () async => 'X_RESUME.pdf',
+              download: (
+                BuildContext context, {
+                required Future<String?> Function() resolve,
+                required String fileName,
+              }) async {
+                downloads++;
+                throw StateError('boom');
+              },
+            ),
+          ),
+        ),
+      );
+      final List<Object> errors = <Object>[];
+      Future<void> tapGuarded() => runZonedGuarded<Future<void>>(
+        () async {
+          await tester.tap(find.byKey(buttonKey));
+          await tester.pump();
+          await tester.pump();
+        },
+        (Object error, StackTrace _) => errors.add(error),
+      )!;
+
+      await tapGuarded();
+      await tapGuarded();
+
+      expect(downloads, 2);
+      expect(errors, hasLength(2));
+      expect(errors.every((Object e) => e is StateError), isTrue);
+    },
+  );
+
+  // ── Case 2 after a section walk (G2) ──────────────────────────────────────
+
+  testWidgets(
+    'a section walk backed out of (it pops null, saved or not) still offers the '
+    're-rendered résumé when the render lands — the worker never leaves the chat',
+    (WidgetTester tester) async {
+      ChatBloc.resumeChangeWatchInterval = const Duration(seconds: 1);
+      addTearDown(() => ChatBloc.resumeChangeWatchInterval = const Duration(seconds: 4));
+      final DateTime made = DateTime.utc(2026, 10, 14, 9);
+      ResumeHistory version(DateTime renderedAt) => ResumeHistory(
+        items: <ResumeHistoryItem>[
+          ResumeHistoryItem(
+            resumeId: _resumeId,
+            renderStatus: 'rendered',
+            isCurrent: true,
+            generatedAt: made,
+            renderedAt: renderedAt,
+          ),
+        ],
+      );
+      ResumeHistory current = version(DateTime.utc(2026, 10, 14, 9, 1));
+      when(() => resumes.loadResumeHistory()).thenAnswer((_) async => current);
+      const ChatOption skills = ChatOption(
+        optionKey: kResumeMenuTechnicalSkillsKey,
+        labelText: 'Technical Skills',
+      );
+      when(
+        () => repo.sendCompanionMessage('resume badalna hai', submissionId: any(named: 'submissionId')),
+      ).thenAnswer(
+        (_) async => const ChatTurn(
+          reply: 'Resume ka kaun sa hissa theek karna hai.',
+          followups: <String>['Technical Skills'],
+          suggestedOptions: <ChatOption>[skills],
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+        ),
+      );
+      await pumpTab(tester);
+      expect(tileButton, findsOneWidget, reason: 'case 1 on the first open');
+
+      await send(tester, 'resume badalna hai');
+      expect(tileButton, findsNothing);
+      await tester.tap(find.text('Technical Skills'));
+      await tester.pumpAndSettle();
+      // The worker answers a page (its save queues a re-render a minute out on
+      // the server) and backs out.
+      await tester.tap(find.text('SECTION FORM — BACK'));
+      await tester.pumpAndSettle();
+      expect(tileButton, findsNothing, reason: 'the old render is still current');
+
+      // The re-render lands while the worker stays on the chat.
+      current = version(DateTime.utc(2026, 10, 15, 10));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+
+      expect(tileButton, findsOneWidget);
+    },
+  );
 }
+
+ResumeHistory _historyAt(String renderStatus) => ResumeHistory(
+  items: <ResumeHistoryItem>[
+    ResumeHistoryItem(
+      resumeId: _resumeId,
+      renderStatus: renderStatus,
+      isCurrent: true,
+    ),
+  ],
+);
