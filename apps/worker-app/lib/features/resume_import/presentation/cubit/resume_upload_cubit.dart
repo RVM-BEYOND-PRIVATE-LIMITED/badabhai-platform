@@ -49,7 +49,8 @@ enum ResumeUploadDestination { chat, tradeForm }
 /// opening. The premise that every failure "means the same single thing" no
 /// longer holds; nothing else about D9 changes.
 enum ResumeUploadNotice {
-  /// The upload door is switched off server-side. The state on every box today.
+  /// The upload door is switched off server-side (`RESUME_UPLOADS_BUCKET`
+  /// unset, the default, so the write routes answer 503) on this box.
   uploadsUnavailable,
 
   /// We could not read the document at all — no text layer, an encrypted or
@@ -150,8 +151,9 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
   /// CHAT's résumé prompt (the screen's `autoUpload`), so a chat prompt is
   /// standing open behind this screen and is owed an answer.
   ///
-  /// False for the post-completion résumé menu and for a deep link: those leave
-  /// no prompt waiting, and raising the signal there would auto-answer an
+  /// False for the post-completion résumé menu, for an upload entry on the
+  /// Résumé tab, "Mere resume" or the Profile tab, and for a deep link: those
+  /// leave no prompt waiting, and raising the signal there would auto-answer an
   /// unrelated prompt the worker has not been shown yet.
   final bool fromChatPrompt;
 

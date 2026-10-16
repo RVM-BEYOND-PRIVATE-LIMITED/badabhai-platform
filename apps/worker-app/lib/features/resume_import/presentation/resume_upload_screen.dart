@@ -14,6 +14,7 @@ import '../../chat/presentation/chat_profiling_screen.dart'
 import '../domain/resume_document_picker.dart';
 import '../domain/resume_importer.dart';
 import 'cubit/resume_upload_cubit.dart';
+import 'resume_upload_entry.dart';
 import 'widgets/resume_door_tile.dart';
 
 /// The two doors between `/name` and `/chat` (#1499, ADR-0041 RI-6).
@@ -51,12 +52,28 @@ import 'widgets/resume_door_tile.dart';
 /// say one honest line and continue in Hinglish. The server's `failure_reason`
 /// vocabulary is never shown: see [ResumeUploadNotice].
 class ResumeUploadScreen extends StatefulWidget {
-  const ResumeUploadScreen({super.key, this.autoUpload = false});
+  const ResumeUploadScreen({
+    super.key,
+    this.autoUpload = false,
+    this.directUpload = false,
+  }) : assert(
+         !(autoUpload && directUpload),
+         'one arrival, one road: the chat prompt OR an upload entry',
+       );
 
   /// True when the worker already tapped "Resume upload karein" in the chat's
   /// résumé prompt: door 1 fires on entry instead of asking again. A cancel or
   /// a rejection falls back to the doors, so this never strands the worker.
   final bool autoUpload;
+
+  /// True when the worker tapped an upload ENTRY outside the chat — the Résumé
+  /// tab, "Mere resume", the Profile tab. Door 1 fires on entry exactly as for
+  /// [autoUpload], and a cancel or a rejection falls back to the doors the same
+  /// way. Two differences: no chat prompt is waiting behind this arrival, so it
+  /// never raises the import signal (see `ResumeUploadDirectIntent`); and every
+  /// way out lands on the Bada Bhai TAB, not the onboarding chat (see
+  /// `_onState`).
+  final bool directUpload;
 
   @override
   State<ResumeUploadScreen> createState() => _ResumeUploadScreenState();
@@ -73,13 +90,15 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
       importer: locator<ResumeImporter>(),
       // `autoUpload` IS "the chat's résumé prompt sent us here", so it is also
       // the one arrival that leaves a prompt standing open behind this screen.
+      // NEVER `directUpload`: an entry outside the chat leaves no prompt, and a
+      // signal raised for it would answer whichever prompt came next.
       fromChatPrompt: widget.autoUpload,
     );
-    // The choice was already made in the chat — auto-click door 1. Post-frame
-    // so the first frame (the doors) still paints under the picker, and
-    // guarded by `mounted`: a synchronous pop before the frame must not emit
-    // on a closed cubit.
-    if (widget.autoUpload) {
+    // The choice was already made — in the chat's prompt, or by tapping an
+    // upload entry — so auto-click door 1. Post-frame so the first frame (the
+    // doors) still paints under the picker, and guarded by `mounted`: a
+    // synchronous pop before the frame must not emit on a closed cubit.
+    if (widget.autoUpload || widget.directUpload) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_cubit.chooseDocument());
@@ -131,6 +150,24 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
         );
     }
 
+    // An upload ENTRY on a tab hands over to the Bada Bhai TAB, whatever the
+    // outcome — owner ruling 2026-10-16: the re-upload of a worker whose
+    // profile is already made is taken up in the Bada Bhai chat. Never the
+    // onboarding `/chat` below. For that worker it reattaches a FINISHED
+    // session, whose every reply is the résumé menu, and its "nothing staged"
+    // honest line (#1660) reads a reattach as a failed import. And a `go` into
+    // an onboarding route is remembered as his registration step, so every
+    // later cold start would open it. The tab is a shell route: neither
+    // happens, and the notice above still lands on it.
+    //
+    // `go`, like "+ Banayein" on "Mere resume" (#1783): the chat BRANCH keeps
+    // its own stack and its own ChatBloc, and the shell's tab sync refocuses
+    // it, so the tab re-reads what it shows.
+    if (widget.directUpload) {
+      context.go(Routes.badaBhai);
+      return;
+    }
+
     // `go`, NOT `push` — onboarding is a one-way sequence and each completed
     // step REPLACES the last (the #381 rationale `NameScreen` records: a
     // pushed step stays alive underneath and system back walks into it).
@@ -157,7 +194,9 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
         listener: _onState,
         builder: (BuildContext context, ResumeUploadState state) {
           // No back arrow: `/name` is submitted and gone (see `_onState`), so a
-          // back affordance here would offer a step that no longer exists.
+          // back affordance here would offer a step that no longer exists. A
+          // PUSHED arrival (the post-completion menu, an upload entry on a tab)
+          // still has its screen underneath, and system back pops to it.
           //
           // A real [Scaffold] (not a bare Column) so `ScaffoldMessenger` keeps
           // working for the notices. There is no bottom bar: the two doors ARE
@@ -224,8 +263,8 @@ class _Doors extends StatelessWidget {
         ResumeDoorTile(
           tileKey: const Key('resume_door_upload'),
           icon: Icons.upload_file_outlined,
-          title: 'Resume upload karein',
-          subtitle: 'PDF, DOCX ya resume ka photo',
+          title: kResumeUploadEntryLabel,
+          subtitle: kResumeUploadEntryHint,
           emphasis: true,
           loading:
               state.status == ResumeUploadStatus.picking ||

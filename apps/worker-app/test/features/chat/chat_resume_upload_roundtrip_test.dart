@@ -19,6 +19,7 @@ import 'package:badabhai_worker_app/features/resume_import/domain/resume_documen
 import 'package:badabhai_worker_app/features/resume_import/domain/resume_document_picker.dart';
 import 'package:badabhai_worker_app/features/resume_import/domain/resume_upload_intent.dart';
 import 'package:badabhai_worker_app/features/resume_import/domain/resume_importer.dart';
+import 'package:badabhai_worker_app/features/resume_import/presentation/resume_upload_entry.dart';
 import 'package:badabhai_worker_app/features/resume_import/presentation/resume_upload_screen.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
@@ -175,5 +176,84 @@ void main() {
 
     expect(find.text(kResumePromptNoResumeLabel), findsNothing);
     expect(find.text('Aap kis state mein rehte hain?'), findsOneWidget);
+  });
+
+  // ── AN UPLOAD ENTRY OUTSIDE THE CHAT NEVER ANSWERS A LATER PROMPT ─────────
+  //
+  // The entries on the Résumé tab, "Mere resume" and the Profile tab open the
+  // upload screen through `openResumeUploadEntry`. No prompt is standing open
+  // behind them, so their import must leave NO signal: one left behind sits
+  // until the chat next puts the résumé prompt on screen, and answers it with
+  // "Resume upload karein" for the worker — releasing the stashed question
+  // over a choice they never made.
+  //
+  // Driven the way the phone does it: the entry's real push, the screen's
+  // auto-opened picker and finished import, its `go` to the Bada Bhai tab, and
+  // the prompt arriving on that chat's own next turn — the path of a worker
+  // who uploads from the Résumé tab before finishing the interview, then
+  // carries on in the tab.
+  testWidgets('an upload ENTRY outside the chat never answers a later prompt',
+      (WidgetTester tester) async {
+    final GoRouter router = GoRouter(
+      initialLocation: '/tab',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/tab',
+          builder: (BuildContext context, GoRouterState _) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => openResumeUploadEntry(context),
+                child: const Text('ENTRY'),
+              ),
+            ),
+          ),
+        ),
+        // Where an entry's attempt lands (owner ruling 2026-10-16). The same
+        // screen the tab hosts; built plain here, because the signal's
+        // consumer is the screen and not the tab's companion wiring.
+        GoRoute(
+          path: '/bada-bhai',
+          builder: (BuildContext _, GoRouterState __) =>
+              const ChatProfilingScreen(),
+        ),
+        // The production mapping (router.dart), both markers.
+        GoRoute(
+          path: '/resume-upload',
+          builder: (BuildContext _, GoRouterState state) => ResumeUploadScreen(
+            autoUpload: state.extra is ResumeUploadAutoIntent,
+            directUpload: state.extra is ResumeUploadDirectIntent,
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('ENTRY'));
+    await tester.pumpAndSettle();
+    // The picker opened by itself, the import finished, and the screen left.
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatProfilingScreen), findsOneWidget,
+        reason: 'precondition: the import ran and handed over to the tab');
+    expect(
+      router.routerDelegate.currentConfiguration.matches.last.matchedLocation,
+      '/bada-bhai',
+    );
+
+    // The chat's own next turn brings the résumé prompt — which is precisely
+    // the moment a stray signal would be spent.
+    await reachThePrompt(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text(kResumePromptNoResumeLabel), findsOneWidget,
+        reason: 'the prompt was answered by an upload made somewhere else');
+    expect(find.text('Aap kis state mein rehte hain?'), findsNothing,
+        reason: 'the stashed question is released only by an answer');
+    expect(locator<ResumeImportSignal>().consume(), isFalse);
   });
 }

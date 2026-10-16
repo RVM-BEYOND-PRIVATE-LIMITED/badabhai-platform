@@ -13,6 +13,7 @@ import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_info_chip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -27,6 +28,8 @@ import 'package:badabhai_worker_app/features/profile_tab/presentation/profile_ta
 import 'package:badabhai_worker_app/features/profile_tab/presentation/widgets/profile_strength_card.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_upload_intent.dart';
+import 'package:badabhai_worker_app/router.dart';
 
 class MockProfileSummaryRepository extends Mock
     implements ProfileSummaryRepository {}
@@ -631,6 +634,88 @@ void main() {
       expect(find.textContaining('Welder'), findsNothing);
       expect(find.textContaining('Turner'), findsNothing);
       expect(find.textContaining('role_'), findsNothing);
+    });
+  });
+
+  /// The CEO's "upload at any point": a shortcut beside "Mere resume", the row
+  /// a worker opens looking for their résumés. It opens the upload screen as
+  /// an ENTRY (`ResumeUploadDirectIntent`) — never with the chat prompt's
+  /// marker, whose import signal would answer a later chat prompt for them.
+  group('the "Resume upload karein" row', () {
+    testWidgets('sits right after "Mere resume" and opens the upload screen '
+        'as an ENTRY', (WidgetTester tester) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      await locator.reset();
+      final MockProfileSummaryRepository repo = MockProfileSummaryRepository();
+      when(() => repo.summary(includeDisplayExtras: true)).thenAnswer(
+        (_) async => const ProfileSummary(
+          tradeLabel: 'Fitter',
+          strengthSignals: 0,
+        ),
+      );
+      locator.registerFactory<ProfileTabCubit>(() => ProfileTabCubit(repo));
+      locator.registerLazySingleton<TabFocus>(() => TabFocus());
+
+      tester.view.physicalSize = const Size(900, 1900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Object? uploadExtra;
+      final GoRouter router = GoRouter(
+        initialLocation: Routes.profile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: Routes.profile,
+            builder: (_, __) => const ProfileTabScreen(),
+          ),
+          GoRoute(
+            path: Routes.resumeUpload,
+            builder: (_, GoRouterState state) {
+              uploadExtra = state.extra;
+              return const Scaffold(body: Center(child: Text('UPLOAD TARGET')));
+            },
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      final Finder row = find.byKey(kProfileResumeUploadRowKey);
+      expect(row, findsOneWidget);
+      expect(
+        find.descendant(of: row, matching: find.text('Resume upload karein')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.text('PDF, DOCX ya resume ka photo'),
+        ),
+        findsOneWidget,
+      );
+      // Its sibling, directly above it.
+      expect(
+        tester.getTopLeft(row).dy,
+        greaterThan(tester.getTopLeft(find.text('Mere resume')).dy),
+      );
+      expect(
+        tester.getTopLeft(row).dy,
+        lessThan(tester.getTopLeft(find.text('Mera kaam')).dy),
+      );
+
+      await tester.ensureVisible(row);
+      await tester.pump();
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.text('UPLOAD TARGET'), findsOneWidget);
+      expect(uploadExtra, isA<ResumeUploadDirectIntent>());
     });
   });
 }

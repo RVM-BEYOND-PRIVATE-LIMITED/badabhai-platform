@@ -21,6 +21,7 @@ import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.da
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_history_screen.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_history_section.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_upload_intent.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/profiling_tier.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_args.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
@@ -899,6 +900,115 @@ void main() {
           reason: 'a resumed walk lands on the last step with only Submit');
       expect(args.sectionKey, isNull, reason: 'the full form, not one section');
       expect(args.upgradeView, isFalse, reason: 'every step, not a narrowed view');
+    });
+  });
+
+  /// The CEO's "upload at any point": beside "+ Banayein", the other road to a
+  /// new résumé — bring the one the worker already has. Drawn with résumés,
+  /// with none, and over an unfinished form, and it opens the upload screen as
+  /// an ENTRY (`ResumeUploadDirectIntent`), never with the chat prompt's
+  /// marker.
+  group('the "Resume upload karein" entry', () {
+    /// What the upload route was opened with.
+    Object? uploadExtra;
+    setUp(() => uploadExtra = null);
+
+    Future<void> pumpRouted(WidgetTester tester, ResumeHistory history) async {
+      when(() => repo.loadResumeHistory()).thenAnswer((_) async => history);
+      tester.view.physicalSize = const Size(420, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = GoRouter(
+        initialLocation: '/',
+        routes: <RouteBase>[
+          GoRoute(path: '/', builder: (_, __) => const ResumeHistoryScreen()),
+          GoRoute(
+            path: Routes.resumeUpload,
+            builder: (_, GoRouterState state) {
+              uploadExtra = state.extra;
+              return const Scaffold(body: Center(child: Text('UPLOAD TARGET')));
+            },
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+    }
+
+    Future<void> expectEntryOpensUpload(WidgetTester tester) async {
+      final Finder entry = find.byKey(kResumeHistoryUploadEntryKey);
+      expect(entry, findsOneWidget);
+      await tester.ensureVisible(entry);
+      await tester.pump();
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+
+      expect(find.text('UPLOAD TARGET'), findsOneWidget);
+      expect(uploadExtra, isA<ResumeUploadDirectIntent>());
+    }
+
+    testWidgets('with résumés', (WidgetTester tester) async {
+      await pumpRouted(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[
+            item(id: 'r2', day: 20, current: true),
+            item(id: 'r1', day: 12, renderStatus: 'failed'),
+          ],
+        ),
+      );
+      expect(find.byType(ResumeFileCard), findsNWidgets(2));
+
+      await expectEntryOpensUpload(tester);
+    });
+
+    testWidgets('with NONE — the empty state', (WidgetTester tester) async {
+      await pumpRouted(tester, ResumeHistory.empty);
+      expect(find.text(kResumeHistoryEmptyTitle), findsOneWidget);
+
+      await expectEntryOpensUpload(tester);
+    });
+
+    testWidgets('over an unfinished form', (WidgetTester tester) async {
+      locator.registerSingleton<TradeFormRepository>(
+        _FakeTiers(TierState.disabled, form: _incompleteForm()),
+      );
+      await pumpRouted(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
+        ),
+      );
+      await tester.pump();
+      // Precondition: the draft card really is on screen.
+      expect(find.byType(ResumeDraftCard), findsOneWidget);
+
+      await expectEntryOpensUpload(tester);
+    });
+
+    testWidgets('sits under the quick action, before the list', (
+      WidgetTester tester,
+    ) async {
+      await pumpRouted(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
+        ),
+      );
+
+      double topOf(Finder f) => tester.getTopLeft(f).dy;
+      final double entryTop = topOf(find.byKey(kResumeHistoryUploadEntryKey));
+      expect(entryTop, greaterThan(topOf(find.text(kResumeQuickActionCta))));
+      expect(entryTop, lessThan(topOf(find.byType(ResumeFileCard))));
+      // "+ Banayein" keeps its own road (the chat), untouched.
+      expect(find.text(kResumeQuickActionCta), findsOneWidget);
     });
   });
 }

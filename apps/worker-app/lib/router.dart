@@ -412,6 +412,13 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
       }
       // Landed on a real screen — the stash has done its job.
       auth.clearResumeLocation();
+      // An upload ENTRY on a tab pushes the same `/resume-upload` the
+      // onboarding chat's prompt does, but the worker who taps it is not
+      // registering. So it neither remembers a step nor forgets one: a pop
+      // runs no redirect, so a remembered push would outlive the worker backing
+      // out of it, and the next cold start would unlock onto the onboarding
+      // doors instead of the shell.
+      if (state.extra is ResumeUploadDirectIntent) return null;
       // Remember the onboarding step while the worker is inside the sequence,
       // and forget it the moment they are out of it (onboarding finished, or
       // they were never in it). Both calls are no-ops when nothing changed.
@@ -520,11 +527,16 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.resumeUpload,
         // `extra` is [ResumeUploadAutoIntent] when the worker already chose
-        // upload in the chat's résumé prompt: door 1 fires on entry instead of
-        // asking again. Every other arrival (the post-completion menu, a deep
-        // link) draws the doors exactly as before.
+        // upload in the chat's résumé prompt, and [ResumeUploadDirectIntent]
+        // when they tapped an upload entry on the Résumé tab, "Mere resume" or
+        // the Profile tab: either way door 1 fires on entry instead of asking
+        // again. Only the chat prompt's marker answers a prompt on return, and
+        // only an entry's attempt ends on the Bada Bhai tab. Every other
+        // arrival (the post-completion menu, a deep link) draws the doors
+        // exactly as before.
         builder: (_, GoRouterState state) => ResumeUploadScreen(
           autoUpload: state.extra is ResumeUploadAutoIntent,
+          directUpload: state.extra is ResumeUploadDirectIntent,
         ),
       ),
       GoRoute(

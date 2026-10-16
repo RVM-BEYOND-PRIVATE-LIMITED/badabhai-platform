@@ -34,6 +34,7 @@ import '../../../core/widgets/kit/kit_header_actions.dart';
 import '../../../core/widgets/kit/kit_status_banner.dart';
 import '../../../core/widgets/kit/kit_tab_header.dart';
 import '../../../router.dart';
+import '../../resume_import/presentation/resume_upload_entry.dart';
 import 'cubit/resume_cubit.dart';
 import 'resume_pdf_download.dart';
 import 'widgets/resume_action_row.dart';
@@ -354,6 +355,13 @@ class _ResumeViewState extends State<_ResumeView> {
           ),
           const SizedBox(height: kResumeCardGap),
         ],
+        // The CEO's "upload at any point": a worker who has a résumé FILE can
+        // bring it in from here, whatever state this résumé's PDF is in. Its
+        // own element, never a third button in the card's action row —
+        // `ResumeActionRow` is exactly share + download — and BELOW the update
+        // card, which must stay the first answer under the profile card.
+        const ResumeUploadEntryButton(entryKey: kResumeTabUploadEntryKey),
+        const SizedBox(height: kResumeCardGap),
         resumeBody,
         const SizedBox(height: kResumeCardGap),
         // #1687 — the older resumes. Renders nothing at all when there is no
@@ -465,10 +473,12 @@ class _ResumeViewState extends State<_ResumeView> {
       title: 'Abhi resume nahi ban sakta.',
       subtitle:
           'Pehle apna profile poora karein — fir resume apne aap ban jayega.',
-      action: BbButton(
-        label: 'Profile poora karein',
-        iconLeft: Icons.arrow_forward_rounded,
-        onPressed: () => context.go(Routes.consent),
+      action: _withUploadEntry(
+        BbButton(
+          label: 'Profile poora karein',
+          iconLeft: Icons.arrow_forward_rounded,
+          onPressed: () => context.go(Routes.consent),
+        ),
       ),
     );
   }
@@ -478,14 +488,38 @@ class _ResumeViewState extends State<_ResumeView> {
       icon: Icons.cloud_off_rounded,
       title: 'Resume abhi ban nahi paya.',
       subtitle: 'Thodi der baad dobara try karein.',
-      action: BbButton(
-        label: 'Try again',
-        iconLeft: Icons.refresh_rounded,
-        onPressed: context.read<ResumeCubit>().generate,
+      action: _withUploadEntry(
+        BbButton(
+          label: 'Try again',
+          iconLeft: Icons.refresh_rounded,
+          onPressed: context.read<ResumeCubit>().generate,
+        ),
       ),
     );
   }
+
+  /// [primary] with the upload entry under it. The two states with NO résumé
+  /// on screen offer it too: a worker who already has a résumé file should not
+  /// have to finish the interview, or wait out a failed load, to use it.
+  /// Under the state's own button, never in place of it.
+  Widget _withUploadEntry(Widget primary) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        primary,
+        const SizedBox(height: 12),
+        const ResumeUploadEntryButton(
+          entryKey: kResumeTabUploadEntryKey,
+          block: false,
+        ),
+      ],
+    );
+  }
 }
+
+/// The Résumé tab's "Resume upload karein" entry — one key in every state
+/// that draws it, so a test can follow it across them.
+const Key kResumeTabUploadEntryKey = Key('resume-upload-entry');
 
 /// Spec §4's last row — the worker's way to say a line on their own resume is
 /// wrong.
