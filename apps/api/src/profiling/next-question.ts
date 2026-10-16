@@ -608,6 +608,32 @@ export const PROFILE_PAGE_POINTER_PAIR = [
   "ये आप बाद में प्रोफ़ाइल पेज पे भर सकते हैं।",
 ] as const;
 
+/**
+ * ADR-0057 (#2312) — the edit gate's fixed lines, each `[roman, devanagari]` and authored side by
+ * side for the progress pairs' reason. Each LEADS the question the gate puts back on screen.
+ *   APPLIED / REMOVED — after Haan: something was changed / only removals were made.
+ *   KEPT              — after Nahi: nothing changed.
+ *   ROLE POINTER      — a change to the trade, which the chat does not make (owner ruling
+ *                       2026-10-16, worded after the Profile-page pointer above).
+ * The before → after confirmation itself is DYNAMIC (it names values), so it is never a constant
+ * here: the voice form reads it with on-device TTS, as it does the trade gate.
+ */
+export const EDIT_APPLIED_PAIR = ["Theek hai, badal diya.", "ठीक है, बदल दिया।"] as const;
+export const EDIT_REMOVED_PAIR = ["Theek hai, hata diya.", "ठीक है, हटा दिया।"] as const;
+export const EDIT_KEPT_PAIR = ["Theek hai, kuch nahi badla.", "ठीक है, कुछ नहीं बदला।"] as const;
+export const ROLE_CHANGE_POINTER_PAIR = [
+  "Ye badlaav aap baad mein Profile page pe kar sakte hain.",
+  "ये बदलाव आप बाद में प्रोफ़ाइल पेज पे कर सकते हैं।",
+] as const;
+export const EDIT_GATE_LEAD_PAIRS: readonly (readonly [roman: string, devanagari: string])[] = [
+  EDIT_APPLIED_PAIR,
+  EDIT_REMOVED_PAIR,
+  EDIT_KEPT_PAIR,
+  ROLE_CHANGE_POINTER_PAIR,
+];
+/** Every edit-gate lead line, roman — for the reply closure and the persona scan. */
+export const EDIT_GATE_LEAD_TEXTS: readonly string[] = EDIT_GATE_LEAD_PAIRS.map(([roman]) => roman);
+
 /** Every progress line the engine can serve — the no-count line, then one per count. */
 export const PROGRESS_REPLY_TEXTS: readonly string[] = PROGRESS_REPLY_PAIRS.map(([roman]) => roman);
 

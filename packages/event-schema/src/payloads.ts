@@ -56,6 +56,8 @@ import {
   APPLICANT_POSTING_KINDS,
   APPLICANT_STAGES,
   PROFILING_TURN_INTENTS,
+  PROFILING_EDIT_OPS,
+  PROFILING_EDIT_CANCEL_REASONS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -5600,3 +5602,41 @@ export const ProfilingTurnUnderstoodPayload = z
     message: "the Profile-page pointer is served only for a page-owned mention",
   });
 export type ProfilingTurnUnderstoodPayload = z.infer<typeof ProfilingTurnUnderstoodPayload>;
+
+// ── ADR-0057 (#2312) — the Haan/Nahi gate on a filled field ───────────────────────────────────
+
+/**
+ * The fields every edit-gate event carries: whose interview, which proposal, which field, and
+ * whether it was a change or a removal. ONE EVENT PER ROW of a proposal, so a count of
+ * `field_key` is a count of fields, never of cards.
+ *
+ * `field_key` is a CLOSED catalogue key — a pack `question_key`, or `skills` / `experience` for
+ * the two draft lists, or `role` for the trade — never a value. NEVER THE WORKER'S WORDS, THE OLD
+ * VALUE OR THE NEW ONE (ADR-0057 §6): `.strict()` keeps it that way.
+ */
+const profilingFieldEditShape = {
+  worker_id: uuidSchema,
+  session_id: uuidSchema,
+  proposal_id: uuidSchema,
+  field_key: z.string().min(1).max(64),
+  op: z.enum(PROFILING_EDIT_OPS),
+  submission_id: uuidSchema.nullable(),
+};
+
+/** A change to a filled field was put to the worker as a Haan/Nahi confirmation. */
+export const ProfilingFieldEditProposedPayload = z.object(profilingFieldEditShape).strict();
+export type ProfilingFieldEditProposedPayload = z.infer<typeof ProfilingFieldEditProposedPayload>;
+
+/** The worker said Haan, and the change was written. */
+export const ProfilingFieldEditConfirmedPayload = z.object(profilingFieldEditShape).strict();
+export type ProfilingFieldEditConfirmedPayload = z.infer<typeof ProfilingFieldEditConfirmedPayload>;
+
+/**
+ * The change was NOT written, and why: Nahi (`declined`), a typed message instead
+ * (`lapsed`), the field moved beneath it (`stale`), or a change the chat does not make — the
+ * trade — answered with the Profile-page pointer (`profile_page`, never put to the worker).
+ */
+export const ProfilingFieldEditCancelledPayload = z
+  .object({ ...profilingFieldEditShape, reason: z.enum(PROFILING_EDIT_CANCEL_REASONS) })
+  .strict();
+export type ProfilingFieldEditCancelledPayload = z.infer<typeof ProfilingFieldEditCancelledPayload>;

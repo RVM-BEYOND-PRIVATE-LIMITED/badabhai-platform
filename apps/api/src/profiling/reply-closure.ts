@@ -38,6 +38,7 @@ import {
   servedText,
   PROGRESS_REPLY_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
+  EDIT_GATE_LEAD_TEXTS,
 } from "./next-question";
 // THE ONE IMPORT NOT FROM THE PURE MODULE, and it is a deliberate trade. `UNAVAILABLE_REPLY` is
 // this same constant re-exported by the orchestrator, because two copies of a worker-facing string
@@ -143,6 +144,8 @@ export const CONSTANT_REPLIES: readonly string[] = [
   ...PROGRESS_REPLY_TEXTS,
   // ADR-0057 (#2311) — the Profile-page pointer.
   PROFILE_PAGE_POINTER_TEXT,
+  // ADR-0057 (#2312) — the edit gate's lead lines (changed, removed, kept, the trade pointer).
+  ...EDIT_GATE_LEAD_TEXTS,
 ];
 
 /** Thrown by the guards below. Names the offending text so the corpus row is findable. */

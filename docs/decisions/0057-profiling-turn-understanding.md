@@ -126,6 +126,17 @@ typed text
 - A **double tap** applies once.
 - **A typed message while a proposal is pending** is understood normally, and the proposal lapses.
 
+**Owner rulings, 2026-10-16 (#2312):**
+- **Copy.** One change: "Experience: 5 saal se 2 saal kar doon?". A removal: "Training: CNC Basics hata doon? Ye wapas nahi aayega.". Several: "Ye badlaav kar doon?" over one line per row. A change with no value: "Theek hai, sahi Experience bataiye." over the field's own question. After the answer: "Theek hai, badal diya." / "Theek hai, hata diya." / "Theek hai, kuch nahi badla."
+- **The trade is not changed here.** It has its own confirmation in Phase A. A later request to change it gets "Ye badlaav aap baad mein Profile page pe kar sakte hain." above the question, never a proposal.
+- **A job change re-sums the total experience** from the jobs, by the #1505 rule the handover applies: every job must resolve to months, and the sum must be in bound.
+
+**As built:**
+- The gate runs on the **pack stretch** only; while Phase A leads, its own turn owns the draft.
+- A proposal stands in for the **pack question the turn would serve**. That question gets its ask back when the gate closes and is put back.
+- A close, a handover or a model turn never carries a proposal.
+- **#2307's one-candidate correction** is put to the worker instead of written, but only when the layer returned a real verdict. A failed call keeps today's silent correction (§3.6).
+
 ### 3.5 The profile build (R9)
 
 Jobs reach the profile **only** through the post-flush Phase C extraction, which re-reads the whole transcript (`profile-extraction.processor.ts:1905`). The flush therefore persists two things on `conversation_state`, as a versioned sibling key outside the frozen contract (the `general_road` stamp precedent):
@@ -138,6 +149,19 @@ The build then works as follows:
 - Phase C receives the settled draft as authoritative context.
 
 A session with no edits builds exactly what it builds today.
+
+**As built (#2313):**
+- **The stamp.** The confirmed-change ledger is persisted as the strict, versioned `chat_edits` sibling key (v1). It is written by the checkpoint, the flush and the abandon sweep (the row's own stamp first, the envelope's second), and is absent when nothing was confirmed. It holds:
+  - the ledger (catalogue keys and ops);
+  - the settled list, only for a list the worker changed;
+  - the pack fields removed and never answered again.
+
+  A changed pack value needs no copy, because the answer map holds it.
+- **The build corrects its two transcript-read inputs before the merge** (`withChatEdits`), so the merge keeps its one precedence rule per field:
+  - a removed field is dropped from the parse overlay;
+  - Phase C's value is cleared for a changed pack field it would outrank (city, availability);
+  - a changed list is the chat's. Owner ruling 2026-10-16: the chat's list replaces Phase C's for that list.
+- **Phase C is not sent the settled draft as context.** Every field the chat can change is overridden deterministically after Phase C, so the context would change no stored value; it would only add tokens. This departs from the issue text on purpose.
 
 ### 3.6 Failure
 

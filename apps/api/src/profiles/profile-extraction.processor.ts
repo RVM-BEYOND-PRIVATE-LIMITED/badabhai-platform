@@ -76,6 +76,8 @@ import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
 import { buildGeneralRoadExtraction } from "./general-road-profile";
+import { withChatEdits } from "./chat-edits-profile";
+import { readChatEditsStamp } from "../profiling/understanding/chat-edits.stamp";
 import { certifyInterviewDraft } from "./interview-draft-certification";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
@@ -225,6 +227,9 @@ type PersistedConversationState = {
   // #2021. Never narrowed here: `readWorkerOnlyAnswerMap` (fail closed) is their only reader.
   readonly llm_led_turns: unknown;
   readonly llm_draft_settled: unknown;
+  // ADR-0057 R9 (#2313). Never narrowed here: `readChatEditsStamp` (strict, versioned) is its
+  // only reader.
+  readonly chat_edits: unknown;
 };
 
 /**
@@ -1441,12 +1446,25 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // produces, which is already a usable profile.
     const interview = await this.interviewOverlay(job, lines, occupation);
 
-    const projection = projectProfile(answerMap, gated.accepted, { split: splitToolsEquipment });
+    // ADR-0057 R9 (#2313) — WHAT THE WORKER CONFIRMED IN CHAT OUTRANKS THE TRANSCRIPT. Both inputs
+    // above were read from a conversation that still says the old value: a removed field stays
+    // empty, a changed one keeps its confirmed value, and a changed list is the chat's. See
+    // `withChatEdits`. No `chat_edits` stamp (every session with no confirmed change)
+    // returns both inputs untouched.
+    const honoured = withChatEdits(readChatEditsStamp(state), gated.accepted, interview);
+    if (honoured.corrected > 0) {
+      // COUNTS ONLY — never a value (no-PII-in-logs).
+      this.logger.log(
+        `profile for job ${job.aiJobId} honours confirmed chat changes: corrected=${honoured.corrected}`,
+      );
+    }
+
+    const projection = projectProfile(answerMap, honoured.accepted, { split: splitToolsEquipment });
     this.logger.log(
       `profile projected for job ${job.aiJobId} status=${projection.parseStatus} ` +
         `fields=${Object.keys(projection.draft).length} overlay=${projection.overlayFields.length}`,
     );
-    const extraction = toExtractionOutput(projection, interview, {
+    const extraction = toExtractionOutput(projection, honoured.interview, {
       pinnedOccupationLabel: occupation?.label ?? null,
       packId: packPinOf(state).packId,
       answerMap,

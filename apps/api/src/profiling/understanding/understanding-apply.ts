@@ -40,8 +40,11 @@ export interface AppliedUnderstanding {
   readonly noted: readonly string[];
   /** The schema keys written, in order — closed catalogue keys for the event. */
   readonly appliedKeys: readonly string[];
-  /** Fills that named an already-filled field with a different value: changes, for #2312. */
-  readonly conflicts: number;
+  /**
+   * Fills that named an already-filled field with a different value: CHANGES, never written here.
+   * The Haan/Nahi gate (#2312) puts them to the worker as edits.
+   */
+  readonly conflicts: readonly ProfilingFill[];
 }
 
 export interface ApplyFillsInput {
@@ -61,7 +64,7 @@ export function applyFills(input: ApplyFillsInput): AppliedUnderstanding {
   let draft = input.draft;
   const noted: string[] = [];
   const appliedKeys: string[] = [];
-  let conflicts = 0;
+  const conflicts: ProfilingFill[] = [];
 
   for (const fill of input.fills) {
     // One write per scalar key per turn; the two lists may take several entries.
@@ -72,7 +75,7 @@ export function applyFills(input: ApplyFillsInput): AppliedUnderstanding {
       const values = captureAnswer(textFor(item, fill.value), item).values;
       if (values.length === 0) continue;
       if (answers[item.question_key]?.status === "answered") {
-        if (values.some((value) => changesAnswer(answers, value))) conflicts += 1;
+        if (values.some((value) => changesAnswer(answers, value))) conflicts.push(fill);
         continue;
       }
       for (const value of values) answers = recordAnswer(answers, value, input.turn);
@@ -128,7 +131,7 @@ export function newlyAnswered(
  * (the schema's own convention) and the yes/no reader wants "haan"/"nahi"; a bare number of years
  * needs its unit for the duration reader. Everything else is read as written.
  */
-function textFor(item: QuestionPackItem, value: string): string {
+export function textFor(item: QuestionPackItem, value: string): string {
   const trimmed = value.trim();
   if (item.answer_type === "boolean") {
     if (/^true$/i.test(trimmed)) return "haan";
@@ -154,7 +157,7 @@ function withSkill(draft: LlmInterviewDraft, value: string): LlmInterviewDraft |
 }
 
 /** "role; duration; work" as a job entry, or null when there is no role or it fails the contract. */
-function jobOf(value: string): ExperienceEntry | null {
+export function jobOf(value: string): ExperienceEntry | null {
   const [role = "", duration = "", ...work] = value.split(";").map((part) => part.trim());
   if (role.length === 0) return null;
   const parsed = ExperienceEntrySchema.safeParse({

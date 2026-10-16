@@ -15,7 +15,11 @@ import { describe, expect, it } from "vitest";
 import { checkPersonaTokens, personaCorpus } from "@badabhai/profiling-lexicon";
 
 import { IDENTIFY_TYPE_PROMPT } from "./identify.service";
-import { PROFILE_PAGE_POINTER_TEXT, PROGRESS_REPLY_TEXTS } from "./next-question";
+import {
+  EDIT_GATE_LEAD_TEXTS,
+  PROFILE_PAGE_POINTER_TEXT,
+  PROGRESS_REPLY_TEXTS,
+} from "./next-question";
 import {
   CLOSING_REPLY,
   DE_ESCALATION_REPLY,
@@ -37,6 +41,8 @@ const ENGINE_COPY: ReadonlyArray<readonly [name: string, text: string]> = [
   ...PROGRESS_REPLY_TEXTS.map((t, i) => [`PROGRESS_REPLY_TEXTS[${i}]`, t] as const),
   // ADR-0057 (#2311) — the Profile-page pointer.
   ["PROFILE_PAGE_POINTER_TEXT", PROFILE_PAGE_POINTER_TEXT],
+  // ADR-0057 (#2312) — the edit gate's lead lines (changed, removed, kept, the trade pointer).
+  ...EDIT_GATE_LEAD_TEXTS.map((t, i) => [`EDIT_GATE_LEAD_TEXTS[${i}]`, t] as const),
 ];
 
 describe("the engine's own replies are on-persona", () => {

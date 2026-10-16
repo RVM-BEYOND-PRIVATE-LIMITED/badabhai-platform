@@ -257,6 +257,41 @@ const FULL: ProfilingEnvelope = {
     deescalated: { key: "key:q_city", count: 1 },
     chipNoOps: { key: "key:q_city", count: 2 },
   },
+  // NON-DEFAULT in every sub-field (ADR-0057 #2312): a dropped proposal is a Haan that writes
+  // nothing, and a dropped resume key is the displaced question never put back.
+  editGate: {
+    proposal: {
+      id: "66666666-6666-4666-8666-666666666666",
+      rows: [
+        {
+          key: "q_years",
+          op: "edit",
+          index: null,
+          label: "Experience",
+          before: "7 saal",
+          after: "5 saal",
+          value: "5 saal",
+        },
+        {
+          key: "skills",
+          op: "delete",
+          index: 1,
+          label: "Skill",
+          before: "Grinding",
+          after: null,
+          value: null,
+        },
+      ],
+    },
+    awaiting: { key: "q_city", index: null, label: "Sheher", before: "Pune" },
+    resumeKey: "q_city",
+  },
+  // NON-DEFAULT (#2313): a dropped ledger is a confirmed change the profile build reads back out of
+  // the transcript.
+  editLedger: [
+    { key: "q_years", op: "edit", targetField: "experience_years" },
+    { key: "skills", op: "delete", targetField: null },
+  ],
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
