@@ -281,11 +281,11 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   final KnownWorkerFactsStore _knownFacts;
 
   /// The résumé-section walk this cubit is running, if any
-  /// (`trade_form_section_walk.dart` — the Technical Skills + Availability,
-  /// Terms & Salary pilots). Null is the full walk, exactly today's behaviour.
-  /// Set by [load] and KEPT across calls, so a retry (`load()` with no
-  /// argument) and the `schema_stale` resync stay inside the same section
-  /// rather than silently widening back to the whole form.
+  /// (`trade_form_section_walk.dart` — Technical Skills; Availability, Terms &
+  /// Salary; Work History; Education & Certifications). Null is the full walk,
+  /// exactly today's behaviour. Set by [load] and KEPT across calls, so a retry
+  /// (`load()` with no argument) and the `schema_stale` resync stay inside the
+  /// same section rather than silently widening back to the whole form.
   String? _sectionKey;
 
   /// The armed section walk, for the screen to narrow marker-internal pages
@@ -705,8 +705,20 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// `fromStart` (Resume poora karein) always opens at step 1 — the same first
   /// question a new candidate answers — so work history / certificates /
   /// education markers are walked, not resumed past.
+  ///
+  /// A résumé-SECTION walk always opens at its first step too. The worker
+  /// tapped one section of a finished résumé to review it, so resuming is the
+  /// wrong question to answer: with every question already answered it landed
+  /// on the section's LAST question with "Submit karein" (an experienced CNC
+  /// turner's Technical Skills opened on step 13 of 13), and a partly answered one
+  /// skipped the answered questions in front of the gap. Forward moves never
+  /// skip an answered question ([_forwardIndex]), so from step 1 the worker
+  /// sees each stored answer in turn. The marker walks (Availability, Work
+  /// History, Education) are one step long and already landed on it.
   int _resumeIndex(List<TradeFormFlatStep> flat) {
-    if (_fromStart) return 0;
+    if (_fromStart || tradeFormSectionFilterFor(_sectionKey) != null) {
+      return 0;
+    }
     final int i = _nextStepIndex(flat, from: 0);
     if (i >= 0) return i;
     final int last =
