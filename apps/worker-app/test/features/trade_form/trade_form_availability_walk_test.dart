@@ -294,22 +294,68 @@ void main() {
     });
 
     testWidgets(
-        'above 180 holds the page with the range and never reaches the save',
+        'above 180, typed key by key, holds the page AND refuses the save',
         (WidgetTester tester) async {
       await pump(tester, sectionKey: kResumeMenuAvailabilitySalaryKey);
 
       await next(tester, 4);
-      await tester.enterText(find.byKey(kTradeFormNoticeFieldKey), '200');
-      await tester.pump();
+      // One keystroke at a time, like a worker: 2 and 20 are valid on the way.
+      for (final String typed in <String>['2', '20', '200']) {
+        await tester.enterText(find.byKey(kTradeFormNoticeFieldKey), typed);
+        await tester.pump();
+      }
 
       expect(find.text(_kNoticeError), findsOneWidget, reason: 'inline');
       expect(key.currentState!.currentPageError(), _kNoticeError,
           reason: 'the screen\'s gate refuses "Aage badhein" on this');
 
-      // Not "the last valid prefix" (20): the stored 15 is what survives.
+      // Even if something moved the walk on to the saving page, the gate the
+      // screen checks before the save still refuses it — the prefix 20 the
+      // keystrokes left behind can never be saved for a box showing 200.
       await next(tester, 1);
+      expect(key.currentState!.isLastPage, isTrue);
+      expect(key.currentState!.currentPageError(), _kNoticeError);
+
+      // Fixing the box releases both.
+      key.currentState!.goToPreviousPage();
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(kTradeFormNoticeFieldKey), '90');
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), isNull);
+      await next(tester, 1);
+      expect(key.currentState!.currentPageError(), isNull);
       key.currentState!.save();
-      expect(saved!.noticePeriodDays, 15);
+      expect(saved!.noticePeriodDays, 90);
+    });
+
+    testWidgets('both new pages fit 320x568 at 2.0 text scale', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await pump(tester, sectionKey: kResumeMenuAvailabilitySalaryKey);
+
+      await next(tester, 2); // shift → job type → cities
+      // The cities page's own heading row overflows at this scale. That is
+      // PRE-EXISTING (design2_cities_page.dart, unchanged here) and tracked
+      // separately — it is not this test's subject, so its error is cleared.
+      tester.takeException();
+
+      await next(tester, 1);
+      expect(find.text('Kab se available hain?'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await next(tester, 1);
+      expect(find.byKey(kTradeFormNoticeFieldKey), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.enterText(find.byKey(kTradeFormNoticeFieldKey), '200');
+      await tester.pump();
+      expect(find.text(_kNoticeError), findsOneWidget);
+      expect(tester.takeException(), isNull,
+          reason: 'the inline range error must fit too');
     });
 
     testWidgets('180 is accepted; only digits reach the box', (

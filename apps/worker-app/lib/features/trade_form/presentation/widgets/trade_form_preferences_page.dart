@@ -277,10 +277,13 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       text: _prefs.noticePeriodDays?.toString() ?? '');
 
   /// True while the box holds a number the server would refuse (above
-  /// [kTradeFormMaxNoticeDays]). It blocks "Aage badhein" via
-  /// [currentPageError] and NEVER reaches [_prefs] — neither as the number
-  /// nor as a clear. (Profile edit's field saves the last valid prefix here —
-  /// typing 200 saves 20 — which is exactly what this refuses to copy.)
+  /// [kTradeFormMaxNoticeDays]). The refused number never reaches [_prefs] —
+  /// neither as itself nor as a clear — but the digits typed on the way to it
+  /// did: typing 2, 0, 0 leaves 20 there. So what stops a wrong save is the
+  /// GATE, not [_prefs]: [currentPageError] holds the worker on the notice
+  /// page AND refuses the marker's save (the terms page) while this is true.
+  /// (Profile edit's field has no such gate — typing 200 saves 20 — which is
+  /// exactly what this refuses to copy.)
   bool _noticeInvalid = false;
 
   int _page = 0;
@@ -335,13 +338,17 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// against. Checked by `_WizardScaffoldState` before [goToNextPage]/[save].
   ///
   /// The notice page is the other: a number above [kTradeFormMaxNoticeDays]
-  /// would 400 the same save, so it holds the worker on the page instead.
+  /// would 400 the same save, so it holds the worker on the page instead —
+  /// and, belt and braces, the save itself (on the terms page) is refused
+  /// while the box still holds one (see [_noticeInvalid]).
   String? currentPageError() {
     if (_pages[_page] == _PrefsPage.languages &&
         _prefs.languages.length > kTradeFormMaxLanguages) {
       return _kLangSubtitle;
     }
-    if (_pages[_page] == _PrefsPage.noticePeriod && _noticeInvalid) {
+    if (_noticeInvalid &&
+        (_pages[_page] == _PrefsPage.noticePeriod ||
+            _pages[_page] == _PrefsPage.terms)) {
       return _kNoticeRangeError;
     }
     return null;
