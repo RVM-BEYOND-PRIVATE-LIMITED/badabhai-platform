@@ -716,9 +716,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// sees each stored answer in turn. The marker walks (Availability, Work
   /// History, Education) are one step long and already landed on it.
   int _resumeIndex(List<TradeFormFlatStep> flat) {
-    if (_fromStart || tradeFormSectionFilterFor(_sectionKey) != null) {
-      return 0;
-    }
+    if (_walksEveryStep) return 0;
     final int i = _nextStepIndex(flat, from: 0);
     if (i >= 0) return i;
     final int last =
@@ -726,6 +724,14 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     if (last >= 0) return last;
     return flat.isEmpty ? 0 : flat.length - 1;
   }
+
+  /// Whether this walk shows EVERY step, answered ones included, instead of
+  /// resuming: "Resume poora karein" (`fromStart`) and every résumé-SECTION
+  /// walk (see [_resumeIndex]). One predicate for the opening step AND the
+  /// mid-walk `schema_stale` resync, so a re-fetch can never switch a review
+  /// walk back to resume semantics and skip the answered steps still ahead.
+  bool get _walksEveryStep =>
+      _fromStart || tradeFormSectionFilterFor(_sectionKey) != null;
 
   /// The first UNANSWERED question OR UNSAVED marker screen at/after [from] —
   /// the forward-scan half of resumability. [_resumeIndex] is the FRESH-LOAD
@@ -981,17 +987,17 @@ class TradeFormCubit extends Cubit<TradeFormState> {
           f.step is TradeFormQuestionStep &&
           (f.step as TradeFormQuestionStep).question.id == result.questionKey);
       final int searchFrom = answeredIdx >= 0 ? answeredIdx + 1 : 0;
-      // A fromStart walk ("Resume poora karein") shows EVERY step — answered
-      // questions included — so its resync advances to just past the settled
-      // question, skipping only markers THIS walk already saved. An ordinary
-      // walk instead resumes at the first still-unanswered step ahead.
+      // A walk that shows EVERY step ("Resume poora karein", a résumé-section
+      // walk — [_walksEveryStep]) advances to just past the settled question,
+      // skipping only markers THIS walk already saved. An ordinary walk
+      // instead resumes at the first still-unanswered step ahead.
       // (`_forwardIndex` reports `flat.length` when nothing is left, while
       // `_nextStepIndex` reports -1 — hence the two-sided `finished` check.)
-      final int nextIdx = _fromStart
+      final int nextIdx = _walksEveryStep
           ? _forwardIndex(flat, from: searchFrom)
           : _nextStepIndex(flat, from: searchFrom);
       final bool finished =
-          _fromStart ? nextIdx >= flat.length : nextIdx < 0;
+          _walksEveryStep ? nextIdx >= flat.length : nextIdx < 0;
       if (finished) {
         // The just-answered question was the new schema's last step too.
         emit(state.copyWith(

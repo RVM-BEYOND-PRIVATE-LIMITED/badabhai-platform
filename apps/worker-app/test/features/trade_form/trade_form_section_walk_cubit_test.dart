@@ -182,6 +182,35 @@ void main() {
           'turning_machine');
     });
 
+    test(
+        'a schema_stale resync mid-review keeps walking every step — it never '
+        'skips the answered ones ahead and ends the walk', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async =>
+          technicalSkills(firstAnswered: true, secondAnswered: true));
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 3,
+            total: 3,
+            schemaStale: true,
+          ));
+      final TradeFormCubit cubit = TradeFormCubit(repo);
+      await cubit.load(sectionKey: kResumeMenuTechnicalSkillsKey);
+
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['k']),
+      );
+
+      expect(cubit.state.status, TradeFormStatus.ready,
+          reason: 'resume semantics would find nothing unanswered and finish');
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'material_worked');
+    });
+
     test('the FULL walk still resumes — only section walks changed', () async {
       when(() => repo.loadForm()).thenAnswer((_) async =>
           technicalSkills(firstAnswered: true, secondAnswered: false));
