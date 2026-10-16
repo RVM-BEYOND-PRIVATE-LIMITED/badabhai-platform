@@ -108,6 +108,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     identityIntake: null,
     freeChat: null,
     editGate: null,
+    editLedger: [],
     ...over,
   };
 }
@@ -2462,6 +2463,58 @@ describe("ChatService — the general road (ADR-0045)", () => {
     const ledState = led.chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
     expect(ledState.llm_led_turns).toBe(4);
     expect(ledState.llm_draft_settled).toBe(true);
+  });
+
+  describe("ADR-0057 R9 (#2313) — the confirmed chat changes reach conversation_state", () => {
+    const JOB = { role_label: "Fitter", duration_text: "2 saal", duration_months: 24, work_done: "assembly" };
+    const edited = () =>
+      envelope({
+        answerMap: [answer()] as never,
+        llmDraft: { domain_label: null, role_label: "Fitter", skills: [], experiences: [JOB] },
+        editLedger: [{ key: "experience", op: "edit", targetField: null }],
+      });
+    const STAMP = {
+      v: 1,
+      ledger: [{ field_key: "experience", op: "edit", target_field: null }],
+      skills: null,
+      experiences: [JOB],
+      deleted_fields: [],
+    };
+
+    it("the flush persists the stamp — and none at all for a session with no confirmed change", async () => {
+      const { chat } = await run({
+        buffer: {},
+        written: { ...COMPLETED, profiling: edited() },
+        turn: { complete: true, questionKey: null, completionReason: "fields_complete" },
+      });
+      expect((chat.endSession.mock.calls[0]![2] as Record<string, unknown>).chat_edits).toEqual(STAMP);
+
+      const clean = await run({
+        buffer: {},
+        written: COMPLETED,
+        turn: { complete: true, questionKey: null, completionReason: "fields_complete" },
+      });
+      expect(has(clean.chat.endSession.mock.calls[0]![2] as object, "chat_edits")).toBe(false);
+    });
+
+    it("a rebuilt envelope never erases the stamp a checkpoint made durable", async () => {
+      const { chat } = await run({
+        buffer: {},
+        conversationState: { chat_edits: STAMP },
+        written: COMPLETED,
+        turn: { complete: true, questionKey: null, completionReason: "fields_complete" },
+      });
+      expect((chat.endSession.mock.calls[0]![2] as Record<string, unknown>).chat_edits).toEqual(STAMP);
+    });
+
+    it("the mid-interview checkpoint carries it — that write REPLACES the column", async () => {
+      const { chat } = await run({
+        written: { profiling: edited() },
+        turn: { checkpointDue: true },
+      });
+      const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
+      expect(state.chat_edits).toEqual(STAMP);
+    });
   });
 
   it("the gate's checkpoint carries the stamp — that write REPLACES the column", async () => {

@@ -29,6 +29,7 @@ import {
   toResumeHistoryStatePatch,
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
+import { storedChatEdits, toChatEditsStatePatch } from "../profiling/understanding/chat-edits.stamp";
 import { generalFormOfferFor, type GeneralFormOffer } from "../profiling/skills-gate";
 import {
   identityGapsOf,
@@ -1262,6 +1263,10 @@ export class ChatService {
             // read survives the replace.
             // #2021 — same reasoning: the model-provenance stamp must survive a REPLACING write.
             ...toLlmProvenanceStatePatch(buffered.profiling),
+            // ADR-0057 R9 (#2313) — same reasoning: the confirmed changes. The row's stamp first,
+            // the envelope's second, so a rebuilt envelope never erases one already made durable.
+            ...storedChatEdits(session.conversationState),
+            ...toChatEditsStatePatch(buffered.profiling),
           },
           now,
         );
@@ -1560,6 +1565,12 @@ export class ChatService {
       // only when both say "no" (owner ruling 2026-10-07, worker-only). ABSENT for a session with
       // no envelope, which the processor reads as "not worker-only" — fail closed.
       ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
+      // ADR-0057 R9 (#2313) — the changes the worker confirmed in chat, which the profile build
+      // must honour over the transcript. ABSENT for a session with none. The row's stamp first
+      // (a checkpoint may have made it durable before the envelope was rebuilt), the envelope's
+      // second.
+      ...storedChatEdits(storedState),
+      ...(buffer.profiling ? toChatEditsStatePatch(buffer.profiling) : {}),
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -1981,6 +1992,9 @@ export class ChatService {
           // ADR-0051 §8 — the rolling summary: `abandonSession` keeps the LIVE row's key itself.
           // #2021 — see `flushInterview`.
           ...(buffer.profiling ? toLlmProvenanceStatePatch(buffer.profiling) : {}),
+          // ADR-0057 R9 (#2313) — see `flushInterview`.
+          ...storedChatEdits(session.conversationState),
+          ...(buffer.profiling ? toChatEditsStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
       : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding

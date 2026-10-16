@@ -259,6 +259,7 @@ import {
   editProposalWire,
   editResolvedLead,
   jobsTotalYears,
+  MAX_EDIT_LEDGER,
   newProposalId,
   readEditConfirmReply,
   ROLE_KEY,
@@ -2582,7 +2583,20 @@ export class ProfilingOrchestrator {
             turn,
           });
           answers = out.answers;
-          next = { ...withAnswers(next, answers), llmDraft: out.draft, askCounts: out.askCounts };
+          next = {
+            ...withAnswers(next, answers),
+            llmDraft: out.draft,
+            askCounts: out.askCounts,
+            // #2313 (R9) — what the profile build must honour once the transcript is all it reads.
+            editLedger: [
+              ...next.editLedger,
+              ...out.applied.map((row) => ({
+                key: row.key,
+                op: row.op,
+                targetField: items.find((i) => i.question_key === row.key)?.target_field ?? null,
+              })),
+            ].slice(-MAX_EDIT_LEDGER),
+          };
           understandRefs.edit = editPlan({
             lead: editResolvedLead(out.applied, true),
             resolved: {

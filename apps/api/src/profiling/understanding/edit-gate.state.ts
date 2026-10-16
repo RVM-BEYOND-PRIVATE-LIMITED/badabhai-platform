@@ -97,3 +97,40 @@ export function narrowEditGate(value: unknown): EditGateState | null {
 export function editGateOpen(gate: EditGateState | null): boolean {
   return gate !== null && (gate.proposal !== null || gate.awaiting !== null);
 }
+
+// ---------------------------------------------------------------------------
+// The confirmed-change ledger (ADR-0057 R9, #2313)
+// ---------------------------------------------------------------------------
+
+/**
+ * One change the worker CONFIRMED (said Haan to) — what the profile build must honour after the
+ * flush, when the transcript beside it still says the old value. Catalogue keys only: the final
+ * values themselves are in the answer map and the draft, which the flush persists.
+ */
+export interface EditLedgerEntry {
+  /** A pack `question_key`, or `skills` / `experience` for the draft's two lists. */
+  readonly key: string;
+  readonly op: ProfilingEditOp;
+  /** The pack item's target field — what the profile build names it by; null for a list. */
+  readonly targetField: string | null;
+}
+
+/** A session's ledger is bounded: a worker editing in a loop never grows the envelope without end. */
+export const MAX_EDIT_LEDGER = 50;
+
+const EditLedgerEntrySchema = z.object({
+  key: z.string().min(1).max(64),
+  op: z.enum(PROFILING_EDIT_OPS),
+  targetField: z.string().min(1).max(64).nullable(),
+});
+
+/** Unreadable entries are dropped one by one; an unreadable ledger is empty (nothing confirmed). */
+export function narrowEditLedger(value: unknown): EditLedgerEntry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: EditLedgerEntry[] = [];
+  for (const raw of value) {
+    const parsed = EditLedgerEntrySchema.safeParse(raw);
+    if (parsed.success) entries.push(parsed.data);
+  }
+  return entries.slice(-MAX_EDIT_LEDGER);
+}

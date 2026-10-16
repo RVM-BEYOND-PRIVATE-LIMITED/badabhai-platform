@@ -286,6 +286,12 @@ const FULL: ProfilingEnvelope = {
     awaiting: { key: "q_city", index: null, label: "Sheher", before: "Pune" },
     resumeKey: "q_city",
   },
+  // NON-DEFAULT (#2313): a dropped ledger is a confirmed change the profile build reads back out of
+  // the transcript.
+  editLedger: [
+    { key: "q_years", op: "edit", targetField: "experience_years" },
+    { key: "skills", op: "delete", targetField: null },
+  ],
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
