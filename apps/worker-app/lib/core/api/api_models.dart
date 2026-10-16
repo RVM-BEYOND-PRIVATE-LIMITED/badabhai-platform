@@ -920,6 +920,89 @@ class EditProposalRow extends Equatable {
       ];
 }
 
+/// ADR-0057 R10 (#2314) — the PROFILING chat's confirmation before it changes
+/// or deletes an earlier answer (`edit_proposal` on the chat turn):
+/// `{proposal_id, rows: [{field_label, op, before, after, warning?}]}`.
+///
+/// Drawn as a tile; its Haan / Nahi send the turn's own chips, so the server
+/// path is the text version's. Distinct from the companion's [EditProposal]
+/// (that one carries `expires_at` and `row_id`, and a confirm endpoint).
+class ProfilingEditProposal extends Equatable {
+  const ProfilingEditProposal({required this.proposalId, required this.rows});
+
+  /// Null on a non-map, a missing id, or no drawable row. Never throws (#371).
+  static ProfilingEditProposal? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? id = raw['proposal_id'];
+    final Object? rows = raw['rows'];
+    if (id is! String || id.trim().isEmpty || rows is! List) return null;
+    final List<ProfilingEditRow> parsed = rows
+        .map<ProfilingEditRow?>(ProfilingEditRow.fromJson)
+        .whereType<ProfilingEditRow>()
+        .toList(growable: false);
+    if (parsed.isEmpty) return null;
+    return ProfilingEditProposal(proposalId: id, rows: parsed);
+  }
+
+  final String proposalId;
+  final List<ProfilingEditRow> rows;
+
+  @override
+  List<Object?> get props => <Object?>[proposalId, rows];
+}
+
+/// One row of a [ProfilingEditProposal]: an `edit` (before → after) or a
+/// `delete` (before, and a warning).
+class ProfilingEditRow extends Equatable {
+  const ProfilingEditRow({
+    required this.fieldLabel,
+    required this.isDelete,
+    this.before,
+    this.after,
+    this.warning,
+  });
+
+  /// Null when the row cannot be drawn honestly: no label, an unknown op, an
+  /// edit with no new value, or a delete with nothing named.
+  static ProfilingEditRow? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? label = raw['field_label'];
+    final Object? op = raw['op'];
+    if (label is! String || label.trim().isEmpty) return null;
+    if (op != 'edit' && op != 'delete') return null;
+    String? text(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
+    final String? before = text(raw['before']);
+    final String? after = text(raw['after']);
+    final bool isDelete = op == 'delete';
+    if (isDelete ? before == null : after == null) return null;
+    return ProfilingEditRow(
+      fieldLabel: label,
+      isDelete: isDelete,
+      before: before,
+      after: isDelete ? null : after,
+      warning: text(raw['warning']),
+    );
+  }
+
+  final String fieldLabel;
+  final bool isDelete;
+  final String? before;
+  final String? after;
+  final String? warning;
+
+  /// For the resume store: the wire shape back.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'field_label': fieldLabel,
+    'op': isDelete ? 'delete' : 'edit',
+    'before': before,
+    'after': after,
+    'warning': warning,
+  };
+
+  @override
+  List<Object?> get props => <Object?>[fieldLabel, isDelete, before, after, warning];
+}
+
 /// ADR-0046 §5.1 — the pending EDIT CARD (`edit_proposal`).
 ///
 /// Served on exactly one companion turn per proposal; the app renders its rows
@@ -1047,6 +1130,7 @@ class ChatReply extends Equatable {
     this.gateKind,
     this.generalFormOffer,
     this.editProposal,
+    this.profilingEdit,
     this.cooldownUntil,
     this.readAloud,
     this.newsLinks = const <ChatNewsLink>[],
@@ -1062,6 +1146,12 @@ final String reply;
   /// and Haan/Nahi buttons. Null on every ordinary turn. The server decides
   /// when to offer it; the client only renders.
   final EditProposal? editProposal;
+
+  /// ADR-0057 R10 (#2314) — the PROFILING chat's change/delete confirmation,
+  /// read from the same optional `edit_proposal` key in its own shape (see
+  /// [ProfilingEditProposal]). Null on every other turn, on the companion's
+  /// card, and on an older server — the text + Haan / Nahi chips then carry it.
+  final ProfilingEditProposal? profilingEdit;
 
   /// ADR-0046 — ISO-8601 timestamp when the companion enters a cooldown
   /// (e.g. after a "Nahi" on the edit proposal). While the current time is
@@ -1333,6 +1423,9 @@ final String reply;
             : null,
         // ADR-0046 — Phase 1 companion: the edit proposal card (§5.1).
         editProposal: EditProposal.fromJson(json['edit_proposal']),
+        // ADR-0057 R10 (#2314) — never thrown (#371): a malformed proposal
+        // draws no tile, and the text + chips still carry the question.
+        profilingEdit: ProfilingEditProposal.fromJson(json['edit_proposal']),
         // ADR-0046 — cooldown timestamp (ISO-8601).
         cooldownUntil: json['cooldown_until'] is String
             ? DateTime.tryParse(json['cooldown_until'] as String)?.toLocal()
@@ -1370,6 +1463,7 @@ final String reply;
         gateKind,
         generalFormOffer,
         editProposal,
+        profilingEdit,
         cooldownUntil,
         readAloud,
         newsLinks,

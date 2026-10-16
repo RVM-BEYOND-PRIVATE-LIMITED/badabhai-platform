@@ -22,6 +22,7 @@ const DONT_KNOW_RE = compileNamed("predicates", "dontKnow");
 const HARDSHIP_RE = compileNamed("predicates", "hardship");
 const JOB_PROSPECT_RE = compileNamed("predicates", "jobProspect");
 const JOB_INTERROGATIVE_RE = compileNamed("predicates", "jobInterrogative");
+const PROGRESS_QUESTION_RE = compileNamed("predicates", "progressQuestion");
 const ABUSE_RE = compileNamed("predicates", "abuse");
 const FIRST_PERSON_CLAIM_RE = compileNamed("predicates", "firstPersonClaim");
 const CLAIM_BLOCKERS_RE = compileNamed("predicates", "claimBlockers");
@@ -51,6 +52,11 @@ export type UtteranceClass =
   | "hardship"
   /** "job milegi kya?" — serve the question's `why_text`, then RE-SERVE. Never counts as an ask. */
   | "question_back"
+  /**
+   * "aur kitna bacha hai?" — the worker asks how much is LEFT (#2308). Answer with the real
+   * remaining count, then RE-SERVE. Never an answer, never counts as an ask.
+   */
+  | "progress_question"
   /** Abusive. Serve a fixed de-escalation line; at 3 → close with `abuse_cap`. */
   | "abusive"
   /** Under 2 characters or punctuation-only. Consumes a TURN, not an ASK. */
@@ -129,6 +135,15 @@ export function asksQuestionBack(text: string): boolean {
 }
 
 /**
+ * "aur kitna bacha hai?", "kitne sawaal aur hain?", "kab khatam hoga?" — the worker asks how much
+ * of the interview is left (#2308). Every branch pairs a quantity word with a remainder word or a
+ * question noun; see `$comment_progressQuestion` for what is excluded and why.
+ */
+export function asksProgress(text: string): boolean {
+  return PROGRESS_QUESTION_RE.test(text || "");
+}
+
+/**
  * Does the worker claim this of THEMSELVES, rather than describing a workplace?
  * `signals.has_first_person_claim` — the TD98/TD101 guard that stops "humare yahan CNC hai"
  * becoming `trade: CNC operator`.
@@ -155,13 +170,16 @@ export function hasFirstPersonClaim(text: string): boolean {
  *                      losing a correction leaves the profile holding a number the worker
  *                      explicitly retracted. "nahi nahi, 7 saal — kaam milega kya?" is a
  *                      correction first.
- *   4. `dont_know`   — a complete answer (persona Law 8), so it must be recognised before the
+ *   4. `progress_question` — "aur kitna bacha hai?" asks a question and answers nothing (#2308).
+ *                      Ahead of `dont_know` because "pata nahi kitna bacha hai" declines nothing:
+ *                      read as a don't-know it would settle whatever question is on screen.
+ *   5. `dont_know`   — a complete answer (persona Law 8), so it must be recognised before the
  *                      fallback treats it as off-topic and re-asks. Re-asking after "nahi pata"
  *                      is the specific behaviour Law 8 names as forbidden.
- *   5. `question_back`
- *   6. `hardship`    — last of the specific classes: it neither answers nor blocks, and its
+ *   6. `question_back`
+ *   7. `hardship`    — last of the specific classes: it neither answers nor blocks, and its
  *                      patterns are the most permissive, so anything more specific wins.
- *   7. `off_topic`   — the bounded-re-ask fallback.
+ *   8. `off_topic`   — the bounded-re-ask fallback.
  *
  * `answer` is NOT produced here. Whether a message answers the question ON SCREEN depends on the
  * question, which this function deliberately does not see — that judgement belongs to
@@ -176,6 +194,7 @@ export function classifyUtterance(text: string): UtteranceSignal {
   }
   if (isAbusive(message)) return { cls: "abusive", detector: "abuse" };
   if (isCorrection(message)) return { cls: "correction", detector: "correction_markers" };
+  if (asksProgress(message)) return { cls: "progress_question", detector: "progress_question" };
   if (isDontKnow(message)) return { cls: "dont_know", detector: "dont_know" };
   if (asksQuestionBack(message)) return { cls: "question_back", detector: "job_prospect" };
   if (isHardship(message)) return { cls: "hardship", detector: "hardship" };

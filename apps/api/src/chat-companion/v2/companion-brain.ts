@@ -63,6 +63,7 @@ import {
 import type { HandlerResult } from "./handlers/handler";
 import { workerContextOf } from "./handlers/career-talk.handler";
 import { isResumeOfferChip } from "./companion-resume-offer-chip";
+import { CompanionResumeFacts } from "./companion-resume-facts";
 import { CompanionSummaryService } from "./companion-summary.service";
 import { CompanionHandlerRegistry } from "./handlers/registry";
 
@@ -332,6 +333,8 @@ export class CompanionBrain {
     // #2297 — the rolling summary the reply alone reads: this chat's own while its conversation is
     // alive, else the profiling chat's (ADR-0055 R4).
     private readonly summaries: CompanionSummaryService,
+    // #2304 — what the résumé says, which the reply alone reads (the edit path's own view).
+    private readonly resumeFacts: CompanionResumeFacts,
   ) {}
 
   /** A v1 miss (or a weak alias, R1): classified once and answered per category. */
@@ -478,14 +481,20 @@ export class CompanionBrain {
       v2Intent: CATEGORY_INTENTS[category],
       replyLanguage: replyLanguageOf(input.rawText, verdict),
     };
+    // Both fail soft: a missing summary or résumé costs the reply that context, never the reply.
+    const [summary, resumeFacts] = await Promise.all([
+      this.summaries.latestText(input.workerId),
+      this.resumeFacts.factsFor(input.workerId, input.profile, input.promptText),
+    ]);
     const out = await this.calls.reply(
       {
         category,
         text: input.promptText,
         messages: contextLinesOf(input.recentTurns),
         workerContext: workerContextOf(input.profile),
-        summary: await this.summaries.latestText(input.workerId),
+        summary,
         replyLanguage: asked.replyLanguage,
+        resumeFacts,
       },
       callContextOf(input, input.names.knownName),
     );

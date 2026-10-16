@@ -70,6 +70,8 @@ describe("ChatCompanionModule wiring", () => {
       "CompanionHistorySweepProcessor",
       // ADR-0046 T5 — the v2 Redis stores (memory + the pending edit card).
       "CompanionMemoryStore",
+      // #2304 — what the résumé says, read for the brain's reply through the edit path's view.
+      "CompanionResumeFacts",
       "CompanionResumeStatus",
       "CompanionSummaryService",
       // The served-turn replay cache that makes a retried submission idempotent.

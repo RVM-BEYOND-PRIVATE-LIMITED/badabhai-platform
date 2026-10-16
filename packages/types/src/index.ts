@@ -506,6 +506,49 @@ export type FreeChatSurface = (typeof FREE_CHAT_SURFACES)[number];
 export const FREE_CHAT_RESUME_ACTIONS = ["edit", "new", "download"] as const;
 export type FreeChatResumeAction = (typeof FREE_CHAT_RESUME_ACTIONS)[number];
 
+// ---- The profiling turn's understanding (ADR-0057, #2309) ----
+// What one typed profiling-chat message is doing, as `profiling_turn_understand` reads it against
+// the session's schema. CLOSED: the API maps each to a deterministic handler (ADR-0057 §3.2), and
+// the `profiling.turn_understood` event records it. Additive: a new intent is a new member.
+//   answer    — answers the question on screen.
+//   statement — tells something about the worker that fills fields, without answering the screen.
+//   edit      — changes a value that is already filled (with the new value, or without it).
+//   delete    — removes a value that is already filled.
+//   progress  — asks how much of the interview is left.
+//   chat      — anything else conversational.
+//   unclear   — the model could not tell.
+export const PROFILING_TURN_INTENTS = [
+  "answer",
+  "statement",
+  "edit",
+  "delete",
+  "progress",
+  "chat",
+  "unclear",
+] as const;
+export type ProfilingTurnIntent = (typeof PROFILING_TURN_INTENTS)[number];
+// Where a schema field stands in the live session — the answer map's three statuses plus `missing`
+// (no record yet).
+export const PROFILING_FIELD_STATUSES = ["answered", "declined", "unanswered", "missing"] as const;
+export type ProfilingFieldStatus = (typeof PROFILING_FIELD_STATUSES)[number];
+// The shape of a schema field's value, so the model writes one the API's parsers can read.
+// `list` is a field with entries (skills, jobs), addressed by ref.
+export const PROFILING_FIELD_KINDS = [
+  "text",
+  "number",
+  "boolean",
+  "single_select",
+  "multi_select",
+  "duration",
+  "city",
+  "list",
+] as const;
+export type ProfilingFieldKind = (typeof PROFILING_FIELD_KINDS)[number];
+// What a proposed change does to an already-filled field. Filling an empty one is a `fill`, not an
+// edit (ADR-0057 R4), so `add` is not here.
+export const PROFILING_EDIT_OPS = ["edit", "delete"] as const;
+export type ProfilingEditOp = (typeof PROFILING_EDIT_OPS)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",

@@ -54,6 +54,10 @@ INTERVIEW_TURN = "worker-interview-turn"
 # INTERVIEW_TURN, because it is a different prompt on the same route: a trace must say WHICH
 # interview asked, and a dashboard over INTERVIEW_TURN must keep meaning the classic one.
 INTERVIEW_SKILLS_TURN = "worker-interview-skills-turn"
+# ADR-0057 (#2310) — the bridge line before a pack question. Its own name for the skills turn's
+# reason: a trace must say WHICH interview prompt wrote the line, and a dashboard over
+# INTERVIEW_TURN must keep meaning the classic one.
+INTERVIEW_BRIDGE_TURN = "worker-interview-bridge-turn"
 INTERVIEW_EXTRACT = "worker-interview-extract"
 PROFILE_PARSE = "profile-parse"
 # The one prompt licensed to COMPOSE printed text, by the owner ruling in #1350 that overrides
@@ -109,6 +113,10 @@ FREE_CHAT_CLASSIFY_COMPANION = "profiling-free-classify-companion"
 FREE_CHAT_CASUAL_COMPANION = "profiling-free-casual-companion"
 FREE_CHAT_CAREER_COMPANION = "profiling-free-career-companion"
 FREE_CHAT_NEWS_COMPANION = "profiling-free-news-companion"
+# ADR-0057 (#2309) - the profiling turn's understanding: one message read against the whole session
+# schema. Versioned like the rest: the intent mix, the fill precision and the eval bar are exactly
+# what a prompt edit moves, so "which prompt read this message" must be answerable.
+PROFILING_TURN_UNDERSTAND = "profiling-turn-understand"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -242,7 +250,7 @@ def install_default_prompts() -> None:
     provider ever sees. The list has grown with the routes: the original three (the Phase A
     turn, the Phase C extract, the profile parse), then the general road, #1350's polish, the
     ADR-0041 import trio, ADR-0046's companion prompts, ADR-0051's free-chat four, ADR-0054's
-    news answer and ADR-0055's companion-surface variants of four of them.
+    news answer, ADR-0055's companion-surface variants of four of them and ADR-0057's turn reader.
 
     Imports are LOCAL to this function, deliberately: it is called from the FastAPI
     lifespan, so the profiling package is imported after app construction rather than at
@@ -256,18 +264,21 @@ def install_default_prompts() -> None:
     )
     from ..free_chat import prompts as free_chat_prompts
     from ..profiling.interview_prompts import (
+        bridge_system_prompt,
         extract_system_prompt,
         interview_system_prompt,
         skills_interview_system_prompt,
         work_history_polish_prompt,
     )
     from ..profiling.parse_prompt import PARSE_SYSTEM_PROMPT
+    from ..profiling.understand_prompts import UNDERSTAND_SYSTEM_PROMPT
     from ..resume_import.option_map_prompt import RESUME_OPTION_MAP_SYSTEM_PROMPT
     from ..resume_import.parse_prompt import RESUME_PARSE_SYSTEM_PROMPT
     from ..resume_import.summary_prompt import RESUME_SUMMARY_SYSTEM_PROMPT
 
     register(INTERVIEW_TURN, interview_system_prompt)
     register(INTERVIEW_SKILLS_TURN, skills_interview_system_prompt)
+    register(INTERVIEW_BRIDGE_TURN, bridge_system_prompt)
     register(INTERVIEW_EXTRACT, extract_system_prompt)
     register(PROFILE_PARSE, lambda: PARSE_SYSTEM_PROMPT)
     register(WORK_HISTORY_POLISH, work_history_polish_prompt)
@@ -302,3 +313,6 @@ def install_default_prompts() -> None:
     register(FREE_CHAT_CASUAL_COMPANION, lambda: free_chat_prompts.COMPANION_CASUAL_SYSTEM_PROMPT)
     register(FREE_CHAT_CAREER_COMPANION, lambda: free_chat_prompts.COMPANION_CAREER_SYSTEM_PROMPT)
     register(FREE_CHAT_NEWS_COMPANION, lambda: free_chat_prompts.COMPANION_NEWS_SYSTEM_PROMPT)
+    # ADR-0057 (#2309). A module constant with no interpolation, like the companion's: the
+    # registered text and the route's fallback literal are the same bytes.
+    register(PROFILING_TURN_UNDERSTAND, lambda: UNDERSTAND_SYSTEM_PROMPT)

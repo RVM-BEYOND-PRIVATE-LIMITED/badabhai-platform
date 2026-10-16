@@ -147,8 +147,12 @@
     "draft",
     "experience_count",
     "force_close",
-    "interview_mode"
+    "interview_mode",
+    "schema_rows",
+    "remaining_questions",
+    "bridge"
   ],
+  "LlmBridgeContext": ["reason", "filled", "next_question"],
   "LlmTurnOutput": [
     "reply_text",
     "stage",

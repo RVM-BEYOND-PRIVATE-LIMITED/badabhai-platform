@@ -1557,6 +1557,17 @@ def asks_about_job_prospects(text: str) -> bool:
     return bool(_JOB_PROSPECT_RE.search(message) and _JOB_INTERROGATIVE_RE.search(message))
 
 
+# --- #2308: "aur kitna bacha hai?" -------------------------------------------
+# The worker asks how much of the interview is LEFT. Not an answer to anything. The cue data and
+# its exclusions live in predicates.json (`$comment_progressQuestion`); both languages read it.
+_PROGRESS_QUESTION_RE = lexicon.compile_pattern(_PREDICATES["progressQuestion"])
+
+
+def asks_progress(text: str) -> bool:
+    """True when the worker asks how much of the interview is left. Local, no network."""
+    return bool(_PROGRESS_QUESTION_RE.search(text or ""))
+
+
 # --- §5: abusive -------------------------------------------------------------
 # "Is abusive -> One neutral line, continues. Never mirrors tone, never moralises."
 #

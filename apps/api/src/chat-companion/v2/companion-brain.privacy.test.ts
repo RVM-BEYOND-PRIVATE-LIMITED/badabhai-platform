@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
+import type { CompanionEditSnapshotRow } from "@badabhai/ai-contracts";
 import type { ServerConfig } from "@badabhai/config";
 import { EVENT_REGISTRY } from "@badabhai/event-schema";
 import { FreeChatModelCalls } from "../../profiling/free-chat/free-chat-model-calls";
@@ -54,6 +55,18 @@ const SUMMARY_WITH_PII =
 /** What only the summary carries — none of it may leave through anything but the reply input. */
 const SUMMARY_MARKERS = /Bharat Forge|9876543210|welder hai/;
 
+/** #2304 — résumé rows whose stored values carry the worker's own name and an employer. */
+const RESUME_FACTS_WITH_NAME: CompanionEditSnapshotRow[] = [
+  {
+    ref: "e1",
+    section: "employment",
+    fields: { employer_name: "Kalyani Steels", work_done: "Ramesh Yadav ne CNC turning ki" },
+  },
+  { ref: "pref", section: "preferences", fields: { expected_salary: "25000" } },
+];
+/** What only the résumé facts carry — none of it may leave through anything but the reply input. */
+const RESUME_MARKERS = /Kalyani Steels|CNC turning ki|25000/;
+
 /** The gateway's mask, as the ai-service pseudonymizer would write it. */
 const mask = (text: string): string =>
   text
@@ -96,6 +109,8 @@ interface Setup {
   name?: "on_file" | "none" | "undecryptable";
   /** ADR-0055 R4 — the rolling summary the read-only reader returns (default: none). */
   summary?: string | null;
+  /** #2304 — the résumé facts the reader returns (default: none). */
+  resumeFacts?: CompanionEditSnapshotRow[] | null;
 }
 
 function setup(opts: Setup) {
@@ -178,6 +193,8 @@ function setup(opts: Setup) {
     reader,
     // ADR-0055 R4 — the rolling summary (none unless the case sets one).
     { latestText: vi.fn(async () => opts.summary ?? null) } as never,
+    // #2304 — the résumé facts (none unless the case sets them).
+    { factsFor: vi.fn(async () => opts.resumeFacts ?? null) } as never,
   );
   const route = vi.spyOn(brain, "route");
   const orchestrator = new CompanionV2Orchestrator(
@@ -330,5 +347,37 @@ describe.each([true, false])("AI_RAW_PII_ENABLED=%s on the brain path (ADR-0055 
     expect(JSON.stringify(logged)).not.toMatch(SUMMARY_MARKERS);
     expect(h.memory.append).toHaveBeenCalled();
     expect(JSON.stringify(h.memory.append.mock.calls)).not.toMatch(SUMMARY_MARKERS);
+  });
+
+  // #2304 — what the résumé says, read through the REAL model calls. Stored values may carry the
+  // worker's own name (a work description), so it is redacted out of each one (G2).
+  it("the résumé facts reach the REPLY only, own-name redacted — nowhere else", async () => {
+    const h = setup({ rawPii, resumeFacts: RESUME_FACTS_WITH_NAME });
+    await h.send(NEWS_MSG);
+
+    const replied = h.ai.freeChatReply.mock.calls[0]![0] as {
+      resume_facts: CompanionEditSnapshotRow[] | null;
+    };
+    expect(replied.resume_facts).toEqual([
+      {
+        ref: "e1",
+        section: "employment",
+        fields: { employer_name: "Kalyani Steels", work_done: "[NAME] ne CNC turning ki" },
+      },
+      { ref: "pref", section: "preferences", fields: { expected_salary: "25000" } },
+    ]);
+    expect(JSON.stringify(replied.resume_facts)).not.toMatch(/Ramesh|Yadav/);
+
+    // The classifier and the news call never see it.
+    for (const spy of [h.ai.freeChatClassify, h.ai.freeChatNews]) {
+      expect(JSON.stringify(spy.mock.calls[0]![0])).not.toMatch(RESUME_MARKERS);
+      expect("resume_facts" in (spy.mock.calls[0]![0] as object)).toBe(false);
+    }
+
+    // Not a log line, not an event, not a memory write.
+    const events = h.events.emit.mock.calls.map((c) => c[0] as { event_name: string });
+    expect(JSON.stringify(events)).not.toMatch(RESUME_MARKERS);
+    expect(JSON.stringify(logged)).not.toMatch(RESUME_MARKERS);
+    expect(JSON.stringify(h.memory.append.mock.calls)).not.toMatch(RESUME_MARKERS);
   });
 });

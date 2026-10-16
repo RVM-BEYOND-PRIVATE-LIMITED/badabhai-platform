@@ -7,6 +7,9 @@
 - **Status:** **Accepted — signed 2026-10-06** (see the foot). The owner gave rulings R1–R20 on 2026-10-06
   in the design session, then approved the plan and the copy in §5. **Live on merge** (R18): no default-off
   gate. The only lever is the kill switch `CHAT_FREE_CHAT_DISABLED`.
+  **Amended by [ADR-0057](0057-profiling-turn-understanding.md) (R7, §3.3), 2026-10-16:** while
+  `CHAT_TURN_UNDERSTANDING_ENABLED` is armed, a typed off-topic message in résumé mode gets a short model reply that
+  steers back instead of R6's fixed deflect line, and the skip list no longer exempts typed text from the model.
 - **Date:** 2026-10-06
 - **Owner:** Divyanshu (Backend Platform)
 - **Tracking:** #2027

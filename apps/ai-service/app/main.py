@@ -47,6 +47,7 @@ from .routers import (
     privacy,
     profile,
     profiling,
+    profiling_understand,
     resume,
     resume_import,
     skills,
@@ -262,6 +263,10 @@ app.include_router(companion.api_router)
 # (`CHAT_FREE_CHAT_DISABLED`), and an unarmed task answers from its mock, which the API reads as
 # "unavailable" (the summary's mock is null, so nothing is stored). No route writes anything.
 app.include_router(free_chat.api_router)
+# ADR-0057 (#2309) — the profiling turn's understanding. Registered unconditionally for the same
+# reason: the API holds the lever (`CHAT_TURN_UNDERSTANDING_ENABLED`), an unarmed task answers from
+# its mock (read by the API as unavailable), and the route writes nothing.
+app.include_router(profiling_understand.api_router)
 
 # R7 §1 — the SYNTHETIC-PERSONA harness, and the second of its three barriers.
 #

@@ -17,6 +17,7 @@ class ChatTurnResumeState {
     required this.freeChat,
     this.askedQuestionKey,
     this.pendingQuestionKey,
+    this.profilingEditJson,
   });
 
   final String sessionId;
@@ -39,6 +40,11 @@ class ChatTurnResumeState {
   /// transcript with no picker, no "Location bharein" button and no live ask.
   /// Remembering it here is what lets the answer put the question back.
   final String? pendingQuestionKey;
+
+  /// ADR-0057 R10 (#2314) — the last turn's pending change/delete
+  /// confirmation, as its wire JSON, so a reopened chat draws the tile again
+  /// over the redrawn Haan / Nahi chips. Null when the turn had none.
+  final String? profilingEditJson;
 }
 
 /// The last served chat turn's CHIPS and mode, remembered across a cold start
@@ -88,6 +94,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
   static const String kFreeChatKey = 'bb_chat_turn_free_chat';
   static const String kQuestionKey = 'bb_chat_turn_question';
   static const String kPendingQuestionKey = 'bb_chat_turn_pending_question';
+  static const String kProfilingEditKey = 'bb_chat_turn_profiling_edit';
 
   /// Splits an entry into key and label. A unit separator, because a label is
   /// server copy that may hold any punctuation a comma-joined list would break
@@ -120,6 +127,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
         freeChat: prefs.getBool(kFreeChatKey) ?? false,
         askedQuestionKey: prefs.getString(kQuestionKey),
         pendingQuestionKey: prefs.getString(kPendingQuestionKey),
+        profilingEditJson: prefs.getString(kProfilingEditKey),
       );
     } catch (_) {
       return null;
@@ -152,6 +160,13 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
       } else {
         await prefs.setString(kPendingQuestionKey, pending);
       }
+      // Same null-safety: a turn with no edit tile clears the previous one.
+      final String? edit = state.profilingEditJson;
+      if (edit == null || edit.isEmpty) {
+        await prefs.remove(kProfilingEditKey);
+      } else {
+        await prefs.setString(kProfilingEditKey, edit);
+      }
     } catch (_) {
       // Best-effort: an unremembered turn just loses its chips on a cold start.
     }
@@ -166,6 +181,7 @@ class SharedPrefsChatTurnResumeStore implements ChatTurnResumeStore {
       await prefs.remove(kFreeChatKey);
       await prefs.remove(kQuestionKey);
       await prefs.remove(kPendingQuestionKey);
+      await prefs.remove(kProfilingEditKey);
     } catch (_) {
       // Best-effort: a teardown failure must never block sign-out.
     }

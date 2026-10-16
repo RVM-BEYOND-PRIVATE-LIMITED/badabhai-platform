@@ -16,8 +16,11 @@ English work words is that language, plain English is ``english``, too short or 
 companion brain posts it (``companion-brain.ts``): mode ``free``, no question on screen, surface
 ``companion`` (:func:`request_body`), so the route renders "Mode: companion".
 
-THE LABELS ARE ADR-0055's. On this screen ``resume`` is anything about the worker's own résumé or
-profile, a new detail about their own work included (an edit); seeing jobs, openings or their own
+THE LABELS ARE ADR-0055's, AS #2304 NARROWED THEM. On this screen ``resume`` is an ASK about the
+worker's own résumé or profile: to change, add or remove something, to make a new one, or to get
+the file. Telling about their own work or pay without asking to change the résumé, and asking what
+the résumé says or what they told Bada Bhai earlier, are ``career`` (owner rulings 2026-10-15: the
+reply answers them, from the résumé and the earlier turns); seeing jobs, openings or their own
 applications in the app is ``jobs``; and with no résumé offer ever made here, a bare
 acknowledgement is ``unclear``. The rest are ADR-0051's: R37 (only clear abuse is trash), a
 jobs word inside a career question or a crisis is career or distress (§9 R2 classifies those typed
@@ -60,6 +63,10 @@ COMPANION_FALLBACK_LINE = (
     "Main aapke resume, applications aur naye jobs mein madad kar sakta hoon. Neeche se chunein."
 )
 COMPANION_CLARIFY_LINE = "Samajh nahi aaya. Aap inme se kya karna chahte hain?"
+#: The résumé's edit section menu line (`RESUME_MENU_EDIT_REPLY` in the API's
+#: `apps/api/src/chat/resume-menu.ts`),
+#: which every edit ask gets on the brain (#2295).
+EDIT_MENU_LINE = "Resume ka kaun sa hissa theek karna hai. Neeche se chunein."
 
 #: A fabricated career answer the brain's reply could have served (a memory turn).
 VMC_ANSWER = "VMC operator machine set karta hai aur part ka size check karta hai."
@@ -211,11 +218,10 @@ def evaluate(predict: Callable[[Case], Prediction | None]) -> CompanionClassifyS
 # (text, category, resume_action, language[, recent turns]). Hinglish, Devanagari, English and the
 # five regional languages, each regional one in its own script and in Latin letters.
 _ROWS: list[tuple] = [
-    # ── resume, edit: change, add or remove something, or a new detail about their work (9) ──
+    # ── resume, edit: an ask to change, add or remove something (8) ──
     ("resume mein welding add karo", "resume", "edit", "hinglish"),
     ("skills mein Marathi jod do", "resume", "edit", "hinglish"),
     ("mera city Pune kar do", "resume", "edit", "hinglish"),
-    ("maine forklift chalana bhi seekh liya hai", "resume", "edit", "hinglish"),
     ("pichli company wala kaam resume se hata do", "resume", "edit", "hinglish"),
     ("रिज़्यूमे में मेरी सैलरी 22 हज़ार कर दो", "resume", "edit", "hinglish"),
     ("please add AutoCAD to my skills", "resume", "edit", "english"),
@@ -246,7 +252,9 @@ _ROWS: list[tuple] = [
     ("mera resume", "resume", None, "hinglish"),
     ("resume se related kaam hai", "resume", None, "hinglish"),
 
-    # ── career, including jobs-word questions that are really career (9) ──
+    # ── career, including jobs-word questions that are really career (10) ──
+    # A new skill told, with no ask to change the résumé: talk (#2304 relabel; was resume/edit).
+    ("maine forklift chalana bhi seekh liya hai", "career", None, "hinglish"),
     ("Tata mein welder ki job milti hai?", "career", None, "hinglish"),
     ("fitter ki naukri mein aage kaise badhte hain", "career", None, "hinglish"),
     ("electrician ki job ke liye wiring license zaroori hai kya", "career", None, "hinglish"),
@@ -307,6 +315,26 @@ _ROWS: list[tuple] = [
     ("Bajaj mein ITI waalon ki bharti hoti hai kya", "career", None, "hinglish"),
     ("CNC ke liye kaunsa course sabse sahi rahega", "career", None, "hinglish"),
     ("resume wali baat karni hai", "resume", None, "hinglish"),
+
+    # ── #2304, held-out lines added BEFORE its baseline (14). A worker TELLING about their own
+    # work or pay, or ASKING what their résumé says, is career (owner rulings 2026-10-15): the
+    # reply answers it. An ask WITH a detail is still a résumé edit, a jobs ask still jobs, and
+    # a "no" after the edit menu is talk. No line copies the device test's own messages. ──
+    ("abhi main fitter hoon, 19 hazaar milte hain", "career", None, "hinglish"),
+    ("pichle mahine se VMC machine pe kaam kar raha hoon", "career", None, "hinglish"),
+    ("maine 2019 mein ITI electrician kiya tha", "career", None, "hinglish"),
+    ("I work night shift at a steel plant now", "career", None, "english"),
+    ("mi sadhya turner mhanun kaam karto, pagar 21 hajar aahe", "career", None, "marathi"),
+    ("main welder hoon 8 saal se, aage kya seekhun", "career", None, "hinglish"),
+    ("meri pagar kitni hai", "career", None, "hinglish"),
+    ("mere resume mein kaun kaun si skills likhi hain", "career", None, "hinglish"),
+    ("maine pehle apne experience ke baare mein kya bataya tha", "career", None, "hinglish"),
+    ("what does my resume say about my salary", "career", None, "english"),
+    ("ab 26 hazaar milta hai, resume mein update kar do", "resume", "edit", "hinglish"),
+    ("forklift bhi seekh liya hai, isko resume mein daal do", "resume", "edit", "hinglish"),
+    ("CNC turner hoon, mere liye koi job hai kya", "jobs", None, "hinglish"),
+    ("nahi, resume theek hai", "casual", None, "hinglish",
+     ((WORKER, "resume edit karna hai"), (BOT, EDIT_MENU_LINE))),
 
     # ── unclear: a bare acknowledgement (no résumé offer on this screen), emoji, gibberish (5) ──
     ("theek hai", "unclear", None, "hinglish", ((WORKER, "jobs dikhao"), (BOT, V3_JOBS_LINE))),

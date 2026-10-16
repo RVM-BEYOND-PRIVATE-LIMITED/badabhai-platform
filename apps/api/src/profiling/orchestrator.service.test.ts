@@ -32,6 +32,7 @@ import {
   MAX_ENGINE_ASKS,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
+  PROGRESS_REPLY_NO_COUNT_TEXT,
 } from "./next-question";
 import {
   CHECKPOINT_EVERY_ASKS,
@@ -750,6 +751,104 @@ describe("cross-question capture — free information, never an overwrite", () =
     );
   });
 
+  describe("#2307 — an explicit, unambiguous correction overwrites an established answer", () => {
+    const AVAIL = item({
+      question_key: "q_avail",
+      target_kind: "rfs",
+      target_field: "availability",
+      prompt_text: "Kab se kaam shuru kar sakte hain?",
+    });
+    const WITH_AVAIL = {
+      occupation: null,
+      universal: pack("qp_universal", [CITY, YEARS, AVAIL]),
+    };
+    const answered = (questionKey: string, targetField: string, value: unknown, raw: string) => ({
+      question_key: questionKey,
+      target_field: targetField,
+      value_raw: raw,
+      value_normalized: value,
+      status: "answered" as const,
+      evidence: null,
+      turn: 1,
+      history: [],
+    });
+    const recordOf = (store: ReturnType<typeof makeWorld>["store"], key: string) =>
+      store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === key);
+
+    it("rewrites the one earlier answer it names, keeping the old value as history", async () => {
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [answered("q_years", "experience_years", 5, "5 saal")],
+      });
+      await orchestrator.takeTurn(say("nahi nahi, 7 saal ka tajurba hai"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(7);
+      expect(recordOf(store, "q_years")?.history[0]).toMatchObject({
+        value_normalized: 5,
+        status: "superseded",
+      });
+    });
+
+    it("WITHOUT a correction marker the first write still wins", async () => {
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [answered("q_years", "experience_years", 5, "5 saal")],
+      });
+      await orchestrator.takeTurn(say("7 saal ka tajurba hai"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(5);
+    });
+
+    it("NEVER rewrites an earlier answer when the question on screen took the message", async () => {
+      // "sorry, 2 saal pehle Pune aaya" on the city question is a city answer. The years it also
+      // happens to parse are not the correction's target.
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_city",
+        askCounts: { q_city: 1 },
+        answerMap: [answered("q_years", "experience_years", 5, "5 saal")],
+      });
+      await orchestrator.takeTurn(say("sorry, 2 saal pehle Pune aaya"));
+      expect(recordOf(store, "q_city")?.value_normalized).toBe("Pune");
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(5);
+    });
+
+    it("NEVER guesses between two earlier answers it could rewrite", async () => {
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [
+          answered("q_years", "experience_years", 5, "5 saal"),
+          answered("q_city", "current_city", "Mumbai", "mumbai"),
+        ],
+      });
+      await orchestrator.takeTurn(say("galat likha, 7 saal aur pune me rehta hu"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(5);
+      expect(recordOf(store, "q_city")?.value_normalized).toBe("Mumbai");
+    });
+
+    it("a correction that repeats the established value is not a rewrite", async () => {
+      // One candidate that changes nothing is no candidate: the city rewrite below must still be
+      // the ONLY one, so it lands — and the years record grows no history.
+      const { orchestrator, store } = makeWorld({ packs: WITH_AVAIL });
+      seed(store, {
+        servedQuestionKey: "q_avail",
+        askCounts: { q_avail: 1 },
+        answerMap: [
+          answered("q_years", "experience_years", 7, "7 saal"),
+          answered("q_city", "current_city", "Mumbai", "mumbai"),
+        ],
+      });
+      await orchestrator.takeTurn(say("galat likha, 7 saal aur pune me rehta hu"));
+      expect(recordOf(store, "q_years")?.value_normalized).toBe(7);
+      expect(recordOf(store, "q_years")?.history).toHaveLength(0);
+      expect(recordOf(store, "q_city")?.value_normalized).toBe("Pune");
+    });
+  });
+
   it("does NOT swallow the whole message into every free-text question", async () => {
     // A free-text item's "normalizer" is the identity, so without the typed-field gate every
     // free-text question in the pack would be filled the moment a worker said anything.
@@ -760,6 +859,83 @@ describe("cross-question capture — free information, never an overwrite", () =
     await orchestrator.takeTurn(say("main pune me rehta hu"));
     const saved = store.get(SESSION)?.profiling;
     expect(saved?.answerMap.find((a) => a.question_key === "q_process")).toBeUndefined();
+  });
+});
+
+describe("#2308 — \"aur kitna bacha hai?\" is answered, never stored, never spends the question", () => {
+  const TRAINING = item({
+    question_key: "q_training",
+    target_kind: "rfs",
+    target_field: "training_name",
+    prompt_text: "Koi training ki hai? Uska naam bataiye.",
+  });
+  const LANGS = item({
+    question_key: "q_langs",
+    target_kind: "rfs",
+    target_field: "languages",
+    answer_type: "multi_select",
+    max_asks: 1,
+    prompt_text: "Kaun si bhasha bolte hain?",
+    options: [
+      { option_key: "hindi", label_text: "Hindi", implies_skill_id: null, is_none_of_above: false },
+      { option_key: "english", label_text: "English", implies_skill_id: null, is_none_of_above: false },
+    ],
+  });
+  const PACKS = { occupation: null, universal: pack("qp_universal", [CITY, YEARS, TRAINING, LANGS]) };
+  const recordOf = (store: ReturnType<typeof makeWorld>["store"], key: string) =>
+    store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === key);
+
+  it("a free-text question on screen does NOT store the sentence as its answer", async () => {
+    const { orchestrator, store } = makeWorld({ packs: PACKS });
+    seed(store, { servedQuestionKey: "q_training", engineAsks: 1, askCounts: { q_training: 1 } });
+    const result = await orchestrator.takeTurn(say("aur kitna bacha hai"));
+    expect(recordOf(store, "q_training")).toBeUndefined();
+    // On screen + city + years + languages: every one of them is still ahead.
+    expect(result.reply).toBe(`Thoda sa aur. Bas 4 sawaal bache hain. ${TRAINING.prompt_text}`);
+    expect(result.questionKey).toBe("q_training");
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+    expect(store.get(SESSION)?.profiling?.askCounts.q_training).toBe(1);
+  });
+
+  it("a single-ask question on screen is put back, never recorded unanswered", async () => {
+    const { orchestrator, store } = makeWorld({ packs: PACKS });
+    seed(store, { servedQuestionKey: "q_langs", engineAsks: 1, askCounts: { q_langs: 1 } });
+    const result = await orchestrator.takeTurn(say("kitne sawaal aur hain?"));
+    expect(recordOf(store, "q_langs")).toBeUndefined();
+    expect(result.questionKey).toBe("q_langs");
+    expect(result.options.map((o) => o.option_key)).toEqual(["hindi", "english"]);
+    expect(result.reply.endsWith(LANGS.prompt_text)).toBe(true);
+  });
+
+  it("with no pack question on screen: no count, and what was shown goes back under the line", async () => {
+    const { orchestrator, store } = makeWorld({ packs: PACKS });
+    const modelQuestion = "Aap kis machine pe kaam karte hain?";
+    seed(store, {
+      servedQuestionKey: null,
+      lastTurn: {
+        inboundHash: "unrelated",
+        reply: modelQuestion,
+        formOffer: null,
+        gateKind: null,
+        generalFormOffer: null,
+        kind: "ask",
+        questionKey: null,
+        at: T0.toISOString(),
+        options: [{ option_key: "llm_a", label_text: "VMC", implies_skill_id: null, is_none_of_above: false }],
+        progress: { answered: 0, total: 0 },
+        whyText: null,
+        answerType: null,
+        lookahead: null,
+        inputMode: "text",
+        replays: 0,
+      },
+    });
+    const first = await orchestrator.takeTurn(say("aur kitna bacha hai", new Date(T0.getTime() + 60_000)));
+    expect(first.reply).toBe(`${PROGRESS_REPLY_NO_COUNT_TEXT} ${modelQuestion}`);
+    expect(first.options.map((o) => o.label_text)).toEqual(["VMC"]);
+    // Asked twice: one lead, never two.
+    const second = await orchestrator.takeTurn(say("kab khatam hoga", new Date(T0.getTime() + 120_000)));
+    expect(second.reply).toBe(`${PROGRESS_REPLY_NO_COUNT_TEXT} ${modelQuestion}`);
   });
 });
 

@@ -203,6 +203,7 @@ export {
   ProfileParseOutputSchema,
   ExperienceEntrySchema,
   LlmInterviewDraftSchema,
+  LlmBridgeContextSchema,
   LlmTurnInputSchema,
   LlmTurnOutputSchema,
   InterviewExtractInputSchema,
@@ -211,6 +212,7 @@ export {
   WorkHistoryPolishOutputSchema,
   LLM_INTERVIEW_STAGES,
   LLM_INTERVIEW_MODES,
+  LLM_BRIDGE_REASONS,
   INPUT_MODES,
 } from "./oie";
 export type {
@@ -218,6 +220,8 @@ export type {
   ExperienceEntry,
   LlmInterviewStage,
   LlmInterviewMode,
+  LlmBridgeReason,
+  LlmBridgeContext,
   InputMode,
   LlmInterviewDraft,
   LlmTurnInput,
@@ -287,6 +291,7 @@ export type {
 // apps/ai-service/app/contracts.py and pinned by __fixtures__/free-chat.keys.json.
 export {
   FREE_CHAT_CLASSIFY_MODES,
+  FREE_CHAT_RESUME_FACTS_MAX,
   FreeChatClassifyInputSchema,
   FreeChatClassifyOutputSchema,
   FreeChatReplyInputSchema,
@@ -320,3 +325,26 @@ export type {
   FreeChatNewsRefuse,
   FreeChatNewsOutput,
 } from "./free-chat";
+
+// The profiling turn's understanding (ADR-0057, #2309). Mirrored in
+// apps/ai-service/app/contracts.py and pinned by __fixtures__/profiling-understand.keys.json.
+export {
+  ProfilingSchemaEntrySchema,
+  ProfilingSchemaRowSchema,
+  ProfilingOnScreenSchema,
+  ProfilingProgressSchema,
+  ProfilingTurnUnderstandInputSchema,
+  ProfilingFillSchema,
+  ProfilingEditSchema,
+  ProfilingTurnUnderstandOutputSchema,
+} from "./profiling-understand";
+export type {
+  ProfilingSchemaEntry,
+  ProfilingSchemaRow,
+  ProfilingOnScreen,
+  ProfilingProgress,
+  ProfilingTurnUnderstandInput,
+  ProfilingFill,
+  ProfilingEdit,
+  ProfilingTurnUnderstandOutput,
+} from "./profiling-understand";

@@ -887,6 +887,33 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("bahar nahi jaaunga", "NEGATED"),
         ("relocate nahi kar paunga", "negated"),
     ]),
+    # ------------------------------------------ progress question (#2308, ADR-0057) --
+    ("prog", [
+        ("aur kitna bacha hai", "the canonical ask — answered with the real remaining count"),
+        ("kitna baki hai abhi", None),
+        ("kitne sawaal aur hain?", "a question noun next to the quantity word"),
+        ("kitne questions bache hain", None),
+        ("abhi kitna reh gaya", None),
+        ("kab khatam hoga", "'kab' + a future verb, never a statement about notice"),
+        ("kitni der lagegi aur", None),
+        ("kitna time aur lagega", None),
+        ("how many more questions", None),
+        ("how much is left?", None),
+        ("कितना बचा है", "Devanagari — {DB}/{DE} block boundary"),
+        ("कितने सवाल और हैं", None),
+        ("pata nahi kitna bacha hai", "progress BEFORE dont_know: it asks, and declines nothing"),
+    ]),
+    # ------------------------------------- progress question EXCLUSIONS (must NOT fire) --
+    ("progx", [
+        ("kitna bhi de do baaki aap dekh lo",
+         "'kitna bhi' is any amount — a salary answer whose 'baaki' sits within reach"),
+        ("mere do bache hain", "children, and no quantity word"),
+        ("jab contract khatam hoga tab join karunga", "'jab … khatam' — the worker's own notice"),
+        ("15 din baaki hai notice mein", "an availability answer — no quantity word"),
+        ("baaki sab theek hai", "'baaki' alone is ordinary speech"),
+        ("kitne saal ka experience chahiye", "'saal' is not a question noun"),
+        ("kitna kamaata hoon wo baad mein bataunga", "no remainder word in reach"),
+    ]),
 ]
 
 

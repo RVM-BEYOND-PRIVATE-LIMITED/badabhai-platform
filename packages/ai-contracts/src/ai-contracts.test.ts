@@ -55,6 +55,8 @@ import {
   ParsedFieldSchema,
   ExperienceEntrySchema,
   LlmInterviewDraftSchema,
+  LlmBridgeContextSchema,
+  LLM_BRIDGE_REASONS,
   LLM_INTERVIEW_MODES,
   LlmTurnInputSchema,
   LlmTurnOutputSchema,
@@ -933,6 +935,8 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     // Phase A (LLM-led interview) + Phase C (whole-chat extraction).
     ["ExperienceEntry", ExperienceEntrySchema.shape],
     ["LlmInterviewDraft", LlmInterviewDraftSchema.shape],
+    // ADR-0057 (#2310) — the bridge line's context.
+    ["LlmBridgeContext", LlmBridgeContextSchema.shape],
     ["LlmTurnInput", LlmTurnInputSchema.shape],
     ["LlmTurnOutput", LlmTurnOutputSchema.shape],
     ["InterviewExtractInput", InterviewExtractInputSchema.shape],
@@ -1117,13 +1121,37 @@ describe("ResumeParse trade association (Task 1 B2 — contracts.py parity)", ()
   });
 });
 
+describe("LlmTurnInput bridge mode and schema (ADR-0057, #2310)", () => {
+  it("the new fields are ABSENT when not sent, so today's requests are byte-identical", () => {
+    const parsed = LlmTurnInputSchema.parse({ worker_ref: "w1" });
+    for (const key of ["schema_rows", "remaining_questions", "bridge"]) {
+      expect(Object.prototype.hasOwnProperty.call(parsed, key)).toBe(false);
+    }
+  });
+
+  it("a bridge context names its reason and defaults the rest", () => {
+    expect(LLM_BRIDGE_REASONS).toEqual(["filled", "chat", "progress"]);
+    expect(LlmBridgeContextSchema.parse({ reason: "progress" })).toEqual({
+      reason: "progress",
+      filled: [],
+      next_question: null,
+    });
+    expect(() => LlmBridgeContextSchema.parse({ reason: "answer" })).toThrow();
+  });
+
+  it("remaining_questions is a non-negative whole number", () => {
+    expect(() => LlmTurnInputSchema.parse({ worker_ref: "w1", remaining_questions: -1 })).toThrow();
+    expect(() => LlmTurnInputSchema.parse({ worker_ref: "w1", remaining_questions: 2.5 })).toThrow();
+  });
+});
+
 describe("LlmTurnInput.interview_mode (ADR-0045)", () => {
   it("is ABSENT when not sent, so a classic request body is byte-identical to today's", () => {
     const parsed = LlmTurnInputSchema.parse({ worker_ref: "w1" });
     expect(Object.prototype.hasOwnProperty.call(parsed, "interview_mode")).toBe(false);
   });
 
-  it("accepts exactly the two modes, and neither the stage word nor an invented one", () => {
+  it("accepts exactly the three modes, and neither the stage word nor an invented one", () => {
     for (const mode of LLM_INTERVIEW_MODES) {
       expect(
         LlmTurnInputSchema.parse({ worker_ref: "w1", interview_mode: mode }).interview_mode,

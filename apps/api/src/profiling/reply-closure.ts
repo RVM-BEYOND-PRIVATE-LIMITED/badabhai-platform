@@ -36,6 +36,7 @@ import {
   HARDSHIP_REPLY_TEXTS,
   joinClarify,
   servedText,
+  PROGRESS_REPLY_TEXTS,
 } from "./next-question";
 // THE ONE IMPORT NOT FROM THE PURE MODULE, and it is a deliberate trade. `UNAVAILABLE_REPLY` is
 // this same constant re-exported by the orchestrator, because two copies of a worker-facing string
@@ -137,6 +138,8 @@ export const CONSTANT_REPLIES: readonly string[] = [
   // pack and is read aloud, name-free like the intake's. A model-written reply is NEVER here: it
   // is not a constant, and it is never read aloud.
   ...FREE_CHAT_REPLIES,
+  // #2308 — the progress lines (ADR-0057): the no-count line, then one per remaining count.
+  ...PROGRESS_REPLY_TEXTS,
 ];
 
 /** Thrown by the guards below. Names the offending text so the corpus row is findable. */

@@ -150,6 +150,8 @@ const NOT_A_TRADE_STATEMENT: ReadonlySet<UtteranceClass> = new Set<UtteranceClas
   "question_back",
   "abusive",
   "dont_know",
+  // #2308 — "aur kitna bacha hai" names no trade.
+  "progress_question",
 ]);
 
 /**

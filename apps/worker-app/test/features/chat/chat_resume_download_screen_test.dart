@@ -211,21 +211,35 @@ void main() {
   });
 
   testWidgets(
-    'the next message puts the tile away; asking for the résumé brings it back '
-    'and posts nothing',
+    'the next message puts the tile away; a typed download ask goes to the '
+    'server (#2302) and its reply and chip are drawn',
     (WidgetTester tester) async {
+      const String serverLine = 'Aapka resume taiyaar hai. Neeche button dabakar download karein.';
       await pumpTab(tester);
 
       await send(tester, 'naye jobs dikhao');
       expect(tileButton, findsNothing);
 
-      await send(tester, _ask);
-      expect(find.text(_ask), findsOneWidget);
-      expect(find.text(kChatResumeDownloadReply), findsOneWidget);
-      expect(tileButton, findsOneWidget);
-      verifyNever(
+      when(
         () => repo.sendCompanionMessage(_ask, submissionId: any(named: 'submissionId')),
+      ).thenAnswer(
+        (_) async => const ChatTurn(
+          reply: serverLine,
+          companion: true,
+          suggestedOptions: <ChatOption>[
+            ChatOption(optionKey: 'companion_resume_download', labelText: 'Resume download karein'),
+          ],
+        ),
       );
+      await send(tester, _ask);
+
+      expect(find.text(_ask), findsOneWidget);
+      expect(find.text(serverLine), findsOneWidget);
+      expect(find.text(kChatResumeDownloadReply), findsNothing);
+      expect(find.text('Resume download karein'), findsOneWidget);
+      verify(
+        () => repo.sendCompanionMessage(_ask, submissionId: any(named: 'submissionId')),
+      ).called(1);
     },
   );
 

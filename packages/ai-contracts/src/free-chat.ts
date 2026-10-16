@@ -33,7 +33,11 @@ import {
 } from "@badabhai/types";
 
 import { AICallMetadataSchema } from "./common";
-import { CompanionCareerWorkerContextSchema, CompanionRecentTurnSchema } from "./companion";
+import {
+  CompanionCareerWorkerContextSchema,
+  CompanionEditSnapshotRowSchema,
+  CompanionRecentTurnSchema,
+} from "./companion";
 
 // Bounds that are NOT vocabularies, kept beside the schemas so the Pydantic mirror and the
 // parity suite have one place to compare.
@@ -50,6 +54,8 @@ const REPLY_CHIP_MAX = 60;
 const SUMMARY_MAX = 1200;
 const SUMMARY_OUTPUT_MAX = 2000;
 const SUMMARY_TURNS_MAX = 24;
+// #2304 — the résumé facts a companion reply may read: the edit snapshot's rows, cut to this cap.
+export const FREE_CHAT_RESUME_FACTS_MAX = 40;
 
 /**
  * ADR-0051 §11 (R39–R44) — the language the model writes a reply in, from the closed
@@ -147,6 +153,18 @@ export const FreeChatReplyInputSchema = z.object({
   reply_language: ReplyLanguageFieldSchema,
   /** ADR-0055 — `companion`: the worker's résumé is already made. */
   surface: SurfaceFieldSchema,
+  /**
+   * #2304 — WHAT THE WORKER'S RÉSUMÉ SAYS, on the companion surface only: the current values the
+   * edit path reads (the edit snapshot's rows, opaque refs, null fields dropped), so a question
+   * about their own résumé ("meri salary kitni hai") is answered from it. Stored values, so the
+   * AI-service masks them like the edit snapshot (ADR-0047) and the API redacts the worker's own
+   * name first (G2). Null on the profiling surface and whenever the read failed. Additive.
+   */
+  resume_facts: z
+    .array(CompanionEditSnapshotRowSchema)
+    .max(FREE_CHAT_RESUME_FACTS_MAX)
+    .nullable()
+    .default(null),
 });
 export type FreeChatReplyInput = z.infer<typeof FreeChatReplyInputSchema>;
 

@@ -68,6 +68,7 @@ import 'widgets/chat_end_divider.dart';
 import 'widgets/chat_year_card.dart';
 import 'widgets/chat_news_tiles.dart';
 import 'widgets/chat_resume_download_tile.dart';
+import 'widgets/profiling_edit_tile.dart';
 import 'widgets/flying_name.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
@@ -2479,6 +2480,34 @@ class _ChatViewState extends State<_ChatView>
       ? <String>[for (final ChatOption o in state.suggestedOptions) o.labelText]
       : state.followups;
 
+  /// ADR-0057 R10 (#2314) — the Haan and Nahi chips a pending profiling
+  /// change/delete is answered with, or null when there is no tile to draw: no
+  /// proposal, the companion, or a turn whose chips are not exactly a Haan /
+  /// Nahi pair (the text + chips then carry it, unchanged).
+  static ({ChatOption yes, ChatOption no})? _profilingEditAnswers(
+    ChatState state,
+  ) {
+    if (state.companion || state.profilingEdit == null) return null;
+    final List<ChatOption> options = state.suggestedOptions.isNotEmpty
+        ? state.suggestedOptions
+        : <ChatOption>[
+            for (final String f in state.followups)
+              ChatOption(optionKey: f, labelText: f),
+          ];
+    if (!_isYesNoPair(<String>[for (final ChatOption o in options) o.labelText])) {
+      return null;
+    }
+    String norm(ChatOption o) =>
+        o.labelText.trim().toLowerCase().replaceAll(RegExp(r'[.?]+$'), '');
+    final ChatOption yes = options.firstWhere(
+      (ChatOption o) => _kGateYesLabels.contains(norm(o)),
+    );
+    final ChatOption no = options.firstWhere(
+      (ChatOption o) => _kGateNoLabels.contains(norm(o)),
+    );
+    return (yes: yes, no: no);
+  }
+
   /// Whether [labels] are exactly the engine's yes/no gate pair (normalised:
   /// trimmed, lower-cased, trailing punctuation dropped) — one of
   /// [_kGateYesLabels] and one of [_kGateNoLabels], nothing else.
@@ -2555,6 +2584,9 @@ class _ChatViewState extends State<_ChatView>
   /// server reads a typed "haan ji" the same way, and its two chips are the
   /// whole answer (see [_booleanReplies]).
   bool _locksComposerToOptions(ChatState state) {
+    // ADR-0057 R10 (#2314) — a pending change/delete is answered on its tile
+    // only, like the other Haan / Nahi gates.
+    if (_profilingEditAnswers(state) != null) return true;
     if (_customAnswerMode) return false;
     if (state.companion) return false;
     // OWNER ASK (2026-10-13): free chat is CONVERSATIONAL — the composer
@@ -3053,6 +3085,27 @@ class _ChatViewState extends State<_ChatView>
         state.answerType == ChatAnswerType.multiSelect &&
         state.questionKind != ChatQuestionKind.disambiguate &&
         !isShiftQuestion;
+    // ADR-0057 R10 (#2314) — a pending change/delete of an earlier answer is
+    // drawn as a TILE (before → after, or a delete's warning) in place of its
+    // Haan / Nahi chips. The tile's buttons ARE those chips, so the server
+    // gets exactly what the text version sends. No pair, no tile: the text and
+    // chips carry it, as on an app that predates the field.
+    final ({ChatOption yes, ChatOption no})? editAnswers = _profilingEditAnswers(
+      state,
+    );
+    if (editAnswers != null) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('profiling-edit'),
+        child: ProfilingEditTile(
+          proposal: state.profilingEdit!,
+          yesLabel: editAnswers.yes.labelText,
+          noLabel: editAnswers.no.labelText,
+          onYes: () => _sendChoice(editAnswers.yes),
+          onNo: () => _sendChoice(editAnswers.no),
+          enabled: !state.sending,
+        ),
+      );
+    }
     if (state.suggestedOptions.isNotEmpty) {
       return KeyedSubtree(
         key: const ValueKey<String>('chips'),

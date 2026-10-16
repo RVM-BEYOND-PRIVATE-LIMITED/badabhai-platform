@@ -138,7 +138,11 @@ ProfilingPhase = Literal[
 LlmInterviewStage = Literal["domain", "role", "skills", "experience", "done"]
 InputMode = Literal["text", "options_only"]
 # ADR-0045: which interview the model runs. Chosen by the API, never emitted by the model.
-LlmInterviewMode = Literal["classic", "skills_only"]
+# ADR-0057 (#2310): `bridge` writes one short line that leads into a pack question the API
+# appends verbatim — never a question of its own.
+LlmInterviewMode = Literal["classic", "skills_only", "bridge"]
+# ADR-0057 (#2310): why a bridge line is being written.
+LlmBridgeReason = Literal["filled", "chat", "progress"]
 OccupationMatchLayer = Literal["l0_exact", "l1_skeleton", "l2_trigram", "l3_vector"]
 # The five job-domain statuses PLUS the two deterministic-engine outcomes migration 0076
 # adds to the worker_profiles CHECK — declared ahead of 0076 because this file freezes at
@@ -508,6 +512,22 @@ class LlmInterviewDraft(BaseModel):
     experiences: list[ExperienceEntry] = Field(default_factory=list)
 
 
+class LlmBridgeContext(BaseModel):
+    """What a `bridge` line leads from and into (ADR-0057 #2310).
+
+    ``reason``: ``filled`` acknowledges what the worker just told (``filled`` names it as
+    "label: value" lines), ``chat`` answers their side message, ``progress`` says how much is left
+    (``LlmTurnInput.remaining_questions``). ``next_question`` is the pack question the API appends
+    after the line, verbatim, so the line can lead into it without repeating it.
+    """
+
+    reason: LlmBridgeReason
+    filled: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=20
+    )
+    next_question: str | None = Field(default=None, min_length=1, max_length=500)
+
+
 class LlmTurnInput(BaseModel):
     schema_version: Literal["oie.v1"] = "oie.v1"
     worker_ref: str = Field(min_length=1)
@@ -525,6 +545,14 @@ class LlmTurnInput(BaseModel):
     # ADR-0045: `skills_only` runs the general road's skills stage (role already known, ask ONLY for
     # skills). Absent/None is `classic`, today's Phase A — so a classic request is unchanged.
     interview_mode: LlmInterviewMode | None = None
+    # ADR-0057 (#2310): the session's profiling schema, so the model never asks for a field that
+    # is already filled. Absent/None keeps a request byte-identical to today's.
+    schema_rows: list[ProfilingSchemaRow] | None = Field(default=None, max_length=64)
+    # ADR-0057 (#2310): the questions the engine can still serve (`remainingQuestions` in the API),
+    # the only number a progress line may name. None when there is no honest count.
+    remaining_questions: int | None = Field(default=None, ge=0)
+    # ADR-0057 (#2310): required in `bridge` mode, ignored otherwise.
+    bridge: LlmBridgeContext | None = None
 
 
 class LlmTurnOutput(BaseModel):
@@ -2247,6 +2275,10 @@ class FreeChatReplyInput(BaseModel):
     reply_language: FreeChatReplyLanguage | None = None
     # ADR-0055: `companion`, the worker's résumé is already made. Additive and defaulted.
     surface: FreeChatSurface = "profiling"
+    # #2304: what the worker's résumé says (the edit snapshot's rows), companion surface only, so a
+    # question about their own résumé is answered from it. Stored values: the route masks them like
+    # the edit snapshot before the model. Additive and defaulted; ignored on the profiling surface.
+    resume_facts: list[CompanionEditSnapshotRow] | None = Field(default=None, max_length=40)
 
 
 class FreeChatAnswer(BaseModel):
@@ -2382,3 +2414,139 @@ FreeChatNewsOutput = Annotated[
     FreeChatNewsAnswer | FreeChatNewsNoResults | FreeChatNewsRefuse,
     Field(discriminator="status"),
 ]
+
+
+# --- ADR-0057 (#2309) - the profiling turn's understanding ------------------------------------
+#
+# Mirrors `packages/ai-contracts/src/profiling-understand.ts`; both suites assert against
+# `__fixtures__/profiling-understand.keys.json`. The closed sets live in `packages/types` and are
+# read from source by `test_contract_parity.py`. `schema_rows`, NOT `schema`: a field named
+# `schema` would shadow a `BaseModel` attribute and need an alias, a second spelling of one key.
+
+ProfilingTurnIntent = Literal[
+    "answer",
+    "statement",
+    "edit",
+    "delete",
+    "progress",
+    "chat",
+    "unclear",
+]
+ProfilingFieldStatus = Literal["answered", "declined", "unanswered", "missing"]
+ProfilingFieldKind = Literal[
+    "text",
+    "number",
+    "boolean",
+    "single_select",
+    "multi_select",
+    "duration",
+    "city",
+    "list",
+]
+ProfilingEditOp = Literal["edit", "delete"]
+
+
+class ProfilingSchemaEntry(BaseModel):
+    """One entry of a `list` field (a skill, a job), by an opaque per-request ref."""
+
+    ref: str = Field(min_length=1, max_length=16)
+    value: str = Field(min_length=1, max_length=500)
+
+
+class ProfilingSchemaRow(BaseModel):
+    """One in-scope field of the session's schema, as the model is shown it.
+
+    ``value`` is the current value as display text, None when there is none (a `list` field's
+    values are its ``entries``). ``options`` are the labels a select accepts; ``label`` is
+    API-authored copy. No row ever carries the worker's name (ADR-0047 G2).
+    """
+
+    key: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=80)
+    kind: ProfilingFieldKind
+    options: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
+        default_factory=list, max_length=40
+    )
+    value: str | None = Field(default=None, max_length=500)
+    status: ProfilingFieldStatus
+    entries: list[ProfilingSchemaEntry] = Field(default_factory=list, max_length=20)
+
+
+class ProfilingOnScreen(BaseModel):
+    """The question on screen: its schema key (None for a model-written one) and its words."""
+
+    key: str | None = Field(default=None, min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=500)
+    options: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
+        default_factory=list, max_length=20
+    )
+
+
+class ProfilingProgress(BaseModel):
+    """The session's progress — the numbers the chat's progress bar carries."""
+
+    answered: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+
+class ProfilingTurnUnderstandInput(BaseModel):
+    """One typed profiling-chat message, read against the whole session schema.
+
+    ``text`` is capped at the chat message DTO's bound (4000) so this contract can never reject a
+    message the API accepted. ``page_owned`` names the Profile-page facts by name only (R2).
+    """
+
+    text: str = Field(min_length=1, max_length=4000)
+    recent_turns: list[CompanionRecentTurn] = Field(default_factory=list, max_length=6)
+    on_screen: ProfilingOnScreen | None = None
+    schema_rows: list[ProfilingSchemaRow] = Field(max_length=64)
+    page_owned: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        default_factory=list, max_length=16
+    )
+    progress: ProfilingProgress | None = None
+
+
+class ProfilingFill(BaseModel):
+    """A value the worker volunteered for a field — for a `list` field, one new entry."""
+
+    key: str = Field(min_length=1, max_length=64)
+    value: str = Field(min_length=1, max_length=500)
+
+
+class ProfilingEdit(BaseModel):
+    """A change asked of an already-filled field.
+
+    ``ref`` names the entry of a `list` field (None for every other kind). ``value`` is the new
+    value for an `edit`, None when the worker said the old one is wrong without the new one, and
+    always None for a `delete`.
+    """
+
+    op: ProfilingEditOp
+    key: str = Field(min_length=1, max_length=64)
+    ref: str | None = Field(default=None, min_length=1, max_length=16)
+    value: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ProfilingTurnUnderstandOutput(BaseModel):
+    """What the message is doing, plus every proposed fill and edit — contained and floored here,
+    re-validated by the API, applied by nobody until the API's rules (and, for a change to a
+    filled field, the worker's Haan) say so (ADR-0057 R4/R5).
+
+    ``blocked`` is the masking gateway's fail-closed refusal; the API treats it like a timeout or
+    a mock and runs today's pipeline for that turn (§3.6).
+    """
+
+    intent: ProfilingTurnIntent = "unclear"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    fills: list[ProfilingFill] = Field(default_factory=list, max_length=20)
+    edits: list[ProfilingEdit] = Field(default_factory=list, max_length=10)
+    page_owned_mentions: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        default_factory=list, max_length=16
+    )
+    blocked: bool = False
+    # Per-call cost/token metadata; None when no provider was reached (the recorder no-ops).
+    ai_metadata: AICallMetadata | None = None
+
+
+# `LlmTurnInput.schema_rows` names `ProfilingSchemaRow`, which is declared further down this file.
+LlmTurnInput.model_rebuild()
