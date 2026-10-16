@@ -73,7 +73,9 @@ def _prediction(body: dict) -> gold.Prediction | None:
         if isinstance(edit, dict)
     ]
     mentions = [m for m in body.get("page_owned_mentions", []) if isinstance(m, str)]
-    return (intent if isinstance(intent, str) else "unclear", fills, edits, mentions)
+    # #2330: only a literal true is a "none", exactly as the API reads it.
+    none = body.get("on_screen_none") is True
+    return (intent if isinstance(intent, str) else "unclear", fills, edits, mentions, none)
 
 
 def run_understand_eval(
@@ -112,7 +114,13 @@ def print_report(run: UnderstandRun) -> None:
     print(f"edits exact: {score.edits_exact}/{score.total} (reported, not gated)")
     print(
         f"keys outside the schema: {len(score.out_of_schema)}; "
-        f"false-positive deletes: {len(score.false_deletes)} (bar: 0 and 0)"
+        f"false-positive deletes: {len(score.false_deletes)}; "
+        f"false-positive 'none' over a free-text question: {len(score.false_nones)} "
+        f"(bar: 0, 0 and 0)"
+    )
+    print(
+        f"'none' reading: {score.none_correct}/{score.none_graded}; "
+        f"missed {len(score.missed_nones)}, stray {len(score.stray_nones)} (reported, not gated)"
     )
     _print_calls(run.calls, None)
     for miss in score.misses:

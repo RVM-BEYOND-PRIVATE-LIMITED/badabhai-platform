@@ -4,9 +4,14 @@ THE GATE (owner ruling 2026-10-16, the §6 bar confirmed as proposed). A run pas
   - intent accuracy >= 90% (a case may accept more than one intent where both are honest);
   - fill precision >= 95% (of every fill the model proposed, the share that is right);
   - 0 keys outside the schema (fills and edits alike);
-  - 0 false-positive deletes (a delete the case did not ask for is a value the worker loses).
-Fill RECALL and edit exactness are reported, not gated: a missed fill costs one question the
-interview asks anyway, while a wrong fill or a wrong delete writes something the worker never said.
+  - 0 false-positive deletes (a delete the case did not ask for is a value the worker loses);
+  - 0 false-positive "none" over a free-text question (#2330, owner ruling 2026-10-16):
+    `on_screen_none` true there makes the API record the question DECLINED, so a real answer
+    ("ITI se welding ki training li thi") would never be stored — the same loss as a wrong delete.
+Fill RECALL, edit exactness and missed "none" are reported, not gated: a missed fill costs one
+question the interview asks anyway, and a missed "none" is today's behaviour (the words are kept as
+the answer), while a wrong fill, a wrong delete or a wrong "none" loses what the worker said. A
+"none" over any other question is reported too: the API declines only a free-text question.
 
 THE FIXTURE IS FROZEN AND SMALL ON PURPOSE. Every case is read against the same base schema (with
 per-case overrides of a scalar's status and value), so an expected key or ref can be checked
@@ -148,6 +153,9 @@ class Case:
     allowed_mentions: tuple[str, ...] = ()
     #: Scalar overrides of the base schema: key -> (status, value).
     overrides: dict[str, tuple[str, str | None]] = field(default_factory=dict)
+    #: The `on_screen_none` this message must read as (#2328): True when the worker says they have
+    #: NONE of what the question on screen asks. None: either reading is honest, not graded.
+    none: bool | None = False
 
     def schema_rows(self) -> list[dict]:
         rows = []
@@ -216,11 +224,23 @@ CASES: list[Case] = [
     Case("ITI se welding ki training li thi", ("answer",), TRAINING_Q,
          fills={"training_name": ("Welding", "ITI Welding", "Welding Training",
                                   "ITI Welding Training")}),
-    Case("nahi, koi training nahi ki", ("answer",), TRAINING_Q),
+    Case("nahi, koi training nahi ki", ("answer",), TRAINING_Q, none=True),
     Case("turant, aur night shift bhi kar lunga", ("answer",), AVAIL_Q,
          fills={"availability": ("Immediately",)}, allowed_mentions=("shift",)),
     Case("15 din ka notice hai", ("answer",), AVAIL_Q,
          fills={"notice_period_days": ("15",)}, allowed={"availability": ("Serving notice",)}),
+    # ── "I have none" (#2328): true only for a real none to the question on screen ──
+    Case("maine koi course nahi kiya bhai", ("answer", "statement"), TRAINING_Q, none=True),
+    Case("training nahi li, seedha kaam pe lag gaya tha", ("answer", "statement"), TRAINING_Q,
+         none=True),
+    Case("कोई ट्रेनिंग नहीं की", ("answer",), TRAINING_Q, none=True),
+    Case("ITI nahi, private institute se Tally seekha tha", ("answer",), TRAINING_Q,
+         allowed={"training_name": ()}),
+    Case("yaad nahi kaunsi training thi", ("answer", "unclear"), TRAINING_Q),
+    Case("pehle ye batao salary kitni milegi", ("chat",), TRAINING_Q,
+         allowed_mentions=("expected_salary",)),
+    # No pack question on screen: "none" answers nothing (the service contains it to false).
+    Case("maine koi course nahi kiya", ("statement", "answer", "chat"), MODEL_Q),
     # ── edits WITH the new value ──
     Case("nahi nahi, experience 5 nahi 2 saal hai", ("edit",), AVAIL_Q,
          edits=(("edit", "experience_years", None, ("2",)),)),
@@ -290,9 +310,9 @@ def _accepts(accepted: Values, value: str) -> bool:
 
 
 #: What one prediction is: `(intent, fills [(key, value)], edits [(op, key, ref, value)],
-#: mentions)` — None when the service gave no answer the API would act on.
+#: mentions, on_screen_none)` — None when the service gave no answer the API would act on.
 Prediction = tuple[
-    str, list[tuple[str, str]], list[tuple[str, str, str | None, str | None]], list[str]
+    str, list[tuple[str, str]], list[tuple[str, str, str | None, str | None]], list[str], bool
 ]
 
 
@@ -311,6 +331,20 @@ class UnderstandScore:
     false_deletes: list[str]
     misses: list[str]
     failed: list[str]
+    #: #2330 — the cases whose `none` is graded, and how many the model read right.
+    none_graded: int = 0
+    none_correct: int = 0
+    #: A "none" over a free-text question the case did not ask for: GATED (a lost answer).
+    false_nones: list[str] = field(default_factory=list)
+    #: A real "none" read as false, or a "none" over a question the API never declines: reported.
+    missed_nones: list[str] = field(default_factory=list)
+    stray_nones: list[str] = field(default_factory=list)
+
+
+def _free_text_on_screen(case: Case) -> bool:
+    """Is the question on screen one the API would DECLINE on a "none" — a free-text pack row?"""
+    key = case.on_screen.get("key") if case.on_screen else None
+    return any(row["key"] == key and row["kind"] == "text" for row in SCHEMA)
 
 
 def check_set() -> list[str]:
@@ -335,6 +369,10 @@ def check_set() -> list[str]:
         for name in [*case.mentions, *case.allowed_mentions]:
             if name not in PAGE_OWNED:
                 problems.append(f"{case.text!r}: mention {name} not page-owned")
+        # The service contains "none" to a pack question on screen; expecting it anywhere else
+        # would grade the model on a reading it is never allowed to give.
+        if case.none is True and not (case.on_screen and case.on_screen.get("key")):
+            problems.append(f"{case.text!r}: a none needs a pack question on screen")
     return problems
 
 
@@ -355,13 +393,17 @@ def evaluate(predict: Callable[[Case], Prediction | None]) -> UnderstandScore:
     out_of_schema: list[str] = []
     false_deletes: list[str] = []
     misses: list[str] = []
+    none_graded = none_correct = 0
+    false_nones: list[str] = []
+    missed_nones: list[str] = []
+    stray_nones: list[str] = []
     for case in CASES:
         fills_required += len(case.fills)
         prediction = predict(case)
         if prediction is None:
             misses.append(f"{case.text!r}: no answer")
             continue
-        intent, fills, edits, mentions = prediction
+        intent, fills, edits, mentions, on_screen_none = prediction
         reasons: list[str] = []
         if intent in case.intents:
             intent_correct += 1
@@ -401,6 +443,22 @@ def evaluate(predict: Callable[[Case], Prediction | None]) -> UnderstandScore:
         if missed_mentions or stray_mentions:
             reasons.append(f"mentions missed {missed_mentions} stray {stray_mentions}")
 
+        # #2330 — the "none" reading. Wrong over a free-text question is a lost answer (gated);
+        # anywhere else, and a missed one, is reported.
+        if case.none is not None:
+            none_graded += 1
+            if on_screen_none == case.none:
+                none_correct += 1
+            elif on_screen_none and _free_text_on_screen(case):
+                false_nones.append(f"{case.text!r}")
+                reasons.append("none true over a real answer")
+            elif on_screen_none:
+                stray_nones.append(f"{case.text!r}")
+                reasons.append("none true where the API never declines")
+            else:
+                missed_nones.append(f"{case.text!r}")
+                reasons.append("missed none")
+
         exact = len(edits) == len(case.edits) and all(
             any(_edit_matches(expected, predicted) for predicted in edits)
             for expected in case.edits
@@ -424,18 +482,25 @@ def evaluate(predict: Callable[[Case], Prediction | None]) -> UnderstandScore:
         failed.append(f"keys outside the schema: {out_of_schema}")
     if false_deletes:
         failed.append(f"false-positive deletes: {false_deletes}")
+    if false_nones:
+        failed.append(f"false-positive 'none' over a free-text question: {false_nones}")
     return UnderstandScore(
-        total,
-        intent_correct,
-        intent_accuracy,
-        fills_proposed,
-        fills_correct,
-        fill_precision,
-        fills_required,
-        fills_found,
-        edits_exact,
-        out_of_schema,
-        false_deletes,
-        misses,
-        failed,
+        total=total,
+        intent_correct=intent_correct,
+        intent_accuracy=intent_accuracy,
+        fills_proposed=fills_proposed,
+        fills_correct=fills_correct,
+        fill_precision=fill_precision,
+        fills_required=fills_required,
+        fills_found=fills_found,
+        edits_exact=edits_exact,
+        out_of_schema=out_of_schema,
+        false_deletes=false_deletes,
+        misses=misses,
+        failed=failed,
+        none_graded=none_graded,
+        none_correct=none_correct,
+        false_nones=false_nones,
+        missed_nones=missed_nones,
+        stray_nones=stray_nones,
     )

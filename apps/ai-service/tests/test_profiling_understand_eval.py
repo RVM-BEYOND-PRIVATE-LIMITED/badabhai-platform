@@ -78,7 +78,7 @@ def _perfect(case: gold.Case) -> gold.Prediction:
     edits = [
         (op, key, ref, None if values is None else values[0]) for op, key, ref, values in case.edits
     ]
-    return (case.intents[0], fills, edits, list(case.mentions))
+    return (case.intents[0], fills, edits, list(case.mentions), case.none is True)
 
 
 def test_a_perfect_predictor_passes_every_bar() -> None:
@@ -92,10 +92,10 @@ def test_a_perfect_predictor_passes_every_bar() -> None:
 
 def test_a_single_false_delete_fails_the_run() -> None:
     def predict(case: gold.Case) -> gold.Prediction:
-        intent, fills, edits, mentions = _perfect(case)
+        intent, fills, edits, mentions, none = _perfect(case)
         if case.text == "aur kitna bacha hai":
             edits = [("delete", "skills", "s1", None)]
-        return (intent, fills, edits, mentions)
+        return (intent, fills, edits, mentions, none)
 
     score = gold.evaluate(predict)
     assert any("false-positive deletes" in f for f in score.failed)
@@ -103,12 +103,13 @@ def test_a_single_false_delete_fails_the_run() -> None:
 
 def test_a_key_outside_the_schema_fails_the_run() -> None:
     def predict(case: gold.Case) -> gold.Prediction:
-        intent, fills, edits, mentions = _perfect(case)
+        intent, fills, edits, mentions, none = _perfect(case)
         return (
             intent,
             [*fills, ("aadhaar_number", "x")] if case is gold.CASES[0] else fills,
             edits,
             mentions,
+            none,
         )
 
     assert any("outside the schema" in f for f in gold.evaluate(predict).failed)
@@ -116,15 +117,15 @@ def test_a_key_outside_the_schema_fails_the_run() -> None:
 
 def test_wrong_fills_fail_precision_and_allowed_ones_do_not() -> None:
     def wrong(case: gold.Case) -> gold.Prediction:
-        intent, fills, edits, mentions = _perfect(case)
-        return (intent, [(key, "Kuch aur") for key, _v in fills], edits, mentions)
+        intent, fills, edits, mentions, none = _perfect(case)
+        return (intent, [(key, "Kuch aur") for key, _v in fills], edits, mentions, none)
 
     assert any("fill precision" in f for f in gold.evaluate(wrong).failed)
 
     def generous(case: gold.Case) -> gold.Prediction:
-        intent, fills, edits, mentions = _perfect(case)
+        intent, fills, edits, mentions, none = _perfect(case)
         extra = [(key, values[0]) for key, values in case.allowed.items() if values]
-        return (intent, fills + extra, edits, mentions)
+        return (intent, fills + extra, edits, mentions, none)
 
     assert gold.evaluate(generous).failed == []
 
@@ -134,6 +135,45 @@ def test_no_answer_misses_the_intent_and_finds_nothing() -> None:
     assert score.intent_correct == 0
     assert score.fills_found == 0
     assert any("intent accuracy" in f for f in score.failed)
+
+
+def test_the_set_grades_the_none_reading_both_ways() -> None:
+    """#2330: real nones, real answers over the same free-text question, and no pack question."""
+    graded = [c for c in gold.CASES if c.none is not None]
+    nones = [c for c in graded if c.none and c.on_screen == gold.TRAINING_Q]
+    answers = [c for c in graded if not c.none and c.on_screen == gold.TRAINING_Q]
+    assert len(nones) >= 3 and len(answers) >= 3
+    assert any(c.none is False and c.on_screen == gold.MODEL_Q for c in graded)
+    # A Devanagari none too: the floor of the rule is the meaning, not the script.
+    assert any(c.none and any("ऀ" <= ch <= "ॿ" for ch in c.text) for c in nones)
+
+
+def _with_none(text: str, value: bool):
+    def predict(case: gold.Case) -> gold.Prediction:
+        intent, fills, edits, mentions, none = _perfect(case)
+        return (intent, fills, edits, mentions, value if case.text == text else none)
+
+    return predict
+
+
+def test_a_none_over_a_real_free_text_answer_fails_the_run() -> None:
+    """Owner ruling 2026-10-16: 0 false nones — the API would never store this training."""
+    score = gold.evaluate(_with_none("ITI se welding ki training li thi", True))
+    assert score.false_nones == ["'ITI se welding ki training li thi'"]
+    assert any("false-positive 'none'" in f for f in score.failed)
+
+
+def test_a_missed_none_and_a_none_the_api_never_acts_on_are_reported_not_gated() -> None:
+    missed = gold.evaluate(_with_none("maine koi course nahi kiya bhai", False))
+    assert missed.failed == [] and missed.missed_nones == ["'maine koi course nahi kiya bhai'"]
+    # Over a select question the API never declines anything: reported, not a lost answer.
+    stray = gold.evaluate(_with_none("aur kitna bacha hai", True))
+    assert stray.failed == [] and stray.stray_nones == ["'aur kitna bacha hai'"]
+
+
+def test_a_perfect_predictor_reads_every_graded_none() -> None:
+    score = gold.evaluate(_perfect)
+    assert score.none_correct == score.none_graded > 0
 
 
 def test_numbers_compare_in_canonical_form() -> None:
@@ -183,13 +223,14 @@ def _answer_perfectly(meta: dict | None = None):
     by_text = {case.text: _perfect(case) for case in gold.CASES}
 
     def answer(body: dict) -> dict:
-        intent, fills, edits, mentions = by_text[body["text"]]
+        intent, fills, edits, mentions, none = by_text[body["text"]]
         return {
             "intent": intent,
             "confidence": 0.9,
             "fills": [{"key": k, "value": v} for k, v in fills],
             "edits": [{"op": o, "key": k, "ref": r, "value": v} for o, k, r, v in edits],
             "page_owned_mentions": mentions,
+            "on_screen_none": none,
             "blocked": False,
             "ai_metadata": meta if meta is not None else _meta(),
         }
@@ -223,6 +264,13 @@ def test_a_failed_call_is_scored_as_no_answer(monkeypatch: pytest.MonkeyPatch) -
 
 def test_a_blocked_answer_is_no_answer() -> None:
     assert eval_cli._prediction({"blocked": True}) is None
+
+
+def test_the_cli_reads_none_as_the_api_does_a_literal_true_only() -> None:
+    assert eval_cli._prediction({"intent": "answer", "on_screen_none": True})[4] is True
+    for loose in ("true", 1, None):
+        assert eval_cli._prediction({"intent": "answer", "on_screen_none": loose})[4] is False
+    assert eval_cli._prediction({"intent": "answer"})[4] is False
 
 
 def test_the_cli_refuses_bad_arguments() -> None:
