@@ -28,11 +28,21 @@
 ///   - `Training`-category questions (ITI project / trade test), which feed
 ///     Education & Certifications.
 ///
-/// Categories come from [formTopicFor] — the SAME function the form header
-/// renders — so the filter can never disagree with what the worker sees.
-/// Unknown question keys fail OPEN (included): [formTopicFor] falls back to
-/// readable words for a key no shipped pack names, and excluding an
-/// unrecognized question would silently drop it from every section walk.
+/// Categories come from the SAME table the form header renders
+/// (`trade_form_topics.dart`), so the filter can never disagree with what the
+/// worker sees — but through [knownFormTopicFor], never through
+/// [formTopicFor]'s readable-words display fallback.
+///
+/// UNKNOWN QUESTION KEYS FAIL CLOSED (dropped from a section walk). This was
+/// fail-OPEN until 2026-10-16, and the open failure is exactly how it broke:
+/// the seven form trades shipped 2026-09-24/25 carried 68 keys the table did
+/// not name, each fell back to its own words — a "category" that is never
+/// `Experience` — and so every one of them, the tenure and self-level
+/// questions included, was asked again under Technical Skills. An unknown key
+/// is now left out of the section walk (it stays on the full walk), and
+/// `trade_form_topics_coverage_test.dart` reads the shipped packs so that a
+/// form pack carrying an unmapped key turns CI red instead of quietly
+/// shrinking or bloating a walk.
 library;
 
 import '../../chat/domain/chat_resume_menu.dart'
@@ -57,8 +67,9 @@ const Set<String> _kNonSkillCategories = <String>{
 /// Whether [step] belongs in the Technical Skills walk.
 bool _isTechnicalSkillsStep(TradeFormStep step) {
   if (step is! TradeFormQuestionStep) return false; // a marker page
-  final String category = formTopicFor(step.question.id).$1;
-  return !_kNonSkillCategories.contains(category);
+  final (String, String)? topic = knownFormTopicFor(step.question.id);
+  if (topic == null) return false; // unknown key — fail closed (file doc)
+  return !_kNonSkillCategories.contains(topic.$1);
 }
 
 /// Whether [step] belongs in the Availability, Terms & Salary walk.

@@ -16,7 +16,10 @@
  *      path filter of its own;
  *   2. that filter actually triggers the `worker-app` gate;
  *   3. `worker-app-apk` still requires the app's OWN filter, so a server-only change gates
- *      the tests without publishing a byte-identical APK Release.
+ *      the tests without publishing a byte-identical APK Release;
+ *   4. a `<dir>/**` entry — a shared DATA directory rather than one server file (the question
+ *      packs, read by `trade_form_topics_coverage_test`) — names a directory that exists AND
+ *      that a worker-app test actually reads, so the filter cannot collect dead globs.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -102,14 +105,32 @@ function serverPathsReadByAppTests(): string[] {
   return [...found].sort();
 }
 
+/** A `<dir>/**` filter entry: a whole shared data directory, not one server file. */
+function isDataDirGlob(path: string): boolean {
+  return path.endsWith("/**");
+}
+
 describe("TD144 — the worker-app parity filter", () => {
   const filter = filterPaths(CI, "worker-app-parity");
+  const serverFiles = filter.filter((path) => !isDataDirGlob(path));
+  const dataDirs = filter.filter(isDataDirGlob).map((glob) => glob.slice(0, -"/**".length));
 
   it("lists exactly the server files the worker-app parity tests read", () => {
     const read = serverPathsReadByAppTests();
     // Vacuity guard: a broken extractor must not pass by finding nothing on either side.
     expect(read.length).toBeGreaterThan(0);
-    expect([...filter].sort()).toEqual(read);
+    expect([...serverFiles].sort()).toEqual(read);
+  });
+
+  it("lists a data directory only when a worker-app test reads it", () => {
+    // Flutter runs tests from apps/worker-app, so `'../../packages/x'` is `packages/x`.
+    const sources = dartFiles(APP_TESTS).map((file) => readFileSync(file, "utf8"));
+    for (const dir of dataDirs) {
+      expect(
+        sources.some((source) => source.includes(`'../../${dir}`)),
+        dir,
+      ).toBe(true);
+    }
   });
 
   it("re-runs when the app tests change: they are a turbo input of this package", () => {
@@ -120,7 +141,12 @@ describe("TD144 — the worker-app parity filter", () => {
   });
 
   it("names only files that exist", () => {
-    for (const path of filter) expect(existsSync(join(ROOT, path)), path).toBe(true);
+    for (const path of serverFiles) expect(existsSync(join(ROOT, path)), path).toBe(true);
+    for (const dir of dataDirs) {
+      expect(existsSync(join(ROOT, dir)) && statSync(join(ROOT, dir)).isDirectory(), dir).toBe(
+        true,
+      );
+    }
   });
 
   it("is exported by the changes job", () => {
