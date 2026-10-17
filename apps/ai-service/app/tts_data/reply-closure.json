@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "clip_count": 1232,
+  "clip_count": 1236,
   "producers": {
-    "retry": 99,
-    "clarify": 444,
-    "prompt": 319,
+    "retry": 100,
+    "clarify": 446,
+    "prompt": 320,
     "constant": 94,
     "why": 276
   },
@@ -532,6 +532,11 @@
     {
       "id": "14939e6c415947d3",
       "text": "Belt, gear ya bearing ki dikkat kya khud theek karte hain?",
+      "producer": "retry"
+    },
+    {
+      "id": "14c44c4c6acff900",
+      "text": "Aapne koi course ya training ki hai?",
       "producer": "retry"
     },
     {
@@ -2013,6 +2018,11 @@
       "id": "525d2ba59ec6d1f9",
       "text": "Auto parts, white goods ya furniture, kis line me kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "526436e40db91f66",
+      "text": "Training se aapki skill aur certificate pata chalta hai. Kya aapne koi training ya course kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "52c16683209cf191",
@@ -3995,6 +4005,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a21f57fbd3a40674",
+      "text": "Kya aapne koi training ya course kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "a2471ea03c47a4ac",
       "text": "Aap kitne volt tak ka kaam karte hain?",
       "producer": "prompt"
@@ -5693,6 +5708,11 @@
       "id": "eb7354086cba1684",
       "text": "Machine setting ka kaunsa kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "ebf5353a1c1b98a0",
+      "text": "Training se aapki skill aur certificate pata chalta hai. Aapne koi course ya training ki hai?",
+      "producer": "clarify"
     },
     {
       "id": "ec2787fba6e7b56b",

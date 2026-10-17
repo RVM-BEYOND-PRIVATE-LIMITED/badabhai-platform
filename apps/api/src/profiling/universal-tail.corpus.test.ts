@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import type { OccupationPin, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 
 import { recordAnswer, recordDeclined, toAnswerMap, type AnswerMap } from "./answer-map";
 import { universalPack } from "./corpus-packs.fixture";
@@ -41,6 +41,7 @@ function walk(
   startTurn: number,
   settled: Record<string, unknown>,
   declined: readonly string[] = [],
+  occupation: OccupationPin | null = null,
 ): string[] {
   let answers: AnswerMap = toAnswerMap([]);
   const write = (key: string, value: unknown, turn: number): void => {
@@ -61,7 +62,7 @@ function walk(
   // A DECLINE IS A COMPLETE ANSWER — the same record the orchestrator writes on "nahi pata".
   for (const key of declined) answers = recordDeclined(answers, key, 1);
 
-  let envelope = withAnswers(emptyProfilingEnvelope(), answers);
+  let envelope = withAnswers({ ...emptyProfilingEnvelope(), occupation }, answers);
   const asked: string[] = [];
   for (let turn = startTurn; turn < startTurn + 20; turn++) {
     const decision = nextQuestion(toEngineState(envelope, turn), {
@@ -273,5 +274,104 @@ describe("the Layer A tail, over the REAL corpus (qp_universal@4)", () => {
       "work_types",
       ...V4_TAIL.slice(4),
     ]);
+  });
+});
+
+/**
+ * THE TRAINING GATE (qp_universal@5, owner rulings 2026-10-17): one Haan/Nahi question opens the
+ * trio, and it is asked only for the sixteen form families' occupations. An unpinned session and a
+ * non-industrial pin both skip the gate AND the trio — `ask_if`'s fail direction IS the ruling.
+ * v4 sessions keep the ungated trio; nothing above moves.
+ */
+describe("the training gate, over the REAL corpus (qp_universal@5)", () => {
+  const V5_TAIL = [
+    "current_city",
+    "availability",
+    "languages",
+    "work_types",
+    "commute_max_km",
+    "willing_to_travel",
+    "notice_period_days",
+    "salary_period",
+    "training_done",
+    "training_name",
+    "training_provider",
+    "training_year",
+    "secondary_occupations",
+  ];
+
+  /** A valid pin for one job domain — the engine reads it off `EngineState.occupation`. */
+  function pin(jobDomainId: string): OccupationPin {
+    return {
+      job_domain_id: jobDomainId,
+      label: "CNC turner",
+      isco_unit_code: "7223",
+      match_status: "matched_lexical",
+      match_score: 1,
+      match_layer: null,
+      pack_id: null,
+      pack_version: null,
+      catalog_version: null,
+    };
+  }
+
+  const INDUSTRIAL_PIN = pin("jd_nco_7223_6001"); // fam_cnc_turning
+  const NON_INDUSTRIAL_PIN = pin("jd_nco_5120_0100"); // cooks — not in the 70
+  const GATE_TRUE = { ...AFTER_PHASE_A, training_done: true };
+  const GATE_FALSE = { ...AFTER_PHASE_A, training_done: false };
+
+  /** The tail as served once the gate is already TRUE: every V5 item except the gate itself. */
+  const V5_TAIL_GATE_SETTLED = V5_TAIL.filter((key) => key !== "training_done");
+
+  it("an industrial pin with the gate TRUE serves the whole trio — the gate itself is already settled", () => {
+    expect(walk(chatUniversal(5), 8, GATE_TRUE, [], INDUSTRIAL_PIN)).toEqual(V5_TAIL_GATE_SETTLED);
+  });
+
+  it("the gate answered FALSE ends the trio — the rest of the tail still runs", () => {
+    const asked = walk(chatUniversal(5), 8, GATE_FALSE, [], INDUSTRIAL_PIN);
+    for (const training of ["training_name", "training_provider", "training_year"]) {
+      expect(asked, `${training} must not be served after Nahi`).not.toContain(training);
+    }
+    expect(asked).toContain("secondary_occupations");
+  });
+
+  it("NEVER asks gate or trio without an occupation pin — the fail-closed ruling", () => {
+    const asked = walk(chatUniversal(5), 8, AFTER_PHASE_A, [], null);
+    for (const training of [
+      "training_done",
+      "training_name",
+      "training_provider",
+      "training_year",
+    ]) {
+      expect(asked, `${training} must not be served unpinned`).not.toContain(training);
+    }
+    expect(asked).toContain("secondary_occupations");
+  });
+
+  it("NEVER asks them for a NON-INDUSTRIAL pin — a different background skips the trio", () => {
+    const asked = walk(chatUniversal(5), 8, AFTER_PHASE_A, [], NON_INDUSTRIAL_PIN);
+    for (const training of [
+      "training_done",
+      "training_name",
+      "training_provider",
+      "training_year",
+    ]) {
+      expect(asked, `${training} must not be served to a non-industrial worker`).not.toContain(
+        training,
+      );
+    }
+    expect(asked).toContain("secondary_occupations");
+  });
+
+  it("serves the gate itself when the pin is industrial and the gate is unanswered — the trio stays away", () => {
+    const asked = walk(chatUniversal(5), 1, {}, [], INDUSTRIAL_PIN);
+    expect(asked).toContain("training_done");
+    expect(asked).not.toContain("training_name");
+  });
+
+  it("v4 sessions keep the UNGATED trio — a frozen version is not retold", () => {
+    const asked = walk(chatUniversal(4), 8, AFTER_PHASE_A);
+    expect(asked).toContain("training_name");
+    expect(asked).not.toContain("training_done");
   });
 });
