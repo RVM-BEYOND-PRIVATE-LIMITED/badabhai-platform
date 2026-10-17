@@ -426,11 +426,18 @@ export class ChatRepository {
     // Bounded hot-path read: take the most recent CHAT_HISTORY_MAX, then return
     // them in chronological order. A realistic interview is well under the cap, so
     // this is byte-identical to the old unbounded `asc` read for normal sessions.
+    //
+    // THE TIE-BREAK IS LOAD-BEARING. A turn's worker line and Bada Bhai's reply are written
+    // with ONE timestamp, so `created_at` alone leaves their order to the plan: measured on a
+    // 30-turn session, 5 pairs came back reply-first on a seq scan and all 30 on an index
+    // scan. A reopened chat then drew "kahan se? / kis saal?" back to back, and extraction
+    // read answers under the wrong question. `outbound` sorts after `inbound`, so DESC puts
+    // the reply first and the reverse below puts the worker's line before it.
     const rows = await this.db
       .select()
       .from(chatMessages)
       .where(eq(chatMessages.sessionId, sessionId))
-      .orderBy(desc(chatMessages.createdAt))
+      .orderBy(desc(chatMessages.createdAt), desc(chatMessages.direction))
       .limit(CHAT_HISTORY_MAX);
     return rows.reverse();
   }

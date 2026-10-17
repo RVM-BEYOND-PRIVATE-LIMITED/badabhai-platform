@@ -797,3 +797,47 @@ describe("ChatRepository.mergeFreeChatLanguage — merged beside the state, mono
     ).toBe(true);
   });
 });
+
+/**
+ * 2026-10-16 device test: a reopened chat drew two of Bada Bhai's lines back to back, then two
+ * of the worker's. A turn's two lines share ONE `created_at`, so the read must break the tie, or
+ * the plan decides the order (measured: 5 of 30 pairs reversed on a seq scan, 30 of 30 on an index
+ * scan). Extraction reads the same query.
+ */
+describe("ChatRepository.listMessages — a turn's two lines keep their order", () => {
+  function makeSelectDb(rowsDesc: unknown[]) {
+    const captured: { orderBy: unknown[] } = { orderBy: [] };
+    const chain = {
+      from: () => chain,
+      where: () => chain,
+      orderBy: (...cols: unknown[]) => {
+        captured.orderBy = cols;
+        return chain;
+      },
+      limit: () => Promise.resolve([...rowsDesc]),
+    };
+    return { db: { select: vi.fn(() => chain) }, captured };
+  }
+
+  it("orders by created_at, then direction — never by created_at alone", async () => {
+    const { db, captured } = makeSelectDb([]);
+    await new ChatRepository(db as never).listMessages(SESSION);
+
+    const rendered = captured.orderBy.map((c) => renderWhere(c));
+    expect(rendered).toEqual([
+      '"chat_messages"."created_at" desc',
+      '"chat_messages"."direction" desc',
+    ]);
+  });
+
+  it("returns the worker's line before the reply when both share a timestamp", async () => {
+    const at = new Date("2026-10-16T09:30:00.000Z");
+    // What `created_at DESC, direction DESC` returns for one turn: the reply first.
+    const { db } = makeSelectDb([
+      { id: "r", direction: "outbound", createdAt: at, workerId: WORKER },
+      { id: "w", direction: "inbound", createdAt: at, workerId: WORKER },
+    ]);
+    const rows = await new ChatRepository(db as never).listMessages(SESSION);
+    expect(rows.map((r) => r.direction)).toEqual(["inbound", "outbound"]);
+  });
+});
