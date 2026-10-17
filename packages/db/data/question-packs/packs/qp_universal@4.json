@@ -14,7 +14,7 @@
   "version": 4,
   "family_id": "fam_universal",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v4 adds the eight Layer A elicitation asks (commute_max_km, willing_to_travel, notice_period_days, salary_period, training_name/provider/year, secondary_occupations) and flips the three registered facts to chat ownership. v3 is deprecated in place — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose; pinned v3 sessions keep resolving through loadPinned.",
   "items": [
     {

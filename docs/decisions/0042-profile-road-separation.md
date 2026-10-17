@@ -267,3 +267,30 @@ exclusion and the no-rank-input posture are unchanged.
    `parseTrainingYear` parsers, `parseAffirmation` for the boolean); no LLM call is added, no
    migration and no event is introduced. `v3` is deprecated in place and pinned sessions keep
    resolving.
+
+---
+
+## 11. Amendment — the training gate: the trio opens on a Haan/Nahi question, gated by occupation (2026-10-17)
+
+Owner rulings 2026-10-17. The §10 trio reached every chat worker; the observed failure was a typed
+non-answer stored as a training name ("kuch nahi koya") with a year behind it, and training
+questions put to workers the questions do not fit. `qp_universal@5` answers both with DATA — one
+new item and two conditions; every v4 item is otherwise byte-identical.
+
+1. **The gate.** `training_done` (boolean, "Kya aapne koi training ya course kiya hai?") is the
+   trio's single entry point; `training_name` carries `ask_if: eq(training_done, true)`, and
+   `training_provider` / `training_year` keep `answered(training_name)`. A Nahi, a decline, or an
+   unanswered gate ends the trio; the rest of the tail runs unchanged.
+2. **The occupation condition.** The gate carries `ask_if: any(occupation_is × 70)` — the
+   `job_domain_id`s bound to the SIXTEEN form-enabled families in `_families.jsonl`. A worker whose
+   pin is outside that closed set, or who has NO pin, is never asked the gate or the trio: the
+   `ask_if` fail direction (unevaluatable → false) IS the ruling. `occupation_under` is deliberately
+   unused — `isco_unit_code` is nullable for rvm-minted pins while `job_domain_id` is always
+   present.
+3. **The typed non-answer floor is unchanged.** The #2328/#2339 none handling ("kuch nahi koya",
+   "nahi kia", "maine nahi kiya", the Devanagari forms, "none") remains the deterministic layer
+   beneath the question.
+4. **No rank input, no new authority, no migration, no event.** One attribute (`training_done`) is
+   written; the gate is a boolean the pack's own condition reads. The ask-budget walk moves 36 → 37
+   (headroom 12 → 11 against the unchanged cap of 48), pinned by the guard. `v4` is deprecated in
+   place; pinned v4 sessions keep resolving and keep the ungated trio.

@@ -559,6 +559,10 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Aapko notice period kitne din ka lagta hai?": "आपको नोटिस पीरियड कितने दिन का लगता है?",
   "Join karne mein kitne din lagenge?": "जॉइन करने में कितने दिन लगेंगे?",
   "Aapki salary mahine, din ya saal ke hisaab se hai?": "आपकी सैलरी महीने, दिन या साल के हिसाब से है?",
+  // The training gate (qp_universal@5, owner rulings 2026-10-17) — prompt and retry. The clarify
+  // twins are COMPOSED from these and the why-text below; do not author them by hand.
+  "Kya aapne koi training ya course kiya hai?": "क्या आपने कोई ट्रेनिंग या कोर्स किया है?",
+  "Aapne koi course ya training ki hai?": "आपने कोई कोर्स या ट्रेनिंग की है?",
   "Aapne kaunsi training ya course ki hai?": "आपने कौन सी ट्रेनिंग या कोर्स की है?",
   "Kis cheez ki training ki thi?": "किस चीज़ की ट्रेनिंग की थी?",
   "Training aapne kahan se ki thi?": "ट्रेनिंग आपने कहाँ से की थी?",
