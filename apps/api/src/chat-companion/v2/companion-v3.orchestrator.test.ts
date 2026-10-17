@@ -3,10 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { EVENT_REGISTRY } from "@badabhai/event-schema";
-import { RESUME_MENU_EDIT_REPLY, RESUME_SECTIONS } from "../../chat/resume-menu";
+import {
+  RESUME_MENU_EDIT_KEY,
+  RESUME_MENU_EDIT_REPLY,
+  RESUME_MENU_REDO_KEY,
+  RESUME_MENU_ROOT_REPLY,
+  RESUME_SECTIONS,
+} from "../../chat/resume-menu";
 import { FreeChatModelCalls } from "../../profiling/free-chat/free-chat-model-calls";
 import { FREE_CHAT_COPY } from "../../profiling/free-chat/free-chat.copy";
 import { V2_CLARIFY, V2_EDIT_CARD_INTRO } from "../companion-replies";
+import { COMPANION_RESUME_DOWNLOAD_KEY } from "../companion-v3-keys";
 import { CompanionBrain } from "./companion-brain";
 import type { CompanionEditService } from "./companion-edit.service";
 import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
@@ -301,6 +308,53 @@ describe("kill switch OFF (production's default) — the v1 miss runs the free-c
       free_category: "resume",
       resume_action: "edit",
     });
+    expect(parses(event)).toBe(true);
+  });
+
+  it("#2344 — a résumé message with no action is ANSWERED with the root menu under it; its event parses", async () => {
+    const h = setup({ freeClassify: classified("resume") });
+    const turn = await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: "meri profile kis chij ki he", submission_id: SUBMISSION },
+      CTX,
+      NOW,
+    );
+    expect(turn.reply).toBe("Welding ka certificate ITI se milta hai.");
+    expect(turn.read_aloud).toBe(false);
+    expect(turn.suggested_options.map((o) => o.option_key)).toEqual([
+      RESUME_MENU_EDIT_KEY,
+      RESUME_MENU_REDO_KEY,
+      COMPANION_RESUME_DOWNLOAD_KEY,
+    ]);
+    expect(h.ai.freeChatReply).toHaveBeenCalledTimes(1);
+    const event = turnEvent(h.events);
+    expect(event.payload).toMatchObject({
+      intent_source: "llm",
+      v2_intent: "resume_menu",
+      outcome: "answered",
+      free_category: "resume",
+      resume_action: null,
+      refusal_topic: null,
+      reply_language: "hinglish",
+    });
+    expect(parses(event)).toBe(true);
+    // The answer is model context for the next turn, like any answered reply.
+    expect(h.memory.append).toHaveBeenCalledTimes(2);
+  });
+
+  it("#2344 — with no answer from the reply, the bare root menu; its event parses as `served`", async () => {
+    const h = setup({ freeClassify: classified("resume"), reply: null });
+    const turn = await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: "mera resume", submission_id: SUBMISSION },
+      CTX,
+      NOW,
+    );
+    expect(turn.reply).toBe(RESUME_MENU_ROOT_REPLY);
+    const event = turnEvent(h.events);
+    expect(event.payload).toMatchObject({ v2_intent: "resume_menu", outcome: "served" });
     expect(parses(event)).toBe(true);
   });
 

@@ -661,24 +661,104 @@ describe("resume — the classifier's action decides, the existing flows answer"
     expect(unavailable.turn.reply).toBe(RESUME_RENDER_FAILED.latin);
     expect(unavailable.turn.suggested_options).toEqual([]);
   });
+});
 
-  it("no action → the résumé root menu, plus the download chip only when a PDF is ready", async () => {
-    const ready = await setup({ verdict: verdict("resume") }).brain.route(
-      input("resume ke baare mein"),
-    );
-    expect(ready.turn.reply).toBe(RESUME_MENU_ROOT_REPLY);
-    expect(keys(ready)).toEqual([
+describe("#2344 — a résumé message with NO action is answered from the résumé, the menu rides it", () => {
+  const FACTS: CompanionEditSnapshotRow[] = [
+    { ref: "occ", section: "occupations", fields: { title: "CNC Turner" } },
+  ];
+  const LINES = ["Aapki profile CNC Turner ki hai, 5 saal ka experience."];
+
+  it("the career reply answers, with the résumé and the summary; the root menu is its chips", async () => {
+    const h = setup({
+      verdict: verdict("resume"),
+      reply: answer(LINES, ["Aur skills batayein"]),
+      resumeFacts: FACTS,
+      summary: "- CNC turner, Pune",
+    });
+    const out = await h.brain.route(input("meri profile kis chij ki he"));
+    // ONE reply call, on the career prompt, carrying what the résumé says and the summary.
+    expect(h.calls.reply).toHaveBeenCalledTimes(1);
+    expect(h.calls.reply.mock.calls[0]![0]).toMatchObject({
+      category: "career",
+      text: "meri profile kis chij ki he",
+      resumeFacts: FACTS,
+      summary: "- CNC turner, Pune",
+      replyLanguage: "hinglish",
+    });
+    expect(out.turn.reply).toBe(LINES.join("\n"));
+    // Model text: never read aloud.
+    expect(out.turn.read_aloud).toBe(false);
+    expect("tts_text" in out.turn).toBe(false);
+    // The menu's keyed options are the chips; the model's own chip is not carried.
+    expect(keys(out)).toEqual([
       RESUME_MENU_EDIT_KEY,
       RESUME_MENU_REDO_KEY,
       COMPANION_RESUME_DOWNLOAD_KEY,
     ]);
-    expect(ready).toMatchObject({ v2Intent: "resume_menu", outcome: "served" });
-    expect(ready.facts.resumeAction).toBeNull();
+    expect(out.turn.suggested_followups).toEqual([
+      "Apna resume edit karein",
+      "Apna resume dobara banayein",
+      COMPANION_RESUME_DOWNLOAD_LABEL,
+    ]);
+    expect(out.turn.question_kind).toBe("disambiguate");
+    // Routed on the classifier's say; answered; remembered as model context.
+    expect(out).toMatchObject({ v2Intent: "resume_menu", outcome: "answered", remember: true });
+    expect(out.facts).toMatchObject({
+      freeCategory: "resume",
+      resumeAction: null,
+      refusalTopic: null,
+      replyLanguage: "hinglish",
+    });
+    expect(CompanionTurnSchema.safeParse(out.turn).success).toBe(true);
+  });
 
+  it("the download chip rides only when a PDF is ready", async () => {
     const building = await setup({ verdict: verdict("resume"), download: "building" }).brain.route(
-      input("resume ke baare mein"),
+      input("mera resume"),
     );
     expect(keys(building)).toEqual([RESUME_MENU_EDIT_KEY, RESUME_MENU_REDO_KEY]);
+    expect(building.outcome).toBe("answered");
+  });
+
+  it("THE MENU IS THE FLOOR: a failed, rejected or refused reply serves the bare root menu", async () => {
+    for (const reply of [
+      null,
+      answer(["Call kariye 9876543210 par."]),
+      { status: "refuse", topic: "legal_medical_financial", ai_metadata: META },
+    ]) {
+      const h = setup({ verdict: verdict("resume"), reply });
+      const out = await h.brain.route(input("resume ke baare mein"));
+      expect(out.turn.reply).toBe(RESUME_MENU_ROOT_REPLY);
+      expect(keys(out)).toEqual([
+        RESUME_MENU_EDIT_KEY,
+        RESUME_MENU_REDO_KEY,
+        COMPANION_RESUME_DOWNLOAD_KEY,
+      ]);
+      expect(out).toMatchObject({ v2Intent: "resume_menu", outcome: "served" });
+      // The worker read the menu, not a refusal: no refusal topic rides the turn.
+      expect(out.facts).toMatchObject({ refusalTopic: null, replyLanguage: "hinglish" });
+      expect(CompanionTurnSchema.safeParse(out.turn).success).toBe(true);
+    }
+  });
+
+  it("a DISTRESS refusal keeps the helpline alone — no menu — and is never remembered", async () => {
+    const out = await setup({
+      verdict: verdict("resume"),
+      reply: { status: "refuse", topic: "distress", ai_metadata: META },
+    }).brain.route(input("resume ka kya fayda, sab khatam"));
+    expect(out.turn.reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(out.turn.suggested_options).toEqual([]);
+    expect(out).toMatchObject({ v2Intent: "resume_menu", outcome: "refused", remember: false });
+    expect(out.facts.refusalTopic).toBe("distress");
+  });
+
+  it("a résumé ask WITH an action still makes no reply call", async () => {
+    for (const resumeAction of ["edit", "new", "download"] as const) {
+      const h = setup({ verdict: verdict("resume"), resumeAction });
+      await h.brain.route(input("x"));
+      expect(h.calls.reply).not.toHaveBeenCalled();
+    }
   });
 });
 
@@ -789,7 +869,8 @@ describe("every turn the brain serves passes the strict outbound schema", () => 
     ["career", { verdict: verdict("career") }],
     ["fallback", { reply: null }],
     ["download", { verdict: verdict("resume"), resumeAction: "download" }],
-    ["menu", { verdict: verdict("resume") }],
+    ["answer + menu", { verdict: verdict("resume") }],
+    ["menu floor", { verdict: verdict("resume"), reply: null }],
     ["new", { verdict: verdict("resume"), resumeAction: "new" }],
     ["unclear", { verdict: { kind: "unavailable" } }],
   ];

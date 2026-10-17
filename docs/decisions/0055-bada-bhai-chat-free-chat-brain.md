@@ -67,7 +67,7 @@ the brain is on (`CHAT_COMPANION_V2_ENABLED` on and the kill switch off):
    | jobs | `V3_JOBS` + "Sabhi jobs dekhein" |
    | resume + edit / new | the existing edit / new-résumé handlers (and their phase flags) |
    | resume + download | `V3_DOWNLOAD_READY` + the download chip if the current résumé's PDF is rendered. `V3_DOWNLOAD_PENDING` while the first build is in flight. Otherwise the recap's `RESUME_RENDER_FAILED` line. |
-   | resume + no action | the résumé root menu, + the download chip when a PDF is ready |
+   | resume + no action | since §11 (#2344): the career reply (résumé facts + summary) with the résumé root menu as its chips, + the download chip when a PDF is ready. The bare menu when the reply has no answer. |
 
    The reply language is an explicit request in this message ("marathi mein jawab do"), for this reply only.
    Otherwise it is the message's own language (`messageLanguage`, the classifier's label where code is unsure).
@@ -227,3 +227,33 @@ Evidence: `docs/qa/evidence/free-chat/companion-surface/2026-10-15-2304/`.
 - The classify gold set is relabelled: "maine forklift chalana bhi seekh liya hai" moves to `career`.
 - 14 held-out lines were added before the baseline: statements, own-résumé questions, asks WITH a detail (still `edit`), a jobs ask beside a statement, and a "no" after the edit menu.
 - The reply set has 9 cases with résumé facts. Each `mentions` case is scored for whether the answer names the résumé's value.
+
+
+## 11. A résumé question with no action is answered (#2344, owner ruling 2026-10-17)
+
+On the device test of 2026-10-17, "meri profile kis chij ki he" got the résumé root menu, with no answer about the
+profile. Prod events showed the classifier's `resume` + no action at 70–90 confidence, six times in one session.
+
+- "profile" is a v1 résumé word (a weak alias, §9 R1), so the message reaches the classifier.
+- The `resume_action` rule says null "when it names the resume but no action", and `resume` outranks `career`. A
+  question about one's own résumé that NAMES it therefore stays `resume`/null, past §10 S2 (the known #2304 residue).
+- `resume` + null served fixed copy. The reply, the only call that reads the summary and `resume_facts`, never ran.
+
+| # | Ruling |
+|---|---|
+| **A1** | **Answer it, and keep the menu.** On the brain, `resume` + no action runs the companion's career reply (the §10 résumé facts, the rolling summary, the worker context) and serves its lines with the résumé root menu as the turn's chips (Edit / Redo, + Download when a PDF is ready). |
+
+How it works:
+- **No prompt change.** The classifier, its gold set and the reply prompts are untouched. §10's résumé-facts rule
+  already tells the career reply to answer questions about the worker's own résumé from the WORKER RESUME.
+- **The turn.** The answer keeps `read_aloud: false`. The model's own follow-up chips are not served: the app renders
+  `suggested_options` alone when present, so the menu's keyed options are the way forward (`v3AnswerWithMenuTurn`).
+- **The floor.** A failed, rejected or refused reply (any topic but distress) serves the bare root menu, the turn this
+  branch served before, as `served` with no refusal topic. A distress refusal serves the helpline alone (R10).
+- **The event.** `v2_intent` stays `resume_menu` (the classifier's say); `outcome` is `answered`, with
+  `reply_language`. No schema change.
+- **The kill switch** (`CHAT_FREE_CHAT_DISABLED`) path is unchanged.
+
+Out of scope: the first message of the same session served the clarify line because the classifier returned nothing
+(no cost row; probably the 2,500 ms `freeChatClassify` timeout on the session's first AI call). It needs the box logs
+first.
