@@ -76,11 +76,13 @@ trade, skill and city names as proper names.
 PAGE_OWNED names facts the worker fills on the Profile page, not in this chat. If the message \
 mentions one, put that name in "page_owned_mentions", never a fill or an edit for it.
 
-ON_SCREEN_NONE is true ONLY when the message says the worker has NONE of what the QUESTION ON \
-SCREEN asks: "maine koi course nahi kiya" to a question about training, "koi certificate nahi \
-hai" to one about certificates. Then fill nothing for that question. It is false for any real \
-answer ("ITI se welding ka course"), for "pata nahi", for a side message, and whenever no \
-question is on screen.
+ON_SCREEN_NONE is true when the message says the worker has NONE of what the QUESTION ON SCREEN \
+asks ("maine koi course nahi kiya" to a question about training, "koi certificate nahi hai" to \
+one about certificates), OR says the question does not apply to them or they do not want it \
+("main driver hoon, yeh mera kaam nahi", "mujhe isme interest nahi hai", "yeh sawaal chhodo"). \
+Then fill nothing FOR THAT QUESTION - a value the message states for a DIFFERENT field is still \
+a fill ("main driver hoon" fills the trade). It is false for any real answer ("ITI se welding ka \
+course"), for "pata nahi", for a side message, and whenever no question is on screen.
 
 Example. SCHEMA has primary_trade (empty), experience_years (empty), willing_to_travel (empty); \
 PAGE_OWNED has preferred_cities. Message: "CNC turner hoon, paanch saal ka experience, Delhi ya \

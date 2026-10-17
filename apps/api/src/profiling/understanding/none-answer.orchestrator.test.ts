@@ -103,7 +103,11 @@ function verdict(over: Partial<ProfilingTurnUnderstandOutput> = {}): ProfilingTu
   };
 }
 
-function makeWorld(answer: ProfilingTurnUnderstandOutput | null = verdict()) {
+function makeWorld(
+  answer: ProfilingTurnUnderstandOutput | null = verdict(),
+  servedKey = "training_name",
+  pack: QuestionPack = UNIVERSAL,
+) {
   const store = new Map<string, TranscriptBuffer>();
   const buffer = {
     load: vi.fn(async (id: string) => {
@@ -127,7 +131,7 @@ function makeWorld(answer: ProfilingTurnUnderstandOutput | null = verdict()) {
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
     {
-      loadUniversal: vi.fn(async () => UNIVERSAL),
+      loadUniversal: vi.fn(async () => pack),
       loadPinned: vi.fn(async () => null),
       resolveForOccupation: vi.fn(async () => null),
     } as never,
@@ -160,9 +164,9 @@ function makeWorld(answer: ProfilingTurnUnderstandOutput | null = verdict()) {
       ...emptyProfilingEnvelope(),
       rev: 1,
       llmStage: "done",
-      servedQuestionKey: "training_name",
+      servedQuestionKey: servedKey,
       engineAsks: 1,
-      askCounts: { training_name: 1 },
+      askCounts: { [servedKey]: 1 },
     },
   });
   return { orchestrator, store, understanding };
@@ -215,5 +219,78 @@ describe("#2328 — 'I have none' to the training question skips its follow-ups"
     const { orchestrator, store } = makeWorld(verdict({ on_screen_none: true, confidence: 0.4 }));
     await orchestrator.takeTurn(say("koi course nahi kiya"));
     expect(recordOf(store, "training_name")?.status).toBe("answered");
+  });
+});
+
+// The v5 trio's conditions, verbatim (qp_universal@5): the gate opens the group, and the year
+// additionally requires the provider NOT declined.
+const GATE = item({
+  question_key: "training_done",
+  prompt_text: "Kya aapne koi training ya course kiya hai?",
+  answer_type: "boolean",
+});
+const V5: QuestionPack = {
+  ...UNIVERSAL,
+  version: 5,
+  content_hash: "hash_universal_v5",
+  items: [
+    GATE,
+    item({
+      ...TRAINING,
+      ask_if: { op: "eq", left: { field: "training_done" }, right: { const: true } },
+    }),
+    item({ ...PROVIDER }),
+    item({
+      ...YEAR,
+      ask_if: {
+        op: "all",
+        predicates: [
+          { op: "answered", field: "training_name" },
+          { op: "not", predicate: { op: "declined", field: "training_provider" } },
+        ],
+      },
+    }),
+    item({ ...CITY }),
+  ],
+};
+
+describe("2026-10-17 — a refusal exits the trio and is never stored as an answer", () => {
+  it("'not interested' on the boolean GATE declines it — the trio never opens", async () => {
+    const { orchestrator, store } = makeWorld(
+      verdict({ on_screen_none: false }),
+      "training_done",
+      V5,
+    );
+    const result = await orchestrator.takeTurn(say("not interested"));
+    expect(recordOf(store, "training_done")).toMatchObject({ status: "declined", value_raw: null });
+    expect(recordOf(store, "training_name")).toBeUndefined();
+    expect(result.questionKey).toBe("current_city");
+  });
+
+  it("a real 'nahi' on the gate is its ANSWER (false), never a decline", async () => {
+    const { orchestrator, store } = makeWorld(verdict(), "training_done", V5);
+    const result = await orchestrator.takeTurn(say("nahi"));
+    expect(recordOf(store, "training_done")?.status).toBe("answered");
+    expect(recordOf(store, "training_name")).toBeUndefined();
+    expect(result.questionKey).toBe("current_city");
+  });
+
+  it("'not interested' on the free-text NAME declines it — the follow-ups are skipped", async () => {
+    const { orchestrator, store } = makeWorld(verdict(), "training_name", V5);
+    const result = await orchestrator.takeTurn(say("not interested"));
+    expect(recordOf(store, "training_name")).toMatchObject({ status: "declined", value_raw: null });
+    expect(recordOf(store, "training_provider")).toBeUndefined();
+    expect(result.questionKey).toBe("current_city");
+  });
+
+  it("the model's 'does not apply' reading declines the NAME the same way", async () => {
+    const { orchestrator, store } = makeWorld(
+      verdict({ on_screen_none: true }),
+      "training_name",
+      V5,
+    );
+    const result = await orchestrator.takeTurn(say("main driver hoon, yeh mera kaam nahi"));
+    expect(recordOf(store, "training_name")).toMatchObject({ status: "declined", value_raw: null });
+    expect(result.questionKey).toBe("current_city");
   });
 });

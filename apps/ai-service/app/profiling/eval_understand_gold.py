@@ -234,6 +234,16 @@ CASES: list[Case] = [
     Case("training nahi li, seedha kaam pe lag gaya tha", ("answer", "statement"), TRAINING_Q,
          none=True),
     Case("कोई ट्रेनिंग नहीं की", ("answer",), TRAINING_Q, none=True),
+    # 2026-10-17: a REFUSAL / "does not apply to me" is also a none — the gate and the trio must
+    # exit, and nothing is stored (the boolean gate included).
+    Case("mujhe isme interest nahi hai", ("answer", "statement"), TRAINING_Q, none=True),
+    Case(
+        "main driver hoon, yeh mera kaam nahi",
+        ("statement", "answer"),
+        TRAINING_Q,
+        fills={"primary_trade": ("Driver", "driver")},
+        none=True,
+    ),
     Case("ITI nahi, private institute se Tally seekha tha", ("answer",), TRAINING_Q,
          allowed={"training_name": ()}),
     Case("yaad nahi kaunsi training thi", ("answer", "unclear"), TRAINING_Q),

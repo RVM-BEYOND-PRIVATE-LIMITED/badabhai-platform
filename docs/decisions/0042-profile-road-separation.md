@@ -287,9 +287,13 @@ new item and two conditions; every v4 item is otherwise byte-identical.
    `ask_if` fail direction (unevaluatable → false) IS the ruling. `occupation_under` is deliberately
    unused — `isco_unit_code` is nullable for rvm-minted pins while `job_domain_id` is always
    present.
-3. **The typed non-answer floor is unchanged.** The #2328/#2339 none handling ("kuch nahi koya",
-   "nahi kia", "maine nahi kiya", the Devanagari forms, "none") remains the deterministic layer
-   beneath the question.
+3. **The refusal floor.** The #2328/#2339 none handling ("kuch nahi koya", "nahi kia", "maine
+   nahi kiya", the Devanagari forms, "none") stays the deterministic layer beneath the question,
+   and the 2026-10-17 follow-up widens it: a BARE refusal ("not interested", "yeh mera kaam nahi")
+   declines ANY on-screen question — typed ones keep a parsed value's first claim, so "nahi" on
+   the gate is its real `false`, never a decline — and the understanding prompt reads "does not
+   apply to me" as `on_screen_none`. The trio exits as ONE group: the year additionally requires
+   the provider NOT declined.
 4. **No rank input, no new authority, no migration, no event.** One attribute (`training_done`) is
    written; the gate is a boolean the pack's own condition reads. The ask-budget walk moves 36 → 37
    (headroom 12 → 11 against the unchanged cap of 48), pinned by the guard. `v4` is deprecated in
