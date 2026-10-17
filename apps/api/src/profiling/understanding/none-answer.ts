@@ -94,6 +94,31 @@ function withoutNoneWords(text: string): string {
 const ENGLISH_NONE = /^\s*(none|nil|nothing)\s*[.!]*\s*$/i;
 
 /**
+ * A REFUSAL OF THE QUESTION ITSELF — "not interested", "mujhe interest nahi hai" — as opposed to
+ * "I have none of it" (above). Owner ruling 2026-10-17: a refusal anywhere in the training trio
+ * exits the whole group, and it must never be stored as the answer. Read for ANY question type
+ * (the boolean gate included); the deterministic "none" reader above stays free-text-only because
+ * a typed question's "nahi" is its real answer, not a refusal.
+ *
+ * WHOLE-MESSAGE ONLY ("bare"): carrying content ("not interested in welding, ITI turning kiya")
+ * is a real sentence and the model's to read — the same strictness `isBareNone` keeps.
+ */
+const DECLINE_PATTERNS: readonly string[] = [
+  "^(?:mujhe\\s+|main\\s+)?(?:(?:isme|is\\s*me|is\\s*mein|ye|yeh)\\s+)?" +
+    "(?:(?:koi|bahut|zyada)\\s+)?" +
+    "(?:not\\s+interest(?:ed)?|no\\s+interest|interest(?:ed)?\\s+nahi(?:n)?|nahi\\s+interest(?:ed)?)" +
+    "(?:\\s+hai|\\s+ha|\\s+hu|\\s+hun)?[\\s.!,\\u0964]*$",
+  "^(?:मुझे\\s+)?(?:इसमें\\s+|इस\\s+में\\s+)?(?:कोई\\s+)?(?:इंटरेस्ट|इंट्रेस्ट)\\s*नहीं(?:\\s+है)?" +
+    "[\\s।.!]*$",
+];
+const DECLINE_RE = new RegExp(DECLINE_PATTERNS.join("|"), "iu");
+
+/** Whether [text] is a BARE refusal of the question on screen, content-free and read with no model. */
+export function isDeclineReply(text: string): boolean {
+  return DECLINE_RE.test(text || "");
+}
+
+/**
  * Is this ONLY a "no"? "nahi", "nahi ki", "nahin kiya", "koi nahi", "kuch nahi", "kuch nahi koya",
  * "maine nahi kia", "कुछ नहीं", "none" — yes. Anything carrying content ("ITI nahi, private se
  * Tally kiya", "koi course nahi kiya"), a "pata nahi" (a don't-know, which the engine already

@@ -369,6 +369,19 @@ describe("the training gate, over the REAL corpus (qp_universal@5)", () => {
     expect(asked).not.toContain("training_name");
   });
 
+  it("a DECLINED provider exits the rest of the trio — the year is skipped too", () => {
+    const asked = walk(
+      chatUniversal(5),
+      8,
+      { ...AFTER_PHASE_A, training_done: true, training_name: "ITI" },
+      ["training_provider"],
+      INDUSTRIAL_PIN,
+    );
+    expect(asked).not.toContain("training_provider");
+    expect(asked).not.toContain("training_year");
+    expect(asked).toContain("secondary_occupations");
+  });
+
   it("v4 sessions keep the UNGATED trio — a frozen version is not retold", () => {
     const asked = walk(chatUniversal(4), 8, AFTER_PHASE_A);
     expect(asked).toContain("training_name");

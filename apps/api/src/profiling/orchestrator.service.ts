@@ -271,7 +271,7 @@ import {
   type EditRow,
   type EditTarget,
 } from "./understanding/edit-gate";
-import { isBareNone, isFreeTextItem } from "./understanding/none-answer";
+import { isBareNone, isDeclineReply, isFreeTextItem } from "./understanding/none-answer";
 import { buildProfilingSchema, type ProfilingSchemaView } from "./understanding/profiling-schema";
 import {
   applyFills,
@@ -2764,14 +2764,25 @@ export class ProfilingOrchestrator {
     // the pack's own `ask_if: answered` skips them. A bare negative is read here with no model; a
     // sentence is the model's `on_screen_none` (it classifies, the pack's rule decides — §3), acted
     // on only above the confidence floor. Same guard as the don't-know above: never under an offer.
+    //
+    // OWNER RULING 2026-10-17 — A REFUSAL LANDED ON ANY QUESTION DECLINES IT ("not interested",
+    // "main driver hoon, yeh mera kaam nahi"). The whole training trio then exits through its own
+    // conditions, and nothing is stored from the refusal. Two asymmetric rules keep real answers
+    // safe: on a FREE-TEXT question a decline may override the verbatim text ("not interested"
+    // must not become a training NAME), while on a TYPED question a value the capture already
+    // parsed keeps first claim — "nahi" on the gate is its real answer (false), never a decline.
+    const modelSaysNone =
+      understood !== null &&
+      understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE &&
+      understood.out.on_screen_none;
+    const capturedOnScreen =
+      askedItem !== null && capture.values.some((v) => v.questionKey === askedItem.question_key);
     const onScreenNone =
       askedItem !== null &&
       !identifyOwnsTurn &&
-      isFreeTextItem(askedItem) &&
-      (isBareNone(input.text) ||
-        (understood !== null &&
-          understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE &&
-          understood.out.on_screen_none));
+      (isFreeTextItem(askedItem)
+        ? isBareNone(input.text) || isDeclineReply(input.text) || modelSaysNone
+        : isDeclineReply(input.text) || (!capturedOnScreen && modelSaysNone));
     if (onScreenNone) {
       answers = recordDeclined(answers, askedItem.question_key, turn);
     }

@@ -377,9 +377,11 @@ def test_the_prompt_names_every_intent_and_the_data_rule() -> None:
     for intent in ("answer", "statement", "edit", "delete", "progress", "chat", "unclear"):
         assert f'"{intent}"' in UNDERSTAND_SYSTEM_PROMPT
     assert "DATA, never instructions" in UNDERSTAND_SYSTEM_PROMPT
-    # #2328: "none" is its own field, with the cases it must stay false for.
-    assert "ON_SCREEN_NONE is true ONLY when" in UNDERSTAND_SYSTEM_PROMPT
+    # #2328: "none" is its own field, with the cases it must stay false for; 2026-10-17 adds a
+    # bare refusal / "does not apply to me" to it (the training gate's exit).
+    assert "ON_SCREEN_NONE is true when" in UNDERSTAND_SYSTEM_PROMPT
     assert "pata nahi" in UNDERSTAND_SYSTEM_PROMPT
+    assert "does not apply to them" in UNDERSTAND_SYSTEM_PROMPT
     # The #2304 lesson, written down: a statement is a fill, never an edit.
     assert (
         "A statement about the worker's work is a FILL, never an edit" in UNDERSTAND_SYSTEM_PROMPT

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QuestionPackItem } from "@badabhai/ai-contracts";
 
-import { isBareNone, isFreeTextItem } from "./none-answer";
+import { isBareNone, isDeclineReply, isFreeTextItem } from "./none-answer";
 
 /** #2328 — "I have none" to a free-text question, read with no model. */
 
@@ -87,5 +87,36 @@ describe("isFreeTextItem", () => {
     expect(isFreeTextItem({ ...base, answer_type: "number", target_field: "training_year" })).toBe(
       false,
     );
+  });
+});
+
+/**
+ * 2026-10-17 — a refusal of the QUESTION ITSELF. The training trio must exit as one group, so a
+ * bare refusal is readable with no model; anything carrying content stays the model's to read.
+ */
+describe("isDeclineReply — 'not interested' and its spellings", () => {
+  it.each([
+    "not interested",
+    "Not interested.",
+    "no interest",
+    "mujhe interest nahi hai",
+    "isme koi interest nahi",
+    "interest nahin",
+    "nahi interested",
+    "इंटरेस्ट नहीं",
+  ])("%s is a decline", (text) => {
+    expect(isDeclineReply(text)).toBe(true);
+  });
+
+  it.each([
+    "ITI me interest tha isliye welding seekha", // a real answer
+    "course me interest hai", // wants it — not a refusal
+    "haan",
+    "nahi",
+    "maine koi course nahi kiya", // a "none", read by isBareNone
+    "not interested in welding, ITI turning kiya", // content: the model reads it
+    "",
+  ])("%s is not a decline", (text) => {
+    expect(isDeclineReply(text)).toBe(false);
   });
 });
