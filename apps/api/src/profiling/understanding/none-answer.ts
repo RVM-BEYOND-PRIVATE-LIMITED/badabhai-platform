@@ -37,13 +37,76 @@ export function isFreeTextItem(item: QuestionPackItem): boolean {
 const NONE_QUANTIFIERS = /(?<![\p{L}\p{N}])(koi|kuch|kabhi|bhi)(?![\p{L}\p{N}])/giu;
 
 /**
- * Is this ONLY a "no"? "nahi", "nahi ki", "nahin kiya", "koi nahi", "kuch nahi" — yes. Anything
- * carrying content ("ITI nahi, private se Tally kiya"), a "pata nahi" (a don't-know, which the
- * engine already declines), and a negated state ("main theek nahi hoon", #2250 — `isBareYesNo`
- * refuses it) — no. Strict on purpose: a false yes here drops a real answer.
+ * The words a worker types around a "nahi" when the answer is "I did none", beyond the quantifiers
+ * above: the spellings phones actually produce ("kuchh", "kucch", "kch"), the verb in the forms the
+ * shared yes/no vocabulary does not carry ("kia", "kari", "liya", "की"), and the "I" that starts the
+ * sentence ("maine", "मैंने"). Measured 2026-10-16: "kuch nahi koya", "nahi kia", "maine nahi
+ * kiya", "कुछ नहीं", "नही की" all fell through to the model, which is not always on.
+ *
+ * KEPT HERE, NOT IN THE SHARED FILLER LIST (`TYPED_ANSWER_FILLER_WORDS`): that list also gates the
+ * distress check, and a word added there lets a message ride an answer past it. These words are
+ * set aside ONLY after `parseAffirmation` has read the answer as a "no".
+ */
+const NONE_WORDS =
+  /(?<![\p{L}\p{N}\p{M}])(koi|kuch|kuchh|kucch|kch|kabhi|bhi|kiya|kia|kiye|kari|kara|kri|li|liya|maine|mene|mainne|कुछ|कोई|कभी|भी|किया|की|ली|लिया|मैंने)(?![\p{L}\p{N}\p{M}])/giu;
+
+/** The verb a "none" ends on, for the one-typo read below. */
+const NONE_VERBS: readonly string[] = ["kiya", "kia", "kari", "kara", "liya"];
+
+/** Levenshtein distance, bounded to the short words it is used on. */
+function editDistance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = row[0] as number;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const above = row[j] as number;
+      row[j] = Math.min(
+        above + 1,
+        (row[j - 1] as number) + 1,
+        diagonal + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return row[b.length] as number;
+}
+
+/**
+ * The answer with every "none" word set aside — and, for a Latin word of 3-5 letters, the verb
+ * one typo away ("koya", "kiyaa", "kiay"), the only reading a bare negative's last word has left.
+ * A content word survives ("course", "ITI", "Tally"), so the answer stays content.
+ */
+function withoutNoneWords(text: string): string {
+  return text
+    .replace(NONE_WORDS, " ")
+    .split(/(?<=[^\p{L}\p{M}])|(?=[^\p{L}\p{M}])/u)
+    .map((part) =>
+      /^[a-z]{3,5}$/i.test(part) &&
+      NONE_VERBS.some((verb) => editDistance(part.toLowerCase(), verb) <= 1)
+        ? " "
+        : part,
+    )
+    .join("");
+}
+
+/** A whole answer that is only the English "none": "none", "nil", "nothing". */
+const ENGLISH_NONE = /^\s*(none|nil|nothing)\s*[.!]*\s*$/i;
+
+/**
+ * Is this ONLY a "no"? "nahi", "nahi ki", "nahin kiya", "koi nahi", "kuch nahi", "kuch nahi koya",
+ * "maine nahi kia", "कुछ नहीं", "none" — yes. Anything carrying content ("ITI nahi, private se
+ * Tally kiya", "koi course nahi kiya"), a "pata nahi" (a don't-know, which the engine already
+ * declines), and a negated state ("main theek nahi hoon", #2250 — `isBareYesNo` refuses it) — no.
+ * Strict on purpose: a false yes here drops a real answer.
  */
 export function isBareNone(text: string): boolean {
+  if (ENGLISH_NONE.test(text)) return true;
   const read = parseAffirmation(text);
   if (read === null || read.value) return false;
-  return isBareYesNo(text) || isBareYesNo(text.replace(NONE_QUANTIFIERS, " "));
+  return (
+    isBareYesNo(text) ||
+    isBareYesNo(text.replace(NONE_QUANTIFIERS, " ")) ||
+    isBareYesNo(withoutNoneWords(text))
+  );
 }
