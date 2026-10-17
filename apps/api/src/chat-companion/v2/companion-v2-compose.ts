@@ -157,6 +157,21 @@ export function v2CareerAnswerTurn(
 }
 
 /**
+ * #2344 — a MODEL-WRITTEN answer with a résumé menu under it: the answer turn as served (its text,
+ * its `read_aloud: false` contract, any news tiles), with the menu's keyed options as its chips.
+ * The model's own follow-up chips are not carried: the app renders `suggested_options` alone when
+ * there are any, so the menu is the turn's way forward.
+ */
+export function v3AnswerWithMenuTurn(answer: CompanionTurn, menu: ResumeMenuChoice): CompanionTurn {
+  return {
+    ...answer,
+    suggested_followups: [...menu.followups],
+    suggested_options: menu.options.map((o) => ({ ...o })),
+    question_kind: menu.followups.length > 0 ? "disambiguate" : "close",
+  };
+}
+
+/**
  * "Sabhi jobs dekhein" (ADR-0055) — v1's existing APP-ROUTED Jobs-tab chip, the one way forward
  * from the brain's jobs line. The shipped app already routes the key to the Jobs tab and never posts it.
  */

@@ -15,7 +15,7 @@ import type {
   FreeChatReplyLanguage,
   FreeChatResumeAction,
 } from "@badabhai/types";
-import { resolveResumeMenu } from "../../chat/resume-menu";
+import { resolveResumeMenu, type ResumeMenuChoice } from "../../chat/resume-menu";
 import type { KnownNameSource } from "../../common/redact-known-name";
 import type { RequestContext } from "../../common/request-context";
 import { SERVER_CONFIG } from "../../config/config.module";
@@ -57,6 +57,7 @@ import {
   v2CareerAnswerTurn,
   v2CopyTurn,
   v2MenuTurn,
+  v3AnswerWithMenuTurn,
   v3NewsAnswerTurn,
   type V2Option,
 } from "./companion-v2-compose";
@@ -305,7 +306,9 @@ export function distressTurn(): CompanionTurn {
  *                                     AI edit card on the brain)
  *   resume + new                    → the existing new-résumé handler (its phase flag)
  *   resume + download               → V3_DOWNLOAD_READY + the download chip, or the honest line
- *   resume + no action              → the résumé root menu (+ the download chip when ready)
+ *   resume + no action              → the career REPLY (it reads the résumé and the summary) with
+ *                                     the résumé root menu under it (+ the download chip when
+ *                                     ready); the bare menu when the reply has no answer (#2344)
  *
  * AI NEVER DECIDES: the model names a category (and an action); every rule above is code. Every
  * model failure is a fixed line, never a partial turn. No employer-name backstop runs on the reply
@@ -415,7 +418,7 @@ export class CompanionBrain {
         // (stored only for the worker's own 7-day history, ADR-0056).
         return { ...(await this.handle("faltu", input)), v2Intent: intent, remember: false };
       case "resume":
-        return this.resume(input, resumeAction, intent);
+        return this.resume(input, verdict, resumeAction, intent);
       case "unclear":
         return this.unclear(input, intent);
     }
@@ -433,6 +436,7 @@ export class CompanionBrain {
    */
   private async resume(
     input: NamedInput,
+    verdict: RealVerdict,
     action: FreeChatResumeAction | null,
     intent: CompanionV3Intent,
   ): Promise<Served> {
@@ -450,15 +454,51 @@ export class CompanionBrain {
           outcome: "served",
         };
       }
-      case null: {
-        // The classifier could not tell what the résumé message wants: the résumé menu asks, and
-        // the download chip rides it when there is a rendered résumé to hand over.
-        const download = await this.resumes.downloadOf(input.workerId, input.profile, input.now);
-        const root = resolveResumeMenu("");
-        const menu = download === "ready" ? withDownloadOption(root) : root;
-        return { turn: v2MenuTurn(menu), v2Intent: intent, outcome: "served" };
-      }
+      case null:
+        return this.resumeQuestion(input, verdict, intent);
     }
+  }
+
+  /**
+   * #2344 (owner ruling 2026-10-17) — A RÉSUMÉ MESSAGE WITH NO ACTION ("meri profile kis chij ki
+   * he", "mera resume"): the classifier could not tell what the worker wants DONE, but the message
+   * is about their résumé, and the reply is the one call that reads it (`resume_facts`, the rolling
+   * summary). So the career reply answers it, and the résumé root menu rides the answer as its
+   * chips (+ the download chip when a rendered résumé is ready).
+   *
+   * THE MENU IS THE FLOOR: a reply that failed, was rejected or refused (any topic but distress)
+   * serves the bare root menu, exactly the turn this branch served before. A distress refusal keeps
+   * the helpline alone (R10). The turn is still routed on `resume_menu`, the classifier's say.
+   */
+  private async resumeQuestion(
+    input: NamedInput,
+    verdict: RealVerdict,
+    intent: CompanionV3Intent,
+  ): Promise<Served> {
+    const [served, menu] = await Promise.all([
+      this.reply(input, "career", verdict),
+      this.rootMenu(input),
+    ]);
+    if (served.refusalTopic === "distress") return { ...served, v2Intent: intent };
+    if (served.outcome === "answered") {
+      return { ...served, turn: v3AnswerWithMenuTurn(served.turn, menu), v2Intent: intent };
+    }
+    // The language the reply was asked in, and a news request that ran, are still the turn's facts;
+    // a refusal topic is not — the worker read the menu, not a refusal.
+    return {
+      turn: v2MenuTurn(menu),
+      v2Intent: intent,
+      outcome: "served",
+      replyLanguage: served.replyLanguage,
+      ...(served.news === undefined ? {} : { news: served.news }),
+    };
+  }
+
+  /** The résumé root menu, with the download chip when there is a rendered résumé to hand over. */
+  private async rootMenu(input: NamedInput): Promise<ResumeMenuChoice> {
+    const download = await this.resumes.downloadOf(input.workerId, input.profile, input.now);
+    const root = resolveResumeMenu("");
+    return download === "ready" ? withDownloadOption(root) : root;
   }
 
   /**
