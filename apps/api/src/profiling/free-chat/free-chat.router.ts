@@ -673,16 +673,24 @@ export type FreeModeAction =
   /** Unavailable, `unclear`, or below the floor: the clarify line and the chip. */
   | { readonly kind: "clarify" }
   /**
-   * `resume`: enter résumé mode. `firstTurn` when the message already describes the work (a
-   * first-person claim) — it then passes to the interview as its first answer; a bare intent gets
-   * the opener.
+   * `resume`: enter résumé mode. `firstTurn` when the message already describes the work —
+   * a first-person claim, or (#2355) a catalogue trade span even through the claim's
+   * aspiration blockers ("mai carpenter … banana chahta hu") — it then passes to the
+   * interview as its first answer; a bare intent gets the opener.
    */
   | { readonly kind: "start"; readonly firstTurn: boolean }
   | { readonly kind: "reply"; readonly category: FreeChatReplyCategory }
   | { readonly kind: "fixed"; readonly line: "JOBS" | "OFF_LIMITS" | "DISTRESS" }
   | { readonly kind: "strike" };
 
-export function postClassifyFree(verdict: FreeChatVerdict, text: string): FreeModeAction {
+export function postClassifyFree(
+  verdict: FreeChatVerdict,
+  text: string,
+  // #2355 — the occupation-span half of "already describes the work", injected by the
+  // orchestrator that owns the index. Absent (unwired tests, no snapshot) it is "no",
+  // so the decision is exactly today's claim-only one.
+  namesATrade: (text: string) => boolean = () => false,
+): FreeModeAction {
   if (verdict.kind === "unavailable") return { kind: "clarify" };
   // DISTRESS BYPASSES THE FLOOR: a helpline offered to a worker who did not need it costs one line;
   // a clarify served to one who did is the failure R10 exists to prevent.
@@ -690,7 +698,7 @@ export function postClassifyFree(verdict: FreeChatVerdict, text: string): FreeMo
   if (verdict.confidence < FREE_CHAT_MIN_CONFIDENCE) return { kind: "clarify" };
   switch (verdict.category) {
     case "resume":
-      return { kind: "start", firstTurn: hasFirstPersonClaim(text) };
+      return { kind: "start", firstTurn: hasFirstPersonClaim(text) || namesATrade(text) };
     case "career":
     case "casual":
       return { kind: "reply", category: verdict.category };
