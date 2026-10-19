@@ -388,6 +388,87 @@ describe("the disambiguation offer", () => {
   });
 });
 
+describe("no chips in an AI-led session (#2353)", () => {
+  const two = [
+    {
+      jobDomainId: "jd_nco_7115_0100",
+      familyId: "fam_carpentry",
+      label: "badhai",
+    },
+    {
+      jobDomainId: "jd_nco_9313_0401",
+      familyId: "fam_helpers",
+      label: "shuttering helper",
+    },
+  ];
+  const ambiguous = {
+    resolve: resolveResult({
+      status: "disambiguate",
+      disambiguationOptions: two,
+    }),
+  };
+
+  it("offerChips=false serves no offer, spends no attempt, and emits nothing", async () => {
+    // THE DEVICE DEFECT. "Carpenter" reaches two families, so the ladder disambiguates — but
+    // the trade-confirm gate settles the trade, and serving the chips as well asks it twice.
+    const { svc, events, occupation } = make(ambiguous);
+    const result = await svc.identify(env(), "Carpenter", CTX, "answer", {
+      offerChips: false,
+    });
+    expect(result.offer).toBeNull();
+    expect(result.prompt).toBeNull();
+    expect(result.pinned).toBeNull();
+    expect(result.tradeText).toBeNull();
+    expect(result.patch).toEqual({});
+    // The ladder still ran exactly once — suppression is not a skip, so `auto` on this same
+    // turn would have pinned.
+    expect(occupation.resolve).toHaveBeenCalledTimes(1);
+    expect(occupation.resolve).toHaveBeenCalledWith("Carpenter");
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("an `auto` match still pins when offerChips=false", async () => {
+    const { svc } = make({
+      resolve: resolveResult({
+        status: "auto",
+        pinned: CANDIDATE,
+        candidates: [CANDIDATE],
+      }),
+    });
+    const result = await svc.identify(
+      env(),
+      "silai ka kaam karta hoon",
+      CTX,
+      "answer",
+      {
+        offerChips: false,
+      },
+    );
+    expect(result.pinned).not.toBeNull();
+    expect(result.patch.phase).toBe("occupation_specific");
+    expect(result.offer).toBeNull();
+  });
+
+  it("`unresolved` is unchanged when offerChips=false — the attempt is still spent", async () => {
+    const { svc } = make({ resolve: resolveResult({ status: "unresolved" }) });
+    const result = await svc.identify(env(), "namaste", CTX, "answer", {
+      offerChips: false,
+    });
+    expect(result.offer).toBeNull();
+    expect(result.patch.identifyAttempts).toBe(1);
+  });
+
+  it("offerChips=true behaves as today — the fixed interview keeps its chips", async () => {
+    const { svc } = make(ambiguous);
+    const result = await svc.identify(env(), "Carpenter", CTX, "answer", {
+      offerChips: true,
+    });
+    expect(result.offer?.prompt).toBe(DISAMBIGUATION_PROMPT);
+    expect(result.patch.needsDisambiguation).toBe(true);
+    expect(result.patch.identifyAttempts).toBe(1);
+  });
+});
+
 describe("a trade the worker confirmed at the trade-confirm gate (#2346)", () => {
   // THE DEVICE SESSION. The ladder on the word "Haan" reached the paddy alias "dhaan" plus two weak
   // rivals — the chips a worker who had just confirmed "Carpenter" was asked to choose from.

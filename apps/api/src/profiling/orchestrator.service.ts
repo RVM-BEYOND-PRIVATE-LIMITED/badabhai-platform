@@ -2943,6 +2943,10 @@ export class ProfilingOrchestrator {
     // next question on the very turn we learned the trade wastes the turn the worker just spent
     // telling us.
     next = withAnswers(next, answers);
+    // NO CHIPS IN AN AI-LED SESSION (#2353, owner ruling 2026-10-19). The trade-confirm gate
+    // settles the trade, so the disambiguation offer would ask it twice. `leads() || llmLedTurns
+    // > 0` covers a session the model still leads AND one it has dropped out of mid-chat; the
+    // fixed interview (AI off from the start) keeps the chips.
     const identified = await this.identify.identify(
       next,
       input.text,
@@ -2952,6 +2956,7 @@ export class ProfilingOrchestrator {
         workerId: input.workerId,
       },
       capture.turnClass,
+      { offerChips: !(this.llm.leads(next) || next.llmLedTurns > 0) },
     );
     next = { ...next, ...identified.patch };
 
@@ -3003,6 +3008,10 @@ export class ProfilingOrchestrator {
 
     // Chips are on screen. That IS the turn — there is no pack question to ask until the worker
     // resolves the ambiguity, and asking one anyway would put two questions in one bubble.
+    //
+    // REACHED ONLY WHEN CHIPS WERE OFFERED. In an AI-led session `identify` was called with
+    // `offerChips: false` (#2353), so `identified.offer` is null here and the turn falls through
+    // to the model's question or the trade-confirm gate instead.
     //
     // `!capped` (#1506 HIGH-1), the same backstop the prompt branch above carries and for the same
     // reason: `identify` bounds its own re-serves, and this is the wall that holds if that bound

@@ -245,6 +245,14 @@ export class IdentifyService {
    * occupation next, because re-running retrieval on turn nine — when the worker is describing
    * their machines, not their trade — is how a welder becomes a machine operator halfway through
    * their own interview.
+   *
+   * `offerChips: false` suppresses the disambiguation offer for an AI-led session (owner ruling
+   * 2026-10-19, #2353). The old fixed interview asks "Aap in mein se kaun sa kaam karte hain?"
+   * because it has nothing else to settle the trade with; an interview the model leads settles
+   * the trade at the trade-confirm gate instead, so serving the chips as well asks the trade
+   * twice. A suppressed `disambiguate` is a no-op: no offer, no attempt spent, no event, no
+   * growth-queue record (a log line counts it) — while `auto` still pins and `unresolved` is
+   * unchanged. Defaults to chips on, which is the fixed interview's behaviour.
    */
   async identify(
     envelope: ProfilingEnvelope,
@@ -256,6 +264,7 @@ export class IdentifyService {
      * {@link NOT_A_TRADE_STATEMENT}. Optional would let a new caller skip the guard silently.
      */
     turnClass: UtteranceClass,
+    options?: { readonly offerChips?: boolean },
   ): Promise<IdentifyResult> {
     // The worker said Haan to "<trade> — kya aap yahi kaam karna chahte hain?" (#2346). From that
     // turn on the trade is theirs, not retrieval's to re-open — see {@link settledByTradeGate}.
@@ -293,6 +302,16 @@ export class IdentifyService {
       case "auto":
         return this.pin(result, "matched_lexical", ctx);
       case "disambiguate":
+        // NO CHIPS IN AN AI-LED SESSION (#2353). The trade-confirm gate settles the trade, so
+        // the offer would ask it twice — and spending an attempt on a question never shown
+        // would silently halve the budget for the interview the worker is actually having.
+        if (options?.offerChips === false) {
+          this.logger.log(
+            `disambiguation suppressed for AI-led session ${ctx.sessionId} ` +
+              `(attempts=${envelope.identifyAttempts}/${MAX_IDENTIFY_ATTEMPTS})`,
+          );
+          return NO_OP;
+        }
         return this.offer(envelope, result, ctx);
       default:
         return this.giveUp(envelope, result, text, ctx);
