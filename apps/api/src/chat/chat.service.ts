@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, Optional, forwardRef } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { FreeChatMode } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
@@ -60,6 +60,9 @@ import type { NewWorkerPackAnswer } from "@badabhai/db";
 import type { QuestionPackOption } from "@badabhai/ai-contracts";
 import { CHAT_OPENING_TEXT } from "./chat-replies";
 import { resolveResumeMenu } from "./resume-menu";
+import { editMenuAsRedoForChatRoad } from "../chat-companion/companion-resume-menu";
+// VALUE import, not `import type`: Nest resolves this constructor parameter by the class token.
+import { ResumeService } from "../resume/resume.service";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
@@ -262,6 +265,10 @@ export class ChatService {
     // through this — see postMessage.
     @Inject(forwardRef(() => ProfilingOrchestrator))
     private readonly orchestrator: ProfilingOrchestrator,
+    // Optional so hand-built constructions in unit suites (8 args) keep working; in production
+    // Nest injects the Resume tab's own history read for the chat-road menu rule. Absent, only
+    // the profile road is checked.
+    @Optional() private readonly resumes?: ResumeService,
   ) {}
 
   async startSession(
@@ -844,7 +851,7 @@ export class ChatService {
         if (outcome.generalFormOffer != null) {
           return this.generalFormResponse(dto.session_id, outcome.generalFormOffer);
         }
-        return this.terminalResponse(dto.session_id, dto.text, outcome.extractionReady);
+        return this.terminalResponse(dto.session_id, workerId, dto.text, outcome.extractionReady);
       case "reflushed":
         // A general handover keeps its card whether or not this re-drive landed: the handover
         // turn already served it (its own checkpoint made it durable), and a failed re-flush that
@@ -2419,12 +2426,39 @@ export class ChatService {
    * partial interview mints no profile) and a TRADE-FORM handover (the form is the way forward)
    * stay dark. The client latches the flag, so a CTA a worker already earned is never yanked.
    */
-  private terminalResponse(
+  /** The road the worker's latest profile was made on (`form` / `chat` / null when unknown). */
+  private async profileSourceOf(workerId: string): Promise<string | null> {
+    try {
+      const profile = await this.workers.latestProfile(workerId);
+      return (profile as { source?: string | null } | undefined)?.source ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async terminalResponse(
     sessionId: string,
+    workerId: string,
     text: string,
     extractionReady: boolean,
-  ): PostMessageResponse {
-    const menu = resolveResumeMenu(text);
+  ): Promise<PostMessageResponse> {
+    // Chat-road profiles never see the six edit sections, even on an ended session: they get
+    // the redo pair (upload + chat) instead. The reads fail open to the shipped menu — a
+    // chat-road profile changes only on a positive chat signal.
+    let menu = resolveResumeMenu(text);
+    const profileSource = await this.profileSourceOf(workerId);
+    if (profileSource === "chat") {
+      menu = editMenuAsRedoForChatRoad(menu, { profileSource });
+    } else if (this.resumes !== undefined) {
+      let resumeSource: string | null = null;
+      try {
+        const history = await this.resumes.history(workerId);
+        resumeSource = history.items[0]?.source ?? null;
+      } catch {
+        resumeSource = null;
+      }
+      menu = editMenuAsRedoForChatRoad(menu, { profileSource, resumeSource });
+    }
     return this.checkedResponse(
       {
         session_id: sessionId,

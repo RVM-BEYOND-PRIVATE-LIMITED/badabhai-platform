@@ -382,7 +382,9 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
     expect(Object.values(svc as unknown as Record<string, unknown>)).not.toContainEqual(
       expect.objectContaining({ profilingRespond: expect.anything() }),
     );
-    expect(ChatService.length).toBe(8);
+    // 9: the eight collaborators above plus the OPTIONAL `ResumeService.history` read behind
+    // the chat-road menu rule (no writes, no generation — the gate stays "no model seam").
+    expect(ChatService.length).toBe(9);
   });
 
   it("writes NO transcript, NO answers and NO events to Postgres mid-interview", async () => {
@@ -1550,6 +1552,29 @@ describe("ChatService — tts_text, the read-aloud sibling (#896)", () => {
     );
     expect(res.suggested_followups).toHaveLength(6);
     expect(res.question_kind).toBe("disambiguate");
+    expect(res.session_ended).toBe(true);
+  });
+
+  it("a chat-road profile on a finished session gets the redo pair instead of the 6 sections", async () => {
+    const h = make({ sessionStatus: "ended", latestProfile: profileRow({ source: "chat" }) });
+    const res = await h.svc.postMessage(
+      WORKER,
+      { ...DTO, text: "Apna resume edit karein" } as never,
+      CTX,
+    );
+    expect(res.reply).toBe("Naya resume kaise banana chahte hain. Neeche se chunein.");
+    expect(res.suggested_followups).toEqual(["Resume upload karein", "Chat se resume banayein"]);
+    expect(res.session_ended).toBe(true);
+  });
+
+  it("a form-road profile on a finished session keeps the 6 sections", async () => {
+    const h = make({ sessionStatus: "ended", latestProfile: profileRow({ source: "form" }) });
+    const res = await h.svc.postMessage(
+      WORKER,
+      { ...DTO, text: "Apna resume edit karein" } as never,
+      CTX,
+    );
+    expect(res.suggested_followups).toHaveLength(6);
     expect(res.session_ended).toBe(true);
   });
 

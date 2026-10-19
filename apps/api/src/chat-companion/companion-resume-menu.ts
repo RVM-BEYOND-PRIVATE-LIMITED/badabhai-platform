@@ -1,10 +1,12 @@
 /**
  * The résumé menu as the Bada Bhai chat serves it on the free-chat brain (ADR-0055, #2275) —
- * deterministic, stateless, no model. Two additions to the shipped menu, and nothing else:
+ * deterministic, stateless, no model. Two additions to the shipped menu, and one road rule:
  *
  *   - THE FORM ROAD in the redo submenu ("Form se resume banayein"), between upload and chat;
  *   - THE DOWNLOAD CHIP after a résumé question the classifier could not place, when a rendered
- *     résumé exists to hand over.
+ *     résumé exists to hand over;
+ *   - THE CHAT ROAD: a chat-made profile (`profile.source` OR résumé `source` is `chat`) never
+ *     sees the form road or the six edit sections — both become the redo pair (upload + chat).
  *
  * NOT IN `resume-menu.ts`. That module is shared with the ended-interview path
  * (`ChatService.terminalResponse`) and pinned by the worker app's parity test (see
@@ -13,8 +15,10 @@
  * `CHAT_FREE_CHAT_DISABLED` the companion serves the shipped menu exactly.
  */
 import {
+  RESUME_MENU_REDO_LABEL,
   RESUME_MENU_UPLOAD_KEY,
   normalizeResumeMenuText,
+  resolveResumeMenu,
   type ResumeMenuChoice,
 } from "../chat/resume-menu";
 import {
@@ -83,6 +87,52 @@ export function withFormCreateOption(
 /** The same menu with the download chip last — the root menu after an unplaced résumé question. */
 export function withDownloadOption(menu: ResumeMenuChoice): ResumeMenuChoice {
   return withOptions(menu, [...menu.options, DOWNLOAD_OPTION]);
+}
+
+/**
+ * True when the menu is the edit family: the 6-section edit menu or one of its section acks.
+ * Both carry exactly the six `section_*` options — unlike the root menu, the redo pair and the
+ * upload/chat acks — so the check is the option keys, never the copy.
+ */
+export function isEditFamilyMenu(menu: ResumeMenuChoice): boolean {
+  return menu.options.length > 0 && menu.options.every((o) => o.option_key.startsWith("section_"));
+}
+
+/** The redo submenu as shipped (no form road): "Resume upload karein · Chat se resume banayein". */
+export function redoMenuWithoutForm(): ResumeMenuChoice {
+  return resolveResumeMenu(RESUME_MENU_REDO_LABEL);
+}
+
+/**
+ * A chat-road profile never sees the six edit sections: wherever the shipped menu would serve
+ * them, it gets the redo submenu as shipped instead (upload + chat). Every other menu passes
+ * through unchanged, so form-road and unknown sources keep today's behaviour exactly.
+ */
+export function editMenuAsRedoForChatRoad(
+  menu: ResumeMenuChoice,
+  opts?: { readonly profileSource?: string | null; readonly resumeSource?: string | null },
+): ResumeMenuChoice {
+  if (
+    (isChatRoad(opts?.profileSource) || isChatRoad(opts?.resumeSource)) &&
+    isEditFamilyMenu(menu)
+  ) {
+    return redoMenuWithoutForm();
+  }
+  return menu;
+}
+
+/**
+ * The companion's menu for the road the profile was made on. Chat-road profiles see neither the
+ * form road nor the six edit sections — both become the redo pair (upload + chat). Form-road and
+ * unknown sources keep the shipped menu plus the form-road decoration.
+ */
+export function menuForRoad(
+  menu: ResumeMenuChoice,
+  opts?: { readonly profileSource?: string | null; readonly resumeSource?: string | null },
+): ResumeMenuChoice {
+  const withoutEdit = editMenuAsRedoForChatRoad(menu, opts);
+  if (withoutEdit !== menu) return withoutEdit;
+  return withFormCreateOption(menu, opts);
 }
 
 /** The download chip on its own, for the "your résumé is ready" line. */

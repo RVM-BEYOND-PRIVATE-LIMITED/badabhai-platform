@@ -25,7 +25,7 @@ import { isBareGreeting } from "./companion-greeting";
 import {
   formCreateAck,
   isFormCreateChoice,
-  withFormCreateOption,
+  menuForRoad,
 } from "./companion-resume-menu";
 import { ChatCompanionPolicy } from "./chat-companion.policy";
 import { ChatCompanionRepository } from "./chat-companion.repository";
@@ -298,8 +298,11 @@ export class ChatCompanionService {
       looksLikeEditRequest(dto.text);
     let turn: CompanionTurn;
     if (editMenu) {
-      // #2295 — the edit section menu, served and recorded as v1's menu serves it.
-      turn = this.menuTurn(editSectionMenu());
+      // #2295 — the edit section menu, served and recorded as v1's menu serves it — except for
+      // chat-road profiles, which never see the six sections and get the redo pair instead.
+      turn = this.menuTurn(
+        menuForRoad(editSectionMenu(), await this.roadSources(workerId, mode.profile, now)),
+      );
       await this.record(
         workerId,
         ctx,
@@ -355,23 +358,14 @@ export class ChatCompanionService {
       const brainTurn = await this.v2.handleJobsMessage(workerId, mode.profile, dto, ctx, now);
       turn = brainTurn ?? (await this.v1Turn(workerId, mode.profile, "jobs", dto, ctx, now));
     } else if (resolution.kind === "resume_menu") {
-      // ADR-0055 — on the brain, the redo submenu offers the form road too (no other menu changes),
-      // EXCEPT for chat-road profiles: a profile made via chat (`profile.source === 'chat'` OR the
-      // current résumé's `source === 'chat'`) sees only upload + chat. The history read fails open
-      // to today's behaviour (all three) — a chat profile is hidden only on a positive signal.
+      // On the brain, the menu is served for the road the profile was made on: a chat-road
+      // profile (`profile.source === 'chat'` OR the current résumé's `source === 'chat'`) sees
+      // neither the form road nor the six edit sections — both become the redo pair (upload +
+      // chat). The history read fails open to today's behaviour. Under the kill switch the
+      // shipped menu is served exactly.
       let menu = resolution.menu;
       if (brainOn) {
-        const profileSource = (mode.profile as { source?: string | null }).source ?? null;
-        if (profileSource !== "chat") {
-          let resumeSource: string | null = null;
-          try {
-            const history = await this.resumes.history(workerId, now);
-            resumeSource = history.items[0]?.source ?? null;
-          } catch {
-            resumeSource = null;
-          }
-          menu = withFormCreateOption(menu, { profileSource, resumeSource });
-        }
+        menu = menuForRoad(menu, await this.roadSources(workerId, mode.profile, now));
       }
       turn = this.menuTurn(menu);
       await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);
@@ -510,6 +504,29 @@ export class ChatCompanionService {
   }
 
   // ── facts ────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * The road the profile was made on, for the menu the companion serves: the profile's own
+   * `source` OR the current résumé's `source` (either is enough). Fail-open: an unreadable
+   * history reads as unknown, which keeps today's menu — a chat-road profile changes only on a
+   * positive chat signal.
+   */
+  private async roadSources(
+    workerId: string,
+    profile: WorkerProfile,
+    now: Date,
+  ): Promise<{ readonly profileSource: string | null; readonly resumeSource: string | null }> {
+    const profileSource = (profile as { source?: string | null }).source ?? null;
+    if (profileSource === "chat") return { profileSource, resumeSource: null };
+    let resumeSource: string | null = null;
+    try {
+      const history = await this.resumes.history(workerId, now);
+      resumeSource = history.items[0]?.source ?? null;
+    } catch {
+      resumeSource = null;
+    }
+    return { profileSource, resumeSource };
+  }
 
   private async readFacts(workerId: string, profile: WorkerProfile, now: Date): Promise<CompanionFacts> {
     const attributes = this.attributes;
