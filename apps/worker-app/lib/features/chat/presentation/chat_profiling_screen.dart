@@ -1452,11 +1452,42 @@ class _ChatViewState extends State<_ChatView>
   /// interview complete there is no CTA at all, and the worker keeps talking
   /// until the ready CTA appears.
   Widget _doneCta(ChatState state) {
+    // #2351 — THE READY CTA IS SERVER-LIT AND OUTRANKS FREE CHAT.
+    //
+    // `extraction_ready` is the SERVER closing the interview; its word is
+    // final. Once it is set "Ho gaya — meri profile banaiye" must draw even
+    // though `freeChat` is still latched from an earlier tap: the tap-persisted
+    // flag is never cleared by the close, so the old free-chat gate suppressed
+    // the button the server had just lit (live close AND cold reopen). Owner
+    // ruling 2026-10-19 (#2351). The free-chat EXIT itself stays hidden below.
+    if (state.extractionReady) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4,
+          0,
+          AppSpacing.s4,
+          AppSpacing.s3,
+        ),
+        // Master UI Kit: the READY "profile banaiye" CTA keeps the forward
+        // arrow (it moves the worker on). Both labels used to ride this button;
+        // only the ready one remains.
+        child: _capped(
+          PrimaryActionButton(
+            label: kChatDoneReadyLabel,
+            showArrow: true,
+            // #372's visible half: the same-frame half lives in
+            // `_openProfilePreview`. Only the READY path can stack previews —
+            // the not-ready path opens a sheet, which is its own guard.
+            onPressed: _openingPreview ? null : _openProfilePreview,
+          ),
+        ),
+      );
+    }
     // #2030 ask 2 — IN FREE CHAT THE YELLOW EXIT CTA IS HIDDEN.
     //
-    // The interview CTA must not stand here: free-chat lines are excluded from
-    // extraction, so it would extract NOTHING and hand the worker an empty
-    // profile.
+    // The interview CTA must not stand in an UNFINISHED interview: free-chat
+    // lines are excluded from extraction, so it would extract NOTHING and hand
+    // the worker an empty profile. Only the server call above overrides this.
     //
     // OWNER ASK (2026-10-13): the free-chat yellow "Resume banayein" CTA is
     // HIDDEN (Visibility ONLY — no code removed; flip `visible` true to restore
@@ -1471,28 +1502,7 @@ class _ChatViewState extends State<_ChatView>
         child: _freeChatResumeCta(sending: state.sending),
       );
     }
-    if (!state.extractionReady) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s4,
-        0,
-        AppSpacing.s4,
-        AppSpacing.s3,
-      ),
-      // Master UI Kit: the READY "profile banaiye" CTA keeps the forward arrow
-      // (it moves the worker on). Both labels used to ride this button; only
-      // the ready one remains.
-      child: _capped(
-        PrimaryActionButton(
-          label: kChatDoneReadyLabel,
-          showArrow: true,
-          // #372's visible half: the same-frame half lives in
-          // `_openProfilePreview`. Only the READY path can stack previews —
-          // the not-ready path opens a sheet, which is its own guard.
-          onPressed: _openingPreview ? null : _openProfilePreview,
-        ),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   /// #2030 ask 2 — the free-chat exit, drawn in [_doneCta]'s slot while the
@@ -2298,7 +2308,12 @@ class _ChatViewState extends State<_ChatView>
               _formOfferCard(state.formOffer!)
             // ADR-0044 — a companion worker's profile is DONE: "build my profile"
             // would only re-open the preview for a finished interview.
-            else if (!state.companion)
+            //
+            // #2351 — but only while the server has NOT called it ready. The
+            // CTA is SERVER-LIT, so `extraction_ready` draws it on the COMPANION
+            // surface too (owner ruling 2026-10-19). The companion keeps the
+            // ADR-0044 silence only until the server closes the interview.
+            else if (!state.companion || state.extractionReady)
               _doneCta(state)
             // ADR-0046 F3 — the companion composer's mic. TWO levers, both of which
             // must be on: the v2 lever (the whole Phase 1 UI ships dark) and the

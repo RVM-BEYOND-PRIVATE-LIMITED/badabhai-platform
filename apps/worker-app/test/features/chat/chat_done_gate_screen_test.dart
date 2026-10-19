@@ -17,9 +17,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/api/api_models.dart' show ChatOption;
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/session/chat_turn_resume_store.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_free_chat_keys.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
@@ -190,6 +194,117 @@ void main() {
       await pumpChat(tester);
 
       expect(find.text(kChatDoneReadyLabel), findsNothing);
+    });
+  });
+
+  // -------------------------------------- server-lit CTA outranks free chat
+
+  // #2351 — a finished interview whose transcript still carries `freeChat: true`
+  // hid the CTA: `_doneCta` returned the hidden free-chat exit the moment the
+  // tap-persisted flag was set, whatever the server's `extraction_ready` said.
+  // The server's close is final, so the ready CTA must draw anyway — live, and
+  // on a cold reopen that restores the persisted mode. An UNFINISHED free chat
+  // still shows nothing (owner ruling 2026-10-16).
+  group('the ready CTA outranks a latched free-chat mode (#2351)', () {
+    Future<void> pumpChat(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(500, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = GoRouter(
+        initialLocation: '/chat',
+        routes: <RouteBase>[
+          GoRoute(path: '/chat', builder: (_, __) => const ChatProfilingScreen()),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pump();
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> pumpGreeting(WidgetTester tester) async {
+      when(() => repo.ensureSession()).thenAnswer(
+        (_) async => ChatSessionOpening(
+          text: 'Namaste, main Bada Bhai hoon. Shuru karein?',
+          options: const <ChatOption>[
+            ChatOption(optionKey: kFreeChatLaterKey, labelText: 'Baad mein'),
+          ],
+        ),
+      );
+      await pumpChat(tester);
+      await tester.tap(find.text('Baad mein').first);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a finished close after a free-chat detour draws the CTA', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      ).thenAnswer(
+        (_) async => const ChatTurn(reply: 'Bas ho gaya.', extractionReady: true),
+      );
+      await pumpGreeting(tester);
+
+      // The interview finishes while the tap-persisted free-chat mode is set.
+      await tester.enterText(find.byType(TextField), 'theek hai');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      expect(find.text(kChatDoneReadyLabel), findsOneWidget);
+    });
+
+    testWidgets('an UNFINISHED free chat still shows nothing', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      ).thenAnswer((_) async => const ChatTurn(reply: 'Baatein karte hain.'));
+      await pumpGreeting(tester);
+
+      expect(find.text(kChatDoneReadyLabel), findsNothing);
+      expect(find.byKey(kFreeChatResumeCtaKey), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
+    });
+
+    testWidgets(
+        'a cold reopen restores the free-chat mode AND draws the done CTA', (
+      WidgetTester tester,
+    ) async {
+      // The tap that opened free chat was persisted against the live session;
+      // the server then closed the interview. Both flags come back on reopen.
+      final InMemoryChatTurnResumeStore store = InMemoryChatTurnResumeStore();
+      await store.write(
+        const ChatTurnResumeState(
+          sessionId: 's1',
+          options: <({String optionKey, String labelText})>[
+            (optionKey: kFreeChatLaterKey, labelText: 'Baad mein'),
+          ],
+          freeChat: true,
+        ),
+      );
+      await locator.reset();
+      locator.registerFactory<ChatBloc>(
+        () => ChatBloc(repo, turnResume: store),
+      );
+      when(() => repo.latestSessionId()).thenAnswer((_) async => 's1');
+      when(() => repo.loadHistory()).thenAnswer(
+        (_) async => const <ChatMessage>[
+          ChatMessage(text: 'Kya kaam?', fromWorker: false),
+          ChatMessage(text: 'fitter', fromWorker: true),
+          ChatMessage(
+            text: 'Aapki baat poori ho gayi.',
+            fromWorker: false,
+            closesSession: true,
+            extractionReady: true,
+          ),
+        ],
+      );
+
+      await pumpChat(tester);
+
+      expect(find.text(kChatDoneReadyLabel), findsOneWidget);
     });
   });
 
