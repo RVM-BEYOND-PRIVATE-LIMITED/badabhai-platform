@@ -59,6 +59,7 @@ import type {
   TranscriptLine,
 } from "@badabhai/ai-contracts";
 import { matchesOfferedOption } from "./free-chat/free-chat.router";
+import { namesATradeIn } from "./free-chat/free-chat-trade";
 
 import {
   ChatTranscriptBuffer,
@@ -78,6 +79,7 @@ import { logSafeReason } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
+import { OccupationIndexService } from "../occupation/occupation-index.service";
 import { isUniversalPlaceholderLabel } from "../occupation/family-chip-labels";
 import {
   DISAMBIGUATION_ESCAPE_KEY,
@@ -837,6 +839,10 @@ export class ProfilingOrchestrator {
     // the same reason as every parameter above: without one no message is understood, and every
     // existing construction is today's interview exactly.
     private readonly understanding?: TurnUnderstandingService,
+    // #2355 — the in-process occupation snapshot for the free-chat start decision ("does
+    // this message name a trade"). READ-ONLY, trailing and optional for the same reason:
+    // without one the predicate is always false and every start decides as today.
+    private readonly occupationIndex?: OccupationIndexService,
   ) {
     this.freeChatTurns =
       freeChat === undefined
@@ -847,6 +853,9 @@ export class ProfilingOrchestrator {
             leads: (envelope) => llm.leads(envelope),
             stampGeneralRoad: (envelope, input) => this.stampGeneralRoad(envelope, input),
             logger: this.logger,
+            // Read per turn, not at construction: the index builds asynchronously after
+            // boot, and a snapshot read now would pin "no index" for the process's life.
+            namesATrade: namesATradeIn(() => this.occupationIndex?.snapshot()?.spans ?? null),
           });
   }
 

@@ -476,6 +476,33 @@ describe("free mode — the classifier's answer", () => {
       firstTurn: false,
     });
   });
+
+  it("résumé #2355: a start message that names a trade is the interview's first answer", () => {
+    // The predicate itself is pinned against a real snapshot in free-chat-trade.test.ts;
+    // here a stub keeps the routing table about ROUTING, not retrieval.
+    const namesATrade = (text: string): boolean => text.includes("carpenter");
+    expect(
+      postClassifyFree(v("resume"), "mai carpenter mai profile banana chahta hu", namesATrade),
+    ).toEqual({
+      kind: "start",
+      firstTurn: true,
+    });
+  });
+
+  it("résumé #2355: without a trade span the opener is unchanged, even when unwired", () => {
+    const namesATrade = (text: string): boolean => text.includes("carpenter");
+    for (const text of ["resume banana hai", "mai resume banana chahta hu", "profile banao"]) {
+      expect(postClassifyFree(v("resume"), text, namesATrade)).toEqual({
+        kind: "start",
+        firstTurn: false,
+      });
+    }
+    // Unwired (no index snapshot) fails closed to today's opener.
+    expect(postClassifyFree(v("resume"), "mai carpenter mai profile banana chahta hu")).toEqual({
+      kind: "start",
+      firstTurn: false,
+    });
+  });
 });
 
 describe("résumé mode — the skip list, then the classifier", () => {

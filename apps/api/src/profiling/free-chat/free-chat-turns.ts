@@ -217,6 +217,12 @@ export interface FreeChatTurnsDeps {
   ) => ReturnType<ResumeSuggestionReader["pendingForChat"]>;
   /** `LlmTurnService.leads` — does the model lead this session's questions? */
   readonly leads: (envelope: ProfilingEnvelope) => boolean;
+  /**
+   * #2355 — "does this message name a trade" for the free-mode start decision, injected
+   * by the orchestrator that owns the occupation index. Optional, and absent means "no":
+   * an unwired construction (or a snapshot that has not built) decides exactly as today.
+   */
+  readonly namesATrade?: (text: string) => boolean;
   /** The orchestrator's general-road stamp (ADR-0045 D7), applied where résumé mode is entered. */
   readonly stampGeneralRoad: (envelope: ProfilingEnvelope, input: TurnInput) => ProfilingEnvelope;
   /**
@@ -494,7 +500,7 @@ export class FreeChatTurns {
 
     const verdict = await this.classifyMemo(t, "free", null);
     const facts = verdictFacts(verdict);
-    const action = postClassifyFree(verdict, text);
+    const action = postClassifyFree(verdict, text, this.deps.namesATrade);
     const acted = action.kind !== "clarify" && action.kind !== "start";
     const current =
       state.mode === "greeting" && acted ? enterMode(state, "free", "classifier", now) : state;
@@ -509,8 +515,9 @@ export class FreeChatTurns {
           "clarify",
         );
       case "start":
-        // A message that already describes the work is the interview's first answer; a bare
-        // intent ("resume banana hai") gets the opener.
+        // A message that already describes the work — a first-person claim, or (#2355) a
+        // catalogue trade span — is the interview's first answer; a bare intent
+        // ("resume banana hai") gets the opener.
         return action.firstTurn ? this.passAsFirstTurn(t) : this.serveStart(t, facts, "classifier");
       case "reply":
         // A CASUAL language request with no answered reply before it ("bhai marathi mein bolo"
