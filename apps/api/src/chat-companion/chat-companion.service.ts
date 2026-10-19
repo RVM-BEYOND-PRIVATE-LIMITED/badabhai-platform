@@ -355,8 +355,25 @@ export class ChatCompanionService {
       const brainTurn = await this.v2.handleJobsMessage(workerId, mode.profile, dto, ctx, now);
       turn = brainTurn ?? (await this.v1Turn(workerId, mode.profile, "jobs", dto, ctx, now));
     } else if (resolution.kind === "resume_menu") {
-      // ADR-0055 — on the brain, the redo submenu offers the form road too (no other menu changes).
-      turn = this.menuTurn(brainOn ? withFormCreateOption(resolution.menu) : resolution.menu);
+      // ADR-0055 — on the brain, the redo submenu offers the form road too (no other menu changes),
+      // EXCEPT for chat-road profiles: a profile made via chat (`profile.source === 'chat'` OR the
+      // current résumé's `source === 'chat'`) sees only upload + chat. The history read fails open
+      // to today's behaviour (all three) — a chat profile is hidden only on a positive signal.
+      let menu = resolution.menu;
+      if (brainOn) {
+        const profileSource = (mode.profile as { source?: string | null }).source ?? null;
+        if (profileSource !== "chat") {
+          let resumeSource: string | null = null;
+          try {
+            const history = await this.resumes.history(workerId, now);
+            resumeSource = history.items[0]?.source ?? null;
+          } catch {
+            resumeSource = null;
+          }
+          menu = withFormCreateOption(menu, { profileSource, resumeSource });
+        }
+      }
+      turn = this.menuTurn(menu);
       await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);
     } else if (v2On && resolution.intent === "fallback") {
       // ADR-0046 T6 — THE V1 MISS GOES TO THE ROUTER, and v1's `fallback` intent IS the miss:
