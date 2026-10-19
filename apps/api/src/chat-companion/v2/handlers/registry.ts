@@ -1,8 +1,10 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { CompanionV2Intent } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../../config/config.module";
 import { editAsksGetSectionMenu } from "../../companion-brain-switch";
+// VALUE import, not `import type`: Nest resolves this constructor parameter by the class token.
+import { ResumeService } from "../../../resume/resume.service";
 import { CareerTalkHandler } from "./career-talk.handler";
 import { EditResumeHandler } from "./edit-resume.handler";
 import { FaltuHandler } from "./faltu.handler";
@@ -32,7 +34,7 @@ import type { CompanionV2Handler } from "./handler";
  */
 @Injectable()
 export class CompanionHandlerRegistry {
-  private readonly editSectionMenu = new EditSectionMenuHandler();
+  private readonly editSectionMenu: EditSectionMenuHandler;
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
@@ -43,7 +45,12 @@ export class CompanionHandlerRegistry {
     private readonly jobsDeferred: JobsDeferredHandler,
     private readonly phaseOff: PhaseOffHandler,
     private readonly unclear: UnclearHandler,
-  ) {}
+    // Optional: the résumé read behind the chat-road menu rule. Hand-built registries in unit
+    // suites omit it and check only the profile road.
+    @Optional() resumes?: ResumeService,
+  ) {
+    this.editSectionMenu = new EditSectionMenuHandler(resumes);
+  }
 
   resolve(intent: CompanionV2Intent): CompanionV2Handler {
     switch (intent) {

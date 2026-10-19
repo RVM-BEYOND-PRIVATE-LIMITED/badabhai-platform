@@ -16,8 +16,12 @@ import {
 } from "./companion-facts";
 import {
   downloadOption,
+  editMenuAsRedoForChatRoad,
   formCreateAck,
+  isChatRoad,
+  isEditFamilyMenu,
   isFormCreateChoice,
+  menuForRoad,
   withDownloadOption,
   withFormCreateOption,
 } from "./companion-resume-menu";
@@ -81,6 +85,75 @@ describe("withFormCreateOption — the form road in the redo submenu", () => {
         (o) => o.option_key,
       ),
     ).toEqual([RESUME_MENU_UPLOAD_KEY, RESUME_MENU_FORM_CREATE_KEY, RESUME_MENU_CHAT_CREATE_KEY]);
+  });
+});
+
+describe("the chat-road edit rule — six sections become the redo pair", () => {
+  const edit = resolveResumeMenu(RESUME_MENU_EDIT_LABEL);
+  const sectionAck = resolveResumeMenu("Technical Skills");
+  const root = resolveResumeMenu("");
+
+  it("detects the edit family by its section_* keys, never the copy", () => {
+    expect(isEditFamilyMenu(edit)).toBe(true);
+    expect(isEditFamilyMenu(sectionAck)).toBe(true);
+    expect(isEditFamilyMenu(root)).toBe(false);
+    expect(isEditFamilyMenu(resolveResumeMenu(RESUME_MENU_REDO_LABEL))).toBe(false);
+    expect(isChatRoad("chat")).toBe(true);
+    expect(isChatRoad("form")).toBe(false);
+    expect(isChatRoad(null)).toBe(false);
+  });
+
+  it("chat-road + edit family → the redo pair (upload + chat), either source is enough", () => {
+    for (const opts of [
+      { profileSource: "chat", resumeSource: "form" },
+      { profileSource: "form", resumeSource: "chat" },
+      { profileSource: "chat", resumeSource: null },
+    ] as const) {
+      for (const menu of [edit, sectionAck]) {
+        const out = editMenuAsRedoForChatRoad(menu, opts);
+        expect(out.options.map((o) => o.option_key)).toEqual([
+          RESUME_MENU_UPLOAD_KEY,
+          RESUME_MENU_CHAT_CREATE_KEY,
+        ]);
+        expect(out.reply).toBe(resolveResumeMenu(RESUME_MENU_REDO_LABEL).reply);
+      }
+    }
+  });
+
+  it("form-road and unknown sources keep the six sections", () => {
+    for (const opts of [
+      { profileSource: "form", resumeSource: "form" },
+      { profileSource: null, resumeSource: null },
+      undefined,
+    ] as const) {
+      expect(editMenuAsRedoForChatRoad(edit, opts)).toBe(edit);
+      expect(editMenuAsRedoForChatRoad(sectionAck, opts)).toBe(sectionAck);
+    }
+  });
+
+  it("menuForRoad: chat-road edit → redo, chat-road redo untouched, form redo → all three", () => {
+    const redo = resolveResumeMenu(RESUME_MENU_REDO_LABEL);
+    expect(
+      menuForRoad(edit, { profileSource: "chat", resumeSource: "form" }).options.map(
+        (o) => o.option_key,
+      ),
+    ).toEqual([RESUME_MENU_UPLOAD_KEY, RESUME_MENU_CHAT_CREATE_KEY]);
+    // The root menu is never an edit menu, so it passes through (the edit chip stays).
+    expect(menuForRoad(root, { profileSource: "chat", resumeSource: null })).toBe(root);
+    expect(
+      menuForRoad(redo, { profileSource: "chat", resumeSource: null }).options.map(
+        (o) => o.option_key,
+      ),
+    ).toEqual([RESUME_MENU_UPLOAD_KEY, RESUME_MENU_CHAT_CREATE_KEY]);
+    expect(
+      menuForRoad(redo, { profileSource: "form", resumeSource: "form" }).options.map(
+        (o) => o.option_key,
+      ),
+    ).toEqual([
+      RESUME_MENU_UPLOAD_KEY,
+      RESUME_MENU_FORM_CREATE_KEY,
+      RESUME_MENU_CHAT_CREATE_KEY,
+    ]);
   });
 });
 

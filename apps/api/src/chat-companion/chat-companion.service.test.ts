@@ -83,6 +83,10 @@ function make(over: {
   jobsThrows?: boolean;
   emitThrows?: boolean;
   v2?: boolean;
+  /** The free-chat brain on: V2 enabled and the kill switch off (default pins the v2 path off). */
+  brain?: boolean;
+  /** Override the companion profile's road (`PROFILE.source`, default "form"). */
+  profileSource?: string | null;
   confirm?: unknown;
   cancel?: unknown;
   /** #2297 — what the stored-conversation read answers (default: readable and empty). */
@@ -90,7 +94,15 @@ function make(over: {
 } = {}) {
   const policy = {
     resolve: vi.fn(async () =>
-      (over.mode ?? "companion") === "companion" ? { mode: "companion", profile: PROFILE } : { mode: "interview" },
+      (over.mode ?? "companion") === "companion"
+        ? {
+            mode: "companion",
+            profile:
+              over.profileSource === undefined
+                ? PROFILE
+                : { ...PROFILE, source: over.profileSource },
+          }
+        : { mode: "interview" },
     ),
   };
   const repo = {
@@ -137,6 +149,9 @@ function make(over: {
     handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
     rememberedForModel: vi.fn((_turn: unknown) => false),
     isEcho: vi.fn((_turn: unknown) => false),
+    clearPendingIntent: vi.fn(async () => undefined),
+    takePendingIntent: vi.fn(async () => null),
+    cooldownUntil: vi.fn(async () => null),
   };
   const { history: stored, summaries } = fakeCompanionHistory(over.stored);
   const config = {
@@ -144,10 +159,10 @@ function make(over: {
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
     CHAT_COMPANION_JOB_CHIPS: over.jobChips ?? 3,
     RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: 1_200,
-    CHAT_COMPANION_V2_ENABLED: over.v2 ?? false,
-    CHAT_COMPANION_V2_EDIT_ENABLED: over.v2 ?? false,
+    CHAT_COMPANION_V2_ENABLED: over.brain ?? over.v2 ?? false,
+    CHAT_COMPANION_V2_EDIT_ENABLED: over.brain ?? over.v2 ?? false,
     // ADR-0055 — the kill switch ON: this harness pins the v2 path (the brain has its own suites).
-    CHAT_FREE_CHAT_DISABLED: true,
+    CHAT_FREE_CHAT_DISABLED: over.brain ? false : true,
   };
   const svc = new ChatCompanionService(
     config as never,
@@ -430,6 +445,58 @@ describe("ChatCompanionService.message", () => {
     const res = await make().svc.message(WORKER, { text: COMPANION_RESUME_KEY }, CTX, NOW);
     if (res.mode !== "companion") throw new Error("expected companion");
     expect(res.turn.suggested_options.map((o) => o.option_key)).toEqual(["resume_edit", "resume_redo"]);
+  });
+
+  it("on the brain, 'resume badle' serves the six sections for a form-road profile", async () => {
+    const h = make({ brain: true });
+    const res = await h.svc.message(WORKER, { text: "resume badle" }, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.reply).toBe("Resume ka kaun sa hissa theek karna hai. Neeche se chunein.");
+    expect(res.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "section_general_info",
+      "section_technical_skills",
+      "section_work_history",
+      "section_education",
+      "section_location",
+      "section_availability_salary",
+    ]);
+  });
+
+  it("on the brain, 'resume badle' serves the redo pair for a chat-road profile", async () => {
+    const h = make({ brain: true, profileSource: "chat" });
+    const res = await h.svc.message(WORKER, { text: "resume badle" }, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.reply).toBe("Naya resume kaise banana chahte hain. Neeche se chunein.");
+    expect(res.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "resume_upload",
+      "resume_chat_create",
+    ]);
+    // The profile road alone decides: no résumé read is spent.
+    expect(h.resumes.history).not.toHaveBeenCalled();
+  });
+
+  it("on the brain, a chat-road résumé serves the redo pair even for a form-road profile", async () => {
+    const h = make({
+      brain: true,
+      history: { ...HISTORY, items: [{ ...HISTORY.items[0]!, source: "chat" }] },
+    });
+    const res = await h.svc.message(WORKER, { text: "resume badle" }, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "resume_upload",
+      "resume_chat_create",
+    ]);
+  });
+
+  it("on the brain, the 'Apna resume edit karein' chip serves the redo pair for a chat-road profile", async () => {
+    const h = make({ brain: true, profileSource: "chat" });
+    const res = await h.svc.message(WORKER, { text: RESUME_MENU_EDIT_LABEL }, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.reply).toBe("Naya resume kaise banana chahte hain. Neeche se chunein.");
+    expect(res.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "resume_upload",
+      "resume_chat_create",
+    ]);
   });
 
   it("'naye jobs dikhao' lists the matching jobs as chips", async () => {
