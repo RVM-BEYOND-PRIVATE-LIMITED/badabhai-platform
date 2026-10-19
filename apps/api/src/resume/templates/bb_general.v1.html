@@ -233,7 +233,7 @@
 
       /* ---- work history ------------------------------------------------------
          Two regions, and the mapper fills exactly one: employer blocks from the worker's
-         employment records, or the interview's flat jobs (role, duration in his words, what he
+         employment records, or the interview's flat jobs (role, formatted duration, what he
          did). The title sits left and the span right, as in the sample. */
       .job { margin: 0 0 2.4mm 0; break-inside: avoid; page-break-inside: avoid; }
       .job-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6mm; }
@@ -245,7 +245,7 @@
       .emp-where { font-size: 9.5pt; font-weight: 400; color: var(--meta); }
       .when { font-size: 9.5pt; color: var(--date); white-space: nowrap; }
       .when:empty { display: none; }
-      /* The interview's duration is the worker's own words (up to 120 characters), so unlike an
+      /* The interview's duration is the formatted month count (#2358), so unlike an
          employer span it may wrap, right-aligned, within half the row. */
       .when.dur { white-space: normal; max-width: 50%; text-align: right; }
       /* A promotion's stints sit under their employer with their dates BESIDE them, never at the

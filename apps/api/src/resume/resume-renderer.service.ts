@@ -19,9 +19,11 @@ import { getResumeTemplate } from "./templates/registry";
 /**
  * One job on the résumé, already humanised for print.
  *
- * `duration` is the worker's OWN words ("3.5 saal") rather than a computed month count —
- * `duration_months` is nullable precisely because "kuch saal" is a real answer, and printing a
- * number the worker never said is the fabrication the parse gates exist to stop.
+ * `duration` is the resolved month count formatted as "{x} years {y} months" (owner
+ * ruling 2026-10-19, #2358) — `duration_months`, else the `parseDurationMonths`
+ * fallback — never the worker's raw words. `duration_months` stays nullable because
+ * "kuch saal" is a real answer, and printing a number nobody resolved is the
+ * fabrication the parse gates exist to stop; unresolvable prints as "".
  */
 export interface ResumeExperienceLine {
   role: string;
