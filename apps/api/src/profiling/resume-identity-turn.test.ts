@@ -437,3 +437,92 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(haan.kind).toBe("close");
   });
 });
+
+describe("the closed-session import dialogue reads (#2363)", () => {
+  it("peeks the staged line with its route when nothing was handled", async () => {
+    const { orchestrator } = makeWorld({
+      identity: LINE,
+      route: { route: "form", formKind: "cnc_grinding" },
+    });
+    const peeked = await orchestrator.peekClosedSessionImport(WORKER, null);
+    expect(peeked).toEqual({
+      importId: IMPORT,
+      line: LINE,
+      route: "form",
+      formKind: "cnc_grinding",
+    });
+  });
+
+  it("peeks null when nothing is staged", async () => {
+    const { orchestrator } = makeWorld({ identity: null });
+    expect(await orchestrator.peekClosedSessionImport(WORKER, null)).toBeNull();
+  });
+
+  it("peeks null for the import this session already handled", async () => {
+    const { orchestrator } = makeWorld({ identity: LINE });
+    expect(await orchestrator.peekClosedSessionImport(WORKER, IMPORT)).toBeNull();
+  });
+
+  it("peeks null when the import row is gone", async () => {
+    const { orchestrator } = makeWorld({ identity: LINE, route: null });
+    expect(await orchestrator.peekClosedSessionImport(WORKER, null)).toBeNull();
+  });
+
+  it("peek fails closed to null on a read failure", async () => {
+    const { orchestrator, resume } = makeWorld({ identity: LINE });
+    resume.identityForChat.mockRejectedValueOnce(new Error("statement timeout"));
+    expect(await orchestrator.peekClosedSessionImport(WORKER, null)).toBeNull();
+  });
+
+  it("settle records yes, prefills, and returns the route", async () => {
+    const { orchestrator, events, autofill } = makeWorld({
+      route: { route: "form", formKind: "cnc_grinding" },
+    });
+    const settled = await orchestrator.settleClosedSessionImport(
+      WORKER,
+      IMPORT,
+      "yes",
+      CTX as never,
+    );
+    expect(settled).toEqual({ route: "form", formKind: "cnc_grinding" });
+    expect(autofill.applyOnHaan).toHaveBeenCalledWith(WORKER, IMPORT, expect.anything());
+    expect(events.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_name: "profile.resume_identity_answered",
+        payload: { worker_id: WORKER, import_id: IMPORT, answer: "yes" },
+      }),
+    );
+  });
+
+  it("settle records no, returns null, and never prefills", async () => {
+    const { orchestrator, events, autofill } = makeWorld({});
+    const settled = await orchestrator.settleClosedSessionImport(
+      WORKER,
+      IMPORT,
+      "no",
+      CTX as never,
+    );
+    expect(settled).toBeNull();
+    expect(autofill.applyOnHaan).not.toHaveBeenCalled();
+    expect(events.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_name: "profile.resume_identity_answered",
+        payload: { worker_id: WORKER, import_id: IMPORT, answer: "no" },
+      }),
+    );
+  });
+
+  it("settle still returns the route when the prefill throws", async () => {
+    const { orchestrator, autofill } = makeWorld({
+      route: { route: "form", formKind: "cnc_grinding" },
+    });
+    autofill.applyOnHaan.mockRejectedValueOnce(new Error("connection reset"));
+    const settled = await orchestrator.settleClosedSessionImport(
+      WORKER,
+      IMPORT,
+      "yes",
+      CTX as never,
+    );
+    expect(settled).toEqual({ route: "form", formKind: "cnc_grinding" });
+  });
+});

@@ -52,6 +52,12 @@ import {
   type FreeChatNewsLink,
   type FreeChatNewsLinkWire,
 } from "../profiling/free-chat/free-chat-news-links";
+import {
+  identityPrompt,
+  readIdentityReply,
+  RESUME_IDENTITY_OPTIONS,
+} from "../profiling/resume-import/resume-identity";
+import { TRADE_FORM_OFFERS, type TradeFormKind } from "../profiling/trade-form-router";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -113,6 +119,44 @@ function toWireOption(option: QuestionPackOption): {
     label_text: option.label_text,
     is_none_of_above: option.is_none_of_above,
   };
+}
+
+/**
+ * #2363 — the closed-session import dialogue's durable marker key in
+ * `chat_sessions.conversation_state`.
+ *
+ * A finished session has no envelope (its buffer is flushed), so the "did this session
+ * already serve/settle the staged identity line" fact cannot live in Redis. Like
+ * `form_kind` and the free-chat lock beside it, this is engine bookkeeping outside the
+ * frozen `ConversationState` contract, durable because the envelope is gone. Shape:
+ * `{ import_id: string, state: "pending" | "settled" }`. Anything else in the slot
+ * reads as absent (narrowed, never trusted).
+ */
+const CLOSED_SESSION_IMPORT_DIALOG_KEY = "resume_import_dialog";
+
+/**
+ * #2363 — the ack for a Haan on a chat-routed import answered after the interview ended.
+ *
+ * Deterministic reviewed copy, not a model line (the terminal path never calls one), in
+ * the established voice. It claims only recognition: on a finished profile a chat-routed
+ * Haan stages no new question and mints no form, so the bubble must not promise either.
+ */
+const CLOSED_SESSION_IMPORT_ACK = "Theek hai, ye resume aapka hai.";
+
+type ClosedSessionImportMarker = {
+  readonly importId: string;
+  readonly state: "pending" | "settled";
+};
+
+/** Narrow the durable marker slot — untrusted JSONB, so an unknown shape is absent. */
+function readClosedSessionImportMarker(state: unknown): ClosedSessionImportMarker | null {
+  if (typeof state !== "object" || state === null) return null;
+  const raw = (state as Record<string, unknown>)[CLOSED_SESSION_IMPORT_DIALOG_KEY];
+  if (typeof raw !== "object" || raw === null) return null;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec["import_id"] !== "string") return null;
+  if (rec["state"] !== "pending" && rec["state"] !== "settled") return null;
+  return { importId: rec["import_id"], state: rec["state"] };
 }
 
 /**
@@ -202,6 +246,12 @@ export type ChatTurnOutcome =
       readonly kind: "session_over";
       readonly generalFormOffer?: GeneralFormOffer | null;
       readonly extractionReady: boolean;
+      /**
+       * #2363 — the ended session's persisted `conversation_state`, so the terminal path can
+       * serve a staged résumé import instead of the menu. Read off the row already loaded
+       * for the ownership check, never re-read.
+       */
+      readonly conversationState: unknown;
     }
   /**
    * A completed-but-unflushed buffer was re-driven. `flushed` says whether it landed this time;
@@ -851,7 +901,14 @@ export class ChatService {
         if (outcome.generalFormOffer != null) {
           return this.generalFormResponse(dto.session_id, outcome.generalFormOffer);
         }
-        return this.terminalResponse(dto.session_id, workerId, dto.text, outcome.extractionReady);
+        return this.terminalResponse(
+          dto.session_id,
+          workerId,
+          dto.text,
+          outcome.extractionReady,
+          outcome.conversationState,
+          ctx,
+        );
       case "reflushed":
         // A general handover keeps its card whether or not this re-drive landed: the handover
         // turn already served it (its own checkpoint made it durable), and a failed re-flush that
@@ -1068,6 +1125,7 @@ export class ChatService {
         kind: "session_over",
         generalFormOffer: durableGeneralFormOffer(session.conversationState),
         extractionReady: closedSessionLitCta(session),
+        conversationState: session.conversationState,
       };
     }
 
@@ -2441,6 +2499,35 @@ export class ChatService {
     workerId: string,
     text: string,
     extractionReady: boolean,
+    conversationState: unknown,
+    ctx: RequestContext,
+  ): Promise<PostMessageResponse> {
+    // #2363 — a staged import this dead session never served answers before the menu. A
+    // finished session that reattaches after a closed-menu upload would otherwise serve
+    // the résumé menu forever while the parsed document sits unread, and the client
+    // infers a failed import. Non-null = the dialogue owns this message.
+    const dialog = await this.closedSessionImportResponse(
+      sessionId,
+      workerId,
+      text,
+      conversationState,
+      extractionReady,
+      ctx,
+    );
+    if (dialog !== null) return this.checkedResponse(dialog, sessionId);
+    return this.terminalMenuResponse(sessionId, workerId, text, extractionReady);
+  }
+
+  /**
+   * The shipped post-completion menu: edit-vs-redo, the redo pair, or the six resume
+   * sections. Terminal, idempotent, free — the fallback every degraded terminal path
+   * converges on.
+   */
+  private async terminalMenuResponse(
+    sessionId: string,
+    workerId: string,
+    text: string,
+    extractionReady: boolean,
   ): Promise<PostMessageResponse> {
     // Chat-road profiles never see the six edit sections, even on an ended session: they get
     // the redo pair (upload + chat) instead. The reads fail open to the shipped menu — a
@@ -2492,6 +2579,231 @@ export class ChatService {
       },
       sessionId,
     );
+  }
+
+  /**
+   * #2363 — the closed-session import dialogue: serve the staged "is this you?" bubble on a
+   * finished session, or settle its answer, or null when the menu owns this message.
+   *
+   * A finished session never runs the orchestrator, so an import that lands after the flush
+   * is staged but never served — and the worker reattaching that transcript is told the
+   * résumé yielded nothing for a document that parsed fine. The dialogue converges in at
+   * most two messages: the first unmarked message serves the bubble (and durably marks it
+   * pending), the next settles whatever the worker said (accept, decline and unclear all
+   * settle, the turn path's rule — a spent offer is never re-asked).
+   *
+   * DETERMINISTIC, like the menu it precedes: reviewed copy and closed option keys, no
+   * model call, no new event names. Every failure below fails closed to null (the menu):
+   * an unreadable import, a lost marker write, an unknown form kind. A bubble this
+   * session could not capture an answer to would be a dead end (D9), so the marker write
+   * failing serves the menu instead — today's behaviour byte for byte.
+   */
+  private async closedSessionImportResponse(
+    sessionId: string,
+    workerId: string,
+    text: string,
+    conversationState: unknown,
+    extractionReady: boolean,
+    ctx: RequestContext,
+  ): Promise<PostMessageResponse | null> {
+    const marker = readClosedSessionImportMarker(conversationState);
+    if (marker?.state === "pending") {
+      return this.answerClosedSessionImport(
+        sessionId,
+        workerId,
+        marker.importId,
+        text,
+        conversationState,
+        extractionReady,
+        ctx,
+      );
+    }
+    let peek: Awaited<ReturnType<ProfilingOrchestrator["peekClosedSessionImport"]>>;
+    try {
+      peek = await this.orchestrator.peekClosedSessionImport(workerId, marker?.importId ?? null);
+    } catch (error) {
+      this.logger.warn(
+        `closed-session import peek failed session=${sessionId}: ${(error as Error).message}`,
+      );
+      return null;
+    }
+    if (peek === null) return null;
+    const state = {
+      ...(typeof conversationState === "object" && conversationState !== null
+        ? (conversationState as Record<string, unknown>)
+        : {}),
+      [CLOSED_SESSION_IMPORT_DIALOG_KEY]: { import_id: peek.importId, state: "pending" as const },
+    };
+    try {
+      await this.chat.saveConversationState(sessionId, state, new Date());
+    } catch (error) {
+      this.logger.warn(
+        `closed-session import marker unwritten session=${sessionId}: ${(error as Error).message}`,
+      );
+      return null;
+    }
+    const reply = identityPrompt(peek.line);
+    return {
+      session_id: sessionId,
+      reply,
+      ...this.ttsField(reply, null),
+      blocked: false,
+      is_mock: true,
+      suggested_followups: RESUME_IDENTITY_OPTIONS.map((option) => option.label_text),
+      suggested_options: RESUME_IDENTITY_OPTIONS.map(toWireOption),
+      asked_question_id: null,
+      extraction_ready: extractionReady,
+      unanswered_essentials: [],
+      session_ended: true,
+      question_kind: "ask",
+      input_mode: "text",
+      answer_type: "single_select",
+      progress: null,
+      occupation_label: null,
+      lookahead: null,
+      form_offer: null,
+      resume_update: null,
+    };
+  }
+
+  /**
+   * #2363 — settle one answered bubble of the closed-session import dialogue.
+   *
+   * "yes" records the answer, applies the staged prefill best-effort, and hands a
+   * form-routed worker to the form the import settled (the same card copy the live
+   * handover serves, with `form_kind` durably moved so the form opens the new kind and
+   * `import_applied_id` set so the résumé is labelled `resume_upload` per ADR-0043 R1).
+   * A chat-routed "yes" settles with the ack line: on a finished profile there is no
+   * interview to continue, so the bubble claims only recognition. Anything else settles
+   * as "no" (the turn path's fail-closed rule — an unreadable reply is never a yes) and
+   * falls back to the menu. No `profile.form_mode_entered` is emitted here: its
+   * idempotency key is per session and the original handover already counted this
+   * session; the card and the durable `form_kind` carry the re-handover instead.
+   */
+  private async answerClosedSessionImport(
+    sessionId: string,
+    workerId: string,
+    importId: string,
+    text: string,
+    conversationState: unknown,
+    extractionReady: boolean,
+    ctx: RequestContext,
+  ): Promise<PostMessageResponse> {
+    const accepted = readIdentityReply(text) === "accept";
+    let settled: Awaited<ReturnType<ProfilingOrchestrator["settleClosedSessionImport"]>>;
+    try {
+      settled = await this.orchestrator.settleClosedSessionImport(
+        workerId,
+        importId,
+        accepted ? "yes" : "no",
+        ctx,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `closed-session import settle failed session=${sessionId}: ${(error as Error).message}`,
+      );
+      settled = null;
+    }
+    const base =
+      typeof conversationState === "object" && conversationState !== null
+        ? (conversationState as Record<string, unknown>)
+        : {};
+    if (accepted) {
+      const formKind = settled?.route === "form" ? settled.formKind : null;
+      const offer =
+        typeof formKind === "string"
+          ? TRADE_FORM_OFFERS[formKind as TradeFormKind] ?? null
+          : null;
+      if (offer !== null) {
+        const state = {
+          ...base,
+          form_kind: offer.kind,
+          import_applied_id: importId,
+          [CLOSED_SESSION_IMPORT_DIALOG_KEY]: { import_id: importId, state: "settled" as const },
+        };
+        try {
+          await this.chat.saveConversationState(sessionId, state, new Date());
+        } catch (error) {
+          this.logger.warn(
+            `closed-session handover state unwritten session=${sessionId}: ` +
+              `${(error as Error).message}`,
+          );
+          return this.terminalMenuResponse(sessionId, workerId, text, extractionReady);
+        }
+        return {
+          session_id: sessionId,
+          reply: offer.reply,
+          ...this.ttsField(offer.reply, null),
+          blocked: false,
+          is_mock: true,
+          suggested_followups: [],
+          suggested_options: [],
+          asked_question_id: null,
+          extraction_ready: false,
+          unanswered_essentials: [],
+          session_ended: true,
+          question_kind: "close",
+          input_mode: "text",
+          answer_type: null,
+          progress: null,
+          occupation_label: null,
+          lookahead: null,
+          form_offer: {
+            kind: offer.kind,
+            headline: offer.headline,
+            cta_label: offer.ctaLabel,
+          },
+          resume_update: null,
+        };
+      }
+      const state = {
+        ...base,
+        import_applied_id: importId,
+        [CLOSED_SESSION_IMPORT_DIALOG_KEY]: { import_id: importId, state: "settled" as const },
+      };
+      try {
+        await this.chat.saveConversationState(sessionId, state, new Date());
+      } catch (error) {
+        this.logger.warn(
+          `closed-session settle state unwritten session=${sessionId}: ` +
+            `${(error as Error).message}`,
+        );
+      }
+      return {
+        session_id: sessionId,
+        reply: CLOSED_SESSION_IMPORT_ACK,
+        ...this.ttsField(CLOSED_SESSION_IMPORT_ACK, null),
+        blocked: false,
+        is_mock: true,
+        suggested_followups: [],
+        suggested_options: [],
+        asked_question_id: null,
+        extraction_ready: extractionReady,
+        unanswered_essentials: [],
+        session_ended: true,
+        question_kind: "close",
+        input_mode: "text",
+        answer_type: null,
+        progress: null,
+        occupation_label: null,
+        lookahead: null,
+        form_offer: null,
+        resume_update: null,
+      };
+    }
+    const state = {
+      ...base,
+      [CLOSED_SESSION_IMPORT_DIALOG_KEY]: { import_id: importId, state: "settled" as const },
+    };
+    try {
+      await this.chat.saveConversationState(sessionId, state, new Date());
+    } catch (error) {
+      this.logger.warn(
+        `closed-session settle state unwritten session=${sessionId}: ` +
+          `${(error as Error).message}`,
+      );
+    }
+    return this.terminalMenuResponse(sessionId, workerId, text, extractionReady);
   }
 
   /**

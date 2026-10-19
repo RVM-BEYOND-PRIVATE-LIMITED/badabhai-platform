@@ -33,6 +33,12 @@ import {
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+import { RESUME_MENU_ROOT_REPLY } from "./resume-menu";
+import { TRADE_FORM_OFFERS } from "../profiling/trade-form-router";
+import {
+  identityPrompt,
+  RESUME_IDENTITY_OPTIONS,
+} from "../profiling/resume-import/resume-identity";
 import { llmChipOptions } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import {
@@ -170,6 +176,17 @@ function make(
      * pending résumé), which is what every pre-existing test in this file assumes.
      */
     resumeConfirmOpen?: Record<string, unknown> | null;
+    /**
+     * #2363 — what `orchestrator.peekClosedSessionImport` resolves to. `undefined` = null
+     * (no unserved import), which is what every pre-existing test in this file assumes.
+     * `"throws"` = the read fails and the terminal path must fail closed to the menu.
+     */
+    closedImportPeek?: unknown;
+    /**
+     * #2363 — what `orchestrator.settleClosedSessionImport` resolves to. `undefined` = null
+     * (a "no"), which is what every pre-existing test in this file assumes.
+     */
+    closedImportSettle?: unknown;
     /** ADR-0045 — the ended session's persisted `conversation_state`. Default null. */
     conversationState?: unknown;
     /** #2235 — the row's `ended_at`. Default null, as on a live row. */
@@ -274,6 +291,12 @@ function make(
   const orchestrator = {
     // Task 1 B3 — the résumé-confirm open. `null` = nothing pending, the pre-existing default.
     openResumeConfirm: vi.fn(async () => opts.resumeConfirmOpen ?? null),
+    // #2363 — the closed-session import dialogue. `null` = nothing unserved, the default.
+    peekClosedSessionImport: vi.fn(async () => {
+      if (opts.closedImportPeek === "throws") throw new Error("statement timeout");
+      return opts.closedImportPeek ?? null;
+    }),
+    settleClosedSessionImport: vi.fn(async () => opts.closedImportSettle ?? null),
     takeTurn: vi.fn(async () => ({
       reply: "Aap kis sheher mein rehte hain?",
       kind: "ask",
@@ -3042,5 +3065,259 @@ describe("ChatService — the general-form card is only ever served ON RECORD (A
     const out = await svc.listMessages(WORKER, SESSION);
     expect(out.general_form_offer).toEqual(WIRE);
     expect(has(out, "gate_kind")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2363 — the closed-session import dialogue: a finished session with an
+// unserved pending résumé import answers the import, not the menu.
+// ---------------------------------------------------------------------------
+
+/** Synthetic staged identity line — no real PII, a fixed-shape stand-in. */
+const CLOSED_IMPORT_ID = "44444444-4444-4444-8444-444444444444";
+const CLOSED_IMPORT_LINE = {
+  importId: CLOSED_IMPORT_ID,
+  roleKind: "cnc_grinding",
+  experienceText: "2 saal 7 mahine ka tajurba",
+  summaryText: "CNC cylindrical grinder par kaam",
+};
+const CLOSED_IMPORT_BUBBLE = identityPrompt(CLOSED_IMPORT_LINE);
+const CLOSED_IMPORT_FORM_KIND = "cnc_turner" as const;
+/** The durable marker key the terminal dialogue reads and writes. */
+const DIALOG_KEY = "resume_import_dialog";
+const ACK_LINE = "Theek hai, ye resume aapka hai.";
+
+const closedPeek = (over: Record<string, unknown> = {}) => ({
+  importId: CLOSED_IMPORT_ID,
+  line: CLOSED_IMPORT_LINE,
+  route: "form" as const,
+  formKind: CLOSED_IMPORT_FORM_KIND,
+  ...over,
+});
+
+const pendingMarker = (importId: string = CLOSED_IMPORT_ID) => ({
+  ...FINISHED_STATE,
+  [DIALOG_KEY]: { import_id: importId, state: "pending" as const },
+});
+
+const settledMarker = (importId: string = CLOSED_IMPORT_ID) => ({
+  ...FINISHED_STATE,
+  [DIALOG_KEY]: { import_id: importId, state: "settled" as const },
+});
+
+async function postText(
+  opts: Parameters<typeof make>[0] & { text: string },
+) {
+  const h = make(opts);
+  const res = await h.svc.postMessage(
+    WORKER,
+    { ...DTO, text: opts.text } as never,
+    CTX,
+  );
+  return { ...h, res };
+}
+
+describe("terminal dialogue: a finished session with a pending résumé import (#2363)", () => {
+  it("serves the staged identity bubble instead of the menu (learned-something)", async () => {
+    const { res, chat, orchestrator } = await run({
+      sessionStatus: "ended",
+      conversationState: FINISHED_STATE,
+      closedImportPeek: closedPeek(),
+    });
+    expect(orchestrator.takeTurn).not.toHaveBeenCalled();
+    expect(res.reply).toBe(CLOSED_IMPORT_BUBBLE);
+    expect(res.question_kind).toBe("ask");
+    expect(res.answer_type).toBe("single_select");
+    expect(res.session_ended).toBe(true);
+    expect(res.suggested_options).toEqual(
+      RESUME_IDENTITY_OPTIONS.map((o) => ({
+        option_key: o.option_key,
+        label_text: o.label_text,
+        is_none_of_above: o.is_none_of_above,
+      })),
+    );
+    expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+    const [sessionId, state] = chat.saveConversationState.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(sessionId).toBe(SESSION);
+    expect(state[DIALOG_KEY]).toEqual({ import_id: CLOSED_IMPORT_ID, state: "pending" });
+  });
+
+  it("stays on the menu when nothing was learned (learned-nothing)", async () => {
+    const { res, chat } = await run({
+      sessionStatus: "ended",
+      conversationState: FINISHED_STATE,
+      closedImportPeek: null,
+    });
+    expect(res.reply).toBe(RESUME_MENU_ROOT_REPLY);
+    expect(chat.saveConversationState).not.toHaveBeenCalled();
+  });
+
+  it("stays on the menu when the parse failed with no staged line (parse-failure)", async () => {
+    const { res, chat } = await run({
+      sessionStatus: "ended",
+      conversationState: FINISHED_STATE,
+      closedImportPeek: null,
+    });
+    expect(res.reply).toBe(RESUME_MENU_ROOT_REPLY);
+    expect(chat.saveConversationState).not.toHaveBeenCalled();
+  });
+
+  it("does not re-serve an import this session already settled", async () => {
+    const { res, chat, orchestrator } = await run({
+      sessionStatus: "ended",
+      conversationState: settledMarker(),
+      closedImportPeek: null,
+    });
+    expect(orchestrator.peekClosedSessionImport).toHaveBeenCalledWith(
+      WORKER,
+      CLOSED_IMPORT_ID,
+    );
+    expect(res.reply).toBe(RESUME_MENU_ROOT_REPLY);
+    expect(chat.saveConversationState).not.toHaveBeenCalled();
+  });
+
+  it("serves a NEWER import staged after this session settled one", async () => {
+    const NEW_ID = "55555555-5555-5555-8555-555555555555";
+    const { res } = await run({
+      sessionStatus: "ended",
+      conversationState: settledMarker("00000000-0000-4000-8000-000000000000"),
+      closedImportPeek: closedPeek({
+        importId: NEW_ID,
+        line: { ...CLOSED_IMPORT_LINE, importId: NEW_ID },
+      }),
+    });
+    expect(res.reply).toBe(
+      identityPrompt({ ...CLOSED_IMPORT_LINE, importId: NEW_ID }),
+    );
+  });
+
+  it("Haan on a form-routed import hands over to the new form (chip key)", async () => {
+    const { res, chat, orchestrator } = await postText({
+      sessionStatus: "ended",
+      conversationState: pendingMarker(),
+      closedImportSettle: { route: "form", formKind: CLOSED_IMPORT_FORM_KIND },
+      text: "resume_identity_yes",
+    });
+    expect(orchestrator.settleClosedSessionImport).toHaveBeenCalledWith(
+      WORKER,
+      CLOSED_IMPORT_ID,
+      "yes",
+      expect.anything(),
+    );
+    const offer = TRADE_FORM_OFFERS[CLOSED_IMPORT_FORM_KIND];
+    expect(res.reply).toBe(offer.reply);
+    expect(res.form_offer).toEqual({
+      kind: offer.kind,
+      headline: offer.headline,
+      cta_label: offer.ctaLabel,
+    });
+    expect(res.session_ended).toBe(true);
+    expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+    const [, state] = chat.saveConversationState.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(state[DIALOG_KEY]).toEqual({ import_id: CLOSED_IMPORT_ID, state: "settled" });
+    expect(state["form_kind"]).toBe(CLOSED_IMPORT_FORM_KIND);
+    expect(state["import_applied_id"]).toBe(CLOSED_IMPORT_ID);
+  });
+
+  it("typed Haan on a chat-routed import settles with the ack line", async () => {
+    const { res, orchestrator } = await postText({
+      sessionStatus: "ended",
+      conversationState: pendingMarker(),
+      closedImportSettle: { route: "chat", formKind: null },
+      text: "haan",
+    });
+    expect(orchestrator.settleClosedSessionImport).toHaveBeenCalledWith(
+      WORKER,
+      CLOSED_IMPORT_ID,
+      "yes",
+      expect.anything(),
+    );
+    expect(res.reply).toBe(ACK_LINE);
+    expect(res.form_offer).toBeNull();
+    expect(res.session_ended).toBe(true);
+  });
+
+  it("Nahi settles the dialogue and falls back to the menu", async () => {
+    const { res, chat, orchestrator } = await postText({
+      sessionStatus: "ended",
+      conversationState: pendingMarker(),
+      closedImportSettle: null,
+      text: "Nahi, ye main nahi hoon",
+    });
+    expect(orchestrator.settleClosedSessionImport).toHaveBeenCalledWith(
+      WORKER,
+      CLOSED_IMPORT_ID,
+      "no",
+      expect.anything(),
+    );
+    expect(res.reply).toBe(RESUME_MENU_ROOT_REPLY);
+    const [, state] = chat.saveConversationState.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(state[DIALOG_KEY]).toEqual({ import_id: CLOSED_IMPORT_ID, state: "settled" });
+  });
+
+  it("an unreadable reply with a pending marker settles as no, never yes", async () => {
+    const { res, orchestrator } = await postText({
+      sessionStatus: "ended",
+      conversationState: pendingMarker(),
+      closedImportSettle: null,
+      text: "xyz123",
+    });
+    expect(orchestrator.settleClosedSessionImport).toHaveBeenCalledWith(
+      WORKER,
+      CLOSED_IMPORT_ID,
+      "no",
+      expect.anything(),
+    );
+    expect(res.reply).toBe(RESUME_MENU_ROOT_REPLY);
+  });
+
+  it("an unknown form kind on Haan fails closed to the ack line", async () => {
+    const { res } = await postText({
+      sessionStatus: "ended",
+      conversationState: pendingMarker(),
+      closedImportSettle: { route: "form", formKind: "retired_kind" },
+      text: "haan",
+    });
+    expect(res.reply).toBe(ACK_LINE);
+    expect(res.form_offer).toBeNull();
+  });
+
+  it("an unreadable marker is treated as absent and the staged line is served", async () => {
+    const { res } = await run({
+      sessionStatus: "ended",
+      conversationState: { ...FINISHED_STATE, [DIALOG_KEY]: "garbage" },
+      closedImportPeek: closedPeek(),
+    });
+    expect(res.reply).toBe(CLOSED_IMPORT_BUBBLE);
+  });
+
+  it("a failing peek fails closed to the menu", async () => {
+    const { res, chat } = await run({
+      sessionStatus: "ended",
+      conversationState: FINISHED_STATE,
+      closedImportPeek: "throws",
+    });
+    expect(res.reply).toBe(RESUME_MENU_ROOT_REPLY);
+    expect(chat.saveConversationState).not.toHaveBeenCalled();
+  });
+
+  it("a failing marker write serves the menu, never an unanswerable bubble", async () => {
+    const h = make({
+      sessionStatus: "ended",
+      conversationState: FINISHED_STATE,
+      closedImportPeek: closedPeek(),
+    });
+    h.chat.saveConversationState.mockRejectedValueOnce(new Error("connection reset"));
+    const res = await h.svc.postMessage(WORKER, DTO as never, CTX);
+    expect(res.reply).toBe(RESUME_MENU_ROOT_REPLY);
   });
 });

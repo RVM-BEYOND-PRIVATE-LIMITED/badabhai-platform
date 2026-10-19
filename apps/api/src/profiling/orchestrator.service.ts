@@ -1847,6 +1847,91 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * #2363 — read the closed-session import dialogue's state, or `null`.
+   *
+   * A finished session never runs `openResumeConfirm` (its turn counter is past zero and its
+   * buffer is flushed), so an import that lands afterwards — the closed-menu "Resume upload
+   * karein" upload — is staged but never served: the worker reattaches the dead transcript
+   * and the client infers a failed import. This is the read half of the terminal dialogue
+   * `ChatService.terminalResponse` serves on such a session.
+   *
+   * `handledImportId` is the import this session already served or settled (its durable
+   * marker), or null: a re-uploaded document is a fresh claim the worker has not been
+   * asked about (the fix-2026-09-21 rule the open path follows), while the same id
+   * answered twice must never re-ask. Soft reads only — `identityForChat` and
+   * `routeForImport` already degrade to null, and anything else fails closed to null
+   * (the menu), never to a throw.
+   */
+  async peekClosedSessionImport(
+    workerId: string,
+    handledImportId: string | null,
+  ): Promise<{
+    importId: string;
+    line: IdentitySummary;
+    route: string | null;
+    formKind: string | null;
+  } | null> {
+    try {
+      const line = await this.resolveResumeIdentity(workerId);
+      if (line === null || line.importId === handledImportId) return null;
+      const routed = await this.resumeSuggestions.routeForImport(workerId, line.importId);
+      if (routed === null) return null;
+      return {
+        importId: line.importId,
+        line,
+        route: routed.route,
+        formKind: routed.formKind,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `closed-session import peek failed worker=${workerId.slice(0, 8)}…: ` +
+          `${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * #2363 — settle the closed-session import dialogue's answer, or `null`.
+   *
+   * The write half of the terminal dialogue: the worker answered the "is this you?" bubble
+   * this session served after it had ended. Mirrors the turn path's identity capture
+   * (`decide`, "The résumé identity answer, settled") minus the envelope — a dead session
+   * has no buffer to write — and minus the interview that follows a live-session Haan:
+   * the form handover is the caller's to serve from the returned route.
+   *
+   * `recordIdentityAnswered` is idempotent per import and never throws; `applyOnHaan` is
+   * best-effort exactly as on the turn path (a prefill failure must not cost the handover).
+   * Returns the settled route for a "yes", null otherwise. Never throws — the terminal
+   * path fails closed to the menu, never to a 500.
+   */
+  async settleClosedSessionImport(
+    workerId: string,
+    importId: string,
+    answer: "yes" | "no",
+    ctx: RequestContext,
+  ): Promise<{ route: string | null; formKind: string | null } | null> {
+    try {
+      await this.recordIdentityAnswered({ workerId, ctx }, importId, answer);
+      if (answer !== "yes") return null;
+      try {
+        await this.resumeAutofill?.applyOnHaan(workerId, importId, ctx);
+      } catch (error) {
+        this.logger.warn(
+          `résumé autofill skipped on closed-session Haan for import ${importId}: ` +
+            `${(error as Error).message}`,
+        );
+      }
+      return await this.resumeSuggestions.routeForImport(workerId, importId);
+    } catch (error) {
+      this.logger.warn(
+        `closed-session import settle failed import=${importId}: ${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * The whole turn as a value: the buffer to write and the result to return, or `null` when no
    * pack could be resolved.
    *
@@ -4798,7 +4883,7 @@ export class ProfilingOrchestrator {
    * double-count the funnel.
    */
   private async recordIdentityAnswered(
-    input: TurnInput,
+    input: Pick<TurnInput, "workerId" | "ctx">,
     importId: string,
     answer: "yes" | "no",
   ): Promise<void> {
