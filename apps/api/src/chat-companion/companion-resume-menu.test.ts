@@ -55,6 +55,33 @@ describe("withFormCreateOption — the form road in the redo submenu", () => {
   it("does not touch the shipped menu (the ended-interview path shares it)", () => {
     expect(resolveResumeMenu(RESUME_MENU_REDO_LABEL).options).toHaveLength(2);
   });
+
+  it("hides the form road for chat-road profiles — either source is enough", () => {
+    const redo = resolveResumeMenu(RESUME_MENU_REDO_LABEL);
+    // Chat profile, form résumé (or unreadable): still two options.
+    expect(
+      withFormCreateOption(redo, { profileSource: "chat", resumeSource: "form" }).options.map(
+        (o) => o.option_key,
+      ),
+    ).toEqual([RESUME_MENU_UPLOAD_KEY, RESUME_MENU_CHAT_CREATE_KEY]);
+    // Form profile, chat résumé: still two options.
+    expect(
+      withFormCreateOption(redo, { profileSource: "form", resumeSource: "chat" }).options.map(
+        (o) => o.option_key,
+      ),
+    ).toEqual([RESUME_MENU_UPLOAD_KEY, RESUME_MENU_CHAT_CREATE_KEY]);
+    // Form profile, form résumé (or unknown): all three.
+    expect(
+      withFormCreateOption(redo, { profileSource: "form", resumeSource: "form" }).options.map(
+        (o) => o.option_key,
+      ),
+    ).toEqual([RESUME_MENU_UPLOAD_KEY, RESUME_MENU_FORM_CREATE_KEY, RESUME_MENU_CHAT_CREATE_KEY]);
+    expect(
+      withFormCreateOption(redo, { profileSource: null, resumeSource: null }).options.map(
+        (o) => o.option_key,
+      ),
+    ).toEqual([RESUME_MENU_UPLOAD_KEY, RESUME_MENU_FORM_CREATE_KEY, RESUME_MENU_CHAT_CREATE_KEY]);
+  });
 });
 
 describe("the form road's chip and ack", () => {

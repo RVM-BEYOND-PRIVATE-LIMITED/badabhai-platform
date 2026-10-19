@@ -79,6 +79,60 @@ describe("NewResumeHandler (ADR-0046 P2) — the redo flow, or the fallback line
     expect(shipped.turn.suggested_options.map((o) => o.option_key)).toEqual(["resume_upload", "resume_chat_create"]);
   });
 
+  it("chat-road profiles see only upload + chat — the form road is hidden", async () => {
+    const consents = {
+      findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
+    };
+    const config = {
+      CHAT_COMPANION_V2_ENABLED: true,
+      CHAT_COMPANION_V2_EDIT_ENABLED: true,
+      CHAT_COMPANION_V2_NEW_RESUME_ENABLED: true,
+    } as unknown as ServerConfig;
+
+    // Profile road = chat: no form road, even without a résumé read.
+    const chatProfile = await new NewResumeHandler(config, consents as never).handle({
+      ...INPUT,
+      profile: { source: "chat" } as never,
+    });
+    expect(chatProfile.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "resume_upload",
+      "resume_chat_create",
+    ]);
+
+    // Résumé road = chat (profile road = form): no form road either.
+    const chatResume = await new NewResumeHandler(
+      config,
+      consents as never,
+      {
+        history: async () => ({
+          items: [{ source: "chat" }],
+          pending_update: null,
+        }),
+      } as never,
+    ).handle({ ...INPUT, profile: { source: "form" } as never });
+    expect(chatResume.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "resume_upload",
+      "resume_chat_create",
+    ]);
+
+    // Form road on both: all three, as before.
+    const formBoth = await new NewResumeHandler(
+      config,
+      consents as never,
+      {
+        history: async () => ({
+          items: [{ source: "form" }],
+          pending_update: null,
+        }),
+      } as never,
+    ).handle({ ...INPUT, profile: { source: "form" } as never });
+    expect(formBoth.turn.suggested_options.map((o) => o.option_key)).toEqual([
+      "resume_upload",
+      "resume_form_create",
+      "resume_chat_create",
+    ]);
+  });
+
   it("consent missing the purpose, revoked, absent or unreadable — the v1 fallback line, fail closed", async () => {
     const cases: Array<() => Promise<unknown>> = [
       async () => ({ revokedAt: null, purposes: ["profiling"] }),

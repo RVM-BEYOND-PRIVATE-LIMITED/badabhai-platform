@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { RESUME_MENU_REDO_LABEL, resolveResumeMenu } from "../../../chat/resume-menu";
 import { hasActiveConsent } from "../../../consent/consent-active";
@@ -11,6 +11,7 @@ import { SERVER_CONFIG } from "../../../config/config.module";
 import { companionBrainOn } from "../../companion-brain-switch";
 import { FALLBACK } from "../../companion-replies";
 import { withFormCreateOption } from "../../companion-resume-menu";
+import { ResumeService } from "../../../resume/resume.service";
 import { taskChips, v2CopyTurn, v2MenuTurn } from "../companion-v2-compose";
 import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler";
 
@@ -39,9 +40,14 @@ import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler"
  */
 @Injectable()
 export class NewResumeHandler implements CompanionV2Handler {
+  private readonly logger = new Logger(NewResumeHandler.name);
+
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly consents: ConsentRepository,
+    // Optional so hand-built constructions in unit suites (2 args) keep working; in production
+    // Nest injects the Resume tab's own history read. Absent, only the profile road is checked.
+    @Optional() private readonly resumes?: ResumeService,
   ) {}
 
   async handle(input: HandlerInput): Promise<HandlerResult> {
@@ -49,8 +55,32 @@ export class NewResumeHandler implements CompanionV2Handler {
       return { turn: v2CopyTurn(FALLBACK, taskChips(this.config)), outcome: "fallback" };
     }
     const redo = resolveResumeMenu(RESUME_MENU_REDO_LABEL);
+    if (!companionBrainOn(this.config)) {
+      return { turn: v2MenuTurn(redo), outcome: "served" };
+    }
+    // Chat-road profiles see only upload + chat: a chat-made profile is never offered the form
+    // road. Either road is enough (profile.source OR current résumé source). The history read
+    // fails open to today's behaviour (all three) — hidden only on a positive chat signal.
+    const profileSource = (input.profile as { source?: string | null }).source ?? null;
+    if (profileSource === "chat") {
+      return { turn: v2MenuTurn(redo), outcome: "served" };
+    }
+    let resumeSource: string | null = null;
+    if (this.resumes) {
+      try {
+        const history = await this.resumes.history(input.workerId, input.now);
+        resumeSource = history.items[0]?.source ?? null;
+      } catch (err) {
+        this.logger.warn(
+          `new-resume résumé source unreadable for worker ${input.workerId}; offering the form road (${
+            err instanceof Error ? err.name : "UnknownError"
+          })`,
+        );
+        resumeSource = null;
+      }
+    }
     return {
-      turn: v2MenuTurn(companionBrainOn(this.config) ? withFormCreateOption(redo) : redo),
+      turn: v2MenuTurn(withFormCreateOption(redo, { profileSource, resumeSource })),
       outcome: "served",
     };
   }

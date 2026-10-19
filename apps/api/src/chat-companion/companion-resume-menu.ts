@@ -49,11 +49,28 @@ function withOptions(menu: ResumeMenuChoice, options: readonly MenuOption[]): Re
 }
 
 /**
+ * Which road made the profile / résumé — the form road (`form`), the LLM-chat road (`chat`), or
+ * unknown (`null`, pre-road rows). A chat-made profile is never offered the form road.
+ */
+export function isChatRoad(source: string | null | undefined): boolean {
+  return source === "chat";
+}
+
+/**
  * The redo submenu (the one menu that offers the upload road) with the form road inserted right
  * after upload: "Resume upload karein · Form se resume banayein · Chat se resume banayein". Every
  * other menu is returned unchanged, so this can wrap any menu the companion serves.
+ *
+ * CHAT-ROAD PROFILES SEE ONLY TWO OPTIONS. When `opts` names a chat road — the profile's own
+ * `source` OR the current résumé's `source` (either is enough, per owner ruling) — the menu is
+ * returned unchanged: "Resume upload karein · Chat se resume banayein". Form-road and unknown
+ * sources keep all three, exactly as before. Omitted `opts` is today's behaviour (adds the road).
  */
-export function withFormCreateOption(menu: ResumeMenuChoice): ResumeMenuChoice {
+export function withFormCreateOption(
+  menu: ResumeMenuChoice,
+  opts?: { readonly profileSource?: string | null; readonly resumeSource?: string | null },
+): ResumeMenuChoice {
+  if (isChatRoad(opts?.profileSource) || isChatRoad(opts?.resumeSource)) return menu;
   const at = menu.options.findIndex((o) => o.option_key === RESUME_MENU_UPLOAD_KEY);
   if (at < 0 || menu.options.some((o) => o.option_key === RESUME_MENU_FORM_CREATE_KEY)) return menu;
   return withOptions(menu, [
