@@ -147,6 +147,11 @@ const CLOSED_VOCABULARY: ReadonlySet<string> = new Set([
 const COMPOSED_PHRASES: readonly { re: RegExp; why: string }[] = [
   { re: /^\d+ yrs?( \d+ mo)?$/, why: "§6.2 total years / §11 #6 tenure" },
   { re: /^\d+ mo$/, why: "§11 #6 tenure under a year" },
+  // ── #2358 (owner ruling 2026-10-19) — the Work History duration prints the resolved
+  // month count as "{x} years {y} months": a deterministic formatting of a worker-stated
+  // number, not a new claim. The headline/tenure short forms above are untouched.
+  { re: /^\d+ years?( \d+ months?)?$/, why: "#2358 Work History duration" },
+  { re: /^\d+ months?$/, why: "#2358 Work History duration under a year" },
   { re: /^duration not stated$/i, why: "§11 #3" },
   { re: /^available immediately$/, why: "§6.2 availability segment" },
   { re: /^available in \d+ days$/, why: "§6.2 availability segment" },

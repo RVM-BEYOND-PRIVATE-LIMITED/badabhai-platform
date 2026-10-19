@@ -767,7 +767,7 @@ describe("buildResumeRenderInput — the résumé container", () => {
     expect(input.experiences).toEqual([
       {
         role: "VMC Operator",
-        duration: "3.5 saal",
+        duration: "3 years 6 months",
         work: "Manufactured various parts, read drawings, performed machine setup",
       },
     ]);
@@ -780,22 +780,23 @@ describe("buildResumeRenderInput — the résumé container", () => {
     expect(build().experienceYears).toBe(3.5);
   });
 
-  it("keeps the worker's own words for the duration, not the converted number", () => {
-    // "42 months" is a normalization of "3.5 saal". Printing it trades their voice for a number
-    // they never used, which is why `duration_text` leads.
-    expect(build().experiences[0]!.duration).toBe("3.5 saal");
+  it("formats the duration as years/months, not the worker's raw words (#2358)", () => {
+    // Owner ruling 2026-10-19: 42 months prints "3 years 6 months". The verbatim
+    // text stays stored; the résumé prints the resolved count.
+    expect(build().experiences[0]!.duration).toBe("3 years 6 months");
   });
 
-  it("reports no years rather than inventing them when nothing converted", () => {
+  it("reports no years and prints no duration when nothing converted (#2358)", () => {
     // `duration_months` is nullable precisely because "kuch saal" is a real answer. Guessing a
-    // number from it is the fabrication the parse gates exist to stop.
+    // number from it is the fabrication the parse gates exist to stop — and the raw words
+    // no longer print either, so the span is empty.
     const input = build({
       experiences: [
         { role_label: "Helper", duration_text: "kuch saal", duration_months: null, work_done: "" },
       ],
     });
     expect(input.experienceYears).toBeNull();
-    expect(input.experiences[0]!.duration).toBe("kuch saal");
+    expect(input.experiences[0]!.duration).toBe("");
   });
 
   it("hides the expected salary from the payer-facing disclosure", () => {
@@ -984,6 +985,81 @@ describe("buildResumeRenderInput — the résumé container", () => {
       expect(input.skills).toEqual([]);
       expect(input.displayName).toBe("Asha Kumari");
     });
+  });
+});
+
+/**
+ * #2358 — the Work History duration prints "{x} years {y} months" (owner ruling 2026-10-19).
+ *
+ * The worker's verbatim `duration_text` stays STORED (the parse gates check it against the
+ * transcript; rewriting it would drop the job), but the résumé never prints raw Hinglish.
+ * The month count (`duration_months`, else the API-side `parseDurationMonths` fallback)
+ * is the single source for the printed span.
+ */
+describe("buildResumeRenderInput — Work History duration as years/months (#2358)", () => {
+  const buildWith = (experiences: readonly Record<string, unknown>[]) =>
+    buildResumeRenderInput(
+      {
+        resume_profile: {
+          domain_label: "Furniture",
+          role_label: "Furniture Designer",
+          skills: [],
+          experiences: [...experiences],
+        },
+      },
+      "Device Worker",
+      "classic",
+      null,
+      false,
+      "worker",
+    );
+
+  it("prints the device case as whole years, not the worker's raw words", () => {
+    const input = buildWith([
+      {
+        role_label: "Furniture Designer",
+        duration_text: "3 saal se kar raha hu",
+        duration_months: 36,
+        work_done: "Furniture design",
+      },
+    ]);
+    expect(input.experiences[0]!.duration).toBe("3 years");
+  });
+
+  it("prints years and months for a fractional duration", () => {
+    const input = buildWith([
+      {
+        role_label: "VMC Operator",
+        duration_text: "3.5 saal",
+        duration_months: 42,
+        work_done: "Parts",
+      },
+    ]);
+    expect(input.experiences[0]!.duration).toBe("3 years 6 months");
+  });
+
+  it("falls back to parsing the text when the month count is null", () => {
+    const input = buildWith([
+      {
+        role_label: "Helper",
+        duration_text: "2 saal",
+        duration_months: null,
+        work_done: "",
+      },
+    ]);
+    expect(input.experiences[0]!.duration).toBe("2 years");
+  });
+
+  it("prints nothing when no number can be resolved", () => {
+    const input = buildWith([
+      {
+        role_label: "Helper",
+        duration_text: "kuch saal",
+        duration_months: null,
+        work_done: "",
+      },
+    ]);
+    expect(input.experiences[0]!.duration).toBe("");
   });
 });
 

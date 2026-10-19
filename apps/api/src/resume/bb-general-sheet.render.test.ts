@@ -286,10 +286,10 @@ describe("a worker outside the 21 roles renders the general sheet", () => {
     expect(avail).toMatch(/<span class="lab">Preferred locations<\/span> Gurugram, Noida/);
     expect(avail).toContain('data-label="Languages spoken"');
     expect(avail).toContain("<li>Aadhaar</li><li>PAN</li><li>Bank account</li>");
-    // WORK HISTORY — the chat road's flat jobs: title left, the worker's own duration right.
+    // WORK HISTORY — the chat road's flat jobs: title left, the formatted duration right.
     const work = section(html, "sec-work");
     expect(work).toContain(
-      '<span class="job-title">Store Keeper</span><span class="when dur">5 saal</span>',
+      '<span class="job-title">Store Keeper</span><span class="when dur">5 years</span>',
     );
     expect(work).toContain(
       '<div class="bullet">Maintained the stock register and ran monthly audits</div>',
@@ -319,7 +319,7 @@ describe("a worker outside the 21 roles renders the general sheet", () => {
       'JBM Auto<span class="emp-where"> · Faridabad, Haryana</span> — Store Helper</span>',
     );
     // The mapper fills one work-history shape, never both.
-    expect(work).not.toContain("5 saal");
+    expect(work).not.toContain("5 years");
   });
 
   it("keeps the employer copy free of the worker-only facts", () => {

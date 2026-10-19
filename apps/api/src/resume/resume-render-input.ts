@@ -22,6 +22,8 @@ import {
   type ResumePreferenceFacts,
 } from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
+import { formatDurationMonths } from "./format-duration-months";
+import { parseDurationMonths } from "../profiling/duration-months";
 import { formatWorkerPhone } from "./resume-phone";
 import { buildFresherRows, FRESHER_LABEL, tenureStatusLabel } from "./resume-fresher-rows";
 import { composeFallbackBrief, vetOwnBrief } from "./resume-brief";
@@ -1462,10 +1464,15 @@ function fromResumeProfile(
         ? [...fresherRows]
         : tierExperiences.map((e) => ({
             role: e.role_label,
-            // The worker's OWN words first. `duration_months` is a normalization of it, and
-            // printing "42 months" when they said "3.5 saal" trades their voice for a number they
-            // never used.
-            duration: e.duration_text.trim() || monthsAsText(e.duration_months),
+            // OWNER RULING 2026-10-19 (#2358): the Work History duration reads
+            // "{x} years {y} months" — the resolved month count (`duration_months`,
+            // else the API-side `parseDurationMonths(duration_text)` fallback),
+            // formatted at this render layer only. `duration_text` stays stored
+            // verbatim (the parse gates check it against the transcript), but raw
+            // Hinglish never prints on the résumé; unresolvable prints nothing.
+            duration: formatDurationMonths(
+              e.duration_months ?? parseDurationMonths(e.duration_text),
+            ),
             work: e.work_done,
           })),
     preferredLocations: cleanList(rp.preferred_locations),
@@ -1732,14 +1739,6 @@ function totalYearsFrom(experiences: readonly { duration_months: number | null }
     .filter((m): m is number => typeof m === "number" && m > 0);
   if (months.length === 0) return null;
   return Math.round((months.reduce((a, b) => a + b, 0) / 12) * 10) / 10;
-}
-
-/** A month count as printable text, for the rare entry with months but no words of its own. */
-function monthsAsText(months: number | null): string {
-  if (months === null || months <= 0) return "";
-  if (months < 12) return `${months} month${months === 1 ? "" : "s"}`;
-  const years = Math.round((months / 12) * 10) / 10;
-  return `${years} year${years === 1 ? "" : "s"}`;
 }
 
 /**
