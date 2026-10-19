@@ -2475,11 +2475,12 @@ export class ProfilingOrchestrator {
     // is on screen the worker's words answer IT, not a pack question. `servedQuestionKey`
     // is already null for the whole Phase-A stretch, so capture below finds no asked item;
     // a bare Haan/Nahi additionally finds no value through the typed-parser cross-fill
-    // (the same property the experience gate's Haan relies on), and identify may spend an
-    // attempt on it exactly as it does on that gate's Haan today.
+    // (the same property the experience gate's Haan relies on).
     //
-    // `yes` marks the trade confirmed and FALLS THROUGH: the same turn continues into
-    // identification and the model, which now profiles the confirmed trade. `no` serves the
+    // `yes` marks the trade confirmed and FALLS THROUGH: the same turn continues to the
+    // model, which now profiles the confirmed trade. Identify is reached too, but a
+    // confirmed trade ends retrieval for the interview (#2346) — the ladder once ran on this
+    // "Haan", hit the paddy alias "dhaan", and re-asked the trade as chips. `no` serves the
     // desired-trade re-ask and returns; `other` (the worker typed the wanted trade instead
     // of tapping) falls through with the gate closed, so this turn's own words are resolved
     // as the desired trade and the new gate is served for them below.
