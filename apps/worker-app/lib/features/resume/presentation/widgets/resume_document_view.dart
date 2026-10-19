@@ -860,8 +860,9 @@ class _ResumeTrainingEntryState extends State<ResumeTrainingEntry> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         if (general)
-          // The duration is the worker's OWN words here, not a date range, so
-          // it is allowed to wrap — right-aligned, within half the row.
+          // The duration here is the server-formatted span ("3 years 6
+          // months", #2358), not a date range, so it is allowed to wrap —
+          // right-aligned, within half the row.
           ResumeSheetHeadRow(
             title: line.role,
             when: line.duration,
