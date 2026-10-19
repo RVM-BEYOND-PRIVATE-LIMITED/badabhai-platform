@@ -20,6 +20,7 @@ import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cu
 import 'package:badabhai_worker_app/features/resume/presentation/resume_preview_screen.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_card_slots.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_document_view.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_general_sheet_view.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 
 class MockResumeRepository extends Mock implements ResumeRepository {}
@@ -1143,6 +1144,55 @@ void main() {
       );
       expect(button.variant, BbButtonVariant.tonal);
       expect(button.variant, isNot(BbButtonVariant.danger));
+    });
+  });
+
+  // #2360 — the backend prints a chat-built Work History duration as
+  // "{x} years {y} months" (#2358). Both layouts render `duration` verbatim, so
+  // this pins that the server's formatted span reaches the page unchanged —
+  // no re-parse, no local "saal" conversion.
+  group('a chat-built Work History duration renders verbatim (#2360)', () {
+    const String formatted = '3 years 6 months';
+    const ResumeExperienceLineDto line = ResumeExperienceLineDto(
+      role: 'Fitter',
+      duration: formatted,
+      work: 'Assembled pumps on the line.',
+    );
+    const TradeSheetResumeDocument document = TradeSheetResumeDocument(
+      header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+      trade: 'fitter',
+      experiences: <ResumeExperienceLineDto>[line],
+    );
+
+    Future<void> pump(WidgetTester tester, Widget child) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      tester.view.physicalSize = const Size(1080, 3600);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: SingleChildScrollView(child: child),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('the trade sheet prints it as the server sent it', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, const ResumeDocumentView(document: document));
+      expect(find.text(formatted), findsOneWidget);
+    });
+
+    testWidgets('the general sheet prints it as the server sent it', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, const ResumeGeneralSheetView(document: document));
+      expect(find.text(formatted), findsOneWidget);
     });
   });
 }

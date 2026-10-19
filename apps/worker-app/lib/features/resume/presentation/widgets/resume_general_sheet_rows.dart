@@ -25,8 +25,9 @@ enum ResumeEmploymentStyle {
 /// inside it, so a long employer never runs under the dates.
 ///
 /// [when] never wraps for an employer span (a date range is one token to the
-/// eye); a fresher's duration is his OWN words, so [wrapWhen] lets it wrap
-/// right-aligned within half the row — the sheet's `.when.dur` rule.
+/// eye); a chat-built line's duration arrives pre-formatted by the server
+/// ("3 years 6 months", #2358), so [wrapWhen] lets it wrap right-aligned
+/// within half the row — the sheet's `.when.dur` rule.
 class ResumeSheetHeadRow extends StatelessWidget {
   const ResumeSheetHeadRow({
     super.key,
