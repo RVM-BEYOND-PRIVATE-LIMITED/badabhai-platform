@@ -200,7 +200,7 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // this one turns red the moment any pack adds or removes a question, which is the authoring
     // signal that did not exist. Update it in the same commit as the pack, on purpose.
     //
-    // 37 = qp_cnc_turning's 15 + qp_universal@5's 19 + one retry each for the three mandatory
+    // 37 = qp_cnc_turning's 15 + qp_universal@6's 19 + one retry each for the three mandatory
     // questions (turning_experience, primary_trade, current_city).
     //
     // THE WALK MOVED 28 → 36 WITH THE LAYER A ELICITATION (ADR-0042 §9 amendment, 2026-09-18).
@@ -211,6 +211,9 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // AND 36 → 37 WITH THE TRAINING GATE (owner rulings 2026-10-17). v5 adds the gate item; the
     // trio behind it is still three items and the guard counts every item in the pack, so the
     // delta is exactly one.
+    //
+    // v6 (owner ruling 2026-10-19) REORDERS the travel pair and gates the km on the gate's TRUE
+    // answer, but adds and removes no item: the walk stays 37 and the headroom stays 11.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
     expect(worst).toBe(37);
   });
@@ -225,9 +228,9 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // THE COMPARISON, STATED SO THE MOVE IS AUDITABLE:
     //   before: cap 28, worst-case walk 28 (qp_cnc_turning 15 + qp_universal@3 10 + 3 mandatory
     //           re-asks), headroom 0 — the cap WAS the corpus.
-    //   after:  cap 48, worst-case walk 37 (qp_cnc_turning 15 + qp_universal@5's 19 + 3 mandatory
-    //           re-asks; the Layer A elicitation landed, then the training gate — this number
-    //           MOVED again, as promised),
+    //   after:  cap 48, worst-case walk 37 (qp_cnc_turning 15 + qp_universal@6's 19 + 3 mandatory
+    //           re-asks; the Layer A elicitation landed, then the training gate, then the travel
+    //           reorder which adds no item and holds the walk at 37),
     //           headroom 11.
     // The `expect(worst).toBe(37)` above still pins the walk itself; this pins the posture.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));

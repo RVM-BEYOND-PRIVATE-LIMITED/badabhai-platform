@@ -17,7 +17,7 @@
   "version": 5,
   "family_id": "fam_universal",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v5 adds the training gate: a Haan/Nahi question asked only for the sixteen form families' occupations, with the training trio gated on its TRUE answer. Unpinned and non-industrial workers never see the trio (owner rulings 2026-10-17). v4 is deprecated in place — the corpus validator refuses a second ACTIVE pack for one family+locale; pinned v4 sessions keep resolving through loadPinned.",
   "items": [
     {

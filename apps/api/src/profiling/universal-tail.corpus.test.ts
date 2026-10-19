@@ -388,3 +388,80 @@ describe("the training gate, over the REAL corpus (qp_universal@5)", () => {
     expect(asked).not.toContain("training_done");
   });
 });
+
+/**
+ * TRAVEL FIRST, KM ONLY ON HAAN (qp_universal@6, owner ruling 2026-10-19). v5 asked the km
+ * number BEFORE the Haan/Nahi travel gate, so a worker answering Nahi, "pata nahi", declining
+ * or skipping still paid for the km question. v6 moves `willing_to_travel` IMMEDIATELY BEFORE
+ * `commute_max_km` and gates the km on the gate's TRUE answer — the same `eq` shape the
+ * training trio's name already uses on its gate. Haan and "haan ji" read as TRUE in
+ * `packages/profiling-lexicon/src/values/affirmation.test.ts`; this block pins the DATA half:
+ * what a TRUE / FALSE / declined / unanswered gate serves. v5 sessions keep the old order;
+ * nothing above moves.
+ */
+describe("travel first, km only on Haan, over the REAL corpus (qp_universal@6)", () => {
+  const TRAVEL_TRUE = { ...AFTER_PHASE_A, willing_to_travel: true };
+  const TRAVEL_FALSE = { ...AFTER_PHASE_A, willing_to_travel: false };
+
+  /** The tail once the gate is already TRUE: the km in the gate's slot, the gate settled. */
+  const V6_TAIL_GATE_SETTLED = [
+    "current_city",
+    "availability",
+    "languages",
+    "work_types",
+    "commute_max_km",
+    "notice_period_days",
+    "salary_period",
+    "secondary_occupations",
+  ];
+
+  it("serves willing_to_travel IMMEDIATELY BEFORE commute_max_km — the reorder itself", () => {
+    const items = chatUniversal(6).items;
+    const keys = items.map((i) => i.question_key);
+    const travel = keys.indexOf("willing_to_travel");
+    const km = keys.indexOf("commute_max_km");
+    expect(travel).toBeGreaterThanOrEqual(0);
+    expect(km).toBe(travel + 1);
+    expect(items[km]?.ask_if).toEqual({
+      op: "eq",
+      left: { field: "willing_to_travel" },
+      right: { const: true },
+    });
+  });
+
+  it("Haan on the gate serves the km next — directly after work_types", () => {
+    expect(walk(chatUniversal(6), 8, TRAVEL_TRUE)).toEqual(V6_TAIL_GATE_SETTLED);
+  });
+
+  it("Nahi on the gate never serves the km — notice_period_days follows work_types", () => {
+    const asked = walk(chatUniversal(6), 8, TRAVEL_FALSE);
+    expect(asked).not.toContain("willing_to_travel");
+    expect(asked).not.toContain("commute_max_km");
+    expect(asked.indexOf("notice_period_days")).toBe(asked.indexOf("work_types") + 1);
+    expect(asked).toContain("secondary_occupations");
+  });
+
+  it("a DECLINED gate never serves the km either — 'pata nahi' is terminal for the pair", () => {
+    const asked = walk(chatUniversal(6), 8, AFTER_PHASE_A, ["willing_to_travel"]);
+    expect(asked).not.toContain("commute_max_km");
+    expect(asked.indexOf("notice_period_days")).toBe(asked.indexOf("work_types") + 1);
+  });
+
+  it("an UNANSWERED gate serves the gate but never the km — a skip pays nothing", () => {
+    // Nothing pre-settled: the engine serves the gate, this walk answers it with a value no
+    // boolean parser would produce, and the gate's fail direction (unevaluatable → false) skips
+    // the km. "pata nahi" in production records a decline (covered above); this pins the third
+    // case, the worker who never answers at all.
+    const asked = walk(chatUniversal(6), 8, AFTER_PHASE_A);
+    expect(asked).toContain("willing_to_travel");
+    expect(asked).not.toContain("commute_max_km");
+    expect(asked.indexOf("notice_period_days")).toBe(asked.indexOf("willing_to_travel") + 1);
+  });
+
+  it("v5 sessions keep the OLD order — a frozen version is not retold", () => {
+    const items = chatUniversal(5).items;
+    const keys = items.map((i) => i.question_key);
+    expect(keys.indexOf("commute_max_km")).toBeLessThan(keys.indexOf("willing_to_travel"));
+    expect(items[keys.indexOf("commute_max_km")]?.ask_if).toBeNull();
+  });
+});

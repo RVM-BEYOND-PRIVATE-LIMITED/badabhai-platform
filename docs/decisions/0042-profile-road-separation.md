@@ -298,3 +298,25 @@ new item and two conditions; every v4 item is otherwise byte-identical.
    written; the gate is a boolean the pack's own condition reads. The ask-budget walk moves 36 → 37
    (headroom 12 → 11 against the unchanged cap of 48), pinned by the guard. `v4` is deprecated in
    place; pinned v4 sessions keep resolving and keep the ungated trio.
+
+---
+
+## 12. Amendment — travel first, km only on Haan: the gate moves ahead of the number (2026-10-19)
+
+Owner ruling 2026-10-19. The §10 pair asked the km number BEFORE the Haan/Nahi travel gate, so a
+worker answering Nahi, "pata nahi", declining, or skipping still paid for the km question.
+`qp_universal@6` answers with DATA — one reorder and one condition; every v5 item is otherwise
+byte-identical.
+
+1. **The reorder.** `willing_to_travel` (boolean, "Kya aap ghar se door kaam ke liye ja sakte
+   hain?") moves IMMEDIATELY BEFORE `commute_max_km` ("Kaam ke liye aap kitne km tak ja sakte
+   hain?").
+2. **The gate.** `commute_max_km` carries `ask_if: eq(willing_to_travel, true)` — the same shape
+   the trio's name already uses on its gate. Haan (and "haan ji", "bilkul", pinned in the
+   affirmation tests) serves the km next; Nahi, "pata nahi", a decline, or an unanswered gate
+   ends the pair and `notice_period_days` follows. The rest of the tail runs unchanged.
+3. **No rank input, no new authority, no migration, no event.** No wording changes, so the
+   served-text golden gains an entry with the v5 sha, the reply closure and its ai-service mirror
+   are byte-identical, and the Devanagari twins (keyed by roman text) cover v6 unchanged. The
+   ask-budget walk holds 37 (headroom 11 against the unchanged cap of 48) — the reorder adds no
+   item. `v5` is deprecated in place; pinned v5 sessions keep resolving and keep the old order.
