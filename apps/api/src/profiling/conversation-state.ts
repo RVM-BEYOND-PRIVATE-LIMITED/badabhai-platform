@@ -716,9 +716,11 @@ export interface ProfilingEnvelope {
    *
    * `open` is "the gate is on screen RIGHT NOW" (the worker's next sentence answers
    * it); `trade` the label being confirmed; `confirmed` sticky once the worker says
-   * Haan; `reaskOpen` the desired-trade question on screen; `pastLabel` the last
-   * declined trade (transcript record only — never settled, never re-reported unless
-   * the worker restates it); `rounds` how many Nahi answers this interview has given.
+   * Haan, and from then on occupation retrieval never runs again in the interview
+   * (`IdentifyService`, #2346); `reaskOpen` the desired-trade question on screen;
+   * `pastLabel` the last declined trade (transcript record only — never settled, never
+   * re-reported unless the worker restates it); `rounds` how many Nahi answers this
+   * interview has given.
    *
    * ITS OWN STATE rather than a reserved `servedQuestionKey`, for the reason
    * `llmGateOpen` gives: every capture branch reads that key as "the pack question on

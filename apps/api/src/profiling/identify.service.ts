@@ -170,6 +170,49 @@ const NOT_A_TRADE_STATEMENT: ReadonlySet<UtteranceClass> = new Set<UtteranceClas
 const SYNTHESIZED_OPTION_KEY = /^(?:occ|llm)_[a-z]+$/i;
 
 /**
+ * Identification once the worker has CONFIRMED their trade at the trade-confirm gate (#2346):
+ * retrieval never runs again in this interview.
+ *
+ * THE DEFECT THIS CLOSES, from a device. The model inferred "Carpenter", the gate asked
+ * "Carpenter — kya aap yahi kaam karna chahte hain?", and the worker tapped Haan. That turn falls
+ * through into identify (the gate's own design), the opener had not pinned, so the ladder ran on
+ * the word "Haan" — L2 trigram reaches the paddy alias "dhaan" — and the worker who had just
+ * confirmed their trade was asked "Aap in mein se kaun sa kaam karte hain?" over dhaan /
+ * hastshilp / Pressman. Every later short answer could do the same while no pin existed.
+ *
+ * THE WHOLE LADDER, NOT ONLY THE OFFER (owner ruling 2026-10-19, "rest of interview"). No chips,
+ * no type-your-trade prompt, no attempt spent, no growth-queue record of "haan", and no re-pin:
+ * an `auto` hit on a later answer is exactly how "haan" could pin a carpenter to paddy. The trade
+ * the worker confirmed reaches the profile through the model's draft and its settlement, which is
+ * what the gate confirmed.
+ *
+ * A trade TYPED over the gate is untouched: `readTradeConfirmReply` reads it as `other`, which
+ * leaves the gate unconfirmed, so those words still reach the ladder as today. The deterministic
+ * interview never sets `confirmed` (the gate is Phase A's), so it is untouched too.
+ *
+ * ANY OFFER STILL LIVE IS SETTLED, as a pin settles one. The flow cannot produce an offer beside a
+ * confirmed trade today (an offer returns before the model, and only a model turn serves the
+ * gate), but a stale `needsDisambiguation` with retrieval switched off would make `nextQuestion`
+ * serve an empty disambiguate turn for the rest of the interview — so it is cleared, not trusted.
+ */
+function settledByTradeGate(envelope: ProfilingEnvelope): IdentifyResult {
+  const offerLive =
+    envelope.needsDisambiguation ||
+    envelope.disambiguationOffer.length > 0 ||
+    envelope.identifyTypeRequested;
+  if (!offerLive) return NO_OP;
+  return {
+    ...NO_OP,
+    patch: {
+      needsDisambiguation: false,
+      disambiguationOffer: [],
+      identifyTypeRequested: false,
+      identifyStalledTurns: 0,
+    },
+  };
+}
+
+/**
  * Could this text be a worker's own statement of their trade? (#1506 HIGH-1 / MEDIUM-2)
  *
  * THE OPTION-KEY VETO (MEDIUM-2). The wire contract for a chip tap is its `option_key`, not its
@@ -198,9 +241,10 @@ export class IdentifyService {
   /**
    * Run identification for one turn, if this turn is one where it should run at all.
    *
-   * THE GUARD ORDER MATTERS. A settled occupation short-circuits before anything else, because
-   * re-running retrieval on turn nine — when the worker is describing their machines, not their
-   * trade — is how a welder becomes a machine operator halfway through their own interview.
+   * THE GUARD ORDER MATTERS. A trade the worker CONFIRMED short-circuits first, and a settled
+   * occupation next, because re-running retrieval on turn nine — when the worker is describing
+   * their machines, not their trade — is how a welder becomes a machine operator halfway through
+   * their own interview.
    */
   async identify(
     envelope: ProfilingEnvelope,
@@ -213,6 +257,10 @@ export class IdentifyService {
      */
     turnClass: UtteranceClass,
   ): Promise<IdentifyResult> {
+    // The worker said Haan to "<trade> — kya aap yahi kaam karna chahte hain?" (#2346). From that
+    // turn on the trade is theirs, not retrieval's to re-open — see {@link settledByTradeGate}.
+    if (envelope.tradeConfirm.confirmed) return settledByTradeGate(envelope);
+
     // Already pinned. One re-pin is allowed (risk #12) — see {@link maybeRepin} for the two
     // conditions that make it safe.
     if (envelope.occupation !== null) return this.maybeRepin(envelope, text, ctx);

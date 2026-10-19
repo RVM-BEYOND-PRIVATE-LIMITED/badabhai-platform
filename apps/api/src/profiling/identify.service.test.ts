@@ -388,6 +388,111 @@ describe("the disambiguation offer", () => {
   });
 });
 
+describe("a trade the worker confirmed at the trade-confirm gate (#2346)", () => {
+  // THE DEVICE SESSION. The ladder on the word "Haan" reached the paddy alias "dhaan" plus two weak
+  // rivals — the chips a worker who had just confirmed "Carpenter" was asked to choose from.
+  const haanOffer = {
+    resolve: resolveResult({
+      status: "disambiguate",
+      disambiguationOptions: [
+        { jobDomainId: "jd_nco_6111_0101", familyId: "fam_agriculture", label: "dhaan" },
+        { jobDomainId: "jd_handicraft", familyId: "fam_handicraft", label: "hastshilp" },
+        { jobDomainId: "jd_pressman", familyId: "fam_printing", label: "Pressman" },
+      ],
+    }),
+  };
+  const confirmed = (over: Partial<ProfilingEnvelope> = {}) =>
+    env({ tradeConfirm: { ...emptyProfilingEnvelope().tradeConfirm, confirmed: true }, ...over });
+
+  it("an unconfirmed trade still meets the ladder — the control the guard is measured against", async () => {
+    const { svc } = make(haanOffer);
+    const result = await svc.identify(env(), "Haan", CTX, "answer");
+    expect(result.offer?.prompt).toBe(DISAMBIGUATION_PROMPT);
+  });
+
+  it("never runs the ladder on the gate's own Haan: no chips, no attempt, no event", async () => {
+    const { svc, occupation, events } = make(haanOffer);
+    const result = await svc.identify(confirmed(), "Haan", CTX, "answer");
+
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.offer).toBeNull();
+    expect(result.prompt).toBeNull();
+    expect(result.pinned).toBeNull();
+    expect(result.tradeText).toBeNull();
+    // Nothing spent, nothing settled: the interview carries on exactly where the gate left it.
+    expect(result.patch).toEqual({});
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("stays off for the rest of the interview — a later trade-shaped answer re-asks nothing", async () => {
+    const { svc, occupation, ai } = make(haanOffer);
+    const result = await svc.identify(
+      confirmed({ identifyAttempts: 1 }),
+      "main furniture ka kaam karta hoon",
+      CTX,
+      "answer",
+    );
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.offer).toBeNull();
+    // Not queued to the growth corpus either: the pseudonymizer hop is that queue's only door.
+    expect(ai.pseudonymize).not.toHaveBeenCalled();
+  });
+
+  it("never re-pins a pinned interview off the confirmed trade", async () => {
+    // A first-person claim with an `auto` hit on a DIFFERENT family is exactly what `maybeRepin`
+    // acts on — and exactly what must not move a trade the worker confirmed.
+    const { svc, occupation } = make({
+      resolve: resolveResult({ status: "auto", pinned: { ...CANDIDATE, familyId: "fam_driving" } }),
+    });
+    const result = await svc.identify(
+      confirmed({ occupation: CANDIDATE as never, occupationFamilyId: "fam_tailoring" }),
+      "ab main tempo chalata hoon",
+      CTX,
+      "answer",
+    );
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.pinned).toBeNull();
+    expect(result.patch).toEqual({});
+  });
+
+  it("settles an offer still live rather than leaving `nextQuestion` holding empty chips", async () => {
+    const { svc, occupation } = make(haanOffer);
+    const result = await svc.identify(
+      confirmed({
+        needsDisambiguation: true,
+        disambiguationOffer: [
+          { label: "darzi", jobDomainId: CANDIDATE.jobDomainId, familyId: "fam_tailoring" },
+          { label: "Kuch aur", jobDomainId: null, familyId: null },
+        ],
+        identifyStalledTurns: 1,
+      }),
+      "darzi",
+      CTX,
+      "answer",
+    );
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.offer).toBeNull();
+    expect(result.patch).toEqual({
+      needsDisambiguation: false,
+      disambiguationOffer: [],
+      identifyTypeRequested: false,
+      identifyStalledTurns: 0,
+    });
+  });
+
+  it("settles a live type-your-trade prompt the same way", async () => {
+    const { svc } = make(haanOffer);
+    const result = await svc.identify(
+      confirmed({ identifyTypeRequested: true }),
+      "carpenter",
+      CTX,
+      "answer",
+    );
+    expect(result.prompt).toBeNull();
+    expect(result.patch.identifyTypeRequested).toBe(false);
+  });
+});
+
 describe("settling an outstanding offer", () => {
   const outstanding = env({
     needsDisambiguation: true,
