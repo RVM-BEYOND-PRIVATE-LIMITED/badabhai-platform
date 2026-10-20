@@ -441,13 +441,17 @@ describe("AiService", () => {
       expect(result.resume_text.split("\n").filter((l) => l.startsWith("Role:"))).toHaveLength(1);
     });
 
-    it("degrades a blank label to the honest placeholder", async () => {
+    it("omits every empty headline line instead of printing a placeholder (#2378)", async () => {
+      // A blank label counts as absent, and an absent field gets no row on the worker's
+      // résumé — the same rule `build_resume` follows.
       unreachable();
       const result = await ai.generateResume({
         profile: { ...emptyProfile, role_label: "   ", domain_label: "" } as never,
       });
-      expect(result.resume_text).toContain("Role: (to be confirmed)");
-      expect(result.resume_text).toContain("Trade: (to be confirmed)");
+      for (const label of ["Role:", "Trade:", "Skills:", "Machines:"]) {
+        expect(result.resume_text).not.toContain(label);
+      }
+      expect(result.resume_text).not.toContain("(to be confirmed)");
     });
   });
 

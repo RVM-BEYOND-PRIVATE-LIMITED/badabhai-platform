@@ -535,6 +535,19 @@ describe("ResumeService — idempotent initial resume (TD5)", () => {
     expect((options as { overwrite: boolean }).overwrite).toBe(false);
   });
 
+  it("serves a PRE-EXISTING row without the '(to be confirmed)' rows its stored text predates (#2378)", async () => {
+    // The insert-if-absent conflict branch returns the row already there, whose text was built
+    // before the builders stopped printing the placeholder.
+    const { svc, resumes } = setup(null);
+    resumes.createInitial.mockResolvedValueOnce({
+      id: "res-old",
+      version: 1,
+      resumeText: "WORKER PROFILE (DRAFT)\n\nRole: Fitter\nTrade: (to be confirmed)\nMachines: (to be confirmed)",
+    } as never);
+    const out = await svc.generate(DTO, CTX, { systemInitiated: true });
+    expect(out.resume_text).toBe("WORKER PROFILE (DRAFT)\n\nRole: Fitter");
+  });
+
   it("forceNewVersion creates a new version via create() (not the initial path)", async () => {
     const { svc, resumes } = setup(null, { previousVersion: 1 });
     const out = await svc.generate(DTO, CTX, { forceNewVersion: true });

@@ -39,6 +39,7 @@ import { ResumeRepository } from "./resume.repository";
 import { ResumeRateLimit } from "./resume-rate-limit.service";
 import { pendingUpdateFrom } from "./resume-pending-update";
 import { resolveResumeSource } from "./resume-source";
+import { withoutPlaceholderRows } from "./resume-text-placeholders";
 import type {
   ChatEditRegeneration,
   GenerateResumeInput,
@@ -631,7 +632,9 @@ export class ResumeService {
       version: saved.version,
       format: result.format,
       is_mock: result.is_mock,
-      resume_text: saved.resumeText,
+      // #2378 — `saved` can be a PRE-EXISTING row (the auto-generate conflict branch), whose
+      // stored text predates the fix and still carries "(to be confirmed)" rows.
+      resume_text: withoutPlaceholderRows(saved.resumeText),
     };
   }
 

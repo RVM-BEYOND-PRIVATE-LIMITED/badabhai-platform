@@ -80,9 +80,9 @@ def _role_line(canonical_id: str | None, label: str | None) -> str | None:
     assign an id to a profile that lacks one. With the id first, any row that has one renders
     exactly as it does today no matter what a future writer puts in ``role_label``.
 
-    NEVER FABRICATED — neither source yields None, and the caller prints "(to be confirmed)"
-    rather than a guess. A blank/whitespace label counts as absent: the schema accepts ``""``,
-    and "Role: " with nothing after it is worse than the honest placeholder.
+    NEVER FABRICATED — neither source yields None, and the caller omits the line rather than
+    print a guess (#2378). A blank/whitespace label counts as absent: the schema accepts ``""``,
+    and "Role: " with nothing after it would be an empty row.
     """
     if canonical_id:
         # Resolved to its display name — the résumé must never show a raw id like
@@ -179,8 +179,8 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     Q14 (ADR-0030 OQ#3): the skills line renders the canonical ids PLUS the
     worker-confirmed raw ``skill_labels``. The caller (``/resume/generate``) is
     responsible for pseudonymize-gating the labels BEFORE calling this (SG-2) —
-    this builder renders whatever filtered profile it is handed, and still
-    degrades to "(to be confirmed)" when both ids and labels are empty.
+    this builder renders whatever filtered profile it is handed, and omits the
+    Skills line when both ids and labels are empty (#2378).
     """
     container = profile.resume_profile
     # THE CONTAINER IS THE SOURCE OF TRUTH FOR THE NINE KEYS IT CARRIES, and the legacy field
@@ -195,12 +195,20 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     role = _role_line(profile.canonical_role_id, role_label)
     trade = _role_line(profile.canonical_trade_id, domain_label)
     lines = ["WORKER PROFILE (DRAFT)", ""]
-    lines.append(f"Role: {role or '(to be confirmed)'}")
-    lines.append(f"Trade: {trade or '(to be confirmed)'}")
+    # EVERY HEADLINE LINE IS EMITTED ONLY WHEN IT HAS A VALUE (#2378, owner ruling
+    # 2026-10-20). These four used to print "(to be confirmed)" when empty, which on a
+    # chat-built profile meant a "Machines: (to be confirmed)" row on the worker's résumé
+    # screen for a trade that has no machines at all. An absent row is the honest outcome
+    # and matches education, location and availability below. Never fabricated either way.
+    if role:
+        lines.append(f"Role: {role}")
+    if trade:
+        lines.append(f"Trade: {trade}")
     if profile.experience.total_years is not None:
         lines.append(f"Experience: {profile.experience.total_years:g} years")
     machines = [label_for_id(m) for m in profile.machines]
-    lines.append("Machines: " + (", ".join(machines) if machines else "(to be confirmed)"))
+    if machines:
+        lines.append("Machines: " + ", ".join(machines))
     # The model's own list when it produced one. NOT merged with the id-derived names: the
     # container's rule is no merge, no precedence, no derivation, so where it speaks it speaks
     # alone and the résumé can still be diffed against the trace.
@@ -208,7 +216,8 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
         skills = _clean_list(container.skills)
     else:
         skills = _skills_entries(profile)
-    lines.append("Skills: " + (", ".join(skills) if skills else "(to be confirmed)"))
+    if skills:
+        lines.append("Skills: " + ", ".join(skills))
     # THE WORK HISTORY, directly under the headline facts and above the qualifications —
     # for an industrial or skilled-trade résumé it is the most important thing on the page
     # after the name and the role, which is the order the v3 PDF templates already use.
