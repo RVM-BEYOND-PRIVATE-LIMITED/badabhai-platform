@@ -431,10 +431,28 @@ void main() {
           recap,
         ),
       );
+      // The OLD, ended session's transcript must not survive the re-open:
+      // appending it after the confirm is what pushed the chips away from the
+      // parsed information in the reported screenshot.
+      when(() => repo.loadHistory()).thenAnswer(
+        (_) async => const <ChatMessage>[
+          ChatMessage(text: 'Purana chat message', fromWorker: false),
+        ],
+      );
       when(() => repo.reopenSessionForResumeImport()).thenAnswer(
         (_) async => const ChatSessionOpening(
           text: 'Resume se ye mila: Fitter, 3 saal. Kya ye aap hi hain?',
           resumePending: true,
+          options: <ChatOption>[
+            ChatOption(
+              optionKey: 'resume_identity_yes',
+              labelText: 'Haan, ye main hoon',
+            ),
+            ChatOption(
+              optionKey: 'resume_identity_no',
+              labelText: 'Nahi, ye main nahi hoon',
+            ),
+          ],
         ),
       );
       locator.registerLazySingleton<ResumeDocumentPicker>(_FakePicker.new);
@@ -476,11 +494,17 @@ void main() {
         router.routerDelegate.currentConfiguration.lastOrNull?.matchedLocation,
         Routes.badaBhai,
       );
-      // The parsed-résumé confirm is now the chat's message, on the SAME visit.
+      // The parsed-résumé confirm is now the chat's message, on the SAME visit,
+      // with its chips directly beneath it.
       expect(
         find.text('Resume se ye mila: Fitter, 3 saal. Kya ye aap hi hain?'),
         findsOneWidget,
       );
+      expect(find.text('Haan, ye main hoon'), findsOneWidget);
+      expect(find.text('Nahi, ye main nahi hoon'), findsOneWidget);
+      // The old ended session's bubbles are gone — they used to be appended
+      // after the confirm, leaving the chips at the bottom of the old chat.
+      expect(find.text('Purana chat message'), findsNothing);
       // Served by POST /chat/session, not by the client-side resume shortcut
       // that would have redrawn the old, ended session.
       verify(() => repo.reopenSessionForResumeImport()).called(1);
