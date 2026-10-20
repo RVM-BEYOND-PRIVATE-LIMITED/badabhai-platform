@@ -89,7 +89,7 @@ import {
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 
 import { IdentifyService, slugIndexKey } from "./identify.service";
-import { EXPERIENCE_GATE_PROMPT, LlmTurnService } from "./llm-turn.service";
+import { EXPERIENCE_GATE_PROMPT, LlmTurnService, type PhaseATenure } from "./llm-turn.service";
 import { classifyRoleScope } from "./role-scope";
 import { certifySkillLabel, certifySkills } from "./skill-certifier";
 import { SkillsTurnService, type SkillsTurnResult } from "./skills-turn.service";
@@ -2945,9 +2945,9 @@ export class ProfilingOrchestrator {
     // ("… aur kitna tajurba hai?"), and a worker who states a total there must be allowed to have
     // it captured (critique-6). `isOpenerReplyTurn` excludes exactly that one turn, so
     // `experience_years` is only dropped from cross-fill while an ordinary per-job question is
-    // what the worker is actually answering. Whatever the opener turn DOES capture is never final
-    // either way — `settleFromLlmDraft` below unconditionally overwrites it with the sum of every
-    // resolved job entry once Phase A hands over (owner ruling, ADR §1505-1).
+    // what the worker is actually answering. Whatever the opener turn DOES capture is the worker's
+    // stated total, and it stands: `settleFromLlmDraft` fills the field from the jobs' sum only
+    // when no total was answered (owner ruling 2026-10-20, #2384, superseding ADR §1505-1).
     const phaseALeads =
       envelope.servedQuestionKey === null &&
       this.llm.leads(envelope) &&
@@ -3225,6 +3225,8 @@ export class ProfilingOrchestrator {
     // `next` is passed rather than `envelope`: the draft this turn's patch is folded into must be
     // the one carrying this turn's answers, or a fallback would lose them.
     if (this.llm.leads(next)) {
+      // #2384: total experience is the ENGINE's question, asked before any work history.
+      const tenureItem = tenureItemOf(next, engine);
       const led = await this.llm.take(
         next,
         input.text,
@@ -3235,6 +3237,7 @@ export class ProfilingOrchestrator {
         this.understandingArmed(input)
           ? { schemaRows: buildProfilingSchema(progressItems, answers, next.llmDraft).rows }
           : undefined,
+        tenureItem === null ? undefined : phaseATenureOf(tenureItem, answers, next),
       );
 
       if (led === null) {
@@ -3551,6 +3554,43 @@ export class ProfilingOrchestrator {
             formKind,
             capture.excludeFromParse,
           );
+        }
+
+        if (led.kind === "tenure" && tenureItem !== null) {
+          // #2384 — THE UNIVERSAL PACK'S OWN QUESTION, served as that question: its key is what
+          // lets the next turn capture "0", "5" or "fresher" deterministically, and its ask is
+          // counted, so the tail never puts it to the worker a second time.
+          const key = tenureItem.question_key;
+          next = {
+            ...next,
+            phase: "llm_interview",
+            engineAsks: next.engineAsks + 1,
+            askCounts: { ...next.askCounts, [key]: (next.askCounts[key] ?? 0) + 1 },
+            servedQuestionKey: key,
+            clarifyCount: 0,
+          };
+          this.logger.log(
+            `Phase A total experience asked by the engine session=${input.sessionId} ` +
+              `before work history`,
+          );
+          return this.turn(buffer, next, input, {
+            reply: servedText(tenureItem, askCount(toEngineState(envelope, turn), key)),
+            kind: "ask",
+            questionKey: key,
+            options: tenureItem.options,
+            ...shapeOf(items, key),
+            inputMode: packQuestionInputMode(tenureItem),
+            progress: progressOf(progressItems, answers),
+            unansweredEssentials: essentialsOf(items, answers),
+            complete: false,
+            completionReason: null,
+            replayed: false,
+            excludeFromParse: capture.excludeFromParse,
+            unavailable: false,
+            checkpointDue:
+              next.engineAsks > envelope.engineAsks &&
+              next.engineAsks % CHECKPOINT_EVERY_ASKS === 0,
+          });
         }
 
         if (led.kind === "ask") {
@@ -7231,6 +7271,36 @@ function unavailable(): TurnResult {
  * validate AI output before business logic consumes it, and `answer_option_keys` is read by the
  * matcher as pack vocabulary. Writing "MIG welding" into it would be a value no option means.
  */
+/**
+ * #2384 — the universal pack's total-experience question, when the chat may serve it: read from
+ * the SELECTABLE universal items, so an ownership rule that took the field off the chat also keeps
+ * Phase A from asking it. `null` leaves work history exactly as it was before.
+ */
+function tenureItemOf(envelope: ProfilingEnvelope, engine: EnginePacks): QuestionPackItem | null {
+  return (
+    selectableEnginePacks(envelope, engine).universal.items.find(
+      (item) => item.target_field === "experience_years",
+    ) ?? null
+  );
+}
+
+/**
+ * #2384 — what the answer map holds of the worker's total experience, for Phase A's decision.
+ * `asked` is read off the item's own ask count: the engine's ask is recorded exactly as a pack ask.
+ */
+function phaseATenureOf(
+  item: QuestionPackItem,
+  answers: AnswerMap,
+  envelope: ProfilingEnvelope,
+): PhaseATenure {
+  const record = answers[item.question_key];
+  const value = record?.status === "answered" ? record.value_normalized : null;
+  return {
+    years: typeof value === "number" && Number.isFinite(value) ? value : null,
+    asked: (envelope.askCounts[item.question_key] ?? 0) > 0,
+  };
+}
+
 function settleFromLlmDraft(
   answers: AnswerMap,
   draft: ProfilingEnvelope["llmDraft"],
@@ -7269,20 +7339,19 @@ function settleFromLlmDraft(
 
   if (trade) settle("trade", trade, trade);
 
-  // `experience_years` IS THE ONE FIELD WHERE FIRST-WRITE-WINS IS DELIBERATELY BROKEN (owner
-  // ruling, ADR §1505-1) — NOT routed through `settle` above, which skips an already-settled
-  // question. The composite opener's reply CAN cross-fill a worker's stated total into this same
-  // field before every job entry has resolved (`crossFillItems`'s `phaseALeads` exclusion does
-  // not cover that one turn — see the call site's note), and once every entry DOES resolve, the
-  // sum must OVERRIDE whatever number the opener turn wrote — never the reverse, and never for
-  // any other field. `isSettled` is therefore ignored on purpose here, in this one direction only.
+  // `experience_years`: THE WORKER'S STATED TOTAL WINS (owner ruling 2026-10-20, #2384), which
+  // supersedes ADR §1505-1's "the sum overrides the opener". The engine now asks the total itself
+  // before any work history, so the number on record is the worker's own answer to the question —
+  // and a sum over the jobs they chose to describe can only be smaller than a career, never a
+  // correction of it. The sum fills the field only when no total was ANSWERED: never asked, asked
+  // and left unanswered, or declined ("pata nahi", and then the jobs are the best evidence left).
   //
   // #2253 — A SUM ABOVE THE 0–60 BOUND IS NOT WRITTEN, never clamped: eight entries the model read
   // as decades each say the entries are wrong, not that the worker has 60 years. Whatever the
   // question already holds stands, and an empty question is asked.
   if (years !== null && withinFieldBound("experience_years", years)) {
     const item = items.find((candidate) => candidate.target_field === "experience_years");
-    if (item) {
+    if (item && next[item.question_key]?.status !== "answered") {
       next = recordAnswer(
         next,
         {

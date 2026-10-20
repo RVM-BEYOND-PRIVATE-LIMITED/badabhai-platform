@@ -98,7 +98,40 @@ export type LlmTurnResult =
       readonly inputMode: InputMode;
       readonly patch: Partial<ProfilingEnvelope>;
     }
-  | { readonly kind: "done"; readonly patch: Partial<ProfilingEnvelope> };
+  | { readonly kind: "done"; readonly patch: Partial<ProfilingEnvelope> }
+  /**
+   * #2384 — the engine asks the worker's TOTAL experience itself, before any work history. No
+   * reply here: the question is the universal pack's own `experience_years` item, and the caller
+   * serves it as that pack question so the answer is captured deterministically against it.
+   */
+  | { readonly kind: "tenure"; readonly patch: Partial<ProfilingEnvelope> };
+
+/**
+ * #2384 — WHAT THE ENGINE KNOWS OF THE WORKER'S TOTAL EXPERIENCE, read by the caller from the
+ * answer map (the engine's record, never the model's draft).
+ *
+ * WHY IT EXISTS (owner ruling 2026-10-20). Phase A's experience step asks job by job, and the
+ * engine's "Aur koi experience jodna hai?" gate follows it — both BEFORE the universal tail ever
+ * asks "Is kaam mein aapko kitne saal ho gaye?". A fresher was walked through work-history
+ * questions first, and nothing anywhere checked. The total now comes first, asked by the engine,
+ * and a 0 ends Phase A with no work history asked at all. Whether to ask about jobs is a business
+ * decision (§3), so it is decided here on a captured number — the model never sees the rule.
+ */
+export interface PhaseATenure {
+  /** The worker's answered total, in years; `null` when there is no answered value. */
+  readonly years: number | null;
+  /** The engine already put the total-experience question to this worker. Never asked twice. */
+  readonly asked: boolean;
+}
+
+/** A model turn that is about to ask about, record, or close over work history. */
+function headsIntoWorkHistory(out: {
+  readonly stage: string;
+  readonly experience_entry: unknown;
+  readonly phase_a_done: boolean;
+}): boolean {
+  return out.stage === "experience" || out.experience_entry !== null || out.phase_a_done;
+}
 
 @Injectable()
 export class LlmTurnService {
@@ -207,6 +240,11 @@ export class LlmTurnService {
      * filled. Absent — the flag off — and the request is today's byte for byte.
      */
     context?: { readonly schemaRows: readonly ProfilingSchemaRow[] },
+    /**
+     * #2384: the worker's total experience as the engine holds it. Absent — no universal
+     * `experience_years` item to ask — and work history runs exactly as before.
+     */
+    tenure?: PhaseATenure,
   ): Promise<LlmTurnResult | null> {
     if (!this.leads(envelope)) return null;
 
@@ -232,6 +270,15 @@ export class LlmTurnService {
         `Phase A closed by cap asks=${asks}/${MAX_LLM_ASKS} ` +
           `experiences=${entries}/${MAX_EXPERIENCE_ENTRIES}; the engine takes the tail`,
       );
+      return { kind: "done", patch: { ...closeGate, llmStage: "done" } };
+    }
+
+    // 2b. #2384 — A FRESHER JUST TOLD THE ENGINE "0", so there is no work history to ask about:
+    //     Phase A ends here, without a model call, and the tail takes over with the 0 recorded.
+    //     Only once the engine has ASKED — a 0 from the opener alone still lets the model finish
+    //     the skills it is on, and closes at the step below the moment it turns to experience.
+    if (tenure?.asked === true && tenure.years === 0) {
+      this.logger.log(`Phase A closed for a fresher (0 years) asks=${asks}; no work history asked`);
       return { kind: "done", patch: { ...closeGate, llmStage: "done" } };
     }
 
@@ -322,6 +369,43 @@ export class LlmTurnService {
     // deterministic under §3: the model can shorten Phase A, but it cannot manufacture, inflate or
     // erase the record that Phase A ran.
     const ledTurns = envelope.llmLedTurns + 1;
+
+    // 2c. #2384 — TOTAL EXPERIENCE BEFORE WORK HISTORY. The model is turning to experience (its
+    //     stage, a job it just recorded, or a close the gate would follow), so the engine checks
+    //     what it knows first. A fresher's 0 ends Phase A: no job questions, no "Aur koi experience
+    //     jodna hai?". An unknown total is asked by the engine, once, in place of the model's line —
+    //     the same discard branches 3 and 3b make, so `llmAsks` is not spent on a question never
+    //     shown. The draft the model returned is kept: what it learned this turn is not lost.
+    if (tenure !== undefined && headsIntoWorkHistory(out)) {
+      if (tenure.years === 0) {
+        this.logger.log(
+          `Phase A closed for a fresher (0 years) asks=${asks}; no work history asked`,
+        );
+        return {
+          kind: "done",
+          patch: {
+            ...closeGate,
+            llmDraft: draft,
+            llmStage: "done",
+            llmAsks: asks + 1,
+            llmLedTurns: ledTurns,
+          },
+        };
+      }
+      if (tenure.years === null && !tenure.asked) {
+        return {
+          kind: "tenure",
+          patch: {
+            ...closeGate,
+            llmDraft: draft,
+            // `experience`, never `done`: the answer turn must reach the model again for a worker
+            // with experience — the same clamp branch 3b applies to a close.
+            llmStage: "experience",
+            llmLedTurns: ledTurns,
+          },
+        };
+      }
+    }
 
     // 3. A COMPLETED EXPERIENCE ENTRY HANDS THE NEXT TURN TO THE GATE — unless the entry cap is
     //    now full, in which case there is nothing to offer and Phase A ends here.

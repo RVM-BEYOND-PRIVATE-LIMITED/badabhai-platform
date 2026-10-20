@@ -150,10 +150,9 @@ export function chatServableItems<
  * naukri mein?" is on screen, being read as an answer to the WORKER'S total experience — the two
  * questions ask different things and must never share a cross-fill write.
  *
- * The exclusion is intentionally soft: whatever a cross-fill DOES write into `experience_years`
- * is never final. `settleFromLlmDraft` unconditionally overwrites it with the sum of every
- * resolved job entry once Phase A hands over (owner ruling, ADR §1505-1) — sum wins over ANY
- * earlier-written value for this one field, in this one direction only.
+ * What the opener turn DOES write into `experience_years` is the worker's stated total, and it
+ * stands: `settleFromLlmDraft` fills the field from the sum of the resolved job entries only when
+ * no total was answered (owner ruling 2026-10-20, #2384, superseding ADR §1505-1's "sum wins").
  */
 export function crossFillItems<T extends Pick<QuestionPackItem, "question_key" | "target_field">>(
   items: readonly T[],
