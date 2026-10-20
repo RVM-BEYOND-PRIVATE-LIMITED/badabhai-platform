@@ -400,6 +400,56 @@ describe("ADR-0057 #2312 — the deterministic correction is put to the worker w
   });
 });
 
+describe("#2379 — a correction typed with a new fact, read as a statement", () => {
+  // The model's verdict for this message in the 2026-10-20 eval: the edit row and the fill exact,
+  // the intent `statement` (not `edit`).
+  const TEXT = "experience 5 nahi 6 saal hai, aur roz 15 km tak aa sakta hoon";
+  const MIXED = verdict({
+    intent: "statement",
+    confidence: 0.85,
+    edits: [{ op: "edit", key: "experience_years", ref: null, value: "6" }],
+  });
+
+  it("over a free-text question: the change is put to the worker, and the message is not its answer", async () => {
+    const { orchestrator, store, events } = makeWorld([MIXED]);
+    // Everything before the training in pack order is settled, as the engine would have it.
+    seed(store, {
+      answerMap: [
+        answered("experience_years", 5, "5 saal"),
+        answered("availability", "immediate", "Turant"),
+        answered("current_city", "Pune", "Pune"),
+      ],
+      servedQuestionKey: "training_name",
+      askCounts: { experience_years: 1, availability: 1, current_city: 1, training_name: 1 },
+    });
+    const proposed = await orchestrator.takeTurn(say(TEXT));
+    expect(proposed.reply).toBe("Experience: 5 saal se 6 saal kar doon?");
+    expect(recordOf(store, "training_name")).toBeUndefined();
+    expect(held(store).editGate).toMatchObject({ resumeKey: "training_name" });
+
+    const done = await orchestrator.takeTurn(say("Haan"));
+    expect(recordOf(store, "experience_years")?.value_normalized).toBe(6);
+    expect(done.reply).toBe(`Theek hai, badal diya. ${TRAINING.prompt_text}`);
+    expect(held(store).askCounts.training_name).toBe(1);
+    expectValidEvents(events);
+  });
+
+  it("over a typed question: the question on screen is resumed, never skipped as unanswered", async () => {
+    const { orchestrator, store } = makeWorld([MIXED]);
+    seed(store);
+    const proposed = await orchestrator.takeTurn(say(TEXT));
+    expect(proposed.editProposal?.rows).toEqual([
+      { field_label: "Experience", op: "edit", before: "5 saal", after: "6 saal" },
+    ]);
+    expect(recordOf(store, "availability")).toBeUndefined();
+    expect(held(store).editGate).toMatchObject({ resumeKey: "availability" });
+
+    const done = await orchestrator.takeTurn(say("Nahi"));
+    expect(done.questionKey).toBe("availability");
+    expect(held(store).askCounts.availability).toBe(1);
+  });
+});
+
 describe("ADR-0057 #2312 — the trade is changed on the Profile page, not here", () => {
   it("answers with the pointer above the question, and records why nothing changed", async () => {
     const { orchestrator, store, events } = makeWorld([

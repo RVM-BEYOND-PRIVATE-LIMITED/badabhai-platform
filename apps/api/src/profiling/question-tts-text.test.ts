@@ -165,4 +165,15 @@ describe("ttsTextFor", () => {
     expect(ttsTextFor("Namaste.")).toBeUndefined();
     expect(ttsTextFor(`${OPENER} Aur kuch?`)).toBeUndefined();
   });
+
+  it("#2379 — composes the steer-back over a question, and the pointer over both, one lead at a time", () => {
+    const steer = "Chalo, ab iske baare mein bataiye.";
+    const pointer = "Ye aap baad mein Profile page pe bhar sakte hain.";
+    expect(ttsTextFor(`${steer} ${OPENER}`)).toBe(`${ttsTextFor(steer)} ${ttsTextFor(OPENER)}`);
+    expect(ttsTextFor(`${pointer} ${steer} ${OPENER}`)).toBe(
+      `${ttsTextFor(pointer)} ${ttsTextFor(steer)} ${ttsTextFor(OPENER)}`,
+    );
+    // Half Devanagari, half roman is still no twin.
+    expect(ttsTextFor(`${pointer} ${steer} Kya aap chandrayaan udate hain?`)).toBeUndefined();
+  });
 });

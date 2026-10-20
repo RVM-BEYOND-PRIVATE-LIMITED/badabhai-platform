@@ -19,6 +19,7 @@ import {
   EDIT_GATE_LEAD_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
   PROGRESS_REPLY_TEXTS,
+  STEER_BACK_TEXT,
 } from "./next-question";
 import {
   CLOSING_REPLY,
@@ -43,6 +44,8 @@ const ENGINE_COPY: ReadonlyArray<readonly [name: string, text: string]> = [
   ["PROFILE_PAGE_POINTER_TEXT", PROFILE_PAGE_POINTER_TEXT],
   // ADR-0057 (#2312) — the edit gate's lead lines (changed, removed, kept, the trade pointer).
   ...EDIT_GATE_LEAD_TEXTS.map((t, i) => [`EDIT_GATE_LEAD_TEXTS[${i}]`, t] as const),
+  // #2379 — the steer-back over a question served again.
+  ["STEER_BACK_TEXT", STEER_BACK_TEXT],
 ];
 
 describe("the engine's own replies are on-persona", () => {

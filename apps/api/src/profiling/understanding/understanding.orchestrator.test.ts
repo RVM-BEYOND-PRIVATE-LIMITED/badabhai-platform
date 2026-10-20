@@ -13,7 +13,7 @@ import {
   narrowProfilingEnvelope,
   type ProfilingEnvelope,
 } from "../conversation-state";
-import { PROFILE_PAGE_POINTER_TEXT } from "../next-question";
+import { PROFILE_PAGE_POINTER_TEXT, STEER_BACK_TEXT } from "../next-question";
 import { ProfilingOrchestrator } from "../orchestrator.service";
 
 /**
@@ -174,7 +174,7 @@ function makeWorld(opts: {
     undefined,
     understanding as never,
   );
-  return { orchestrator, store, events, understanding };
+  return { orchestrator, store, events, understanding, identify };
 }
 
 function seed(
@@ -334,6 +334,120 @@ describe("ADR-0057 — a side message never lands as an answer", () => {
   it("an unsure chat verdict is not acted on — today's capture runs", async () => {
     const { orchestrator, store } = makeWorld({ verdict: verdict({ intent: "chat", confidence: 0.4 }) });
     seed(store, { servedQuestionKey: "training_name", askCounts: { training_name: 1 } });
+    await orchestrator.takeTurn(say("ITI welding"));
+    expect(recordOf(store, "training_name")?.value_raw).toBe("ITI welding");
+  });
+});
+
+describe("#2379 — a message that does not answer the question on screen is never filed as its answer", () => {
+  const PUNE = verdict({ intent: "statement", fills: [{ key: "current_city", value: "Pune" }] });
+  const onTraining = { servedQuestionKey: "training_name", askCounts: { training_name: 1 } };
+
+  it("over a free-text question: fills what it told, and asks the same question again, unspent", async () => {
+    const { orchestrator, store, events, understanding } = makeWorld({ verdict: PUNE });
+    seed(store, onTraining);
+    const result = await orchestrator.takeTurn(say("main Pune mein rehta hoon"));
+    // The training is NOT named "main Pune mein rehta hoon".
+    expect(recordOf(store, "training_name")).toBeUndefined();
+    expect(recordOf(store, "current_city")?.value_normalized).toBe("Pune");
+    expect(result.questionKey).toBe("training_name");
+    expect(result.reply).toBe(`Theek hai, likh liya. ${STEER_BACK_TEXT} ${TRAINING.prompt_text}`);
+    expect(store.get(SESSION)?.profiling?.askCounts.training_name).toBe(1);
+    expect(understanding.bridge).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "filled", noted: [expect.stringContaining("Pune")] }),
+      expect.anything(),
+    );
+    // The same reply in the transcript and the replay cache.
+    expect(store.get(SESSION)?.messages.at(-1)?.text).toBe(result.reply);
+    expect(store.get(SESSION)?.profiling?.lastTurn?.reply).toBe(result.reply);
+    // The city's own parser caught "Pune" first (the cross-fill), so the model's fill was a no-op.
+    expect(understoodEvent(events)).toMatchObject({ intent: "statement", fills_applied: 0, bridge_served: true });
+  });
+
+  it("over a typed question its parser could not read: no ask is spent on it", async () => {
+    const { orchestrator, store } = makeWorld({ verdict: PUNE });
+    seed(store);
+    const result = await orchestrator.takeTurn(say("main Pune mein rehta hoon"));
+    expect(recordOf(store, "availability")).toBeUndefined();
+    expect(result.questionKey).toBe("availability");
+    expect(result.reply).toBe(`Theek hai, likh liya. ${STEER_BACK_TEXT} ${AVAIL.prompt_text}`);
+    expect(store.get(SESSION)?.profiling?.askCounts.availability).toBe(1);
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+  });
+
+  it("a typed question whose parser DID read the message keeps that answer", async () => {
+    const { orchestrator, store } = makeWorld({ verdict: PUNE });
+    seed(store);
+    const result = await orchestrator.takeTurn(say("turant, Pune mein rehta hoon"));
+    expect(recordOf(store, "availability")?.value_normalized).toBe("immediate");
+    expect(result.questionKey).not.toBe("availability");
+    expect(result.reply.includes(STEER_BACK_TEXT)).toBe(false);
+  });
+
+  it("nothing new to note: the chat line replies and leads back, with no second steer-back", async () => {
+    const { orchestrator, store, understanding } = makeWorld({
+      verdict: PUNE,
+      bridge: "Achha, Pune.",
+    });
+    seed(store, { ...onTraining, answerMap: [answered("current_city", "Pune", "Pune")] });
+    const result = await orchestrator.takeTurn(say("main Pune mein hi rehta hoon"));
+    expect(recordOf(store, "training_name")).toBeUndefined();
+    expect(result.reply).toBe(`Achha, Pune. ${TRAINING.prompt_text}`);
+    expect(understanding.bridge).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "chat", nextQuestion: TRAINING.prompt_text }),
+      expect.anything(),
+    );
+  });
+
+  it("a failed chat line still steers back", async () => {
+    const { orchestrator, store } = makeWorld({ verdict: PUNE, bridge: null });
+    seed(store, { ...onTraining, answerMap: [answered("current_city", "Pune", "Pune")] });
+    const result = await orchestrator.takeTurn(say("main Pune mein hi rehta hoon"));
+    expect(result.reply).toBe(`${STEER_BACK_TEXT} ${TRAINING.prompt_text}`);
+  });
+
+  it("a Profile-page fact: the pointer answers it, then the steer-back, with no model line", async () => {
+    const { orchestrator, store, understanding } = makeWorld({
+      verdict: verdict({ intent: "statement", page_owned_mentions: ["expected_salary"] }),
+    });
+    seed(store);
+    const result = await orchestrator.takeTurn(say("mujhe 25000 chahiye"));
+    expect(result.reply).toBe(`${PROFILE_PAGE_POINTER_TEXT} ${STEER_BACK_TEXT} ${AVAIL.prompt_text}`);
+    expect(understanding.bridge).not.toHaveBeenCalled();
+  });
+
+  it("chat that carries a fact is a side message too", async () => {
+    const { orchestrator, store } = makeWorld({
+      verdict: verdict({ intent: "chat", fills: [{ key: "current_city", value: "Pune" }] }),
+    });
+    seed(store, onTraining);
+    await orchestrator.takeTurn(say("badhiya hoon bhai, Pune mein hoon abhi"));
+    expect(recordOf(store, "training_name")).toBeUndefined();
+    expect(recordOf(store, "current_city")?.value_normalized).toBe("Pune");
+  });
+
+  it("a trade the worker states still reaches the deterministic trade routing", async () => {
+    const { orchestrator, store, identify } = makeWorld({
+      verdict: verdict({ intent: "statement", fills: [{ key: "primary_trade", value: "Welder" }] }),
+    });
+    seed(store, onTraining);
+    await orchestrator.takeTurn(say("main welder hoon"));
+    expect(identify.identify.mock.calls.some((call) => (call as unknown[])[1] === "main welder hoon")).toBe(true);
+    expect(recordOf(store, "training_name")).toBeUndefined();
+  });
+
+  it("a fill for the question on screen is an answer to it — today's capture runs", async () => {
+    const { orchestrator, store } = makeWorld({
+      verdict: verdict({ intent: "statement", fills: [{ key: "training_name", value: "ITI Welding" }] }),
+    });
+    seed(store, onTraining);
+    await orchestrator.takeTurn(say("ITI se welding ki training li thi"));
+    expect(recordOf(store, "training_name")?.value_raw).toBe("ITI se welding ki training li thi");
+  });
+
+  it("an unsure statement is not acted on — today's capture runs", async () => {
+    const { orchestrator, store } = makeWorld({ verdict: verdict({ ...PUNE, confidence: 0.4 }) });
+    seed(store, onTraining);
     await orchestrator.takeTurn(say("ITI welding"));
     expect(recordOf(store, "training_name")?.value_raw).toBe("ITI welding");
   });
