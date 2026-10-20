@@ -56,9 +56,13 @@ class ResumeUploadScreen extends StatefulWidget {
     super.key,
     this.autoUpload = false,
     this.directUpload = false,
+    this.chatMenuUpload = false,
   }) : assert(
-         !(autoUpload && directUpload),
-         'one arrival, one road: the chat prompt OR an upload entry',
+         !(autoUpload && directUpload) &&
+             !(autoUpload && chatMenuUpload) &&
+             !(directUpload && chatMenuUpload),
+         'one arrival, one road: the chat prompt, an upload entry, or the '
+         'chat menu',
        );
 
   /// True when the worker already tapped "Resume upload karein" in the chat's
@@ -74,6 +78,17 @@ class ResumeUploadScreen extends StatefulWidget {
   /// way out lands on the Bada Bhai TAB, not the onboarding chat (see
   /// `_onState`).
   final bool directUpload;
+
+  /// True when the worker tapped "Resume upload karein" in the Bada Bhai TAB's
+  /// post-completion résumé menu. Door 1 fires on entry exactly as for the
+  /// other two markers, and no import signal is raised (no prompt is standing
+  /// open — see `ResumeUploadChatIntent`).
+  ///
+  /// The difference is the way OUT: this screen was PUSHED on the chat, so a
+  /// completed attempt POPS back to it and lets the chat's push continuation
+  /// re-read the parsed-résumé turn. `go`-ing to the tab would reuse the
+  /// mounted chat without asking it to refresh.
+  final bool chatMenuUpload;
 
   @override
   State<ResumeUploadScreen> createState() => _ResumeUploadScreenState();
@@ -94,11 +109,12 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
       // signal raised for it would answer whichever prompt came next.
       fromChatPrompt: widget.autoUpload,
     );
-    // The choice was already made — in the chat's prompt, or by tapping an
-    // upload entry — so auto-click door 1. Post-frame so the first frame (the
-    // doors) still paints under the picker, and guarded by `mounted`: a
-    // synchronous pop before the frame must not emit on a closed cubit.
-    if (widget.autoUpload || widget.directUpload) {
+    // The choice was already made — in the chat's prompt, in the chat's menu,
+    // or by tapping an upload entry — so auto-click door 1. Post-frame so the
+    // first frame (the doors) still paints under the picker, and guarded by
+    // `mounted`: a synchronous pop before the frame must not emit on a closed
+    // cubit.
+    if (widget.autoUpload || widget.directUpload || widget.chatMenuUpload) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_cubit.chooseDocument());
@@ -150,6 +166,24 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
         );
     }
 
+    // The Bada Bhai tab's résumé menu PUSHED this screen on top of the chat.
+    // Pop back to that same chat, never `go` to it: a `go` reuses the mounted
+    // ChatBloc without asking it to re-read, so the parsed-résumé turn stayed
+    // invisible until the worker left the tab and came back. The pop completes
+    // the chat's `pushOnce` continuation, which refreshes the tab in place
+    // (`_recheckResumeTileAfter`).
+    if (widget.chatMenuUpload) {
+      final NavigatorState navigator = Navigator.of(context);
+      if (navigator.canPop()) {
+        navigator.pop(true);
+      } else {
+        // A deep link cannot carry this intent, but never strand the worker if
+        // one somehow does.
+        context.go(Routes.badaBhai);
+      }
+      return;
+    }
+
     // An upload ENTRY on a tab hands over to the Bada Bhai TAB, whatever the
     // outcome — owner ruling 2026-10-16: the re-upload of a worker whose
     // profile is already made is taken up in the Bada Bhai chat. Never the
@@ -193,10 +227,11 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
             p.status != c.status,
         listener: _onState,
         builder: (BuildContext context, ResumeUploadState state) {
-          // No back arrow: `/name` is submitted and gone (see `_onState`), so a
-          // back affordance here would offer a step that no longer exists. A
-          // PUSHED arrival (the post-completion menu, an upload entry on a tab)
-          // still has its screen underneath, and system back pops to it.
+          // Every arrival is PUSHED — the chat's résumé prompt, the
+          // post-completion menu, an upload entry on a tab — so back returns
+          // to the screen that asked the question. It is hidden only when
+          // there is genuinely nothing underneath (a deep link).
+          final NavigatorState navigator = Navigator.of(context);
           //
           // A real [Scaffold] (not a bare Column) so `ScaffoldMessenger` keeps
           // working for the notices. There is no bottom bar: the two doors ARE
@@ -205,11 +240,12 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
             backgroundColor: OnboardingColors.canvasBg,
             body: Column(
               children: <Widget>[
-                const ShiftBlueHeader(
+                ShiftBlueHeader(
                   title: 'Resume hai aapke paas?',
                   subtitle:
                       'Resume upload karne se aadhi jaankari apne aap '
                       'bhar jaati hai. Nahi hai to koi baat nahi.',
+                  onBack: navigator.canPop() ? navigator.maybePop : null,
                 ),
                 Expanded(
                   child: SafeArea(

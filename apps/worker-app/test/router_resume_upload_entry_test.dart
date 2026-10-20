@@ -5,8 +5,9 @@
 //
 // What only the real route table can prove:
 //  * `ResumeUploadDirectIntent` reaches the screen as `directUpload`, the chat
-//    prompt's `ResumeUploadAutoIntent` as `autoUpload`, and any other `extra`
-//    as neither;
+//    prompt's `ResumeUploadAutoIntent` as `autoUpload`, the Bada Bhai menu's
+//    `ResumeUploadChatIntent` as `chatMenuUpload`, and any other `extra` as
+//    none of them;
 //  * each entry's push covers the shell, opens the picker by itself, falls
 //    back to the doors on a cancel, and system back returns to where it came
 //    from;
@@ -165,22 +166,32 @@ void main() {
       expect(entry.directUpload, isTrue);
       expect(entry.autoUpload, isFalse,
           reason: 'an entry must never be read as the chat prompt');
+      expect(entry.chatMenuUpload, isFalse);
 
       final ResumeUploadScreen prompt = await arrive(
         const ResumeUploadAutoIntent(),
       );
       expect(prompt.autoUpload, isTrue);
       expect(prompt.directUpload, isFalse);
+      expect(prompt.chatMenuUpload, isFalse);
 
-      // The post-completion menu (no extra), a stray bool, a string: the doors,
-      // exactly as before — a marker TYPE is the only way in.
+      final ResumeUploadScreen menu = await arrive(
+        const ResumeUploadChatIntent(),
+      );
+      expect(menu.chatMenuUpload, isTrue);
+      expect(menu.autoUpload, isFalse);
+      expect(menu.directUpload, isFalse);
+
+      // A stray extra (no marker), a bool, a string: the doors, exactly as
+      // before — a marker TYPE is the only way in.
       for (final Object? other in <Object?>[null, true, 'resume_upload']) {
         final ResumeUploadScreen doors = await arrive(other);
         expect(doors.autoUpload, isFalse, reason: 'extra: $other');
         expect(doors.directUpload, isFalse, reason: 'extra: $other');
+        expect(doors.chatMenuUpload, isFalse, reason: 'extra: $other');
       }
-      // Two marker arrivals opened the picker; the three others did not.
-      expect(picker.calls, 2);
+      // Three marker arrivals opened the picker; the three others did not.
+      expect(picker.calls, 3);
     },
   );
 

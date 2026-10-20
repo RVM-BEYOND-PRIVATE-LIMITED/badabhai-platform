@@ -834,12 +834,18 @@ class _ChatViewState extends State<_ChatView>
   /// watch compares against the offer store, so a walk that changed nothing
   /// offers nothing.
   ///
+  /// [refreshCompanion] — the Bada Bhai tab's résumé menu pushed the route, so
+  /// the tab never lost focus and `_CompanionRefocus` never ran. Re-read the
+  /// companion exactly as a refocus would (lever permitting), so the
+  /// parsed-résumé turn is not deferred until the worker leaves and returns.
+  ///
   /// The onboarding `/chat` never re-checks: it offers no tile. The bloc is
   /// read NOW, never through a context after the gap.
   void _recheckResumeTileAfter(
     Future<Object?> pushed, {
     bool watchIfSaved = false,
     bool watch = false,
+    bool refreshCompanion = false,
   }) {
     if (!widget.assistantTab) return;
     final ChatBloc bloc = context.read<ChatBloc>();
@@ -847,6 +853,16 @@ class _ChatViewState extends State<_ChatView>
       pushed.then<void>(
         (Object? result) {
           if (bloc.isClosed) return;
+          // #2360 follow-up — the Bada Bhai tab's résumé menu pushed the
+          // upload screen and it popped back with `true` after a COMPLETED
+          // attempt. The tab never lost focus, so `_CompanionRefocus` never
+          // ran; re-open the session so the server's parsed-résumé confirm is
+          // shown as the chat's next message. This is deliberately not a
+          // companion re-read: the parsed data is an interview turn.
+          if (refreshCompanion && result == true) {
+            bloc.add(const ChatResumeImportRefreshRequested());
+            return;
+          }
           bloc.add(
             watch || (watchIfSaved && result != null)
                 ? const ChatResumeChangeWatchRequested()
@@ -943,19 +959,29 @@ class _ChatViewState extends State<_ChatView>
         // The in-chat résumé prompt reuses this same key, so an upload tap from
         // the name-intake prompt lands here too — but the choice was already
         // made in the chat, so the screen auto-clicks door 1 instead of asking
-        // again. The post-completion menu keeps the doors: its chips never
-        // include the prompt's client-only `no_resume` key, which is what tells
-        // the two apart.
+        // again. The post-completion menu's chips never include the prompt's
+        // client-only `no_resume` key, which is how the two arrivals are told
+        // apart:
+        //  - the PROMPT is answered on return (`ResumeUploadAutoIntent`);
+        //  - the MENU pushes the screen on the tab, so a completed attempt
+        //    POPS back and this tab refreshes in place
+        //    (`ResumeUploadChatIntent`, `refreshCompanion`). Passing no marker
+        //    drew the doors a second time — the reported "why is it asking
+        //    again?" — and `go`-ing to the tab left the parsed turn unread.
+        final bool fromResumePrompt = bloc.state.suggestedOptions.any(
+          (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
+        );
         _recheckResumeTileAfter(
           context.pushOnce(
             Routes.resumeUpload,
-            extra:
-                bloc.state.suggestedOptions.any(
-                  (ChatOption o) => o.optionKey == kResumePromptNoResumeKey,
-                )
+            extra: fromResumePrompt
                 ? const ResumeUploadAutoIntent()
-                : null,
+                : const ResumeUploadChatIntent(),
           ),
+          // An upload always changes the résumé; its render lands seconds
+          // later, so watch rather than read once.
+          watch: !fromResumePrompt,
+          refreshCompanion: !fromResumePrompt,
         );
         return;
       case ResumeMenuAction.startFreshChat:
@@ -1198,6 +1224,12 @@ class _ChatViewState extends State<_ChatView>
     if (state.initializing || state.messages.isEmpty) return;
     _emptyImportSaid = true;
     if (state.resumePending) return; // the identity turn speaks for itself
+    // #2365 — NOR ON A FINISHED / ENDED SESSION. An upload can reattach the
+    // worker's ENDED session via `GET /session/latest`, which can never carry
+    // `resume_pending`; the absence below would then read that reattach as an
+    // import that yielded nothing. The ended marker is the server's own word
+    // that this session was already over, so there is no import to explain.
+    if (state.sessionEndedAfterIndex != null) return;
     // ADR-0048 (#1864) — NOR ON AN IDENTITY-INTAKE OPEN. This line infers a
     // failed import from `resume_pending` being ABSENT, which stopped being a
     // safe inference once the chat could open on "aapka naam?": there the

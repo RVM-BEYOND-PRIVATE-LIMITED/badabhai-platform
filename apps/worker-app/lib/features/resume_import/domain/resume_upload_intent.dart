@@ -32,3 +32,20 @@ class ResumeUploadAutoIntent {
 class ResumeUploadDirectIntent {
   const ResumeUploadDirectIntent();
 }
+
+/// The worker tapped "Resume upload karein" in the Bada Bhai TAB's
+/// post-completion résumé menu. The upload screen opens the file picker
+/// straight away, exactly as for the other two intents.
+///
+/// A SEPARATE TYPE FOR TWO REASONS:
+///
+///  - no chat prompt is standing open (the post-completion menu is not the
+///    name-intake prompt), so a completed attempt raises NO
+///    `ResumeImportSignal` — exactly the [ResumeUploadDirectIntent] rule;
+///  - the screen was PUSHED on the chat tab, and the worker must land back on
+///    that chat with its parsed-résumé turn refreshed. So a completed attempt
+///    POPS back (the chat's own push continuation re-reads), rather than
+///    `go`-ing to the tab the way a tab entry does.
+class ResumeUploadChatIntent {
+  const ResumeUploadChatIntent();
+}

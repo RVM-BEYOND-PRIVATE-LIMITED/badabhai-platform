@@ -526,17 +526,20 @@ GoRouter _buildRouter() {
       GoRoute(path: Routes.name, builder: (_, __) => const NameScreen()),
       GoRoute(
         path: Routes.resumeUpload,
-        // `extra` is [ResumeUploadAutoIntent] when the worker already chose
-        // upload in the chat's résumé prompt, and [ResumeUploadDirectIntent]
-        // when they tapped an upload entry on the Résumé tab, "Mere resume" or
-        // the Profile tab: either way door 1 fires on entry instead of asking
-        // again. Only the chat prompt's marker answers a prompt on return, and
-        // only an entry's attempt ends on the Bada Bhai tab. Every other
-        // arrival (the post-completion menu, a deep link) draws the doors
-        // exactly as before.
+        // `extra` says which road the worker took, and every marker fires
+        // door 1 on entry instead of asking again:
+        //  - [ResumeUploadAutoIntent] — the chat's résumé prompt (answers that
+        //    prompt on return);
+        //  - [ResumeUploadDirectIntent] — an upload entry on the Résumé tab,
+        //    "Mere resume" or the Profile tab (ends on the Bada Bhai tab);
+        //  - [ResumeUploadChatIntent] — the Bada Bhai tab's post-completion
+        //    résumé menu (pops back to that chat so it re-reads the parsed
+        //    résumé turn).
+        // Only a deep link (no marker) still draws the doors exactly as before.
         builder: (_, GoRouterState state) => ResumeUploadScreen(
           autoUpload: state.extra is ResumeUploadAutoIntent,
           directUpload: state.extra is ResumeUploadDirectIntent,
+          chatMenuUpload: state.extra is ResumeUploadChatIntent,
         ),
       ),
       GoRoute(

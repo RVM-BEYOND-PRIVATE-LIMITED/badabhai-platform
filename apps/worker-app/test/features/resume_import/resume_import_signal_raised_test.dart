@@ -54,6 +54,7 @@ void main() {
     ResumeImportOutcome outcome, {
     bool autoUpload = true,
     bool directUpload = false,
+    bool chatMenuUpload = false,
   }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
@@ -78,6 +79,7 @@ void main() {
           builder: (_, __) => ResumeUploadScreen(
             autoUpload: autoUpload,
             directUpload: directUpload,
+            chatMenuUpload: chatMenuUpload,
           ),
         ),
         GoRoute(
@@ -171,6 +173,27 @@ void main() {
         isFalse,
         reason: 'no chat prompt sent the worker here, so none is owed an answer',
       );
+    });
+  });
+
+  // ── THE BADA BHAI MENU RAISES NOTHING EITHER ───────────────────────────────
+  //
+  // The post-completion menu's "Resume upload karein" is not the name-intake
+  // prompt: it is a navigation chip in an ENDED session. Raising the signal
+  // here would sit until a later prompt and answer it for the worker.
+  outcomes.forEach((String name, ResumeImportOutcome outcome) {
+    testWidgets('a chat-menu arrival never raises the signal — $name',
+        (WidgetTester tester) async {
+      await pumpUpload(
+        tester,
+        outcome,
+        autoUpload: false,
+        chatMenuUpload: true,
+      );
+
+      expect(importer.calls, 1, reason: 'the picker opened and the import ran');
+      expect(locator<ResumeImportSignal>().consume(), isFalse,
+          reason: 'the menu is not the résumé prompt');
     });
   });
 }
