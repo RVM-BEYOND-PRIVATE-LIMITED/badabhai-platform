@@ -1247,6 +1247,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         resumePending: opening?.resumePending ?? false,
         suggestedOptions: opening?.options,
         followups: openingFollowups,
+        // #2375 — the opening's OWN mode, so a confirm-first `options_only`
+        // bubble draws its chips with the composer withheld from turn one.
+        // Null (no served opening) keeps the state's mode.
+        inputMode: opening?.inputMode,
         // ADR-0048 — when the chat opens ON an identity question, bubble 0 IS the
         // question. The screen needs its key to offer the State/City pickers, and
         // `_maybeSayEmptyImport` needs it to know this open is an intake rather

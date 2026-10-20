@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import '../../../core/api/api_models.dart' show ChatOption;
+import '../../../core/api/api_models.dart' show ChatInputMode, ChatOption;
 
 /// The ONE opening turn `POST /chat/session` can hand the client, packaged for
 /// the bloc to apply to bubble 0.
@@ -24,6 +24,7 @@ class ChatSessionOpening extends Equatable {
     this.options = const <ChatOption>[],
     this.questionKey,
     this.answerType,
+    this.inputMode = ChatInputMode.text,
   });
 
   /// The server-composed bubble 0 text.
@@ -62,7 +63,22 @@ class ChatSessionOpening extends Equatable {
   /// has.
   final String? answerType;
 
+  /// `opening_input_mode` — how bubble 0 is answered, the same [ChatInputMode]
+  /// a later turn carries. The résumé identity/confirm opening is served
+  /// `options_only`, so the first bubble draws its chips with no composer.
+  ///
+  /// Defaults to [ChatInputMode.text] when the server omits the key (an older
+  /// API build), which is exactly the pre-field behaviour.
+  final ChatInputMode inputMode;
+
   @override
-  List<Object?> get props =>
-      <Object?>[text, ttsText, resumePending, options, questionKey, answerType];
+  List<Object?> get props => <Object?>[
+        text,
+        ttsText,
+        resumePending,
+        options,
+        questionKey,
+        answerType,
+        inputMode,
+      ];
 }
