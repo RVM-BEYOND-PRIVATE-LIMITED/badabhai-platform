@@ -18,8 +18,8 @@
   "version": 6,
   "family_id": "fam_universal",
   "locale": "hi-IN",
-  "status": "active",
-  "review_note": "v6 asks the travel gate before the km number: willing_to_travel moves ahead of commute_max_km, which is gated on its TRUE answer (owner ruling 2026-10-19). Nahi, 'pata nahi', a decline or a skip ends the pair; the rest of the tail runs unchanged. v5 is deprecated in place — the corpus validator refuses a second ACTIVE pack for one family+locale; pinned v5 sessions keep resolving through loadPinned.",
+  "status": "deprecated",
+  "review_note": "DEPRECATED IN PLACE — qp_universal@7 is the active tail (secondary_occupations removed from the chat, 2026-10-20). This file is BYTE-FROZEN: sessions pinned to qp_universal:6 keep resolving through `loadPinned`, and `reply-closure`/`pack-served-text` still carry its clips. v6 asked the travel gate before the km number; the rest of the tail ran unchanged.",
   "items": [
     {
       "question_key": "primary_trade",

@@ -200,7 +200,7 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // this one turns red the moment any pack adds or removes a question, which is the authoring
     // signal that did not exist. Update it in the same commit as the pack, on purpose.
     //
-    // 37 = qp_cnc_turning's 15 + qp_universal@6's 19 + one retry each for the three mandatory
+    // 36 = qp_cnc_turning's 15 + qp_universal@7's 18 + one retry each for the three mandatory
     // questions (turning_experience, primary_trade, current_city).
     //
     // THE WALK MOVED 28 → 36 WITH THE LAYER A ELICITATION (ADR-0042 §9 amendment, 2026-09-18).
@@ -214,8 +214,11 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     //
     // v6 (owner ruling 2026-10-19) REORDERS the travel pair and gates the km on the gate's TRUE
     // answer, but adds and removes no item: the walk stays 37 and the headroom stays 11.
+    //
+    // v7 (owner ruling 2026-10-20) REMOVES secondary_occupations from the tail: the walk moves
+    // 37 -> 36 and the headroom moves 11 -> 12 in the same commit.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(worst).toBe(37);
+    expect(worst).toBe(36);
   });
 
   it("keeps a POLICY headroom now — the runaway backstop moved to MAX_ENGINE_TURNS", () => {
@@ -228,13 +231,13 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // THE COMPARISON, STATED SO THE MOVE IS AUDITABLE:
     //   before: cap 28, worst-case walk 28 (qp_cnc_turning 15 + qp_universal@3 10 + 3 mandatory
     //           re-asks), headroom 0 — the cap WAS the corpus.
-    //   after:  cap 48, worst-case walk 37 (qp_cnc_turning 15 + qp_universal@6's 19 + 3 mandatory
+    //   after:  cap 48, worst-case walk 36 (qp_cnc_turning 15 + qp_universal@7's 18 + 3 mandatory
     //           re-asks; the Layer A elicitation landed, then the training gate, then the travel
-    //           reorder which adds no item and holds the walk at 37),
-    //           headroom 11.
-    // The `expect(worst).toBe(37)` above still pins the walk itself; this pins the posture.
+    //           reorder which adds no item, then v7 removes secondary_occupations),
+    //           headroom 12.
+    // The `expect(worst).toBe(36)` above still pins the walk itself; this pins the posture.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(MAX_ENGINE_ASKS - worst).toBe(11);
+    expect(MAX_ENGINE_ASKS - worst).toBe(12);
 
     // THE RUNAWAY GUARD DID NOT GO AWAY, IT MOVED. A blind run (every ask + every recovery
     // channel) must still terminate well inside a session worth of turns; infinity is banned.
