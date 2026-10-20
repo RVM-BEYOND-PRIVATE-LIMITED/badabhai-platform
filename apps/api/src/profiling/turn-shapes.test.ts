@@ -1,11 +1,21 @@
 import type { QuestionPackItem } from "@badabhai/ai-contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import { toAnswerMap } from "./answer-map";
 import { emptyProfilingEnvelope, type ProfilingEnvelope } from "./conversation-state";
+import { universalPack } from "./corpus-packs.fixture";
 import { RESUME_CONFIRM_OPTIONS } from "./resume-confirm";
 import { RESUME_IDENTITY_OPTIONS, type IdentitySummary } from "./resume-import/resume-identity";
 import type { ResumeSuggestion } from "./resume-import/resume-suggestions";
-import { identityFactsFor, importOpening, type ImportOpeningReads } from "./turn-shapes";
+import {
+  confirmOf,
+  identityFactsFor,
+  importOpening,
+  optionsOnlyForSelect,
+  packQuestionInputMode,
+  showsResumeConfirmBubble,
+  type ImportOpeningReads,
+} from "./turn-shapes";
 
 /**
  * #2052 — `importOpening`, the résumé-import half of a session's next opening, shared by the
@@ -138,6 +148,99 @@ describe("importOpening (#2052)", () => {
     const r = reads(null, new Map());
     expect(await importOpening(base(), r, ITEMS, ITEMS)).toBeNull();
     expect(r.pendingImport).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks the identity bubble to its two chips — no composer", async () => {
+    const r = reads(LINE, new Map([["experience_years", SUGGESTION]]));
+    const opening = await importOpening(base(), r, ITEMS, ITEMS);
+    expect(opening?.fields.inputMode).toBe("options_only");
+  });
+
+  it("locks the batch-confirm bubble to its two chips — no composer", async () => {
+    const r = reads(LINE, new Map([["experience_years", SUGGESTION]]));
+    const opening = await importOpening(
+      base({ resumeIdentity: { importId: IMPORT_ID, state: "settled" } }),
+      r,
+      ITEMS,
+      ITEMS,
+    );
+    expect(opening?.fields.inputMode).toBe("options_only");
+  });
+});
+
+describe("the chip lock (options_only, safe sets only)", () => {
+  const chip = (option_key: string, is_none_of_above: boolean) => ({
+    option_key,
+    label_text: option_key,
+    value: option_key,
+    implies_skill_id: null,
+    is_none_of_above,
+  });
+  const select = (withNone: boolean) => ({
+    answer_type: "single_select" as const,
+    options: withNone ? [chip("a", false), chip("none", true)] : [chip("a", false), chip("b", false)],
+  });
+
+  it("locks a select that offers a none-chip, and nothing else", () => {
+    expect(optionsOnlyForSelect("single_select", select(true).options)).toBe(true);
+    expect(optionsOnlyForSelect("multi_select", select(true).options)).toBe(true);
+    expect(optionsOnlyForSelect("single_select", select(false).options)).toBe(false);
+    expect(optionsOnlyForSelect("boolean", [])).toBe(false);
+    expect(optionsOnlyForSelect("number", [])).toBe(false);
+    expect(optionsOnlyForSelect("text", [])).toBe(false);
+    expect(optionsOnlyForSelect(null, select(true).options)).toBe(false);
+  });
+
+  it("packQuestionInputMode reads the same rule off the authored row", () => {
+    expect(packQuestionInputMode({ ...select(true) })).toBe("options_only");
+    expect(packQuestionInputMode({ ...select(false) })).toBe("text");
+    expect(packQuestionInputMode({ answer_type: "text", options: [] })).toBe("text");
+    expect(packQuestionInputMode(null)).toBe("text");
+    expect(packQuestionInputMode(undefined)).toBe("text");
+  });
+
+  it("showsResumeConfirmBubble recognises the two confirm bubbles by chip key", () => {
+    expect(showsResumeConfirmBubble([...RESUME_IDENTITY_OPTIONS])).toBe(true);
+    expect(showsResumeConfirmBubble([...RESUME_CONFIRM_OPTIONS])).toBe(true);
+    expect(showsResumeConfirmBubble([chip("llm_a", false)])).toBe(false);
+    expect(showsResumeConfirmBubble([])).toBe(false);
+  });
+});
+
+describe("the resume flow never confirms a notice period (qp_universal@8)", () => {
+  const FIFTEEN_DAYS: ResumeSuggestion = {
+    values: { option_keys: ["fifteen_days"], text: null, number: null, bool: null },
+    source: "resume",
+    confidence: 0.9,
+  };
+  const FIFTEEN_NUMBER: ResumeSuggestion = {
+    values: { option_keys: [], text: null, number: 15, bool: null },
+    source: "resume",
+    confidence: 0.9,
+  };
+
+  it("the active tail has no notice question to confirm", () => {
+    const keys = universalPack(8).items.map((item) => item.question_key);
+    expect(keys).toContain("availability");
+    expect(keys).not.toContain("notice_period_days");
+  });
+
+  it("a staged notice value finds no question, while availability confirms", () => {
+    const v8 = universalPack(8).items;
+    const pending = confirmOf(
+      {
+        importId: IMPORT_ID,
+        suggestions: new Map([
+          ["availability", FIFTEEN_DAYS],
+          ["notice_period_days", FIFTEEN_NUMBER],
+        ]),
+      },
+      v8,
+      toAnswerMap([]),
+    );
+    const keys = (pending?.facts ?? []).map((fact) => fact.questionKey);
+    expect(keys).toContain("availability");
+    expect(keys).not.toContain("notice_period_days");
   });
 });
 

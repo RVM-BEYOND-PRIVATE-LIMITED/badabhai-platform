@@ -939,6 +939,109 @@ describe("#2308 — \"aur kitna bacha hai?\" is answered, never stored, never sp
   });
 });
 
+describe("chip-locked turns (options_only, safe sets only)", () => {
+  const opt = (option_key: string, is_none_of_above: boolean, value: string) => ({
+    option_key,
+    label_text: option_key,
+    value,
+    implies_skill_id: null,
+    is_none_of_above,
+  });
+  // A select that offers a none-chip: the typed decline has a chip spelling, so the lock is safe.
+  const AVAIL = item({
+    question_key: "q_avail",
+    target_kind: "rfs",
+    target_field: "availability",
+    answer_type: "single_select",
+    max_asks: 1,
+    prompt_text: "Aap kaam kab se shuru kar sakte hain?",
+    options: [opt("immediate", false, "immediate"), opt("not_sure", true, "unknown")],
+  });
+  // A select without one: locking would trap a worker who does not know, so text stays.
+  const SHIFT = item({
+    question_key: "q_shift",
+    target_kind: "attribute",
+    target_field: "shift_preference",
+    answer_type: "single_select",
+    max_asks: 1,
+    prompt_text: "Aap din ki shift chahte hain ya raat ki?",
+    options: [opt("day", false, "day"), opt("night", false, "night")],
+  });
+
+  it("locks a none-chip select on serve, and stamps the lock for the replay", async () => {
+    const { orchestrator, store } = makeWorld({
+      packs: { occupation: null, universal: pack("qp_universal", [AVAIL]) },
+    });
+    const first = await orchestrator.takeTurn(say("shuru karein"));
+    expect(first.questionKey).toBe("q_avail");
+    expect(first.inputMode).toBe("options_only");
+    expect(store.get(SESSION)?.profiling?.lastTurn?.inputMode).toBe("options_only");
+  });
+
+  it("keeps the composer on a select with no none-chip and on a text question", async () => {
+    const shift = makeWorld({ packs: { occupation: null, universal: pack("qp_universal", [SHIFT]) } });
+    expect((await shift.orchestrator.takeTurn(say("shuru karein"))).inputMode).toBe("text");
+
+    const city = makeWorld({ packs: { occupation: null, universal: pack("qp_universal", [CITY]) } });
+    expect((await city.orchestrator.takeTurn(say("shuru karein"))).inputMode).toBe("text");
+  });
+
+  it("a replay keeps the lock on a confirm bubble and a none-chip select, and drops a stale model lock", async () => {
+    const soon = new Date(T0.getTime() + 1_000);
+    const stamp = (
+      reply: string,
+      options: QuestionPackOption[],
+      answerType: "single_select" | "text",
+    ) => ({
+      inboundHash: inboundHash(SESSION, 1, "haan"),
+      reply,
+      kind: "ask" as const,
+      questionKey: null,
+      at: T0.toISOString(),
+      options,
+      progress: { answered: 0, total: 2 },
+      whyText: null,
+      answerType,
+      formOffer: null,
+      gateKind: null,
+      generalFormOffer: null,
+      lookahead: null,
+      inputMode: "options_only" as const,
+      replays: 0,
+    });
+
+    const identity = makeWorld();
+    seed(identity.store, {
+      lastTurn: stamp("Resume se ye mila: 6 saal. Kya ye aap hi hain?", [
+        { option_key: "resume_identity_yes", label_text: "Haan, ye main hoon", value: true, implies_skill_id: null, is_none_of_above: false },
+        { option_key: "resume_identity_no", label_text: "Nahi, ye main nahi hoon", value: false, implies_skill_id: null, is_none_of_above: false },
+      ], "single_select"),
+    });
+    const replayedIdentity = await identity.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedIdentity.replayed).toBe(true);
+    expect(replayedIdentity.inputMode).toBe("options_only");
+
+    const select = makeWorld();
+    seed(select.store, {
+      lastTurn: {
+        ...stamp("Aap kaam kab se shuru kar sakte hain?", AVAIL.options, "single_select"),
+        questionKey: "q_avail",
+      },
+    });
+    const replayedSelect = await select.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedSelect.replayed).toBe(true);
+    expect(replayedSelect.inputMode).toBe("options_only");
+
+    const stale = makeWorld();
+    seed(stale.store, {
+      lastTurn: stamp("Kya aapke paas ITI hai?", SHIFT.options, "single_select"),
+    });
+    const replayedStale = await stale.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedStale.replayed).toBe(true);
+    expect(replayedStale.inputMode).toBe("text");
+  });
+});
+
 describe("pack resolution", () => {
   it("resolves from the OCCUPATION when no pack is pinned yet, then pins it", async () => {
     const { orchestrator, store, registry } = makeWorld({

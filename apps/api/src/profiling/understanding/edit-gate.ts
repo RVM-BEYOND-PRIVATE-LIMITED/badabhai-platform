@@ -28,6 +28,7 @@ import {
   EDIT_REMOVED_PAIR,
 } from "../next-question";
 import { certifySkillLabel } from "../skill-certifier";
+import { packQuestionInputMode } from "../turn-shapes";
 import {
   EXPERIENCE_KEY,
   jobLine,
@@ -610,7 +611,8 @@ export function editGateTurn(
         reply: `${editAskLead(gate.awaiting)} ${item.prompt_text}`,
         options: [...item.options],
         answerType: item.answer_type,
-        inputMode: "text",
+        // A re-asked pack select locks exactly as the interview's own ask does (safe sets only).
+        inputMode: packQuestionInputMode(item),
       };
 }
 
