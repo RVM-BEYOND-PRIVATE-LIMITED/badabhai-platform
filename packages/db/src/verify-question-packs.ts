@@ -24,8 +24,10 @@ import {
   loadQuestionPackCorpus,
   summariseQuestionPackCorpus,
   validateQuestionPackCorpus,
+  type PackRecord,
 } from "./question-pack-corpus";
 import { RFS_FIELD_IDS, RFS_FIELD_TYPES } from "./rfs-vocabulary";
+import { planPackRows } from "./seed-question-packs";
 
 // Repo-root env, same as verify-job-domains.ts. Loaded at module scope rather than inside
 // main() because the corpus layer runs before any database is touched and must not
@@ -55,6 +57,112 @@ function report(checks: Check[]): number {
     console.log(`          ${c.detail}`);
   }
   return failures;
+}
+
+/**
+ * A `question_pack` row as the version gate compares it: the natural key, and the lifecycle
+ * status the engine resolves on (`PackRepository.findActivePacks` reads `status = 'active'`).
+ */
+export interface PackVersionRow {
+  packId: string;
+  version: number;
+  status: string;
+}
+
+/** A version both sides hold, whose live status is not the one the corpus says. */
+export interface PackStatusDrift {
+  packId: string;
+  version: number;
+  corpus: string;
+  live: string;
+}
+
+/**
+ * Every pack version the corpus holds, with the status the seeder would write for it.
+ *
+ * Derived through the SEEDER'S OWN `planPackRows`, deliberately — the same reason
+ * `expectedCuratedAliases` reads the seed's loader. A second copy of the `status ?? "draft"`
+ * default here would be free to disagree with the writer, and a verifier that disagrees with
+ * the writer reports drift that is its own.
+ */
+export function expectedPackVersions(packs: readonly PackRecord[]): PackVersionRow[] {
+  return planPackRows(packs, new Date(0)).map(({ packId, version, status }) => ({
+    packId,
+    version,
+    status,
+  }));
+}
+
+/**
+ * The corpus pack versions the database does not have, and those whose status disagrees.
+ *
+ * ═══ THE HOLE THIS CLOSES, MEASURED ═══
+ *
+ * Every other live check counts rows that are WRONG; none can see a version that is ABSENT.
+ * A pack release is a new version file plus the old one deprecated in place, and it reaches a
+ * database only through runbook P3-0 (`db:seed:packs --apply`), which no deploy path runs. Skip
+ * that step and the database keeps the previous version `active` — structurally perfect, so
+ * this gate printed "all structural checks passed" while the engine served the old questions.
+ *
+ * Twice, not once. `qp_universal@3/@4` were absent from production on 2026-09-24, and on
+ * 2026-10-20 `@7/@8` were (#2381): the owner saw the two questions those versions removed
+ * still being asked on device, hours after both PRs merged, with the daily drift job green.
+ *
+ * STATUS IS COMPARED TOO, because half of every release is a status flip on a version the
+ * database already holds. A seed that half-reached the database — or one run from a tree
+ * that is not main — can leave the old version `active` with the new one present.
+ */
+export function packVersionDrift(
+  expected: readonly PackVersionRow[],
+  live: readonly PackVersionRow[],
+): { missing: PackVersionRow[]; statusDrift: PackStatusDrift[] } {
+  const key = (r: PackVersionRow): string => `${r.packId}@${r.version}`;
+  const liveByKey = new Map(live.map((r) => [key(r), r]));
+  const missing: PackVersionRow[] = [];
+  const statusDrift: PackStatusDrift[] = [];
+  for (const want of expected) {
+    const have = liveByKey.get(key(want));
+    if (!have) missing.push(want);
+    else if (have.status !== want.status) {
+      statusDrift.push({
+        packId: want.packId,
+        version: want.version,
+        corpus: want.status,
+        live: have.status,
+      });
+    }
+  }
+  return { missing, statusDrift };
+}
+
+const SEED_PACKS_FIX =
+  "Run runbook P3-0 `pnpm db:seed:packs --apply` from a tree identical to origin/main, then re-run this gate.";
+
+/**
+ * NAMES ROWS, NOT JUST A COUNT — same rule as `curatedAliasFailureDetail`, same cap of three,
+ * so a never-seeded corpus does not bury every other check in the report.
+ */
+function sampleOf(labels: readonly string[]): string {
+  const more = labels.length > 3 ? `, +${labels.length - 3} more` : "";
+  return labels.slice(0, 3).join(", ") + more;
+}
+
+/** What an operator is told when merged pack versions never reached the database. */
+export function missingPackVersionDetail(missing: readonly PackVersionRow[]): string {
+  return (
+    "merged pack versions never reached this database, so the engine still serves the previous " +
+    `active version of each. ${SEED_PACKS_FIX} ` +
+    `Missing: ${sampleOf(missing.map((r) => `${r.packId}@${r.version} (${r.status})`))}`
+  );
+}
+
+/** What an operator is told when a version's live status disagrees with the corpus. */
+export function packStatusDriftDetail(drift: readonly PackStatusDrift[]): string {
+  return (
+    "the database's active/deprecated flags disagree with the corpus, so the engine resolves a " +
+    `different version than main ships. ${SEED_PACKS_FIX} ` +
+    `Drift: ${sampleOf(drift.map((d) => `${d.packId}@${d.version} corpus=${d.corpus} live=${d.live}`))}`
+  );
 }
 
 async function main(): Promise<void> {
@@ -127,7 +235,30 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
+    // COERCED, not cast: a driver handing `version` back as a string would make every version
+    // "missing" and turn this gate permanently red over a type, not a seed.
+    const livePacks: PackVersionRow[] = (
+      (await db.execute(dsql`SELECT pack_id, version, status FROM question_pack`)) as unknown as {
+        pack_id: string;
+        version: number | string;
+        status: string;
+      }[]
+    ).map((r) => ({ packId: r.pack_id, version: Number(r.version), status: r.status }));
+    const versionDrift = packVersionDrift(expectedPackVersions(corpus.packs), livePacks);
+
     const checks: Check[] = [
+      {
+        name: "corpus pack versions missing from the database",
+        level: "FAIL",
+        detail: missingPackVersionDetail(versionDrift.missing),
+        count: versionDrift.missing.length,
+      },
+      {
+        name: "pack versions whose live status differs from the corpus",
+        level: "FAIL",
+        detail: packStatusDriftDetail(versionDrift.statusDrift),
+        count: versionDrift.statusDrift.length,
+      },
       {
         name: "families with no binding (unreachable)",
         level: "FAIL",
@@ -149,7 +280,8 @@ async function main(): Promise<void> {
         // defect the job-domain verifier had against a freshly-seeded catalogue.
         name: "the UNIVERSAL family has no active pack",
         level: "FAIL",
-        detail: "Nothing sits below universal, so every unauthored trade would resolve and then have nothing to ask.",
+        detail:
+          "Nothing sits below universal, so every unauthored trade would resolve and then have nothing to ask.",
         count: await one(dsql`
           SELECT count(*)::int AS n FROM profiling_family_binding b
           JOIN profiling_family f ON f.family_id = b.family_id
@@ -173,7 +305,9 @@ async function main(): Promise<void> {
         level: "FAIL",
         detail: "Zero leaves unauthored trades with no pack; two make the last fallback ambiguous.",
         count: Math.abs(
-          (await one(dsql`SELECT count(*)::int AS n FROM profiling_family_binding WHERE is_universal`)) - 1,
+          (await one(
+            dsql`SELECT count(*)::int AS n FROM profiling_family_binding WHERE is_universal`,
+          )) - 1,
         ),
       },
       {
@@ -262,8 +396,11 @@ async function main(): Promise<void> {
       {
         name: "families with no label_hi",
         level: "WARN",
-        detail: "The worker-facing confirmation falls back to label_en, which is often unusable prose.",
-        count: await one(dsql`SELECT count(*)::int AS n FROM profiling_family WHERE label_hi IS NULL`),
+        detail:
+          "The worker-facing confirmation falls back to label_en, which is often unusable prose.",
+        count: await one(
+          dsql`SELECT count(*)::int AS n FROM profiling_family WHERE label_hi IS NULL`,
+        ),
       },
     ];
 

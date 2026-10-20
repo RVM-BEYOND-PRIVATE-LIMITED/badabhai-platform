@@ -270,7 +270,10 @@ which is worse than one that is obviously empty.
 
 **What watches this between releases:** `.github/workflows/catalogue-drift.yml` runs steps 4
 daily against the live database and fails the job on drift. It never writes — applying the fix
-is this section, by a human.
+is this section, by a human. Since #2381 `db:verify:packs` also FAILs when a merged
+`(pack_id, version)` is missing live or its `active`/`deprecated` status differs from the
+corpus — before that it compared counts only, and `qp_universal@7/@8` sat unseeded for a day
+behind a green drift job while production kept asking the two questions they removed.
 
 The skill-alias embedding seeder refuses to run under `NODE_ENV=production` by design. The
 sanctioned override is two deliberate acts (an env var **and** a CLI flag), it logs an audit line,
