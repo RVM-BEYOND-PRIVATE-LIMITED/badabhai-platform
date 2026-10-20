@@ -225,6 +225,7 @@ describe("POST /chat/session — the greeting opens a new session (ADR-0051 (b))
         { option_key: "free_chat_start", label_text: "Haan, shuru karein" },
         { option_key: "free_chat_later", label_text: "Baad mein" },
       ],
+      opening_input_mode: "text",
       // ADR-0051 (#2030) — the app hides its build-profile CTA in greeting and free mode.
       free_chat_mode: "greeting",
     });

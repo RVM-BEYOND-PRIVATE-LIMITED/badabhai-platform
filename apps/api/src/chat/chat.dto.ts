@@ -460,6 +460,17 @@ export const StartSessionResponseSchema = z.object({
     )
     .optional(),
   /**
+   * How the opening bubble is answered — the turn's own `inputMode`, carried to the
+   * session open so a locked opening (the résumé identity/confirm's `options_only`)
+   * draws chips with no composer from the very first bubble. The turn path already
+   * carries `input_mode` on every reply; the open path dropped it, so a confirm-first
+   * session rendered its Haan/Nahi chips above a live composer.
+   *
+   * ABSENT unless an opening is served that names its mode (today: the three served
+   * openings below), never null. A build that does not read it renders as today.
+   */
+  opening_input_mode: z.enum(["text", "options_only"]).optional(),
+  /**
    * `opening_text` in Devanagari for read-aloud (#896) — the first thing a worker ever hears.
    *
    * Until this existed the client had to carry its own hard-coded Devanagari opener, because
