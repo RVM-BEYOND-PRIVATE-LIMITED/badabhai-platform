@@ -184,12 +184,15 @@ import {
   identityTurnFields,
   importOpening,
   onSkillsLane,
+  optionsOnlyForSelect,
   outstandingFormOffer,
   outstandingLlmAsk,
   outstandingOffer,
   outstandingTradeGate,
   outstandingTypeRequest,
+  packQuestionInputMode,
   progressOf,
+  showsResumeConfirmBubble,
   stampLastTurn,
 } from "./turn-shapes";
 import {
@@ -1581,6 +1584,7 @@ export class ProfilingOrchestrator {
           questionKey: served.question_key,
           options: served.options,
           ...shapeOf(items, served.question_key),
+          inputMode: packQuestionInputMode(served),
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -1649,6 +1653,9 @@ export class ProfilingOrchestrator {
           questionKey: decision.questionKey,
           options: decision.options,
           ...shapeOf(items, decision.questionKey),
+          inputMode: packQuestionInputMode(
+            items.find((candidate) => candidate.question_key === decision.questionKey) ?? null,
+          ),
           progress: decision.progress,
           unansweredEssentials: essentialsOf(items, answers),
           complete: decision.kind === "close",
@@ -2368,6 +2375,9 @@ export class ProfilingOrchestrator {
           questionKey: clarified.questionKey,
           options: clarified.options,
           ...shapeOf(items, clarified.questionKey),
+          inputMode: packQuestionInputMode(
+            items.find((candidate) => candidate.question_key === clarified.questionKey) ?? null,
+          ),
           checkpointDue: false,
           progress: clarified.progress,
           unansweredEssentials: essentialsOf(items, answers),
@@ -3802,6 +3812,9 @@ export class ProfilingOrchestrator {
       questionKey: decision.questionKey,
       options: decision.options,
       ...shapeOf(items, decision.questionKey),
+      inputMode: packQuestionInputMode(
+        items.find((candidate) => candidate.question_key === decision.questionKey) ?? null,
+      ),
       progress: decision.progress,
       unansweredEssentials: essentialsOf(items, answers),
       complete: decision.kind === "close",
@@ -3938,6 +3951,7 @@ export class ProfilingOrchestrator {
         questionKey: reservableItem.question_key,
         options: reservableItem.options,
         ...shapeOf(items, reservableItem.question_key),
+        inputMode: packQuestionInputMode(reservableItem),
         progress,
         unansweredEssentials,
         complete: false,
@@ -3998,6 +4012,7 @@ export class ProfilingOrchestrator {
       questionKey: item.question_key,
       options: item.options,
       ...shapeOf(items, item.question_key),
+      inputMode: packQuestionInputMode(item),
       progress: progressOf(progressItems, answers),
       unansweredEssentials: essentialsOf(items, answers),
       complete: false,
@@ -6550,9 +6565,18 @@ function replayResultOf(last: LastTurn, gate: EditGateState | null = null): Turn
     //
     // THE SKILLS GATE (ADR-0045) KEEPS IT TOO, recognised by its cached KIND rather than its text:
     // it opens with the worker's own skills, so no prompt comparison can find it.
+    //
+    // THE RÉSUMÉ-CONFIRM BUBBLES AND THE NONE-CHIP SELECTS KEEP IT FOR THE SAME REASON (2026-10-20):
+    // they are served locked on the live path, so a retried submit must redraw the lock it repeats.
+    // Recognised from the cache alone — the bubble by its chip keys (the reply embeds staged values),
+    // the select by the same safe-sets rule the live path applies (`optionsOnlyForSelect`).
     inputMode:
       last.inputMode === "options_only" &&
-      (last.reply === EXPERIENCE_GATE_PROMPT || last.gateKind === "skills" || confirming)
+      (last.reply === EXPERIENCE_GATE_PROMPT ||
+        last.gateKind === "skills" ||
+        confirming ||
+        showsResumeConfirmBubble(last.options) ||
+        optionsOnlyForSelect(last.answerType, last.options))
         ? "options_only"
         : "text",
     // FROM THE CACHE, like the four above. A handover replayed without its button is a dead end.

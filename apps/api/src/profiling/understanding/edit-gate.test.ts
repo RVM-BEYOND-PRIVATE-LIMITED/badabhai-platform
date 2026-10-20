@@ -401,6 +401,24 @@ describe("the words on screen (owner copy 2026-10-16)", () => {
       ),
     ).toMatchObject({ reply: "Theek hai, sahi Experience bataiye. Kitne saal ka tajurba hai?", inputMode: "text" });
   });
+
+  it("a re-asked none-chip select locks like the interview's own ask", () => {
+    const AVAIL = item({
+      question_key: "availability",
+      target_field: "availability",
+      answer_type: "single_select",
+      options: [
+        { option_key: "immediate", label_text: "Abhi turant", value: "immediate", implies_skill_id: null, is_none_of_above: false },
+        { option_key: "not_sure", label_text: "Abhi pata nahi", value: "unknown", implies_skill_id: null, is_none_of_above: true },
+      ],
+    });
+    expect(
+      editGateTurn(
+        { proposal: null, awaiting: { key: "availability", index: null, label: "Availability", before: "Abhi turant" }, resumeKey: "current_city" },
+        [...ITEMS, AVAIL],
+      ),
+    ).toMatchObject({ inputMode: "options_only" });
+  });
 });
 
 describe("reading the reply to a proposal", () => {

@@ -74,6 +74,7 @@ import {
   outstandingLlmAsk,
   outstandingOffer,
   outstandingTypeRequest,
+  packQuestionInputMode,
   progressOf,
   stampLastTurn,
 } from "../turn-shapes";
@@ -1558,7 +1559,7 @@ function structuredQuestion(
       options: [...served.options],
       answerType: served.answer_type,
       whyText: served.why_text ?? null,
-      inputMode: "text",
+      inputMode: packQuestionInputMode(served),
     };
   }
   return null;

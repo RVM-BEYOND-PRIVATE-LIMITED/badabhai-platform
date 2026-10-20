@@ -253,6 +253,58 @@ export function confirmOf(
 }
 
 /**
+ * Whether a closed-option select may hide the composer.
+ *
+ * THE SAFE SETS ONLY (owner ruling 2026-10-20): a locked turn takes away the typed "nahi
+ * pata", so a select is locked only when a chip says it for the worker — an `is_none_of_above`
+ * option (availability's "Abhi pata nahi"). The 310 selects without one (education,
+ * salary_period, languages, …) keep the composer: locking them would trap a worker who does
+ * not know into picking or abandoning, against the "Nahi pata is a complete answer" law.
+ * Booleans, numbers and free text never lock — there is nothing to tap.
+ */
+export function optionsOnlyForSelect(
+  answerType: string | null,
+  options: readonly { readonly is_none_of_above: boolean }[],
+): boolean {
+  return (
+    (answerType === "single_select" || answerType === "multi_select") &&
+    options.length > 0 &&
+    options.some((option) => option.is_none_of_above)
+  );
+}
+
+/**
+ * The composer's mode for a pack question on screen — the live-turn twin of
+ * {@link optionsOnlyForSelect}, read off the authored row rather than the cached turn.
+ */
+export function packQuestionInputMode(
+  item: Pick<QuestionPackItem, "answer_type" | "options"> | null | undefined,
+): InputMode {
+  if (!item) return "text";
+  return optionsOnlyForSelect(item.answer_type, item.options) ? "options_only" : "text";
+}
+
+/**
+ * Is the cached turn a résumé-confirm bubble — the identity "Kya ye aap hi hain?" or the
+ * batch "Sahi hai?" (the chips, not merely their words)?
+ *
+ * The replay clamp's allow-list, beside the gates: both bubbles are served `options_only`,
+ * and a retried submit must redraw the lock it repeats, not a composer the live turn never
+ * offered. Recognised by the first chip's key — the same shape `showsEditConfirm` uses —
+ * because the reply embeds the worker's own staged values and cannot be compared.
+ */
+const RESUME_CONFIRM_BUBBLE_KEYS: ReadonlySet<string> = new Set([
+  RESUME_IDENTITY_OPTIONS[0]!.option_key,
+  RESUME_CONFIRM_OPTIONS[0]!.option_key,
+]);
+
+export function showsResumeConfirmBubble(
+  options: readonly { readonly option_key: string }[],
+): boolean {
+  return options.some((option) => RESUME_CONFIRM_BUBBLE_KEYS.has(option.option_key));
+}
+
+/**
  * The identity turn's wire fields, from a resolved line.
  *
  * ONE BUILDER FOR THREE SERVE SITES — the open path's re-serve, its first-turn offer,
@@ -260,6 +312,9 @@ export function confirmOf(
  * of this literal is how a re-serve would one day disagree with the offer about what
  * "is this you?" says. `ask`, not a new kind (`TURN_KINDS` is pinned to what shipped
  * clients render), `single_select` with the two reviewed chips.
+ *
+ * `options_only`: the question is genuinely binary (Haan / Nahi) and typed replies stay
+ * readable server-side (`readIdentityReply`) — the lock is the affordance, not the contract.
  *
  * #2366 — `facts` are the same `confirmableFacts` the batch-confirm would have served
  * (same import, resolved against the same pack and answers), rendered through
@@ -286,6 +341,7 @@ export function identityTurnFields(
     options: [...RESUME_IDENTITY_OPTIONS],
     whyText: null,
     answerType: "single_select",
+    inputMode: "options_only",
     progress: progressOf(progressItems, answers),
     unansweredEssentials: essentialsOf(items, answers),
     complete: false,
@@ -322,6 +378,9 @@ export function identityFactsFor(
  * drop the chips. `ask`, not a new kind — `TURN_KINDS` is pinned to what shipped clients render,
  * and this IS an ask: a question with two chips, answered like any other single-select. It
  * never crosses a checkpoint: it is an opening move, with nothing yet to checkpoint.
+ *
+ * `options_only`, like the identity bubble: Haan / Nahi, typed replies still readable
+ * server-side (`readConfirmReply`).
  */
 export function confirmTurnFields(
   facts: readonly ResumeConfirmFact[],
@@ -337,6 +396,7 @@ export function confirmTurnFields(
     options: [...RESUME_CONFIRM_OPTIONS],
     whyText: null,
     answerType: "single_select",
+    inputMode: "options_only",
     progress: progressOf(progressItems, answers),
     unansweredEssentials: essentialsOf(items, answers),
     complete: false,
