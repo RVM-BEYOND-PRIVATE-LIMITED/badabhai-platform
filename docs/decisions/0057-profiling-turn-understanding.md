@@ -99,6 +99,17 @@ typed text
 - A Phase B turn gains one call (the bridge line).
 - A 21-role trade the worker mentions still goes through the deterministic trade-form offer; routing never moves to the model.
 
+**Owner ruling, 2026-10-20 (#2379): a message that does not answer the question on screen is never its answer.**
+- **The defect.** "Stays authoritative" let a `statement` land as the answer to a free-text question: "main Pune mein rehta hoon" typed over the training question filled the city, and also named the training "main Pune mein rehta hoon". Over a typed question, the ask was spent on a message that never answered it. A correction typed with a new fact, read as a `statement`, went the same way.
+- **The rule.** The layer's verdict decides whether the message answers the question on screen. A `statement`, or a `chat` that carries a fact, above the confidence floor does not, so nothing is filed under that question, and it is served again with **no ask spent**.
+  - The rest of the turn runs as for any turn: the cross-fill, the model's fills, the Haan/Nahi gate, and identify. A stated trade still reaches the deterministic routing.
+- **What keeps today's capture:**
+  - the model filled the on-screen field itself, or read a "none" for it (#2328);
+  - a deterministic "pata nahi";
+  - over a typed question, a value its parser read from the message.
+- **The reply.** What the message told is acknowledged first: the bridge's `filled` line, or the Profile-page pointer. Then **"Chalo, ab iske baare mein bataiye."** leads back into the same question. With nothing new to note and no pointer, the `chat` bridge line replies and leads back by itself, and the steer-back is added only if that line fails.
+- **No prompt change.** The model already returned the correct edit row and fill for the mixed case; only the label differed. The gold case accepts `edit` or `statement`.
+
 ### 3.3 Replies (amends ADR-0051 R6 and the skip list)
 
 - **The classic interview prompt** additionally receives the schema snapshot and gains rules:

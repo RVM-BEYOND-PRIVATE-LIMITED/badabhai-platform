@@ -262,7 +262,11 @@ CASES: list[Case] = [
          edits=(("edit", "experience_years", None, ("7",)),)),
     Case("मेरा अनुभव 5 नहीं 3 साल है", ("edit",), AVAIL_Q,
          edits=(("edit", "experience_years", None, ("3",)),)),
-    Case("experience 5 nahi 6 saal hai, aur roz 15 km tak aa sakta hoon", ("edit",), AVAIL_Q,
+    # A correction WITH a new fact is both. Since #2379 the API treats the two alike: the edit row
+    # goes to Haan/Nahi, and a statement is never filed under the question on screen. The edit row
+    # and the fill are what is graded exactly.
+    Case("experience 5 nahi 6 saal hai, aur roz 15 km tak aa sakta hoon", ("edit", "statement"),
+         AVAIL_Q,
          fills={"commute_max_km": ("15",)},
          edits=(("edit", "experience_years", None, ("6",)),)),
     # ── edits WITHOUT the new value: the API asks ──

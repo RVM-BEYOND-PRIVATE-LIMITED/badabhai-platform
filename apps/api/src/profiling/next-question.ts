@@ -609,6 +609,15 @@ export const PROFILE_PAGE_POINTER_PAIR = [
 ] as const;
 
 /**
+ * #2379 (owner ruling 2026-10-20) — the steer-back over a question served again because the
+ * worker's typed message did not answer it: what they told is acknowledged first (the bridge line,
+ * or the Profile-page pointer), then this line leads back into the same question. Devanagari twin
+ * authored beside it for the progress pairs' reason.
+ */
+export const STEER_BACK_TEXT = "Chalo, ab iske baare mein bataiye.";
+export const STEER_BACK_PAIR = [STEER_BACK_TEXT, "चलो, अब इसके बारे में बताइए।"] as const;
+
+/**
  * ADR-0057 (#2312) — the edit gate's fixed lines, each `[roman, devanagari]` and authored side by
  * side for the progress pairs' reason. Each LEADS the question the gate puts back on screen.
  *   APPLIED / REMOVED — after Haan: something was changed / only removals were made.

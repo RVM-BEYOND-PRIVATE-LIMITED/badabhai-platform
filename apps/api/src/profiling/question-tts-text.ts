@@ -10,6 +10,8 @@ import {
   EDIT_GATE_LEAD_PAIRS,
   EDIT_GATE_LEAD_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
+  STEER_BACK_PAIR,
+  STEER_BACK_TEXT,
 } from "./next-question";
 import { normalizeReplyText } from "./reply-closure";
 import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
@@ -155,6 +157,9 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
 
   // next-question.ts (ADR-0057 #2312) — the edit gate's lead lines, authored beside their twins.
   ...Object.fromEntries(EDIT_GATE_LEAD_PAIRS),
+
+  // next-question.ts (#2379) — the steer-back over a question served again, beside its twin.
+  ...Object.fromEntries([STEER_BACK_PAIR]),
 };
 
 /**
@@ -1254,6 +1259,8 @@ const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string
   [normalizeReplyText(PROFILE_PAGE_POINTER_PAIR[0]), PROFILE_PAGE_POINTER_PAIR[1]] as const,
   // ADR-0057 (#2312) — the edit gate's lines lead the question the gate puts back.
   ...EDIT_GATE_LEAD_PAIRS.map(([roman, devanagari]) => [normalizeReplyText(roman), devanagari] as const),
+  // #2379 — the steer-back leads the question served again (after the pointer, when one is served).
+  [normalizeReplyText(STEER_BACK_PAIR[0]), STEER_BACK_PAIR[1]] as const,
 ];
 
 /**
@@ -1261,14 +1268,15 @@ const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string
  * by the pending question, in one bubble — composed as `lead + " " + question` exactly as
  * {@link composeClarify} composes a clarify, and for its reason: the products of two tables are
  * never hand-authored. Absent unless BOTH halves are authored (the question may itself be a
- * clarify, which composes).
+ * clarify, which composes, or another lead over the question: the pointer above the steer-back,
+ * #2379, which recurses one lead at a time).
  */
 function composeFreeChatLead(normalized: string): string | undefined {
   for (const [lead, leadDevanagari] of FREE_CHAT_LEADS) {
     const prefix = `${lead} `;
     if (!normalized.startsWith(prefix)) continue;
     const rest = normalized.slice(prefix.length);
-    const question = TTS_TEXT_BY_REPLY.get(rest) ?? composeClarify(rest);
+    const question = TTS_TEXT_BY_REPLY.get(rest) ?? composeClarify(rest) ?? composeFreeChatLead(rest);
     if (question !== undefined) return `${leadDevanagari} ${question}`;
   }
   return undefined;
@@ -1312,6 +1320,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   ...PROGRESS_REPLY_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
   ...EDIT_GATE_LEAD_TEXTS,
+  STEER_BACK_TEXT,
 ];
 
 export { DEVANAGARI_RE };

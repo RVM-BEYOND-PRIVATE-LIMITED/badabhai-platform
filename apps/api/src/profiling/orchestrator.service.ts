@@ -254,6 +254,7 @@ import {
   PROGRESS_REPLY_NO_COUNT_TEXT,
   PROFILE_PAGE_POINTER_TEXT,
   ROLE_CHANGE_POINTER_PAIR,
+  STEER_BACK_TEXT,
   type CompletionReason,
   type EnginePacks,
 } from "./next-question";
@@ -279,6 +280,7 @@ import {
 } from "./understanding/edit-gate";
 import { isBareNone, isDeclineReply, isFreeTextItem } from "./understanding/none-answer";
 import { buildProfilingSchema, type ProfilingSchemaView } from "./understanding/profiling-schema";
+import { isSideMessage } from "./understanding/side-message";
 import {
   applyFills,
   newlyAnswered,
@@ -2907,8 +2909,32 @@ export class ProfilingOrchestrator {
     if (onScreenNone) {
       answers = recordDeclined(answers, askedItem.question_key, turn);
     }
+    // #2379 (owner ruling 2026-10-20) — A MESSAGE THE LAYER READ AS NOT ANSWERING THE QUESTION ON
+    // SCREEN is never filed as its answer: "main Pune mein rehta hoon" over the training question
+    // fills the city, and the training is not named "main Pune mein rehta hoon". That question is
+    // served again, unspent, under a short reply (at the engine below, and `composeLeadIns`).
+    // Everything else the turn does runs as for any turn — the cross-fill, the model's fills, the
+    // edit gate, identify — so a trade the worker states still reaches the deterministic routing.
+    // Only on the pack stretch; see `isSideMessage` for what keeps today's capture.
+    const sideMessageKey =
+      askedItem !== null &&
+      !identifyOwnsTurn &&
+      !onScreenNone &&
+      understood !== null &&
+      understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE &&
+      !this.llm.leads(next) &&
+      !onSkillsLane(next) &&
+      isSideMessage({
+        out: understood.out,
+        item: askedItem,
+        capturedOnScreen,
+        dontKnow: capture.turnClass === "dont_know",
+      })
+        ? askedItem.question_key
+        : null;
     for (const value of capture.values) {
-      if (onScreenNone && value.questionKey === askedItem?.question_key) continue;
+      const onScreen = value.questionKey === askedItem?.question_key;
+      if (onScreen && (onScreenNone || sideMessageKey !== null)) continue;
       answers = recordAnswer(answers, value, turn);
     }
     // #1505 F1: `phaseALeads` tells `crossFillItems` whether a PER-JOB model question is on
@@ -2966,11 +2992,10 @@ export class ProfilingOrchestrator {
         ]),
         ...applied.noted,
       ];
-      understandRefs.outcome = outcomeOf(
-        understood.out,
-        applied,
-        noted.length > 0 ? { reason: "filled", noted } : null,
-      );
+      understandRefs.outcome =
+        sideMessageKey !== null
+          ? sideMessageOutcome(understood.out, applied, noted, sideMessageKey)
+          : outcomeOf(understood.out, applied, noted.length > 0 ? { reason: "filled", noted } : null);
       // #2312 — CHANGES TO FILLED FIELDS, put to the worker rather than written (R4): the model's
       // change rows (when its reading clears the confidence floor), its fills that named a filled
       // field, and the deterministic one-candidate correction held back above. `buildEditProposal`
@@ -3689,11 +3714,19 @@ export class ProfilingOrchestrator {
     // ask under the question's own `max_asks`. The engine alone would move on, because a
     // non-mandatory item is ask-once. Past its asks, `reAsk` is null and the question is recorded
     // unanswered below, with nothing stored.
+    //
+    // #2379 — THE QUESTION A SIDE MESSAGE LEFT UNANSWERED is served again, UNSPENT: its ask is given
+    // back first, so the re-serve counts that same ask once (a turn, not an ask — `reserveTurn`'s
+    // rule). Bounded like any re-ask: when it can no longer be served (a pin changed the packs, a
+    // fill made it ineligible, the turn cap) the engine moves on as it would have.
+    if (sideMessageKey !== null) next = refundDisplaced(next, sideMessageKey, answers);
     const engineState = toEngineState(next, turn);
     const decision =
       (capture.outOfRange && askedItem !== null
         ? reAsk(engineState, engine, askedItem.question_key)
-        : null) ?? nextQuestion(engineState, engine);
+        : null) ??
+      (sideMessageKey !== null ? reAsk(engineState, engine, sideMessageKey) : null) ??
+      nextQuestion(engineState, engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
     // chose against what was on screen, rather than by re-deriving the ask ceiling here — one
@@ -4072,6 +4105,12 @@ export class ProfilingOrchestrator {
         lines.push(line);
         bridgeServed = true;
       }
+    }
+    // #2379 — the steer-back, over the question a side message left unanswered, served again. A
+    // served chat line already leads back by itself.
+    const ledBack = bridgeServed && outcome.bridge?.reason === "chat";
+    if (outcome.steerBack !== null && result.questionKey === outcome.steerBack && !ledBack) {
+      lines.push(STEER_BACK_TEXT);
     }
     if (lines.length === 0) return none;
     return { decided: withLeadIn(decided, lines.join(" ")), bridgeServed, pointerServed };
@@ -6420,6 +6459,8 @@ interface UnderstandingOutcome {
   readonly bridge: { readonly reason: "filled" | "chat"; readonly noted: readonly string[] } | null;
   /** A page-owned fact was mentioned: the Profile-page pointer goes above the question. */
   readonly pointer: boolean;
+  /** #2379 — the question a side message left unanswered: the steer-back leads it when served again. */
+  readonly steerBack: string | null;
 }
 
 interface LeadIns {
@@ -6433,7 +6474,24 @@ function outcomeOf(
   applied: AppliedUnderstanding | null,
   bridge: UnderstandingOutcome["bridge"],
 ): UnderstandingOutcome {
-  return { out, applied, bridge, pointer: out.page_owned_mentions.length > 0 };
+  return { out, applied, bridge, pointer: out.page_owned_mentions.length > 0, steerBack: null };
+}
+
+/**
+ * #2379 — the lines above the question a side message left unanswered: what it told, acknowledged
+ * (the "filled" bridge line); else a reply to it (the "chat" line), unless the Profile-page pointer
+ * already answers it; then the steer-back into the same question.
+ */
+function sideMessageOutcome(
+  out: ProfilingTurnUnderstandOutput,
+  applied: AppliedUnderstanding,
+  noted: readonly string[],
+  questionKey: string,
+): UnderstandingOutcome {
+  const pointer = out.page_owned_mentions.length > 0;
+  const bridge: UnderstandingOutcome["bridge"] =
+    noted.length > 0 ? { reason: "filled", noted } : pointer ? null : { reason: "chat", noted: [] };
+  return { out, applied, bridge, pointer, steerBack: questionKey };
 }
 
 /** The four confidence buckets the free chat's events use. */
