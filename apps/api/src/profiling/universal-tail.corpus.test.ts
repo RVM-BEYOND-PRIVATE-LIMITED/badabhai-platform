@@ -233,9 +233,10 @@ describe("the Layer A tail, over the REAL corpus (qp_universal@4)", () => {
 
   it("asks the same twelve whether the tail is reached early or late", () => {
     for (const startTurn of [4, 6, 8, 12]) {
-      expect(walk(chatUniversal(4), startTurn, AFTER_PHASE_A), `entered at turn ${startTurn}`).toEqual(
-        V4_TAIL,
-      );
+      expect(
+        walk(chatUniversal(4), startTurn, AFTER_PHASE_A),
+        `entered at turn ${startTurn}`,
+      ).toEqual(V4_TAIL);
     }
   });
 
@@ -463,5 +464,53 @@ describe("travel first, km only on Haan, over the REAL corpus (qp_universal@6)",
     const keys = items.map((i) => i.question_key);
     expect(keys.indexOf("commute_max_km")).toBeLessThan(keys.indexOf("willing_to_travel"));
     expect(items[keys.indexOf("commute_max_km")]?.ask_if).toBeNull();
+  });
+});
+
+/**
+ * SECONDARY OCCUPATIONS OUT OF THE CHAT (qp_universal@7, owner ruling 2026-10-20). The
+ * 13-option `secondary_occupations` multi at the end of the tail read as a second trade
+ * interrogation after the profile was complete, so v7 removes that ONE item and nothing else:
+ * every other v6 item is byte-identical and v6 is deprecated in place. Pinned v6 sessions keep
+ * resolving through `loadPinned` (and their answers still land through the untouched
+ * `worker_occupation` write leg); the occupations page remains the capture surface.
+ */
+describe("no end-of-interview trade list, over the REAL corpus (qp_universal@7)", () => {
+  const TRAVEL_TRUE = { ...AFTER_PHASE_A, willing_to_travel: true };
+  const TRAVEL_FALSE = { ...AFTER_PHASE_A, willing_to_travel: false };
+
+  it("never serves secondary_occupations once Phase A has handed over", () => {
+    expect(walk(chatUniversal(7), 8, TRAVEL_TRUE)).not.toContain("secondary_occupations");
+    expect(walk(chatUniversal(7), 8, TRAVEL_FALSE)).not.toContain("secondary_occupations");
+    expect(walk(chatUniversal(7), 8, AFTER_PHASE_A)).not.toContain("secondary_occupations");
+  });
+
+  it("serves the v6 tail minus that one item — Haan on the travel gate", () => {
+    expect(walk(chatUniversal(7), 8, TRAVEL_TRUE)).toEqual([
+      "current_city",
+      "availability",
+      "languages",
+      "work_types",
+      "commute_max_km",
+      "notice_period_days",
+      "salary_period",
+    ]);
+  });
+
+  it("Nahi on the travel gate still skips the km — notice_period_days follows work_types", () => {
+    const asked = walk(chatUniversal(7), 8, TRAVEL_FALSE);
+    expect(asked).not.toContain("willing_to_travel");
+    expect(asked).not.toContain("commute_max_km");
+    expect(asked.indexOf("notice_period_days")).toBe(asked.indexOf("work_types") + 1);
+  });
+
+  it("never serves it on the model-less fallback path either", () => {
+    const asked = walk(chatUniversal(7), 1, {});
+    expect(asked).toContain("primary_trade");
+    expect(asked).not.toContain("secondary_occupations");
+  });
+
+  it("v6 sessions keep the trade list — a frozen version is not retold", () => {
+    expect(walk(chatUniversal(6), 8, TRAVEL_TRUE)).toContain("secondary_occupations");
   });
 });
