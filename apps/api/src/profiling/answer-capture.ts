@@ -108,6 +108,56 @@ const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> =
 };
 
 /**
+ * The availability chips' own durations, in days — the closed vocabulary `qp_universal` asks
+ * "Aap kaam kab se shuru kar sakte hain?" with (`derivedNoticeValues`).
+ */
+const AVAILABILITY_CHIP_NOTICE_DAYS: Readonly<Record<string, number>> = {
+  "15_days": 15,
+  "1_month": 30,
+};
+
+/**
+ * The notice days an availability answer carries with it, or an empty array.
+ *
+ * qp_universal@8 REMOVED the standalone `notice_period_days` number ("Aapko notice period kitne
+ * din ka lagta hai?") as a duplicate of the availability chips one question earlier — so the
+ * availability turn now writes the notice value BESIDE its own, through the exact write path the
+ * removed question had (`questionKey`/`targetField` `notice_period_days`, so the projector still
+ * lands a `worker_attributes` row and the registry aliases still settle the availability fact).
+ *
+ * A chip carries its duration in its value (`15_days` → 15); typed words go through the SAME
+ * availability parse (spans, blockers, negation vetoes) the status beside them just went through,
+ * so the number can never disagree with the status. `immediate`/`unknown` and a bare
+ * `notice_period` with no duration yield nothing — there is no second value to write.
+ *
+ * Runs for the on-screen turn AND for cross-question fill alike, with no branching: both call
+ * this same capture path, and the overwrite rule (`mayCommit`, owned by the orchestrator) keeps
+ * first claim wherever this did not ask the question.
+ */
+function derivedNoticeValues(
+  askedItem: QuestionPackItem,
+  text: string,
+  normalized: unknown,
+): CapturedValue[] {
+  if (askedItem.target_field !== "availability") return [];
+  const chipDays =
+    typeof normalized === "string" ? AVAILABILITY_CHIP_NOTICE_DAYS[normalized] : undefined;
+  const days = chipDays ?? parseAvailability(text)?.value.noticeDays ?? null;
+  if (days === null) return [];
+  return [
+    {
+      questionKey: "notice_period_days",
+      targetField: "notice_period_days",
+      valueRaw: text.trim(),
+      valueNormalized: days,
+      // Evidence is attached by the orchestrator, which is the only thing that knows the
+      // message's index in the transcript. A pure function has no transcript.
+      evidence: null,
+    },
+  ];
+}
+
+/**
  * #2233 — Field id → the BUSINESS bound a typed value must meet, applied after the field's parser.
  *
  * A parser reads what a value looks like; this decides whether it can be true. `training_year`'s
@@ -666,6 +716,10 @@ export function captureAnswer(
   // be unreachable code pretending to be a safety net. `mayCommit` is exported for the
   // ORCHESTRATOR's cross-question path, where a value detected in passing must not overwrite one
   // the worker already established.
+  //
+  // An availability answer carries its notice days with it (`derivedNoticeValues`) — the
+  // qp_universal@8 removal of the standalone notice question. The second value rides the same
+  // commit rule as the first: the orchestrator records every value this returns.
   return {
     turnClass,
     values: [
@@ -678,6 +732,7 @@ export function captureAnswer(
         // message's index in the transcript. A pure function has no transcript.
         evidence: null,
       },
+      ...derivedNoticeValues(askedItem, text, normalized),
     ],
     excludeFromParse: false,
     declined: false,

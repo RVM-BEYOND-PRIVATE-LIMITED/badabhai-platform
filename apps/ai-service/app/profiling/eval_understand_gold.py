@@ -83,7 +83,6 @@ SCHEMA: tuple[dict, ...] = (
         "kind": "boolean",
         "status": "missing",
     },
-    {"key": "notice_period_days", "label": "Notice (din)", "kind": "number", "status": "missing"},
     {
         "key": "salary_period",
         "label": "Salary kis hisaab se",
@@ -216,8 +215,7 @@ CASES: list[Case] = [
     Case("kal se join kar sakta hoon", ("answer",), AVAIL_Q,
          fills={"availability": ("Immediately",)}),
     Case("ek mahine baad", ("answer",), AVAIL_Q, fills={"availability": ("Within a month",)}),
-    Case("abhi notice pe hoon", ("answer",), AVAIL_Q, fills={"availability": ("Serving notice",)},
-         allowed={"notice_period_days": ()}),
+    Case("abhi notice pe hoon", ("answer",), AVAIL_Q, fills={"availability": ("Serving notice",)}),
     Case("haan ja sakta hoon", ("answer",), TRAVEL_Q, fills={"willing_to_travel": ("true",)}),
     Case("nahi, yahin rehna hai", ("answer",), TRAVEL_Q, fills={"willing_to_travel": ("false",)}),
     Case("10 km tak", ("answer",), COMMUTE_Q, fills={"commute_max_km": ("10",)}),
@@ -227,8 +225,11 @@ CASES: list[Case] = [
     Case("nahi, koi training nahi ki", ("answer",), TRAINING_Q, none=True),
     Case("turant, aur night shift bhi kar lunga", ("answer",), AVAIL_Q,
          fills={"availability": ("Immediately",)}, allowed_mentions=("shift",)),
+    # qp_universal@8 removed the standalone notice question as a duplicate of the
+    # availability chips, so the days ride the deterministic capture beside the status
+    # (`answer-capture.ts` `derivedNoticeValues`) — the model fills the status, never a count.
     Case("15 din ka notice hai", ("answer",), AVAIL_Q,
-         fills={"notice_period_days": ("15",)}, allowed={"availability": ("Serving notice",)}),
+         fills={"availability": ("Serving notice",)}),
     # ── "I have none" (#2328): true only for a real none to the question on screen ──
     Case("maine koi course nahi kiya bhai", ("answer", "statement"), TRAINING_Q, none=True),
     Case("training nahi li, seedha kaam pe lag gaya tha", ("answer", "statement"), TRAINING_Q,

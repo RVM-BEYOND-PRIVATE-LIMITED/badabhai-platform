@@ -3008,6 +3008,102 @@ describe("the interview overlay (Phase C)", () => {
     expect(rawOf(profiles).availability.status).toBe("unknown");
   });
 
+  it("lands the availability turn's notice days on the profile (qp_universal@8)", async () => {
+    // The standalone notice question is gone; the availability turn captures the days beside the
+    // status. The draft carries only the status string, so the days are overlaid from the answer
+    // map — without this they would reach `worker_attributes` and stop there.
+    const { proc, profiles } = make({
+      ...withMap({
+        answer_map: [
+          record(),
+          record({
+            question_key: "availability",
+            target_field: "availability",
+            value_raw: "Pandrah din mein",
+            value_normalized: "15_days",
+          }),
+          record({
+            question_key: "notice_period_days",
+            target_field: "notice_period_days",
+            value_raw: "Pandrah din mein",
+            value_normalized: 15,
+          }),
+        ],
+      }),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ availability: null }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).availability).toEqual({
+      status: "notice_period",
+      notice_period_days: 15,
+    });
+  });
+
+  it("never overwrites a day count the model already gave", async () => {
+    // The model's count wins where it spoke; the answer map fills only the gap it left.
+    const { proc, profiles } = make({
+      ...withMap({
+        answer_map: [
+          record(),
+          record({
+            question_key: "availability",
+            target_field: "availability",
+            value_raw: "Pandrah din mein",
+            value_normalized: "15_days",
+          }),
+          record({
+            question_key: "notice_period_days",
+            target_field: "notice_period_days",
+            value_raw: "Pandrah din mein",
+            value_normalized: 15,
+          }),
+        ],
+      }),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ availability: "1_month" }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).availability).toEqual({
+      status: "notice_period",
+      notice_period_days: 30,
+    });
+  });
+
+  it("leaves a non-notice availability alone even when a stale days record exists", async () => {
+    // First-write-wins can leave a days record behind a status it no longer belongs to (a
+    // correction re-answered the availability). Days print only under `notice_period`.
+    const { proc, profiles } = make({
+      ...withMap({
+        answer_map: [
+          record(),
+          record({
+            question_key: "availability",
+            target_field: "availability",
+            value_raw: "Abhi turant",
+            value_normalized: "immediate",
+          }),
+          record({
+            question_key: "notice_period_days",
+            target_field: "notice_period_days",
+            value_raw: "Pandrah din mein",
+            value_normalized: 15,
+          }),
+        ],
+      }),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ availability: null }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).availability).toEqual({
+      status: "immediate",
+      notice_period_days: null,
+    });
+  });
+
   it("fills a gap the deterministic map left empty", async () => {
     // Unchanged by the precedence reversal — with nothing on the answer map to outrank, both
     // rules agree here. Kept because it pins the fallback direction independently of `preferModel`.

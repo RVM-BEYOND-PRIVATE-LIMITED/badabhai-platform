@@ -514,3 +514,50 @@ describe("no end-of-interview trade list, over the REAL corpus (qp_universal@7)"
     expect(walk(chatUniversal(6), 8, TRAVEL_TRUE)).toContain("secondary_occupations");
   });
 });
+
+/**
+ * NOTICE-PERIOD NUMBER OUT OF THE CHAT (qp_universal@8, owner ruling 2026-10-20). The
+ * `notice_period_days` number duplicated the `availability` chips one question later, so v8
+ * removes that ONE item and nothing else: every other v7 item is byte-identical and v7 is
+ * deprecated in place. Pinned v4–v7 sessions keep resolving through `loadPinned` (and their
+ * notice answers still settle the availability fact through the untouched registry aliases);
+ * the days now ride the availability answer itself (`answer-capture.ts` `derivedNoticeValues`).
+ */
+describe("no duplicate notice question, over the REAL corpus (qp_universal@8)", () => {
+  const TRAVEL_TRUE = { ...AFTER_PHASE_A, willing_to_travel: true };
+  const TRAVEL_FALSE = { ...AFTER_PHASE_A, willing_to_travel: false };
+
+  it("never serves notice_period_days once Phase A has handed over", () => {
+    expect(walk(chatUniversal(8), 8, TRAVEL_TRUE)).not.toContain("notice_period_days");
+    expect(walk(chatUniversal(8), 8, TRAVEL_FALSE)).not.toContain("notice_period_days");
+    expect(walk(chatUniversal(8), 8, AFTER_PHASE_A)).not.toContain("notice_period_days");
+  });
+
+  it("serves the v7 tail minus that one item — Haan on the travel gate", () => {
+    expect(walk(chatUniversal(8), 8, TRAVEL_TRUE)).toEqual([
+      "current_city",
+      "availability",
+      "languages",
+      "work_types",
+      "commute_max_km",
+      "salary_period",
+    ]);
+  });
+
+  it("Nahi on the travel gate still skips the km — salary_period follows work_types", () => {
+    const asked = walk(chatUniversal(8), 8, TRAVEL_FALSE);
+    expect(asked).not.toContain("willing_to_travel");
+    expect(asked).not.toContain("commute_max_km");
+    expect(asked.indexOf("salary_period")).toBe(asked.indexOf("work_types") + 1);
+  });
+
+  it("never serves it on the model-less fallback path either", () => {
+    const asked = walk(chatUniversal(8), 1, {});
+    expect(asked).toContain("primary_trade");
+    expect(asked).not.toContain("notice_period_days");
+  });
+
+  it("v7 sessions keep the notice question — a frozen version is not retold", () => {
+    expect(walk(chatUniversal(7), 8, TRAVEL_TRUE)).toContain("notice_period_days");
+  });
+});

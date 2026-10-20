@@ -157,6 +157,91 @@ describe("normalization runs at CAPTURE time, per target field", () => {
   });
 });
 
+describe("the availability answer carries its notice days (qp_universal@8)", () => {
+  // The removed `notice_period_days` number duplicated these chips one question later, so the
+  // availability turn now writes the notice value beside its own — same questionKey/targetField
+  // the removed question wrote, so the projector and the registry aliases keep working.
+  const AVAIL_CHIPS = item({
+    question_key: "q_avail",
+    target_field: "availability",
+    answer_type: "single_select",
+    options: [
+      {
+        option_key: "immediate",
+        label_text: "Abhi turant",
+        value: "immediate",
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "fifteen_days",
+        label_text: "Pandrah din mein",
+        value: "15_days",
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "one_month",
+        label_text: "Ek mahine mein",
+        value: "1_month",
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "not_sure",
+        label_text: "Abhi pata nahi",
+        value: "unknown",
+        implies_skill_id: null,
+        is_none_of_above: true,
+      },
+    ],
+  });
+
+  it("writes a notice value beside a duration chip", () => {
+    const capture = captureAnswer("Pandrah din mein", AVAIL_CHIPS);
+    expect(capture.values).toHaveLength(2);
+    expect(capture.values[0]).toMatchObject({
+      questionKey: "q_avail",
+      targetField: "availability",
+      valueNormalized: "15_days",
+    });
+    expect(capture.values[1]).toMatchObject({
+      questionKey: "notice_period_days",
+      targetField: "notice_period_days",
+      valueNormalized: 15,
+    });
+  });
+
+  it("writes 30 days beside the month chip and none beside immediate", () => {
+    const month = captureAnswer("Ek mahine mein", AVAIL_CHIPS);
+    expect(month.values).toHaveLength(2);
+    expect(month.values[1]).toMatchObject({
+      questionKey: "notice_period_days",
+      valueNormalized: 30,
+    });
+    expect(captureAnswer("Abhi turant", AVAIL_CHIPS).values).toHaveLength(1);
+  });
+
+  it("reads typed durations through the same availability parse as the status", () => {
+    const capture = captureAnswer("15 din ka notice hai", AVAIL);
+    expect(capture.values).toHaveLength(2);
+    expect(capture.values[0]).toMatchObject({ valueNormalized: "notice_period" });
+    expect(capture.values[1]).toMatchObject({
+      questionKey: "notice_period_days",
+      targetField: "notice_period_days",
+      valueNormalized: 15,
+    });
+  });
+
+  it("writes no second value when the answer carries no duration", () => {
+    expect(captureAnswer("abhi join kar sakta hun", AVAIL).values).toHaveLength(1);
+  });
+
+  it("a negated duration writes nothing at all — the veto covers both values", () => {
+    expect(captureAnswer("15 din nahi lagenge", AVAIL_CHIPS).values).toHaveLength(0);
+  });
+});
+
 describe("the negation veto — a value found and then refused is NOT an answer", () => {
   it("refuses a negated city, availability and relocation", () => {
     // "abhi kaam nahi mil raha" must never become availability: immediate, and "pune nahi
