@@ -92,6 +92,7 @@ const IDENTITY_REPLY =
 function makeWorld(
   opts: {
     identity?: typeof LINE | null;
+    pending?: { importId: string; suggestions: ReadonlyMap<string, unknown> } | null;
     route?: { route: string | null; formKind: string | null } | null;
     seed?: Partial<ProfilingEnvelope>;
     /** The BUFFER's turn counter — NOT the envelope's, which has no such field. */
@@ -147,7 +148,7 @@ function makeWorld(
     take: vi.fn(async () => null),
   };
   const resume = {
-    pendingForChat: vi.fn(async () => null),
+    pendingForChat: vi.fn(async () => opts.pending ?? null),
     forImport: vi.fn(async () => new Map()),
     identityForChat: vi.fn(async () => opts.identity ?? null),
     routeForImport: vi.fn(async () => opts.route ?? null),
@@ -435,6 +436,63 @@ describe("the résumé identity turn (RI-identity)", () => {
     // line under the old id would have applied the previous document's mapping.
     expect(autofill.applyOnHaan).toHaveBeenCalledWith(WORKER, NEW_IMPORT, expect.anything());
     expect(haan.kind).toBe("close");
+  });
+
+  it("#2366 — the opening bubble lists every parsed fact and the Haan still settles identity", async () => {
+    const { orchestrator, store } = makeWorld({
+      identity: LINE,
+      pending: {
+        importId: IMPORT,
+        suggestions: new Map([
+          [
+            "primary_trade",
+            {
+              values: { option_keys: [], text: "CNC Turner", number: null, bool: null },
+              source: "resume",
+              confidence: 0.9,
+            },
+          ],
+        ]),
+      },
+    });
+    const result = await orchestrator.openResumeConfirm(open());
+
+    expect(result).not.toBeNull();
+    // ALL parsed information on landing: the identity line plus the confirmable trade fact.
+    expect(result!.reply).toBe(
+      "Resume se ye mila: CNC Grinding Operator, 2 saal 7 mahine ka tajurba. " +
+        "CNC cylindrical grinder par kaam CNC Turner Kya ye aap hi hain?",
+    );
+    // The question and chips stay the identity turn's, so its handling is untouched.
+    expect(result!.options).toEqual([...RESUME_IDENTITY_OPTIONS]);
+    expect(store.get(SESSION)!.messages[0]!.text).toBe(result!.reply);
+
+    const continued = await orchestrator.takeTurn(say("resume_identity_yes"));
+    expect(saved(store)?.resumeIdentity?.state).toBe("settled");
+    expect(continued.questionKey).toBe("primary_trade");
+  });
+
+  it("#2366 — facts from another import are never listed on this bubble", async () => {
+    const { orchestrator } = makeWorld({
+      identity: LINE,
+      pending: {
+        importId: NEW_IMPORT,
+        suggestions: new Map([
+          [
+            "primary_trade",
+            {
+              values: { option_keys: [], text: "CNC Turner", number: null, bool: null },
+              source: "resume",
+              confidence: 0.9,
+            },
+          ],
+        ]),
+      },
+    });
+    const result = await orchestrator.openResumeConfirm(open());
+
+    expect(result).not.toBeNull();
+    expect(result!.reply).toBe(IDENTITY_REPLY);
   });
 });
 

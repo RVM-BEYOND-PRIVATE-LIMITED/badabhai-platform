@@ -180,6 +180,7 @@ import {
   confirmOf,
   confirmTurnFields,
   essentialsOf,
+  identityFactsFor,
   identityTurnFields,
   importOpening,
   onSkillsLane,
@@ -1238,7 +1239,13 @@ export class ProfilingOrchestrator {
         const line = await this.resolveResumeIdentity(input.workerId);
         if (line && line.importId === envelope.resumeIdentity.importId) {
           // RE-SERVE ONLY — no write, no ask. Same rule as the confirm re-serve below.
-          return identityTurnFields(line, items, answers, progressItems, true);
+          // #2366 — the re-served bubble lists the same facts the opening served, resolved
+          // fresh so a settled answer never reappears on a redraw.
+          const facts = identityFactsFor(
+            line,
+            await this.resolveResumeConfirm(input.workerId, items, answers),
+          );
+          return identityTurnFields(line, items, answers, progressItems, true, facts);
         }
       }
 
@@ -1272,7 +1279,16 @@ export class ProfilingOrchestrator {
         const line = await this.resolveResumeIdentity(input.workerId);
         const alreadyHandled = line !== null && envelope.resumeIdentity?.importId === line.importId;
         if (line && !alreadyHandled) {
-          const reply = identityPrompt(line);
+          // #2366 — the opening bubble lists every confirmable fact from the SAME import
+          // alongside the identity line, so the worker sees all parsed information on landing.
+          const facts = identityFactsFor(
+            line,
+            await this.resolveResumeConfirm(input.workerId, items, answers),
+          );
+          const reply = identityPrompt(
+            line,
+            facts.map((fact) => fact.display),
+          );
           const next: ProfilingEnvelope = stampUniversalPointer(
             {
               ...envelope,
@@ -1302,7 +1318,7 @@ export class ProfilingOrchestrator {
           if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
             await this.persistPin(envelope, next, input);
             await this.recordFreeChatOpenEntry(envelope, next, input);
-            return identityTurnFields(line, items, answers, progressItems, false);
+            return identityTurnFields(line, items, answers, progressItems, false, facts);
           }
           this.logger.log(
             `CAS lost opening session=${input.sessionId} rev=${envelope.rev} ` +
@@ -3593,11 +3609,17 @@ export class ProfilingOrchestrator {
           servedQuestionKey: null,
           clarifyCount: 0,
         };
+        // #2366 — same enrichment as the open path: every confirmable fact from the SAME
+        // import is listed on the "is this you?" bubble.
+        const facts = identityFactsFor(
+          line,
+          await this.resolveResumeConfirm(input.workerId, items, answers),
+        );
         return this.turn(
           buffer,
           next,
           input,
-          identityTurnFields(line, items, answers, progressItems, false),
+          identityTurnFields(line, items, answers, progressItems, false, facts),
         );
       }
 
