@@ -1,0 +1,19 @@
+profiling turn understanding ΓÇö 55 cases
+intent accuracy: 52/55 = 94.5% (bar >= 90%)
+fill precision: 26/27 = 96.3% (bar >= 95%); fill recall 23/26 (reported, not gated)
+edits exact: 53/55 (reported, not gated)
+keys outside the schema: 0; false-positive deletes: 0; false-positive 'none' over a free-text question: 1 (bar: 0, 0 and 0)
+'none' reading: 52/53; missed 0, stray 0 (reported, not gated)
+calls: 55 sent, 55 answered by the model, 0 failed, 0 mock answers, 2 slower than the API timeout; spend INR 11.67 (router estimate)
+models: claude-haiku-4-5 (55); 0 served by a fallback model
+pace: 1500 ms between requests (55 requests)
+latency, round trip to the ai-service: p50 3511 ms, p95 3930 ms; model call only: p50 1400 ms, p95 1811 ms (excludes the API hop and validator, and a career turn's classify call)
+  OVER API TIMEOUT 'CNC turner hoon, paanch saal ka experience, Delhi ya Delh...': 9706 ms
+  OVER API TIMEOUT 'welding skill hata do': 4156 ms
+  MISS 'CNC turner hoon, paanch saal ka experience, Delhi ya Delhi se bahar bhi chalega': no answer
+  MISS 'turant, aur night shift bhi kar lunga': wrong fill willing_to_travel='true'
+  MISS 'yaad nahi kaunsi training thi': none true over a real answer
+  MISS 'experience 5 nahi 6 saal hai, aur roz 15 km tak aa sakta hoon': intent statement (expected edit)
+  MISS 'welding skill hata do': no answer
+  FAIL false-positive 'none' over a free-text question: ["'yaad nahi kaunsi training thi'"]
+RESULT: FAIL
