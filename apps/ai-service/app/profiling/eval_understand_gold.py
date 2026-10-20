@@ -212,8 +212,9 @@ CASES: list[Case] = [
     Case("main CNC turner hoon", ("statement", "answer"), MODEL_Q,
          fills={"primary_trade": TURNER}, overrides=FRESH),
     # ── answers to the question on screen ──
+    # Owner ruling 2026-10-20 (#2306 eval review): "kal se" reads as within a week.
     Case("kal se join kar sakta hoon", ("answer",), AVAIL_Q,
-         fills={"availability": ("Immediately",)}),
+         fills={"availability": ("Within a week",)}),
     Case("ek mahine baad", ("answer",), AVAIL_Q, fills={"availability": ("Within a month",)}),
     Case("abhi notice pe hoon", ("answer",), AVAIL_Q, fills={"availability": ("Serving notice",)}),
     Case("haan ja sakta hoon", ("answer",), TRAVEL_Q, fills={"willing_to_travel": ("true",)}),

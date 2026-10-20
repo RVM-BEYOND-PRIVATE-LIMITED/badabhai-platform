@@ -30,23 +30,28 @@ Reply with JSON only:
  "page_owned_mentions": ["<name from PAGE_OWNED>"],
  "on_screen_none": true or false}
 
-INTENT, what the message is mainly doing:
-- "answer": it answers the QUESTION ON SCREEN.
+ INTENT, what the message is mainly doing:
+- "answer": it answers the QUESTION ON SCREEN, including refusing it ("mujhe isme interest nahi \
+hai" to a training question is an answer, not chat).
 - "statement": it tells something about the worker (trade, experience, city, skills, jobs, \
 languages) without answering the question on screen, for example a reply to "kaise ho?" that \
-says "badhiya, 5 saal se welding kar raha hun".
+says "badhiya, 5 saal se welding kar raha hun". A short message that states where the worker \
+lives is a statement too ("Mumbai mein hi rehta hoon"), never small talk.
 - "edit": it says a value that is ALREADY FILLED is wrong, or asks to change it ("experience 5 \
 nahi 2 saal hai", "city galat hai").
 - "delete": it asks to remove a value that is already filled ("welding skill hata do").
 - "progress": it asks how much of the interview is left or when it ends ("aur kitna bacha hai", \
 "kab khatam hoga").
 - "chat": anything else conversational: a greeting, thanks, a question about jobs or money, \
-small talk.
+small talk. Refusing the question on screen, or stating a fact about the worker, is never chat.
 - "unclear": you cannot tell.
 "confidence" is how sure you are of the intent.
 
-FILLS, every value the message states for a field, whatever question is on screen:
+ FILLS, every value the message states for a field, whatever question is on screen:
 - Use only keys from SCHEMA. Fill a field the message states even when it is not the one asked.
+- Fill ONLY what the message states. A field the message never mentions gets no fill and no \
+edit, even when it feels related - when in doubt, leave it out. Night shift says nothing about \
+travel, so "turant, aur night shift bhi kar lunga" fills availability only.
 - A field whose status is "answered" and whose value the message now states DIFFERENTLY is an \
 EDIT, not a fill. The same value again is nothing.
 - A "list" field (skills, jobs) takes one fill per NEW entry. An entry it already has is nothing.
@@ -54,9 +59,16 @@ EDIT, not a fill. The same value again is nothing.
 in that order, separated by ";" ("Fitter; 3 saal; machine assembly"). Leave a part empty when \
 the worker did not say it ("Fitter; 3 saal;"). NEVER write an employer's or company's name in it.
 - A statement about the worker's work is a FILL, never an edit: "main welder hoon" fills the \
-trade. It is an edit only when the worker says an earlier answer was wrong or asks to change it.
+trade. It is an edit only when the worker says an earlier answer was wrong or asks to change it - \
+an "X nahi Y" correction ("5 nahi 6 saal") is always that edit, never a fill.
+- Never fill "willing_to_travel" unless the message mentions travel, going to another city, or \
+staying local. Never fill "availability" from shift words alone ("night shift chahiye" states no \
+timing).
 
-EDITS, only for a field that already HAS a value (status "answered", or a list with entries):
+ EDITS, only for a field that already HAS a value (status "answered", or a list with entries):
+- An "X nahi Y" correction ("5 nahi 6 saal") is ALWAYS an edit of that field (when it \
+already has a value), even when the message also states other facts. This is the one exception \
+to "a statement about the worker's work is a fill, never an edit".
 - "edit" with the new "value" when the worker gives it; "edit" with "value": null when they only \
 say it is wrong ("experience galat hai").
 - "delete" with "value": null when they ask to remove it.
@@ -82,7 +94,9 @@ one about certificates), OR says the question does not apply to them or they do 
 ("main driver hoon, yeh mera kaam nahi", "mujhe isme interest nahi hai", "yeh sawaal chhodo"). \
 Then fill nothing FOR THAT QUESTION - a value the message states for a DIFFERENT field is still \
 a fill ("main driver hoon" fills the trade). It is false for any real answer ("ITI se welding ka \
-course"), for "pata nahi", for a side message, and whenever no question is on screen.
+course"), for "pata nahi", for not remembering ("yaad nahi kaunsi training thi"), for a side \
+message, and whenever no question is on screen. Only a real "none of it" ("koi course nahi \
+kiya") or a refusal ("interest nahi hai") is true.
 
 Example. SCHEMA has primary_trade (empty), experience_years (empty), willing_to_travel (empty); \
 PAGE_OWNED has preferred_cities. Message: "CNC turner hoon, paanch saal ka experience, Delhi ya \
