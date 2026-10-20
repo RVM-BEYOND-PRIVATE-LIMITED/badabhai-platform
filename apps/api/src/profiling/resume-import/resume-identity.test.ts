@@ -33,6 +33,37 @@ describe("resume-identity — the approved Hinglish bubble and its two chips", (
     ).toBe("Resume se ye mila. CNC cylindrical grinder par kaam Kya ye aap hi hain?");
   });
 
+  it("#2366 — lists every confirmable fact ahead of the question", () => {
+    expect(
+      identityPrompt(
+        {
+          importId: "import-1",
+          roleKind: "cnc_grinding",
+          experienceText: "2 saal 7 mahine ka tajurba",
+          summaryText: "CNC cylindrical grinder par kaam",
+        },
+        ["Pune", "ITI / Diploma"],
+      ),
+    ).toBe(
+      "Resume se ye mila: CNC Grinding Operator, 2 saal 7 mahine ka tajurba. " +
+        "CNC cylindrical grinder par kaam Pune · ITI / Diploma Kya ye aap hi hain?",
+    );
+  });
+
+  it("#2366 — no facts reads byte-for-byte the approved copy, blanks dropped", () => {
+    const base = {
+      importId: "import-1",
+      roleKind: null,
+      experienceText: null,
+      summaryText: null,
+    } as const;
+    expect(identityPrompt({ ...base })).toBe("Resume se ye mila. Kya ye aap hi hain?");
+    expect(identityPrompt({ ...base }, [])).toBe("Resume se ye mila. Kya ye aap hi hain?");
+    expect(identityPrompt({ ...base }, ["  ", "Pune"])).toBe(
+      "Resume se ye mila. Pune Kya ye aap hi hain?",
+    );
+  });
+
   it("resolves the role through the registry, never the raw kind id", () => {
     expect(roleDisplay("welder")).toBe("Welder");
     expect(roleDisplay("bus_driver")).toBeNull();

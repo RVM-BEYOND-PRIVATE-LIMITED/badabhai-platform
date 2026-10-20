@@ -39,8 +39,20 @@ export interface IdentitySummary {
  * [tajurba]. [summary]. Kya ye aap hi hain?" Null parts are omitted, never
  * printed as "null" — a missing judgment reads as a shorter bubble, not as a
  * database token on the worker's screen.
+ *
+ * #2366 — the bubble also lists every confirmable résumé fact (city, experience,
+ * education, salary, availability, …) as a ` · `-separated list ahead of the
+ * question, so the worker sees ALL parsed information on landing instead of only
+ * role/experience/summary. The facts arrive as reviewed server copy — each entry
+ * is the `display` string `confirmableFacts` resolved (an option's own label, or
+ * the value as printed, never a stored token), the same words the batch-confirm
+ * would have shown. Empty/blank entries are dropped; with no facts the bubble is
+ * byte-for-byte the approved copy above.
  */
-export function identityPrompt(summary: IdentitySummary): string {
+export function identityPrompt(
+  summary: IdentitySummary,
+  factDisplays: readonly string[] = [],
+): string {
   const seen = [roleDisplay(summary.roleKind), summary.experienceText].filter(
     (part): part is string => typeof part === "string" && part.trim().length > 0,
   );
@@ -49,7 +61,11 @@ export function identityPrompt(summary: IdentitySummary): string {
     typeof summary.summaryText === "string" && summary.summaryText.trim().length > 0
       ? ` ${summary.summaryText.trim()}`
       : "";
-  return `${head}${body} Kya ye aap hi hain?`;
+  const facts = factDisplays.filter(
+    (fact): fact is string => typeof fact === "string" && fact.trim().length > 0,
+  );
+  const factsPart = facts.length > 0 ? ` ${facts.map((fact) => fact.trim()).join(" · ")}` : "";
+  return `${head}${body}${factsPart} Kya ye aap hi hain?`;
 }
 
 /**

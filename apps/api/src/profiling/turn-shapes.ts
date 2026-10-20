@@ -260,6 +260,13 @@ export function confirmOf(
  * of this literal is how a re-serve would one day disagree with the offer about what
  * "is this you?" says. `ask`, not a new kind (`TURN_KINDS` is pinned to what shipped
  * clients render), `single_select` with the two reviewed chips.
+ *
+ * #2366 — `facts` are the same `confirmableFacts` the batch-confirm would have served
+ * (same import, resolved against the same pack and answers), rendered through
+ * `identityPrompt` ahead of the "Kya ye aap hi hain?" question. The chips and the
+ * question stay the identity turn's — only the listed information grows, so the Haan/Nahi
+ * handling is untouched. Empty by default, so a caller with nothing to confirm serves
+ * byte-for-byte the old bubble.
  */
 export function identityTurnFields(
   line: IdentitySummary,
@@ -267,9 +274,13 @@ export function identityTurnFields(
   answers: AnswerMap,
   progressItems: readonly QuestionPackItem[],
   replayed: boolean,
+  facts: readonly ResumeConfirmFact[] = [],
 ): TurnResult {
   return {
-    reply: identityPrompt(line),
+    reply: identityPrompt(
+      line,
+      facts.map((fact) => fact.display),
+    ),
     kind: "ask",
     questionKey: null,
     options: [...RESUME_IDENTITY_OPTIONS],
@@ -284,6 +295,22 @@ export function identityTurnFields(
     unavailable: false,
     checkpointDue: false,
   };
+}
+
+/**
+ * The confirmable facts that belong on an identity bubble (#2366).
+ *
+ * SAME IMPORT ONLY: the Haan autofills (and labels `resume_upload` for) the identity
+ * line's import, so facts staged under any other import must never be listed on its
+ * bubble. A `null` pending, an id mismatch, or an empty fact list all read as "no facts"
+ * and the caller serves the short bubble exactly as before.
+ */
+export function identityFactsFor(
+  line: IdentitySummary,
+  pending: { importId: string; facts: ResumeConfirmFact[] } | null,
+): readonly ResumeConfirmFact[] {
+  if (!pending || pending.importId !== line.importId) return [];
+  return pending.facts;
 }
 
 /**
@@ -346,6 +373,10 @@ export interface ImportOpening {
  * `base` is the envelope the turn is written from, any mode stamp already applied. The confirm is
  * read only when no identity turn is served and `resumeConfirm` is still null, exactly as both copies read
  * it, so a caller's memoised reads are spent no more often than before.
+ *
+ * #2366 — when an identity turn IS served, the pending import is still read (once) to enrich
+ * its bubble with every confirmable fact from the SAME import. The batch-confirm precedence
+ * is unchanged: the confirm branch still runs only when no identity turn is served.
  */
 export async function importOpening(
   base: ProfilingEnvelope,
@@ -356,6 +387,12 @@ export async function importOpening(
   const answers = answersOf(base);
   const line = await reads.identity();
   if (line !== null && base.resumeIdentity?.importId !== line.importId) {
+    // #2366 — the facts the batch-confirm would have listed, same import only
+    // (`identityFactsFor` drops any other import's facts). Read here so the "is this
+    // you?" bubble lists ALL parsed information on landing; the confirm branch below
+    // still owns the batch-confirm turn itself.
+    const pending = confirmOf(await reads.pendingImport(), items, answers);
+    const facts = identityFactsFor(line, pending);
     return {
       envelope: {
         ...base,
@@ -364,7 +401,7 @@ export async function importOpening(
         servedQuestionKey: null,
         clarifyCount: 0,
       },
-      fields: identityTurnFields(line, items, answers, progressItems, false),
+      fields: identityTurnFields(line, items, answers, progressItems, false, facts),
     };
   }
   if (base.resumeConfirm === null) {
