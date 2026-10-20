@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
     show ChatOption, ChatQuestionKind;
+import 'package:badabhai_worker_app/core/config/remote_config.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
@@ -15,6 +18,11 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.da
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_document.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_document_picker.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_importer.dart';
+import 'package:badabhai_worker_app/features/resume_import/domain/resume_upload_intent.dart';
+import 'package:badabhai_worker_app/features/resume_import/presentation/resume_upload_screen.dart';
 import 'package:badabhai_worker_app/core/widgets/onboarding/selection_cards.dart';
 import 'package:badabhai_worker_app/router.dart';
 
@@ -32,6 +40,22 @@ import 'package:badabhai_worker_app/router.dart';
 ///        (never submitted) until its own walk lands;
 ///      - `resume_chat_create` mints a NEW session and resets the transcript.
 class MockChatRepository extends Mock implements ChatRepository {}
+
+class _FakePicker implements ResumeDocumentPicker {
+  @override
+  Future<ResumePickResult> pickResume() async => ResumePickResult.picked(
+        PickedResumeDocument(
+          kind: ResumeDocumentKind.pdf,
+          bytes: Uint8List(1024),
+        ),
+      );
+}
+
+class _FakeImporter implements ResumeImporter {
+  @override
+  Future<ResumeImportOutcome> importResume(PickedResumeDocument document) async =>
+      const ResumeImportRoutedToChat();
+}
 
 const String _rootReply = 'Aap kya karna chahte hain. Neeche se chunein.';
 const String _redoReply = 'Naya resume kaise banana chahte hain. Neeche se chunein.';
@@ -140,7 +164,12 @@ void main() {
   group('ChatProfilingScreen menu routing (#1566)', () {
     late MockChatRepository repo;
 
+    /// What the upload route was pushed with — the marker decides whether the
+    /// screen asks again and where a completed import lands.
+    Object? uploadExtra;
+
     setUp(() async {
+      uploadExtra = null;
       repo = MockChatRepository();
       await locator.reset();
       locator.registerFactory<ChatBloc>(() => ChatBloc(repo));
@@ -160,9 +189,12 @@ void main() {
             ),
             GoRoute(
               path: Routes.resumeUpload,
-              builder: (_, __) => const Scaffold(
-                body: Center(child: Text('UPLOAD TARGET')),
-              ),
+              builder: (_, GoRouterState state) {
+                uploadExtra = state.extra;
+                return const Scaffold(
+                  body: Center(child: Text('UPLOAD TARGET')),
+                );
+              },
             ),
             GoRoute(
               path: Routes.resumeEdit,
@@ -248,6 +280,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('UPLOAD TARGET'), findsOneWidget);
+      // Not the name-intake prompt (its client-only `no_resume` chip is absent
+      // here), so the screen must auto-open the picker instead of drawing the
+      // doors a second time — and must pop back to this tab, not `go` to it.
+      expect(uploadExtra, isA<ResumeUploadChatIntent>());
+      expect(uploadExtra, isNot(isA<ResumeUploadAutoIntent>()));
       verifyNever(() => repo.sendMessage('Resume upload karein',
           submissionId: any(named: 'submissionId')));
     });
@@ -362,6 +399,91 @@ void main() {
           reason: 'the ended session\'s menu must not survive the new session');
       verifyNever(() => repo.sendMessage('Chat se resume banayein',
           submissionId: any(named: 'submissionId')));
+    });
+
+    // The upload was PUSHED on this tab, so returning to it does not change
+    // `TabFocus` and `_CompanionRefocus` never runs. The screen pops (never
+    // `go`), and the chat's push continuation must do what a refocus would:
+    // re-read the companion so the parsed-résumé turn shows on the same visit.
+    testWidgets('a returned upload shows the parsed resume as a chat message', (
+      WidgetTester tester,
+    ) async {
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
+        BbRemoteConfig.kKeyChatCompanionEnabled: true,
+      });
+      addTearDown(BbRemoteConfig.instance.debugReset);
+
+      const ChatTurn recap = ChatTurn(
+        reply: 'Aapka resume tayyar hai.',
+        suggestedOptions: <ChatOption>[
+          ChatOption(
+            optionKey: kResumeMenuUploadKey,
+            labelText: 'Resume upload karein',
+          ),
+        ],
+        questionKind: ChatQuestionKind.disambiguate,
+        companion: true,
+        digestKey: 'k1',
+      );
+      when(() => repo.openCompanion()).thenAnswer(
+        (_) async => const CompanionOpening(
+          CompanionOpenOutcome.companion,
+          recap,
+        ),
+      );
+      when(() => repo.reopenSessionForResumeImport()).thenAnswer(
+        (_) async => const ChatSessionOpening(
+          text: 'Resume se ye mila: Fitter, 3 saal. Kya ye aap hi hain?',
+          resumePending: true,
+        ),
+      );
+      locator.registerLazySingleton<ResumeDocumentPicker>(_FakePicker.new);
+      locator.registerLazySingleton<ResumeImporter>(_FakeImporter.new);
+
+      final GoRouter router = GoRouter(
+        initialLocation: Routes.badaBhai,
+        routes: <RouteBase>[
+          GoRoute(
+            path: Routes.badaBhai,
+            builder: (_, __) => const ChatProfilingScreen(assistantTab: true),
+          ),
+          GoRoute(
+            path: Routes.resumeUpload,
+            builder: (_, GoRouterState state) => ResumeUploadScreen(
+              autoUpload: state.extra is ResumeUploadAutoIntent,
+              directUpload: state.extra is ResumeUploadDirectIntent,
+              chatMenuUpload: state.extra is ResumeUploadChatIntent,
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+      expect(find.text('Resume upload karein'), findsOneWidget);
+
+      await tester.tap(find.text('Resume upload karein'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ChatProfilingScreen), findsOneWidget);
+      expect(find.byType(ResumeUploadScreen), findsNothing);
+      expect(
+        router.routerDelegate.currentConfiguration.lastOrNull?.matchedLocation,
+        Routes.badaBhai,
+      );
+      // The parsed-résumé confirm is now the chat's message, on the SAME visit.
+      expect(
+        find.text('Resume se ye mila: Fitter, 3 saal. Kya ye aap hi hain?'),
+        findsOneWidget,
+      );
+      // Served by POST /chat/session, not by the client-side resume shortcut
+      // that would have redrawn the old, ended session.
+      verify(() => repo.reopenSessionForResumeImport()).called(1);
     });
   });
 }

@@ -151,6 +151,17 @@ abstract interface class ChatRepository {
   /// exactly like an ordinary open.
   Future<ChatSessionOpening?> startNewSession();
 
+  /// Re-open the worker's chat session WITHOUT the client-side resume
+  /// shortcut, so `POST /chat/session` serves the parsed-résumé confirm a
+  /// just-finished import staged (`confirm_first`).
+  ///
+  /// [ensureSession] first asks for the latest session and, finding one,
+  /// returns no opening — correct for a cold reattach, wrong here: the confirm
+  /// lives on the server's open/reattach response, and the tab would otherwise
+  /// redraw the OLD ended session with no parsed data. Never `startNewSession`
+  /// either: that mints a redo, which is a different product action.
+  Future<ChatSessionOpening?> reopenSessionForResumeImport();
+
   /// Forget the cached interview session id, so the next [ensureSession] asks
   /// the server for the worker's latest session instead of reusing it.
   ///

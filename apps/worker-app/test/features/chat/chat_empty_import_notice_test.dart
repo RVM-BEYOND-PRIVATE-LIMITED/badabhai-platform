@@ -3,8 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 
@@ -88,6 +90,57 @@ void main() {
       fromResumeImport: false,
       opening: const ChatSessionOpening(text: 'Aapka naam kya hai?'),
     );
+
+    expect(find.textContaining(_kEmptyLine), findsNothing);
+  });
+
+  // #2365 — an upload can reattach the worker's FINISHED session through
+  // `GET /session/latest`, which cannot carry `resume_pending`. The absence of
+  // that turn is NOT evidence the import failed: the session was already over
+  // and its ending marker arrives with the redrawn transcript.
+  testWidgets('a reattached FINISHED session is never told the import failed', (
+    WidgetTester tester,
+  ) async {
+    await locator.reset();
+    final ChatBloc bloc = ChatBloc(repo);
+    locator.registerFactory<ChatBloc>(() => bloc);
+    when(() => repo.ensureSession()).thenAnswer((_) async => null);
+    when(() => repo.loadHistory()).thenAnswer(
+      (_) async => const <ChatMessage>[
+        ChatMessage(
+          text: 'Resume tayyar hai.',
+          fromWorker: false,
+          closesSession: true,
+        ),
+      ],
+    );
+    // Open first: the transcript redraw settles the ended marker.
+    bloc.add(const ChatStarted());
+    await bloc.stream.firstWhere(
+      (ChatState state) => state.sessionEndedAfterIndex != null,
+    );
+    expect(bloc.state.sessionEndedAfterIndex, isNotNull);
+
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatProfilingScreen(fromResumeImport: true),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.textContaining(_kEmptyLine), findsNothing);
+
+    // The worker types on the same ended session (the device reproduction) —
+    // still not an import failure.
+    when(
+      () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+    ).thenAnswer((_) async => const ChatTurn(reply: 'Theek hai.'));
+    bloc.add(const ChatMessageSent('kuch aur'));
+    await tester.pumpAndSettle();
 
     expect(find.textContaining(_kEmptyLine), findsNothing);
   });

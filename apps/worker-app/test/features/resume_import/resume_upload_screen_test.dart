@@ -82,6 +82,8 @@ Future<GoRouter> _pump(
   Size size = const Size(900, 1900),
   bool autoUpload = false,
   bool directUpload = false,
+  bool chatMenuUpload = false,
+  bool startPushed = false,
 }) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
@@ -94,14 +96,20 @@ Future<GoRouter> _pump(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
+  const String callerPath = '/caller';
   final GoRouter router = GoRouter(
-    initialLocation: Routes.resumeUpload,
+    initialLocation: startPushed ? callerPath : Routes.resumeUpload,
     routes: <RouteBase>[
+      GoRoute(
+        path: callerPath,
+        builder: (_, __) => const Scaffold(body: Text('CALLER_MARKER')),
+      ),
       GoRoute(
         path: Routes.resumeUpload,
         builder: (_, __) => ResumeUploadScreen(
           autoUpload: autoUpload,
           directUpload: directUpload,
+          chatMenuUpload: chatMenuUpload,
         ),
       ),
       GoRoute(
@@ -128,6 +136,10 @@ Future<GoRouter> _pump(
     MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
   );
   await tester.pump();
+  if (startPushed) {
+    router.push(Routes.resumeUpload);
+    await tester.pumpAndSettle();
+  }
   return router;
 }
 
@@ -152,6 +164,27 @@ void main() {
       // door COUNT, so a fourth tile with copy nobody thought to forbid must
       // redden this suite the same way restoring the deleted one does.
       expect(find.byType(ResumeDoorTile), findsNWidgets(2));
+    });
+
+    testWidgets('the header has a back arrow that returns to the caller', (
+      WidgetTester tester,
+    ) async {
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(
+          const ResumePickResult.rejected(ResumePickRejection.cancelled),
+        ),
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+        startPushed: true,
+      );
+
+      expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CALLER_MARKER'), findsOneWidget);
+      expect(_where(router), '/caller');
     });
 
     testWidgets('autoUpload opens the picker on entry instead of asking again',
@@ -247,6 +280,70 @@ void main() {
 
       expect(find.text('Hinglish mein baat karein'), findsNothing);
       expect(find.byKey(const Key('resume_door_chat')), findsNothing);
+    });
+  });
+
+  // The Bada Bhai tab's post-completion menu PUSHED this screen on top of the
+  // chat. The worker already said what they came for, so the picker opens on
+  // entry, and a completed attempt POPS back to that same chat — the pop is
+  // what lets the chat re-read the parsed-résumé turn. `go` to the tab (the
+  // direct-entry rule) would reuse the mounted chat without refreshing it.
+  // (No import signal is raised; pinned in
+  // `resume_import_signal_raised_test.dart`.)
+  group('a chat-menu arrival — the Bada Bhai tab', () {
+    testWidgets('opens the picker on entry, without a tap', (
+      WidgetTester tester,
+    ) async {
+      final _FakePicker picker = _FakePicker(_picked());
+      final _FakeImporter importer = _FakeImporter(
+        const ResumeImportRoutedToChat(),
+      );
+      final GoRouter router = await _pump(
+        tester,
+        picker: picker,
+        importer: importer,
+        chatMenuUpload: true,
+        startPushed: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1);
+      expect(importer.calls, 1);
+      expect(_where(router), '/caller', reason: 'a completed attempt pops');
+      expect(find.text('CALLER_MARKER'), findsOneWidget);
+      expect(
+        find.text(_kBadaBhaiMarker),
+        findsNothing,
+        reason: 'the chat is already underneath; a go would leave it stale',
+      );
+    });
+
+    testWidgets('a cancelled pick falls back to the doors — never a dead end', (
+      WidgetTester tester,
+    ) async {
+      final _FakePicker picker = _FakePicker(
+        const ResumePickResult.rejected(ResumePickRejection.cancelled),
+      );
+      final GoRouter router = await _pump(
+        tester,
+        picker: picker,
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+        chatMenuUpload: true,
+        startPushed: true,
+      );
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1, reason: 'the picker DID open on entry');
+      expect(find.byType(ResumeDoorTile), findsNWidgets(2));
+      expect(find.byType(SnackBar), findsNothing);
+      expect(_where(router), Routes.resumeUpload);
+
+      // Door 1 still works, and its completed import still pops.
+      picker.result = _picked();
+      await tester.tap(find.text(_kDoorUpload));
+      await tester.pumpAndSettle();
+      expect(picker.calls, 2);
+      expect(_where(router), '/caller');
     });
   });
 

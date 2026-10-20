@@ -293,6 +293,18 @@ class ChatResumeChangeWatchRequested extends ChatEvent {
   const ChatResumeChangeWatchRequested();
 }
 
+/// A résumé import just completed while the Bada Bhai tab was mounted.
+///
+/// The server staged the parsed-résumé confirm for this worker. The tab's
+/// cached session id points at the OLD (often ended) session, and the
+/// client-side resume shortcut in `ensureSession` would return no opening —
+/// so the confirm never appeared until the worker left and came back. This
+/// event drops the cached id, leaves companion mode, and re-opens through
+/// `POST /chat/session` so the confirm is the chat's next message.
+class ChatResumeImportRefreshRequested extends ChatEvent {
+  const ChatResumeImportRefreshRequested();
+}
+
 /// #2276 (ADR-0055) — the server's "Resume download karein" chip
 /// (`companion_resume_download`) was tapped.
 ///
@@ -917,6 +929,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<ChatResumeDownloadTapped>(_onResumeDownloadTapped);
     on<ChatResumeDownloadChipTapped>(_onResumeDownloadChipTapped);
     on<ChatResumeChangeWatchRequested>(_onResumeChangeWatched);
+    on<ChatResumeImportRefreshRequested>(_onResumeImportRefreshRequested);
   }
 
   final ChatRepository _repo;
@@ -1188,11 +1201,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// `initializing` alone cannot say the tab has settled.
   bool _hydrating = false;
 
-  Future<void> _open(Emitter<ChatState> emit) async {
+  Future<void> _open(
+    Emitter<ChatState> emit, {
+    bool reopenForResumeImport = false,
+  }) async {
     bool failed = false;
     ChatSessionOpening? opening;
     try {
-      opening = await _repo.ensureSession();
+      opening = reopenForResumeImport
+          ? await _repo.reopenSessionForResumeImport()
+          : await _repo.ensureSession();
     } on Failure catch (_) {
       // Do NOT swallow this (#343). The spinner still drops so the worker can
       // type, but the failure is now SURFACED: the repository re-opens the
@@ -3062,6 +3080,37 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       if (isClosed || _conversationMoves != movesAtStart) return;
       await _offerTile(resume, emit, trigger: 'changed');
       return;
+    }
+  }
+
+  /// See [ChatResumeImportRefreshRequested]. Re-opens the session so the
+  /// server-served parsed-résumé confirm becomes the chat's next message.
+  Future<void> _onResumeImportRefreshRequested(
+    ChatResumeImportRefreshRequested event,
+    Emitter<ChatState> emit,
+  ) async {
+    // The confirm rides the POST body (`confirm_first`); a cached id would make
+    // the client skip that POST and redraw the OLD session instead.
+    _repo.forgetSession();
+    _leaveCompanionMode();
+    // The confirm is an interview turn, not a companion recap: drop the
+    // companion latches and the ended-session marker before re-opening.
+    emit(
+      state.copyWith(
+        companion: false,
+        followups: const <String>[],
+        suggestedOptions: const <ChatOption>[],
+        questionKind: ChatQuestionKind.ask,
+        clearAnswerType: true,
+        clearSessionEndedAfterIndex: true,
+        initializing: true,
+      ),
+    );
+    _hydrating = true;
+    try {
+      await _open(emit, reopenForResumeImport: true);
+    } finally {
+      _hydrating = false;
     }
   }
 

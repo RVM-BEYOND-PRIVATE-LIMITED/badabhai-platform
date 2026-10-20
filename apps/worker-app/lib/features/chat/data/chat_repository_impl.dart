@@ -193,6 +193,22 @@ class ChatRepositoryImpl implements ChatRepository {
     }
   }
 
+  @override
+  Future<ChatSessionOpening?> reopenSessionForResumeImport() async {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    // NO `_resumeLatest` here: its id makes the client skip the POST, and the
+    // parsed-résumé confirm is served BY that POST (`confirm_first`).
+    _session.clearChatSession();
+    try {
+      final ChatSessionStart start = await _api.startSession(authToken: token);
+      _session.setSession(start.sessionId);
+      return _openingFrom(start);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
   /// `GET /chat/session/latest` with ONE retry (#1198).
   ///
   /// Resume is an optimisation, never a gate, so a failure must never BLOCK the
