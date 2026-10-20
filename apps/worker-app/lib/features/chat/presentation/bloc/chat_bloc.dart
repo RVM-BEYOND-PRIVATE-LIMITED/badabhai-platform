@@ -1271,6 +1271,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
     if (failed) return;
 
+    // A résumé-import re-open shows ONLY the server's parsed-résumé turn.
+    // Loading the previous session's history would append it AFTER the
+    // confirm, separating the message from its Haan/Nahi chips.
+    if (reopenForResumeImport && opening != null) return;
+
     // #502 transcript hydration, as a FOLLOW-UP emit: redraw a prior session's
     // turns that live only server-side. After a >5min background re-lock the app
     // rebuilds [ChatBloc] with just its opener bubble while `chat_messages` still
@@ -3097,6 +3102,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // companion latches and the ended-session marker before re-opening.
     emit(
       state.copyWith(
+        // Reset to the seed opener so the server's confirm REPLACES the old
+        // transcript. Keeping the previous bubbles would append them AFTER the
+        // parsed-résumé message, pushing the Haan/Nahi chips to the bottom of
+        // the old chat instead of directly under the information they confirm.
+        messages: const <ChatMessage>[kChatOpeningMessage],
         companion: false,
         followups: const <String>[],
         suggestedOptions: const <ChatOption>[],
