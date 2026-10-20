@@ -2390,6 +2390,38 @@ function availabilityOf(
   return mapped ?? { status: deterministic, notice_period_days: null };
 }
 
+/**
+ * The deterministic answer map's notice days onto the profile's availability (qp_universal@8).
+ *
+ * The standalone `notice_period_days` chat question is gone — its duplicate of the availability
+ * chips — so the availability turn now captures the days beside the status (`answer-capture.ts`
+ * `derivedNoticeValues`). The draft only carries the status string, so without this the days
+ * would reach `worker_attributes` and stop there. This fills them onto the profile row ONLY when
+ * the row needs them: status `notice_period` with no day count yet. A day count the model already
+ * gave is never overwritten, and any other status is untouched.
+ */
+function noticeDaysAnswerOf(answerMap: readonly AnswerRecord[]): number | null {
+  const record = answerMap.find(
+    (candidate) =>
+      candidate.target_field === "notice_period_days" ||
+      candidate.question_key === "notice_period_days",
+  );
+  if (record === undefined || record.status !== "answered") return null;
+  const days = record.value_normalized;
+  return typeof days === "number" && Number.isInteger(days) && days >= 0 ? days : null;
+}
+
+function withNoticeDays(
+  availability: DraftProfile["availability"],
+  answerMap: readonly AnswerRecord[],
+): DraftProfile["availability"] {
+  if (availability.status !== "notice_period" || availability.notice_period_days !== null) {
+    return availability;
+  }
+  const days = noticeDaysAnswerOf(answerMap);
+  return days === null ? availability : { ...availability, notice_period_days: days };
+}
+
 /** `toExtractionOutput`'s result: the output, plus the draft fields #2004 withheld (ids only). */
 export interface InterviewExtraction {
   readonly output: ProfileExtractionOutput;
@@ -2533,8 +2565,10 @@ export function toExtractionOutput(
       preferred_cities: preferModelList(interview?.preferred_locations, draft.preferred_locations),
     },
     // MAPPED, NOT ASSIGNED. The model's vocabulary and this schema's do not overlap on two of
-    // five values, and a raw assignment throws inside the job. See `availabilityOf`.
-    availability: availabilityOf(interview?.availability, draft.availability),
+    // five values, and a raw assignment throws inside the job. See `availabilityOf`. The
+    // deterministic answer map's notice days ride along (`withNoticeDays`) now that the
+    // availability turn captures them — the qp_universal@8 removal of the duplicate question.
+    availability: withNoticeDays(availabilityOf(interview?.availability, draft.availability), answerMap),
     // ── THE RÉSUMÉ CONTAINER — THE PHASE C OBJECT, UNTOUCHED ──────────────────────────
     //
     // Everything above this line reassembles the model's nine flat keys into the legacy

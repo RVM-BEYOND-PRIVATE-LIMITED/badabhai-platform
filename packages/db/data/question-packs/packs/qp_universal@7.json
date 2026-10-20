@@ -19,8 +19,8 @@
   "version": 7,
   "family_id": "fam_universal",
   "locale": "hi-IN",
-  "status": "active",
-  "review_note": "v7 removes secondary_occupations from the chat tail (owner ruling 2026-10-20): the end-of-interview trade list is gone, everything else byte-identical. v6 is deprecated in place.",
+  "status": "deprecated",
+  "review_note": "DEPRECATED IN PLACE — qp_universal@8 is the active tail (notice_period_days removed from the chat, 2026-10-20). This file is BYTE-FROZEN: sessions pinned to qp_universal:7 keep resolving through `loadPinned`, and `reply-closure`/`pack-served-text` still carry its clips. v7 removed secondary_occupations from the tail; the rest ran unchanged.",
   "items": [
     {
       "question_key": "primary_trade",
