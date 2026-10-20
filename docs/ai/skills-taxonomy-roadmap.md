@@ -194,7 +194,8 @@ canonicalization. Tests (`pytest -k resume`): launch-role (ids resolve), adjacen
 unchanged. OQ#3 (out-of-scope worker experience) is a product decision — flag, don't decide.
 
 **Verified 2026-07-15 (`tests/test_resume_offwedge.py`):** launch-role ids render; off-wedge
-degrades to "(to be confirmed)" and the résumé ALWAYS completes; the résumé path is
+degrades to "(to be confirmed)" (since #2378, 2026-10-20: the Skills line is omitted instead) and
+the résumé ALWAYS completes; the résumé path is
 structurally independent of canonicalization (both entry points forced to raise → 200);
 `RESUME_SYSTEM_PROMPT` pinned by sha256 tripwire (deliberate edits must touch the test).
 HONEST FINDING (now closed): the spec's "renders from worker-confirmed raw phrases" was NOT

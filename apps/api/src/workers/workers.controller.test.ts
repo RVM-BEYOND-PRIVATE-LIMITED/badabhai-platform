@@ -240,6 +240,18 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     expect(wire).not.toContain("Tata Motors");
   });
 
+  it("getMyProfile drops the '(to be confirmed)' rows a pre-fix stored résumé carries (#2378)", async () => {
+    const { controller, workers } = make();
+    workers.latestResume.mockResolvedValueOnce({
+      id: "res-1",
+      resumeText: "WORKER PROFILE (DRAFT)\n\nRole: Fitter\nTrade: (to be confirmed)\nMachines: (to be confirmed)",
+      version: 1,
+      renderStatus: "rendered",
+    } as never);
+    const res = await controller.getMyProfile({ id: ID, sid: "sess-1" });
+    expect(res.resume?.resume_text).toBe("WORKER PROFILE (DRAFT)\n\nRole: Fitter");
+  });
+
   it("getMyProfile returns nulls (not a 404) when the worker has no profile/resume yet", async () => {
     const { controller } = make(); // latestProfile/latestResume default to null
     const res = await controller.getMyProfile({ id: ID, sid: "sess-1" });

@@ -9,7 +9,7 @@ WHAT IS TRUE TODAY (locked here, honestly):
   (gazetteer/vector-assigned) or is empty, and (Q14, decided 2026-07-16) ``skill_labels``
   carries the worker-confirmed RAW labels. For a launch-role worker the ids render; an
   off-wedge worker with confirmed labels sees the labels; with neither, the skills line
-  degrades to "(to be confirmed)" and the résumé is still complete. The ids double as the
+  is omitted (#2378) and the résumé is still complete. The ids double as the
   machine-readable metadata (``resume_json``).
 - The résumé path is STRUCTURALLY independent of canonicalization: it never calls
   ``canonicalize_skill``/``canonicalize_labels`` (proved by making both raise).
@@ -72,7 +72,8 @@ def test_launch_role_resume_completes_with_canonical_ids():
 def test_off_wedge_resume_is_complete_never_blocked():
     text, data = build_resume(_off_wedge_profile())
     assert "WORKER PROFILE" in text
-    assert "Skills: (to be confirmed)" in text  # honest degradation, not a crash/block
+    assert "Skills:" not in text  # an empty field gets no row (#2378), not a crash/block
+    assert "(to be confirmed)" not in text
     assert "Experience: 8 years" in text  # the rest of the résumé fully renders
     assert data["skills"] == []
 
@@ -85,7 +86,8 @@ def test_off_wedge_resume_endpoint_returns_200_and_text():
     assert resp.status_code == 200
     body = resp.json()
     assert body["resume_text"].strip()
-    assert "(to be confirmed)" in body["resume_text"]
+    assert "(to be confirmed)" not in body["resume_text"]
+    assert "Experience: 8 years" in body["resume_text"]
 
 
 # --- canonicalization NEVER raises into résumé generation -------------------------
@@ -174,7 +176,7 @@ def test_old_payload_without_skill_labels_still_parses_and_degrades():
     profile = DraftProfile.model_validate({"experience": {"total_years": 8}})
     assert profile.skill_labels == []
     text, _ = build_resume(profile)
-    assert "Skills: (to be confirmed)" in text  # byte-for-byte today's behavior
+    assert "Skills:" not in text  # no row for an empty field (#2378)
 
 
 # --- SG-2: the pseudonymize gate at the résumé boundary ----------------------------
@@ -255,7 +257,7 @@ def test_all_labels_dropped_falls_back_and_completes():
     )
     assert resp.status_code == 200  # never crash, never block the résumé
     body = resp.json()
-    assert "Skills: (to be confirmed)" in body["resume_text"]  # honest degradation
+    assert "Skills:" not in body["resume_text"]  # no row for an empty field (#2378)
     assert body["resume_json"]["skill_labels"] == []
     assert "Experience: 8 years" in body["resume_text"]  # rest still renders
 
@@ -480,13 +482,24 @@ def test_a_label_never_forges_a_second_field_row():
     assert "Experience: 3 years" in text
 
 
-def test_a_blank_label_degrades_to_the_honest_placeholder():
-    # `role_label` is `str | None` and "" is a valid value the model can emit. "Role: " with
-    # nothing after it is worse than the placeholder — and the app DROPS an empty value
-    # outright, so the row would vanish from the card entirely.
+def test_a_blank_label_omits_the_line():
+    # `role_label` is `str | None` and "" is a valid value the model can emit. A blank
+    # label counts as absent, and an absent field gets no row at all (#2378) — never
+    # "Role: " with nothing after it, never a "(to be confirmed)" placeholder.
     text, _ = build_resume(_interview_profile(role_label="   ", domain_label=""))
-    assert "Role: (to be confirmed)" in text
-    assert "Trade: (to be confirmed)" in text
+    assert "Role:" not in text
+    assert "Trade:" not in text
+    assert "(to be confirmed)" not in text
+
+
+def test_an_empty_profile_prints_no_placeholder_rows():
+    # #2378 (owner ruling 2026-10-20): a field with no value gets NO row on the résumé. The
+    # worker app draws every `Label: value` line as a row, so "Machines: (to be confirmed)"
+    # put an unfinished-looking row on every chat-built résumé whose trade has no machines.
+    text, _ = build_resume(DraftProfile())
+    for label in ("Role:", "Trade:", "Machines:", "Skills:"):
+        assert label not in text
+    assert "(to be confirmed)" not in text
 
 
 def test_deterministic_profile_is_untouched_by_the_label_arm():
@@ -659,7 +672,8 @@ def test_a_container_only_profile_renders_all_nine_keys():
     assert "Preferred locations: Pune" in text
     assert "Availability: Available immediately" in text
     assert "Expected salary: 40000 per month" in text
-    assert "(to be confirmed)" not in text.replace("Machines: (to be confirmed)", "")
+    assert "(to be confirmed)" not in text
+    assert "Machines:" not in text  # the container has no machines, so no row (#2378)
 
 
 def test_the_container_outranks_a_stale_legacy_label():

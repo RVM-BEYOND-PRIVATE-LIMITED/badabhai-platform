@@ -31,6 +31,7 @@ import { ConsentGuard } from "../auth/consent.guard";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { WorkersRepository } from "./workers.repository";
 import { WorkersService } from "./workers.service";
+import { withoutPlaceholderRows } from "../resume/resume-text-placeholders";
 import {
   SetWorkerNameSchema,
   type SetWorkerNameDto,
@@ -198,7 +199,8 @@ export class WorkersController {
       resume: resume
         ? {
             id: resume.id,
-            resume_text: resume.resumeText,
+            // #2378 — a résumé stored before the fix still carries "(to be confirmed)" rows.
+            resume_text: withoutPlaceholderRows(resume.resumeText),
             version: resume.version,
             render_status: resume.renderStatus,
           }

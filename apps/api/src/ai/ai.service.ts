@@ -640,12 +640,15 @@ export class AiService {
     const tradeLine = resumeLabel(profile.canonical_trade_id, profile.domain_label);
     const lines = [
       "PROFESSIONAL SUMMARY (draft)",
-      `Role: ${roleLine ?? "(to be confirmed)"}`,
-      `Trade: ${tradeLine ?? "(to be confirmed)"}`,
-      skills.length ? `Skills: ${skills.join(", ")}` : "Skills: (to be confirmed)",
-      profile.machines.length
-        ? `Machines: ${profile.machines.map(labelForTaxonomyId).join(", ")}`
-        : "Machines: (to be confirmed)",
+      // #2378 — each headline line is emitted only when it has a value, exactly as
+      // `build_resume` now does: an empty field gets no row on the worker's résumé, never a
+      // "(to be confirmed)" placeholder.
+      ...(roleLine ? [`Role: ${roleLine}`] : []),
+      ...(tradeLine ? [`Trade: ${tradeLine}`] : []),
+      ...(skills.length ? [`Skills: ${skills.join(", ")}`] : []),
+      ...(profile.machines.length
+        ? [`Machines: ${profile.machines.map(labelForTaxonomyId).join(", ")}`]
+        : []),
       // #499 — education + certifications (closed-set tokens), emitted only when
       // present so the AI-service-unreachable fallback matches the real resume.
       // Highest academic level + stream ride the same block; PII-free labels, each
