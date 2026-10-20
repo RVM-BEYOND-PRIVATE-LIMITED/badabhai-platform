@@ -163,6 +163,7 @@ describe("POST /chat/session — flag ON opens a NEW session on the first missin
       opening_tts_text: "आपका पहला नाम क्या है?",
       opening_question_key: "worker_first_name",
       opening_answer_type: "text",
+      opening_input_mode: "text",
     });
     expect(StartSessionResponseSchema.safeParse(res).success).toBe(true);
     // The gaps are read off the row as presence booleans — never the values.

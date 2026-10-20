@@ -525,10 +525,16 @@ export class ChatService {
     sessionId: string,
     workerId: string,
     ctx: RequestContext,
-  ): Promise<Pick<
-    StartSessionResponse,
-    "opening_text" | "opening_tts_text" | "opening_question_key" | "opening_answer_type"
-  > | null> {
+  ): Promise<
+    Pick<
+      StartSessionResponse,
+      | "opening_text"
+      | "opening_tts_text"
+      | "opening_question_key"
+      | "opening_answer_type"
+      | "opening_input_mode"
+    > | null
+  > {
     if (!confirmFirst || !this.config.CHAT_IDENTITY_INTAKE_ENABLED) return null;
     const gaps = identityGapsOf(worker);
     if (gaps.hasName && gaps.hasState && gaps.hasCity) return null;
@@ -555,6 +561,8 @@ export class ChatService {
       ...(tts === undefined ? {} : { opening_tts_text: tts }),
       ...(opened.questionKey === null ? {} : { opening_question_key: opened.questionKey }),
       ...(opened.answerType === null ? {} : { opening_answer_type: opened.answerType }),
+      // The intake's asks take typing today; carried so the opening draws like its turn.
+      opening_input_mode: opened.inputMode ?? "text",
     };
   }
 
@@ -580,6 +588,7 @@ export class ChatService {
     resume_pending: true;
     opening_text: string;
     opening_options: { option_key: string; label_text: string }[];
+    opening_input_mode: "text" | "options_only";
   } | null> {
     if (!confirmFirst) return null;
     let opened;
@@ -611,6 +620,10 @@ export class ChatService {
         option_key: option.option_key,
         label_text: option.label_text,
       })),
+      // The turn's own lock, so the confirm-first bubble draws chips with no composer.
+      // The identity and batch confirms are served `options_only`; anything else that ever
+      // opens here keeps the composer by carrying `text`.
+      opening_input_mode: opened.inputMode ?? "text",
     };
   }
 
@@ -634,10 +647,16 @@ export class ChatService {
     sessionId: string,
     workerId: string,
     ctx: RequestContext,
-  ): Promise<Pick<
-    StartSessionResponse,
-    "opening_text" | "opening_tts_text" | "opening_options" | "free_chat_mode"
-  > | null> {
+  ): Promise<
+    Pick<
+      StartSessionResponse,
+      | "opening_text"
+      | "opening_tts_text"
+      | "opening_options"
+      | "free_chat_mode"
+      | "opening_input_mode"
+    > | null
+  > {
     if (!confirmFirst || this.config.CHAT_FREE_CHAT_DISABLED === true) return null;
     const now = new Date();
     try {
@@ -664,6 +683,8 @@ export class ChatService {
           option_key: option.option_key,
           label_text: option.label_text,
         })),
+        // The greeting takes typing; carried so the opening draws like its turn.
+        opening_input_mode: opened.inputMode ?? "text",
         // ADR-0051 (#2030) — the greeting just written IS the envelope's mode.
         free_chat_mode: "greeting",
       };

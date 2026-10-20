@@ -2352,6 +2352,30 @@ describe("ChatService.startSession — the résumé confirm opens the session (T
     expect("opening_tts_text" in res).toBe(false);
   });
 
+  it("carries the turn's own input mode on the opening — locked confirms lock the first bubble", async () => {
+    // The fixture above carries no mode, so it opens with the composer (text). A locked
+    // confirm (the identity/batch bubbles since #2373) must draw chips with no composer
+    // from the very first bubble — the turn path already locks, the open path dropped it.
+    const { svc: textSvc } = make({ resumeConfirmOpen: CONFIRM_OPEN });
+    const textRes = (await textSvc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+    expect(textRes.opening_input_mode).toBe("text");
+
+    const { svc: lockedSvc } = make({
+      resumeConfirmOpen: { ...CONFIRM_OPEN, inputMode: "options_only" },
+    });
+    const lockedRes = (await lockedSvc.startSession(WORKER, CTX, {
+      confirmFirst: true,
+    })) as Record<string, unknown>;
+    expect(lockedRes).toMatchObject({
+      resume_pending: true,
+      opening_text: CONFIRM_OPEN.reply,
+      opening_input_mode: "options_only",
+    });
+  });
+
   it("does NOT ask the orchestrator when the client does not ask — byte-identical old flow", async () => {
     const { svc, orchestrator } = make({ resumeConfirmOpen: CONFIRM_OPEN });
     const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
