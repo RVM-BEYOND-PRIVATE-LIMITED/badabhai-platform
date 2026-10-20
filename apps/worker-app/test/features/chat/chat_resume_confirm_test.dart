@@ -80,6 +80,20 @@ void main() {
       expect(start.resumePending, isFalse);
       expect(start.openingOptions, isEmpty);
     });
+
+    test('carries opening_input_mode, and defaults to text when absent', () {
+      final ChatSessionStart locked = ChatSessionStart.fromJson(
+          <String, dynamic>{
+        'session_id': 's1',
+        'opening_text': _confirm,
+        'opening_input_mode': 'options_only',
+      });
+      expect(locked.openingInputMode, ChatInputMode.optionsOnly);
+
+      final ChatSessionStart older = ChatSessionStart.fromJson(
+          <String, dynamic>{'session_id': 's1', 'opening_text': 'Namaste.'});
+      expect(older.openingInputMode, ChatInputMode.text);
+    });
   });
 
   // --- 2. the repository seam ----------------------------------------------
@@ -100,6 +114,7 @@ void main() {
               'session_id': 's1',
               'opening_text': _confirm,
               'resume_pending': true,
+              'opening_input_mode': 'options_only',
               'opening_options': <Map<String, dynamic>>[
                 <String, dynamic>{
                   'option_key': 'resume_confirm_yes',
@@ -127,6 +142,7 @@ void main() {
     expect(opening!.text, _confirm);
     expect(opening.resumePending, isTrue);
     expect(opening.options, _confirmOptions);
+    expect(opening.inputMode, ChatInputMode.optionsOnly);
     // No local parsing: the confirm is exactly the server's text, byte-for-byte.
     expect(opening.text, _confirm);
   });
@@ -173,6 +189,42 @@ void main() {
           b.state.suggestedOptions.map((ChatOption o) => o.optionKey),
           <String>['resume_confirm_yes', 'resume_confirm_no'],
         );
+      },
+    );
+
+    blocTest<ChatBloc, ChatState>(
+      'applies the opening options_only mode to the first bubble (#2375)',
+      build: () {
+        when(() => repo.ensureSession()).thenAnswer((_) async =>
+            const ChatSessionOpening(
+              text: _confirm,
+              resumePending: true,
+              options: _confirmOptions,
+              inputMode: ChatInputMode.optionsOnly,
+            ));
+        return ChatBloc(repo);
+      },
+      act: (ChatBloc b) => b.add(const ChatStarted()),
+      verify: (ChatBloc b) {
+        expect(b.state.inputMode, ChatInputMode.optionsOnly);
+        expect(b.state.suggestedOptions, _confirmOptions);
+      },
+    );
+
+    blocTest<ChatBloc, ChatState>(
+      'an older opening without a mode keeps the composer (text)',
+      build: () {
+        when(() => repo.ensureSession()).thenAnswer((_) async =>
+            const ChatSessionOpening(
+              text: _confirm,
+              resumePending: true,
+              options: _confirmOptions,
+            ));
+        return ChatBloc(repo);
+      },
+      act: (ChatBloc b) => b.add(const ChatStarted()),
+      verify: (ChatBloc b) {
+        expect(b.state.inputMode, ChatInputMode.text);
       },
     );
 
@@ -303,6 +355,35 @@ void main() {
       expect(find.textContaining('aap kaun sa kaam karte hain'), findsNothing,
           reason: 'a resume-routed session must never show the canned opener');
       expect(find.text(kChatOpeningText), findsNothing);
+    });
+
+    testWidgets(
+        'an options_only opening withholds the composer from bubble 0 (#2375)',
+        (WidgetTester tester) async {
+      when(() => repo.ensureSession()).thenAnswer((_) async =>
+          const ChatSessionOpening(
+            text: _identity,
+            resumePending: true,
+            options: _confirmOptions,
+            inputMode: ChatInputMode.optionsOnly,
+          ));
+
+      tester.view.physicalSize = const Size(400, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(const MaterialApp(home: ChatProfilingScreen()));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.text(_identity), findsOneWidget);
+      expect(find.text('Haan, sahi hai'), findsOneWidget);
+      expect(find.text('Nahi'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing,
+          reason: 'the confirm is answered by its two chips only');
+      expect(find.byIcon(Icons.mic), findsNothing);
+      expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
     });
 
     testWidgets('tapping a chip submits its label as the first message',

@@ -493,6 +493,7 @@ class ChatSessionStart extends Equatable {
     this.openingOptions = const <ChatOption>[],
     this.openingQuestionKey,
     this.openingAnswerType,
+    this.openingInputMode = ChatInputMode.text,
   });
 
   final String sessionId;
@@ -521,6 +522,12 @@ class ChatSessionStart extends Equatable {
   /// ADR-0048 — `opening_answer_type`, `text` for every intake question today.
   final String? openingAnswerType;
 
+  /// `opening_input_mode` — the opening turn's own input mode (`text` |
+  /// `options_only`). The résumé identity/confirm open is served `options_only`
+  /// so bubble 0 draws chips with no composer. Absent → [ChatInputMode.text],
+  /// which is the behaviour of every API build before this field.
+  final ChatInputMode openingInputMode;
+
   factory ChatSessionStart.fromJson(Map<String, dynamic> json) {
     String? text(Object? raw) =>
         raw is String && raw.trim().isNotEmpty ? raw : null;
@@ -543,6 +550,7 @@ class ChatSessionStart extends Equatable {
       // open for a worker whose record already has a name, state and city.
       openingQuestionKey: text(json['opening_question_key']),
       openingAnswerType: text(json['opening_answer_type']),
+      openingInputMode: ChatInputMode.parse(json['opening_input_mode']),
     );
   }
 
@@ -556,6 +564,7 @@ class ChatSessionStart extends Equatable {
         openingOptions,
         openingQuestionKey,
         openingAnswerType,
+        openingInputMode,
       ];
 }
 

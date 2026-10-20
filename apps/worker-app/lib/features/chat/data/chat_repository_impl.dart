@@ -152,6 +152,9 @@ class ChatRepositoryImpl implements ChatRepository {
       // ADR-0048 — the identity intake's first question, when there is one.
       questionKey: start.openingQuestionKey,
       answerType: start.openingAnswerType,
+      // The opening's own lock: `options_only` on a résumé identity/confirm open
+      // keeps the composer off bubble 0. Older servers omit it → `text`.
+      inputMode: start.openingInputMode,
     );
   }
 
