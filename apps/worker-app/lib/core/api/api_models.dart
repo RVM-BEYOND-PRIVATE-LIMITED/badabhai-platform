@@ -1496,6 +1496,7 @@ class CompanionOpen extends Equatable {
     this.turn,
     this.digestKey,
     this.history = const <CompanionHistoryMessage>[],
+    this.conversation,
   });
 
   /// Not a companion worker (or the server flag is off): run today's chat.
@@ -1522,6 +1523,9 @@ class CompanionOpen extends Equatable {
                 .whereType<CompanionHistoryMessage>()
                 .toList(growable: false)
           : const <CompanionHistoryMessage>[],
+      // #2392 — absent / malformed / empty -> null: `history` (or the recap)
+      // is drawn as before. Never throws (#371).
+      conversation: CompanionConversation.fromJson(json['conversation']),
     );
   }
 
@@ -1538,8 +1542,156 @@ class CompanionOpen extends Equatable {
   /// caps it at 200). Empty means draw the recap, as before.
   final List<CompanionHistoryMessage> history;
 
+  /// #2392 (ADR-0059) — the last 7 days on the Bada Bhai chat: every profiling
+  /// chat (each closed by its own "End of conversation" divider) and the Bada
+  /// Bhai chat's own lines, oldest first. When present it is drawn INSTEAD of
+  /// [history] and the recap. Null on an older API and when the window holds
+  /// nothing.
+  final CompanionConversation? conversation;
+
   @override
-  List<Object?> get props => <Object?>[companion, turn, digestKey, history];
+  List<Object?> get props => <Object?>[
+    companion,
+    turn,
+    digestKey,
+    history,
+    conversation,
+  ];
+}
+
+/// #2392 (ADR-0059) — `GET /chat/companion` `conversation`: the lines to draw,
+/// oldest first, and the chips to show under the last one.
+class CompanionConversation extends Equatable {
+  const CompanionConversation({
+    required this.messages,
+    this.suggestedOptions = const <ChatOption>[],
+    this.suggestedFollowups = const <String>[],
+  });
+
+  /// Null when [raw] is absent, not a map, has no list of messages, or no line
+  /// survives — "malformed or empty reads as absent". A malformed LINE is
+  /// dropped on its own. Never throws (#371).
+  static CompanionConversation? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final Object? rows = raw['messages'];
+    if (rows is! List) return null;
+    final List<CompanionConversationLine> lines = rows
+        .map<CompanionConversationLine?>(CompanionConversationLine.fromJson)
+        .whereType<CompanionConversationLine>()
+        .toList(growable: false);
+    if (lines.isEmpty) return null;
+    final Object? options = raw['suggested_options'];
+    final Object? followups = raw['suggested_followups'];
+    return CompanionConversation(
+      messages: lines,
+      suggestedOptions: options is List
+          ? options
+                .map<ChatOption?>(ChatOption.fromJson)
+                .whereType<ChatOption>()
+                .toList(growable: false)
+          : const <ChatOption>[],
+      suggestedFollowups: followups is List
+          ? followups
+                .whereType<String>()
+                .where((String f) => f.trim().isNotEmpty)
+                .toList(growable: false)
+          : const <String>[],
+    );
+  }
+
+  final List<CompanionConversationLine> messages;
+
+  /// The chips to show under the LAST line. Lines carry none.
+  final List<ChatOption> suggestedOptions;
+  final List<String> suggestedFollowups;
+
+  @override
+  List<Object?> get props => <Object?>[
+    messages,
+    suggestedOptions,
+    suggestedFollowups,
+  ];
+}
+
+/// Where a [CompanionConversationLine] came from.
+enum CompanionConversationSource {
+  /// A profiling (interview) chat — drawn as the interview redraw draws it.
+  profiling,
+
+  /// The Bada Bhai chat's own line — drawn with the #2298 rules.
+  badaBhaiChat,
+}
+
+/// #2392 — one line of [CompanionConversation].
+class CompanionConversationLine extends Equatable {
+  const CompanionConversationLine({
+    required this.source,
+    required this.fromWorker,
+    required this.text,
+    this.ttsText,
+    this.readAloud,
+    this.newsLinks = const <ChatNewsLink>[],
+    this.endsProfilingChat = false,
+  });
+
+  /// One wire line, or null when it cannot be drawn honestly: a non-map, an
+  /// unknown source or role, or blank text. Never throws (#371).
+  static CompanionConversationLine? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final Object? source = raw['source'];
+    final Object? role = raw['role'];
+    final Object? text = raw['text'];
+    final CompanionConversationSource? kind = switch (source) {
+      'profiling' => CompanionConversationSource.profiling,
+      'bada_bhai_chat' => CompanionConversationSource.badaBhaiChat,
+      _ => null,
+    };
+    if (kind == null) return null;
+    if (role != 'worker' && role != 'bada_bhai') return null;
+    if (text is! String || text.trim().isEmpty) return null;
+    final Object? tts = raw['tts_text'];
+    final Object? readAloud = raw['read_aloud'];
+    final Object? links = raw['news_links'];
+    return CompanionConversationLine(
+      source: kind,
+      fromWorker: role == 'worker',
+      text: text,
+      ttsText: tts is String && tts.trim().isNotEmpty ? tts : null,
+      readAloud: readAloud is bool ? readAloud : null,
+      newsLinks: links is List
+          ? links
+                .map<ChatNewsLink?>(ChatNewsLink.fromJson)
+                .whereType<ChatNewsLink>()
+                .toList(growable: false)
+          : const <ChatNewsLink>[],
+      endsProfilingChat: raw['ends_profiling_chat'] == true,
+    );
+  }
+
+  final CompanionConversationSource source;
+  final bool fromWorker;
+  final String text;
+
+  /// The reviewed Devanagari twin — the speaker reads this.
+  final String? ttsText;
+
+  /// `false` on a model-written Bada Bhai chat line: no speaker, plain prose.
+  final bool? readAloud;
+  final List<ChatNewsLink> newsLinks;
+
+  /// Draw "End of conversation" RIGHT AFTER this line.
+  final bool endsProfilingChat;
+
+  @override
+  List<Object?> get props => <Object?>[
+    source,
+    fromWorker,
+    text,
+    ttsText,
+    readAloud,
+    newsLinks,
+    endsProfilingChat,
+  ];
 }
 
 /// #2298 — one stored message of the Bada Bhai chat (`GET /chat/companion`
