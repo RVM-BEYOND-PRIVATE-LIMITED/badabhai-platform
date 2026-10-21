@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, lte } from "drizzle-orm";
 import {
   companionConversationSummaries,
   companionMessages,
@@ -117,45 +117,6 @@ export class CompanionHistoryRepository {
   }
 
   /**
-   * Append ONE line only while the worker has no line after `since` — the recap bubble that heads a
-   * new conversation. `INSERT … SELECT … WHERE NOT EXISTS`, so an open that already sees a line
-   * writes nothing. True when it wrote.
-   *
-   * SERIALISED PER WORKER. Two opens racing (a cold start and a tab refocus) would each see no line
-   * under READ COMMITTED and both insert. A transaction-scoped advisory lock on the worker — in this
-   * table's OWN key space (`companion-recap:` prefix), so it never queues behind the other per-worker
-   * locks (unlocks, disclosures, referrals) — makes the second wait for the first to commit; its
-   * statement then sees the first recap and writes nothing. The lock lives only for this one INSERT.
-   */
-  async appendIfNoneSince(line: NewCompanionMessage, since: Date): Promise<boolean> {
-    return this.db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`companion-recap:${line.workerId}`}, 0))`,
-      );
-      const result = await tx.execute(sql`
-      INSERT INTO ${companionMessages} (
-        "worker_id", "role", "body_text", "tts_text", "read_aloud",
-        "suggested_options", "suggested_followups", "news_links", "model_context", "created_at"
-      )
-      SELECT
-        ${line.workerId}::uuid, ${line.role}::text, ${line.bodyText}::text,
-        ${line.ttsText ?? null}::text, ${line.readAloud ?? null}::boolean,
-        ${jsonOrNull(line.suggestedOptions)}::jsonb, ${jsonOrNull(line.suggestedFollowups)}::jsonb,
-        ${jsonOrNull(line.newsLinks)}::jsonb, ${line.modelContext ?? false}::boolean,
-        ${(line.createdAt ?? new Date()).toISOString()}::timestamptz
-      WHERE NOT EXISTS (
-        SELECT 1 FROM ${companionMessages}
-        WHERE ${companionMessages.workerId} = ${line.workerId}::uuid
-          AND ${companionMessages.createdAt} > ${since.toISOString()}::timestamptz
-      )
-      RETURNING "id"
-    `);
-      // postgres-js hands back the RETURNING rows as an array.
-      return Array.isArray(result) && result.length > 0;
-    });
-  }
-
-  /**
    * The worker's summary record — only while it is LIVE: the newest line it covers
    * (`folded_through`) is still inside the window (after `since`). Undefined otherwise (none, or
    * expired).
@@ -244,9 +205,4 @@ export class CompanionHistoryRepository {
       .returning({ workerId: companionConversationSummaries.workerId });
     return deleted.length;
   }
-}
-
-/** A jsonb parameter: the value as JSON text, or SQL NULL. */
-function jsonOrNull(value: unknown): string | null {
-  return value === null || value === undefined ? null : JSON.stringify(value);
 }

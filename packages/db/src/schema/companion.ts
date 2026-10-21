@@ -27,8 +27,8 @@ import { workers } from "./worker";
 // ONE ROW PER LINE, as the app draws it: the worker's message (`worker`, the text as sent — the
 // chip label for a tap) and Bada Bhai's reply (`bada_bhai`) with everything a live turn carries —
 // the read-aloud twin, the "never read aloud" marker of a model-written line, the chips and the
-// news tiles. The recap bubble served on the first open of a window is stored too, so it heads the
-// conversation.
+// news tiles. Until #2391 (ADR-0059) the recap bubble served on the first open of a window was
+// stored too, heading the conversation; it no longer is, and those rows age out with the window.
 //
 // `model_context` — WHETHER A LATER MODEL CALL MAY READ THIS LINE. True only for the turns the
 // companion's Redis memory would have kept (the v2 / brain turns whose pair is remembered); false

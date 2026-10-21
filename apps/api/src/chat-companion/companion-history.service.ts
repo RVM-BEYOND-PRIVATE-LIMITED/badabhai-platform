@@ -20,6 +20,9 @@ import {
 export const COMPANION_HISTORY_WINDOW_DAYS = 7;
 const DAY_MS = 86_400_000;
 
+/** A turn's reply is stored this long after the worker line it answers, so the pair reads back in order. */
+export const REPLY_AFTER_WORKER_MS = 1;
+
 /** Postgres `undefined_table` — migration 0135 not applied yet. */
 const PG_UNDEFINED_TABLE = "42P01";
 
@@ -82,8 +85,9 @@ let missingTablesWarned = false;
  * stored, what is read back, and what happens when the store is not there. No model, no AI client.
  *
  * WHAT IS STORED. After every served message turn, the worker's message (as sent) and the reply
- * exactly as the app renders it; and the recap bubble served on an open that finds NO line in the
- * window, so it heads the conversation. A reopen within 7 days then draws only the stored lines.
+ * exactly as the app renders it. A reopen within 7 days then draws only the stored lines. The recap
+ * is NOT stored (#2391, ADR-0059): it is shown only when the window holds no conversation at all, so
+ * it is never a line of one. Until #2391 an open with no line stored it; those rows age out.
  *
  * NEVER BLOCKS, NEVER FAILS A TURN. Every write runs in the background after the turn is computed,
  * its failure logged with ids and a closed reason only (`logSafeReason` — a query error's bound
@@ -162,9 +166,9 @@ export class CompanionHistoryService {
   // ── writes ─────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Store one served turn — the worker's line, then the reply one millisecond later so the pair
-   * always reads back in order — IN THE BACKGROUND. `afterStored` runs once the lines are written
-   * (the summary fold); never when the write failed or wrote nothing (a replay).
+   * Store one served turn — the worker's line, then the reply {@link REPLY_AFTER_WORKER_MS} later so
+   * the pair always reads back in order — IN THE BACKGROUND. `afterStored` runs once the lines are
+   * written (the summary fold); never when the write failed or wrote nothing (a replay).
    */
   keepTurn(kept: KeptTurn, afterStored?: () => Promise<void>): void {
     const lines: NewCompanionMessage[] = [];
@@ -179,27 +183,17 @@ export class CompanionHistoryService {
         createdAt: kept.at,
       });
     }
-    const reply = replyLineOf(kept.workerId, kept.turn, new Date(kept.at.getTime() + 1));
+    const reply = replyLineOf(
+      kept.workerId,
+      kept.turn,
+      new Date(kept.at.getTime() + REPLY_AFTER_WORKER_MS),
+    );
     if (reply !== null) {
       lines.push({ ...reply, submissionId: kept.submissionId, modelContext: kept.modelContext });
     }
     this.background(kept.workerId, async () => {
       const written = await this.soft("turn write", kept.workerId, () => this.repo.append(lines));
       if (written.ok && written.value > 0 && afterStored !== undefined) await afterStored();
-    });
-  }
-
-  /**
-   * Store the recap bubble served on an open — only while the worker has NO line in the window, so
-   * it heads a new conversation and is never stored twice. In the background.
-   */
-  keepRecap(workerId: string, turn: CompanionTurn, now: Date): void {
-    const line = replyLineOf(workerId, turn, now);
-    if (line === null) return;
-    this.background(workerId, async () => {
-      await this.soft("recap write", workerId, () =>
-        this.repo.appendIfNoneSince(line, historyWindowStart(now)),
-      );
     });
   }
 

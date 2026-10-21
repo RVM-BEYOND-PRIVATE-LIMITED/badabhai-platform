@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, type DbClient } from "@badabhai/db";
 import { CompanionHistoryRepository } from "./companion-history.repository";
 import { CompanionHistoryService } from "./companion-history.service";
+import { ProfilingChatLinesReader } from "../chat/profiling-chat-lines.reader";
 import { v2CareerAnswerTurn, v2CopyTurn } from "./v2/companion-v2-compose";
 import { V2_CLARIFY } from "./companion-replies";
 
@@ -12,7 +13,6 @@ import { V2_CLARIFY } from "./companion-replies";
  * the statements evaluate that way:
  *  - the window: the last 7 days only, the NEWEST 200 when there are more, oldest first;
  *  - replay: the same submission inserts nothing (the partial unique index, ON CONFLICT DO NOTHING);
- *  - the recap is stored only while the worker has no line in the window;
  *  - the model lines: only `model_context` rows, the newest N;
  *  - the summary: live only while the newest line it covers is in the window (a fresh line never
  *    revives an expired one); monotonic upsert;
@@ -172,33 +172,6 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
     expect(read.value.at(-1)!.text).toBe("n204");
   });
 
-  it("the recap is stored only while the worker has no line in the window", async () => {
-    history.keepRecap(worker, v2CopyTurn(V2_CLARIFY), ago(10_000));
-    await history.idle();
-    history.keepRecap(worker, v2CopyTurn(V2_CLARIFY), ago(5_000));
-    await history.idle();
-    const read = await history.window(worker, NOW);
-    if (!read.ok) throw new Error("expected ok");
-    expect(read.value).toHaveLength(1);
-    expect(read.value[0]).toMatchObject({ role: "bada_bhai", tts_text: V2_CLARIFY.dev });
-  });
-
-  it("concurrent opens store ONE recap (the per-worker advisory lock)", async () => {
-    const recap = {
-      workerId: worker,
-      role: "bada_bhai" as const,
-      bodyText: "recap",
-      createdAt: ago(1_000),
-    };
-    const wrote = await Promise.all(
-      Array.from({ length: 8 }, () => repo.appendIfNoneSince(recap, ago(7 * DAY_MS))),
-    );
-    expect(wrote.filter(Boolean)).toHaveLength(1);
-    const [{ n } = { n: -1 }] = await client.sql<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM companion_messages WHERE worker_id = ${worker}::uuid`;
-    expect(n).toBe(1);
-  });
-
   it("model lines: only `model_context` rows, the newest N, oldest first", async () => {
     await line(worker, ago(50_000), { text: "a", modelContext: true });
     await line(worker, ago(40_000), { text: "distress", modelContext: false });
@@ -340,5 +313,146 @@ describe.skipIf(!RUN)("companion history — against Postgres (migration 0135)",
       return plan.map((r) => r["QUERY PLAN"]).join(" | ");
     });
     expect(text).toContain("companion_messages_created_at_idx");
+  });
+});
+
+/**
+ * #2391 (ADR-0059) — THE PROFILING CHAT READ BACK FOR THE BADA BHAI CHAT, against a real Postgres:
+ * every session's stored lines in the window, in `listMessages`' order (a shared timestamp puts the
+ * worker's line first), the vocative stripped; a live session's lines from its Redis transcript
+ * instead of its rows; a chat the worker never spoke in left out. Redis is a stand-in map.
+ */
+describe.skipIf(!RUN)("profiling chat lines — against Postgres (#2391)", () => {
+  let client!: DbClient;
+  let reader!: ProfilingChatLinesReader;
+  const buffers = new Map<string, string>();
+  const workers: string[] = [];
+
+  async function newWorker(): Promise<string> {
+    const id = randomUUID();
+    workers.push(id);
+    await client.sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${id}::uuid, ${`enc:profiling-lines-${TAG}-${workers.length}`},
+              ${`hash:profiling-lines-${TAG}-${workers.length}`}, 'active')`;
+    return id;
+  }
+
+  /** A session; a closed one ends two hours after it started. */
+  async function session(workerId: string, status: "active" | "ended" | "abandoned", startedAt: Date) {
+    const id = randomUUID();
+    const endedAt = status === "active" ? null : new Date(startedAt.getTime() + 2 * 3_600_000);
+    await client.sql`
+      INSERT INTO chat_sessions (id, worker_id, status, started_at, ended_at)
+      VALUES (${id}::uuid, ${workerId}::uuid, ${status}, ${startedAt.toISOString()}::timestamptz,
+              ${endedAt === null ? null : endedAt.toISOString()}::timestamptz)`;
+    return id;
+  }
+
+  async function row(
+    sessionId: string,
+    workerId: string,
+    direction: "inbound" | "outbound",
+    body: string | null,
+    at: Date,
+  ): Promise<void> {
+    await client.sql`
+      INSERT INTO chat_messages (session_id, worker_id, direction, body_text, created_at)
+      VALUES (${sessionId}::uuid, ${workerId}::uuid, ${direction}, ${body},
+              ${at.toISOString()}::timestamptz)`;
+  }
+
+  beforeAll(async () => {
+    if (!LOCAL_HOST.test(new URL(DATABASE_URL).hostname)) {
+      throw new Error("profiling chat lines inserts rows; it runs against a LOCAL database only");
+    }
+    client = createDbClient(DATABASE_URL, { max: 4 });
+    const queue = {
+      client: Promise.resolve({
+        mget: async (...keys: string[]) => keys.map((key) => buffers.get(key) ?? null),
+      }),
+    };
+    reader = new ProfilingChatLinesReader(
+      { CHAT_FREE_CHAT_DISABLED: false } as never,
+      client.db,
+      queue as never,
+    );
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    for (const id of workers) await client.sql`DELETE FROM workers WHERE id = ${id}::uuid`;
+    await client.sql.end({ timeout: 5 });
+  });
+
+  it("every session in the window, oldest first, worker line before its reply, vocative stripped", async () => {
+    const worker = await newWorker();
+    const first = await session(worker, "ended", ago(3 * DAY_MS));
+    const redo = await session(worker, "ended", ago(DAY_MS));
+    const shared = ago(3 * DAY_MS - 60_000);
+    // Inserted reply-first on a SHARED timestamp: the read must still put the worker first.
+    await row(first, worker, "outbound", "{{worker_name}} ji, aapka shehar?", shared);
+    await row(first, worker, "inbound", "Pune", shared);
+    await row(first, worker, "outbound", "Aap kaun sa kaam karte hain?", ago(3 * DAY_MS));
+    await row(redo, worker, "inbound", "welder", ago(DAY_MS - 1_000));
+    await row(redo, worker, "inbound", null, ago(DAY_MS - 500)); // a voice row before its transcript
+    await row(first, worker, "inbound", "too old", ago(8 * DAY_MS));
+
+    const read = await reader.since(worker, ago(7 * DAY_MS));
+    if (!read.ok) throw new Error("expected a readable chat");
+    expect(read.value.map((l) => [l.sessionId === first ? "first" : "redo", l.role, l.text])).toEqual([
+      ["first", "bada_bhai", "Aap kaun sa kaam karte hain?"],
+      ["first", "worker", "Pune"],
+      ["first", "bada_bhai", "aapka shehar?"],
+      ["redo", "worker", "welder"],
+    ]);
+  });
+
+  it("a row written after its session closed (a spoken correction, #1272) is not a line of the chat", async () => {
+    const worker = await newWorker();
+    const done = await session(worker, "ended", ago(2 * DAY_MS)); // closed two hours later
+    await row(done, worker, "inbound", "fitter", ago(2 * DAY_MS - 60_000));
+    await row(done, worker, "inbound", "corrected later on the review screen", ago(DAY_MS));
+    const read = await reader.since(worker, ago(7 * DAY_MS));
+    expect(read.ok && read.value.map((l) => l.text)).toEqual(["fitter"]);
+  });
+
+  it("a chat the worker never spoke in is left out", async () => {
+    const worker = await newWorker();
+    const silent = await session(worker, "abandoned", ago(DAY_MS));
+    await row(silent, worker, "outbound", "Aap kaun sa kaam karte hain?", ago(DAY_MS));
+    const read = await reader.since(worker, ago(7 * DAY_MS));
+    expect(read).toEqual({ ok: true, value: [], truncated: false });
+  });
+
+  it("a LIVE session's lines come from its Redis transcript, not its rows; another worker's is ignored", async () => {
+    const worker = await newWorker();
+    const live = await session(worker, "active", ago(60_000));
+    await row(live, worker, "inbound", "stale row", ago(50_000));
+    buffers.set(
+      `chat:transcript:${live}`,
+      JSON.stringify({
+        workerId: worker,
+        messages: [
+          { role: "assistant", text: "Kitne saal ka experience?", at: ago(40_000).toISOString() },
+          { role: "worker", text: "5 saal", at: ago(30_000).toISOString() },
+        ],
+      }),
+    );
+    const other = await newWorker();
+    const theirs = await session(other, "active", ago(60_000));
+    buffers.set(
+      `chat:transcript:${theirs}`,
+      JSON.stringify({ workerId: worker, messages: [{ role: "worker", text: "x", at: ago(1).toISOString() }] }),
+    );
+
+    const read = await reader.since(worker, ago(7 * DAY_MS));
+    if (!read.ok) throw new Error("expected a readable chat");
+    expect(read.value.map((l) => [l.role, l.text])).toEqual([
+      ["bada_bhai", "Kitne saal ka experience?"],
+      ["worker", "5 saal"],
+    ]);
+    const mine = await reader.since(other, ago(7 * DAY_MS));
+    expect(mine).toEqual({ ok: true, value: [], truncated: false });
   });
 });

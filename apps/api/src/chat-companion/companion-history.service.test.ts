@@ -38,7 +38,6 @@ function setup(over: Partial<Record<string, (...args: never[]) => Promise<unknow
     listSince: vi.fn(async (..._args: unknown[]): Promise<CompanionHistoryRow[]> => []),
     listModelLinesSince: vi.fn(async (..._args: unknown[]) => []),
     append: vi.fn(async (lines: readonly NewCompanionMessage[]) => lines.length),
-    appendIfNoneSince: vi.fn(async (..._args: unknown[]) => true),
     findLiveSummary: vi.fn(async (..._args: unknown[]) => undefined),
     upsertSummary: vi.fn(async (..._args: unknown[]) => true),
     deleteLinesBefore: vi.fn(async (..._args: unknown[]) => 0),
@@ -341,23 +340,6 @@ describe("storing a served turn", () => {
     ).not.toThrow();
     await h.service.idle();
     expect(after).not.toHaveBeenCalled();
-  });
-});
-
-describe("storing the recap", () => {
-  it("stores the recap bubble only while the worker has no line in the window", async () => {
-    const h = setup();
-    const recap = v2CopyTurn(V2_CLARIFY);
-    h.service.keepRecap(WORKER, recap, NOW);
-    await h.service.idle();
-    const [line, since] = h.repo.appendIfNoneSince.mock.calls[0]!;
-    expect(line).toMatchObject({
-      workerId: WORKER,
-      role: "bada_bhai",
-      bodyText: recap.reply,
-      createdAt: NOW,
-    });
-    expect(since).toEqual(new Date(NOW.getTime() - 7 * DAY_MS));
   });
 });
 

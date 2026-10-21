@@ -97,6 +97,8 @@ describe("ChatCompanionModule wiring", () => {
       "PendingIntentStore",
       "PhaseOffHandler",
       "ProfilesRepository",
+      // #2391 (ADR-0059) — the profiling chat's lines, read-only, drawn on open.
+      "ProfilingChatLinesReader",
       "ResumeImportRepository",
       "ResumeSuggestionReader",
       "UnclearHandler",
@@ -179,6 +181,29 @@ describe("ChatCompanionModule wiring", () => {
     expect(reader).not.toMatch(/chat\.repository|\.insert\(|\.update\(|\.delete\(|merge[A-Z]/);
     const query = readFileSync(join(__dirname, "../chat/free-chat-summary.query.ts"), "utf8");
     expect(query).not.toMatch(/\.insert\(|\.update\(|\.delete\(|from "\.\/chat\.repository"/);
+  });
+
+  it("#2391 — the profiling chat reader reads, and reaches no chat or transcript writer", () => {
+    // Two SELECTs on the @Global database handle and one MGET on the borrowed Redis connection. It
+    // holds no ChatRepository and no ChatTranscriptBuffer instance (whose writers would come with
+    // it): from the buffer's file it takes only the pure key and the pure news-tile narrowing.
+    const reader = readFileSync(join(__dirname, "../chat/profiling-chat-lines.reader.ts"), "utf8");
+    expect(reader).not.toMatch(/from "\.\/chat\.(repository|service)"/);
+    expect(reader).not.toMatch(/(new|:)\s*ChatTranscriptBuffer\b/);
+    expect(reader).not.toMatch(/\.db\s*\.(insert|update|delete|execute|transaction)\(/);
+    // The buffer's file gives it exactly the two pure functions, and nothing else.
+    expect(reader.match(/chat-transcript\.buffer"/g)).toHaveLength(1);
+    expect(reader).toMatch(
+      /import \{ chatTranscriptKey, newsLinksOfMetadata \} from "\.\/chat-transcript\.buffer";/,
+    );
+    // Its Redis client is typed with ONE command, a read.
+    expect(reader).toMatch(/interface RedisReadClient \{\s*mget\([^)]*\): [^;]+;\s*\}/);
+    // Its SQL is a leaf: schema imports and SELECTs only.
+    const query = readFileSync(join(__dirname, "../chat/profiling-chat-lines.query.ts"), "utf8");
+    expect(query).not.toMatch(/\.(insert|update|delete|execute|transaction)\(|from "\.\/chat\.repository"/);
+    // The companion's own repositories still name no chat table: the read lives in that file only.
+    const repo = readFileSync(join(__dirname, "companion-history.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/chatMessages|chat_messages/);
   });
 
   it("ADR-0055 — its one read of the workers row is the name reader: full_name alone, via @Global crypto", () => {

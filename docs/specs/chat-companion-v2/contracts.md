@@ -421,6 +421,20 @@ in companion mode may also carry `history`: the stored lines of the last 7 days,
 `read_aloud: false`, `suggested_options`, `suggested_followups`, `news_links`, plus `created_at`). Absent, never empty,
 when there is no line; never on a message turn. The recap fields stay on the response for older apps.
 
+**`conversation` on the open (#2391, [ADR-0059](../../decisions/0059-bada-bhai-chat-shows-profiling-conversation.md)).**
+In companion mode, `GET /chat/companion` may also carry `conversation` (`CompanionConversationSchema`):
+
+- `messages` — every profiling chat line and every Bada Bhai chat line of the last 7 days, oldest first, at
+  most 400. Each line is `CompanionConversationItemSchema`: `id`, `source` (`profiling` or `bada_bhai_chat`),
+  `role`, `text`, and when present `tts_text`, `read_aloud: false`, `news_links`, and `ends_profiling_chat: true`
+  (draw "End of conversation" after that line), plus `created_at`.
+- `suggested_options` and `suggested_followups` — the chips under the last line: the newest Bada Bhai chat
+  reply's, or the recap's when a profiling chat is newer than that reply (or there is none).
+- A line's `id` is opaque and stable within one response only; it is not a key to dedupe by across opens.
+
+An app that knows `conversation` draws it instead of `history` and the recap. It is absent, never empty, when the
+window holds nothing; the app then draws the recap. The recap is never stored, and never a line of it.
+
 **Row labels (2026-09-30, lane a3 — BUG-CARD-LABELS, POLISH-language-slugs).** `section_label`
 names only the section, so two rows of one section could not be told apart ("Pasand: Nahi → Haan"
 — travel, relocation or a room?), and single-word slugs (`hindi`, `pan`, `cbse`, `immediate`)
