@@ -100,6 +100,16 @@ export type SkillsTurnResult =
 /** Why the stage is ending, which decides the outcome when there is nothing to gate. */
 type EndReason = "done" | "capped" | "unavailable";
 
+/**
+ * The chips of the question this turn's message answers (#2387): the options on the LAST line of
+ * `history`, when that line is ours. Empty when it showed none — the certifier then grounds on the
+ * worker's own words alone, exactly as before.
+ */
+export function answeredQuestionChips(history: readonly TranscriptLine[]): readonly string[] {
+  const last = history[history.length - 1];
+  return last?.role === "assistant" ? (last.options ?? []) : [];
+}
+
 @Injectable()
 export class SkillsTurnService {
   private readonly logger = new Logger(SkillsTurnService.name);
@@ -243,11 +253,14 @@ export class SkillsTurnService {
 
     // 4. CERTIFY AND MERGE. Grounded in THIS turn's words: the worker's own message is the only
     //    licence a skill has. Bounded first — the contract list is unbounded.
+    //    #2387 — a catch-all ("sab aata hai") is grounded by the chips of the question it answers:
+    //    the last line of `history`, which is always our own question to this message.
     const certified = certifySkills(out.skills.slice(0, MAX_SKILL_CANDIDATES_PER_TURN), {
       workerText: text,
       held: road.skills,
       roleLabel: road.roleLabel,
       domainLabel: road.domainLabel,
+      offered: answeredQuestionChips(history),
     });
     const added = certified.kept.length;
     road = {

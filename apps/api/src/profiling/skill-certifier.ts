@@ -34,8 +34,9 @@
  *   1. clean                            6. links and contact routes, minus a closed tech list
  *   2. length                           7. organisation name, and a trailing legal suffix
  *   3. placeholders                     8. generic / the role itself
- *   4. hard identifier, PAN in any      9. grounding (certifySkills only)
- *      case, and the digit budget      10. de-dupe on `skillKey`
+ *   4. hard identifier, PAN in any      9. grounding (certifySkills only) — or, on a
+ *      case, and the digit budget         catch-all answer, a chip on screen (#2387)
+ *                                      10. de-dupe on `skillKey`
  *                                      11. the MAX_SKILLS cap
  *
  * 0-8 are properties of the LABEL alone — {@link certifySkillLabel} runs exactly those, which is
@@ -125,6 +126,13 @@ export interface SkillCertifyContext {
   readonly roleLabel: string | null;
   /** The settled domain. Same rule as the role. */
   readonly domainLabel: string | null;
+  /**
+   * #2387 — the chips shown on the question `workerText` answers. When that message is a
+   * catch-all ("sab aata hai"), a candidate that IS one of these chips is grounded: the worker
+   * claimed every option on screen, and the chip text is ours, not the model's. Ignored on any
+   * other message, so a model that adds an unchosen chip to an ordinary answer is still refused.
+   */
+  readonly offered?: readonly string[];
 }
 
 export interface SkillCertifyResult {
@@ -844,6 +852,43 @@ function isGrounded(label: string, index: GroundingIndex): boolean {
     .some((token) => index.fuzzyTokens.some((heard) => withinOneEdit(token, heard)));
 }
 
+/**
+ * Words that claim EVERY option on screen (#2387). Matched as whole tokens of the normalised
+ * message. CLOSED and authored, like {@link GENERIC_LABELS} — which already refuses each of them as
+ * a skill label in its own right.
+ */
+const CATCH_ALL_TOKENS: ReadonlySet<string> = new Set([
+  "sab",
+  "sabhi",
+  "sabkuch",
+  "saare",
+  "sare",
+  "saara",
+  "sara",
+  "all",
+  "everything",
+  "सब",
+  "सभी",
+  "सारे",
+]);
+
+/** Does the message claim every option on screen ("sab aata hai", "all of them")? */
+export function isCatchAllAnswer(workerText: string): boolean {
+  const normalized = normalize(workerText);
+  return normalized.length > 0 && normalized.split(" ").some((t) => CATCH_ALL_TOKENS.has(t));
+}
+
+/**
+ * The normalised chips a catch-all message licenses, or an empty set when the message is not one.
+ * A chip the candidate equals is grounded by the screen, not by the worker's wording.
+ */
+function catchAllChips(ctx: SkillCertifyContext): ReadonlySet<string> {
+  if (!ctx.offered || ctx.offered.length === 0 || !isCatchAllAnswer(ctx.workerText)) {
+    return new Set();
+  }
+  return new Set(ctx.offered.map(normalize).filter((chip) => chip.length > 0));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // 10. IDENTITY
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -907,6 +952,7 @@ export function certifySkills(
   const index = groundingIndex(ctx.workerText);
   const excluded = roleExclusions(ctx);
   const seen = new Set(ctx.held.map(skillKey));
+  const shownChips = catchAllChips(ctx);
 
   const kept: string[] = [];
   let rejected = 0;
@@ -917,7 +963,7 @@ export function certifySkills(
     if (
       label === null ||
       namesTheRole(label, excluded) ||
-      (index !== null && !isGrounded(label, index))
+      (index !== null && !isGrounded(label, index) && !shownChips.has(normalize(label)))
     ) {
       rejected++;
       continue;

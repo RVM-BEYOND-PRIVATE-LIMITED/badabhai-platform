@@ -58,13 +58,20 @@ function make(
     /** T3 — the fail-closed leg (pseudonymization blocked the LLM call). */
     blocked?: boolean;
     /** R32 — stored chat rows the transcript is built from. */
-    messages?: { direction: string; bodyText: string }[];
+    messages?: { direction: string; bodyText: string; metadata?: unknown }[];
     /** R32 — the worker's DECRYPTED full name (null = none stored). */
     workerName?: string | null;
     /** R32 — a rotated/tampered key: `pii.decrypt` throws. */
     decryptThrows?: boolean;
     /** The in-flight Redis transcript (the early-finish path, before any flush). */
-    buffered?: { messages: { role: "worker" | "assistant"; text: string; at: string }[] } | null;
+    buffered?: {
+      messages: {
+        role: "worker" | "assistant";
+        text: string;
+        at: string;
+        options?: readonly string[];
+      }[];
+    } | null;
     /** Redis is unreachable when the extraction tries to read the buffer. */
     bufferThrows?: boolean;
     /** Generalized profiling — the RAG match the ai-service returned (omit = pass off). */
@@ -4091,5 +4098,69 @@ describe("ADR-0057 R9 (#2313) — what the worker confirmed in chat outranks the
     const today = await build({});
     expect(await build({ chat_edits: { ...stamp(), v: 2 } })).toEqual(today);
     expect((today as { rawProfile: DraftProfile }).rawProfile.experiences).toEqual([OLD_JOB]);
+  });
+});
+
+describe("#2387 — the chips our questions showed reach Phase C, and only Phase C", () => {
+  const CHIPPED = [
+    {
+      direction: "outbound",
+      bodyText: "Kaunsi machines chalate hain?",
+      metadata: { options: ["VMC", "CNC lathe", "Kuch aur"] },
+    },
+    { direction: "inbound", bodyText: "sab chalata hu" },
+  ];
+
+  it("sends each flushed line's chips on the Phase C transcript", async () => {
+    const { proc, ai } = make({ ...withMap(), messages: CHIPPED, llmInterview: true });
+    await proc.process(makeJob());
+    const request = ai.extractInterview.mock.calls[0]?.[0] as { transcript: unknown[] };
+    expect(request.transcript).toEqual([
+      {
+        i: 0,
+        role: "assistant",
+        text: "Kaunsi machines chalate hain?",
+        options: ["VMC", "CNC lathe", "Kuch aur"],
+      },
+      { i: 1, role: "worker", text: "sab chalata hu" },
+    ]);
+  });
+
+  it("reads them off the buffer on the early-finish path too", async () => {
+    const at = "2026-10-21T00:00:00.000Z";
+    const { proc, ai } = make({
+      ...withMap(),
+      messages: [],
+      buffered: {
+        messages: [
+          { role: "assistant", text: "Kaunse tools?", at, options: ["Vernier", "Micrometer"] },
+          { role: "worker", text: "sab", at },
+        ],
+      },
+      llmInterview: true,
+    });
+    await proc.process(makeJob());
+    const request = ai.extractInterview.mock.calls[0]?.[0] as {
+      transcript: { options?: string[] }[];
+    };
+    expect(request.transcript[0]?.options).toEqual(["Vernier", "Micrometer"]);
+    expect("options" in (request.transcript[1] ?? {})).toBe(false);
+  });
+
+  it("keeps the parse request's transcript free of chips", async () => {
+    const { proc, ai } = make({ ...withMap(), messages: CHIPPED, llmInterview: true });
+    await proc.process(makeJob());
+    const parse = ai.parseProfile.mock.calls[0]?.[0] as { transcript: object[] };
+    for (const line of parse.transcript) expect("options" in line).toBe(false);
+  });
+
+  it("keeps the legacy request to the contract's role and text", async () => {
+    const { proc, ai } = make({ conversationState: { answer_map: [] }, messages: CHIPPED });
+    await proc.process(makeJob());
+    const legacy = ai.extractProfile.mock.calls[0]?.[0] as { messages: unknown[] };
+    expect(legacy.messages).toEqual([
+      { role: "assistant", text: "Kaunsi machines chalate hain?" },
+      { role: "worker", text: "sab chalata hu" },
+    ]);
   });
 });

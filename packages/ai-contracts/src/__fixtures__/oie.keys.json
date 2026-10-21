@@ -93,7 +93,8 @@
   "TranscriptLine": [
     "i",
     "role",
-    "text"
+    "text",
+    "options"
   ],
   "TargetField": [
     "field_id",

@@ -444,6 +444,12 @@ export const TranscriptLineSchema = z.object({
   i: z.number().int().nonnegative(),
   role: z.enum(["worker", "assistant"]),
   text: z.string(),
+  /**
+   * #2387 — the answer chips shown beside an assistant line, as labels. Sent only to Phase C and
+   * the skills stage, which expand a catch-all answer ("sab aata hai") into them. Platform text,
+   * never the worker's. ADDITIVE and optional: absent renders the line exactly as before.
+   */
+  options: z.array(z.string()).optional(),
 });
 export type TranscriptLine = z.infer<typeof TranscriptLineSchema>;
 

@@ -199,5 +199,24 @@ def mask_transcript_lines(
         blocked, text = mask(line.text)
         if blocked or not text.strip():
             continue
-        out.append(TranscriptLine(i=line.i, role=line.role, text=text))
+        out.append(
+            TranscriptLine(i=line.i, role=line.role, text=text, options=_masked_options(line, mask))
+        )
     return out
+
+
+def _masked_options(line: TranscriptLine, mask: Masker) -> list[str] | None:
+    """The line's answer chips (#2387) through the same masker as its text, PER CHIP.
+
+    A chip the gateway refuses is dropped and the rest survive — one bad chip must not cost the
+    line its others. `None` when the line carried none (or none survived), so a line without chips
+    renders exactly as it did before the field existed.
+    """
+    if not line.options:
+        return None
+    kept: list[str] = []
+    for option in line.options:
+        blocked, text = mask(option)
+        if not blocked and text.strip():
+            kept.append(text.strip())
+    return kept or None

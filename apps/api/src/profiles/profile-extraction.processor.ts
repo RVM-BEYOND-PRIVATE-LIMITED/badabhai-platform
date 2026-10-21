@@ -56,6 +56,8 @@ import {
   ChatTranscriptBuffer,
   isMeaningExcluded,
   isMeaningExcludedMetadata,
+  offeredOptionsField,
+  offeredOptionsOfMetadata,
 } from "../chat/chat-transcript.buffer";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -89,6 +91,27 @@ import { PROFILE_EXTRACTION_QUEUE, type ProfileExtractionJobData } from "../queu
 
 /** A stored import id is only trusted as a FK value when it is shaped like one. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A conversation line as this processor reads it: the contract's message plus, on one of OUR
+ * lines, the chips that were on screen beside it (#2387). Only the Phase C request carries the
+ * chips — the parse and legacy requests are built from `role` and `text` alone.
+ */
+type ExtractionMessage = ConversationMessage & { readonly options?: readonly string[] };
+
+/**
+ * `lines` with each line's chips, read back by `i` from the messages they were indexed from
+ * (#2387), so Phase C can expand a catch-all answer into the options that were on screen.
+ */
+function withOfferedOptions(
+  lines: readonly TranscriptLine[],
+  messages: readonly ExtractionMessage[],
+): TranscriptLine[] {
+  return lines.map((line) => {
+    const options = messages[line.i]?.options;
+    return options !== undefined && options.length > 0 ? { ...line, options: [...options] } : line;
+  });
+}
 
 /**
  * TD27 spend-cap / circuit-breaker block codes the AI gateway returns in
@@ -1174,7 +1197,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     },
     session: ChatSession | undefined,
     loadConversation: () => Promise<{
-      readonly messages: readonly ConversationMessage[];
+      readonly messages: readonly ExtractionMessage[];
       readonly transcript: string;
       /** The parse call's answer-map copy, name-redacted the same way (ADR-0047 G2). */
       readonly redactAnswers: (records: readonly AnswerRecord[]) => AnswerRecord[];
@@ -1283,7 +1306,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
       const legacyRequest = {
         worker_ref: job.workerId,
         transcript,
-        messages: [...messages],
+        // The contract's two keys only: the chips (#2387) are Phase C's, and this request stays
+        // byte-identical to every legacy extraction to date.
+        messages: messages.map(({ role, text }) => ({ role, text })),
         // OMITTED, never `undefined`-with-intent: `job_domain_id` absent leaves the pass on
         // Path B under the configured slug, byte-identical to every extraction to date. One
         // key appears, or the request is exactly what it always was.
@@ -1444,7 +1469,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // the profile. Null is the whole degraded set — down, 429, deadline, mock posture, blocked,
     // malformed — and the profile that comes out is exactly the one the answer map alone
     // produces, which is already a usable profile.
-    const interview = await this.interviewOverlay(job, lines, occupation);
+    const interview = await this.interviewOverlay(
+      job,
+      withOfferedOptions(lines, messages),
+      occupation,
+    );
 
     // ADR-0057 R9 (#2313) — WHAT THE WORKER CONFIRMED IN CHAT OUTRANKS THE TRANSCRIPT. Both inputs
     // above were read from a conversation that still says the old value: a removed field stays
@@ -2122,7 +2151,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     workerId: string,
     sessionId: string | null,
   ): Promise<{
-    messages: ConversationMessage[];
+    messages: ExtractionMessage[];
     transcript: string;
     redactAnswers: (records: readonly AnswerRecord[]) => AnswerRecord[];
   }> {
@@ -2184,7 +2213,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * reconcile. Postgres leads because after the flush it is authoritative and the
    * buffer is gone.
    */
-  private async buildMessages(sessionId: string | null): Promise<ConversationMessage[]> {
+  private async buildMessages(sessionId: string | null): Promise<ExtractionMessage[]> {
     if (!sessionId) return [];
     const rows = await this.chat.listMessages(sessionId);
     if (rows.length > 0) {
@@ -2200,6 +2229,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
           .map((m) => ({
             role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
             text: m.bodyText as string,
+            // #2387 — the chips our line showed, kept by the flush; only Phase C is sent them.
+            ...(m.direction === "inbound"
+              ? {}
+              : offeredOptionsField(offeredOptionsOfMetadata(m.metadata))),
           }))
       );
     }
@@ -2217,7 +2250,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
             `${lines.length}-line transcript buffer (early-finish path)`,
         );
       }
-      return lines.map((m) => ({ role: m.role, text: m.text }));
+      return lines.map((m) => ({
+        role: m.role,
+        text: m.text,
+        ...(m.role === "assistant" ? offeredOptionsField(m.options) : {}),
+      }));
     } catch (err) {
       this.logger.warn(
         `could not read the transcript buffer for session ${sessionId}; extracting ` +
@@ -2233,7 +2270,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * "(no conversation captured)" placeholder — the AI service still gates and
    * prompts on this, so it must not drift.
    */
-  private renderTranscript(messages: ConversationMessage[]): string {
+  private renderTranscript(messages: readonly ExtractionMessage[]): string {
     const text = messages
       .map((m) => `${m.role === "worker" ? "Worker" : "Bada Bhai"}: ${m.text}`)
       .join("\n");
