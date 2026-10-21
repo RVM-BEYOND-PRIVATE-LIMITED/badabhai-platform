@@ -2024,11 +2024,27 @@ class _ChatViewState extends State<_ChatView>
             // builder is about to draw: a redraw that REPLACED the transcript
             // (the companion recap, a history redraw) must never leave the
             // marker pointing past its end.
-            final int? endAfter =
-                state.sessionEndedAfterIndex != null &&
-                    state.sessionEndedAfterIndex! < state.messages.length
-                ? state.sessionEndedAfterIndex
-                : null;
+            //
+            // #2392 (ADR-0059) — in companion mode the Bada Bhai chat draws
+            // every profiling chat of the last 7 days, and EACH closes with
+            // its own divider: one after every bubble flagged
+            // [ChatMessage.closesSession]. Deduped with the single index the
+            // interview uses, so the interview draws exactly what it did.
+            final List<int> endsAfter = <int>{
+              if (state.sessionEndedAfterIndex != null &&
+                  state.sessionEndedAfterIndex! < state.messages.length)
+                state.sessionEndedAfterIndex!,
+              if (state.companion)
+                for (int i = 0; i < state.messages.length; i++)
+                  if (state.messages[i].closesSession) i,
+            }.toList()..sort();
+            // Row -> message index, with -1 for a divider row.
+            final List<int> rowToMessage = <int>[
+              for (int i = 0; i < state.messages.length; i++) ...<int>[
+                i,
+                if (endsAfter.contains(i)) -1,
+              ],
+            ];
             // Owner ask (2026-10-14) — the "Resume download" tile is ONE EXTRA
             // ROW at the very end of the transcript, under the latest bubble,
             // so it reads as part of the conversation and scrolls away with it.
@@ -2037,8 +2053,7 @@ class _ChatViewState extends State<_ChatView>
             final String? downloadResumeId = state.resumeDownloadTile
                 ? state.downloadableResumeId
                 : null;
-            final int messageRows =
-                state.messages.length + (endAfter == null ? 0 : 1);
+            final int messageRows = rowToMessage.length;
             return Stack(
               children: <Widget>[
                 // bottom: false — the docked composer panel consumes the
@@ -2088,13 +2103,8 @@ class _ChatViewState extends State<_ChatView>
                                       bubbleMaxWidth,
                                     );
                                   }
-                                  if (endAfter != null && row == endAfter + 1) {
-                                    return const ChatEndDivider();
-                                  }
-                                  // Rows after the marker address a message one
-                                  // place earlier in the list.
-                                  final int i =
-                                      (endAfter != null && row > endAfter) ? row - 1 : row;
+                                  final int i = rowToMessage[row];
+                                  if (i < 0) return const ChatEndDivider();
                                   final ChatMessage m = state.messages[i];
                                   final bool failed =
                                       m.status == ChatSendStatus.failed;

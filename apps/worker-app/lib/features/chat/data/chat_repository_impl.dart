@@ -377,7 +377,10 @@ class ChatRepositoryImpl implements ChatRepository {
       return CompanionOpening(
         CompanionOpenOutcome.companion,
         _companionTurn(reply, digestKey: open.digestKey),
-        _companionHistory(open.history),
+        // #2392 — the conversation (profiling chats + dividers + the Bada Bhai
+        // chat) wins; without it, `history` and then the recap, as before.
+        _companionConversation(open.conversation) ??
+            _companionHistory(open.history),
       );
     } catch (error, stack) {
       // Best-effort, but never silent: a companion that cannot be reached falls
@@ -517,6 +520,49 @@ class ChatRepositoryImpl implements ChatRepository {
   /// (read-aloud only on reviewed lines, bullets on those, news tiles on their
   /// own bubble), and only the LAST Bada Bhai message's chips. Null when there
   /// is nothing to draw.
+  /// #2392 (ADR-0059) — [conversation] as bubbles, oldest first:
+  ///  - a PROFILING line is drawn as the interview redraw ([loadHistory]) draws
+  ///    it: no bullets, the speaker reading its reviewed twin;
+  ///  - a BADA BHAI CHAT line keeps the #2298 rules: bullets and the speaker
+  ///    only when `read_aloud` is not `false`, plus its news tiles;
+  ///  - a line with `ends_profiling_chat` closes its chat, so the "End of
+  ///    conversation" divider is drawn right after it ([ChatMessage.closesSession]).
+  /// The chips are the conversation's own. Null when there is none.
+  CompanionHistory? _companionConversation(CompanionConversation? conversation) {
+    if (conversation == null || conversation.messages.isEmpty) return null;
+    return CompanionHistory(
+      messages: <ChatMessage>[
+        for (final CompanionConversationLine line in conversation.messages)
+          if (line.fromWorker)
+            ChatMessage(
+              text: line.text,
+              fromWorker: true,
+              closesSession: line.endsProfilingChat,
+            )
+          else if (line.source == CompanionConversationSource.profiling)
+            ChatMessage(
+              text: line.text,
+              fromWorker: false,
+              ttsText: line.ttsText,
+              newsLinks: line.newsLinks,
+              closesSession: line.endsProfilingChat,
+            )
+          else
+            ChatMessage(
+              text: line.text,
+              fromWorker: false,
+              ttsText: line.ttsText,
+              canReadAloud: line.readAloud != false,
+              bulleted: line.readAloud != false,
+              newsLinks: line.newsLinks,
+              closesSession: line.endsProfilingChat,
+            ),
+      ],
+      followups: conversation.suggestedFollowups,
+      suggestedOptions: conversation.suggestedOptions,
+    );
+  }
+
   CompanionHistory? _companionHistory(List<CompanionHistoryMessage> rows) {
     if (rows.isEmpty) return null;
     CompanionHistoryMessage? lastBot;
