@@ -52,6 +52,7 @@ import type {
   AnswerRecord,
   AnswerType,
   InputMode,
+  LlmInterviewStage,
   QuestionPack,
   QuestionPackItem,
   ProfilingTurnUnderstandOutput,
@@ -3614,10 +3615,10 @@ export class ProfilingOrchestrator {
             kind: "ask",
             questionKey: null,
             options,
-            // ASSERTED, NOT LOOKED UP, exactly as the disambiguation branch does it: there is no
-            // pack row to read an `answer_type` off. Chips mean one tap becomes the answer;
-            // without them the worker speaks or types.
-            answerType: options.length > 0 ? "single_select" : "text",
+            // ASSERTED, NOT LOOKED UP — see `llmAskAnswerType`. `next.llmStage` is the stage the
+            // model reported for THIS ask (`led.patch`, folded in above): a skills ask's chips take
+            // several (#2393), every other stage's one; without chips the worker speaks or types.
+            answerType: llmAskAnswerType(options, next.llmStage),
             whyText: null,
             inputMode: led.inputMode,
             progress: progressOf(progressItems, answers),
@@ -5851,7 +5852,8 @@ export class ProfilingOrchestrator {
       ...shared,
       reply: took.reply,
       options,
-      answerType: options.length > 0 ? "single_select" : "text",
+      // Every question on this lane is a skills question, so its chips take several (#2393).
+      answerType: llmAskAnswerType(options, "skills"),
       inputMode: "text",
       checkpointDue: false,
     });
@@ -7556,6 +7558,43 @@ const YES_NO_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ["yes", "no"],
 ];
 
+/** Are these chip labels exactly one of {@link YES_NO_PAIRS}, in either order? */
+function isYesNoPair(labels: readonly string[]): boolean {
+  const normalized = labels.map((label) => normalizeOccupationText(label)).sort();
+  return YES_NO_PAIRS.some(
+    (pair) =>
+      normalized.length === 2 && [...pair].sort().every((word, i) => word === normalized[i]),
+  );
+}
+
+/**
+ * How a MODEL-authored ask is answered (#2393) — asserted, never looked up: a model question has
+ * no pack row to read an `answer_type` off.
+ *
+ * A SKILLS ASK TAKES SEVERAL. "Plumbing mein kaunsa kaam karte hain?" over pipe fitting, repair and
+ * installation is answered by every one the worker does, so its chips go out as `multi_select`.
+ * The client sends the picked labels as ordinary text joined with ", ", and both readers take each
+ * label as its own skill: the model returns a list, and the certifier grounds every label in the
+ * one message. Every other stage stays one tap, one answer — a trade, a role and a duration each
+ * have exactly one.
+ *
+ * THE STAGE IS THE MODEL'S OWN REPORT, and that is acceptable because this is a rendering
+ * affordance, not a business decision (§3): the answer of record is the worker's text either way.
+ *
+ * A YES/NO PAIR STAYS SINGLE whatever the stage. Ticking both Haan and Nahi is not an answer, and
+ * {@link llmChipOptions} gives that row no escape, so a shipped multi-select renderer would lock
+ * the composer under it.
+ */
+export function llmAskAnswerType(
+  options: readonly QuestionPackOption[],
+  stage: LlmInterviewStage,
+): AnswerType {
+  if (options.length === 0) return "text";
+  if (stage !== "skills") return "single_select";
+  const answers = options.filter((option) => !option.is_none_of_above);
+  return isYesNoPair(answers.map((option) => option.label_text)) ? "single_select" : "multi_select";
+}
+
 /**
  * A model chip turn, as options — with the server's own escape on the end (#1506).
  *
@@ -7578,13 +7617,7 @@ export function llmChipOptions(chips: readonly string[], gate: boolean): Questio
   const kept = chips.filter((chip) => !ESCAPE_CHIP_ALIASES.includes(normalizeOccupationText(chip)));
   const options = kept.map(toLlmOption);
   if (options.length === 0) return options;
-
-  const normalized = kept.map((chip) => normalizeOccupationText(chip)).sort();
-  const yesNo = YES_NO_PAIRS.some(
-    (pair) =>
-      normalized.length === 2 && [...pair].sort().every((word, i) => word === normalized[i]),
-  );
-  if (yesNo) return options;
+  if (isYesNoPair(kept)) return options;
 
   return [
     ...options,

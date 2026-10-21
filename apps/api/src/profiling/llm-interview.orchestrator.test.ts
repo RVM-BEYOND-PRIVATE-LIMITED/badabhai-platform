@@ -15,7 +15,7 @@ import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
-import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import type { LlmInterviewStage, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 import type { TranscriptBuffer } from "../chat/chat-transcript.buffer";
@@ -34,6 +34,7 @@ import {
   DE_ESCALATION_REPLY,
   ESCAPE_TYPE_PROMPT,
   HARDSHIP_REPLIES,
+  llmAskAnswerType,
   llmChipOptions,
   ProfilingOrchestrator,
 } from "./orchestrator.service";
@@ -615,6 +616,98 @@ describe("model chips always leave a way to type your own (#1506)", () => {
       );
     },
   );
+});
+
+describe("a skills ask's chips take several; every other ask's take one (#2393)", () => {
+  const SKILL_CHIPS = ["Pipe fitting", "Repair", "Installation"];
+  // NULL LABELS, as in the suite above: a named trade would open the trade-confirm gate instead.
+  const stagedAsk = (stage: LlmInterviewStage, chips: string[] = SKILL_CHIPS): LlmTurnResult => ({
+    ...ASK,
+    reply: "Plumbing mein aap kaunsa kaam karte hain?",
+    chips,
+    inputMode: "text",
+    patch: {
+      ...ASK.patch,
+      llmStage: stage,
+      llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+    },
+  });
+
+  it("serves a skills-stage chip ask as multi_select, chips and typing unchanged", async () => {
+    const { orchestrator } = makeWorld({ take: stagedAsk("skills") });
+    const result = await orchestrator.takeTurn(say("plumbing ka kaam"));
+
+    expect(result.answerType).toBe("multi_select");
+    expect(result.kind).toBe("ask");
+    expect(result.questionKey).toBeNull();
+    expect(result.inputMode).toBe("text");
+    // The same `llm_*` chips and the server's escape any model ask gets.
+    expect(result.options).toEqual(llmChipOptions(SKILL_CHIPS, false));
+  });
+
+  it.each(["domain", "role", "experience"] as const)(
+    "keeps a %s-stage chip ask single_select — one tap, one answer",
+    async (stage) => {
+      const { orchestrator } = makeWorld({ take: stagedAsk(stage, ["Plumber", "Electrician"]) });
+      const result = await orchestrator.takeTurn(say("kaam chahiye"));
+      expect(result.answerType).toBe("single_select");
+    },
+  );
+
+  it("keeps a skills-stage Haan/Nahi pair single_select — ticking both is no answer", async () => {
+    const { orchestrator } = makeWorld({ take: stagedAsk("skills", ["Haan", "Nahi"]) });
+    const result = await orchestrator.takeTurn(say("plumbing ka kaam"));
+    expect(result.answerType).toBe("single_select");
+  });
+
+  it("serves a skills-stage ask with no chips as text", async () => {
+    const { orchestrator } = makeWorld({ take: stagedAsk("skills", []) });
+    const result = await orchestrator.takeTurn(say("plumbing ka kaam"));
+    expect(result.answerType).toBe("text");
+  });
+
+  it("keeps the engine's own experience gate single_select", async () => {
+    const { orchestrator } = makeWorld({ take: GATE });
+    const result = await orchestrator.takeTurn(say("3 saal tandoor pe"));
+    expect(result.answerType).toBe("single_select");
+  });
+
+  it("replays a skills ask as multi_select — the cache repeats what it served", async () => {
+    const { orchestrator } = makeWorld({ take: stagedAsk("skills") });
+    await orchestrator.takeTurn(say("plumbing ka kaam"));
+    const again = await orchestrator.takeTurn(say("plumbing ka kaam", new Date(T0.getTime() + 1)));
+
+    expect(again.replayed).toBe(true);
+    expect(again.answerType).toBe("multi_select");
+  });
+
+  it("hands the joined pick to the model as the worker's one message, verbatim", async () => {
+    const { orchestrator, llm } = makeWorld({ take: stagedAsk("skills") });
+    await orchestrator.takeTurn(say("plumbing ka kaam"));
+    await orchestrator.takeTurn(say("Pipe fitting, Repair", new Date(T0.getTime() + 60_000)));
+
+    expect(llm.take).toHaveBeenCalledTimes(2);
+    expect((llm.take.mock.calls[1] as unknown[])[1]).toBe("Pipe fitting, Repair");
+  });
+});
+
+describe("llmAskAnswerType (#2393)", () => {
+  const options = (chips: string[]) => llmChipOptions(chips, false);
+
+  it.each([
+    [["Pipe fitting", "Repair"], "skills", "multi_select"],
+    [["TIG"], "skills", "multi_select"],
+    [["Yes", "No"], "skills", "single_select"],
+    [["Nahi", "Haan"], "skills", "single_select"],
+    [["Plumber", "Electrician"], "role", "single_select"],
+    [["Plumbing", "Wiring"], "domain", "single_select"],
+    [["1 saal", "2-3 saal"], "experience", "single_select"],
+    [[], "skills", "text"],
+    [["Koi aur"], "skills", "text"],
+    [[], "role", "text"],
+  ] as const)("%j at stage %s is %s", (chips, stage, expected) => {
+    expect(llmAskAnswerType(options([...chips]), stage)).toBe(expected);
+  });
 });
 
 describe("an old build's 'Kuch aur' tap on model chips (#1506)", () => {

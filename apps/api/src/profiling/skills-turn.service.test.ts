@@ -657,6 +657,30 @@ describe("certification — the API's wall, grounded in THIS turn's words", () =
     expect(out.road.rejectedCount).toBe(1);
   });
 
+  it("#2393 — a multi-pick answer (the picked chips joined) is every one of them, each its own skill", async () => {
+    // The client sends a multi_select pick as ordinary text, the labels joined with ", ".
+    const history: TranscriptLine[] = [
+      {
+        i: 0,
+        role: "assistant",
+        text: QUESTION,
+        options: ["Illustrator", "Photoshop", "InDesign", "Kuch aur"],
+      },
+    ];
+    const { svc } = make({ turn: TURN({ skills: ["Illustrator", "InDesign"] }) });
+    const out = await svc.take(
+      env({ skills: [...HELD] }),
+      "Illustrator, InDesign",
+      history,
+      CTX,
+      MID,
+    );
+
+    expect(out.road.skills).toEqual([...HELD, "Illustrator", "InDesign"]);
+    expect(out.road.rejectedCount).toBe(0);
+    expect(out.road.staleTurns).toBe(0);
+  });
+
   it("an already-held skill is a duplicate, not a refusal, and adds nothing", async () => {
     const { svc } = make({ turn: TURN({ skills: ["tally", "CORELDRAW"] }) });
     const out = await svc.take(env({ skills: [...HELD] }), "tally aur coreldraw", [], CTX, MID);

@@ -652,7 +652,8 @@ describe("the general road through the orchestrator (ADR-0045)", () => {
       expect(result.questionKey).toBeNull();
       // THE MODEL'S CHIPS, AS CERTIFIED LABELS, through the one chip builder every model turn uses.
       expect(result.options).toEqual(llmChipOptions(["PostgreSQL", "MongoDB"], false));
-      expect(result.answerType).toBe("single_select");
+      // #2393 — a skills question's chips take several.
+      expect(result.answerType).toBe("multi_select");
       expect(result.inputMode).toBe("text");
       expect(result.gateKind ?? null).toBeNull();
       expect(result.complete).toBe(false);
