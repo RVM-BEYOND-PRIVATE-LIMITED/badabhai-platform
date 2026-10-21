@@ -379,6 +379,15 @@ return 1
  */
 export const TRANSCRIPT_BUFFER_MAX_MESSAGES = 600;
 
+/**
+ * The Redis key one session's in-flight transcript is stored under. A pure function, so a READ-ONLY
+ * reader (#2391, `ProfilingChatLinesReader`) can name the key without holding this class, whose
+ * writers it must never reach.
+ */
+export function chatTranscriptKey(sessionId: string): string {
+  return `chat:transcript:${sessionId}`;
+}
+
 /** `{profiling}` when the stored value carries a readable envelope, `{}` when it does not. */
 function profilingOrNothing(raw: unknown): { profiling?: ProfilingEnvelope } {
   const envelope = narrowProfilingEnvelope(raw);
@@ -401,7 +410,7 @@ export class ChatTranscriptBuffer {
   ) {}
 
   static key(sessionId: string): string {
-    return `chat:transcript:${sessionId}`;
+    return chatTranscriptKey(sessionId);
   }
 
   /** A fresh buffer for a session whose first message just arrived. Not yet stored. */

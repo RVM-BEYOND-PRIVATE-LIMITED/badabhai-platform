@@ -209,7 +209,7 @@ function setup(
   const cost = { record: vi.fn(async () => undefined) };
   const memory = { read: vi.fn(async () => []), append: vi.fn(async () => undefined) };
   // #2297 — the stored conversation (readable, empty) and the summary fold, as spies.
-  const { history: stored, summaries: folds } = fakeCompanionHistory();
+  const { history: stored, summaries: folds, profilingLines } = fakeCompanionHistory();
   const faltuStore = {
     cooldownUntil: vi.fn(async () => null),
     countStrike: vi.fn(async () => 1),
@@ -304,6 +304,7 @@ function setup(
     orchestrator,
     stored as never,
     folds as never,
+    profilingLines as never,
   );
   const send = async (text: string): Promise<CompanionTurn> => {
     const result = await svc.message(WORKER, { text, submission_id: SUBMISSION }, CTX, NOW);

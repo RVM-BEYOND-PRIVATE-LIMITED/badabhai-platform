@@ -30,8 +30,11 @@ import {
 import { ChatCompanionPolicy } from "./chat-companion.policy";
 import { ChatCompanionRepository } from "./chat-companion.repository";
 import {
+  COMPANION_HISTORY_MAX,
+  CompanionConversationSchema,
   CompanionOpenResponseSchema,
   CompanionTurnSchema,
+  type CompanionConversation,
   type CompanionMessageDto,
   type CompanionOpenResponse,
   type CompanionTurn,
@@ -39,7 +42,9 @@ import {
 } from "./chat-companion.dto";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionSummaryService } from "./v2/companion-summary.service";
-import { CompanionHistoryService } from "./companion-history.service";
+import { CompanionHistoryService, historyWindowStart } from "./companion-history.service";
+import { composeConversation } from "./companion-conversation";
+import { ProfilingChatLinesReader } from "../chat/profiling-chat-lines.reader";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import {
   isCompanionChipTap,
@@ -110,7 +115,8 @@ export function digestKey(composed: ComposedTurn): string {
  *   - write `chat_sessions` or `chat_messages` (it has no access to either writer: those rows are
  *     the extraction transcript and the résumé's quote source). Its OWN conversation lives in
  *     `companion_messages` (#2297, ADR-0056), written through `CompanionHistoryService` after the
- *     turn — best-effort, never blocking, never failing a turn;
+ *     turn — best-effort, never blocking, never failing a turn. The profiling chat's lines are
+ *     only READ, on open, through `ProfilingChatLinesReader` (#2391, ADR-0059), to draw them;
  *   - call a model (reviewed copy, closed intents, deterministic rules);
  *   - read the `workers` row (no name, no phone, no ciphertext ever enters this class);
  *   - call the services that record impressions or searches (`MatchFeedService.getFeed`,
@@ -143,6 +149,8 @@ export class ChatCompanionService {
     // and the rolling summary folded from it (the brain only).
     private readonly history: CompanionHistoryService,
     private readonly summaries: CompanionSummaryService,
+    // #2391 (ADR-0059) — the worker's profiling chats of the last 7 days, READ-ONLY, drawn on open.
+    private readonly profilingLines: ProfilingChatLinesReader,
     // #2201 — the worker's form answers, so the gap nudge never asks for a fact the Profile card
     // already counts. Optional so hand-built constructions keep the row-only gap.
     @Optional() private readonly attributes?: WorkerAttributesRepository,
@@ -162,10 +170,11 @@ export class ChatCompanionService {
     const mode = await this.policy.resolve(workerId);
     if (mode.mode === "interview") return { mode: "interview" };
 
-    const [facts, cooling, history] = await Promise.all([
+    const [facts, cooling, history, profiling] = await Promise.all([
       this.readFacts(workerId, mode.profile, now),
       this.faltuOn() ? this.v2.cooldownUntil(workerId, now) : Promise.resolve(null),
       this.history.window(workerId, now),
+      this.profilingLines.since(workerId, historyWindowStart(now)),
     ]);
     const composed = composeFor("digest", facts);
     const turn: CompanionTurn = {
@@ -174,21 +183,53 @@ export class ChatCompanionService {
     };
     await this.record(workerId, ctx, now, "open", "digest", composed, facts, null);
 
-    // #2297 (ADR-0056) — THE STORED CONVERSATION. With lines in the last 7 days the app draws them
-    // (oldest first) INSTEAD of the recap, which still rides the response for an older app. With
-    // none, the recap is drawn as today AND stored, so it heads the conversation from now on. An
-    // unreadable store (`ok: false`, e.g. migration 0135 not applied) is today's open, untouched.
-    const opened =
-      history.ok && history.value.length > 0 ? { ...turn, history: history.value } : turn;
+    // #2297 (ADR-0056) — THE STORED CONVERSATION, for an app that predates #2391: with lines in the
+    // last 7 days it draws them (oldest first) INSTEAD of the recap, which still rides the response.
+    // An unreadable store (`ok: false`, e.g. migration 0135 not applied) is today's open, untouched.
+    const chat = history.ok ? history.value : [];
+    // #2391 (ADR-0059) — THE WHOLE CONVERSATION: every profiling chat of the last 7 days, each
+    // closed by its divider, then the Bada Bhai chat. An app that knows it draws this INSTEAD of
+    // `history` and the recap; absent when there is no line of either kind, and the recap is drawn.
+    // The recap is never stored: it is shown only when there is nothing here.
+    const conversation = this.checkedConversation(
+      workerId,
+      composeConversation({
+        profiling: profiling.ok ? profiling.value : [],
+        profilingTruncated: profiling.ok && profiling.truncated,
+        chat,
+        // The stored read returns at most the newest COMPANION_HISTORY_MAX: at the cap, older exist.
+        chatTruncated: chat.length >= COMPANION_HISTORY_MAX,
+        recap: turn,
+      }),
+    );
+    const opened = {
+      ...turn,
+      ...(chat.length > 0 ? { history: chat } : {}),
+      ...(conversation === undefined ? {} : { conversation }),
+    };
 
     const checked = CompanionOpenResponseSchema.safeParse(opened);
     if (!checked.success) return this.fallbackTurn(checked.error.issues, workerId);
-    // Stored only AFTER the response passed its schema, and from the VALIDATED turn: a recap the
-    // app was never shown is never written.
-    if (history.ok && history.value.length === 0 && checked.data.mode === "companion") {
-      this.history.keepRecap(workerId, checked.data, now);
-    }
     return checked.data;
+  }
+
+  /**
+   * #2391 — the conversation, or undefined when it would not pass its own contract. Checked ON ITS
+   * OWN, so a conversation that fails costs the worker only the conversation (the recap is drawn),
+   * never the open itself. Logged with the issue paths only, never a line.
+   */
+  private checkedConversation(
+    workerId: string,
+    conversation: CompanionConversation | undefined,
+  ): CompanionConversation | undefined {
+    if (conversation === undefined) return undefined;
+    const checked = CompanionConversationSchema.safeParse(conversation);
+    if (checked.success) return checked.data;
+    this.logger.warn(
+      `companion conversation for worker ${workerId} failed its contract and was left out: ` +
+        checked.error.issues.map((issue) => issue.path.join(".")).join(", "),
+    );
+    return undefined;
   }
 
   /** The faltu phase is live: v2 AND its own flag (the cool-down exists only then). */

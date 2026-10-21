@@ -151,13 +151,76 @@ export const CompanionHistoryItemSchema = z
   .strict();
 export type CompanionHistoryItem = z.infer<typeof CompanionHistoryItemSchema>;
 
+/** #2391 (ADR-0059) — the whole conversation is drawn from the last 7 days, at most this many lines. */
+export const COMPANION_CONVERSATION_MAX = 400;
+
+/** #2391 — where a conversation line comes from: the profiling chat, or the Bada Bhai chat itself. */
+export const COMPANION_CONVERSATION_SOURCES = ["profiling", "bada_bhai_chat"] as const;
+
+/** The chips under the conversation's last line — the turn's own option shape. */
+const ConversationOptionSchema = z
+  .object({
+    option_key: z.string(),
+    label_text: z.string(),
+    is_none_of_above: z.boolean(),
+  })
+  .strict();
+
+/**
+ * #2391 (ADR-0059) — ONE LINE of the Bada Bhai chat's whole conversation: a line of a profiling
+ * chat, or a stored line of the Bada Bhai chat. Every optional field is ABSENT, never null:
+ *   - `tts_text` — the reviewed read-aloud twin, on a Bada Bhai line that has one;
+ *   - `read_aloud: false` — a model-written Bada Bhai chat line (no speaker, plain prose);
+ *   - `news_links` — an answered news reply's tiles;
+ *   - `ends_profiling_chat: true` — the LAST line of one profiling chat: the app draws the
+ *     "End of conversation" divider right after it.
+ * Chips are not per line: the conversation carries the ones to show, once.
+ */
+export const CompanionConversationItemSchema = z
+  .object({
+    id: uuidSchema,
+    source: z.enum(COMPANION_CONVERSATION_SOURCES),
+    role: z.enum(COMPANION_MESSAGE_ROLES),
+    text: z.string().min(1),
+    tts_text: z.string().min(1).optional(),
+    read_aloud: z.literal(false).optional(),
+    news_links: NewsLinksWireSchema.optional(),
+    ends_profiling_chat: z.literal(true).optional(),
+    created_at: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type CompanionConversationItem = z.infer<typeof CompanionConversationItemSchema>;
+
+/**
+ * #2391 (ADR-0059) — THE WHOLE CONVERSATION OF THE LAST 7 DAYS, as the app draws it instead of the
+ * recap: every profiling chat line and every Bada Bhai chat line, OLDEST FIRST, and the chips to
+ * show under the last line (the newest Bada Bhai chat reply's; the recap's when a profiling chat is
+ * newer than that reply, or there is none). The stored recap is never a line of it.
+ */
+export const CompanionConversationSchema = z
+  .object({
+    messages: z
+      .array(CompanionConversationItemSchema)
+      .min(1)
+      .max(COMPANION_CONVERSATION_MAX),
+    suggested_options: z.array(ConversationOptionSchema),
+    suggested_followups: z.array(z.string()),
+  })
+  .strict();
+export type CompanionConversation = z.infer<typeof CompanionConversationSchema>;
+
 /**
  * The companion turn `GET /chat/companion` answers with: the recap, as ever, plus (#2297) the
  * conversation of the last 7 days, OLDEST FIRST, when there is one. ADDITIVE — absent when there
  * is no stored line (the app draws the recap, as today) and on every message turn.
+ *
+ * #2391 (ADR-0059) — plus `conversation`: the profiling chat(s) and the Bada Bhai chat together,
+ * which an app that knows it draws INSTEAD of `history` and the recap. ADDITIVE and absent when
+ * there is no line of either kind in the window; `history` is unchanged for an older app.
  */
 export const CompanionOpenTurnSchema = CompanionTurnSchema.extend({
   history: z.array(CompanionHistoryItemSchema).min(1).max(COMPANION_HISTORY_MAX).optional(),
+  conversation: CompanionConversationSchema.optional(),
 });
 export type CompanionOpenTurn = z.infer<typeof CompanionOpenTurnSchema>;
 

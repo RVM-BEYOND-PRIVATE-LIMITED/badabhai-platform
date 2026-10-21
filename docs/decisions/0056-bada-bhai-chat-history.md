@@ -5,6 +5,9 @@
 - **Date:** 2026-10-15
 - **Owner:** Divyanshu (Backend Platform)
 - **Tracking:** #2297 (API); #2298 (worker app, Rishi)
+- **Amended by:** [ADR-0059](0059-bada-bhai-chat-shows-profiling-conversation.md) (owner rulings 2026-10-21,
+  #2391). The 7-day window covers the profiling chat too: `GET /chat/companion` adds `conversation`.
+  The recap is no longer stored (H3), and it is shown only when the window holds nothing (H2).
 - **Relates:**
   - [ADR-0044](0044-post-completion-chat-companion.md): the companion. Until this ADR it stored nothing.
   - [ADR-0055](0055-bada-bhai-chat-free-chat-brain.md): the free-chat brain whose reply now reads this chat's
@@ -26,7 +29,7 @@ for 30 minutes. When the worker closed and reopened the app, the conversation wa
 |---|---|
 | **H1** | **History on the server**, in a new table deleted with the account. It survives a reinstall or a new phone. |
 | **H2** | **A 7-day window.** Every message of the last 7 days is shown; older ones drop off. With none left, the chat opens with the recap, as before. |
-| **H3** | **On reopen within 7 days, only the old conversation is shown**, with no new recap bubble. The recap bubble served on the first open is stored, so it heads that conversation. |
+| **H3** | **On reopen within 7 days, only the old conversation is shown**, with no new recap bubble. The recap bubble served on the first open is stored, so it heads that conversation. _Amended by [ADR-0059](0059-bada-bhai-chat-shows-profiling-conversation.md) (2026-10-21): the recap is no longer stored and is never a line of the conversation._ |
 | **H4** | **The AI keeps a rolling summary of the whole conversation, carried for 7 days.** The reply gets it with every query. The classifier never does (ADR-0051 R24). Recent turns come from the stored history, so the AI also remembers across an app restart. |
 
 ## 3. Design
@@ -36,7 +39,7 @@ for 30 minutes. When the worker closed and reopened the app, the conversation wa
 `companion_messages` stores one row per line as the app draws it:
 - the worker's message, as sent (the chip label for a tap);
 - Bada Bhai's reply, with its read-aloud twin, its "never read aloud" marker, its chips and its news tiles;
-- the recap bubble described in H3.
+- the recap bubble described in H3 (no longer stored since [ADR-0059](0059-bada-bhai-chat-shows-profiling-conversation.md), 2026-10-21).
 
 A partial unique index on (worker, submission, role) makes a replayed submission write nothing. `model_context`
 marks the lines a later model call may read. It is set exactly for the turns the Redis memory would have kept, so a
@@ -51,7 +54,7 @@ Text is stored at rest unencrypted, like `chat_messages.body_text`.
 - It runs in the background, after the turn is computed. A failed write is logged with ids and a closed reason and
   never fails the turn.
 - On an open that finds no line in the window, the recap bubble is stored (`INSERT … WHERE NOT EXISTS`). An open
-  that finds lines stores nothing.
+  that finds lines stores nothing. _Superseded by ADR-0059: an open stores nothing at all._
 
 **Read.** `GET /chat/companion` gains `history`: the newest 200 lines of the last 7 days, oldest first.
 - It is absent when there are none.
@@ -129,4 +132,4 @@ request uses the tables.
 
 - The worker app drawing `history` (#2298, Rishi).
 - Storing the turns of the confirm and cancel edit routes (`POST /chat/companion/edits/:id/confirm|cancel`). Only
-  `POST /chat/companion/message` turns and the recap are stored.
+  `POST /chat/companion/message` turns are stored (and, until ADR-0059, the recap).

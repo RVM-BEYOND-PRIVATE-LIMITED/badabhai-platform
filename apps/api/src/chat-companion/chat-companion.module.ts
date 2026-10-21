@@ -22,6 +22,7 @@ import { FreeChatModelCalls } from "../profiling/free-chat/free-chat-model-calls
 import { FreeChatNewsCap } from "../profiling/free-chat/free-chat-news-cap.store";
 import { FreeChatSummaryReader } from "../profiling/free-chat/free-chat-summary.reader";
 import { FreeChatFoldLock } from "../profiling/free-chat/free-chat-fold.lock";
+import { ProfilingChatLinesReader } from "../chat/profiling-chat-lines.reader";
 import { WorkerNameReader } from "../workers/worker-name-sources";
 import { ChatCompanionController } from "./chat-companion.controller";
 import { CompanionResumeStatus } from "./companion-resume-status";
@@ -109,6 +110,14 @@ import {
  * table. The rolling summary's fold borrows the free chat's lock (`FreeChatFoldLock`, on the
  * render queue's Redis connection already registered here) under its own per-worker key, and the
  * daily retention sweep runs on its own queue.
+ *
+ * #2391 (ADR-0059) — THE PROFILING CHAT, READ BACK. `ProfilingChatLinesReader` (under `chat/`) reads
+ * the worker's profiling lines of the last 7 days so the Bada Bhai chat opens on them: two SELECTs
+ * (`chat_messages`, the live `chat_sessions` ids) on the @Global database handle, and one bounded
+ * `MGET` of a live session's transcript on the render queue's Redis connection already registered
+ * here. No `ChatRepository`, no `ChatTranscriptBuffer` instance — the buffer's key and its news-tile
+ * narrowing are pure functions — so no chat-table or transcript WRITER is reachable from here: one
+ * provider, no module edge. The boot test pins the reader's source.
  */
 @Module({
   imports: [
@@ -167,6 +176,8 @@ import {
     // ADR-0055 R4 — the profiling chat's rolling summary, READ-ONLY, for the brain's reply alone:
     // one SELECT on the @Global database handle, no ChatRepository, so no chat-table writer.
     FreeChatSummaryReader,
+    // #2391 (ADR-0059) — the profiling chat's lines of the last 7 days, READ-ONLY, drawn on open.
+    ProfilingChatLinesReader,
     // #2297 (ADR-0056) — the stored 7-day conversation, the recent turns read from it (Redis as the
     // fallback), the rolling summary folded from it (under the free chat's lock, per worker) and
     // the daily retention sweep.

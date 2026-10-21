@@ -130,7 +130,7 @@ export function makeCompanionServiceForV2(opts: {
     // #2297 — whether a served turn is an in-flight / replay echo (never written to history).
     isEcho: vi.fn((_turn: unknown) => false),
   };
-  const { history, summaries } = fakeCompanionHistory();
+  const { history, summaries, profilingLines } = fakeCompanionHistory();
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
@@ -156,6 +156,7 @@ export function makeCompanionServiceForV2(opts: {
     v2 as never,
     history as never,
     summaries as never,
+    profilingLines as never,
   );
   return { svc, policy, repo, resumes, skills, jobs, events, edits, v2, history, summaries };
 }

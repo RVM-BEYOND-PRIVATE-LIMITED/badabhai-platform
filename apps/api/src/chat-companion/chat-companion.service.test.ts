@@ -15,6 +15,7 @@ import { makeCompanionServiceForV2 } from "./chat-companion.v2.fake";
 import type { CompanionHistoryItem } from "./chat-companion.dto";
 import { fakeCompanionHistory } from "./companion-history.fake";
 import type { HistoryRead } from "./companion-history.service";
+import type { ProfilingChatLine, ProfilingLinesRead } from "../chat/profiling-chat-lines.reader";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SUBMISSION = "22222222-2222-4222-8222-222222222222";
@@ -91,6 +92,8 @@ function make(over: {
   cancel?: unknown;
   /** #2297 — what the stored-conversation read answers (default: readable and empty). */
   stored?: HistoryRead<CompanionHistoryItem[]>;
+  /** #2391 — what the profiling-chat read answers (default: readable, no chat). */
+  profiling?: ProfilingLinesRead;
 } = {}) {
   const policy = {
     resolve: vi.fn(async () =>
@@ -153,7 +156,10 @@ function make(over: {
     takePendingIntent: vi.fn(async () => null),
     cooldownUntil: vi.fn(async () => null),
   };
-  const { history: stored, summaries } = fakeCompanionHistory(over.stored);
+  const { history: stored, summaries, profilingLines } = fakeCompanionHistory(
+    over.stored,
+    over.profiling,
+  );
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
@@ -176,6 +182,7 @@ function make(over: {
     v2 as never,
     stored as never,
     summaries as never,
+    profilingLines as never,
     over.formAttributes === undefined
       ? undefined
       : ({
@@ -185,7 +192,20 @@ function make(over: {
           }),
         } as never),
   );
-  return { svc, policy, repo, resumes, skills, jobs, events, edits, v2, stored, summaries };
+  return {
+    svc,
+    policy,
+    repo,
+    resumes,
+    skills,
+    jobs,
+    events,
+    edits,
+    v2,
+    stored,
+    summaries,
+    profilingLines,
+  };
 }
 
 type Emitted = { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string };
@@ -546,15 +566,16 @@ describe("digest_key — what the app compares on a tab refocus", () => {
 
 describe("the companion's reach", () => {
   it("is constructed from repositories, the history projection and the INERT v2 layer", () => {
-    // Twelve collaborators: eight read-only or the event spine (the eighth is #2201's
+    // Thirteen collaborators: eight read-only or the event spine (the eighth is #2201's
     // WorkerAttributesRepository, read-only, for the gap nudge), plus (ADR-0046 T6) the v2
     // orchestrator and (T7/T8) the edit service. The two v2 collaborators reach a model only
     // through AiService, only from the v2 branches, and only while their flags are on — every v1
     // path still makes zero model calls, which the flag-off suite proves. A refactor that routes
     // a V1 read through MatchFeedService.getFeed / ApplicationsService.getFeed /
     // JobsService.searchJobs / ChatService still fails here first. #2297 adds two: the stored
-    // conversation (its own tables, no model) and the rolling summary fold (the brain only).
-    expect(ChatCompanionService.length).toBe(12);
+    // conversation (its own tables, no model) and the rolling summary fold (the brain only). #2391
+    // adds the profiling chat's lines, read-only (no ChatRepository, no transcript writer).
+    expect(ChatCompanionService.length).toBe(13);
   });
 });
 
@@ -620,9 +641,9 @@ describe("ChatCompanionService.confirmEdit / cancelEdit (ADR-0046 T8)", () => {
 
 /**
  * #2297 (ADR-0056) — THE STORED CONVERSATION, as the service uses it: the open draws the stored
- * lines (the recap still rides the response), stores the recap only when there are none, and
- * leaves today's open untouched when the store cannot be read; every message turn is handed to
- * the store, after it is computed, exactly as served.
+ * lines (the recap still rides the response) and leaves today's open untouched when the store
+ * cannot be read; every message turn is handed to the store, after it is computed, exactly as
+ * served. #2391 (ADR-0059): the recap is never stored.
  */
 describe("#2297 — the stored conversation", () => {
   const LINE: CompanionHistoryItem = {
@@ -632,57 +653,46 @@ describe("#2297 — the stored conversation", () => {
     created_at: "2026-09-25T10:00:00.000Z",
   };
 
-  it("no line in the window: today's recap, AND the recap is stored to head the conversation", async () => {
+  it("no line in the window: today's recap, no `history`, no `conversation`", async () => {
     const h = make({ stored: { ok: true, value: [] } });
     const res = await h.svc.open(WORKER, CTX, NOW);
     expect(res.mode).toBe("companion");
     expect(res).not.toHaveProperty("history");
+    expect(res).not.toHaveProperty("conversation");
     expect(h.stored.window).toHaveBeenCalledWith(WORKER, NOW);
-    expect(h.stored.keepRecap).toHaveBeenCalledTimes(1);
-    const [worker, recap, at] = h.stored.keepRecap.mock.calls[0]!;
-    expect(worker).toBe(WORKER);
-    expect((recap as { reply: string }).reply).toBe(res.mode === "companion" ? res.reply : "");
-    expect(at).toBe(NOW);
   });
 
-  it("lines in the window: they ride `history`, the recap fields stay, and nothing is stored", async () => {
+  it("lines in the window: they ride `history` and the recap fields stay", async () => {
     const h = make({ stored: { ok: true, value: [LINE] } });
     const res = await h.svc.open(WORKER, CTX, NOW);
     if (res.mode !== "companion") throw new Error("expected companion");
     expect(res.history).toEqual([LINE]);
     expect(res.reply.length).toBeGreaterThan(0); // the recap, for an older app
-    expect(h.stored.keepRecap).not.toHaveBeenCalled();
   });
 
-  it("an unreadable store (migration 0135 not applied): today's open exactly, nothing stored", async () => {
+  it("an unreadable store (migration 0135 not applied): today's open exactly", async () => {
     const h = make({ stored: { ok: false } });
     const res = await h.svc.open(WORKER, CTX, NOW);
     expect(res).not.toHaveProperty("history");
-    expect(h.stored.keepRecap).not.toHaveBeenCalled();
+    expect(res).not.toHaveProperty("conversation");
     const today = await make({ stored: { ok: true, value: [LINE] } }).svc.open(WORKER, CTX, NOW);
     if (today.mode !== "companion" || res.mode !== "companion") throw new Error("companion");
-    const { history: _history, ...recap } = today;
+    const { history: _history, conversation: _conversation, ...recap } = today;
     expect(res).toEqual(recap);
   });
 
-  it("the recap is stored from the VALIDATED response — the very object the worker was served", async () => {
-    const h = make({ stored: { ok: true, value: [] } });
-    const res = await h.svc.open(WORKER, CTX, NOW);
-    expect(h.stored.keepRecap.mock.calls[0]![1]).toBe(res);
-  });
-
-  it("an open that fails its schema serves the fallback and stores NO recap", async () => {
+  it("an open that fails its schema serves the fallback", async () => {
     const v2 = makeCompanionServiceForV2({ v2: true, faltu: true, cooling: 123 as never });
     const res = await v2.svc.open(WORKER, CTX, NOW);
     if (res.mode !== "companion") throw new Error("expected companion");
     expect(res.reply).toBe(FALLBACK.latin);
-    expect(v2.history.keepRecap).not.toHaveBeenCalled();
   });
 
-  it("interview mode reads no history", async () => {
+  it("interview mode reads no history and no profiling chat", async () => {
     const h = make({ mode: "interview" });
     await h.svc.open(WORKER, CTX, NOW);
     expect(h.stored.window).not.toHaveBeenCalled();
+    expect(h.profilingLines.since).not.toHaveBeenCalled();
   });
 
   it("a message turn is stored after it is computed: the text as sent, the turn as served", async () => {
@@ -714,5 +724,79 @@ describe("#2297 — the stored conversation", () => {
     const h = make({ mode: "interview" });
     await h.svc.message(WORKER, { text: "hi" }, CTX, NOW);
     expect(h.stored.keepTurn).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #2391 (ADR-0059) — THE WHOLE CONVERSATION ON OPEN: the profiling chat(s) of the last 7 days and
+ * the Bada Bhai chat, as `conversation`; the recap only when there is nothing; `history` unchanged.
+ */
+describe("#2391 — the profiling chat on the Bada Bhai chat", () => {
+  const SESSION = "66666666-6666-4666-8666-666666666666";
+  const asked: ProfilingChatLine = {
+    id: "77777777-7777-4777-8777-777777777771",
+    sessionId: SESSION,
+    role: "bada_bhai",
+    text: "Aap kaun sa kaam karte hain?",
+    createdAt: new Date("2026-09-25T09:00:00.000Z"),
+  };
+  const answered: ProfilingChatLine = {
+    id: "77777777-7777-4777-8777-777777777772",
+    sessionId: SESSION,
+    role: "worker",
+    text: "CNC operator",
+    createdAt: new Date("2026-09-25T09:00:05.000Z"),
+  };
+
+  it("reads the profiling chat from the 7-day window's start", async () => {
+    const h = make();
+    await h.svc.open(WORKER, CTX, NOW);
+    expect(h.profilingLines.since).toHaveBeenCalledWith(
+      WORKER,
+      new Date(NOW.getTime() - 7 * 86_400_000),
+    );
+  });
+
+  it("a profiling chat: `conversation` carries it with its divider and the recap's chips", async () => {
+    const h = make({ profiling: { ok: true, value: [asked, answered], truncated: false } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.conversation?.messages.map((m) => [m.source, m.role, m.text])).toEqual([
+      ["profiling", "bada_bhai", "Aap kaun sa kaam karte hain?"],
+      ["profiling", "worker", "CNC operator"],
+    ]);
+    expect(res.conversation?.messages[1]?.ends_profiling_chat).toBe(true);
+    expect(res.conversation?.suggested_options).toEqual(res.suggested_options);
+    // An older app still gets exactly today's recap: no `history`, the recap fields.
+    expect(res).not.toHaveProperty("history");
+    expect(res.reply.length).toBeGreaterThan(0);
+  });
+
+  it("an unreadable profiling read is no profiling chat — never a failed open", async () => {
+    const h = make({ profiling: { ok: false } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res).not.toHaveProperty("conversation");
+    expect(res.reply).not.toBe(FALLBACK.latin);
+  });
+
+  it("a profiling line off the contract is dropped on its own; the rest still show", async () => {
+    const bad = { ...answered, id: "not-a-uuid" };
+    const h = make({ profiling: { ok: true, value: [asked, bad], truncated: false } });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.conversation?.messages.map((m) => m.text)).toEqual(["Aap kaun sa kaam karte hain?"]);
+    expect(res.reply).not.toBe(FALLBACK.latin);
+  });
+
+  it("an open writes nothing — the recap is never stored, whatever the window holds", async () => {
+    for (const profiling of [
+      { ok: true as const, value: [], truncated: false },
+      { ok: true as const, value: [asked, answered], truncated: false },
+    ]) {
+      const h = make({ stored: { ok: true, value: [] }, profiling });
+      await h.svc.open(WORKER, CTX, NOW);
+      expect(h.stored.keepTurn).not.toHaveBeenCalled();
+    }
   });
 });
