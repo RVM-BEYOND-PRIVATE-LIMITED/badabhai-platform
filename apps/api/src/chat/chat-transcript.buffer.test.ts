@@ -4,6 +4,10 @@ import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import {
   CAS_SCRIPT,
   ChatTranscriptBuffer,
+  MAX_OFFERED_OPTIONS,
+  offeredOptionsField,
+  offeredOptionsMetadataField,
+  offeredOptionsOfMetadata,
   TRANSCRIPT_BUFFER_MAX_MESSAGES,
   type TranscriptBuffer,
 } from "./chat-transcript.buffer";
@@ -208,6 +212,69 @@ describe("ChatTranscriptBuffer — round trip", () => {
     raw.messages[1]!.newsLinks = [{ ...link, url: "https://evil.example/a" }];
     store.set(KEY, JSON.stringify(raw));
     expect("newsLinks" in (await buffer.load(SESSION))!.messages[1]!).toBe(false);
+  });
+
+  it("carries a question's chips (#2387) — re-checked on load, absent otherwise", async () => {
+    // Dropped on load, Phase C could no longer read "sab aata hai" as every option on screen. A
+    // line that showed none stays keyless, so every older buffer round-trips byte-identically.
+    const { buffer, store } = make();
+    const at = "2026-10-21T00:00:00.000Z";
+    await buffer.save(
+      SESSION,
+      sample({
+        messages: [
+          {
+            role: "assistant",
+            text: "Kaunsi machines chalate hain?",
+            at,
+            voiceNoteId: null,
+            options: ["VMC", "CNC lathe"],
+          },
+          { role: "worker", text: "sab chalata hu", at, voiceNoteId: null },
+        ],
+      }),
+    );
+    const loaded = await buffer.load(SESSION);
+    expect(loaded!.messages[0]!.options).toEqual(["VMC", "CNC lathe"]);
+    expect("options" in loaded!.messages[1]!).toBe(false);
+
+    // A drifted value keeps only usable labels, and none at all leaves the key absent.
+    const raw = JSON.parse(store.get(KEY)!) as { messages: Record<string, unknown>[] };
+    raw.messages[0]!.options = ["  VMC  ", 7, "", null];
+    store.set(KEY, JSON.stringify(raw));
+    expect((await buffer.load(SESSION))!.messages[0]!.options).toEqual(["VMC"]);
+    raw.messages[0]!.options = "VMC";
+    store.set(KEY, JSON.stringify(raw));
+    expect("options" in (await buffer.load(SESSION))!.messages[0]!).toBe(false);
+  });
+});
+
+describe("offered chips in chat_messages.metadata (#2387)", () => {
+  it("writes { options } for a line that showed chips and nothing for one that did not", () => {
+    expect(offeredOptionsMetadataField({ options: ["VMC", "CNC lathe"] })).toEqual({
+      metadata: { options: ["VMC", "CNC lathe"] },
+    });
+    expect(offeredOptionsMetadataField({})).toEqual({});
+    expect(offeredOptionsMetadataField({ options: [] })).toEqual({});
+  });
+
+  it("reads them back re-checked, bounded, and tolerates any shape", () => {
+    expect(offeredOptionsOfMetadata({ options: ["VMC", "CNC lathe"] })).toEqual([
+      "VMC",
+      "CNC lathe",
+    ]);
+    expect(offeredOptionsOfMetadata({ free_chat: true })).toBeNull();
+    expect(offeredOptionsOfMetadata(null)).toBeNull();
+    expect(offeredOptionsOfMetadata({ options: "VMC" })).toBeNull();
+    const many = Array.from({ length: MAX_OFFERED_OPTIONS + 5 }, (_, i) => `chip ${i}`);
+    expect(offeredOptionsOfMetadata({ options: many })).toHaveLength(MAX_OFFERED_OPTIONS);
+    expect(offeredOptionsOfMetadata({ options: ["x".repeat(121), "VMC"] })).toEqual(["VMC"]);
+  });
+
+  it("offeredOptionsField spreads to nothing when no chip survives", () => {
+    expect(offeredOptionsField(["VMC"])).toEqual({ options: ["VMC"] });
+    expect(offeredOptionsField([])).toEqual({});
+    expect(offeredOptionsField(undefined)).toEqual({});
   });
 });
 

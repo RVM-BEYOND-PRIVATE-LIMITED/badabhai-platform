@@ -6,8 +6,15 @@ import { normalizeForMatch, splitIntoPhrases } from "./resume-own-words";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
- * THE VERBATIM-SPAN CONTRACT (R10 §2.3) — every phrase field must be the worker's own words.
+ * THE VERBATIM-SPAN CONTRACT (R10 §2.3) — `duration_text` must be the worker's own words.
  * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * NARROWED BY #2387 (ADR-0058, owner ruling 2026-10-21). The résumé is always English, so Phase C
+ * now writes `work_done` (and the skills and titles) as professional English — composition is the
+ * spec there, and a verbatim check on it would fail every correct extraction. `duration_text` is
+ * the one field the prompt still has the model copy: it is never printed (#2358) and the API
+ * parses months from it, so it stays held to the rule below. The history that follows is why the
+ * rule existed, kept because it is still the rule for that field.
  *
  * THE RULE IS NOT NEW AND NOT NEGOTIABLE. §8's governing sentence: "The model extracts, normalises
  * and classifies. It never composes. Every printed string on a BadaBhai resume originates from one
@@ -80,45 +87,25 @@ function composedPhrases(field: string | null | undefined, said: string[]): stri
     });
 }
 
-/**
- * THE ONE PHRASE THE PROMPT FIX DID NOT REACH, pinned exactly rather than tolerated by a looser
- * rule.
- *
- * Persona 3 said "Kharad bhi chalayi hai shuru me"; the model returned "Kharad chalayi hai" —
- * his words, in his language, with two interior words dropped. It is a NEAR-quote, categorically
- * different from the 586-character English summary the same field held before the fix, and it is
- * still not verbatim.
- *
- * WHY IT IS PINNED AS A LITERAL RATHER THAN ALLOWED BY A SUBSEQUENCE RULE. Relaxing the check to
- * "every word appears in order" would pass this — and would also pass a sentence assembled from
- * words scattered across four different turns, which is exactly the composition the contract
- * exists to forbid. A named exception costs one line and stays visible; a weakened rule stops
- * measuring. If the phrase changes, or a second appears, this test goes red.
- */
-const KNOWN_RESIDUALS: Readonly<Record<string, string[]>> = {
-  p3_five_year_to_setter: ["Kharad chalayi hai"],
-};
-
-describe.skipIf(!ENABLED)("R10 §2.3 — the extraction returns verbatim spans, never prose", () => {
+describe.skipIf(!ENABLED)("R10 §2.3 — `duration_text` is a verbatim span, never prose", () => {
   const personas = readJson<{ personas: Persona[] }>(join(HARNESS_DIR, "personas.json")).personas;
 
   for (const persona of personas) {
-    it(`${persona.id} — every work_done phrase appears in his own turns`, () => {
+    it(`${persona.id} — every duration_text phrase appears in his own turns`, () => {
       const artifact = readJson<ExtractArtifact>(join(OUT_DIR, `${persona.id}.extract.json`));
       const said = persona.transcript
         .filter(([role]) => role === "worker")
         .map(([, text]) => normalizeForMatch(text));
 
-      const composed = (artifact.extract.experiences ?? []).flatMap((e) => [
-        ...composedPhrases(e.work_done, said),
-        ...composedPhrases(e.duration_text, said),
-      ]);
+      const composed = (artifact.extract.experiences ?? []).flatMap((e) =>
+        composedPhrases(e.duration_text, said),
+      );
 
       expect(
         composed,
-        `${persona.id}: the model composed ${composed.length} phrase(s) the worker never said. ` +
-          `§8 allows no fourth source, and §8.5 lists summarising first among the prohibitions.`,
-      ).toEqual(KNOWN_RESIDUALS[persona.id] ?? []);
+        `${persona.id}: the model composed ${composed.length} duration phrase(s) the worker ` +
+          `never said. The prompt has it copy his words for this field (ADR-0058).`,
+      ).toEqual([]);
     });
   }
 
@@ -126,6 +113,7 @@ describe.skipIf(!ENABLED)("R10 §2.3 — the extraction returns verbatim spans, 
     // NOT AN ASSERTION ON THE RATE — the per-persona tests above are the contract. This exists so
     // the digest can quote a measured figure rather than "it looked better", and so a partial
     // regression (one persona drifting) is legible next to a total one.
+    let experiences = 0;
     let checked = 0;
     let composed = 0;
     for (const persona of personas) {
@@ -134,19 +122,21 @@ describe.skipIf(!ENABLED)("R10 §2.3 — the extraction returns verbatim spans, 
         .filter(([role]) => role === "worker")
         .map(([, text]) => normalizeForMatch(text));
       for (const e of artifact.extract.experiences ?? []) {
-        for (const field of [e.work_done, e.duration_text]) {
-          const phrases = splitIntoPhrases(field ?? "").filter((p) => p.length >= MIN_CHECKABLE);
-          checked += phrases.length;
-          composed += composedPhrases(field, said).length;
-        }
+        experiences += 1;
+        const phrases = splitIntoPhrases(e.duration_text ?? "").filter(
+          (p) => p.length >= MIN_CHECKABLE,
+        );
+        checked += phrases.length;
+        composed += composedPhrases(e.duration_text, said).length;
       }
     }
     // eslint-disable-next-line no-console
     console.log(
-      `verbatim contract: ${checked - composed}/${checked} phrases vouched for by a stored turn` +
-        ` (${composed} composed)`,
+      `verbatim contract: ${checked - composed}/${checked} duration phrases vouched for by a ` +
+        `stored turn (${composed} composed)`,
     );
-    expect(checked, "no phrases were long enough to check — the artifacts are empty").toBeGreaterThan(
+    // Durations are short, so few clear the phrase floor; the guard is on the artifacts instead.
+    expect(experiences, "no experiences were extracted — the artifacts are empty").toBeGreaterThan(
       0,
     );
   });

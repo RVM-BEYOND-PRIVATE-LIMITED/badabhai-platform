@@ -37,6 +37,7 @@ import {
   MAX_SKILLS_GATE_ROUNDS,
   MAX_STALE_SKILL_TURNS,
   SkillsTurnService,
+  answeredQuestionChips,
 } from "./skills-turn.service";
 
 const CTX = {
@@ -628,6 +629,34 @@ describe("certification — the API's wall, grounded in THIS turn's words", () =
     expect(out.road.rejectedCount).toBe(1);
   });
 
+  it("#2387 — 'sab aata hai' keeps the chips our last question showed, and only those", async () => {
+    const history: TranscriptLine[] = [
+      {
+        i: 0,
+        role: "assistant",
+        text: QUESTION,
+        options: ["Illustrator", "Photoshop", "Kuch aur"],
+      },
+    ];
+    const { svc } = make({ turn: TURN({ skills: ["Illustrator", "Photoshop", "InDesign"] }) });
+    const out = await svc.take(env({ skills: [...HELD] }), "sab aata hai", history, CTX, MID);
+
+    expect(out.road.skills).toEqual([...HELD, "Illustrator", "Photoshop"]);
+    // InDesign was never on screen, and "sab" names nothing.
+    expect(out.road.rejectedCount).toBe(1);
+  });
+
+  it("#2387 — a shown chip is no licence on an ordinary answer", async () => {
+    const history: TranscriptLine[] = [
+      { i: 0, role: "assistant", text: QUESTION, options: ["Illustrator", "Photoshop"] },
+    ];
+    const { svc } = make({ turn: TURN({ skills: ["Illustrator", "Photoshop"] }) });
+    const out = await svc.take(env({ skills: [...HELD] }), "Illustrator", history, CTX, MID);
+
+    expect(out.road.skills).toEqual([...HELD, "Illustrator"]);
+    expect(out.road.rejectedCount).toBe(1);
+  });
+
   it("an already-held skill is a duplicate, not a refusal, and adds nothing", async () => {
     const { svc } = make({ turn: TURN({ skills: ["tally", "CORELDRAW"] }) });
     const out = await svc.take(env({ skills: [...HELD] }), "tally aur coreldraw", [], CTX, MID);
@@ -1151,5 +1180,24 @@ describe("the worker's own name never reaches the model (R32, ADR-0047 G2)", () 
     await make().svc.take(env({ skills: [...HELD] }), "bas itna hi", HISTORY, known, MID);
     await make({ interview: false }).svc.take(env(), MESSAGE, HISTORY, known, MID);
     expect(known.knownName).not.toHaveBeenCalled();
+  });
+});
+
+describe("answeredQuestionChips (#2387) — the chips of the question this message answers", () => {
+  it("reads the options on the last line when it is ours", () => {
+    expect(
+      answeredQuestionChips([
+        { i: 0, role: "worker", text: "designer hoon" },
+        { i: 1, role: "assistant", text: QUESTION, options: ["Illustrator"] },
+      ]),
+    ).toEqual(["Illustrator"]);
+  });
+
+  it("is empty when the last line showed none, is the worker's, or there is no history", () => {
+    expect(answeredQuestionChips([{ i: 0, role: "assistant", text: QUESTION }])).toEqual([]);
+    expect(
+      answeredQuestionChips([{ i: 0, role: "worker", text: "x", options: ["Illustrator"] }]),
+    ).toEqual([]);
+    expect(answeredQuestionChips([])).toEqual([]);
   });
 });

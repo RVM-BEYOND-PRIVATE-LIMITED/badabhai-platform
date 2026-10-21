@@ -39,6 +39,7 @@ from ..contracts import (
     LlmInterviewDraft,
     LlmTurnInput,
     LlmTurnOutput,
+    TranscriptLine,
     WorkHistoryPolishInput,
     WorkHistoryPolishOutput,
 )
@@ -86,11 +87,20 @@ _FORCE_CLOSE_NOTE = (
 )
 
 
+def _render_line(line: TranscriptLine) -> str:
+    """One transcript line as the model reads it, with the chips that were on screen (#2387).
+
+    The chips follow the line as ``[Options: A | B]`` so a catch-all answer on the next line
+    ("sab aata hai") can be read as every one of them. A line the caller sent without chips renders
+    byte-identically to before.
+    """
+    speaker = "Worker" if line.role == "worker" else "Bada Bhai"
+    chips = f" [Options: {' | '.join(line.options)}]" if line.options else ""
+    return f"{speaker}: {line.text}{chips}"
+
+
 def _render_history(body: LlmTurnInput) -> str:
-    return "\n".join(
-        f"{'Worker' if line.role == 'worker' else 'Bada Bhai'}: {line.text}"
-        for line in body.history
-    )
+    return "\n".join(_render_line(line) for line in body.history)
 
 
 def _turn_messages(
@@ -655,9 +665,7 @@ async def _extract(body: InterviewExtractInput, masker: Masker) -> InterviewExtr
         if not masked:
             return InterviewExtractOutput(is_mock=True)
 
-        rendered = "\n".join(
-            f"{'Worker' if line.role == 'worker' else 'Bada Bhai'}: {line.text}" for line in masked
-        )
+        rendered = "\n".join(_render_line(line) for line in masked)
         # RESOLVED, not called — see the identical note in `profiling_turn`. `None` (name never
         # registered) falls back to the local builder, so the default behaviour is unchanged.
         resolved = resolve_prompt(prompt_registry.INTERVIEW_EXTRACT)

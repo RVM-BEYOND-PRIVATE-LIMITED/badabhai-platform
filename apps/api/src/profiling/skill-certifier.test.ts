@@ -11,6 +11,7 @@ import {
   MAX_SKILLS,
   certifySkillLabel,
   certifySkills,
+  isCatchAllAnswer,
   skillKey,
   type SkillCertifyContext,
 } from "./skill-certifier";
@@ -895,5 +896,47 @@ describe("certifySkills — counting", () => {
       ctx({ workerText: "tandoor chalata hoon", held: ["Welding"], roleLabel: "Chef" }),
     );
     expect(result).toEqual({ kept: ["Tandoor"], rejected: 8, capped: false });
+  });
+});
+
+describe("certifySkills — a catch-all answer grounds the chips on screen (#2387)", () => {
+  const offered = ["PostgreSQL", "MySQL", "Kuch aur"];
+
+  it("keeps every shown chip the model returns for 'sab aata hai'", () => {
+    const result = certifySkills(
+      ["PostgreSQL", "MySQL"],
+      ctx({ workerText: "sab aata hai", offered }),
+    );
+    expect(result).toEqual({ kept: ["PostgreSQL", "MySQL"], rejected: 0, capped: false });
+  });
+
+  it("still refuses a label that is not a shown chip, and the system's own button", () => {
+    const result = certifySkills(
+      ["PostgreSQL", "MongoDB", "Kuch aur"],
+      ctx({ workerText: "sab aata hai", offered }),
+    );
+    expect(result.kept).toEqual(["PostgreSQL"]);
+    expect(result.rejected).toBe(2); // MongoDB (ungrounded), "Kuch aur" (generic)
+  });
+
+  it("does NOT license an unchosen chip on an ordinary answer", () => {
+    // The worker named one database; a model that adds the other chip is still caught.
+    const result = certifySkills(["MySQL", "PostgreSQL"], ctx({ workerText: "mysql", offered }));
+    expect(result.kept).toEqual(["MySQL"]);
+    expect(result.rejected).toBe(1);
+  });
+
+  it("reads the catch-all as a whole word, in Latin and Devanagari", () => {
+    for (const text of ["sab", "Sabhi aate hain", "all of them", "everything", "सब आता है"]) {
+      expect(isCatchAllAnswer(text), text).toBe(true);
+    }
+    for (const text of ["sabzi banata hoon", "mysql", "", "nahi"]) {
+      expect(isCatchAllAnswer(text), text).toBe(false);
+    }
+  });
+
+  it("with no chips on screen, a catch-all grounds nothing", () => {
+    const result = certifySkills(["PostgreSQL"], ctx({ workerText: "sab aata hai" }));
+    expect(result.kept).toEqual([]);
   });
 });

@@ -394,6 +394,11 @@ class TranscriptLine(BaseModel):
     i: AskCount
     role: Literal["worker", "assistant"]
     text: str
+    # #2387 — the answer chips Bada Bhai showed beside this line, as labels. Assistant lines only,
+    # and only where the caller sends them: Phase C and the skills stage read them to expand a
+    # catch-all answer ("sab aata hai") into the options that were on screen. Platform text, never
+    # the worker's. Absent/None renders the line byte-identically to before.
+    options: list[str] | None = None
 
 
 class TargetField(BaseModel):

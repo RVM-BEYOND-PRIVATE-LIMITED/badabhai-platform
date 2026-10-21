@@ -64,6 +64,7 @@ import { namesATradeIn } from "./free-chat/free-chat-trade";
 import {
   ChatTranscriptBuffer,
   isMeaningExcluded,
+  offeredOptionsField,
   type TranscriptBuffer,
 } from "../chat/chat-transcript.buffer";
 import { ChatRepository } from "../chat/chat.repository";
@@ -1640,7 +1641,14 @@ export class ProfilingOrchestrator {
         // split in `takeTurn`'s append.
         messages: [
           ...buffer.messages,
-          { role: "assistant" as const, text: reply, at, voiceNoteId: null },
+          {
+            role: "assistant" as const,
+            text: reply,
+            at,
+            voiceNoteId: null,
+            // #2387 — the chips on screen, so Phase C can expand a catch-all answer to this.
+            ...offeredOptionsField(chipLabelsOf(decision.options)),
+          },
         ],
         profiling: next,
       };
@@ -3052,7 +3060,7 @@ export class ProfilingOrchestrator {
       const took = await this.skills.take(
         next,
         input.text,
-        transcriptOf(buffer),
+        transcriptOf(buffer, { withOptions: true }),
         modelTurnCtxOf(input),
         { entering: false },
       );
@@ -5764,7 +5772,7 @@ export class ProfilingOrchestrator {
     const took = await this.skills.take(
       next,
       input.text,
-      transcriptOf(buffer),
+      transcriptOf(buffer, { withOptions: true }),
       modelTurnCtxOf(input),
       { entering: true },
     );
@@ -6344,7 +6352,15 @@ export class ProfilingOrchestrator {
           // clip the worker spoke; the reply below it is the platform's own text and can never
           // have one, so it is `null` structurally rather than by omission.
           { role: "worker" as const, text: input.text, at, voiceNoteId: input.voiceNoteId },
-          { role: "assistant" as const, text: result.reply, at, voiceNoteId: null },
+          {
+            role: "assistant" as const,
+            text: result.reply,
+            at,
+            voiceNoteId: null,
+            // #2387 — the chips on screen (a pack's options or the interview model's), so a
+            // catch-all answer on the next turn can be read as every one of them.
+            ...offeredOptionsField(chipLabelsOf(result.options)),
+          },
         ],
         profiling: stamped,
         ...(result.complete ? { completedAt: at } : {}),
@@ -7411,7 +7427,10 @@ function settleFromLlmDraft(
  * same conversation the same way or a quote verified against line 4 in one call points at line 5
  * in the other.
  */
-function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
+function transcriptOf(
+  buffer: TranscriptBuffer,
+  opts: { readonly withOptions?: boolean } = {},
+): TranscriptLine[] {
   // ADR-0048 — THE IDENTITY INTAKE'S LINES NEVER REACH THE MODEL, under either PII policy: a name
   // or a town typed in answer to a form question tells Phase A and the skills stage nothing about
   // the worker's work. Dropped BEFORE numbering, so `i` counts the same conversation the
@@ -7420,9 +7439,24 @@ function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
   // ADR-0051 §3.5 — NOR THE FREE CHAT'S: the greeting, casual and career talk and the résumé-mode
   // deflections are not the worker's account of his work, and Phase A must never read them as one.
   // One predicate (`intake || aside`), shared with the extraction's buffer reader.
+  //
+  // #2387 — `withOptions` carries each line's chips, for the skills stage only: it expands a
+  // catch-all answer into them. Off, every line is exactly what Phase A has always been sent.
   return buffer.messages
     .filter((message) => !isMeaningExcluded(message))
-    .map((message, i) => ({ i, role: message.role, text: message.text }));
+    .map((message, i) => ({
+      i,
+      role: message.role,
+      text: message.text,
+      ...(opts.withOptions === true && message.options !== undefined
+        ? { options: [...message.options] }
+        : {}),
+    }));
+}
+
+/** The labels of the chips on screen, in order — what a line records as its `options` (#2387). */
+function chipLabelsOf(options: readonly QuestionPackOption[]): string[] {
+  return options.map((option) => option.label_text);
 }
 
 /** Armed, and the lane not yet decided — the one state in which the lane may be decided. */

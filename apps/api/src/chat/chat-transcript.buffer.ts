@@ -127,6 +127,59 @@ export interface BufferedMessage {
    * other line, never empty, so every buffer written without it serializes byte-identically.
    */
   newsLinks?: readonly FreeChatNewsLink[];
+  /**
+   * #2387 — the answer chips shown beside this ASSISTANT line, as their labels. Phase C and the
+   * skills stage read them to expand a catch-all answer ("sab aata hai") into the options that were
+   * actually on screen; the flush carries them into the row's `metadata.options` (see
+   * {@link offeredOptionsMetadataField}). Platform text — a pack's labels or the interview model's
+   * chips — never the worker's words. ABSENT on every line that showed none, never empty, so every
+   * buffer written without it serializes byte-identically.
+   */
+  options?: readonly string[];
+}
+
+/** The most chips kept per line — more than any screen shows; a ceiling, not a choice. */
+export const MAX_OFFERED_OPTIONS = 20;
+/** A label longer than this is not a chip. */
+const MAX_OFFERED_OPTION_CHARS = 120;
+
+/** Usable chip labels out of any value, bounded — or null when none survives. */
+function narrowOfferedOptions(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const kept = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && item.length <= MAX_OFFERED_OPTION_CHARS)
+    .slice(0, MAX_OFFERED_OPTIONS);
+  return kept.length > 0 ? kept : null;
+}
+
+/**
+ * `{ options }` when `value` holds at least one usable chip label, else `{}` — the ONE spread every
+ * writer and reader of {@link BufferedMessage.options} uses, so an absent field stays absent.
+ * Tolerates any shape.
+ */
+export function offeredOptionsField(value: unknown): { options?: readonly string[] } {
+  const options = narrowOfferedOptions(value);
+  return options === null ? {} : { options };
+}
+
+/**
+ * `{ metadata: { options } }` for a flushed line that showed chips, else `{}` (the column keeps its
+ * `{}` default). Chip labels are platform text, so they may sit in a JSONB that never holds the
+ * worker's words.
+ */
+export function offeredOptionsMetadataField(
+  message: Pick<BufferedMessage, "options">,
+): { metadata?: { options: string[] } } {
+  const options = narrowOfferedOptions(message.options);
+  return options === null ? {} : { metadata: { options } };
+}
+
+/** The chips a flushed row's metadata holds (#2387), re-checked — or null. Tolerates any shape. */
+export function offeredOptionsOfMetadata(metadata: unknown): string[] | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  return narrowOfferedOptions((metadata as Record<string, unknown>).options);
 }
 
 /**
@@ -214,6 +267,7 @@ export const BUFFERED_MESSAGE_KEYS = {
   aside: true,
   foldable: true,
   newsLinks: true,
+  options: true,
 } satisfies Record<keyof BufferedMessage, true>;
 
 /** The whole in-flight interview. Serialized to one Redis string per session. */
@@ -551,6 +605,8 @@ export class ChatTranscriptBuffer {
         ...(msg.foldable === true ? { foldable: true as const } : {}),
         // ADR-0054 — RE-CHECKED like every tile read back from a store; ABSENT unless one survives.
         ...newsLinksField(msg.newsLinks),
+        // #2387 — RE-CHECKED like the tiles above; ABSENT unless one chip survives.
+        ...offeredOptionsField(msg.options),
       });
     }
 

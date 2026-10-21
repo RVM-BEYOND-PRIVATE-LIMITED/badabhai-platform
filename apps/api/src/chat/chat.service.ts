@@ -75,6 +75,7 @@ import {
   freeChatMetadataOf,
   IDENTITY_INTAKE_METADATA,
   newsLinksOfMetadata,
+  offeredOptionsMetadataField,
   type BufferedMessage,
   type TranscriptBuffer,
 } from "./chat-transcript.buffer";
@@ -2382,11 +2383,13 @@ export class ChatService {
       // so every other row is inserted exactly as before and takes the column's `{}` default.
       // ADR-0051 §3.5 — a free-chat line likewise, with its own closed flag; ADR-0054 — an answered
       // news reply's tiles ride beside it, so the session replay redraws them after the flush.
+      // #2387 — an interview line that showed chips keeps them, so a catch-all answer read back
+      // from Postgres by Phase C can still be expanded into the options that were on screen.
       ...(m.intake === true
         ? { metadata: IDENTITY_INTAKE_METADATA }
         : m.aside === true
           ? { metadata: freeChatMetadataOf(m) }
-          : {}),
+          : offeredOptionsMetadataField(m)),
       // `created_at` is EXPLICIT: these rows are written at flush but happened over the
       // preceding minutes, and defaulting would stamp a thirty-turn interview as thirty
       // simultaneous messages, destroying the order `listMessages` and the extraction
