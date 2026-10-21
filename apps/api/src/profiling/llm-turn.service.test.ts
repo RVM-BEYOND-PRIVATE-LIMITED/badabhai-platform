@@ -905,3 +905,100 @@ describe("the worker's own name never reaches the model (R32, ADR-0047 G2)", () 
     expect(known.knownName).not.toHaveBeenCalled();
   });
 });
+
+describe("#2384: total experience before work history — the engine asks, a fresher's 0 ends it", () => {
+  const UNKNOWN = { years: null, asked: false } as const;
+
+  it("asks the total ITSELF when the model turns to experience and the total is unknown", async () => {
+    const { svc } = make({
+      turn: TURN({ stage: "experience", reply_text: "Pehle kahan kaam kiya?" }),
+    });
+    const out = await svc.take(
+      env({ llmAsks: 3 }),
+      "spring boot nahi",
+      [],
+      CTX,
+      undefined,
+      UNKNOWN,
+    );
+
+    expect(out?.kind).toBe("tenure");
+    // The model's job question was never shown, so no model ask is spent on it — and the stage
+    // stays live, so the answer turn reaches the model again for a worker with experience.
+    expect(out?.patch.llmAsks).toBeUndefined();
+    expect(out?.patch.llmStage).toBe("experience");
+    expect(out?.patch.llmLedTurns).toBe(1);
+  });
+
+  it("asks the total before the engine's own gate too — a job entry or a close is work history", async () => {
+    for (const over of [{ experience_entry: ENTRY }, { phase_a_done: true }]) {
+      const { svc } = make({ turn: TURN({ stage: "skills", ...over }) });
+      const out = await svc.take(env(), "haan", [], CTX, undefined, UNKNOWN);
+      expect(out?.kind).toBe("tenure");
+      expect(out && "reply" in out ? out.reply : null).toBeNull();
+    }
+  });
+
+  it("lets the skills stretch run while the model is not yet on experience", async () => {
+    const { svc } = make({ turn: TURN({ stage: "skills" }) });
+    const out = await svc.take(env(), "tandoor", [], CTX, undefined, UNKNOWN);
+    expect(out?.kind).toBe("ask");
+  });
+
+  it("closes Phase A for a fresher who answered the engine's question 0 — no model call at all", async () => {
+    const { svc, ai } = make();
+    const out = await svc.take(env({ llmStage: "experience" }), "0", [], CTX, undefined, {
+      years: 0,
+      asked: true,
+    });
+
+    expect(out).toEqual({ kind: "done", patch: { llmStage: "done" } });
+    expect(ai.llmTurn).not.toHaveBeenCalled();
+  });
+
+  it("a 0 known before the ask (the opener) closes Phase A the moment it turns to experience", async () => {
+    const { svc } = make({ turn: TURN({ stage: "experience" }) });
+    const out = await svc.take(env(), "haan", [], CTX, undefined, { years: 0, asked: false });
+
+    expect(out?.kind).toBe("done");
+    // Never the "Aur koi experience jodna hai?" gate for a fresher.
+    expect(out?.patch.llmGateOpen).toBeUndefined();
+    expect(out?.patch.llmStage).toBe("done");
+  });
+
+  it("a 0 from the opener does NOT cut the skills stretch short", async () => {
+    const { svc } = make({ turn: TURN({ stage: "skills" }) });
+    const out = await svc.take(env(), "tandoor", [], CTX, undefined, { years: 0, asked: false });
+    expect(out?.kind).toBe("ask");
+  });
+
+  it("a worker with experience goes on to work history exactly as before", async () => {
+    const { svc } = make({ turn: TURN({ stage: "experience", experience_entry: ENTRY }) });
+    const out = await svc.take(env({ llmStage: "experience" }), "5", [], CTX, undefined, {
+      years: 5,
+      asked: true,
+    });
+
+    expect(out?.kind).toBe("ask");
+    expect(out && "reply" in out ? out.reply : null).toBe(EXPERIENCE_GATE_PROMPT);
+  });
+
+  it("never asks the total twice: asked and left unanswered, work history goes on as before", async () => {
+    const { svc } = make({
+      turn: TURN({ stage: "experience", reply_text: "Pehle kahan kaam kiya?" }),
+    });
+    const out = await svc.take(env({ llmStage: "experience" }), "pata nahi", [], CTX, undefined, {
+      years: null,
+      asked: true,
+    });
+
+    expect(out?.kind).toBe("ask");
+    expect(out && "reply" in out ? out.reply : null).toBe("Pehle kahan kaam kiya?");
+  });
+
+  it("with no tenure context the experience stretch is byte-for-byte today's", async () => {
+    const { svc } = make({ turn: TURN({ stage: "experience", experience_entry: ENTRY }) });
+    const out = await svc.take(env(), "tandoor 3 saal", [], CTX);
+    expect(out && "reply" in out ? out.reply : null).toBe(EXPERIENCE_GATE_PROMPT);
+  });
+});

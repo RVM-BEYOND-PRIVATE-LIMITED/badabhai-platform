@@ -157,6 +157,61 @@ describe("normalization runs at CAPTURE time, per target field", () => {
   });
 });
 
+describe("#2384: the total-experience question, answered the way its keypad answers it", () => {
+  // As the registry serves it: the pack's `duration` reaches capture as `number`.
+  const TENURE = item({
+    question_key: "experience_years",
+    target_field: "experience_years",
+    answer_type: "number",
+  });
+
+  it("'0' is a fresher's answer, captured — not silence re-served three times", () => {
+    const capture = captureAnswer("0", TENURE);
+    expect(capture.turnClass).toBe("off_topic");
+    expect(only(capture).valueNormalized).toBe(0);
+  });
+
+  it("a bare number is years, one digit or two", () => {
+    expect(only(captureAnswer("5", TENURE)).valueNormalized).toBe(5);
+    expect(only(captureAnswer("10", TENURE)).valueNormalized).toBe(10);
+    expect(only(captureAnswer("०", TENURE)).valueNormalized).toBe(0);
+  });
+
+  it("the fresher words are 0; a value with its unit still wins over them", () => {
+    expect(only(captureAnswer("fresher hoon", TENURE)).valueNormalized).toBe(0);
+    expect(only(captureAnswer("koi experience nahi", TENURE)).valueNormalized).toBe(0);
+    expect(
+      only(captureAnswer("welding ka experience nahi, fitting ka 3 saal", TENURE)).valueNormalized,
+    ).toBe(3);
+  });
+
+  it("the 0–60 bound still refuses an impossible figure, and re-asks", () => {
+    const capture = captureAnswer("80", TENURE);
+    expect(capture.values).toHaveLength(0);
+    expect(capture.outOfRange).toBe(true);
+  });
+
+  it("ON SCREEN ONLY: a bare number read in passing is never someone's experience", () => {
+    expect(captureAnswer("5", TENURE, { crossQuestion: true }).values).toHaveLength(0);
+    expect(captureAnswer("fresher", TENURE, { crossQuestion: true }).values).toHaveLength(0);
+  });
+
+  it("one digit to a FREE-TEXT question is still silence, never stored as a trade", () => {
+    const capture = captureAnswer("5", FREE_TEXT);
+    expect(capture.turnClass).toBe("empty");
+    expect(capture.values).toHaveLength(0);
+  });
+
+  it("one digit to a parserless number question is its answer too", () => {
+    const hours = item({ question_key: "hours_per_day", answer_type: "number" });
+    expect(only(captureAnswer("8", hours)).valueNormalized).toBe("8");
+  });
+
+  it("a bare figure leaves no unread words behind (the free chat's bare-answer check)", () => {
+    expect(typedAnswerResidue(TENURE, "12")).toEqual([]);
+  });
+});
+
 describe("the availability answer carries its notice days (qp_universal@8)", () => {
   // The removed `notice_period_days` number duplicated these chips one question later, so the
   // availability turn now writes the notice value beside its own — same questionKey/targetField

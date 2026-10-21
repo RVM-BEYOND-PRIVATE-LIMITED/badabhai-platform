@@ -48,8 +48,14 @@ function llmDraftSettled(store: Map<string, unknown>): boolean | undefined {
   return held?.profiling?.llmDraftSettled;
 }
 
-describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated total", () => {
-  it("opener states one total; two resolved job entries sum to a different one — the SUM wins", async () => {
+/**
+ * #2384 (owner ruling 2026-10-20) SUPERSEDES #1505-1. The worker's stated total now stands and the
+ * jobs' sum only fills a total nobody answered — so these replays, which used to pin the sum
+ * overriding the opener's "10", now pin the opposite. Everything else they pin is unchanged: the
+ * opener reply is captured (even after an abusive turn 1), and per-job sentences never cross-fill.
+ */
+describe("#2384: the worker's stated total wins over the sum of resolved jobs (supersedes #1505-1)", () => {
+  it("opener states one total; two resolved job entries sum to a different one — the STATED total stands", async () => {
     const world = buildReplayWorld({
       turns: [
         // Turn 1 (the opener reply): the model asks about the worker's domain — no entry yet.
@@ -83,10 +89,11 @@ describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated
       ],
     });
 
-    // Turn 1 — the opener reply — states a TOTAL that must NOT be the final answer.
+    // Turn 1 — the opener reply — states a TOTAL, which is the worker's own answer and stands.
     await world.orchestrator.takeTurn(turnInput("Maine total 10 saal kaam kiya hai"));
     // Cross-filled from the opener turn: `crossFillItems`'s `phaseALeads` exclusion does not
-    // cover turn 1 (`isOpenerReplyTurn`), so this DOES land — and is what must be overridden.
+    // cover turn 1 (`isOpenerReplyTurn`), so this DOES land — and, being known, the engine never
+    // asks the total again before work history (#2384).
     expect(answerValue(world.store, "experience_years")).toBe(10);
 
     // Turn 2 — job 1. The worker's own sentence must NOT cross-fill a competing experience_years
@@ -110,8 +117,9 @@ describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated
     // #2021 — the settlement wrote into the answer map, so the session is no longer worker-only.
     expect(llmDraftSettled(world.store)).toBe(true);
 
-    // THE RULING: sum of resolved jobs (36 + 24 months = 5 years) OVERRIDES the opener's "10".
-    expect(answerValue(world.store, "experience_years")).toBe(5);
+    // THE RULING (#2384): the opener's stated "10" stands; the jobs' sum (36 + 24 months = 5
+    // years) covers only the jobs described and never overrides a total the worker answered.
+    expect(answerValue(world.store, "experience_years")).toBe(10);
     expect(isSettled(world.store, "experience_years")).toBe(true);
   });
 
@@ -126,7 +134,7 @@ describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated
    * actually been captured yet (`envelope.answerMap` / `envelope.llmDraft.experiences`, both
    * still empty after a non-advancing turn) rather than the raw turn counter.
    */
-  it("worker's turn 1 is abusive; turn 2 is the REAL opener reply — the total still lands and the later sum still wins", async () => {
+  it("worker's turn 1 is abusive; turn 2 is the REAL opener reply — the total still lands and still stands", async () => {
     const world = buildReplayWorld({
       turns: [
         // Turn 2 (the REAL opener reply): the model asks about the worker's domain — no entry
@@ -181,9 +189,9 @@ describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated
     // Turn 5 — "Nahi" closes Phase A; `settleFromLlmDraft` runs THIS turn.
     await world.orchestrator.takeTurn(turnInput("Nahi", new Date(T0.getTime() + 4000)));
 
-    // THE RULING STILL HOLDS with an abusive turn ahead of the opener reply: sum of resolved
-    // jobs (36 + 24 months = 5 years) OVERRIDES the opener's "10".
-    expect(answerValue(world.store, "experience_years")).toBe(5);
+    // THE RULING STILL HOLDS with an abusive turn ahead of the opener reply: the stated "10"
+    // stands over the jobs' sum of 5 (#2384).
+    expect(answerValue(world.store, "experience_years")).toBe(10);
     expect(isSettled(world.store, "experience_years")).toBe(true);
   });
 });

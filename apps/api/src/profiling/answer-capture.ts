@@ -30,6 +30,7 @@ import {
 import { isCredentialYear } from "../profiles/credential-year";
 import type { AnswerMap, CapturedValue } from "./answer-map";
 import { withinExperienceYearsRange } from "./parse-gates";
+import { bareNumberSpan, isLoneDigit, readStatedTenureYears } from "./stated-tenure";
 
 /** What one worker turn produced. */
 export interface Capture {
@@ -258,6 +259,13 @@ function normalizeFor(
   if (normalizer) {
     const value = normalizer(text);
     if (value !== null) return value;
+    // #2384 — THE TOTAL-EXPERIENCE QUESTION, ANSWERED THE WAY ITS KEYPAD ANSWERS IT: a bare number
+    // is years ("kitne saal" already named the unit) and a fresher phrase is 0. On screen only — a
+    // bare number read in passing could be anything (`stated-tenure.ts`).
+    if (field === "experience_years" && opts.crossQuestion !== true) {
+      const stated = readStatedTenureYears(text);
+      if (stated !== null) return stated;
+    }
     // THE TYPED PARSER FOUND NOTHING — that is not the same as the worker not answering, and
     // returning `undefined` straight from here was throwing away the item's own reviewed chips.
     //
@@ -296,8 +304,9 @@ function normalizeFor(
   // Free text: the worker's words are the answer. Trimmed, never rewritten.
   //
   // No empty-check, deliberately. `classifyUtterance` already returned `empty` for anything
-  // that trims to under two characters, and this line is only reached past that gate — so an
-  // `|| undefined` here would be unreachable code pretending to be a safety net.
+  // that trims to under two characters (bar one digit to a number question, #2384, which is not
+  // blank), and this line is only reached past that gate — so an `|| undefined` here would be
+  // unreachable code pretending to be a safety net.
   return text.trim();
 }
 
@@ -667,7 +676,15 @@ export function captureAnswer(
   opts: CaptureOptions = {},
 ): Capture {
   const signal = classifyUtterance(text);
-  const turnClass = signal.cls;
+  // #2384 — ONE DIGIT IS AN ANSWER TO A NUMBER QUESTION, not silence. The shared classifier calls
+  // anything under two characters `empty` because it cannot see the question; this function can.
+  // "0" to "kitne saal ho gaye?" was re-served as if the worker had typed nothing, three times on
+  // device. Number questions only: a lone digit to a free-text question stays `empty`, so it is
+  // never stored verbatim as a trade or a name.
+  const turnClass: UtteranceClass =
+    signal.cls === "empty" && askedItem?.answer_type === "number" && isLoneDigit(text)
+      ? "off_topic"
+      : signal.cls;
 
   if (turnClass === "abusive") {
     return noValue(turnClass, { excludeFromParse: true });
@@ -763,7 +780,8 @@ function spanFor(item: QuestionPackItem, text: string): { start: number; end: nu
     case "current_city":
       return canonicalCity(text)?.span;
     case "experience_years":
-      return parseExperienceYears(text)?.span;
+      // A bare figure is read too (#2384), so it is not left over as unread residue.
+      return parseExperienceYears(text)?.span ?? bareNumberSpan(text);
     case "salary_expected":
       return detectSalaries(text).expected?.span;
     case "salary_current":
