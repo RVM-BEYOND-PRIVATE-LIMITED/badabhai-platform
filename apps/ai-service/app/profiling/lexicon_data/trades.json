@@ -10,7 +10,9 @@
     "",
     "THE FIRST COLUMN OF machines/controllers/roles IS A PLAIN KEYWORD; the first column of",
     "roleCues/welding/machiningContext/weldingRoleBlockers/plumbing/carpentry/design/",
-    "interiorDesign IS A REGEX SOURCE.",
+    "designRoleBlockers/interiorDesign IS A REGEX SOURCE.",
+    "",
+    "THE TWO *RoleBlockers TABLES ONLY VETO. They assign nothing and add no vocabulary token.",
     "",
     "PRIVACY: these tables derive VOCABULARY_TOKENS, which has TWO consumers, both via",
     "pseudonymize._is_known_trade_vocabulary: (1) certified_clean_skill_labels' EMPLOYER",
@@ -756,6 +758,12 @@
       },
       "label": "rendering / visualization",
       "skillId": "skill_rendering_visualization"
+    }
+  ],
+  "designRoleBlockers": [
+    {
+      "source": "{WB}(?:ui\\s*[/&+-]?\\s*ux|ux\\s*[/&+-]?\\s*ui|ui|ux)\\s*[/-]?\\s*design(?:er|ers|ing)?{WE}",
+      "flags": "i"
     }
   ],
   "interiorDesign": [

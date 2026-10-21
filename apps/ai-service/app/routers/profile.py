@@ -53,7 +53,7 @@ from ..profiling.domain_match import (
 from ..profiling.parse_masking import mask_parse_input
 from ..profiling.parse_prompt import build_parse_messages, empty_parse
 from ..profiling.prompts import extraction_system_prompt
-from ..profiling.signals import has_first_person_claim, label_for_id
+from ..profiling.signals import design_role_blocked, has_first_person_claim, label_for_id
 from ..pseudonymize import certify_value
 from ._shared import logger, resolve_prompt, router, settings, workflow_scope
 
@@ -219,6 +219,11 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             # the LLM from inventing a role (like "CNC Setter-Operator") when the worker
             # just said "mera bhai operator hai".
             if legacy.canonical_role_id is None and not has_first_person_claim(worker_text):
+                role_id = None
+            # #2389: a UI/UX designer is not the CAD seat `role_designer` bridges to. The
+            # rubric reads every "designer" as that role, so the keyword path's deterministic
+            # veto applies to the model's answer too.
+            if role_id == "role_designer" and design_role_blocked(worker_text):
                 role_id = None
 
         if role_id is not None:
