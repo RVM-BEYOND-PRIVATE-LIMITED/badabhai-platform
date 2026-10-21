@@ -243,8 +243,10 @@ export const PostMessageResponseSchema = z.object({
    * exactly one of them. The same closed set has been on the voice-form wire since it shipped
    * (`profiling.dto.ts`); this ends the divergence rather than inventing anything.
    *
-   * `null` MEANS "NOTHING PACK-SHAPED IS ON SCREEN" — a close, a degraded turn, or an LLM-led
-   * turn that is not serving a pack item. It is not a default to render against.
+   * `null` MEANS "NOTHING PACK-SHAPED IS ON SCREEN" — a close or a degraded turn. It is not a
+   * default to render against. A MODEL-LED ask has no pack row, so the server asserts the value:
+   * `text` with no chips, `multi_select` for a skills question's chips (#2393 — the picked labels
+   * come back as one message joined with ", "), and `single_select` for every other chip row.
    *
    * THE FIVE CONTRACT VALUES ONLY. The database permits three more (`city`, `salary`,
    * `duration`) and seven live pack items use them, but `pack-registry.service.ts` maps those to
