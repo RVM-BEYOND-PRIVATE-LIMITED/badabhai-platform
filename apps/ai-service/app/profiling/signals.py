@@ -372,6 +372,15 @@ _DESIGN_RE: list[tuple[re.Pattern[str], str, str]] = [
     for e in _TRADES["design"]
 ]
 
+# --- Blockers: a UI/UX designer is NOT the taxonomy's Designer (#2389).
+# `role_designer` bridges to `mskill_designer`, the CAD / mechanical design seat. We model no
+# UI/UX trade, so the owner ruled (2026-10-21) that a UI/UX designer is treated like any other
+# trade we do not have: no design role, and the phrase's own "designer" claims no design skill.
+# Scoped to UI/UX on purpose; graphic, fashion and product design are unchanged.
+_DESIGN_ROLE_BLOCKERS_RE: list[re.Pattern[str]] = [
+    lexicon.compile_pattern(spec) for spec in _TRADES["designRoleBlockers"]
+]
+
 # --- Interior design --------------------------------------------------------
 _INTERIOR_DESIGN: list[tuple[str, str, str]] = [
     (e["pattern"]["source"], e["label"], e["skillId"]) for e in _TRADES["interiorDesign"]
@@ -1829,6 +1838,26 @@ def welding_role_blocked(lower: str) -> bool:
     return any(p.search(lower) for p in _WELDING_ROLE_BLOCKERS_RE)
 
 
+def design_role_blocked(text: str) -> bool:
+    """True when the worker describes UI/UX design work (#2389), which is not `role_designer`.
+
+    A WHOLE-ROLE veto, like :func:`welding_role_blocked`: a UI/UX designer who also names
+    Photoshop or Illustrator is still not the CAD seat, so no other design keyword overrides it.
+    """
+    return any(p.search(text) for p in _DESIGN_ROLE_BLOCKERS_RE)
+
+
+def _without_design_role_blockers(text: str) -> str:
+    """``text`` with every UI/UX design phrase blanked, length preserved (offsets stay valid).
+
+    So the bare "designer" inside "UI/UX designer" claims no design skill, while any other
+    design word in the same text is still read.
+    """
+    for pattern in _DESIGN_ROLE_BLOCKERS_RE:
+        text = pattern.sub(lambda m: " " * len(m.group(0)), text)
+    return text
+
+
 def _assign_welding_role(lower: str, sig: Signals) -> None:
     """Assign ``role_welder``/``dom_welding`` — the ONLY place welding sets a role.
 
@@ -1877,7 +1906,8 @@ def _detect_carpentry(lower: str, sig: Signals) -> None:
 
 
 def _detect_design(lower: str, sig: Signals) -> None:
-    """Append design skill labels + canonical skill ids."""
+    """Append design skill labels + canonical skill ids. UI/UX phrases are not read (#2389)."""
+    lower = _without_design_role_blockers(lower)
     for pattern, label, skill_id in _DESIGN_RE:
         if pattern.search(lower):
             _append_unique(sig.skills, label)
@@ -1919,8 +1949,9 @@ def _assign_carpentry_role(lower: str, sig: Signals) -> None:
 
 
 def _assign_design_role(lower: str, sig: Signals) -> None:
-    """Assign role_designer when design keywords are present and no role set."""
-    if sig.role_id is not None:
+    """Assign role_designer when design keywords are present, no role set, and the worker is
+    not a UI/UX designer (#2389)."""
+    if sig.role_id is not None or design_role_blocked(lower):
         return
     for pattern, _, _ in _DESIGN_RE:
         if pattern.search(lower):
