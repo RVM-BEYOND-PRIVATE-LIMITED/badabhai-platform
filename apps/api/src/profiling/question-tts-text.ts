@@ -110,12 +110,13 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
   // next-question.ts — asked ABOUT the packs, so it lives in none of them.
   "Aap in mein se kaun sa kaam karte hain?": "आप इन में से कौन सा काम करते हैं?",
 
-  // identity-intake.copy.ts (ADR-0048) — the first name: prompt, retry, why, why-then-question.
-  "Aapka pehla naam kya hai?": "आपका पहला नाम क्या है?",
-  "Kripya sirf apna pehla naam likhiye.": "कृपया सिर्फ़ अपना पहला नाम लिखिये।",
+  // identity-intake.copy.ts (ADR-0048) — the name's first step, asked as the full name (#2399):
+  // prompt, retry, why, why-then-question.
+  "Aapka pura naam kya hai?": "आपका पूरा नाम क्या है?",
+  "Kripya apna pura naam likhiye.": "कृपया अपना पूरा नाम लिखिये।",
   "Aapka naam aapke resume par chhapta hai.": "आपका नाम आपके रिज़्यूमे पर छपता है।",
-  "Aapka naam aapke resume par chhapta hai. Aapka pehla naam kya hai?":
-    "आपका नाम आपके रिज़्यूमे पर छपता है। आपका पहला नाम क्या है?",
+  "Aapka naam aapke resume par chhapta hai. Aapka pura naam kya hai?":
+    "आपका नाम आपके रिज़्यूमे पर छपता है। आपका पूरा नाम क्या है?",
 
   // identity-intake.copy.ts — the surname.
   "Aapka surname kya hai?": "आपका सरनेम क्या है?",

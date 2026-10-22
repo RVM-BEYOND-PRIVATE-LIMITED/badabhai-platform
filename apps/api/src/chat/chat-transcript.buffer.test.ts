@@ -100,7 +100,7 @@ describe("ChatTranscriptBuffer — round trip", () => {
       SESSION,
       sample({
         messages: [
-          { role: "assistant", text: "Aapka pehla naam kya hai?", at, voiceNoteId: null, intake: true },
+          { role: "assistant", text: "Aapka pura naam kya hai?", at, voiceNoteId: null, intake: true },
           { role: "worker", text: "welder hoon", at, voiceNoteId: null },
         ],
       }),

@@ -551,7 +551,7 @@ describe("the flush — free-chat rows are flagged, every other row is inserted 
         messages: [
           {
             role: "assistant",
-            text: "Aapka pehla naam kya hai?",
+            text: "Aapka pura naam kya hai?",
             at: T0.toISOString(),
             voiceNoteId: null,
             intake: true,
