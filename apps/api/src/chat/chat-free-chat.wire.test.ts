@@ -91,6 +91,8 @@ interface Opts {
   lastMessageAt?: Date | null;
   /** Release 2 — what `findLatestFreeChatSummary` returns, or "throws". */
   latestSummary?: { id: string; summary: unknown } | undefined | "throws";
+  /** Extra server config, merged over the defaults below. */
+  config?: Record<string, unknown>;
 }
 
 function make(opts: Opts = {}) {
@@ -168,6 +170,7 @@ function make(opts: Opts = {}) {
     CHAT_ONE_SHOT_OPENER_ENABLED: false,
     CHAT_TRANSCRIPT_TTL_SECONDS: 86_400,
     ...(opts.killSwitch === undefined ? {} : { CHAT_FREE_CHAT_DISABLED: opts.killSwitch }),
+    ...opts.config,
   };
   const svc = new ChatService(
     config as never,
@@ -583,6 +586,81 @@ describe("the flush — free-chat rows are flagged, every other row is inserted 
       undefined,
     ]);
     expect("metadata" in rows[3]!).toBe(false);
+  });
+
+  it("fix Q2 — a chat-only line keeps its flag, beside its chips; an unflagged line is as before", async () => {
+    const at = T0.toISOString();
+    const { svc, chat } = make({
+      buffer: {
+        messages: [
+          {
+            role: "worker",
+            text: "gurgaon mein koi company hai?",
+            at,
+            voiceNoteId: null,
+            chatOnly: true,
+          },
+          {
+            role: "assistant",
+            text: "Haan. Aap kab se kaam shuru kar sakte hain?",
+            at,
+            voiceNoteId: null,
+            options: ["Turant", "Ek mahine mein"],
+            chatOnly: true,
+          },
+          { role: "worker", text: "Turant", at, voiceNoteId: null },
+          {
+            role: "assistant",
+            text: "Aap kis sheher mein rehte hain?",
+            at,
+            voiceNoteId: null,
+            options: ["Pune"],
+          },
+        ],
+      },
+    });
+    await svc.abandonInterview({ id: SESSION, workerId: WORKER, conversationState: null }, 30, CTX);
+    const rows = chat.insertMessages.mock.calls[0]![1] as Record<string, unknown>[];
+    expect(rows.map((row) => row.metadata)).toEqual([
+      { chat_only: true },
+      { options: ["Turant", "Ek mahine mein"], chat_only: true },
+      undefined,
+      { options: ["Pune"] },
+    ]);
+    expect("metadata" in rows[2]!).toBe(false);
+  });
+});
+
+describe("fix Q2 — the chat-only switches reach the turn only while on", () => {
+  const Q2_INPUTS = ["flagChatOnly", "chatOnlyCityGuard"] as const;
+
+  it("absent, or false, the turn input carries neither key (today's turn)", async () => {
+    for (const config of [
+      {},
+      {
+        PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED: false,
+        CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED: false,
+      },
+    ]) {
+      const { svc, orchestrator } = make({ config });
+      await svc.postMessage(WORKER, DTO, CTX);
+      const input = orchestrator.takeTurn.mock.calls[0]![0] as Record<string, unknown>;
+      for (const key of Q2_INPUTS) expect(key in input).toBe(false);
+    }
+  });
+
+  it("each switch sets its own key and nothing else", async () => {
+    const flag = make({ config: { PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED: true } });
+    await flag.svc.postMessage(WORKER, DTO, CTX);
+    const flagged = flag.orchestrator.takeTurn.mock.calls[0]![0] as Record<string, unknown>;
+    expect(flagged.flagChatOnly).toBe(true);
+    expect("chatOnlyCityGuard" in flagged).toBe(false);
+
+    const guard = make({ config: { CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED: true } });
+    await guard.svc.postMessage(WORKER, DTO, CTX);
+    const guarded = guard.orchestrator.takeTurn.mock.calls[0]![0] as Record<string, unknown>;
+    expect(guarded.chatOnlyCityGuard).toBe(true);
+    expect("flagChatOnly" in guarded).toBe(false);
   });
 });
 

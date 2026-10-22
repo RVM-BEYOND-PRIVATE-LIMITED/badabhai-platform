@@ -691,6 +691,19 @@ describe("loadServerConfig", () => {
     );
   });
 
+  it.each([
+    "PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED",
+    "CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED",
+  ] as const)("%s (fix Q2) is OFF by default, for the empty string and for 'false'", (name) => {
+    // Off is today's interview and today's extraction: nothing flagged, skipped or guarded.
+    const read = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { [name]: value })[name];
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+  });
+
   it("CHAT_IDENTITY_INTAKE_ENABLED (ADR-0048) is OFF by default, for the empty string and for 'false'", () => {
     // Off is today's chat opening byte for byte; it flips only with the app release that
     // unroutes `/name`, so an unset or blank secret must never read as on.

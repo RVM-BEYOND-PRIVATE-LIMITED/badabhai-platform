@@ -360,6 +360,17 @@ services:
       # an unset or empty secret is off.
       CHAT_TURN_UNDERSTANDING_ENABLED: ${CHAT_TURN_UNDERSTANDING_ENABLED:-false}
 
+      # ---- OFF-TOPIC CHAT AND THE PROFILE (token-audit fix Q2). Both act only on a message the
+      # turn understanding above read as chat only, so both need it on to do anything.
+      #
+      # PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED: such a message is flagged in the transcript and
+      # the end-of-interview extraction leaves it out ("Gurgaon mein koi company hai jo 38 de de?"
+      # stops becoming a preferred city and a salary). CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED: the
+      # cross-question fill takes no current city from it. OFF is today's interview and extraction
+      # exactly. `:-false` so an unset or empty secret is off.
+      PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED: ${PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED:-false}
+      CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED: ${CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED:-false}
+
       # ---- THE IDENTITY INTAKE (ADR-0048, #1858) — name, state and city asked IN the chat.
       #
       # On, a new chat session for a worker whose record lacks a name, state or city opens by

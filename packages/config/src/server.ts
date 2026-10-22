@@ -1623,6 +1623,28 @@ export const serverEnvSchema = z.object({
   // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. Read per turn. PRODUCTION ON ONLY AFTER the
   // eval PASS is recorded (ADR-0057 §6) and the box arms `profiling_turn_understand` (#2319).
   CHAT_TURN_UNDERSTANDING_ENABLED: booleanFromString,
+  // Token-audit fix Q2 — OFF-TOPIC CHAT KEPT OUT OF THE EXTRACTION. On, a typed message the turn
+  // understanding read as CHAT ONLY (intent `chat` above the confidence floor, with no fill, no
+  // edit, no Profile-page mention and no "none" answer) whose turn wrote nothing is flagged
+  // `chat_only` in the transcript, and the end-of-interview extraction leaves it out. "Gurgaon mein
+  // koi company hai jo 38 de de?" then stops becoming a preferred city and a salary. A message
+  // where the layer heard a Profile-page fact is still read (owner ruling #1505-2). The interview
+  // model, the thread redraw and every other reader keep the line.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY: nothing is flagged and nothing is skipped.
+  // Read at the turn (flagging) AND at the extraction (skipping), so turning it off restores the
+  // full transcript for every later extraction. Needs CHAT_TURN_UNDERSTANDING_ENABLED to do anything.
+  PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED: booleanFromString,
+  // Token-audit fix Q2 — NO CITY FROM A CHAT-ONLY MESSAGE. On, the cross-question fill does not
+  // write the worker's current city from a message the turn understanding read as chat only
+  // ("bhai Pune mein kitna milta hai?"), so a city he asks about never becomes the city he lives
+  // in. Over a pack question such a message already records nothing; this covers the AI-led
+  // stretch, where the turn goes on. A message that STATES his city is a statement, never chat
+  // only, and still fills it.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. Read per turn. Needs
+  // CHAT_TURN_UNDERSTANDING_ENABLED to do anything.
+  CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED: booleanFromString,
   // ADR-0048 (#1858) — THE IDENTITY INTAKE. On, a NEW chat session for a worker whose record is
   // missing a name, a state or a city opens by asking for exactly what is missing — first name,
   // surname, state, city — as deterministic chat turns written through `WorkersService`, before

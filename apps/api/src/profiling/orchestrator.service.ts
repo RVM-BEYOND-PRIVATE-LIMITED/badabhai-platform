@@ -280,6 +280,12 @@ import {
   type EditRow,
   type EditTarget,
 } from "./understanding/edit-gate";
+import {
+  flagChatOnlyLines,
+  isChatOnlyReading,
+  withoutCityCrossFill,
+  type ChatOnlyVerdict,
+} from "./understanding/chat-only";
 import { isBareNone, isDeclineReply, isFreeTextItem } from "./understanding/none-answer";
 import { buildProfilingSchema, type ProfilingSchemaView } from "./understanding/profiling-schema";
 import { isSideMessage } from "./understanding/side-message";
@@ -631,6 +637,17 @@ export interface TurnInput {
    * (`CHAT_TURN_UNDERSTANDING_ENABLED`). Only the chat sets it; absent is today's turn exactly.
    */
   readonly understanding?: boolean;
+  /**
+   * Fix Q2 — flag the lines of a turn whose message the layer read as chat only, so the extraction
+   * can leave them out (`PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED`). Only the chat sets it; absent
+   * flags nothing, which is today's transcript exactly.
+   */
+  readonly flagChatOnly?: boolean;
+  /**
+   * Fix Q2 — the cross-question fill takes no current city from a message the layer read as chat
+   * only (`CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED`). Only the chat sets it; absent is today's turn.
+   */
+  readonly chatOnlyCityGuard?: boolean;
   /**
    * The worker's own name, for the interview models' egress to redact out of what they read
    * (`redactedTurnText`, R32 / ADR-0047 G2). A THUNK, read only by a turn that actually calls a
@@ -1048,7 +1065,17 @@ export class ProfilingOrchestrator {
       // ADR-0057 (#2311) — the lines above the question (the Profile-page pointer, the bridge
       // line), composed BEFORE the CAS so the reply, the transcript and `lastTurn` say the same.
       const leadIns = await this.composeLeadIns(gated, input, understandRefs);
-      const decided = leadIns.decided;
+      // Fix Q2 — a chat-only turn's lines, flagged for the extraction once its reply is final.
+      const verdict = understandRefs.chatOnly ?? null;
+      const decided =
+        input.flagChatOnly === true && verdict !== null
+          ? flagChatOnlyLines(leadIns.decided, {
+              before: buffer,
+              envelope,
+              text: input.text,
+              verdict,
+            })
+          : leadIns.decided;
 
       // ADR-0048 — THE INTAKE'S RECORD WRITE LANDS BEFORE THE CAS, AND FAILS CLOSED. After the
       // CAS would be worse in the one way that matters: the conversation would already have moved
@@ -1984,6 +2011,7 @@ export class ProfilingOrchestrator {
     // A lost CAS re-runs this decision from the winner's state: its outcome starts empty again.
     understandRefs.outcome = null;
     understandRefs.edit = null;
+    understandRefs.chatOnly = null;
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
       this.logger.error(
@@ -2799,6 +2827,13 @@ export class ProfilingOrchestrator {
       answers,
       refs: understandRefs,
     });
+    // Fix Q2 — the layer heard nothing for the profile in this message (see `isChatOnlyReading`).
+    // `flagChatOnlyLines` decides, after the turn, whether its lines are flagged for the extraction.
+    const chatOnly =
+      understood !== null &&
+      understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE &&
+      isChatOnlyReading(understood.out);
+    understandRefs.chatOnly = chatOnly ? { reservedKey: null } : null;
     if (understood !== null && understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE) {
       // A PROGRESS QUESTION THE LEXICON DID NOT CATCH: the #2308 answer, exactly.
       if (understood.out.intent === "progress") {
@@ -2820,6 +2855,9 @@ export class ProfilingOrchestrator {
       // own question (Phase A) the turn goes on: the classic prompt answers a side message itself.
       if (understood.out.intent === "chat" && understood.out.fills.length === 0 && reservableItem) {
         understandRefs.outcome = outcomeOf(understood.out, null, { reason: "chat", noted: [] });
+        // Fix Q2 — the reply serves this same question again, which the line before the chat
+        // already asked, so it can be left out of the extraction with the chat.
+        if (chatOnly) understandRefs.chatOnly = { reservedKey: reservableItem.question_key };
         return this.reserveTurn({
           buffer,
           next,
@@ -2965,11 +3003,17 @@ export class ProfilingOrchestrator {
     const beforeCrossFill = answers;
     // #2312: the edit gate runs on the pack stretch, for a turn the layer actually understood.
     const editGateArmed = understood !== null && !this.llm.leads(next);
+    // ADR-0045 R5: on the skills lane experience is NEVER cross-filled — total experience comes
+    // only from the general form's work history, and `isOpenerReplyTurn` can read true again once
+    // the lane has cleared the draft's experiences.
+    const crossFillable = crossFillItems(items, phaseALeads || onSkillsLane(envelope));
     const crossFilled = this.fillCrossQuestion(
-      // ADR-0045 R5: on the skills lane experience is NEVER cross-filled — total experience comes
-      // only from the general form's work history, and `isOpenerReplyTurn` can read true again
-      // once the lane has cleared the draft's experiences.
-      crossFillItems(items, phaseALeads || onSkillsLane(envelope)),
+      // Fix Q2 — under the city guard a chat-only message ("bhai Pune mein kitna milta hai?")
+      // names no city the worker lives in. Over a pack question it never gets here (the side
+      // message above returns); this is the AI-led stretch, where the turn goes on.
+      input.chatOnlyCityGuard === true && chatOnly
+        ? withoutCityCrossFill(crossFillable)
+        : crossFillable,
       input.text,
       envelope,
       answers,
@@ -6386,6 +6430,8 @@ export interface UnderstandingRefs {
   outcome: UnderstandingOutcome | null;
   /** ADR-0057 (#2312) — what the decision being made does with the edit gate. */
   edit?: EditPlan | null;
+  /** Fix Q2 — the decision being made read its message as chat only (`flagChatOnlyLines`). */
+  chatOnly?: ChatOnlyVerdict | null;
 }
 
 /**

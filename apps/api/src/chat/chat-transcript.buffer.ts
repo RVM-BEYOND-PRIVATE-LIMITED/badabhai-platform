@@ -136,6 +136,21 @@ export interface BufferedMessage {
    * buffer written without it serializes byte-identically.
    */
   options?: readonly string[];
+  /**
+   * Token-audit fix Q2 — the line is part of a CHAT-ONLY exchange: a worker message the turn
+   * understanding (ADR-0057) read as conversation with nothing in it for the profile, on a turn that
+   * wrote nothing, and — when the reply only served the same pack question again — that reply.
+   * Written only while `PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED` is on; ABSENT on every other line,
+   * never `false`, so every buffer written without it serializes byte-identically.
+   *
+   * WHAT IT DOES: the end-of-interview extraction leaves the line out while that switch is on (see
+   * {@link isChatOnly}), so "Gurgaon mein koi company hai jo 38 de de?" stops becoming a preferred
+   * city and a salary. NARROWER THAN {@link aside} ON PURPOSE: the interview model's history, the
+   * understanding call, the thread redraw and every other reader keep the line — the model must
+   * still see what it was asked, and the worker his own words. The flush carries it into the row's
+   * `metadata.chat_only` (see {@link interviewLineMetadataField}).
+   */
+  chatOnly?: true;
 }
 
 /** The most chips kept per line — more than any screen shows; a ceiling, not a choice. */
@@ -180,6 +195,43 @@ export function offeredOptionsMetadataField(
 export function offeredOptionsOfMetadata(metadata: unknown): string[] | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   return narrowOfferedOptions((metadata as Record<string, unknown>).options);
+}
+
+/**
+ * The `chat_messages.metadata` flag a flushed chat-only line carries (fix Q2) — a closed flag, never
+ * text, like {@link IDENTITY_INTAKE_METADATA}.
+ */
+export const CHAT_ONLY_METADATA = { chat_only: true } as const;
+
+/**
+ * `{ metadata }` for a flushed INTERVIEW line — its chips (#2387) and its chat-only flag (fix Q2) —
+ * or `{}` when it has neither, so the column keeps its `{}` default. A line with no chat-only flag
+ * gets exactly {@link offeredOptionsMetadataField}'s value.
+ */
+export function interviewLineMetadataField(
+  message: Pick<BufferedMessage, "options" | "chatOnly">,
+): { metadata?: { options?: string[]; chat_only?: true } } {
+  const chips = offeredOptionsMetadataField(message);
+  if (message.chatOnly !== true) return chips;
+  return { metadata: { ...chips.metadata, ...CHAT_ONLY_METADATA } };
+}
+
+/** Does a stored row's `metadata` flag it as a chat-only line (fix Q2)? Tolerates any shape. */
+export function isChatOnlyMetadata(metadata: unknown): boolean {
+  return (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    (metadata as Record<string, unknown>).chat_only === true
+  );
+}
+
+/**
+ * Is a BUFFERED line flagged chat-only (fix Q2)? The buffer half of {@link isChatOnlyMetadata}. Read
+ * only by the extraction, and only while `PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED` is on — never part
+ * of {@link isMeaningExcluded}, which the interview model's history applies too.
+ */
+export function isChatOnly(message: Pick<BufferedMessage, "chatOnly">): boolean {
+  return message.chatOnly === true;
 }
 
 /**
@@ -268,6 +320,7 @@ export const BUFFERED_MESSAGE_KEYS = {
   foldable: true,
   newsLinks: true,
   options: true,
+  chatOnly: true,
 } satisfies Record<keyof BufferedMessage, true>;
 
 /** The whole in-flight interview. Serialized to one Redis string per session. */
@@ -616,6 +669,9 @@ export class ChatTranscriptBuffer {
         ...newsLinksField(msg.newsLinks),
         // #2387 — RE-CHECKED like the tiles above; ABSENT unless one chip survives.
         ...offeredOptionsField(msg.options),
+        // Fix Q2 — a literal `true` only, otherwise ABSENT. A lost flag fails toward "an ordinary
+        // line", which the extraction reads as it always has.
+        ...(msg.chatOnly === true ? { chatOnly: true as const } : {}),
       });
     }
 

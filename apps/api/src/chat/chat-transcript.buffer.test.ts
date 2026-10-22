@@ -4,6 +4,11 @@ import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import {
   CAS_SCRIPT,
   ChatTranscriptBuffer,
+  interviewLineMetadataField,
+  isChatOnly,
+  isChatOnlyMetadata,
+  isMeaningExcluded,
+  isMeaningExcludedMetadata,
   MAX_OFFERED_OPTIONS,
   offeredOptionsField,
   offeredOptionsMetadataField,
@@ -246,6 +251,67 @@ describe("ChatTranscriptBuffer — round trip", () => {
     raw.messages[0]!.options = "VMC";
     store.set(KEY, JSON.stringify(raw));
     expect("options" in (await buffer.load(SESSION))!.messages[0]!).toBe(false);
+  });
+
+  it("carries the chat-only flag (fix Q2) — a literal true only, absent otherwise", async () => {
+    // Dropped on load, an off-topic question would reach the extraction after all; invented on
+    // load, a real answer would be left out of it. A line the flag never touched stays keyless.
+    const { buffer, store } = make();
+    const at = "2026-10-22T00:00:00.000Z";
+    await buffer.save(
+      SESSION,
+      sample({
+        messages: [
+          {
+            role: "worker",
+            text: "gurgaon mein koi company hai jo 38 de de?",
+            at,
+            voiceNoteId: null,
+            chatOnly: true,
+          },
+          { role: "worker", text: "Pandrah din mein", at, voiceNoteId: null },
+        ],
+      }),
+    );
+    const loaded = await buffer.load(SESSION);
+    expect(loaded!.messages[0]!.chatOnly).toBe(true);
+    expect("chatOnly" in loaded!.messages[1]!).toBe(false);
+
+    const raw = JSON.parse(store.get(KEY)!) as { messages: Record<string, unknown>[] };
+    raw.messages[0]!.chatOnly = "true";
+    store.set(KEY, JSON.stringify(raw));
+    expect("chatOnly" in (await buffer.load(SESSION))!.messages[0]!).toBe(false);
+  });
+});
+
+describe("the chat-only flag in chat_messages.metadata (fix Q2)", () => {
+  it("writes chat_only beside the chips, and exactly the chips' value without the flag", () => {
+    expect(interviewLineMetadataField({ chatOnly: true })).toEqual({
+      metadata: { chat_only: true },
+    });
+    expect(interviewLineMetadataField({ chatOnly: true, options: ["Turant"] })).toEqual({
+      metadata: { options: ["Turant"], chat_only: true },
+    });
+    // No flag: byte-for-byte what every interview row has been written with since #2387.
+    for (const line of [{}, { options: ["VMC"] }, { options: [] }]) {
+      expect(interviewLineMetadataField(line)).toEqual(offeredOptionsMetadataField(line));
+    }
+  });
+
+  it("reads it back from a row or a buffered line, and tolerates any shape", () => {
+    expect(isChatOnlyMetadata({ chat_only: true })).toBe(true);
+    expect(isChatOnlyMetadata({ chat_only: true, options: ["Turant"] })).toBe(true);
+    expect(isChatOnlyMetadata({ chat_only: "true" })).toBe(false);
+    expect(isChatOnlyMetadata({ free_chat: true })).toBe(false);
+    expect(isChatOnlyMetadata(null)).toBe(false);
+    expect(isChatOnlyMetadata("chat_only")).toBe(false);
+    expect(isChatOnly({ chatOnly: true })).toBe(true);
+    expect(isChatOnly({})).toBe(false);
+  });
+
+  it("is never part of the meaning exclusion, which the interview model's history applies too", () => {
+    expect(isMeaningExcluded({ chatOnly: true } as never)).toBe(false);
+    expect(isMeaningExcludedMetadata({ chat_only: true })).toBe(false);
   });
 });
 

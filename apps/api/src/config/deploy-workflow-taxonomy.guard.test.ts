@@ -167,6 +167,18 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_GENERAL_ROAD_ENABLED:\s*\$\{\{\s*secrets\.CHAT_GENERAL_ROAD_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_GENERAL_ROAD_ENABLED\b/,
     ],
+    // Token-audit fix Q2 — off-topic chat kept out of the extraction, and no city from it. Plain
+    // booleans; the environment secrets are their one arming path, and absent they are today.
+    [
+      "PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED",
+      /PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED:\s*\$\{\{\s*secrets\.PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bPROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED\b/,
+    ],
+    [
+      "CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED",
+      /CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED:\s*\$\{\{\s*secrets\.CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED\b/,
+    ],
     // ADR-0057 (#2311) — the profiling turn, understood. A plain boolean flag, turned on in
     // production ONLY by the environment secret, after the eval PASS and the box arming.
     [
@@ -315,6 +327,9 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
+    // Fix Q2 — false is today's interview and extraction: nothing flagged, skipped or guarded.
+    ["PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED", "false"],
+    ["CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
     // ADR-0051 — the kill switch's absent value is false, which keeps the free chat ON.
