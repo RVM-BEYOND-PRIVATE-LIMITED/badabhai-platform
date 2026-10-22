@@ -275,6 +275,7 @@ class TestServiceAuthEnabled:
             "/profile/extract",
             "/profile/parse",
             "/profiling/extract",
+            "/profiling/other-answer/review",
             "/profiling/turn",
             "/profiling/understand",
             "/profiling/work-history/polish",

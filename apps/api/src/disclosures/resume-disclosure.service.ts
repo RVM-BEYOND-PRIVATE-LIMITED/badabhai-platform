@@ -21,7 +21,10 @@ import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { qualificationFactsFrom } from "../resume/resume-qualification-rows";
 import { maskInitials } from "../resume/mask-initials";
 import { verificationBadgeFor } from "../resume/verification-tier";
-import { containsOtherAnswerMarker } from "../resume/other-answer-leak-guard";
+import {
+  carriesReviewedOtherAnswers,
+  containsOtherAnswerMarker,
+} from "../resume/other-answer-leak-guard";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
 import { applyTierScope, type ResumeTierScope } from "../resume/resume-tier-scope";
@@ -513,7 +516,8 @@ export class ResumeDisclosureService {
     // "other" answer must never reach this payer-facing render. The primary defence is that
     // nothing above reads `worker_pack_answer` at all — see `other-answer-leak-guard.ts` for why
     // a second, structural check sits here anyway. FAIL CLOSED, whole disclosure, never partial.
-    if (containsOtherAnswerMarker(tradeSheet)) {
+    // #2409 — and the REVIEWED typed answers, which are plain strings and worker-facing only.
+    if (containsOtherAnswerMarker(tradeSheet) || carriesReviewedOtherAnswers(tradeSheet)) {
       this.logger.error(
         `an unreviewed 'other' answer reached the payer-facing render for disclosure=` +
           `${disclosureId}; refusing the disclosure`,

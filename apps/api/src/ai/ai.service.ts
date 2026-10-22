@@ -28,12 +28,15 @@ import {
   LlmTurnOutputSchema,
   InterviewExtractOutputSchema,
   WorkHistoryPolishOutputSchema,
+  OtherAnswerReviewOutputSchema,
   type LlmTurnInput,
   type LlmTurnOutput,
   type InterviewExtractInput,
   type InterviewExtractOutput,
   type WorkHistoryPolishInput,
   type WorkHistoryPolishOutput,
+  type OtherAnswerReviewInput,
+  type OtherAnswerReviewOutput,
   type PseudonymizationOutput,
   type ProfileParseInput,
   type ProfileParseOutput,
@@ -157,6 +160,13 @@ const PROFILING_TURN_TIMEOUT_MS = 13_000;
  * four-employer history into a four-times-longer render.
  */
 const WORK_HISTORY_POLISH_TIMEOUT_MS = 23_000;
+
+/**
+ * #2409 — the typed "Koi aur" answer's review rides the same far-side deadline as the polish
+ * (`profiling_extract_deadline_seconds`) and the same reasoning: above it, so the ai-service's
+ * own timeout answers with a named degrade rather than this side aborting into a bare null.
+ */
+const OTHER_ANSWER_REVIEW_TIMEOUT_MS = WORK_HISTORY_POLISH_TIMEOUT_MS;
 
 /**
  * ADR-0041 RI-3. The LONGEST transport budget in this file, and it is not covering a slow
@@ -962,6 +972,30 @@ export class AiService {
       input,
       WorkHistoryPolishOutputSchema,
       WORK_HISTORY_POLISH_TIMEOUT_MS,
+      ctx,
+    );
+  }
+
+  /**
+   * Check ONE typed "Koi aur — khud likhein" answer against the worker's trade and the field it
+   * was typed in, and get back the cleaned names that may print (#2409).
+   *
+   * `null` (unreachable, contract failure) and `reviewed: false` (mock posture, deadline) both
+   * mean "no decision yet": the caller stores nothing and asks again on the next render. Only a
+   * `reviewed: true` answer is a decision, and an empty `items` is a decision to print nothing.
+   *
+   * FAIL-CLOSED WITHOUT A NEW FLAG, like {@link polishWorkHistory}, and on the same task: the
+   * ai-service runs it as `work_history_polish`, real only when `AI_REAL_CALL_TASKS` names it.
+   */
+  async reviewOtherAnswer(
+    input: OtherAnswerReviewInput,
+    ctx?: AiRequestContext,
+  ): Promise<OtherAnswerReviewOutput | null> {
+    return this.post(
+      "/profiling/other-answer/review",
+      input,
+      OtherAnswerReviewOutputSchema,
+      OTHER_ANSWER_REVIEW_TIMEOUT_MS,
       ctx,
     );
   }

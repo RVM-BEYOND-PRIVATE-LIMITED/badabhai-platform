@@ -6,7 +6,11 @@ import { titleCaseRoleLabel } from "./resume-text-case";
 import { cleanList, cleanScalar } from "./resume-clean";
 import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
-import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
+import {
+  buildTradeCapabilityRows,
+  type OtherAnswerItems,
+  type WorkerAttributeValues,
+} from "./trade-resume-map";
 import { qualSectionVariantFor, tieredCapabilityTitle } from "./resume-tier-headings";
 import { sharedFieldIncluded } from "../profiling/tiers/profiling-tier.policy";
 import type { ProfilingTier } from "@badabhai/types";
@@ -111,6 +115,13 @@ export interface TradeSheetContext {
   /** The pack the interview ran, e.g. `qp_cnc_turning`. Null disables the section. */
   readonly packId: string | null;
   readonly attributes: WorkerAttributeValues;
+  /**
+   * #2409 — the worker's typed "Koi aur — khud likhein" answers, reviewed against his trade and
+   * the field, by question key. Only the names the review let print; absent for every question
+   * he answered with ticks. WORKER COPY ONLY: the audience gate lives in this function, so a
+   * payer render prints none of it even if a caller passed it.
+   */
+  readonly otherAnswers?: OtherAnswerItems;
 
   /**
    * The worker's number, DECRYPTED BY THE CALLER — exactly the contract `displayName` has, and
@@ -459,7 +470,13 @@ function buildUndegraded(
     attributes: tradeSheet?.attributes ?? {},
     workerSaid: tradeSheet?.workerSaid ?? [],
   });
-  const capability = buildTradeCapabilityRows(tradeSheet?.packId, vettedAttributes);
+  // #2409 — EXCEPT the worker's reviewed typed answers, which are worker-facing by owner ruling
+  // (2026-10-22): the employer portal's masked copy stays exactly as it was.
+  const capability = buildTradeCapabilityRows(
+    tradeSheet?.packId,
+    vettedAttributes,
+    audience === "worker" ? (tradeSheet?.otherAnswers ?? {}) : {},
+  );
   // THE FINISHING FORM'S ANSWERS (R6 §4), off the SAME attribute bag the capability block reads.
   // Trade-independent, so they are read once here rather than per pack — and read above the
   // branch, because both the résumé container and the legacy shape need them and neither one

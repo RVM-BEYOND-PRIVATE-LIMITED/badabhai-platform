@@ -230,6 +230,13 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // Registers its own BullMQ scheduler at boot; idempotent by scheduler id across boots.
     ResumeImportSweepProcessor,
   ],
-  exports: [PackRegistryService, ProfilingOrchestrator, TradeFormRepository],
+  // #2409 — OtherAnswerPolishService for the résumé render (ResumeModule), which prints a worker's
+  // reviewed "Koi aur" answers on his own copy.
+  exports: [
+    PackRegistryService,
+    ProfilingOrchestrator,
+    TradeFormRepository,
+    OtherAnswerPolishService,
+  ],
 })
 export class ProfilingModule {}

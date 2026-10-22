@@ -4161,6 +4161,34 @@ export const ProfileFormCompletedPayload = z
 export type ProfileFormCompletedPayload = z.infer<typeof ProfileFormCompletedPayload>;
 
 /**
+ * #2409 — a worker's typed "Koi aur — khud likhein" answer was reviewed against his trade and the
+ * field it was typed in, and the review SETTLED: some names may print on his own résumé
+ * (`accepted`), or none may (`rejected`). A degrade (mock posture, deadline) is not a decision
+ * and emits nothing.
+ *
+ * NO TEXT, NO NAMES. Ids, the question key, a closed outcome and a count — enough to answer "how
+ * often does a typed answer print, and on which questions" without carrying what he typed.
+ */
+export const ProfileOtherAnswerReviewedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The pack behind the question, e.g. `qp_cnc_turning`. A slug, never a label. */
+    pack_id: z.string().min(1).max(64),
+    pack_version: z.number().int().positive(),
+    /** The question the answer was typed under, e.g. `turning_machine`. */
+    question_key: z.string().min(1).max(80),
+    /**
+     * `accepted`: the review let at least one name through. Not "printed": the résumé's own tier
+     * scope and row budget still decide what reaches the page.
+     */
+    outcome: z.enum(["accepted", "rejected"]),
+    /** How many names the review let through: 1–5 when accepted, 0 when rejected. */
+    item_count: z.number().int().min(0).max(5),
+  })
+  .strict();
+export type ProfileOtherAnswerReviewedPayload = z.infer<typeof ProfileOtherAnswerReviewedPayload>;
+
+/**
  * ══ TIERED PROFILING (migration 0126) ═════════════════════════════════════════════════════════
  *
  * FOUR EVENTS, ONE FUNNEL: the Easy / Medium / Hard screen was shown, a tier was chosen, the form
