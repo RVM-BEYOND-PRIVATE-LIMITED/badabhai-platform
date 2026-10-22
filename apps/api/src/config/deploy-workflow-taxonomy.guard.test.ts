@@ -160,6 +160,18 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RESUME_AUTOFILL_ENABLED:\s*\$\{\{\s*secrets\.RESUME_AUTOFILL_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRESUME_AUTOFILL_ENABLED\b/,
     ],
+    // Audit fixes F2A and F4 — two plain booleans that stop a model call whose output nothing
+    // uses. The environment secret is their one arming path; absent, today's behaviour holds.
+    [
+      "OTHER_ANSWER_POLISH_DISABLED",
+      /OTHER_ANSWER_POLISH_DISABLED:\s*\$\{\{\s*secrets\.OTHER_ANSWER_POLISH_DISABLED\s*\}\}/,
+      /envs:[^\n]*\bOTHER_ANSWER_POLISH_DISABLED\b/,
+    ],
+    [
+      "RESUME_OPTION_MAP_REQUIRES_AUTOFILL",
+      /RESUME_OPTION_MAP_REQUIRES_AUTOFILL:\s*\$\{\{\s*secrets\.RESUME_OPTION_MAP_REQUIRES_AUTOFILL\s*\}\}/,
+      /envs:[^\n]*\bRESUME_OPTION_MAP_REQUIRES_AUTOFILL\b/,
+    ],
     // ADR-0045 — the general road. A plain boolean flag, and the ONLY way it turns on in
     // production is the environment secret, so the bridge is the switch.
     [
@@ -308,12 +320,24 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     expect(bridged).not.toMatch(/envs:[^\n]*\bAI_REAL_CALL_TASKS\b/);
   });
 
+  it("AI_REAL_CALL_TASKS_DENY is NOT bridged either — real-call scope stays a box decision", () => {
+    // Audit fix F1. The deny list can only narrow the surface, so bridging it would be less
+    // dangerous than bridging the allowlist — but it is the same scope decision, and splitting
+    // one decision across two arming paths is how a half-flip happens.
+    const bridged = uncommented(DEPLOY);
+    expect(bridged).not.toMatch(/AI_REAL_CALL_TASKS_DENY:\s*\$\{\{/);
+    expect(bridged).not.toMatch(/envs:[^\n]*\bAI_REAL_CALL_TASKS_DENY\b/);
+  });
+
   it.each([
     ["DOMAIN_MATCH_ENABLED", "false"],
     ["SKILL_CANONICALIZE_ENABLED", "false"],
     ["AI_REAL_CALL_TASKS", "profiling_chat_turn"],
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
+    // Audit fixes F2A / F4 — false is today's behaviour: both model calls run as before.
+    ["OTHER_ANSWER_POLISH_DISABLED", "false"],
+    ["RESUME_OPTION_MAP_REQUIRES_AUTOFILL", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],

@@ -92,6 +92,14 @@ class Settings(BaseSettings):
     # owner-ruled 2026-08-01): a real call requires the task to be explicitly
     # listed. The master flag + key are still required regardless.
     ai_real_call_tasks: str = ""
+    # Tasks REMOVED from the allowlist above (comma-separated TaskTypes). It exists so a
+    # task can be disarmed with one short line on the box, instead of hand-editing the long
+    # production allowlist (whose replace-not-append semantics, #1843, make every edit a
+    # chance to drop a task by accident). It can only NARROW the real-call surface: a task
+    # named here but absent from the allowlist stays disarmed, and nothing here can arm
+    # anything. EMPTY (the default) = today's behaviour exactly. First use: the
+    # `resume_generation` blurb nothing reads (audit fix F1).
+    ai_real_call_tasks_deny: str = ""
 
     # COST-4: the profiling chat turn returns the deterministic question_bank
     # question DIRECTLY (already ≤20 words, on-persona) and skips the chat LLM
@@ -287,6 +295,21 @@ class Settings(BaseSettings):
     # additionally needs `AI_REAL_CALL_TASKS` to name `resume_parse`, which nothing committed
     # does, so raising this changes no bill anywhere until someone arms it.
     ai_resume_parse_max_output_tokens: int = Field(default=2048, ge=16, le=8192)
+
+    # THE RÉSUMÉ OPTION-MAP OUTPUT BUDGET, split off the shared extraction knob (audit fix F4).
+    #
+    # #1674 kept the option map on the shared 1024 because it "scales with the pack" and was
+    # judged not at risk. Measured on 2026-10-21, it is at risk: every mapped pack question
+    # carries a cited quote, so a complete reply for a trade pack runs about 1,400-1,600 tokens
+    # on Haiku 4.5. The shared cap cut it off in 3 of 3 audit uploads and in 6 of 45 production
+    # calls. A cut-off reply has no closing brace, so the whole mapping is discarded: the call is
+    # billed and autofill never applies.
+    #
+    # THE DEFAULT STAYS 1024 — today's behaviour exactly. Raising it is a box setting
+    # (AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS; 2048 follows #1674's ~2x-the-worst-case rule)
+    # and the owner's decision, not a side effect of this change. It is a CEILING: only the
+    # tokens the model actually emits are billed.
+    ai_resume_option_map_max_output_tokens: int = Field(default=1024, ge=16, le=8192)
 
     # A HARD DEADLINE is how "parse cannot run away" becomes a property of the route instead of a
     # hope about the provider — `gemini_timeout_seconds` (30 s) times the retry chain is an order
@@ -1023,13 +1046,21 @@ class Settings(BaseSettings):
         """Parsed AI_REAL_CALL_TASKS. Empty = NO tasks may go real (fail-closed)."""
         return frozenset(t.strip() for t in self.ai_real_call_tasks.split(",") if t.strip())
 
+    @property
+    def real_call_task_denylist(self) -> frozenset[str]:
+        """Parsed AI_REAL_CALL_TASKS_DENY. Empty = nothing removed from the allowlist."""
+        return frozenset(t.strip() for t in self.ai_real_call_tasks_deny.split(",") if t.strip())
+
     def real_call_enabled_for(self, task_type: str) -> bool:
         """Whether a REAL call is permitted for this specific task. Requires the
         master flag + key (``real_calls_enabled``) AND the task explicitly listed
-        in AI_REAL_CALL_TASKS. An EMPTY allowlist blocks every task (fail-closed,
-        owner-ruled 2026-08-01; no wildcard) — real calls in any env require an
-        explicit task list."""
+        in AI_REAL_CALL_TASKS AND not listed in AI_REAL_CALL_TASKS_DENY. An EMPTY
+        allowlist blocks every task (fail-closed, owner-ruled 2026-08-01; no
+        wildcard) — real calls in any env require an explicit task list. The deny
+        list only ever removes tasks; it cannot arm one."""
         if not self.real_calls_enabled:
+            return False
+        if task_type in self.real_call_task_denylist:
             return False
         return task_type in self.real_call_task_allowlist
 

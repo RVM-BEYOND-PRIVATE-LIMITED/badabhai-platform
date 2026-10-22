@@ -47,6 +47,9 @@ import socket
 def _force_mock_only_env() -> None:
     os.environ["AI_ENABLE_REAL_CALLS"] = "false"
     os.environ["AI_REAL_CALL_TASKS"] = ""
+    # The deny list (audit fix F1) only ever narrows the allowlist above, but a developer
+    # .env naming a task here would still move which branch a test takes. Pinned empty.
+    os.environ["AI_REAL_CALL_TASKS_DENY"] = ""
     # Blank every real-provider secret so a developer real-call `.env` can't leak
     # into Settings(). pydantic-settings reads the `.env` FILE, so popping os.environ
     # is not enough (the dotenv value would still flow in) — an EMPTY env var
@@ -170,6 +173,10 @@ def _force_mock_only_env() -> None:
     # deletes this var explicitly where it asserts the DEFAULT, so the pin cannot make
     # that assertion vacuous.
     os.environ["AI_RESUME_PARSE_MAX_OUTPUT_TOKENS"] = "2048"
+    # The option-map budget, split off the extraction knob by audit fix F4. Same reason, and
+    # MUST mirror the committed default; `test_resume_option_map_output_budget.py` deletes it
+    # where it asserts the default.
+    os.environ["AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS"] = "1024"
     os.environ["AI_RESUME_MAX_OUTPUT_TOKENS"] = "512"
     os.environ["AI_RESUME_TEMPERATURE"] = "0.4"
     os.environ["AI_RESUME_MAX_RETRIES"] = "1"

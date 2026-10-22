@@ -715,6 +715,18 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
   });
 
+  it.each(["OTHER_ANSWER_POLISH_DISABLED", "RESUME_OPTION_MAP_REQUIRES_AUTOFILL"] as const)(
+    "%s (audit fixes F2A/F4) is OFF by default and for the empty string — today's behaviour",
+    (name) => {
+      // Both stop a model call whose output nothing uses. Off must be the call running exactly
+      // as before, for unset, blank (compose's `:-` on an absent secret) and 'false' alike.
+      expect(loadServerConfig({})[name]).toBe(false);
+      expect(loadServerConfig({ [name]: "" })[name]).toBe(false);
+      expect(loadServerConfig({ [name]: "false" })[name]).toBe(false);
+      expect(loadServerConfig({ [name]: "true" })[name]).toBe(true);
+    },
+  );
+
   it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
     // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a
     // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.

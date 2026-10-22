@@ -135,6 +135,46 @@ describe("OtherAnswerPolishService.review — fail-closed contract", () => {
     expect(ai.polishWorkHistory).not.toHaveBeenCalled();
   });
 
+  it("audit fix F2A: OTHER_ANSWER_POLISH_DISABLED stops the call — no model, no spend, no write", async () => {
+    const { service, ai, repo, aiCost } = makeService();
+    const result = await service.review(
+      "worker-1",
+      "qp_cnc_turning",
+      "turning_machine",
+      "ek purana Batliboi lathe",
+      "turning_machine",
+      CTX,
+      { WORK_HISTORY_POLISH_ENABLED: true, OTHER_ANSWER_POLISH_DISABLED: true },
+      { polished: null, declined: false },
+    );
+    expect(result).toBeNull();
+    expect(ai.polishWorkHistory).not.toHaveBeenCalled();
+    expect(aiCost.record).not.toHaveBeenCalled();
+    expect(repo.savePolishedOtherAnswer).not.toHaveBeenCalled();
+  });
+
+  it("audit fix F2A: the switch OFF (or absent) is today's behaviour — the review still runs", async () => {
+    for (const config of [
+      { WORK_HISTORY_POLISH_ENABLED: true, OTHER_ANSWER_POLISH_DISABLED: false },
+      { WORK_HISTORY_POLISH_ENABLED: true },
+    ]) {
+      const { service, ai, repo } = makeService();
+      const result = await service.review(
+        "worker-1",
+        "qp_cnc_turning",
+        "turning_machine",
+        "ek purana Batliboi lathe",
+        "turning_machine",
+        CTX,
+        config,
+        { polished: null, declined: false },
+      );
+      expect(result).toBe("Batliboi lathe (rewired)");
+      expect(ai.polishWorkHistory).toHaveBeenCalledTimes(1);
+      expect(repo.savePolishedOtherAnswer).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("a failed write-back does not cost the caller its already-computed rewrite", async () => {
     const { service } = makeService({
       savePolishedOtherAnswer: vi.fn(async () => {

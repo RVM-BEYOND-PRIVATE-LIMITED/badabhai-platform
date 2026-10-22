@@ -106,6 +106,23 @@ NestJS boot assertion).
   of this same template), `ANTHROPIC_API_KEY` (optional fallback), `SARVAM_*` (STT/TTS),
   `AI_INTERNAL_TOKEN` (TD67 service bearer — unset keeps the historical internal-only open
   posture; see `docs/audit/24_RISK_REGISTER.md` R40).
+- **Stopping AI calls nobody uses (token-audit fixes, 2026-10-22)** — every one defaults to
+  today's behaviour, and each is switched on separately:
+  - `AI_REAL_CALL_TASKS_DENY` (ai-service, box only, never bridged; default empty) — tasks
+    removed from `AI_REAL_CALL_TASKS`. It can only narrow: a denied task falls to its mock, and
+    naming a task the allowlist lacks arms nothing. First use: `resume_generation`, whose
+    model-written blurb nothing reads (F1); the résumé text is identical on the mock path.
+  - `OTHER_ANSWER_POLISH_DISABLED` (api, environment secret; default `false`) — `true` stops the
+    "other" answer review that `WORK_HISTORY_POLISH_ENABLED` also turns on, one model call per
+    typed "Koi aur" form answer whose output nothing reads (F2A). The work-history polish that
+    IS printed is untouched.
+  - `AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS` (ai-service, box; default `1024`, today's value) —
+    the résumé option map's own output budget, split off `AI_EXTRACTION_MAX_OUTPUT_TOKENS`.
+    At 1024 a complete trade-pack mapping is cut off and discarded; `2048` is the recommended
+    value (F4). Compose restates the default; a bare pass-through would fail boot.
+  - `RESUME_OPTION_MAP_REQUIRES_AUTOFILL` (api, environment secret; default `false`) — `true`
+    skips the option-map call while `RESUME_AUTOFILL_ENABLED` is off, since autofill is its only
+    reader (F4). With autofill on it changes nothing.
 - **Model-prompt masking (ADR-0047)** — `AI_RAW_PII_ENABLED`, ONE name read by **both** services:
   the ai-service as `ai_raw_pii_enabled` (`apps/ai-service/app/config.py`) and the api through
   `packages/config/src/server.ts` (`booleanFromString`). **Default `false`, and off masks every

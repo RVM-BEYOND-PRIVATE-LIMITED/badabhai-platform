@@ -83,12 +83,17 @@ export class OtherAnswerPolishService {
     ownText: string,
     contextLabel: string,
     ctx: AiRequestContext,
-    config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED">,
+    config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED"> &
+      Partial<Pick<ServerConfig, "OTHER_ANSWER_POLISH_DISABLED">>,
     already: { polished: string | null; declined: boolean },
   ): Promise<string | null> {
     if (already.declined) return null;
     if ((already.polished ?? "").trim() !== "") return already.polished as string;
     if (!config.WORK_HISTORY_POLISH_ENABLED) return null;
+    // Audit fix F2A: the review's output has no reader (see the class docblock), so this call
+    // is pure spend. The switch stops it without touching the work-history polish that shares
+    // WORK_HISTORY_POLISH_ENABLED. Absent or false is today's behaviour.
+    if (config.OTHER_ANSWER_POLISH_DISABLED === true) return null;
     const text = ownText.trim();
     if (!text) return null;
 
