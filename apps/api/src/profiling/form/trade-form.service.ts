@@ -26,7 +26,7 @@ import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../../queue/queue
 import { WorkersRepository } from "../../workers/workers.repository";
 import { withinFieldBound } from "../answer-capture";
 import { projectProfile } from "../answer-map-projector";
-import { packAnswerRowFor, otherAnswerValue } from "../pack-answer-row";
+import { packAnswerRowFor, otherAnswerTextOf, otherAnswerValue } from "../pack-answer-row";
 import { OtherAnswerPolishService } from "../other-answer-polish.service";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
@@ -45,6 +45,7 @@ import { ResumeImportRepository } from "../resume-import/resume-import.repositor
 import { isLegacyFormUniversalKey } from "./legacy-universal-answer";
 import { parseStrictNumber } from "./strict-number";
 import { TradeFormRepository } from "./trade-form.repository";
+import { typedTenureYears } from "./typed-tenure";
 import { pageRevealFields, pageTierScope, type TieredPage } from "../tiers/profiling-tier.policy";
 import {
   ProfilingTierService,
@@ -106,6 +107,18 @@ interface FormView {
   readonly visibleItems: readonly QuestionPackItem[];
 }
 
+/** A tenure value used to resolve the experience gates for one fetch; never stored. */
+interface DerivedTenure {
+  readonly questionKey: string;
+  readonly record: AnswerRecord;
+  /**
+   * True when the value came from ANOTHER answer (the chat's `experience_years`, #1459): the
+   * worker never answered this question, so it is not served. False when it came from his own
+   * typed answer on this question (fix Q10): it stays on screen for him to change.
+   */
+  readonly hideQuestion: boolean;
+}
+
 @Injectable()
 export class TradeFormService {
   private readonly logger = new Logger(TradeFormService.name);
@@ -137,7 +150,8 @@ export class TradeFormService {
     // buy the worker today.
     private readonly otherAnswerPolish: OtherAnswerPolishService,
     @Inject(SERVER_CONFIG)
-    private readonly config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED">,
+    private readonly config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED"> &
+      Partial<Pick<ServerConfig, "FORM_TYPED_TENURE_DERIVE_ENABLED">>,
     // The safety-net resume refresh below reads the latest resume row. WorkersModule is
     // @Global(), so this adds no module edge (see profiling.module.ts).
     private readonly workers: WorkersRepository,
@@ -687,8 +701,12 @@ export class TradeFormService {
         // worker can change it, but this value was never his tap on THIS question — there is
         // nothing here for him to change, and the answer it derives from stays editable in the
         // chat. A stored row for the key is a different case and `derivedTenureAnswer` returns
-        // null for it, so the question keeps its normal visibility.
-        if (derived !== null && item.question_key === derived.questionKey) return false;
+        // null for it, so the question keeps its normal visibility. (Fix Q10: a value read from
+        // the worker's OWN typed answer is derived too, but `hideQuestion` is false for it — he
+        // typed it on this question, so it stays on screen for him to change.)
+        if (derived !== null && derived.hideQuestion && item.question_key === derived.questionKey) {
+          return false;
+        }
         return isFormQuestionVisible(item, eligibility);
       });
 
@@ -730,13 +748,15 @@ export class TradeFormService {
     kind: TradeFormKind,
     pack: QuestionPack,
     answers: AnswerMap,
-  ): Promise<{ questionKey: string; record: AnswerRecord } | null> {
+  ): Promise<DerivedTenure | null> {
     const tenureKey = descriptorForKind(kind)?.tenureQuestionKey;
     if (tenureKey === undefined || tenureKey.length === 0) return null;
     if (!pack.items.some((item) => item.question_key === tenureKey)) return null;
 
     const stored = answers[tenureKey];
-    if (stored !== undefined && stored.status !== "unanswered") return null;
+    if (stored !== undefined && stored.status !== "unanswered") {
+      return this.typedTenureAnswer(tenureKey, stored);
+    }
 
     const source = await this.answers.findLatestAnswerByQuestionKey(workerId, "experience_years");
     // #2253 — a stored answer above the 0–60 bound (captured before it) derives nothing either:
@@ -765,6 +785,41 @@ export class TradeFormService {
         turn: 0,
         history: [],
       },
+      // The worker never answered THIS question; there is nothing on it for him to change.
+      hideQuestion: true,
+    };
+  }
+
+  /**
+   * Token-audit fix Q10 (decision D9) — THE WORKER TYPED HIS TENURE INSTEAD OF TAPPING A BAND.
+   *
+   * THE DEFECT. "Koi aur — khud likhein" on the tenure question stores the typed words as an
+   * opaque "other" answer, by design: unreviewed text against a closed vocabulary can never decide
+   * a tier gate. So a worker who types "10 saal ho gaye… sep 2016 se" has a settled tenure
+   * question whose gates stay unresolved, and he is shown the fresher questions.
+   *
+   * BEHIND `FORM_TYPED_TENURE_DERIVE_ENABLED` (default off = today, null here). When on, the years
+   * are read out of his typed words with the chat's own readers ({@link typedTenureYears}) and
+   * used to resolve the gates for THIS fetch only:
+   *   - READ-TIME ONLY, NEVER STORED: his row keeps his typed words; the number is not recorded
+   *     as an answer he gave;
+   *   - THE QUESTION STAYS ON SCREEN (`hideQuestion: false`): it is his answer, so he can see and
+   *     change it;
+   *   - ANYTHING AMBIGUOUS derives nothing (null): no figure, two figures, a negated figure, or one
+   *     outside 0–60. The form then behaves exactly as it does today.
+   * Raw years feed the gates, as the chat-derived path (#1459) does.
+   */
+  private typedTenureAnswer(tenureKey: string, stored: AnswerRecord): DerivedTenure | null {
+    if (this.config.FORM_TYPED_TENURE_DERIVE_ENABLED !== true) return null;
+    if (stored.status !== "answered") return null;
+    const typed = otherAnswerTextOf(stored.value_normalized);
+    if (typed === null) return null;
+    const years = typedTenureYears(typed);
+    if (years === null) return null;
+    return {
+      questionKey: tenureKey,
+      record: { ...stored, value_normalized: years, evidence: null },
+      hideQuestion: false,
     };
   }
 

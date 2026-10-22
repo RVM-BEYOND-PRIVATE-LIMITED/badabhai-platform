@@ -160,6 +160,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RESUME_AUTOFILL_ENABLED:\s*\$\{\{\s*secrets\.RESUME_AUTOFILL_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRESUME_AUTOFILL_ENABLED\b/,
     ],
+    // Token-audit fix Q10 — a typed tenure answer resolves the form's experience gates. A plain
+    // boolean; the environment secret is its one arming path, and absent it is today's form.
+    [
+      "FORM_TYPED_TENURE_DERIVE_ENABLED",
+      /FORM_TYPED_TENURE_DERIVE_ENABLED:\s*\$\{\{\s*secrets\.FORM_TYPED_TENURE_DERIVE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFORM_TYPED_TENURE_DERIVE_ENABLED\b/,
+    ],
     // ADR-0045 — the general road. A plain boolean flag, and the ONLY way it turns on in
     // production is the environment secret, so the bridge is the switch.
     [
@@ -314,6 +321,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["AI_REAL_CALL_TASKS", "profiling_chat_turn"],
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
+    // Fix Q10 — false is today's form: a typed tenure resolves no experience gate.
+    ["FORM_TYPED_TENURE_DERIVE_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],

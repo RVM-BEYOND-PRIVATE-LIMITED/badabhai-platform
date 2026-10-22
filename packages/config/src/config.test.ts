@@ -715,6 +715,22 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
   });
 
+  it("FORM_TYPED_TENURE_DERIVE_ENABLED (fix Q10) is OFF by default and for the empty string", () => {
+    // Off must be today's form exactly: a typed tenure answer resolves no experience gate.
+    expect(loadServerConfig({}).FORM_TYPED_TENURE_DERIVE_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ FORM_TYPED_TENURE_DERIVE_ENABLED: "" }).FORM_TYPED_TENURE_DERIVE_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ FORM_TYPED_TENURE_DERIVE_ENABLED: "false" })
+        .FORM_TYPED_TENURE_DERIVE_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ FORM_TYPED_TENURE_DERIVE_ENABLED: "true" })
+        .FORM_TYPED_TENURE_DERIVE_ENABLED,
+    ).toBe(true);
+  });
+
   it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
     // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a
     // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.

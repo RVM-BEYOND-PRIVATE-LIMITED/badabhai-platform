@@ -378,6 +378,10 @@ services:
       # résumé, and nothing reads migration 0126's table or column. Turn on only after 0126 is
       # applied and `db:seed:packs --apply` has run. `:-false` because this bool rejects "".
       PROFILING_TIERS_ENABLED: ${PROFILING_TIERS_ENABLED:-false}
+      # Token-audit fix Q10: a TYPED tenure answer on the trade form resolves the experience
+      # gates (read-time only, never stored). FALSE (the default) is today's form, in which a
+      # typed tenure resolves nothing and a 10-year worker can be shown fresher questions.
+      FORM_TYPED_TENURE_DERIVE_ENABLED: ${FORM_TYPED_TENURE_DERIVE_ENABLED:-false}
 
       # RÉSUMÉ SKINS (#1801). Off is every sheet in its template's own colours, and nothing reads
       # migration 0128's table. Turn on only after 0128 is applied. `:-false` because this bool
