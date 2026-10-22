@@ -35,6 +35,7 @@ import { descriptorForKind } from "../roles/role-registry";
 import { canonicalIdsForKind } from "../roles/trade-canonical";
 import { ProfilesRepository } from "../../profiles/profiles.repository";
 import { answerMapFromRows, gateKeysOf, isFormQuestionVisible } from "./form-eligibility";
+import { formServedOptions } from "./form-redundant-options";
 import type { AnswerMap } from "../answer-map";
 import {
   ResumeSuggestionReader,
@@ -1134,6 +1135,10 @@ export class TradeFormService {
     saved: WorkerPackAnswer | undefined,
     suggestions: ReadonlyMap<string, ResumeSuggestion>,
   ) {
+    const pickedKeys = saved && saved.status !== "unanswered" ? selectedKeys(item, saved) : [];
+    // #2397 — the pack's own "Koi aur machine" is left out: the app's "Koi aur — khud likhein"
+    // card already sits under every select question here. The search box counts what is SERVED.
+    const options = formServedOptions(item, pickedKeys);
     return {
       type: "question" as const,
       question: {
@@ -1141,13 +1146,13 @@ export class TradeFormService {
         prompt_text: item.prompt_text,
         why_text: item.why_text,
         answer_type: item.answer_type,
-        options: item.options.map((option) => ({
+        options: options.map((option) => ({
           option_key: option.option_key,
           label_text: option.label_text,
           is_none_of_above: option.is_none_of_above,
         })),
       },
-      ui: { searchable: item.options.length > SEARCHABLE_OPTION_THRESHOLD },
+      ui: { searchable: options.length > SEARCHABLE_OPTION_THRESHOLD },
       answer:
         saved && saved.status !== "unanswered"
           ? {
@@ -1157,7 +1162,7 @@ export class TradeFormService {
               // stores and what the resume map is keyed by; what the client needs to pre-select
               // a chip is the option KEY. They are spelled the same in this pack and are not
               // required to be, so the round trip is done properly rather than by coincidence.
-              option_keys: selectedKeys(item, saved),
+              option_keys: pickedKeys,
               text: saved.answerText,
               number: saved.answerNumber,
               bool: saved.answerBool,

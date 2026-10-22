@@ -1803,3 +1803,61 @@ describe("#1459 — the per-trade tier is pre-settled from the chat's experience
     expect(keys).toContain("iti_project_work");
   });
 });
+
+describe("#2397 — the pack's own 'Koi aur machine' is not served beside the form's typed escape", () => {
+  // The real turning pack's shape: a closed machine list ending in a none-of-above "other" chip
+  // whose value is `unknown`. The app draws "Koi aur — khud likhein" under every select question
+  // on the form, so serving this chip too shows the worker two "other" options on one screen.
+  const KOI_AUR_MACHINE = {
+    option_key: "other_machine",
+    label_text: "Koi aur machine",
+    value: "unknown",
+    implies_skill_id: null,
+    is_none_of_above: true,
+  };
+  const ESCAPE_PACK: QuestionPack = {
+    ...PACK,
+    items: PACK.items.map((i) =>
+      i.question_key === "turning_machine" ? { ...i, options: [...i.options, KOI_AUR_MACHINE] } : i,
+    ),
+  };
+
+  const machineScreen = async (saved?: WorkerPackAnswer[]) => {
+    const { service } = await makeService({ pack: ESCAPE_PACK, saved });
+    const screens = (await service.schema(WORKER)).sections.flatMap((s) => s.screens);
+    const screen = screens.find(
+      (s) => s.type === "question" && s.question.question_key === "turning_machine",
+    );
+    if (screen?.type !== "question") throw new Error("turning_machine was not served");
+    return screen;
+  };
+
+  it("leaves the chip out and serves every real machine", async () => {
+    const screen = await machineScreen();
+    expect(screen.question.options.map((o) => o.option_key)).toEqual([
+      "k0",
+      "k1",
+      "k2",
+      "k3",
+      "k4",
+      "k5",
+    ]);
+  });
+
+  it("still shows it to a worker who already ticked it, so he can untick it", async () => {
+    const screen = await machineScreen([
+      answered({ questionKey: "turning_machine", answerOptionKeys: ["v1", "unknown"] }),
+    ]);
+    expect(screen.question.options.map((o) => o.option_key)).toContain("other_machine");
+    expect(screen.answer).toMatchObject({ option_keys: ["k1", "other_machine"] });
+  });
+
+  it("still accepts the key from a build that sends it — validation reads the whole pack", async () => {
+    const { service, written } = await makeService({ pack: ESCAPE_PACK });
+    await service.answer(WORKER, {
+      question_key: "turning_machine",
+      answer: { kind: "chips", option_keys: ["k0", "other_machine"] },
+    });
+    expect(written[0]).toMatchObject({ answerOptionKeys: ["v0", "unknown"], status: "answered" });
+  });
+});
