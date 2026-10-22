@@ -23,8 +23,8 @@
  *   - "Never from chat": employment is EDIT-ONLY (2026-10-01) and qualifications are EDIT-ONLY
  *     (TD151(1) provisional default, 2026-10-05) — a whole job, certificate, education or training
  *     is removed only on the Profile screen;
- *   - `expected_salary` is ONE field, written to `salary_expected_max` with `salary_expected_min`
- *     cleared;
+ *   - `expected_salary` is ONE field, written to `salary_expected_max` and `salary_expected_min`
+ *     as the same figure (amended 2026-10-22, #2400: a bare max is the form's open top chip);
  *   - `salary_period`, `commute_max_km` and the four `education_*` preference keys are NOT in the
  *     catalogue;
  *   - list preferences are edited member-by-member (add a city/slug, delete a member), and

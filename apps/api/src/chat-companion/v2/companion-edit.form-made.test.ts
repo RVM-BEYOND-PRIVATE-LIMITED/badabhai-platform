@@ -196,7 +196,7 @@ describe("#2295 root cause — a form-made worker's languages are the attribute 
     expect(h.db.transaction).toHaveBeenCalledTimes(1);
     expect(h.committed.map((write) => write.args[1])).toEqual([
       { touched_only: true, languages: ["hindi", "marathi"] },
-      { touched_only: true, salary_expected_max: 25000, salary_expected_min: null },
+      { touched_only: true, salary_expected_max: 25000, salary_expected_min: 25000 },
     ]);
   });
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { qualificationFactsFrom } from "../resume/resume-qualification-rows";
 import {
   EDUCATION_PRECEDENCE,
+  isOpenTopSalaryChip,
   resolveAvailabilityState,
   resolveCityForSummary,
   resolveSalaryBand,
@@ -96,6 +97,18 @@ describe("salary ×3 — one band, and the upper end is never derived", () => {
 
   it("no figures is no band", () => {
     expect(resolveSalaryBand({ expected: null, expectedMax: undefined })).toBeNull();
+  });
+
+  it("#2400 — a bare max of 100000 is the form's open top chip, not a figure", () => {
+    expect(isOpenTopSalaryChip({ expected: null, expectedMax: 100_000 })).toBe(true);
+    expect(isOpenTopSalaryChip({ expected: undefined, expectedMax: 100_000 })).toBe(true);
+  });
+
+  it("#2400 — a chat edit's 1 lakh (min == max) and every other band are figures", () => {
+    expect(isOpenTopSalaryChip({ expected: 100_000, expectedMax: 100_000 })).toBe(false);
+    expect(isOpenTopSalaryChip({ expected: 40_000, expectedMax: 100_000 })).toBe(false);
+    expect(isOpenTopSalaryChip({ expected: null, expectedMax: 50_000 })).toBe(false);
+    expect(isOpenTopSalaryChip({ expected: null, expectedMax: null })).toBe(false);
   });
 
   it("period defaults to month — the meaning the keys already had — and only day/year override", () => {

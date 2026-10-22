@@ -1,5 +1,9 @@
 import type { ResumeFactRow, ResumeListRow, ResumeVerdictFacts } from "./resume-renderer.service";
 import { canonicalCity, canonicalState } from "@badabhai/profiling-lexicon";
+import {
+  OPEN_TOP_SALARY_CHIP_FLOOR,
+  OPEN_TOP_SALARY_CHIP_MAX,
+} from "../profiles/worker-field-precedence";
 import { formatWorkerPhone } from "./resume-phone";
 import { titleCaseName } from "./resume-text-case";
 
@@ -442,6 +446,21 @@ export function formatSalaryBand(
   if (lo === null) return formatMonthlySalary(hi);
   if (hi === null || hi <= lo) return formatMonthlySalary(lo);
   return `${rupees(lo)} – ${rupees(hi)} / month`;
+}
+
+/**
+ * The form's open top chip, "₹50 hazaar se upar" (`isOpenTopSalaryChip`), as "₹50,000+ / month"
+ * (#2400). Before this it printed as ₹1,00,000, the chip's stored key, which the worker never said.
+ *
+ * {@link min} is the band's other stated end, when the sheet has one (the trade sheet's interview
+ * figure). It becomes the floor instead, so the sheet still never prints below a figure he gave
+ * (R10 R-2). A min at or above the chip's key collapses to the min, as {@link formatSalaryBand}
+ * collapses an inverted band.
+ */
+export function formatOpenTopSalary(min: number | null | undefined): string {
+  const lo = typeof min === "number" && Number.isFinite(min) && min > 0 ? min : null;
+  if (lo !== null && lo >= OPEN_TOP_SALARY_CHIP_MAX) return formatMonthlySalary(lo)!;
+  return `${rupees(lo ?? OPEN_TOP_SALARY_CHIP_FLOOR)}+ / month`;
 }
 
 /**

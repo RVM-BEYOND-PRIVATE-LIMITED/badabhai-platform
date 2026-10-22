@@ -768,6 +768,40 @@ describe("salary_expected_min — the band's lower end (ADR-0045 R4)", () => {
     expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, []);
   });
 
+  describe("#2400 — a stored single figure (min == max, a chat edit) is replaced whole", () => {
+    const singleFigure = (value: string) => [
+      stored("salary_expected_min", { valueKind: "number", valueNumber: value }),
+      stored("salary_expected_max", { valueKind: "number", valueNumber: value }),
+    ];
+
+    it("the form's top-only chip clears the chat figure's bottom instead of keeping it as a band", async () => {
+      // Chat said ₹30,000, then the worker tapped "₹35–50 hazaar": without the clear the sheet
+      // would print "₹30,000 – ₹50,000", a bottom he never chose.
+      const h = setup(null, singleFigure("30000"));
+      const result = await h.svc.setForWorker(WORKER, parse({ salary_expected_max: 50000 }), CTX);
+      expect(rowFor(h.upsertMany.mock.calls[0]![0], "salary_expected_max")?.valueNumber).toBe(
+        "50000",
+      );
+      expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, ["salary_expected_min"]);
+      expect(result).toEqual({ worker_id: WORKER, keys_written: 1, keys_cleared: 1 });
+    });
+
+    it("a bottom sent alone clears the single figure's top the same way", async () => {
+      const h = setup(null, singleFigure("30000"));
+      await h.svc.setForWorker(WORKER, parse({ salary_expected_min: 20000 }), CTX);
+      expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, ["salary_expected_max"]);
+    });
+
+    it("a stored band with two DIFFERENT ends keeps its bottom", async () => {
+      const h = setup(null, [
+        stored("salary_expected_min", { valueKind: "number", valueNumber: "18000" }),
+        stored("salary_expected_max", { valueKind: "number", valueNumber: "25000" }),
+      ]);
+      await h.svc.setForWorker(WORKER, parse({ salary_expected_max: 30000 }), CTX);
+      expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, []);
+    });
+  });
+
   it("accepts an equal band (a point figure) and an ordered one", async () => {
     for (const body of [
       { salary_expected_min: 25000, salary_expected_max: 25000 },
