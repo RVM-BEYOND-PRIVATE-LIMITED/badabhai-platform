@@ -634,6 +634,40 @@ class WorkHistoryPolishOutput(BaseModel):
     ai_metadata: AICallMetadata | None = None
 
 
+class OtherAnswerReviewInput(BaseModel):
+    """A worker's typed "Koi aur -- khud likhein" answer, to be checked before it prints (#2409).
+
+    Two inputs decide it, by owner ruling (2026-10-22): the worker's trade and the field the
+    answer was typed in. The pack's own options ride with the field as examples of what belongs.
+    """
+
+    schema_version: Literal["oie.v1"] = "oie.v1"
+    worker_ref: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=300)
+    trade_label: str = Field(min_length=1, max_length=80)
+    field_label: str = Field(min_length=1, max_length=80)
+    question_text: str | None = Field(default=None, max_length=200)
+    example_options: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
+        default_factory=list, max_length=30
+    )
+
+
+class OtherAnswerReviewOutput(BaseModel):
+    """The cleaned names that may print, or an empty list.
+
+    `reviewed` is True only when a real review completed. An empty list with `reviewed` True is
+    a settled "print nothing"; with `reviewed` False the caller stores nothing and asks again.
+    """
+
+    items: list[Annotated[str, Field(min_length=1, max_length=60)]] = Field(
+        default_factory=list, max_length=5
+    )
+    reviewed: bool = False
+    blocked: bool = False
+    is_mock: bool = True
+    ai_metadata: AICallMetadata | None = None
+
+
 # --- Interview conversation state ------------------------------------------
 class ConversationState(BaseModel):
     """Server-computed interview progress. Holds profile signals only (role,
