@@ -311,6 +311,12 @@ export class WorkerPreferencesService {
    * the general form stored: refusing would fail the whole page (cities, languages, shift) with no
    * field on screen the worker could fix. The clear is an ordinary one: counted in `keys_cleared`.
    *
+   * ONE END SENT ALONE OVER A STORED SINGLE FIGURE → THE STORED END IS CLEARED TOO (#2400). A
+   * Bada Bhai chat edit stores the worker's figure as both ends (min == max). That is one figure,
+   * not a band, and a later answer replaces it whole. Otherwise the form's chip, which sends only
+   * the top, would leave the old chat figure as a bottom the worker never chose: ₹30,000 from the
+   * chat plus the "₹35–50 hazaar" chip would print "₹30,000 – ₹50,000".
+   *
    * The stored end is read only when the body sends one end and omits the other, so a body with
    * neither (an installed build's ordinary save) costs no read. An end sent as `null` leaves at
    * most one end stored, so there is nothing to order.
@@ -327,13 +333,19 @@ export class WorkerPreferencesService {
 
     if (sentMax === undefined) {
       const storedMax = await this.storedNumber(workerId, "salary_expected_max", tx);
-      return sentMin !== undefined && storedMax !== null && sentMin > storedMax
+      if (sentMin === undefined || storedMax === null) return dto;
+      const crossed = sentMin > storedMax;
+      return crossed ||
+        (await this.storedSingleFigure(workerId, storedMax, "salary_expected_min", tx))
         ? { ...dto, salary_expected_max: null }
         : dto;
     }
     if (sentMin === undefined) {
       const storedMin = await this.storedNumber(workerId, "salary_expected_min", tx);
-      return storedMin !== null && sentMax < storedMin
+      if (storedMin === null) return dto;
+      const crossed = sentMax < storedMin;
+      return crossed ||
+        (await this.storedSingleFigure(workerId, storedMin, "salary_expected_max", tx))
         ? { ...dto, salary_expected_min: null }
         : dto;
     }
@@ -365,6 +377,16 @@ export class WorkerPreferencesService {
     if (row === undefined || row.valueNumber === null) return null;
     const value = Number(row.valueNumber);
     return Number.isFinite(value) ? value : null;
+  }
+
+  /** Whether the stored band is ONE figure: {@link otherKey}'s stored value equals {@link storedEnd}. */
+  private async storedSingleFigure(
+    workerId: string,
+    storedEnd: number,
+    otherKey: PreferenceKey,
+    tx?: Database,
+  ): Promise<boolean> {
+    return (await this.storedNumber(workerId, otherKey, tx)) === storedEnd;
   }
 
   /**
