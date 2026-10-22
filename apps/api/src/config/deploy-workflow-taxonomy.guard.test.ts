@@ -174,6 +174,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_TURN_UNDERSTANDING_ENABLED:\s*\$\{\{\s*secrets\.CHAT_TURN_UNDERSTANDING_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_TURN_UNDERSTANDING_ENABLED\b/,
     ],
+    // Token-audit fix F3 — the form offer before the model on a tapped Haan. A plain boolean;
+    // the environment secret is its one arming path, and absent it is today's interview.
+    [
+      "CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED",
+      /CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED:\s*\$\{\{\s*secrets\.CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED\b/,
+    ],
     // ADR-0048 (#1858) — the identity intake. A plain boolean flag, turned on in production ONLY
     // by the environment secret, in the same release that unroutes the app's /name screen.
     [
@@ -316,6 +323,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
+    // Fix F3 — false is today's interview: the Haan turn calls the model.
+    ["CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
     // ADR-0051 — the kill switch's absent value is false, which keeps the free chat ON.
     ["CHAT_FREE_CHAT_DISABLED", "false"],

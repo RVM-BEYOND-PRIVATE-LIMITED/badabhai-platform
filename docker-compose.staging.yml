@@ -359,6 +359,10 @@ services:
       # after the eval PASS and the box arming `profiling_turn_understand` (#2319). `:-false` so
       # an unset or empty secret is off.
       CHAT_TURN_UNDERSTANDING_ENABLED: ${CHAT_TURN_UNDERSTANDING_ENABLED:-false}
+      # Token-audit fix F3: on a TAPPED Haan to the trade gate, route to the trade-form offer
+      # before calling the model, whose reply that turn is discarded today. FALSE (the default)
+      # is today's interview. `:-false` so an unset or empty secret is off.
+      CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: ${CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED:-false}
 
       # ---- THE IDENTITY INTAKE (ADR-0048, #1858) — name, state and city asked IN the chat.
       #

@@ -715,6 +715,17 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
   });
 
+  it("CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED (fix F3) is OFF by default and for the empty string", () => {
+    // Off must be today's interview: the trade-gate Haan turn calls the model.
+    const read = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: value })
+        .CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+  });
+
   it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
     // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a
     // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.
