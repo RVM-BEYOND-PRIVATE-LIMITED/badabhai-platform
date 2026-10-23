@@ -64,7 +64,13 @@ from .langfuse_tracing import (
     get_tracer,
     masked_trace_text,
 )
-from .model_config import TaskRoute, get_route, provider_for_model, resolve_model
+from .model_config import (
+    TaskRoute,
+    candidate_models,
+    get_route,
+    provider_for_model,
+    resolve_model,
+)
 from .provider_cooldown import get_cooldown
 from .trace_metadata import AS_GENERATION
 
@@ -549,15 +555,28 @@ class AIRouter:
                                 route, model=model, messages=messages, tools=tools
                             )
                             latency = int((time.perf_counter() - start) * 1000)
-                            in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
+                            # Token-audit fix A3: a provider that reported a cache bucket DID
+                            # report its input, even when every full-rate token was cached
+                            # (`input_tokens == 0`), so the estimate is only for a call that
+                            # reported nothing at all — never stacked on top of a cache bucket.
+                            # With no cache bucket this is `input_tokens or estimate`, as before.
+                            input_reported = (
+                                result.input_tokens > 0 or cost_tracker.has_cache_tokens(result)
+                            )
+                            in_tok = (
+                                result.input_tokens
+                                if input_reported
+                                else cost_tracker.estimate_tokens(input_text)
+                            )
                             out_tok = result.output_tokens or cost_tracker.estimate_tokens(
                                 result.content
                             )
                             # ADR-0054: a server-tool call's measured cost adds the searches the
                             # provider billed (and any cache buckets) to the token cost, and the
                             # metadata carries every billed attempt of the call (H1), so the
-                            # cost event is whole. `None` for every other call: priced from the
-                            # tokens, exactly as before.
+                            # cost event is whole. A3: a text call that used the prompt cache is
+                            # priced with its buckets at their multipliers. `None` for every other
+                            # call: priced from the tokens, exactly as before.
                             call_cost_inr: float | None = None
                             cost_inr: float | None = None
                             if tools is not None:
@@ -565,6 +584,10 @@ class AIRouter:
                                     model, result, input_tokens=in_tok, output_tokens=out_tok
                                 )
                                 cost_inr = call_cost_inr + tool_billed_inr
+                            elif cost_tracker.has_cache_tokens(result):
+                                cost_inr = cost_tracker.measured_call_cost_inr(
+                                    model, result, input_tokens=in_tok, output_tokens=out_tok
+                                )
                             meta = cost_tracker.build_call_metadata(
                                 task_type=task_type,
                                 model=model,
@@ -577,6 +600,8 @@ class AIRouter:
                                 attempt_count=attempt_count,
                                 candidates_tried=candidates_tried,
                                 cost_inr=cost_inr,
+                                cache_write_tokens=result.cache_creation_input_tokens,
+                                cache_read_tokens=result.cache_read_input_tokens,
                             )
                             # Reconcile the reservation: refund worst_case - actual so
                             # the net recorded spend is the ACTUAL estimated cost. A tool call's
@@ -837,17 +862,10 @@ class AIRouter:
         dropping the fallback, AND prevents a key-set-but-SDK-absent config from
         arming a fallback that fails 100% of the time and burns the per-call retries
         + the TD27 retry budget. The fallback key is NOT a master gate; the
-        master switch is enforced upstream via ``real_call_enabled_for``."""
-        candidates = [primary_model]
-        fallback = fallback_model or self._settings.default_fallback_model
-        if (
-            fallback
-            and fallback not in candidates
-            and provider_for_model(fallback) != provider_for_model(primary_model)
-            and self._settings.fallback_transport_available(provider_for_model(fallback))
-        ):
-            candidates.append(fallback)
-        return candidates
+        master switch is enforced upstream via ``real_call_enabled_for``.
+
+        The rule itself is `model_config.candidate_models`, shared with the flags report."""
+        return candidate_models(primary_model, fallback_model, self._settings)
 
     def _record_trace_text(
         self, meta: AICallMetadata, messages: list[Message], output: str

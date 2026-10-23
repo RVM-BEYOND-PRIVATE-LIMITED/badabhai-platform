@@ -165,6 +165,18 @@ export class AiCostRecorder {
             success: meta.success,
             error_code: meta.error_code,
             failure_reason: meta.failure_reason,
+            // Token-audit fixes A3 / A-8 — the cache buckets (already priced into the estimate)
+            // and the dispatch: attempts made and the models that reached the network. Bounded
+            // to the payload's own cap; a call that tried no model records none (null). Read
+            // defensively: a hand-built metadata object (a caller that never went through the
+            // schema's defaults) records null rather than failing the whole cost event.
+            cache_write_tokens: meta.cache_write_tokens ?? null,
+            cache_read_tokens: meta.cache_read_tokens ?? null,
+            attempt_count: meta.attempt_count ?? null,
+            candidates_tried:
+              Array.isArray(meta.candidates_tried) && meta.candidates_tried.length > 0
+                ? meta.candidates_tried.slice(0, 8)
+                : null,
           },
           idempotencyKey: `ai.cost_recorded:${meta.ai_call_id}`,
           correlationId,

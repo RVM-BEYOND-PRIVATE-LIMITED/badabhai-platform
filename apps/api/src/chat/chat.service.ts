@@ -74,8 +74,8 @@ import {
   ChatTranscriptBuffer,
   freeChatMetadataOf,
   IDENTITY_INTAKE_METADATA,
+  interviewLineMetadataField,
   newsLinksOfMetadata,
-  offeredOptionsMetadataField,
   type BufferedMessage,
   type TranscriptBuffer,
 } from "./chat-transcript.buffer";
@@ -1242,6 +1242,14 @@ export class ChatService {
       ...(opts?.freeChat === true && this.config.CHAT_TURN_UNDERSTANDING_ENABLED === true
         ? { understanding: true }
         : {}),
+      // Fix Q2 — what an understood turn does with a message read as chat only. Both act only on a
+      // turn the layer understood, so they ride on the same surface rule; absent is today's turn.
+      ...(opts?.freeChat === true && this.config.PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED === true
+        ? { flagChatOnly: true }
+        : {}),
+      ...(opts?.freeChat === true && this.config.CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED === true
+        ? { chatOnlyCityGuard: true }
+        : {}),
       ...(opts?.freeChat === true
         ? {
             freeChat: this.freeChatTurnInput(
@@ -2385,11 +2393,12 @@ export class ChatService {
       // news reply's tiles ride beside it, so the session replay redraws them after the flush.
       // #2387 — an interview line that showed chips keeps them, so a catch-all answer read back
       // from Postgres by Phase C can still be expanded into the options that were on screen.
+      // Fix Q2 — and a chat-only line keeps its flag, so the extraction can leave it out.
       ...(m.intake === true
         ? { metadata: IDENTITY_INTAKE_METADATA }
         : m.aside === true
           ? { metadata: freeChatMetadataOf(m) }
-          : offeredOptionsMetadataField(m)),
+          : interviewLineMetadataField(m)),
       // `created_at` is EXPLICIT: these rows are written at flush but happened over the
       // preceding minutes, and defaulting would stamp a thirty-turn interview as thirty
       // simultaneous messages, destroying the order `listMessages` and the extraction

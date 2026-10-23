@@ -63,6 +63,14 @@ const TIER_VARS = ["AI_CHAT_MODEL_TIER"] as const;
  */
 const PROVIDER_ORDER_VARS = ["AI_PRIMARY_PROVIDER"] as const;
 
+/**
+ * Token-audit fix B-1 — the per-task model choice (`task=primary>fallback`). Declared, so the box
+ * can move one task at a time. A BARE `${VAR:-}` is the right shape here — the opposite of every
+ * list above — because the empty string IS this field's committed default, which the last test
+ * of the pair holds.
+ */
+const OVERRIDE_VARS = ["AI_TASK_MODEL_OVERRIDES"] as const;
+
 const COST_CEILING_VARS = [
   "AI_MAX_CALL_COST_INR",
   "AI_MAX_DAILY_COST_INR",
@@ -98,6 +106,24 @@ function pythonFieldDefault(source: string, field: string): string | null {
     // A matched field whose SHAPE changed (a `Field(...)` wrapper, a new annotation) returns
     // null rather than a wrong value, so a config.py refactor fails the guard loudly.
     return m ? m[1]!.replace(/^["']|["']$/g, "") : null;
+  }
+  return null;
+}
+
+/**
+ * Audit fix F4 — output budgets the box must be able to raise. Same three guarantees as the
+ * ceilings (declared, restated, no drift); a separate list because their config.py fields are
+ * bounded `Field(default=N, ge=…, le=…)` ints, which `pythonFieldDefault` deliberately rejects.
+ */
+const OUTPUT_BUDGET_VARS = ["AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS"] as const;
+
+/** The default of a bounded int field (`name: int = Field(default=N, …)`), or null on any other shape. */
+function pythonBoundedIntDefault(source: string, field: string): number | null {
+  const prefix = `    ${field}:`;
+  for (const line of source.split(/\r?\n/)) {
+    if (!line.startsWith(prefix)) continue;
+    const m = /^int\s*=\s*Field\(\s*default=(\d+)\s*[,)]/.exec(line.slice(prefix.length).trim());
+    return m ? Number(m[1]) : null;
   }
   return null;
 }
@@ -162,6 +188,15 @@ describe("docker-compose.staging.yml — ai-service model routing is settable fr
     expect(configPy).toContain("ai_cost_fx_inr_per_usd: float | None = Field(default=None");
     expect(configPy).toContain('@field_validator("ai_cost_fx_inr_per_usd", mode="before")');
   });
+  it.each(OVERRIDE_VARS)(
+    "%s is declared as a pass-through whose default is config.py's empty string",
+    (name) => {
+      expect(ai.get(name), `${name} missing from the ai-service — the box cannot set it`).toBe(
+        `\${${name}:-}`,
+      );
+      expect(pythonFieldDefault(configPy, name.toLowerCase())).toBe("");
+    },
+  );
 
   it.each(COST_CEILING_VARS)("%s matches the committed config.py default (drift guard)", (name) => {
     const field = name.toLowerCase();
@@ -173,6 +208,33 @@ describe("docker-compose.staging.yml — ai-service model routing is settable fr
     expect(Number.isFinite(source), `${field} in config.py is not a number`).toBe(true);
     expect(composed).toBe(source);
   });
+
+  it("reads a bounded-int default at all (guards the third parser)", () => {
+    // The #1674 parse budget is a long-stable field of the same shape; null here would make the
+    // drift test below compare against nothing.
+    expect(pythonBoundedIntDefault(configPy, "ai_resume_parse_max_output_tokens")).toBe(2048);
+  });
+
+  it.each(OUTPUT_BUDGET_VARS)(
+    "%s is declared on the ai-service, restated, and matches config.py",
+    (name) => {
+      expect(ai.has(name), `${name} missing from the ai-service — the box cannot raise it`).toBe(
+        true,
+      );
+      const composed = composeDefault(ai.get(name));
+      expect(
+        composed,
+        `${name} must restate its default; a bare pass-through fails boot`,
+      ).not.toBeNull();
+      const source = pythonBoundedIntDefault(configPy, name.toLowerCase());
+      expect(
+        source,
+        `${name.toLowerCase()} has no readable Field(default=…) in config.py`,
+      ).not.toBeNull();
+      // Compose WINS over the library default, so drift here would silently ship another budget.
+      expect(Number(composed)).toBe(source);
+    },
+  );
 
   it("every routed model default is PRICED in the INR rate table", () => {
     // The ceilings are computed from an ESTIMATE, and an unpriced model falls back to

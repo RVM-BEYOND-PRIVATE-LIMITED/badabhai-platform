@@ -1311,6 +1311,23 @@ export const AiCostRecordedPayload = z.object({
   success: z.boolean().default(true),
   error_code: z.string().nullable().default(null),
   failure_reason: z.string().nullable().default(null),
+  // ── TOKEN-AUDIT FIXES A3 / A-8 — additive widen, the same shape and discipline as BL-23 ──
+  //
+  // THE CACHE BUCKETS (A3). Every provider now reports prompt-cache tokens APART from
+  // `tokens_in`, and `estimated_cost_inr` already prices them at their own multipliers (a cached
+  // read bills a tenth of the input rate). Without them a cached call reads as cheap with no way
+  // to see why, and "is caching working" has no answer.
+  //
+  // THE DISPATCH (A-8). How many provider attempts the call made and which models reached the
+  // network, in order — so a fallback (more than one model) and a retry are countable from the
+  // cost spine, not only from Langfuse.
+  //
+  // NULLABLE, AND THE NULL IS MEANINGFUL: every row written before this change validates
+  // unchanged, and a null reads "not recorded", never "zero". Counts and model ids only (§2).
+  cache_write_tokens: z.number().int().nonnegative().nullable().default(null),
+  cache_read_tokens: z.number().int().nonnegative().nullable().default(null),
+  attempt_count: z.number().int().nonnegative().nullable().default(null),
+  candidates_tried: z.array(z.string().min(1).max(128)).max(8).nullable().default(null),
 });
 /** The task a cost record can be attributed to — see {@link aiTaskType}. */
 export type AiCostTaskType = z.infer<typeof aiTaskType>;

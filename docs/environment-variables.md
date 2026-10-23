@@ -106,6 +106,25 @@ NestJS boot assertion).
   of this same template), `ANTHROPIC_API_KEY` (optional fallback), `SARVAM_*` (STT/TTS),
   `AI_INTERNAL_TOKEN` (TD67 service bearer — unset keeps the historical internal-only open
   posture; see `docs/audit/24_RISK_REGISTER.md` R40).
+- **A typed tenure on the trade form (token-audit fix Q10, decision D9)** —
+  `FORM_TYPED_TENURE_DERIVE_ENABLED` (api, environment secret; default `false`, today's form).
+  `true` reads the years out of a worker's TYPED answer to the pack's tenure question ("10 saal
+  ho gaye") at read time and uses them to resolve the experience gates, so a veteran is not shown
+  fresher questions. Never stored; the question stays on screen; an ambiguous answer (two figures,
+  a negated one, none, or outside 0–60) derives nothing.
+- **Stopping AI calls nobody uses (token-audit fixes, 2026-10-22)** — every one defaults to
+  today's behaviour, and each is switched on separately:
+  - `AI_REAL_CALL_TASKS_DENY` (ai-service, box only, never bridged; default empty) — tasks
+    removed from `AI_REAL_CALL_TASKS`. It can only narrow: a denied task falls to its mock, and
+    naming a task the allowlist lacks arms nothing. First use: `resume_generation`, whose
+    model-written blurb nothing reads (F1); the résumé text is identical on the mock path.
+  - `AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS` (ai-service, box; default `1024`, today's value) —
+    the résumé option map's own output budget, split off `AI_EXTRACTION_MAX_OUTPUT_TOKENS`.
+    At 1024 a complete trade-pack mapping is cut off and discarded; `2048` is the recommended
+    value (F4). Compose restates the default; a bare pass-through would fail boot.
+  - `RESUME_OPTION_MAP_REQUIRES_AUTOFILL` (api, environment secret; default `false`) — `true`
+    skips the option-map call while `RESUME_AUTOFILL_ENABLED` is off, since autofill is its only
+    reader (F4). With autofill on it changes nothing.
 - **Model-prompt masking (ADR-0047)** — `AI_RAW_PII_ENABLED`, ONE name read by **both** services:
   the ai-service as `ai_raw_pii_enabled` (`apps/ai-service/app/config.py`) and the api through
   `packages/config/src/server.ts` (`booleanFromString`). **Default `false`, and off masks every
@@ -185,6 +204,20 @@ NestJS boot assertion).
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
   session, so a flip reaches new sessions only. Bridged to staging/production through the GitHub
   secret of the same name; production ON only after the app release with the card and the form.
+- **Off-topic chat and the profile (token-audit fix Q2)** — `PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED`
+  and `CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED` (both default off; off is today's interview and
+  extraction exactly). Both act only on a message the turn understanding (next entry, which must be
+  on) read as CHAT ONLY: intent `chat` above the confidence floor, with no fill, no edit, no
+  Profile-page mention and no "none" answer. With the first on, such a message — on a turn that
+  wrote nothing — is flagged `chat_only` in the transcript (`chat_messages.metadata`), and the
+  end-of-interview extraction (Phase C, the parse and the legacy re-parse) leaves it out, with the
+  reply when that reply only served the same pack question again. "Gurgaon mein koi company hai jo
+  38 de de?" then stops becoming a preferred city and a salary. A message where the layer heard a
+  Profile-page fact is still read (owner ruling #1505-2). The switch is read again at every
+  extraction, so turning it off gives later extractions the whole transcript. With the second on,
+  the cross-question fill takes no current city from such a message ("bhai Pune mein kitna milta
+  hai?"); a message that states his city still fills it. Bridged through the GitHub secrets of the
+  same names; switch-on needs the owner's reading of #1505-2 (decision D8).
 - **The profiling turn, understood (ADR-0057, #2311)** — `CHAT_TURN_UNDERSTANDING_ENABLED` (default
   off; off is the interview exactly as before). On, every TYPED profiling-chat message is read by
   `profiling_turn_understand` against the session's whole schema: a value the worker volunteers
@@ -193,6 +226,12 @@ NestJS boot assertion).
   fixed deflection (ADR-0051 R6 amended), and a Profile-page fact gets a pointer line. Any model
   failure runs that turn exactly as today. Read per turn. Bridged through the GitHub secret of the
   same name; production ON only after the eval PASS and the box arming the task (#2319).
+- **The form offer before the model (token-audit fix F3)** — `CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED`
+  (default off; off is today's interview). On, a TAPPED "Haan" to the trade-confirm gate routes to
+  the trade-form offer without calling the model, whose reply on that turn is discarded today. A
+  typed yes with more in it, an open experience gate, or a trade with no form still calls the
+  model exactly as today. Visible effect: a worker who declines the offer returns to the AI-led
+  chat. Bridged through the GitHub secret of the same name.
 - **The identity intake (ADR-0048, #1858)** — `CHAT_IDENTITY_INTAKE_ENABLED` (default off; off is
   `POST /chat/session` and `POST /chat/message` exactly as before). On, a NEW chat session for a
   worker whose record lacks a name, a state or a city opens by asking for what is missing (first

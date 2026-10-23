@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import type { AICallMetadata } from "@badabhai/ai-contracts";
-import { validateEvent } from "@badabhai/event-schema";
+import { AiCostRecordedPayload, validateEvent } from "@badabhai/event-schema";
 
 import { AiCostRecorder } from "./ai-cost-recorder.service";
 import { fakeAiCostTotals, FAKE_TX } from "./ai-cost-totals.fake";
@@ -112,6 +112,57 @@ describe("AiCostRecorder — attribution on the event", () => {
     expect(result.success).toBe(true);
   });
 
+  it("A3 / A-8: the cache buckets and the dispatch reach the event, and validate", async () => {
+    const { rec, emitOnce } = make();
+    await rec.record(
+      {
+        ...META,
+        cache_write_tokens: 0,
+        cache_read_tokens: 600,
+        attempt_count: 3,
+        candidates_tried: ["gemini-2.5-flash-lite", "claude-haiku-4-5"],
+      } as AICallMetadata,
+      "profiling_chat_turn",
+      null,
+      CORRELATION,
+      "req-1",
+    );
+    const payload = payloadOf(emitOnce) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      cache_write_tokens: 0,
+      cache_read_tokens: 600,
+      attempt_count: 3,
+      candidates_tried: ["gemini-2.5-flash-lite", "claude-haiku-4-5"],
+    });
+    expect(AiCostRecordedPayload.safeParse(payload).success).toBe(true);
+  });
+
+  it("A3 / A-8: metadata from before the fields records them as null, never zero", async () => {
+    const { rec, emitOnce } = make();
+    await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1");
+    expect(payloadOf(emitOnce)).toMatchObject({
+      cache_write_tokens: null,
+      cache_read_tokens: null,
+      attempt_count: null,
+      candidates_tried: null,
+    });
+  });
+
+  it("A-8: more models than the payload's cap are cut to the cap, never a rejected event", async () => {
+    const { rec, emitOnce } = make();
+    const many = Array.from({ length: 12 }, (_, i) => `model-${i}`);
+    await rec.record(
+      { ...META, candidates_tried: many } as AICallMetadata,
+      "profiling_chat_turn",
+      null,
+      CORRELATION,
+      "req-1",
+    );
+    const payload = payloadOf(emitOnce) as { candidates_tried: string[] };
+    expect(payload.candidates_tried).toEqual(many.slice(0, 8));
+    expect(AiCostRecordedPayload.safeParse(payload).success).toBe(true);
+  });
+
   it("§2: the payload carries ids and numbers only — nothing a worker said", async () => {
     const { rec, emitOnce } = make();
     await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", {
@@ -126,6 +177,13 @@ describe("AiCostRecorder — attribution on the event", () => {
       "above_target",
       "ai_call_id",
       "ai_job_id",
+      // Token-audit A-8: attempts made (a count).
+      "attempt_count",
+      // Token-audit A3: the provider's cache buckets (counts).
+      "cache_read_tokens",
+      "cache_write_tokens",
+      // Token-audit A-8: the models that reached the network — model ids, never text.
+      "candidates_tried",
       "cost_alert",
       "error_code",
       "estimated_cost_inr",
