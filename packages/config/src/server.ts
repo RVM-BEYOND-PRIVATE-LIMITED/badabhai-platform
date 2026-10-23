@@ -726,6 +726,16 @@ export const serverEnvSchema = z.object({
   // authoritative — a missed run only delays erasure until the next sweep. Fractional
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
   ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
+  // Token-audit fix A-14 — THE DELETION EVENT IN THE DELETE'S OWN TRANSACTION. Today the
+  // `worker.account_deleted` event is written AFTER the hard delete commits, so a failed event
+  // write leaves an erased worker with no record that he was erased. On, the event is written on
+  // the delete's transaction (keyed once per worker): a failed write rolls the delete back, the
+  // erasure throws, and the sweep retries it on its next tick, so the two can no longer diverge.
+  // Only the run that actually deleted the row writes it; a concurrent run writes nothing.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY: delete, then emit. The trade when on: if
+  // the events table cannot be written, erasures wait for it instead of completing unrecorded.
+  ACCOUNT_DELETION_EVENT_IN_TX: booleanFromString,
 
   // QA-ONLY immediate hard-delete seam (TD — testing) — arms POST /auth/account/delete/immediate,
   // which hard-deletes the CALLING worker's row RIGHT NOW (no OTP, no 7-day grace), so QA can

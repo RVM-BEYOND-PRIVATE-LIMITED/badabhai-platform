@@ -756,6 +756,17 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ RESUME_QR_SCAN_ENABLED: "true" }).RESUME_QR_SCAN_ENABLED).toBe(true);
   });
 
+  it("ACCOUNT_DELETION_EVENT_IN_TX (fix A-14) is OFF by default, for the empty string and for 'false'", () => {
+    // Off is today's erasure order exactly: the hard delete commits, then the event is written.
+    const read = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { ACCOUNT_DELETION_EVENT_IN_TX: value })
+        .ACCOUNT_DELETION_EVENT_IN_TX;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+  });
+
   it("AI_RAW_PII_ENABLED (ADR-0047) is OFF by default, for the empty string and for 'false'", () => {
     // Off is the masked prompt path exactly as before. The deploy bridge exports an unset secret
     // as "", so the empty string must read as OFF rather than throw — and only an explicit

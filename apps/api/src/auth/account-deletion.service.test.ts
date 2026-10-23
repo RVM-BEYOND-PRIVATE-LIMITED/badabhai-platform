@@ -81,6 +81,8 @@ function make(
     deletionScheduledAt?: Date;
     /** #2113 — what the read-only capture returns (default: one tombstone to write). */
     capture?: ErasableRefreshCapture;
+    /** Fix A-14 — ACCOUNT_DELETION_EVENT_IN_TX. Omitted = absent from config (today). */
+    eventInTx?: boolean;
   } = {},
 ): Harness {
   const redisSet = vi.fn(async () => "OK");
@@ -156,6 +158,7 @@ function make(
     ACCOUNT_DELETION_COOLDOWN_SECONDS: opts.cooldown ?? 604800,
     // ADR-0031 — the grace window schedule() stamps (default 7 days).
     ACCOUNT_DELETION_GRACE_DAYS: 7,
+    ...(opts.eventInTx === undefined ? {} : { ACCOUNT_DELETION_EVENT_IN_TX: opts.eventInTx }),
   } as ServerConfig;
 
   const svc = new AccountDeletionService(
@@ -1364,5 +1367,77 @@ describe("erasing the portfolio media (#1548)", () => {
     });
     // Fail CLOSED at the top level: one dead bucket is not a successful erasure with a footnote.
     expect(auditOf(h).outcome).toBe("failed");
+  });
+});
+
+describe("fix A-14 — the deletion event on the delete's own transaction", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /** A hard delete that runs `inTx` like the repository does: on the transaction, row removed. */
+  function txDelete(h: Harness, removed = true) {
+    const TX = { tx: "the-delete-transaction" };
+    h.workers.hardDelete.mockImplementation(
+      async (_id: string, opts?: { inTx?: (tx: unknown) => Promise<void> }) => {
+        if (removed && opts?.inTx !== undefined) await opts.inTx(TX);
+        return removed;
+      },
+    );
+    return TX;
+  }
+
+  it.each([undefined, false])(
+    "switch %s: today exactly — delete with no callback, then the event, with no transaction",
+    async (eventInTx) => {
+      const h = make({ ...(eventInTx === undefined ? {} : { eventInTx }), hadPin: true });
+      await h.svc.execute(WORKER_ID);
+      // The exact call today makes: one argument.
+      expect(h.workers.hardDelete.mock.calls).toEqual([[WORKER_ID]]);
+      expect(h.events.emit).toHaveBeenCalledTimes(1);
+      const emitted = h.events.emit.mock.calls[0]![0] as Record<string, unknown>;
+      expect(emitted.event_name).toBe("worker.account_deleted");
+      expect("tx" in emitted).toBe(false);
+      expect("idempotencyKey" in emitted).toBe(false);
+      // The event follows the delete.
+      expect(h.events.emit.mock.invocationCallOrder[0]!).toBeGreaterThan(
+        h.workers.hardDelete.mock.invocationCallOrder[0]!,
+      );
+    },
+  );
+
+  it("switch on: the SAME event is written on the delete's transaction, keyed once per worker", async () => {
+    const off = make({ hadPin: true, devices: 2, sessions: 3 });
+    await off.svc.execute(WORKER_ID);
+    const today = off.events.emit.mock.calls[0]![0] as Record<string, unknown>;
+
+    const h = make({ eventInTx: true, hadPin: true, devices: 2, sessions: 3 });
+    const TX = txDelete(h);
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    const emitted = h.events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitted.tx).toBe(TX);
+    expect(emitted.idempotencyKey).toBe(`worker.account_deleted:${WORKER_ID}`);
+    // Name, actor, subject and payload: identical to today's event.
+    const { tx: _tx, idempotencyKey: _key, ...rest } = emitted;
+    expect(rest).toEqual(today);
+  });
+
+  it("switch on: a failed event write rolls the erasure back — it throws, and no tombstone is written", async () => {
+    const h = make({ eventInTx: true });
+    txDelete(h);
+    h.events.emit.mockRejectedValue(new Error("events table unreachable"));
+
+    await expect(h.svc.execute(WORKER_ID)).rejects.toThrow("events table unreachable");
+    // Nothing after the delete ran: the row is still there (the transaction rolled back), so a
+    // tombstone answering "this account no longer exists" would be false.
+    expect(h.sessions.markRefreshTokensErased).not.toHaveBeenCalled();
+    expect(h.redisSet).not.toHaveBeenCalled();
+  });
+
+  it("switch on: a run whose delete found the row already gone writes no event — the deleter did", async () => {
+    const h = make({ eventInTx: true });
+    txDelete(h, false);
+    await h.svc.execute(WORKER_ID);
+    expect(h.events.emit).not.toHaveBeenCalled();
   });
 });

@@ -316,6 +316,9 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
+    // Fix A-14 — box-side only (no bridge), like its deletion neighbours; false is today: delete,
+    // then emit.
+    ["ACCOUNT_DELETION_EVENT_IN_TX", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
     // ADR-0051 — the kill switch's absent value is false, which keeps the free chat ON.
     ["CHAT_FREE_CHAT_DISABLED", "false"],
