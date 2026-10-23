@@ -365,6 +365,9 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED", "false"],
     ["CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
+    // Fix A-14 — box-side only (no bridge), like its deletion neighbours; false is today: delete,
+    // then emit.
+    ["ACCOUNT_DELETION_EVENT_IN_TX", "false"],
     // Fix F3 — false is today's interview: the Haan turn calls the model.
     ["CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],

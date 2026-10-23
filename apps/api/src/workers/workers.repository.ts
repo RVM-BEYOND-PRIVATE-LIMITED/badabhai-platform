@@ -589,12 +589,25 @@ export class WorkersRepository {
    * invites.inviter_worker_id) per migration 0030. Returns true if a row was deleted, false if
    * the worker was already gone (idempotent — a re-run is a no-op).
    */
-  async hardDelete(id: string): Promise<boolean> {
+  async hardDelete(
+    id: string,
+    opts: {
+      /**
+       * Token-audit fix A-14 — work to commit WITH the delete, run on its transaction only when
+       * this call removed the row (a concurrent run's delete gets none). A throw rolls the delete
+       * back and propagates, so the row and whatever this writes stand or fall together.
+       */
+      readonly inTx?: (tx: Database) => Promise<void>;
+    } = {},
+  ): Promise<boolean> {
     return this.db.transaction(async (tx) => {
       const deleted = await tx
         .delete(workers)
         .where(eq(workers.id, id))
         .returning({ id: workers.id });
+      // A drizzle transaction handle exposes the same query API; writers take it typed as
+      // `Database` (the codebase's tx convention).
+      if (deleted.length > 0 && opts.inTx !== undefined) await opts.inTx(tx as unknown as Database);
       return deleted.length > 0;
     });
   }

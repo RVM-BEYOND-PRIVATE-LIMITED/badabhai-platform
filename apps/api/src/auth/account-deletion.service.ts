@@ -60,7 +60,9 @@ interface RedisDeletionClient {
  *      every caller (the QA immediate seam included). Fail-OPEN: a lost write costs that device
  *      the reserved 410 on PIN unlock, never the erasure;
  *   4. set a Redis cool-down tombstone on the PII-free phone_hash (fail-OPEN);
- *   5. emit `worker.account_deleted` (PII-FREE: opaque worker id + counts/flags only).
+ *   5. emit `worker.account_deleted` (PII-FREE: opaque worker id + counts/flags only) — or, with
+ *      ACCOUNT_DELETION_EVENT_IN_TX (token-audit fix A-14), write it at step 3 on the delete's own
+ *      transaction, so a failed write rolls the delete back instead of leaving it unrecorded.
  *
  * FAIL SEMANTICS (D4): a re-run on an already-gone worker is a no-op (findById null → return).
  * A storage hiccup increments storage_objects_failed and CONTINUES — it never aborts the DB
@@ -620,10 +622,43 @@ export class AccountDeletionService {
       );
     }
 
+    // The durable, PII-FREE deletion record — counts/flags only, never a phone/name/key/OTP. Built
+    // here because every count it carries is known before the delete; WHEN it is written depends
+    // on ACCOUNT_DELETION_EVENT_IN_TX (step 3 or step 5).
+    const deletedEvent = {
+      event_name: "worker.account_deleted" as const,
+      actor: { actor_type: "worker" as const, actor_id: workerId },
+      subject: { subject_type: "worker" as const, subject_id: workerId },
+      payload: {
+        worker_id: workerId,
+        sessions_revoked: sessionsRevoked,
+        devices_revoked: devicesRevoked,
+        storage_objects_deleted: storageDeleted,
+        storage_objects_failed: storageFailed,
+        had_pin: hadPin,
+      },
+    };
+    const eventInTx = this.config.ACCOUNT_DELETION_EVENT_IN_TX === true;
+
     // 3. Hard-delete the workers row (transactional cascade). This is the atomic PII removal.
     // A false return means a concurrent run already deleted it — still proceed to tombstone +
     // event (the captured counts above remain the best available record).
-    const deleted = await this.workers.hardDelete(workerId);
+    //
+    // Token-audit fix A-14, behind ACCOUNT_DELETION_EVENT_IN_TX: the event is written ON THE
+    // DELETE'S TRANSACTION, keyed once per worker, and only by the run that removed the row. A
+    // failed write rolls the delete back and throws out of here — before any tombstone — so the
+    // row and its record stand or fall together, and the sweep retries the erasure next tick.
+    const deleted = eventInTx
+      ? await this.workers.hardDelete(workerId, {
+          inTx: async (tx) => {
+            await this.events.emit({
+              ...deletedEvent,
+              tx,
+              idempotencyKey: `worker.account_deleted:${workerId}`,
+            });
+          },
+        })
+      : await this.workers.hardDelete(workerId);
     if (!deleted) {
       this.logger.log(`account deletion worker=${idPrefix} already removed by a concurrent run`);
     }
@@ -691,20 +726,9 @@ export class AccountDeletionService {
     }
 
     // 5. Emit the durable, PII-FREE deletion record AFTER the DB delete (actor_id is opaque,
-    // no FK to the gone row). Counts/flags only — never a phone/name/key/OTP.
-    await this.events.emit({
-      event_name: "worker.account_deleted",
-      actor: { actor_type: "worker", actor_id: workerId },
-      subject: { subject_type: "worker", subject_id: workerId },
-      payload: {
-        worker_id: workerId,
-        sessions_revoked: sessionsRevoked,
-        devices_revoked: devicesRevoked,
-        storage_objects_deleted: storageDeleted,
-        storage_objects_failed: storageFailed,
-        had_pin: hadPin,
-      },
-    });
+    // no FK to the gone row) — today's path. With ACCOUNT_DELETION_EVENT_IN_TX it was already
+    // written at step 3, on the delete's own transaction, so nothing is written here.
+    if (!eventInTx) await this.events.emit(deletedEvent);
 
     // "COMPLETE" IS NO LONGER UNCONDITIONAL (#712). This line read `account deletion complete …
     // storage_failed=2` — the word a reader scans for, asserting success, beside the number that

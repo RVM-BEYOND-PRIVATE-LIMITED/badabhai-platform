@@ -731,6 +731,11 @@ services:
       # this line that lever had no path into the container, the #1306 gap above all over again.
       # Box-side only (project .env + recreate the api), like the cool-down: no CI `envs:` bridge.
       ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS: ${ACCOUNT_DELETION_TOKEN_TOMBSTONE_SECONDS:-604800}
+      # Token-audit fix A-14 — write `worker.account_deleted` on the hard delete's own transaction,
+      # so a failed event write rolls the delete back (the sweep retries) instead of leaving an
+      # erased worker unrecorded. FALSE (the default) is today: delete, then emit. Box-side only,
+      # like the two knobs above (project .env + recreate the api): no CI `envs:` bridge.
+      ACCOUNT_DELETION_EVENT_IN_TX: ${ACCOUNT_DELETION_EVENT_IN_TX:-false}
 
       AUTH_ROLLING_TIERS_ENABLED: ${AUTH_ROLLING_TIERS_ENABLED:-false}
       AI_JOBS_RETENTION_DELETE_ENABLED: ${AI_JOBS_RETENTION_DELETE_ENABLED:-false}
