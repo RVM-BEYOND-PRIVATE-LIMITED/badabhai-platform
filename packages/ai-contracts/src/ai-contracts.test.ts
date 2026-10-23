@@ -64,6 +64,8 @@ import {
   InterviewExtractOutputSchema,
   WorkHistoryPolishInputSchema,
   WorkHistoryPolishOutputSchema,
+  OtherAnswerReviewInputSchema,
+  OtherAnswerReviewOutputSchema,
   PredicateOperandSchema,
   PredicateObjectShapeForParity,
   PredicateSchema,
@@ -947,6 +949,10 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     // trail says it was polished.
     ["WorkHistoryPolishInput", WorkHistoryPolishInputSchema.shape],
     ["WorkHistoryPolishOutput", WorkHistoryPolishOutputSchema.shape],
+    // #2409 — the typed "Koi aur" answer's review. A field dropped in flight here is a résumé
+    // printing (or silently dropping) a worker's own words while the trace says it was checked.
+    ["OtherAnswerReviewInput", OtherAnswerReviewInputSchema.shape],
+    ["OtherAnswerReviewOutput", OtherAnswerReviewOutputSchema.shape],
   ];
 
   it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {

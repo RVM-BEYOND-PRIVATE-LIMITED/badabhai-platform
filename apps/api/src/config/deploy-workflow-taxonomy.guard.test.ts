@@ -160,6 +160,20 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RESUME_AUTOFILL_ENABLED:\s*\$\{\{\s*secrets\.RESUME_AUTOFILL_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRESUME_AUTOFILL_ENABLED\b/,
     ],
+    // Token-audit fix Q10 — a typed tenure answer resolves the form's experience gates. A plain
+    // boolean; the environment secret is its one arming path, and absent it is today's form.
+    [
+      "FORM_TYPED_TENURE_DERIVE_ENABLED",
+      /FORM_TYPED_TENURE_DERIVE_ENABLED:\s*\$\{\{\s*secrets\.FORM_TYPED_TENURE_DERIVE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFORM_TYPED_TENURE_DERIVE_ENABLED\b/,
+    ],
+    // Audit fix F4 — a plain boolean that stops a model call whose output nothing uses. The
+    // environment secret is its one arming path; absent, today's behaviour holds.
+    [
+      "RESUME_OPTION_MAP_REQUIRES_AUTOFILL",
+      /RESUME_OPTION_MAP_REQUIRES_AUTOFILL:\s*\$\{\{\s*secrets\.RESUME_OPTION_MAP_REQUIRES_AUTOFILL\s*\}\}/,
+      /envs:[^\n]*\bRESUME_OPTION_MAP_REQUIRES_AUTOFILL\b/,
+    ],
     // ADR-0045 — the general road. A plain boolean flag, and the ONLY way it turns on in
     // production is the environment secret, so the bridge is the switch.
     [
@@ -185,6 +199,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       "CHAT_TURN_UNDERSTANDING_ENABLED",
       /CHAT_TURN_UNDERSTANDING_ENABLED:\s*\$\{\{\s*secrets\.CHAT_TURN_UNDERSTANDING_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_TURN_UNDERSTANDING_ENABLED\b/,
+    ],
+    // Token-audit fix F3 — the form offer before the model on a tapped Haan. A plain boolean;
+    // the environment secret is its one arming path, and absent it is today's interview.
+    [
+      "CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED",
+      /CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED:\s*\$\{\{\s*secrets\.CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED\b/,
     ],
     // ADR-0048 (#1858) — the identity intake. A plain boolean flag, turned on in production ONLY
     // by the environment secret, in the same release that unroutes the app's /name screen.
@@ -320,17 +341,32 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     expect(bridged).not.toMatch(/envs:[^\n]*\bAI_REAL_CALL_TASKS\b/);
   });
 
+  it("AI_REAL_CALL_TASKS_DENY is NOT bridged either — real-call scope stays a box decision", () => {
+    // Audit fix F1. The deny list can only narrow the surface, so bridging it would be less
+    // dangerous than bridging the allowlist — but it is the same scope decision, and splitting
+    // one decision across two arming paths is how a half-flip happens.
+    const bridged = uncommented(DEPLOY);
+    expect(bridged).not.toMatch(/AI_REAL_CALL_TASKS_DENY:\s*\$\{\{/);
+    expect(bridged).not.toMatch(/envs:[^\n]*\bAI_REAL_CALL_TASKS_DENY\b/);
+  });
+
   it.each([
     ["DOMAIN_MATCH_ENABLED", "false"],
     ["SKILL_CANONICALIZE_ENABLED", "false"],
     ["AI_REAL_CALL_TASKS", "profiling_chat_turn"],
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
+    // Fix Q10 — false is today's form: a typed tenure resolves no experience gate.
+    ["FORM_TYPED_TENURE_DERIVE_ENABLED", "false"],
+    // Audit fix F4 — false is today's behaviour: the option-map call runs as before.
+    ["RESUME_OPTION_MAP_REQUIRES_AUTOFILL", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     // Fix Q2 — false is today's interview and extraction: nothing flagged, skipped or guarded.
     ["PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED", "false"],
     ["CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],
+    // Fix F3 — false is today's interview: the Haan turn calls the model.
+    ["CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
     // ADR-0051 — the kill switch's absent value is false, which keeps the free chat ON.
     ["CHAT_FREE_CHAT_DISABLED", "false"],

@@ -1064,7 +1064,10 @@ jobs:
           # `cache-dependency-path` is ALWAYS repo-root-relative — the job's
           # `working-directory` default does not apply to it — hence the full path.
           cache: "pip"
-          cache-dependency-path: apps/ai-service/requirements*.txt
+          # constraints.txt is hashed too: a pin change must rotate the key like a range change.
+          cache-dependency-path: |
+            apps/ai-service/requirements*.txt
+            apps/ai-service/constraints.txt
 
       # ---- THE OCR LEG HAS A SYSTEM DEPENDENCY, AND A SKIP IS NOT COVERAGE ----
       # `pytesseract` is a wrapper around the `tesseract` BINARY, so without this
@@ -1092,8 +1095,11 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin fonts-dejavu-core
 
+      # The same pins as the image (constraints.txt), so the suite runs against the versions
+      # production runs. Dev-only tools (pytest, ruff, fakeredis) are not pinned there and
+      # resolve within their ranges, as before.
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt -c constraints.txt
 
       - name: Ruff
         run: ruff check .
@@ -2286,6 +2292,9 @@ jobs:
           # empty secret resolves to, because compose's `:-` form treats empty as absent.
           # Fail-closed by construction.
           RESUME_AUTOFILL_ENABLED: ${{ secrets.RESUME_AUTOFILL_ENABLED }}
+          # Audit fix F4: skip the option-map model call while autofill is off. Unset or empty
+          # resolves to false through compose's `:-false`, which is today's behaviour.
+          RESUME_OPTION_MAP_REQUIRES_AUTOFILL: ${{ secrets.RESUME_OPTION_MAP_REQUIRES_AUTOFILL }}
           # Résumé history (ADR-0043, ruling R3): may the chat ask a returning worker "Resume
           # update kar doon?" at the end of an interview. Off is the interview as it was, and is
           # what an unset or empty secret resolves to through compose's `:-false`.
@@ -2316,6 +2325,9 @@ jobs:
           # The profiling turn, understood (ADR-0057, #2311). Off is today's interview, and is what
           # an unset or empty secret resolves to through compose's `:-false`.
           CHAT_TURN_UNDERSTANDING_ENABLED: ${{ secrets.CHAT_TURN_UNDERSTANDING_ENABLED }}
+          # Token-audit fix F3: a tapped trade-gate Haan routes to the form offer before the
+          # model. Off is today's interview, and is what an unset or empty secret resolves to.
+          CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: ${{ secrets.CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED }}
           # The identity intake (ADR-0048): a new chat asks a worker's missing name/state/city.
           # Off is today's opening, and is what an unset or empty secret resolves to through
           # compose's `:-false`. Must be on by the release that unroutes the app's /name screen.
@@ -2327,6 +2339,9 @@ jobs:
           # Tiered profiling (Easy/Medium/Hard). Unset/empty resolves to off at the compose level,
           # which is today's behaviour. Needs migration 0126 + a pack re-seed before it is set.
           PROFILING_TIERS_ENABLED: ${{ secrets.PROFILING_TIERS_ENABLED }}
+          # Token-audit fix Q10: a typed tenure answer resolves the form's experience gates.
+          # Unset/empty resolves to off at the compose level, which is today's behaviour.
+          FORM_TYPED_TENURE_DERIVE_ENABLED: ${{ secrets.FORM_TYPED_TENURE_DERIVE_ENABLED }}
           # Résumé skins (#1801). Unset/empty resolves to off at the compose level, which is
           # today's behaviour. Needs migration 0128 applied before it is set.
           RESUME_SKINS_ENABLED: ${{ secrets.RESUME_SKINS_ENABLED }}
@@ -2530,7 +2545,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

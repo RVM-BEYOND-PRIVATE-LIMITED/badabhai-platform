@@ -132,6 +132,8 @@ function makeService(
      * (settled, no value), or absent (never asked).
      */
     chatExperienceYears?: number | "declined";
+    /** Fix Q10 — `FORM_TYPED_TENURE_DERIVE_ENABLED`. Omitted = off, today's form. */
+    typedTenureDerive?: boolean;
   } = {},
 ) {
   const written: NewWorkerPackAnswer[] = [];
@@ -189,7 +191,10 @@ function makeService(
   // AI/fail-closed contract itself, which `other-answer-polish.service.test.ts` already covers.
   const review = vi.fn(async () => "reviewed" as string | null);
   const otherAnswerPolish = { review };
-  const config = { WORK_HISTORY_POLISH_ENABLED: true };
+  const config = {
+    WORK_HISTORY_POLISH_ENABLED: true,
+    FORM_TYPED_TENURE_DERIVE_ENABLED: opts.typedTenureDerive ?? false,
+  };
   // The safety-net resume refresh: no resume row by default (first-timer), so the
   // re-render never fires unless a test opts in via `resumeId`. The queue double
   // captures `add` calls so the enqueue tests can assert them.
@@ -683,13 +688,15 @@ describe("TradeFormService", () => {
       // this assertion needs no `await`/flush to see the call `answer()`'s return already implies.
       expect(review).toHaveBeenCalledTimes(1);
       expect(review).toHaveBeenCalledWith(
-        WORKER,
-        "qp_cnc_turning",
-        "turning_machine",
-        "CNC lathe",
-        // The question's own prompt text — this pack's `item()` helper defaults it to
-        // `${question_key}?`.
-        "turning_machine?",
+        // #2409 — the whole question travels, so the review can be handed the field it was typed
+        // in and the pack's own options as examples of it.
+        expect.objectContaining({
+          workerId: WORKER,
+          packId: "qp_cnc_turning",
+          packVersion: 1,
+          item: expect.objectContaining({ question_key: "turning_machine" }),
+          ownText: "CNC lathe",
+        }),
         expect.objectContaining({ correlationId: undefined, requestId: undefined }),
         expect.objectContaining({ WORK_HISTORY_POLISH_ENABLED: true }),
         // A FRESH TRIGGER, ALWAYS — `upsertAnswer` clears any prior polish/decline on every
@@ -1801,6 +1808,83 @@ describe("#1459 — the per-trade tier is pre-settled from the chat's experience
     expect(keys).toContain("turning_experience");
     expect(keys).toContain("turning_test_advanced");
     expect(keys).toContain("iti_project_work");
+  });
+});
+
+describe("fix Q10 — a TYPED tenure answer resolves the experience gates, behind its switch", () => {
+  /** The worker typed into "Koi aur — khud likhein" on the tenure question instead of tapping. */
+  const typedTenure = (text: string) =>
+    answered({ questionKey: "turning_experience", answerOptionKeys: null, answerOtherText: text });
+
+  it("switch OFF (default) is today's form: the typed answer resolves no gate, so both show", async () => {
+    const { service } = await makeService({
+      pack: TENURE_PACK,
+      saved: [typedTenure("10 saal ho gaye sir… sep 2016 se")],
+    });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_experience");
+    expect(keys).toContain("turning_test_advanced");
+    // The defect, as it is today: a 10-year worker is still shown the fresher question.
+    expect(keys).toContain("iti_project_work");
+  });
+
+  it("switch ON: the audit's run-5 answer reads 10 years — senior shown, fresher hidden", async () => {
+    const { service } = await makeService({
+      pack: TENURE_PACK,
+      saved: [typedTenure("10 saal ho gaye sir… sep 2016 se")],
+      typedTenureDerive: true,
+    });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_test_advanced");
+    expect(keys).not.toContain("iti_project_work");
+    // It is HIS answer on this question, so it stays on screen for him to change.
+    expect(keys).toContain("turning_experience");
+  });
+
+  it("switch ON: a typed 'fresher' reads 0 — fresher shown, senior hidden", async () => {
+    const { service } = await makeService({
+      pack: TENURE_PACK,
+      saved: [typedTenure("fresher")],
+      typedTenureDerive: true,
+    });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("iti_project_work");
+    expect(keys).not.toContain("turning_test_advanced");
+  });
+
+  it("switch ON: an ambiguous answer derives nothing — the form behaves as it does today", async () => {
+    const { service } = await makeService({
+      pack: TENURE_PACK,
+      saved: [typedTenure("8 saal VMC, 2 saal turning")],
+      typedTenureDerive: true,
+    });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_test_advanced");
+    expect(keys).toContain("iti_project_work");
+  });
+
+  it("switch ON: a TAPPED band is untouched — first-write-wins exactly as before", async () => {
+    const { service } = await makeService({
+      pack: TENURE_PACK,
+      chatExperienceYears: 7,
+      saved: [answered({ questionKey: "turning_experience", answerNumber: 2 })],
+      typedTenureDerive: true,
+    });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_experience");
+    expect(keys).not.toContain("turning_test_advanced");
+  });
+
+  it("switch ON: the chat-derived path (#1459) still hides the question it derived for", async () => {
+    const { service } = await makeService({
+      pack: TENURE_PACK,
+      chatExperienceYears: 7,
+      typedTenureDerive: true,
+    });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).not.toContain("turning_experience");
+    expect(keys).toContain("turning_test_advanced");
+    expect(keys).not.toContain("iti_project_work");
   });
 });
 

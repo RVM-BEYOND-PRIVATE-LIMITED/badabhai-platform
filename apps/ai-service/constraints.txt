@@ -1,0 +1,72 @@
+# Exact versions of every Python package the AI service image installs.
+#
+# WHY THIS FILE EXISTS. requirements.txt and requirements-ai.txt state RANGES: the versions the
+# code is known to work with. They are not a lock. Every image build that misses the Docker
+# layer cache re-resolves those ranges and installs whatever is newest that day, so a deploy
+# could change library versions in production while no code changed (the layer was rebuilt
+# that way on 2026-10-21). The Dockerfile and CI install with `-c constraints.txt`, so the
+# packages that ship change only when this file changes.
+#
+# SOURCE: the dependency layer production runs today. The last build that actually ran the
+# install step, rather than reusing the cached layer, was CI run 39599439387 (commit 81a63446,
+# 2026-10-21 12:34 UTC) on python:3.12-slim-bookworm@sha256:6a0e06f5…bc70. Every deploy since
+# has reused that layer, and these are its "Successfully installed" versions, all 53 of them.
+# Pinning to them changes nothing in production.
+#
+# UPDATING: change versions here on purpose, in a PR of their own. Resolve in a
+# python:3.12-slim-bookworm container, review the diff, and run the ai-service suite.
+# tests/test_dependency_pins.py fails when a requirement has no pin here, or when a pin falls
+# outside the range its requirements file allows.
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anthropic==0.125.0
+anyio==4.15.1
+backoff==2.2.1
+certifi==2026.10.19
+charset-normalizer==3.5.2
+click==8.5.0
+distro==1.9.0
+docstring-parser==0.18.0
+fastapi==0.156.8
+googleapis-common-protos==1.75.5
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.9.0
+httpx==0.28.1
+idna==3.20
+jiter==0.17.0
+langfuse==4.18.0
+lxml==6.1.3
+opentelemetry-api==1.45.1
+opentelemetry-exporter-http-transport==0.66b1
+opentelemetry-exporter-otlp-common==0.66b1
+opentelemetry-exporter-otlp-proto-common==1.45.1
+opentelemetry-exporter-otlp-proto-http==1.45.1
+opentelemetry-proto==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-semantic-conventions==0.66b1
+packaging==26.3
+pillow==12.3.0
+protobuf==7.36.2
+pydantic==2.14.1
+pydantic-core==2.50.1
+pydantic-settings==2.16.1
+pyjwt==2.15.1
+pypdf==6.21.1
+pypdfium2==4.30.0
+pytesseract==0.3.13
+python-docx==1.2.0
+python-dotenv==1.2.4
+pyyaml==6.0.3
+redis==5.3.1
+requests==2.34.2
+sniffio==1.3.1
+starlette==1.9.0
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+urllib3==2.8.0
+uvicorn==0.54.0
+uvloop==0.23.0
+watchfiles==1.3.0
+websockets==17.3
+wrapt==2.5.1

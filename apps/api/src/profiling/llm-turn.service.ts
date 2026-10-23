@@ -167,6 +167,16 @@ export class LlmTurnService {
   }
 
   /**
+   * Token-audit fix F3 — may a TAPPED "Haan" on the trade gate route to the trade-form offer
+   * before any model call? Off (the default) is today: the model is called on that turn and its
+   * reply is discarded when the offer is served. The orchestrator reads it with `?.()`, so a
+   * test double without this method stays on today's path.
+   */
+  tradeOfferBeforeModel(): boolean {
+    return this.config.CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED === true;
+  }
+
+  /**
    * Is Phase A still leading this interview?
    *
    * GATED ON `llmStage`, NOT ON `phase`. `nextQuestion` rewrites `phase` on every decision it

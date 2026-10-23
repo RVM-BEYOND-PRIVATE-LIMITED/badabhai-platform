@@ -2643,9 +2643,15 @@ export class ProfilingOrchestrator {
     // desired-trade re-ask and returns; `other` (the worker typed the wanted trade instead
     // of tapping) falls through with the gate closed, so this turn's own words are resolved
     // as the desired trade and the new gate is served for them below.
+    //
+    // `tradeYesTapped` (token-audit fix F3): the yes was the CHIP itself (or the bare word), so the
+    // message carries nothing else for the model to learn from. Read at Phase A below, and only
+    // when CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED is on.
+    let tradeYesTapped = false;
     if (this.llm.leads(next) && next.tradeConfirm.open && !capped) {
       const read = readTradeConfirmReply(input.text);
       if (read === "yes") {
+        tradeYesTapped = matchesOfferedOption(input.text, TRADE_CONFIRM_OPTIONS);
         next = {
           ...next,
           tradeConfirm: { ...next.tradeConfirm, open: false, confirmed: true },
@@ -3278,6 +3284,43 @@ export class ProfilingOrchestrator {
     // `next` is passed rather than `envelope`: the draft this turn's patch is folded into must be
     // the one carrying this turn's answers, or a fallback would lose them.
     if (this.llm.leads(next)) {
+      // --- TOKEN-AUDIT FIX F3: THE OFFER BEFORE THE MODEL, ON A TAPPED HAAN ------------------
+      //
+      // On the turn the worker TAPS Haan to the trade gate, the led branch below calls the model
+      // and then, when the trade routes to a form, discards the model's reply in favour of the
+      // offer. Nothing the model could learn from a tapped Haan changes that decision: routing
+      // reads the draft and the pin, which this turn cannot move. So, behind its switch, the SAME
+      // router decides first (`fallbackFormOfferKind`: not capped, no offer made yet, not on the
+      // skills lane, the router's own rules) and the offer is served without the call.
+      //
+      // ONLY A TAP (`tradeYesTapped`). A typed "haan, 5 saal Maruti mein" may carry a job, so it
+      // keeps today's model call. An open experience gate is the model's to close, so it keeps
+      // the call too. When routing finds no form, the model is called exactly as today.
+      const offerFirst =
+        tradeYesTapped && !next.llmGateOpen && this.llm.tradeOfferBeforeModel?.() === true
+          ? fallbackFormOfferKind(next, input.text, capped)
+          : null;
+      if (offerFirst !== null) {
+        if (laneUndecided(next)) {
+          next = await this.decideLane(next, input, "classic", "form_offered");
+        }
+        this.logger.log(
+          `trade-form offer served before the model session=${input.sessionId} ` +
+            `kind=${offerFirst}; the tapped Haan made no model call`,
+        );
+        return this.settleAndServeFormOffer(
+          buffer,
+          next,
+          input,
+          answers,
+          items,
+          progressItems,
+          turn,
+          offerFirst,
+          capture.excludeFromParse,
+        );
+      }
+
       // #2384: total experience is the ENGINE's question, asked before any work history.
       const tenureItem = tenureItemOf(next, engine);
       const led = await this.llm.take(
@@ -3579,31 +3622,16 @@ export class ProfilingOrchestrator {
           // offer entirely — past the turn cap the interview is closing, and a question
           // there would be an ask the worker can no longer spend.
           //
-          // SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT. These are the worker's own words
-          // from Phase A — not a document's claims — and settling them is what Phase A's
-          // `done` and fallback branches do anyway. Doing it BEFORE the pause is what keeps
-          // a decline from walking back into a re-ask of the trade the conversation just
-          // named; the accept path settles again idempotently.
-          const beforeSettle = answers;
-          answers = settleFromLlmDraft(
-            answers,
-            next.llmDraft,
-            next.occupation?.label ?? null,
-            items,
-            turn,
-          );
-          next = withLlmDraftSettlement(next, beforeSettle, answers);
-          // The model-led stretch is still what owns the interview — the offer pauses it,
-          // it does not end it. Decline and the SAME branch set the ask branch below uses
-          // picks straight back up.
-          next = { ...next, phase: "llm_interview" };
-          return this.serveFormOffer(
+          // SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT — see `settleAndServeFormOffer`, which
+          // the tapped-Haan path above (fix F3) shares so the two can never drift.
+          return this.settleAndServeFormOffer(
             buffer,
             next,
             input,
             answers,
             items,
             progressItems,
+            turn,
             formKind,
             capture.excludeFromParse,
           );
@@ -5148,6 +5176,52 @@ export class ProfilingOrchestrator {
    * question, the worker can decline it, and a budget that stopped counting what he was asked
    * would stop describing the thing `chat.session_abandoned` measures.
    */
+  /**
+   * The led offer turn: settle what Phase A learned, keep the model-led stretch owning the
+   * interview, and serve the offer. Shared by the led branch and the tapped-Haan path (fix F3).
+   *
+   * SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT. These are the worker's own words from Phase A —
+   * not a document's claims — and settling them is what Phase A's `done` and fallback branches do
+   * anyway. Doing it BEFORE the pause is what keeps a decline from walking back into a re-ask of
+   * the trade the conversation just named; the accept path settles again idempotently.
+   *
+   * The model-led stretch is still what owns the interview — the offer pauses it, it does not end
+   * it. Decline and the SAME branch set the ask branch uses picks straight back up.
+   */
+  private async settleAndServeFormOffer(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    turn: number,
+    formKind: TradeFormKind,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    const settled = settleFromLlmDraft(
+      answers,
+      envelope.llmDraft,
+      envelope.occupation?.label ?? null,
+      items,
+      turn,
+    );
+    const next: ProfilingEnvelope = {
+      ...withLlmDraftSettlement(envelope, answers, settled),
+      phase: "llm_interview",
+    };
+    return this.serveFormOffer(
+      buffer,
+      next,
+      input,
+      settled,
+      items,
+      progressItems,
+      formKind,
+      excludeFromParse,
+    );
+  }
+
   private async serveFormOffer(
     buffer: TranscriptBuffer,
     envelope: ProfilingEnvelope,
