@@ -1,10 +1,12 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ResumeMapQuestion, ResumeOptionMapping } from "@badabhai/ai-contracts";
+import type { ServerConfig } from "@badabhai/config";
 import type { ResumeImportFailureName } from "@badabhai/types";
 
 import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import type { RequestContext } from "../../common/request-context";
+import { SERVER_CONFIG } from "../../config/config.module";
 
 /**
  * Document lines onto pack option ids (RI-autofill, owner override B, 2026-09-20,
@@ -37,6 +39,11 @@ export class ResumeOptionMapService {
   constructor(
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
+    @Inject(SERVER_CONFIG)
+    private readonly config: Pick<
+      ServerConfig,
+      "RESUME_AUTOFILL_ENABLED" | "RESUME_OPTION_MAP_REQUIRES_AUTOFILL"
+    >,
   ) {}
 
   /**
@@ -54,6 +61,12 @@ export class ResumeOptionMapService {
     ctx: RequestContext,
   ): Promise<MappedOption[]> {
     if (questions.length === 0) return [];
+    // Audit fix F4: the mapping's only reader is autofill. With autofill off the call is billed
+    // and its output never applied, so the switch skips it. No mappings is the same result the
+    // route already handles for an unreachable service. Switch off = today's behaviour.
+    if (this.config.RESUME_OPTION_MAP_REQUIRES_AUTOFILL && !this.config.RESUME_AUTOFILL_ENABLED) {
+      return [];
+    }
 
     const out = await this.ai.mapResumeOptions(
       {

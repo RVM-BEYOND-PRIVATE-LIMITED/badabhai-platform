@@ -276,6 +276,9 @@ services:
       # name `resume_option_map`. Either one off means nothing is applied. `:-false` (not
       # `:-`) because this bool rejects "" and the service would not boot.
       RESUME_AUTOFILL_ENABLED: ${RESUME_AUTOFILL_ENABLED:-false}
+      # Audit fix F4: skip the option-map model call while autofill is off (its only reader).
+      # With autofill on it changes nothing. FALSE (the default) is today's behaviour.
+      RESUME_OPTION_MAP_REQUIRES_AUTOFILL: ${RESUME_OPTION_MAP_REQUIRES_AUTOFILL:-false}
 
       # ---- RÉSUMÉ HISTORY — THE CHAT UPDATE OFFER (ADR-0043, ruling R3).
       #
@@ -1003,6 +1006,12 @@ services:
       # stays `false` — means the operator's one export cannot accidentally arm the whole
       # surface, because the scope decision was already made, reviewed and pinned by a test.
       AI_REAL_CALL_TASKS: ${AI_REAL_CALL_TASKS:-profiling_chat_turn}
+      # Tasks REMOVED from the allowlist above (audit fix F1). One short box line disarms one
+      # task without hand-editing the long production list, where a replace can drop others
+      # (#1843). It can only narrow: a task named here falls to its mock, and naming one the
+      # allowlist lacks arms nothing. Empty (this default) is today's behaviour exactly. Like
+      # the allowlist it is a box-side scope decision, never bridged from a GitHub secret.
+      AI_REAL_CALL_TASKS_DENY: ${AI_REAL_CALL_TASKS_DENY:-}
 
       # ---- MODEL ROUTING + THE INR CEILINGS (#1237). PREVIOUSLY UNREACHABLE FROM THE BOX.
       #
@@ -1050,6 +1059,12 @@ services:
       AI_MAX_DAILY_COST_INR: ${AI_MAX_DAILY_COST_INR:-200.0}
       AI_MAX_USER_DAILY_COST_INR: ${AI_MAX_USER_DAILY_COST_INR:-25.0}
       AI_MAX_TOTAL_COST_INR: ${AI_MAX_TOTAL_COST_INR:-1000.0}
+      # The résumé option-map output budget (audit fix F4), split off the shared extraction
+      # budget. RESTATED like the ceilings above: it is a non-optional pydantic int, so a bare
+      # pass-through would fail boot. 1024 is today's value; the box raises it (2048 is the
+      # recommended value) so a complete trade-pack mapping is no longer cut off.
+      # ai-model-routing-compose.guard.test.ts keeps this literal equal to config.py's default.
+      AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS: ${AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS:-1024}
 
       # ---- The two TTS values are RESTATED, not passed through empty, and that difference
       # matters. `sarvam_tts_model` / `sarvam_tts_speaker` are non-optional `str` with real
