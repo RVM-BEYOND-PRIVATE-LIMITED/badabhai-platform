@@ -370,6 +370,15 @@ export const serverEnvSchema = z.object({
   // — so migration 0126 is apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after
   // 0126 is applied and `db:seed:packs --apply` has written the pack tags.
   PROFILING_TIERS_ENABLED: booleanFromString,
+  // Token-audit fix Q10 (decision D9) — a TYPED tenure answer on the trade form resolves the
+  // pack's experience gates. Today a worker who types "10 saal ho gaye" into "Koi aur — khud
+  // likhein" on the tenure question has an opaque "other" answer that can never decide a tier
+  // gate, so he is shown the fresher questions. ON reads the years out of his typed words at
+  // READ time (never stored), with the chat's own experience reader, and only when the text names
+  // exactly one figure within 0–60; the question stays on screen so he can change it.
+  //
+  // DEFAULT OFF = today's behaviour exactly: a typed tenure answer resolves no gate.
+  FORM_TYPED_TENURE_DERIVE_ENABLED: booleanFromString,
   // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
   // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
   //

@@ -106,6 +106,12 @@ NestJS boot assertion).
   of this same template), `ANTHROPIC_API_KEY` (optional fallback), `SARVAM_*` (STT/TTS),
   `AI_INTERNAL_TOKEN` (TD67 service bearer — unset keeps the historical internal-only open
   posture; see `docs/audit/24_RISK_REGISTER.md` R40).
+- **A typed tenure on the trade form (token-audit fix Q10, decision D9)** —
+  `FORM_TYPED_TENURE_DERIVE_ENABLED` (api, environment secret; default `false`, today's form).
+  `true` reads the years out of a worker's TYPED answer to the pack's tenure question ("10 saal
+  ho gaye") at read time and uses them to resolve the experience gates, so a veteran is not shown
+  fresher questions. Never stored; the question stays on screen; an ambiguous answer (two figures,
+  a negated one, none, or outside 0–60) derives nothing.
 - **Stopping AI calls nobody uses (token-audit fixes, 2026-10-22)** — every one defaults to
   today's behaviour, and each is switched on separately:
   - `AI_REAL_CALL_TASKS_DENY` (ai-service, box only, never bridged; default empty) — tasks
