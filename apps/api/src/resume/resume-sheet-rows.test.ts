@@ -5,6 +5,7 @@ import {
   buildLocationLine,
   buildQualificationRows,
   buildVerdictLine,
+  formatOpenTopSalary,
 } from "./resume-sheet-rows";
 
 const FULL = {
@@ -346,5 +347,22 @@ describe("the Verdict Line's facts (#1714)", () => {
       tools: ["Fanuc", "Siemens", "Mitsubishi"],
       city: "Faridabad",
     });
+  });
+});
+
+describe("#2400 — the form's open top salary chip ('₹50 hazaar se upar')", () => {
+  it("prints the chip's floor with a plus, never its stored key ₹1,00,000", () => {
+    expect(formatOpenTopSalary(null)).toBe("₹50,000+ / month");
+    expect(formatOpenTopSalary(undefined)).toBe("₹50,000+ / month");
+  });
+
+  it("floors at the band's other stated end, so it never prints below a figure he gave (R10 R-2)", () => {
+    expect(formatOpenTopSalary(20000)).toBe("₹20,000+ / month");
+    expect(formatOpenTopSalary(60000)).toBe("₹60,000+ / month");
+  });
+
+  it("a stated end at or above the chip's key collapses to that figure, like an inverted band", () => {
+    expect(formatOpenTopSalary(100000)).toBe("₹1,00,000 / month");
+    expect(formatOpenTopSalary(120000)).toBe("₹1,20,000 / month");
   });
 });

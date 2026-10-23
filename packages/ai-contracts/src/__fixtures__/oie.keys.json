@@ -201,5 +201,21 @@
     "blocked",
     "is_mock",
     "ai_metadata"
+  ],
+  "OtherAnswerReviewInput": [
+    "schema_version",
+    "worker_ref",
+    "text",
+    "trade_label",
+    "field_label",
+    "question_text",
+    "example_options"
+  ],
+  "OtherAnswerReviewOutput": [
+    "items",
+    "reviewed",
+    "blocked",
+    "is_mock",
+    "ai_metadata"
   ]
 }

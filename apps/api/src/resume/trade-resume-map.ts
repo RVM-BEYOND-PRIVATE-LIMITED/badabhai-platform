@@ -3325,7 +3325,17 @@ export function appendConfiguration(
  * map deliberately leaves unlabelled under §8.3, and any value a later pack version adds before
  * this map catches up).
  */
-function printableValues(spec: TradeRowSpec, attributes: WorkerAttributeValues): string[] {
+function printableValues(
+  spec: TradeRowSpec,
+  attributes: WorkerAttributeValues,
+  otherAnswers: OtherAnswerItems,
+): string[] {
+  // #2409 — THE WORKER'S OWN TYPED ANSWER, REVIEWED, REPLACES THE ROW. The form keeps one value
+  // per question and a typed "Koi aur — khud likhein" answer clears the ticks, so the reviewed
+  // names are the whole of his current answer — a stale attribute row for the same question is
+  // not. Capped like any other row; an empty list from a settled review prints nothing.
+  const own = otherAnswers[spec.from];
+  if (own !== undefined) return own.slice(0, spec.maxValues ?? Number.MAX_SAFE_INTEGER);
   const selected = new Set(slugsOf(attributes[spec.from]));
   if (selected.size === 0) return [];
   return (
@@ -3339,9 +3349,16 @@ function printableValues(spec: TradeRowSpec, attributes: WorkerAttributeValues):
   );
 }
 
+/**
+ * A worker's reviewed "Koi aur — khud likhein" answers, by question key: the cleaned names the
+ * review let print (#2409). WORKER'S OWN COPY ONLY — the caller passes nothing on a payer render.
+ */
+export type OtherAnswerItems = Readonly<Record<string, readonly string[]>>;
+
 export function buildTradeCapabilityRows(
   packId: string | null | undefined,
   attributes: WorkerAttributeValues,
+  otherAnswers: OtherAnswerItems = {},
 ): TradeCapabilityRows {
   const map = tradeResumeMapFor(packId);
   const chipRows: ResumeListRow[] = [];
@@ -3369,20 +3386,22 @@ export function buildTradeCapabilityRows(
     // The declared position is captured BEFORE filtering — after it, a callback index is the
     // position in the filtered list, which would restore the survivors in the wrong order.
     .map((spec, i) => ({ spec, i }))
-    .filter((e) => printableValues(e.spec, attributes).length > 0)
+    .filter((e) => printableValues(e.spec, attributes, otherAnswers).length > 0)
     .sort((a, b) => a.spec.rank - b.spec.rank)
     .slice(0, CAPABILITY_ROW_BUDGET)
     .sort((a, b) => a.i - b.i)
     .map((e) => e.spec);
 
   for (const spec of affordable) {
-    const values = printableValues(spec, attributes);
+    const values = printableValues(spec, attributes, otherAnswers);
     if (values.length === 0) continue;
 
-    // R10 §2.5 rule 3 — the configuration rides the first chip, never its own row.
-    const configured = spec.configFrom
-      ? appendConfiguration(values, slugsOf(attributes[spec.configFrom]), spec.configValues ?? {})
-      : values;
+    // R10 §2.5 rule 3 — the configuration rides the first chip, never its own row. NOT onto a
+    // typed name: "Batliboi lathe · 4-axis" would pair two answers the worker never joined.
+    const configured =
+      spec.configFrom && otherAnswers[spec.from] === undefined
+        ? appendConfiguration(values, slugsOf(attributes[spec.configFrom]), spec.configValues ?? {})
+        : values;
 
     if (spec.inHeadline) headlineTools.push(...configured);
     // R16 §1 — the axis labels themselves, not the "VMC · 3-axis" chip they also ride on.

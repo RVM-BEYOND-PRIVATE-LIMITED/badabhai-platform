@@ -136,15 +136,18 @@ export class TradeFormRepository {
    * Store the LLM-reviewed rewrite of a worker's "other" answer (ADR-0039 work-history-polish
    * precedent, extended by the round-4 "typed custom answer, everywhere" ruling).
    *
-   * SCOPED TO `answer_other_text IS NOT NULL`, like `saveAttributePolish` scopes to
-   * `value_kind = 'text'` — the belt alongside the caller's own check, so a race with a
-   * corrected answer can never attach a rewrite to the wrong row's value.
+   * SCOPED TO THE TEXT THAT WAS REVIEWED (#2409), not merely to `answer_other_text IS NOT NULL`.
+   * The review runs off the request, so a worker can correct his answer while one is in flight;
+   * without the text in the predicate, the verdict on his OLD words would land on his new ones
+   * and print a name he has since replaced. A mismatch writes nothing and the next render reviews
+   * the current text.
    */
   async savePolishedOtherAnswer(
     workerId: string,
     packId: string,
     questionKey: string,
     polished: string,
+    reviewedText: string,
   ): Promise<boolean> {
     const updated = await this.db
       .update(workerPackAnswers)
@@ -154,7 +157,7 @@ export class TradeFormRepository {
           eq(workerPackAnswers.workerId, workerId),
           eq(workerPackAnswers.packId, packId),
           eq(workerPackAnswers.questionKey, questionKey),
-          sql`${workerPackAnswers.answerOtherText} IS NOT NULL`,
+          eq(workerPackAnswers.answerOtherText, reviewedText),
         ),
       )
       .returning({ id: workerPackAnswers.id });

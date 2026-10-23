@@ -6,7 +6,11 @@ import { titleCaseRoleLabel } from "./resume-text-case";
 import { cleanList, cleanScalar } from "./resume-clean";
 import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
-import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
+import {
+  buildTradeCapabilityRows,
+  type OtherAnswerItems,
+  type WorkerAttributeValues,
+} from "./trade-resume-map";
 import { qualSectionVariantFor, tieredCapabilityTitle } from "./resume-tier-headings";
 import { sharedFieldIncluded } from "../profiling/tiers/profiling-tier.policy";
 import type { ProfilingTier } from "@badabhai/types";
@@ -28,7 +32,11 @@ import { formatWorkerPhone } from "./resume-phone";
 import { buildFresherRows, FRESHER_LABEL, tenureStatusLabel } from "./resume-fresher-rows";
 import { composeFallbackBrief, vetOwnBrief } from "./resume-brief";
 import { readStoredBrief } from "../profiling/general-form/general-form-brief";
-import { resolveSalaryBand } from "../profiles/worker-field-precedence";
+import {
+  isOpenTopSalaryChip,
+  OPEN_TOP_SALARY_CHIP_FLOOR,
+  resolveSalaryBand,
+} from "../profiles/worker-field-precedence";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
 import { buildProfileHeadline, buildProfileSummary } from "./resume-headline";
 import {
@@ -40,6 +48,7 @@ import {
   buildLocationLine,
   buildVerdictLine,
   composeWhatsappLine,
+  formatOpenTopSalary,
   formatSalaryBand,
   joinSegments,
 } from "./resume-sheet-rows";
@@ -106,6 +115,13 @@ export interface TradeSheetContext {
   /** The pack the interview ran, e.g. `qp_cnc_turning`. Null disables the section. */
   readonly packId: string | null;
   readonly attributes: WorkerAttributeValues;
+  /**
+   * #2409 — the worker's typed "Koi aur — khud likhein" answers, reviewed against his trade and
+   * the field, by question key. Only the names the review let print; absent for every question
+   * he answered with ticks. WORKER COPY ONLY: the audience gate lives in this function, so a
+   * payer render prints none of it even if a caller passed it.
+   */
+  readonly otherAnswers?: OtherAnswerItems;
 
   /**
    * The worker's number, DECRYPTED BY THE CALLER — exactly the contract `displayName` has, and
@@ -454,7 +470,13 @@ function buildUndegraded(
     attributes: tradeSheet?.attributes ?? {},
     workerSaid: tradeSheet?.workerSaid ?? [],
   });
-  const capability = buildTradeCapabilityRows(tradeSheet?.packId, vettedAttributes);
+  // #2409 — EXCEPT the worker's reviewed typed answers, which are worker-facing by owner ruling
+  // (2026-10-22): the employer portal's masked copy stays exactly as it was.
+  const capability = buildTradeCapabilityRows(
+    tradeSheet?.packId,
+    vettedAttributes,
+    audience === "worker" ? (tradeSheet?.otherAnswers ?? {}) : {},
+  );
   // THE FINISHING FORM'S ANSWERS (R6 §4), off the SAME attribute bag the capability block reads.
   // Trade-independent, so they are read once here rather than per pack — and read above the
   // branch, because both the résumé container and the legacy shape need them and neither one
@@ -1270,8 +1292,18 @@ function fromResumeProfile(
   // finishing form's attribute, exactly as `shift`, `languages` and the credential components do.
   // The precedence is the same one R6 established and for the same reason: the worker tapped it
   // himself, and the model has no field for it at all.
+  //
+  // #2400 — the form's "₹50 hazaar se upar" chip is not a figure; it prints "₹50,000+".
+  const openTopChip = isOpenTopSalaryChip({
+    expected: preferences.salaryMin,
+    expectedMax: preferences.salaryMax,
+  });
   const salaryText =
-    audience === "worker" ? formatSalaryBand(rp.expected_salary, preferences.salaryMax) : null;
+    audience === "worker"
+      ? openTopChip
+        ? formatOpenTopSalary(rp.expected_salary)
+        : formatSalaryBand(rp.expected_salary, preferences.salaryMax)
+      : null;
   // HUMANISED ONCE, HERE. The container stores the model's own token ("immediate",
   // "notice_period") so it stays diffable against its trace; the sheet prints a label. Both the
   // Verdict Line and the Terms row read this, and computing it twice is how they drift.
@@ -1624,10 +1656,11 @@ function resolveGeneralRoadFacts(input: {
   const years = totalEmployedYears(employments, asOf);
   const fresher = employments.length === 0 && !input.employmentsUnavailable;
   const skills = draftSkillLabels(draft);
-  const band = resolveSalaryBand({
-    expected: preferences.salaryMin,
-    expectedMax: preferences.salaryMax,
-  });
+  const figures = { expected: preferences.salaryMin, expectedMax: preferences.salaryMax };
+  const band = resolveSalaryBand(figures);
+  // #2400 — the form's "₹50 hazaar se upar" chip prints "₹50,000+", and its figure is the chip's
+  // floor rather than its stored key.
+  const openTopChip = isOpenTopSalaryChip(figures);
 
   // THE WORKER'S OWN LINE, TWICE CHECKED. The caller's verdict (`ownBriefUsable`) is the one that
   // knows his current name; `vetOwnBrief(…, null)` re-runs the name-free half here, so a caller
@@ -1643,8 +1676,12 @@ function resolveGeneralRoadFacts(input: {
     years,
     tenureLabel: fresher ? FRESHER_LABEL : null,
     tools: [...skills, ...draftMachineLabels(draft)],
-    salaryBand: band === null ? null : formatSalaryBand(band.low, band.high),
-    expectedSalary: band === null ? null : band.low,
+    salaryBand: openTopChip
+      ? formatOpenTopSalary(null)
+      : band === null
+        ? null
+        : formatSalaryBand(band.low, band.high),
+    expectedSalary: openTopChip ? OPEN_TOP_SALARY_CHIP_FLOOR : band === null ? null : band.low,
     availableFrom: formAvailabilityLabel(preferences, asOf),
     shiftLine: joinSegments([preferences.shiftLabel, preferences.workTypes.join(", ")]),
     brief:
