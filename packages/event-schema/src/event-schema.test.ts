@@ -318,6 +318,60 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     }
   });
 
+  // ── Token-audit A3 / A-8: cache buckets and the dispatch ─────────────────────────────────
+  //
+  // The same additive discipline as BL-23: every row written before the fields validates
+  // unchanged and reads them as null ("not recorded"), and the new values are bounded counts
+  // and model ids.
+  it("ai.cost_recorded reads the A3/A-8 fields as null on an old-shape row", () => {
+    const result = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: { ai_call_id: UUID_A, task_type: "profile_extraction", model: "m", provider: "p" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.cache_write_tokens).toBeNull();
+      expect(result.event.payload.cache_read_tokens).toBeNull();
+      expect(result.event.payload.attempt_count).toBeNull();
+      expect(result.event.payload.candidates_tried).toBeNull();
+    }
+  });
+
+  it("ai.cost_recorded carries cache buckets and the dispatch, and refuses bad values", () => {
+    const base = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+    };
+    const payload = {
+      ai_call_id: UUID_A,
+      task_type: "profile_extraction",
+      model: "gemini-2.5-flash-lite",
+      provider: "google",
+      cache_write_tokens: 0,
+      cache_read_tokens: 600,
+      attempt_count: 2,
+      candidates_tried: ["gemini-2.5-flash-lite", "claude-haiku-4-5"],
+    };
+    const ok = validateEvent({ ...base, payload });
+    expect(ok.success).toBe(true);
+    if (ok.success && ok.event.event_name === "ai.cost_recorded") {
+      expect(ok.event.payload.cache_read_tokens).toBe(600);
+      expect(ok.event.payload.candidates_tried).toEqual(payload.candidates_tried);
+    }
+    for (const bad of [
+      { cache_read_tokens: -1 },
+      { cache_write_tokens: 1.5 },
+      { attempt_count: -2 },
+      { candidates_tried: [""] },
+      { candidates_tried: Array.from({ length: 9 }, (_, i) => `m${i}`) },
+    ]) {
+      expect(validateEvent({ ...base, payload: { ...payload, ...bad } }).success).toBe(false);
+    }
+  });
+
   // ── Phase 4 attribution: worker_id / session_id ────────────────────────────────────────
   //
   // The reason these exist at all: `ai_job_id` is null on four spending surfaces by design

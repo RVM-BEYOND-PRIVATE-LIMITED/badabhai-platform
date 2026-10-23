@@ -40,6 +40,15 @@ export const AICallMetadataSchema = z.object({
   candidates_tried: z.array(z.string()).default([]),
   failure_reason: z.string().nullable().default(null),
   /**
+   * Token-audit fix A3 — the provider's prompt-cache buckets, OUTSIDE `input_tokens` on every
+   * provider and already priced into `estimated_cost_inr`. Null when no provider answered (a
+   * mock, a cap, a failed chain) — and for an ai-service that predates the fields, which
+   * `.default(null)` keeps a successful parse. Added on BOTH sides (`contracts.py`): `z.object`
+   * strips a key only one side declares, silently. Counts only.
+   */
+  cache_write_tokens: z.number().int().nonnegative().nullable().default(null),
+  cache_read_tokens: z.number().int().nonnegative().nullable().default(null),
+  /**
    * THE FINAL PROMPT AND COMPLETION, ALREADY THROUGH THE PSEUDONYMIZATION GATE — the only
    * text on this contract, and the only text `ai_call_traces` (migration 0083) may store.
    *

@@ -302,6 +302,21 @@ describe("AICallMetadataSchema (contracts.py parity)", () => {
     expect(meta.response_text).toBeNull();
   });
 
+  it("token-audit A3: keeps the cache buckets, and reads an older ai-service's absence as null", () => {
+    expect(
+      AICallMetadataSchema.parse({ ...minimal, cache_write_tokens: 0, cache_read_tokens: 600 }),
+    ).toMatchObject({
+      cache_write_tokens: 0,
+      cache_read_tokens: 600,
+    });
+    const older = AICallMetadataSchema.parse(minimal);
+    expect(older.cache_write_tokens).toBeNull();
+    expect(older.cache_read_tokens).toBeNull();
+    expect(AICallMetadataSchema.safeParse({ ...minimal, cache_read_tokens: -1 }).success).toBe(
+      false,
+    );
+  });
+
   it("matches contracts.py key-for-key, against the fixture the python suite reads too", () => {
     // Neither CI job compares the two languages. This file and
     // `apps/ai-service/tests/test_contract_parity.py` assert against the SAME json, so a field

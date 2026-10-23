@@ -17,6 +17,8 @@
     "attempt_count",
     "candidates_tried",
     "failure_reason",
+    "cache_write_tokens",
+    "cache_read_tokens",
     "prompt_text",
     "response_text",
     "created_at"
