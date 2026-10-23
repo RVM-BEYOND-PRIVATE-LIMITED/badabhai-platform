@@ -715,6 +715,16 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
   });
 
+  it("CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED (fix F3) is OFF by default and for the empty string", () => {
+    // Off must be today's interview: the trade-gate Haan turn calls the model.
+    const read = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: value })
+        .CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+  });
   it("FORM_TYPED_TENURE_DERIVE_ENABLED (fix Q10) is OFF by default and for the empty string", () => {
     // Off must be today's form exactly: a typed tenure answer resolves no experience gate.
     expect(loadServerConfig({}).FORM_TYPED_TENURE_DERIVE_ENABLED).toBe(false);

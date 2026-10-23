@@ -212,6 +212,12 @@ NestJS boot assertion).
   fixed deflection (ADR-0051 R6 amended), and a Profile-page fact gets a pointer line. Any model
   failure runs that turn exactly as today. Read per turn. Bridged through the GitHub secret of the
   same name; production ON only after the eval PASS and the box arming the task (#2319).
+- **The form offer before the model (token-audit fix F3)** — `CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED`
+  (default off; off is today's interview). On, a TAPPED "Haan" to the trade-confirm gate routes to
+  the trade-form offer without calling the model, whose reply on that turn is discarded today. A
+  typed yes with more in it, an open experience gate, or a trade with no form still calls the
+  model exactly as today. Visible effect: a worker who declines the offer returns to the AI-led
+  chat. Bridged through the GitHub secret of the same name.
 - **The identity intake (ADR-0048, #1858)** — `CHAT_IDENTITY_INTAKE_ENABLED` (default off; off is
   `POST /chat/session` and `POST /chat/message` exactly as before). On, a NEW chat session for a
   worker whose record lacks a name, a state or a city opens by asking for what is missing (first

@@ -370,6 +370,16 @@ export const serverEnvSchema = z.object({
   // — so migration 0126 is apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after
   // 0126 is applied and `db:seed:packs --apply` has written the pack tags.
   PROFILING_TIERS_ENABLED: booleanFromString,
+  // Token-audit fix F3 — on a TAPPED "Haan" to the trade-confirm gate, route to the trade-form
+  // offer BEFORE calling the model. Today that turn calls the model and then discards its reply
+  // in favour of the offer (4 of 4 audit runs: the reply added nothing to the draft). Only a
+  // tapped (or bare) Haan qualifies; a typed "haan, 5 saal Maruti mein" still goes to the model,
+  // which may record a job from it. When routing finds no form, the model is called as today.
+  //
+  // DEFAULT OFF = today's behaviour. Turning it on changes one thing a worker can notice: a worker
+  // who then DECLINES the form returns to the AI-led chat, where today that Haan turn's model call
+  // could have opened an experience gate, closed Phase A, or failed into the question engine.
+  CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: booleanFromString,
   // Token-audit fix Q10 (decision D9) — a TYPED tenure answer on the trade form resolves the
   // pack's experience gates. Today a worker who types "10 saal ho gaye" into "Koi aur — khud
   // likhein" on the tenure question has an opaque "other" answer that can never decide a tier
