@@ -354,6 +354,20 @@ ROUTE_CASES: list[tuple[str, str, dict[str, Any], tuple[str, ...]]] = [
         },
         ("Ramesh sir",),
     ),
+    (
+        # #2409 — the typed "Koi aur" answer is the one worker input; the trade, field, question
+        # and examples are the API's own pack vocabulary.
+        "other-answer-review",
+        "/profiling/other-answer/review",
+        {
+            "schema_version": "oie.v1",
+            "worker_ref": "w1",
+            "text": PROBE,
+            "trade_label": "CNC Turner",
+            "field_label": "Machines",
+        },
+        RAW_PIECES,
+    ),
     ("profile-extract", "/profile/extract", {"transcript": PROBE}, RAW_PIECES),
     (
         "profile-parse",
@@ -1347,6 +1361,53 @@ def test_mutation_twin_the_floor_is_what_refused_the_polish_rewrite(
     assert out["work_done"] == f"Turned shafts. Call {PHONE}."
 
 
+# --- gap 2b: the typed "Koi aur" answer's review (#2409) ------------------------------------
+#
+# ARMED, the model reads the raw answer, so a phone it echoes into a name is GROUNDED (the worker
+# typed those digits) and the gateway masks a phone rather than blocking it. The floor is the one
+# wall left between that echo and the worker's résumé.
+
+_REVIEW_ECHO = json.dumps({"items": [f"Lathe {PHONE}", "Lathe"]})
+_REVIEW_BODY = {
+    "schema_version": "oie.v1",
+    "worker_ref": "w1",
+    "text": f"lathe {PHONE}",
+    "trade_label": "CNC Turner",
+    "field_label": "Machines",
+}
+
+
+def _review(monkeypatch: pytest.MonkeyPatch, reply: str, body: dict[str, Any]) -> dict[str, Any]:
+    _record(monkeypatch, reply, real_call=True)
+    return client.post("/profiling/other-answer/review", json=body).json()
+
+
+def test_gap_on_the_review_would_print_an_echoed_phone(monkeypatch: pytest.MonkeyPatch) -> None:
+    _arm(monkeypatch)
+    out = _review(monkeypatch, _REVIEW_ECHO, _REVIEW_BODY)
+    assert out["items"] == ["Lathe"]
+    assert out["reviewed"] is True
+
+
+def test_the_review_floor_reads_the_whole_row_not_each_chip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A phone split across two names reads whole once they print side by side."""
+    _arm(monkeypatch)
+    body = {**_REVIEW_BODY, "text": "lathe 98765 43210 mill"}
+    split = json.dumps({"items": ["Lathe 98765", "43210 Mill"]})
+    assert _review(monkeypatch, split, body)["items"] == []
+
+
+def test_mutation_twin_the_floor_is_what_refused_the_review_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _arm(monkeypatch)
+    _floor_off(monkeypatch)
+    out = _review(monkeypatch, _REVIEW_ECHO, _REVIEW_BODY)
+    assert out["items"] == [f"Lathe {PHONE}", "Lathe"]
+
+
 # --- gap 3: the /profiling/turn output ------------------------------------------------------
 
 _CLASSIC_TURN_REPLY = {
@@ -1758,6 +1819,8 @@ PSEUDONYMIZE_CALLS = {
     ("routers/profiling.py", "_refused", "text"): "output wall",
     ("routers/profiling.py", "_certified", "text"): "output wall",
     ("routers/profiling.py", "work_history_polish", "polished"): "output wall",
+    # #2409: each name the "Koi aur" review lets print, before it reaches the résumé.
+    ("routers/profiling.py", "other_answer_review", "item"): "output wall",
     ("extraction.py", "_availability_line", "cleaned"): "output wall (point of print)",
     # Copies kept at rest, masked before they are kept.
     ("routers/job_posting.py", "job_posting_chat_respond", "body.message_text"): (

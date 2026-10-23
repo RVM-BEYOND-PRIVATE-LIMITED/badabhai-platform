@@ -713,9 +713,18 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // two assertions after the arity pin both halves of that: the processor's own source still names
     // no event surface, and the one class it may reach names exactly one event.
     //
+    // `otherAnswers` (OtherAnswerPolishService) joined for #2409 — the worker's typed "Koi aur"
+    // answers, reviewed against his trade and the field. It is the SECOND dependency here that CAN
+    // emit, and it is bounded the same way as the QR mint: one call, `reviewedForResume`, handed
+    // the worker id, the elected pack id, the job's correlation ids and the config — nothing this
+    // render decrypted — and one emit, `profile.other_answer_reviewed` (ids, a closed outcome and
+    // a count, strict). Pinned below beside the QR assertions. Like `polish` above, it also reaches
+    // `AiCostRecorder`, whose `ai.cost_recorded` row carries the task, tokens, cost and the worker
+    // id — no text — which is true of every model call this render already makes.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(17);
+    expect(ResumeRenderProcessor.length).toBe(18);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,
@@ -744,6 +753,20 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // …and it is handed the worker id alone: the only call is `codeFor(workerId)`.
     expect([...source.matchAll(/resumeQrLinks\.codeFor\(([^)]*)\)/g)].map((m) => m[1])).toEqual([
       "workerId",
+    ]);
+    // #2409 — the typed-answer review names exactly one event, and the render hands it ids only.
+    const otherAnswers = readFileSync(
+      join(__dirname, "..", "profiling", "other-answer-polish.service.ts"),
+      "utf8",
+    );
+    expect([...otherAnswers.matchAll(/event_name:\s*"([a-z_.0-9]+)"/g)].map((m) => m[1])).toEqual([
+      "profile.other_answer_reviewed",
+    ]);
+    const reviewCalls = [...source.matchAll(/otherAnswers\.reviewedForResume\(([^;]*?)\);/gs)].map(
+      (m) => m[1]!.replace(/\s+/g, " ").trim(),
+    );
+    expect(reviewCalls).toEqual([
+      "workerId, loaded.packId, { correlationId: job.data.correlationId, requestId: job.data.requestId }, this.config,",
     ]);
   });
 

@@ -354,8 +354,10 @@ function planPreferences(
   for (const row of rows) {
     const field = row.field ?? "";
     if (field === "expected_salary") {
+      // BOTH ENDS, one figure (owner ruling 2026-10-22, #2400): a bare max is the form's
+      // "₹50 hazaar se upar" chip, so a typed figure must not look like it.
       touched.salary_expected_max = Number(row.value);
-      touched.salary_expected_min = null;
+      touched.salary_expected_min = Number(row.value);
     } else if (field === "willing_to_travel" || field === "willing_to_relocate" || field === "accommodation_needed") {
       touched[field] = row.value === "true";
     } else if (field === "availability_status") {

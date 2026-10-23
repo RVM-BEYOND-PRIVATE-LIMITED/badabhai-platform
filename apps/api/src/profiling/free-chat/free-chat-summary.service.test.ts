@@ -154,7 +154,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("agedOutFoldable — free-mode casual/career talk only, once it leaves the reply's window", () => {
   it("excludes every line that is not a casual/career exchange, and the newest six", () => {
     const messages = [
-      line("assistant", "Aapka pehla naam kya hai?", { intake: true }),
+      line("assistant", "Aapka pura naam kya hai?", { intake: true }),
       line("worker", "Sitaram", { intake: true }),
       ...OPENING,
       ...exchange(1),

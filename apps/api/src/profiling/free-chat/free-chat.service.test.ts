@@ -168,7 +168,7 @@ describe("classify — G2: the worker's own name leaves NO input field", () => {
         mode: "free",
         pendingQuestion: null,
         messages: [
-          line("assistant", "Aapka pehla naam kya hai?", { intake: true }),
+          line("assistant", "Aapka pura naam kya hai?", { intake: true }),
           line("worker", "Sitaram", { intake: true }),
           line("assistant", "Namaste, main Bada Bhai hoon.", { aside: true }),
           line("worker", "Baad mein", { aside: true }),
