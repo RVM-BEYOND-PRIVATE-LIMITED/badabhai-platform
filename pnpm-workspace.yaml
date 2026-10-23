@@ -27,16 +27,6 @@ blockExoticSubdeps: true
 # (pnpm >= 10.16.0)
 minimumReleaseAge: 10080
 
-# DEP-9 (2026-10-06). ONE exact version let through early, and why it is not a policy change:
-# source-map-js@1.2.2 is the only fix for GHSA-68fv-2mgg-jv7q (HIGH), the advisory that turned
-# the BLOCKING deps-audit gate red on every lockfile PR. It was published 2026-09-30T14:08Z and
-# clears the window on its own at 2026-10-07T14:08Z. Pinned to the EXACT version, like
-# `trustPolicyExclude` below: any other source-map-js version, and every other package, still
-# waits 7 days. It still passes `trustPolicy` (no provenance downgrade). DELETE THIS LINE on
-# the next lockfile change after 2026-10-07 — it is inert from then on.
-minimumReleaseAgeExclude:
-  - source-map-js@1.2.2
-
 # Refuse a version whose publish-trust evidence is WEAKER than that of any
 # earlier-published version of the same package — the signature of an account
 # takeover, where the attacker can publish but cannot reproduce the maintainer's
@@ -234,6 +224,22 @@ overrides:
   #                  Delete when vitest moves to 4.x (which also clears GHSA-82fw-gwwq-j7x9).
   source-map-js@>=1.0.0 <1.2.2: "^1.2.2"
   tinypool@<2.1.2: "^2.1.2"
+  # ---------------------------------------------------------------------------
+  # DEP-11 (2026-10-22). Three HIGH advisories turned deps-audit red on every PR. Both packages
+  # are transitive and no parent has shipped a bump, so the DEP-3 lever again: range-keyed and
+  # `^`-pinned to their own major line. Both fixed releases are older than the 7-day window
+  # above, which is why DEP-9's one-off `minimumReleaseAgeExclude` entry could also go (its own
+  # note asked for that on the next lockfile change after 2026-10-07).
+  #   follow-redirects  GHSA-q3jh-wrc6-jgq8 (array-form headers bypass cross-origin credential
+  #                     stripping) and GHSA-8r9p-f939-6h3c (sensitiveHeaders regex escaping can
+  #                     expose credential headers), patched at 1.16.1 (published 2026-10-01).
+  #                     Reached via razorpay > axios in apps/api: a live request path (payment
+  #                     orders), so patched, not argued.
+  #   vite              GHSA-587h-7wmj-h5pm (launch-editor `fs.existsSync()` check bypass on
+  #                     Windows), patched at 7.3.7 (published 2026-10-06). Reached via vitest only:
+  #                     test tooling, never shipped.
+  follow-redirects@<1.16.1: "^1.16.1"
+  vite@>=7.0.0 <7.3.7: "^7.3.7"
 # Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on

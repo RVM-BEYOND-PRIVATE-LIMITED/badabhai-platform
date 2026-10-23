@@ -26,7 +26,7 @@ import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../../queue/queue
 import { WorkersRepository } from "../../workers/workers.repository";
 import { withinFieldBound } from "../answer-capture";
 import { projectProfile } from "../answer-map-projector";
-import { packAnswerRowFor, otherAnswerValue } from "../pack-answer-row";
+import { packAnswerRowFor, otherAnswerTextOf, otherAnswerValue } from "../pack-answer-row";
 import { OtherAnswerPolishService } from "../other-answer-polish.service";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
@@ -45,6 +45,7 @@ import { ResumeImportRepository } from "../resume-import/resume-import.repositor
 import { isLegacyFormUniversalKey } from "./legacy-universal-answer";
 import { parseStrictNumber } from "./strict-number";
 import { TradeFormRepository } from "./trade-form.repository";
+import { typedTenureYears } from "./typed-tenure";
 import { pageRevealFields, pageTierScope, type TieredPage } from "../tiers/profiling-tier.policy";
 import {
   ProfilingTierService,
@@ -106,6 +107,18 @@ interface FormView {
   readonly visibleItems: readonly QuestionPackItem[];
 }
 
+/** A tenure value used to resolve the experience gates for one fetch; never stored. */
+interface DerivedTenure {
+  readonly questionKey: string;
+  readonly record: AnswerRecord;
+  /**
+   * True when the value came from ANOTHER answer (the chat's `experience_years`, #1459): the
+   * worker never answered this question, so it is not served. False when it came from his own
+   * typed answer on this question (fix Q10): it stays on screen for him to change.
+   */
+  readonly hideQuestion: boolean;
+}
+
 @Injectable()
 export class TradeFormService {
   private readonly logger = new Logger(TradeFormService.name);
@@ -137,7 +150,8 @@ export class TradeFormService {
     // buy the worker today.
     private readonly otherAnswerPolish: OtherAnswerPolishService,
     @Inject(SERVER_CONFIG)
-    private readonly config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED">,
+    private readonly config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED"> &
+      Partial<Pick<ServerConfig, "FORM_TYPED_TENURE_DERIVE_ENABLED">>,
     // The safety-net resume refresh below reads the latest resume row. WorkersModule is
     // @Global(), so this adds no module edge (see profiling.module.ts).
     private readonly workers: WorkersRepository,
@@ -495,12 +509,18 @@ export class TradeFormService {
     // THE REVIEW-OR-OMIT PATH FIRES HERE, ONCE THE ANSWER IS DURABLE. See
     // `triggerOtherAnswerPolish` for the fail-open contract and the honest scope note about who
     // reads its output today.
-    this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, requestCtx);
+    this.triggerOtherAnswerPolish(workerId, pack, item, row.answerOtherText, requestCtx);
 
     // THE RESUME REFRESH, BEST-EFFORT. A capability answer changes what the sheet prints, and
     // the building-screen regenerate is not guaranteed to run (abandoned walk, failed
     // generate, Resume tab opened straight from the menu). See `refreshResumeAfterCapabilityEdit`.
-    await this.refreshResumeAfterCapabilityEdit(workerId, attributes.length > 0, requestCtx);
+    // #2409 — a typed "Koi aur" answer writes no attribute but now prints too, once reviewed; the
+    // delayed re-render also gives the review fired above time to settle first.
+    await this.refreshResumeAfterCapabilityEdit(
+      workerId,
+      attributes.length > 0 || row.answerOtherText != null,
+      requestCtx,
+    );
 
     // THE SAME VIEW `schema()` SERVES, re-read after the write (#1503). `total` below is therefore
     // exactly the number of question screens the next fetch returns — never a count over a
@@ -687,8 +707,12 @@ export class TradeFormService {
         // worker can change it, but this value was never his tap on THIS question — there is
         // nothing here for him to change, and the answer it derives from stays editable in the
         // chat. A stored row for the key is a different case and `derivedTenureAnswer` returns
-        // null for it, so the question keeps its normal visibility.
-        if (derived !== null && item.question_key === derived.questionKey) return false;
+        // null for it, so the question keeps its normal visibility. (Fix Q10: a value read from
+        // the worker's OWN typed answer is derived too, but `hideQuestion` is false for it — he
+        // typed it on this question, so it stays on screen for him to change.)
+        if (derived !== null && derived.hideQuestion && item.question_key === derived.questionKey) {
+          return false;
+        }
         return isFormQuestionVisible(item, eligibility);
       });
 
@@ -730,13 +754,15 @@ export class TradeFormService {
     kind: TradeFormKind,
     pack: QuestionPack,
     answers: AnswerMap,
-  ): Promise<{ questionKey: string; record: AnswerRecord } | null> {
+  ): Promise<DerivedTenure | null> {
     const tenureKey = descriptorForKind(kind)?.tenureQuestionKey;
     if (tenureKey === undefined || tenureKey.length === 0) return null;
     if (!pack.items.some((item) => item.question_key === tenureKey)) return null;
 
     const stored = answers[tenureKey];
-    if (stored !== undefined && stored.status !== "unanswered") return null;
+    if (stored !== undefined && stored.status !== "unanswered") {
+      return this.typedTenureAnswer(tenureKey, stored);
+    }
 
     const source = await this.answers.findLatestAnswerByQuestionKey(workerId, "experience_years");
     // #2253 — a stored answer above the 0–60 bound (captured before it) derives nothing either:
@@ -765,6 +791,41 @@ export class TradeFormService {
         turn: 0,
         history: [],
       },
+      // The worker never answered THIS question; there is nothing on it for him to change.
+      hideQuestion: true,
+    };
+  }
+
+  /**
+   * Token-audit fix Q10 (decision D9) — THE WORKER TYPED HIS TENURE INSTEAD OF TAPPING A BAND.
+   *
+   * THE DEFECT. "Koi aur — khud likhein" on the tenure question stores the typed words as an
+   * opaque "other" answer, by design: unreviewed text against a closed vocabulary can never decide
+   * a tier gate. So a worker who types "10 saal ho gaye… sep 2016 se" has a settled tenure
+   * question whose gates stay unresolved, and he is shown the fresher questions.
+   *
+   * BEHIND `FORM_TYPED_TENURE_DERIVE_ENABLED` (default off = today, null here). When on, the years
+   * are read out of his typed words with the chat's own readers ({@link typedTenureYears}) and
+   * used to resolve the gates for THIS fetch only:
+   *   - READ-TIME ONLY, NEVER STORED: his row keeps his typed words; the number is not recorded
+   *     as an answer he gave;
+   *   - THE QUESTION STAYS ON SCREEN (`hideQuestion: false`): it is his answer, so he can see and
+   *     change it;
+   *   - ANYTHING AMBIGUOUS derives nothing (null): no figure, two figures, a negated figure, or one
+   *     outside 0–60. The form then behaves exactly as it does today.
+   * Raw years feed the gates, as the chat-derived path (#1459) does.
+   */
+  private typedTenureAnswer(tenureKey: string, stored: AnswerRecord): DerivedTenure | null {
+    if (this.config.FORM_TYPED_TENURE_DERIVE_ENABLED !== true) return null;
+    if (stored.status !== "answered") return null;
+    const typed = otherAnswerTextOf(stored.value_normalized);
+    if (typed === null) return null;
+    const years = typedTenureYears(typed);
+    if (years === null) return null;
+    return {
+      questionKey: tenureKey,
+      record: { ...stored, value_normalized: years, evidence: null },
+      hideQuestion: false,
     };
   }
 
@@ -854,7 +915,7 @@ export class TradeFormService {
     await this.answers.upsertAnswer(row);
     // Same review-or-omit trigger as the current path — a legacy client can still type an "other"
     // answer against a single/multi-select universal question.
-    this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, undefined);
+    this.triggerOtherAnswerPolish(workerId, pack, item, row.answerOtherText, undefined);
 
     const scope = (await this.tiers?.formScope(workerId, pack)) ?? null;
     const view = await this.formView(workerId, ctx.kind, pack, scope);
@@ -1269,11 +1330,11 @@ export class TradeFormService {
       // `answer_other_text` and nowhere else, so it can never decide a tier gate, never become a
       // `worker_attributes` row, and never print unreviewed on any sheet — see
       // `OtherAnswerValue`'s docblock. This method's caller (`answer()`) hands the saved text to
-      // `OtherAnswerPolishService` (`triggerOtherAnswerPolish`), which computes and stores the
-      // reviewed rewrite; it is NEVER printed raw the moment a reader exists. HONEST STATE
-      // TODAY: no reader exists yet — `questionScreen` below and `ProfilingSessionService
-      // .displayValueOf` both deliberately echo the worker's raw typed words, by design, on the
-      // edit/review screens they serve. See `triggerOtherAnswerPolish`'s docblock.
+      // `OtherAnswerPolishService` (`triggerOtherAnswerPolish`), which reviews it against his
+      // trade and the field and stores the names that may print (#2409); it is NEVER printed raw.
+      // `questionScreen` below and `ProfilingSessionService.displayValueOf` still echo his raw
+      // typed words on the edit/review screens they serve, by design. See
+      // `triggerOtherAnswerPolish`'s docblock.
       const other = otherAnswerValue(dto.answer.text);
       if (other === null) return declined;
       return { ...base, value_normalized: other, status: "answered" };
@@ -1290,34 +1351,26 @@ export class TradeFormService {
    *
    * WHY OFF THE RESPONSE, on the exact reasoning `WorkHistoryPolishService`'s own docblock states
    * for a stint description: this is the worker's live request path, often on 2G, and a model
-   * round trip in the middle of it makes him wait on a rewrite that today has no reader at all
-   * (see below). Unlike the work-history precedent there is no render job to hang the call off —
+   * round trip in the middle of it makes him wait on a review the résumé render can just as well
+   * run itself (see below). Unlike the work-history precedent there is no render job to hang the call off —
    * `answer()` has no off-request queue of its own — so this fires the call FROM the request,
    * NEVER AWAITED, and lets the response return the instant the DB write is durable.
    * `OtherAnswerPolishService.review` is contractually never-throwing (its own try/catch around
    * both the model call and the write-back), which is what makes a bare `void` safe here — the
    * same contract `PackRegistryService.onModuleInit` relies on for the identical idiom.
    *
-   * ═══ HONEST SCOPE — WHAT THIS DOES AND DOES NOT DELIVER TODAY ═══
+   * ═══ WHAT READS IT (#2409) ═══
    *
-   * This closes the "dead code" finding: `OtherAnswerPolishService.review` now has a real,
-   * reachable caller, and `answer_other_text_polished` is actually computed and persisted for
-   * every typed "other" answer once `WORK_HISTORY_POLISH_ENABLED` is on. It does NOT put the
-   * rewrite in front of a worker — nothing in this codebase reads
-   * `answer_other_text_polished` for display. `questionScreen`'s `other_text` and
-   * `ProfilingSessionService.displayValueOf` both deliberately serve the RAW typed text on the
-   * two screens that exist today (the resumed-form edit surface and the interview review
-   * screen), by their own documented design — showing the rewrite there instead would be a
-   * reversal of an already-shipped, already-tested decision this task did not ask for and is not
-   * this engineer's call to make alone. The column is written for the first worker-facing "here
-   * is what we understood" surface that is actually built to read it; until one exists, a
-   * worker's typed "other" answer is computed-and-stored but not yet SHOWN reviewed anywhere,
-   * which is a materially different claim from "wired end to end" and is recorded here rather
-   * than left implicit.
+   * The worker's own résumé render (`ResumeRenderProcessor` → `reviewedForResume`) prints the
+   * reviewed names in the question's capability row, on his copy and the app's Resume screen
+   * only. The review is against his trade and the question's résumé row; a question with no row
+   * is never reviewed. `questionScreen`'s `other_text` and `ProfilingSessionService
+   * .displayValueOf` still serve his RAW typed text on the two edit screens, by their own design:
+   * he edits what he wrote, not what the review made of it.
    */
   private triggerOtherAnswerPolish(
     workerId: string,
-    packId: string,
+    pack: QuestionPack,
     item: QuestionPackItem,
     ownText: string | null | undefined,
     requestCtx: RequestContext | undefined,
@@ -1327,12 +1380,10 @@ export class TradeFormService {
       correlationId: requestCtx?.correlationId,
       requestId: requestCtx?.requestId,
     };
+    // #2409 — WARMS THE RÉSUMÉ. The render reviews anything still unreviewed itself, so this call
+    // only means the typed answer is usually decided before the worker reaches the end of the form.
     void this.otherAnswerPolish.review(
-      workerId,
-      packId,
-      item.question_key,
-      ownText,
-      item.prompt_text,
+      { workerId, packId: pack.pack_id, packVersion: pack.version, item, ownText },
       ctx,
       this.config,
       // A FRESH TRIGGER, ALWAYS. `TradeFormRepository.upsertAnswer` NULLs

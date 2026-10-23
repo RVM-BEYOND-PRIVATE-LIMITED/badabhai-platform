@@ -65,6 +65,9 @@ PROFILE_PARSE = "profile-parse"
 # to a prompt edit -- which matters more here than anywhere, because the fabrication gate can no
 # longer prove this field and the prompt is what bounds it.
 WORK_HISTORY_POLISH = "worker-work-history-polish"
+# #2409 — the typed "Koi aur" answer's review against the trade and the field. Its output prints
+# on the worker's own résumé, so a regression must be traceable to a prompt version.
+OTHER_ANSWER_REVIEW = "worker-other-answer-review"
 # ADR-0041 RI-3. Versioned like the rest, and it matters here for a reason the others do
 # not have: this prompt is the only one that reads a document the worker did not write for
 # us, under a masking policy the owner can flip. "Which prompt version, under which
@@ -270,6 +273,7 @@ def install_default_prompts() -> None:
         skills_interview_system_prompt,
         work_history_polish_prompt,
     )
+    from ..profiling.other_answer_review import OTHER_ANSWER_REVIEW_SYSTEM_PROMPT
     from ..profiling.parse_prompt import PARSE_SYSTEM_PROMPT
     from ..profiling.understand_prompts import UNDERSTAND_SYSTEM_PROMPT
     from ..resume_import.option_map_prompt import RESUME_OPTION_MAP_SYSTEM_PROMPT
@@ -282,6 +286,7 @@ def install_default_prompts() -> None:
     register(INTERVIEW_EXTRACT, extract_system_prompt)
     register(PROFILE_PARSE, lambda: PARSE_SYSTEM_PROMPT)
     register(WORK_HISTORY_POLISH, work_history_polish_prompt)
+    register(OTHER_ANSWER_REVIEW, lambda: OTHER_ANSWER_REVIEW_SYSTEM_PROMPT)
     register(RESUME_PARSE, lambda: RESUME_PARSE_SYSTEM_PROMPT)
     register(RESUME_SUMMARY, lambda: RESUME_SUMMARY_SYSTEM_PROMPT)
     register(RESUME_OPTION_MAP, lambda: RESUME_OPTION_MAP_SYSTEM_PROMPT)

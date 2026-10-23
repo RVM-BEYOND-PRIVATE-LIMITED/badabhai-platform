@@ -1,4 +1,5 @@
 import { WorkHistoryPolishService } from "./work-history-polish.service";
+import { OtherAnswerPolishService } from "../profiling/other-answer-polish.service";
 import { renderTemplateId, toResumeDocument } from "./resume-document";
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger, Optional } from "@nestjs/common";
@@ -113,6 +114,12 @@ export class ResumeRenderProcessor extends WorkerHost {
     // the worker's `resume_qr` row, and its one emit is `referral.link_created` (ids + closed
     // enums, strict). It is handed the worker id and nothing else this render decrypted.
     @Optional() private readonly resumeQrLinks?: ResumeQrLinkService,
+    // #2409 — THE WORKER'S TYPED "KOI AUR" ANSWERS, reviewed against his trade and the field.
+    // Optional on the same terms as the readers above: absent is today's sheet. Like the QR mint
+    // it is bounded by construction: one call, `reviewedForResume(workerId, packId, ctx, config)`, handed
+    // ids and nothing this render decrypted; its one emit is `profile.other_answer_reviewed`
+    // (ids, a closed outcome and a count, strict). This processor emits nothing itself.
+    @Optional() private readonly otherAnswers?: OtherAnswerPolishService,
   ) {
     super();
   }
@@ -405,6 +412,27 @@ export class ResumeRenderProcessor extends WorkerHost {
       }
     }
 
+    // #2409 — THE TYPED "KOI AUR — KHUD LIKHEIN" ANSWERS, REVIEWED. Each is checked once against
+    // his trade and the résumé row it belongs to, and only the names the review lets through
+    // print, in that row, on THIS copy (the mapper drops them on any payer render). Anything
+    // unreviewed or unavailable is simply absent and the row prints what it printed before.
+    // NEVER THROWS INTO THE RENDER: `reviewedForResume` degrades to an empty map.
+    let otherAnswers: Readonly<Record<string, readonly string[]>> = {};
+    if (this.otherAnswers && loaded?.packId) {
+      try {
+        otherAnswers = await this.otherAnswers.reviewedForResume(
+          workerId,
+          loaded.packId,
+          { correlationId: job.data.correlationId, requestId: job.data.requestId },
+          this.config,
+        );
+      } catch {
+        this.logger.warn(
+          `could not review typed answers for worker ${workerId}; rendering without`,
+        );
+      }
+    }
+
     // THE WORKER'S OWN TURNS — a FIFTH independent load, on the same degrade as the four above.
     // It feeds two rules and neither is worth a failed render: without it the quote block
     // collapses (a sheet with one less section, which is what every sheet has today) and the
@@ -557,6 +585,8 @@ export class ResumeRenderProcessor extends WorkerHost {
       // two-gate shape `workLine` has for an employment. Explicit rather than left to the
       // `...loaded` spread, because the gate above already had to resolve it.
       declinedAttributes,
+      // #2409 — absent, not empty, when nothing was typed, so this context is exactly today's.
+      ...(Object.keys(otherAnswers).length > 0 ? { otherAnswers } : {}),
       // `undefined` WHEN THE WORKER HAS NO ROWS, and that is load-bearing rather than a tidy
       // default: Zone 5 resolves with `??`, so an empty ARRAY would assert "this worker has no
       // certificates" and suppress whatever the extraction found. See `qualificationFactsFrom`.

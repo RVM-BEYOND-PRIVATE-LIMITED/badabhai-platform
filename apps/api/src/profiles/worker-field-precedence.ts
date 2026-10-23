@@ -34,6 +34,8 @@
  *                extraction container. A container exists ⇒ it wins outright (the "no merge"
  *                rule in `resume-render-input.ts`); otherwise the attributes compose the band.
  *                THE UPPER END IS NEVER DERIVED — a worker who gave one figure prints one figure.
+ *                The one stored value that is not a figure is the form's open top chip
+ *                (`isOpenTopSalaryChip`, #2400), which prints "₹50,000+".
  *   AVAILABILITY ×3  The worker's own structured answer (`availability` json attribute, 0111)
  *                outranks the model's `draft.availability.status`; the shift (`shift_preference`)
  *                and the night-shift toggle (`workers.resume_night_shift_ready`) are SEPARATE
@@ -108,6 +110,33 @@ export function resolveSalaryBand(figures: {
   // Only the upper end was stated. It is still the worker's number, and it prints as the band's
   // single figure — `formatSalaryBand(null, hi)` is exactly that case.
   return { low: high as number, high: null };
+}
+
+/**
+ * How the form's top salary chip, "₹50 hazaar se upar", is stored: `salary_expected_max` at this
+ * figure with no `salary_expected_min` (`_kSalaryBands` in the worker app's
+ * `trade_form_preferences_page.dart` and `finishing_screen.dart`). The figure is the chip's key,
+ * not anything the worker said.
+ */
+export const OPEN_TOP_SALARY_CHIP_MAX = 100_000;
+
+/** Where that chip starts: the top of the chip below it ("₹35–50 hazaar"). */
+export const OPEN_TOP_SALARY_CHIP_FLOOR = 50_000;
+
+/**
+ * Whether the stored band is the form's open top chip rather than a figure the worker stated
+ * (#2400).
+ *
+ * THE MISSING MIN IS WHAT TELLS THEM APART. A Bada Bhai chat edit stores the figure the worker
+ * typed as BOTH ends (owner ruling 2026-10-22), so "meri salary 1 lakh" is min = max = 100000 and
+ * keeps printing ₹1,00,000. Only the chip leaves the max alone at this figure. Printing a typed
+ * ₹1,00,000 as "₹50,000+" would put a figure below his own on the sheet, which R10 R-2 forbids.
+ */
+export function isOpenTopSalaryChip(figures: {
+  readonly expected: number | null | undefined;
+  readonly expectedMax: number | null | undefined;
+}): boolean {
+  return figures.expectedMax === OPEN_TOP_SALARY_CHIP_MAX && typeof figures.expected !== "number";
 }
 
 /**

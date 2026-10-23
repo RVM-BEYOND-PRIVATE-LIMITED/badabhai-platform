@@ -54,3 +54,15 @@ export function containsOtherAnswerMarker(value: unknown, budget = { n: MAX_SCAN
   }
   return false;
 }
+
+/**
+ * Whether a sheet context carries the worker's REVIEWED typed answers (#2409) — plain strings, so
+ * {@link containsOtherAnswerMarker} cannot see them by shape.
+ *
+ * WORKER-FACING ONLY, by owner ruling (2026-10-22). The mapper already drops them on any payer
+ * render; this is the disclosure's own structural refusal, so a future change that hands the
+ * payer path a worker-copy context fails the disclosure closed instead of trusting the mapper.
+ */
+export function carriesReviewedOtherAnswers(context: { readonly otherAnswers?: unknown }): boolean {
+  return context.otherAnswers !== undefined;
+}

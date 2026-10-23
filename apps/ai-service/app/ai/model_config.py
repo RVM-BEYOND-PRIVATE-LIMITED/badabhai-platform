@@ -9,10 +9,16 @@ The INR cost table is an ESTIMATE used only for guardrails/alerts (not billing).
 
 from __future__ import annotations
 
+import functools
+import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import Literal
 
 from ..config import Settings
+
+logger = logging.getLogger(__name__)
 
 TaskType = Literal["profiling_chat_turn", "profile_extraction", "resume_generation"]
 # THREE TIERS, AND THE THIRD EXISTS TO KEEP THE SECOND PINNED (#1237).
@@ -244,6 +250,125 @@ def _apply_primary_provider(route: TaskRoute, settings: Settings) -> TaskRoute:
     return replace(route, model=claude, fallback_model=tier_model)
 
 
+# --- Per-task model choice (token-audit fix B-1) ------------------------------------------------
+#
+# WHY. A provider flip (`ai_primary_provider`) or a tier default moves MANY tasks at once: the
+# capable tier alone carries five, pinned to `gemini-2.5-flash` by the extraction GO/NO-GO. Moving
+# a model safely means one task at a time, each step undone in a minute. `ai_task_model_overrides`
+# (`AI_TASK_MODEL_OVERRIDES`, default empty = today's routes exactly) names a task's chain
+# directly: `task=primary` or `task=primary>fallback`, comma-separated, e.g.
+#
+#     profiling_free_classify=gemini-2.5-flash-lite>claude-haiku-4-5
+#
+# The route's numbers (output budget, temperature, json mode, retries, deadline) do not change —
+# only WHICH models are tried, in which order. A fallback still has to pass the router's own gates
+# (a different provider, a usable transport), and a single model keeps the router's global
+# fallback. An entry that cannot be honoured is dropped, logged once, and the task keeps its
+# default route: a typo on the box must never take the service down or move a task anywhere else.
+
+#: The models an override may name. A model joins ONLY with a price row in `_MODEL_RATES_INR`
+#: (an unpriced model under-reads spend, so the caps stop tripping) and a request our transport
+#: sends it unchanged: Claude Haiku 5.5 rejects the temperature every route sends, so it waits for
+#: per-model request settings (token-audit F6). `gemini-2.5-pro` is left out: it rejects the
+#: thinking budget our Gemini client sends.
+OVERRIDE_MODELS: frozenset[str] = frozenset(
+    {"gemini-2.5-flash-lite", "gemini-2.5-flash", "claude-haiku-4-5"}
+)
+
+#: Tasks whose model may not change. The news answer runs Anthropic's web-search server tool,
+#: which no other provider can run (ADR-0054): moved, it would answer without a search or not at
+#: all.
+NON_OVERRIDABLE_TASKS: frozenset[str] = frozenset({"profiling_free_news"})
+
+#: The router tries a primary and ONE fallback, so an override names at most two models.
+_MAX_OVERRIDE_MODELS = 2
+
+
+@dataclass(frozen=True)
+class TaskModelOverride:
+    """One task's chain as the override names it."""
+
+    model: str
+    #: `None` = the router's own rule (`default_fallback_model`, when its provider differs).
+    fallback_model: str | None
+
+
+@dataclass(frozen=True)
+class TaskModelOverrides:
+    """The parsed `ai_task_model_overrides`: what applies, and what was refused and why."""
+
+    by_task: Mapping[str, TaskModelOverride]
+    #: `(task or entry as written, reason)` for every entry that was not applied.
+    rejected: tuple[tuple[str, str], ...]
+
+
+def parse_task_model_overrides(raw: str) -> TaskModelOverrides:
+    """Parse the override string. Pure; never raises. See the section note above for the rules."""
+    by_task: dict[str, TaskModelOverride] = {}
+    rejected: list[tuple[str, str]] = []
+    entries = [part.strip() for part in raw.split(",") if part.strip()]
+    tasks = [entry.partition("=")[0].strip() for entry in entries]
+    # AMBIGUOUS, SO NEITHER: a task named twice gets no override at all. Picking the first or the
+    # last — or the one that happens to parse — would silently decide which line was meant.
+    named_twice = {task for task in tasks if task and tasks.count(task) > 1}
+    for task in sorted(named_twice):
+        rejected.append((task, "named more than once"))
+    for entry, task in zip(entries, tasks, strict=True):
+        _, sep, chain = entry.partition("=")
+        if not sep or not task:
+            rejected.append((entry, "not task=model"))
+            continue
+        if task in named_twice:
+            continue
+        if task not in _ROUTE_SHAPES:
+            rejected.append((task, "unknown task"))
+            continue
+        if task in NON_OVERRIDABLE_TASKS:
+            rejected.append((task, "this task's model cannot change"))
+            continue
+        models = [model.strip() for model in chain.split(">")]
+        if any(not model for model in models):
+            rejected.append((task, "empty model"))
+            continue
+        if len(models) > _MAX_OVERRIDE_MODELS:
+            rejected.append((task, "more than one fallback"))
+            continue
+        if any(model not in OVERRIDE_MODELS for model in models):
+            rejected.append((task, "model not in OVERRIDE_MODELS"))
+            continue
+        primary = models[0]
+        fallback = models[1] if len(models) == _MAX_OVERRIDE_MODELS else None
+        by_task[task] = TaskModelOverride(primary, None if fallback == primary else fallback)
+    return TaskModelOverrides(MappingProxyType(by_task), tuple(rejected))
+
+
+@functools.lru_cache(maxsize=8)
+def _parsed_overrides(raw: str) -> TaskModelOverrides:
+    """`parse_task_model_overrides`, once per distinct value — and each refusal logged once."""
+    parsed = parse_task_model_overrides(raw)
+    for subject, reason in parsed.rejected:
+        # Task names, model ids and a closed reason: configuration, never worker data or a key.
+        logger.warning(
+            "ai_task_model_override.rejected",
+            extra={"extra": {"entry": subject, "reason": reason}},
+        )
+    return parsed
+
+
+def task_model_overrides(settings: Settings) -> TaskModelOverrides:
+    """The overrides in force for these settings."""
+    return _parsed_overrides(settings.ai_task_model_overrides)
+
+
+def _apply_task_override(route: TaskRoute, settings: Settings) -> TaskRoute:
+    """The override's chain in place of the route's, when the task has one. Applied LAST, so it
+    wins over the tier, a route's own model and the provider order alike."""
+    override = task_model_overrides(settings).by_task.get(route.task_type)
+    if override is None:
+        return route
+    return replace(route, model=override.model, fallback_model=override.fallback_model)
+
+
 def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
     """Resolve a task's route, reading the tunable numbers from settings.
 
@@ -251,14 +376,17 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
     static shape (``get_route("profile_extraction").json_mode``) keep working; when
     omitted the committed defaults are used.
 
-    The provider order is applied last (`_apply_primary_provider`), so every route below states
-    only its shape and numbers.
+    The provider order is applied after the shape (`_apply_primary_provider`), and a per-task
+    override after that (`_apply_task_override`), so every route below states only its shape and
+    numbers.
     """
     if settings is None:
         from ..config import get_settings
 
         settings = get_settings()
-    return _apply_primary_provider(_route(task_type, settings), settings)
+    return _apply_task_override(
+        _apply_primary_provider(_route(task_type, settings), settings), settings
+    )
 
 
 def _route(task_type: str, settings: Settings) -> TaskRoute:
@@ -330,9 +458,9 @@ def _route(task_type: str, settings: Settings) -> TaskRoute:
             # `line_count` finding that rules out deriving this per call, and the caveats live
             # on `ai_resume_parse_max_output_tokens` in `app/config.py`.
             #
-            # `resume_profile_summary` and `resume_option_map` deliberately DO NOT follow:
-            # the summary is a fixed-size object and the option map scales with the pack, not
-            # the document. Neither is at risk and neither was measured.
+            # `resume_profile_summary` stays on the shared budget: it is a fixed-size object.
+            # `resume_option_map` was kept there too, as "not at risk"; measured on 2026-10-21
+            # it was cut off at 1024 (audit fix F4), so it now has its own knob as well.
             max_output_tokens=settings.ai_resume_parse_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. Reading a value off a document has
             # exactly one right result; sampling would let a re-import of the SAME file
@@ -367,14 +495,15 @@ def _route(task_type: str, settings: Settings) -> TaskRoute:
         return TaskRoute(
             task_type,
             default_tier,
-            # SHARES THE EXTRACTION BUDGET — and STAYS on it after #1674 split
-            # `resume_parse` off. The output is one small object per pack question, each
-            # carrying a quoted span, so it scales with the PACK — a closed list this
-            # service ships and can count — rather than with the uploaded document. That
-            # is the distinction the split turns on, not "fixed vs variable". Slack is
-            # safer than tight here too: a truncated candidate loses the closing brace and
-            # degrades the whole mapping to nothing.
-            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # ITS OWN BUDGET (audit fix F4, 2026-10-21). #1674 left this on the shared
+            # extraction budget because the output scales with the PACK rather than the
+            # document. True, but a trade pack is big enough: one object per question, each
+            # carrying a quoted span, runs ~1,400-1,600 tokens complete, and the shared 1024
+            # cut it off in 3 of 3 audit uploads and 6 of 45 production calls. A truncated
+            # candidate loses the closing brace and degrades the whole mapping to nothing.
+            # The default stays 1024 (today's behaviour); the box raises it. Evidence and the
+            # recommended value live on `ai_resume_option_map_max_output_tokens` in config.py.
+            max_output_tokens=settings.ai_resume_option_map_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. Mapping a document onto a fixed
             # option list must give the same answer for the same document every time;
             # sampling here would mean a re-import ticks different boxes with no input
@@ -601,6 +730,35 @@ def resolve_model(task_type: str, settings: Settings) -> str:
     if route.model is not None:
         return route.model
     return _tier_model(route.tier, settings)
+
+
+def candidate_models(
+    primary_model: str, fallback_model: str | None, settings: Settings
+) -> list[str]:
+    """The ordered provider-fallback chain for a real call — `AIRouter._candidate_models`.
+
+    ``primary_model`` first; then the fallback IFF its OWN provider transport is usable
+    (credential AND client library) AND its provider differs from the primary's.
+    ``fallback_model`` is the route's own when it names one; otherwise
+    ``settings.default_fallback_model``. One function, so `scripts/effective-ai-flags.py` reports
+    the chain the router actually dispatches.
+    """
+    candidates = [primary_model]
+    fallback = fallback_model or settings.default_fallback_model
+    if (
+        fallback
+        and fallback not in candidates
+        and provider_for_model(fallback) != provider_for_model(primary_model)
+        and settings.fallback_transport_available(provider_for_model(fallback))
+    ):
+        candidates.append(fallback)
+    return candidates
+
+
+def model_chain(task_type: str, settings: Settings) -> list[str]:
+    """The models a real call of this task tries, in order."""
+    route = get_route(task_type, settings)
+    return candidate_models(resolve_model(task_type, settings), route.fallback_model, settings)
 
 
 # (input_per_1k, output_per_1k) INR estimates. Unknown models fall back to a

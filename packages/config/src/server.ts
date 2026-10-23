@@ -279,6 +279,13 @@ export const serverEnvSchema = z.object({
   // because a reversal that needs a deploy is not a reversal, and a bad mapping writes
   // records an employer will read: stopping quickly matters most here.
   RESUME_AUTOFILL_ENABLED: booleanFromString,
+  // Audit fix F4 — skip the résumé option-map call while autofill is off. The mapping's only
+  // reader is autofill, so with RESUME_AUTOFILL_ENABLED off the call is billed and its output
+  // never applied. Turning this ON makes `ResumeOptionMapService` return no mappings without
+  // calling the model whenever autofill is off; with autofill on it changes nothing.
+  //
+  // DEFAULT OFF = today's behaviour: the option map runs on every form-routed import.
+  RESUME_OPTION_MAP_REQUIRES_AUTOFILL: booleanFromString,
   // ADR-0043 (ruling R3) — "Aapki nayi jaankari se resume update kar doon?" at the end of an
   // interview, for a worker who ALREADY has a résumé. A "Haan" confirms the profile that
   // interview produces and regenerates the résumé in the background, without the preview.
@@ -373,6 +380,15 @@ export const serverEnvSchema = z.object({
   // who then DECLINES the form returns to the AI-led chat, where today that Haan turn's model call
   // could have opened an experience gate, closed Phase A, or failed into the question engine.
   CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: booleanFromString,
+  // Token-audit fix Q10 (decision D9) — a TYPED tenure answer on the trade form resolves the
+  // pack's experience gates. Today a worker who types "10 saal ho gaye" into "Koi aur — khud
+  // likhein" on the tenure question has an opaque "other" answer that can never decide a tier
+  // gate, so he is shown the fresher questions. ON reads the years out of his typed words at
+  // READ time (never stored), with the chat's own experience reader, and only when the text names
+  // exactly one figure within 0–60; the question stays on screen so he can change it.
+  //
+  // DEFAULT OFF = today's behaviour exactly: a typed tenure answer resolves no gate.
+  FORM_TYPED_TENURE_DERIVE_ENABLED: booleanFromString,
   // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
   // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
   //
