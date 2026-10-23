@@ -112,10 +112,6 @@ NestJS boot assertion).
     removed from `AI_REAL_CALL_TASKS`. It can only narrow: a denied task falls to its mock, and
     naming a task the allowlist lacks arms nothing. First use: `resume_generation`, whose
     model-written blurb nothing reads (F1); the résumé text is identical on the mock path.
-  - `OTHER_ANSWER_POLISH_DISABLED` (api, environment secret; default `false`) — `true` stops the
-    "other" answer review that `WORK_HISTORY_POLISH_ENABLED` also turns on, one model call per
-    typed "Koi aur" form answer whose output nothing reads (F2A). The work-history polish that
-    IS printed is untouched.
   - `AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS` (ai-service, box; default `1024`, today's value) —
     the résumé option map's own output budget, split off `AI_EXTRACTION_MAX_OUTPUT_TOKENS`.
     At 1024 a complete trade-pack mapping is cut off and discarded; `2048` is the recommended

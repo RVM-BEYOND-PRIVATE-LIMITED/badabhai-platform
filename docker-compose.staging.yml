@@ -264,10 +264,6 @@ services:
       # stopping quickly matters most: a fabrication is discovered at the machine trial, and it
       # is the employer who stops trusting BadaBhai, not the worker.
       WORK_HISTORY_POLISH_ENABLED: ${WORK_HISTORY_POLISH_ENABLED:-false}
-      # Audit fix F2A: stops the "other" answer review that WORK_HISTORY_POLISH_ENABLED also
-      # turns on (one model call per typed "Koi aur" form answer, output read by nothing). The
-      # work-history polish is untouched. FALSE (the default) is today's behaviour.
-      OTHER_ANSWER_POLISH_DISABLED: ${OTHER_ANSWER_POLISH_DISABLED:-false}
 
       # ---- RI-AUTOFILL (owner override B, 2026-09-20, of ruling D2) — THE KILL SWITCH.
       #

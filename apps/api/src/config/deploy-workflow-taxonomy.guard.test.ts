@@ -160,13 +160,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RESUME_AUTOFILL_ENABLED:\s*\$\{\{\s*secrets\.RESUME_AUTOFILL_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRESUME_AUTOFILL_ENABLED\b/,
     ],
-    // Audit fixes F2A and F4 — two plain booleans that stop a model call whose output nothing
-    // uses. The environment secret is their one arming path; absent, today's behaviour holds.
-    [
-      "OTHER_ANSWER_POLISH_DISABLED",
-      /OTHER_ANSWER_POLISH_DISABLED:\s*\$\{\{\s*secrets\.OTHER_ANSWER_POLISH_DISABLED\s*\}\}/,
-      /envs:[^\n]*\bOTHER_ANSWER_POLISH_DISABLED\b/,
-    ],
+    // Audit fix F4 — a plain boolean that stops a model call whose output nothing uses. The
+    // environment secret is its one arming path; absent, today's behaviour holds.
     [
       "RESUME_OPTION_MAP_REQUIRES_AUTOFILL",
       /RESUME_OPTION_MAP_REQUIRES_AUTOFILL:\s*\$\{\{\s*secrets\.RESUME_OPTION_MAP_REQUIRES_AUTOFILL\s*\}\}/,
@@ -335,8 +330,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["AI_REAL_CALL_TASKS", "profiling_chat_turn"],
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
-    // Audit fixes F2A / F4 — false is today's behaviour: both model calls run as before.
-    ["OTHER_ANSWER_POLISH_DISABLED", "false"],
+    // Audit fix F4 — false is today's behaviour: the option-map call runs as before.
     ["RESUME_OPTION_MAP_REQUIRES_AUTOFILL", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["CHAT_TURN_UNDERSTANDING_ENABLED", "false"],

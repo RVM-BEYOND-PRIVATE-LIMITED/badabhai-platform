@@ -264,14 +264,6 @@ export const serverEnvSchema = z.object({
   // quickly matters most: a fabrication is discovered at the machine trial, and it is the
   // employer who stops trusting BadaBhai, not the worker.
   WORK_HISTORY_POLISH_ENABLED: booleanFromString,
-  // Audit fix F2A — stop the "other" answer review. WORK_HISTORY_POLISH_ENABLED also turns on a
-  // fire-and-forget model call for every typed "Koi aur — khud likhein" form answer
-  // (`OtherAnswerPolishService`), and nothing reads what it stores
-  // (`answer_other_text_polished` has no reader). Turning this ON stops that one call and
-  // leaves the work-history polish, which IS printed, exactly as it is.
-  //
-  // DEFAULT OFF = today's behaviour: the review runs whenever WORK_HISTORY_POLISH_ENABLED does.
-  OTHER_ANSWER_POLISH_DISABLED: booleanFromString,
   // RI-AUTOFILL (owner override B, 2026-09-20, of ruling D2) — writing the model's
   // option mapping as the worker's form answers after his identity "haan".
   //
