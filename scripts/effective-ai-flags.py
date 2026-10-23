@@ -114,6 +114,9 @@ TRACKED = [
     "AI_ENABLE_REAL_CALLS",
     "AI_REAL_CALLS_KILL_SWITCH",
     "AI_REAL_CALL_TASKS",
+    # Audit fix F1: removes tasks from the allowlist; armed_tasks below already honours it
+    # (it is computed through `real_call_enabled_for`), this row shows which layer set it.
+    "AI_REAL_CALL_TASKS_DENY",
     "AI_CHAT_MODEL_TIER",
     "AI_PRIMARY_PROVIDER",
     "AI_TASK_MODEL_OVERRIDES",

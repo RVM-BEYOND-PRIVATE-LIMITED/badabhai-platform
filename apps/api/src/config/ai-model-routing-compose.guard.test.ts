@@ -110,6 +110,24 @@ function pythonFieldDefault(source: string, field: string): string | null {
   return null;
 }
 
+/**
+ * Audit fix F4 — output budgets the box must be able to raise. Same three guarantees as the
+ * ceilings (declared, restated, no drift); a separate list because their config.py fields are
+ * bounded `Field(default=N, ge=…, le=…)` ints, which `pythonFieldDefault` deliberately rejects.
+ */
+const OUTPUT_BUDGET_VARS = ["AI_RESUME_OPTION_MAP_MAX_OUTPUT_TOKENS"] as const;
+
+/** The default of a bounded int field (`name: int = Field(default=N, …)`), or null on any other shape. */
+function pythonBoundedIntDefault(source: string, field: string): number | null {
+  const prefix = `    ${field}:`;
+  for (const line of source.split(/\r?\n/)) {
+    if (!line.startsWith(prefix)) continue;
+    const m = /^int\s*=\s*Field\(\s*default=(\d+)\s*[,)]/.exec(line.slice(prefix.length).trim());
+    return m ? Number(m[1]) : null;
+  }
+  return null;
+}
+
 /** The literal a `${VAR:-default}` entry falls back to, or null if it is a bare pass-through. */
 function composeDefault(entry: string | undefined): string | null {
   if (entry === undefined) return null;
@@ -183,6 +201,33 @@ describe("docker-compose.staging.yml — ai-service model routing is settable fr
     expect(Number.isFinite(source), `${field} in config.py is not a number`).toBe(true);
     expect(composed).toBe(source);
   });
+
+  it("reads a bounded-int default at all (guards the third parser)", () => {
+    // The #1674 parse budget is a long-stable field of the same shape; null here would make the
+    // drift test below compare against nothing.
+    expect(pythonBoundedIntDefault(configPy, "ai_resume_parse_max_output_tokens")).toBe(2048);
+  });
+
+  it.each(OUTPUT_BUDGET_VARS)(
+    "%s is declared on the ai-service, restated, and matches config.py",
+    (name) => {
+      expect(ai.has(name), `${name} missing from the ai-service — the box cannot raise it`).toBe(
+        true,
+      );
+      const composed = composeDefault(ai.get(name));
+      expect(
+        composed,
+        `${name} must restate its default; a bare pass-through fails boot`,
+      ).not.toBeNull();
+      const source = pythonBoundedIntDefault(configPy, name.toLowerCase());
+      expect(
+        source,
+        `${name.toLowerCase()} has no readable Field(default=…) in config.py`,
+      ).not.toBeNull();
+      // Compose WINS over the library default, so drift here would silently ship another budget.
+      expect(Number(composed)).toBe(source);
+    },
+  );
 
   it("every routed model default is PRICED in the INR rate table", () => {
     // The ceilings are computed from an ESTIMATE, and an unpriced model falls back to

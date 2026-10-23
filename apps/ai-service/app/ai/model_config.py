@@ -458,9 +458,9 @@ def _route(task_type: str, settings: Settings) -> TaskRoute:
             # `line_count` finding that rules out deriving this per call, and the caveats live
             # on `ai_resume_parse_max_output_tokens` in `app/config.py`.
             #
-            # `resume_profile_summary` and `resume_option_map` deliberately DO NOT follow:
-            # the summary is a fixed-size object and the option map scales with the pack, not
-            # the document. Neither is at risk and neither was measured.
+            # `resume_profile_summary` stays on the shared budget: it is a fixed-size object.
+            # `resume_option_map` was kept there too, as "not at risk"; measured on 2026-10-21
+            # it was cut off at 1024 (audit fix F4), so it now has its own knob as well.
             max_output_tokens=settings.ai_resume_parse_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. Reading a value off a document has
             # exactly one right result; sampling would let a re-import of the SAME file
@@ -495,14 +495,15 @@ def _route(task_type: str, settings: Settings) -> TaskRoute:
         return TaskRoute(
             task_type,
             default_tier,
-            # SHARES THE EXTRACTION BUDGET — and STAYS on it after #1674 split
-            # `resume_parse` off. The output is one small object per pack question, each
-            # carrying a quoted span, so it scales with the PACK — a closed list this
-            # service ships and can count — rather than with the uploaded document. That
-            # is the distinction the split turns on, not "fixed vs variable". Slack is
-            # safer than tight here too: a truncated candidate loses the closing brace and
-            # degrades the whole mapping to nothing.
-            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # ITS OWN BUDGET (audit fix F4, 2026-10-21). #1674 left this on the shared
+            # extraction budget because the output scales with the PACK rather than the
+            # document. True, but a trade pack is big enough: one object per question, each
+            # carrying a quoted span, runs ~1,400-1,600 tokens complete, and the shared 1024
+            # cut it off in 3 of 3 audit uploads and 6 of 45 production calls. A truncated
+            # candidate loses the closing brace and degrades the whole mapping to nothing.
+            # The default stays 1024 (today's behaviour); the box raises it. Evidence and the
+            # recommended value live on `ai_resume_option_map_max_output_tokens` in config.py.
+            max_output_tokens=settings.ai_resume_option_map_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. Mapping a document onto a fixed
             # option list must give the same answer for the same document every time;
             # sampling here would mean a re-import ticks different boxes with no input
