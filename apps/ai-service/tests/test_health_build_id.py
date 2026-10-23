@@ -221,6 +221,11 @@ def test_dockerfile_declares_the_arg_and_promotes_it_to_env():
     assert 'ARG GIT_COMMIT_SHA=""' in lines, "the ARG must default to EMPTY, never be absent"
     assert "ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA" in lines, "an unpromoted ARG never reaches runtime"
     # The ARG must be declared before it is consumed, and both after the FROM (an ARG
-    # above FROM belongs to no build stage and would expand to nothing here).
-    assert lines.index("FROM python:3.12-slim-bookworm") < lines.index('ARG GIT_COMMIT_SHA=""')
+    # above FROM belongs to no build stage and would expand to nothing here). The FROM is
+    # found by prefix: the base is pinned by digest (`…bookworm@sha256:…`) since the
+    # dependency freeze, and the digest is not this test's business.
+    from_index = next(
+        i for i, line in enumerate(lines) if line.startswith("FROM python:3.12-slim-bookworm")
+    )
+    assert from_index < lines.index('ARG GIT_COMMIT_SHA=""')
     assert lines.index('ARG GIT_COMMIT_SHA=""') < lines.index("ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA")
