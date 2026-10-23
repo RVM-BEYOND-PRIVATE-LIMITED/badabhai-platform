@@ -279,6 +279,13 @@ export const serverEnvSchema = z.object({
   // because a reversal that needs a deploy is not a reversal, and a bad mapping writes
   // records an employer will read: stopping quickly matters most here.
   RESUME_AUTOFILL_ENABLED: booleanFromString,
+  // Audit fix F4 — skip the résumé option-map call while autofill is off. The mapping's only
+  // reader is autofill, so with RESUME_AUTOFILL_ENABLED off the call is billed and its output
+  // never applied. Turning this ON makes `ResumeOptionMapService` return no mappings without
+  // calling the model whenever autofill is off; with autofill on it changes nothing.
+  //
+  // DEFAULT OFF = today's behaviour: the option map runs on every form-routed import.
+  RESUME_OPTION_MAP_REQUIRES_AUTOFILL: booleanFromString,
   // ADR-0043 (ruling R3) — "Aapki nayi jaankari se resume update kar doon?" at the end of an
   // interview, for a worker who ALREADY has a résumé. A "Haan" confirms the profile that
   // interview produces and regenerates the résumé in the background, without the preview.

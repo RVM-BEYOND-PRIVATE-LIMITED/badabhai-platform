@@ -688,13 +688,15 @@ describe("TradeFormService", () => {
       // this assertion needs no `await`/flush to see the call `answer()`'s return already implies.
       expect(review).toHaveBeenCalledTimes(1);
       expect(review).toHaveBeenCalledWith(
-        WORKER,
-        "qp_cnc_turning",
-        "turning_machine",
-        "CNC lathe",
-        // The question's own prompt text — this pack's `item()` helper defaults it to
-        // `${question_key}?`.
-        "turning_machine?",
+        // #2409 — the whole question travels, so the review can be handed the field it was typed
+        // in and the pack's own options as examples of it.
+        expect.objectContaining({
+          workerId: WORKER,
+          packId: "qp_cnc_turning",
+          packVersion: 1,
+          item: expect.objectContaining({ question_key: "turning_machine" }),
+          ownText: "CNC lathe",
+        }),
         expect.objectContaining({ correlationId: undefined, requestId: undefined }),
         expect.objectContaining({ WORK_HISTORY_POLISH_ENABLED: true }),
         // A FRESH TRIGGER, ALWAYS — `upsertAnswer` clears any prior polish/decline on every

@@ -87,6 +87,8 @@ from app.contracts import (
     LlmTurnInput,
     LlmTurnOutput,
     OccupationPin,
+    OtherAnswerReviewInput,
+    OtherAnswerReviewOutput,
     ParsedField,
     Predicate,
     PredicateOperand,
@@ -312,6 +314,9 @@ _OIE_MODELS = {
     # dropped in flight means a sheet printing raw text while the trace says it was polished.
     "WorkHistoryPolishInput": WorkHistoryPolishInput,
     "WorkHistoryPolishOutput": WorkHistoryPolishOutput,
+    # #2409 — the typed "Koi aur" answer's review.
+    "OtherAnswerReviewInput": OtherAnswerReviewInput,
+    "OtherAnswerReviewOutput": OtherAnswerReviewOutput,
 }
 
 

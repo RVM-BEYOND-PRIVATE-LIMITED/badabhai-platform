@@ -39,6 +39,8 @@ from ..contracts import (
     LlmInterviewDraft,
     LlmTurnInput,
     LlmTurnOutput,
+    OtherAnswerReviewInput,
+    OtherAnswerReviewOutput,
     TranscriptLine,
     WorkHistoryPolishInput,
     WorkHistoryPolishOutput,
@@ -53,7 +55,13 @@ from ..profiling.interview_prompts import (
     skills_interview_system_prompt,
     work_history_polish_prompt,
 )
+from ..profiling.other_answer_review import (
+    OTHER_ANSWER_REVIEW_SYSTEM_PROMPT,
+    clean_items,
+    review_user_turn,
+)
 from ..profiling.parse_masking import Masker, mask_transcript_lines
+from ..profiling.predicates import is_abusive
 from ..profiling.understand import mask_schema_rows
 from ..pseudonymize import (
     TokenScope,
@@ -1158,3 +1166,110 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
 
         return WorkHistoryPolishOutput(work_done=polished, ai_metadata=meta)
+
+
+# RIDES THE POLISH TASK, by owner decision (2026-10-22): `work_history_polish` is already armed in
+# production's `AI_REAL_CALL_TASKS`, so the review goes real on deploy with no box change, and its
+# spend is ledgered beside the rewrite it sits next to on the résumé. Same route shape too: cheap,
+# JSON, temperature zero. Traces still tell the two apart by prompt name
+# (`worker-other-answer-review`). A task of its own is a later split, not a rewrite.
+OTHER_ANSWER_REVIEW_TASK_TYPE = POLISH_TASK_TYPE
+
+
+@api_router.post("/profiling/other-answer/review", response_model=OtherAnswerReviewOutput)
+async def other_answer_review(body: OtherAnswerReviewInput) -> OtherAnswerReviewOutput:
+    """Check ONE typed "Koi aur -- khud likhein" answer against the trade and the field (#2409).
+
+    Returns the cleaned names that may print on the worker's own résumé. `reviewed` separates a
+    settled answer (print exactly `items`, possibly nothing) from a degrade the caller retries:
+    a mock posture, a deadline, or a model answer that failed the contract.
+
+    The trade, field, question and examples are the API's own pack vocabulary, not worker text;
+    only `text` is the worker's, and it is the one input that passes the gateway.
+    """
+    settings = get_settings()
+    raw_pii = settings.ai_raw_pii_enabled
+
+    with workflow_scope(
+        name=WORKFLOW_PROFILE_BUILD,
+        worker_ref=body.worker_ref,
+        metadata={"text_chars": len(body.text)},
+    ):
+        # RULE 3 BEFORE ANY SPEND. Abuse is settled here, deterministically, and never sent on.
+        if is_abusive(body.text):
+            logger.info("other-answer review: abusive input, nothing prints")
+            return OtherAnswerReviewOutput(reviewed=True)
+
+        masked = llm_input_gate(body.text, raw=raw_pii)
+        if masked.blocked:
+            # Settled rather than retried: the same text is refused the same way every time.
+            logger.warning("other-answer review: the input did not clear the gateway")
+            return OtherAnswerReviewOutput(reviewed=True, blocked=True)
+
+        resolved = resolve_prompt(prompt_registry.OTHER_ANSWER_REVIEW)
+        system_prompt = resolved.text if resolved is not None else OTHER_ANSWER_REVIEW_SYSTEM_PROMPT
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                # DELIMITED: the worker types the answer and it prints on his own résumé, so he
+                # is both the beneficiary and the only author of the text the model reads.
+                "content": review_user_turn(
+                    trade=body.trade_label,
+                    field=body.field_label,
+                    question=body.question_text,
+                    examples=body.example_options,
+                    answer=masked.text,
+                ),
+            },
+        ]
+
+        try:
+            content, meta = await asyncio.wait_for(
+                router.run(
+                    OTHER_ANSWER_REVIEW_TASK_TYPE,
+                    messages=messages,
+                    mock_response='{"items": []}',
+                    real_call_allowed=True,
+                    user_ref=body.worker_ref,
+                    prompt=resolved,
+                ),
+                timeout=settings.profiling_extract_deadline_seconds,
+            )
+        except TimeoutError:
+            logger.warning("other-answer review deadline exceeded")
+            return OtherAnswerReviewOutput()
+
+        if not meta.real_call:
+            return OtherAnswerReviewOutput()
+
+        try:
+            parsed = json.loads(coerce_json_text(content))
+        except Exception:
+            logger.warning("other-answer review output was not JSON")
+            return OtherAnswerReviewOutput(ai_metadata=meta)
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("items"), list):
+            # NOT a settled "print nothing": an answer that never said what prints is a degrade,
+            # and the next render asks again.
+            logger.warning("other-answer review output carried no items list")
+            return OtherAnswerReviewOutput(ai_metadata=meta)
+
+        # THE DETERMINISTIC WALLS (`clean_items`), then the two this route owns: the gateway on
+        # each printed name, and the hard-identifier floor (ADR-0047 G1), which reads no flag.
+        # Grounded against what the model SAW, with the gateway's own placeholders removed.
+        items = [
+            item
+            for item in clean_items(
+                parsed.get("items"),
+                source=body.text,
+                masked_source=_PLACEHOLDER.sub(" ", masked.text),
+            )
+            if not pseudonymize(item).blocked and not carries_hard_identifier(item)
+        ]
+        # THE ROW, NOT ONLY ITS CHIPS. The names print side by side, so a phone split across two
+        # of them ("Lathe 98765", "43210 Mill") reads whole on the page. Any identifier across
+        # the joined row refuses all of it.
+        if carries_hard_identifier(" ".join(items)):
+            logger.warning("other-answer review: the printed row carried a hard identifier")
+            items = []
+        return OtherAnswerReviewOutput(items=items, reviewed=True, is_mock=False, ai_metadata=meta)

@@ -356,6 +356,16 @@ describe("advancing (D1, D2) — re-ask once, then settle; hold the first name; 
     expect(t.settled.map((s) => s.step)).toEqual(["first_name"]);
   });
 
+  it("the first ask is for the FULL name, and a full-name reply to it skips the surname (#2399)", () => {
+    expect(intakeLineText("first_name", "prompt")).toBe("Aapka pura naam kya hai?");
+    const reading = readIntakeAnswer("first_name", "mera naam Ramesh Kumar hai");
+    expect(reading).toEqual({ kind: "answer", value: "Ramesh Kumar", fullName: true });
+    const t = advanceIntake(pendingAt("first_name"), reading);
+    expect(t.name).toEqual({ kind: "full", value: "Ramesh Kumar" });
+    expect(t.reply).toEqual({ kind: "ask", step: "state", line: "prompt" });
+    expect(t.next.remaining).not.toContain("last_name");
+  });
+
   it("the surname step names the HELD first name — answered or skipped (D2)", () => {
     const held = pendingAt("last_name", { firstNameEnc: "v1:sealed" });
     expect(advanceIntake(held, answer("Kumar")).name).toEqual({ kind: "held", surname: "Kumar" });

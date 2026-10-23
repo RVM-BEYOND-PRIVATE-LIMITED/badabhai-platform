@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { containsOtherAnswerMarker } from "./other-answer-leak-guard";
+import { carriesReviewedOtherAnswers, containsOtherAnswerMarker } from "./other-answer-leak-guard";
 
 /**
  * `containsOtherAnswerMarker` is the LAST-LINE guard wired into
@@ -84,5 +84,18 @@ describe("containsOtherAnswerMarker", () => {
         generalRoad: { ownBriefUsable: true },
       }),
     ).toBe(true);
+  });
+});
+
+describe("carriesReviewedOtherAnswers (#2409)", () => {
+  it("refuses a context carrying the worker's reviewed typed answers, even empty", () => {
+    expect(
+      carriesReviewedOtherAnswers({ otherAnswers: { turning_machine: ["Batliboi lathe"] } }),
+    ).toBe(true);
+    expect(carriesReviewedOtherAnswers({ otherAnswers: {} })).toBe(true);
+  });
+
+  it("passes the payer path's own context, which never sets them", () => {
+    expect(carriesReviewedOtherAnswers({})).toBe(false);
   });
 });
