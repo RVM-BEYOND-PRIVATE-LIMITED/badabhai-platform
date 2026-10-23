@@ -195,7 +195,10 @@ def test_the_tool_call_price_is_unchanged_for_anthropic():
     expected_tokens = cost_tracker.estimate_cost_inr(model, 2500, 300) + (
         1000 * 1.25 + 3000 * 0.1
     ) * (in_rate / 1000.0)
-    expected = round(expected_tokens + 2 * cost_tracker.WEB_SEARCH_COST_INR, 4)
+    # D13 moved the search fee behind `web_search_cost_inr()` so it can follow the configured
+    # dollar basis; unset, it returns the same 0.83 the module constant held, so the assertion is
+    # the one this test made before the two fixes met.
+    expected = round(expected_tokens + 2 * cost_tracker.web_search_cost_inr(), 4)
     assert (
         cost_tracker.server_tool_call_cost_inr(model, result, input_tokens=2500, output_tokens=300)
         == expected

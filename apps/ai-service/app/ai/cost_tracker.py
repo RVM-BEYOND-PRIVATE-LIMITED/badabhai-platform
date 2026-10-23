@@ -32,12 +32,12 @@ from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
 from .errors import LlmTransportError
 from .model_config import (
-    WEB_SEARCH_COST_INR,
     WEB_SEARCH_RESULT_TOKENS_ALLOWANCE,
     WEB_SEARCH_UNBOUNDED_USES,
     cache_multipliers,
     provider_for_model,
     rate_inr_per_1k,
+    web_search_cost_inr,
 )
 
 if TYPE_CHECKING:
@@ -101,7 +101,7 @@ def server_tool_reserve_inr(model: str, tools: list[dict[str, Any]], prompt_toke
     extra_input = searches * prompt_tokens + (
         WEB_SEARCH_RESULT_TOKENS_ALLOWANCE * searches * (searches + 1) // 2
     )
-    return round(estimate_cost_inr(model, extra_input, 0) + searches * WEB_SEARCH_COST_INR, 4)
+    return round(estimate_cost_inr(model, extra_input, 0) + searches * web_search_cost_inr(), 4)
 
 
 def cache_cost_inr(model: str, result: LlmResult) -> float:
@@ -140,11 +140,11 @@ def server_tool_call_cost_inr(
     or the estimate when it reported none), priced at ``model``'s rate. The cache buckets the
     provider reports apart from ``input_tokens`` are priced at its write/read multipliers (zero
     on a call that cached nothing). The search fee is ``result.search_requests`` (what the
-    provider says it billed) times ``WEB_SEARCH_COST_INR``. Passed to
+    provider says it billed) times ``web_search_cost_inr()``. Passed to
     :func:`build_call_metadata` as ``cost_inr``, so ``ai.cost_recorded`` carries the fees too.
     """
     tokens = estimate_cost_inr(model, input_tokens, output_tokens) + cache_cost_inr(model, result)
-    return round(tokens + result.search_requests * WEB_SEARCH_COST_INR, 4)
+    return round(tokens + result.search_requests * web_search_cost_inr(), 4)
 
 
 def server_tool_ambiguous_charge_inr(
@@ -158,9 +158,7 @@ def server_tool_ambiguous_charge_inr(
     keeping the full worst case for it would let a run of them drain the global daily cap.
     """
     searches = web_search_max_uses(tools)
-    return round(
-        searches * WEB_SEARCH_COST_INR + estimate_cost_inr(model, prompt_tokens, 0), 4
-    )
+    return round(searches * web_search_cost_inr() + estimate_cost_inr(model, prompt_tokens, 0), 4)
 
 
 def server_tool_failure_charge_inr(

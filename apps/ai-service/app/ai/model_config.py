@@ -935,5 +935,49 @@ def provider_for_model(model: str) -> str:
     return "unknown"
 
 
-def rate_inr_per_1k(model: str) -> tuple[float, float]:
+# Token-audit fix D13 — the US$ LIST PRICES, per 1M tokens (input, output), that the rupee rows in
+# `_MODEL_RATES_INR` were computed from at ~Rs 83/US$. Used only when `ai_cost_fx_inr_per_usd` is
+# set, so the ledger can be priced on the same rupee basis as a dollar invoice. Gemini read
+# 2026-10-23 from https://ai.google.dev/gemini-api/docs/pricing (text, prompts <= 200k); Claude
+# Haiku 4.5 is $1 / $5. A model with no row here keeps its rupee value under any FX.
+_MODEL_LIST_PRICES_USD_PER_1M: dict[str, tuple[float, float]] = {
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini/gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-2.5-pro": (1.25, 10.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "text-embedding-004": (0.15, 0.0),
+    "gemini-embedding-001": (0.15, 0.0),
+}
+#: The web search's per-search fee in dollars ($10 per 1,000 searches, ADR-0054 §1).
+WEB_SEARCH_COST_USD = 0.01
+
+
+def _fx_inr_per_usd(settings: Settings | None) -> float | None:
+    """The configured rupees-per-dollar basis, or None for today's rupee table."""
+    if settings is None:
+        from ..config import get_settings
+
+        settings = get_settings()
+    return settings.ai_cost_fx_inr_per_usd
+
+
+def rate_inr_per_1k(model: str, settings: Settings | None = None) -> tuple[float, float]:
+    """``(input, output)`` rupees per 1k tokens for ``model``.
+
+    With ``ai_cost_fx_inr_per_usd`` set (fix D13), a model with a US$ list price is priced at that
+    basis; otherwise — and for every model without a list price — the rupee table, as before.
+    ``settings`` defaults to the process settings: the basis is one value for the whole service.
+    """
+    fx = _fx_inr_per_usd(settings)
+    usd = _MODEL_LIST_PRICES_USD_PER_1M.get(model) if fx is not None else None
+    if usd is not None and fx is not None:
+        return usd[0] * fx / 1000.0, usd[1] * fx / 1000.0
     return _MODEL_RATES_INR.get(model, _DEFAULT_RATE_INR)
+
+
+def web_search_cost_inr(settings: Settings | None = None) -> float:
+    """The per-search fee in rupees: ``WEB_SEARCH_COST_INR`` (today), or the dollar fee at the
+    configured basis (fix D13)."""
+    fx = _fx_inr_per_usd(settings)
+    return WEB_SEARCH_COST_INR if fx is None else round(WEB_SEARCH_COST_USD * fx, 4)
