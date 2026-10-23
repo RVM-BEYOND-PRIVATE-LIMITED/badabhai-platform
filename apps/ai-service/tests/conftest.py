@@ -85,6 +85,9 @@ def _force_mock_only_env() -> None:
     # `anthropic` SDK (installed locally, absent in CI) gets Claude first, so a test that needs
     # either order states it: ai_primary_provider="google", or the SDK patched present.
     os.environ["AI_PRIMARY_PROVIDER"] = "anthropic"
+    # Token-audit fix D13 — the rupee table as committed (empty = unset), so a developer `.env`
+    # that sets a dollar basis cannot change every cost a test asserts.
+    os.environ["AI_COST_FX_INR_PER_USD"] = ""
     # Token-audit fix B-1 — no per-task override, the committed default, so a developer `.env`
     # that moves a task cannot reroute the suite. Tests that need one pass it explicitly.
     os.environ["AI_TASK_MODEL_OVERRIDES"] = ""

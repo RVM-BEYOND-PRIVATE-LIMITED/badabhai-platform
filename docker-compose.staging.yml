@@ -1089,6 +1089,11 @@ services:
       AI_MAX_DAILY_COST_INR: ${AI_MAX_DAILY_COST_INR:-200.0}
       AI_MAX_USER_DAILY_COST_INR: ${AI_MAX_USER_DAILY_COST_INR:-25.0}
       AI_MAX_TOTAL_COST_INR: ${AI_MAX_TOTAL_COST_INR:-1000.0}
+      # Token-audit fix D13 — ONE RUPEE BASIS: rupees per US$ for every model with a dollar list
+      # price, so the ledger and a dollar invoice agree. EMPTY (the default) is today's rupee table
+      # (~Rs 83/US$, rounded per row) exactly; `""` is read as unset, never as a boot failure. The
+      # caps above are rupee figures and do not move with it.
+      AI_COST_FX_INR_PER_USD: ${AI_COST_FX_INR_PER_USD:-}
       # The résumé option-map output budget (audit fix F4), split off the shared extraction
       # budget. RESTATED like the ceilings above: it is a non-optional pydantic int, so a bare
       # pass-through would fail boot. 1024 is today's value; the box raises it (2048 is the

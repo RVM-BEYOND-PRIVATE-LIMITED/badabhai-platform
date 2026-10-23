@@ -84,6 +84,11 @@ const cost = (
     success,
     error_code: null,
     failure_reason: null,
+    // Token-audit A3 / A-8 — not recorded on this fixture, as on every row from before them.
+    cache_write_tokens: null,
+    cache_read_tokens: null,
+    attempt_count: null,
+    candidates_tried: null,
   });
 
 function data(): FreeChatProbeData {

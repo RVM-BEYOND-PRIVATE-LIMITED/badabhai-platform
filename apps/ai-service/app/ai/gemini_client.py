@@ -113,8 +113,10 @@ class LlmResult:
     search_requests: int = 0
     citations: list[tuple[str, str]] = field(default_factory=list)
     search_results: list[tuple[str, str]] = field(default_factory=list)
-    # Anthropic bills cache writes and reads in their own buckets, outside ``input_tokens``.
-    # Read for tool calls only (search results are input), so the search call's cost is whole.
+    # The CACHE BUCKETS, outside ``input_tokens`` on every provider (token-audit fix A3): Anthropic
+    # reports cache writes and reads apart from ``input_tokens``; Gemini's implicit-cache hits are
+    # split out of ``promptTokenCount`` into the read bucket. Priced by
+    # ``cost_tracker.cache_cost_inr`` at each provider's multipliers. Zero when nothing cached.
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
 
@@ -239,9 +241,22 @@ def _parse_gemini_response(data: dict) -> LlmResult:
     content = parts[0].get("text") or ""
 
     usage = data.get("usageMetadata") or {}
-    input_tokens = int(usage.get("promptTokenCount", 0) or 0)
+    prompt_tokens = int(usage.get("promptTokenCount", 0) or 0)
     output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
-    return LlmResult(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
+    # Token-audit fix A3 — IMPLICIT-CACHE HITS ARE INSIDE `promptTokenCount` (unlike Anthropic,
+    # whose `input_tokens` excludes its cache buckets) and bill at a tenth of the input rate. Split
+    # out so `input_tokens` means the same thing for both providers — tokens at the full rate —
+    # and the hits are priced as what they are. Absent (no hit, every call today) leaves the
+    # counts exactly as before. Clamped: a count that is not a sane integer is no hit.
+    cached = usage.get("cachedContentTokenCount", 0)
+    cached = cached if isinstance(cached, int) and not isinstance(cached, bool) else 0
+    cached = min(max(cached, 0), prompt_tokens)
+    return LlmResult(
+        content=content,
+        input_tokens=prompt_tokens - cached,
+        output_tokens=output_tokens,
+        cache_read_input_tokens=cached,
+    )
 
 
 async def acomplete(

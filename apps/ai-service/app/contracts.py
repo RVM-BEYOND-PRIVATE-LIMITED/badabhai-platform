@@ -56,6 +56,12 @@ class AICallMetadata(BaseModel):
     attempt_count: int = 0
     candidates_tried: list[str] = Field(default_factory=list)
     failure_reason: str | None = None
+    # Token-audit fix A3 (additive, defaulted -> back-compat): the provider's prompt-cache
+    # buckets, OUTSIDE `input_tokens` on every provider and priced at their own multipliers in
+    # `estimated_cost_inr`. `None` = no provider answered (a mock, a cap, a failed chain); 0 = it
+    # answered and cached nothing. Counts only.
+    cache_write_tokens: int | None = None
+    cache_read_tokens: int | None = None
     # --- THE AI-TRACE TEXT (additive, defaulted -> back-compat; GATED) ---------
     # The FINAL prompt and the FINAL response of this call, for the backend's
     # `ai_call_traces` store — the one place on the platform allowed to hold this text,

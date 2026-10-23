@@ -104,6 +104,15 @@ time: `task=primary` or `task=primary>fallback`, comma-separated, for example
 
 ## Cost tracking
 
+**One rupee basis (token-audit fix D13).** The rate table (`model_config._MODEL_RATES_INR`) is in
+rupees at ~Rs 83/US$, rounded per row; the providers bill in dollars.
+- Set `AI_COST_FX_INR_PER_USD` (empty by default, which keeps today's table) to price every model
+  with a dollar list price (`_MODEL_LIST_PRICES_USD_PER_1M`), and the web-search fee, at that many
+  rupees per dollar. That makes the ledger reconcile with a dollar invoice.
+- Rows without a list price keep their rupee value.
+- The spend caps are rupee figures and do not move with it. Rescaling them is a separate owner
+  decision.
+
 Every call returns `AICallMetadata`: `ai_call_id`, `task_type`, `model_name`,
 `provider`, `real_call`, `input_tokens`, `output_tokens`, `estimated_cost_inr`,
 `latency_ms`, `success`, `error_code`, `cost_alert`, `above_target`,
