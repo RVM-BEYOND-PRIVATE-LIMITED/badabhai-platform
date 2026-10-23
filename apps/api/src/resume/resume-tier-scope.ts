@@ -73,6 +73,8 @@ export function applyTierScope(
     profilingTier: tier,
     attributes: keep(context.attributes),
     ...(context.polishedAttributes ? { polishedAttributes: keep(context.polishedAttributes) } : {}),
+    // #2409 — a typed answer to a question this tier does not ask goes with that question's ticks.
+    ...(context.otherAnswers ? { otherAnswers: keep(context.otherAnswers) } : {}),
     ...(employments === undefined ? {} : { employments }),
     // An explicitly empty list, not an absent one: `??` falls through to the snapshot on
     // `undefined`, and a tier that does not ask for a field must not print the snapshot's either.

@@ -1054,6 +1054,13 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileFormCompletedPayload,
   },
+  // #2409 — a typed "Koi aur — khud likhein" answer's review settled: accepted or rejected. Ids,
+  // a closed outcome and a count; never the text. v1.
+  "profile.other_answer_reviewed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileOtherAnswerReviewedPayload,
+  },
 
   // ---- Résumé import (ADR-0041, phases RI-1 / RI-3 / RI-4) ----
   //

@@ -1379,7 +1379,7 @@ describe("ProfileExtractionProcessor — transcript source", () => {
         messages: [
           {
             role: "assistant",
-            text: "Aapka pehla naam kya hai?",
+            text: "Aapka pura naam kya hai?",
             at: "2026-09-30T00:00:00.000Z",
             intake: true,
           },

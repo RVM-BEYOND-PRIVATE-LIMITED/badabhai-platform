@@ -36,11 +36,15 @@ export interface IntakeStepCopy {
 
 /** Per-step copy. Keyed by the closed step set the `profile.identity_intake_answered` event uses. */
 export const INTAKE_COPY: Readonly<Record<IdentityIntakeStep, IntakeStepCopy>> = {
+  // ASKS FOR THE FULL NAME (owner, #2399), while the step keeps its `first_name` key: the event's
+  // closed step set and the app's `worker_first_name` question key are unchanged. A two-word answer
+  // already settles the whole name and skips the surname step (D3), so only a one-word answer
+  // is asked for the surname.
   first_name: {
-    prompt: "Aapka pehla naam kya hai?",
-    retry: "Kripya sirf apna pehla naam likhiye.",
+    prompt: "Aapka pura naam kya hai?",
+    retry: "Kripya apna pura naam likhiye.",
     why: "Aapka naam aapke resume par chhapta hai.",
-    clarify: "Aapka naam aapke resume par chhapta hai. Aapka pehla naam kya hai?",
+    clarify: "Aapka naam aapke resume par chhapta hai. Aapka pura naam kya hai?",
   },
   last_name: {
     prompt: "Aapka surname kya hai?",

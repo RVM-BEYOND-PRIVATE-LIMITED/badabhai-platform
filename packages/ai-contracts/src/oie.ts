@@ -735,3 +735,48 @@ export const WorkHistoryPolishOutputSchema = z.object({
   ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type WorkHistoryPolishOutput = z.infer<typeof WorkHistoryPolishOutputSchema>;
+
+/**
+ * "KOI AUR — KHUD LIKHEIN" REVIEW (#2409) — a worker's typed answer to a closed-option form
+ * question, checked before it may print on his own résumé.
+ *
+ * TWO INPUTS DECIDE IT, by owner ruling (2026-10-22): the worker's TRADE and the FIELD the answer
+ * was typed in. "Batliboi" under a turner's machines is a machine; under his controllers it is not,
+ * and under a welder's processes it is noise. The pack's own options travel with the field as
+ * examples of what belongs in it.
+ *
+ * WHAT COMES BACK IS A LIST OF CLEANED NAMES, never prose. Spelling and naming fixed, one item per
+ * thing he named, and only the parts that belong (partial acceptance, owner ruling). An empty list
+ * from a completed review means "nothing here may print", which the caller stores so the same
+ * text is not reviewed again.
+ */
+export const OtherAnswerReviewInputSchema = z.object({
+  schema_version: z.literal("oie.v1").default("oie.v1"),
+  worker_ref: z.string().min(1),
+  /** The worker's own words, as typed. */
+  text: z.string().min(1).max(300),
+  /** The trade the sheet is about, e.g. "CNC Turner". */
+  trade_label: z.string().min(1).max(80),
+  /** The résumé row the answer would print in, e.g. "Operated machines". */
+  field_label: z.string().min(1).max(80),
+  /** The form question he answered, e.g. "Aap kaunsi machine chalate hain?". */
+  question_text: z.string().max(200).nullable().default(null),
+  /** The pack's own options for that question: examples of what belongs in the field. */
+  example_options: z.array(z.string().min(1).max(80)).max(30).default([]),
+});
+export type OtherAnswerReviewInput = z.infer<typeof OtherAnswerReviewInputSchema>;
+
+export const OtherAnswerReviewOutputSchema = z.object({
+  /** The cleaned names that may print, in the worker's order. Empty when nothing may. */
+  items: z.array(z.string().min(1).max(60)).max(5).default([]),
+  /**
+   * TRUE ONLY WHEN A REAL REVIEW COMPLETED. False on a mock posture, a deadline or an unreadable
+   * model answer: the caller then stores nothing and asks again on the next render, where an
+   * empty `items` with `reviewed: true` is a settled "do not print".
+   */
+  reviewed: z.boolean().default(false),
+  blocked: z.boolean().default(false),
+  is_mock: z.boolean().default(true),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type OtherAnswerReviewOutput = z.infer<typeof OtherAnswerReviewOutputSchema>;

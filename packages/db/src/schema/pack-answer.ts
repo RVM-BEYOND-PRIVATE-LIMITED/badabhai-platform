@@ -133,6 +133,12 @@ export const workerPackAnswers = pgTable(
     // contract this column exists to hold: never printed until a model has vouched for it, never
     // printed at all when the review omits it.
     //
+    // SINCE #2409 IT HOLDS A VERSIONED RECORD, `{"v":1,"items":[...]}`: the names a review against
+    // the worker's trade and the field let print (`apps/api/src/profiling/other-answer-review-
+    // record.ts`), `items: []` when none may. A value that does not parse as that record (every
+    // pre-#2409 work-history-route rewrite) is "not reviewed" and never prints. Same column, no
+    // migration: its only reader before #2409 was the reviewer itself.
+    //
     // WORKER-FACING ONLY. This column, like `answer_other_text` itself, is never read by
     // `ResumeDisclosureService` or any other payer-facing projection — see that service's own
     // docblock and `resume-disclosure-other-answer-exclusion.test.ts`.
