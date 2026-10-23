@@ -86,6 +86,22 @@ every tier task whenever Claude's transport is usable (`ANTHROPIC_API_KEY` set a
 `anthropic` SDK installed), with the tier's Gemini model as the fallback.
 `google` restores Gemini first.
 
+**Per-task model choice (token-audit fix B-1).** `AI_TASK_MODEL_OVERRIDES` (default empty, which
+is every route above unchanged) names one task's chain directly, so a model moves one task at a
+time: `task=primary` or `task=primary>fallback`, comma-separated, for example
+`profiling_free_classify=gemini-2.5-flash-lite>claude-haiku-4-5`.
+- It wins over the tier, a route's own model (the career answer, the free-chat reply) and
+  `AI_PRIMARY_PROVIDER`.
+- The route keeps its output budget, temperature, json mode, retries and deadline.
+- A fallback still needs a different provider and a usable transport, and a single model keeps
+  `DEFAULT_FALLBACK_MODEL` as its fallback.
+- Only the models in `model_config.OVERRIDE_MODELS` may be named (priced, and sent a request
+  they accept). The news answer cannot move: its web search is Anthropic's.
+- An entry that cannot be honoured is dropped and logged once (`ai_task_model_override.rejected`),
+  and the task keeps its route. The service never refuses to boot over it.
+
+`scripts/effective-ai-flags.py` prints every task's chain in force and any refused entry.
+
 ## Cost tracking
 
 Every call returns `AICallMetadata`: `ai_call_id`, `task_type`, `model_name`,

@@ -691,6 +691,19 @@ describe("loadServerConfig", () => {
     );
   });
 
+  it.each([
+    "PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED",
+    "CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED",
+  ] as const)("%s (fix Q2) is OFF by default, for the empty string and for 'false'", (name) => {
+    // Off is today's interview and today's extraction: nothing flagged, skipped or guarded.
+    const read = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { [name]: value })[name];
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+  });
+
   it("CHAT_IDENTITY_INTAKE_ENABLED (ADR-0048) is OFF by default, for the empty string and for 'false'", () => {
     // Off is today's chat opening byte for byte; it flips only with the app release that
     // unroutes `/name`, so an unset or blank secret must never read as on.
@@ -714,6 +727,43 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "false" }).CHAT_FREE_CHAT_DISABLED).toBe(false);
     expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
   });
+
+  it("CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED (fix F3) is OFF by default and for the empty string", () => {
+    // Off must be today's interview: the trade-gate Haan turn calls the model.
+    const read = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: value })
+        .CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+  });
+  it("FORM_TYPED_TENURE_DERIVE_ENABLED (fix Q10) is OFF by default and for the empty string", () => {
+    // Off must be today's form exactly: a typed tenure answer resolves no experience gate.
+    expect(loadServerConfig({}).FORM_TYPED_TENURE_DERIVE_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ FORM_TYPED_TENURE_DERIVE_ENABLED: "" }).FORM_TYPED_TENURE_DERIVE_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ FORM_TYPED_TENURE_DERIVE_ENABLED: "false" })
+        .FORM_TYPED_TENURE_DERIVE_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ FORM_TYPED_TENURE_DERIVE_ENABLED: "true" })
+        .FORM_TYPED_TENURE_DERIVE_ENABLED,
+    ).toBe(true);
+  });
+  it.each(["RESUME_OPTION_MAP_REQUIRES_AUTOFILL"] as const)(
+    "%s (audit fix F4) is OFF by default and for the empty string — today's behaviour",
+    (name) => {
+      // It stops a model call whose output nothing uses. Off must be the call running exactly
+      // as before, for unset, blank (compose's `:-` on an absent secret) and 'false' alike.
+      expect(loadServerConfig({})[name]).toBe(false);
+      expect(loadServerConfig({ [name]: "" })[name]).toBe(false);
+      expect(loadServerConfig({ [name]: "false" })[name]).toBe(false);
+      expect(loadServerConfig({ [name]: "true" })[name]).toBe(true);
+    },
+  );
 
   it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
     // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a

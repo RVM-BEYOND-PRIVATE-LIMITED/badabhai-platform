@@ -114,10 +114,34 @@ TRACKED = [
     "AI_ENABLE_REAL_CALLS",
     "AI_REAL_CALLS_KILL_SWITCH",
     "AI_REAL_CALL_TASKS",
+    # Audit fix F1: removes tasks from the allowlist; armed_tasks below already honours it
+    # (it is computed through `real_call_enabled_for`), this row shows which layer set it.
+    "AI_REAL_CALL_TASKS_DENY",
     "AI_CHAT_MODEL_TIER",
     "AI_PRIMARY_PROVIDER",
+    "AI_TASK_MODEL_OVERRIDES",
     "AI_SYNTHETIC_PERSONA_MODE",
 ]
+
+
+def model_chains(settings: object) -> dict[str, object]:
+    """Every routed task's model chain in force — what a real call would try, in order.
+
+    THE ROUTER'S OWN FUNCTIONS (`model_chain`, the override parser), never a re-derivation here: a
+    report that re-implemented the rule would be one more layer able to disagree with the router.
+    Model ids and task names only; no key or value is read beyond the override string itself.
+    """
+    from app.ai.model_config import _ROUTE_SHAPES, model_chain, task_model_overrides
+
+    overrides = task_model_overrides(settings)
+    return {
+        "chains": {
+            task: {"models": model_chain(task, settings), "override": task in overrides.by_task}
+            for task in sorted(_ROUTE_SHAPES)
+        },
+        "override_rejected": [list(row) for row in overrides.rejected],
+    }
+
 
 SECRETS = ["GEMINI_FLASH_API_KEY", "ANTHROPIC_API_KEY", "AI_INTERNAL_TOKEN"]
 
@@ -183,6 +207,7 @@ def main() -> int:
         "compose_declares": {},
         "secrets": {},
         "boot_refusal": boot_refusal,
+        "routes": model_chains(s),
     }
 
     for name in TRACKED:
@@ -239,6 +264,13 @@ def main() -> int:
         print("      names something that is not a task type — both are silent today)")
     print(f"  chat model tier   : {e['chat_model_tier']}")
     print(f"  synthetic persona : {'ON' if e['synthetic_persona_mode'] else 'off'}")
+    routes = report["routes"]
+    print("\nMODEL CHAIN PER TASK (tried in this order on a real call)")
+    for task, row in routes["chains"].items():
+        mark = "   (override)" if row["override"] else ""
+        print(f"  {task:<28} {' > '.join(row['models'])}{mark}")
+    for subject, reason in routes["override_rejected"]:
+        print(f"  !! AI_TASK_MODEL_OVERRIDES entry not applied: {subject} ({reason})")
     print("\nWHICH LAYER WON")
     for name, row in report["layers"].items():
         print(f"  {name:<28} {row['source']}")

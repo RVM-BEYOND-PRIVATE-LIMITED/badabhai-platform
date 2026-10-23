@@ -280,6 +280,12 @@ import {
   type EditRow,
   type EditTarget,
 } from "./understanding/edit-gate";
+import {
+  flagChatOnlyLines,
+  isChatOnlyReading,
+  withoutCityCrossFill,
+  type ChatOnlyVerdict,
+} from "./understanding/chat-only";
 import { isBareNone, isDeclineReply, isFreeTextItem } from "./understanding/none-answer";
 import { buildProfilingSchema, type ProfilingSchemaView } from "./understanding/profiling-schema";
 import { isSideMessage } from "./understanding/side-message";
@@ -631,6 +637,17 @@ export interface TurnInput {
    * (`CHAT_TURN_UNDERSTANDING_ENABLED`). Only the chat sets it; absent is today's turn exactly.
    */
   readonly understanding?: boolean;
+  /**
+   * Fix Q2 — flag the lines of a turn whose message the layer read as chat only, so the extraction
+   * can leave them out (`PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED`). Only the chat sets it; absent
+   * flags nothing, which is today's transcript exactly.
+   */
+  readonly flagChatOnly?: boolean;
+  /**
+   * Fix Q2 — the cross-question fill takes no current city from a message the layer read as chat
+   * only (`CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED`). Only the chat sets it; absent is today's turn.
+   */
+  readonly chatOnlyCityGuard?: boolean;
   /**
    * The worker's own name, for the interview models' egress to redact out of what they read
    * (`redactedTurnText`, R32 / ADR-0047 G2). A THUNK, read only by a turn that actually calls a
@@ -1048,7 +1065,17 @@ export class ProfilingOrchestrator {
       // ADR-0057 (#2311) — the lines above the question (the Profile-page pointer, the bridge
       // line), composed BEFORE the CAS so the reply, the transcript and `lastTurn` say the same.
       const leadIns = await this.composeLeadIns(gated, input, understandRefs);
-      const decided = leadIns.decided;
+      // Fix Q2 — a chat-only turn's lines, flagged for the extraction once its reply is final.
+      const verdict = understandRefs.chatOnly ?? null;
+      const decided =
+        input.flagChatOnly === true && verdict !== null
+          ? flagChatOnlyLines(leadIns.decided, {
+              before: buffer,
+              envelope,
+              text: input.text,
+              verdict,
+            })
+          : leadIns.decided;
 
       // ADR-0048 — THE INTAKE'S RECORD WRITE LANDS BEFORE THE CAS, AND FAILS CLOSED. After the
       // CAS would be worse in the one way that matters: the conversation would already have moved
@@ -1984,6 +2011,7 @@ export class ProfilingOrchestrator {
     // A lost CAS re-runs this decision from the winner's state: its outcome starts empty again.
     understandRefs.outcome = null;
     understandRefs.edit = null;
+    understandRefs.chatOnly = null;
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
       this.logger.error(
@@ -2615,9 +2643,15 @@ export class ProfilingOrchestrator {
     // desired-trade re-ask and returns; `other` (the worker typed the wanted trade instead
     // of tapping) falls through with the gate closed, so this turn's own words are resolved
     // as the desired trade and the new gate is served for them below.
+    //
+    // `tradeYesTapped` (token-audit fix F3): the yes was the CHIP itself (or the bare word), so the
+    // message carries nothing else for the model to learn from. Read at Phase A below, and only
+    // when CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED is on.
+    let tradeYesTapped = false;
     if (this.llm.leads(next) && next.tradeConfirm.open && !capped) {
       const read = readTradeConfirmReply(input.text);
       if (read === "yes") {
+        tradeYesTapped = matchesOfferedOption(input.text, TRADE_CONFIRM_OPTIONS);
         next = {
           ...next,
           tradeConfirm: { ...next.tradeConfirm, open: false, confirmed: true },
@@ -2799,6 +2833,13 @@ export class ProfilingOrchestrator {
       answers,
       refs: understandRefs,
     });
+    // Fix Q2 — the layer heard nothing for the profile in this message (see `isChatOnlyReading`).
+    // `flagChatOnlyLines` decides, after the turn, whether its lines are flagged for the extraction.
+    const chatOnly =
+      understood !== null &&
+      understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE &&
+      isChatOnlyReading(understood.out);
+    understandRefs.chatOnly = chatOnly ? { reservedKey: null } : null;
     if (understood !== null && understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE) {
       // A PROGRESS QUESTION THE LEXICON DID NOT CATCH: the #2308 answer, exactly.
       if (understood.out.intent === "progress") {
@@ -2820,6 +2861,9 @@ export class ProfilingOrchestrator {
       // own question (Phase A) the turn goes on: the classic prompt answers a side message itself.
       if (understood.out.intent === "chat" && understood.out.fills.length === 0 && reservableItem) {
         understandRefs.outcome = outcomeOf(understood.out, null, { reason: "chat", noted: [] });
+        // Fix Q2 — the reply serves this same question again, which the line before the chat
+        // already asked, so it can be left out of the extraction with the chat.
+        if (chatOnly) understandRefs.chatOnly = { reservedKey: reservableItem.question_key };
         return this.reserveTurn({
           buffer,
           next,
@@ -2965,11 +3009,17 @@ export class ProfilingOrchestrator {
     const beforeCrossFill = answers;
     // #2312: the edit gate runs on the pack stretch, for a turn the layer actually understood.
     const editGateArmed = understood !== null && !this.llm.leads(next);
+    // ADR-0045 R5: on the skills lane experience is NEVER cross-filled — total experience comes
+    // only from the general form's work history, and `isOpenerReplyTurn` can read true again once
+    // the lane has cleared the draft's experiences.
+    const crossFillable = crossFillItems(items, phaseALeads || onSkillsLane(envelope));
     const crossFilled = this.fillCrossQuestion(
-      // ADR-0045 R5: on the skills lane experience is NEVER cross-filled — total experience comes
-      // only from the general form's work history, and `isOpenerReplyTurn` can read true again
-      // once the lane has cleared the draft's experiences.
-      crossFillItems(items, phaseALeads || onSkillsLane(envelope)),
+      // Fix Q2 — under the city guard a chat-only message ("bhai Pune mein kitna milta hai?")
+      // names no city the worker lives in. Over a pack question it never gets here (the side
+      // message above returns); this is the AI-led stretch, where the turn goes on.
+      input.chatOnlyCityGuard === true && chatOnly
+        ? withoutCityCrossFill(crossFillable)
+        : crossFillable,
       input.text,
       envelope,
       answers,
@@ -3234,6 +3284,43 @@ export class ProfilingOrchestrator {
     // `next` is passed rather than `envelope`: the draft this turn's patch is folded into must be
     // the one carrying this turn's answers, or a fallback would lose them.
     if (this.llm.leads(next)) {
+      // --- TOKEN-AUDIT FIX F3: THE OFFER BEFORE THE MODEL, ON A TAPPED HAAN ------------------
+      //
+      // On the turn the worker TAPS Haan to the trade gate, the led branch below calls the model
+      // and then, when the trade routes to a form, discards the model's reply in favour of the
+      // offer. Nothing the model could learn from a tapped Haan changes that decision: routing
+      // reads the draft and the pin, which this turn cannot move. So, behind its switch, the SAME
+      // router decides first (`fallbackFormOfferKind`: not capped, no offer made yet, not on the
+      // skills lane, the router's own rules) and the offer is served without the call.
+      //
+      // ONLY A TAP (`tradeYesTapped`). A typed "haan, 5 saal Maruti mein" may carry a job, so it
+      // keeps today's model call. An open experience gate is the model's to close, so it keeps
+      // the call too. When routing finds no form, the model is called exactly as today.
+      const offerFirst =
+        tradeYesTapped && !next.llmGateOpen && this.llm.tradeOfferBeforeModel?.() === true
+          ? fallbackFormOfferKind(next, input.text, capped)
+          : null;
+      if (offerFirst !== null) {
+        if (laneUndecided(next)) {
+          next = await this.decideLane(next, input, "classic", "form_offered");
+        }
+        this.logger.log(
+          `trade-form offer served before the model session=${input.sessionId} ` +
+            `kind=${offerFirst}; the tapped Haan made no model call`,
+        );
+        return this.settleAndServeFormOffer(
+          buffer,
+          next,
+          input,
+          answers,
+          items,
+          progressItems,
+          turn,
+          offerFirst,
+          capture.excludeFromParse,
+        );
+      }
+
       // #2384: total experience is the ENGINE's question, asked before any work history.
       const tenureItem = tenureItemOf(next, engine);
       const led = await this.llm.take(
@@ -3535,31 +3622,16 @@ export class ProfilingOrchestrator {
           // offer entirely — past the turn cap the interview is closing, and a question
           // there would be an ask the worker can no longer spend.
           //
-          // SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT. These are the worker's own words
-          // from Phase A — not a document's claims — and settling them is what Phase A's
-          // `done` and fallback branches do anyway. Doing it BEFORE the pause is what keeps
-          // a decline from walking back into a re-ask of the trade the conversation just
-          // named; the accept path settles again idempotently.
-          const beforeSettle = answers;
-          answers = settleFromLlmDraft(
-            answers,
-            next.llmDraft,
-            next.occupation?.label ?? null,
-            items,
-            turn,
-          );
-          next = withLlmDraftSettlement(next, beforeSettle, answers);
-          // The model-led stretch is still what owns the interview — the offer pauses it,
-          // it does not end it. Decline and the SAME branch set the ask branch below uses
-          // picks straight back up.
-          next = { ...next, phase: "llm_interview" };
-          return this.serveFormOffer(
+          // SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT — see `settleAndServeFormOffer`, which
+          // the tapped-Haan path above (fix F3) shares so the two can never drift.
+          return this.settleAndServeFormOffer(
             buffer,
             next,
             input,
             answers,
             items,
             progressItems,
+            turn,
             formKind,
             capture.excludeFromParse,
           );
@@ -5104,6 +5176,52 @@ export class ProfilingOrchestrator {
    * question, the worker can decline it, and a budget that stopped counting what he was asked
    * would stop describing the thing `chat.session_abandoned` measures.
    */
+  /**
+   * The led offer turn: settle what Phase A learned, keep the model-led stretch owning the
+   * interview, and serve the offer. Shared by the led branch and the tapped-Haan path (fix F3).
+   *
+   * SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT. These are the worker's own words from Phase A —
+   * not a document's claims — and settling them is what Phase A's `done` and fallback branches do
+   * anyway. Doing it BEFORE the pause is what keeps a decline from walking back into a re-ask of
+   * the trade the conversation just named; the accept path settles again idempotently.
+   *
+   * The model-led stretch is still what owns the interview — the offer pauses it, it does not end
+   * it. Decline and the SAME branch set the ask branch uses picks straight back up.
+   */
+  private async settleAndServeFormOffer(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    turn: number,
+    formKind: TradeFormKind,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    const settled = settleFromLlmDraft(
+      answers,
+      envelope.llmDraft,
+      envelope.occupation?.label ?? null,
+      items,
+      turn,
+    );
+    const next: ProfilingEnvelope = {
+      ...withLlmDraftSettlement(envelope, answers, settled),
+      phase: "llm_interview",
+    };
+    return this.serveFormOffer(
+      buffer,
+      next,
+      input,
+      settled,
+      items,
+      progressItems,
+      formKind,
+      excludeFromParse,
+    );
+  }
+
   private async serveFormOffer(
     buffer: TranscriptBuffer,
     envelope: ProfilingEnvelope,
@@ -6386,6 +6504,8 @@ export interface UnderstandingRefs {
   outcome: UnderstandingOutcome | null;
   /** ADR-0057 (#2312) — what the decision being made does with the edit gate. */
   edit?: EditPlan | null;
+  /** Fix Q2 — the decision being made read its message as chat only (`flagChatOnlyLines`). */
+  chatOnly?: ChatOnlyVerdict | null;
 }
 
 /**

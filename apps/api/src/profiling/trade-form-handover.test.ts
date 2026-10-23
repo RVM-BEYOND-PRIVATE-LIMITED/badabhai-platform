@@ -132,7 +132,13 @@ function led(
     : { kind: "ask", reply: "Aur kya kaam karte hain?", chips: [], inputMode: "text", patch };
 }
 
-function makeWorld(turn: LlmTurnResult | null, identifyPatch: Partial<ProfilingEnvelope> = {}) {
+function makeWorld(
+  turn: LlmTurnResult | null,
+  identifyPatch: Partial<ProfilingEnvelope> = {},
+  // Token-audit fix F3 — CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED. Absent = the double has no such
+  // method, which is exactly how every pre-existing case here stays on today's path.
+  opts: { offerBeforeModel?: boolean } = {},
+) {
   const store = new Map<string, TranscriptBuffer>();
   store.set(SESSION, {
     workerId: WORKER,
@@ -187,6 +193,9 @@ function makeWorld(turn: LlmTurnResult | null, identifyPatch: Partial<ProfilingE
     // engine for every turn after it (#2245's decline path depends on that).
     leads: (envelope: ProfilingEnvelope) => envelope.llmStage !== "done" && !envelope.llmFallback,
     take: vi.fn(async () => turn),
+    ...(opts.offerBeforeModel === undefined
+      ? {}
+      : { tradeOfferBeforeModel: () => opts.offerBeforeModel === true }),
   };
 
   const orchestrator = new ProfilingOrchestrator(
@@ -418,6 +427,102 @@ describe("the trade-form offer", () => {
         asks: 1,
       });
       expect(emitted(acceptedWorld.events, "profile.form_offer_declined")).toHaveLength(0);
+    });
+  });
+
+  /**
+   * ═══ TOKEN-AUDIT FIX F3 — A TAPPED HAAN ROUTES BEFORE THE MODEL ═══
+   *
+   * Today the Haan turn calls the model and then discards its reply in favour of the offer. With
+   * the switch on, a TAPPED Haan routes first and makes no call. Everything else — a typed yes
+   * with more in it, a trade with no form, the switch off — calls the model exactly as before.
+   */
+  describe("token-audit fix F3 — the offer before the model on a tapped Haan", () => {
+    it("switch OFF (absent or false) is today: the Haan turn calls the model, then offers", async () => {
+      for (const opts of [{}, { offerBeforeModel: false }]) {
+        const { orchestrator, llm } = makeWorld(led("CNC Machining", "CNC Turner"), {}, opts);
+        await orchestrator.takeTurn(say("main cnc turner hoon"));
+        const result = await orchestrator.takeTurn(say("Haan"));
+        expect(result.reply).toBe(offerPrompt("cnc_turner"));
+        expect(llm.take).toHaveBeenCalledTimes(2);
+      }
+    });
+
+    it("switch ON: a tapped Haan serves the SAME offer and makes no model call", async () => {
+      const { orchestrator, llm, store, events } = makeWorld(
+        led("CNC Machining", "CNC Turner"),
+        {},
+        { offerBeforeModel: true },
+      );
+      await orchestrator.takeTurn(say("main cnc turner hoon"));
+      expect(llm.take).toHaveBeenCalledTimes(1);
+
+      const result = await orchestrator.takeTurn(say("Haan"));
+      expect(llm.take).toHaveBeenCalledTimes(1);
+      expect(result.kind).toBe("ask");
+      expect(result.reply).toBe(offerPrompt("cnc_turner"));
+      expect(result.options).toEqual([...FORM_OFFER_OPTIONS]);
+      expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "pending" });
+      expect(saved(store)?.phase).toBe("llm_interview");
+      // Settled on the offer, as the led path does, so a decline never re-asks the trade.
+      const trade = saved(store)?.answerMap.find((a) => a.question_key === "primary_trade");
+      expect(trade?.status).toBe("answered");
+      expect(emitted(events, "profile.form_offered")).toHaveLength(1);
+    });
+
+    it("switch ON: the chip KEY counts as a tap too", async () => {
+      const { orchestrator, llm } = makeWorld(
+        led("CNC Machining", "CNC Turner"),
+        {},
+        { offerBeforeModel: true },
+      );
+      await orchestrator.takeTurn(say("main cnc turner hoon"));
+      const result = await orchestrator.takeTurn(say("trade_confirm_yes"));
+      expect(result.reply).toBe(offerPrompt("cnc_turner"));
+      expect(llm.take).toHaveBeenCalledTimes(1);
+    });
+
+    it("switch ON: a typed yes WITH MORE IN IT still goes to the model, which may record a job", async () => {
+      const { orchestrator, llm } = makeWorld(
+        led("CNC Machining", "CNC Turner"),
+        {},
+        { offerBeforeModel: true },
+      );
+      await orchestrator.takeTurn(say("main cnc turner hoon"));
+      const result = await orchestrator.takeTurn(say("haan, 5 saal Maruti mein kiya"));
+      expect(llm.take).toHaveBeenCalledTimes(2);
+      // ...and the offer is still served on that turn, exactly as today.
+      expect(result.reply).toBe(offerPrompt("cnc_turner"));
+    });
+
+    it("switch ON: a trade with no form still goes to the model on the Haan", async () => {
+      const { orchestrator, llm } = makeWorld(
+        led("Tailoring", "Tailor"),
+        {},
+        { offerBeforeModel: true },
+      );
+      await orchestrator.takeTurn(say("main tailor hoon"));
+      const result = await orchestrator.takeTurn(say("Haan"));
+      expect(llm.take).toHaveBeenCalledTimes(2);
+      expect(result.reply).not.toBe(offerPrompt("cnc_turner"));
+    });
+
+    it("switch ON: declining the early offer returns to the model-led chat", async () => {
+      const { orchestrator, llm, store } = makeWorld(
+        led("CNC Machining", "CNC Turner"),
+        {},
+        { offerBeforeModel: true },
+      );
+      await orchestrator.takeTurn(say("main cnc turner hoon"));
+      await orchestrator.takeTurn(say("Haan"));
+      expect(llm.take).toHaveBeenCalledTimes(1);
+
+      const declined = await orchestrator.takeTurn(say("form_offer_no"));
+      expect(declined.kind).not.toBe("close");
+      expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_turner", state: "settled" });
+      expect(saved(store)?.llmGateOpen).toBe(false);
+      // The interview continues where it paused, and the model leads it again.
+      expect(llm.take).toHaveBeenCalledTimes(2);
     });
   });
 

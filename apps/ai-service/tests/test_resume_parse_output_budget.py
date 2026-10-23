@@ -1,11 +1,14 @@
-"""#1674 — `resume_parse` gets its own output budget, and the other three keep sharing one.
+"""#1674 — `resume_parse` gets its own output budget; `profile_parse` and the summary share one.
 
 WHAT THESE PIN, and why the separation is the whole test rather than the number.
 
 `ai_extraction_max_output_tokens` (1024) was shared by `profile_parse`, `resume_parse`,
 `resume_profile_summary` and `resume_option_map`. Of those, `resume_parse` is the only one
 whose reply size is decided by an UPLOADED DOCUMENT rather than by a shape this service
-controls. Measured over 43 documents (method + distribution + caveats on
+controls. (`resume_option_map` later got its own budget too, for a measured reason of its
+own: audit fix F4, pinned in `test_resume_option_map_output_budget.py`.)
+
+Measured over 43 documents (method + distribution + caveats on
 ``ai_resume_parse_max_output_tokens`` in ``app/config.py``) the maximal contract-permitted
 reply reached 1047 tokens worst case — over the shared cap, on the 2-page CV that opened
 #1656.
@@ -89,14 +92,15 @@ def test_resume_parse_reads_its_own_budget_not_the_shared_extraction_one():
 
 @pytest.mark.parametrize(
     "task_type",
-    ["profile_parse", "resume_profile_summary", "resume_option_map"],
+    ["profile_parse", "resume_profile_summary"],
 )
-def test_the_other_three_extraction_routes_still_share_the_extraction_budget(task_type):
+def test_the_other_extraction_routes_still_share_the_extraction_budget(task_type):
     """Widening them would be an UNMEASURED change, which is the thing #1674 refused to do.
 
     `profile_parse` reads one finished interview; `resume_profile_summary` is a fixed-size
-    object; `resume_option_map` scales with the pack, not the document. None of the three was
-    measured and none is at risk, so they stay where they were.
+    object. Neither was measured and neither is at risk, so they stay where they were.
+    (`resume_option_map` WAS measured, and was being cut off; it moved to its own budget in
+    audit fix F4 — see `test_resume_option_map_output_budget.py`.)
     """
     settings = _settings(
         ai_extraction_max_output_tokens=1024,
