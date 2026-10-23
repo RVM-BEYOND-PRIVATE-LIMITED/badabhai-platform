@@ -187,6 +187,16 @@
     `docs/otp-throttles-runbook.md` §1–§2). A GitHub secret of this name does nothing: the CI deploy bridge does
     not carry it. The name reaches the container only because `docker-compose.staging.yml` declares it on the api
     service (pinned by `apps/api/src/auth/erased-refresh-tombstone-compose.guard.test.ts`).
+- **The deletion event and the delete, together (token-audit fix A-14).** Today `worker.account_deleted` is
+  written *after* the delete commits, so a failed event write leaves an erasure with no event. With
+  `ACCOUNT_DELETION_EVENT_IN_TX=true` the event is written on the delete's own transaction, keyed once per worker
+  (`worker.account_deleted:<workerId>`), and only by the run that removed the row:
+  - If the event write fails, the delete rolls back and the erasure throws before any tombstone is written.
+  - The marker survives, so the next sweep retries. Steps already done (revoke, storage, the audit row) re-run as
+    no-ops, and the audit gets a second row, which is honest.
+  - The trade: while the events table cannot be written, erasures wait for it instead of completing unrecorded.
+  - It is box-side only, like the tombstone knob above: set it in the project `.env` and recreate the api.
+  - Default `false` is today's order.
 - **`revokeAll` fails open (risks-register R69, pre-existing).** If Redis errors while sessions are being revoked,
   `revokeAll` logs `logout-all Redis error` and returns 0. The erasure then continues and records
   `sessions_revoked: 0`. Any `refresh:<hash>` record it failed to delete survives for up to `AUTH_REFRESH_TTL_DAYS`

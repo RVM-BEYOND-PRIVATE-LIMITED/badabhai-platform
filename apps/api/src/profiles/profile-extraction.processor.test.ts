@@ -70,6 +70,7 @@ function make(
         text: string;
         at: string;
         options?: readonly string[];
+        chatOnly?: true;
       }[];
     } | null;
     /** Redis is unreachable when the extraction tries to read the buffer. */
@@ -128,6 +129,8 @@ function make(
     employmentsThrow?: boolean;
     /** `AI_RAW_PII_ENABLED` (ADR-0047). OFF by default; the name redaction runs either way (G2). */
     rawPii?: boolean;
+    /** Fix Q2 — `PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED`. Omitted = absent from config (today). */
+    skipChatTurns?: boolean;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -308,6 +311,9 @@ function make(
     {
       CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false,
       AI_RAW_PII_ENABLED: opts.rawPii ?? false,
+      ...(opts.skipChatTurns === undefined
+        ? {}
+        : { PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED: opts.skipChatTurns }),
     } as never,
     opts.profilesService as never,
     {
@@ -4162,5 +4168,188 @@ describe("#2387 — the chips our questions showed reach Phase C, and only Phase
       { role: "assistant", text: "Kaunsi machines chalate hain?" },
       { role: "worker", text: "sab chalata hu" },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Token-audit fix Q2 — a chat-only exchange is left out of the extraction
+// ---------------------------------------------------------------------------
+
+describe("fix Q2 — chat-only lines are left out of the extraction while the switch is on", () => {
+  const CHAT_ONLY = { chat_only: true };
+  const AVAIL_CHIPS = ["Abhi turant", "Pandrah din mein", "Ek mahine mein", "Abhi pata nahi"];
+
+  /**
+   * Modelled on the audit's run 7 (a fabricated CNC-turner persona; the identity intake and
+   * employer names left out): four side questions the turn understanding read as chat only, and
+   * one conditional preference it read as a statement. The flags are the ones the turn writes:
+   * the message, plus the reply when it served the same pack question again (the Gurgaon one).
+   */
+  const RUN7: { direction: string; bodyText: string; metadata?: Record<string, unknown> }[] = [
+    {
+      direction: "inbound",
+      bodyText: "namaste, mujhe CNC turner ki job chahiye, profile banana hai",
+    },
+    { direction: "outbound", bodyText: "CNC Turner — kya aap yahi kaam karna chahte hain?" },
+    { direction: "inbound", bodyText: "Haan" },
+    {
+      direction: "outbound",
+      bodyText: "Theek hai. Kya aap programme feed kar sakte ho, ya sirf machine chalate ho?",
+    },
+    {
+      direction: "inbound",
+      bodyText: "bhai pune mein 10 saal wale CNC turner ko kitna milta hai?",
+      metadata: CHAT_ONLY,
+    },
+    {
+      direction: "outbound",
+      bodyText:
+        "Guarantee nahi de sakta — profile poora hoga toh companies dekhengi. Aap programme feed kar sakte ho?",
+    },
+    {
+      direction: "inbound",
+      bodyText: "haan machine pe khud program likhta aur edit karta hu, G71 G70 G75 G76. CAM nahi",
+    },
+    {
+      direction: "outbound",
+      bodyText: "Theek hai. Tolerances set karte ho, ya sirf drawing dekh kar machine chalate ho?",
+    },
+    {
+      direction: "inbound",
+      bodyText: "VMC seekhna chahiye kya? turner mein aage growth hai ya nahi?",
+      metadata: CHAT_ONLY,
+    },
+    { direction: "outbound", bodyText: "Is kaam mein aapko kitne saal ho gaye?" },
+    { direction: "inbound", bodyText: "10 saal, 2016 se" },
+    { direction: "outbound", bodyText: "Pehli naukri mein kitne saal kaam kiya?" },
+    {
+      direction: "inbound",
+      bodyText: "mera resume kahan milega, download kaise karu app mein?",
+      metadata: CHAT_ONLY,
+    },
+    { direction: "outbound", bodyText: "Pehle pehli naukri mein kitne saal kaam kiya?" },
+    { direction: "inbound", bodyText: "Apr 2019 se Jun 2022 tak CNC turner" },
+    {
+      direction: "outbound",
+      bodyText: "Aap kaam kab se shuru kar sakte hain?",
+      metadata: { options: AVAIL_CHIPS },
+    },
+    {
+      direction: "inbound",
+      bodyText: "gurgaon mein koi company hai jo 38 de de turner ko?",
+      metadata: CHAT_ONLY,
+    },
+    {
+      direction: "outbound",
+      bodyText:
+        "Haan, Gurgaon mein bahut companies hain. Chaliye, aage badhte hain. Aap kaam kab se shuru kar sakte hain?",
+      metadata: { options: AVAIL_CHIPS, chat_only: true },
+    },
+    { direction: "inbound", bodyText: "Pandrah din mein" },
+    { direction: "outbound", bodyText: "Kya aap ghar se door kaam ke liye ja sakte hain?" },
+    { direction: "inbound", bodyText: "Pune sirf 40+ aur room mile toh" },
+  ];
+  const CHAT_ONLY_TEXTS = RUN7.filter((row) => row.metadata?.chat_only === true).map(
+    (row) => row.bodyText,
+  );
+  /** The same conversation as it is stored today: no line carries the flag. */
+  const UNFLAGGED = RUN7.map(({ metadata, ...row }) =>
+    metadata?.options === undefined ? row : { ...row, metadata: { options: metadata.options } },
+  );
+
+  type Line = { i: number; role: string; text: string; options?: string[] };
+  const phaseC = (ai: ReturnType<typeof make>["ai"]) =>
+    (ai.extractInterview.mock.calls[0]?.[0] as { transcript: Line[] }).transcript;
+  const parseLines = (ai: ReturnType<typeof make>["ai"]) =>
+    (ai.parseProfile.mock.calls[0]?.[0] as { transcript: Line[] }).transcript;
+
+  async function extract(opts: Parameters<typeof make>[0]) {
+    const world = make({ ...withMap(), llmInterview: true, ...opts });
+    await world.proc.process(makeJob());
+    return world;
+  }
+
+  it("run 7, switch on: Phase C and the parse read none of the four side questions", async () => {
+    const { ai } = await extract({ messages: RUN7, skipChatTurns: true });
+    expect(CHAT_ONLY_TEXTS).toHaveLength(5);
+    for (const transcript of [phaseC(ai), parseLines(ai)]) {
+      const texts = transcript.map((line) => line.text);
+      for (const text of CHAT_ONLY_TEXTS) expect(texts).not.toContain(text);
+      // Nothing about Gurgaon or 38,000 reaches either model, from the worker or from us.
+      expect(JSON.stringify(transcript).toLowerCase()).not.toContain("gurgaon");
+      // What he TOLD stays — the conditional preference is #1505-2's to read (Q3 is separate).
+      expect(texts).toContain("Pune sirf 40+ aur room mile toh");
+      expect(texts).toContain("10 saal, 2016 se");
+      // Indexed after the filter, so a cited span still points into the array the gates check.
+      expect(transcript.map((line) => line.i)).toEqual(transcript.map((_, i) => i));
+    }
+    expect(phaseC(ai)).toHaveLength(RUN7.length - CHAT_ONLY_TEXTS.length);
+    // The answer the Gurgaon question interrupted still follows its question, chips and all.
+    const answer = phaseC(ai).findIndex((line) => line.text === "Pandrah din mein");
+    expect(phaseC(ai)[answer - 1]).toMatchObject({
+      role: "assistant",
+      text: "Aap kaam kab se shuru kar sakte hain?",
+      options: AVAIL_CHIPS,
+    });
+  });
+
+  it("run 7, switch off or absent: the flagged rows are read exactly as unflagged ones are today", async () => {
+    const today = await extract({ messages: UNFLAGGED });
+    expect(phaseC(today.ai)).toHaveLength(RUN7.length);
+    for (const skipChatTurns of [undefined, false]) {
+      const off = await extract({
+        messages: RUN7,
+        ...(skipChatTurns === undefined ? {} : { skipChatTurns }),
+      });
+      expect(phaseC(off.ai)).toEqual(phaseC(today.ai));
+      expect(parseLines(off.ai)).toEqual(parseLines(today.ai));
+    }
+  });
+
+  it("the legacy re-parse leaves them out too, in both shapes", async () => {
+    const { proc, ai } = make({
+      conversationState: { answer_map: [] },
+      messages: RUN7,
+      skipChatTurns: true,
+    });
+    await proc.process(makeJob());
+    const legacy = ai.extractProfile.mock.calls[0]?.[0] as {
+      transcript: string;
+      messages: { text: string }[];
+    };
+    for (const text of CHAT_ONLY_TEXTS) {
+      expect(legacy.transcript).not.toContain(text);
+      expect(legacy.messages.map((m) => m.text)).not.toContain(text);
+    }
+    expect(legacy.messages).toHaveLength(RUN7.length - CHAT_ONLY_TEXTS.length);
+  });
+
+  it("reads the flag off the buffer on the early-finish path, only while the switch is on", async () => {
+    const at = "2026-10-22T00:00:00.000Z";
+    const buffered = {
+      messages: [
+        { role: "assistant" as const, text: "Aap kaam kab se shuru kar sakte hain?", at },
+        {
+          role: "worker" as const,
+          text: "gurgaon mein koi company hai?",
+          at,
+          chatOnly: true as const,
+        },
+        {
+          role: "assistant" as const,
+          text: "Haan. Aap kaam kab se shuru kar sakte hain?",
+          at,
+          chatOnly: true as const,
+        },
+        { role: "worker" as const, text: "Pandrah din mein", at },
+      ],
+    };
+    const on = await extract({ messages: [], buffered, skipChatTurns: true });
+    expect(phaseC(on.ai).map((line) => line.text)).toEqual([
+      "Aap kaam kab se shuru kar sakte hain?",
+      "Pandrah din mein",
+    ]);
+    const off = await extract({ messages: [], buffered });
+    expect(phaseC(off.ai)).toHaveLength(4);
   });
 });

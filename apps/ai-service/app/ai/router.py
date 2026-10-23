@@ -64,7 +64,13 @@ from .langfuse_tracing import (
     get_tracer,
     masked_trace_text,
 )
-from .model_config import TaskRoute, get_route, provider_for_model, resolve_model
+from .model_config import (
+    TaskRoute,
+    candidate_models,
+    get_route,
+    provider_for_model,
+    resolve_model,
+)
 from .provider_cooldown import get_cooldown
 from .trace_metadata import AS_GENERATION
 
@@ -856,17 +862,10 @@ class AIRouter:
         dropping the fallback, AND prevents a key-set-but-SDK-absent config from
         arming a fallback that fails 100% of the time and burns the per-call retries
         + the TD27 retry budget. The fallback key is NOT a master gate; the
-        master switch is enforced upstream via ``real_call_enabled_for``."""
-        candidates = [primary_model]
-        fallback = fallback_model or self._settings.default_fallback_model
-        if (
-            fallback
-            and fallback not in candidates
-            and provider_for_model(fallback) != provider_for_model(primary_model)
-            and self._settings.fallback_transport_available(provider_for_model(fallback))
-        ):
-            candidates.append(fallback)
-        return candidates
+        master switch is enforced upstream via ``real_call_enabled_for``.
+
+        The rule itself is `model_config.candidate_models`, shared with the flags report."""
+        return candidate_models(primary_model, fallback_model, self._settings)
 
     def _record_trace_text(
         self, meta: AICallMetadata, messages: list[Message], output: str

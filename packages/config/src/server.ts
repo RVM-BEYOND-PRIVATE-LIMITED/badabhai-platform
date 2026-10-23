@@ -279,6 +279,13 @@ export const serverEnvSchema = z.object({
   // because a reversal that needs a deploy is not a reversal, and a bad mapping writes
   // records an employer will read: stopping quickly matters most here.
   RESUME_AUTOFILL_ENABLED: booleanFromString,
+  // Audit fix F4 — skip the résumé option-map call while autofill is off. The mapping's only
+  // reader is autofill, so with RESUME_AUTOFILL_ENABLED off the call is billed and its output
+  // never applied. Turning this ON makes `ResumeOptionMapService` return no mappings without
+  // calling the model whenever autofill is off; with autofill on it changes nothing.
+  //
+  // DEFAULT OFF = today's behaviour: the option map runs on every form-routed import.
+  RESUME_OPTION_MAP_REQUIRES_AUTOFILL: booleanFromString,
   // ADR-0043 (ruling R3) — "Aapki nayi jaankari se resume update kar doon?" at the end of an
   // interview, for a worker who ALREADY has a résumé. A "Haan" confirms the profile that
   // interview produces and regenerates the résumé in the background, without the preview.
@@ -363,6 +370,25 @@ export const serverEnvSchema = z.object({
   // — so migration 0126 is apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after
   // 0126 is applied and `db:seed:packs --apply` has written the pack tags.
   PROFILING_TIERS_ENABLED: booleanFromString,
+  // Token-audit fix F3 — on a TAPPED "Haan" to the trade-confirm gate, route to the trade-form
+  // offer BEFORE calling the model. Today that turn calls the model and then discards its reply
+  // in favour of the offer (4 of 4 audit runs: the reply added nothing to the draft). Only a
+  // tapped (or bare) Haan qualifies; a typed "haan, 5 saal Maruti mein" still goes to the model,
+  // which may record a job from it. When routing finds no form, the model is called as today.
+  //
+  // DEFAULT OFF = today's behaviour. Turning it on changes one thing a worker can notice: a worker
+  // who then DECLINES the form returns to the AI-led chat, where today that Haan turn's model call
+  // could have opened an experience gate, closed Phase A, or failed into the question engine.
+  CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED: booleanFromString,
+  // Token-audit fix Q10 (decision D9) — a TYPED tenure answer on the trade form resolves the
+  // pack's experience gates. Today a worker who types "10 saal ho gaye" into "Koi aur — khud
+  // likhein" on the tenure question has an opaque "other" answer that can never decide a tier
+  // gate, so he is shown the fresher questions. ON reads the years out of his typed words at
+  // READ time (never stored), with the chat's own experience reader, and only when the text names
+  // exactly one figure within 0–60; the question stays on screen so he can change it.
+  //
+  // DEFAULT OFF = today's behaviour exactly: a typed tenure answer resolves no gate.
+  FORM_TYPED_TENURE_DERIVE_ENABLED: booleanFromString,
   // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
   // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
   //
@@ -726,6 +752,16 @@ export const serverEnvSchema = z.object({
   // authoritative — a missed run only delays erasure until the next sweep. Fractional
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
   ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
+  // Token-audit fix A-14 — THE DELETION EVENT IN THE DELETE'S OWN TRANSACTION. Today the
+  // `worker.account_deleted` event is written AFTER the hard delete commits, so a failed event
+  // write leaves an erased worker with no record that he was erased. On, the event is written on
+  // the delete's transaction (keyed once per worker): a failed write rolls the delete back, the
+  // erasure throws, and the sweep retries it on its next tick, so the two can no longer diverge.
+  // Only the run that actually deleted the row writes it; a concurrent run writes nothing.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY: delete, then emit. The trade when on: if
+  // the events table cannot be written, erasures wait for it instead of completing unrecorded.
+  ACCOUNT_DELETION_EVENT_IN_TX: booleanFromString,
 
   // QA-ONLY immediate hard-delete seam (TD — testing) — arms POST /auth/account/delete/immediate,
   // which hard-deletes the CALLING worker's row RIGHT NOW (no OTP, no 7-day grace), so QA can
@@ -1623,6 +1659,28 @@ export const serverEnvSchema = z.object({
   // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. Read per turn. PRODUCTION ON ONLY AFTER the
   // eval PASS is recorded (ADR-0057 §6) and the box arms `profiling_turn_understand` (#2319).
   CHAT_TURN_UNDERSTANDING_ENABLED: booleanFromString,
+  // Token-audit fix Q2 — OFF-TOPIC CHAT KEPT OUT OF THE EXTRACTION. On, a typed message the turn
+  // understanding read as CHAT ONLY (intent `chat` above the confidence floor, with no fill, no
+  // edit, no Profile-page mention and no "none" answer) whose turn wrote nothing is flagged
+  // `chat_only` in the transcript, and the end-of-interview extraction leaves it out. "Gurgaon mein
+  // koi company hai jo 38 de de?" then stops becoming a preferred city and a salary. A message
+  // where the layer heard a Profile-page fact is still read (owner ruling #1505-2). The interview
+  // model, the thread redraw and every other reader keep the line.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY: nothing is flagged and nothing is skipped.
+  // Read at the turn (flagging) AND at the extraction (skipping), so turning it off restores the
+  // full transcript for every later extraction. Needs CHAT_TURN_UNDERSTANDING_ENABLED to do anything.
+  PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED: booleanFromString,
+  // Token-audit fix Q2 — NO CITY FROM A CHAT-ONLY MESSAGE. On, the cross-question fill does not
+  // write the worker's current city from a message the turn understanding read as chat only
+  // ("bhai Pune mein kitna milta hai?"), so a city he asks about never becomes the city he lives
+  // in. Over a pack question such a message already records nothing; this covers the AI-led
+  // stretch, where the turn goes on. A message that STATES his city is a statement, never chat
+  // only, and still fills it.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. Read per turn. Needs
+  // CHAT_TURN_UNDERSTANDING_ENABLED to do anything.
+  CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED: booleanFromString,
   // ADR-0048 (#1858) — THE IDENTITY INTAKE. On, a NEW chat session for a worker whose record is
   // missing a name, a state or a city opens by asking for exactly what is missing — first name,
   // surname, state, city — as deterministic chat turns written through `WorkersService`, before

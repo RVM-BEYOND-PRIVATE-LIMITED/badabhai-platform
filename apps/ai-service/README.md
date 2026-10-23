@@ -40,7 +40,7 @@ The Pydantic contracts in `app/contracts.py` mirror `@badabhai/ai-contracts`.
 cd apps/ai-service
 python -m venv .venv
 . .venv/Scripts/activate        # macOS/Linux: source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt -c constraints.txt   # same versions as the image
 uvicorn app.main:app --reload --port 8000   # http://localhost:8000/health
 ```
 
@@ -155,7 +155,7 @@ only when both keys are present *and* the v4 SDK is installed, and is a safe no-
 otherwise, so local dev, CI and mock mode never depend on it.
 
 ```bash
-pip install -r requirements-ai.txt        # brings in langfuse>=4.14,<5.0
+pip install -r requirements-ai.txt -c constraints.txt   # langfuse v4, at the image's exact version
 # then in .env:
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...

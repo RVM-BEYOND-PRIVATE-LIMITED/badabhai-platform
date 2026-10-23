@@ -37,7 +37,11 @@
 # image is deliberately CAPABLE and deliberately NOT ARMED.
 # ===========================================================================
 
-FROM python:3.12-slim-bookworm
+# PINNED BY DIGEST, to the base production was built on (CI run 39599439387, 2026-10-21).
+# The bare tag moves whenever Docker publishes a rebuild, and a moved base would rebuild every
+# layer below it with newer Python and Debian packages on an ordinary deploy. Update the digest
+# on purpose, in its own PR, together with constraints.txt.
+FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70
 
 # PYTHONDONTWRITEBYTECODE — no .pyc litter written into the container layer at
 # runtime. PYTHONUNBUFFERED — uvicorn + app/logging_config output must reach
@@ -96,8 +100,13 @@ RUN apt-get update \
 # see requirements.txt for the licence half of that argument. If a future dep
 # ships sdist-only, add the toolchain in a BUILDER stage and copy the
 # site-packages out — do not leave gcc in the runtime.
-COPY requirements.txt requirements-ai.txt ./
-RUN pip install --no-cache-dir -r requirements-ai.txt
+#
+# EXACT VERSIONS: the requirements files hold ranges, constraints.txt holds the versions that
+# ship. Without `-c`, a build that missed the layer cache installed whatever was newest that
+# day, so a deploy could change libraries while no code changed. tests/test_dependency_pins.py
+# keeps the pins complete and inside the ranges.
+COPY requirements.txt requirements-ai.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements-ai.txt -c constraints.txt
 
 # Non-root. python:*-slim ships no unprivileged account (unlike the node:* images
 # apps/api/Dockerfile leans on for its `USER node`), so create one explicitly. A
