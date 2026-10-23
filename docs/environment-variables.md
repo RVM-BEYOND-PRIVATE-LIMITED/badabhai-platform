@@ -204,6 +204,20 @@ NestJS boot assertion).
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
   session, so a flip reaches new sessions only. Bridged to staging/production through the GitHub
   secret of the same name; production ON only after the app release with the card and the form.
+- **Off-topic chat and the profile (token-audit fix Q2)** — `PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED`
+  and `CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED` (both default off; off is today's interview and
+  extraction exactly). Both act only on a message the turn understanding (next entry, which must be
+  on) read as CHAT ONLY: intent `chat` above the confidence floor, with no fill, no edit, no
+  Profile-page mention and no "none" answer. With the first on, such a message — on a turn that
+  wrote nothing — is flagged `chat_only` in the transcript (`chat_messages.metadata`), and the
+  end-of-interview extraction (Phase C, the parse and the legacy re-parse) leaves it out, with the
+  reply when that reply only served the same pack question again. "Gurgaon mein koi company hai jo
+  38 de de?" then stops becoming a preferred city and a salary. A message where the layer heard a
+  Profile-page fact is still read (owner ruling #1505-2). The switch is read again at every
+  extraction, so turning it off gives later extractions the whole transcript. With the second on,
+  the cross-question fill takes no current city from such a message ("bhai Pune mein kitna milta
+  hai?"); a message that states his city still fills it. Bridged through the GitHub secrets of the
+  same names; switch-on needs the owner's reading of #1505-2 (decision D8).
 - **The profiling turn, understood (ADR-0057, #2311)** — `CHAT_TURN_UNDERSTANDING_ENABLED` (default
   off; off is the interview exactly as before). On, every TYPED profiling-chat message is read by
   `profiling_turn_understand` against the session's whole schema: a value the worker volunteers
