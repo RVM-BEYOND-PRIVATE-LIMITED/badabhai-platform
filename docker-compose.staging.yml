@@ -1052,6 +1052,12 @@ services:
       # the chat turn's Gemini fallback). An UNRECOGNISED value fails soft to the route's shape
       # default (also `pro`) rather than taking the service down — see `_chat_tier`.
       AI_CHAT_MODEL_TIER: ${AI_CHAT_MODEL_TIER:-pro}
+      # Token-audit fix B-1 — PER-TASK MODEL CHOICE: `task=primary>fallback`, comma-separated,
+      # so a model moves one task at a time. EMPTY (the default) is every route as above. It wins
+      # over the tier and AI_PRIMARY_PROVIDER for the tasks it names; an entry that cannot be
+      # honoured is dropped and logged once (the service still boots). `${VAR:-}` is right here,
+      # unlike the model ids above: the empty string IS this setting's default.
+      AI_TASK_MODEL_OVERRIDES: ${AI_TASK_MODEL_OVERRIDES:-}
       # The spend guardrails, in the order they bite. Per-call is the LEAST likely to fire —
       # a chat turn costs paise, not rupees — so the one to watch when raising a tier is
       # AI_MAX_DAILY_COST_INR, which is GLOBAL across the platform, not per worker.
