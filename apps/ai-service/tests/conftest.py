@@ -82,6 +82,9 @@ def _force_mock_only_env() -> None:
     # `anthropic` SDK (installed locally, absent in CI) gets Claude first, so a test that needs
     # either order states it: ai_primary_provider="google", or the SDK patched present.
     os.environ["AI_PRIMARY_PROVIDER"] = "anthropic"
+    # Token-audit fix D13 — the rupee table as committed (empty = unset), so a developer `.env`
+    # that sets a dollar basis cannot change every cost a test asserts.
+    os.environ["AI_COST_FX_INR_PER_USD"] = ""
     # Drop the eval target so the skip-gated per-field real test stays SKIPPED
     # even when a developer .env sets it.
     os.environ.pop("AI_EVAL_BASE_URL", None)

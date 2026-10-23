@@ -155,6 +155,14 @@ describe("docker-compose.staging.yml — ai-service model routing is settable fr
     },
   );
 
+  it("AI_COST_FX_INR_PER_USD (fix D13) is declared as a pass-through whose empty value is unset", () => {
+    // Bare `${VAR:-}` is right here, unlike the ceilings: the field is optional and its validator
+    // reads "" as unset (today's rupee table), so an unconfigured box boots exactly as before.
+    expect(ai.get("AI_COST_FX_INR_PER_USD")).toBe("${AI_COST_FX_INR_PER_USD:-}");
+    expect(configPy).toContain("ai_cost_fx_inr_per_usd: float | None = Field(default=None");
+    expect(configPy).toContain('@field_validator("ai_cost_fx_inr_per_usd", mode="before")');
+  });
+
   it.each(COST_CEILING_VARS)("%s matches the committed config.py default (drift guard)", (name) => {
     const field = name.toLowerCase();
     // Compared as NUMBERS: compose must carry a parseable float, and `10.0` and `10` are the

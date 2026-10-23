@@ -609,6 +609,14 @@ class Settings(BaseSettings):
     # Hard per-call spend ceiling (INR). A real call whose worst-case cost would
     # exceed this is refused (falls back to mock) — a stateless runaway guard.
     ai_max_call_cost_inr: float = 10.0
+    # Token-audit fix D13 — ONE RUPEE BASIS. The rate table in `model_config` is written in rupees
+    # at ~Rs 83/US$, while the providers bill (and the audit reconciles) in dollars, so the ledger
+    # and a reconciliation drift apart by the FX gap (~2.4% at Rs 85). Set, every model with a US$
+    # list price (`model_config._MODEL_LIST_PRICES_USD_PER_1M`) and the web-search fee are priced
+    # at THIS many rupees per dollar; every other row keeps its rupee value. Unset — the default,
+    # and an empty pass-through — is today's table exactly. The spend caps are rupee figures and do
+    # not move with it: rescaling them (x85/83) is the owner's separate decision.
+    ai_cost_fx_inr_per_usd: float | None = Field(default=None, gt=0, le=1000)
 
     # --- TD27: cumulative spend cap + retry budget + kill-switch ---------------
     # Independent HARD kill for real calls (env AI_REAL_CALLS_KILL_SWITCH). When
@@ -1232,6 +1240,15 @@ class Settings(BaseSettings):
     # `OPS_ALLOW_PRODUCTION` in packages/db/src/ops-guard.ts: a second, deliberate signal
     # that cannot be inherited by accident, carrying the operator's REASON.
     canonicalize_allow_local: str | None = None
+
+    @field_validator("ai_cost_fx_inr_per_usd", mode="before")
+    @classmethod
+    def _empty_fx_means_unset(cls, value: object) -> object:
+        """Fix D13 — compose's `${AI_COST_FX_INR_PER_USD:-}` hands an unset value through as `""`,
+        which is "use today's table", never a parse error that stops the service booting."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator(
         "ai_internal_token",
