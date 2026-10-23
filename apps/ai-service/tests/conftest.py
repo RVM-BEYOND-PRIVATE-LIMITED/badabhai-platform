@@ -82,6 +82,9 @@ def _force_mock_only_env() -> None:
     # `anthropic` SDK (installed locally, absent in CI) gets Claude first, so a test that needs
     # either order states it: ai_primary_provider="google", or the SDK patched present.
     os.environ["AI_PRIMARY_PROVIDER"] = "anthropic"
+    # Token-audit fix B-1 — no per-task override, the committed default, so a developer `.env`
+    # that moves a task cannot reroute the suite. Tests that need one pass it explicitly.
+    os.environ["AI_TASK_MODEL_OVERRIDES"] = ""
     # Drop the eval target so the skip-gated per-field real test stays SKIPPED
     # even when a developer .env sets it.
     os.environ.pop("AI_EVAL_BASE_URL", None)

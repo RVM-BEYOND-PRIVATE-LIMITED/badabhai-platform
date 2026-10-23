@@ -448,6 +448,15 @@ class Settings(BaseSettings):
     # interview and extraction, and moving either to serve this phase would move them
     # everywhere. The Gemini fallback rides `TaskRoute.fallback_model` (see `get_route`).
     default_career_model: str = "claude-haiku-4-5"
+    # Token-audit fix B-1 — PER-TASK MODEL CHOICE, so a model moves one task at a time. Empty (the
+    # default) is every route above exactly. `task=primary` or `task=primary>fallback`,
+    # comma-separated, e.g. `profiling_free_classify=gemini-2.5-flash-lite>claude-haiku-4-5`. It
+    # wins over the tier, a route's own model and `ai_primary_provider`; the route's budgets and
+    # temperature stay. Only models in `model_config.OVERRIDE_MODELS` may be named, and the news
+    # answer cannot move (its search is Anthropic's). An entry that cannot be honoured is dropped
+    # and logged once, and that task keeps its default route — a typo never stops the service.
+    # `scripts/effective-ai-flags.py` prints every task's chain in force.
+    ai_task_model_overrides: str = ""
 
     # ADR-0030 / TAX-3: embedding model for the skill-vocabulary embed (offline corpus +
     # later the request-path resolver). MUST output the 768-dim vector skill_alias.embedding
