@@ -672,9 +672,29 @@ WEB_SEARCH_RESULT_TOKENS_ALLOWANCE = 10_000
 WEB_SEARCH_UNBOUNDED_USES = 10
 
 # Anthropic's prompt-cache multipliers on the base input rate (5-minute cache): a cache write
-# bills 1.25x, a cache read 0.1x. Applied only to a tool call's own cache buckets.
+# bills 1.25x, a cache read 0.1x. Applied to every call's cache buckets (token-audit fix A3; they
+# were read for tool calls only).
 ANTHROPIC_CACHE_WRITE_MULTIPLIER = 1.25
 ANTHROPIC_CACHE_READ_MULTIPLIER = 0.1
+# Gemini 2.5's implicit-cache hits (`cachedContentTokenCount`) bill at 10% of the input rate — a
+# 90% discount. Read 2026-10-23 from https://ai.google.dev/gemini-api/docs/pricing (2.5 Flash-Lite:
+# $0.10 input, $0.01 cached, per 1M) and https://ai.google.dev/gemini-api/docs/optimization. An
+# implicit cache WRITE carries no extra charge: those tokens bill as ordinary input, so Gemini
+# reports no write bucket and its write multiplier is 1.0 (never applied to a reported count).
+GEMINI_CACHE_READ_MULTIPLIER = 0.1
+
+
+def cache_multipliers(provider: str) -> tuple[float, float]:
+    """``(write, read)`` multipliers of a provider's input rate for its reported cache buckets.
+
+    A provider with no cache billing here prices both at the full input rate (1.0), which can
+    only over-read a cached call, never under-read it: the spend caps stay meaningful.
+    """
+    if provider == "anthropic":
+        return ANTHROPIC_CACHE_WRITE_MULTIPLIER, ANTHROPIC_CACHE_READ_MULTIPLIER
+    if provider == "google":
+        return 1.0, GEMINI_CACHE_READ_MULTIPLIER
+    return 1.0, 1.0
 
 
 # --- Prompt-cache thresholds (COST-2) --------------------------------------

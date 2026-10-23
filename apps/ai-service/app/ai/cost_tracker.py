@@ -32,11 +32,10 @@ from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
 from .errors import LlmTransportError
 from .model_config import (
-    ANTHROPIC_CACHE_READ_MULTIPLIER,
-    ANTHROPIC_CACHE_WRITE_MULTIPLIER,
     WEB_SEARCH_COST_INR,
     WEB_SEARCH_RESULT_TOKENS_ALLOWANCE,
     WEB_SEARCH_UNBOUNDED_USES,
+    cache_multipliers,
     provider_for_model,
     rate_inr_per_1k,
 )
@@ -105,24 +104,46 @@ def server_tool_reserve_inr(model: str, tools: list[dict[str, Any]], prompt_toke
     return round(estimate_cost_inr(model, extra_input, 0) + searches * WEB_SEARCH_COST_INR, 4)
 
 
+def cache_cost_inr(model: str, result: LlmResult) -> float:
+    """The cache buckets ``result`` reports, priced at ``model``'s provider multipliers of its
+    input rate (token-audit fix A3). Zero for a call that cached nothing. Unrounded: callers add
+    it to the token cost and round once."""
+    write_x, read_x = cache_multipliers(provider_for_model(model))
+    in_rate, _ = rate_inr_per_1k(model)
+    return (
+        result.cache_creation_input_tokens * write_x + result.cache_read_input_tokens * read_x
+    ) * (in_rate / 1000.0)
+
+
+def has_cache_tokens(result: LlmResult) -> bool:
+    """Did the provider report any cache bucket for this call?"""
+    return result.cache_creation_input_tokens > 0 or result.cache_read_input_tokens > 0
+
+
+def measured_call_cost_inr(
+    model: str, result: LlmResult, *, input_tokens: int, output_tokens: int
+) -> float:
+    """The MEASURED cost of a text call that used the prompt cache (token-audit fix A3): its
+    full-rate tokens plus its cache buckets at their multipliers. A call with no cache bucket is
+    priced exactly as before, by :func:`estimate_cost_inr` in :func:`build_call_metadata`."""
+    return round(
+        estimate_cost_inr(model, input_tokens, output_tokens) + cache_cost_inr(model, result), 4
+    )
+
+
 def server_tool_call_cost_inr(
     model: str, result: LlmResult, *, input_tokens: int, output_tokens: int
 ) -> float:
     """The MEASURED cost of a call that carried tools: its tokens plus every billed search.
 
     ``input_tokens`` / ``output_tokens`` are the router's counts for the call (the provider's,
-    or the estimate when it reported none), priced at ``model``'s rate. The cache buckets
-    Anthropic reports apart from ``input_tokens`` are priced at its write/read multipliers (zero
+    or the estimate when it reported none), priced at ``model``'s rate. The cache buckets the
+    provider reports apart from ``input_tokens`` are priced at its write/read multipliers (zero
     on a call that cached nothing). The search fee is ``result.search_requests`` (what the
     provider says it billed) times ``WEB_SEARCH_COST_INR``. Passed to
     :func:`build_call_metadata` as ``cost_inr``, so ``ai.cost_recorded`` carries the fees too.
     """
-    in_rate, _ = rate_inr_per_1k(model)
-    cached = (
-        result.cache_creation_input_tokens * ANTHROPIC_CACHE_WRITE_MULTIPLIER
-        + result.cache_read_input_tokens * ANTHROPIC_CACHE_READ_MULTIPLIER
-    ) * (in_rate / 1000.0)
-    tokens = estimate_cost_inr(model, input_tokens, output_tokens) + cached
+    tokens = estimate_cost_inr(model, input_tokens, output_tokens) + cache_cost_inr(model, result)
     return round(tokens + result.search_requests * WEB_SEARCH_COST_INR, 4)
 
 
@@ -190,8 +211,15 @@ def build_call_metadata(
     candidates_tried: list[str] | None = None,
     failure_reason: str | None = None,
     cost_inr: float | None = None,
+    cache_write_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
 ) -> AICallMetadata:
-    """Assemble + log the metadata for one AI call."""
+    """Assemble + log the metadata for one AI call.
+
+    ``cache_write_tokens`` / ``cache_read_tokens`` (token-audit fix A3): the provider's cache
+    buckets for a call that came back, outside ``input_tokens``; ``None`` (the default) when no
+    provider answered — a mock, a cap, a failed chain — so "not reported" never reads as zero.
+    """
     # A CALL THAT NEVER REACHED A PROVIDER COST NOTHING, and must say so.
     #
     # `estimate_cost_inr` prices the tokens, which is right for a call that happened and wrong for
@@ -241,6 +269,8 @@ def build_call_metadata(
         attempt_count=attempt_count,
         candidates_tried=candidates_tried or [],
         failure_reason=failure_reason,
+        cache_write_tokens=cache_write_tokens,
+        cache_read_tokens=cache_read_tokens,
         # Guardrails: flagged but NOT sent anywhere externally in Phase 1.
         cost_alert=estimated > settings.ai_cost_alert_profile_inr,
         above_target=estimated > settings.ai_target_profile_cost_inr,

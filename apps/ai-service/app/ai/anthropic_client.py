@@ -134,7 +134,16 @@ def _parse_anthropic_response(resp) -> LlmResult:
     usage = getattr(resp, "usage", None)
     input_tokens = int(getattr(usage, "input_tokens", 0) or 0) if usage else 0
     output_tokens = int(getattr(usage, "output_tokens", 0) or 0) if usage else 0
-    return LlmResult(content=content, input_tokens=input_tokens, output_tokens=output_tokens)
+    return LlmResult(
+        content=content,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        # Token-audit fix A3 — the cache buckets Anthropic bills APART from `input_tokens`, read
+        # on every call (they were read for tool calls only, so a cached text call under-read its
+        # cost). Zero on a call that cached nothing, which is every call today.
+        cache_creation_input_tokens=_count(_field(usage, "cache_creation_input_tokens")),
+        cache_read_input_tokens=_count(_field(usage, "cache_read_input_tokens")),
+    )
 
 
 def _field(obj: Any, name: str) -> Any:
