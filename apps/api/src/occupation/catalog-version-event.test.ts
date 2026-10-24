@@ -25,8 +25,8 @@ const REAL_VERSION =
 
 const payload = (catalogVersion: string) =>
   ProfileOccupationUnresolvedPayload.safeParse({
-    worker_id: "11111111-1111-1111-1111-111111111111",
-    session_id: "22222222-2222-2222-2222-222222222222",
+    worker_id: "11111111-1111-4111-8111-111111111111",
+    session_id: "22222222-2222-4222-8222-222222222222",
     reason: "below_floor",
     best_score: null,
     deepest_layer: null,

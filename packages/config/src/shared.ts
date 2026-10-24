@@ -90,7 +90,7 @@ export const uuidListFromString = z
   .transform((parts) => parts.map((p) => p.trim()).filter((p) => p.length > 0))
   .pipe(z.array(z.string().uuid("must be a comma-separated list of UUIDs")))
   .transform((ids) => [...new Set(ids)] as readonly string[])
-  .default("");
+  .default([]);
 
 export const NODE_ENVS = ["development", "test", "staging", "production"] as const;
 /**

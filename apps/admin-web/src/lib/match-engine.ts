@@ -47,7 +47,7 @@ export const engineRecentWorkerSchema = z.object({
   short_ref: z.string(),
   created_at: z.string(),
   trade_label: z.string().nullable(),
-}) satisfies z.ZodType<EngineRecentWorker, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<EngineRecentWorker>;
 
 export const engineRecentWorkersSchema = z.object({
   workers: z.array(engineRecentWorkerSchema),
@@ -72,7 +72,7 @@ export const engineSkillSchema = z.object({
   wants: z.boolean(),
   months_bucketed: z.number(),
   source: z.string(),
-}) satisfies z.ZodType<EngineSkill, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<EngineSkill>;
 
 export const engineFunnelSchema = z.object({
   open_postings: z.number(),
@@ -94,7 +94,7 @@ export const engineCardSchema = z.object({
   boosted: z.boolean(),
   published_at: z.string().nullable(),
   why: z.string(),
-}) satisfies z.ZodType<EngineCard, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<EngineCard>;
 
 export const engineWorkerSchema = z.object({
   worker_id: z.string(),
@@ -104,7 +104,7 @@ export const engineWorkerSchema = z.object({
   cards: z.array(engineCardSchema),
   card_cap: z.number(),
   generated_at: z.string(),
-}) satisfies z.ZodType<EngineWorker, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<EngineWorker>;
 
 export function getEngineWorker(workerId: string) {
   return adminFetch(`/admin/match/engine/workers/${encodeURIComponent(workerId)}`, {
@@ -129,7 +129,7 @@ export const engineCandidateSchema = z.object({
   industry_months: z.number().nullable(),
   last_worked_at: z.string().nullable(),
   matched_skill_label: z.string().nullable(),
-}) satisfies z.ZodType<EngineCandidate, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<EngineCandidate>;
 
 export const enginePostingSchema = z.object({
   job_posting_id: z.string(),
@@ -146,7 +146,7 @@ export const enginePostingSchema = z.object({
   candidates: z.array(engineCandidateSchema),
   tier_floor_months: z.number(),
   generated_at: z.string(),
-}) satisfies z.ZodType<EnginePosting, z.ZodTypeDef, unknown>;
+}) satisfies z.ZodType<EnginePosting>;
 
 export function getEnginePosting(postingId: string) {
   return adminFetch(`/admin/match/engine/postings/${encodeURIComponent(postingId)}`, {

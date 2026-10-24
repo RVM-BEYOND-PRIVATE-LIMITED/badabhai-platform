@@ -810,12 +810,10 @@ describe("Generalized profiling contract parity (contracts.py mirror)", () => {
     ["ConversationState", ConversationStateSchema.shape],
     ["ProfilingTurnInput", ProfilingTurnInputSchema.shape],
     ["ProfilingTurnOutput", ProfilingTurnOutputSchema.shape],
-    // `.innerType()` because ProfileExtractionInputSchema carries a `.refine`
-    // ("transcript OR a non-empty messages array"), which wraps the object in a
-    // ZodEffects whose `.shape` is undefined. Reaching through it keeps the refinement
-    // — the thing that makes an empty extraction request invalid — rather than
-    // deleting it to make the shape reachable.
-    ["ProfileExtractionInput", ProfileExtractionInputSchema.innerType().shape],
+    // No `.innerType()` reach-through: refinements live on the schema itself,
+    // so `.shape` reads the object while keeping the "transcript OR non-empty
+    // messages" refinement — the thing that makes an empty request invalid.
+    ["ProfileExtractionInput", ProfileExtractionInputSchema.shape],
     ["ProfileExtractionOutput", ProfileExtractionOutputSchema.shape],
     ["JobDomainMatch", JobDomainMatchSchema.shape],
   ];
@@ -936,8 +934,8 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     ["AnswerRecordHistoryEntry", AnswerRecordHistoryEntrySchema.shape],
     ["AnswerRecord", AnswerRecordSchema.shape],
     ["OccupationPin", OccupationPinSchema.shape],
-    // `.innerType()` because the operand carries an exactly-one-of refinement.
-    ["PredicateOperand", PredicateOperandSchema.innerType().shape],
+    // Same as above: the exactly-one-of refinement lives on the schema itself.
+    ["PredicateOperand", PredicateOperandSchema.shape],
     // `z.lazy` has no `.shape`, so the Predicate key list is asserted via a parallel
     // shape object; the test below proves the two cannot drift apart.
     ["Predicate", PredicateObjectShapeForParity.shape],

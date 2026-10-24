@@ -49,7 +49,7 @@ interface RequestOptions<T> {
    * transport parses untyped JSON, so only the schema's OUTPUT (`T`) matters here — and a schema
    * that degrades a field (e.g. `.catch(null)`) legitimately accepts any input for it.
    */
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>;
+  schema: z.ZodType<T>;
   /** When true, omit the Authorization header (public auth endpoints). */
   public?: boolean;
   /**

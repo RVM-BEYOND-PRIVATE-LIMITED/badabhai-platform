@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { z } from "zod";
 
 import { APPLICANT_POSTING_KINDS, APPLICANT_STAGES } from "@badabhai/types";
 
@@ -42,10 +41,12 @@ function stageChangedEvent(over: Record<string, unknown> = {}): Record<string, u
   };
 }
 
-/** The object schema under the refine, so its keys and enums can be pinned. */
+/** The object schema, so its keys and enums can be pinned. */
 const SHAPE = (
-  EVENT_REGISTRY["payer.applicant_stage_changed"].payload as unknown as z.ZodEffects<z.AnyZodObject>
-).innerType().shape as Record<string, z.ZodEnum<[string, ...string[]]>>;
+  EVENT_REGISTRY["payer.applicant_stage_changed"].payload as unknown as {
+    shape: Record<string, { options: readonly unknown[] }>;
+  }
+).shape;
 
 describe("payer.applicant_stage_changed", () => {
   it("is registered as a version-1 payer-domain event", () => {

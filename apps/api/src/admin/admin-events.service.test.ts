@@ -18,23 +18,23 @@ import {
   type AdminMetricsQueryDto,
 } from "./admin-events.dto";
 
-const CTX: RequestContext = { requestId: "req-1", correlationId: "11111111-1111-1111-1111-111111111111" };
+const CTX: RequestContext = { requestId: "req-1", correlationId: "11111111-1111-4111-8111-111111111111" };
 
 /** A representative spine row. NOTE the payload carries ONLY ids/codes (PII-free by registry). */
 function row(over: Partial<EventRow> = {}): EventRow {
   return {
-    id: "22222222-2222-2222-2222-222222222222",
+    id: "22222222-2222-4222-8222-222222222222",
     eventName: "consent.accepted",
     eventVersion: 1,
     occurredAt: new Date("2026-06-27T10:00:00.000Z"),
     actorType: "worker",
-    actorId: "33333333-3333-3333-3333-333333333333",
+    actorId: "33333333-3333-4333-8333-333333333333",
     subjectType: "consent",
-    subjectId: "44444444-4444-4444-4444-444444444444",
+    subjectId: "44444444-4444-4444-8444-444444444444",
     correlationId: CTX.correlationId,
     causationId: null,
     idempotencyKey: null,
-    payload: { worker_id: "33333333-3333-3333-3333-333333333333" },
+    payload: { worker_id: "33333333-3333-4333-8333-333333333333" },
     metadata: { environment: "test", service: "api", request_id: "req-1" },
     createdAt: new Date("2026-06-27T10:00:01.000Z"),
     ...over,
@@ -168,7 +168,7 @@ describe("AdminEventsService — PII-free projections (faceless)", () => {
 
   it("timeline projection is faceless + has no PII keys", async () => {
     m.repo.listKeyset.mockResolvedValue([row({ subjectType: "worker", subjectId: "w-1" })]);
-    const res = await m.service.timeline("worker", "55555555-5555-5555-5555-555555555555", { limit: 50 });
+    const res = await m.service.timeline("worker", "55555555-5555-4555-8555-555555555555", { limit: 50 });
     expect(res.subject_type).toBe("worker");
     expect(res.events[0]).not.toHaveProperty("payload");
     assertNoPiiKeys(res);
@@ -176,8 +176,8 @@ describe("AdminEventsService — PII-free projections (faceless)", () => {
 
   it("detail returns the (already PII-free) payload + metadata", async () => {
     m.repo.findById.mockResolvedValue(row());
-    const res = await m.service.getById("22222222-2222-2222-2222-222222222222");
-    expect(res.payload).toEqual({ worker_id: "33333333-3333-3333-3333-333333333333" });
+    const res = await m.service.getById("22222222-2222-4222-8222-222222222222");
+    expect(res.payload).toEqual({ worker_id: "33333333-3333-4333-8333-333333333333" });
     expect(res).toHaveProperty("metadata");
     assertNoPiiKeys(res); // worker_id is an opaque id, not a PII-shaped key
   });
@@ -304,7 +304,7 @@ describe("AdminEventsService — export emits a PII-free admin.action_performed"
 
   it("returns the PII-free rows + emits an audited export event that VALIDATES against the registry", async () => {
     m.repo.listForExport.mockResolvedValue([row()]);
-    const adminId = "66666666-6666-6666-6666-666666666666";
+    const adminId = "66666666-6666-4666-8666-666666666666";
     const res = await m.service.export(adminId, exportDto({ eventName: ["consent.accepted"] }), CTX);
 
     expect(res.count).toBe(1);
@@ -345,7 +345,7 @@ describe("AdminEventsService — export emits a PII-free admin.action_performed"
 
   it("the export target_id is DETERMINISTIC for the same filter, DIFFERENT for another", async () => {
     m.repo.listForExport.mockResolvedValue([]);
-    const adminId = "66666666-6666-6666-6666-666666666666";
+    const adminId = "66666666-6666-4666-8666-666666666666";
     await m.service.export(adminId, exportDto({ eventName: ["a"] }), CTX);
     await m.service.export(adminId, exportDto({ eventName: ["a"] }), CTX);
     await m.service.export(adminId, exportDto({ eventName: ["b"] }), CTX);

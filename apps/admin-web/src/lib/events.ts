@@ -37,8 +37,8 @@ const eventsPageSchema = z.object({
 export type EventsPage = z.infer<typeof eventsPageSchema>;
 
 const eventDetailSchema = eventListItemSchema.extend({
-  payload: z.record(z.unknown()),
-  metadata: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
 });
 export type EventDetail = z.infer<typeof eventDetailSchema>;
 
@@ -252,7 +252,7 @@ const healthSchema = z.object({
   service: z.string(),
   environment: z.string(),
   timestamp: z.string(),
-  checks: z.record(z.string()),
+  checks: z.record(z.string(), z.string()),
 });
 export type PlatformHealth = z.infer<typeof healthSchema>;
 

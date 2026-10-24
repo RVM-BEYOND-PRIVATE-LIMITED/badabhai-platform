@@ -612,7 +612,7 @@ export const LlmTurnInputSchema = z.object({
   message_text: z.string().default(""),
   /** Rolling window, pseudonymized upstream per message. */
   history: z.array(TranscriptLineSchema).default([]),
-  draft: LlmInterviewDraftSchema.default({}),
+  draft: LlmInterviewDraftSchema.prefault({}),
   experience_count: z.number().int().nonnegative().default(0),
   /**
    * This is the model's LAST allowed question — ask the most valuable one left, then stop.

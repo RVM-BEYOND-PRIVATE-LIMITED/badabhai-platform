@@ -391,8 +391,9 @@ describe("#1848 — every posting and agency write route screens city and area",
       const r = route.schema.safeParse({ ...route.base, city: "Pune", area: "Phase 2 411026" });
       expect(r.success).toBe(true);
       if (r.success) {
-        expect(r.data.city).toBe("Pune");
-        expect(r.data.area).toBe("Phase 2 411026");
+        const data = r.data as { city: unknown; area: unknown };
+        expect(data.city).toBe("Pune");
+        expect(data.area).toBe("Phase 2 411026");
       }
     });
   }

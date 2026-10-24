@@ -45,8 +45,8 @@ vi.mock("../resume/other-answer-leak-guard", async (importOriginal) => {
 });
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
-const PAYER = "11111111-1111-1111-1111-111111111111";
-const WORKER = "22222222-2222-2222-2222-222222222222";
+const PAYER = "11111111-1111-4111-8111-111111111111";
+const WORKER = "22222222-2222-4222-8222-222222222222";
 const REAL_NAME = "Ramesh Kumar"; // must NEVER appear in event/response
 const MASKED = "R***** K.";
 const SENTINEL_PHONE = "+919876500000"; // must NEVER appear in events, logs or API

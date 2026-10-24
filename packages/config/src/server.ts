@@ -504,7 +504,7 @@ export const serverEnvSchema = z.object({
    * restriction, and `assertPayerAuthConfig` makes it structurally impossible to arm in
    * production. Default OFF.
    */
-  PAYER_TEST_LOGIN_ENABLED: booleanFromString.default("false"),
+  PAYER_TEST_LOGIN_ENABLED: booleanFromString.default(false),
   PAYER_TEST_LOGIN_TOKEN: z.string().optional(),
   // Referral-attribution hook (ADR-0022 Amendment 1) per-IP cap / rolling UTC hour. The
   // worker-authed POST /referrals/attribute is a low-frequency onboarding side-signal; an

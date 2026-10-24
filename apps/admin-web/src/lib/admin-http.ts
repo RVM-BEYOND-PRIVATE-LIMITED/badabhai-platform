@@ -156,13 +156,12 @@ interface RequestOptions<T> {
    * Zod schema the response is validated against. Omit for 204-style calls.
    *
    * INPUT IS `unknown`, DELIBERATELY, and it is what makes `T` the schema's OUTPUT type.
-   * `z.ZodType<T>` is shorthand for `ZodType<T, ZodTypeDef, T>` — input and output pinned to the
-   * same type — so any schema whose parse CHANGES the shape (a `.default()`, a `.catch()`, a
-   * `.transform()`) made TypeScript infer `T` from the INPUT side and hand the caller a type with
-   * the pre-parse optionality still on it. The value being parsed here is a JSON body, which is
-   * `unknown` by definition, so this is also simply the honest signature.
+   * `z.ZodType<T>` pins the output to `T` while accepting `unknown` input — so a schema
+   * whose parse CHANGES the shape (a `.default()`, a `.catch()`, a `.transform()`)
+   * still hands the caller the post-parse type. The value being parsed here is a JSON
+   * body, which is `unknown` by definition, so this is also simply the honest signature.
    */
-  schema?: z.ZodType<T, z.ZodTypeDef, unknown>;
+  schema?: z.ZodType<T>;
   /** Skip the Authorization header — the three public admin-auth endpoints only. */
   public?: boolean;
   /** Next.js cache behaviour. Admin data is operational: never cache by default. */

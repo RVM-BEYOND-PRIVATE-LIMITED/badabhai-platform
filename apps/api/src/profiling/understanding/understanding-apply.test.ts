@@ -49,8 +49,8 @@ const LANGS = item({
   target_field: "languages",
   answer_type: "multi_select",
   options: [
-    { option_key: "hindi", label_text: "Hindi", implies_skill_id: null, is_none_of_above: false },
-    { option_key: "marathi", label_text: "Marathi", implies_skill_id: null, is_none_of_above: false },
+    { option_key: "hindi", label_text: "Hindi", implies_skill_id: null, is_none_of_above: false, value: null },
+    { option_key: "marathi", label_text: "Marathi", implies_skill_id: null, is_none_of_above: false, value: null },
   ],
 });
 const ITEMS = [YEARS, CITY, TRAVEL, LANGS];

@@ -57,8 +57,8 @@ const AVAIL = item({
   answer_type: "single_select",
   prompt_text: "Aap kab se kaam shuru kar sakte hain?",
   options: [
-    { option_key: "immediate", label_text: "Turant", implies_skill_id: null, is_none_of_above: false },
-    { option_key: "month", label_text: "Ek mahine mein", implies_skill_id: null, is_none_of_above: false },
+    { option_key: "immediate", label_text: "Turant", implies_skill_id: null, is_none_of_above: false, value: null },
+    { option_key: "month", label_text: "Ek mahine mein", implies_skill_id: null, is_none_of_above: false, value: null },
   ],
 });
 const YEARS = item({

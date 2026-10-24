@@ -12,7 +12,7 @@ import type { AdminInviteService } from "./admin-invite.service";
 
 const CTX: RequestContext = {
   requestId: "req-1",
-  correlationId: "11111111-1111-1111-1111-111111111111",
+  correlationId: "11111111-1111-4111-8111-111111111111",
 };
 
 const ADMIN_ID = "aaaaaaaa-0000-4000-8000-000000000001";

@@ -300,6 +300,7 @@ export const PostMessageResponseSchema = z.object({
    */
   lookahead: z
     .record(
+      z.string(),
       z.object({
         question_key: z.string().nullable(),
         /** `close` means the prediction is that the interview ends on this answer. */
