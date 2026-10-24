@@ -84,6 +84,42 @@ describe("understand", () => {
     expect(sent).toContain("Pune");
   });
 
+  it("L1 — only the on-screen row carries options", async () => {
+    const { service, ai } = world();
+    const req: UnderstandRequest = {
+      ...REQUEST,
+      onScreen: { key: "controller", text: "Kaunsa controller?", options: ["Fanuc", "Siemens"] },
+      schema: [
+        { key: "controller", label: "Controller", kind: "single_select", options: ["Fanuc", "Siemens"], value: null, status: "unanswered", entries: [] },
+        { key: "trade", label: "Trade", kind: "text", options: ["Turner"], value: null, status: "unanswered", entries: [] },
+      ],
+    };
+    await service.understand(req, CTX);
+    const sent = ai.understandTurn.mock.calls[0]?.[0] as {
+      schema_rows: { key: string; label: string; options: string[] }[];
+    };
+    expect(sent.schema_rows).toEqual([
+      expect.objectContaining({ key: "controller", options: ["Fanuc", "Siemens"] }),
+      expect.objectContaining({ key: "trade", options: [], label: "Trade" }),
+    ]);
+  });
+
+  it("L1 — a model-written question (null key) carries no row options", async () => {
+    const { service, ai } = world();
+    const req: UnderstandRequest = {
+      ...REQUEST,
+      onScreen: { key: null, text: "Aap kis machine pe kaam karte hain?", options: [] },
+      schema: [
+        { key: "controller", label: "Controller", kind: "single_select", options: ["Fanuc"], value: null, status: "unanswered", entries: [] },
+      ],
+    };
+    await service.understand(req, CTX);
+    const sent = ai.understandTurn.mock.calls[0]?.[0] as {
+      schema_rows: { key: string; options: string[] }[];
+    };
+    expect(sent.schema_rows).toEqual([expect.objectContaining({ key: "controller", options: [] })]);
+  });
+
   it("FAILS CLOSED on an unreadable name: no call at all", async () => {
     const { service, ai, cost } = world();
     const out = await service.understand(REQUEST, {
