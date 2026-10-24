@@ -83,6 +83,7 @@ jobs:
       admin-web: ${{ steps.filter.outputs.admin-web }}
       sast: ${{ steps.filter.outputs.sast }}
       deps: ${{ steps.filter.outputs.deps }}
+      cost-regression: ${{ steps.filter.outputs.cost-regression }}
       # #965: the value baked into api / ai-service / payer-web as `GIT_COMMIT_SHA` and
       # reported by each service's /health as `build`.
       short-sha: ${{ steps.short-sha.outputs.short-sha }}
@@ -303,6 +304,13 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - '.github/workflows/dependency-audit.yml'
+              - '.github/workflows/ci.yml'
+            # Cost regression (#2415). The recorded nine-run CSVs plus the
+            # checker that validates them. Same self-trigger convention as
+            # every filter above: a change to this workflow file must be able
+            # to trigger the gate it edits.
+            cost-regression:
+              - 'scripts/cost-regression/**'
               - '.github/workflows/ci.yml'
 
       # ---- THE IMAGE BUILD MATRIX: ONE SOURCE OF TRUTH FOR THE PR GATE AND THE PUBLISH ----
@@ -1107,6 +1115,27 @@ jobs:
       - name: Pytest
         run: pytest
 
+  # ---- COST REGRESSION (#2415): the recorded nine profiling runs ----
+  #
+  # Validates the committed per-call CSVs (shape, no blanks, Rs85 maths) and
+  # prints the per-flow table plus the Done-means checklist. Stdlib only, no
+  # dependencies, no secrets, no live calls — about thirty seconds.
+  cost-regression:
+    name: Cost regression (nine runs)
+    if: needs.changes.outputs.cost-regression == 'true'
+    needs: [changes]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Check cost regression
+        run: python scripts/cost-regression/check_cost_regression.py
+
   # ---- DOES EACH APP'S IMAGE STILL BUILD AT ALL? (TD81 + GAP-XC-06 #920) ----
   #
   # `build-and-push-image` below is gated `push && refs/heads/main`, so it NEVER runs on a
@@ -1859,7 +1888,7 @@ jobs:
     # still built only on a push to main), and no app was removed from it. A matrix job's
     # aggregate `result` is `failure` if ANY leg failed, so one app's broken Dockerfile still
     # fails this check.
-    needs: [changes, node, ai-service, image-gate, e2e, worker-app, payer-app, sast, deps-audit]
+    needs: [changes, node, ai-service, image-gate, e2e, worker-app, payer-app, sast, deps-audit, cost-regression]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures
