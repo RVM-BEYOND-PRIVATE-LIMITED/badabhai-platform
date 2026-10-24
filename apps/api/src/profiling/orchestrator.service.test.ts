@@ -877,8 +877,8 @@ describe("#2308 — \"aur kitna bacha hai?\" is answered, never stored, never sp
     max_asks: 1,
     prompt_text: "Kaun si bhasha bolte hain?",
     options: [
-      { option_key: "hindi", label_text: "Hindi", implies_skill_id: null, is_none_of_above: false },
-      { option_key: "english", label_text: "English", implies_skill_id: null, is_none_of_above: false },
+      { option_key: "hindi", label_text: "Hindi", implies_skill_id: null, is_none_of_above: false, value: null },
+      { option_key: "english", label_text: "English", implies_skill_id: null, is_none_of_above: false, value: null },
     ],
   });
   const PACKS = { occupation: null, universal: pack("qp_universal", [CITY, YEARS, TRAINING, LANGS]) };
@@ -921,7 +921,7 @@ describe("#2308 — \"aur kitna bacha hai?\" is answered, never stored, never sp
         kind: "ask",
         questionKey: null,
         at: T0.toISOString(),
-        options: [{ option_key: "llm_a", label_text: "VMC", implies_skill_id: null, is_none_of_above: false }],
+        options: [{ option_key: "llm_a", label_text: "VMC", implies_skill_id: null, is_none_of_above: false, value: null }],
         progress: { answered: 0, total: 0 },
         whyText: null,
         answerType: null,

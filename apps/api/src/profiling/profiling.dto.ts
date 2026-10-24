@@ -268,6 +268,7 @@ export const ProfilingStepSchema = z.discriminatedUnion("kind", [
      */
     lookahead: z
       .record(
+        z.string(),
         z.object({
           question_key: z.string().nullable(),
           question_kind: z.enum(["ask", "close"]),

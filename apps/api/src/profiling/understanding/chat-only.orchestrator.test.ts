@@ -72,12 +72,14 @@ const AVAIL = item({
       label_text: "Turant",
       implies_skill_id: null,
       is_none_of_above: false,
+      value: null,
     },
     {
       option_key: "month",
       label_text: "Ek mahine mein",
       implies_skill_id: null,
       is_none_of_above: false,
+      value: null,
     },
   ],
 });

@@ -256,7 +256,7 @@ export const DraftProfileSchema = z.object({
   // Mirrors apps/ai-service/app/contracts.py.
   education_level: z.string().nullable().default(null),
   education_field: z.string().nullable().default(null),
-  experience: ExperienceSchema.default({}),
+  experience: ExperienceSchema.prefault({}),
   // The LLM-led interview's multi-job history. ADDITIVE AND DEFAULTED, so every snapshot ever
   // written parses unchanged (invariant #8) — and it lands HERE rather than on the rich draft
   // because `resume.service.ts` parses `rawProfile` through `DraftProfileSchema` and never
@@ -293,9 +293,9 @@ export const DraftProfileSchema = z.object({
   domain_label: z.string().max(120).nullable().default(null),
   role_label: z.string().max(120).nullable().default(null),
   shift: z.string().max(40).nullable().default(null),
-  salary_expectation: SalaryExpectationSchema.default({}),
-  location_preference: LocationPreferenceSchema.default({}),
-  availability: AvailabilitySchema.default({}),
+  salary_expectation: SalaryExpectationSchema.prefault({}),
+  location_preference: LocationPreferenceSchema.prefault({}),
+  availability: AvailabilitySchema.prefault({}),
   confidence: z.number().min(0).max(1).nullable().default(null),
   /**
    * THE RÉSUMÉ CONTAINER, CARRIED INSIDE THIS ONE.

@@ -202,8 +202,10 @@ describe("worker fact registry", () => {
   });
 
   describe("marker ownership", () => {
-    const unwrap = (schema: z.ZodTypeAny): z.AnyZodObject =>
-      (schema instanceof z.ZodEffects ? unwrap(schema.innerType()) : schema) as z.AnyZodObject;
+    // Refinements live on the schema itself, so there is no wrapper to reach
+    // through — the shape reads directly.
+    const unwrap = (schema: z.ZodTypeAny): { shape: Record<string, unknown> } =>
+      schema as unknown as { shape: Record<string, unknown> };
     const DTO_FIELDS: Readonly<Record<MarkerScreenType, ReadonlySet<string>>> = {
       preferences: new Set(Object.keys(unwrap(SetMyPreferencesSchema).shape)),
       qualifications: new Set(Object.keys(unwrap(SetMyQualificationsSchema).shape)),

@@ -152,7 +152,20 @@ function screenWith(
   if (max === null) {
     throw new Error(`${label}: ${name.subject} needs a .max() on its base`);
   }
-  if (base._def.checks.some((c) => c.kind === "toLowerCase" || c.kind === "toUpperCase")) {
+  // Case transforms are anonymous overwrites in the internals — only their function
+  // source names them — while length checks stay structured. This reaches in the same
+  // way the old `_def.checks` read did: a dev-time guard, never runtime logic.
+  const checks =
+    (base._def as unknown as { checks?: readonly unknown[] }).checks ?? [];
+  const isCaseTransform = (c: unknown): boolean => {
+    const def = (c as { _zod?: { def?: { check?: unknown; tx?: unknown } } })._zod?.def;
+    return (
+      def?.check === "overwrite" &&
+      typeof def.tx === "function" &&
+      /\.toLowerCase\(\)|\.toUpperCase\(\)/.test(String(def.tx))
+    );
+  };
+  if (checks.some(isCaseTransform)) {
     throw new Error(`${label}: ${name.subject} must not case-transform its base`);
   }
   return base.superRefine((s, ctx) => {
