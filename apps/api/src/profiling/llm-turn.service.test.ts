@@ -55,7 +55,7 @@ const ENTRY = {
   work_done: "naan, roti",
 };
 
-function make(over: { turn?: unknown; enabled?: boolean; rawPii?: boolean } = {}) {
+function make(over: { turn?: unknown; enabled?: boolean; rawPii?: boolean; window?: number } = {}) {
   // Typed to TAKE its arguments, so a test can assert on what was sent — `vi.fn(async () => …)`
   // infers a zero-arg signature and `mock.calls[0][0]` is then a compile error. The second
   // parameter is BL-19's optional trace ctx, asserted on below.
@@ -66,6 +66,8 @@ function make(over: { turn?: unknown; enabled?: boolean; rawPii?: boolean } = {}
   };
   const config = {
     CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true,
+    // L2 — the production default; tests that need a window pass it explicitly.
+    CHAT_HISTORY_WINDOW_TURNS: over.window ?? 20,
     // ADR-0047 — set only by the known-name tests, which prove the redaction never reads it.
     ...(over.rawPii === undefined ? {} : { AI_RAW_PII_ENABLED: over.rawPii }),
   };
@@ -95,6 +97,31 @@ const withEntries = (n: number): Partial<ProfilingEnvelope> => ({
 beforeEach(() => {
   vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
   vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+});
+
+describe("L2 — the prompt carries the last N history lines plus the whole draft", () => {
+  const LINES: readonly TranscriptLine[] = [
+    { i: 0, role: "assistant", text: "Q0" },
+    { i: 1, role: "worker", text: "A0" },
+    { i: 2, role: "assistant", text: "Q1" },
+    { i: 3, role: "worker", text: "A1" },
+  ];
+  type Sent = { history: TranscriptLine[]; draft: unknown };
+  const sentOf = (ai: ReturnType<typeof make>["ai"]) => ai.llmTurn.mock.calls[0]?.[0] as Sent;
+
+  it("windows to the configured N and keeps the draft whole", async () => {
+    const { svc, ai } = make({ window: 2 });
+    await svc.take(env(), "ok", LINES, CTX);
+    const sent = sentOf(ai);
+    expect(sent.history.map((l) => l.text)).toEqual(["Q1", "A1"]);
+    expect(sent.draft).toBeDefined();
+  });
+
+  it("0 sends no history lines", async () => {
+    const { svc, ai } = make({ window: 0 });
+    await svc.take(env(), "ok", LINES, CTX);
+    expect(sentOf(ai).history).toEqual([]);
+  });
 });
 
 describe("the flag and the fallback", () => {

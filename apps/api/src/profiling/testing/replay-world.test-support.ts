@@ -54,6 +54,8 @@ export interface ReplayWorldOptions {
   /** `AiService.llmTurn` outputs, ONE PER CALL, in order — `undefined` reads as a dead network. */
   readonly turns?: readonly (Record<string, unknown> | null)[];
   readonly enabled?: boolean;
+  /** L2 — history lines per turn; defaults to the production setting. */
+  readonly window?: number;
   /** Defaults to the real `qp_universal@2` — every fixture's PACK_QUESTION_KEYs come from it. */
   readonly universal?: QuestionPack;
   readonly resumeSuggestions?: {
@@ -112,7 +114,10 @@ export function buildReplayWorld(opts: ReplayWorldOptions = {}) {
   // error.
   const queue = [...(opts.turns ?? [])];
   const ai = { llmTurn: vi.fn(async (_input: unknown, _ctx?: unknown) => queue.shift() ?? null) };
-  const config = { CHAT_LLM_INTERVIEW_ENABLED: opts.enabled ?? true };
+  const config = {
+    CHAT_LLM_INTERVIEW_ENABLED: opts.enabled ?? true,
+    CHAT_HISTORY_WINDOW_TURNS: opts.window ?? 20,
+  };
   const cost = { record: vi.fn(async () => undefined) };
   const traces = { capture: vi.fn(async () => undefined) };
 
