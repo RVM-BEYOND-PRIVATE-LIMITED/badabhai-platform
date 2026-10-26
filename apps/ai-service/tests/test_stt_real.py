@@ -613,22 +613,22 @@ def _snapshot(user_ref: str | None = None) -> dict:
     return _run(cost_tracker.get_ledger().snapshot(Settings(_env_file=None), user_ref=user_ref))
 
 
-def test_chunked_note_records_spend_per_chunk_against_the_worker_ref(monkeypatch):
+def test_chunked_note_records_spend_per_second_against_the_worker_ref(monkeypatch):
     audio, _frames = build_m4a(1875)  # 120s -> 5 chunks
     _patch_storage(monkeypatch, returns=audio)
     _arm_chunks(monkeypatch, ["ek", "do", "teen", "chaar", "paanch"])
 
-    settings = _real_settings(sarvam_stt_cost_inr_per_chunk=0.25)
+    settings = _real_settings()
     adapter = SttAdapter(settings)
     result = _run(
         adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="worker-abc")
     )
 
     assert result.chunk_count == 5
-    # 5 chunks x Rs 0.25 = Rs 1.25 — reserved up-front, reconciled to actual.
+    # 120 s of audio at Rs 30/audio-hour = Rs 1.00 — reserved up-front, reconciled to actual.
     snap = _snapshot("worker-abc")
-    assert snap["user_daily_spend_inr"] == 1.25
-    assert snap["daily_spend_inr"] == 1.25
+    assert snap["user_daily_spend_inr"] == 1.0
+    assert snap["daily_spend_inr"] == 1.0
 
 
 def test_single_call_note_records_one_chunk_of_spend(monkeypatch):
@@ -636,31 +636,32 @@ def test_single_call_note_records_one_chunk_of_spend(monkeypatch):
     _reset_client({"transcript": "short", "language_code": "hi-IN"})
     _patch_storage(monkeypatch, returns=b"audio")
 
-    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    adapter = SttAdapter(_real_settings())
     _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=20, worker_ref="w-1"))
 
-    assert _snapshot("w-1")["user_daily_spend_inr"] == 0.25
+    # 20 s at Rs 30/audio-hour.
+    assert _snapshot("w-1")["user_daily_spend_inr"] == 0.1667
 
 
-def test_four_full_length_notes_fit_the_per_user_daily_cap_then_the_fifth_blocks(monkeypatch):
+def test_six_full_length_notes_fit_the_per_user_daily_cap_then_the_seventh_blocks(monkeypatch):
     # The documented ceiling math: Rs 6/user/day (ai_max_user_daily_cost_inr) /
-    # Rs 1.25 per 120s note = 4 full-length notes/user/day, the 5th is refused.
+    # Rs 1.00 per 120s note = 6 full-length notes/user/day, the 7th is refused.
     audio, _frames = build_m4a(1875)
     _patch_storage(monkeypatch, returns=audio)
 
-    settings = _real_settings(sarvam_stt_cost_inr_per_chunk=0.25, ai_max_user_daily_cost_inr=6.0)
+    settings = _real_settings(ai_max_user_daily_cost_inr=6.0)
     adapter = SttAdapter(settings)
 
-    for _ in range(4):
+    for _ in range(6):
         _arm_chunks(monkeypatch, ["ek", "do", "teen", "chaar", "paanch"])
         result = _run(
             adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="w-2")
         )
         assert result.error_code is None
 
-    assert _snapshot("w-2")["user_daily_spend_inr"] == 5.0
+    assert _snapshot("w-2")["user_daily_spend_inr"] == 6.0
 
-    # The 5th note would need Rs 1.25 more (6.25 > 6.0) -> blocked BEFORE any call.
+    # The 7th note would need Rs 1.00 more (7.00 > 6.0) -> blocked BEFORE any call.
     _arm_chunks(monkeypatch, ["should-not-be-used"] * 5)
     blocked = _run(
         adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="w-2")
@@ -677,7 +678,7 @@ def test_ledger_block_returns_empty_and_never_reaches_the_provider(monkeypatch):
     _arm_chunks(monkeypatch, ["should-not-be-used"] * 5)
 
     # Daily cap far below one note's projected cost -> reserve refuses.
-    settings = _real_settings(sarvam_stt_cost_inr_per_chunk=0.25, ai_max_daily_cost_inr=0.1)
+    settings = _real_settings(ai_max_daily_cost_inr=0.1)
     result = _run(
         SttAdapter(settings).transcribe(
             storage_path="w/x.m4a", duration_seconds=120, worker_ref="w-3"
@@ -693,16 +694,16 @@ def test_failed_note_refunds_the_reservation_of_uncalled_chunks(monkeypatch):
     # Chunk 0 succeeds (billed), chunk 1 raises. The note fails closed, but the
     # ledger must keep ONLY the spend that actually reached the provider — the
     # reservation for the rest is refunded (no leak, no over-charge).
-    audio, _frames = build_m4a(704)  # 45s -> 2 chunks, Rs 0.50 reserved
+    audio, _frames = build_m4a(704)  # 45s -> 2 chunks, Rs 0.375 reserved
     _patch_storage(monkeypatch, returns=audio)
     _arm_chunks(monkeypatch, ["billed half", RuntimeError("boom")])
 
-    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    adapter = SttAdapter(_real_settings())
     result = _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=45, worker_ref="w-4"))
 
     assert result.error_code == "stt_call_failed"
-    # Exactly ONE chunk reached the provider -> Rs 0.25 kept, Rs 0.25 refunded.
-    assert _snapshot("w-4")["user_daily_spend_inr"] == 0.25
+    # Exactly ONE chunk reached the provider (22.53 s of audio) -> Rs 0.1877 kept.
+    assert _snapshot("w-4")["user_daily_spend_inr"] == 0.1877
 
 
 def test_storage_failure_leaks_no_reservation(monkeypatch):
@@ -710,7 +711,7 @@ def test_storage_failure_leaks_no_reservation(monkeypatch):
     _reset_client({"transcript": "unused"})
     _patch_storage(monkeypatch, raises=RuntimeError("voice audio fetch failed with status 404"))
 
-    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    adapter = SttAdapter(_real_settings())
     _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="w-5"))
 
     # Nothing reached the provider -> the whole reservation is refunded.
@@ -735,7 +736,7 @@ def test_crafted_file_declaring_a_huge_stream_makes_zero_provider_calls(monkeypa
     _patch_storage(monkeypatch, returns=audio)
     _arm_chunks(monkeypatch, ["should-not-be-used"] * 10)
 
-    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    adapter = SttAdapter(_real_settings())
     result = _run(
         adapter.transcribe(storage_path="w/x.m4a", duration_seconds=31, worker_ref="w-atk")
     )
@@ -757,14 +758,14 @@ def test_reservation_always_covers_the_actual_call_count(monkeypatch):
     _patch_storage(monkeypatch, returns=audio)
     _arm_chunks(monkeypatch, ["a", "b", "c", "d", "e"])
 
-    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    adapter = SttAdapter(_real_settings())
     result = _run(
         adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="w-r")
     )
 
     assert result.chunk_count == MAX_CHUNKS_PER_NOTE == 5
     assert len(_ChunkRecordingClient.uploads) <= MAX_CHUNKS_PER_NOTE
-    assert _snapshot("w-r")["user_daily_spend_inr"] == 1.25  # exactly 5 x 0.25
+    assert _snapshot("w-r")["user_daily_spend_inr"] == 1.0  # 120 s at Rs 30/hr
 
 
 def test_declared_duration_understating_the_real_file_does_not_false_close(monkeypatch):
@@ -775,14 +776,14 @@ def test_declared_duration_understating_the_real_file_does_not_false_close(monke
     _patch_storage(monkeypatch, returns=audio)
     _arm_chunks(monkeypatch, ["ek", "do", "teen"])
 
-    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    adapter = SttAdapter(_real_settings())
     result = _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=59, worker_ref="w-d"))
 
     assert result.error_code is None
     assert result.transcript_text == "ek do teen"
     assert result.chunk_count == 3
     # Reserved 5 (the bound), actually called 3 -> reconciled to the truth.
-    assert _snapshot("w-d")["user_daily_spend_inr"] == 0.75
+    assert _snapshot("w-d")["user_daily_spend_inr"] == 0.496  # 59.52 s at Rs 30/hr
 
 
 def test_chunked_note_reserves_the_structural_bound_not_the_declared_estimate():
@@ -798,14 +799,15 @@ def test_chunked_note_reserves_the_structural_bound_not_the_declared_estimate():
         assert adapter._projected_chunks(declared) == MAX_CHUNKS_PER_NOTE
 
 
-def test_per_chunk_rate_above_the_per_call_ceiling_blocks(monkeypatch):
-    # TD68 belt+suspenders: one chunk = one provider call, so a rate above
-    # AI_MAX_CALL_COST_INR is a misconfiguration that must refuse, not spend.
+def test_hourly_rate_above_the_per_call_ceiling_blocks(monkeypatch):
+    # TD68 belt+suspenders: one chunk = one provider call, so an hourly rate
+    # pricing one full chunk above AI_MAX_CALL_COST_INR is a misconfiguration
+    # that must refuse, not spend.
     audio, _frames = build_m4a(704)
     _patch_storage(monkeypatch, returns=audio)
     _arm_chunks(monkeypatch, ["should-not-be-used"] * 2)
 
-    settings = _real_settings(sarvam_stt_cost_inr_per_chunk=11.0, ai_max_call_cost_inr=10.0)
+    settings = _real_settings(sarvam_stt_cost_inr_per_audio_hour=2400.0, ai_max_call_cost_inr=10.0)
     result = _run(SttAdapter(settings).transcribe(storage_path="w/x.m4a", duration_seconds=45))
 
     assert result.error_code == "stt_budget_blocked"
