@@ -60,6 +60,11 @@ const String _kWorkHint =
 const String _kNotStated = 'Nahi bataya';
 const String _kPickYear = 'Saal chunein';
 const String _kPickMonth = 'Mahina chunein';
+// The suggestion states the year, not the month (#2445). The field shows the
+// year it already has and names the one piece still missing, so the worker
+// never reads a bare year as a finished date.
+const String _kMonthPending = 'mahina chunein';
+const String _kChangeYear = 'Saal badlein';
 const int _kWorkDoneMax = 300;
 const String _kDateOrderError =
     'Khatam hone ki date shuru hone ke baad honi chahiye.';
@@ -672,9 +677,15 @@ class _EmploymentSuggestionCard extends StatelessWidget {
 
   /// "Mar 2019 – Feb 2022", "Mar 2019 se", "Feb 2022 tak", or null when the
   /// suggestion states no month at all (neither source does today).
+  ///
+  /// A PARSED YEAR WITHOUT A MONTH PRINTS AS THE YEAR (#2444/#2445): "2019 –
+  /// 2021" is honest, "Jan 2019 – Jan 2021" is not. The month, when one is
+  /// stated, still wins over the bare year.
   String? _when() {
-    final String? start = _monthYear(suggestion.startYm);
-    final String? end = _monthYear(suggestion.endYm);
+    final String? start =
+        _monthYear(suggestion.startYm) ?? _bareYear(suggestion.startYear);
+    final String? end =
+        _monthYear(suggestion.endYm) ?? _bareYear(suggestion.endYear);
     if (start != null && end != null) return '$start – $end';
     if (start != null) return '$start se';
     if (end != null) return '$end tak';
@@ -691,6 +702,8 @@ class _EmploymentSuggestionCard extends StatelessWidget {
     if (m == null || m < 1 || m > 12) return null;
     return '${_kMonths[m - 1]} ${parts[0]}';
   }
+
+  static String? _bareYear(int? year) => year == null ? null : '$year';
 
   @override
   Widget build(BuildContext context) {
@@ -932,6 +945,7 @@ class _EmployerCardState extends State<_EmployerCard> {
           const TradeFormFieldLabel(_kStartLabel),
           _YearMonthField(
             value: e.startYm,
+            year: e.startYear,
             onPicked: (String? ym) {
               if (ym != null &&
                   e.endYm != null &&
@@ -941,7 +955,9 @@ class _EmployerCardState extends State<_EmployerCard> {
                 ).showSnackBar(const SnackBar(content: Text(_kDateOrderError)));
                 return;
               }
-              _push(e.copyWith(startYm: ym));
+              // Picking a month completes the date, so the year-only hint has
+              // done its job; clearing the field drops both, never revives it.
+              _push(e.copyWith(startYm: ym, startYear: null));
             },
           ),
           const SizedBox(height: 14),
@@ -953,7 +969,11 @@ class _EmployerCardState extends State<_EmployerCard> {
               // ON — current job: drop any end date. OFF — an end date is now
               // REQUIRED (see [currentPageError]); it is only dropped if the
               // worker had not picked one.
-              _push(e.copyWith(stillWorking: on, endYm: on ? null : e.endYm));
+              _push(e.copyWith(
+                stillWorking: on,
+                endYm: on ? null : e.endYm,
+                endYear: on ? null : e.endYear,
+              ));
             },
           ),
           if (!_stillWorking) ...<Widget>[
@@ -961,6 +981,7 @@ class _EmployerCardState extends State<_EmployerCard> {
             const TradeFormFieldLabel(_kEndLabel),
             _YearMonthField(
               value: e.endYm,
+              year: e.endYear,
               onPicked: (String? ym) {
                 if (ym != null &&
                     e.startYm != null &&
@@ -970,7 +991,7 @@ class _EmployerCardState extends State<_EmployerCard> {
                   );
                   return;
                 }
-                _push(e.copyWith(endYm: ym));
+                _push(e.copyWith(endYm: ym, endYear: null));
               },
             ),
           ],
@@ -1261,14 +1282,27 @@ class _LocationLink extends StatelessWidget {
 /// `features/finishing`'s own `_YearMonthField` (a scoped duplicate — see
 /// this file's class doc). Painted as a kit input (48px, 10 radius).
 class _YearMonthField extends StatelessWidget {
-  const _YearMonthField({required this.value, required this.onPicked});
+  const _YearMonthField({
+    required this.value,
+    required this.onPicked,
+    this.year,
+  });
 
   final String? value;
+
+  /// A year the suggestion already states (#2445) while [value] has no month
+  /// yet. The field shows it and the picker opens straight on the month step;
+  /// it is NEVER a substitute for a real "YYYY-MM" ([value]).
+  final int? year;
+
   final ValueChanged<String?> onPicked;
 
   String _display() {
     final String? v = value;
-    if (v == null) return _kNotStated;
+    if (v == null) {
+      final int? y = year;
+      return y == null ? _kNotStated : '$y · $_kMonthPending';
+    }
     final List<String> parts = v.split('-');
     if (parts.length != 2) return _kNotStated;
     final int? m = int.tryParse(parts[1]);
@@ -1280,7 +1314,7 @@ class _YearMonthField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool set = value != null;
+    final bool set = value != null || year != null;
     final BorderRadius radius =
         BorderRadius.circular(OnboardingRadii.nameField);
     return Material(
@@ -1350,14 +1384,20 @@ class _YearMonthField extends StatelessWidget {
           top: Radius.circular(OnboardingRadii.card),
         ),
       ),
-      builder: (BuildContext ctx) => const _YearMonthSheet(),
+      builder: (BuildContext ctx) => _YearMonthSheet(initialYear: year),
     );
     if (picked != null) onPicked(picked);
   }
 }
 
 class _YearMonthSheet extends StatefulWidget {
-  const _YearMonthSheet();
+  const _YearMonthSheet({this.initialYear});
+
+  /// The year a suggestion already stated (#2445). When it is a usable work
+  /// year the sheet opens on the MONTH step for it — the worker is never asked
+  /// to re-pick a year the document already gave, and never gets a month
+  /// invented for them. "Saal badlein" goes back to the full year list.
+  final int? initialYear;
 
   @override
   State<_YearMonthSheet> createState() => _YearMonthSheetState();
@@ -1365,6 +1405,17 @@ class _YearMonthSheet extends StatefulWidget {
 
 class _YearMonthSheetState extends State<_YearMonthSheet> {
   int? _year;
+
+  @override
+  void initState() {
+    super.initState();
+    final int? suggested = widget.initialYear;
+    if (suggested != null &&
+        suggested >= _kEarliestWorkYear &&
+        suggested <= DateTime.now().year) {
+      _year = suggested;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1381,9 +1432,28 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              _year == null ? _kPickYear : _kPickMonth,
-              style: OnboardingTypography.anek(size: 18),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    _year == null ? _kPickYear : '$_kPickMonth · $_year',
+                    style: OnboardingTypography.anek(size: 18),
+                  ),
+                ),
+                if (_year != null)
+                  TextButton(
+                    onPressed: () => setState(() => _year = null),
+                    child: Text(
+                      _kChangeYear,
+                      style: OnboardingTypography.inter(
+                        size: 13,
+                        weight: FontWeight.w600,
+                        color: OnboardingColors.shiftBlue,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 14),
             // The year chips do not fit a 568px screen — the list scrolls

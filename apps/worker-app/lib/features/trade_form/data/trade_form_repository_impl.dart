@@ -354,6 +354,8 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       roleLabel: clean(dto.roleLabel),
       startYm: clean(dto.startYm),
       endYm: clean(dto.endYm),
+      startYear: dto.startYear,
+      endYear: dto.endYear,
       workDone: clean(dto.workDone),
     );
     return suggestion.isEmpty ? null : suggestion;

@@ -25,6 +25,17 @@ const TradeFormEmploymentSuggestion _fromChat = TradeFormEmploymentSuggestion(
   workDone: 'Job setting karte the',
 );
 
+/// A résumé row that stated the calendar years but no months (#2444/#2445).
+const TradeFormEmploymentSuggestion _fromResumeDated =
+    TradeFormEmploymentSuggestion(
+  source: TradeFormEmploymentSuggestionSource.resume,
+  employerName: 'Sandhar Technologies',
+  roleLabel: 'CNC Operator',
+  startYear: 2019,
+  endYear: 2021,
+  workDone: 'Parts banate the',
+);
+
 const TradeFormEmploymentEntry _savedJob = TradeFormEmploymentEntry(
   employerName: 'Acme',
   roleLabel: 'Fitter',
@@ -131,6 +142,110 @@ void main() {
     expect(find.text('Kya ye aapka kaam tha?'), findsNothing);
     expect(host.saves, isEmpty);
     expect(host.skips, 0);
+  });
+
+  testWidgets('a dated résumé suggestion prints its years on the card',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        suggestions: const <TradeFormEmploymentSuggestion>[_fromResumeDated],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Years the document stated, and nothing it did not: never "Jan 2019".
+    expect(find.text('2019 – 2021'), findsOneWidget);
+    expect(find.text('Jan 2019 – Jan 2021'), findsNothing);
+  });
+
+  testWidgets(
+      'accepting a dated suggestion prefills the year and still asks the month',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        suggestions: const <TradeFormEmploymentSuggestion>[_fromResumeDated],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Jodein'));
+    await tester.pumpAndSettle();
+
+    // Both years are on the card, and BOTH months are still missing — the page
+    // never prints a January it was not given.
+    expect(find.text('2019 · mahina chunein'), findsOneWidget);
+    expect(find.text('2021 · mahina chunein'), findsOneWidget);
+    expect(find.text('Jan 2019'), findsNothing);
+    expect(find.text('Jan 2021'), findsNothing);
+    expect(
+      host.key.currentState!.currentPageError(),
+      'Kab shuru kiya — saal aur mahina chunein.',
+    );
+
+    // The picker opens on the suggested YEAR's month step, not the year list.
+    await tester.tap(find.text('2019 · mahina chunein'));
+    await tester.pumpAndSettle();
+    expect(find.text('Mahina chunein · 2019'), findsOneWidget);
+    await tester.tap(find.text('Mar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Mar 2019'), findsOneWidget);
+
+    // The end month is asked for next, on its own suggested year.
+    await tester.tap(find.text('2021 · mahina chunein'));
+    await tester.pumpAndSettle();
+    expect(find.text('Mahina chunein · 2021'), findsOneWidget);
+    await tester.tap(find.text('Feb'));
+    await tester.pumpAndSettle();
+    expect(find.text('Feb 2021'), findsOneWidget);
+
+    host.key.currentState!.save();
+    expect(host.saves, hasLength(1));
+    final TradeFormEmploymentEntry saved = host.saves.single.single;
+    expect(saved.startYm, '2019-03');
+    expect(saved.endYm, '2021-02');
+  });
+
+  testWidgets('the year step can still be changed from the month step',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        suggestions: const <TradeFormEmploymentSuggestion>[_fromResumeDated],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Jodein'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2019 · mahina chunein'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Saal badlein'));
+    await tester.pumpAndSettle();
+    expect(find.text('Saal chunein'), findsOneWidget);
+  });
+
+  testWidgets('a dateless suggestion keeps today\'s "Nahi bataya" date state',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        suggestions: const <TradeFormEmploymentSuggestion>[_fromResume],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Jodein'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Nahi bataya'), findsNWidgets(2));
+    expect(find.textContaining('mahina chunein'), findsNothing);
   });
 
   testWidgets('an accepted chat suggestion still needs the company and dates',

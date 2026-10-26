@@ -24,6 +24,8 @@ Map<String, dynamic> _suggestion(
   String? role,
   String? start,
   String? end,
+  int? startYear,
+  int? endYear,
   String? work,
 }) =>
     <String, dynamic>{
@@ -34,6 +36,8 @@ Map<String, dynamic> _suggestion(
         'role_label': role,
         'start_ym': start,
         'end_ym': end,
+        'start_year': startYear,
+        'end_year': endYear,
         'work_done': work,
       },
     };
@@ -60,7 +64,13 @@ void main() {
         'employments': <dynamic>[],
         'unreadable_count': 0,
         'employment_suggestions': <dynamic>[
-          _suggestion('resume', employer: 'Sandhar', role: 'CNC Operator'),
+          _suggestion(
+            'resume',
+            employer: 'Sandhar',
+            role: 'CNC Operator',
+            startYear: 2019,
+            endYear: 2021,
+          ),
           _suggestion(
             'chat',
             role: 'VMC Setter',
@@ -76,6 +86,8 @@ void main() {
           source: 'resume',
           employerName: 'Sandhar',
           roleLabel: 'CNC Operator',
+          startYear: 2019,
+          endYear: 2021,
         ),
         EmploymentSuggestionDto(
           source: 'chat',
@@ -92,6 +104,64 @@ void main() {
         <String, dynamic>{'employments': <dynamic>[], 'unreadable_count': 0},
       );
       expect(dto.employmentSuggestions, isEmpty);
+    });
+
+    test('years ride through as year-only hints, never folded into a month',
+        () {
+      final MyEmploymentDto dto = MyEmploymentDto.fromJson(<String, dynamic>{
+        'employments': <dynamic>[],
+        'unreadable_count': 0,
+        'employment_suggestions': <dynamic>[
+          _suggestion(
+            'resume',
+            employer: 'Sandhar',
+            role: 'CNC Operator',
+            startYear: 2019,
+            endYear: 2021,
+          ),
+        ],
+      });
+
+      final EmploymentSuggestionDto s = dto.employmentSuggestions.single;
+      expect(s.startYear, 2019);
+      expect(s.endYear, 2021);
+      expect(s.startYm, isNull);
+      expect(s.endYm, isNull);
+    });
+
+    test('an old blob with no years reads them as null', () {
+      final MyEmploymentDto dto = MyEmploymentDto.fromJson(<String, dynamic>{
+        'employments': <dynamic>[],
+        'unreadable_count': 0,
+        'employment_suggestions': <dynamic>[
+          _suggestion('resume', employer: 'Sandhar', role: 'CNC Operator'),
+        ],
+      });
+
+      final EmploymentSuggestionDto s = dto.employmentSuggestions.single;
+      expect(s.startYear, isNull);
+      expect(s.endYear, isNull);
+    });
+
+    test('a non-integer year reads as null, never a crash', () {
+      final MyEmploymentDto dto = MyEmploymentDto.fromJson(<String, dynamic>{
+        'employments': <dynamic>[],
+        'unreadable_count': 0,
+        'employment_suggestions': <dynamic>[
+          <String, dynamic>{
+            'source': 'resume',
+            'values': <String, dynamic>{
+              'employer_name': 'Sandhar',
+              'start_year': 2019.5,
+              'end_year': '2021',
+            },
+          },
+        ],
+      });
+
+      final EmploymentSuggestionDto s = dto.employmentSuggestions.single;
+      expect(s.startYear, isNull);
+      expect(s.endYear, isNull);
     });
 
     test('a null key reads as no suggestions, never a crash', () {
@@ -156,7 +226,13 @@ void main() {
           'employments': <dynamic>[],
           'unreadable_count': 0,
           'employment_suggestions': <dynamic>[
-            _suggestion('resume', employer: '  Sandhar  ', role: 'Operator '),
+            _suggestion(
+              'resume',
+              employer: '  Sandhar  ',
+              role: 'Operator ',
+              startYear: 2019,
+              endYear: 2021,
+            ),
             _suggestion('chat', role: 'Welder', work: ' Joint banate the '),
           ],
         },
@@ -167,6 +243,8 @@ void main() {
           source: TradeFormEmploymentSuggestionSource.resume,
           employerName: 'Sandhar',
           roleLabel: 'Operator',
+          startYear: 2019,
+          endYear: 2021,
         ),
         TradeFormEmploymentSuggestion(
           source: TradeFormEmploymentSuggestionSource.chat,
@@ -305,6 +383,29 @@ void main() {
           stillWorking: false,
         ),
       );
+    });
+
+    test('prefills a parsed year without inventing a month', () {
+      const TradeFormEmploymentSuggestion s = TradeFormEmploymentSuggestion(
+        source: TradeFormEmploymentSuggestionSource.resume,
+        employerName: 'Sandhar',
+        roleLabel: 'CNC Operator',
+        startYear: 2019,
+        endYear: 2021,
+      );
+
+      final TradeFormEmploymentEntry e = s.toEntry();
+      expect(e.startYear, 2019);
+      expect(e.endYear, 2021);
+      expect(e.startYm, isNull);
+      expect(e.endYm, isNull);
+
+      // The draft hint is never sent: only a complete month reaches the PUT.
+      final Map<String, dynamic> json = e.toJson();
+      expect(json['start_ym'], isNull);
+      expect(json['end_ym'], isNull);
+      expect(json.containsKey('start_year'), isFalse);
+      expect(json.containsKey('end_year'), isFalse);
     });
 
     test('a chat suggestion leaves the company blank for the worker to type,'
