@@ -211,6 +211,23 @@ describe("the profile count — the denominator, scoped to the SAME bound", () =
   });
 });
 
+describe("the test-split denominator — same dedupe and bound as the headline count", () => {
+  const SINCE = new Date("2026-08-19T07:38:05.000Z");
+
+  it("dedupes PER WORKER exactly like the headline denominator", async () => {
+    const c = captureQueries();
+    await new AdminDashboardRepository(c.db).countCurrentProfilesCompletedSinceSplit(
+      SINCE,
+      PROFILE_COMPLETED_STATUSES,
+    );
+    expect(c.sql()).toContain('"worker_profiles"."worker_id"');
+    expect(c.sql()).toContain('"current_profile"."created_at"');
+    expect(c.sql()).toContain("is_test_account");
+    expect(c.params).toContain("extracted");
+    expect(c.params).toContain("confirmed");
+  });
+});
+
 describe("volume reads", () => {
   it("worker profile progress is deduped PER WORKER via CURRENT_PROFILE_ORDER", async () => {
     const c = captureQueries();
@@ -268,13 +285,28 @@ describe("the dashboard repository is SELECT-ONLY and id-free", () => {
       "orgNameEnc",
       "photoStorageKey",
       // No per-row identity leaves this surface at all: the response is counts and ₹ only, so
-      // it cannot single anybody out and needs no k-anon floor.
-      "workers.id",
+      // it cannot single anybody out and needs no k-anon floor. `workers.id` is deliberately
+      // NOT in this list — the test-split joins on it — and has its own test below pinning
+      // that it is a join key only, never a projected column.
       "payers.id",
     ]) {
       expect(REPO_CODE, `admin-dashboard.repository must not project ${forbidden}`).not.toContain(
         forbidden,
       );
+    }
+  });
+
+  it("workers.id is a JOIN key only — the test split aggregates, never addresses, a worker", () => {
+    // The split joins cost events and current profiles to workers for the test flag.
+    // Both queries return bucket rows (counts and ₹); no per-worker row leaves this
+    // surface. So the id may appear in a JOIN predicate and nowhere else. This is a
+    // line-based check and stays honest only while each join keeps its key on one
+    // line — split it across lines and this goes blind, so don't.
+    const lines = REPO_CODE.split("\n");
+    const hits = lines.filter((line) => line.includes("workers.id"));
+    expect(hits.length).toBeGreaterThan(0);
+    for (const line of hits) {
+      expect(line, `workers.id outside a join: ${line.trim()}`).toMatch(/join/i);
     }
   });
 });

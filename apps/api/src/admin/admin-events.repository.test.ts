@@ -6,6 +6,7 @@ import {
   AdminEventsRepository,
   type AdminPayloadGroupField,
 } from "./admin-events.repository";
+import { PROFILING_TASK_TYPES } from "./admin-dashboard.dto";
 import { captureQueries } from "./testing/query-capture";
 
 /**
@@ -154,5 +155,24 @@ describe("countByPayloadField — the BP-5 cap-breach split", () => {
 
   it("the closed set is exactly the one field the dashboard needs", () => {
     expect([...ADMIN_PAYLOAD_GROUP_FIELDS]).toEqual(["reason"]);
+  });
+});
+
+describe("the test split — the profiling numerator by test flag, for the dashboard", () => {
+  const SINCE = new Date("2026-08-19T07:38:05.000Z");
+
+  it("reads cost EVENTS joined to workers, in the SAME window and task allowlist", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).profilingCostTestSplit(SINCE, PROFILING_TASK_TYPES);
+    // Not the totals table: that table has no worker dimension by design.
+    expect(c.sql()).toContain('"events"."payload"');
+    expect(c.sql()).toContain("is_test_account");
+    // The event name rides as a bound parameter, not inline SQL.
+    expect(c.params).toContain("ai.cost_recorded");
+    for (const taskType of PROFILING_TASK_TYPES) {
+      expect(c.params, `${taskType} must be bound into the split's IN list`).toContain(taskType);
+    }
+    // Sums ₹ in Postgres as text — the same exactness rule as every other ₹ read.
+    expect(c.sql()).toContain("::text");
   });
 });

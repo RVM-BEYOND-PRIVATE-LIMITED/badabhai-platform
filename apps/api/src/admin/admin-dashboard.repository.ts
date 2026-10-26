@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, count, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   applications,
@@ -391,6 +391,48 @@ export class AdminDashboardRepository {
         ),
       );
     return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * The denominator SPLIT BY TEST FLAG — same current-profile resolution and the
+   * same outside-the-DISTINCT-ON predicates as {@link
+   * countCurrentProfilesCompletedSince}, plus a `workers` join for the flag.
+   * Untagged workers bucket as real, same rule as the spend split (which lives
+   * on the spine reader — this file must never touch `events`).
+   */
+  async countCurrentProfilesCompletedSinceSplit(
+    since: Date,
+    completedStatuses: readonly ProfileStatus[],
+  ): Promise<{ realProfiles: number; testProfiles: number }> {
+    const current = this.db
+      .selectDistinctOn([workerProfiles.workerId], {
+        workerId: workerProfiles.workerId,
+        profileStatus: workerProfiles.profileStatus,
+        createdAt: workerProfiles.createdAt,
+      })
+      .from(workerProfiles)
+      .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER)
+      .as("current_profile");
+
+    const rows = await this.db
+      .select({ isTest: workers.isTestAccount, n: count() })
+      .from(current)
+      .leftJoin(workers, eq(workers.id, current.workerId))
+      .where(
+        and(
+          gte(current.createdAt, since),
+          inArray(current.profileStatus, [...completedStatuses]),
+        ),
+      )
+      .groupBy(workers.isTestAccount);
+
+    let realProfiles = 0;
+    let testProfiles = 0;
+    for (const r of rows) {
+      if (r.isTest === true) testProfiles = r.n;
+      else realProfiles = r.n;
+    }
+    return { realProfiles, testProfiles };
   }
 
   async countJobPostingsByStatus(): Promise<AdminKeyCount[]> {

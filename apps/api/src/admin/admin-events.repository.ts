@@ -15,7 +15,7 @@ import {
   sql,
   type SQL,
 } from "drizzle-orm";
-import { type Database, events, type EventRow } from "@badabhai/db";
+import { type Database, events, workers, type EventRow } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { type KeysetCursor } from "./admin-events.cursor";
 
@@ -304,6 +304,56 @@ export class AdminEventsRepository {
       count: Number(row?.count ?? 0),
       distinctSubjects: Number(row?.distinctSubjects ?? 0),
     };
+  }
+
+  /**
+   * The profiling numerator SPLIT BY TEST FLAG — a breakdown for the dashboard,
+   * never a platform figure (those stay on `platform_ai_cost_totals`, which has
+   * no worker dimension by design).
+   *
+   * WHY IT LIVES HERE AND NOT ON THE DASHBOARD REPOSITORY. `events` has exactly
+   * one admin reader — this class — and the static build-blocker fails CI on a
+   * second `from(events)`. Same precedent as the journey funnel below.
+   *
+   * Untagged rows (a deleted worker, a null worker_id) bucket as real — the flag
+   * is opt-in — see the DTO convergence caveat. Summed in Postgres as `numeric`.
+   */
+  async profilingCostTestSplit(
+    since: Date,
+    taskTypes: readonly string[],
+  ): Promise<{ testCostInr: string; testCalls: number; realCostInr: string; realCalls: number }> {
+    const rows = await this.db
+      .select({
+        isTest: workers.isTestAccount,
+        costInr: sql<string>`coalesce(sum((${events.payload}->>'estimated_cost_inr')::numeric), 0)::text`,
+        calls: sql<number>`count(*)::int`,
+      })
+      .from(events)
+      .leftJoin(workers, sql`${workers.id}::text = ${events.payload}->>'worker_id'`)
+      .where(
+        and(
+          eq(events.eventName, "ai.cost_recorded"),
+          gte(events.occurredAt, since),
+          inArray(sql`${events.payload}->>'task_type'`, [...taskTypes]),
+        ),
+      )
+      .groupBy(workers.isTestAccount);
+
+    let testCostInr = "0";
+    let testCalls = 0;
+    let realCostInr = "0";
+    let realCalls = 0;
+    for (const r of rows) {
+      // One row per bucket straight from Postgres — no float arithmetic anywhere.
+      if (r.isTest === true) {
+        testCostInr = r.costInr;
+        testCalls = r.calls;
+      } else {
+        realCostInr = r.costInr;
+        realCalls = r.calls;
+      }
+    }
+    return { testCostInr, testCalls, realCostInr, realCalls };
   }
 
   // =========================================================================

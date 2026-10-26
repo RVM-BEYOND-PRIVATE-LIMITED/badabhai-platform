@@ -8,6 +8,7 @@ import {
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
   COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   DASHBOARD_JOB_POSTING_STATUSES,
   DASHBOARD_OTHER_BUCKET,
@@ -91,6 +92,7 @@ interface Overrides {
   profilingSince?: Date | null;
   totalCostInr?: string;
   profilingCostInr?: string;
+  testCostInr?: string;
   profilesCompleted?: number;
   workerStatuses?: AdminKeyCount[];
   profileStatuses?: AdminKeyCount[];
@@ -169,6 +171,10 @@ function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDa
       asked.profileCountCalls += 1;
       return over.profilesCompleted ?? 5;
     },
+    countCurrentProfilesCompletedSinceSplit: async () => ({
+      realProfiles: 4,
+      testProfiles: 1,
+    }),
     countWorkersByStatus: async () => over.workerStatuses ?? [{ key: "active", count: 7 }],
     countWorkersPendingDeletion: async () => 2,
     countCurrentProfilesByStatus: async () =>
@@ -187,6 +193,12 @@ function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDa
         { key: "user_daily_cap_exceeded", count: 9 },
         { key: "cumulative_cap_exceeded", count: 1 },
       ],
+    profilingCostTestSplit: async () => ({
+      testCostInr: over.testCostInr ?? "4.750000",
+      testCalls: 40,
+      realCostInr: "15.000000",
+      realCalls: 100,
+    }),
   } as unknown as AdminEventsRepository;
 
   return new AdminDashboardService(repo, events);
@@ -484,6 +496,22 @@ describe("AI cost — what a finished profile costs", () => {
     expect(typeof perProfile.cost_per_profile_inr).toBe("string");
     // Six places, the scale `numeric(16,6)` stores — not a bare JS float's rendering.
     expect(perProfile.cost_per_profile_inr).toMatch(/^\d+\.\d{6}$/);
+  });
+
+  it("carries the ADDITIVE real/test split without moving the headline average", async () => {
+    const out = await makeService().summary(DTO);
+    const perProfile = out.ai_cost.per_profile!;
+    // Headline untouched: 19.75 over 5, exactly as before the split existed.
+    expect(perProfile.cost_per_profile_inr).toBe("3.950000");
+    expect(perProfile.test_split.real_cost_inr).toBe("15.000000");
+    expect(perProfile.test_split.real_calls).toBe(100);
+    expect(perProfile.test_split.real_profiles).toBe(4);
+    expect(perProfile.test_split.real_cost_per_profile_inr).toBe("3.750000");
+    expect(perProfile.test_split.test_cost_inr).toBe("4.750000");
+    expect(perProfile.test_split.test_calls).toBe(40);
+    expect(perProfile.test_split.test_profiles).toBe(1);
+    expect(perProfile.test_split.test_cost_per_profile_inr).toBe("4.750000");
+    expect(perProfile.test_split_caveat).toBe(COST_PER_PROFILE_TEST_SPLIT_CONVERGES);
   });
 
   it("the classification lists are non-empty — an empty IN list is a runtime error", () => {

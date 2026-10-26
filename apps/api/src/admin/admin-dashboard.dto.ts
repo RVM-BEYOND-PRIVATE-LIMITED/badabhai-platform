@@ -349,6 +349,18 @@ export const COST_PER_PROFILE_ERASURE_BIAS =
   "erased_workers_leave_the_count_but_not_the_spend" as const;
 
 /**
+ * WHAT THE TEST SPLIT IS STILL MISSING — the convergence caveat.
+ *
+ * Test accounts are marked at login, so spend from BEFORE a test account's first
+ * marked login sits in the real bucket: the split converges toward the truth as
+ * test traffic logs in, and early windows understate the test share. Untagged
+ * rows (deleted workers, worker-less calls) also read as real — the flag is
+ * opt-in, so "real" here honestly means "not marked test".
+ */
+export const COST_PER_PROFILE_TEST_SPLIT_CONVERGES =
+  "test_share_converges_as_test_accounts_log_in" as const;
+
+/**
  * GET /admin/dashboard/summary
  *
  * `windowDays` scopes ONLY the AI cap-breach counts (an operational "is this happening now?"
@@ -489,6 +501,24 @@ export interface AdminCostPerProfile {
   window_caveat: typeof COST_PER_PROFILE_WINDOW_EDGE_SKEW;
   /** Stable code — the DPDP erasure bias. See {@link COST_PER_PROFILE_ERASURE_BIAS}. */
   erasure_caveat: typeof COST_PER_PROFILE_ERASURE_BIAS;
+  /**
+   * ADDITIVE real/test breakdown of the same numerator and denominator above —
+   * the headline average is untouched, so existing readers see no change. The
+   * investor number is the `real_*` leg. See {@link
+   * COST_PER_PROFILE_TEST_SPLIT_CONVERGES} for what it still misses.
+   */
+  test_split: {
+    real_cost_inr: string;
+    real_calls: number;
+    real_profiles: number;
+    real_cost_per_profile_inr: string | null;
+    test_cost_inr: string;
+    test_calls: number;
+    test_profiles: number;
+    test_cost_per_profile_inr: string | null;
+  };
+  /** Stable code — the convergence caveat. See {@link COST_PER_PROFILE_TEST_SPLIT_CONVERGES}. */
+  test_split_caveat: typeof COST_PER_PROFILE_TEST_SPLIT_CONVERGES;
 }
 
 export interface AdminAiCostSummary {
