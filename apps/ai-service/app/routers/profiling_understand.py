@@ -17,6 +17,8 @@ Haan has not allowed. Nothing here writes anything.
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter
 
 from ..ai import prompt_registry
@@ -57,13 +59,27 @@ async def profiling_understand(
     )
     resolved = resolve_prompt(prompt_registry.PROFILING_TURN_UNDERSTAND)
     system_prompt = resolved.text if resolved is not None else UNDERSTAND_SYSTEM_PROMPT
-    content, meta = await router.run(
-        UNDERSTAND_TASK_TYPE,
-        messages=build_understand_messages(masked, system_prompt),
-        mock_response=understand_logic.MOCK_RESPONSE,
-        real_call_allowed=True,
-        prompt=resolved,
-    )
+    settings_now = get_settings()
+    try:
+        content, meta = await asyncio.wait_for(
+            router.run(
+                UNDERSTAND_TASK_TYPE,
+                messages=build_understand_messages(masked, system_prompt),
+                mock_response=understand_logic.MOCK_RESPONSE,
+                real_call_allowed=True,
+                prompt=resolved,
+            ),
+            timeout=settings_now.understand_deadline_seconds,
+        )
+    except TimeoutError:
+        # `TimeoutError` ONLY — deliberately not `CancelledError`: a client disconnect
+        # must still propagate instead of becoming a fabricated verdict. The API reads
+        # an unclear, metadata-free answer exactly like a timeout and runs today's turn.
+        logger.warning(
+            "profiling understand deadline exceeded",
+            extra={"extra": {"deadline_s": settings_now.understand_deadline_seconds}},
+        )
+        return ProfilingTurnUnderstandOutput()
     # The metadata rides back on the response so the API records the spend against
     # `profiling_turn_understand` — and so it can tell a mock (`real_call` false) from a model.
     parsed = understand_logic.parse_understanding(content, body)
