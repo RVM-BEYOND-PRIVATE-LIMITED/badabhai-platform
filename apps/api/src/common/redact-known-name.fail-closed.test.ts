@@ -64,7 +64,7 @@ describe("the redaction fails CLOSED (#2166 security H1)", () => {
     const cost = { record: vi.fn(async () => undefined) };
     const svc = new LlmTurnService(
       ai as never,
-      { CHAT_LLM_INTERVIEW_ENABLED: true } as never,
+      { CHAT_LLM_INTERVIEW_ENABLED: true, CHAT_HISTORY_WINDOW_TURNS: 20 } as never,
       cost as never,
       fakeAiTraceRecorder().recorder,
     );

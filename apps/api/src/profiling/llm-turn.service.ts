@@ -297,12 +297,17 @@ export class LlmTurnService {
     // employer copy. The request's copy only — `text` and `history` stay as typed for the rest of
     // this turn, and nothing stored changes.
     const outbound = await redactedTurnText(text, history, ctx, this.logger);
+    // L2 — the prompt carries the last N history lines plus the whole gathered
+    // draft below, instead of the whole transcript on every turn. N is the
+    // long-dead CHAT_HISTORY_WINDOW_TURNS setting (default 20); 0 sends no lines.
+    const windowTurns = this.config.CHAT_HISTORY_WINDOW_TURNS;
+    const windowedHistory = windowTurns > 0 ? outbound.history.slice(-windowTurns) : [];
     const request = {
       schema_version: "oie.v1" as const,
       worker_ref: ctx.workerId,
       stage: envelope.llmStage,
       message_text: outbound.messageText,
-      history: outbound.history,
+      history: windowedHistory,
       draft: envelope.llmDraft,
       experience_count: entries,
       // THE LAST ASK, not a cap already hit: a hit cap returned above without calling at all.
