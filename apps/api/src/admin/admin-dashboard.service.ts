@@ -6,6 +6,7 @@ import {
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
   COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   DASHBOARD_JOB_POSTING_STATUSES,
   DASHBOARD_OTHER_BUCKET,
@@ -180,6 +181,8 @@ export class AdminDashboardService {
     since: Date | null,
     subtotal: AdminProfilingCostSubtotal,
     profilesCompleted: number,
+    split: { testCostInr: string; testCalls: number; realCostInr: string; realCalls: number },
+    splitProfiles: { realProfiles: number; testProfiles: number },
   ): AdminCostPerProfile | null {
     // NO PROFILING WINDOW, NO RATIO. `since` here is `min(first_recorded_at)` over the PROFILING
     // task types, so null means no profiling call has ever been recorded — and then there is no
@@ -200,6 +203,25 @@ export class AdminDashboardService {
       basis: COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
       window_caveat: COST_PER_PROFILE_WINDOW_EDGE_SKEW,
       erasure_caveat: COST_PER_PROFILE_ERASURE_BIAS,
+      // ADDITIVE breakdown — the headline average above is untouched. The investor
+      // number is the real_* leg; each leg averages over its own denominator.
+      test_split: {
+        real_cost_inr: split.realCostInr,
+        real_calls: split.realCalls,
+        real_profiles: splitProfiles.realProfiles,
+        real_cost_per_profile_inr: AdminDashboardService.average(
+          split.realCostInr,
+          splitProfiles.realProfiles,
+        ),
+        test_cost_inr: split.testCostInr,
+        test_calls: split.testCalls,
+        test_profiles: splitProfiles.testProfiles,
+        test_cost_per_profile_inr: AdminDashboardService.average(
+          split.testCostInr,
+          splitProfiles.testProfiles,
+        ),
+      },
+      test_split_caveat: COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
     };
   }
 
@@ -251,6 +273,8 @@ export class AdminDashboardService {
       byProvider,
       byTaskType,
       profilesCompleted,
+      costTestSplit,
+      splitProfilesCompleted,
       breaches,
       workerStatuses,
       pendingDeletion,
@@ -272,6 +296,18 @@ export class AdminDashboardService {
       profilingSubtotal.since === null
         ? Promise.resolve(0)
         : this.repo.countCurrentProfilesCompletedSince(
+            profilingSubtotal.since,
+            PROFILE_COMPLETED_STATUSES,
+          ),
+      // The test split rides the SAME bound or not at all — same rule as the
+      // denominator above. Zeroed dummies when there is no window; perProfile
+      // returns null before reading them.
+      profilingSubtotal.since === null
+        ? Promise.resolve({ testCostInr: "0", testCalls: 0, realCostInr: "0", realCalls: 0 })
+        : this.repo.profilingCostTestSplit(profilingSubtotal.since, PROFILING_TASK_TYPES),
+      profilingSubtotal.since === null
+        ? Promise.resolve({ realProfiles: 0, testProfiles: 0 })
+        : this.repo.countCurrentProfilesCompletedSinceSplit(
             profilingSubtotal.since,
             PROFILE_COMPLETED_STATUSES,
           ),
@@ -336,6 +372,8 @@ export class AdminDashboardService {
           profilingSubtotal.since,
           profilingSubtotal,
           profilesCompleted,
+          costTestSplit,
+          splitProfilesCompleted,
         ),
         cap_breaches: {
           window_days: dto.windowDays,
