@@ -783,6 +783,10 @@ class Settings(BaseSettings):
     # Sarvam text-translation model. mayura:v1 is required for auto-detect + code-mixed
     # (the only model that supports Hinglish source + source_language_code="auto").
     sarvam_translate_model: str = "mayura:v1"
+    # Mayura billed by INPUT CHARACTERS — measured Rs 0.17 for 83 chars on the
+    # audit probe, i.e. ~Rs 2.05/1k. ESTIMATE until the first invoice, exactly
+    # like the STT hourly rate above.
+    sarvam_translate_cost_inr_per_1k_chars: float = 2.05
 
     # --- Sarvam text-to-speech (the voice form's spoken questions) --------------
     # Rendered OFFLINE by app/cli/tts_render.py, never per request: the questions are

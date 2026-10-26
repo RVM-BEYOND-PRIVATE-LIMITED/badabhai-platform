@@ -1504,6 +1504,10 @@ class TranscriptionOutput(BaseModel):
     # same object `/profile/parse` already returns, and it is never given worker text.
     # `None` on the mock path costs nothing to ignore; additive + defaulted (§3).
     ai_metadata: AICallMetadata | None = None
+    # WHAT THE TRANSLATE LEG COST, so it finally produces a cost row. Same shape
+    # as `ai_metadata`, one row per provider call; None when translation never
+    # ran. Additive + defaulted (§3).
+    translate_metadata: AICallMetadata | None = None
     # HOW MANY SPOKEN PHONE NUMBERS WERE REMOVED FROM `transcript_text` (#747 leg (a)).
     #
     # A COUNT, DELIBERATELY, AND NEVER THE DIGITS. The whole purpose of the redaction is to

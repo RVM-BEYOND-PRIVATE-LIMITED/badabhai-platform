@@ -194,6 +194,7 @@ async def _transcribe(
     # transcript reaches the translate provider unmasked (size cap kept), while the STT hop,
     # the spoken-digit redaction above and the counts-only log line below are untouched.
     english_text = ""
+    translation = None
     if body.translate_to_english and result.transcript_text.strip():
         raw_pii = get_settings().ai_raw_pii_enabled
         translate_gate = llm_input_gate(result.transcript_text, raw=raw_pii)
@@ -234,6 +235,28 @@ async def _transcribe(
                     level="WARNING" if translation.error_code else "DEFAULT",
                     status_message=translation.error_code,
                 )
+    # THE TRANSLATE COST RECORD — the leg that never had one. Built exactly like
+    # the STT record above (same shared task type: one Sarvam pipeline, one
+    # allowlist flip) and carried on the response for the backend to emit, so a
+    # translate call finally produces a cost row instead of billing invisibly.
+    # None when translation never ran (not requested, or refused at the gate):
+    # there is no call to record, not even a zero one.
+    translate_metadata = (
+        cost_tracker.build_call_metadata(
+            task_type=STT_TASK_TYPE,
+            model=settings.sarvam_translate_model,
+            real_call=translation.real_call,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=0,
+            success=translation.error_code is None,
+            settings=settings,
+            error_code=translation.error_code,
+            cost_inr=translation.cost_inr,
+        )
+        if translation is not None
+        else None
+    )
     # PRIVACY: never log transcript or english TEXT (raw worker free-text). Counts only.
     logger.info(
         "voice transcribe",
@@ -275,5 +298,6 @@ async def _transcribe(
         # that means the provider was never called.
         error_code=result.error_code,
         ai_metadata=stt_metadata,
+        translate_metadata=translate_metadata,
         spoken_digit_redactions=redaction.count,
     )

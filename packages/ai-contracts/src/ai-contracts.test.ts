@@ -395,6 +395,7 @@ describe("TranscriptionOutputSchema", () => {
     expect(out.confidence).toBe(0);
     expect(out.language_code).toBeNull();
     expect(out.english_text).toBe("");
+    expect(out.translate_metadata).toBeNull();
   });
   it("rejects confidence outside 0..1", () => {
     expect(

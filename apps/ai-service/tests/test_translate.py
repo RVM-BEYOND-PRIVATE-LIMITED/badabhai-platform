@@ -179,6 +179,33 @@ def test_real_success_maps_translation_and_sends_required_body(monkeypatch):
     assert body["source_language_code"] == "hi-IN"
 
 
+# --- cost fields (the translate cost row) ------------------------------------
+
+
+def test_real_success_carries_char_priced_cost(monkeypatch):
+    monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
+    _reset_client({"translated_text": "I am a VMC operator", "source_language_code": "hi-IN"})
+
+    adapter = TranslateAdapter(_real_settings())
+    result = _run(adapter.translate(text="main vmc operator hoon", source_language_code="hi-IN"))
+
+    # 22 chars at Rs 2.05/1k measured from the audit probe.
+    assert result.real_call is True
+    assert result.billed_chars == 22
+    assert result.cost_inr == 0.0451
+
+
+def test_no_provider_call_means_no_cost(monkeypatch):
+    monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
+    _reset_client({"translated_text": "should-not-be-used"})
+
+    adapter = TranslateAdapter(_real_settings())
+    skipped = _run(adapter.translate(text="hello", source_language_code="en-IN"))
+    empty = _run(adapter.translate(text=""))
+    assert (skipped.cost_inr, skipped.real_call) == (0.0, False)
+    assert (empty.cost_inr, empty.real_call) == (0.0, False)
+
+
 # --- english-skip (no API spend) -------------------------------------------
 
 

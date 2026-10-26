@@ -56,6 +56,8 @@ function make(
     errorCode?: string;
     /** The per-call cost record the ai-service returns (#738). `null`/absent = the mock path. */
     aiMetadata?: Record<string, unknown> | null;
+    /** The translate leg's own cost record. Absent = untranslated or an older ai-service. */
+    translateMetadata?: Record<string, unknown> | null;
     /**
      * Whether the adapter's success result is a MOCK — the provider was never called and the
      * transcript is the adapter's canned sentence (#1246). Defaults to `false` (a real call).
@@ -125,6 +127,7 @@ function make(
                 is_mock: opts.isMock ?? false,
                 error_code: null,
                 ai_metadata: opts.aiMetadata ?? null,
+                translate_metadata: opts.translateMetadata ?? null,
               },
         ),
   };
@@ -660,6 +663,30 @@ describe("STT cost recording", () => {
     expect(cost!.payload.provider).toBe("sarvam");
     // One job can make several billable calls; a per-job key deduped the later ones away.
     expect(cost!.idempotencyKey).toBe(`ai.cost_recorded:${REAL_META.ai_call_id}`);
+  });
+
+  it("a translate leg emits its OWN cost row under the same task type", async () => {
+    const translateMeta = {
+      ...REAL_META,
+      ai_call_id: "66666666-6666-4666-8666-666666666666",
+      model_name: "mayura:v1",
+      estimated_cost_inr: 0.0451,
+    };
+    const { proc, events } = make({ aiMetadata: REAL_META, translateMetadata: translateMeta });
+    await proc.process(makeJob());
+
+    const rows = costEvents(events as never);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]!.payload.task_type).toBe("stt_transcription");
+    expect(rows[1]!.payload.estimated_cost_inr).toBe(0.0451);
+    expect(rows[1]!.idempotencyKey).toBe(`ai.cost_recorded:${translateMeta.ai_call_id}`);
+  });
+
+  it("no translate leg means no second row — never a zero for a call that never ran", async () => {
+    const { proc, events } = make({ aiMetadata: REAL_META });
+    await proc.process(makeJob());
+
+    expect(costEvents(events as never)).toHaveLength(1);
   });
 
   it("the mock path emits NO cost event — a mocked environment must not write fictional money", async () => {
