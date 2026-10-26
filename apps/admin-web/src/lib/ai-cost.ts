@@ -128,6 +128,45 @@ export const COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED =
 export const COST_PER_PROFILE_WINDOW_EDGE_SKEW =
   "interviews_straddling_the_accrual_bound_are_split";
 export const COST_PER_PROFILE_ERASURE_BIAS = "erased_workers_leave_the_count_but_not_the_spend";
+export const COST_PER_PROFILE_TEST_SPLIT_CONVERGES = "test_share_converges_as_test_accounts_log_in";
+
+/** The additive real/test breakdown, narrowed to the fields the copy depends on. */
+export interface CostTestSplitInput {
+  real_cost_inr: string;
+  real_calls: number;
+  real_profiles: number;
+  real_cost_per_profile_inr: string | null;
+  test_cost_inr: string;
+  test_calls: number;
+  test_profiles: number;
+  test_cost_per_profile_inr: string | null;
+}
+
+/** One leg of the split — its own money, its own denominators, its own ratio (or absence). */
+export interface CostTestSplitLegView {
+  /** Pre-formatted exact ₹ over the leg's own calls and profiles. */
+  spendText: string;
+  calls: number;
+  profiles: number;
+  /** Either an exact ₹ amount or the stated ABSENCE. Never "₹0.00" for a null ratio. */
+  averageText: string;
+  averageIsAbsent: boolean;
+}
+
+/**
+ * Two shapes only. `unsupported` is the rolling-deploy state where this portal is newer than
+ * the API and `test_split` never arrived: rendering nothing would be pixel-identical to a
+ * measured split with no test spend, which is a claim the server did not make. `measured` is
+ * the block itself, with the caveat that says what the split still misses.
+ */
+export type CostTestSplitState =
+  | { kind: "unsupported"; sentence: string }
+  | {
+      kind: "measured";
+      real: CostTestSplitLegView;
+      test: CostTestSplitLegView;
+      caveatSentence: string;
+    };
 
 /** The wire block, narrowed to the fields the copy depends on. */
 export interface CostPerProfileInput {
@@ -146,6 +185,10 @@ export interface CostPerProfileInput {
   basis: string;
   window_caveat: string;
   erasure_caveat: string;
+  /** ADDITIVE real/test breakdown. Optional only so an older API cannot fail the dashboard. */
+  test_split?: CostTestSplitInput;
+  /** Stable code: what the split still misses. Compared, never assumed. */
+  test_split_caveat?: string;
 }
 
 /**
@@ -181,6 +224,8 @@ export interface CostPerProfileView {
   /** True ⇒ `averageText` is a statement, not a number, and must not be styled as one. */
   averageIsAbsent: boolean;
   averageAbsentSentence: string | null;
+  /** The real/test split of the SAME window — never a replacement for the headline above. */
+  testSplit: CostTestSplitState;
   mockPostureSentence: string | null;
   /**
    * Non-null ⇒ the section's ₹ figures start EARLIER than this block's, because a non-profiling
@@ -213,6 +258,75 @@ export type CostPerProfileState =
 
 /** The one string the null average is allowed to render as. Pinned so a test can hold it. */
 const NO_AVERAGE_TEXT = "No profile finished yet";
+
+const NO_REAL_AVERAGE_TEXT = "No real profile finished yet";
+const NO_TEST_AVERAGE_TEXT = "No test profile finished yet";
+
+function describeTestSplit(perProfile: CostPerProfileInput): CostTestSplitState {
+  const split = perProfile.test_split;
+  // MISSING is a version skew, not "no test spend" — see `CostTestSplitState`.
+  if (split === undefined) {
+    return {
+      kind: "unsupported",
+      sentence:
+        "This portal expects a real/test split of the profiling spend that the API it is talking " +
+        "to does not send. That is a version skew — usually a rolling deploy in progress — not a " +
+        "statement that no test spend was recorded. The headline average above is unaffected.",
+    };
+  }
+
+  const caveat = perProfile.test_split_caveat;
+  const caveatSentence =
+    caveat === COST_PER_PROFILE_TEST_SPLIT_CONVERGES
+      ? "Test spend is tagged when a test account logs in, so test traffic from before that login " +
+        "still reads as real: the test share converges over time, and early windows understate " +
+        "it. Untagged rows — deleted workers, worker-less calls — also read as real, so “real” " +
+        "here means “not marked test”."
+      : caveat === undefined
+        ? "The API did not send a caveat for this split, so read the legs as sent and do not " +
+          "assume how the test share converges."
+        : `The server reports a real/test caveat this portal does not recognise: ${caveat}`;
+
+  const leg = (
+    name: "real" | "test",
+    costInr: string,
+    calls: number,
+    profiles: number,
+    averageInr: string | null,
+  ): CostTestSplitLegView => ({
+    spendText: formatExactRupees(costInr),
+    calls,
+    profiles,
+    // A null ratio is the ABSENCE of a measurement, exactly like the headline average — a
+    // ₹0.00 here would say that leg produces free profiles.
+    averageText:
+      averageInr === null
+        ? name === "real"
+          ? NO_REAL_AVERAGE_TEXT
+          : NO_TEST_AVERAGE_TEXT
+        : formatExactRupees(averageInr),
+    averageIsAbsent: averageInr === null,
+  });
+
+  return {
+    kind: "measured",
+    real: leg(
+      "real",
+      split.real_cost_inr,
+      split.real_calls,
+      split.real_profiles,
+      split.real_cost_per_profile_inr,
+    ),
+    test: leg(
+      "test",
+      split.test_cost_inr,
+      split.test_calls,
+      split.test_profiles,
+      split.test_cost_per_profile_inr,
+    ),
+    caveatSentence,
+  };
+}
 
 /**
  * Turn the cost-per-profile block into the only words it may be described with — or NULL when
@@ -388,6 +502,8 @@ export function describeCostPerProfile(
         "absent measurement, not a measured ₹0.00 — every interview here is still running " +
         "or was abandoned."
       : null,
+
+    testSplit: describeTestSplit(perProfile),
 
     /*
      * Only when it is true — TD81's failure mode is a mocked figure quoted as production money,

@@ -57,6 +57,26 @@ const capBreachBucketSchema = z.object({ reason: z.string(), count: z.number() }
 export type CapBreachBucket = z.infer<typeof capBreachBucketSchema>;
 
 /**
+ * The ADDITIVE real/test breakdown of the same profiling numerator and denominator.
+ *
+ * Both amounts are exact decimal strings like every other ₹ here. The two averages are
+ * NULLABLE for the same reason the headline average is — a leg with spend and no completed
+ * profile has no ratio, and `"0.000000"` in its place would claim the leg produces free
+ * profiles. A leg with a genuine ₹0 spend still renders ₹0.00: that is a measurement.
+ */
+const testSplitSchema = z.object({
+  real_cost_inr: z.string(),
+  real_calls: z.number(),
+  real_profiles: z.number(),
+  real_cost_per_profile_inr: z.string().nullable(),
+  test_cost_inr: z.string(),
+  test_calls: z.number(),
+  test_profiles: z.number(),
+  test_cost_per_profile_inr: z.string().nullable(),
+});
+export type TestSplit = z.infer<typeof testSplitSchema>;
+
+/**
  * What a finished profile costs — the SAME accrual window the ₹ figures beside it cover.
  *
  * ── THIS BLOCK IS A RATIO, AND BOTH HALVES CAN BE WRONG WITHOUT CHANGING ITS SHAPE ───────
@@ -94,6 +114,17 @@ const costPerProfileSchema = z.object({
   window_caveat: z.string(),
   /** Stable code: what DPDP erasure does to it. */
   erasure_caveat: z.string(),
+  /**
+   * ADDITIVE real/test breakdown. The API sends it whenever `per_profile` is non-null, but the
+   * block is OPTIONAL for the same rolling-deploy reason `per_profile` is: this portal and the
+   * API are separate containers, and an older API must not fail the whole dashboard read over
+   * one new analytics block. `describeCostPerProfile` says so on screen rather than rendering
+   * the split as absent — an absent split would read as "no test spend", which is a claim the
+   * server may not have made.
+   */
+  test_split: testSplitSchema.optional(),
+  /** Stable code: what the split still misses. Keyed off, never parsed as prose. */
+  test_split_caveat: z.string().optional(),
 });
 export type CostPerProfile = z.infer<typeof costPerProfileSchema>;
 

@@ -4,6 +4,7 @@ import {
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
   COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   capBreachReasonLabel,
   describeAiCostBasis,
@@ -135,6 +136,17 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
     basis: COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
     window_caveat: COST_PER_PROFILE_WINDOW_EDGE_SKEW,
     erasure_caveat: COST_PER_PROFILE_ERASURE_BIAS,
+    test_split: {
+      real_cost_inr: "64.829300",
+      real_calls: 120,
+      real_profiles: 10,
+      real_cost_per_profile_inr: "6.482930",
+      test_cost_inr: "7.000000",
+      test_calls: 20,
+      test_profiles: 2,
+      test_cost_per_profile_inr: "3.500000",
+    },
+    test_split_caveat: COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   };
 
   /** The rows "By task type" renders — every profiling type present, so the default reconciles. */
@@ -164,6 +176,12 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
     const s = state(over);
     if (s.kind !== "measured") throw new Error(`expected a measured block, got "${s.kind}"`);
     return s.view;
+  };
+
+  const splitView = (over: Partial<typeof COST> = {}) => {
+    const split = view(over).testSplit;
+    if (split.kind !== "measured") throw new Error(`expected a split, got "${split.kind}"`);
+    return split;
   };
 
   it("says the average is per FINISHED PROFILE and not a per-worker unit cost", () => {
@@ -306,6 +324,85 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
     expect(v.averageIsAbsent).toBe(false);
     expect(v.averageText).toBe("₹5.985775");
     expect(v.averageAbsentSentence).toBeNull();
+  });
+
+  it("keeps the headline average BLENDED and shows the legs beside it, never in its place", () => {
+    /*
+     * The headline is the platform's answer for the period — real and test together. The
+     * `real_*` leg is the investor number and the `test_*` leg explains the gap; making either
+     * one the headline would silently drop the other population from the period's figure.
+     */
+    const v = view();
+    expect(v.averageText).toBe("₹5.985775");
+    const split = splitView();
+    expect(split.real.averageText).toBe("₹6.48293");
+    expect(split.test.averageText).toBe("₹3.50");
+    // The headline is neither leg, and the legs are not the headline.
+    expect(v.averageText).not.toBe(split.real.averageText);
+    expect(v.averageText).not.toBe(split.test.averageText);
+  });
+
+  it("renders each leg over its OWN denominator — never the headline's 12", () => {
+    const split = splitView();
+    expect(split.real.profiles).toBe(10);
+    expect(split.real.calls).toBe(120);
+    expect(split.test.profiles).toBe(2);
+    expect(split.test.calls).toBe(20);
+    expect(split.real.spendText).toBe("₹64.8293");
+    expect(split.test.spendText).toBe("₹7.00");
+  });
+
+  it("states a null leg average as an ABSENCE, never ₹0.00", () => {
+    const split = splitView({
+      per_profile: {
+        ...PER_PROFILE,
+        test_split: {
+          ...PER_PROFILE.test_split!,
+          test_profiles: 0,
+          test_cost_per_profile_inr: null,
+        },
+      },
+    });
+    expect(split.test.averageIsAbsent).toBe(true);
+    expect(split.test.averageText).toBe("No test profile finished yet");
+    expect(split.test.averageText).not.toContain("₹");
+    // A genuine ₹0 spend on the leg still renders as money — that IS a measurement.
+    const zeroSpend = splitView({
+      per_profile: {
+        ...PER_PROFILE,
+        test_split: {
+          ...PER_PROFILE.test_split!,
+          test_cost_inr: "0.000000",
+        },
+      },
+    });
+    expect(zeroSpend.test.spendText).toBe("₹0.00");
+  });
+
+  it("carries the convergence caveat from `test_split_caveat`, in band", () => {
+    const split = splitView();
+    expect(split.caveatSentence.toLowerCase()).toContain("logs in");
+    expect(split.caveatSentence.toLowerCase()).toContain("converges");
+    // "real" means NOT MARKED test — untagged rows are not evidence of a real worker.
+    expect(split.caveatSentence).toContain("not marked test");
+  });
+
+  it("does NOT reuse the convergence sentence for a caveat code it has not been taught", () => {
+    const split = splitView({
+      per_profile: { ...PER_PROFILE, test_split_caveat: "some_future_split_caveat" },
+    });
+    expect(split.caveatSentence).toContain("some_future_split_caveat");
+    expect(split.caveatSentence.toLowerCase()).not.toContain("converges");
+  });
+
+  it("says so when an older API sends no split — absence there is not 'no test spend'", () => {
+    const { test_split: _split, ...noSplit } = PER_PROFILE;
+    const s = view({ per_profile: noSplit }).testSplit;
+    if (s.kind !== "unsupported") throw new Error(`expected "unsupported", got "${s.kind}"`);
+    expect(s.sentence.toLowerCase()).toContain("does not send");
+    expect(s.sentence).toContain("version skew");
+    // It explicitly refuses the "no test spend" reading rather than implying it.
+    expect(s.sentence.toLowerCase()).toContain("not a statement");
   });
 
   it("is ABSENT when nothing has ever accrued — there is no window to divide over", () => {
