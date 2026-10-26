@@ -117,6 +117,17 @@ const COST: AiCostSummary = {
     basis: "profiling_spend_per_completed_profile_incl_abandoned_interviews",
     window_caveat: "interviews_straddling_the_accrual_bound_are_split",
     erasure_caveat: "erased_workers_leave_the_count_but_not_the_spend",
+    test_split: {
+      real_cost_inr: "15.000000",
+      real_calls: 110,
+      real_profiles: 18,
+      real_cost_per_profile_inr: "0.833333",
+      test_cost_inr: "4.750000",
+      test_calls: 30,
+      test_profiles: 7,
+      test_cost_per_profile_inr: "0.678571",
+    },
+    test_split_caveat: "test_share_converges_as_test_accounts_log_in",
   },
   cap_breaches: {
     window_days: 30,
@@ -515,6 +526,73 @@ describe("AI spend — what a finished profile costs", () => {
     // The section's own ₹ tiles are untouched; only this block's are absent.
     expect(rupeeTiles(out)).toContain("₹23.75");
     expect(rupeeTiles(out)).not.toContain("₹0.79");
+  });
+});
+
+describe("AI spend — the real/test split sits BESIDE the headline", () => {
+  it("renders both leg averages with exact rupees, dated from the block's own window", () => {
+    const out = html(<AiSpendPanel cost={COST} />);
+    expect(out).toContain("Real accounts — average per profile since 2026-08-17");
+    expect(out).toContain("Test accounts — average per profile since 2026-08-17");
+    // Six-place source strings survive to the DOM, not rounded to whole rupees.
+    expect(statValues(out)).toContain("₹0.833333");
+    expect(statValues(out)).toContain("₹0.678571");
+  });
+
+  it("NEVER replaces the headline average with a leg", () => {
+    /*
+     * The headline (₹19.75 / 25 = ₹0.79) is the period's blended answer. Swapping it for the
+     * real leg would silently drop every test profile from the platform figure an operator
+     * reads first; the legs are additive, not a replacement.
+     */
+    const out = html(<AiSpendPanel cost={COST} />);
+    expect(statValues(out)).toContain("₹0.79");
+    expect(out).toContain("Average per profile produced");
+  });
+
+  it("shows each leg's own totals and the convergence caveat in band", () => {
+    const out = html(<AiSpendPanel cost={COST} />);
+    expect(out).toContain("Real vs test");
+    expect(out).toContain("₹15.00");
+    expect(out).toContain("₹4.75");
+    expect(out).toContain("18 profiles");
+    expect(out).toContain("7 profiles");
+    expect(out).toContain("converges");
+    expect(out).toContain("not marked test");
+  });
+
+  it("renders a NULL leg average as an absence, never ₹0.00", () => {
+    const out = html(
+      <AiSpendPanel
+        cost={{
+          ...COST,
+          per_profile: {
+            ...COST.per_profile!,
+            test_split: {
+              ...COST.per_profile!.test_split!,
+              test_profiles: 0,
+              test_cost_per_profile_inr: null,
+            },
+          },
+        }}
+      />,
+    );
+    expect(out).toContain("No test profile finished yet");
+    expect(out).toContain("stat__value--absent");
+    // The real leg is still a measurement, and the headline is untouched.
+    expect(statValues(out)).toContain("₹0.833333");
+    expect(statValues(out)).toContain("₹0.79");
+    expect(rupeeTiles(out)).not.toContain("₹0.00");
+  });
+
+  it("says so — and keeps the headline — when an older API sends no split", () => {
+    const { test_split: _split, test_split_caveat: _caveat, ...perProfile } = COST.per_profile!;
+    const out = html(<AiSpendPanel cost={{ ...COST, per_profile: perProfile }} />);
+    expect(out).toContain("does not send");
+    expect(out).toContain("version skew");
+    // The absence is NOT rendered as "no test spend", and the headline still shows.
+    expect(out).not.toContain("Real accounts — average per profile");
+    expect(statValues(out)).toContain("₹0.79");
   });
 });
 

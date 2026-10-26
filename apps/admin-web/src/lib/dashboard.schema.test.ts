@@ -93,6 +93,17 @@ const REAL_AI_COST = {
     basis: "profiling_spend_per_completed_profile_incl_abandoned_interviews",
     window_caveat: "interviews_straddling_the_accrual_bound_are_split",
     erasure_caveat: "erased_workers_leave_the_count_but_not_the_spend",
+    test_split: {
+      real_cost_inr: "15.000000",
+      real_calls: 100,
+      real_profiles: 20,
+      real_cost_per_profile_inr: "0.750000",
+      test_cost_inr: "4.750000",
+      test_calls: 40,
+      test_profiles: 5,
+      test_cost_per_profile_inr: "0.950000",
+    },
+    test_split_caveat: "test_share_converges_as_test_accounts_log_in",
   },
   cap_breaches: {
     window_days: 30,
@@ -286,9 +297,9 @@ describe("ai_cost — per_profile has THREE states and the portal tells them apa
 
   it("REJECTS a per_profile block missing `erasure_caveat` — the third caveat is not optional", () => {
     const { erasure_caveat: _omitted, ...perProfile } = REAL_AI_COST.per_profile;
-    expect(
-      aiCostSummarySchema.safeParse({ ...REAL_AI_COST, per_profile: perProfile }).success,
-    ).toBe(false);
+    expect(aiCostSummarySchema.safeParse({ ...REAL_AI_COST, per_profile: perProfile }).success).toBe(
+      false,
+    );
   });
 
   it("ACCEPTS cost_per_profile_inr: null — no profile finished is not ₹0", () => {
@@ -348,6 +359,65 @@ describe("ai_cost — per_profile has THREE states and the portal tells them apa
       },
     });
     expect(parsed.success).toBe(true);
+  });
+
+  it("parses the additive real/test split when the API sends it", () => {
+    const parsed = aiCostSummarySchema.safeParse(REAL_AI_COST);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.per_profile?.test_split).toEqual(
+      REAL_AI_COST.per_profile.test_split,
+    );
+  });
+
+  it("ACCEPTS a missing split — an older API must not fail the whole dashboard read", () => {
+    const {
+      test_split: _split,
+      test_split_caveat: _caveat,
+      ...perProfile
+    } = REAL_AI_COST.per_profile;
+    const parsed = aiCostSummarySchema.safeParse({ ...REAL_AI_COST, per_profile: perProfile });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.per_profile?.test_split).toBeUndefined();
+  });
+
+  it("still REJECTS a malformed split — optional is not permissive", () => {
+    const wrong = {
+      ...REAL_AI_COST,
+      per_profile: {
+        ...REAL_AI_COST.per_profile,
+        test_split: { real_cost_inr: "15.000000" },
+      },
+    };
+    expect(aiCostSummarySchema.safeParse(wrong).success).toBe(false);
+  });
+
+  it("ACCEPTS null leg averages — a leg with no finished profile is not ₹0", () => {
+    const parsed = aiCostSummarySchema.safeParse({
+      ...REAL_AI_COST,
+      per_profile: {
+        ...REAL_AI_COST.per_profile,
+        test_split: {
+          ...REAL_AI_COST.per_profile.test_split,
+          test_profiles: 0,
+          test_cost_per_profile_inr: null,
+        },
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("REJECTS a leg average sent as a number — every ₹ here stays an exact string", () => {
+    const wrong = {
+      ...REAL_AI_COST,
+      per_profile: {
+        ...REAL_AI_COST.per_profile,
+        test_split: {
+          ...REAL_AI_COST.per_profile.test_split,
+          real_cost_per_profile_inr: 0.75,
+        },
+      },
+    };
+    expect(aiCostSummarySchema.safeParse(wrong).success).toBe(false);
   });
 });
 

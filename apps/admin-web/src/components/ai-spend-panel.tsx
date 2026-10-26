@@ -74,6 +74,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
   const breaches = cost.cap_breaches;
   const perProfile = cost.per_profile;
   const perProfileState = describeCostPerProfile(cost);
+  const testSplit = perProfileState.kind === "measured" ? perProfileState.view.testSplit : null;
 
   return (
     <section className="panel" aria-labelledby="ai-spend-heading">
@@ -186,7 +187,45 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
               absent={perProfileState.view.averageIsAbsent}
               wide
             />
+            {/* THE HEADLINE ABOVE STAYS BLENDED. These two legs sit BESIDE it and never
+                replace it: the headline is the platform's answer for the period, while the
+                real leg is the investor-facing number and the test leg explains the gap.
+                Each leg averages over its OWN denominator, exactly as the API computes it. */}
+            {testSplit?.kind === "measured" ? (
+              <>
+                <Stat
+                  label={`Real accounts — average per profile ${perProfileState.view.windowLabel}`}
+                  value={testSplit.real.averageText}
+                  absent={testSplit.real.averageIsAbsent}
+                  wide
+                />
+                <Stat
+                  label={`Test accounts — average per profile ${perProfileState.view.windowLabel}`}
+                  value={testSplit.test.averageText}
+                  absent={testSplit.test.averageIsAbsent}
+                  wide
+                />
+              </>
+            ) : null}
           </div>
+
+          {/* The legs' numerators and denominators, so each average is auditable — and the
+              convergence caveat, in band, because the split is not a clean room: a test
+              account's spend before its first marked login still reads as real. */}
+          {testSplit?.kind === "unsupported" ? (
+            <p className="notice notice--warn" role="note">
+              {testSplit.sentence}
+            </p>
+          ) : testSplit?.kind === "measured" ? (
+            <p className="notice" role="note">
+              <strong>Real vs test.</strong> Real accounts recorded {testSplit.real.spendText} over{" "}
+              {formatCount(testSplit.real.profiles)} profiles ({formatCount(testSplit.real.calls)}{" "}
+              calls); test accounts recorded {testSplit.test.spendText} over{" "}
+              {formatCount(testSplit.test.profiles)} profiles ({formatCount(testSplit.test.calls)}{" "}
+              calls). {testSplit.caveatSentence} The headline average above stays blended across
+              both legs.
+            </p>
+          ) : null}
 
           <p
             className={`notice${perProfileState.view.windowMismatchSentence ? " notice--warn" : ""}`}
