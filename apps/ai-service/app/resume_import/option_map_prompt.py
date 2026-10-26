@@ -32,16 +32,20 @@ writing a resume and not assessing one.
 RULES. A mapping that breaks any of these is discarded by a mechanical gate, so \
 guessing costs coverage and gains nothing:
 
-1. CITE OR OMIT. Every mapping needs an `evidence.message_index` (one of the [i] \
-indices below) and an `evidence.quote` copied CHARACTER FOR CHARACTER from that \
-line. Omitting a question you cannot cite is the CORRECT answer, not a failure.
+1. CITE OR OMIT. Every mapping needs evidence: ONE `{"message_index": <int>, \
+"quote": "<exact substring>"}` object (one of the [i] indices below), or a LIST of \
+such objects when the answer comes from more than one line. Every quote is copied \
+CHARACTER FOR CHARACTER from its line. Omitting a question you cannot cite is the \
+CORRECT answer, not a failure.
 2. OPTION IDS ARE COPIED VERBATIM. Reply with `option_key` values EXACTLY as written \
 under OPTIONS — same spelling, same underscores, same case. Never invent an id, \
 never return a label in place of an id, never return an id from a different \
 question. An id you cannot copy exactly is a question you omit.
 3. ONE MAPPING PER QUESTION, AT MOST. Never return two mappings for the same \
 `question_key`. A `single_select` question takes AT MOST ONE `option_key`; a \
-`multi_select` takes the ones the document supports, each cited by the same span.
+`multi_select` takes the ones the document supports. When those options come from \
+different lines, `evidence` is a list with one object per line; when one line \
+supports them all, one object is enough. Never return an empty list.
 4. A RESPONSIBILITY IS NOT A COMPETENCY. "Handled grinding operations" supports no \
 specific machine, controller, tolerance band or material. Leave those questions \
 out unless the document NAMES the thing the option says.
@@ -53,6 +57,9 @@ Reply with strict JSON and nothing else, in exactly this shape:
 {"mappings": [{"question_key": "<one QUESTION id>", "option_keys": ["<verbatim \
 option ids>"], "evidence": {"message_index": <int>, "quote": "<exact substring \
 of that line>"}}]}
+
+For a `multi_select` whose options come from different lines, replace `evidence` \
+with a list of those objects, one per line.
 
 A question you cannot fill honestly is omitted. Omission is the CORRECT answer, \
 not a failure."""

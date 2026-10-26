@@ -121,6 +121,9 @@ def test_system_prompt_demands_verbatim_cited_ids():
     assert "COPIED VERBATIM" in RESUME_OPTION_MAP_SYSTEM_PROMPT
     assert "CITE OR OMIT" in RESUME_OPTION_MAP_SYSTEM_PROMPT
     assert "strict JSON" in RESUME_OPTION_MAP_SYSTEM_PROMPT
+    # A multi_select whose options come from different lines legitimately returns
+    # one span per line; the contract and the prompt must agree on that shape.
+    assert "LIST of such objects" in RESUME_OPTION_MAP_SYSTEM_PROMPT
 
 
 def test_prompt_renders_questions_and_document():
@@ -156,6 +159,123 @@ def test_verbatim_cited_mapping_survives(monkeypatch):
     assert len(out.mappings) == 1
     assert out.mappings[0].option_keys == ["cnc_lathe"]
     assert out.failure_reason is None
+
+
+def test_multiple_evidence_spans_for_one_mapping_are_accepted(monkeypatch):
+    """The F4-proof shape: two options, each supported by a different line."""
+    import app.resume_import.resume_option_map as mod
+
+    monkeypatch.setattr(
+        mod,
+        "extract",
+        lambda data, mime=None: extraction(
+            "CNC lathe par kaam",
+            "Surface grinder bhi chalaya",
+        ),
+    )
+    router = RecordingRouter(
+        reply='{"mappings": [{"question_key": "turning_machine", '
+        '"option_keys": ["cnc_lathe", "surface_grinder"], '
+        '"evidence": ['
+        '{"message_index": 0, "quote": "CNC lathe"}, '
+        '{"message_index": 1, "quote": "Surface grinder"}]}]}'
+    )
+    out = _pipeline(monkeypatch, router, _body())
+    assert len(out.mappings) == 1
+    assert out.mappings[0].option_keys == ["cnc_lathe", "surface_grinder"]
+    assert out.failure_reason is None
+
+
+def test_one_bad_span_drops_only_its_mapping(monkeypatch):
+    """A bad citation must not destroy the other mappings in the same reply."""
+    import app.resume_import.resume_option_map as mod
+
+    monkeypatch.setattr(
+        mod,
+        "extract",
+        lambda data, mime=None: extraction(
+            "CNC lathe par kaam",
+            "Surface grinder bhi chalaya",
+            "Fanuc control par kaam",
+        ),
+    )
+    body = _body(
+        questions=[
+            question(),
+            question(
+                question_key="controller_brand",
+                answer_type="single_select",
+                options=[{"option_key": "fanuc", "label_text": "Fanuc"}],
+            ),
+        ]
+    )
+    router = RecordingRouter(
+        reply='{"mappings": ['
+        '{"question_key": "turning_machine", '
+        '"option_keys": ["cnc_lathe", "surface_grinder"], '
+        '"evidence": ['
+        '{"message_index": 0, "quote": "CNC lathe"}, '
+        '{"message_index": 1, "quote": "VMC milling centre"}]}, '
+        '{"question_key": "controller_brand", "option_keys": ["fanuc"], '
+        '"evidence": {"message_index": 2, "quote": "Fanuc"}}]}'
+    )
+    out = _pipeline(monkeypatch, router, body)
+    assert [m.question_key for m in out.mappings] == ["controller_brand"]
+    assert "mappings_rejected" in out.notes
+
+
+def test_identifier_in_any_evidence_span_drops_the_mapping(monkeypatch):
+    """EVERY span is checked: a clean first quote cannot shield a dirty second one."""
+    import app.resume_import.resume_option_map as mod
+
+    monkeypatch.setattr(
+        mod,
+        "extract",
+        lambda data, mime=None: extraction(
+            "CNC lathe par kaam",
+            "Rahul 9876543210 surface grinder",
+        ),
+    )
+    router = RecordingRouter(
+        reply='{"mappings": [{"question_key": "turning_machine", '
+        '"option_keys": ["cnc_lathe", "surface_grinder"], '
+        '"evidence": ['
+        '{"message_index": 0, "quote": "CNC lathe"}, '
+        '{"message_index": 1, "quote": "9876543210"}]}]}'
+    )
+    out = _pipeline(monkeypatch, router, _body())
+    assert out.mappings == []
+    assert "mappings_rejected" in out.notes
+
+
+def test_empty_evidence_list_drops_the_mapping_not_the_reply(monkeypatch):
+    import app.resume_import.resume_option_map as mod
+
+    monkeypatch.setattr(
+        mod,
+        "extract",
+        lambda data, mime=None: extraction("CNC lathe par kaam"),
+    )
+    body = _body(
+        questions=[
+            question(),
+            question(
+                question_key="controller_brand",
+                answer_type="single_select",
+                options=[{"option_key": "fanuc", "label_text": "Fanuc"}],
+            ),
+        ]
+    )
+    router = RecordingRouter(
+        reply='{"mappings": ['
+        '{"question_key": "turning_machine", "option_keys": ["cnc_lathe"], '
+        '"evidence": []}, '
+        '{"question_key": "controller_brand", "option_keys": ["fanuc"], '
+        '"evidence": {"message_index": 0, "quote": "CNC lathe"}}]}'
+    )
+    out = _pipeline(monkeypatch, router, body)
+    assert [m.question_key for m in out.mappings] == ["controller_brand"]
+    assert "mappings_rejected" in out.notes
 
 
 def test_invented_option_id_is_dropped_not_stored(monkeypatch):
