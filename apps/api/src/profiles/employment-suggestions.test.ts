@@ -35,6 +35,8 @@ describe("buildChatEmploymentSuggestions", () => {
         role_label: "CNC Turner",
         start_ym: null,
         end_ym: null,
+        start_year: null,
+        end_year: null,
         work_done: "Twin-spindle lathes on steering housings",
       },
     });
@@ -58,6 +60,8 @@ describe("buildChatEmploymentSuggestions", () => {
     const out = buildChatEmploymentSuggestions([experience()]);
     expect(out[0]!.values.start_ym).toBeNull();
     expect(out[0]!.values.end_ym).toBeNull();
+    expect(out[0]!.values.start_year).toBeNull();
+    expect(out[0]!.values.end_year).toBeNull();
   });
 
   it("a blank work_done ('' from R7's nullToEmpty) reads as null, not as an empty string suggestion", () => {
@@ -82,10 +86,27 @@ describe("buildResumeEmploymentSuggestions", () => {
           role_label: "CNC Operator",
           start_ym: null,
           end_ym: null,
+          start_year: 2019,
+          end_year: 2021,
           work_done: null,
         },
       },
     ]);
+  });
+
+  it("carries the parsed years through for the page to prefill — the month stays the worker's", () => {
+    const out = buildResumeEmploymentSuggestions([resumeEmployment({ start_year: 2019, end_year: 2021 })]);
+    expect(out[0]!.values.start_year).toBe(2019);
+    expect(out[0]!.values.end_year).toBe(2021);
+    expect(out[0]!.values.start_ym).toBeNull();
+    expect(out[0]!.values.end_ym).toBeNull();
+  });
+
+  it("a dateless parsed row still suggests — years are carried, never required", () => {
+    const out = buildResumeEmploymentSuggestions([resumeEmployment({ start_year: null, end_year: null })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.values.start_year).toBeNull();
+    expect(out[0]!.values.end_year).toBeNull();
   });
 
   it("never invents a month from a bare parsed year", () => {

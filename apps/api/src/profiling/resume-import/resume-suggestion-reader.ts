@@ -318,7 +318,22 @@ export class ResumeSuggestionReader {
 
     if (Array.isArray(record.employments)) {
       for (const value of record.employments) {
-        if (isEmploymentSuggestion(value)) employments.push(value);
+        if (!isEmploymentSuggestion(value)) continue;
+        // Pre-change envelopes carry no year keys — normalize to null so every
+        // downstream reader sees the documented shape, never undefined.
+        employments.push({
+          source: value.source,
+          values: {
+            employer_name: value.values.employer_name,
+            employer_city: value.values.employer_city,
+            role_label: value.values.role_label,
+            start_ym: value.values.start_ym,
+            end_ym: value.values.end_ym,
+            start_year: value.values.start_year ?? null,
+            end_year: value.values.end_year ?? null,
+            work_done: value.values.work_done,
+          },
+        });
       }
     }
 
@@ -381,7 +396,20 @@ function isEmploymentSuggestion(value: unknown): value is EmploymentSuggestion {
     "end_ym",
     "work_done",
   ];
-  return fields.every((field) => values[field] === null || typeof values[field] === "string");
+  if (!fields.every((field) => values[field] === null || typeof values[field] === "string")) {
+    return false;
+  }
+  // Parsed calendar years ride as INTS, never strings — a string year is either a
+  // fabrication or a drifted writer, and either way the row degrades to dateless
+  // rather than reaching a write. ABSENT keys are the pre-change envelope shape
+  // and stay decodable; only present-but-wrong values refuse.
+  for (const year of ["start_year", "end_year"] as const) {
+    const value: unknown = values[year];
+    if (value !== null && value !== undefined && !(typeof value === "number" && Number.isInteger(value))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isSuggestion(value: unknown): value is ResumeSuggestion {

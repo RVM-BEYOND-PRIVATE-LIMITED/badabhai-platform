@@ -20,6 +20,8 @@ const employmentSuggestion: EmploymentSuggestion = {
     role_label: "CNC Operator",
     start_ym: null,
     end_ym: null,
+    start_year: 2019,
+    end_year: 2021,
     work_done: null,
   },
 };
@@ -60,6 +62,36 @@ describe("ResumeSuggestionReader — the two-shape envelope (chat-jobs prefill)"
 
     const employments = await reader.employmentSuggestionsForWorker(WORKER);
     expect(employments).toEqual([employmentSuggestion]);
+  });
+
+  it("a pre-change envelope without year keys still decodes, years reading null", async () => {
+    const { source, values } = employmentSuggestion;
+    const { start_year: _droppedStart, end_year: _droppedEnd, ...oldValues } = values;
+    const plaintext = JSON.stringify({
+      answers: {},
+      employments: [{ source, values: oldValues }],
+    });
+    const { reader } = setup({ suggestionsEnc: "enc-token" }, () => plaintext);
+
+    const employments = await reader.employmentSuggestionsForWorker(WORKER);
+    expect(employments).toEqual([
+      { source, values: { ...oldValues, start_year: null, end_year: null } },
+    ]);
+  });
+
+  it("a string year drops the row — same posture as any malformed entry", async () => {
+    const plaintext = JSON.stringify({
+      answers: {},
+      employments: [
+        {
+          source: "resume",
+          values: { ...employmentSuggestion.values, start_year: "2019" },
+        },
+      ],
+    });
+    const { reader } = setup({ suggestionsEnc: "enc-token" }, () => plaintext);
+
+    await expect(reader.employmentSuggestionsForWorker(WORKER)).resolves.toEqual([]);
   });
 
   it("a LEGACY flat-map envelope (no `answers` wrapper) still decodes answers, and yields zero employments", async () => {
