@@ -117,6 +117,7 @@ import {
   WorkerProfileDraftSchema,
 } from "./index";
 import {
+  ResumeOptionMapOutputSchema,
   ResumeParseInputSchema,
   ResumeParseOutputSchema,
   TradeAssociationSchema,
@@ -1138,6 +1139,49 @@ describe("ResumeParse trade association (Task 1 B2 — contracts.py parity)", ()
     expect(TradeAssociationSchema.parse({ kind: "cnc_turner" }).kind).toBe("cnc_turner");
     expect(TradeAssociationSchema.parse({}).kind).toBeNull();
     expect(TradeAssociationSchema.parse({ kind: null }).kind).toBeNull();
+  });
+});
+
+describe("ResumeOptionMapOutputSchema evidence (contracts.py parity — #2448)", () => {
+  const mapping = (evidence: unknown) => ({
+    question_key: "turning_machine",
+    option_keys: ["cnc_lathe", "vtl"],
+    evidence,
+  });
+
+  it("accepts one evidence object — the pre-#2448 shape is unchanged", () => {
+    const evidence = { message_index: 39, quote: "CNC lathes" };
+    expect(
+      ResumeOptionMapOutputSchema.parse({ mappings: [mapping(evidence)] }).mappings[0]?.evidence,
+    ).toEqual(evidence);
+  });
+
+  it("accepts a list of spans for a multi_select whose options come from different lines", () => {
+    const evidence = [
+      { message_index: 39, quote: "twin-spindle, Y-axis CNC lathes" },
+      { message_index: 50, quote: "vertical turning lathes (VTLs)" },
+    ];
+    expect(
+      ResumeOptionMapOutputSchema.parse({ mappings: [mapping(evidence)] }).mappings[0]?.evidence,
+    ).toEqual(evidence);
+  });
+
+  it("caps the list at 32 and still rejects a malformed span inside it", () => {
+    const span = { message_index: 0, quote: "CNC lathes" };
+    expect(() =>
+      ResumeOptionMapOutputSchema.parse({ mappings: [mapping(Array(33).fill(span))] }),
+    ).toThrow();
+    expect(() =>
+      ResumeOptionMapOutputSchema.parse({
+        mappings: [mapping([{ message_index: -1, quote: "CNC lathes" }])],
+      }),
+    ).toThrow();
+  });
+
+  it("leaves an empty list to the service gate, so one bad mapping cannot kill the reply", () => {
+    expect(
+      ResumeOptionMapOutputSchema.parse({ mappings: [mapping([])] }).mappings[0]?.evidence,
+    ).toEqual([]);
   });
 });
 

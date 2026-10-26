@@ -35,6 +35,7 @@ from ..ai.router import AIRouter
 from ..config import Settings
 from ..contracts import (
     AICallMetadata,
+    ResumeOptionEvidence,
     ResumeOptionMapInput,
     ResumeOptionMapOutput,
     ResumeOptionMapping,
@@ -202,8 +203,10 @@ async def map_resume_options(
     #   1. QUESTION MEMBERSHIP — `question_key` must name an asked question.
     #   2. OPTION MEMBERSHIP — every id must be one of THAT question's options, verbatim.
     #   3. CARDINALITY — single_select takes at most one id.
-    #   4. PROVENANCE + PII — the span must literally appear on the cited line, and the
-    #      quote must pass the hard-identifier wall (blocked OR altered is refused).
+    #   4. PROVENANCE + PII — EVERY cited span must literally appear on its line, and every
+    #      quote must pass the hard-identifier wall (blocked OR altered is refused). A
+    #      multi_select legitimately cites one span per line; one bad span drops only this
+    #      mapping, never the whole reply.
     transcript = [
         TranscriptLine(i=line.index, role="worker", text=line.text) for line in masked.lines
     ]
@@ -226,13 +229,13 @@ async def map_resume_options(
         if question.answer_type == "single_select" and len(mapping.option_keys) > 1:
             rejected += 1
             continue
-        if parse_gates.check_provenance(mapping.evidence, transcript) is not None:
-            rejected += 1
-            continue
-        if parse_gates.check_role(mapping.evidence, transcript) is not None:
-            rejected += 1
-            continue
-        if _quote_carries_identifier(mapping.evidence.quote):
+        spans = _evidence_spans(mapping.evidence)
+        if not spans or any(
+            parse_gates.check_provenance(span, transcript) is not None
+            or parse_gates.check_role(span, transcript) is not None
+            or _quote_carries_identifier(span.quote)
+            for span in spans
+        ):
             rejected += 1
             continue
         seen_keys.add(mapping.question_key)
@@ -244,6 +247,18 @@ async def map_resume_options(
         )
 
     return _response(stage, mappings=kept)
+
+
+def _evidence_spans(
+    evidence: ResumeOptionEvidence | list[ResumeOptionEvidence],
+) -> list[ResumeOptionEvidence]:
+    """The mapping's citations as a list.
+
+    ONE OBJECT IS THE COMMON CASE (a single line supports the answer). A LIST is
+    what Claude returns when a multi_select's options come from different lines;
+    the contract accepts both and the gate checks every span.
+    """
+    return evidence if isinstance(evidence, list) else [evidence]
 
 
 def _quote_carries_identifier(text: str) -> bool:

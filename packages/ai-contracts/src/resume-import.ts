@@ -215,10 +215,20 @@ export const ResumeOptionMapInputSchema = z.object({
 });
 export type ResumeOptionMapInput = z.infer<typeof ResumeOptionMapInputSchema>;
 
+/**
+ * One mapping's citation: ONE span, or a LIST when a multi_select's options come
+ * from different lines.
+ *
+ * THE LIST IS NOT AN OPTIONAL EXTRA. Claude returns one span per line for exactly
+ * that case; the object-only shape failed validation and discarded the WHOLE reply,
+ * so autofill applied nothing (measured on the 2026-10-26 F4 proof). The list is
+ * capped like every other model-shaped list, and the AI service's gate rejects an
+ * empty one and checks every span. Single-object replies still parse unchanged.
+ */
 export const ResumeOptionMappingSchema = z.object({
   question_key: z.string().min(1).max(40),
   option_keys: z.array(z.string().min(1).max(40)).max(32).default([]),
-  evidence: EvidenceSpanSchema,
+  evidence: z.union([EvidenceSpanSchema, z.array(EvidenceSpanSchema).max(32)]),
 });
 export type ResumeOptionMapping = z.infer<typeof ResumeOptionMappingSchema>;
 
