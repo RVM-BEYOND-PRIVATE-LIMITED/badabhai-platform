@@ -389,6 +389,21 @@ def test_voice_transcribe_mock_reports_zero_cost_not_a_projection():
     assert meta["estimated_cost_inr"] == 0.0
 
 
+def test_voice_transcribe_carries_translate_metadata_for_the_translate_leg():
+    # The translate leg finally has a cost record of its own: same shape as the
+    # STT one, real_call False here because the mock path made no provider call.
+    res = client.post(
+        "/voice/transcribe",
+        json={"voice_note_id": "vn1", "storage_path": "worker/sess/v1.ogg"},
+    )
+    assert res.status_code == 200
+    meta = res.json()["translate_metadata"]
+    assert meta is not None
+    assert meta["task_type"] == "stt_transcription"
+    assert meta["real_call"] is False
+    assert meta["estimated_cost_inr"] == 0.0
+
+
 def test_voice_transcribe_cost_metadata_carries_no_worker_text():
     # The response's transcript is raw worker free-text; the cost record is the part
     # that goes to events, so it must never carry any of it.

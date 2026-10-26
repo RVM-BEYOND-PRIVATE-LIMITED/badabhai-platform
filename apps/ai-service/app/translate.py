@@ -88,6 +88,14 @@ class TranslateResult:
     detected_source: str | None
     is_mock: bool
     error_code: str | None = None
+    # RUPEES ACTUALLY BILLED for this call, and whether a provider was really
+    # reached — the STT result's `cost_inr`/`real_call` pair, same contract:
+    # priced from input characters at the configured rate, 0 on every path
+    # that made no provider call (empty, skip, mock, failure).
+    cost_inr: float = 0.0
+    real_call: bool = False
+    # Input characters the price above is computed from.
+    billed_chars: int = 0
 
 
 class TranslateAdapter:
@@ -245,4 +253,9 @@ class TranslateAdapter:
             detected_source=detected,
             is_mock=False,
             error_code=None,
+            cost_inr=round(
+                len(text) / 1000.0 * self._settings.sarvam_translate_cost_inr_per_1k_chars, 4
+            ),
+            real_call=True,
+            billed_chars=len(text),
         )

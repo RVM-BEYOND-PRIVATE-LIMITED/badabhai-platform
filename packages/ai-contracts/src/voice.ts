@@ -60,14 +60,21 @@ export const TranscriptionOutputSchema = z.object({
    * `aiTaskType` already listed `stt_transcription`, so querying the events table for STT cost
    * returned empty and read as "no spend" rather than "not instrumented".
    *
-   * Sarvam bills STT per provider CALL, not per token, so `estimated_cost_inr` here comes from
-   * the adapter's own figure — the one it computed to reserve against the ledger — and the token
-   * counts are 0 rather than invented.
+   * Sarvam bills STT audio seconds at an hourly rate, so `estimated_cost_inr`
+   * here comes from the adapter's own figure — the one it computed to reserve
+   * against the ledger — and the token counts are 0 rather than invented.
    *
    * `null` on the mock path and on an ai-service that predates the field, which is what keeps
    * this additive (§3). Mirrors `TranscriptionOutput.ai_metadata` in contracts.py.
    */
   ai_metadata: AICallMetadataSchema.nullable().default(null),
+  /**
+   * WHAT THE TRANSLATE LEG COST — the field that finally gives translation a
+   * cost row. Same shape as `ai_metadata`; null when translation never ran.
+   * Defaulted so an ai-service predating the field still parses (§3). Mirrors
+   * `TranscriptionOutput.translate_metadata` in contracts.py.
+   */
+  translate_metadata: AICallMetadataSchema.nullable().default(null),
   /**
    * How many SPOKEN phone numbers were removed from `transcript_text` (#747 leg (a)).
    *

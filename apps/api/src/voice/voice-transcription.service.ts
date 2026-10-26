@@ -299,6 +299,30 @@ export class VoiceTranscriptionService {
         { workerId: ownerId, sessionId: note.sessionId },
       );
 
+      // AND THE TRANSLATE LEG'S OWN ROW. Translation billed invisibly until this
+      // existed: one provider call with no cost row anywhere. Same task type as
+      // STT (one Sarvam pipeline, one allowlist flip), so totals merge and the
+      // coverage test's per-surface symmetry holds — two calls, two cost rows,
+      // two trace rows. Absent (unrequested, refused, or an older ai-service)
+      // records nothing rather than a zero that would read as a free call.
+      if (result.translate_metadata !== undefined && result.translate_metadata !== null) {
+        await this.aiCost.record(
+          result.translate_metadata,
+          "stt_transcription",
+          aiJobId,
+          correlationId,
+          requestId,
+          { workerId: ownerId, sessionId: note.sessionId },
+        );
+        await this.aiTraces.capture(
+          result.translate_metadata,
+          "stt_transcription",
+          aiJobId,
+          correlationId,
+          { workerId: ownerId, sessionId: note.sessionId },
+        );
+      }
+
       // A DEGRADED RESULT IS A FAILURE, AND IT USED TO BE RECORDED AS A SUCCESS.
       //
       // The adapter distinguishes three empty transcripts — `stt_budget_blocked` (we refused to
