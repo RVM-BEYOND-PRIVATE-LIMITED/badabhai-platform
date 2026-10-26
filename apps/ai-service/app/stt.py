@@ -43,10 +43,10 @@ call (attributed to the opaque ``worker_ref`` per-user daily budget), then
 reconciles to the actual number of chunk calls made — chunks that returned
 before a failure stay recorded (they were billed), only uncalled chunks are
 refunded. A ledger block returns an EMPTY transcript (never mock — no
-fabrication on the real path). Numbers with the defaults: a 120s note is
-ceil(120/29.5) = 5 chunks x Rs 0.25 = Rs 1.25, under the Rs 6/user/day cap
-(~4 full-length notes/user/day) and each chunk call is well under the Rs 10
-per-call ceiling.
+ fabrication on the real path). Numbers with the defaults: a 120s note is
+ ceil(120/29.5) = 5 chunks x ~24 s at Rs 30/audio-hour = Rs 1.00, under the Rs 6/user/day cap
+ (~6 full-length notes/user/day) and each chunk call is well under the Rs 10
+ per-call ceiling.
 
 The reservation MUST bound the call count, and that is not automatic: the
 reservation derives from the CLIENT-DECLARED ``duration_seconds`` while the call
@@ -176,6 +176,17 @@ def _content_type_for(storage_path: str) -> tuple[str, str]:
     return filename, content_type
 
 
+def audio_seconds_inr(seconds: float, settings: Settings) -> float:
+    """Billed STT cost for audio seconds at the hourly rate.
+
+    Sarvam bills audio TIME, not provider calls: a short clip costs a fraction
+    of a 30 s chunk. Unknown durations bill a full chunk (same as the old
+    per-chunk price) — conservative, and the sync path it applies to is where
+    the duration is genuinely unknowable before the call.
+    """
+    return round(max(seconds, 0.0) / 3600.0 * settings.sarvam_stt_cost_inr_per_audio_hour, 4)
+
+
 @dataclass
 class SttResult:
     transcript_text: str
@@ -186,6 +197,10 @@ class SttResult:
     # How many provider calls produced this result (1 for sync, N for chunked).
     # INTERNAL spend accounting only — never surfaced on TranscriptionOutput.
     chunk_count: int = 1
+    # Audio seconds actually sent to the provider (measured segment durations on
+    # the chunked path; declared duration, capped at one chunk, on sync). The
+    # money is priced from THIS, not from the call count.
+    billed_seconds: float = 0.0
     # RUPEES ACTUALLY BILLED for this note, and whether a provider was really reached.
     #
     # BOTH ARE NEEDED BECAUSE `is_mock` ANSWERS NEITHER. A real call that fails PART-WAY
@@ -199,13 +214,15 @@ class SttResult:
 
 
 class _ChunkedSttFailure(RuntimeError):
-    """A chunked transcription failed part-way. ``chunks_spent`` counts the chunk
-    calls that RETURNED before the failure — real provider spend the ledger must
-    keep (never refunded as if uncalled)."""
+    """A chunked transcription failed part-way. ``seconds_spent`` is the audio
+    time of the chunk calls that RETURNED before the failure — real provider
+    spend the ledger must keep (never refunded as if uncalled). ``chunks_spent``
+    stays for the call-count accounting."""
 
-    def __init__(self, message: str, *, chunks_spent: int) -> None:
+    def __init__(self, message: str, *, chunks_spent: int, seconds_spent: float = 0.0) -> None:
         super().__init__(message)
         self.chunks_spent = chunks_spent
+        self.seconds_spent = seconds_spent
 
 
 class SttAdapter:
@@ -304,19 +321,17 @@ class SttAdapter:
             return self._mock(language_code)
 
         settings = self._settings
-        rate_inr = settings.sarvam_stt_cost_inr_per_chunk
-        projected_chunks = self._projected_chunks(duration_seconds)
-        projected_inr = round(projected_chunks * rate_inr, 4)
-
         # TD68: the per-CALL ceiling bounds EACH chunk call (one provider call =
-        # one chunk); the note's TOTAL is bounded by the daily/per-user caps via
-        # the reservation below. A misconfigured rate above the ceiling blocks.
-        if rate_inr > settings.ai_max_call_cost_inr:
+        # one chunk); it is priced as one full chunk at the hourly rate, so a
+        # misconfigured rate above the ceiling blocks. A note's TOTAL is bounded
+        # by the daily/per-user caps via the reservation below.
+        full_chunk_inr = audio_seconds_inr(SARVAM_SYNC_MAX_SECONDS, settings)
+        if full_chunk_inr > settings.ai_max_call_cost_inr:
             logger.warning(
                 "stt real call blocked by per-call cost ceiling",
                 extra={
                     "extra": {
-                        "rate_inr": rate_inr,
+                        "rate_inr": full_chunk_inr,
                         "ceiling_inr": settings.ai_max_call_cost_inr,
                     }
                 },
@@ -332,6 +347,17 @@ class SttAdapter:
 
         # Reserve the note's worst-case spend BEFORE any provider call (atomic
         # check-and-reserve; attributes to worker_ref's per-user daily budget).
+        # Priced from SECONDS, not chunks: unknown duration reserves the
+        # structural maximum (the H-1 discipline — a declaration the file then
+        # contradicts must never under-reserve). Fail closed to EMPTY on a
+        # block — never mock on the real path.
+        if duration_seconds is None:
+            reserve_seconds = MAX_CHUNKS_PER_NOTE * SARVAM_SYNC_MAX_SECONDS
+        else:
+            reserve_seconds = min(max(duration_seconds, 0.0), MAX_VOICE_NOTE_SECONDS)
+        projected_chunks = self._projected_chunks(duration_seconds)
+        projected_inr = audio_seconds_inr(reserve_seconds, settings)
+
         # Fail closed to EMPTY on a block — never mock on the real path.
         ledger = cost_tracker.get_ledger()
         block = await ledger.would_exceed_spend(projected_inr, settings, user_ref=worker_ref)
@@ -366,7 +392,7 @@ class SttAdapter:
                 language_code=language_code,
                 reserved_chunks=projected_chunks,
             )
-            actual_inr = round(result.chunk_count * rate_inr, 4)
+            actual_inr = audio_seconds_inr(result.billed_seconds, settings)
             # Surfaced, not just reserved: the ledger below is a Redis counter whose keys expire,
             # so without carrying the figure out of here the note's real spend has no durable
             # record anywhere (#738).
@@ -377,7 +403,8 @@ class SttAdapter:
             # Chunk calls that RETURNED before the failure were provider spend —
             # keep them recorded; the reconcile below refunds only the remainder.
             chunks_spent = getattr(exc, "chunks_spent", 0)
-            actual_inr = round(chunks_spent * rate_inr, 4)
+            seconds_spent = getattr(exc, "seconds_spent", 0.0)
+            actual_inr = audio_seconds_inr(seconds_spent, settings)
             logger.warning(
                 "stt real call failed; failing closed to empty transcript",
                 extra={"extra": {"error": str(exc), "chunks_spent": chunks_spent}},
@@ -459,6 +486,11 @@ class SttAdapter:
                 is_mock=False,
                 error_code=None,
                 chunk_count=1,
+                # One call billed the audio it was sent: declared duration when
+                # known, else a full chunk (same as the old per-chunk price).
+                billed_seconds=(
+                    duration_seconds if duration_seconds is not None else SARVAM_SYNC_MAX_SECONDS
+                ),
             )
 
         return await self._transcribe_chunked(
@@ -531,7 +563,16 @@ class SttAdapter:
         if first_error is not None:
             # Fail the whole note closed: a transcript with silent holes is a
             # fabrication risk. Carry the spend that already happened.
-            raise _ChunkedSttFailure(f"chunked stt failed ({first_error})", chunks_spent=succeeded)
+            sent_seconds = sum(
+                segment.duration_seconds
+                for segment, outcome in zip(segments, outcomes, strict=True)
+                if not isinstance(outcome, BaseException)
+            )
+            raise _ChunkedSttFailure(
+                f"chunked stt failed ({first_error})",
+                chunks_spent=succeeded,
+                seconds_spent=sent_seconds,
+            )
 
         # Deterministic concatenation in SEGMENT ORDER (asyncio.gather preserves
         # input order regardless of completion order). The FULL transcript is
@@ -550,6 +591,7 @@ class SttAdapter:
             is_mock=False,
             error_code=None,
             chunk_count=len(segments),
+            billed_seconds=sum(segment.duration_seconds for segment in segments),
         )
 
     async def _post_sarvam(

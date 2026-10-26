@@ -236,8 +236,8 @@ def build_call_metadata(
     #
     # Token counts are left alone. They describe the payload that would have been sent, which is
     # what makes a mock run useful for PROJECTING cost; only the money is fictional.
-    # `cost_inr` IS FOR PROVIDERS THAT ARE NOT PRICED IN TOKENS. Sarvam STT bills per provider
-    # CALL (`sarvam_stt_cost_inr_per_chunk`) and TTS per character, so `estimate_cost_inr` — which
+    # `cost_inr` IS FOR PROVIDERS THAT ARE NOT PRICED IN TOKENS. Sarvam STT bills
+    # audio seconds (hourly rate) and TTS per character, so `estimate_cost_inr` — which
     # multiplies token counts by an LLM rate card — would return a number with no relationship to
     # the invoice. The adapter has already computed the real figure to reserve it against the
     # ledger, so it passes that through rather than having it re-derived from the wrong units.

@@ -772,13 +772,14 @@ class Settings(BaseSettings):
     sarvam_api_key: str | None = None
     # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.
     sarvam_stt_model: str = "saarika:v2.5"
-    # TD68/D-2: projected INR cost of ONE sync STT call (= one <=30s chunk) for
-    # the SpendLedger reserve->reconcile on the real path. ESTIMATE — saarika at
-    # ~Rs 30/audio-hour => ~Rs 0.25 per 30s chunk; calibrate against the invoice
-    # at the §7 real-Sarvam flip. Worst-case note = 5 chunks (120s / 29.5s) =
-    # Rs 1.25, bounded by ai_max_user_daily_cost_inr (Rs 6/user/day => ~4 full-
-    # length notes/user/day) and per chunk by ai_max_call_cost_inr.
-    sarvam_stt_cost_inr_per_chunk: float = 0.25
+    # TD68/D-2: Sarvam STT billed by AUDIO TIME (~Rs 30/audio-hour), NOT per
+    # provider call — a 13.4 s note bills ~Rs 0.11, not Rs 0.25. Priced from
+    # measured segment/file seconds; calibrate against the invoice at the §7
+    # real-Sarvam flip. Worst-case note = 5 chunks (120s / 29.5s) ≈ Rs 1.25,
+    # bounded by ai_max_user_daily_cost_inr (Rs 6/user/day => ~6 full-length
+    # notes/user/day) and per chunk by ai_max_call_cost_inr (one full 30 s
+    # chunk's price).
+    sarvam_stt_cost_inr_per_audio_hour: float = 30.0
     # Sarvam text-translation model. mayura:v1 is required for auto-detect + code-mixed
     # (the only model that supports Hinglish source + source_language_code="auto").
     sarvam_translate_model: str = "mayura:v1"
@@ -804,7 +805,7 @@ class Settings(BaseSettings):
     # codec change never needs a re-render (and never another provider call).
     sarvam_tts_output_codec: str = "wav"
     # Published rate card: bulbul:v2 Rs 15 / 10,000 chars, bulbul:v3 Rs 30 / 10,000.
-    # ESTIMATE until the first invoice, exactly like sarvam_stt_cost_inr_per_chunk.
+    # ESTIMATE until the first invoice, exactly like the STT hourly rate above.
     sarvam_tts_cost_inr_per_10k_chars: float = 15.0
     # Sarvam rounds UP per request, so a 40-char question is not billed as 40 chars.
     # Modelling that floor is what makes the "render once" vs "synthesize per session"
