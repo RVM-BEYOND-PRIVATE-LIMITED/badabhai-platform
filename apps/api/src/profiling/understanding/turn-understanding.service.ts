@@ -125,6 +125,11 @@ export class TurnUnderstandingService {
             },
       schema_rows: req.schema.map((row) => ({
         ...row,
+        // L1 — options ride only on the on-screen row. Every other row keeps its
+        // key, label, kind, value, status and entries; the model reads canonical
+        // labels for the asked question from on_screen itself. A null on-screen
+        // key (a model-written question) matches no row, so nothing carries options.
+        options: req.onScreen !== null && row.key === req.onScreen.key ? row.options : [],
         value: row.value === null ? null : clip(redact(row.value), 500) || null,
         entries: row.entries
           .map((entry) => ({ ...entry, value: clip(redact(entry.value), 500) }))
