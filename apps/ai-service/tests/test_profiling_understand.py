@@ -17,6 +17,7 @@ The router is monkeypatched, like every other endpoint suite here. Every line is
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -25,6 +26,7 @@ from fastapi.testclient import TestClient
 import app.routers.profiling_understand as understand_router
 from app.ai import prompt_registry
 from app.ai.model_config import _ROUTE_SHAPES, get_route
+from app.config import Settings
 from app.contracts import ProfilingTurnUnderstandInput
 from app.main import app
 from app.profiling import understand as understand_logic
@@ -386,3 +388,35 @@ def test_the_prompt_names_every_intent_and_the_data_rule() -> None:
     assert (
         "A statement about the worker's work is a FILL, never an edit" in UNDERSTAND_SYSTEM_PROMPT
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. The deadline degrades inside the caller's abort (A1)
+# ---------------------------------------------------------------------------
+
+
+def test_a_blown_deadline_returns_unclear_with_no_cost_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _slow(*_args: object, **_kwargs: object):
+        await asyncio.sleep(30)
+        raise AssertionError("the deadline should have fired first")
+
+    monkeypatch.setattr(understand_router.router, "run", _slow)
+    monkeypatch.setattr(
+        understand_router, "get_settings", lambda: Settings(understand_deadline_seconds=0.05)
+    )
+    body = client.post("/profiling/understand", json=_request("haan")).json()
+    assert body["intent"] == "unclear"
+    assert body["confidence"] == 0.0
+    assert body["fills"] == [] and body["edits"] == [] and body["page_owned_mentions"] == []
+    assert body["blocked"] is False
+    assert body["ai_metadata"] is None
+
+
+def test_the_deadline_defaults_inside_the_callers_abort() -> None:
+    """3.0 s sits just inside apps/api's 4 s abort, so the deadline fires HERE with
+    a named log and an unclear verdict — never as an unexplained socket close whose
+    billed call escapes the ledger."""
+    deadline = Settings().understand_deadline_seconds
+    assert 0.0 < deadline < 4.0

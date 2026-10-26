@@ -349,6 +349,13 @@ class Settings(BaseSettings):
     # front of them — and a fallback question mid-conversation is more jarring than a slow one.
     profiling_turn_deadline_seconds: float = Field(default=10.0, gt=0.0, le=60.0)
 
+    # The understand call's bound. Measured 2026-10-24 on the audit's 25 calls: p50
+    # 1.56 s, max 2.67 s. 3.0 s clears that with margin and sits just inside the
+    # API's 4 s abort, so the deadline fires here (named, logged, unclear verdict)
+    # rather than presenting as an unexplained socket close — and a billed call the
+    # API abandoned stops escaping the ledger.
+    understand_deadline_seconds: float = Field(default=3.0, gt=0.0, le=60.0)
+
     # Phase C's own deadline. It USED to borrow `profile_extract_deadline_seconds` (7.0), which
     # is the legacy `/profile/extract` bound and was chosen to sit just inside that caller's 8 s
     # abort — a number about a different route's caller, silently governing this one.
