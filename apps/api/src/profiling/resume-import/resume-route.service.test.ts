@@ -563,6 +563,8 @@ describe("what is written, and what is never written", () => {
           role_label: "CNC Operator",
           start_ym: null,
           end_ym: null,
+          start_year: 2019,
+          end_year: 2021,
           work_done: null,
         },
       },

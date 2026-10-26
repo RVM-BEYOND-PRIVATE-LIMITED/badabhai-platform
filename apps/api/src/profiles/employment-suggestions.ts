@@ -35,6 +35,13 @@ export interface EmploymentSuggestionValues {
   /** 'YYYY-MM', matching `worker-employment.dto.ts`'s `yearMonth` — never a bare year. */
   readonly start_ym: string | null;
   readonly end_ym: string | null;
+  /**
+   * The PARSED calendar year, carried through so the page can prefill it — the
+   * worker supplies only the month. Null when the document stated none. Never
+   * invented here: these arrive validated from the parse gates.
+   */
+  readonly start_year: number | null;
+  readonly end_year: number | null;
   readonly work_done: string | null;
 }
 
@@ -58,9 +65,8 @@ function nonEmpty(value: string | null | undefined): string | null {
  * only a calendar YEAR (`start_year`/`end_year`), and `EmploymentEntrySchema`'s `yearMonth`
  * demands `YYYY-MM`. Inventing a month from a bare year would be exactly the fabrication
  * `worker-employment.dto.ts` refuses in its own docblock ("a month, never a date" — §11 #3's
- * "duration not stated" literal exists for precisely this gap). The worker supplies the month
- * himself if he accepts the suggestion; the form already renders that state correctly for a row
- * with no `start_ym`.
+ * "duration not stated" literal exists for precisely this gap). The YEAR rides along untouched
+ * for the page to prefill; the worker supplies the month himself if he accepts the suggestion.
  *
  * AN EMPTY ROW IS NOT OFFERED. A `ResumeEmployment` with neither a name nor a title is a spent
  * ask that asks nothing — the same posture `resume-suggestions.ts` states for a suggestion with
@@ -82,6 +88,8 @@ export function buildResumeEmploymentSuggestions(
         role_label: roleLabel,
         start_ym: null,
         end_ym: null,
+        start_year: employment.start_year,
+        end_year: employment.end_year,
         work_done: null,
       },
     });
@@ -131,6 +139,9 @@ export function buildChatEmploymentSuggestions(
       role_label: nonEmpty(entry.role_label),
       start_ym: null,
       end_ym: null,
+      // Chat captures durations, never calendar years — nothing honest to carry.
+      start_year: null,
+      end_year: null,
       work_done: nonEmpty(entry.work_done),
     },
   }));

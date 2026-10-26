@@ -763,6 +763,8 @@ describe("employment suggestions (résumé + chat)", () => {
         role_label: "CNC Operator",
         start_ym: null,
         end_ym: null,
+        start_year: 2019,
+        end_year: 2021,
         work_done: null,
       },
     };
@@ -783,6 +785,8 @@ describe("employment suggestions (résumé + chat)", () => {
         role_label: "Welder",
         start_ym: null,
         end_ym: null,
+        start_year: null,
+        end_year: null,
         work_done: null,
       },
     });
@@ -803,6 +807,8 @@ describe("employment suggestions (résumé + chat)", () => {
             role_label: "CNC Operator",
             start_ym: null,
             end_ym: null,
+            start_year: null,
+            end_year: null,
             work_done: null,
           },
         },
