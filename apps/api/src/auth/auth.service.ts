@@ -348,6 +348,9 @@ export class AuthService {
         phoneE164: this.pii.encrypt(phone),
         phoneHash,
         status: "active",
+        // A5 — the plaintext number is in hand only here, so the test-traffic
+        // marker is decided here: reserved synthetic range ⇒ test account.
+        isTestAccount: isSyntheticTestPhone(phone),
       });
       worker = result.worker;
       isNew = result.created;
@@ -362,6 +365,23 @@ export class AuthService {
           correlationId: ctx.correlationId,
           requestId: ctx.requestId,
         });
+      }
+    }
+
+    // A5 — lazy marking for rows created before the flag existed: a reserved-range
+    // number logging into an unmarked row marks it. Skipped on the call that just
+    // inserted the row (the flag rode the insert). Write-only when needed, and a
+    // marking failure never fails the login it rides on.
+    if (!isNew && !worker.isTestAccount && isSyntheticTestPhone(phone)) {
+      try {
+        await this.workers.markTestAccount(worker.id);
+        worker = { ...worker, isTestAccount: true };
+      } catch (err) {
+        this.logger.warn(
+          `test-account marking failed worker=${worker.id} reason=${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       }
     }
 

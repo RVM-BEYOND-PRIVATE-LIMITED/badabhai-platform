@@ -168,6 +168,13 @@ export const workers = pgTable(
     // writer can define its closed vocabulary; adding a nullable column later costs nothing.
     verificationState: text("verification_state"),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    // A5 — test-traffic marker. TRUE when the login number falls in the reserved
+    // synthetic range (`+9100000XXXXX`). NON-PII boolean: it says nothing about who
+    // the worker is, only that the account is test traffic, so spend dashboards can
+    // split real from test. Set at login (the only moment the plaintext number is
+    // in hand — it is ciphertext at rest); never unset by login, only by an explicit
+    // ops act. Default FALSE keeps every existing row on today's behaviour.
+    isTestAccount: boolean("is_test_account").notNull().default(false),
     // ADR-0031 — 7-day deletion grace window. The DUE time of the scheduled hard-
     // delete (requested_at + ACCOUNT_DELETION_GRACE_DAYS). NULL = active worker;
     // set = pending deletion (cancellable until the sweep erases). Single source

@@ -232,6 +232,21 @@ export class WorkersRepository {
   }
 
   /**
+   * A5 — mark a reserved-range row as test traffic (the lazy leg: rows created
+   * before the flag existed are marked on their next login, never by decrypting
+   * the table). Idempotent: only flips false → true. Returns the updated row,
+   * or undefined if no worker matched.
+   */
+  async markTestAccount(id: string): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ isTestAccount: true, updatedAt: new Date() })
+      .where(and(eq(workers.id, id), eq(workers.isTestAccount, false)))
+      .returning();
+    return rows[0];
+  }
+
+  /**
    * Set the worker's full name. The caller passes an ALREADY-ENCRYPTED token
    * (`encryptPii` / `PiiCryptoService.encrypt`) — this repository never stores a
    * plaintext name (see the `full_name` note in schema.ts). Returns the updated
