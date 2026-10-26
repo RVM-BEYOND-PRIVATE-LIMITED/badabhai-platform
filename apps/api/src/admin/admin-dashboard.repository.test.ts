@@ -211,25 +211,10 @@ describe("the profile count — the denominator, scoped to the SAME bound", () =
   });
 });
 
-describe("the test split — a breakdown beside the headline, never its source", () => {
+describe("the test-split denominator — same dedupe and bound as the headline count", () => {
   const SINCE = new Date("2026-08-19T07:38:05.000Z");
 
-  it("the spend split reads EVENTS joined to workers, in the SAME window and task allowlist", async () => {
-    const c = captureQueries();
-    await new AdminDashboardRepository(c.db).profilingCostTestSplit(SINCE, PROFILING_TASK_TYPES);
-    // Not the totals table: that table has no worker dimension by design.
-    expect(c.sql()).toContain('"events"."payload"');
-    // The event name rides as a bound parameter, not inline SQL.
-    expect(c.params).toContain("ai.cost_recorded");
-    for (const taskType of PROFILING_TASK_TYPES) {
-      expect(c.params, `${taskType} must be bound into the split's IN list`).toContain(taskType);
-    }
-    expect(c.sql()).toContain("is_test_account");
-    // Sums ₹ in Postgres as text — the same exactness rule as every other ₹ read here.
-    expect(c.sql()).toContain("::text");
-  });
-
-  it("the profile split dedupes PER WORKER exactly like the headline denominator", async () => {
+  it("dedupes PER WORKER exactly like the headline denominator", async () => {
     const c = captureQueries();
     await new AdminDashboardRepository(c.db).countCurrentProfilesCompletedSinceSplit(
       SINCE,

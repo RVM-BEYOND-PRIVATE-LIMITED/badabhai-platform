@@ -304,7 +304,7 @@ export class AdminDashboardService {
       // returns null before reading them.
       profilingSubtotal.since === null
         ? Promise.resolve({ testCostInr: "0", testCalls: 0, realCostInr: "0", realCalls: 0 })
-        : this.repo.profilingCostTestSplit(profilingSubtotal.since, PROFILING_TASK_TYPES),
+        : this.events.profilingCostTestSplit(profilingSubtotal.since, PROFILING_TASK_TYPES),
       profilingSubtotal.since === null
         ? Promise.resolve({ realProfiles: 0, testProfiles: 0 })
         : this.repo.countCurrentProfilesCompletedSinceSplit(

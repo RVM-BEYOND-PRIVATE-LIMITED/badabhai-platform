@@ -3,7 +3,6 @@ import { and, count, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   applications,
-  events,
   generatedResumes,
   jobPostings,
   payers,
@@ -395,58 +394,11 @@ export class AdminDashboardRepository {
   }
 
   /**
-   * The profiling numerator SPLIT BY TEST FLAG — a breakdown, never the platform
-   * figure (which stays on `platform_ai_cost_totals` per the header above).
-   *
-   * Read off `ai.cost_recorded` EVENTS joined to `workers`, because the totals
-   * table has no worker dimension by design. Untagged rows (a deleted worker, a
-   * null worker_id) bucket as real — the flag is opt-in — see the DTO caveat.
-   * Summed in Postgres as `numeric`, same reason as the sibling subtotal.
-   */
-  async profilingCostTestSplit(
-    since: Date,
-    taskTypes: readonly string[],
-  ): Promise<{ testCostInr: string; testCalls: number; realCostInr: string; realCalls: number }> {
-    const rows = await this.db
-      .select({
-        isTest: workers.isTestAccount,
-        costInr: sql<string>`coalesce(sum((${events.payload}->>'estimated_cost_inr')::numeric), 0)::text`,
-        calls: sql<number>`count(*)::int`,
-      })
-      .from(events)
-      .leftJoin(workers, sql`${workers.id}::text = ${events.payload}->>'worker_id'`)
-      .where(
-        and(
-          eq(events.eventName, "ai.cost_recorded"),
-          gte(events.occurredAt, since),
-          inArray(sql`${events.payload}->>'task_type'`, [...taskTypes]),
-        ),
-      )
-      .groupBy(workers.isTestAccount);
-
-    let testCostInr = "0";
-    let testCalls = 0;
-    let realCostInr = "0";
-    let realCalls = 0;
-    for (const r of rows) {
-      // One row per bucket straight from Postgres — no float arithmetic anywhere,
-      // the same reason the sibling subtotal sums as `numeric`.
-      if (r.isTest === true) {
-        testCostInr = r.costInr;
-        testCalls = r.calls;
-      } else {
-        realCostInr = r.costInr;
-        realCalls = r.calls;
-      }
-    }
-    return { testCostInr, testCalls, realCostInr, realCalls };
-  }
-
-  /**
    * The denominator SPLIT BY TEST FLAG — same current-profile resolution and the
    * same outside-the-DISTINCT-ON predicates as {@link
    * countCurrentProfilesCompletedSince}, plus a `workers` join for the flag.
-   * Untagged workers bucket as real, same rule as the numerator split.
+   * Untagged workers bucket as real, same rule as the spend split (which lives
+   * on the spine reader — this file must never touch `events`).
    */
   async countCurrentProfilesCompletedSinceSplit(
     since: Date,

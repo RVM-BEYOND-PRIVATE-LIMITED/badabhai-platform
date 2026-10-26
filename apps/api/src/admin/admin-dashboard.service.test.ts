@@ -171,12 +171,6 @@ function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDa
       asked.profileCountCalls += 1;
       return over.profilesCompleted ?? 5;
     },
-    profilingCostTestSplit: async () => ({
-      testCostInr: over.testCostInr ?? "4.750000",
-      testCalls: 40,
-      realCostInr: "15.000000",
-      realCalls: 100,
-    }),
     countCurrentProfilesCompletedSinceSplit: async () => ({
       realProfiles: 4,
       testProfiles: 1,
@@ -199,6 +193,12 @@ function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDa
         { key: "user_daily_cap_exceeded", count: 9 },
         { key: "cumulative_cap_exceeded", count: 1 },
       ],
+    profilingCostTestSplit: async () => ({
+      testCostInr: over.testCostInr ?? "4.750000",
+      testCalls: 40,
+      realCostInr: "15.000000",
+      realCalls: 100,
+    }),
   } as unknown as AdminEventsRepository;
 
   return new AdminDashboardService(repo, events);
