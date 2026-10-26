@@ -355,6 +355,22 @@ describe("WorkersRepository.updateFullName — stores an ALREADY-ENCRYPTED token
   });
 });
 
+describe("WorkersRepository.markTestAccount — A5 lazy test-traffic marking", () => {
+  it("flips is_test_account false → true, scoped by id, touching nothing else", async () => {
+    const { db, captured } = makeDb({ rows: [workerRow(WORKER_ID)] });
+    await new WorkersRepository(db).markTestAccount(WORKER_ID);
+    expect(captured.updateTable).toBe(workers);
+    expect(captured.updateSet).toMatchObject({ isTestAccount: true });
+    expect(captured.updateSet).not.toHaveProperty("phoneE164");
+    expect(text(captured.where)).toContain('"workers"."id" = $1');
+  });
+
+  it("returns undefined when no worker matched", async () => {
+    const { db } = makeDb({ rows: [] });
+    expect(await new WorkersRepository(db).markTestAccount(WORKER_ID)).toBeUndefined();
+  });
+});
+
 describe("WorkersRepository.updateResumePrefs — partial patch of NON-PII display flags", () => {
   it("writes ONLY the provided flags (a partial patch), scoped by id", async () => {
     const { db, captured } = makeDb({ rows: [workerRow(WORKER_ID)] });

@@ -325,6 +325,114 @@ describe("AuthService (real OTP)", () => {
     expect(names).toContain("worker.otp_verified");
   });
 
+  it("A5 — a reserved-range number creates the worker already marked test traffic", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const createOrGetByPhoneHash = vi
+      .fn()
+      .mockResolvedValue({ worker: { id: "w", status: "active" }, created: true });
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue(undefined),
+      createOrGetByPhoneHash,
+      markTestAccount: vi.fn(),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    await svc.verifyOtp(SYNTHETIC_PHONE, "123456", ctx);
+
+    expect(createOrGetByPhoneHash).toHaveBeenCalledWith(
+      expect.objectContaining({ isTestAccount: true }),
+    );
+    expect(workers.markTestAccount).not.toHaveBeenCalled();
+  });
+
+  it("A5 — an ordinary number creates an unmarked worker", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const createOrGetByPhoneHash = vi
+      .fn()
+      .mockResolvedValue({ worker: { id: "w", status: "active" }, created: true });
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue(undefined),
+      createOrGetByPhoneHash,
+      markTestAccount: vi.fn(),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(createOrGetByPhoneHash).toHaveBeenCalledWith(
+      expect.objectContaining({ isTestAccount: false }),
+    );
+    expect(workers.markTestAccount).not.toHaveBeenCalled();
+  });
+
+  it("A5 — a pre-flag row logging in on a reserved number is marked lazily", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const markTestAccount = vi
+      .fn()
+      .mockResolvedValue({ id: "w", status: "active", isTestAccount: true });
+    const workers = {
+      findByPhoneHash: vi
+        .fn()
+        .mockResolvedValue({ id: "w", status: "active", isTestAccount: false }),
+      createOrGetByPhoneHash: vi.fn(),
+      markTestAccount,
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.verifyOtp(SYNTHETIC_PHONE, "123456", ctx);
+
+    expect(res.worker_id).toBe("w");
+    expect(markTestAccount).toHaveBeenCalledWith("w");
+  });
+
+  it("A5 — a marking failure never fails the login", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi
+        .fn()
+        .mockResolvedValue({ id: "w", status: "active", isTestAccount: false }),
+      createOrGetByPhoneHash: vi.fn(),
+      markTestAccount: vi.fn().mockRejectedValue(new Error("db down")),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.verifyOtp(SYNTHETIC_PHONE, "123456", ctx);
+
+    expect(res.worker_id).toBe("w");
+  });
+
   it("verifyOtp returns an existing worker without creating", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const createOrGetByPhoneHash = vi.fn();
@@ -421,6 +529,7 @@ describe("AuthService (real OTP)", () => {
     const workers = {
       findByPhoneHash: vi.fn().mockResolvedValue(undefined),
       createOrGetByPhoneHash,
+      markTestAccount: vi.fn(),
     };
     const otp = makeOtp();
     const sessions = makeSessions();
@@ -485,8 +594,11 @@ describe("AuthService (real OTP)", () => {
   it("testLogin REFUSES a real-looking phone with a neutral 404 and never touches the worker table", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const workers = {
-      findByPhoneHash: vi.fn(),
+      findByPhoneHash: vi
+        .fn()
+        .mockResolvedValue({ id: "worker-1", status: "active", isTestAccount: true }),
       createOrGetByPhoneHash: vi.fn(),
+      markTestAccount: vi.fn(),
     };
     const sessions = makeSessions();
     const svc = new AuthService(
@@ -543,8 +655,11 @@ describe("AuthService (real OTP)", () => {
       const svc = new AuthService(
         { emit } as never,
         {
-          findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+          findByPhoneHash: vi
+            .fn()
+            .mockResolvedValue({ id: "worker-1", status: "active", isTestAccount: true }),
           createOrGetByPhoneHash: vi.fn(),
+          markTestAccount: vi.fn(),
         } as never,
         pii,
         makeOtp() as never,
@@ -562,8 +677,11 @@ describe("AuthService (real OTP)", () => {
   it("testLogin for an EXISTING worker emits ONLY worker.test_login (no created, no consent write anywhere)", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const workers = {
-      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+      findByPhoneHash: vi
+        .fn()
+        .mockResolvedValue({ id: "worker-1", status: "active", isTestAccount: true }),
       createOrGetByPhoneHash: vi.fn(),
+      markTestAccount: vi.fn(),
     };
     const svc = new AuthService(
       { emit } as never,
@@ -653,8 +771,10 @@ describe("AuthService (real OTP)", () => {
         id: "worker-1",
         status: "active",
         deletionScheduledAt: new Date("2026-07-21T10:00:00.000Z"),
+        isTestAccount: true,
       }),
       createOrGetByPhoneHash: vi.fn(),
+      markTestAccount: vi.fn(),
     };
     const svc = new AuthService(
       { emit } as never,
