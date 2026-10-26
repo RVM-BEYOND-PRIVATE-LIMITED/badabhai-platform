@@ -4628,6 +4628,8 @@ class EmploymentSuggestionDto extends Equatable {
     this.roleLabel,
     this.startYm,
     this.endYm,
+    this.startYear,
+    this.endYear,
     this.workDone,
   });
 
@@ -4641,6 +4643,12 @@ class EmploymentSuggestionDto extends Equatable {
   /// "YYYY-MM" or null — the server never invents a month.
   final String? startYm;
   final String? endYm;
+
+  /// The PARSED calendar year (#2444), or null when the document stated none.
+  /// This is a YEAR-ONLY hint: the worker still supplies the month, so it is
+  /// never folded into [startYm]/[endYm] here — that would invent a month.
+  final int? startYear;
+  final int? endYear;
   final String? workDone;
 
   factory EmploymentSuggestionDto.fromJson(Map<String, dynamic> json) {
@@ -4648,6 +4656,8 @@ class EmploymentSuggestionDto extends Equatable {
     final Map<String, dynamic> values =
         raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
     String? str(Object? v) => v is String ? v : null;
+    int? year(Object? v) =>
+        v is num && v == v.roundToDouble() ? v.toInt() : null;
     return EmploymentSuggestionDto(
       source: str(json['source']) ?? '',
       employerName: str(values['employer_name']),
@@ -4655,6 +4665,8 @@ class EmploymentSuggestionDto extends Equatable {
       roleLabel: str(values['role_label']),
       startYm: str(values['start_ym']),
       endYm: str(values['end_ym']),
+      startYear: year(values['start_year']),
+      endYear: year(values['end_year']),
       workDone: str(values['work_done']),
     );
   }
@@ -4667,6 +4679,8 @@ class EmploymentSuggestionDto extends Equatable {
         roleLabel,
         startYm,
         endYm,
+        startYear,
+        endYear,
         workDone,
       ];
 }

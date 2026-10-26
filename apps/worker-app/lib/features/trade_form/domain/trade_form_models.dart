@@ -900,6 +900,8 @@ class TradeFormEmploymentEntry extends Equatable {
     this.employerState,
     this.startYm,
     this.endYm,
+    this.startYear,
+    this.endYear,
     this.workDone,
     this.workDoneVoiceNoteId,
     this.stillWorking = true,
@@ -916,6 +918,13 @@ class TradeFormEmploymentEntry extends Equatable {
 
   /// "YYYY-MM" or null. Null = CURRENT (still working here) — never "missing".
   final String? endYm;
+
+  /// A year a suggestion stated WITHOUT a month (#2445), shown as the prefill
+  /// for [startYm]/[endYm]. DRAFT-ONLY: the worker still picks the month, and
+  /// [toJson] never sends these — only a complete [startYm]/[endYm] reaches
+  /// the wire, because inventing a month would be fabrication.
+  final int? startYear;
+  final int? endYear;
 
   /// Whether the worker has told us this is his CURRENT job (the "Abhi yahin
   /// kaam kar rahe hain" switch). [endYm] null ALONE cannot express this: the
@@ -968,7 +977,9 @@ class TradeFormEmploymentEntry extends Equatable {
       (employerCity == null || employerCity!.trim().isEmpty) &&
       (employerState == null || employerState!.trim().isEmpty) &&
       startYm == null &&
-      endYm == null;
+      endYm == null &&
+      startYear == null &&
+      endYear == null;
 
   TradeFormEmploymentEntry copyWith({
     String? employerName,
@@ -977,6 +988,8 @@ class TradeFormEmploymentEntry extends Equatable {
     Object? employerState = _sentinel,
     Object? startYm = _sentinel,
     Object? endYm = _sentinel,
+    Object? startYear = _sentinel,
+    Object? endYear = _sentinel,
     Object? workDone = _sentinel,
     Object? workDoneVoiceNoteId = _sentinel,
     bool? stillWorking,
@@ -993,6 +1006,8 @@ class TradeFormEmploymentEntry extends Equatable {
           : employerState as String?,
       startYm: startYm == _sentinel ? this.startYm : startYm as String?,
       endYm: endYm == _sentinel ? this.endYm : endYm as String?,
+      startYear: startYear == _sentinel ? this.startYear : startYear as int?,
+      endYear: endYear == _sentinel ? this.endYear : endYear as int?,
       workDone: workDone == _sentinel ? this.workDone : workDone as String?,
       workDoneVoiceNoteId: workDoneVoiceNoteId == _sentinel
           ? this.workDoneVoiceNoteId
@@ -1062,6 +1077,8 @@ class TradeFormEmploymentEntry extends Equatable {
         employerState,
         startYm,
         endYm,
+        startYear,
+        endYear,
         stillWorking,
         workDone,
         workDoneVoiceNoteId,
@@ -1159,6 +1176,10 @@ enum TradeFormEmploymentSuggestionSource {
 /// NEVER carries [employerName] (the chat contract has no such field), and
 /// neither source carries a month today — both may, so both are honoured.
 ///
+/// [startYear]/[endYear] are the résumé parser's own years (#2444/#2445). They
+/// are NOT dates: the parser states a calendar year, so the accepted card
+/// prefills the year and still asks the worker for the month.
+///
 /// PRIVACY: [employerName] and [workDone] are free text — never logged here.
 class TradeFormEmploymentSuggestion extends Equatable {
   const TradeFormEmploymentSuggestion({
@@ -1168,6 +1189,8 @@ class TradeFormEmploymentSuggestion extends Equatable {
     this.roleLabel,
     this.startYm,
     this.endYm,
+    this.startYear,
+    this.endYear,
     this.workDone,
   });
 
@@ -1179,6 +1202,10 @@ class TradeFormEmploymentSuggestion extends Equatable {
   /// "YYYY-MM" or null.
   final String? startYm;
   final String? endYm;
+
+  /// Parsed calendar year, or null when the document stated none.
+  final int? startYear;
+  final int? endYear;
   final String? workDone;
 
   /// Nothing a worker could recognise as a job — never offered.
@@ -1217,12 +1244,18 @@ class TradeFormEmploymentSuggestion extends Equatable {
   /// card saved that way would print "Present" on the résumé for a job he may
   /// have left. So the switch starts OFF and, with no end month, the page's
   /// own date rule asks for one — or for the worker to turn the switch on.
+  ///
+  /// A YEAR IS NOT A DATE (#2445): the parser's start/end years prefill the
+  /// card's year step while [TradeFormEmploymentEntry.startYm]/`endYm` stay
+  /// null, so the page still asks for the month rather than inventing January.
   TradeFormEmploymentEntry toEntry() => TradeFormEmploymentEntry(
         employerName: employerName ?? '',
         roleLabel: roleLabel ?? '',
         employerCity: employerCity,
         startYm: startYm,
         endYm: endYm,
+        startYear: startYear,
+        endYear: endYear,
         workDone: workDone,
         stillWorking: false,
       );
@@ -1235,6 +1268,8 @@ class TradeFormEmploymentSuggestion extends Equatable {
         roleLabel,
         startYm,
         endYm,
+        startYear,
+        endYear,
         workDone,
       ];
 }
