@@ -136,6 +136,21 @@ def test_haiku_5_5_is_accepted_and_resolves():
     assert "claude-haiku-5-5" in OVERRIDE_MODELS
 
 
+def test_gemini_3_1_flash_lite_is_accepted_with_claude_behind_it():
+    # D4 (#2459): the 2.5 family is closed to new Google projects; 3.1 Flash-Lite is the Gemini arm.
+    settings = _settings(ai_task_model_overrides=f"{CLASSIFY}=gemini-3.1-flash-lite")
+    assert task_model_overrides(settings).rejected == ()
+    assert provider_for_model("gemini-3.1-flash-lite") == "google"
+    assert model_chain(CLASSIFY, settings) == ["gemini-3.1-flash-lite", "claude-haiku-4-5"]
+
+
+def test_gemini_3_5_flash_lite_is_still_refused():
+    # It answers HTTP 400 to the `thinkingBudget: 0` our Gemini client sends.
+    parsed = parse_task_model_overrides(f"{CLASSIFY}=gemini-3.5-flash-lite")
+    assert parsed.by_task == {}
+    assert parsed.rejected == ((CLASSIFY, "model not in OVERRIDE_MODELS"),)
+
+
 def test_it_keeps_every_number_on_the_route():
     before = get_route(CLASSIFY, _settings())
     after = get_route(CLASSIFY, _settings(ai_task_model_overrides=LITE_THEN_HAIKU))
