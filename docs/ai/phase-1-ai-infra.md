@@ -97,6 +97,9 @@ time: `task=primary` or `task=primary>fallback`, comma-separated, for example
   `DEFAULT_FALLBACK_MODEL` as its fallback.
 - Only the models in `model_config.OVERRIDE_MODELS` may be named (priced, and sent a request
   they accept). The news answer cannot move: its web search is Anthropic's.
+- A Google project created after the 2.5 family closed to new users gets HTTP 404 on every 2.5
+  model; name `gemini-3.1-flash-lite` there (#2459). `gemini-3.5-flash-lite` is not allowed yet:
+  it rejects the client's `thinkingBudget: 0`.
 - An entry that cannot be honoured is dropped and logged once (`ai_task_model_override.rejected`),
   and the task keeps its route. The service never refuses to boot over it.
 

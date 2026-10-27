@@ -271,8 +271,19 @@ def _apply_primary_provider(route: TaskRoute, settings: Settings) -> TaskRoute:
 #: sends it unchanged. Claude Haiku 5.5 joins with its per-model request settings in
 #: `anthropic_client` (temperature 1, thinking disabled) and its own cache minimum. `gemini-2.5-pro`
 #: is left out: it rejects the thinking budget our Gemini client sends.
+#:
+#: `gemini-3.1-flash-lite` (D4, #2459): Google closed the 2.5 family to new projects (HTTP 404 "no
+#: longer available to new users" on the 2026-10-22 paid key), and 3.1 Flash-Lite accepts our
+#: request unchanged, `thinkingBudget: 0` included. `gemini-3.5-flash-lite` stays out: it answers
+#: HTTP 400 to that budget, so it needs a client change first.
 OVERRIDE_MODELS: frozenset[str] = frozenset(
-    {"gemini-2.5-flash-lite", "gemini-2.5-flash", "claude-haiku-4-5", "claude-haiku-5-5"}
+    {
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-3.1-flash-lite",
+        "claude-haiku-4-5",
+        "claude-haiku-5-5",
+    }
 )
 
 #: Tasks whose model may not change. The news answer runs Anthropic's web-search server tool,
@@ -776,6 +787,10 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     # 2.5 Flash-Lite list price (~$0.10 in / $0.40 out per 1M) ~= Rs 0.008 in /
     # Rs 0.033 out per 1k at ~Rs 83/USD.
     "gemini-2.5-flash-lite": (0.008, 0.033),
+    # Gemini 3.1 Flash-Lite (D4, #2459): $0.25 in / $1.50 out per 1M (output includes thinking),
+    # no prompt-size tier, read 2026-10-27 from https://ai.google.dev/gemini-api/docs/pricing
+    # ~= Rs 0.02075 in / Rs 0.1245 out per 1k at the same ~Rs 83/USD basis.
+    "gemini-3.1-flash-lite": (0.02075, 0.1245),
     # Gemini 2.5 Pro (#1237). List price read 2026-08-26 from
     # https://ai.google.dev/gemini-api/docs/pricing: $1.25 in / $10.00 out per 1M for
     # prompts <= 200k tokens ~= Rs 0.104 in / Rs 0.83 out per 1k at ~Rs 83/USD — the same
@@ -958,6 +973,7 @@ _MODEL_LIST_PRICES_USD_PER_1M: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash": (0.30, 2.50),
     "gemini/gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini-2.5-pro": (1.25, 10.00),
     "claude-haiku-4-5": (1.00, 5.00),
     # Claude Haiku 5.5, <=100K prompts (the tier the rupee row above uses).
