@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/auth/auth_api.dart';
 import '../../../core/auth/auth_failure.dart';
+import '../../../core/auth/biometric_service.dart';
 import '../../../core/auth/reauth_signal.dart';
 import '../../../core/auth/secure_token_store.dart';
 import '../../../core/config/app_config.dart';
@@ -67,13 +68,15 @@ class AuthSessionManager extends ChangeNotifier {
     required ReauthSignal reauthSignal,
     bool persistentAuthEnabled = kPersistentAuth,
     PushTokenService? pushTokenService,
+    BiometricService? biometricService,
     this.onSessionCleared,
   })  : _authApi = authApi,
         _tokenStore = tokenStore,
         _session = session,
         _reauthSignal = reauthSignal,
         _persistentAuthEnabled = persistentAuthEnabled,
-        _pushTokenService = pushTokenService {
+        _pushTokenService = pushTokenService,
+        _biometric = biometricService {
     // A dead session (refresh failure / reuse / device revoke) bounces the
     // worker back to a fresh OTP login. PASS 1's interceptor already cleared the
     // store before firing, so we only flip the status + clear the bridge.
@@ -86,6 +89,11 @@ class AuthSessionManager extends ChangeNotifier {
   final ReauthSignal _reauthSignal;
   final bool _persistentAuthEnabled;
   final PushTokenService? _pushTokenService;
+
+  /// #2451 — the injectable OS-biometric seam. Null in graphs that do not wire
+  /// it (legacy widget tests); biometric unlock then reports [notEnabled] and
+  /// the PIN path is completely unchanged.
+  final BiometricService? _biometric;
 
   /// Teardown for user-scoped DI singletons that OUTLIVE a logout (photo URL,
   /// notifications badge/read-state, resume-edit name, the global image cache).
@@ -141,6 +149,26 @@ class AuthSessionManager extends ChangeNotifier {
   bool _pinSet = false;
   bool get pinSet => _pinSet;
 
+  /// #2451 — the worker opted in to biometric unlock on this device.
+  ///
+  /// A LOCAL gate only: on success we still read the persisted refresh token and
+  /// run the ordinary refresh path, so biometric never mints a token or bypasses
+  /// the server. Persisted in [SecureTokenStore] and wiped by `clear()`.
+  bool _biometricEnabled = false;
+  bool get biometricEnabled => _biometricEnabled;
+
+  /// Whether the after-set-PIN opt-in has already been shown, so the worker is
+  /// not asked again on every PIN reset. Never gates unlocking.
+  bool _biometricPromptSeen = false;
+  bool get biometricPromptSeen => _biometricPromptSeen;
+
+  /// Consecutive refresh failures AFTER a biometric success. The PIN-loop trap
+  /// handling is mirrored here: a neutral failure returns the worker to the PIN,
+  /// and after [_maxPinFailuresBeforeReauth] the dead session is dropped and the
+  /// worker is sent to OTP login. Cancelling the OS prompt is NOT a failure and
+  /// never touches this counter (nor the PIN counter).
+  int _consecutiveBiometricFailures = 0;
+
   /// Consecutive `pin/verify` 401s. The endpoint is deliberately a neutral
   /// no-oracle 401, so a dead session is INDISTINGUISHABLE from a wrong PIN;
   /// this counter is what stops the worker being trapped on the keypad by a
@@ -165,7 +193,13 @@ class AuthSessionManager extends ChangeNotifier {
   /// ABOVE the 3-try client nudge toward "PIN bhool gaye?" (so a worker who
   /// simply mistypes still gets the gentler forgot-PIN hint first) and to be
   /// consistent with the server's own force-OTP ladder.
-  static const int _maxPinFailuresBeforeReauth = 5;
+  /// Public so tests can drive the exact ladder without duplicating a magic
+  /// number. The PIN and biometric unlock paths share it deliberately: both are
+  /// local factors gating the SAME server refresh, so both must escape a dead
+  /// token at the same point.
+  static const int unlockFailureBudget = 5;
+
+  static const int _maxPinFailuresBeforeReauth = unlockFailureBudget;
 
   /// Where the worker was when the app re-locked, so unlocking returns them
   /// there instead of dumping them on the Resume tab (#349).
@@ -271,6 +305,10 @@ class AuthSessionManager extends ChangeNotifier {
       // a worker who never finished back where they were instead of on an
       // empty Résumé tab. Read alongside the PIN flag, BEFORE the status flip.
       _onboardingLocation = await _tokenStore.readOnboardingLocation();
+      // #2451: the biometric preference rides the session. Read BEFORE the
+      // status flip so EnterPinScreen's first build already offers the prompt.
+      _biometricEnabled = await _tokenStore.readBiometricEnabled();
+      _biometricPromptSeen = await _tokenStore.readBiometricPromptSeen();
     } catch (_) {
       // #355 — FAIL SOFT, never wedge the boot.
       //
@@ -291,6 +329,8 @@ class AuthSessionManager extends ChangeNotifier {
       await _discardUnreadableStore();
       _pinSet = false;
       _onboardingLocation = null;
+      _biometricEnabled = false;
+      _biometricPromptSeen = false;
       _setStatus(AuthStatus.loggedOut);
       return AuthStatus.loggedOut;
     }
@@ -342,6 +382,11 @@ class AuthSessionManager extends ChangeNotifier {
   /// expired code.
   Future<OtpVerifyResult> verifyOtp(String phoneE164, String otp) async {
     final OtpVerifyResult result = await _authApi.otpVerify(phoneE164, otp);
+    // #2451 — an OTP login is a RE-AUTH from scratch: the previous session's
+    // local biometric unlock must not carry into the new one. The worker can
+    // re-enable it from Settings after the PIN exists. (Cancelling the OTP flow
+    // never reaches here, so this only fires on a real login.)
+    await _disableBiometricUnlock();
     // F5: retain the session view + refresh expiry the response carries — in
     // every build, not just the persistent-auth one.
     _captureSessionView(result.tokens);
@@ -389,13 +434,189 @@ class AuthSessionManager extends ChangeNotifier {
 
   /// Set the worker's PIN (new user / reset). On success the app is authenticated
   /// — the OTP that preceded it already minted tokens. Throws [AuthFailure].
-  Future<void> setPin(String pin) async {
+  ///
+  /// #2451 [beforeAuthenticate] runs AFTER the server accepted the PIN and the
+  /// `pin_set` flag is persisted, but BEFORE the status flips to authenticated.
+  /// The set-PIN screen uses it for the one-time biometric opt-in: the router
+  /// only navigates on that final flip, so the dialog cannot race a route
+  /// replacement (the #349 lesson). It is BEST-EFFORT — a UI failure must never
+  /// turn a successful set-PIN into a failed one.
+  Future<void> setPin(
+    String pin, {
+    Future<void> Function()? beforeAuthenticate,
+  }) async {
     await _authApi.pinSet(pin);
     // #352: the device now HAS a PIN — remember it, so a cold start routes to
     // enter-PIN rather than asking the worker to choose one all over again.
     _pinSet = true;
     if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
+    try {
+      await beforeAuthenticate?.call();
+    } catch (_) {
+      // Never block a successful set-PIN on the optional opt-in UI.
+    }
     _setStatus(AuthStatus.authenticated);
+  }
+
+  // --- Optional biometric unlock (#2451) ------------------------------------
+
+  /// Whether the device can present a biometric prompt right now. Best-effort:
+  /// no service wired or a plugin failure reads as unavailable.
+  Future<BiometricAvailability> biometricAvailability() async {
+    if (!_persistentAuthEnabled || _biometric == null) {
+      return BiometricAvailability.unavailable;
+    }
+    try {
+      return await _biometric.availability();
+    } catch (_) {
+      return BiometricAvailability.unavailable;
+    }
+  }
+
+  /// Turn biometric unlock ON, or OFF.
+  ///
+  /// ENABLING requires an authenticated worker WITH a PIN and an available,
+  /// enrolled biometric — the opt-in is never offered to, or accepted from, an
+  /// unauthenticated/state-less surface. Disabling is always accepted and takes
+  /// effect immediately. Returns whether the requested state now holds.
+  Future<bool> setBiometricEnabled(bool enabled) async {
+    if (!enabled) {
+      await _disableBiometricUnlock();
+      return true;
+    }
+    if (!_persistentAuthEnabled || _status != AuthStatus.authenticated || !_pinSet) {
+      return false;
+    }
+    if (await biometricAvailability() != BiometricAvailability.available) {
+      return false;
+    }
+    _biometricEnabled = true;
+    _biometricPromptSeen = true;
+    _consecutiveBiometricFailures = 0;
+    try {
+      await _tokenStore.writeBiometricEnabled(true);
+      await _tokenStore.writeBiometricPromptSeen(true);
+    } catch (_) {
+      // The in-memory flag still gives the worker the feature this session; a
+      // later cold start simply falls back to PIN. Fail SOFT, never wedge.
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Remember that the after-set-PIN opt-in was offered, so a worker who
+  /// declined is not asked again on every PIN reset.
+  Future<void> markBiometricPromptSeen() async {
+    if (_biometricPromptSeen) return;
+    _biometricPromptSeen = true;
+    try {
+      await _tokenStore.writeBiometricPromptSeen(true);
+    } catch (_) {
+      // Only affects whether we ask again — never a gate.
+    }
+  }
+
+  /// The biometric entry point. It is a LOCAL gate ONLY: after the OS confirms
+  /// the worker, we read the persisted refresh token and run the SAME
+  /// [refresh] path as a PIN unlock (`/auth/token/refresh`), so no token is
+  /// minted locally and server auth is never bypassed.
+  ///
+  /// Outcomes:
+  ///  - [BiometricUnlockResult.success] — refresh succeeded and status is now
+  ///    authenticated; the router redirects exactly as it does after a PIN.
+  ///  - cancelled/failed — stay [AuthStatus.locked]. DOES NOT count as a PIN
+  ///    attempt and does not disable the preference.
+  ///  - unavailable/notEnrolled — the biometric disappeared since enrollment:
+  ///    turn the preference off and fall back to the PIN. Never wedge.
+  ///  - reauthRequired — the session is dead; the manager has already wiped it
+  ///    and the router sends the worker to phone login.
+  Future<BiometricUnlockResult> unlockWithBiometric() async {
+    if (!_persistentAuthEnabled ||
+        !_biometricEnabled ||
+        !_pinSet ||
+        _status != AuthStatus.locked ||
+        _biometric == null) {
+      return BiometricUnlockResult.notEnabled;
+    }
+
+    final BiometricAvailability available = await biometricAvailability();
+    switch (available) {
+      case BiometricAvailability.unavailable:
+        await _disableBiometricUnlock();
+        return BiometricUnlockResult.unavailable;
+      case BiometricAvailability.notEnrolled:
+        await _disableBiometricUnlock();
+        return BiometricUnlockResult.notEnrolled;
+      case BiometricAvailability.available:
+        break;
+    }
+
+    final BiometricUnlockResult result = await _biometric.authenticate(
+      reason: 'BadaBhai unlock karein',
+    );
+    switch (result) {
+      case BiometricUnlockResult.cancelled:
+      case BiometricUnlockResult.failed:
+        // A local failure/cancel is NOT a PIN attempt and must not consume the
+        // PIN failure budget or turn the preference off.
+        return result;
+      case BiometricUnlockResult.unavailable:
+      case BiometricUnlockResult.notEnrolled:
+        await _disableBiometricUnlock();
+        return result;
+      case BiometricUnlockResult.notEnabled:
+      case BiometricUnlockResult.reauthRequired:
+        return result;
+      case BiometricUnlockResult.success:
+        break;
+    }
+
+    // From here on this is exactly the PIN path's server contract: rotate the
+    // refresh token and re-bridge. No local token is ever minted.
+    try {
+      await refresh();
+      _consecutiveBiometricFailures = 0;
+      _consecutivePinFailures = 0;
+      return BiometricUnlockResult.success;
+    } on AuthFailure catch (failure) {
+      // An unrecoverable refresh (reuse/revoke) has already wiped the session
+      // via ReauthSignal; report it so the caller does not pretend we are
+      // still locked against a dead token.
+      if (_status == AuthStatus.loggedOut ||
+          failure.code == AuthErrorCode.reauthRequired) {
+        return BiometricUnlockResult.reauthRequired;
+      }
+      _consecutiveBiometricFailures++;
+      if (_consecutiveBiometricFailures >= _maxPinFailuresBeforeReauth) {
+        _consecutiveBiometricFailures = 0;
+        await _wipeAndLogOut();
+        return BiometricUnlockResult.reauthRequired;
+      }
+      return BiometricUnlockResult.failed;
+    } catch (_) {
+      // The same "number of failures -> stop blaming the local factor" escape
+      // as the PIN loop, so a dead token cannot trap the worker on biometrics.
+      _consecutiveBiometricFailures++;
+      if (_consecutiveBiometricFailures >= _maxPinFailuresBeforeReauth) {
+        _consecutiveBiometricFailures = 0;
+        await _wipeAndLogOut();
+        return BiometricUnlockResult.reauthRequired;
+      }
+      return BiometricUnlockResult.failed;
+    }
+  }
+
+  /// Best-effort wipe of the local unlock preference. Swallows a store failure:
+  /// the in-memory flag is cleared regardless, and a failed write can only cost
+  /// a future cold start one extra PIN entry.
+  Future<void> _disableBiometricUnlock() async {
+    _biometricEnabled = false;
+    _consecutiveBiometricFailures = 0;
+    try {
+      await _tokenStore.writeBiometricEnabled(false);
+    } catch (_) {
+      // See doc above.
+    }
   }
 
   /// Unlock with the PIN: verifies against the persisted refresh token, mints a
@@ -466,6 +687,7 @@ class AuthSessionManager extends ChangeNotifier {
     // A verified PIN proves the session was alive — clear the trap counter (and
     // the post-reset flag) so a later genuine typo starts from zero.
     _consecutivePinFailures = 0;
+    _consecutiveBiometricFailures = 0;
     _pinJustReset = false;
     _captureSessionView(result.tokens); // F5
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
@@ -522,6 +744,10 @@ class AuthSessionManager extends ChangeNotifier {
     // and then cold-starts would be sent to set-PIN again.
     _pinSet = true;
     if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
+    // #2451 — a reset is OTP-verified re-auth from scratch; the old local
+    // biometric unlock must not survive it. The worker re-enables it with the
+    // new PIN once authenticated.
+    await _disableBiometricUnlock();
 
     // A6/#998: the reset now returns a LIVE, device-bound session. When it carries
     // real tokens, CONSUME them directly — persist + bridge + AUTHENTICATE — so the
@@ -728,6 +954,10 @@ class AuthSessionManager extends ChangeNotifier {
     onSessionCleared?.call(); // drop singleton-held user data (photo/notifs/name/imageCache)
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: the store's pin_set went with the clear()
+    // #2451: never inherit the dead session's unlock. The interceptor normally
+    // cleared the store already; this also covers a signal fired by a path that
+    // did not, and keeps the persisted flag in step either way.
+    unawaited(_disableBiometricUnlock());
     _resumeLocation = null; // #349: a new login must not land on the old screen
     _clearSessionView(); // F5
     _setStatus(AuthStatus.loggedOut);
@@ -739,7 +969,9 @@ class AuthSessionManager extends ChangeNotifier {
     onSessionCleared?.call(); // drop singleton-held user data (photo/notifs/name/imageCache)
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: keep the in-memory flag in step with the store
+    _biometricEnabled = false; // #2451: clear() wiped it; keep memory in step
     _consecutivePinFailures = 0; // the trapped session is gone; start clean
+    _consecutiveBiometricFailures = 0;
     _resumeLocation = null; // #349: a new login must not land on the old screen
     _clearSessionView(); // F5: a new worker must not inherit the old session view
     _setStatus(AuthStatus.loggedOut);

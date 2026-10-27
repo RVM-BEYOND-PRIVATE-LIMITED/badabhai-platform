@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/auth/auth_failure.dart';
+import 'package:badabhai_worker_app/core/auth/biometric_service.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_spinner.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
@@ -12,6 +13,8 @@ import 'package:badabhai_worker_app/features/auth/presentation/cubit/enter_pin_c
 import 'package:badabhai_worker_app/features/auth/presentation/enter_pin_screen.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
+import 'package:badabhai_worker_app/l10n/gen/app_localizations.dart';
+import 'package:badabhai_worker_app/l10n/ui_locale.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -38,12 +41,25 @@ void main() {
 
   tearDown(() => locator.reset());
 
-  Future<void> pumpScreen(WidgetTester tester) async {
+  Future<void> pumpScreen(WidgetTester tester, {bool biometric = false}) async {
+    if (biometric) {
+      await locator.unregister<EnterPinCubit>();
+      locator.registerFactory<EnterPinCubit>(
+        () => EnterPinCubit(manager, biometricEnabled: true),
+      );
+    }
     tester.view.physicalSize = const Size(400, 820);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const MaterialApp(home: EnterPinScreen()));
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('hi'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: kUiSupportedLocales,
+        home: const EnterPinScreen(),
+      ),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -210,5 +226,80 @@ void main() {
     // Now — and only now — the dots reset for a fresh retry.
     expect(filledDots(tester), 0);
     expect(find.byType(BbPinKeypad), findsOneWidget);
+  });
+
+  // #2451 — optional biometric unlock. The screen auto-triggers the OS prompt
+  // ONCE on entry, then keeps the keypad untouched as the fallback. None of
+  // these paths may navigate on its own: the router owns post-unlock routing.
+  group('biometric unlock (#2451)', () {
+    testWidgets('enabled -> CTA is present and the prompt fires exactly once',
+        (WidgetTester tester) async {
+      when(() => manager.unlockWithBiometric())
+          .thenAnswer((_) async => BiometricUnlockResult.success);
+
+      await pumpScreen(tester, biometric: true);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('enterPinBiometricButton')), findsOneWidget);
+      verify(() => manager.unlockWithBiometric()).called(1);
+
+      // No loop / no retry storm while the worker sits on the screen.
+      await tester.pump(const Duration(seconds: 2));
+      verifyNever(() => manager.unlockWithBiometric());
+    });
+
+    testWidgets('cancel keeps the PIN keypad and shows one neutral hint',
+        (WidgetTester tester) async {
+      when(() => manager.unlockWithBiometric())
+          .thenAnswer((_) async => BiometricUnlockResult.cancelled);
+
+      await pumpScreen(tester, biometric: true);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BbPinKeypad), findsOneWidget);
+      expect(find.text('Biometric cancel hua — PIN se login karein.'),
+          findsOneWidget);
+      verify(() => manager.unlockWithBiometric()).called(1);
+    });
+
+    testWidgets('the CTA retries after a cancel', (WidgetTester tester) async {
+      when(() => manager.unlockWithBiometric())
+          .thenAnswer((_) async => BiometricUnlockResult.cancelled);
+
+      await pumpScreen(tester, biometric: true);
+      await tester.pumpAndSettle();
+      verify(() => manager.unlockWithBiometric()).called(1);
+
+      await tester.tap(find.byKey(const Key('enterPinBiometricButton')));
+      await tester.pumpAndSettle();
+
+      verify(() => manager.unlockWithBiometric()).called(1);
+    });
+
+    testWidgets('unavailable drops the CTA and leaves the PIN-only screen',
+        (WidgetTester tester) async {
+      when(() => manager.unlockWithBiometric())
+          .thenAnswer((_) async => BiometricUnlockResult.unavailable);
+
+      await pumpScreen(tester, biometric: true);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('enterPinBiometricButton')), findsNothing);
+      expect(find.byType(BbPinKeypad), findsOneWidget);
+      expect(
+        find.text('Biometric abhi available nahi hai — PIN se login karein.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('never opted in -> today\'s PIN-only screen, no prompt',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('enterPinBiometricButton')), findsNothing);
+      expect(find.byType(BbPinKeypad), findsOneWidget);
+      verifyNever(() => manager.unlockWithBiometric());
+    });
   });
 }

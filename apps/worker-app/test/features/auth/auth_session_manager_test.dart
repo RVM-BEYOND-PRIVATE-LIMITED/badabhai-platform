@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/auth/auth_api.dart';
 import 'package:badabhai_worker_app/core/auth/auth_failure.dart';
+import 'package:badabhai_worker_app/core/auth/biometric_service.dart';
 import 'package:badabhai_worker_app/core/auth/reauth_signal.dart';
 import 'package:badabhai_worker_app/core/auth/secure_token_store.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
@@ -38,6 +39,7 @@ class ScriptAuthApi extends AuthApi {
 
   AuthFailure? throwOnVerify;
   AuthFailure? throwOnPinVerify;
+  AuthFailure? throwOnRefresh;
   int logoutCalls = 0;
   int logoutAllCalls = 0;
   int revokeCalls = 0;
@@ -105,6 +107,7 @@ class ScriptAuthApi extends AuthApi {
 
   @override
   Future<AuthTokens> tokenRefresh(String refreshToken) async {
+    if (throwOnRefresh != null) throw throwOnRefresh!;
     final AuthTokens tokens = _mint('access-refresh', 'refresh-3');
     await _store.saveTokens(
       refreshToken: tokens.refresh,
@@ -583,6 +586,185 @@ void main() {
       );
       expect(m.status, AuthStatus.loggedOut);
       expect(await store.readRefreshToken(), isNull);
+    });
+  });
+
+  // #2451 — biometric unlock is a LOCAL gate in front of the SAME refresh path
+  // as the PIN. These tests pin the security boundary: success never mints a
+  // token locally, cancel/failure never counts as a PIN attempt, a removed
+  // biometric turns the preference off, and every session-ending path wipes it.
+  group('biometric unlock (#2451)', () {
+    late FakeBiometricService bio;
+
+    AuthSessionManager buildWithBiometric() => AuthSessionManager(
+          authApi: api,
+          tokenStore: store,
+          session: session,
+          reauthSignal: reauth,
+          persistentAuthEnabled: true,
+          biometricService: bio,
+        );
+
+    setUp(() => bio = FakeBiometricService());
+
+    Future<AuthSessionManager> seedLocked() async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writeWorkerId('worker-9');
+      await store.writePinSet(true);
+      await store.writeBiometricEnabled(true);
+      final AuthSessionManager m = buildWithBiometric();
+      addTearDown(m.dispose);
+      await m.bootstrap();
+      expect(m.status, AuthStatus.locked);
+      expect(m.biometricEnabled, isTrue);
+      return m;
+    }
+
+    test('success runs the ORDINARY refresh path — no local token minted',
+        () async {
+      final AuthSessionManager m = await seedLocked();
+
+      final BiometricUnlockResult result = await m.unlockWithBiometric();
+
+      expect(result, BiometricUnlockResult.success);
+      expect(m.status, AuthStatus.authenticated);
+      // The bearer is the one the server refresh minted ('access-refresh'),
+      // not anything the biometric layer invented.
+      expect(session.sessionToken, 'access-refresh');
+      expect(bio.authenticateCalls, 1);
+      expect(bio.lastReason, isNotEmpty);
+    });
+
+    test('cancel stays locked, keeps the preference and is NOT a PIN attempt',
+        () async {
+      final AuthSessionManager m = await seedLocked();
+      bio.result = BiometricUnlockResult.cancelled;
+
+      for (int i = 0; i < 8; i++) {
+        expect(await m.unlockWithBiometric(),
+            BiometricUnlockResult.cancelled);
+      }
+
+      expect(m.status, AuthStatus.locked);
+      expect(m.biometricEnabled, isTrue,
+          reason: 'a cancel is not evidence the biometric disappeared');
+      expect(await store.readBiometricEnabled(), isTrue);
+    });
+
+    test('unavailable biometric turns the preference OFF and falls back to PIN',
+        () async {
+      final AuthSessionManager m = await seedLocked();
+      bio.availabilityValue = BiometricAvailability.unavailable;
+
+      expect(await m.unlockWithBiometric(),
+          BiometricUnlockResult.unavailable);
+
+      expect(m.status, AuthStatus.locked);
+      expect(m.biometricEnabled, isFalse);
+      expect(await store.readBiometricEnabled(), isFalse);
+      expect(bio.authenticateCalls, 0,
+          reason: 'do not present a prompt the device cannot honour');
+    });
+
+    test('removed enrolment turns the preference OFF', () async {
+      final AuthSessionManager m = await seedLocked();
+      bio.availabilityValue = BiometricAvailability.notEnrolled;
+
+      expect(await m.unlockWithBiometric(),
+          BiometricUnlockResult.notEnrolled);
+
+      expect(m.status, AuthStatus.locked);
+      expect(await store.readBiometricEnabled(), isFalse);
+    });
+
+    test('enabling is refused unless authenticated with a PIN', () async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writePinSet(true);
+      final AuthSessionManager m = buildWithBiometric();
+      addTearDown(m.dispose);
+      await m.bootstrap(); // locked, not authenticated
+
+      expect(await m.setBiometricEnabled(true), isFalse);
+      expect(m.biometricEnabled, isFalse);
+      expect(await store.readBiometricEnabled(), isFalse);
+    });
+
+    test('enabling from an authenticated session persists the flag', () async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writeWorkerId('worker-9');
+      await store.writePinSet(true);
+      final AuthSessionManager m = buildWithBiometric();
+      addTearDown(m.dispose);
+      await m.bootstrap();
+      await m.unlockWithPin('7416');
+      expect(m.status, AuthStatus.authenticated);
+
+      expect(await m.setBiometricEnabled(true), isTrue);
+
+      expect(m.biometricEnabled, isTrue);
+      expect(await store.readBiometricEnabled(), isTrue);
+    });
+
+    test('enabling is refused when the device has no usable biometric',
+        () async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writeWorkerId('worker-9');
+      await store.writePinSet(true);
+      final AuthSessionManager m = buildWithBiometric();
+      addTearDown(m.dispose);
+      await m.bootstrap();
+      await m.unlockWithPin('7416');
+      bio.availabilityValue = BiometricAvailability.notEnrolled;
+
+      expect(await m.setBiometricEnabled(true), isFalse);
+      expect(m.biometricEnabled, isFalse);
+      expect(await store.readBiometricEnabled(), isFalse);
+    });
+
+    test('logout wipes the preference so the next worker cannot inherit it',
+        () async {
+      final AuthSessionManager m = await seedLocked();
+
+      await m.logout();
+
+      expect(m.biometricEnabled, isFalse);
+      expect(await store.readBiometricEnabled(), isFalse);
+    });
+
+    test('a forced re-auth wipes the preference', () async {
+      final AuthSessionManager m = await seedLocked();
+
+      reauth.requireReauth();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(m.status, AuthStatus.loggedOut);
+      expect(m.biometricEnabled, isFalse);
+    });
+
+    test('a fresh OTP login wipes the preference', () async {
+      final AuthSessionManager m = await seedLocked();
+
+      await m.verifyOtp('+91999', '1234');
+
+      expect(await store.readBiometricEnabled(), isFalse);
+    });
+
+    test('a dead token after biometric success escapes to OTP after N tries',
+        () async {
+      final AuthSessionManager m = await seedLocked();
+      // A NEUTRAL, non-reauth refresh failure: the local biometric succeeded but
+      // the token cannot be rotated. Repeated attempts must eventually stop
+      // blaming the biometric and drop the dead session.
+      api.throwOnRefresh = const AuthFailure(AuthErrorCode.network);
+
+      BiometricUnlockResult result = BiometricUnlockResult.success;
+      for (int i = 0; i < AuthSessionManager.unlockFailureBudget; i++) {
+        result = await m.unlockWithBiometric();
+      }
+
+      expect(result, BiometricUnlockResult.reauthRequired);
+      expect(m.status, AuthStatus.loggedOut,
+          reason: 'a dead token must not trap the worker on biometrics');
     });
   });
 

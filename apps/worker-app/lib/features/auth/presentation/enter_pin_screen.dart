@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/auth/biometric_service.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/push_once.dart';
@@ -8,6 +9,7 @@ import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_spinner.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
+import '../../../l10n/gen/app_localizations.dart';
 import '../../../router.dart';
 import 'cubit/enter_pin_cubit.dart';
 import 'widgets/bb_pin_keypad.dart';
@@ -75,6 +77,22 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// Bumping this orphans the in-flight `_onDigit` continuation, which checks
   /// the token after its delay and returns rather than unlocking.
   int _submitToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // #2451 — one-shot auto prompt. Only when the worker opted in; the PIN
+    // keypad is fully usable underneath and remains the fallback after a
+    // cancel. A post-frame callback lets the first frame paint the PIN screen
+    // BEFORE the OS sheet covers it, so the worker never sees a blank pause.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final EnterPinCubit cubit = context.read<EnterPinCubit>();
+      if (cubit.state.biometricEnabled) {
+        cubit.biometricUnlock();
+      }
+    });
+  }
 
   Future<void> _onDigit(String d) async {
     // Length alone guards a stray 5th tap during the pop-beat; `_submitting`
@@ -147,6 +165,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
         }
       },
       builder: (BuildContext context, EnterPinState state) {
+        final AppLocalizations strings = AppLocalizations.of(context);
         final bool error =
             state.status == EnterPinStatus.failure && !_errorAcknowledged;
         // Kit auth chrome: the navy header carries the title/context; the light
@@ -186,22 +205,44 @@ class _EnterPinViewState extends State<_EnterPinView> {
                           // is on screen whenever a digit can be typed, so the
                           // row is "focused" exactly while the verify is not
                           // in flight.
-                          focused: !state.isSubmitting,
+                          focused: !state.isSubmitting && !state.biometricInFlight,
                           style: BbPinSlotStyle.shiftBlue,
                         ),
                         // The wrong-PIN reason now lives in the centred dialog
                         // (see [_showError]) — no tiny inline line here.
                         const SizedBox(height: 8),
-                        // While the PIN is being verified, swap the keypad for a
-                        // loader so the worker sees WORK IN PROGRESS — the dots
-                        // stay filled above and never blank mid-verify.
-                        if (state.isSubmitting)
-                          const _VerifyingNote()
-                        else
+                        // While the PIN (or the biometric refresh) is being
+                        // verified, swap the keypad for a loader so the worker
+                        // sees WORK IN PROGRESS — the dots stay filled above and
+                        // never blank mid-verify.
+                        if (state.isSubmitting || state.biometricInFlight)
+                          _VerifyingNote(
+                            caption: state.biometricInFlight
+                                ? strings.biometricVerifying
+                                : strings.pinVerifying,
+                          )
+                        else ...<Widget>[
                           BbPinKeypad(
                             onDigit: _onDigit,
                             onBackspace: _onBackspace,
                           ),
+                          // #2451 — the explicit retry affordance. The OS prompt
+                          // is auto-triggered once on entry; after a cancel this
+                          // is how the worker asks for it again. PIN is never
+                          // removed or covered by it.
+                          if (state.biometricEnabled) _biometricCta(strings),
+                        ],
+                        if (_biometricHint(state.biometricResult) != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _biometricHint(state.biometricResult)!,
+                            textAlign: TextAlign.center,
+                            style: OnboardingTypography.inter(
+                              size: 12,
+                              color: OnboardingColors.ink600,
+                            ),
+                          ),
+                        ],
                         const Spacer(flex: 1),
                         _forgotLink(context, state),
                         const SizedBox(height: 4),
@@ -215,6 +256,60 @@ class _EnterPinViewState extends State<_EnterPinView> {
         );
       },
     );
+  }
+
+  /// The biometric retry affordance (#2451). A solid fingerprint glyph + the
+  /// app's Hinglish CTA; deliberately a SECONDARY control so it never competes
+  /// with the keypad the worker already trusts.
+  Widget _biometricCta(AppLocalizations strings) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: TextButton.icon(
+        key: const Key('enterPinBiometricButton'),
+        onPressed: () => context.read<EnterPinCubit>().biometricUnlock(),
+        icon: const Icon(
+          Icons.fingerprint,
+          color: OnboardingColors.shiftBlue,
+          size: 26,
+        ),
+        label: Text(
+          strings.biometricUnlockCta,
+          textAlign: TextAlign.center,
+          style: OnboardingTypography.inter(
+            size: 13,
+            weight: FontWeight.w600,
+            color: OnboardingColors.shiftBlue,
+          ),
+        ),
+        style: TextButton.styleFrom(
+          minimumSize: const Size(
+            OnboardingLayout.tapTarget,
+            OnboardingLayout.tapTarget,
+          ),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
+      ),
+    );
+  }
+
+  /// One short, neutral hint after a non-successful biometric attempt. Returns
+  /// null for no hint (success / preference turned off by the manager).
+  String? _biometricHint(BiometricUnlockResult? result) {
+    final AppLocalizations strings = AppLocalizations.of(context);
+    switch (result) {
+      case BiometricUnlockResult.cancelled:
+        return strings.biometricUnlockCancelled;
+      case BiometricUnlockResult.failed:
+        return strings.biometricUnlockFailed;
+      case BiometricUnlockResult.unavailable:
+      case BiometricUnlockResult.notEnrolled:
+        return strings.biometricUnlockUnavailable;
+      case BiometricUnlockResult.success:
+      case BiometricUnlockResult.notEnabled:
+      case BiometricUnlockResult.reauthRequired:
+      case null:
+        return null;
+    }
   }
 
   /// The reset escape hatch. Deep-blue underlined link in BOTH states — haldi
@@ -256,13 +351,15 @@ class _EnterPinViewState extends State<_EnterPinView> {
 /// on `BbSpinner`, because "the dots stay filled and a LOADER replaces the
 /// keypad" is the whole #1469 fix.
 class _VerifyingNote extends StatelessWidget {
-  const _VerifyingNote();
+  const _VerifyingNote({required this.caption});
+
+  final String caption;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 16),
-      child: BbSpinner(size: 40, caption: 'PIN check kar rahe hain…'),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: BbSpinner(size: 40, caption: caption),
     );
   }
 }
