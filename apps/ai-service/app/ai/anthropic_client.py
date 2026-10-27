@@ -41,7 +41,7 @@ from .errors import (
 # Reuse the SAME result shape as the Gemini client so the router/cost tracker
 # treat every provider identically.
 from .gemini_client import LlmResult
-from .model_config import ANTHROPIC_CACHE_MIN_TOKENS, should_cache_system
+from .model_config import anthropic_cache_min_tokens, should_cache_system
 
 logger = get_logger("ai.anthropic")
 
@@ -80,15 +80,18 @@ def _to_anthropic_request(
     return system_texts, anthropic_messages
 
 
-def _anthropic_system_param(system_texts: list[str]):
+def _anthropic_system_param(system_texts: list[str], model: str | None = None):
     """Build the Anthropic ``system`` param, prompt-caching the STABLE block (COST-2).
 
     Only ``system_texts[0]`` — the static persona / extraction prompt — is stable
     across calls and therefore cacheable; a per-turn instruction block (which carries
-    the turn's question) is never cached. When that stable block clears the provider
-    minimum we return a structured block list with a ``cache_control: ephemeral``
+    the turn's question) is never cached. When that stable block clears the model's
+    cache minimum we return a structured block list with a ``cache_control: ephemeral``
     breakpoint on it (Anthropic caches the prefix up to and including that block);
     otherwise we return the plain concatenated string and emit a skip diagnostic.
+
+    THE MINIMUM IS PER MODEL (D4/F6): Haiku 5.5 caches from 512 tokens, Haiku 4.5 needs
+    4,096. ``model=None`` keeps the Haiku 4.5 floor for callers that predate the param.
 
     SG-1: only static prompt text is ever placed in ``system`` — never a worker
     message or name — so nothing PII-bearing is ever cached. The diagnostic logs
@@ -97,7 +100,8 @@ def _anthropic_system_param(system_texts: list[str]):
     if not system_texts:
         return ""
     stable = system_texts[0]
-    if should_cache_system(stable, ANTHROPIC_CACHE_MIN_TOKENS):
+    min_tokens = anthropic_cache_min_tokens(model)
+    if should_cache_system(stable, min_tokens):
         blocks: list[dict] = [
             {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}}
         ]
@@ -108,9 +112,24 @@ def _anthropic_system_param(system_texts: list[str]):
     # stays at info because it is the state change worth surfacing.
     logger.debug(
         "prompt-cache skipped: system block below cache minimum",
-        extra={"extra": {"provider": "anthropic", "min_tokens": ANTHROPIC_CACHE_MIN_TOKENS}},
+        extra={"extra": {"provider": "anthropic", "min_tokens": min_tokens}},
     )
     return "\n".join(system_texts)
+
+
+#: Haiku 5.5 accepts temperature 1.0 only; every other Anthropic model keeps the route's
+#: value. The work order names this as the first F6 client change.
+HAIKU_5_5_MODEL = "claude-haiku-5-5"
+
+
+def _anthropic_temperature(model: str, requested: float) -> float:
+    """The temperature to send: 1.0 on Haiku 5.5, the route's value everywhere else."""
+    return 1.0 if model == HAIKU_5_5_MODEL else requested
+
+
+def _anthropic_thinking(model: str) -> dict[str, str] | None:
+    """Haiku 5.5 thinks by default and bills it as output; disable it for our tasks."""
+    return {"type": "disabled"} if model == HAIKU_5_5_MODEL else None
 
 
 def _parse_anthropic_response(resp) -> LlmResult:
@@ -301,7 +320,7 @@ async def acomplete(
         raise LlmTransportError(REASON_SDK_ERROR, request_sent=False) from exc
 
     system_texts, anthropic_messages = _to_anthropic_request(messages, json_mode=json_mode)
-    system_param = _anthropic_system_param(system_texts)
+    system_param = _anthropic_system_param(system_texts, model=model)
 
     try:
         # `max_retries=0`, EXPLICITLY. The SDK's default is 2 retries — a silent third
@@ -328,12 +347,17 @@ async def acomplete(
             "max_tokens": max(max_output_tokens, _MAX_TOKENS_FLOOR),
             "system": system_param,
             "messages": anthropic_messages,
-            "temperature": temperature,
+            "temperature": _anthropic_temperature(model, temperature),
         }
         # Only when given: a call without tools must send the request it always sent.
         if tools is not None:
             request["tools"] = tools
-        # Do NOT set thinking/effort — unsupported on Haiku 4.5.
+        # Haiku 5.5 thinks by default; our tasks are extraction/classification, so the
+        # thinking budget is disabled. Haiku 4.5 does not support the param and keeps
+        # the request it always sent.
+        thinking = _anthropic_thinking(model)
+        if thinking is not None:
+            request["thinking"] = thinking
         resp = await client.messages.create(**request)
     except RuntimeError:
         # Includes LlmTransportError (a RuntimeError) -> re-raise unchanged.

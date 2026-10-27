@@ -129,6 +129,13 @@ def test_an_override_names_the_chain_and_wins_over_claude_first():
     ]
 
 
+def test_haiku_5_5_is_accepted_and_resolves():
+    settings = _settings(ai_task_model_overrides=f"{CLASSIFY}=claude-haiku-5-5")
+    assert task_model_overrides(settings).rejected == ()
+    assert resolve_model(CLASSIFY, settings) == "claude-haiku-5-5"
+    assert "claude-haiku-5-5" in OVERRIDE_MODELS
+
+
 def test_it_keeps_every_number_on_the_route():
     before = get_route(CLASSIFY, _settings())
     after = get_route(CLASSIFY, _settings(ai_task_model_overrides=LITE_THEN_HAIKU))
@@ -205,8 +212,6 @@ def test_whitespace_and_several_entries():
             f"{CLASSIFY}=gemini-2.5-flash-lite>claude-haiku-4-5>gemini-2.5-flash",
             "more than one fallback",
         ),
-        # Rejects our temperature (F6), not yet listed.
-        (f"{CLASSIFY}=claude-haiku-5-5", "model not in OVERRIDE_MODELS"),
         # Rejects the thinking budget our client sends.
         (f"{CLASSIFY}=gemini-2.5-pro", "model not in OVERRIDE_MODELS"),
         # An embedding model, and a model id spelled the way no provider accepts.

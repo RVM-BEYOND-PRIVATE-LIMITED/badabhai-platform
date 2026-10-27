@@ -136,3 +136,31 @@ def test_real_system_prompts_are_below_cache_min_today():
         assert not model_config.should_cache_system(
             prompt, model_config.GEMINI_CACHE_MIN_TOKENS
         ), f"{name} prompt now clears the Gemini floor — review what gets cached"
+
+
+def test_haiku_5_5_caches_from_512_tokens_while_4_5_stays_blocked():
+    # ~600 estimated tokens: above the Haiku 5.5 floor, below Haiku 4.5's.
+    block = "x" * 2400
+    assert model_config.anthropic_cache_min_tokens("claude-haiku-5-5") == 512
+    assert model_config.anthropic_cache_min_tokens("claude-haiku-4-5") == 4096
+    assert model_config.should_cache_system(block, 512)
+    assert not model_config.should_cache_system(block, 4096)
+
+    param = _anthropic_system_param([block, "per-turn instruction"], model="claude-haiku-5-5")
+    assert isinstance(param, list)
+    assert param[0]["cache_control"] == {"type": "ephemeral"}
+    assert isinstance(
+        _anthropic_system_param([block, "per-turn instruction"], model="claude-haiku-4-5"), str
+    )
+
+
+def test_haiku_5_5_arms_the_real_prompts_that_clear_its_floor():
+    # The 512-token floor is what makes caching possible on the prompts production sends.
+    # Pin all three directions so a prompt edit that crosses the floor is a review trigger.
+    from app.profiling.parse_prompt import PARSE_SYSTEM_PROMPT
+    from app.profiling.prompts import EXTRACTION_SYSTEM_PROMPT, RESUME_SYSTEM_PROMPT
+
+    floor = model_config.anthropic_cache_min_tokens("claude-haiku-5-5")
+    assert model_config.should_cache_system(PARSE_SYSTEM_PROMPT, floor)
+    assert model_config.should_cache_system(EXTRACTION_SYSTEM_PROMPT, floor)
+    assert not model_config.should_cache_system(RESUME_SYSTEM_PROMPT, floor)
