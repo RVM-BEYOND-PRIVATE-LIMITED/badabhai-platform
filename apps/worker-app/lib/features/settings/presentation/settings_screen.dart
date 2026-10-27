@@ -19,7 +19,9 @@ import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/kit/kit_card.dart';
 import '../../../core/widgets/kit/kit_content_column.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
+import '../../../l10n/gen/app_localizations.dart';
 import '../../../router.dart';
+import '../../auth/domain/auth_session_manager.dart';
 import '../../consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../../consent/presentation/cubit/employer_contact_cubit.dart';
 import '../../../core/widgets/feedback_fab.dart';
@@ -215,6 +217,11 @@ class _SettingsView extends StatelessWidget {
                     subtitle: 'Logged-in devices dekhein · hatayein',
                     onTap: () => context.pushOnce(Routes.devices),
                   ),
+                  // #2451 — OPTIONAL biometric unlock. Hidden entirely when the
+                  // auth graph is not wired (legacy widget tests), and the row
+                  // is additive: turning it off leaves the PIN flow untouched.
+                  if (locator.isRegistered<AuthSessionManager>())
+                    const _BiometricToggleRow(),
                   BbListRow.setting(
                     icon: Icons.verified_user_outlined,
                     title: 'Privacy & data',
@@ -860,6 +867,76 @@ class _EmployerContactRow extends StatelessWidget {
           onChanged: (_) => _confirmAndWithdraw(context),
         );
       },
+    );
+  }
+}
+
+/// Settings → Security: the OPTIONAL biometric unlock toggle (#2451).
+///
+/// The PIN is never removed: this only decides whether the `/pin` screen also
+/// offers Face ID/fingerprint. Enabling is a real device check — if the handset
+/// has no usable/enrolled biometric, the switch snaps back OFF and the app says
+/// why; it never pretends to be on. Turning it off is immediate.
+class _BiometricToggleRow extends StatefulWidget {
+  const _BiometricToggleRow();
+
+  @override
+  State<_BiometricToggleRow> createState() => _BiometricToggleRowState();
+}
+
+class _BiometricToggleRowState extends State<_BiometricToggleRow> {
+  AuthSessionManager get _manager => locator<AuthSessionManager>();
+
+  bool _enabled = false;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _enabled = _manager.biometricEnabled;
+  }
+
+  Future<void> _onChanged(bool value) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      // Optimistic only for OFF (it can never fail). Enabling waits for the
+      // device check so we never paint a switch that the sensor cannot honour.
+      if (!value) _enabled = false;
+    });
+
+    if (!value) {
+      await _manager.setBiometricEnabled(false);
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
+
+    final bool enabled = await _manager.setBiometricEnabled(true);
+    if (!mounted) return;
+    setState(() {
+      _enabled = enabled;
+      _busy = false;
+    });
+    if (!enabled) {
+      final AppLocalizations strings = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(strings.biometricEnableFailed)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations strings = AppLocalizations.of(context);
+    return BbListRow.toggle(
+      icon: Icons.fingerprint,
+      title: strings.biometricSettingsTitle,
+      subtitle: _enabled
+          ? strings.biometricSettingsOn
+          : strings.biometricSettingsOff,
+      value: _enabled,
+      enabled: !_busy,
+      onChanged: _onChanged,
     );
   }
 }

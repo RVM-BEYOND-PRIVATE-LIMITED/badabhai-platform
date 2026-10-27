@@ -49,6 +49,8 @@
 	<string>BadaBhai needs the microphone so you can record a short voice note about your work experience, which is used to build your profile and resume.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>BadaBhai uses speech recognition to turn what you say into text in the chat, so you can speak your answers instead of typing them.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>BadaBhai uses Face ID only to unlock the app locally, so you can log in faster instead of typing your PIN. Your face data never leaves your phone, and your PIN always remains available.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>BadaBhai needs the camera so you can take a photo for your profile or attach a picture with your feedback.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

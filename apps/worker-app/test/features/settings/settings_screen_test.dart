@@ -8,12 +8,17 @@ import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/settings/presentation/settings_screen.dart';
+import 'package:badabhai_worker_app/l10n/gen/app_localizations.dart';
+import 'package:badabhai_worker_app/l10n/ui_locale.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 import '../../core/auth/fakes.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
+
+class _MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
 void main() {
   late _MockApiClient api;
@@ -195,5 +200,63 @@ void main() {
     );
 
     expect(find.text('Sheher/State demo'), findsNothing);
+  });
+
+  // #2451 — the OPTIONAL biometric toggle. It appears only when the auth graph
+  // is wired and turning it on delegates to the manager's real device check.
+  group('biometric unlock toggle (#2451)', () {
+    late _MockAuthSessionManager auth;
+
+    setUp(() {
+      auth = _MockAuthSessionManager();
+      when(() => auth.biometricEnabled).thenReturn(false);
+      locator.registerSingleton<AuthSessionManager>(auth);
+    });
+
+    Future<void> pumpSettings(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('hi'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: kUiSupportedLocales,
+          theme: AppTheme.light(),
+          home: const SettingsScreen(),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('appears and enables through the manager', (
+      WidgetTester tester,
+    ) async {
+      when(() => auth.setBiometricEnabled(true)).thenAnswer((_) async => true);
+
+      await pumpSettings(tester);
+      expect(find.text('Fingerprint / Face ID se login'), findsOneWidget);
+
+      await tester.tap(find.text('Fingerprint / Face ID se login'));
+      await tester.pump();
+
+      verify(() => auth.setBiometricEnabled(true)).called(1);
+      expect(find.text('On — PIN bhi hamesha available hai'), findsOneWidget);
+    });
+
+    testWidgets('a device with no usable biometric snaps back OFF and says why',
+        (WidgetTester tester) async {
+      when(() => auth.setBiometricEnabled(true)).thenAnswer((_) async => false);
+
+      await pumpSettings(tester);
+      await tester.tap(find.text('Fingerprint / Face ID se login'));
+      await tester.pump();
+
+      verify(() => auth.setBiometricEnabled(true)).called(1);
+      expect(find.text('Off — PIN se login karenge'), findsOneWidget);
+      expect(
+        find.text(
+          'Biometric is device par on nahi ho saka — PIN se login karein.',
+        ),
+        findsOneWidget,
+      );
+    });
   });
 }

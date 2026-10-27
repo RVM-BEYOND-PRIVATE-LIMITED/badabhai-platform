@@ -21,7 +21,13 @@ class FakeSetPinCubit extends SetPinCubit {
   final List<String> submitted = <String>[];
 
   @override
-  Future<void> submit(String pin) async => submitted.add(pin);
+  Future<void> submit(
+    String pin, {
+    Future<void> Function()? beforeAuthenticate,
+  }) async {
+    submitted.add(pin);
+    await beforeAuthenticate?.call();
+  }
 
   void failWith(String message) =>
       emit(SetPinState(status: SetPinStatus.failure, message: message));

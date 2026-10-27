@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/l10n/gen/app_localizations.dart';
+import 'package:badabhai_worker_app/l10n/ui_locale.dart';
 
 /// The device sizes every redesigned screen must survive.
 ///
@@ -54,6 +56,9 @@ void setKitSurface(WidgetTester tester, Size size, {double keyboard = 0}) {
 Widget kitTestApp(Widget child, {double textScale = 1.0}) {
   return MaterialApp(
     theme: AppTheme.light(),
+    // The app's real l10n wiring; screens under test read AppLocalizations.
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: kUiSupportedLocales,
     builder: (BuildContext context, Widget? built) => MediaQuery(
       data: MediaQuery.of(
         context,

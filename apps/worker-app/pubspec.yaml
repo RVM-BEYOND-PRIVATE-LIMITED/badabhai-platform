@@ -127,6 +127,18 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   shared_preferences: ^2.3.5
   uuid: ^4.5.1
+  # #2451 — OPTIONAL biometric unlock (Face ID / fingerprint) as a LOCAL gate in
+  # front of the existing PIN flow. It never mints or bypasses a token: on a
+  # successful device check we read the persisted refresh token and run the same
+  # `/auth/token/refresh` path as the PIN. `biometricOnly: true` keeps the OS
+  # device passcode from opening the app. No biometric data is read or stored —
+  # only a boolean "enabled" preference lives in SecureTokenStore.
+  #
+  # Android needs `USE_BIOMETRIC` (declared in AndroidManifest.xml) and the
+  # hosting Activity to be a FlutterFragmentActivity (MainActivity.kt) because
+  # BiometricPrompt is fragment-based. iOS needs NSFaceIDUsageDescription
+  # (ios/Runner/Info.plist).
+  local_auth: ^2.3.0
   # Referral-invite sharing (A3): hands the composed invite link to the platform
   # share sheet. No PII in the shared text — only the opaque invite code/link.
   share_plus: ^10.1.4

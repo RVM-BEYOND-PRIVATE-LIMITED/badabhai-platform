@@ -35,11 +35,14 @@ class SetPinCubit extends Cubit<SetPinState> {
   final AuthSessionManager _manager;
   final String _locale;
 
-  Future<void> submit(String pin) async {
+  Future<void> submit(
+    String pin, {
+    Future<void> Function()? beforeAuthenticate,
+  }) async {
     if (state.isSubmitting) return;
     emit(const SetPinState(status: SetPinStatus.submitting));
     try {
-      await _manager.setPin(pin);
+      await _manager.setPin(pin, beforeAuthenticate: beforeAuthenticate);
       if (isClosed) return;
       emit(const SetPinState(status: SetPinStatus.done));
     } on AuthFailure catch (failure) {

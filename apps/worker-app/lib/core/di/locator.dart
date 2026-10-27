@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 import '../auth/auth_api.dart';
 import '../auth/auth_factory.dart';
+import '../auth/biometric_service.dart';
 import '../auth/device_id.dart';
 import '../auth/locale_store.dart';
 import '../otp/sms_otp_autofill.dart';
@@ -219,6 +220,12 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // [secureStore] lets the mock-mode e2e exercise persistence without it.
   locator.registerLazySingleton<SecureTokenStore>(
     () => SecureTokenStore(secureStore ?? FlutterSecureKeyValueStore()),
+  );
+  // #2451 — the OS biometric seam. Registration is plugin-free; the first
+  // availability/authenticate call touches the platform channel. Tests that
+  // need a deterministic answer register a fake over this one.
+  locator.registerLazySingleton<BiometricService>(
+    () => LocalAuthBiometricService(),
   );
   locator.registerLazySingleton<DeviceIdProvider>(
     () => DeviceIdProvider(locator<SecureTokenStore>()),
@@ -555,6 +562,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => EnterPinCubit(
       locator<AuthSessionManager>(),
       locale: locator<LocaleStore>().read(),
+      // Read the preference at screen-mount time so a settings toggle takes
+      // effect on the next re-lock/cold start (a fresh cubit is created).
+      biometricEnabled: locator<AuthSessionManager>().biometricEnabled,
     ),
   );
   locator.registerFactory<DevicesCubit>(
@@ -850,6 +860,7 @@ Future<void> initAuthLocator({
       reauthSignal: locator<ReauthSignal>(),
       persistentAuthEnabled: persistentAuthEnabled,
       pushTokenService: locator<PushTokenService>(),
+      biometricService: locator<BiometricService>(),
       onSessionCleared: _clearSessionScopedCaches,
     ),
   );

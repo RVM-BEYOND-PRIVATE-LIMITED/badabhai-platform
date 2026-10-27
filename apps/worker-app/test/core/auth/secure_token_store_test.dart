@@ -68,6 +68,9 @@ void main() {
       );
       await store.writeWorkerId('worker-3');
       await store.writePinSet(true);
+      // #2451 — biometric unlock is session-scoped.
+      await store.writeBiometricEnabled(true);
+      await store.writeBiometricPromptSeen(true);
 
       await store.clear();
 
@@ -75,6 +78,9 @@ void main() {
       expect(await store.readRefreshToken(), isNull);
       expect(await store.readWorkerId(), isNull);
       expect(await store.readPinSet(), isFalse);
+      expect(await store.readBiometricEnabled(), isFalse,
+          reason: 'a second worker must not inherit the first one\u2019s unlock');
+      expect(await store.readBiometricPromptSeen(), isFalse);
       // Device id deliberately survives logout.
       expect(await store.readDeviceId(), deviceId);
     });

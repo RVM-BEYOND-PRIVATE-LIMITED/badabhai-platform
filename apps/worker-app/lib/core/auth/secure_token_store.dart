@@ -56,6 +56,16 @@ class SecureTokenStore {
   static const String _kRefreshIdemMintedAt = 'bb_auth_refresh_idem_minted_at';
   static const String _kOnboardingLocation = 'bb_onboarding_location';
 
+  /// #2451 — OPTIONAL biometric unlock preference, carried with the session so
+  /// `clear()` (logout / logout-all / forced re-auth) wipes it in the same pass
+  /// as the tokens. A second worker on the same handset must never inherit the
+  /// first worker's local unlock.
+  static const String _kBiometricEnabled = 'bb_auth_biometric_enabled';
+
+  /// #2451 — whether the after-set-PIN opt-in has already been shown. NOT a
+  /// credential: it only stops the same worker being asked on every PIN reset.
+  static const String _kBiometricPromptSeen = 'bb_auth_biometric_prompt_seen';
+
   /// Access token — MEMORY ONLY. Survives the app process but NOT a cold start;
   /// after a restart the interceptor refreshes it from the persisted refresh
   /// token. Never written to any store.
@@ -127,6 +137,21 @@ class SecureTokenStore {
   Future<void> writePinSet(bool value) =>
       _store.write(_kPinSet, value ? 'true' : 'false');
 
+  /// #2451 — whether the worker opted in to biometric unlock on this device.
+  /// This is a boolean LOCAL preference, never biometric material.
+  Future<bool> readBiometricEnabled() async =>
+      (await _store.read(_kBiometricEnabled)) == 'true';
+
+  Future<void> writeBiometricEnabled(bool value) =>
+      _store.write(_kBiometricEnabled, value ? 'true' : 'false');
+
+  /// #2451 — whether the after-set-PIN opt-in has been shown already.
+  Future<bool> readBiometricPromptSeen() async =>
+      (await _store.read(_kBiometricPromptSeen)) == 'true';
+
+  Future<void> writeBiometricPromptSeen(bool value) =>
+      _store.write(_kBiometricPromptSeen, value ? 'true' : 'false');
+
   /// Absolute wall-clock instant the in-memory access token expires. Stored as
   /// ms-since-epoch so the interceptor can decide proactive refresh across a warm
   /// restart. Null when unknown.
@@ -183,5 +208,9 @@ class SecureTokenStore {
     // A new worker on this handset must start their own onboarding, not walk
     // back into the previous one's half-finished flow.
     await _store.delete(_kOnboardingLocation);
+    // #2451 — biometric unlock is a SESSION-scoped convenience. Wipe it with the
+    // credentials so the next worker cannot unlock the previous worker's app.
+    await _store.delete(_kBiometricEnabled);
+    await _store.delete(_kBiometricPromptSeen);
   }
 }

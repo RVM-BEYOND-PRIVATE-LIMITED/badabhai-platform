@@ -19,13 +19,17 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
-class MainActivity : FlutterActivity() {
+// #2451 — local_auth uses BiometricPrompt, which is FRAGMENT-based. Hosting the
+// Flutter view in a FlutterFragmentActivity is what lets the OS biometric sheet
+// open; a plain FlutterActivity throws `no_fragment_activity`. Behaviour is
+// otherwise identical.
+class MainActivity : FlutterFragmentActivity() {
 
     /** OTP SMS auto-read (Play Services User Consent). Android-only. */
     private var smsOtp: SmsUserConsentManager? = null

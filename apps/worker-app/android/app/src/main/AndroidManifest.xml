@@ -13,6 +13,11 @@
     <!-- Firebase Cloud Messaging (native): network + show notifications on Android 13+. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- #2451 — OPTIONAL biometric unlock. USE_BIOMETRIC lets BiometricPrompt
+         show fingerprint/face for a LOCAL check; it grants no data access and is
+         never required (the PIN remains the primary path). Biometric material
+         never leaves the device. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
 
     <!-- ADVERTISING ID: STRIPPED. firebase_analytics (play-services-measurement)
          merges com.google.android.gms.permission.AD_ID + the ACCESS_ADSERVICES_*
