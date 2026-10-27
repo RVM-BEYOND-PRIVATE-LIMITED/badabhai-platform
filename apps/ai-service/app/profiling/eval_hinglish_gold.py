@@ -80,7 +80,12 @@ WELDER: Values = ("Welder", "Welding Operator", "MIG Welder", "Arc Welder", "Wel
 FITTER: Values = ("Fitter", "Mechanical Fitter")
 ELECTRICIAN: Values = ("Electrician", "Electrical Technician")
 MACHINIST: Values = ("Machinist", "Machine Operator")
-GRINDER: Values = ("Surface Grinder", "Grinder", "Surface Grinding Operator")
+GRINDER: Values = (
+    "Surface Grinder",
+    "Grinder",
+    "Surface Grinding Operator",
+    "Surface Grinder Operator",
+)
 PROGRAMMER: Values = ("CNC Programmer", "Programmer", "CNC Programmer Operator")
 MAINTENANCE: Values = ("Maintenance Technician", "Maintenance Fitter", "Maintenance")
 MOULDER: Values = ("Moulder", "Molding Operator", "Moulding Operator")
