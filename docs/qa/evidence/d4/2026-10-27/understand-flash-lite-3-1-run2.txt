@@ -1,0 +1,17 @@
+profiling turn understanding — 55 cases
+intent accuracy: 54/55 = 98.2% (bar >= 90%)
+fill precision: 27/30 = 90.0% (bar >= 95%); fill recall 24/26 (reported, not gated)
+edits exact: 54/55 (reported, not gated)
+keys outside the schema: 0; false-positive deletes: 0; false-positive 'none' over a free-text question: 0 (bar: 0, 0 and 0)
+'none' reading: 55/55; missed 0, stray 0 (reported, not gated)
+calls: 55 sent, 55 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 2.80 (router estimate)
+models: gemini-3.1-flash-lite (55); 0 served by a fallback model
+pace: 300 ms between requests (55 requests)
+latency, round trip to the ai-service: p50 1181 ms, p95 1737 ms; model call only: p50 1147 ms, p95 1705 ms (excludes the API hop and validator, and a career turn's classify call)
+  MISS 'kal se join kar sakta hoon': wrong fill availability='Immediately'; missed fills ['availability']
+  MISS '15 din ka notice hai': wrong fill availability='Within a month'; missed fills ['availability']
+  MISS '5 saal ka experience hai mera': edits [('edit', 'experience_years', None, '5')] (expected [])
+  MISS 'Pune ya Nashik mein kaam chahiye': wrong fill willing_to_travel='true'
+  MISS 'night shift chahiye': intent chat (expected statement)
+  FAIL fill precision 90.0% < 95%
+RESULT: FAIL

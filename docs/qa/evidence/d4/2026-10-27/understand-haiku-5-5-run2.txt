@@ -1,0 +1,14 @@
+profiling turn understanding — 55 cases
+intent accuracy: 55/55 = 100.0% (bar >= 90%)
+fill precision: 26/28 = 92.9% (bar >= 95%); fill recall 24/26 (reported, not gated)
+edits exact: 55/55 (reported, not gated)
+keys outside the schema: 0; false-positive deletes: 0; false-positive 'none' over a free-text question: 0 (bar: 0, 0 and 0)
+'none' reading: 55/55; missed 0, stray 0 (reported, not gated)
+calls: 55 sent, 55 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 0.68 (router estimate)
+models: claude-haiku-5-5 (55); 0 served by a fallback model
+pace: 300 ms between requests (55 requests)
+latency, round trip to the ai-service: p50 1283 ms, p95 2223 ms; model call only: p50 1190 ms, p95 2211 ms (excludes the API hop and validator, and a career turn's classify call)
+  MISS 'kal se join kar sakta hoon': wrong fill availability='Immediately'; missed fills ['availability']
+  MISS '15 din ka notice hai': wrong fill availability='Within a month'; missed fills ['availability']
+  FAIL fill precision 92.9% < 95%
+RESULT: FAIL
