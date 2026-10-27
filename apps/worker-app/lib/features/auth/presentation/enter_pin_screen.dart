@@ -301,6 +301,8 @@ class _EnterPinViewState extends State<_EnterPinView> {
         return strings.biometricUnlockCancelled;
       case BiometricUnlockResult.failed:
         return strings.biometricUnlockFailed;
+      case BiometricUnlockResult.serverUnavailable:
+        return strings.biometricUnlockServerUnavailable;
       case BiometricUnlockResult.unavailable:
       case BiometricUnlockResult.notEnrolled:
         return strings.biometricUnlockUnavailable;

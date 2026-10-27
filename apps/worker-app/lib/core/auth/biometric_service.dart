@@ -36,6 +36,11 @@ enum BiometricUnlockResult {
   /// The session could not be restored; the manager has already dropped it and
   /// the router will send the worker to phone login.
   reauthRequired,
+
+  /// The OS confirmed the worker but the server could not be reached (transport
+  /// failure / 5xx). The session is still valid: keep the preference, stay
+  /// locked and let the PIN keypad be the fallback. NEVER a reason to log out.
+  serverUnavailable,
 }
 
 /// The single seam over the OS biometric prompt.
@@ -60,10 +65,19 @@ abstract interface class BiometricService {
 
 /// The real implementation, wrapping `local_auth`.
 class LocalAuthBiometricService implements BiometricService {
-  LocalAuthBiometricService([LocalAuthentication? auth])
-      : _auth = auth ?? LocalAuthentication();
+  LocalAuthBiometricService([
+    LocalAuthentication? auth,
+    this.authenticateTimeout = const Duration(seconds: 60),
+  ]) : _auth = auth ?? LocalAuthentication();
 
   final LocalAuthentication _auth;
+
+  /// #2458 — a hung platform channel must not leave the worker trapped behind
+  /// the biometric loader with the PIN keypad hidden. Unlike [availability]
+  /// this is deliberately generous: a worker may genuinely take a while at the
+  /// OS prompt. On timeout we report [BiometricUnlockResult.failed] and KEEP
+  /// the preference, so the PIN keypad becomes the fallback again.
+  final Duration authenticateTimeout;
 
   /// A device/probe call that never answers must NOT wedge set-PIN or a
   /// cold-start unlock. On a real handset these calls are immediate; this is a
@@ -109,20 +123,27 @@ class LocalAuthBiometricService implements BiometricService {
     }
 
     try {
-      final bool ok = await _auth.authenticate(
-        localizedReason: reason,
-        options: const AuthenticationOptions(
-          // SECURITY: the OS device passcode must NOT open BadaBhai. Only an
-          // enrolled face/fingerprint may pass this local gate.
-          biometricOnly: true,
-          // Keep the prompt alive across a short background/foreground hop
-          // (e.g. the worker checks a notification); cancelling there would be
-          // a false negative that sends them back to the PIN.
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
-      );
+      final bool ok = await _auth
+          .authenticate(
+            localizedReason: reason,
+            options: const AuthenticationOptions(
+              // SECURITY: the OS device passcode must NOT open BadaBhai. Only an
+              // enrolled face/fingerprint may pass this local gate.
+              biometricOnly: true,
+              // Keep the prompt alive across a short background/foreground hop
+              // (e.g. the worker checks a notification); cancelling there would
+              // be a false negative that sends them back to the PIN.
+              stickyAuth: true,
+              useErrorDialogs: true,
+            ),
+          )
+          .timeout(authenticateTimeout);
       return ok ? BiometricUnlockResult.success : BiometricUnlockResult.cancelled;
+    } on TimeoutException {
+      // The prompt never answered (broken OEM channel / wedged plugin). Keep the
+      // preference: this says nothing about the enrolled biometric, and the PIN
+      // is the fallback.
+      return BiometricUnlockResult.failed;
     } on PlatformException catch (error) {
       switch (error.code) {
         case 'UserCancelled':

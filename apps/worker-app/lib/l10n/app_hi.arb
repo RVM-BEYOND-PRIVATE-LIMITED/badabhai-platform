@@ -59,6 +59,10 @@
   "@biometricUnlockFailed": {
     "description": "#2451 — neutral fallback hint when the local check fails or is locked out. The PIN keypad remains the recovery path."
   },
+  "biometricUnlockServerUnavailable": "Server se connect nahi hua — PIN se login karein.",
+  "@biometricUnlockServerUnavailable": {
+    "description": "#2458 — the OS check passed but the token refresh hit a transport/5xx failure. The session is NOT dead; keep the preference and fall back to the PIN."
+  },
   "biometricUnlockUnavailable": "Biometric abhi available nahi hai — PIN se login karein.",
   "@biometricUnlockUnavailable": {
     "description": "#2451 — the sensor/enrolment disappeared since opt-in. The preference is turned off automatically and the worker continues with the PIN."

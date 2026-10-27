@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/auth_error_messages.dart';
+import '../../../core/auth/auth_failure.dart';
 import '../../../core/auth/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -12,6 +14,7 @@ import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
+import '../domain/auth_session_manager.dart';
 import 'cubit/phone_login_cubit.dart';
 import 'otp_verify_screen.dart';
 
@@ -62,6 +65,22 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
     super.initState();
     // Repaint the CTA as the digit count crosses 10.
     _controller.addListener(_onChanged);
+    // #2458 — tell the worker WHY they were bounced here when the session was
+    // found dead (expired/revoked refresh token), instead of silently showing
+    // the login screen. Consumed once, so a manual logout stays silent.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !locator.isRegistered<AuthSessionManager>()) return;
+      final AuthSessionManager auth = locator<AuthSessionManager>();
+      final String? reasonCode = auth.takeSessionEndReason();
+      if (reasonCode == null) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(authErrorMessage(AuthFailure(reasonCode), 'en')),
+          ),
+        );
+    });
   }
 
   void _onChanged() => setState(() {});

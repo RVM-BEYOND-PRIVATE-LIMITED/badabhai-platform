@@ -635,6 +635,22 @@ void main() {
       expect(bio.lastReason, isNotEmpty);
     });
 
+    test('a never-consented cold start stays gated after a biometric unlock',
+        () async {
+      // The never-consented worker killed the app on /consent. Bootstrap must
+      // restore the persisted `false`; the refresh response has no consent
+      // field, so the gate can only stay closed if the persisted value is read.
+      await store.writeConsentAccepted(false);
+      final AuthSessionManager m = await seedLocked();
+      expect(m.consentAccepted, isFalse);
+
+      expect(await m.unlockWithBiometric(), BiometricUnlockResult.success);
+
+      expect(m.status, AuthStatus.authenticated);
+      expect(m.consentAccepted, isFalse,
+          reason: 'the router must send this worker to /consent, not the shell');
+    });
+
     test('cancel stays locked, keeps the preference and is NOT a PIN attempt',
         () async {
       final AuthSessionManager m = await seedLocked();
@@ -741,6 +757,29 @@ void main() {
       expect(m.biometricEnabled, isFalse);
     });
 
+    test('logout resets the opt-in prompt for the next worker', () async {
+      await store.writeBiometricPromptSeen(true);
+      final AuthSessionManager m = await seedLocked();
+      expect(m.biometricPromptSeen, isTrue);
+
+      await m.logout();
+
+      expect(m.biometricPromptSeen, isFalse);
+      expect(await store.readBiometricPromptSeen(), isFalse,
+          reason: 'a second worker in this process must be offered the opt-in');
+    });
+
+    test('a forced re-auth resets the opt-in prompt too', () async {
+      await store.writeBiometricPromptSeen(true);
+      final AuthSessionManager m = await seedLocked();
+      expect(m.biometricPromptSeen, isTrue);
+
+      reauth.requireReauth();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(m.biometricPromptSeen, isFalse);
+    });
+
     test('a fresh OTP login wipes the preference', () async {
       final AuthSessionManager m = await seedLocked();
 
@@ -749,22 +788,39 @@ void main() {
       expect(await store.readBiometricEnabled(), isFalse);
     });
 
-    test('a dead token after biometric success escapes to OTP after N tries',
-        () async {
+    test('a DEAD token wipes the session on the FIRST attempt', () async {
       final AuthSessionManager m = await seedLocked();
-      // A NEUTRAL, non-reauth refresh failure: the local biometric succeeded but
-      // the token cannot be rotated. Repeated attempts must eventually stop
-      // blaming the biometric and drop the dead session.
-      api.throwOnRefresh = const AuthFailure(AuthErrorCode.network);
+      // The explicit dead-session answer (401/403 on token refresh).
+      api.throwOnRefresh =
+          const AuthFailure(AuthErrorCode.reauthRequired, statusCode: 401);
 
-      BiometricUnlockResult result = BiometricUnlockResult.success;
-      for (int i = 0; i < AuthSessionManager.unlockFailureBudget; i++) {
-        result = await m.unlockWithBiometric();
-      }
+      final BiometricUnlockResult result = await m.unlockWithBiometric();
 
       expect(result, BiometricUnlockResult.reauthRequired);
-      expect(m.status, AuthStatus.loggedOut,
-          reason: 'a dead token must not trap the worker on biometrics');
+      expect(m.status, AuthStatus.loggedOut);
+      expect(await store.readRefreshToken(), isNull,
+          reason: 'the dead token must not survive');
+      expect(m.takeSessionEndReason(), AuthErrorCode.reauthRequired,
+          reason: 'the login screen should explain why they are back');
+    });
+
+    test('transient refresh failures NEVER log out or force OTP', () async {
+      final AuthSessionManager m = await seedLocked();
+      api.throwOnRefresh = const AuthFailure(AuthErrorCode.network);
+
+      // Well past the PIN budget: a flaky 2G link must not be mistaken for a
+      // dead token (the old behaviour wiped the session after 5 tries).
+      for (int i = 0; i < AuthSessionManager.unlockFailureBudget * 2; i++) {
+        expect(await m.unlockWithBiometric(),
+            BiometricUnlockResult.serverUnavailable);
+      }
+
+      expect(m.status, AuthStatus.locked);
+      expect(await store.readRefreshToken(), 'refresh-1',
+          reason: 'the session is not proven dead');
+      expect(m.biometricEnabled, isTrue);
+      expect(await store.readBiometricEnabled(), isTrue);
+      expect(m.takeSessionEndReason(), isNull);
     });
   });
 
@@ -1069,6 +1125,43 @@ void main() {
       expect(manager.consentAccepted, isNull);
     });
 
+    test('verifyOtp PERSISTS a definitive consent answer', () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = false;
+      await manager.verifyOtp('+91999', '1234');
+
+      expect(await store.readConsentAccepted(), isFalse,
+          reason: 'a cold-start biometric unlock has no consent field to read');
+    });
+
+    test('an old-server null does NOT overwrite the last known answer',
+        () async {
+      await store.writeConsentAccepted(false);
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = null;
+      await manager.verifyOtp('+91999', '1234');
+
+      expect(manager.consentAccepted, isNull);
+      expect(await store.readConsentAccepted(), isFalse,
+          reason: 'absent is "no news", never a consent change');
+    });
+
+    test('bootstrap restores the persisted consent BEFORE any verify',
+        () async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writePinSet(true);
+      await store.writeConsentAccepted(false);
+
+      await manager.bootstrap();
+
+      expect(manager.status, AuthStatus.locked);
+      expect(manager.consentAccepted, isFalse);
+    });
+
     test('unlockWithPin populates consentAccepted from the PIN response',
         () async {
       await store.writeRefreshToken('refresh-1');
@@ -1096,6 +1189,8 @@ void main() {
 
       expect(manager.consentAccepted, isTrue);
       expect(notifies, 1);
+      expect(await store.readConsentAccepted(), isTrue,
+          reason: 'consent submitted must survive a cold start');
       // Idempotent: a second call does not re-notify.
       manager.markConsentAccepted();
       expect(notifies, 1);
@@ -1112,6 +1207,8 @@ void main() {
       await manager.logout();
 
       expect(manager.consentAccepted, isNull);
+      expect(await store.readConsentAccepted(), isNull,
+          reason: 'the next worker must not inherit this consent');
     });
 
     test('a fired ReauthSignal clears consentAccepted back to null', () async {

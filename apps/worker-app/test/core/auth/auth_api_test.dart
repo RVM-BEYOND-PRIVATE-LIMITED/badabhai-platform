@@ -124,7 +124,7 @@ void main() {
       );
     });
 
-    test('token/refresh 401 → reauthRequired; other → network', () async {
+    test('token/refresh 401 AND 403 → reauthRequired; 5xx → network', () async {
       final AuthApi reauth = _api(MockClient((http.Request req) async =>
           http.Response(_nestError(401, 'nope'), 401)));
       await expectLater(
@@ -134,6 +134,16 @@ void main() {
                 AuthErrorCode.reauthRequired)
             .having((AuthFailure f) => f.isReauthRequired, 'isReauthRequired',
                 isTrue)),
+      );
+
+      // 403 is the backend's defensive shape for REVOKED CONSENT, which is the
+      // same dead-session outcome: wipe and re-OTP, never "network".
+      final AuthApi revoked = _api(MockClient((http.Request req) async =>
+          http.Response(_nestError(403, 'consent revoked'), 403)));
+      await expectLater(
+        () => revoked.tokenRefresh('r'),
+        throwsA(isA<AuthFailure>().having((AuthFailure f) => f.code, 'code',
+            AuthErrorCode.reauthRequired)),
       );
 
       final AuthApi other = _api(MockClient((http.Request req) async =>

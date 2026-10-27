@@ -696,7 +696,13 @@ class AuthApi {
         if (status == 401) return AuthErrorCode.pinVerifyFailed;
         return AuthErrorCode.unknown;
       case _AuthEndpoint.tokenRefresh:
-        if (status == 401) return AuthErrorCode.reauthRequired;
+        // 401 is the neutral dead-session answer; 403 is the backend's
+        // defensive shape for the SAME condition (invalid / reuse / revoked
+        // consent), matching AuthedClient._doRefresh. Both must WIPE and send
+        // the worker to OTP — never look like a transient network failure.
+        if (status == 401 || status == 403) {
+          return AuthErrorCode.reauthRequired;
+        }
         return AuthErrorCode.network;
       case _AuthEndpoint.authed:
         if (status == 401) return AuthErrorCode.reauthRequired;
