@@ -66,6 +66,13 @@ class SecureTokenStore {
   /// credential: it only stops the same worker being asked on every PIN reset.
   static const String _kBiometricPromptSeen = 'bb_auth_biometric_prompt_seen';
 
+  /// TD62 — the last KNOWN `consent_accepted` value from the server, carried
+  /// with the session so a cold-start biometric unlock (whose refresh response
+  /// has no consent field) can still enforce the consent gate. TRI-STATE on
+  /// disk: absent = unknown, otherwise `true`/`false`. Wiped by `clear()` so a
+  /// second worker never inherits the first worker's consent state.
+  static const String _kConsentAccepted = 'bb_auth_consent_accepted';
+
   /// Access token — MEMORY ONLY. Survives the app process but NOT a cold start;
   /// after a restart the interceptor refreshes it from the persisted refresh
   /// token. Never written to any store.
@@ -152,6 +159,19 @@ class SecureTokenStore {
   Future<void> writeBiometricPromptSeen(bool value) =>
       _store.write(_kBiometricPromptSeen, value ? 'true' : 'false');
 
+  /// TD62 — the last server-sourced `consent_accepted`, or null when the device
+  /// has no definitive answer yet (never logged in / old server that omitted the
+  /// field). Absent is deliberately distinguishable from `false`.
+  Future<bool?> readConsentAccepted() async {
+    final String? raw = await _store.read(_kConsentAccepted);
+    if (raw == 'true') return true;
+    if (raw == 'false') return false;
+    return null;
+  }
+
+  Future<void> writeConsentAccepted(bool value) =>
+      _store.write(_kConsentAccepted, value ? 'true' : 'false');
+
   /// Absolute wall-clock instant the in-memory access token expires. Stored as
   /// ms-since-epoch so the interceptor can decide proactive refresh across a warm
   /// restart. Null when unknown.
@@ -212,5 +232,7 @@ class SecureTokenStore {
     // credentials so the next worker cannot unlock the previous worker's app.
     await _store.delete(_kBiometricEnabled);
     await _store.delete(_kBiometricPromptSeen);
+    // TD62 — the next worker's consent is their own; never inherit this one.
+    await _store.delete(_kConsentAccepted);
   }
 }

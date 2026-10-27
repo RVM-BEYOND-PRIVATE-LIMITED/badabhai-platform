@@ -199,6 +199,9 @@ class EnterPinCubit extends Cubit<EnterPinState> {
         ));
       case BiometricUnlockResult.cancelled:
       case BiometricUnlockResult.failed:
+      case BiometricUnlockResult.serverUnavailable:
+        // The local identity is still valid (or the prompt failed); the PIN
+        // keypad stays the fallback and the preference is untouched.
         emit(state.copyWith(
           biometricInFlight: false,
           biometricResult: result,

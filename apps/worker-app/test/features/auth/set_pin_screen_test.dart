@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/auth/biometric_service.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_spinner.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
@@ -9,6 +11,9 @@ import 'package:badabhai_worker_app/features/auth/presentation/cubit/set_pin_cub
 import 'package:badabhai_worker_app/features/auth/presentation/set_pin_screen.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
+import 'package:badabhai_worker_app/l10n/gen/app_localizations.dart';
+import 'package:badabhai_worker_app/l10n/ui_locale.dart';
+import 'package:badabhai_worker_app/router.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -35,6 +40,9 @@ class FakeSetPinCubit extends SetPinCubit {
   /// Drives the in-flight state [submit] no longer reaches in this fake.
   void startSubmitting() =>
       emit(const SetPinState(status: SetPinStatus.submitting));
+
+  /// Emit the success the real cubit produces after the manager authenticates.
+  void finish() => emit(const SetPinState(status: SetPinStatus.done));
 }
 
 /// The create/reset-PIN screen is now ONE page: the enter row and the confirm
@@ -170,6 +178,63 @@ void main() {
     await tapSave(tester);
 
     expect(cubit.submitted, <String>['3927']);
+  });
+
+  // #2458 — the opt-in dialog used to be untested: the screen test's fake
+  // cubit never registered a manager, so "Yes" was never proven to reach
+  // setBiometricEnabled(true).
+  testWidgets('answering YES to the opt-in enables biometric unlock',
+      (WidgetTester tester) async {
+    await locator.reset();
+    cubit = FakeSetPinCubit(MockAuthSessionManager());
+    locator.registerFactory<SetPinCubit>(() => cubit);
+
+    final MockAuthSessionManager manager = MockAuthSessionManager();
+    when(() => manager.biometricEnabled).thenReturn(false);
+    when(() => manager.biometricPromptSeen).thenReturn(false);
+    when(() => manager.biometricAvailability())
+        .thenAnswer((_) async => BiometricAvailability.available);
+    when(() => manager.markBiometricPromptSeen()).thenAnswer((_) async {});
+    when(() => manager.setBiometricEnabled(true)).thenAnswer((_) async => true);
+    locator.registerSingleton<AuthSessionManager>(manager);
+
+    // The opt-in dialog reads AppLocalizations, and the done listener navigates
+    // with GoRouter — neither exists in the shared bare MaterialApp helper.
+    final GoRouter router = GoRouter(
+      initialLocation: Routes.setPin,
+      routes: <RouteBase>[
+        GoRoute(
+          path: Routes.setPin,
+          builder: (_, __) => const SetPinScreen(),
+        ),
+        GoRoute(path: Routes.consent, builder: (_, __) => const Scaffold()),
+        GoRoute(path: Routes.resume, builder: (_, __) => const Scaffold()),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      MaterialApp.router(
+        routerConfig: router,
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: kUiSupportedLocales,
+      ),
+    );
+    await tester.pump();
+    await enterFirst(tester, '3927');
+    await enterConfirm(tester, '3927');
+    await tapSave(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Use Face ID/fingerprint to log in next time?'),
+        findsOneWidget);
+    await tester.tap(find.text('Yes, turn it on'));
+    await tester.pumpAndSettle();
+
+    cubit.finish();
+    await tester.pumpAndSettle();
+
+    verify(() => manager.setBiometricEnabled(true)).called(1);
   });
 
   testWidgets('a server failure surfaces its full reason in a dialog',

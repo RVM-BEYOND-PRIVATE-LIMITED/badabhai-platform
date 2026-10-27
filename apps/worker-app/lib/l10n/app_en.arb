@@ -59,6 +59,10 @@
   "@biometricUnlockFailed": {
     "description": "Translated from the template. Neutral fallback after a local failure/lockout."
   },
+  "biometricUnlockServerUnavailable": "Couldn't reach the server — log in with your PIN.",
+  "@biometricUnlockServerUnavailable": {
+    "description": "#2458 — the OS check passed but the token refresh hit a transport/5xx failure. The session is NOT dead; keep the preference and fall back to the PIN."
+  },
   "biometricUnlockUnavailable": "Biometric isn't available right now — log in with your PIN.",
   "@biometricUnlockUnavailable": {
     "description": "Translated from the template. The preference is turned off automatically."

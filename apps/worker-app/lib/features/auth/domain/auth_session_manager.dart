@@ -120,6 +120,20 @@ class AuthSessionManager extends ChangeNotifier {
   bool? _consentAccepted;
   bool? get consentAccepted => _consentAccepted;
 
+  /// Why the session ended, when the server said it was DEAD (expired /
+  /// revoked refresh token) rather than the worker choosing to log out. Holds an
+  /// [AuthErrorCode]; null means no notice. Lets the login screen explain why
+  /// the worker is back here.
+  String? _sessionEndReason;
+
+  /// The pending session-end reason, read-and-clear so it is shown exactly
+  /// once. Nullable by design: an unwired/mock manager simply has no notice.
+  String? takeSessionEndReason() {
+    final String? reason = _sessionEndReason;
+    _sessionEndReason = null;
+    return reason;
+  }
+
   /// Marks consent as accepted CLIENT-SIDE right after a successful
   /// `consent.accepted` submit (ConsentCubit), so the router's consent gate
   /// releases without waiting for a re-login. Notifies the router's
@@ -127,6 +141,9 @@ class AuthSessionManager extends ChangeNotifier {
   void markConsentAccepted() {
     if (_consentAccepted == true) return;
     _consentAccepted = true;
+    // Persist so a cold-start biometric unlock (whose refresh response carries
+    // no consent field) does not re-open the gate after consent was submitted.
+    unawaited(_persistConsentAccepted(true));
     notifyListeners();
   }
 
@@ -162,13 +179,6 @@ class AuthSessionManager extends ChangeNotifier {
   bool _biometricPromptSeen = false;
   bool get biometricPromptSeen => _biometricPromptSeen;
 
-  /// Consecutive refresh failures AFTER a biometric success. The PIN-loop trap
-  /// handling is mirrored here: a neutral failure returns the worker to the PIN,
-  /// and after [_maxPinFailuresBeforeReauth] the dead session is dropped and the
-  /// worker is sent to OTP login. Cancelling the OS prompt is NOT a failure and
-  /// never touches this counter (nor the PIN counter).
-  int _consecutiveBiometricFailures = 0;
-
   /// Consecutive `pin/verify` 401s. The endpoint is deliberately a neutral
   /// no-oracle 401, so a dead session is INDISTINGUISHABLE from a wrong PIN;
   /// this counter is what stops the worker being trapped on the keypad by a
@@ -194,9 +204,10 @@ class AuthSessionManager extends ChangeNotifier {
   /// simply mistypes still gets the gentler forgot-PIN hint first) and to be
   /// consistent with the server's own force-OTP ladder.
   /// Public so tests can drive the exact ladder without duplicating a magic
-  /// number. The PIN and biometric unlock paths share it deliberately: both are
-  /// local factors gating the SAME server refresh, so both must escape a dead
-  /// token at the same point.
+  /// number. Only the PIN path uses it: a neutral PIN rejection is ambiguous
+  /// (the endpoint has no oracle), so it needs a bound. Biometric unlock does
+  /// NOT — the refresh endpoint is explicit about dead vs transient, and
+  /// counting transport failures there logged workers out on 2G.
   static const int unlockFailureBudget = 5;
 
   static const int _maxPinFailuresBeforeReauth = unlockFailureBudget;
@@ -309,6 +320,11 @@ class AuthSessionManager extends ChangeNotifier {
       // status flip so EnterPinScreen's first build already offers the prompt.
       _biometricEnabled = await _tokenStore.readBiometricEnabled();
       _biometricPromptSeen = await _tokenStore.readBiometricPromptSeen();
+      // TD62: restore the last SERVER-sourced consent answer BEFORE the status
+      // flip. The biometric refresh path carries no consent field, so without
+      // this a cold-start Face ID/fingerprint unlock left the signal `null` and
+      // let a never-consented worker into the shell.
+      _consentAccepted = await _tokenStore.readConsentAccepted();
     } catch (_) {
       // #355 — FAIL SOFT, never wedge the boot.
       //
@@ -331,6 +347,7 @@ class AuthSessionManager extends ChangeNotifier {
       _onboardingLocation = null;
       _biometricEnabled = false;
       _biometricPromptSeen = false;
+      _consentAccepted = null;
       _setStatus(AuthStatus.loggedOut);
       return AuthStatus.loggedOut;
     }
@@ -406,8 +423,11 @@ class AuthSessionManager extends ChangeNotifier {
       await _tokenStore.writePinSet(result.pinSet);
     }
     // TD62: capture the server's consent signal BEFORE the status flip so the
-    // router redirect that fires on the notify sees both together.
+    // router redirect that fires on the notify sees both together. Persist a
+    // definitive answer so a later cold start (including a biometric unlock)
+    // still enforces the gate.
     _consentAccepted = result.consentAccepted;
+    await _persistConsentAccepted(result.consentAccepted);
     _bridge(
       accessToken: result.tokens.access,
       workerId: result.workerId,
@@ -492,7 +512,6 @@ class AuthSessionManager extends ChangeNotifier {
     }
     _biometricEnabled = true;
     _biometricPromptSeen = true;
-    _consecutiveBiometricFailures = 0;
     try {
       await _tokenStore.writeBiometricEnabled(true);
       await _tokenStore.writeBiometricPromptSeen(true);
@@ -528,6 +547,8 @@ class AuthSessionManager extends ChangeNotifier {
   ///    attempt and does not disable the preference.
   ///  - unavailable/notEnrolled — the biometric disappeared since enrollment:
   ///    turn the preference off and fall back to the PIN. Never wedge.
+  ///  - serverUnavailable — the OS passed but the refresh was a transport/5xx
+  ///    failure. Stay locked, KEEP the preference and let the PIN take over.
   ///  - reauthRequired — the session is dead; the manager has already wiped it
   ///    and the router sends the worker to phone login.
   Future<BiometricUnlockResult> unlockWithBiometric() async {
@@ -566,6 +587,7 @@ class AuthSessionManager extends ChangeNotifier {
         return result;
       case BiometricUnlockResult.notEnabled:
       case BiometricUnlockResult.reauthRequired:
+      case BiometricUnlockResult.serverUnavailable:
         return result;
       case BiometricUnlockResult.success:
         break;
@@ -575,34 +597,23 @@ class AuthSessionManager extends ChangeNotifier {
     // refresh token and re-bridge. No local token is ever minted.
     try {
       await refresh();
-      _consecutiveBiometricFailures = 0;
       _consecutivePinFailures = 0;
       return BiometricUnlockResult.success;
     } on AuthFailure catch (failure) {
-      // An unrecoverable refresh (reuse/revoke) has already wiped the session
-      // via ReauthSignal; report it so the caller does not pretend we are
-      // still locked against a dead token.
+      // A dead token is TERMINAL and `refresh()` has already wiped the session
+      // (status loggedOut). Report it so the caller does not pretend we are
+      // still locked against a token that can never rotate.
       if (_status == AuthStatus.loggedOut ||
           failure.code == AuthErrorCode.reauthRequired) {
         return BiometricUnlockResult.reauthRequired;
       }
-      _consecutiveBiometricFailures++;
-      if (_consecutiveBiometricFailures >= _maxPinFailuresBeforeReauth) {
-        _consecutiveBiometricFailures = 0;
-        await _wipeAndLogOut();
-        return BiometricUnlockResult.reauthRequired;
-      }
-      return BiometricUnlockResult.failed;
+      // TRANSIENT: transport / 5xx / unknown. The local factor passed and the
+      // session is not proven dead, so NEVER wipe it and never force a paid
+      // OTP. Keep the preference and let the PIN keypad be the fallback.
+      return BiometricUnlockResult.serverUnavailable;
     } catch (_) {
-      // The same "number of failures -> stop blaming the local factor" escape
-      // as the PIN loop, so a dead token cannot trap the worker on biometrics.
-      _consecutiveBiometricFailures++;
-      if (_consecutiveBiometricFailures >= _maxPinFailuresBeforeReauth) {
-        _consecutiveBiometricFailures = 0;
-        await _wipeAndLogOut();
-        return BiometricUnlockResult.reauthRequired;
-      }
-      return BiometricUnlockResult.failed;
+      // Same rule for an unexpected non-AuthFailure: treat it as transient.
+      return BiometricUnlockResult.serverUnavailable;
     }
   }
 
@@ -611,7 +622,6 @@ class AuthSessionManager extends ChangeNotifier {
   /// a future cold start one extra PIN entry.
   Future<void> _disableBiometricUnlock() async {
     _biometricEnabled = false;
-    _consecutiveBiometricFailures = 0;
     try {
       await _tokenStore.writeBiometricEnabled(false);
     } catch (_) {
@@ -629,6 +639,7 @@ class AuthSessionManager extends ChangeNotifier {
     final String? refresh = await _tokenStore.readRefreshToken();
     if (refresh == null || refresh.isEmpty) {
       // Nothing to unlock against — force a fresh OTP login.
+      _sessionEndReason = AuthErrorCode.reauthRequired;
       await _wipeAndLogOut();
       throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
@@ -672,12 +683,14 @@ class AuthSessionManager extends ChangeNotifier {
         if (_pinJustReset) {
           _pinJustReset = false;
           _consecutivePinFailures = 0;
+          _sessionEndReason = AuthErrorCode.reauthRequired;
           await _wipeAndLogOut();
           throw const AuthFailure(AuthErrorCode.reauthRequired);
         }
         _consecutivePinFailures++;
         if (_consecutivePinFailures >= _maxPinFailuresBeforeReauth) {
           _consecutivePinFailures = 0;
+          _sessionEndReason = AuthErrorCode.reauthRequired;
           await _wipeAndLogOut();
           throw const AuthFailure(AuthErrorCode.reauthRequired);
         }
@@ -687,7 +700,6 @@ class AuthSessionManager extends ChangeNotifier {
     // A verified PIN proves the session was alive — clear the trap counter (and
     // the post-reset flag) so a later genuine typo starts from zero.
     _consecutivePinFailures = 0;
-    _consecutiveBiometricFailures = 0;
     _pinJustReset = false;
     _captureSessionView(result.tokens); // F5
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
@@ -695,6 +707,7 @@ class AuthSessionManager extends ChangeNotifier {
     await _persistTokens(result.tokens);
     // TD62: capture the consent signal before the status flip (see verifyOtp).
     _consentAccepted = result.consentAccepted;
+    await _persistConsentAccepted(result.consentAccepted);
     final String? workerId = await _tokenStore.readWorkerId();
     _bridge(accessToken: result.tokens.access, workerId: workerId);
     // ADR-0031: the PIN-verify response carries no pending-deletion field, so
@@ -705,15 +718,30 @@ class AuthSessionManager extends ChangeNotifier {
 
   /// On-demand refresh (e.g. silent re-validate). Mints fresh tokens from the
   /// persisted refresh token, re-bridges, and re-reads the ADR-0031
-  /// pending-deletion flag. Throws [AuthFailure] on a transport failure; an
-  /// unrecoverable refresh triggers the reauth signal via [AuthApi].
+  /// pending-deletion flag. Throws [AuthFailure] on a transport failure.
+  ///
+  /// A DEAD session (401/403 → [AuthErrorCode.reauthRequired]) is wiped HERE,
+  /// not merely reported: this path bypasses [AuthedClient]'s interceptor, so
+  /// nothing else clears the store or fires [ReauthSignal]. Leaving the wipe to
+  /// callers stranded the biometric unlock on the PIN screen against a token
+  /// that could never rotate.
   Future<void> refresh() async {
     final String? refresh = await _tokenStore.readRefreshToken();
     if (refresh == null || refresh.isEmpty) {
+      _sessionEndReason = AuthErrorCode.reauthRequired;
       await _wipeAndLogOut();
       throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
-    final AuthTokens tokens = await _authApi.tokenRefresh(refresh);
+    final AuthTokens tokens;
+    try {
+      tokens = await _authApi.tokenRefresh(refresh);
+    } on AuthFailure catch (failure) {
+      if (failure.code == AuthErrorCode.reauthRequired) {
+        _sessionEndReason = AuthErrorCode.reauthRequired;
+        await _wipeAndLogOut();
+      }
+      rethrow;
+    }
     _captureSessionView(tokens); // F5
     // GAP A: persist the rotated tokens from the on-demand refresh too.
     await _persistTokens(tokens);
@@ -764,6 +792,7 @@ class AuthSessionManager extends ChangeNotifier {
         await _tokenStore.writeWorkerId(result.workerId);
       }
       _consentAccepted = result.consentAccepted;
+      await _persistConsentAccepted(result.consentAccepted);
       _bridge(
         accessToken: result.tokens.access,
         workerId: result.workerId,
@@ -919,6 +948,21 @@ class AuthSessionManager extends ChangeNotifier {
     _refreshExpiresAt = null;
   }
 
+  /// TD62 — persist the last KNOWN consent answer so a later cold start can
+  /// enforce the gate without a verify response. A null server field is "no
+  /// news", never "consent changed": it leaves the persisted value untouched
+  /// (same honest-null posture as [_captureSessionView]). Fail-soft: a store
+  /// error must not turn a granted login into a failed one.
+  Future<void> _persistConsentAccepted(bool? value) async {
+    if (value == null || !_persistentAuthEnabled) return;
+    try {
+      await _tokenStore.writeConsentAccepted(value);
+    } catch (_) {
+      // The in-memory signal still routes this run; a later cold start may
+      // re-show the gate, which is the safe failure direction.
+    }
+  }
+
   Future<void> _persistTokens(AuthTokens tokens) async {
     if (!_persistentAuthEnabled) return;
     await _tokenStore.saveTokens(
@@ -950,10 +994,15 @@ class AuthSessionManager extends ChangeNotifier {
 
   void _onReauthRequired() {
     // PASS 1's interceptor already cleared SecureTokenStore before firing.
+    // A dead session, not a worker-chosen logout: explain it on the login screen.
+    _sessionEndReason = AuthErrorCode.reauthRequired;
     _session.clear();
     onSessionCleared?.call(); // drop singleton-held user data (photo/notifs/name/imageCache)
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: the store's pin_set went with the clear()
+    // #2458: a second worker in the same process must be offered the opt-in;
+    // "don't re-ask on a PIN reset" is a per-session courtesy, not per-process.
+    _biometricPromptSeen = false;
     // #2451: never inherit the dead session's unlock. The interceptor normally
     // cleared the store already; this also covers a signal fired by a path that
     // did not, and keeps the persisted flag in step either way.
@@ -970,8 +1019,8 @@ class AuthSessionManager extends ChangeNotifier {
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: keep the in-memory flag in step with the store
     _biometricEnabled = false; // #2451: clear() wiped it; keep memory in step
+    _biometricPromptSeen = false; // #2458: the next worker gets the opt-in too
     _consecutivePinFailures = 0; // the trapped session is gone; start clean
-    _consecutiveBiometricFailures = 0;
     _resumeLocation = null; // #349: a new login must not land on the old screen
     _clearSessionView(); // F5: a new worker must not inherit the old session view
     _setStatus(AuthStatus.loggedOut);
