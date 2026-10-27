@@ -121,6 +121,10 @@ def test_a_city_with_a_state_suffix_still_matches() -> None:
     assert gold._matches("current_city", ("Pune",), "Pune, Maharashtra")
 
 
+def test_the_surface_grinder_alias_the_baseline_returned_matches() -> None:
+    assert gold._matches("primary_trade", gold.GRINDER, "Surface Grinder Operator")
+
+
 # ── 3. the CLI against a fake transport ──────────────────────────────────────────────────────
 
 
