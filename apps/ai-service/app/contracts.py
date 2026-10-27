@@ -1898,11 +1898,21 @@ class ResumeOptionEvidence(BaseModel):
 
 
 class ResumeOptionMapping(BaseModel):
-    """One question's closed option ids, with the line they were read from."""
+    """One question's closed option ids, with the line(s) they were read from.
+
+    `evidence` IS ONE OBJECT OR A LIST. A `multi_select` whose options come from
+    different lines needs one cited span per line, and Claude returns a list for
+    exactly that case. The contract used to accept only the object, so one such
+    reply failed validation and discarded EVERY mapping in the body (measured on
+    the 2026-10-26 F4 proof). The list is capped like every other model-shaped
+    list; the service gate rejects an empty one and checks every span.
+    """
 
     question_key: str = Field(min_length=1, max_length=40)
     option_keys: list[str] = Field(default_factory=list, max_length=32)
-    evidence: ResumeOptionEvidence
+    evidence: ResumeOptionEvidence | Annotated[
+        list[ResumeOptionEvidence], Field(max_length=32)
+    ]
 
 
 class ResumeOptionMapOutput(BaseModel):

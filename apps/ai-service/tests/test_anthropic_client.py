@@ -217,6 +217,28 @@ def test_acomplete_maps_system_top_level_and_parses(monkeypatch):
     assert _StubAsyncAnthropic.last_api_key == "anth-secret"
 
 
+def test_haiku_5_5_forces_temperature_one_and_disables_thinking(monkeypatch):
+    """The two F6 request changes. Haiku 5.5 rejects any temperature but 1 and thinks by
+    default; our extraction/classification tasks must not pay for that thinking."""
+    _install_stub_sdk(monkeypatch, _Resp(content=[_Block("text", "OK")], usage=_Usage(1, 1)))
+
+    _run(
+        acomplete(
+            settings=Settings(anthropic_api_key="k"),
+            model="claude-haiku-5-5",
+            messages=[{"role": "user", "content": "x"}],
+            max_output_tokens=64,
+            temperature=0.0,
+            json_mode=True,
+        )
+    )
+
+    kwargs = _StubMessages.last_kwargs
+    assert kwargs["model"] == "claude-haiku-5-5"
+    assert kwargs["temperature"] == 1.0
+    assert kwargs["thinking"] == {"type": "disabled"}
+
+
 def test_acomplete_raises_without_key():
     with pytest.raises(RuntimeError):
         _run(
