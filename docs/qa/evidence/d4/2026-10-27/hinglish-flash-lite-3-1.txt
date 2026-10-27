@@ -1,0 +1,15 @@
+D4 blind Hinglish extraction — flash-lite-3.1: 116 cases
+field accuracy: 349/349 = 100.0% (every stated fact)
+fill precision: 349/349 = 100.0% (wrong and extra fills count against)
+exact cases: 116/116 = 100.0%
+per field (correct / stated):
+  primary_trade: 100/100
+  experience_years: 80/80
+  controller: 45/45
+  expected_salary: 63/63
+  current_city: 61/61
+calls: 116 sent, 116 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 5.74 (router estimate)
+models: gemini-3.1-flash-lite (116); 0 served by a fallback model
+pace: 300 ms between requests (116 requests)
+latency, round trip to the ai-service: p50 1293 ms, p95 1617 ms; model call only: p50 1250 ms, p95 1607 ms (excludes the API hop and validator, and a career turn's classify call)
+RESULT: PASS

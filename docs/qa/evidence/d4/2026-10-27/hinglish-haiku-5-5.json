@@ -1,0 +1,49 @@
+{
+  "label": "haiku-5-5",
+  "expected_model": "claude-haiku-5-5",
+  "total": 116,
+  "field_accuracy": 1.0,
+  "fill_precision": 1.0,
+  "exact_rate": 1.0,
+  "correct_fields": 349,
+  "expected_fields": 349,
+  "correct_fills": 349,
+  "proposed_fills": 349,
+  "per_field": {
+    "primary_trade": {
+      "correct": 100,
+      "expected": 100
+    },
+    "experience_years": {
+      "correct": 80,
+      "expected": 80
+    },
+    "controller": {
+      "correct": 45,
+      "expected": 45
+    },
+    "expected_salary": {
+      "correct": 63,
+      "expected": 63
+    },
+    "current_city": {
+      "correct": 61,
+      "expected": 61
+    }
+  },
+  "misses": [],
+  "wrong_fills": [],
+  "calls": {
+    "sent": 116,
+    "failed": 0,
+    "mocked": 0,
+    "over_api_timeout": 0,
+    "cost_inr": 1.2341,
+    "served_by": [
+      [
+        "claude-haiku-5-5",
+        116
+      ]
+    ]
+  }
+}

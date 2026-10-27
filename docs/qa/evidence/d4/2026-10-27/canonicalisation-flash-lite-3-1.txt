@@ -1,0 +1,19 @@
+Mode: --real (with attribution) -> POST http://127.0.0.1:8011/profile/extract  expect=gemini-3.1-flash-lite
+
+Canonicalization eval - fabricated Hinglish gold set (no PII)
+Gold cases: 64  core=39  negative=7  hard=18
+----------------------------------------------------------------
+core        100%  (39/39)
+negative    100%  (7/7)
+hard         89%  (16/18)  (informational - stresses heuristic; the LLM's bar)
+----------------------------------------------------------------
+overall      97%  (62/64)
+
+Misses (text: expected X, got Y):
+  [hard]
+    'grindr operator, round part ghisai': expected role_cnc_grinding_operator, got None
+    'bhai i do milling on vertical centre, fanuc control samajhta hu': expected role_vmc_operator, got None
+
+calls: 64; served: {'gemini-3.1-flash-lite': 64}; contaminated: 0
+
+PASS: overall 97% >= 90%
