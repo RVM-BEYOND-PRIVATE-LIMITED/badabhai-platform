@@ -268,11 +268,11 @@ def _apply_primary_provider(route: TaskRoute, settings: Settings) -> TaskRoute:
 
 #: The models an override may name. A model joins ONLY with a price row in `_MODEL_RATES_INR`
 #: (an unpriced model under-reads spend, so the caps stop tripping) and a request our transport
-#: sends it unchanged: Claude Haiku 5.5 rejects the temperature every route sends, so it waits for
-#: per-model request settings (token-audit F6). `gemini-2.5-pro` is left out: it rejects the
-#: thinking budget our Gemini client sends.
+#: sends it unchanged. Claude Haiku 5.5 joins with its per-model request settings in
+#: `anthropic_client` (temperature 1, thinking disabled) and its own cache minimum. `gemini-2.5-pro`
+#: is left out: it rejects the thinking budget our Gemini client sends.
 OVERRIDE_MODELS: frozenset[str] = frozenset(
-    {"gemini-2.5-flash-lite", "gemini-2.5-flash", "claude-haiku-4-5"}
+    {"gemini-2.5-flash-lite", "gemini-2.5-flash", "claude-haiku-4-5", "claude-haiku-5-5"}
 )
 
 #: Tasks whose model may not change. The news answer runs Anthropic's web-search server tool,
@@ -798,6 +798,12 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     # Claude Haiku 4.5 (fallback provider): $1/1M in, $5/1M out ~= Rs 0.083 in /
     # Rs 0.415 out per 1k at ~Rs 83/USD.
     "claude-haiku-4-5": (0.083, 0.415),
+    # Claude Haiku 5.5 (D4/F6): $0.10 in / $0.50 out per 1M for prompts <= 100K, read
+    # 2026-10-27 from https://www.anthropic.com/pricing ~= Rs 0.0083 in / Rs 0.0415 out
+    # per 1k at the same ~Rs 83/USD basis. The >100K tier ($0.50 / $2.50) is not encoded:
+    # no routed task can reach it — the chat prompt plus one interview is far below 100K,
+    # and `ai_chat_max_output_tokens` caps the reply.
+    "claude-haiku-5-5": (0.0083, 0.0415),
     # Gemini text-embedding-004 (ADR-0030 skill_embedding, TAX-3): embeddings bill input
     # only (~$0.15/1M ~= Rs 0.0125/1k at ~Rs 83/USD; output tokens do not exist). Without
     # this entry the batch estimate fell back to _DEFAULT_RATE_INR (~4x too high).
@@ -877,10 +883,18 @@ def cache_multipliers(provider: str) -> tuple[float, float]:
 # is ~200 tokens — far below every minimum here — so caching is a no-op today and the
 # guard takes the skip-diagnostic path. It arms automatically if the prompt ever grows.
 ANTHROPIC_CACHE_MIN_TOKENS = 4096
+#: Per-model Anthropic cache floors. Haiku 5.5 caches from 512 tokens (D4/F6); Haiku 4.5
+#: keeps the 4,096 floor above, which is why caching is a no-op on it.
+ANTHROPIC_CACHE_MIN_TOKENS_BY_MODEL: dict[str, int] = {"claude-haiku-5-5": 512}
 # Gemini 2.5 Flash implicit-cache floor (what _gemini_cache_diagnostic checks).
 GEMINI_CACHE_MIN_TOKENS = 1024
 # Deferred: the explicit cachedContent lifecycle would gate on this higher floor.
 GEMINI_EXPLICIT_CACHE_MIN_TOKENS = 2048
+
+
+def anthropic_cache_min_tokens(model: str | None = None) -> int:
+    """The prompt-cache floor for one Anthropic model; 4,096 when the model is unknown."""
+    return ANTHROPIC_CACHE_MIN_TOKENS_BY_MODEL.get(model or "", ANTHROPIC_CACHE_MIN_TOKENS)
 
 
 def should_cache_system(system_text: str, min_tokens: int) -> bool:
@@ -946,6 +960,8 @@ _MODEL_LIST_PRICES_USD_PER_1M: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash-lite": (0.10, 0.40),
     "gemini-2.5-pro": (1.25, 10.00),
     "claude-haiku-4-5": (1.00, 5.00),
+    # Claude Haiku 5.5, <=100K prompts (the tier the rupee row above uses).
+    "claude-haiku-5-5": (0.10, 0.50),
     "text-embedding-004": (0.15, 0.0),
     "gemini-embedding-001": (0.15, 0.0),
 }
