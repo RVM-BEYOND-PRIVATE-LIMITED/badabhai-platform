@@ -19,6 +19,8 @@ import type {
   QuestionPackOption,
 } from "@badabhai/ai-contracts";
 
+import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+
 import { isSettled, type AnswerMap } from "./answer-map";
 import { answersOf, inboundHash, type ProfilingEnvelope } from "./conversation-state";
 import { chatServableItems } from "./facts/worker-fact.ownership";
@@ -271,6 +273,39 @@ export function optionsOnlyForSelect(
     options.length > 0 &&
     options.some((option) => option.is_none_of_above)
   );
+}
+
+/**
+ * The server's own "type your own answer" chip (#1506): keyed `kuch_aur` and flagged
+ * `is_none_of_above`, so a shipped client renders it as "Kuch aur — khud likhein" and opens the
+ * composer, whatever the label says. Never a pack option, so never matched as an answer.
+ */
+export const TYPED_ESCAPE_OPTION: QuestionPackOption = {
+  option_key: DISAMBIGUATION_ESCAPE_KEY,
+  label_text: DISAMBIGUATION_ESCAPE_LABEL,
+  value: DISAMBIGUATION_ESCAPE_LABEL,
+  implies_skill_id: null,
+  is_none_of_above: true,
+};
+
+/**
+ * The chips a pack question is SERVED with: its own, plus the typed escape on availability.
+ *
+ * #2467 (owner ruling 2026-10-28) — availability's chips stop at a month, and a worker with a
+ * 3-month notice had nothing to tap ("vahan per koi option nahin tha"). The escape lets them type
+ * it; `captureAnswer` reads "3 mahine" / "3 mahine ka notice" as a notice period on that question.
+ * Server-side and serve-time only, the precedent the model chips set: no pack version, no seed,
+ * and no change to what the pack's own options mean ("Abhi pata nahi" still declines). Every
+ * place a pack question is put on screen goes through here, so a re-serve, a replay, the free
+ * chat's resume and the edit gate's "sahi … bataiye" all show the same chips.
+ */
+export function servedOptions(
+  item: Pick<QuestionPackItem, "target_field"> | null | undefined,
+  options: readonly QuestionPackOption[],
+): QuestionPackOption[] {
+  if (item?.target_field !== "availability" || options.length === 0) return [...options];
+  if (options.some((option) => option.option_key === TYPED_ESCAPE_OPTION.option_key)) return [...options];
+  return [...options, TYPED_ESCAPE_OPTION];
 }
 
 /**

@@ -14,10 +14,12 @@
 import type { QuestionPackItem } from "@badabhai/ai-contracts";
 import {
   applyNegation,
+  askedNoticeDuration,
   canonicalCity,
   classifyUtterance,
   crosswalkFor,
   detectSalaries,
+  noticePeriodDays,
   parseAffirmation,
   parseAvailability,
   parseCommuteKm,
@@ -117,6 +119,29 @@ const AVAILABILITY_CHIP_NOTICE_DAYS: Readonly<Record<string, number>> = {
   "1_month": 30,
 };
 
+/** #2467 — the longest reply read as a BARE notice duration: "3 mahine", "do mahine lagenge". */
+const BARE_NOTICE_MAX_WORDS = 4;
+/** #2467 — no notice period runs past six months; a bare "6 saal" is a tenure, not a notice. */
+const BARE_NOTICE_MAX_DAYS = 180;
+
+/**
+ * #2467 — the days of a bare duration typed AS the answer to availability (its typed "Kuch aur"
+ * chip, or a correction naming the field), or null.
+ *
+ * The context-free parser needs a notice word ("3 mahine ka notice"); a bare "3 mahine" means a
+ * notice only because the question asked when the worker can join — so it is read only for that
+ * question, and only when it IS the reply. A longer message ("experience 5 nahi 6 saal hai, aur
+ * roz 15 km…") is about something else, and its durations are never a notice. The lexicon's own
+ * blockers and negation vetoes still apply ("10 din pehle", "15 din nahi lagenge").
+ */
+function bareNoticeDays(text: string): number | null {
+  if (text.trim().split(/\s+/u).length > BARE_NOTICE_MAX_WORDS) return null;
+  const masked = applyNegation(text).masked;
+  if (!askedNoticeDuration(text, masked)) return null;
+  const days = noticePeriodDays(text, masked);
+  return days !== null && days <= BARE_NOTICE_MAX_DAYS ? days : null;
+}
+
 /**
  * The notice days an availability answer carries with it, or an empty array.
  *
@@ -143,7 +168,12 @@ function derivedNoticeValues(
   if (askedItem.target_field !== "availability") return [];
   const chipDays =
     typeof normalized === "string" ? AVAILABILITY_CHIP_NOTICE_DAYS[normalized] : undefined;
-  const days = chipDays ?? parseAvailability(text)?.value.noticeDays ?? null;
+  // A `notice_period` read only by the on-screen duration reader (#2467) takes its days from the
+  // same reader; `normalized` is never that value cross-question unless the parser itself read it.
+  const days =
+    chipDays ??
+    parseAvailability(text)?.value.noticeDays ??
+    (normalized === "notice_period" ? bareNoticeDays(text) : null);
   if (days === null) return [];
   return [
     {
@@ -265,6 +295,14 @@ function normalizeFor(
     if (field === "experience_years" && opts.crossQuestion !== true) {
       const stated = readStatedTenureYears(text);
       if (stated !== null) return stated;
+    }
+    // #2467 — A NOTICE PERIOD TYPED UNDER THE AVAILABILITY QUESTION ("Kuch aur" chip, or a
+    // correction that names the field): "3 mahine", "do mahine lagenge". The context-free parser
+    // above needs a notice word; here the question already said what the duration is for, so the
+    // lexicon's context-gated readers apply. Never in passing — "3 mahine" read cross-question
+    // could be a job's length.
+    if (field === "availability" && opts.crossQuestion !== true && bareNoticeDays(text) !== null) {
+      return "notice_period";
     }
     // THE TYPED PARSER FOUND NOTHING — that is not the same as the worker not answering, and
     // returning `undefined` straight from here was throwing away the item's own reviewed chips.

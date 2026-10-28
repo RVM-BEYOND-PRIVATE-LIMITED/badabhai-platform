@@ -28,7 +28,7 @@ import {
   EDIT_REMOVED_PAIR,
 } from "../next-question";
 import { certifySkillLabel } from "../skill-certifier";
-import { packQuestionInputMode } from "../turn-shapes";
+import { packQuestionInputMode, servedOptions } from "../turn-shapes";
 import {
   EXPERIENCE_KEY,
   jobLine,
@@ -154,9 +154,25 @@ export function buildEditProposal(input: ProposalInput): ProposalOutcome {
       awaiting ??= targetOf(edit, input);
       continue;
     }
-    push(rowOf(edit, input));
+    const row = rowOf(edit, input);
+    // #2467 — A NEW VALUE THE FIELD'S OWN PARSER CANNOT READ still names the field as wrong. It
+    // was dropped, and the empty proposal let the message fall through to capture: "notice period
+    // 3 mahine kar do" (no 3-month chip on availability) went unanswered, and its "Nahin" was
+    // filed as the travel question's answer. ADR-0057 §3.4: ask for the field, then confirm.
+    if (row === null && edit.op === "edit" && unreadableValue(edit, input)) {
+      awaiting ??= targetOf(edit, input);
+      continue;
+    }
+    push(row);
   }
   return { rows, awaiting: rows.length > 0 ? null : awaiting, rolePointer };
+}
+
+/** A pack field's new value that its own parser reads nothing from. */
+function unreadableValue(edit: ProfilingEdit, input: ProposalInput): boolean {
+  const item = input.view.items.get(edit.key);
+  if (item === undefined || edit.value === null) return false;
+  return captureAnswer(textFor(item, edit.value), item).values.length === 0;
 }
 
 /** The trade, under any name the schema shows it by. */
@@ -609,7 +625,7 @@ export function editGateTurn(
     ? { reply: editAskLead(gate.awaiting), options: [], answerType: "text", inputMode: "text" }
     : {
         reply: `${editAskLead(gate.awaiting)} ${item.prompt_text}`,
-        options: [...item.options],
+        options: servedOptions(item, item.options),
         answerType: item.answer_type,
         // A re-asked pack select locks exactly as the interview's own ask does (safe sets only).
         inputMode: packQuestionInputMode(item),
@@ -657,7 +673,12 @@ function displayOf(item: QuestionPackItem, value: unknown): string | null {
     return parts.length > 0 ? parts.join(", ") : null;
   }
   if (typeof value === "string" || typeof value === "number") {
-    return optionLabel(item, value) ?? String(value);
+    const label = optionLabel(item, value);
+    if (label !== null) return label;
+    // #2467 — a select's value outside its chips (a typed "3 mahine ka notice" reads as
+    // `notice_period`) is shown in the worker's own words, which `answerDisplay` falls back to —
+    // never as the code "notice_period".
+    return item.options.length > 0 && typeof value === "string" ? null : String(value);
   }
   return null;
 }

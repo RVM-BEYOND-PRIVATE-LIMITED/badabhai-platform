@@ -76,6 +76,7 @@ import {
   outstandingTypeRequest,
   packQuestionInputMode,
   progressOf,
+  servedOptions,
   stampLastTurn,
 } from "../turn-shapes";
 import { screenFreeChatAnswer } from "./free-chat-output.validator";
@@ -1556,7 +1557,7 @@ function structuredQuestion(
       reply: servedText(served, askCount(toEngineState(envelope, turnCount), served.question_key)),
       kind: "ask",
       questionKey: served.question_key,
-      options: [...served.options],
+      options: servedOptions(served, served.options),
       answerType: served.answer_type,
       whyText: served.why_text ?? null,
       inputMode: packQuestionInputMode(served),

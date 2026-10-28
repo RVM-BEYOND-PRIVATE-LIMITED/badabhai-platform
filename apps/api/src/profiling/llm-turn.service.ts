@@ -50,10 +50,24 @@ import { redactedTurnText } from "./redacted-turn-text";
  * (checked against the current merged tree, not assumed) — the voice form falls back to
  * on-device TTS for it exactly as it did before. An earlier draft of #1505 considered adding one,
  * plus a second engine line for a duration follow-up question; both are DELIBERATELY NOT built
- * here — F5's guard only ever falls back to THIS existing prompt or to `done`, never to a new
- * line, so no new TTS entry is needed for it either.
+ * here — F5's guard falls back to THIS existing prompt or to `done`. The one other engine line in
+ * Phase A is {@link NEXT_JOB_PROMPT} (#2467), served on the gate's own precedent: no TTS twin.
  */
 export { EXPERIENCE_GATE_PROMPT };
+
+/**
+ * #2467 — the engine's question for the next job, on the turn the worker said "Haan" to the gate
+ * and the model's line could not be served (the F5 guard discarded it, or it tried to close).
+ *
+ * THE #785 FLOW, TODAY'S FIELDS. The loop as built asked the next job right after "Haan" ("Uske
+ * pehle kahan kaam kiya?"); the wording here is the trade form's own "Aap kya kaam karte the?"
+ * behind that "Uske pehle". It asks for the ROLE — the one required field of an `ExperienceEntry`
+ * and the first of the prompt's step-4 order (role, how long, what work) — and never an employer,
+ * which the chat prompt forbids and the entry has no field for. No add marker ("aur", "doosra"),
+ * so the F5 guard can never read it as gate-shaped; "kya kaam" matches its per-job exemption, so
+ * the model echoing it for a third job is not a repeat either.
+ */
+export const NEXT_JOB_PROMPT = "Uske pehle aap kya kaam karte the?";
 
 /**
  * How many questions the model may ask before the engine takes over.
@@ -268,6 +282,8 @@ export class LlmTurnService {
       // question, IN THIS SAME TURN. Returning an empty ask here would spend a worker's round
       // trip on a bubble with no question in it.
     }
+    // Past branch 1 with the gate open means the worker said yes to another job (#2467, 3a).
+    const gateYes = envelope.llmGateOpen;
     const closeGate: Partial<ProfilingEnvelope> = envelope.llmGateOpen
       ? { llmGateOpen: false }
       : {};
@@ -447,6 +463,44 @@ export class LlmTurnService {
       };
     }
 
+    // 3a. #2467 — THE WORKER JUST SAID "HAAN" TO THE GATE, SO THIS TURN ASKS FOR THE NEXT JOB.
+    //     Since #1517 a gate "Haan" could end Phase A on the model's word: `llmGateAsked` is always
+    //     true here (the gate just answered set it), so a model line the F5 guard discards — and its
+    //     natural follow-up, "Achha. Doosra kaam kya tha?", reads as gate-shaped — fell to `done`
+    //     in 5a, as did a `phase_a_done` in 4. The worker's yes went unheard (28 Oct 2026: "Haan",
+    //     then the availability question). The yes is the decision (§3): the engine asks the next
+    //     job itself and the model takes the rest of it on the next turn, the stage held at
+    //     `experience` so branch 3 reopens the gate when the job is recorded.
+    //
+    //     NOT ON THE LAST ASK: `force_close` told the model this turn is its final question, and
+    //     the cap below would end Phase A on the worker's answer anyway, so 4/5a decide as before.
+    const replyClass = classifyLlmReply(out.reply_text, history);
+    if (
+      gateYes &&
+      out.experience_entry === null &&
+      draft.experiences.length < MAX_EXPERIENCE_ENTRIES &&
+      asks + 1 < MAX_LLM_ASKS &&
+      (out.phase_a_done || replyClass !== "ok")
+    ) {
+      this.logger.log(
+        `gate_yes_next_job served by the engine reason=${out.phase_a_done ? "phase_a_done" : replyClass} ` +
+          `experiences=${draft.experiences.length}/${MAX_EXPERIENCE_ENTRIES} asks=${asks}`,
+      );
+      return {
+        kind: "ask",
+        reply: NEXT_JOB_PROMPT,
+        chips: [],
+        inputMode: "text",
+        patch: {
+          ...closeGate,
+          llmDraft: draft,
+          llmStage: "experience",
+          llmAsks: asks + 1,
+          llmLedTurns: ledTurns,
+        },
+      };
+    }
+
     // 3b. THE ENGINE ASKS THE GATE ITSELF BEFORE IT ACCEPTS A CLOSE (#1016) — because branch 3
     //     is not enough, and #1017 could not make it enough.
     //
@@ -548,7 +602,6 @@ export class LlmTurnService {
     //
     //     COUNTS ONLY IN THE LOG (§3 Privacy First) — a reason code and the entry/ask counters,
     //     never the model's or the worker's words.
-    const replyClass = classifyLlmReply(out.reply_text, history);
     if (replyClass !== "ok") {
       this.logger.log(
         `model_reply_discarded reason=${replyClass} stage=${out.stage} ` +

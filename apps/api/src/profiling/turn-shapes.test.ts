@@ -13,7 +13,9 @@ import {
   importOpening,
   optionsOnlyForSelect,
   packQuestionInputMode,
+  servedOptions,
   showsResumeConfirmBubble,
+  TYPED_ESCAPE_OPTION,
   type ImportOpeningReads,
 } from "./turn-shapes";
 
@@ -257,5 +259,37 @@ describe("identityFactsFor (#2366)", () => {
       }),
     ).toEqual([]);
     expect(identityFactsFor(LINE, null)).toEqual([]);
+  });
+});
+
+/**
+ * #2467 (owner ruling 2026-10-28) — availability's chips stop at a month; the server adds the
+ * shipped "type your own" chip so a 3-month notice can be typed. Serve-time only: the pack is
+ * unchanged, and no other question gains it.
+ */
+describe("servedOptions — the typed escape on availability", () => {
+  const v8 = universalPack(8).items;
+  const availability = v8.find((item) => item.question_key === "availability") as QuestionPackItem;
+
+  it("adds the kuch_aur chip after availability's own chips, keeping Abhi pata nahi", () => {
+    const served = servedOptions(availability, availability.options);
+    expect(served.map((option) => option.label_text)).toEqual([
+      ...availability.options.map((option) => option.label_text),
+      "Kuch aur",
+    ]);
+    expect(served.at(-1)).toEqual(TYPED_ESCAPE_OPTION);
+    expect(served.at(-1)).toMatchObject({ option_key: "kuch_aur", is_none_of_above: true });
+    // The pack row itself is untouched.
+    expect(availability.options.some((option) => option.option_key === "kuch_aur")).toBe(false);
+  });
+
+  it("adds it once, and to no other question", () => {
+    const once = servedOptions(availability, servedOptions(availability, availability.options));
+    expect(once.filter((option) => option.option_key === "kuch_aur")).toHaveLength(1);
+    for (const item of v8) {
+      if (item.target_field === "availability") continue;
+      expect(servedOptions(item, item.options), item.question_key).toEqual(item.options);
+    }
+    expect(servedOptions(null, [])).toEqual([]);
   });
 });

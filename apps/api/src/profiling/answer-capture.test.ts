@@ -295,6 +295,28 @@ describe("the availability answer carries its notice days (qp_universal@8)", () 
   it("a negated duration writes nothing at all — the veto covers both values", () => {
     expect(captureAnswer("15 din nahi lagenge", AVAIL_CHIPS).values).toHaveLength(0);
   });
+
+  // #2467 — the 3-month notice the chips could not express, typed under the "Kuch aur" chip.
+  it("reads a BARE duration typed as the availability answer as a notice period", () => {
+    for (const [text, days] of [
+      ["3 mahine", 90],
+      ["3 months", 90],
+      ["do mahine lagenge", 60],
+      ["teen mahine", 90],
+    ] as const) {
+      const capture = captureAnswer(text, AVAIL_CHIPS);
+      expect(capture.values.map((v) => v.valueNormalized), text).toEqual(["notice_period", days]);
+    }
+  });
+
+  it("never reads a bare duration in passing, in a long message, or past six months", () => {
+    expect(captureAnswer("3 mahine", AVAIL_CHIPS, { crossQuestion: true }).values).toHaveLength(0);
+    expect(
+      captureAnswer("experience 5 nahi 6 saal hai, aur roz 15 km tak aa sakta hoon", AVAIL_CHIPS).values,
+    ).toHaveLength(0);
+    expect(captureAnswer("6 saal", AVAIL_CHIPS).values).toHaveLength(0);
+    expect(captureAnswer("10 din pehle", AVAIL_CHIPS).values).toHaveLength(0);
+  });
 });
 
 describe("the negation veto — a value found and then refused is NOT an answer", () => {

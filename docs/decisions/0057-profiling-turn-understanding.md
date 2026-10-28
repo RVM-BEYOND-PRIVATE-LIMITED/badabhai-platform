@@ -148,6 +148,13 @@ typed text
 - A close, a handover or a model turn never carries a proposal.
 - **#2307's one-candidate correction** is put to the worker instead of written, but only when the layer returned a real verdict. A failed call keeps today's silent correction (§3.6).
 
+**As built (#2467, 2026-10-28):** a production correction typed over the travel question, "notice period ek mahine ka nahin hai, 3 mahine kar do", got no reply, and its stray "nahin" was stored as travel = No.
+- **An unreadable new value** for a filled pack field no longer drops silently. It becomes the "sahi … bataiye" ask for that field.
+- **An `edit`/`delete` verdict about another field** is never filed as the answer to the question on screen, even when nothing could be proposed. The question is served again unspent under the steer-back line. This is §3.4's "falls back to clarify".
+- **A value outside a select's chips** shows on the card in the worker's own words, never as a code ("Ek mahine mein se 3 months kar doon?").
+- **Availability is served with the typed "Kuch aur" chip** (owner ruling 2026-10-28). It is added at serve time and is not a pack option. A bare duration typed as the answer ("3 mahine", at most 4 words and at most 180 days) is read as a notice period with its days.
+- **Out of scope:** printing a typed notice period on the résumé (#2469), and a stray negator answering a yes/no question (#2468).
+
 ### 3.5 The profile build (R9)
 
 Jobs reach the profile **only** through the post-flush Phase C extraction, which re-reads the whole transcript (`profile-extraction.processor.ts:1905`). The flush therefore persists two things on `conversation_state`, as a versioned sibling key outside the frozen contract (the `general_road` stamp precedent):
