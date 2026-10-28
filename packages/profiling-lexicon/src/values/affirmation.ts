@@ -92,17 +92,37 @@ function firstHit(text: string, patterns: readonly RegExp[]): CueHit | null {
  * "pata nahi chalta" is a `dont_know`, not a `false`, and the division of labour is what keeps
  * this function from having to re-decide it.
  */
-export function parseAffirmation(text: string): NormalizedValue<boolean> | null {
+export function parseAffirmation(
+  text: string,
+  options: AffirmationOptions = {},
+): NormalizedValue<boolean> | null {
   const explicit = firstHit(text, EXPLICIT);
   if (explicit !== null) return withNegationCheck(text, explicit);
 
   const verb = firstHit(text, VERB);
   if (verb !== null) return withNegationCheck(text, verb);
 
-  const negator = bareNegatorSpan(text);
+  const negator = bareNegatorSpan(text, options.bareNegatorHeadWords);
   if (negator !== null) return { value: false, span: negator, negationVetoed: false };
 
   return null;
+}
+
+/** How a caller narrows {@link parseAffirmation}. Every field is optional; `{}` is today's reader. */
+export interface AffirmationOptions {
+  /**
+   * Read a BARE negator (tier 3) only when it is one of the reply's first N words (#2468).
+   *
+   * WHY. Tier 3 takes a negator from ANYWHERE in the text. Over a yes/no question that turns a
+   * long message about something else into a "no": "Mera notice period ek mahine ka nahin hai, 3
+   * mahine ka hai…", typed over "Kya aap ghar se door kaam ke liye ja sakte hain?", was stored
+   * as `willing_to_travel = false`. A worker answering no says so early: "nahi", "nahi ji",
+   * "main ghar se door nahi ja sakta". A negator deep in the message belongs to some other clause.
+   *
+   * NO POLICY HERE: the caller picks N. Tiers 1 and 2 are untouched, because their negation check
+   * is already clause-clamped to the cue it denies. Omitted, a negator anywhere counts, as before.
+   */
+  readonly bareNegatorHeadWords?: number;
 }
 
 /** Anything that is not a letter, a mark or a digit separates two words of the residue. */
@@ -176,7 +196,15 @@ function withNegationCheck(text: string, cue: CueHit): NormalizedValue<boolean> 
 const NEGATOR_SCAN = compilePatternGlobal({ source: "[^\\s]+", flags: "" });
 const NEGATOR_TRIM = new Set([...".,!?;:।'\"()"]);
 
-function bareNegatorSpan(text: string): { start: number; end: number } | null {
+/**
+ * The first negator token, or null. With `headWords`, only the reply's first `headWords` words are
+ * read; a bare run of punctuation is not a word, so "- nahi" still has "nahi" first.
+ */
+function bareNegatorSpan(
+  text: string,
+  headWords?: number,
+): { start: number; end: number } | null {
+  let words = 0;
   for (const match of text.matchAll(NEGATOR_SCAN)) {
     const raw = match[0];
     const start = match.index ?? 0;
@@ -185,9 +213,10 @@ function bareNegatorSpan(text: string): { start: number; end: number } | null {
     while (from < to && NEGATOR_TRIM.has(raw[from] as string)) from += 1;
     while (to > from && NEGATOR_TRIM.has(raw[to - 1] as string)) to -= 1;
     const token = raw.slice(from, to).toLowerCase();
-    if (token.length > 0 && NEGATOR_TOKENS.has(token)) {
-      return { start: start + from, end: start + to };
-    }
+    if (token.length === 0) continue;
+    if (headWords !== undefined && words >= headWords) return null;
+    words += 1;
+    if (NEGATOR_TOKENS.has(token)) return { start: start + from, end: start + to };
   }
   return null;
 }

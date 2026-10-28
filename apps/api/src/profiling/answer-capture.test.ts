@@ -679,6 +679,50 @@ describe("boolean capture — the 236 items that carry no chips", () => {
   });
 });
 
+/**
+ * #2468 — the production message typed over "Kya aap ghar se door kaam ke liye ja sakte hain?".
+ * Its eleventh word "Nahin" was stored as `willing_to_travel = false`.
+ */
+const SIDE_REMARK =
+  "pahle Mujhe yah batao Mera notice period ek mahine ka Nahin Hai Mera 3 mahine ka hai lekin " +
+  "vahan per Koi option nahin tha to usko change karke 3 Mahina kar do";
+
+const TRAVEL = item({
+  question_key: "q_willing_to_travel",
+  target_kind: "attribute",
+  target_field: "willing_to_travel",
+  answer_type: "boolean",
+  options: [],
+});
+
+describe("a stray 'nahi' in a long message does not answer a yes/no question (#2468)", () => {
+  it("captures NOTHING from the production message, so travel stays askable", () => {
+    expect(captureAnswer(SIDE_REMARK, TRAVEL).values).toHaveLength(0);
+    expect(captureAnswer(SIDE_REMARK, BOOL_ATTR).values).toHaveLength(0);
+  });
+
+  it.each([
+    ["Nahi", false],
+    ["nahi ji", false],
+    ["nahi ja sakta", false],
+    ["main ghar se door nahi ja sakta", false],
+    ["haan ja sakta hoon", true],
+    ["haan ji", true],
+  ])("captures %j as today", (text, expected) => {
+    expect(only(captureAnswer(text, TRAVEL)).valueNormalized).toBe(expected);
+  });
+
+  it("still reads a long answer that OPENS with its no", () => {
+    const text = "nahi, ghar mein mummy akeli hain isliye main bahar kahin nahi ja sakta";
+    expect(only(captureAnswer(text, TRAVEL)).valueNormalized).toBe(false);
+  });
+
+  it("holds on the yes/no select too (relocation)", () => {
+    expect(captureAnswer(SIDE_REMARK, RELOCATION).values).toHaveLength(0);
+    expect(only(captureAnswer("nahi yahi rehna hai", RELOCATION)).valueNormalized).toBe(false);
+  });
+});
+
 describe("select capture — the destination decides what an unmatched answer means", () => {
   it("captures EVERY option the worker named, in the order they said them", () => {
     const value = only(captureAnswer("PVC aur GI dono", MULTI_ATTR)).valueNormalized;

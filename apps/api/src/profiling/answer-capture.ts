@@ -119,6 +119,19 @@ const AVAILABILITY_CHIP_NOTICE_DAYS: Readonly<Record<string, number>> = {
   "1_month": 30,
 };
 
+/**
+ * #2468 — how far into a typed reply a BARE "nahi" may sit and still answer the yes/no question on
+ * screen. A worker saying no says it early: "nahi", "nahi ji", "main ghar se door nahi ja sakta"
+ * (the fifth word). A "nahi" deeper in the message belongs to some other clause: "pahle mujhe yah
+ * batao, mera notice period ek mahine ka nahin hai…" (the eleventh) answered the travel question
+ * `false` in production. Such a message captures nothing and the question stays askable.
+ *
+ * An explicit yes or no ("haan", "nahi karta") is read anywhere, as before: its negation check is
+ * already clamped to its own clause.
+ */
+const BARE_NEGATOR_HEAD_WORDS = 6;
+const ON_SCREEN_AFFIRMATION = { bareNegatorHeadWords: BARE_NEGATOR_HEAD_WORDS } as const;
+
 /** #2467 — the longest reply read as a BARE notice duration: "3 mahine", "do mahine lagenge". */
 const BARE_NOTICE_MAX_WORDS = 4;
 /** #2467 — no notice period runs past six months; a bare "6 saal" is a tenure, not a notice. */
@@ -416,8 +429,9 @@ function normalizeByAnswerType(
     case "boolean": {
       // `undefined`, never a guessed `false`. A boolean question answered with "kabhi kabhi" is
       // ambiguous, and recording a `false` the worker did not say puts it in a column the matcher
-      // filters on. Leaving it unread costs one re-ask.
-      const parsed = parseAffirmation(text);
+      // filters on. Leaving it unread costs one re-ask. A "nahi" deep in a long message is read
+      // the same way (#2468).
+      const parsed = parseAffirmation(text, ON_SCREEN_AFFIRMATION);
       return parsed === null ? undefined : parsed.value;
     }
     case "multi_select": {
@@ -506,7 +520,7 @@ function polarSelectValue(
   const polar = item.options.filter((option) => typeof option.value === "boolean");
   if (polar.length === 0) return undefined;
 
-  const parsed = parseAffirmation(text);
+  const parsed = parseAffirmation(text, ON_SCREEN_AFFIRMATION);
   if (parsed === null) return undefined;
 
   // AT LEAST ONE option must claim the polarity — a yes with no yes-chip to mean is not an answer
