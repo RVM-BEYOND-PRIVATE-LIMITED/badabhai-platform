@@ -827,6 +827,69 @@ describe("buildResumeRenderInput — the résumé container", () => {
     );
   });
 
+  describe("a typed notice period the model's word cannot state (#2469)", () => {
+    // The worker typed "3 mahine" under availability. The profile holds 90 days (the typed answer
+    // wins in the profile builder); the model's vocabulary stops at `1_month`.
+    const withNotice = (days: number, word: string | null) =>
+      buildResumeRenderInput(
+        {
+          availability: { status: "notice_period", notice_period_days: days },
+          resume_profile: { ...TRACE, availability: word, shift: null },
+        },
+        "Asha Kumari",
+        "classic",
+        null,
+        false,
+        "worker",
+      );
+    const availableFrom = (input: ReturnType<typeof withNotice>) =>
+      input.availFactRows?.find((r) => r.label === "Available from")?.value;
+
+    it.each(["1_month", null, "notice_period", "unknown"])(
+      "prints the profile's 90 days over the model's word %j",
+      (word) => {
+        const input = withNotice(90, word);
+        expect(input.availability).toBe("Available in 90 days");
+        expect(availableFrom(input)).toBe("90 days");
+        expect(input.subheadLine).toContain("available in 90 days");
+      },
+    );
+
+    it("prints the profile's days where the model's word names another length", () => {
+      // Typed "15 din ka notice", read by the model as a month.
+      expect(availableFrom(withNotice(15, "1_month"))).toBe("15 days");
+      expect(availableFrom(withNotice(60, "immediate"))).toBe("60 days");
+    });
+
+    it("prints a chip answer exactly as before", () => {
+      const month = withNotice(30, "1_month");
+      expect(month.availability).toBe("Available in 1 month");
+      expect(availableFrom(month)).toBe("1 month");
+      const fortnight = withNotice(15, "15_days");
+      expect(fortnight.availability).toBe("Available in 15 days");
+      expect(availableFrom(fortnight)).toBe("15 days");
+      // A chip's days beside a silent container stay silent, as today.
+      expect(withNotice(15, null).availability).toBeNull();
+      expect(availableFrom(withNotice(30, null))).toBeUndefined();
+    });
+
+    it("leaves a non-notice profile to the model's word", () => {
+      const input = buildResumeRenderInput(
+        {
+          availability: { status: "immediate", notice_period_days: null },
+          resume_profile: { ...TRACE, shift: null },
+        },
+        "Asha Kumari",
+        "classic",
+        null,
+        false,
+        "worker",
+      );
+      expect(input.availability).toBe("Available immediately");
+      expect(availableFrom(input)).toBe("Immediate");
+    });
+  });
+
   it("builds the Layer A (h) summary strip from the confirmed fields", () => {
     // role · tenure · tools · city — the same four facts the verdict line carries, from the same
     // helpers, so the sentence and the strip can never disagree about the tenure (the test below).

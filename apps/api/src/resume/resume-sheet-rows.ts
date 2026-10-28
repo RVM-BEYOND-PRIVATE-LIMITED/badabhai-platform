@@ -369,6 +369,45 @@ export function bareAvailability(input: {
 }
 
 /**
+ * The notice days each résumé-container availability word states (`extract_system_prompt`'s
+ * vocabulary). `immediate` states none.
+ */
+const CONTAINER_NOTICE_DAYS: Readonly<Record<string, number>> = {
+  immediate: 0,
+  "15_days": 15,
+  "1_month": 30,
+};
+const CONTAINER_EXPRESSIBLE_DAYS: ReadonlySet<number> = new Set([15, 30]);
+
+/**
+ * #2469 — the profile's notice days when the résumé container's word cannot or does not state
+ * them, or null to print the container's word as before.
+ *
+ * The container keeps the model's own word, and that vocabulary stops at a month. A worker who
+ * typed "3 mahine" has `notice_period` + 90 days on the profile (the typed answer wins there,
+ * `typedNoticeOf`), while the container says `1_month` or nothing. Printing the container's word
+ * would state a notice the worker did not give, or drop the one they did. So the profile's days
+ * print when:
+ * - the container names a length that differs from them (`1_month` beside 90 days), or
+ * - the container names no length (null, `unknown`, `notice_period`) and its vocabulary could
+ *   not have (90 days).
+ *
+ * A CHIP ANSWER PRINTS EXACTLY AS BEFORE. The model's word decides a chip's profile days, so the
+ * two agree (`1_month` beside 30 stays "1 month", never "30 days"), and a 15- or 30-day profile
+ * beside a silent container stays silent.
+ */
+export function profileNoticeDays(
+  profile: { status: string; notice_period_days?: number | null },
+  containerToken: string | null | undefined,
+): number | null {
+  const days = profile.notice_period_days;
+  if (profile.status !== "notice_period" || !days || days <= 0) return null;
+  const stated = CONTAINER_NOTICE_DAYS[containerToken?.trim().toLowerCase() ?? ""];
+  if (stated === undefined) return CONTAINER_EXPRESSIBLE_DAYS.has(days) ? null : days;
+  return stated === days ? null : days;
+}
+
+/**
  * The résumé container's `availability` as a printable BARE label — "Immediate", "15 days".
  *
  * THE TOKEN IS NOT THE LABEL, and printing it is the #963 defect again. `resume_profile

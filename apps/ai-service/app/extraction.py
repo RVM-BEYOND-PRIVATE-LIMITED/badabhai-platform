@@ -288,6 +288,28 @@ _MODEL_AVAILABILITY = {
 
 _SHIFTS = {"day": "Day shift", "night": "Night shift", "any": "Any shift"}
 
+# The notice days each container word states (`extract_system_prompt`'s vocabulary).
+_CONTAINER_NOTICE_DAYS = {"immediate": 0, "15_days": 15, "1_month": 30}
+_CONTAINER_EXPRESSIBLE_DAYS = frozenset({15, 30})
+
+
+def _profile_notice_days(profile: DraftProfile, container_word: str) -> int | None:
+    """#2469 — the profile's notice days when the container's word cannot or does not state them.
+
+    The container keeps the model's word, and that vocabulary stops at a month. A worker who
+    typed "3 mahine" has `notice_period` + 90 days on the profile (the API's typed answer wins
+    there), while the container says `1_month` or nothing. The days win when the container names
+    a different length, or names none and could not have (90). A chip answer prints exactly as
+    before. Mirrors `profileNoticeDays` on the render side.
+    """
+    days = profile.availability.notice_period_days
+    if profile.availability.status != "notice_period" or not days or days <= 0:
+        return None
+    stated = _CONTAINER_NOTICE_DAYS.get(container_word.strip().lower())
+    if stated is None:
+        return None if days in _CONTAINER_EXPRESSIBLE_DAYS else days
+    return None if stated == days else days
+
 
 def _availability_line(profile: DraftProfile) -> str | None:
     """When they can start, and which shift — or None.
@@ -307,6 +329,11 @@ def _availability_line(profile: DraftProfile) -> str | None:
     elif profile.availability.status:
         raw = profile.availability.status
     phrase = _MODEL_AVAILABILITY.get(raw.strip().lower()) if raw else None
+    # #2469 — with a container, the profile's notice days win where its word does not state them.
+    if container is not None:
+        notice_days = _profile_notice_days(profile, container.availability or "")
+        if notice_days is not None:
+            phrase = f"Available in {notice_days} days"
 
     shift_raw = container.shift if container is not None and container.shift else profile.shift
     shift = None
