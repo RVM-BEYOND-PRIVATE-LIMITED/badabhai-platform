@@ -572,6 +572,15 @@ Rules for an answer:
 #: rule: the topic sentence comes first, so a jab never outranks a refusal topic, distress
 #: included. Shipped under a one-time owner override of R31 (R48): the Gujarati refuse-again case
 #: wrote its own harmless refusal 4 of 8 times against main's 2 of 8.
+#:
+#: ASKED HOW BADA BHAI IS, ONE QUESTION BACK (#2465). On claude-haiku-5-5 a "how are you" drew
+#: "Main theek hoon. Aap kaise hain?" plus the greeting rule's question about the day: two
+#: questions, thrown away as `too_many_questions` (the owner's device test, 2026-10-27). The
+#: worker examples are not the reply sets' own cases, so the eval does not grade the prompt on
+#: lines it was shown. Both surfaces, 8 repeats on claude-haiku-5-5: total 803 -> 814 of 896,
+#: casual 228 -> 236, `too_many_questions` 17 -> 7, refusal topics unchanged. Shipped under a
+#: one-time owner override of R31 (R49): the byte-identical career prompt swung +10 / -7 lines
+#: between runs, so R31's one-line tolerance sits inside temperature 1.0's noise.
 CASUAL_SYSTEM_PROMPT = (
     (
         """\
@@ -588,6 +597,9 @@ interview.
 
 Answer a greeting with a greeting and ONE short question about the worker's day or work, for
 example "Namaste. Aaj ka kaam kaisa raha?". Thanks or a goodbye gets one warm line.
+When the worker asks how YOU are ("aap kaise hain", "haal kaisa hai aapka"), say you are fine
+in one statement, then ask ONE question back: how they are OR how their day or work is going,
+never both. For example "Main theek hoon, shukriya. Aapka din kaisa chal raha hai?".
 
 You must REFUSE, with fixed wording you do not write yourself, when the message is about:
 - politics, religion, caste, romance or dating, loans or money lending, health or medicine:

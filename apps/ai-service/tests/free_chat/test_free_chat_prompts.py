@@ -894,6 +894,39 @@ def test_the_new_answer_rule_examples_are_clear_of_the_walls() -> None:
     assert greeting.count("?") == 1
 
 
+def test_asked_how_bada_bhai_is_it_asks_one_question_back() -> None:
+    """#2465: on claude-haiku-5-5 a "how are you" drew "I am fine. How are you?" plus the greeting
+    rule's question about the day, and the API threw the answer away as `too_many_questions`. The
+    rule asks ONE question back; its answer example clears the same walls as the other examples;
+    its worker examples are not the reply sets' cases (the eval never grades lines it showed)."""
+    from app.companion.prompts import render_banned_tokens
+    from app.free_chat import eval_free_reply_companion_gold as companion_gold
+    from app.free_chat import eval_free_reply_gold as gold
+
+    folded = _folded(free_prompts.CASUAL_SYSTEM_PROMPT)
+    assert "when the worker asks how you are" in folded
+    assert "ask one question back" in folded and "never both" in folded
+    # It follows the greeting rule, and both surfaces carry it (the companion prompt is a swap).
+    assert folded.index("answer a greeting with a greeting") < folded.index("asks how you are")
+    assert "when the worker asks how you are" in _folded(
+        free_prompts.COMPANION_CASUAL_SYSTEM_PROMPT
+    )
+
+    example = "Main theek hoon, shukriya. Aapka din kaisa chal raha hai?"
+    assert f'"{example}"' in free_prompts.CASUAL_SYSTEM_PROMPT
+    assert example.count("?") == 1 and "!" not in example
+    banned = re.findall(r'"([^"]+)"', render_banned_tokens())
+    words = f" {_folded(example)} "
+    assert not any(f" {token} " in words for token in banned)
+    for phrase in free_prompts.SOFT_PROMISE_WILL_GET_PHRASES:
+        assert phrase not in _folded(example)
+
+    cases = {_folded(case.text) for case in (*gold.CASES, *companion_gold.CASES)}
+    for worker_line in ("aap kaise hain", "haal kaisa hai aapka"):
+        assert _folded(f'"{worker_line}"') in folded, worker_line
+        assert _folded(worker_line) not in cases, worker_line
+
+
 def test_the_casual_prompt_refuses_its_four_topics_news_included() -> None:
     """R12: until live news ships, a news request gets the fixed NEWS line. News routes to the
     casual path (the classifier files news and sports as casual), so casual refuses it too."""

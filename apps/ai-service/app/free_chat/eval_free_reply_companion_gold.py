@@ -271,6 +271,11 @@ CASES: list[Case] = [
     Case("reply-153", "casual", "nahi, resume theek hai", ANSWER,
          trade_label="CNC Turner", experience_bucket="3-7", resume_facts=_TURNER_RESUME,
          turns=after(("resume edit karna hai", _EDIT_MENU_LINE))),
+
+    # ── asked how Bada Bhai is (2): #2465, the profiling set's reply-054..057 on this screen. ──
+    Case("reply-154", "casual", "aur bhai, kya haal hai", ANSWER,
+         trade_label="CNC Turner", experience_bucket="3-7"),
+    Case("reply-155", "casual", "tum kaise ho, sab badhiya", ANSWER),
 ]
 # fmt: on
 

@@ -59,9 +59,11 @@ EMPLOYER_TEXT = "Tata Motors mein welder tha"
 #: ADR-0055: sha256 of each module constant's exact bytes. No companion change may move one. A
 #: DELIBERATE profiling edit (a new round, a wall list change) updates its pin in the same PR,
 #: beside its eval evidence, and the first 12 hex digits are the registry version a trace shows.
+#: CASUAL moved with #2465 (asked how Bada Bhai is, one question back); evidence in
+#: docs/qa/evidence/free-chat/2026-10-28-small-talk-2465/.
 PROFILING_PROMPT_SHA256 = {
     "CLASSIFY_SYSTEM_PROMPT": "56ad200b6337d0e112539c9b0acd610a449b27c8bdfda537cf227353540c6c97",
-    "CASUAL_SYSTEM_PROMPT": "02548ba013f2a4ce491a814892aaa71e7ee773c37692f7f72923b9a581b5fc0f",
+    "CASUAL_SYSTEM_PROMPT": "1bf13adc93da8964ab8049eb8add98fab29a6bf757384532c3d30a53e5432eb2",
     "CAREER_SYSTEM_PROMPT": "695d1250662670777c99ab1bc29875421408caba63e27b21c02ffb67978ff66a",
     "NEWS_SYSTEM_PROMPT": "84b67b6e9b519350f96485e4fb98c98d0e2eb336292e2c90f86829445e28fb4a",
     "SUMMARY_SYSTEM_PROMPT": "52a92ffd383550e26620f3896a6141e3567dad0b3a6556b01b8505843a82b9d4",
