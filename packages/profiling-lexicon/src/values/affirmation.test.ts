@@ -138,6 +138,57 @@ describe("parseAffirmation", () => {
 });
 
 /**
+ * #2468 — `bareNegatorHeadWords` bounds tier 3 to the reply's opening words. The production message
+ * below was typed over the travel question; its eleventh word "Nahin" was stored as a "no".
+ */
+describe("parseAffirmation with bareNegatorHeadWords", () => {
+  const HEAD = { bareNegatorHeadWords: 6 };
+  const SIDE_REMARK =
+    "pahle Mujhe yah batao Mera notice period ek mahine ka Nahin Hai Mera 3 mahine ka hai lekin " +
+    "vahan per Koi option nahin tha to usko change karke 3 Mahina kar do";
+
+  it("reads nothing from a negator deep in a long message", () => {
+    expect(parseAffirmation(SIDE_REMARK, HEAD)).toBeNull();
+    // Without the option, today's reader is unchanged.
+    expect(parseAffirmation(SIDE_REMARK)?.value).toBe(false);
+  });
+
+  it.each([
+    "nahi",
+    "Nahi.",
+    "nahi ji",
+    "ji nahi",
+    "nahi ja sakta",
+    "abhi nahi",
+    "main ghar se door nahi ja sakta",
+    "mere paas driving licence nahi hai",
+    "- nahi",
+    "nahi, mera ghar yahin hai aur family yahan hai isliye bahar nahi ja paunga",
+    "मैं घर से दूर नहीं जा सकता",
+  ])("still reads a no in the opening words: %j", (text) => {
+    expect(parseAffirmation(text, HEAD)?.value).toBe(false);
+  });
+
+  it("counts a negator at the last head word, and not one word later", () => {
+    expect(parseAffirmation("ek do teen char paanch nahi", HEAD)?.value).toBe(false);
+    expect(parseAffirmation("ek do teen char paanch chhe nahi", HEAD)).toBeNull();
+  });
+
+  it("leaves tiers 1 and 2 alone, wherever their cue sits", () => {
+    const long = "pahle ek baat batao mera notice period teen mahine ka hai";
+    expect(parseAffirmation(`${long}, haan ja sakta hoon`, HEAD)?.value).toBe(true);
+    expect(parseAffirmation(`${long}, yeh kaam nahi karta`, HEAD)?.value).toBe(false);
+    expect(parseAffirmation("haan ja sakta hoon", HEAD)?.value).toBe(true);
+  });
+
+  it("reports the span of the negator it read", () => {
+    const text = "abhi nahi";
+    const result = parseAffirmation(text, HEAD);
+    expect(text.slice(result!.span.start, result!.span.end)).toBe("nahi");
+  });
+});
+
+/**
  * #2226 — the words of a yes/no answer that no cue accounts for. The free chat's résumé mode lets a
  * BARE typed yes/no skip its classifier, and reads this to tell "haan ji" from "haan marna hai".
  */
