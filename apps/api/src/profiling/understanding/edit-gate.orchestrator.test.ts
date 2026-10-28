@@ -13,7 +13,7 @@ import {
   narrowProfilingEnvelope,
   type ProfilingEnvelope,
 } from "../conversation-state";
-import { ROLE_CHANGE_POINTER_PAIR } from "../next-question";
+import { ROLE_CHANGE_POINTER_PAIR, STEER_BACK_TEXT } from "../next-question";
 import { ProfilingOrchestrator } from "../orchestrator.service";
 import { EDIT_DELETE_WARNING } from "./edit-gate";
 
@@ -111,7 +111,10 @@ function verdict(over: Partial<ProfilingTurnUnderstandOutput> = {}): ProfilingTu
   };
 }
 
-function makeWorld(verdicts: readonly (ProfilingTurnUnderstandOutput | null)[] = []) {
+function makeWorld(
+  verdicts: readonly (ProfilingTurnUnderstandOutput | null)[] = [],
+  pack: QuestionPack = UNIVERSAL,
+) {
   const store = new Map<string, TranscriptBuffer>();
   const buffer = {
     load: vi.fn(async (id: string) => {
@@ -132,7 +135,7 @@ function makeWorld(verdicts: readonly (ProfilingTurnUnderstandOutput | null)[] =
     }),
   };
   const registry = {
-    loadUniversal: vi.fn(async () => UNIVERSAL),
+    loadUniversal: vi.fn(async () => pack),
     loadPinned: vi.fn(async () => null),
     resolveForOccupation: vi.fn(async () => null),
   };
@@ -387,6 +390,115 @@ describe("ADR-0057 #2312 — a field named as wrong with no new value is asked f
     const done = await orchestrator.takeTurn(say("Haan"));
     expect(recordOf(store, "experience_years")?.value_normalized).toBe(2);
     expect(done.questionKey).toBe("availability");
+  });
+});
+
+describe("#2467 — a correction to another field is never the answer to the question on screen", () => {
+  const TRAVEL = item({
+    question_key: "willing_to_travel",
+    target_field: "willing_to_travel",
+    answer_type: "boolean",
+    prompt_text: "Kya aap ghar se door kaam ke liye ja sakte hain?",
+  });
+  const WITH_TRAVEL: QuestionPack = { ...UNIVERSAL, items: [YEARS, TRAINING, AVAIL, TRAVEL, CITY] };
+  // The production message (28 Oct 2026): a notice-period correction typed over the travel
+  // question, with a stray "Nahin" the yes/no parser reads as `false`.
+  const CORRECTION =
+    "pahle Mujhe yah batao Mera notice period ek mahine ka Nahin Hai Mera 3 mahine ka hai lekin " +
+    "vahan per Koi option nahin tha to usko change karke 3 Mahina kar do";
+  // Everything else settled, as the engine would have it by the travel question (TRAVEL is built
+  // after CITY, so its display order puts it last).
+  const travelOnScreen = {
+    answerMap: [
+      answered("experience_years", 5, "5 saal"),
+      answered("training_name", "CNC Basics", "CNC Basics"),
+      answered("availability", "month", "Ek mahine mein"),
+      answered("current_city", "Pune", "Pune"),
+    ],
+    servedQuestionKey: "willing_to_travel",
+    askCounts: { experience_years: 1, training_name: 1, availability: 1, current_city: 1, willing_to_travel: 1 },
+  };
+
+  it("the production correction: a 3-month notice is put to the worker, saved on Haan, travel resumed", async () => {
+    const { orchestrator, store } = makeWorld(
+      [verdict({ intent: "edit", confidence: 0.8, edits: [{ op: "edit", key: "availability", ref: null, value: "3 months" }] })],
+      WITH_TRAVEL,
+    );
+    seed(store, travelOnScreen);
+    const proposed = await orchestrator.takeTurn(say(CORRECTION));
+    // Shown in the worker's words, never as the code "notice_period".
+    expect(proposed.reply).toBe("Kab join kar sakte hain: Ek mahine mein se 3 months kar doon?");
+    expect(recordOf(store, "willing_to_travel")).toBeUndefined();
+    expect(held(store).editGate).toMatchObject({ resumeKey: "willing_to_travel" });
+
+    const done = await orchestrator.takeTurn(say("Haan"));
+    expect(recordOf(store, "availability")?.value_normalized).toBe("notice_period");
+    expect(recordOf(store, "notice_period_days")?.value_normalized).toBe(90);
+    expect(done.reply).toBe(`Theek hai, badal diya. ${TRAVEL.prompt_text}`);
+    expect(done.questionKey).toBe("willing_to_travel");
+    expect(recordOf(store, "willing_to_travel")).toBeUndefined();
+    expect(held(store).askCounts.willing_to_travel).toBe(1);
+  });
+
+  it("a value the field cannot read asks for the field (with the typed chip), confirms it, then resumes travel", async () => {
+    const { orchestrator, store } = makeWorld(
+      [verdict({ intent: "edit", confidence: 0.8, edits: [{ op: "edit", key: "availability", ref: null, value: "Diwali ke baad" }] })],
+      WITH_TRAVEL,
+    );
+    seed(store, travelOnScreen);
+    const asked = await orchestrator.takeTurn(say(CORRECTION));
+    expect(asked.reply).toBe("Theek hai, sahi Kab join kar sakte hain bataiye. Aap kab se kaam shuru kar sakte hain?");
+    expect(asked.options.map((o) => o.option_key)).toEqual(["immediate", "month", "kuch_aur"]);
+    expect(recordOf(store, "willing_to_travel")).toBeUndefined();
+    expect(held(store).editGate).toMatchObject({ resumeKey: "willing_to_travel", awaiting: { key: "availability" } });
+
+    const proposed = await orchestrator.takeTurn(say("Turant"));
+    expect(proposed.reply).toMatch(/: Ek mahine mein se Turant kar doon\?$/);
+    const done = await orchestrator.takeTurn(say("Haan"));
+    expect(recordOf(store, "availability")).toMatchObject({ value_raw: "Turant" });
+    expect(recordOf(store, "availability")?.history[0]).toMatchObject({ value_normalized: "month", status: "superseded" });
+    expect(done.questionKey).toBe("willing_to_travel");
+    expect(recordOf(store, "willing_to_travel")).toBeUndefined();
+    expect(held(store).askCounts.willing_to_travel).toBe(1);
+  });
+
+  it("availability is served with the typed chip, and a typed '3 mahine' is a 3-month notice", async () => {
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      answerMap: [answered("experience_years", 5, "5 saal")],
+      servedQuestionKey: "training_name",
+      askCounts: { experience_years: 1, training_name: 1 },
+    });
+    const served = await orchestrator.takeTurn(say("CNC Basics"));
+    expect(served.questionKey).toBe("availability");
+    expect(served.options.map((o) => o.option_key)).toEqual(["immediate", "month", "kuch_aur"]);
+
+    await orchestrator.takeTurn(say("3 mahine"));
+    expect(recordOf(store, "availability")?.value_normalized).toBe("notice_period");
+    expect(recordOf(store, "notice_period_days")?.value_normalized).toBe(90);
+  });
+
+  it("a change nothing can be proposed for re-asks the question on screen, unspent", async () => {
+    const { orchestrator, store } = makeWorld(
+      [verdict({ intent: "edit", confidence: 0.8, edits: [{ op: "edit", key: "notice_note", ref: null, value: "3 mahine" }] })],
+      WITH_TRAVEL,
+    );
+    seed(store, travelOnScreen);
+    const result = await orchestrator.takeTurn(say(CORRECTION));
+    expect(result.reply).toBe(`${STEER_BACK_TEXT} ${TRAVEL.prompt_text}`);
+    expect(result.questionKey).toBe("willing_to_travel");
+    expect(recordOf(store, "willing_to_travel")).toBeUndefined();
+    expect(held(store).askCounts.willing_to_travel).toBe(1);
+  });
+
+  it("an edit that names the question on screen is still read as its answer", async () => {
+    const { orchestrator, store } = makeWorld(
+      [verdict({ intent: "edit", confidence: 0.8, edits: [{ op: "edit", key: "willing_to_travel", ref: null, value: "false" }] })],
+      WITH_TRAVEL,
+    );
+    seed(store, travelOnScreen);
+    await orchestrator.takeTurn(say("nahi, door nahi ja sakta"));
+    expect(recordOf(store, "willing_to_travel")?.value_normalized).toBe(false);
   });
 });
 

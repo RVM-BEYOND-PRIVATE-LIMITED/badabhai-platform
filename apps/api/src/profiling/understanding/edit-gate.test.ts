@@ -124,11 +124,10 @@ describe("building a proposal — every row checked against the session's catalo
     ]);
   });
 
-  it("drops a change its parser cannot read, one that changes nothing, and an unknown key", () => {
+  it("drops a change that changes nothing, and an unknown key", () => {
     const out = buildEditProposal(
       input({
         edits: [
-          { op: "edit", key: "experience_years", ref: null, value: "bahut saara" },
           { op: "edit", key: "tools_owned", ref: null, value: "true" },
           { op: "edit", key: "salary", ref: null, value: "20000" },
           { op: "delete", key: "current_city", ref: null, value: null }, // nothing to remove
@@ -137,6 +136,33 @@ describe("building a proposal — every row checked against the session's catalo
     );
     expect(out.rows).toEqual([]);
     expect(out.awaiting).toBeNull();
+  });
+
+  // #2467 — "notice period 3 mahine kar do" on a field with no 3-month chip was dropped, and the
+  // message fell through to be filed as the answer to whatever question was on screen.
+  it("asks for a filled field whose new value its parser cannot read, instead of dropping it", () => {
+    const out = buildEditProposal(
+      input({ edits: [{ op: "edit", key: "experience_years", ref: null, value: "bahut saara" }] }),
+    );
+    expect(out.rows).toEqual([]);
+    expect(out.awaiting).toEqual({ key: "experience_years", index: null, label: "Experience", before: "5 saal" });
+  });
+
+  it("an unreadable value never asks for an EMPTY field, and a readable row still wins", () => {
+    const empty = buildEditProposal(
+      input({ edits: [{ op: "edit", key: "current_city", ref: null, value: "???" }] }),
+    );
+    expect(empty).toEqual({ rows: [], awaiting: null, rolePointer: null });
+    const both = buildEditProposal(
+      input({
+        edits: [
+          { op: "edit", key: "experience_years", ref: null, value: "bahut saara" },
+          { op: "delete", key: "training_name", ref: null, value: null },
+        ],
+      }),
+    );
+    expect(both.rows).toHaveLength(1);
+    expect(both.awaiting).toBeNull();
   });
 
   it("names a yes/no as Haan / Nahi, and a field by its own question when it has no short name", () => {

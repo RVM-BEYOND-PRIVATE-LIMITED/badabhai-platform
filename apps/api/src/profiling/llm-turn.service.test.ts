@@ -17,7 +17,9 @@ import {
   MAX_LLM_ASKS,
   MAX_EXPERIENCE_ENTRIES,
   EXPERIENCE_GATE_PROMPT,
+  NEXT_JOB_PROMPT,
 } from "./llm-turn.service";
+import { classifyLlmReply } from "./llm-reply-guard";
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { emptyProfilingEnvelope, type ProfilingEnvelope } from "./conversation-state";
 
@@ -350,6 +352,84 @@ describe("the experience loop gate is engine-served", () => {
     const out = await svc.take(env({ llmGateOpen: true, llmAsks: MAX_LLM_ASKS }), "Haan", [], CTX);
     expect(out?.kind).toBe("done");
     expect(out?.patch).toMatchObject({ llmGateOpen: false, llmStage: "done" });
+  });
+});
+
+/**
+ * #2467 — a gate "Haan" is the worker's decision, and the model's output can no longer end Phase A
+ * on that turn. Production, 28 Oct 2026: one job recorded, "Aur koi experience jodna hai?",
+ * "Haan" — and the next line was the availability question; the second job was never asked.
+ */
+describe("LlmTurnService — the turn after a gate Haan always asks the next job", () => {
+  // The gate already answered once this interview, as it always has been on a Haan turn.
+  const gateYes = (over: Partial<ProfilingEnvelope> = {}) =>
+    env({ llmGateOpen: true, llmGateAsked: true, llmStage: "experience", llmAsks: 6, ...withEntries(1), ...over });
+  const HISTORY: readonly TranscriptLine[] = [
+    {
+      i: 0,
+      role: "assistant",
+      text: "Achha. Ye kaam kis company ya project mein kiya, aur kitne mahine chala? Sirf role aur duration bata dijiye.",
+    },
+    { i: 1, role: "worker", text: "RVM CAD naam ki company mein kiya hai aur 4 mahine ho chuke hain, roll mera AI engineer" },
+    { i: 2, role: "assistant", text: EXPERIENCE_GATE_PROMPT },
+  ];
+
+  it("serves the engine's next-job question when the guard discards the model's line", async () => {
+    const line = "Achha. Doosra kaam kya tha?";
+    expect(classifyLlmReply(line, HISTORY)).toBe("gate_shaped"); // the production failure mode
+    const { svc } = make({ turn: TURN({ reply_text: line, stage: "experience" }) });
+    const out = await svc.take(gateYes(), "Haan", HISTORY, CTX);
+    expect(out).toMatchObject({ kind: "ask", reply: NEXT_JOB_PROMPT, chips: [], inputMode: "text" });
+    expect(out?.patch).toMatchObject({ llmGateOpen: false, llmStage: "experience", llmAsks: 7 });
+    expect(out?.patch.llmGateAsked).toBeUndefined();
+  });
+
+  it("serves it when the model tries to close Phase A on the Haan turn", async () => {
+    const { svc } = make({ turn: TURN({ reply_text: "Shukriya!", phase_a_done: true }) });
+    const out = await svc.take(gateYes(), "Haan", HISTORY, CTX);
+    expect(out).toMatchObject({ kind: "ask", reply: NEXT_JOB_PROMPT });
+    expect(out?.patch.llmStage).toBe("experience");
+  });
+
+  it("serves the model's own next-job question when the guard passes it", async () => {
+    const { svc } = make({ turn: TURN({ reply_text: "Uske pehle kahan kaam kiya?", stage: "experience" }) });
+    const out = await svc.take(gateYes(), "Haan", HISTORY, CTX);
+    expect(out).toMatchObject({ kind: "ask", reply: "Uske pehle kahan kaam kiya?" });
+  });
+
+  it("the engine's question is never gate-shaped or a repeat, even served a second time", () => {
+    expect(classifyLlmReply(NEXT_JOB_PROMPT, HISTORY)).toBe("ok");
+    const again: TranscriptLine[] = [
+      ...HISTORY,
+      { i: 3, role: "assistant", text: NEXT_JOB_PROMPT },
+      { i: 4, role: "worker", text: "helper tha 2 saal" },
+      { i: 5, role: "assistant", text: EXPERIENCE_GATE_PROMPT },
+    ];
+    expect(classifyLlmReply(NEXT_JOB_PROMPT, again)).toBe("ok");
+  });
+
+  it("the next job recorded on a later turn reopens the gate", async () => {
+    const { svc } = make({ turn: TURN({ experience_entry: ENTRY, stage: "experience" }) });
+    const out = await svc.take(
+      env({ llmGateAsked: true, llmStage: "experience", llmAsks: 7, ...withEntries(1) }),
+      "helper tha, 1 saal, loading karta tha",
+      [...HISTORY, { i: 3, role: "worker", text: "Haan" }, { i: 4, role: "assistant", text: NEXT_JOB_PROMPT }],
+      CTX,
+    );
+    expect(out).toMatchObject({ kind: "ask", reply: EXPERIENCE_GATE_PROMPT });
+    expect(out?.patch).toMatchObject({ llmGateOpen: true });
+  });
+
+  it("on the model's LAST ask, a close still ends Phase A as before", async () => {
+    const { svc } = make({ turn: TURN({ reply_text: "Shukriya!", phase_a_done: true }) });
+    const out = await svc.take(gateYes({ llmAsks: MAX_LLM_ASKS - 1 }), "Haan", HISTORY, CTX);
+    expect(out?.kind).toBe("done");
+  });
+
+  it("a turn that is not a gate Haan closes on phase_a_done exactly as before", async () => {
+    const { svc } = make({ turn: TURN({ reply_text: "Shukriya!", phase_a_done: true }) });
+    const out = await svc.take(env({ llmGateAsked: true, ...withEntries(1) }), "bas", [], CTX);
+    expect(out?.kind).toBe("done");
   });
 });
 

@@ -193,6 +193,8 @@ import {
   outstandingTradeGate,
   outstandingTypeRequest,
   packQuestionInputMode,
+  servedOptions,
+  TYPED_ESCAPE_OPTION,
   progressOf,
   showsResumeConfirmBubble,
   stampLastTurn,
@@ -1613,7 +1615,7 @@ export class ProfilingOrchestrator {
           // returned above, so reaching here means `servedQuestionKey` is the live question.
           kind: "ask",
           questionKey: served.question_key,
-          options: served.options,
+          options: servedOptions(served, served.options),
           ...shapeOf(items, served.question_key),
           inputMode: packQuestionInputMode(served),
           progress: progressOf(progressItems, answers),
@@ -1689,7 +1691,10 @@ export class ProfilingOrchestrator {
           // not said anything for it to run on.
           kind: decision.kind === "close" ? "close" : "ask",
           questionKey: decision.questionKey,
-          options: decision.options,
+          options: servedOptions(
+            items.find((candidate) => candidate.question_key === decision.questionKey),
+            decision.options,
+          ),
           ...shapeOf(items, decision.questionKey),
           inputMode: packQuestionInputMode(
             items.find((candidate) => candidate.question_key === decision.questionKey) ?? null,
@@ -2412,7 +2417,10 @@ export class ProfilingOrchestrator {
           // scope to widen, not this change's.
           kind: "ask",
           questionKey: clarified.questionKey,
-          options: clarified.options,
+          options: servedOptions(
+            items.find((candidate) => candidate.question_key === clarified.questionKey),
+            clarified.options,
+          ),
           ...shapeOf(items, clarified.questionKey),
           inputMode: packQuestionInputMode(
             items.find((candidate) => candidate.question_key === clarified.questionKey) ?? null,
@@ -2985,9 +2993,29 @@ export class ProfilingOrchestrator {
       })
         ? askedItem.question_key
         : null;
+    // #2467 — A CHANGE TO ANOTHER FIELD IS NEVER THIS QUESTION'S ANSWER, even when nothing could be
+    // put to the worker (the #2312 branch above returned for every turn that had a proposal). Over
+    // "Kya aap ghar se door kaam ke liye ja sakte hain?" the correction "notice period ek mahine ka
+    // nahin hai, 3 mahine kar do" was filed as travel = false from its stray "nahin". Held exactly
+    // like a side message: nothing filed under the question, which is served again unspent under
+    // the steer-back. ADR-0057 §3.4: an empty proposal falls back to clarify, never to capture.
+    const editTurnKey =
+      sideMessageKey === null &&
+      askedItem !== null &&
+      !identifyOwnsTurn &&
+      !onScreenNone &&
+      understood !== null &&
+      understood.out.confidence >= UNDERSTANDING_MIN_CONFIDENCE &&
+      (understood.out.intent === "edit" || understood.out.intent === "delete") &&
+      !this.llm.leads(next) &&
+      !onSkillsLane(next) &&
+      !namesField(understood.out, askedItem.question_key)
+        ? askedItem.question_key
+        : null;
+    const heldKey = sideMessageKey ?? editTurnKey;
     for (const value of capture.values) {
       const onScreen = value.questionKey === askedItem?.question_key;
-      if (onScreen && (onScreenNone || sideMessageKey !== null)) continue;
+      if (onScreen && (onScreenNone || heldKey !== null)) continue;
       answers = recordAnswer(answers, value, turn);
     }
     // #1505 F1: `phaseALeads` tells `crossFillItems` whether a PER-JOB model question is on
@@ -3051,10 +3079,15 @@ export class ProfilingOrchestrator {
         ]),
         ...applied.noted,
       ];
+      const filledBridge: UnderstandingOutcome["bridge"] =
+        noted.length > 0 ? { reason: "filled", noted } : null;
       understandRefs.outcome =
         sideMessageKey !== null
           ? sideMessageOutcome(understood.out, applied, noted, sideMessageKey)
-          : outcomeOf(understood.out, applied, noted.length > 0 ? { reason: "filled", noted } : null);
+          : editTurnKey !== null
+            ? // No "chat" line here: a model reply to a change that was not made could claim it was.
+              { ...outcomeOf(understood.out, applied, filledBridge), steerBack: editTurnKey }
+            : outcomeOf(understood.out, applied, filledBridge);
       // #2312 — CHANGES TO FILLED FIELDS, put to the worker rather than written (R4): the model's
       // change rows (when its reading clears the confidence floor), its fills that named a filled
       // field, and the deterministic one-candidate correction held back above. `buildEditProposal`
@@ -3658,7 +3691,7 @@ export class ProfilingOrchestrator {
             reply: servedText(tenureItem, askCount(toEngineState(envelope, turn), key)),
             kind: "ask",
             questionKey: key,
-            options: tenureItem.options,
+            options: servedOptions(tenureItem, tenureItem.options),
             ...shapeOf(items, key),
             inputMode: packQuestionInputMode(tenureItem),
             progress: progressOf(progressItems, answers),
@@ -3840,13 +3873,14 @@ export class ProfilingOrchestrator {
     // back first, so the re-serve counts that same ask once (a turn, not an ask — `reserveTurn`'s
     // rule). Bounded like any re-ask: when it can no longer be served (a pin changed the packs, a
     // fill made it ineligible, the turn cap) the engine moves on as it would have.
-    if (sideMessageKey !== null) next = refundDisplaced(next, sideMessageKey, answers);
+    // #2467 — and so is the question under a change to another field (`editTurnKey`).
+    if (heldKey !== null) next = refundDisplaced(next, heldKey, answers);
     const engineState = toEngineState(next, turn);
     const decision =
       (capture.outOfRange && askedItem !== null
         ? reAsk(engineState, engine, askedItem.question_key)
         : null) ??
-      (sideMessageKey !== null ? reAsk(engineState, engine, sideMessageKey) : null) ??
+      (heldKey !== null ? reAsk(engineState, engine, heldKey) : null) ??
       nextQuestion(engineState, engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
@@ -3964,7 +3998,10 @@ export class ProfilingOrchestrator {
       // the interview, and every other decision put a pack question on screen.
       kind: decision.kind === "close" ? "close" : "ask",
       questionKey: decision.questionKey,
-      options: decision.options,
+      options: servedOptions(
+        items.find((candidate) => candidate.question_key === decision.questionKey),
+        decision.options,
+      ),
       ...shapeOf(items, decision.questionKey),
       inputMode: packQuestionInputMode(
         items.find((candidate) => candidate.question_key === decision.questionKey) ?? null,
@@ -4103,7 +4140,7 @@ export class ProfilingOrchestrator {
         reply: `${line} ${servedText(reservableItem, askCount(state, reservableItem.question_key))}`,
         kind: "ask",
         questionKey: reservableItem.question_key,
-        options: reservableItem.options,
+        options: servedOptions(reservableItem, reservableItem.options),
         ...shapeOf(items, reservableItem.question_key),
         inputMode: packQuestionInputMode(reservableItem),
         progress,
@@ -4164,7 +4201,7 @@ export class ProfilingOrchestrator {
       reply: servedText(item, askCount(state, item.question_key)),
       kind: "ask",
       questionKey: item.question_key,
-      options: item.options,
+      options: servedOptions(item, item.options),
       ...shapeOf(items, item.question_key),
       inputMode: packQuestionInputMode(item),
       progress: progressOf(progressItems, answers),
@@ -6672,6 +6709,11 @@ function sideMessageOutcome(
   return { out, applied, bridge, pointer, steerBack: questionKey };
 }
 
+/** #2467 — the model's reading names this field itself: a fill or a change for it. */
+function namesField(out: ProfilingTurnUnderstandOutput, key: string): boolean {
+  return out.fills.some((fill) => fill.key === key) || out.edits.some((edit) => edit.key === key);
+}
+
 /** The four confidence buckets the free chat's events use. */
 function confidenceBucketOf(confidence: number): "lt50" | "50_70" | "70_90" | "gte90" {
   if (confidence < 0.5) return "lt50";
@@ -7739,16 +7781,7 @@ export function llmChipOptions(chips: readonly string[], gate: boolean): Questio
   if (options.length === 0) return options;
   if (isYesNoPair(kept)) return options;
 
-  return [
-    ...options,
-    {
-      option_key: DISAMBIGUATION_ESCAPE_KEY,
-      label_text: DISAMBIGUATION_ESCAPE_LABEL,
-      value: DISAMBIGUATION_ESCAPE_LABEL,
-      implies_skill_id: null,
-      is_none_of_above: true,
-    },
-  ];
+  return [...options, TYPED_ESCAPE_OPTION];
 }
 
 /**
