@@ -615,6 +615,36 @@ def test_availability_and_salary_reach_the_text_resume():
     assert "Expected salary: 22000 per month" in text
 
 
+def _with_notice(days: int, **over) -> DraftProfile:
+    """`_container_profile` with the profile's own availability set to a notice period."""
+    profile = _container_profile(**over).model_dump()
+    profile["availability"] = {"status": "notice_period", "notice_period_days": days}
+    return DraftProfile.model_validate(profile)
+
+
+def test_a_typed_notice_period_prints_its_days_over_the_model_word():
+    # #2469 — the worker typed "3 mahine"; the profile holds 90 days, and the model could only
+    # say `1_month` (or nothing). Printing the container's word would state the wrong notice.
+    text, _ = build_resume(_with_notice(90, availability="1_month"))
+    assert "Availability: Available in 90 days · Night shift" in text
+    text, _ = build_resume(_with_notice(90, availability=None, shift=None))
+    assert "Availability: Available in 90 days" in text
+    # Typed "15 din ka notice", read by the model as a month: the profile's days win.
+    text, _ = build_resume(_with_notice(15, availability="1_month", shift=None))
+    assert "Availability: Available in 15 days" in text
+
+
+def test_a_chip_notice_period_prints_exactly_as_before():
+    # The container's word and the profile agree, so nothing changes: not "30 days".
+    text, _ = build_resume(_with_notice(30, availability="1_month"))
+    assert "Availability: Available in 1 month · Night shift" in text
+    text, _ = build_resume(_with_notice(15))
+    assert "Availability: Available in 15 days · Night shift" in text
+    # A chip's days beside a silent container print the profile's status word, as today.
+    text, _ = build_resume(_with_notice(15, availability=None, shift=None))
+    assert "Availability: On notice period" in text
+
+
 def test_shift_alone_still_prints_the_availability_line():
     text, _ = build_resume(_container_profile(availability=None, shift="night"))
     assert "Availability: Night shift" in text

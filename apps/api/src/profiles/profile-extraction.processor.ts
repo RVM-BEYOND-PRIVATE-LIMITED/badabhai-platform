@@ -2472,6 +2472,26 @@ function withNoticeDays(
   return days === null ? availability : { ...availability, notice_period_days: days };
 }
 
+/**
+ * #2469 — a notice period the worker TYPED on the availability question, or null.
+ *
+ * The chips store their own key (`15_days`, `1_month`), so an answered `availability` record of
+ * `notice_period` with a day count beside it is the typed path: the "Kuch aur" chip ("3 mahine"),
+ * or an edit confirmed on the chat (#2467). The model's vocabulary cannot say 90 days, so its
+ * word ("1_month", or nothing) would otherwise win and the worker's own answer would be lost.
+ * The deterministic answer wins here (CLAUDE.md §3). A chip answer returns null and keeps today's
+ * precedence, model first.
+ */
+function typedNoticeOf(answerMap: readonly AnswerRecord[]): DraftProfile["availability"] | null {
+  const status = answerMap.find(
+    (candidate) =>
+      candidate.target_field === "availability" || candidate.question_key === "availability",
+  );
+  if (status?.status !== "answered" || status.value_normalized !== "notice_period") return null;
+  const days = noticeDaysAnswerOf(answerMap);
+  return days !== null && days > 0 ? { status: "notice_period", notice_period_days: days } : null;
+}
+
 /** `toExtractionOutput`'s result: the output, plus the draft fields #2004 withheld (ids only). */
 export interface InterviewExtraction {
   readonly output: ProfileExtractionOutput;
@@ -2618,7 +2638,10 @@ export function toExtractionOutput(
     // five values, and a raw assignment throws inside the job. See `availabilityOf`. The
     // deterministic answer map's notice days ride along (`withNoticeDays`) now that the
     // availability turn captures them — the qp_universal@8 removal of the duplicate question.
-    availability: withNoticeDays(availabilityOf(interview?.availability, draft.availability), answerMap),
+    // A TYPED notice period wins over the model's word outright (#2469, `typedNoticeOf`).
+    availability:
+      typedNoticeOf(answerMap) ??
+      withNoticeDays(availabilityOf(interview?.availability, draft.availability), answerMap),
     // ── THE RÉSUMÉ CONTAINER — THE PHASE C OBJECT, UNTOUCHED ──────────────────────────
     //
     // Everything above this line reassembles the model's nine flat keys into the legacy

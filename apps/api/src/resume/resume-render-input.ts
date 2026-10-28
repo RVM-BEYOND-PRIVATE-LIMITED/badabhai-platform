@@ -51,6 +51,7 @@ import {
   formatOpenTopSalary,
   formatSalaryBand,
   joinSegments,
+  profileNoticeDays,
 } from "./resume-sheet-rows";
 
 /**
@@ -763,6 +764,9 @@ function buildUndegraded(
         // other — from one draft. Neither expression is a bare literal, so the static half
         // could not see it; the runtime diff below is what named it.
         shift: humanizeShift(draft.shift),
+        // #2469 — not a qualification; it rides this bag of draft fallbacks like `shift`. The
+        // profile's notice days, only where the container's own word does not state them.
+        noticeDays: profileNoticeDays(draft.availability, draft.resume_profile.availability),
       },
       preferences,
       // THE MANDATORY UNIVERSAL ASK, reaching the container path for the first time. It rides
@@ -1227,6 +1231,8 @@ function fromResumeProfile(
     educationLevel: string | null;
     educationField: string | null;
     shift: string | null;
+    /** #2469 — the profile's notice days that the container's word misses (`profileNoticeDays`). */
+    noticeDays: number | null;
   },
   /**
    * The finishing form's closed-set answers (R6 §4) — Zone 3's terms and Zone 5's languages.
@@ -1307,7 +1313,13 @@ function fromResumeProfile(
   // HUMANISED ONCE, HERE. The container stores the model's own token ("immediate",
   // "notice_period") so it stays diffable against its trace; the sheet prints a label. Both the
   // Verdict Line and the Terms row read this, and computing it twice is how they drift.
-  const availabilityLabel = bareAvailabilityLabel(cleanScalar(rp.availability));
+  //
+  // #2469 — a notice period the worker typed ("3 mahine") is on the profile, and the container's
+  // word cannot say it, so the profile's days print instead.
+  const availabilityLabel =
+    draftQualification.noticeDays !== null
+      ? bareAvailability({ status: "notice_period", notice_period_days: draftQualification.noticeDays })
+      : bareAvailabilityLabel(cleanScalar(rp.availability));
 
   // ZONE 5, RESOLVED ONCE — R15 §1, and resolving it once is the fix rather than a tidy-up.
   //
@@ -1464,6 +1476,7 @@ function fromResumeProfile(
       cleanScalar(rp.shift),
       nightShiftReady,
       preferences.shiftLabel,
+      draftQualification.noticeDays,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
     // Layer A (h) — the deterministic strip: role · tenure · tools · city.
@@ -1928,8 +1941,13 @@ function humanizeAvailability(
   shift: string | null,
   nightShiftReady: boolean,
   sheetShiftLabel: string | null = null,
+  /** #2469 — the profile's notice days, printed in place of the status word (`profileNoticeDays`). */
+  noticeDays: number | null = null,
 ): string | null {
-  const phrase = AVAILABILITY_PHRASES[status?.trim().toLowerCase() ?? ""] ?? null;
+  const phrase =
+    noticeDays !== null
+      ? `Available in ${noticeDays} days`
+      : (AVAILABILITY_PHRASES[status?.trim().toLowerCase() ?? ""] ?? null);
   // WHEN BOTH SAY NIGHTS, THE STRONGER CLAIM SURVIVES — and it is the model's, not the toggle's.
   //
   // This dropped the wrong one. `shift: "night"` asserts the worker WORKS nights; the toggle

@@ -3085,6 +3085,58 @@ describe("the interview overlay (Phase C)", () => {
     });
   });
 
+  describe("a TYPED notice period wins over the model's word (#2469)", () => {
+    // The "Kuch aur" chip: the worker typed "3 mahine", stored as `notice_period` + 90 days. The
+    // model's vocabulary stops at `1_month`, so its word would print a notice they never gave.
+    const typed = (days: number) =>
+      withMap({
+        answer_map: [
+          record(),
+          record({
+            question_key: "availability",
+            target_field: "availability",
+            value_raw: "3 mahine",
+            value_normalized: "notice_period",
+          }),
+          record({
+            question_key: "notice_period_days",
+            target_field: "notice_period_days",
+            value_raw: "3 mahine",
+            value_normalized: days,
+          }),
+        ],
+      });
+
+    it.each(["1_month", "15_days", "immediate", null])(
+      "stores the typed 90 days when the model said %j",
+      async (word) => {
+        const { proc, profiles } = make({
+          ...typed(90),
+          messages: CHAT,
+          llmInterview: true,
+          interview: EXTRACT({ availability: word }),
+        });
+        await proc.process(makeJob());
+        expect(rawOf(profiles).availability).toEqual({
+          status: "notice_period",
+          notice_period_days: 90,
+        });
+      },
+    );
+
+    it("keeps the model's word in the résumé container, untouched", async () => {
+      // The container stays diffable against its trace; the render prints the profile's days.
+      const { proc, profiles } = make({
+        ...typed(90),
+        messages: CHAT,
+        llmInterview: true,
+        interview: EXTRACT({ availability: "1_month" }),
+      });
+      await proc.process(makeJob());
+      expect(rawOf(profiles).resume_profile?.availability).toBe("1_month");
+    });
+  });
+
   it("leaves a non-notice availability alone even when a stale days record exists", async () => {
     // First-write-wins can leave a days record behind a status it no longer belongs to (a
     // correction re-answered the availability). Days print only under `notice_period`.
