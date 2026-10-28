@@ -493,6 +493,7 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 | **R37** | **Only clear abuse is `trash`.** Gaali, slurs and clear abuse are strikes. A mild insult at the bot ("tu pagal hai kya"), teasing, a complaint about the app, or exasperation at a misread is `casual`: a polite reply, no strike. This matches the abuse word list, which leaves mild words out on purpose. A strike leads to a 30-minute block (R13). |
 | **R38** | **A bare acknowledgement after a résumé offer is a yes.** In free mode, "ok", "accha" or "theek hai" right after a line where Bada Bhai offers to make the résumé is `resume`. Those lines are JOBS, CASUAL_NUDGE, NEWS_CAP, and a reply ending with that offer. After any other line, a bare acknowledgement is `unclear`. |
 | **R48** | **One-time override of R31 for reply v4 (owner, 2026-10-14, #2272).** v4 scored 390/424 against main's 374/424, with casual +18 and both round 2 targets fixed. R31 said HOLD because off_limits lost 2 lines: the Gujarati refuse-again case missed 4 of 8 against main's 2 of 8. Every miss was the model writing its own refusal in Gujarati, with no advice served, and that is within noise at 8 repeats. v4 ships. This covers this one revision only; R31 stands for every later round. |
+| **R49** | **One-time override of R31 for the casual "how are you" rule (owner, 2026-10-28, #2465).** Measured on `claude-haiku-5-5` (production since #2464), whose forced temperature 1.0 swings a category by up to 10 lines between identical runs: the career prompt was byte-identical and still moved +10 (profiling) and −7 (companion). With both surfaces summed, the revision scored 814/896 against main's 803/896; casual (the only prompt changed) went +8, `too_many_questions` rejections fell from 17 to 7, and every refusal topic stayed 136/136. R31 said HOLD on profiling casual −2 (two single draws: `namaskar ji` once with two questions, `good night` once on `worker_rating`) and companion career −7 (prompt unchanged). It ships. This covers this one revision only; R31 stands for every later round. |
 
 **One round:**
 1. **Probe (read-only, owner approval).** `node apps/api/dist/profiling/free-chat/free-chat-probe.cli.js
@@ -657,6 +658,30 @@ Release 2 went live on 2026-10-07 (build `19413cd`). This section lets a worker 
 6. **Still open:** the Tamil refuse-again case (`reply-052`) fails 8 times in 8 on main, v3 and v4. Every reply is
    harmless small talk, and v4's Tamil reads garbled. The refuse-again note in `prompts.py` records every wording
    tried there; it needs its own round.
+
+**Round 4 record (2026-10-28, #2465): the casual "how are you" rule, shipped under a one-time R31 override (R49).**
+Evidence: `docs/qa/evidence/free-chat/2026-10-28-small-talk-2465/`.
+
+1. **The defect.** On `claude-haiku-5-5`, a worker asking how Bada Bhai is got "Main theek hoon. Aap kaise hain?" plus
+   the greeting rule's question about the day. That is two questions, and the API threw the answer away as
+   `too_many_questions` (the owner's device test, 2026-10-27). The classifier read these lines right: `casual` 10/10.
+2. **The revision** adds one sentence after the greeting rule. When the worker asks how Bada Bhai is, it says it is
+   fine in one statement and asks ONE question back. The companion casual prompt carries it through `_swapped`. The
+   prompt's worker examples are not the reply sets' cases. Four profiling cases (`reply-054`–`057`) and two companion
+   cases (`reply-154`, `reply-155`) join the sets.
+3. **The run.** Main and the revision were scored in one sitting on the new sets, 8 repeats, every reply served by
+   `claude-haiku-5-5`, ₹21 in all (router estimate).
+
+   | Group | main (profiling + companion) | revision |
+   |---|---|---|
+   | **Total** | 803/896 | **814/896** |
+   | casual | 228/248 | **236/248** |
+   | career (prompt unchanged) | 384/456 | 387/456 |
+   | identity | 55/56 | 55/56 |
+   | refusal topics | 136/136 | 136/136 |
+   | `too_many_questions` rejections | 17 | **7** |
+
+4. **R31 said HOLD,** on noise (R49). The owner shipped it.
 
 ## 11. Reply language (owner rulings 2026-10-08, #2181)
 

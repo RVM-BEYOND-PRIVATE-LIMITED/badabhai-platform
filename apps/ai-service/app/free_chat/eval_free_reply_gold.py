@@ -36,6 +36,7 @@ from typing import NamedTuple
 # API's copy file by the classifier set's tests and this set's).
 from .eval_free_classify_gold import (
     BOT,
+    FREE_CLARIFY_LINE,
     LATER_ACK_LINE,
     OFF_LIMITS_LINE,
     REPLY_FALLBACK_LINE,
@@ -251,6 +252,15 @@ CASES: list[Case] = [
     # ── identity, mid-conversation (1): the question after a career answer (#2242) ──
     Case("reply-053", "casual", "tum robot ho ya koi banda baitha hai", ANSWER, identity=True,
          turns=after("cnc ka course kaha se karu", _CNC_ANSWER)),
+
+    # ── asked how Bada Bhai is (4): #2465. On claude-haiku-5-5 "how are you" drew "I am fine.
+    # How are you?" plus the greeting rule's question about the day: two questions, thrown away
+    # as `too_many_questions`. reply-054/055 are the owner's 2026-10-27 device-test turns. ──
+    Case("reply-054", "casual", "aur kya haal hai", ANSWER, turns=OPENING),
+    Case("reply-055", "casual", "puch raha hu haal chal", ANSWER,
+         turns=after("aur kya haal hai", FREE_CLARIFY_LINE)),
+    Case("reply-056", "casual", "kaise ho bhai", ANSWER),
+    Case("reply-057", "casual", "aap batao, aap kaise ho", ANSWER, turns=OPENING),
 ]
 # fmt: on
 
