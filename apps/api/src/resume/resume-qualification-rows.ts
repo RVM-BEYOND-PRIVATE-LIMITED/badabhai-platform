@@ -150,8 +150,8 @@ function cleanCommaList(raw: string): { text: string; fillerRemoved: boolean } |
 }
 
 /** A credential fragment in resume English, or null when nothing printable remains. */
-export function englishCredentialFragment(value: string | null): string | null {
-  if (value === null) return null;
+export function englishCredentialFragment(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
   const trimmed = value.trim().replace(/\s+/g, " ");
   if (!trimmed) return null;
   if (DEVANAGARI_PATTERN.test(trimmed)) return null;
@@ -159,8 +159,8 @@ export function englishCredentialFragment(value: string | null): string | null {
 }
 
 /** A training/course name: filler stripped, with a single "Training" suffix. */
-export function englishTrainingName(value: string | null): string | null {
-  if (value === null) return null;
+export function englishTrainingName(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
   const trimmed = value.trim().replace(/\s+/g, " ");
   if (!trimmed) return null;
   if (DEVANAGARI_PATTERN.test(trimmed)) return null;
@@ -174,8 +174,8 @@ export function englishTrainingName(value: string | null): string | null {
 }
 
 /** A provider/issuer/institute: filler stripped, plus a leading training word dropped. */
-export function englishProviderName(value: string | null): string | null {
-  if (value === null) return null;
+export function englishProviderName(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
   const trimmed = value.trim().replace(/\s+/g, " ");
   if (!trimmed) return null;
   if (DEVANAGARI_PATTERN.test(trimmed)) return null;
@@ -280,13 +280,17 @@ export function educationLine(record: WorkerEducationRecord): string | null {
     [
       join(
         [
-          record.credential === null ? null : labelFor(EDUCATION_QUALIFICATIONS, record.credential),
+          typeof record.credential !== "string"
+            ? null
+            : (labelFor(EDUCATION_QUALIFICATIONS, record.credential) ?? null),
           englishCredentialFragment(record.field),
         ],
         CREDENTIAL_SEP,
       ),
-      record.council === null ? null : labelFor(EDUCATION_COUNCILS, record.council),
-      record.year === null ? null : String(record.year),
+      typeof record.council !== "string"
+        ? null
+        : (labelFor(EDUCATION_COUNCILS, record.council) ?? null),
+      record.year == null ? null : String(record.year),
       englishProviderName(record.institute),
     ],
     SEGMENT_SEP,
@@ -307,7 +311,7 @@ export function certificateLine(record: WorkerCertificateRecord): string | null 
   const name = englishCredentialFragment(record.name);
   if (!name) return null;
   const inside = join(
-    [englishProviderName(record.issuer), record.year === null ? null : String(record.year)],
+    [englishProviderName(record.issuer), record.year == null ? null : String(record.year)],
     ", ",
   );
   return inside === null ? name : `${name} (${inside})`;
@@ -357,7 +361,7 @@ export function trainingLine(record: WorkerTrainingRecord): string | null {
   const name = englishTrainingName(record.name);
   if (!name) return null;
   const inside = join(
-    [englishProviderName(record.provider), record.year === null ? null : String(record.year)],
+    [englishProviderName(record.provider), record.year == null ? null : String(record.year)],
     ", ",
   );
   return inside === null ? name : `${name} (${inside})`;
