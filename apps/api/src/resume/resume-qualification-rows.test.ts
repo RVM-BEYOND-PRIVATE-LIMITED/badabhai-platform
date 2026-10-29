@@ -584,4 +584,31 @@ describe("licence fields are outside every printed composition", () => {
     });
     expect(withoutRows).toBeUndefined();
   });
+
+  describe("ADR-0058 — resume English: no raw Hinglish on Zone 5 (Faid Shah report)", () => {
+    it("renders the chat-captured Hinglish training in professional English", () => {
+      expect(
+        trainingLine({
+          name: "Fireman ki training",
+          provider: "training Maine Delhi School of fire se",
+          year: 2022,
+        }),
+      ).toBe("Fireman Training (Delhi School Of Fire, 2022)");
+    });
+
+    it("leaves clean English credentials byte-identical", () => {
+      expect(
+        trainingLine({ name: "CNC Operator Course", provider: "Govt. ITI", year: 2019 }),
+      ).toBe("CNC Operator Course (Govt. ITI, 2019)");
+      expect(
+        certificateLine({ name: "Forklift licence", issuer: null, year: 2021 }),
+      ).toBe("Forklift licence (2021)");
+    });
+
+    it("drops Devanagari rather than printing non-Latin script", () => {
+      expect(
+        trainingLine({ name: "फायरमैन ट्रेनिंग", provider: "दिल्ली", year: 2022 }),
+      ).toBeNull();
+    });
+  });
 });
