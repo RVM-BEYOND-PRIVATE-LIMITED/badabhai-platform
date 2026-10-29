@@ -44,6 +44,8 @@ import {
   RESUME_UPDATE_FAILED,
   RESUME_UPDATING,
   ROAD,
+  TRADE_NOT_SERVED_ASK,
+  TRADE_NOT_SERVED_LEAD,
   fillSlots,
   guaranteeLine,
   render,
@@ -217,6 +219,18 @@ export function composeDigest(facts: CompanionFacts): ComposedTurn {
 
 /** "Naye jobs dikhao" — the count line, then up to three job chips and the Jobs tab. */
 export function composeJobs(facts: CompanionFacts): ComposedTurn {
+  // A worker whose profile is NOT one of the form-based industrial-manufacturing trades gets
+  // the honest reason and the one action that fixes it. No job chips and no Jobs-tab chip:
+  // there is nothing in their trade to browse, so the résumé edit is the only way forward.
+  // Only an EXPLICIT jobs ask reaches this composer; the recap keeps its normal jobs line.
+  if (facts.tradeScope === "outside") {
+    return {
+      lines: [line(render(TRADE_NOT_SERVED_LEAD)), line(render(TRADE_NOT_SERVED_ASK))],
+      options: [RESUME_CHIP],
+      nudge: null,
+      jobChipsCount: 0,
+    };
+  }
   const lines: ComposedLine[] = [jobsLine(facts)];
   const jobChips =
     facts.jobs.scope === "profile" ? facts.jobs.jobs.slice(0, JOBS_REPLY_CHIPS_MAX).map(jobChip) : [];

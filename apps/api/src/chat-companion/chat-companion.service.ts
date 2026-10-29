@@ -64,6 +64,7 @@ import {
 } from "./companion-compose";
 import {
   currentResumeFacts,
+  industrialTradeScope,
   resumeStateOf,
   type CompanionFacts,
   type CompanionJob,
@@ -585,6 +586,7 @@ export class ChatCompanionService {
     const resume = currentResumeFacts(history?.items[0]);
     return {
       resume,
+      tradeScope: industrialTradeScope(profile),
       resumeState: resumeStateOf({
         resume,
         unavailable: history === undefined,

@@ -151,6 +151,21 @@ export const JOBS_UNAVAILABLE: CopyPair = {
   dev: "अभी नए जॉब्स नहीं दिखा पा रहे। जॉब्स टैब में देखें।",
 };
 
+/**
+ * A jobs ask from a worker whose profile is on the CHAT road — not one of the form-based
+ * industrial-manufacturing trades the platform serves (`industrialTradeScope`). The reply is
+ * honest about why no matching jobs exist and sends them to the one action that can fix it:
+ * changing the trade on their résumé. The "Resume badlein" chip below opens that menu.
+ */
+export const TRADE_NOT_SERVED_LEAD: CopyPair = {
+  latin: "Aapki profile industrial manufacturing trades mein nahi aati.",
+  dev: "आपकी प्रोफ़ाइल इंडस्ट्रियल मैन्युफैक्चरिंग ट्रेड्स में नहीं आती।",
+};
+export const TRADE_NOT_SERVED_ASK: CopyPair = {
+  latin: "Resume badalkar koi manufacturing trade chuniye, kyunki hamare paas wahi jobs hain.",
+  dev: "रेज़्यूमे बदलकर कोई मैन्युफैक्चरिंग ट्रेड चुनिए, क्योंकि हमारे पास वही जॉब्स हैं।",
+};
+
 // ── The one nudge line ───────────────────────────────────────────────────────────────────────
 
 /**
@@ -538,6 +553,8 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["NEW_JOBS_CAPPED", NEW_JOBS_CAPPED],
   ["NO_SKILLS", NO_SKILLS],
   ["JOBS_UNAVAILABLE", JOBS_UNAVAILABLE],
+  ["TRADE_NOT_SERVED_LEAD", TRADE_NOT_SERVED_LEAD],
+  ["TRADE_NOT_SERVED_ASK", TRADE_NOT_SERVED_ASK],
   ...Object.entries(NUDGE_LINES).map(([k, v]) => [`NUDGE_LINES.${k}`, v] as const),
   ["ALL_SET", ALL_SET],
   ["JOBS_LIST_TAIL", JOBS_LIST_TAIL],

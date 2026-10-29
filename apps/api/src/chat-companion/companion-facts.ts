@@ -125,9 +125,32 @@ export interface CompanionJobsFacts {
   readonly windowDays: number;
 }
 
+/**
+ * Whether the worker's trade is one of the form-based profiles the platform serves.
+ *
+ * THE 21 DECLARED TRADE KINDS ARE THE SERVED SET (`TRADE_FORM_KINDS_ALL`), and `worker_profiles.source`
+ * is the durable record of which road produced the profile: `form` = a trade form (one of those
+ * kinds), `chat` = the general chat road (not a served trade). NULL is a pre-0107 row — unknown,
+ * never asserted as outside (a false "aapki profile industrial manufacturing mein nahi aati" is
+ * worse than today's generic jobs line).
+ *
+ * This deliberately reads the ROAD, not `canonical_role_id`: only five form kinds have an exact
+ * taxonomy role (`trade-canonical.ts`), so a fitter or welder carries a form kind and a null role.
+ * The road is what every form-based trade has in common.
+ */
+export type IndustrialTradeScope = "served" | "outside" | "unknown";
+
+export function industrialTradeScope(profile: { readonly source?: string | null }): IndustrialTradeScope {
+  if (profile.source === "form") return "served";
+  if (profile.source === "chat") return "outside";
+  return "unknown";
+}
+
 export interface CompanionFacts {
   /** Null = the worker has no résumé yet (or the read failed — see `resumeState`). */
   readonly resume: CompanionResumeFacts | null;
+  /** Whether the worker's trade is one of the form-based trades we serve (`industrialTradeScope`). */
+  readonly tradeScope: IndustrialTradeScope;
   /** What may be said about `resume`; `unknown` when the résumé read failed. */
   readonly resumeState: CompanionResumeState;
   /** An accepted chat update that has not landed (ADR-0043), or null. */

@@ -526,6 +526,41 @@ describe("ChatCompanionService.message", () => {
     expect(res.turn.suggested_options.filter((o) => o.option_key.startsWith(COMPANION_JOB_KEY_PREFIX))).toHaveLength(2);
   });
 
+  it("a chat-road profile asking for jobs gets the trade-not-served reply, with ONLY 'Resume badlein'", async () => {
+    const res = await make({ profileSource: "chat" }).svc.message(
+      WORKER,
+      { text: "jobs nahi dikh rahi" },
+      CTX,
+      NOW,
+    );
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.reply).toBe(
+      "Aapki profile industrial manufacturing trades mein nahi aati.\n" +
+        "Resume badalkar koi manufacturing trade chuniye, kyunki hamare paas wahi jobs hain.",
+    );
+    expect(res.turn.suggested_options.map((o) => o.option_key)).toEqual([COMPANION_RESUME_KEY]);
+    expect(res.turn.suggested_followups).toEqual(["Resume badlein"]);
+    expect(res.turn.tts_text).toMatch(/[ऀ-ॿ]/u);
+  });
+
+  it("a form-road profile asking for jobs keeps today's jobs reply", async () => {
+    const res = await make().svc.message(WORKER, { text: "mere field ki job dikhao" }, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.reply).toContain("Kisi job par dabakar poori jaankari dekhein.");
+    expect(res.turn.reply).not.toContain("industrial manufacturing trades");
+  });
+
+  it("an unknown road is never asserted as outside the served trades", async () => {
+    const res = await make({ profileSource: null }).svc.message(
+      WORKER,
+      { text: "jobs nahi dikh rahi" },
+      CTX,
+      NOW,
+    );
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.reply).not.toContain("industrial manufacturing trades");
+  });
+
   it("dedupes a retried send by its submission id", async () => {
     const h = make();
     await h.svc.message(WORKER, { text: "hi", submission_id: SUBMISSION }, CTX, NOW);
