@@ -22,11 +22,13 @@ import {
 import {
   allClear,
   chooseNudge,
+  industrialTradeScope,
   resumeStateOf,
   type CompanionFacts,
   type CompanionJob,
   type CompanionResumeFacts,
 } from "./companion-facts";
+import { TRADE_NOT_SERVED_ASK, TRADE_NOT_SERVED_LEAD } from "./companion-replies";
 
 const job = (n: number, city: string | null = "Pune"): CompanionJob => ({
   jobPostingId: `00000000-0000-4000-8000-00000000000${n}`,
@@ -45,6 +47,7 @@ const base: CompanionFacts = {
     machines: ["Fanuc", "Siemens", "Haas"],
     city: "Pune",
   },
+  tradeScope: "served",
   resumeState: "ready",
   pendingUpdate: null,
   appliedCount: 2,
@@ -240,6 +243,22 @@ describe("the other replies", () => {
     expect(keys(turn)).toEqual([COMPANION_JOBS_TAB_KEY, COMPANION_RESUME_KEY]);
   });
 
+  it("a trade outside the form-based trades: the honest reason and ONLY the résumé chip", () => {
+    const turn = composeJobs({ ...base, tradeScope: "outside" });
+    expect(replyText(turn)).toBe(`${TRADE_NOT_SERVED_LEAD.latin}\n${TRADE_NOT_SERVED_ASK.latin}`);
+    expect(keys(turn)).toEqual([COMPANION_RESUME_KEY]);
+    expect(turn.jobChipsCount).toBe(0);
+    expect(turn.nudge).toBeNull();
+    // Read-aloud carries both Devanagari twins.
+    expect(replyTts(turn)).toBe(`${TRADE_NOT_SERVED_LEAD.dev} ${TRADE_NOT_SERVED_ASK.dev}`);
+  });
+
+  it("an out-of-scope trade still gets its normal recap jobs line (explicit asks only)", () => {
+    const turn = composeDigest({ ...base, tradeScope: "outside" });
+    expect(replyText(turn)).toContain("Pichhle 7 din mein aapke kaam ke 3 naye jobs aaye hain.");
+    expect(replyText(turn)).not.toContain(TRADE_NOT_SERVED_LEAD.latin);
+  });
+
   it("applied: the count and the list chip; zero applied points at the new-jobs chip", () => {
     expect(keys(composeApplied(base))[0]).toBe(COMPANION_APPLIED_KEY);
     const none = composeApplied({ ...base, appliedCount: 0 });
@@ -326,6 +345,17 @@ describe("chooseNudge — ordered, first match wins", () => {
     ["nothing", { ...base, jobs: noJobs }, null],
   ] as const)("%s", (_name, facts, expected) => {
     expect(chooseNudge(facts as CompanionFacts)).toBe(expected);
+  });
+});
+
+describe("industrialTradeScope — the form-based trades we serve", () => {
+  it.each([
+    ["the form road is one of the 21 trade kinds", { source: "form" }, "served"],
+    ["the chat road is not a served trade", { source: "chat" }, "outside"],
+    ["a pre-0107 row is unknown, never asserted as outside", { source: null }, "unknown"],
+    ["a missing source is unknown too", {}, "unknown"],
+  ] as const)("%s", (_name, profile, expected) => {
+    expect(industrialTradeScope(profile)).toBe(expected);
   });
 });
 
