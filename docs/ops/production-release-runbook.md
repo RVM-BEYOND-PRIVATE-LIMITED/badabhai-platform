@@ -291,7 +291,7 @@ follow #12, and means anything only while #12 is off.
 | - | ---- | ------------ | ----------- |
 | 1 | `AI_INTERNAL_TOKEN` set on **both** ai-service and api | — | Unset (both sides); service auth fails closed |
 | 2 | `AI_SPEND_REDIS_URL` | Redis reachable | Unset → falls back to per-process caps (weaker, still capped) |
-| 3 | Spend caps set **explicitly** (`AI_MAX_USER_DAILY_COST_INR=6`, `AI_MAX_DAILY_COST_INR=200`, `AI_MAX_TOTAL_COST_INR=1000`, `AI_MAX_CALL_COST_INR=10`) | #2 | Lower them; they are read per call |
+| 3 | Spend caps set **explicitly** (`AI_MAX_USER_DAILY_COST_INR=6`, `AI_MAX_DAILY_COST_INR=200`, `AI_MAX_TOTAL_COST_INR=10000`, `AI_MAX_CALL_COST_INR=10`) | #2 | Lower them; they are read per call |
 | 4 | `AI_ENABLE_REAL_CALLS=true` + `AI_REAL_CALL_TASKS=profile_extraction` | P0-2, P0-4, #1–#3 | `AI_REAL_CALLS_KILL_SWITCH=true` (checked first, blocks everything) |
 | 5 | `+resume_generation` in the allowlist | #4 canary clean | Remove from allowlist |
 | 6 | `+skill_embedding` in the allowlist | #5 | Remove from allowlist |
