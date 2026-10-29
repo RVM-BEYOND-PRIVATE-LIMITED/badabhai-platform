@@ -667,7 +667,7 @@ class Settings(BaseSettings):
     # day's recorded spend + a call's worst-case projected cost would exceed it.
     ai_max_daily_cost_inr: float = 200.0
     # Process-lifetime cumulative spend cap (INR). Same check against total spend.
-    ai_max_total_cost_inr: float = 1000.0
+    ai_max_total_cost_inr: float = 10000.0
     # PER-USER rolling per-UTC-day spend cap (INR) — the user-facing budget that
     # bounds ALL real AI spend for one worker per day (profiling chat + extraction
     # + resume combined), keyed by the opaque ``worker_ref`` (PII-free). Checked
