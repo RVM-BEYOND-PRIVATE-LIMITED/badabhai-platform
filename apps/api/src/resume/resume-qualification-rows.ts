@@ -44,6 +44,150 @@ import {
   LANGUAGES,
   labelFor,
 } from "../profiles/worker-preferences.vocabulary";
+import { titleCaseName } from "./resume-text-case";
+
+/**
+ * ADR-0058 — the résumé is always professional English (#2387, Faid Shah report).
+ *
+ * Phase C translates skills/titles/work descriptions, but Zone 5's credential
+ * free text (training name/provider, certificate name/issuer, education
+ * field/institute) is captured verbatim — chat `answer-capture.ts` stores
+ * `text.trim()` for `training_name`/`training_provider`, and the
+ * qualifications page stores typed text as received. Printing that verbatim
+ * put raw Hinglish on the sheet: "Fireman ki training (training Maine Delhi
+ * School of fire se, 2022)".
+ *
+ * RENDER-TIME, DETERMINISTIC, FAIL-CLOSED. This strips Hinglish filler tokens
+ * ("ki", "maine", "se", …), drops Devanagari (Latin script only), and applies
+ * the sheet's own `titleCaseName` (never lowercases, so ITI/NCVT survive).
+ * It never translates content words and never invents claims — a row with no
+ * English core after stripping returns null and the caller drops it, so
+ * Hinglish never reaches the page. A model polish remains future work.
+ */
+const HINGLISH_FILLER = new Set([
+  "ki",
+  "ka",
+  "ke",
+  "ko",
+  "se",
+  "ne",
+  "me",
+  "mein",
+  "main",
+  "maine",
+  "mene",
+  "humne",
+  "hamne",
+  "hai",
+  "thi",
+  "tha",
+  "the",
+  "kiya",
+  "kitha",
+  "kari",
+  "kar",
+  "li",
+  "liya",
+  "hui",
+  "hua",
+  "wala",
+  "wali",
+  "wale",
+  "apni",
+  "apna",
+  "apne",
+  "mera",
+  "meri",
+  "mere",
+  "mujhe",
+  "koi",
+  "ek",
+  "aur",
+  "par",
+  "pe",
+  "per",
+  "kaam",
+  "ya",
+]);
+
+const DEVANAGARI_PATTERN = /[\u0900-\u097F]/;
+
+function cleanSegment(segment: string): { text: string; fillerRemoved: boolean } | null {
+  const originalTokens = segment
+    .replace(/[()]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+  if (originalTokens.length === 0) return null;
+  const kept = originalTokens.filter(
+    (token) => !HINGLISH_FILLER.has(token.toLowerCase().replace(/^[.]+|[.]+$/g, "")),
+  );
+  if (kept.length === 0) return null;
+  const fillerRemoved = kept.length !== originalTokens.length;
+  // Byte-identical when nothing was filler: existing English rows render exactly as
+  // today (invariant #8). Title-case only the rows we actually cleaned.
+  const joined = kept.join(" ").replace(/\s+/g, " ");
+  if (!fillerRemoved) return { text: joined, fillerRemoved: false };
+  const cased = titleCaseName(joined);
+  return { text: cased.trim() ? cased : joined, fillerRemoved: true };
+}
+
+function cleanCommaList(raw: string): { text: string; fillerRemoved: boolean } | null {
+  const parts: string[] = [];
+  let fillerRemoved = false;
+  for (const segment of raw.split(",")) {
+    const cleaned = cleanSegment(segment);
+    if (!cleaned) {
+      // A segment that is only filler (e.g. trailing "se") vanishes; any other
+      // empty segment means the whole value has no core.
+      if (segment.trim()) fillerRemoved = true;
+      continue;
+    }
+    fillerRemoved ||= cleaned.fillerRemoved;
+    parts.push(cleaned.text);
+  }
+  return parts.length > 0 ? { text: parts.join(", "), fillerRemoved } : null;
+}
+
+/** A credential fragment in resume English, or null when nothing printable remains. */
+export function englishCredentialFragment(value: string | null): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  if (DEVANAGARI_PATTERN.test(trimmed)) return null;
+  return cleanCommaList(trimmed)?.text ?? null;
+}
+
+/** A training/course name: filler stripped, with a single "Training" suffix. */
+export function englishTrainingName(value: string | null): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  if (DEVANAGARI_PATTERN.test(trimmed)) return null;
+  const cleaned = cleanCommaList(trimmed);
+  if (!cleaned) return null;
+  if (/\b(training|traning|course|courses)\b/i.test(cleaned.text)) return cleaned.text;
+  // Only the chat-Hinglish shape ("Fireman ki…") gains the word; a clean English
+  // name without filler ("CNC Operator") is returned verbatim — never invented.
+  if (!cleaned.fillerRemoved) return cleaned.text;
+  return `${cleaned.text} Training`;
+}
+
+/** A provider/issuer/institute: filler stripped, plus a leading training word dropped. */
+export function englishProviderName(value: string | null): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  if (DEVANAGARI_PATTERN.test(trimmed)) return null;
+  const cleaned = cleanCommaList(trimmed);
+  if (!cleaned) return null;
+  // Drop a leading "training/course" ONLY on a cleaned chat-filler row ("training
+  // Maine X se"). A real institute name ("Training Centre, Delhi") has no filler
+  // and keeps its first word verbatim.
+  if (!cleaned.fillerRemoved) return cleaned.text;
+  const dropped = cleaned.text.replace(/^(training|traning|course|courses)\s+/i, "").trim();
+  return dropped ? dropped : null;
+}
 
 /** One `worker_certificate` row, in display order. Stored and read in clear (see 0098). */
 export interface WorkerCertificateRecord {
@@ -129,18 +273,21 @@ export function educationLine(record: WorkerEducationRecord): string | null {
   // line a hiring supervisor checks hardest, and "iti_diploma — Machinist" is worse than
   // "Machinist" alone. The DTO validates against these same dictionaries, so an unknown can only
   // arrive from a row written before an option was retired.
+  //
+  // ADR-0058: free-text field/institute are resume English — Hinglish filler stripped,
+  // Devanagari dropped (null), casing via titleCaseName. Closed slugs stay untouched.
   return join(
     [
       join(
         [
           record.credential === null ? null : labelFor(EDUCATION_QUALIFICATIONS, record.credential),
-          record.field,
+          englishCredentialFragment(record.field),
         ],
         CREDENTIAL_SEP,
       ),
       record.council === null ? null : labelFor(EDUCATION_COUNCILS, record.council),
       record.year === null ? null : String(record.year),
-      record.institute,
+      englishProviderName(record.institute),
     ],
     SEGMENT_SEP,
   );
@@ -155,9 +302,14 @@ export function educationLine(record: WorkerEducationRecord): string | null {
  * value; the comma appears only when both are there to separate.
  */
 export function certificateLine(record: WorkerCertificateRecord): string | null {
-  const name = record.name.trim();
+  // ADR-0058: resume English — the stored name/issuer may be verbatim Hinglish from chat
+  // (`training_name` capture) or typed text. Filler stripped, Devanagari dropped.
+  const name = englishCredentialFragment(record.name);
   if (!name) return null;
-  const inside = join([record.issuer, record.year === null ? null : String(record.year)], ", ");
+  const inside = join(
+    [englishProviderName(record.issuer), record.year === null ? null : String(record.year)],
+    ", ",
+  );
   return inside === null ? name : `${name} (${inside})`;
 }
 
@@ -199,7 +351,16 @@ export function certificateFacts(records: readonly WorkerCertificateRecord[]): s
  * has no number and no expiry (Layer A (d)); those belong to the certificate that is a licence.
  */
 export function trainingLine(record: WorkerTrainingRecord): string | null {
-  return certificateLine({ name: record.name, issuer: record.provider, year: record.year });
+  // ADR-0058 Faid Shah case: "Fireman ki training (training Maine Delhi School of
+  // fire se, 2022)" -> "Fireman Training (Delhi School Of Fire, 2022)". Name keeps
+  // a single Training suffix; provider drops a leading training word + filler.
+  const name = englishTrainingName(record.name);
+  if (!name) return null;
+  const inside = join(
+    [englishProviderName(record.provider), record.year === null ? null : String(record.year)],
+    ", ",
+  );
+  return inside === null ? name : `${name} (${inside})`;
 }
 
 /** Every training the worker attended, in their own order. */
