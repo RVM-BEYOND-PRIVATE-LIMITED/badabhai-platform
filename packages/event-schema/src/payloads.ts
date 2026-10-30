@@ -4132,6 +4132,42 @@ export const ProfileFormOfferDeclinedPayload = z
 export type ProfileFormOfferDeclinedPayload = z.infer<typeof ProfileFormOfferDeclinedPayload>;
 
 /**
+ * THE WORKER WAS OFFERED THE OPTIONAL DEPTH (Middle-Way C2 stop rule, P3b).
+ *
+ * The 8 required slots settled with optional questions still unasked, and the
+ * worker was asked whether to spend 2 more minutes. PII-FREE: two ids, one
+ * pack id. `.strict()`.
+ */
+export const ProfileOptionalOfferedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which trade pack the offer was made on. */
+    pack_id: z.string(),
+  })
+  .strict();
+export type ProfileOptionalOfferedPayload = z.infer<typeof ProfileOptionalOfferedPayload>;
+
+/**
+ * THE WORKER DECLINED THE OPTIONAL DEPTH (Middle-Way C2 stop rule, P3b).
+ *
+ * `unclear` is counted apart for the form offer's reason: treated exactly like
+ * a decline at the interview level (settled, never re-served; the interview
+ * closes), but a growing `unclear` share reads as the parser needing teaching.
+ * PII-FREE: two ids, one closed-set reply. `.strict()`.
+ */
+export const ProfileOptionalOfferDeclinedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    reply: z.enum(["declined", "unclear"]),
+  })
+  .strict();
+export type ProfileOptionalOfferDeclinedPayload = z.infer<
+  typeof ProfileOptionalOfferDeclinedPayload
+>;
+
+/**
  * A WORKER FINISHED A TRADE FORM — every question they are still asked now has an answer.
  *
  * ═══ WHY THE HANDOVER EVENT IS NOT ENOUGH ═══

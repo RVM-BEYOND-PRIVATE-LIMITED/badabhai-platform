@@ -961,6 +961,26 @@ export const EVENT_REGISTRY = {
     payload: p.ProfileFormOfferDeclinedPayload,
   },
 
+  // THE OPTIONAL-DEPTH OFFER (Middle-Way C2 stop rule, P3b). The 8 required slots
+  // settled with optional questions still unasked, and the worker was asked whether
+  // to spend 2 more minutes. Offered minus declined (= accepted, which continues
+  // the interview rather than emitting) is the take-up the offer ruling exists to
+  // measure. v1.
+  "profile.optional_offered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileOptionalOfferedPayload,
+  },
+
+  // The worker declined the optional depth — explicitly (`declined`) or with a reply
+  // the binary reader could not read (`unclear`; interview-level decline, counted
+  // apart as the reader's miss rate). The interview closes required_complete. v1.
+  "profile.optional_offer_declined": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileOptionalOfferDeclinedPayload,
+  },
+
   // One physical submission arrived twice and the second copy was served from the reply cache
   // (#931). Structurally invisible otherwise — a duplicate returns before the engine is consulted,
   // so it writes no `chat_messages` row and emits no `chat.message_received`; the only prior

@@ -52,6 +52,9 @@ import { CHAT_OPENING_TEXT, CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies"
 import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
 // The free chat's copy from its import-free module, for the same reason.
 import { FREE_CHAT_REPLIES } from "./free-chat/free-chat.copy";
+// The optional-depth offer copy. `optional-offer.ts` is lexicon-only (no Nest graph),
+// the same property the two copy modules above are imported for.
+import { OPTIONAL_OFFER_PROMPT_TEXT } from "./optional-offer";
 
 /** Which code path can put this text in front of a worker. */
 export type ReplyProducer = "prompt" | "retry" | "clarify" | "why" | "constant";
@@ -127,6 +130,8 @@ export const CONSTANT_REPLIES: readonly string[] = [
   CLOSING_REPLY_TEXT,
   // Middle-Way C2 (P3a) — the 8-slots-done line, distinct from the drained close.
   REQUIRED_COMPLETE_REPLY_TEXT,
+  // Middle-Way C2 stop rule (P3b) — the one optional-depth offer.
+  OPTIONAL_OFFER_PROMPT_TEXT,
   CHAT_UNAVAILABLE_REPLY,
   DISAMBIGUATION_PROMPT_TEXT,
   // THE FIRST THING A WORKER HEARS, and until #679 the one line no guard could see: served by

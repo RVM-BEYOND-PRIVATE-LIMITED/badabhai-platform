@@ -8,11 +8,14 @@ import {
   askCount,
   clarify,
   closingReplyFor,
+  hasUnservedOptional,
+  isMiddleWayPack,
   MAX_ABUSIVE_TURNS,
   MAX_ASKS_PER_QUESTION,
   MAX_CONSECUTIVE_CLARIFIES,
   MAX_ENGINE_ASKS,
   MAX_ENGINE_TURNS,
+  MIDDLEWAY_TURNS_HARD_CAP,
   nextQuestion,
   progressReplyText,
   reAsk,
@@ -24,6 +27,7 @@ import {
   PROGRESS_REPLY_NO_COUNT_TEXT,
   PROGRESS_REPLY_PAIRS,
   REQUIRED_COMPLETE_REPLY_TEXT,
+  REQUIRED_TURNS_SOFT_CAP,
   type EnginePacks,
   type EngineState,
 } from "./next-question";
@@ -712,5 +716,106 @@ describe("Middle-Way required close (P3a) — the 8 settled slots end the interv
     expect(closingReplyFor("required_complete")).toBe(REQUIRED_COMPLETE_REPLY_TEXT);
     expect(closingReplyFor("complete")).toBe(CLOSING_REPLY_TEXT);
     expect(closingReplyFor(null)).toBe(CLOSING_REPLY_TEXT);
+  });
+});
+
+describe("Middle-Way stop rule (P3b) — 14-turn focus, 20-turn stop, optional offer gate", () => {
+  const trade = (key: string, mandatory = false) =>
+    item({ question_key: key, is_mandatory: mandatory });
+  const packs = (occupationItems: QuestionPackItem[], universalItems: QuestionPackItem[] = []) => ({
+    occupation: pack("qp_cnc_turning", occupationItems),
+    universal: pack("pk_universal", universalItems),
+  });
+  const settledAnswers = (keys: string[]): AnswerMap =>
+    toAnswerMap(
+      keys.map(
+        (key, i) =>
+          ({
+            question_key: key,
+            status: "answered",
+            target_field: key,
+            value_normalized: `v${i}`,
+            turn_answered: i + 1,
+          }) as unknown as AnswerRecord,
+      ),
+    );
+
+  const fullAnswers = (extra: string[] = []): AnswerMap =>
+    settledAnswers([
+      "primary_trade",
+      "turning_machine",
+      "turning_experience",
+      "turning_level",
+      "controller_brand",
+      "current_city",
+      "salary_expected",
+      "availability",
+      ...extra,
+    ]);
+
+  it("past 14 turns with the 8 unsettled, trade optionals wait for required slots", () => {
+    const p = packs(
+      [
+        trade("turning_experience", true),
+        trade("turning_machine", true),
+        trade("turning_level", true),
+        trade("turning_operation", false),
+      ],
+      [trade("current_city", true), trade("salary_expected")],
+    );
+    // Trade mandatories settled, one plain optional left, salary still open.
+    // The universal pool is NEVER filtered: the tail carries the matching-critical
+    // city/salary answers and every worker must reach it whole (sim invariant).
+    const base = settledAnswers(["turning_experience", "turning_machine", "turning_level", "current_city"]);
+    // At 14 turns the engine still serves the optional trade depth…
+    expect(nextQuestion(state({ answers: base, turn: REQUIRED_TURNS_SOFT_CAP }), p).questionKey).toBe(
+      "turning_operation",
+    );
+    // …past 14 it skips the trade optional and hurries the unsettled required slot.
+    expect(
+      nextQuestion(state({ answers: base, turn: REQUIRED_TURNS_SOFT_CAP + 1 }), p).questionKey,
+    ).toBe("salary_expected");
+  });
+
+  it("has no unconditional 20-turn stop in the engine — the cap lives in the offer path", () => {
+    // The 20-turn stop fires only after the worker ACCEPTED the optional offer
+    // (orchestrator-owned). The engine itself keeps asking past 20 so a worker
+    // who never got the offer is never cut off mid-required.
+    const p = packs([trade("turning_experience", true)], [trade("education")]);
+    const over = state({ turn: MIDDLEWAY_TURNS_HARD_CAP + 1 });
+    expect(nextQuestion(over, p).kind).toBe("ask");
+  });
+
+  it("past 20 with everything asked still drains to required_complete, not to a cap", () => {
+    const p = packs([trade("turning_experience", true)], [trade("education")]);
+    const over = state({
+      answers: fullAnswers(["education"]),
+      turn: MIDDLEWAY_TURNS_HARD_CAP + 1,
+    });
+    const decision = nextQuestion(over, p);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("the caps do not touch other trades", () => {
+    const other: EnginePacks = {
+      occupation: pack("qp_welding", [trade("welding_process")]),
+      universal: pack("pk_universal", []),
+    };
+    const late = state({ turn: MIDDLEWAY_TURNS_HARD_CAP + 5 });
+    expect(nextQuestion(late, other).questionKey).toBe("welding_process");
+    expect(isMiddleWayPack("qp_welding")).toBe(false);
+    expect(isMiddleWayPack("qp_cnc_turning")).toBe(true);
+    expect(isMiddleWayPack(null)).toBe(false);
+  });
+
+  it("hasUnservedOptional is true only while optional depth remains", () => {
+    const p = packs([trade("turning_experience", true)], [trade("education")]);
+    expect(hasUnservedOptional(p, state())).toBe(true);
+    const doneAnswers = fullAnswers(["education"]);
+    expect(hasUnservedOptional(p, state({ answers: doneAnswers }))).toBe(false);
+    // Mandatory-only packs never gate an offer.
+    const mandOnly = packs([trade("turning_experience", true)], [trade("current_city", true)]);
+    expect(hasUnservedOptional(mandOnly, state())).toBe(false);
   });
 });
