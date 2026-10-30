@@ -40,11 +40,12 @@ interface PackItem {
 
 const PACK_PATH = join(
   __dirname,
-  "../../../../packages/db/data/question-packs/packs/qp_cnc_turning.json",
+  "../../../../packages/db/data/question-packs/packs/qp_cnc_turning@2.json",
 );
 const pack = JSON.parse(readFileSync(PACK_PATH, "utf8")) as { items: PackItem[] };
 
 const GATE_KEY = "turning_experience";
+const LEVEL_KEY = "turning_level";
 
 /** EXACTLY `pack-registry.service.ts:530`. A drift here is a test that stops protecting anything. */
 function resolveOptionValue(o: PackOption): unknown {
@@ -61,24 +62,42 @@ function answerFor(band: number | undefined) {
   return { [GATE_KEY]: { value_normalized: resolveOptionValue(chip) } };
 }
 
-function ctx(band: number | undefined) {
+/** The answer map produced by TAPPING the level chip `level` (Middle-Way C3). */
+function levelFor(level: string | undefined) {
+  if (level === undefined) return {};
+  const item = pack.items.find((i) => i.question_key === LEVEL_KEY);
+  const chip = (item?.options ?? []).find((o) => o.value_text === level);
+  if (!chip) throw new Error(`no ${LEVEL_KEY} chip with value_text ${level}`);
+  return { [LEVEL_KEY]: { value_normalized: resolveOptionValue(chip) } };
+}
+
+function ctx(band: number | undefined, level?: string) {
   return {
-    answers: answerFor(band),
+    answers: { ...answerFor(band), ...levelFor(level) },
     occupation: null,
     phase: "occupation_specific",
     turn: 5,
   } as never;
 }
 
-function askedFor(band: number | undefined): string[] {
+function askedFor(band: number | undefined, level?: string): string[] {
   return pack.items
-    .filter((i) => !i.ask_if || evaluatePredicate(i.ask_if as never, ctx(band)))
+    .filter((i) => !i.ask_if || evaluatePredicate(i.ask_if as never, ctx(band, level)))
     .map((i) => i.question_key);
 }
 
+/** Tier-1/2 items, detected through the Middle-Way `any(years OR level)` gates. */
+function gteConst(i: PackItem): unknown {
+  const ask = i.ask_if as
+    | { op: string; right?: { const?: unknown }; predicates?: { right?: { const?: unknown } }[] }
+    | undefined;
+  if (ask?.op === "any") return ask.predicates?.[0]?.right?.const;
+  return ask?.right?.const;
+}
+
 const tiered = pack.items.filter((i) => i.ask_if);
-const tier1 = tiered.filter((i) => i.ask_if?.right?.const === 2).map((i) => i.question_key);
-const tier2 = tiered.filter((i) => i.ask_if?.right?.const === 5).map((i) => i.question_key);
+const tier1 = tiered.filter((i) => gteConst(i) === 2).map((i) => i.question_key);
+const tier2 = tiered.filter((i) => gteConst(i) === 5).map((i) => i.question_key);
 
 /**
  * The active tail's item count, pinned so a tail change shows up here too. `qp_universal@4`
@@ -101,20 +120,20 @@ describe("qp_cnc_turning depth ladder", () => {
     }
   });
 
-  it("tier composition is 8 base / 3 gated at >=2 / 4 gated at >=5", () => {
-    expect(pack.items.length - tiered.length).toBe(8);
+  it("tier composition is 9 base / 3 gated at >=2-or-setter / 4 gated at >=5-or-programmer", () => {
+    expect(pack.items.length - tiered.length).toBe(9);
     expect(tier1).toHaveLength(3);
     expect(tier2).toHaveLength(4);
   });
 
-  it("a worker under 1 year gets the 8 base questions PLUS the 3 fresher items", () => {
+  it("a worker under 1 year gets the 9 base questions PLUS the 3 fresher items", () => {
     // R10 §2.6 — the FRESHER branch. §11 #1 puts training, trade test, workshop machines and
     // project work in a fresher's Zone 4, and nothing in the corpus asked any of it: persona 1
     // measured 125 mm of blank page. The three items are gated `lte 0`, so they are DISJOINT from
     // tiers 1 and 2 and cost a senior nothing — which is why the ask budget's worst case is
     // unchanged at 26.
     const asked = askedFor(0);
-    expect(asked).toHaveLength(11);
+    expect(asked).toHaveLength(12);
     for (const k of [...tier1, ...tier2]) expect(asked).not.toContain(k);
     for (const k of ["iti_workshop_machines", "trade_test_status", "iti_project_work"]) {
       expect(asked).toContain(k);
@@ -123,18 +142,35 @@ describe("qp_cnc_turning depth ladder", () => {
 
   it("a 1-3 year worker gets base + tier 1, and never tier 2", () => {
     const asked = askedFor(2);
-    expect(asked).toHaveLength(11);
+    expect(asked).toHaveLength(12);
     for (const k of tier1) expect(asked).toContain(k);
     for (const k of tier2) expect(asked).not.toContain(k);
   });
 
-  it("a 7+ year worker gets all 15 non-fresher items, and still fits the ask budget", () => {
+  it("a setter with under 2 years is asked the setter section anyway (Middle-Way C4)", () => {
+    const asked = askedFor(0, "setter");
+    for (const k of tier1) expect(asked).toContain(k);
+    for (const k of tier2) expect(asked).not.toContain(k);
+  });
+
+  it("a programmer with 3 years is asked the programming section (old 5-year wall bypassed)", () => {
+    const asked = askedFor(2, "programmer");
+    for (const k of [...tier1, ...tier2]) expect(asked).toContain(k);
+  });
+
+  it("level never closes a gate years already opened", () => {
+    // `any` only widens: a senior who answers "operator" keeps every section.
+    const asked = askedFor(10, "operator");
+    for (const k of [...tier1, ...tier2]) expect(asked).toContain(k);
+  });
+
+  it("a 7+ year worker gets all 16 non-fresher items, and still fits the ask budget", () => {
     const asked = askedFor(10);
-    expect(asked).toHaveLength(15);
+    expect(asked).toHaveLength(16);
     expect(asked.length + UNIVERSAL_ASKS).toBeLessThanOrEqual(ENGINE_ASK_BUDGET);
   });
 
   it("an unanswered gate asks nothing tiered — it fails closed, not open", () => {
-    expect(askedFor(undefined)).toHaveLength(8);
+    expect(askedFor(undefined)).toHaveLength(9);
   });
 });

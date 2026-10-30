@@ -9,7 +9,7 @@
   "version": 1,
   "family_id": "fam_vmc_milling",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising miller -- the same open redline the turner pack carries.",
   "items": [
     {

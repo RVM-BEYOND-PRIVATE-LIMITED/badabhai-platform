@@ -108,8 +108,23 @@ function asksFor(items: readonly PackItem[]): number {
 function tierValues(occupation: Pack): number[] {
   const gated = occupation.items.filter((i) => i.ask_if);
   const fields = new Set(gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean));
-  if (fields.size !== 1) return [];
-  const gate = occupation.items.find((i) => i.target_field === [...fields][0]);
+  if (fields.size === 0) return [];
+  let gateFields = [...fields];
+  if (gateFields.length !== 1) {
+    // MIDDLE-WAY OR-GATES name two fields (years + level). The tier gate is the
+    // NUMERIC one: level chips are strings, and a level never opens a section no
+    // experience band opens (setter⊆band-2+, programmer⊆band-5+), so the max over
+    // experience bands is still the true worst case. Exactly one numeric field
+    // must exist, or this falls back to the pessimistic sum below.
+    const numeric = gateFields.filter((f) => {
+      const owner = occupation.items.find((i) => i.target_field === f);
+      const opts = owner?.options ?? [];
+      return opts.length > 0 && opts.every((o) => typeof o.value_number === "number");
+    });
+    if (numeric.length !== 1) return [];
+    gateFields = numeric;
+  }
+  const gate = occupation.items.find((i) => i.target_field === gateFields[0]);
   const values = (gate?.options ?? [])
     .map((o) => o.value_number)
     .filter((v): v is number => typeof v === "number");
@@ -220,8 +235,14 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     //
     // v8 (owner ruling 2026-10-20) REMOVES the duplicate notice_period_days number from the
     // tail: the walk moves 36 -> 35 and the headroom moves 12 -> 13 in the same commit.
+    //
+    // v9 = Middle-Way P2 (C3+C4): every one of the four machining packs asks one more
+    // question of every worker (the level chip, Easy tier). 35 -> 36, headroom 13 -> 12.
+    // The `any(years OR level)` gates keep every tier keyed on the numeric experience
+    // field -- a level never opens a section no experience band opens -- so `tierValues`
+    // still maxes over experience bands and 36 is the walk a real worker walks.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(worst).toBe(35);
+    expect(worst).toBe(36);
   });
 
   it("keeps a POLICY headroom now — the runaway backstop moved to MAX_ENGINE_TURNS", () => {
@@ -239,9 +260,10 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     //           reorder which adds no item, then v7 removes secondary_occupations, then v8 removes
     //           the duplicate notice_period_days number),
     //           headroom 13.
-    // The `expect(worst).toBe(35)` above still pins the walk itself; this pins the posture.
+    //   P2:     walk 36 (four level questions, one per machining pack), headroom 12.
+    // The `expect(worst).toBe(36)` above still pins the walk itself; this pins the posture.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(MAX_ENGINE_ASKS - worst).toBe(13);
+    expect(MAX_ENGINE_ASKS - worst).toBe(12);
 
     // THE RUNAWAY GUARD DID NOT GO AWAY, IT MOVED. A blind run (every ask + every recovery
     // channel) must still terminate well inside a session worth of turns; infinity is banned.

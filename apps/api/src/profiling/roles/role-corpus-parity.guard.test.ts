@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -46,6 +46,7 @@ interface CorpusPack {
   pack_id: string;
   version: number;
   family_id: string;
+  status: string;
   items: {
     question_key: string;
     answer_type: string;
@@ -56,7 +57,15 @@ interface CorpusPack {
 }
 
 function loadPack(packId: string): CorpusPack {
-  return JSON.parse(readFileSync(join(PACK_DIR, `${packId}.json`), "utf8")) as CorpusPack;
+  // The ACTIVE version, not the v1 file: Middle-Way P2 publishes qp_*@2 and
+  // deprecates v1 in place, and the guard must check what workers are served.
+  const candidates = readdirSync(PACK_DIR)
+    .filter((f) => f === `${packId}.json` || (f.startsWith(`${packId}@`) && f.endsWith(".json")))
+    .map((f) => JSON.parse(readFileSync(join(PACK_DIR, f), "utf8")) as CorpusPack)
+    .sort((a, b) => a.version - b.version);
+  const active = [...candidates].reverse().find((p) => p.status === "active");
+  if (!active) throw new Error(`no active version of ${packId} in ${PACK_DIR}`);
+  return active;
 }
 
 describe("every enabled role agrees with the pack corpus", () => {
