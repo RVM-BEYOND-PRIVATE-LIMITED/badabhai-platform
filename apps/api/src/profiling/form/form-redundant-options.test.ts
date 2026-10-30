@@ -115,10 +115,14 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_cam_programming:machine_programmed",
       "qp_cam_programming@2:cam_software",
       "qp_cam_programming@2:machine_programmed",
+      "qp_cam_programming@3:cam_software",
+      "qp_cam_programming@3:machine_programmed",
       "qp_cnc_grinding:grinding_machine",
       "qp_cnc_grinding@2:grinding_machine",
+      "qp_cnc_grinding@3:grinding_machine",
       "qp_cnc_turning:turning_machine",
       "qp_cnc_turning@2:turning_machine",
+      "qp_cnc_turning@3:turning_machine",
       "qp_draughting:cad_software",
       "qp_draughting:draughting_field",
       "qp_fitting:fitting_type",
@@ -126,6 +130,7 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_toolmaking:tool_type",
       "qp_vmc_milling:milling_machine",
       "qp_vmc_milling@2:milling_machine",
+      "qp_vmc_milling@3:milling_machine",
       "qp_welding:welding_process",
     ]);
   }, 30_000);

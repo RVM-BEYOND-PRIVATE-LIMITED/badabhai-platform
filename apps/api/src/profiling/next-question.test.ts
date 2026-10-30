@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 
 import { recordAnswer, recordDeclined, toAnswerMap, type AnswerMap } from "./answer-map";
+import type { AnswerRecord } from "@badabhai/ai-contracts";
 import {
   askCount,
   clarify,
+  closingReplyFor,
   MAX_ABUSIVE_TURNS,
   MAX_ASKS_PER_QUESTION,
   MAX_CONSECUTIVE_CLARIFIES,
@@ -17,9 +19,11 @@ import {
   remainingQuestions,
   servedText,
   withoutProgressLead,
+  CLOSING_REPLY_TEXT,
   PROGRESS_REPLY_MAX_COUNT,
   PROGRESS_REPLY_NO_COUNT_TEXT,
   PROGRESS_REPLY_PAIRS,
+  REQUIRED_COMPLETE_REPLY_TEXT,
   type EnginePacks,
   type EngineState,
 } from "./next-question";
@@ -629,5 +633,84 @@ describe("reAsk — the question on screen again, as a counted ask (#2233)", () 
     ).toBeNull();
     expect(reAsk({ ...onScreen, needsDisambiguation: true }, packs, "training_year")).toBeNull();
     expect(reAsk({ ...onScreen, turn: MAX_ENGINE_TURNS + 1 }, packs, "training_year")).toBeNull();
+  });
+});
+
+describe("Middle-Way required close (P3a) — the 8 settled slots end the interview", () => {
+  const TURNER_8 = [
+    "primary_trade",
+    "turning_machine",
+    "turning_experience",
+    "turning_level",
+    "controller_brand",
+    "current_city",
+    "salary_expected",
+    "availability",
+  ];
+
+  function settledAnswers(keys: string[], declined: string[] = []): AnswerMap {
+    const answered = keys
+      .filter((key) => !declined.includes(key))
+      .map(
+        (key, i) =>
+          ({
+            question_key: key,
+            status: "answered",
+            target_field: key,
+            value_normalized: `v${i}`,
+            turn_answered: i + 1,
+          }) as unknown as AnswerRecord,
+      );
+    let map = toAnswerMap(answered);
+    declined.forEach((key, i) => {
+      map = recordDeclined(map, key, answered.length + i + 1);
+    });
+    return map;
+  }
+
+  function turnerPacks(): EnginePacks {
+    return {
+      occupation: pack("qp_cnc_turning", []),
+      universal: pack("pk_universal", []),
+    };
+  }
+
+  it("closes required_complete when all 8 Turner slots are answered", () => {
+    const decision = nextQuestion(
+      state({ answers: settledAnswers(TURNER_8) }),
+      turnerPacks(),
+    );
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("a declined slot counts as settled — 'nahi pata' closes, never re-asks", () => {
+    const answers = settledAnswers(
+      TURNER_8.filter((k) => k !== "salary_expected"),
+      ["salary_expected"],
+    );
+    const decision = nextQuestion(state({ answers }), turnerPacks());
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("closes plain complete when one required slot is still open", () => {
+    const answers = settledAnswers(TURNER_8.filter((k) => k !== "availability"));
+    const decision = nextQuestion(state({ answers }), turnerPacks());
+    expect(decision.completionReason).toBe("complete");
+  });
+
+  it("closes plain complete for a pack outside the Middle-Way four", () => {
+    const packs: EnginePacks = {
+      occupation: pack("qp_welding", []),
+      universal: pack("pk_universal", []),
+    };
+    const decision = nextQuestion(state({ answers: settledAnswers(TURNER_8) }), packs);
+    expect(decision.completionReason).toBe("complete");
+  });
+
+  it("closingReplyFor serves the Bas-ho-gaya line only for required_complete", () => {
+    expect(closingReplyFor("required_complete")).toBe(REQUIRED_COMPLETE_REPLY_TEXT);
+    expect(closingReplyFor("complete")).toBe(CLOSING_REPLY_TEXT);
+    expect(closingReplyFor(null)).toBe(CLOSING_REPLY_TEXT);
   });
 });

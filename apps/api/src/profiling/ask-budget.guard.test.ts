@@ -241,8 +241,14 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // The `any(years OR level)` gates keep every tier keyed on the numeric experience
     // field -- a level never opens a section no experience band opens -- so `tierValues`
     // still maxes over experience bands and 36 is the walk a real worker walks.
+    //
+    // v10 = Middle-Way P3a (C2): machine, level and controller are REQUIRED on all
+    // four machining packs. Three more mandatory items per pack = three more bounded
+    // re-asks on the worst walk: 36 -> 39, headroom 12 -> 9. Still inside the cap;
+    // the retry term is what `max_asks: 2` costs and "nahi pata" never pays it
+    // (declined settles, `isServable` never re-serves it).
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(worst).toBe(36);
+    expect(worst).toBe(39);
   });
 
   it("keeps a POLICY headroom now — the runaway backstop moved to MAX_ENGINE_TURNS", () => {
@@ -261,9 +267,11 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     //           the duplicate notice_period_days number),
     //           headroom 13.
     //   P2:     walk 36 (four level questions, one per machining pack), headroom 12.
-    // The `expect(worst).toBe(36)` above still pins the walk itself; this pins the posture.
+    //   P3a:    walk 39 (machine/level/controller mandatory on the four packs),
+    //           headroom 9.
+    // The `expect(worst).toBe(39)` above still pins the walk itself; this pins the posture.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(MAX_ENGINE_ASKS - worst).toBe(12);
+    expect(MAX_ENGINE_ASKS - worst).toBe(9);
 
     // THE RUNAWAY GUARD DID NOT GO AWAY, IT MOVED. A blind run (every ask + every recovery
     // channel) must still terminate well inside a session worth of turns; infinity is banned.

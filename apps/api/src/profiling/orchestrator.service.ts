@@ -241,6 +241,7 @@ import {
   askCeiling,
   askCount,
   clarify,
+  closingReplyFor,
   joinClarify,
   nextQuestion,
   progressReplyText,
@@ -1632,7 +1633,8 @@ export class ProfilingOrchestrator {
       // `buffer.turnCount` UNCHANGED, deliberately: `toEngineState`'s turn argument is what the
       // hard turn cap is judged against, and opening the screen is not a turn the worker spent.
       const decision = nextQuestion(toEngineState(envelope, buffer.turnCount), engine);
-      const reply = decision.kind === "close" ? CLOSING_REPLY : decision.promptText;
+      const reply =
+        decision.kind === "close" ? closingReplyFor(decision.completionReason) : decision.promptText;
       if (reply.trim().length === 0) {
         this.logger.error(
           `refusing to open session ${input.sessionId} with an empty reply kind=${decision.kind} ` +
@@ -3974,7 +3976,8 @@ export class ProfilingOrchestrator {
     // Failing closed instead writes NOTHING and returns a line the worker can retry into. That is
     // recoverable; a wall of empty bubbles is not. The guard is on the TEXT rather than on the
     // kind, so a pack whose prompt is whitespace cannot reintroduce this either.
-    const reply = decision.kind === "close" ? CLOSING_REPLY : decision.promptText;
+    const reply =
+      decision.kind === "close" ? closingReplyFor(decision.completionReason) : decision.promptText;
     if (reply.trim().length === 0) {
       this.logger.error(
         `refusing to serve an empty reply session=${input.sessionId} kind=${decision.kind} ` +

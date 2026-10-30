@@ -10,6 +10,7 @@ import {
   EDIT_GATE_LEAD_PAIRS,
   EDIT_GATE_LEAD_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
+  REQUIRED_COMPLETE_REPLY_TEXT,
   STEER_BACK_PAIR,
   STEER_BACK_TEXT,
 } from "./next-question";
@@ -106,6 +107,9 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
   // next-question.ts — served when the interview ends normally.
   "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.":
     "आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।",
+
+  // next-question.ts — Middle-Way C2 (P3a): the 8 required slots are done.
+  "Bas ho gaya. Resume ban raha hai.": "बस हो गया। रिज़्यूमे बन रहा है।",
 
   // next-question.ts — asked ABOUT the packs, so it lives in none of them.
   "Aap in mein se kaun sa kaam karte hain?": "आप इन में से कौन सा काम करते हैं?",
@@ -1326,6 +1330,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   DE_ESCALATION_REPLY_TEXT,
   ...HARDSHIP_REPLY_TEXTS,
   CLOSING_REPLY_TEXT,
+  REQUIRED_COMPLETE_REPLY_TEXT,
   CHAT_UNAVAILABLE_REPLY,
   DISAMBIGUATION_PROMPT_TEXT,
   CHAT_OPENING_TEXT,

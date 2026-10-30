@@ -35,6 +35,7 @@ import {
   DISAMBIGUATION_PROMPT_TEXT,
   HARDSHIP_REPLY_TEXTS,
   joinClarify,
+  REQUIRED_COMPLETE_REPLY_TEXT,
   servedText,
   PROGRESS_REPLY_TEXTS,
   PROFILE_PAGE_POINTER_TEXT,
@@ -124,6 +125,8 @@ export const CONSTANT_REPLIES: readonly string[] = [
   DE_ESCALATION_REPLY_TEXT,
   ...HARDSHIP_REPLY_TEXTS,
   CLOSING_REPLY_TEXT,
+  // Middle-Way C2 (P3a) — the 8-slots-done line, distinct from the drained close.
+  REQUIRED_COMPLETE_REPLY_TEXT,
   CHAT_UNAVAILABLE_REPLY,
   DISAMBIGUATION_PROMPT_TEXT,
   // THE FIRST THING A WORKER HEARS, and until #679 the one line no guard could see: served by
