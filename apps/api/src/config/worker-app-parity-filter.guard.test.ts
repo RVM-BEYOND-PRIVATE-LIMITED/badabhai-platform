@@ -199,8 +199,12 @@ describe("TD144 — the worker-app parity filter", () => {
   });
 
   it("is exported by the changes job", () => {
+    // The output is the paths-filter result on PR/push, but `merge_group` forces it on for the
+    // queue's combined commit (see the `merge_queue` step in `changes`). Pin the whole fallback:
+    // dropping either side would either break normal PRs or silently skip the parity tests in
+    // the queue.
     expect(jobBlock(CI, "changes")).toContain(
-      "worker-app-parity: ${{ steps.filter.outputs.worker-app-parity }}",
+      "worker-app-parity: ${{ steps.merge_queue.outputs.worker-app-parity || steps.filter.outputs.worker-app-parity }}",
     );
   });
 
