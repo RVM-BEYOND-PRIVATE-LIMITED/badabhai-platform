@@ -26,7 +26,7 @@ Base: `origin/main 03a90966` | Scope v1: 4 trades (Turner, VMC, Grinding, CAM) |
 | P2 C3+C4 gates | level to all, `years OR level` | done | - | corpus 169 packs valid; db pack 180+72 pass; api proof/parity/budget/registry 900+ pass; goldens regen; ai parity 17 pass |
 | P3a C2 required + close | v3 mandatory flags, required_complete + Bas-ho-gaya copy | done | - | corpus 173 packs valid; db 180+72 pass; api engine/proof/parity/budget/TTS/registry 1000+ pass; goldens regen; ai parity 17 pass |
 | P3b stop rule | 14-turn focus, 20-turn cap, one optional offer + end | done | - | engine 48 pass; offer module+flow 12 pass; envelope round-trip 50 pass; orchestrator 133 pass; TTS/golden/ai parity green; budget unchanged (39/9) |
-| P4 C5 aliases | §8 Hinglish for 4 trades | todo | - | §7 test 9 |
+| P4 C5 aliases | §8 Hinglish Turner+VMC (Grinding/CAM→P6) | done | - | router 82 pass; role registry/scope/invariants/parity/handover/identify 414 pass; db corpus+reachability 233 pass; typecheck+eslint clean |
 | P5 C6+display | crosswalk, headline `Trade · Level · Years`, badge, unlock hook ₹40 live | todo | - | §7 tests 5-6,8 |
 | P6 DoD+handover | 10 tests, expand plan 12, Claude Code pack | todo | - | §7 tests 1-10 |
 

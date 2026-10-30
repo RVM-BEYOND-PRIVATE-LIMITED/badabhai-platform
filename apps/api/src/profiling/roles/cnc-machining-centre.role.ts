@@ -41,9 +41,52 @@ export const CNC_MACHINING_CENTRE = {
       "vmc operator",
       "hmc operator",
       "मिलिंग",
+      // P4 MIDDLE-WAY §8.2 ALIAS STARTER (Turner + VMC only; Grinding/CAM in P6).
+      // Occupation-tier: a worker who says one has claimed the trade. Bare "vmc"/"hmc"
+      // stay machine terms (the pinned test at trade-form-router.test.ts:115 holds them
+      // to corroboration-only); these longer phrases route alone.
+      "vmc machine",
+      "milling machine",
     ],
-    machineTerms: ["vmc", "hmc", "mill", "vertical machining centre", "वीएमसी", "एचएमसी"],
-    levelTerms: ["setter", "setter cum programmer", "programmer", "operator", "सेटर"],
+    machineTerms: [
+      "vmc",
+      "hmc",
+      "mill",
+      "vertical machining centre",
+      "वीएमसी",
+      "एचएमसी",
+      // P4 MIDDLE-WAY §8.2 (slot 2 machine types + features). Machine-tier: corroborate
+      // a family pin, never route alone. "dmg"/"horizontal" are too broad to pin a
+      // family in retrieval, so they live here and not in rvm-aliases.jsonl.
+      "horizontal",
+      "4th axis",
+      "rotary table",
+      "indexer",
+      "5 axis",
+      "trunnion",
+      "dmg",
+    ],
+    levelTerms: [
+      "setter",
+      "setter cum programmer",
+      "programmer",
+      "operator",
+      "सेटर",
+      // P4 MIDDLE-WAY §8.2 (level signals). Level-tier: corroborate a family pin, never
+      // route alone, never veto. "Mastercam"/"PowerMill" are DELIBERATELY NOT HERE:
+      // they are CAM's occupation words, so a rival-occupation veto fires before this
+      // corroboration is ever read — listing them would document a route that cannot
+      // happen. The §8 "programmer" signal is still honoured: P2's level gate opens the
+      // programming sections on the rung, and "nx se program" (no rival owns "nx")
+      // corroborates the pin below.
+      "zero lagata hoon",
+      "edge finder",
+      "probe se zero",
+      "tool offset",
+      "length offset",
+      "h offset",
+      "nx se program",
+    ],
     extraConflictTerms: ["edm", "wire cut"],
   },
   fresher: {
