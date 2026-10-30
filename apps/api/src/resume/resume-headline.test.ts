@@ -45,6 +45,24 @@ describe("buildProfileHeadline — role · tenure · tools", () => {
     expect(buildProfileHeadline({ role: null, years: 8, tools: ["Fanuc"] })).toBeNull();
     expect(buildProfileHeadline({ role: "   ", years: 8, tools: [] })).toBeNull();
   });
+
+  it("prints the rung LAST, and only when the worker stated one (Middle Way P5)", () => {
+    expect(
+      buildProfileHeadline({
+        role: "CNC Turner",
+        years: 6,
+        tools: ["Fanuc"],
+        level: "Setter",
+      }),
+    ).toBe("CNC Turner · 6 yrs · Fanuc · Setter");
+    // Absent rung takes its separator with it — every pre-P5 render is byte-identical.
+    expect(
+      buildProfileHeadline({ role: "CNC Turner", years: 6, tools: ["Fanuc"], level: null }),
+    ).toBe("CNC Turner · 6 yrs · Fanuc");
+    expect(
+      buildProfileHeadline({ role: "CNC Turner", years: 6, tools: ["Fanuc"], level: "   " }),
+    ).toBe("CNC Turner · 6 yrs · Fanuc");
+  });
 });
 
 describe("buildProfileSummary — the headline plus the city", () => {
@@ -57,6 +75,18 @@ describe("buildProfileSummary — the headline plus the city", () => {
         city: "Faridabad",
       }),
     ).toBe("CNC Turner · 8 yrs · Fanuc · Faridabad");
+  });
+
+  it("slots the rung before the city (Middle Way P5)", () => {
+    expect(
+      buildProfileSummary({
+        role: "CNC Turner",
+        years: 8,
+        tools: ["Fanuc"],
+        level: "Setter",
+        city: "Faridabad",
+      }),
+    ).toBe("CNC Turner · 8 yrs · Fanuc · Setter · Faridabad");
   });
 
   it("a missing city takes its separator and nothing else", () => {

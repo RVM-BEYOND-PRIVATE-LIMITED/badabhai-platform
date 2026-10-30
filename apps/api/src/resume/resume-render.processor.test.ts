@@ -1649,6 +1649,7 @@ describe("ResumeRenderProcessor — the history card's facts (#1714)", () => {
       experienceYears: facts.years,
       machines: facts.tools,
       axes: facts.axes,
+      level: facts.level,
       city: facts.city,
       pageCount: 2,
     });

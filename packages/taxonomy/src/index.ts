@@ -251,6 +251,9 @@ export * from "./generic-pack-skills";
 // the persisted, worker-only-gated answer map (never written into `worker_profiles.skills`).
 export * from "./generic-pack-match-skills";
 export * from "./crosswalk-integrity";
+// Middle Way P5 (C6) — pack level answers → trade skill + `TradeLevel` (display-only;
+// never read by the match engine).
+export * from "./trade-levels";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
 export * from "./wedge-aliases";

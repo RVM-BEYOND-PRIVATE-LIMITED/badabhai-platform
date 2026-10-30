@@ -456,6 +456,8 @@ export type ResumeVerdictFacts = {
   readonly tools: readonly string[];
   /** Machine axes as printed labels ("3-axis"). Empty for every trade without an axis ask. */
   readonly axes: readonly string[];
+  /** The rung on the trade's ladder ("Setter"), or null when the worker stated none. */
+  readonly level: string | null;
   /** Where the worker is, as the subhead prints it. */
   readonly city: string | null;
 };

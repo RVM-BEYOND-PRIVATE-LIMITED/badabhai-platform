@@ -649,6 +649,10 @@ function buildUndegraded(
     shortLink: tradeSheet?.shortLink ?? null,
     footerMeta: tradeSheet?.footerMeta ?? null,
     transcriptVetoes,
+    // Middle Way P5 — the rung for the LAST headline segment. Computed once in
+    // `buildTradeCapabilityRows` and carried on the slots, on the same terms as
+    // `headlineTools`/`headlineAxes`: the caller already holds the capability.
+    headlineLevel: capability.headlineLevel,
     // ADR-0045 R6 — the brief under the headline, and the marker the document keys on. UNDEFINED,
     // not null, off the road: the key is then absent from every other sheet's render input, which
     // keeps those inputs byte-identical down to their JSON. On the road a null brief is a real
@@ -726,6 +730,7 @@ function buildUndegraded(
       capabilitySlots,
       capability.headlineTools,
       capability.headlineAxes,
+      capability.headlineLevel,
       tenureLabel,
       tradeSheet?.qualification,
       hasEmployments,
@@ -891,6 +896,10 @@ function buildUndegraded(
       // until R15 §1 gave it one; `draftQualification.machines` is the same draft column the
       // legacy branch reads, so this is now literally the same fact on both sides.
       tools: legacyHeadlineTools,
+      // Middle Way P5 — the rung, read off the pack's level answer. Computed once in
+      // `buildTradeCapabilityRows` and passed on both branches (see the container path),
+      // so the strip and the slots cannot print one worker's rung two ways.
+      level: capability.headlineLevel,
       city: legacyCity,
       availability: legacyAvailability,
       // §6.2 — see `tenureLabel`'s definition above the branch. THE LEGACY PATH IS THE ONE THAT
@@ -1071,6 +1080,7 @@ function buildUndegraded(
       years: legacyYears,
       tenureLabel,
       tools: legacyHeadlineTools,
+      level: capability.headlineLevel,
     }),
     // Issue #423 — the worker's CURRENT city is what belongs on a résumé, and it now
     // has its own field. The `preferred_cities[0]` fallback is NOT dead code: before
@@ -1096,7 +1106,7 @@ function buildUndegraded(
     ),
     // Layer A (h) — three sources, in precedence order: the worker's OWN summary, then the
     // ratified trade copy (only where a trade exists), then the deterministic strip
-    // (role · tenure · tools · city). Every leg is confirmed data; none is an LLM composition.
+    // (role · tenure · tools · level · city). Every leg is confirmed data; none is an LLM composition.
     summary:
       draft.experience.summary ??
       (trade ? buildSummary(draft, trade) : null) ??
@@ -1105,6 +1115,7 @@ function buildUndegraded(
         years: legacyYears,
         tenureLabel,
         tools: legacyHeadlineTools,
+        level: capability.headlineLevel,
         city: legacyCity,
       }),
     // Q14: canonical skill NAMES first (ids resolved to display labels — the résumé
@@ -1176,6 +1187,8 @@ function fromResumeProfile(
   headlineTools: string[],
   /** The pack's headline CONFIGURATION values — the Verdict Line's fourth segment (R16 §1). */
   headlineAxes: string[],
+  /** The pack's LEVEL answer as the headline label — the Verdict Line's last segment (P5). */
+  headlineLevel: string | null,
   /**
    * "Fresher", or null — the §6.2 tenure STATUS the worker's own form stated.
    *
@@ -1401,6 +1414,8 @@ function fromResumeProfile(
       availability: availabilityLabel,
       salary: salaryText,
       tenureLabel,
+      // Middle Way P5 — passed in on the same terms as `headlineTools` above.
+      level: headlineLevel,
       // R16 §1 — see the legacy branch. PASSED IN rather than read here, for the same reason
       // `headlineTools` is: this function receives `capabilitySlots` (a `Pick` of render-input
       // fields, which cannot carry a non-slot value) and never the `capability` object itself.
@@ -1442,7 +1457,7 @@ function fromResumeProfile(
     // there is no canonical id on this path and inventing one would put an unvalidated value
     // where the match engine trusts absolutely.
     canonicalRole: roleLabel,
-    // Layer A (h) — the richer `{{headline}}`: role · tenure · tools, the same segments the
+    // Layer A (h) — the richer `{{headline}}`: role · tenure · tools · level, the same segments the
     // Verdict Line composes with the same helpers, from confirmed fields only. The renderer
     // prefers this slot and falls back to `canonicalRole`, so an old snapshot without the
     // inputs renders exactly as before.
@@ -1451,6 +1466,7 @@ function fromResumeProfile(
       years: totalYears,
       tenureLabel,
       tools: headlineToolsResolved,
+      level: headlineLevel,
     }),
     trade: domainLabel,
     // WHERE THEY ARE, not where they want to work. #423 split these for exactly this reason;
@@ -1479,12 +1495,13 @@ function fromResumeProfile(
       draftQualification.noticeDays,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
-    // Layer A (h) — the deterministic strip: role · tenure · tools · city.
+    // Layer A (h) — the deterministic strip: role · tenure · tools · level · city.
     summary: buildProfileSummary({
       role: roleLabel ?? domainLabel,
       years: totalYears,
       tenureLabel,
       tools: headlineToolsResolved,
+      level: headlineLevel,
       city: cleanScalar(rp.current_city),
     }),
     // VERBATIM APART FROM BLANKS. These are the labels the model produced; no taxonomy

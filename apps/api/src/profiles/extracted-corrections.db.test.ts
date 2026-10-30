@@ -168,6 +168,61 @@ describe.skipIf(!RUN)("extracted corrections — SQL truth", () => {
     expect(authored.map((r) => r.skillId)).toEqual([SKILL_A]);
   });
 
+  it("upsertTradeLevels writes the rung and nothing else (Middle Way P5)", async () => {
+    const { levelsWritten } = await profileSkills.upsertTradeLevels(
+      PROFILE,
+      [{ skillId: SKILL_A, tradeLevel: "setter", levelConfirmed: true }],
+      SESSION,
+    );
+    expect(levelsWritten).toBe(1);
+    const [row] = await db
+      .select()
+      .from(workerProfileSkills)
+      .where(eq(workerProfileSkills.workerProfileId, PROFILE));
+    expect(row?.skillId).toBe(SKILL_A);
+    expect(row?.tradeLevel).toBe("setter");
+    expect(row?.levelConfirmed).toBe(true);
+    // Authored columns are the correction's (or the insert default), never the rung's.
+    expect(row?.source).toBe("worker_confirmed");
+    expect(row?.confidence).toBeNull();
+    expect(row?.evidenceRef).toBe(SESSION);
+
+    // A re-interview rewrites the rung but leaves every other column byte-identical.
+    await profileSkills.upsertTradeLevels(
+      PROFILE,
+      [{ skillId: SKILL_A, tradeLevel: "helper", levelConfirmed: false }],
+      uuid(0x1c06),
+    );
+    const [rewritten] = await db
+      .select()
+      .from(workerProfileSkills)
+      .where(eq(workerProfileSkills.workerProfileId, PROFILE));
+    expect(rewritten?.tradeLevel).toBe("helper");
+    expect(rewritten?.levelConfirmed).toBe(false);
+    expect(rewritten?.source).toBe("worker_confirmed");
+    expect(rewritten?.evidenceRef).toBe(SESSION);
+  });
+
+  it("replaceForProfile keeps the rung for kept skills and drops it with removed ones", async () => {
+    await profileSkills.upsertTradeLevels(
+      PROFILE,
+      [
+        { skillId: SKILL_A, tradeLevel: "setter", levelConfirmed: true },
+        { skillId: SKILL_B, tradeLevel: "programmer", levelConfirmed: true },
+      ],
+      SESSION,
+    );
+    await profileSkills.replaceForProfile(PROFILE, [SKILL_A], uuid(0x1c07));
+    const authored = await db
+      .select()
+      .from(workerProfileSkills)
+      .where(eq(workerProfileSkills.workerProfileId, PROFILE));
+    // Kept skill rides its rung through the correction; the removed skill leaves entirely.
+    expect(authored.map((r) => r.skillId)).toEqual([SKILL_A]);
+    expect(authored[0]?.tradeLevel).toBe("setter");
+    expect(authored[0]?.levelConfirmed).toBe(true);
+  });
+
   it("machines move display + snapshot together, verbatim", async () => {
     await profiles.setMachineLists(PROFILE, ["mach_cnc_lathe"]);
     const row = await profiles.findById(PROFILE);

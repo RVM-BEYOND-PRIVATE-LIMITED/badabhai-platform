@@ -11,6 +11,10 @@ import {
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import {
+  normalizeTradeLevelKey,
+  priceTierForLevels,
+} from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
@@ -361,6 +365,22 @@ export class UnlockService {
         }
 
         // ---- [3] PAYMENT / credit debit (atomic with [4] grant; F-6) ----------
+        //
+        // Middle Way P5 price-tier HOOK (spec §4.1). The tier is READ here, from the
+        // worker's stated rungs at grant time — and then deliberately NOTHING happens
+        // with it: the debit below stays exactly one credit (₹40 flat live), and the
+        // tier rides only this log line (ids + tier, no PII). When the CEO rules the
+        // Higher/Lower prices, THIS is the call site that quotes them: the rung read
+        // is done, the debit is the one expression to change, and the log proves the
+        // tiers were already flowing before money ever depended on them.
+        const priceTier = priceTierForLevels(
+          (await this.repo.findTradeLevels(tx, workerId)).map((r) =>
+            normalizeTradeLevelKey(r.tradeLevel),
+          ),
+        );
+        this.logger.log(
+          `unlock price tier worker=${workerId} tier=${priceTier} job=${jobContext ?? "none"}`,
+        );
         // The TENANT's wallet row: in `on`, two members spending at once serialize on the org
         // wallet's row lock inside this UPDATE, so the team can never overdraw it.
         const debit = await this.payments.debitOneCreditWithinTx(tx, tenant);

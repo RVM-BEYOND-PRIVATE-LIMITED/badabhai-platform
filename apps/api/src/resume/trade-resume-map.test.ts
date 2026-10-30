@@ -199,6 +199,25 @@ describe("trade resume map — qp_cnc_turning", () => {
     expect(a).toEqual(b);
   });
 
+  it("reads the rung for the LAST headline segment off the level answer (Middle Way P5)", () => {
+    // The stored spelling (value_text) and the pack's option key both land canonically.
+    expect(
+      buildTradeCapabilityRows("qp_cnc_turning", { turning_level: "setter_programmer" })
+        .headlineLevel,
+    ).toBe("Setter-cum-Programmer");
+    expect(
+      buildTradeCapabilityRows("qp_cnc_turning", { turning_level: "setter_cum_programmer" })
+        .headlineLevel,
+    ).toBe("Setter-cum-Programmer");
+    expect(
+      buildTradeCapabilityRows("qp_cam_programming", { cam_level: "senior_programmer" })
+        .headlineLevel,
+    ).toBe("Senior Programmer");
+    // Unstated, unknown pack, or an unmapped rung: no segment.
+    expect(buildTradeCapabilityRows("qp_cnc_turning", {}).headlineLevel).toBeNull();
+    expect(buildTradeCapabilityRows("qp_welding", {}).headlineLevel).toBeNull();
+  });
+
   it("builds the full sheet for a realistic senior turner", () => {
     const rows = buildTradeCapabilityRows("qp_cnc_turning", {
       turning_machine: ["cnc_lathe", "conventional_lathe"],
@@ -291,6 +310,7 @@ describe("trade resume map — qp_cnc_turning", () => {
       sectionTitle: null,
       headlineTools: [],
       headlineAxes: [],
+      headlineLevel: null,
       chipRows: [],
       tickRows: [],
       factRows: [],

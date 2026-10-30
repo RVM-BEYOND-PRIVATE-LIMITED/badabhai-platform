@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { effectiveTier, type RankInputs } from "@badabhai/match-engine";
-import { matchSkillLabel } from "@badabhai/taxonomy";
+import { matchSkillLabel, TRADE_LEVEL_LABELS, type TradeLevel } from "@badabhai/taxonomy";
 import { MatchConfigService } from "./match-config.service";
 import { MatchFeedRepository, type CandidateRow } from "./match-feed.repository";
 import { OPS_LIST_CAP } from "../common/pagination";
@@ -37,6 +37,27 @@ export interface MatchCandidateRowDto {
   matchedSkillLabel: string | null;
   /** The rule version that produced these numbers (Policy 24). */
   engineVersion: string | null;
+  /**
+   * Middle Way P5 — the rungs he stated, per trade skill, for the level badge.
+   * Display-only, like `matchedSkillLabel`: never a rank input, and an empty array
+   * when he stated none. The card picks the rung for the trade it is showing; the
+   * API hands over every rung with both labels resolved so the card never does.
+   */
+  tradeLevels: TradeLevelBadge[];
+}
+
+/** One rung on the candidate's card — closed vocabularies, both resolved server-side. */
+export interface TradeLevelBadge {
+  /** The trade skill the rung sits on (an `mskill_*` id). */
+  skillId: string;
+  /** The trade's display label, when the taxonomy knows it. */
+  skillLabel: string | null;
+  /** The stored rung key. */
+  tradeLevel: string;
+  /** The printed rung ("Setter"), or the raw key when the taxonomy does not know it. */
+  tradeLevelLabel: string;
+  /** True once the separating question was answered (Setter and above only). */
+  levelConfirmed: boolean;
 }
 
 export interface MatchCandidateListDto {
@@ -163,6 +184,28 @@ export function toMatchCandidateRowDto(
     matchedSkillLabel:
       row.matchedSkillId === null ? null : (matchSkillLabel(row.matchedSkillId) ?? null),
     engineVersion: row.engineVersion,
+    tradeLevels: row.tradeLevels.map(toTradeLevelBadge),
+  };
+}
+
+/**
+ * One stored rung → the card's badge facts. Both labels resolve here so the card
+ * never maps ids: an unknown skill prints no trade name (null, not a guess), and
+ * an unknown rung prints its own key (visible, so a bad row is reviewable rather
+ * than silently blank).
+ */
+function toTradeLevelBadge(row: {
+  skillId: string;
+  tradeLevel: string;
+  levelConfirmed: boolean;
+}): TradeLevelBadge {
+  return {
+    skillId: row.skillId,
+    skillLabel: matchSkillLabel(row.skillId) ?? null,
+    tradeLevel: row.tradeLevel,
+    tradeLevelLabel:
+      TRADE_LEVEL_LABELS[row.tradeLevel as TradeLevel] ?? row.tradeLevel,
+    levelConfirmed: row.levelConfirmed,
   };
 }
 

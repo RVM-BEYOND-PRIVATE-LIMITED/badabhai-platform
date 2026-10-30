@@ -256,6 +256,11 @@ function make(
   const workerAttributes = {
     upsertMany: vi.fn(async (rows: unknown[]) => rows.length),
   };
+  // Middle Way P5 — the rung writer. Records the call so the persist hook is asserted
+  // directly; the rung-column rules live in `ProfileSkillsRepository`, not here.
+  const profileSkills = {
+    upsertTradeLevels: vi.fn(async () => ({ levelsWritten: 1 })),
+  };
   // Layer A elicitation — the chat→normalized-table write leg. Never-throwing stub; the leg's own
   // rules are asserted in `chat-table-writes.test.ts`, not through this processor.
   const chatTableWrites = {
@@ -297,6 +302,7 @@ function make(
     matchSkills as never,
     skills as never,
     workerAttributes as never,
+    profileSkills as never,
     chatTableWrites as never,
     resumeImports as never,
     employments as never,
@@ -338,6 +344,7 @@ function make(
     skills,
     workerAttributes,
     chatTableWrites,
+    profileSkills,
     resumeImports,
     employments,
     traces,
@@ -1820,6 +1827,75 @@ describe("fill-gap Phase 1 — the two new chat facts reach worker_attributes", 
       valueTextList: ["permanent", "daily_wage"],
       valueText: null,
     });
+  });
+});
+
+describe("Middle Way P5 — the level answer persists onto the authored skill row", () => {
+  /**
+   * The rung is read off the SAME projected answers the attribute write stores, so
+   * the headline and `trade_level` cannot disagree. The row lands on
+   * `worker_profile_skill` (authored, display-only) — never through the match derive
+   * path, so reach and rank cannot move (DoD §7.7/8).
+   */
+  const levelMap = (value: unknown) => ({
+    conversationState: {
+      answer_map: [
+        record({
+          question_key: "turning_level",
+          target_field: "turning_level",
+          value_normalized: value,
+        }),
+      ],
+      occupation: { ...PIN, pack_id: "qp_cnc_turning" },
+      pack_id: "qp_cnc_turning",
+      pack_version: 3,
+    },
+  });
+
+  it("a stated rung upserts the trade skill row — skill, rung, confirmation", async () => {
+    const { proc, profileSkills } = make(levelMap("setter"));
+    await proc.process(makeJob());
+
+    expect(profileSkills.upsertTradeLevels).toHaveBeenCalledOnce();
+    expect(profileSkills.upsertTradeLevels).toHaveBeenCalledWith(
+      PROFILE,
+      [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true }],
+      JOB.sessionId,
+    );
+  });
+
+  it("a helper rung is written but not confirmed", async () => {
+    const { proc, profileSkills } = make(levelMap("helper"));
+    await proc.process(makeJob());
+
+    expect(profileSkills.upsertTradeLevels).toHaveBeenCalledWith(
+      PROFILE,
+      [{ skillId: "mskill_cnc_turner", tradeLevel: "helper", levelConfirmed: false }],
+      JOB.sessionId,
+    );
+  });
+
+  it("no level answer, no level row — and no other pack's key leaks in", async () => {
+    const { proc, profileSkills } = make(levelMap("boss"));
+    await proc.process(makeJob());
+    expect(profileSkills.upsertTradeLevels).not.toHaveBeenCalled();
+
+    const { proc: proc2, profileSkills: skills2 } = make({
+      conversationState: {
+        answer_map: [
+          record({
+            question_key: "turning_machine",
+            target_field: "turning_machine",
+            value_normalized: "cnc_lathe",
+          }),
+        ],
+        occupation: { ...PIN, pack_id: "qp_cnc_turning" },
+        pack_id: "qp_cnc_turning",
+        pack_version: 3,
+      },
+    });
+    await proc2.process(makeJob());
+    expect(skills2.upsertTradeLevels).not.toHaveBeenCalled();
   });
 });
 

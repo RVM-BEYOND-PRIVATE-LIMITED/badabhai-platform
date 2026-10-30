@@ -344,6 +344,7 @@ describe("the general road's document, and #1736's layout and lists", () => {
       experienceYears: null,
       machines: ["House wiring", "Panel fitting", "MCB installation"],
       axes: [],
+      level: null,
       city: null,
       pageCount: 1,
     });
@@ -363,6 +364,7 @@ describe("the glance (#1714)", () => {
     years: 2,
     tools: ["VMC"],
     axes: ["3-axis", "4-axis"],
+    level: "Setter",
     city: "Manesar",
   } as const;
   const WITH_FACTS: ResumeRenderInput = { ...BASE, verdictFacts: FACTS };
@@ -373,6 +375,7 @@ describe("the glance (#1714)", () => {
       experienceYears: 2,
       machines: ["VMC"],
       axes: ["3-axis", "4-axis"],
+      level: "Setter",
       city: "Manesar",
       pageCount: 1,
     };
@@ -396,6 +399,7 @@ describe("the glance (#1714)", () => {
       experienceYears: null,
       machines: [],
       axes: [],
+      level: null,
       city: null,
       pageCount: null,
     });
@@ -410,6 +414,7 @@ describe("the glance (#1714)", () => {
       experienceYears: 2,
       machines: ["VMC"],
       axes: ["3-axis", "4-axis"],
+      level: "Setter",
       city: "Manesar",
       pageCount: 2,
     });

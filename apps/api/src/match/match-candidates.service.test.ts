@@ -40,6 +40,7 @@ function candidate(id: string, over: Partial<CandidateRow> = {}): CandidateRow {
     createdAt: CREATED,
     engineVersion: "v1.0",
     matchedSkillId: "mskill_vmc_operator",
+    tradeLevels: [],
     ...over,
   };
 }
@@ -116,6 +117,32 @@ describe("MatchCandidatesService — tier-with-floor at the boundary (owner ruli
     const out = await svc.listForPosting(JOB);
     expect(out.applicants[0]!.matchTier).toBeNull();
     expect(out.applicants[0]!.effectiveTier).toBeNull();
+  });
+
+  it("carries the stated rungs with both labels resolved (Middle Way P5 badge)", async () => {
+    const { svc } = setup([
+      candidate("a", {
+        tradeLevels: [
+          { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+        ],
+      }),
+    ]);
+    const out = await svc.listForPosting(JOB);
+    expect(out.applicants[0]!.tradeLevels).toEqual([
+      {
+        skillId: "mskill_cnc_turner",
+        skillLabel: "CNC Turner",
+        tradeLevel: "setter",
+        tradeLevelLabel: "Setter",
+        levelConfirmed: true,
+      },
+    ]);
+  });
+
+  it("an unstated rung is an empty badge, never an absent field", async () => {
+    const { svc } = setup([candidate("a")]);
+    const out = await svc.listForPosting(JOB);
+    expect(out.applicants[0]!.tradeLevels).toEqual([]);
   });
 });
 
@@ -213,6 +240,7 @@ describe("MatchCandidatesService — the row a payer reads before paying", () =>
         "matchedSkillLabel",
         "rank",
         "skillMonths",
+        "tradeLevels",
         "workerId",
       ].sort(),
     );

@@ -87,6 +87,7 @@ import {
 import { jobDomains } from "./occupation";
 import { skills } from "./skill";
 import { workerProfiles } from "./profile";
+import type { TradeLevel } from "@badabhai/taxonomy";
 import { jobPostings } from "./job";
 
 // ===========================================================================
@@ -128,29 +129,16 @@ export type WorkerProfileSkillSource =
 export type WorkerSkillLevel = "beginner" | "intermediate" | "advanced";
 
 /**
- * Middle-Way trade level (P1, additive). Per worker per trade, stored on the
- * `worker_profile_skill` row whose skillId is the trade's `mskill_*`.
- * NULL = not stated, never guessed. Closed per-trade ladders live in
- * `docs/middle-way/LADDERS.md`; validation is app-level so new ladders never
+ * Middle-Way trade level (P1, additive; union lives in `@badabhai/taxonomy`
+ * `trade-levels.ts` since P5 so the C6 crosswalk, the persist writer and the
+ * headline share it with this column).
+ *
+ * Per worker per trade, stored on the `worker_profile_skill` row whose skillId is
+ * the trade's `mskill_*`. NULL = not stated, never guessed. Closed per-trade ladders
+ * live in `docs/middle-way/LADDERS.md`; validation is app-level so new ladders never
  * need a migration. Old `level` column is untouched.
  */
-export type TradeLevel =
-  | "helper"
-  | "trainee"
-  | "operator"
-  | "draughtsman"
-  | "trainee_modeller"
-  | "cad_designer"
-  | "setter"
-  | "setter_programmer"
-  | "programmer"
-  | "junior_programmer"
-  | "senior_programmer"
-  | "senior_draughtsman"
-  | "senior_designer"
-  | "lead_checker"
-  | "design_engineer_lead"
-  | "supervisor";
+export type { TradeLevel };
 
 /** How a skill got onto a specific company's posting. */
 export type JobPostingSkillSource =

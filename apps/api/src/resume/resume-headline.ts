@@ -8,8 +8,8 @@ import { joinSegments, tenurePhrase, toolsPhrase } from "./resume-sheet-rows";
  * One place that composes the two text slots the generic layouts print (`{{headline}}` and
  * `{{summary}}`), from CONFIRMED data and nothing else:
  *
- *   headline = role · tenure · tools
- *   summary  = role · tenure · tools · city
+ *   headline = role · tenure · tools · level
+ *   summary  = role · tenure · tools · level · city
  *
  * NO LLM, and that is not a style preference: the résumé's headline is the first thing a
  * supervisor reads, and §8 admits only three sources for a printed atom (a closed-vocabulary
@@ -41,10 +41,12 @@ export interface ProfileLineFacts {
   readonly tenureLabel?: string | null;
   /** Machines, controllers, skills — in that precedence, from the caller's own resolution. */
   readonly tools: readonly string[];
+  /** The rung on the trade's ladder ("Setter") — Middle Way P5, printed last. */
+  readonly level?: string | null;
 }
 
 /**
- * `{{headline}}` — "CNC Turner · 5 yrs 3 mo · Fanuc, Siemens".
+ * `{{headline}}` — "CNC Turner · 5 yrs 3 mo · Fanuc, Siemens · Setter".
  *
  * NULL WITHOUT A ROLE, and that is a policy rather than a side effect: tenure, tools and city
  * are MODIFIERS of who the worker is, and "5 yrs · Fanuc · Pune" alone would be a headline about
@@ -58,17 +60,19 @@ export function buildProfileHeadline(facts: ProfileLineFacts): string | null {
     role,
     tenurePhrase(facts.years, facts.tenureLabel ?? null),
     toolsPhrase(facts.tools),
+    facts.level?.trim() || null,
   ]);
 }
 
 /**
- * `{{summary}}` — the headline plus the city: role · tenure · tools · city.
+ * `{{summary}}` — the headline plus the city: role · tenure · tools · level · city.
  *
  * NOT A SENTENCE, and that is the ruling this function records: the sheet's own design language
  * is a middle-dot strip (the verdict line, the terms rows), every atom in it is independently
  * verifiable against what the worker stated, and a composed sentence would need either new
  * fabrication-gate permissions or an LLM — both of which cost more than the register is worth.
- * A supplier reading "CNC Turner · 5 yrs 3 mo · Fanuc · Pune" gets the four facts in one scan.
+ * A supplier reading "CNC Turner · 5 yrs 3 mo · Fanuc · Setter · Pune" gets the five facts in
+ * one scan.
  *
  * The role-required policy is {@link buildProfileHeadline}'s, restated.
  */
@@ -81,6 +85,7 @@ export function buildProfileSummary(
     role,
     tenurePhrase(facts.years, facts.tenureLabel ?? null),
     toolsPhrase(facts.tools),
+    facts.level?.trim() || null,
     facts.city,
   ]);
 }

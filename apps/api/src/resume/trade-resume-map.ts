@@ -24,6 +24,7 @@
  * and both are deliberate.
  */
 import type { ResumeFactRow, ResumeListRow } from "./resume-renderer.service";
+import { TRADE_LEVEL_PACKS, tradeLevelLabelFor } from "@badabhai/taxonomy";
 
 /** Which block of the sheet a row belongs to, and how its values are drawn. */
 export type TradeRowKind = "chips" | "ticks" | "fact";
@@ -3267,6 +3268,16 @@ export interface TradeCapabilityRows {
    * collapses with its separator.
    */
   readonly headlineAxes: string[];
+  /**
+   * The Verdict Line's LAST segment (Middle Way P5) — the worker's rung on this trade's
+   * ladder ("Setter", "Senior Programmer"), from the pack's level answer.
+   *
+   * NULL WHEN THE WORKER STATED NO RUNG, and the segment collapses with its separator
+   * exactly like every absent segment here. Read off the stored answer through the C6
+   * crosswalk, never off a pack chip: the headline and the persisted `trade_level`
+   * are two renderings of one fact and cannot disagree.
+   */
+  readonly headlineLevel: string | null;
   readonly chipRows: ResumeListRow[];
   readonly tickRows: ResumeListRow[];
   readonly factRows: ResumeFactRow[];
@@ -3367,7 +3378,15 @@ export function buildTradeCapabilityRows(
   const headlineTools: string[] = [];
   const headlineAxes: string[] = [];
   if (!map)
-    return { sectionTitle: null, headlineTools, headlineAxes, chipRows, tickRows, factRows };
+    return {
+      sectionTitle: null,
+      headlineTools,
+      headlineAxes,
+      headlineLevel: null,
+      chipRows,
+      tickRows,
+      factRows,
+    };
 
   // THE BUDGET IS APPLIED BEFORE ANYTHING IS BUILT, and the two orderings are kept apart on
   // purpose. Which rows SURVIVE is decided by `rank` (§5.1 decisiveness); the order they RENDER in
@@ -3426,10 +3445,19 @@ export function buildTradeCapabilityRows(
   // The heading is suppressed when the trade produced no rows at all: the template collapses the
   // section on emptiness, and a title is not content.
   const empty = chipRows.length === 0 && tickRows.length === 0 && factRows.length === 0;
+  // Middle Way P5 — the rung for the LAST headline segment, read off the stored level
+  // answer through the C6 crosswalk (same closed vocabulary the persist writes, so the
+  // sheet and `trade_level` cannot disagree). Null when the worker stated no rung.
+  const levelEntry = packId == null ? undefined : TRADE_LEVEL_PACKS[packId];
+  const headlineLevel =
+    levelEntry === undefined
+      ? null
+      : tradeLevelLabelFor(packId as string, attributes[levelEntry.levelKey]);
   return {
     sectionTitle: empty ? null : map.section_title,
     headlineTools,
     headlineAxes,
+    headlineLevel,
     chipRows,
     tickRows,
     factRows,
