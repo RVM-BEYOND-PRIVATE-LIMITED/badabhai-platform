@@ -33,10 +33,23 @@ describe("routeToTradeForm", () => {
       ["CNC Turning", "Operator", null],
       ["Machining", "turning operator", null],
       ["सीएनसी", "टर्नर", null],
+      // P4 MIDDLE-WAY §8.1 STARTER — occupation-tier phrases route alone.
+      ["CNC Machining", "CNC kharad", null],
+      ["Manufacturing", "lathe wala", null],
+      ["Manufacturing", "turning karta hoon", null],
+      ["Manufacturing", "kharad wala", null],
       // Machine-only evidence, corroborated by the pin retrieval made independently.
       ["Manufacturing", "lathe operator", "fam_cnc_turning"],
       ["Manufacturing", "khraad chalata hoon", "fam_cnc_turning"],
       ["विनिर्माण", "खराद ऑपरेटर", "fam_cnc_turning"],
+      // P4 MIDDLE-WAY §8.1 — slot-2 machine types corroborate the pin.
+      ["Manufacturing", "vtl operator", "fam_cnc_turning"],
+      ["Manufacturing", "live tool lathe", "fam_cnc_turning"],
+      ["Manufacturing", "twin spindle", "fam_cnc_turning"],
+      // P4 MIDDLE-WAY §8.1 — rung phrases corroborate the pin, never route alone.
+      ["Manufacturing", "setting karta hoon", "fam_cnc_turning"],
+      ["Manufacturing", "program edit kar leta hoon", "fam_cnc_turning"],
+      ["Manufacturing", "line sambhalta hoon", "fam_cnc_turning"],
     ];
     for (const [domain, role, family] of turners) {
       it(`${JSON.stringify({ domain, role, family })}`, () => {
@@ -91,6 +104,13 @@ describe("routeToTradeForm", () => {
     it("vetoes even when the turning family is pinned", () => {
       expect(route("CNC Machining", "CNC Turner cum VMC Operator", "fam_cnc_turning")).toBeNull();
     });
+
+    it("P4 — 'turn mill' stays vetoed even with the pin: it names a mill", () => {
+      // "turn mill" pins the turning family in retrieval (the rvm-alias row), but the
+      // handover reads the standalone word "mill" — a competing machine — and withholds
+      // the form. A turn-mill hand who also says kharad/turning routes on those words.
+      expect(route("Manufacturing", "turn mill operator", "fam_cnc_turning")).toBeNull();
+    });
   });
 
   describe("the machining-centre form, enabled in Batch 1", () => {
@@ -105,6 +125,10 @@ describe("routeToTradeForm", () => {
       ["Manufacturing", "milling machine operator"],
       ["CNC Machining", "HMC Operator"],
       ["Manufacturing", "मिलिंग"],
+      // P4 MIDDLE-WAY §8.2 STARTER — occupation-tier phrases route alone.
+      ["Manufacturing", "VMC machine"],
+      ["Manufacturing", "machining centre"],
+      ["Manufacturing", "machining center"],
     ];
     for (const [domain, role] of milling) {
       it(`${role} reaches the machining-centre form and not the turner's`, () => {
@@ -119,6 +143,30 @@ describe("routeToTradeForm", () => {
       // when it would quietly stop holding.
       expect(route("Manufacturing", "vmc", null)).toBeNull();
       expect(route("Manufacturing", "vmc", "fam_vmc_milling")).toBe("vmc_milling");
+    });
+
+    it("P4 §8.2 — machine and rung phrases corroborate the pin, never route alone", () => {
+      // Machine-tier: slot-2 types and features from the §8 starter.
+      expect(route("Manufacturing", "4th axis", "fam_vmc_milling")).toBe("vmc_milling");
+      expect(route("Manufacturing", "5 axis machine", "fam_vmc_milling")).toBe("vmc_milling");
+      expect(route("Manufacturing", "rotary table", "fam_vmc_milling")).toBe("vmc_milling");
+      // Level-tier: setter and programmer signals from the §8 starter.
+      expect(route("Manufacturing", "zero lagata hoon", "fam_vmc_milling")).toBe("vmc_milling");
+      expect(route("Manufacturing", "tool offset", "fam_vmc_milling")).toBe("vmc_milling");
+      expect(route("Manufacturing", "nx se program", "fam_vmc_milling")).toBe("vmc_milling");
+      // And unpinned, every one of them reaches nothing — the corroboration rule holds.
+      for (const words of [
+        "4th axis",
+        "dmg",
+        "horizontal",
+        "zero lagata hoon",
+        "tool offset",
+        "nx se program",
+        "setting karta hoon",
+        "turn mill",
+      ]) {
+        expect(route("Manufacturing", words, null), words).toBeNull();
+      }
     });
 
     it("does not let the machining-centre form claim a grinder", () => {

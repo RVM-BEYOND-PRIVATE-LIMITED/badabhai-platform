@@ -20,15 +20,71 @@ export const CNC_TURNER = {
   levelLadder: ["Operator", "Setter", "Setter-cum-Programmer", "Programmer"],
   tenureQuestionKey: "turning_experience",
   detection: {
-    occupationTerms: ["turner", "turning", "cnc turner", "टर्नर", "टर्निंग"],
+    occupationTerms: [
+      "turner",
+      "turning",
+      "cnc turner",
+      "टर्नर",
+      "टर्निंग",
+      // P4 MIDDLE-WAY §8.1 ALIAS STARTER (Turner + VMC only; Grinding/CAM in P6).
+      // Occupation-tier: a worker who says one has claimed the trade. "kharad" stays
+      // a machine term (shared with conventional machining by value); these longer
+      // phrases are unambiguous enough to route alone.
+      "cnc kharad",
+      "lathe wala",
+      "turning karta hoon",
+      "kharad wala",
+    ],
     /**
      * DEVANAGARI SITS BESIDE THE LATIN because these are the MODEL's words, not the pack's. The
      * persona constrains `reply_text` to Latin-script Hinglish; it says nothing about the draft,
      * and a model handed a Devanagari answer has every reason to echo the worker's script back
      * into `role_label`.
      */
-    machineTerms: ["lathe", "cnc lathe", "khraad", "kharad", "khrad", "खराद", "लेथ"],
-    levelTerms: ["setter", "setter cum programmer", "programmer", "operator", "सेटर"],
+    machineTerms: [
+      "lathe",
+      "cnc lathe",
+      "khraad",
+      "kharad",
+      "khrad",
+      "खराद",
+      "लेथ",
+      // P4 MIDDLE-WAY §8.1 (slot 2 machine types). Machine-tier: corroborate a family
+      // pin, never route alone. Hyphens are written spaced — the router's normaliser
+      // turns punctuation into spaces, so "turn-mill" in text is "turn mill" here.
+      // "turn mill" is DELIBERATELY NOT HERE: it contains the standalone word "mill",
+      // a competing machine term that vetoes this route — and rightly so, because a
+      // bare "mill" is a milling machine. It lives in rvm-aliases.jsonl instead, where
+      // it pins the turning family for pack depth without touching the handover.
+      "live tool",
+      "c axis",
+      "twin spindle",
+      "sliding head",
+      "swiss",
+      "vtl",
+    ],
+    levelTerms: [
+      "setter",
+      "setter cum programmer",
+      "programmer",
+      "operator",
+      "सेटर",
+      // P4 MIDDLE-WAY §8.1 (level signals). Level-tier like the rungs above: corroborate
+      // a family pin, never route alone, never veto. Full phrases, not stems — "setting"
+      // alone would claim too much, "setting karta hoon" is a worker describing his rung.
+      "machine chalata hoon",
+      "production karta hoon",
+      "running karta hoon",
+      "setting karta hoon",
+      "job lagata hoon",
+      "setter hoon",
+      "program edit karta hoon",
+      "program edit kar leta hoon",
+      "program likhta hoon",
+      "drawing se program banata hoon",
+      "in charge hoon",
+      "line sambhalta hoon",
+    ],
     /**
      * Wire-cut / EDM and drilling are NOT roles we model, so no cluster sibling supplies them —
      * but a wire-cut operator saying "cnc turning aur wire cut dono" must keep talking rather

@@ -397,6 +397,51 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     });
   });
 
+  it("P4 MIDDLE-WAY §8 STARTER — the new Turner/VMC rows reach the right families", () => {
+    // Turner + VMC only (Grinding/CAM move in P6). Each row below is an alias added
+    // in this tranche; the second half re-runs the shipped rows to prove the tranche
+    // moved nothing it did not add.
+    const routing = Object.fromEntries(
+      [
+        "cnc kharad",
+        "सीएनसी खराद",
+        "turn mill",
+        "twin spindle",
+        "sliding head",
+        "vtl",
+        "live tool",
+        "vmc machine",
+        "machining centre",
+        "machining center",
+        "hmc",
+        "एचएमसी",
+        "मशीनिंग सेंटर",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "cnc kharad": "fam_cnc_turning",
+      "सीएनसी खराद": "fam_cnc_turning",
+      "turn mill": "fam_cnc_turning",
+      "twin spindle": "fam_cnc_turning",
+      "sliding head": "fam_cnc_turning",
+      vtl: "fam_cnc_turning",
+      "live tool": "fam_cnc_turning",
+      "vmc machine": "fam_vmc_milling",
+      "machining centre": "fam_vmc_milling",
+      "machining center": "fam_vmc_milling",
+      hmc: "fam_vmc_milling",
+      एचएमसी: "fam_vmc_milling",
+      "मशीनिंग सेंटर": "fam_vmc_milling",
+    });
+    // And the shipped rows answer exactly as before.
+    expect(familyFor("turning ka kaam")).toBe("fam_cnc_turning");
+    expect(familyFor("kharad")).toBe("fam_cnc_turning");
+    expect(familyFor("lathe")).toBe("fam_cnc_turning");
+    expect(familyFor("milling machine")).toBe("fam_vmc_milling");
+    expect(familyFor("vmc operator")).toBe("fam_vmc_milling");
+    expect(familyFor("cnc operator")).toBe("fam_machining");
+  });
+
   it("binding grinding did not move a single turning or milling phrase", () => {
     // THE REGRESSION THAT MATTERS WHEN A THIRD MACHINING ROLE ARRIVES. 7223.2200 sits inside unit
     // 7223, the same unit fam_machining binds, so a mis-scoped binding here would silently pull

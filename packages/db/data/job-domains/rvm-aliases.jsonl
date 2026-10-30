@@ -186,6 +186,18 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"lathe","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"लेथ","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"turning ka kaam","lang":"en"}
+# P4 MIDDLE-WAY §8.1 STARTER (Turner + VMC only; Grinding/CAM in P6). Trade and
+# machine-type phrases only — particle-wrapped variants ("lathe wala", "turning karta
+# hoon") fold to the rows above via particles.json, and level signals ("setting karta
+# hoon") are rung corroboration in the role file, never occupation aliases. Digits are
+# forbidden by the overlay validator, so "4th/5 axis" live in role machineTerms only.
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"cnc kharad","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"सीएनसी खराद","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"turn mill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"twin spindle","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"sliding head","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"vtl","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"live tool","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_5001","text":"cnc operator","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_5001","text":"सीएनसी ऑपरेटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_5001","text":"cnc machine","lang":"en"}
@@ -194,6 +206,15 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"वीएमसी","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_1201","text":"milling machine","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_1201","text":"मिलिंग","lang":"hi"}
+# P4 MIDDLE-WAY §8.2 STARTER. Occupation-tier phrases only — bare "vmc"/"hmc" stay
+# retrieval-quiet (role machineTerms corroborate a pin); feature words ("4th axis",
+# "dmg", "horizontal") live in the role file for the same reason.
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"vmc machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"machining centre","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"machining center","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"hmc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"एचएमसी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"मशीनिंग सेंटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_1500","text":"drilling machine","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"grinding machine","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"ghisai","lang":"en"}
