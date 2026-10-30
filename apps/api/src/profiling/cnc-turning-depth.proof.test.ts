@@ -40,7 +40,7 @@ interface PackItem {
 
 const PACK_PATH = join(
   __dirname,
-  "../../../../packages/db/data/question-packs/packs/qp_cnc_turning@2.json",
+  "../../../../packages/db/data/question-packs/packs/qp_cnc_turning@3.json",
 );
 const pack = JSON.parse(readFileSync(PACK_PATH, "utf8")) as { items: PackItem[] };
 

@@ -207,8 +207,58 @@ export const COMPLETION_REASONS = [
    * the other. Same free-slug safety on the completion event.
    */
   "general_form_handoff",
+  /**
+   * Middle-Way C2 (P3a): the trade's required slots are all settled, so the profile is
+   * complete even though optional depth was never asked. Distinct from "complete"
+   * (drained everything) so the offer step (P3b) and analytics can key on it.
+   * Same free-slug safety as "form_handoff" above.
+   */
+  "required_complete",
 ] as const;
 export type CompletionReason = (typeof COMPLETION_REASONS)[number];
+
+/**
+ * Middle-Way C2 (P3a): the 8 required slots per trade — Trade, Machine/Software,
+ * Years, Level, Second detail (controller), Location, Salary, Availability.
+ *
+ * Trade + Location + Salary + Availability live on the universal pack and are
+ * shared keys, so one list covers all four trades for those four slots.
+ * "Nahi pata" counts as done: {@link isSettled} treats declined as settled.
+ */
+const UNIVERSAL_REQUIRED_KEYS = [
+  "primary_trade",
+  "current_city",
+  "salary_expected",
+  "availability",
+] as const;
+
+const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
+  qp_cnc_turning: ["turning_machine", "turning_experience", "turning_level", "controller_brand"],
+  qp_vmc_milling: ["milling_machine", "milling_experience", "milling_level", "controller_brand"],
+  qp_cnc_grinding: [
+    "grinding_machine",
+    "grinding_experience",
+    "grinding_level",
+    "controller_brand",
+  ],
+  qp_cam_programming: [
+    "cam_software",
+    "programming_experience",
+    "cam_level",
+    "controller_brand",
+  ],
+};
+
+/** True when every required slot for this occupation pack is settled. */
+export function requiredSlotsSettled(
+  occupationPackId: string | null,
+  answers: AnswerMap,
+): boolean {
+  if (occupationPackId === null) return false;
+  const tradeKeys = TRADE_REQUIRED_KEYS[occupationPackId];
+  if (tradeKeys === undefined) return false;
+  return [...UNIVERSAL_REQUIRED_KEYS, ...tradeKeys].every((key) => isSettled(answers, key));
+}
 
 // ---------------------------------------------------------------------------
 // Ask accounting
@@ -416,7 +466,12 @@ export function nextQuestion(state: EngineState, packs: EnginePacks): Decision {
     return serve(universalItem, state, "universal_tail", { answered, total });
   }
 
-  // Drained: every question is settled, out of asks, or ineligible.
+  // Drained: every question is settled, out of asks, or ineligible. When the
+  // Middle-Way required slots are all settled the profile is done by definition
+  // (§5 stop rule) — the reason says so even though the close is the same one.
+  if (requiredSlotsSettled(packs.occupation?.pack_id ?? null, state.answers)) {
+    return close("required_complete", total, answered);
+  }
   return close("complete", total, answered);
 }
 
@@ -542,6 +597,15 @@ export const HARDSHIP_REPLY_TEXTS = [
 
 /** Served when the interview ends normally. */
 export const CLOSING_REPLY_TEXT = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+
+/** Served when the 8 required slots are done (Middle-Way C2 stop rule, P3a). */
+export const REQUIRED_COMPLETE_REPLY_TEXT = "Bas ho gaya. Resume ban raha hai.";
+
+/** The close copy for a completion reason — the required-complete line when P3a fired. */
+export function closingReplyFor(completionReason: CompletionReason | null): string {
+  if (completionReason === "required_complete") return REQUIRED_COMPLETE_REPLY_TEXT;
+  return CLOSING_REPLY_TEXT;
+}
 
 /** The disambiguation question, verbatim — asked ABOUT the packs, so it lives in none of them. */
 export const DISAMBIGUATION_PROMPT_TEXT = "Aap in mein se kaun sa kaam karte hain?";
