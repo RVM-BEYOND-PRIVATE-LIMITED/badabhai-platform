@@ -28,6 +28,12 @@ import {
   readFormOfferReply,
   type FormOfferReply,
 } from "./trade-form-offer";
+import {
+  OPTIONAL_OFFER_OPTIONS,
+  OPTIONAL_OFFER_PROMPT_TEXT,
+  readOptionalOfferReply,
+  type OptionalOfferReply,
+} from "./optional-offer";
 import { generalFormOfferFor, SKILLS_GATE_OPTIONS, type GeneralFormOffer } from "./skills-gate";
 import {
   draftTradeLabel,
@@ -188,6 +194,7 @@ import {
   onSkillsLane,
   optionsOnlyForSelect,
   outstandingFormOffer,
+  outstandingOptionalOffer,
   outstandingLlmAsk,
   outstandingOffer,
   outstandingTradeGate,
@@ -242,11 +249,14 @@ import {
   askCount,
   clarify,
   closingReplyFor,
+  hasUnservedOptional,
+  isMiddleWayPack,
   joinClarify,
   nextQuestion,
   progressReplyText,
   reAsk,
   remainingQuestions,
+  requiredSlotsSettled,
   servedText,
   withoutProgressLead,
   CLOSING_REPLY_TEXT,
@@ -256,6 +266,7 @@ import {
   MAX_CONSECUTIVE_HARDSHIP,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
+  MIDDLEWAY_TURNS_HARD_CAP,
   PROGRESS_REPLY_NO_COUNT_TEXT,
   PROFILE_PAGE_POINTER_TEXT,
   ROLE_CHANGE_POINTER_PAIR,
@@ -1558,6 +1569,31 @@ export class ProfilingOrchestrator {
         };
       }
 
+      // THE OPTIONAL-DEPTH OFFER OUTRANKS THE PACK RE-SERVE TOO (P3b), through the
+      // helper `viewSession` shares. Same hazard as the form offer: a cold start
+      // mid-offer must redraw the offer, not an authored question the worker is
+      // not looking at. RE-SERVE ONLY: no write, no ask.
+      const optionalOffer = outstandingOptionalOffer(envelope);
+      if (optionalOffer) {
+        return {
+          reply: optionalOffer.prompt,
+          kind: "ask",
+          questionKey: null,
+          options: optionalOffer.options,
+          whyText: null,
+          answerType: optionalOffer.answerType,
+          inputMode: "text",
+          progress: progressOf(progressItems, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
       // THE MODEL'S QUESTION OUTRANKS THE PACK RE-SERVE for the same reason the offer above
       // does: it belongs to no pack, so the lookup below cannot find it and would answer a cold
       // start mid-Phase-A by serving an authored question instead.
@@ -2635,6 +2671,37 @@ export class ProfilingOrchestrator {
 
       await this.recordFormOfferDeclined(input, offeredKind, reply);
       // FALL THROUGH: the interview continues on this same bubble, exactly where it paused.
+    }
+
+    // --- The optional-depth OFFER, settled (Middle-Way C2 stop rule, P3b) ----
+    //
+    // BEFORE ANY ANSWER CLASS, for the form-offer block's reason directly above: the
+    // bubble on screen is not a pack question, so the ordinary capture would find
+    // nothing and a "haan" would fall through to cross-question filling and be read
+    // as an answer to something else.
+    //
+    // SETTLED WHATEVER HE SAID, so the offer is never served twice. Accept FALLS
+    // THROUGH to ordinary selection on this same bubble — optional depth continues.
+    // Decline (or an unreadable reply, which counts as one) closes the interview
+    // now with the plain closing line: the Bas-ho-gaya line was already served as
+    // the offer, and repeating it would read as a second interview starting.
+    if (next.optionalOffer?.state === "pending") {
+      const reply = readOptionalOfferReply(input.text);
+      next = { ...next, optionalOffer: { state: "settled", accepted: reply === "accept" } };
+
+      if (reply !== "accept") {
+        await this.recordOptionalOfferDeclined(input, reply);
+        return this.closeRequiredCompletePlain(
+          buffer,
+          next,
+          input,
+          answers,
+          items,
+          progressItems,
+          capture.excludeFromParse,
+        );
+      }
+      // FALL THROUGH: the worker wants the stronger résumé — optional depth continues.
     }
 
     // --- THE TRADE-CONFIRM GATE, ANSWERED ------------------------------------
@@ -3885,6 +3952,55 @@ export class ProfilingOrchestrator {
       (heldKey !== null ? reAsk(engineState, engine, heldKey) : null) ??
       nextQuestion(engineState, engine);
 
+    // --- The optional-depth OFFER, served (Middle-Way C2 stop rule, P3b) -----
+    //
+    // WHERE THE ENGINE WOULD ASK NEXT, AND ONLY THERE. The 8 required slots are
+    // settled but optional depth remains unasked — offering now is what keeps a
+    // busy worker from being walked through it. Accept continues below on the
+    // next turn (the offer settles on its reply); decline closes immediately.
+    //
+    // ONCE: `optionalOffer === null` means never offered; the reply turn above
+    // settles it, so the engine is never asked to re-decide this.
+    //
+    // SKIPPED WHEN THERE IS NOTHING TO OFFER: `hasUnservedOptional` is false once
+    // the drain already asked everything, and the P3a required_complete close
+    // serves that interview unchanged.
+    //
+    // NO DEAD OFFERS: past 20 turns an accept could not enjoy any optional
+    // depth before the cap below closes the interview, so the P3a close serves
+    // that interview unchanged instead.
+    if (
+      decision.kind === "ask" &&
+      next.optionalOffer === null &&
+      turn <= MIDDLEWAY_TURNS_HARD_CAP &&
+      isMiddleWayPack(engine.occupation?.pack_id ?? null) &&
+      requiredSlotsSettled(engine.occupation?.pack_id ?? null, answers) &&
+      hasUnservedOptional(engine, engineState)
+    ) {
+      return this.serveOptionalOffer(buffer, next, input, answers, items, progressItems);
+    }
+
+    // --- The optional-phase cap (Middle-Way C2 stop rule, P3b) ----------------
+    //
+    // 20 turns total, counted from the interview's start. The worker was already
+    // offered the choice to stop, so this only ever cuts short optional depth,
+    // never the 8. Plain closing line — Bas-ho-gaya was served with the offer.
+    if (
+      next.optionalOffer?.accepted === true &&
+      isMiddleWayPack(engine.occupation?.pack_id ?? null) &&
+      turn > MIDDLEWAY_TURNS_HARD_CAP
+    ) {
+      return this.closeRequiredCompletePlain(
+        buffer,
+        next,
+        input,
+        answers,
+        items,
+        progressItems,
+        capture.excludeFromParse,
+      );
+    }
+
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
     // chose against what was on screen, rather than by re-deriving the ask ceiling here — one
     // definition of "the engine moved on", owned by the engine.
@@ -4670,6 +4786,26 @@ export class ProfilingOrchestrator {
       };
     }
 
+    // THE OPTIONAL-DEPTH OFFER (P3b), through the helper `openTurn` uses. Same
+    // shape and same reason as the form offer above: a cold start mid-offer must
+    // show the offer, and a tap on its chips must resolve.
+    const optionalOffer = outstandingOptionalOffer(envelope);
+    if (optionalOffer) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: optionalOffer.prompt,
+          answerType: optionalOffer.answerType,
+          options: optionalOffer.options,
+          whyText: null,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
+
     // AND THE MODEL'S QUESTION OUTRANKS IT TOO — the same precedence `openTurn` applies, through
     // the same helper, so the two readers of a reopened session cannot disagree about what the
     // worker is looking at.
@@ -5228,6 +5364,81 @@ export class ProfilingOrchestrator {
    * The model-led stretch is still what owns the interview — the offer pauses it, it does not end
    * it. Decline and the SAME branch set the ask branch uses picks straight back up.
    */
+  /**
+   * THE REQUIRED-COMPLETE CLOSE WITH THE PLAIN CLOSING (P3b). Shared by the
+   * decline path and the 20-turn cap: both fire AFTER the Bas-ho-gaya line was
+   * served with the offer, so repeating it would read as a second interview
+   * starting. The completion reason stays required_complete — the profile IS
+   * complete by the 8-slot definition.
+   */
+  private closeRequiredCompletePlain(
+    buffer: TranscriptBuffer,
+    next: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    excludeFromParse: boolean,
+  ): ReturnType<ProfilingOrchestrator["turn"]> {
+    return this.turn(buffer, next, input, {
+      reply: CLOSING_REPLY_TEXT,
+      kind: "close",
+      questionKey: null,
+      options: [],
+      whyText: null,
+      answerType: "single_select",
+      checkpointDue: false,
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: true,
+      completionReason: "required_complete",
+      replayed: false,
+      excludeFromParse,
+      unavailable: false,
+    });
+  }
+
+  /**
+   * THE OPTIONAL-DEPTH OFFER, served once per interview (Middle-Way C2 stop rule,
+   * P3b). Mirrors {@link serveFormOffer}: kind "ask" (shipped clients know no
+   * other turn that carries chips), `servedQuestionKey` null (it belongs to no
+   * pack — naming one would file "haan" as that question's answer), one bounded
+   * ask like the form offer.
+   */
+  private async serveOptionalOffer(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    const next: ProfilingEnvelope = {
+      ...envelope,
+      optionalOffer: { state: "pending", accepted: false },
+      servedQuestionKey: null,
+      clarifyCount: 0,
+      engineAsks: envelope.engineAsks + 1,
+    };
+    await this.recordOptionalOffered(next, input);
+    return this.turn(buffer, next, input, {
+      reply: OPTIONAL_OFFER_PROMPT_TEXT,
+      kind: "ask",
+      questionKey: null,
+      options: [...OPTIONAL_OFFER_OPTIONS],
+      whyText: null,
+      answerType: "single_select",
+      checkpointDue: false,
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: false,
+      completionReason: null,
+      replayed: false,
+      excludeFromParse: false,
+      unavailable: false,
+    });
+  }
+
   private async settleAndServeFormOffer(
     buffer: TranscriptBuffer,
     envelope: ProfilingEnvelope,
@@ -6230,6 +6441,60 @@ export class ProfilingOrchestrator {
       this.logger.error(
         `the trade-form offer for session ${input.sessionId} was not recorded; the offer ` +
           `still stands but the funnel cannot see it: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  private async recordOptionalOffered(envelope: ProfilingEnvelope, input: TurnInput): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.optional_offered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          pack_id: envelope.packId ?? "unknown",
+        },
+        idempotencyKey: `profile.optional_offered:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the optional-depth offer for session ${input.sessionId} was not recorded; the offer ` +
+          `still stands but the funnel cannot see it: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * The offer was declined — explicitly, or by a reply the binary reader could not read.
+   *
+   * Counted apart for the form offer's reason: `unclear` is the reader's miss rate, not
+   * a change of mind.
+   */
+  private async recordOptionalOfferDeclined(input: TurnInput, reply: OptionalOfferReply): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.optional_offer_declined",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          reply: reply === "unclear" ? "unclear" : "declined",
+        },
+        // ONCE PER SESSION — the offer settles on the first reply, so a second row
+        // would misreport how often the offer was refused.
+        idempotencyKey: `profile.optional_offer_declined:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the declined optional-depth offer for session ${input.sessionId} was not recorded; ` +
+          `the interview closed and the decline is invisible: ${(error as Error).message}`,
       );
     }
   }

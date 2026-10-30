@@ -43,6 +43,7 @@ import type {
 } from "./resume-import/resume-suggestion-reader";
 import { TRADE_CONFIRM_OPTIONS, TRADE_DESIRED_PROMPT, tradeConfirmPrompt } from "./trade-confirm";
 import { FORM_OFFER_OPTIONS, offerPrompt } from "./trade-form-offer";
+import { OPTIONAL_OFFER_OPTIONS, OPTIONAL_OFFER_PROMPT_TEXT } from "./optional-offer";
 
 /**
  * The reply cache's stamp for a turn that is about to be written — `ProfilingOrchestrator`'s
@@ -194,6 +195,27 @@ export function outstandingFormOffer(envelope: ProfilingEnvelope): {
   return {
     prompt: offerPrompt(pending.kind),
     options: [...FORM_OFFER_OPTIONS],
+    answerType: "single_select",
+  };
+}
+
+/**
+ * The optional-depth offer, still on screen for a session being REOPENED (P3b).
+ *
+ * THE SIXTH MEMBER OF THE `outstandingFormOffer` PRECEDENCE. Same hazard, same
+ * fix: rebuilt from `optionalOffer`, not `lastTurn`. The copy is ours — the same
+ * line and chips a fresh offer serves.
+ */
+export function outstandingOptionalOffer(envelope: ProfilingEnvelope): {
+  prompt: string;
+  options: readonly QuestionPackOption[];
+  answerType: AnswerType;
+} | null {
+  const pending = envelope.optionalOffer;
+  if (pending?.state !== "pending") return null;
+  return {
+    prompt: OPTIONAL_OFFER_PROMPT_TEXT,
+    options: [...OPTIONAL_OFFER_OPTIONS],
     answerType: "single_select",
   };
 }

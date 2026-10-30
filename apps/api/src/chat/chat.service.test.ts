@@ -104,6 +104,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     tradeConfirm: emptyTradeConfirm(),
     formKind: null,
     formOfferPrompt: null,
+    optionalOffer: null,
     resumeIdentity: null,
     identifyTypeRequested: false,
     identifyStalledTurns: 0,

@@ -14,6 +14,7 @@ import {
   STEER_BACK_PAIR,
   STEER_BACK_TEXT,
 } from "./next-question";
+import { OPTIONAL_OFFER_PROMPT_TEXT } from "./optional-offer";
 import { normalizeReplyText } from "./reply-closure";
 import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
 import {
@@ -110,6 +111,10 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
 
   // next-question.ts — Middle-Way C2 (P3a): the 8 required slots are done.
   "Bas ho gaya. Resume ban raha hai.": "बस हो गया। रिज़्यूमे बन रहा है।",
+
+  // optional-offer.ts — Middle-Way C2 stop rule (P3b): the one optional-depth offer.
+  "Bas ho gaya. Resume ban raha hai. 2 minute aur dein? Resume aur strong banega.":
+    "बस हो गया। रिज़्यूमे बन रहा है। 2 मिनट और दें? रिज़्यूमे और स्ट्रॉन्ग बनेगा।",
 
   // next-question.ts — asked ABOUT the packs, so it lives in none of them.
   "Aap in mein se kaun sa kaam karte hain?": "आप इन में से कौन सा काम करते हैं?",
@@ -1331,6 +1336,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   ...HARDSHIP_REPLY_TEXTS,
   CLOSING_REPLY_TEXT,
   REQUIRED_COMPLETE_REPLY_TEXT,
+  OPTIONAL_OFFER_PROMPT_TEXT,
   CHAT_UNAVAILABLE_REPLY,
   DISAMBIGUATION_PROMPT_TEXT,
   CHAT_OPENING_TEXT,

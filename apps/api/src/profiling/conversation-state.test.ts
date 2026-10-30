@@ -178,6 +178,9 @@ const FULL: ProfilingEnvelope = {
   // a narrower that confused the two fields (or dropped this one and rebuilt the default)
   // cannot pass. Task 1 recall path; ruling 2026-09-16.
   formOfferPrompt: { kind: "welder", state: "pending" },
+  // NON-DEFAULT, like every field here (P3b): null is what a narrower that dropped
+  // the field would rebuild, and `pending` proves the offer state round-trips.
+  optionalOffer: { state: "pending", accepted: false },
   // NON-DEFAULT, like every field here: `false` is what a `narrow` that dropped it would rebuild.
   identifyTypeRequested: true,
   // NON-DEFAULT, like every field here: 0 is what a `narrow` that dropped it would rebuild (#1506

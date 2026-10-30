@@ -761,6 +761,19 @@ export interface ProfilingEnvelope {
   readonly formOfferPrompt: FormOfferPromptState | null;
 
   /**
+   * The optional-depth OFFER (Middle-Way C2 stop rule, P3b) — `null` before it is
+   * considered, `pending` while the bubble is on screen, `settled` forever after.
+   *
+   * SAME THREE STATES AS `formOfferPrompt`, FOR THE SAME REASON: `null` means "not
+   * looked at yet"; `pending` means the bubble is on screen and the next inbound
+   * settles it; `settled` means asked and answered and never again. Collapsing
+   * `settled` back to `null` would re-offer on the turn after a worker said
+   * "nahi". `accepted` records the choice so the close after a decline does not
+   * repeat the Bas-ho-gaya line the offer already served.
+   */
+  readonly optionalOffer: OptionalOfferState | null;
+
+  /**
    * The résumé batch-confirm offer (ADR-0041 RI-5) — `null` before it is considered at all.
    *
    * THREE STATES, NOT TWO, and the third is why this is an object rather than a boolean.
@@ -1070,6 +1083,12 @@ export interface FormOfferPromptState {
   readonly state: "pending" | "settled";
 }
 
+/** See {@link ProfilingEnvelope.optionalOffer}. */
+export interface OptionalOfferState {
+  readonly state: "pending" | "settled";
+  readonly accepted: boolean;
+}
+
 /**
  * Per-turn orchestrator latency, accumulated as a HISTOGRAM rather than a list (Phase 9).
  *
@@ -1165,6 +1184,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   tradeConfirm: true,
   formKind: true,
   formOfferPrompt: true,
+  optionalOffer: true,
   resumeConfirm: true,
   resumeIdentity: true,
   identifyTypeRequested: true,
@@ -1219,6 +1239,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     tradeConfirm: emptyTradeConfirm(),
     formKind: null,
     formOfferPrompt: null,
+    optionalOffer: null,
     resumeConfirm: null,
     resumeIdentity: null,
     identifyTypeRequested: false,
@@ -1349,6 +1370,19 @@ function narrowFormOfferPrompt(value: unknown): FormOfferPromptState | null {
   const kind = TRADE_FORM_KINDS.find((candidate) => candidate === v.kind);
   if (kind === undefined) return null;
   return { kind, state: v.state };
+}
+
+/**
+ * ABSENT READS AS null — "never offered" — the state of every envelope in flight
+ * across the deploy that adds this field. An unreadable value also reads as null
+ * rather than as `settled`: withholding an offer a worker was entitled to is the
+ * worse failure. `accepted` is true only on a literal `true`.
+ */
+function narrowOptionalOffer(value: unknown): OptionalOfferState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  return { state: v.state, accepted: v.accepted === true };
 }
 
 function narrowLastTurn(value: unknown): LastTurn | null {
@@ -1578,6 +1612,10 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // than as `settled` — withholding an offer a worker was entitled to is the worse failure
     // (same posture as `resumeConfirm` directly below).
     formOfferPrompt: narrowFormOfferPrompt(v.formOfferPrompt),
+    // ABSENT READS AS null — "never offered" — same deploy-safety as
+    // `formOfferPrompt` directly above: in-flight interviews get the offer
+    // considered once on their next turn, exactly as a fresh interview does.
+    optionalOffer: narrowOptionalOffer(v.optionalOffer),
     // ABSENT READS AS null — "never considered" — which is right for every envelope in flight
     // across the deploy that adds this field. Those interviews get the offer considered once on
     // their next turn, which is the same thing a fresh interview gets. An unreadable value also

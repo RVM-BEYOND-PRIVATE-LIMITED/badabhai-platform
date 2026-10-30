@@ -260,6 +260,34 @@ export function requiredSlotsSettled(
   return [...UNIVERSAL_REQUIRED_KEYS, ...tradeKeys].every((key) => isSettled(answers, key));
 }
 
+/** True when the pack is one of the Middle-Way v2+ trades (P3b caps apply). */
+export function isMiddleWayPack(packId: string | null): boolean {
+  return packId !== null && packId in TRADE_REQUIRED_KEYS;
+}
+
+/** Soft cap: past this turn with the 8 unsettled, the engine asks required only. */
+export const REQUIRED_TURNS_SOFT_CAP = 14;
+/** Hard stop for Middle-Way interviews (P3b); the 48-ask/turn backstops stay behind it. */
+export const MIDDLEWAY_TURNS_HARD_CAP = 20;
+
+/**
+ * Whether any optional question is still servable — the offer gate (P3b).
+ *
+ * Mandatory items are never "optional", settled and asked items are done, and
+ * `min_turn` waits do not count as absent (same convention as
+ * {@link remainingQuestions}): an optional gated behind a turn is still a reason
+ * to offer.
+ */
+export function hasUnservedOptional(packs: EnginePacks, state: EngineState): boolean {
+  const allItems = [...(packs.occupation?.items ?? []), ...packs.universal.items];
+  return allItems.some(
+    (item) =>
+      !item.is_mandatory &&
+      askCount(state, item.question_key) === 0 &&
+      isServable(item, state, state.answers, true),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Ask accounting
 // ---------------------------------------------------------------------------
@@ -436,6 +464,27 @@ export function nextQuestion(state: EngineState, packs: EnginePacks): Decision {
   const bounded = hardClose(state, total, answered);
   if (bounded !== null) return bounded;
 
+  const middleWay = isMiddleWayPack(packs.occupation?.pack_id ?? null);
+
+  // Middle-Way focus (P3b): past 14 turns with the 8 unsettled, trade depth
+  // waits — the engine asks required occupation slots only until the profile is
+  // complete. The universal pool is NEVER filtered: the tail carries the
+  // matching-critical city/salary answers and every worker must reach it whole
+  // (the `cnc-turning-interview.sim` invariant). Skipping trade optionals is what
+  // hurries the 8; the tail is small and mandatory-first already.
+  const focused =
+    middleWay &&
+    state.turn > REQUIRED_TURNS_SOFT_CAP &&
+    !requiredSlotsSettled(packs.occupation?.pack_id ?? null, state.answers);
+  const tradeRequiredKeys = focused
+    ? new Set(TRADE_REQUIRED_KEYS[packs.occupation?.pack_id as string] ?? [])
+    : null;
+  const occupationPool =
+    focused && tradeRequiredKeys
+      ? (packs.occupation?.items ?? []).filter((i) => tradeRequiredKeys.has(i.question_key))
+      : (packs.occupation?.items ?? []);
+  const universalPool = packs.universal.items;
+
   // --- IDENTIFY / DISAMBIGUATE -------------------------------------------
   // Both are driven by retrieval, not by the pack: until an occupation is pinned there is no
   // occupation pack to serve from. The universal pack alone is not enough to run an interview
@@ -456,12 +505,14 @@ export function nextQuestion(state: EngineState, packs: EnginePacks): Decision {
   const phase: ProfilingPhase = packs.occupation ? "occupation_specific" : "identify";
 
   // --- Selection ----------------------------------------------------------
-  const occupationItem = packs.occupation ? selectItem(packs.occupation.items, state) : null;
+  // `occupationPool`/`universalPool` are the full pools except in Middle-Way
+  // focus (past 14 turns, 8 unsettled), when optional depth waits.
+  const occupationItem = packs.occupation ? selectItem(occupationPool, state) : null;
   if (occupationItem) {
     return serve(occupationItem, state, phase, { answered, total });
   }
 
-  const universalItem = selectItem(packs.universal.items, state);
+  const universalItem = selectItem(universalPool, state);
   if (universalItem) {
     return serve(universalItem, state, "universal_tail", { answered, total });
   }
