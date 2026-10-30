@@ -290,6 +290,20 @@ describe("worker_profile_skill — the authored worker relation", () => {
     expect(cols).toContain("months_experience");
     expect(cols).not.toContain("years_experience");
   });
+
+  /**
+   * Middle-Way P1: `trade_level` + `level_confirmed` are additive, nullable-safe,
+   * and display-only. No CHECK on trade_level (app validates via LADDERS.md).
+   * Old `level` check is untouched.
+   */
+  it("carries middle-way level columns without touching the old level contract", () => {
+    const cols = columnNames(workerProfileSkills);
+    expect(cols).toContain("trade_level");
+    expect(cols).toContain("level_confirmed");
+    const checks = checkNames(workerProfileSkills);
+    expect(checks).toContain("worker_profile_skill_level_chk");
+    expect(checks).not.toContain("worker_profile_skill_trade_level_chk");
+  });
 });
 
 describe("job_posting_skill — what this company asked for", () => {
