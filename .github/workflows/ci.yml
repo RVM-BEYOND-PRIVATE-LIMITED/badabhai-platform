@@ -22,6 +22,18 @@ on:
   # dependants. That is the price of the gate being real.
   pull_request:
 
+  # MERGE QUEUE. The queue builds the combined merge commit (PR + current main + anything
+  # ahead of it) and runs this workflow against THAT commit, once. A developer therefore does
+  # not have to rebase and re-push every time `main` moves just to get a fresh green — the
+  # queue re-tests the combination for them. See the `merge_queue` step in `changes` for why
+  # the queue run deliberately forces every path filter on instead of guessing.
+  #
+  # The no-rebase half is already a repository setting: `Protect Main` requires `ci-required`
+  # with "require branches to be up to date" OFF, so a PR can merge on its own green without
+  # a rebase. THIS trigger is the second, optional half — it stays dormant until the same
+  # ruleset adds the merge-queue rule, which tests the combined commit automatically.
+  merge_group:
+
 # A PR run is SUPERSEDABLE. A `main` run is a DEPLOY.
 #
 # `cancel-in-progress: true` is exactly right on a branch: a new push replaces the old one and
@@ -74,16 +86,20 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      ai-service: ${{ steps.filter.outputs.ai-service }}
-      e2e: ${{ steps.filter.outputs.e2e }}
-      worker-app: ${{ steps.filter.outputs.worker-app }}
-      worker-app-parity: ${{ steps.filter.outputs.worker-app-parity }}
-      payer-app: ${{ steps.filter.outputs.payer-app }}
-      payer-web: ${{ steps.filter.outputs.payer-web }}
-      admin-web: ${{ steps.filter.outputs.admin-web }}
-      sast: ${{ steps.filter.outputs.sast }}
-      deps: ${{ steps.filter.outputs.deps }}
-      cost-regression: ${{ steps.filter.outputs.cost-regression }}
+      # `merge_queue.*` is populated only on a `merge_group` event (see the step below), and
+      # forces every path-gated job to run. On a normal PR/push that step is skipped, its
+      # outputs are empty, and `||` falls through to the paths-filter result — so normal runs
+      # keep their exact current behaviour.
+      ai-service: ${{ steps.merge_queue.outputs.ai-service || steps.filter.outputs.ai-service }}
+      e2e: ${{ steps.merge_queue.outputs.e2e || steps.filter.outputs.e2e }}
+      worker-app: ${{ steps.merge_queue.outputs.worker-app || steps.filter.outputs.worker-app }}
+      worker-app-parity: ${{ steps.merge_queue.outputs.worker-app-parity || steps.filter.outputs.worker-app-parity }}
+      payer-app: ${{ steps.merge_queue.outputs.payer-app || steps.filter.outputs.payer-app }}
+      payer-web: ${{ steps.merge_queue.outputs.payer-web || steps.filter.outputs.payer-web }}
+      admin-web: ${{ steps.merge_queue.outputs.admin-web || steps.filter.outputs.admin-web }}
+      sast: ${{ steps.merge_queue.outputs.sast || steps.filter.outputs.sast }}
+      deps: ${{ steps.merge_queue.outputs.deps || steps.filter.outputs.deps }}
+      cost-regression: ${{ steps.merge_queue.outputs.cost-regression || steps.filter.outputs.cost-regression }}
       # #965: the value baked into api / ai-service / payer-web as `GIT_COMMIT_SHA` and
       # reported by each service's /health as `build`.
       short-sha: ${{ steps.short-sha.outputs.short-sha }}
@@ -136,8 +152,39 @@ jobs:
           echo "Build id for this run: ${SHORT_SHA} (images tag as sha-${SHORT_SHA})"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # ---- MERGE QUEUE: RUN THE WHOLE PR GATE, NOT A PATH-FILTERED SUBSET ----
+      # A `merge_group` checkout is a synthetic commit: the PR merged with the current base
+      # (plus any entries ahead of it in the queue). Asking "which paths changed?" there is
+      # not the same question as on the PR, and a filter that misses is a green required
+      # check on a commit nobody actually tested. So the queue runs every PR-stage job.
+      #
+      # The cost is one full run per queued merge. That replaces the unbounded rebase ->
+      # re-push -> rerun loop, and it is the same full gate the PR already had to pass — just
+      # against the combination that will actually land.
+      - name: Merge queue — force every path filter on
+        id: merge_queue
+        if: github.event_name == 'merge_group'
+        run: |
+          {
+            echo "ai-service=true"
+            echo "e2e=true"
+            echo "worker-app=true"
+            echo "worker-app-parity=true"
+            echo "payer-app=true"
+            echo "payer-web=true"
+            echo "admin-web=true"
+            echo "sast=true"
+            echo "deps=true"
+            echo "cost-regression=true"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
+        # The merge-queue step above is the source of truth on that event; the action's
+        # PR/push diff semantics do not describe a synthetic merge commit. Skipping it here
+        # also keeps the action from erroring on an event shape it was not built for.
+        if: github.event_name != 'merge_group'
         with:
           filters: |
             ai-service:
@@ -358,7 +405,10 @@ jobs:
           # The paths-filter results as an object, so the gate subset is a LOOKUP on the
           # `gate` field instead of a second hand-maintained list. Passed through `env:` so
           # nothing is interpolated into the shell.
-          FILTERS_JSON: ${{ toJSON(steps.filter.outputs) }}
+          # On `merge_group` the paths-filter step is skipped and the merge_queue step has
+          # already set every filter to "true"; feed the matrix that object so every gated
+          # image build runs against the combined commit too.
+          FILTERS_JSON: ${{ github.event_name == 'merge_group' && toJSON(steps.merge_queue.outputs) || toJSON(steps.filter.outputs) }}
         run: |
           set -euo pipefail
 
@@ -831,7 +881,10 @@ jobs:
   # this fails the job rather than silently scanning nothing.
   sast:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.sast == 'true'
+    # `merge_group` is the queue's combined commit and must get the same diff-scoped scan
+    # the PR got, with the same origin/main baseline. Without this clause the queue would
+    # silently drop SAST from the gate it is supposed to be proving.
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.sast == 'true'
     uses: ./.github/workflows/sast.yml
     with:
       baseline-ref: origin/${{ github.event.repository.default_branch }}
