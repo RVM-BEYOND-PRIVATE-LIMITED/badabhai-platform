@@ -325,6 +325,7 @@ function candidatesOf(postingId: string): CandidateRow[] {
     createdAt: new Date(a.t),
     engineVersion: a.matchTier == null ? null : "v1.0",
     matchedSkillId: a.matchedSkillId ?? null,
+    tradeLevels: [],
   }));
   const order = MatchCandidatesService.toRankInputs(rows).sort((x, y) =>
     rankKeyCompare(x, y, DEFAULT_MATCH_CONFIG),
@@ -729,6 +730,9 @@ describe("PayerApplicantInboxService — faceless (no name, phone or other ident
     "lastWorkedAt",
     "matchedSkillLabel",
     "engineVersion",
+    // Middle Way P5 — the level badge. Closed vocabularies + booleans, faceless
+    // like the E18 badge: a rung is a trade fact, never an identifier.
+    "tradeLevels",
     "posting",
   ]);
 

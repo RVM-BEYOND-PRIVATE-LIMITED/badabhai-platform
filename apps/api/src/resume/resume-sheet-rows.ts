@@ -63,6 +63,15 @@ export function buildVerdictLine(facts: {
    */
   axes?: readonly string[];
   /**
+   * The worker's RUNG on this trade's ladder ("Setter", "Senior Programmer") — Middle Way P5.
+   *
+   * THE LAST SEGMENT, by owner ruling (P5 scoping): the sheet's own order is role first and
+   * modifiers after, and the rung modifies everything before it. A closed-vocabulary label
+   * from the C6 crosswalk, printed as-is — never a derivation. Absent for every worker who
+   * stated no rung, taking its separator with it like every absent segment here.
+   */
+  level?: string | null;
+  /**
    * A CLOSED-VOCABULARY TENURE STATUS — "Fresher", and today nothing else (§6.2).
    *
    * CONSULTED ONLY WHERE THE FIGURE IS UNKNOWN, which is what makes it additive rather than a new
@@ -106,6 +115,7 @@ export function buildVerdictLine(facts: {
       tenurePhrase(facts.years, facts.tenureLabel ?? null),
       toolsPhrase(facts.tools),
       axesPhrase(facts.axes ?? []),
+      facts.level?.trim() || null,
     ]),
     subheadLine: joinSegments([
       facts.city,
@@ -128,6 +138,7 @@ function verdictFactsOf(facts: {
   years: number | null;
   tools: readonly string[];
   axes?: readonly string[];
+  level?: string | null;
   city: string | null;
 }): ResumeVerdictFacts {
   return {
@@ -135,6 +146,7 @@ function verdictFactsOf(facts: {
     years: knownYearsPhrase(facts.years) === null ? null : facts.years,
     tools: printedTools(facts.tools),
     axes: (facts.axes ?? []).map((a) => a.trim()).filter(Boolean),
+    level: facts.level?.trim() || null,
     city: facts.city?.trim() || null,
   };
 }

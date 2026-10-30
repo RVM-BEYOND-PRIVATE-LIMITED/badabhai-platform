@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
@@ -120,6 +121,11 @@ function setup(opts: SetupOpts = {}) {
     tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks).
     getWorkerDeletionMarker: vi.fn(async () => (workerExists ? { deletionScheduledAt } : undefined)),
+    // Middle Way P5: the tx-scoped rung read for the price-tier hook. Default: no
+    // stated rung, so the hook prices Lower — the ₹40 flat debit is untouched.
+    findTradeLevels: vi.fn(
+      async (): Promise<{ skillId: string; tradeLevel: string }[]> => [],
+    ),
   };
 
   const repo = {
@@ -392,6 +398,38 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
   });
 
   // ---- E0 C-1 (owner ruling 2026-09-21, route ii-v2) ----
+
+  it("Middle Way P5 — the grant reads the rung for the price tier and still debits one credit", async () => {
+    // HOOK ONLY: the tier flows to the log line, the debit stays exactly one credit
+    // (₹40 flat live). A setter rung prices Higher; the money path is unchanged.
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    try {
+      const { svc, txMethods } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+      txMethods.findTradeLevels.mockResolvedValue([
+        { skillId: "mskill_cnc_turner", tradeLevel: "setter" },
+      ]);
+      const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+      expect(out).toMatchObject({ ok: true, status: "granted" });
+      expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("tier=higher"));
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("Middle Way P5 — no stated rung prices Lower, and the debit is still one credit", async () => {
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    try {
+      // Default mock: findTradeLevels resolves [] — the worker stated no rung.
+      const { svc, txMethods } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+      const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+      expect(out).toMatchObject({ ok: true, status: "granted" });
+      expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("tier=lower"));
+    } finally {
+      log.mockRestore();
+    }
+  });
 
   it("tells the worker he was unlocked — profile.viewed_v2, opaque ids, job_id OMITTED with no posting", async () => {
     const { svc, events } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });

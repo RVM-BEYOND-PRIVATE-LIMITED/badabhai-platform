@@ -559,6 +559,8 @@ describe("listCandidates — row mapping", () => {
       createdAt: new Date("2026-07-20T08:00:00.000Z"),
       engineVersion: "v1.0",
       matchedSkillId: "mskill_cnc_turner",
+      // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
+      tradeLevels: [],
     });
   });
 });
@@ -688,8 +690,38 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
       createdAt: new Date("2026-07-20T08:00:00.000Z"),
       engineVersion: "v1.0",
       matchedSkillId: null,
+      // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
+      tradeLevels: [],
       jobPostingId: POSTING,
       rank: 7,
     });
+  });
+
+  it("parses the live level lookup — rungs ride the row, garbage rows do not", async () => {
+    const { repo } = makeDb([
+      {
+        id: APP,
+        worker_id: "44444444-4444-4444-8444-444444444444",
+        job_posting_id: POSTING,
+        match_tier: 1,
+        skill_months: 12,
+        industry_months: null,
+        last_worked_at: null,
+        created_at: "2026-07-20T08:00:00.000Z",
+        engine_version: "v1.0",
+        matched_skill_id: "mskill_cnc_turner",
+        trade_levels: [
+          { skill_id: "mskill_cnc_turner", trade_level: "setter", level_confirmed: true },
+          { skill_id: 42, trade_level: "setter", level_confirmed: true },
+          { skill_id: "mskill_vmc_operator", trade_level: 7, level_confirmed: false },
+          null,
+        ],
+        candidate_rank: "1",
+      },
+    ]);
+    const [row] = await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 36);
+    expect(row?.tradeLevels).toEqual([
+      { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+    ]);
   });
 });

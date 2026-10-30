@@ -18,6 +18,8 @@ import {
   workers,
   jobs,
   jobPostings,
+  workerProfiles,
+  workerProfileSkills,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
@@ -127,6 +129,41 @@ export class UnlocksRepository {
   /** Run `work` inside a single DB transaction (the chokepoint's atomic boundary). */
   async withTransaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
     return this.db.transaction(work);
+  }
+
+  /**
+   * The worker's stated trade rungs (Middle Way P5 price-tier hook input).
+   *
+   * Tx-SCOPED like the deletion-marker read above: the grant path calls it inside
+   * the locked transaction, so the tier it prices is the rung the worker holds at
+   * grant time. Ids + closed-set rung keys only — no PII, and the caller logs
+   * nothing but the tier. Latest profile wins per skill: a re-interview rewrites
+   * the rung, and the newest statement is the current truth.
+   */
+  async findTradeLevels(
+    tx: Tx,
+    workerId: string,
+  ): Promise<{ skillId: string; tradeLevel: string }[]> {
+    const rows = await tx
+      .selectDistinctOn([workerProfileSkills.skillId], {
+        skillId: workerProfileSkills.skillId,
+        tradeLevel: workerProfileSkills.tradeLevel,
+      })
+      .from(workerProfiles)
+      .innerJoin(
+        workerProfileSkills,
+        eq(workerProfileSkills.workerProfileId, workerProfiles.id),
+      )
+      .where(
+        and(
+          eq(workerProfiles.workerId, workerId),
+          isNotNull(workerProfileSkills.tradeLevel),
+        ),
+      )
+      .orderBy(workerProfileSkills.skillId, desc(workerProfiles.createdAt));
+    return rows.flatMap((r) =>
+      r.tradeLevel === null ? [] : [{ skillId: r.skillId, tradeLevel: r.tradeLevel }],
+    );
   }
 
   /**

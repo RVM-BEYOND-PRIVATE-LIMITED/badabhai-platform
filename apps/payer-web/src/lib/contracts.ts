@@ -1002,6 +1002,20 @@ export const reachApplicantWireSchema = z.object({
  * tier-1 ordering. `effectiveTier` is what he was ORDERED by, so the list's order is
  * explainable from the row rather than only reproducible by re-running the rule.
  */
+/**
+ * Middle Way P5 — one stated rung on the candidate's card. OPTIONAL so a backend
+ * that predates P5 still parses: absent reads as "no rung stated", exactly like an
+ * empty array.
+ */
+export const tradeLevelBadgeWireSchema = z.object({
+  skillId: z.string(),
+  skillLabel: z.string().nullable(),
+  tradeLevel: z.string(),
+  tradeLevelLabel: z.string(),
+  levelConfirmed: z.boolean(),
+});
+export type TradeLevelBadgeWire = z.infer<typeof tradeLevelBadgeWireSchema>;
+
 export const matchCandidateWireSchema = z.object({
   workerId: z.string().uuid(),
   applicationId: z.string().uuid(),
@@ -1013,6 +1027,7 @@ export const matchCandidateWireSchema = z.object({
   lastWorkedAt: z.string().nullable(),
   matchedSkillLabel: z.string().nullable(),
   engineVersion: z.string().nullable(),
+  tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
   stage: applicantStageWireSchema.optional(),
 });
 

@@ -27,6 +27,7 @@ describe("the Verdict Line (§6.2)", () => {
         years: 8,
         tools: ["Fanuc", "Siemens", "Mitsubishi"],
         axes: [],
+        level: null,
         city: "Faridabad",
       },
     });
@@ -327,6 +328,7 @@ describe("the Verdict Line's facts (#1714)", () => {
       years: 8,
       tools: ["VMC"],
       axes: ["3-axis", "4-axis"],
+      level: null,
       city: "Manesar",
     });
     expect(out.headlineLine).toBe("VMC Operator · 8 yrs · VMC · 3 & 4-axis");
@@ -336,6 +338,18 @@ describe("the Verdict Line's facts (#1714)", () => {
     const out = buildVerdictLine({ ...FULL, role: "   ", city: "  " });
     expect(out.verdictFacts.role).toBeNull();
     expect(out.verdictFacts.city).toBeNull();
+  });
+
+  it("prints the rung LAST, and only when the worker stated one (Middle Way P5)", () => {
+    const out = buildVerdictLine({ ...FULL, level: "Setter" });
+    expect(out.headlineLine).toBe(
+      "CNC Turner (Setter-cum-Operator) · 8 yrs · Fanuc, Siemens, Mitsubishi · Setter",
+    );
+    expect(out.verdictFacts.level).toBe("Setter");
+    // Absent rung takes its separator with it — every pre-P5 render is byte-identical.
+    const bare = buildVerdictLine(FULL);
+    expect(bare.headlineLine).not.toMatch(/·\s*$/);
+    expect(bare.verdictFacts.level).toBeNull();
   });
 
   it("records the facts even where the strip is omitted — they are still that résumé's", () => {

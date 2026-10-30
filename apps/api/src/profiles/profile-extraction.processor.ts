@@ -43,6 +43,7 @@ import {
   canonicalGenericPackSkills,
   genericPackSkillAnswers,
   SKILL_TAXONOMY_VERSION,
+  tradeLevelEntriesForPackAnswers,
 } from "@badabhai/taxonomy";
 import type { ProfileSource } from "@badabhai/types";
 import { EventsService } from "../events/events.service";
@@ -78,6 +79,7 @@ import { AiJobsRepository } from "./ai-jobs.repository";
 import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
 import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
+import { ProfileSkillsRepository } from "./profile-skills.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
 import { buildGeneralRoadExtraction } from "./general-road-profile";
 import { withChatEdits } from "./chat-edits-profile";
@@ -404,6 +406,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // The destination for the 77% of the pack corpus that is `attribute`-kind. `ProfilesModule`
     // provides it; it needs only DATABASE, which is a global module.
     private readonly workerAttributes: WorkerAttributesRepository,
+    // Middle Way P5 — the rung onto the authored skill row. `ProfilesModule` already
+    // provides `ProfileSkillsRepository` (the corrections writer), so this adds an
+    // injection and no module edge.
+    private readonly profileSkills: ProfileSkillsRepository,
     // Layer A elicitation — the chat's training/secondary-occupation answers land in their own
     // normalized tables (`worker_training`, `worker_occupation`), not in `worker_attributes`,
     // because those pages already own those stores. Insert-only-when-empty; see the service.
@@ -902,6 +908,35 @@ export class ProfileExtractionProcessor extends WorkerHost {
       if (attributeRows.length > 0) {
         this.logger.log(
           `worker_attributes upserted job=${aiJobId} rows=${attributesWritten}/${attributeRows.length}`,
+        );
+      }
+
+      // Middle Way P5 persist — the rung onto the authored skill row.
+      //
+      // Read off the SAME projected answers the attribute write above just stored
+      // (same pack, same values), so the headline and `trade_level` are two
+      // renderings of one fact and cannot disagree. UPSERT, never replace: a
+      // correction's skill list must survive a re-extraction, and a re-extraction
+      // must survive a correction — see `ProfileSkillsRepository.upsertTradeLevels`.
+      //
+      // FORM-ROAD WORKERS HAVE NO PROFILE ROW (the handover switches extraction
+      // off), so their rungs wait on a profile-writing form-completion stream —
+      // a v1 boundary, stated here so it is not discovered as a defect.
+      const levelEntries = tradeLevelEntriesForPackAnswers(
+        pack.packId,
+        attributes.map((attribute) => ({
+          attributeKey: attribute.attributeKey,
+          value: attribute.value,
+        })),
+      );
+      if (levelEntries.length > 0) {
+        const { levelsWritten } = await this.profileSkills.upsertTradeLevels(
+          saved.id,
+          levelEntries,
+          sessionId,
+        );
+        this.logger.log(
+          `trade_level upserted job=${aiJobId} rows=${levelsWritten}/${levelEntries.length}`,
         );
       }
 

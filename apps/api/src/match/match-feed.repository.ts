@@ -109,6 +109,20 @@ export interface CandidateRow {
    * that reorders is E16/Policy 7 breakage.
    */
   matchedSkillId: string | null;
+  /**
+   * The rungs the worker stated, per trade skill — a LIVE lookup from
+   * `worker_profile_skill` (latest profile wins per skill), for the level badge
+   * only. Same contract as `matchedSkillId` above: display-only, never a rank
+   * input, and a worker with no rung still appears (empty array, not absence).
+   */
+  tradeLevels: readonly TradeLevelRow[];
+}
+
+/** One stated rung, as the candidate query carries it. */
+export interface TradeLevelRow {
+  readonly skillId: string;
+  readonly tradeLevel: string;
+  readonly levelConfirmed: boolean;
 }
 
 /**
@@ -366,7 +380,8 @@ export class MatchFeedRepository {
     const rows = await this.db.execute<CandidateSqlRow>(dsql`
       SELECT a.id, a.worker_id, a.match_tier, a.skill_months, a.industry_months,
              a.last_worked_at, a.created_at, a.engine_version,
-             jr.matched_skill_id
+             jr.matched_skill_id,
+             ${tradeLevelsColumn("a.worker_id")} AS trade_levels
       FROM applications a
       -- ELIGIBILITY, NOT RANK (ADR-0031 (b)): the applicant must not be pending deletion.
       INNER JOIN workers w ON w.id = a.worker_id
@@ -420,7 +435,8 @@ export class MatchFeedRepository {
     const rows = await this.db.execute<CandidateSqlRow & RankedSqlColumns>(dsql`
       SELECT r.id, r.worker_id, r.job_posting_id, r.match_tier, r.skill_months,
              r.industry_months, r.last_worked_at, r.created_at, r.engine_version,
-             r.matched_skill_id, r.candidate_rank
+             r.matched_skill_id, ${tradeLevelsColumn("r.worker_id")} AS trade_levels,
+             r.candidate_rank
       FROM (
         SELECT a.id, a.worker_id, a.job_posting_id, a.match_tier, a.skill_months,
                a.industry_months, a.last_worked_at, a.created_at, a.engine_version,
@@ -460,7 +476,39 @@ type CandidateSqlRow = {
   created_at: Date | string;
   engine_version: string | null;
   matched_skill_id: string | null;
+  trade_levels: unknown;
 };
+
+/**
+ * The level badge's live lookup (Middle Way P5) — the worker's stated rungs, latest
+ * profile wins per skill, as one JSON array per candidate row.
+ *
+ * A CORRELATED SUBQUERY, NOT A JOIN, for the same reason `matched_skill_id` is a
+ * LEFT JOIN: a worker with no rung still appears (empty array, `'[]'`), and the
+ * lookup contributes NOTHING to rank. Latest profile wins per skill because a
+ * re-interview rewrites the rung, and the newest statement is the current truth.
+ */
+function tradeLevelsColumn(workerIdSql: string) {
+  return dsql`COALESCE((
+    SELECT json_agg(
+      json_build_object(
+        'skill_id', l.skill_id,
+        'trade_level', l.trade_level,
+        'level_confirmed', l.level_confirmed
+      )
+      ORDER BY l.skill_id
+    )
+    FROM (
+      SELECT DISTINCT ON (wps.skill_id)
+        wps.skill_id, wps.trade_level, wps.level_confirmed
+      FROM worker_profiles wp
+      JOIN worker_profile_skill wps ON wps.worker_profile_id = wp.id
+      WHERE wp.worker_id = ${dsql.raw(workerIdSql)}::uuid
+        AND wps.trade_level IS NOT NULL
+      ORDER BY wps.skill_id, wp.created_at DESC
+    ) l
+  ), '[]')`;
+}
 
 /** The two extra columns {@link MatchFeedRepository.listRankedCandidatesByApplication} reads. */
 type RankedSqlColumns = {
@@ -511,7 +559,39 @@ function toCandidateRow(r: CandidateSqlRow): CandidateRow {
     createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
     engineVersion: r.engine_version,
     matchedSkillId: r.matched_skill_id,
+    tradeLevels: parseTradeLevels(r.trade_levels),
   };
+}
+
+/**
+ * The `trade_levels` JSON array, defensively read. The driver hands back parsed
+ * JSON, but a row the seed wrote by hand (or a version-skewed deploy) may carry a
+ * string — and a row that names no rung, or names it wrongly, is an empty badge,
+ * never a failed list. Closed-set validation happens at the LABEL step, not here.
+ */
+function parseTradeLevels(raw: unknown): TradeLevelRow[] {
+  const value = typeof raw === "string" ? safeJsonParse(raw) : raw;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.skill_id !== "string" || typeof row.trade_level !== "string") return [];
+    return [
+      {
+        skillId: row.skill_id,
+        tradeLevel: row.trade_level,
+        levelConfirmed: row.level_confirmed === true,
+      },
+    ];
+  });
+}
+
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 /**

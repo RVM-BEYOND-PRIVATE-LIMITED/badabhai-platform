@@ -214,6 +214,8 @@ export interface ResumeGlance {
   readonly machines: readonly string[];
   /** Machine axes as printed ("3-axis"). Empty for every trade without an axis ask. */
   readonly axes: readonly string[];
+  /** The rung on the trade's ladder ("Setter"), or null when the worker stated none. */
+  readonly level: string | null;
   /** The city the Verdict Line's second line was composed with. */
   readonly city: string | null;
   /** Pages in the PDF drawn from this document, or null when they could not be counted. */
@@ -332,6 +334,7 @@ export function toResumeDocument(
     experienceYears: facts?.years ?? null,
     machines: facts?.tools ?? [],
     axes: facts?.axes ?? [],
+    level: facts?.level ?? null,
     city: facts?.city ?? null,
     pageCount,
   };
@@ -424,6 +427,9 @@ const StoredGlanceSchema = z.object({
   experienceYears: z.number().finite().positive().nullable(),
   machines: z.array(z.string()),
   axes: z.array(z.string()),
+  // P5 — absent from every document rendered before it, so defaulted rather than
+  // required: a missing key reads as "nothing recorded", exactly like a missing glance.
+  level: z.string().nullable().default(null),
   city: z.string().nullable(),
   pageCount: z.number().int().positive().nullable(),
 });
