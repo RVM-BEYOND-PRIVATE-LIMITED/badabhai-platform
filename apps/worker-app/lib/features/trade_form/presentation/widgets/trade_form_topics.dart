@@ -84,6 +84,8 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'drafting_experience': _experience,
   'machining_level': _level, 'toolroom_level': _level, 'welder_level': _level,
   'coating_level': _level,
+  'turning_level': _level, 'milling_level': _level, 'grinding_level': _level,
+  'cam_level': _level,
   // Machines
   'turning_machine': _machines, 'milling_machine': _machines,
   'grinding_machine': _machines, 'machining_machine': _machines,

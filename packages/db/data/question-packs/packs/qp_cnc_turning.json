@@ -7,7 +7,7 @@
   "version": 1,
   "family_id": "fam_cnc_turning",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising turner.",
   "items": [
     {

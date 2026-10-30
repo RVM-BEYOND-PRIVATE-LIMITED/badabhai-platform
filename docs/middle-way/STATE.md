@@ -23,7 +23,7 @@ Base: `origin/main 03a90966` | Scope v1: 4 trades (Turner, VMC, Grinding, CAM) |
 |---|---|---|---|---|
 | P0 Baseline lock | inventory 4 packs/forms, snapshot tests | done | 9b5b7906 | taxonomy corpus load OK, 4 packs parse OK |
 | P1 C1 level field | nullable, display-only, zero reach/rank change | done | - | schema 27 pass, taxonomy 136 pass, match-engine 223 pass, no match reader |
-| P2 C3+C4 gates | level to all, `years OR level` | todo | - | §7 tests 1-2 |
+| P2 C3+C4 gates | level to all, `years OR level` | done | - | corpus 169 packs valid; db pack 180+72 pass; api proof/parity/budget/registry 900+ pass; goldens regen; ai parity 17 pass |
 | P3 C2 8 slots | required + 14/20 stop rule | todo | - | §7 tests 3-4 |
 | P4 C5 aliases | §8 Hinglish for 4 trades | todo | - | §7 test 9 |
 | P5 C6+display | crosswalk, headline `Trade · Level · Years`, badge, unlock hook ₹40 live | todo | - | §7 tests 5-6,8 |

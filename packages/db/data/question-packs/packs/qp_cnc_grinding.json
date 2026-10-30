@@ -8,7 +8,7 @@
   "version": 1,
   "family_id": "fam_cnc_grinding",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising grinder -- see docs/registers/trade-content-ratification.md.",
   "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half.",
   "items": [

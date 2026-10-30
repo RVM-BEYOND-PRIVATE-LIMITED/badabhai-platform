@@ -11,7 +11,7 @@
   "version": 1,
   "family_id": "fam_cam_programming",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "Drafted for owner review (Prakash). The chip vocabulary in this pack is DRAFTED AND NOT YET RATIFIED -- neither the CAM software list, the machine and controller lists, nor the programming-work, post-processor and simulation ladders have been corrected by a practising part programmer. Same open redline as qp_cnc_turning, qp_vmc_milling and qp_cnc_grinding; see docs/registers/trade-content-ratification.md.",
   "items": [
     {

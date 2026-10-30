@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1237,
+  "clip_count": 1246,
   "producers": {
-    "retry": 100,
-    "clarify": 446,
-    "prompt": 320,
+    "retry": 102,
+    "clarify": 450,
+    "prompt": 322,
     "constant": 95,
-    "why": 276
+    "why": 277
   },
   "clips": [
     {
@@ -58,6 +58,11 @@
       "id": "02b98d6bd6f040b7",
       "text": "Har device ka kaam alag hota hai. Aap kya thik karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "02dcd0435f0d035e",
+      "text": "Junior programmer, programmer ya senior programmer hain?",
+      "producer": "retry"
     },
     {
       "id": "02f3b2dcde030e00",
@@ -1680,6 +1685,11 @@
       "producer": "why"
     },
     {
+      "id": "44d4c443c1beb72a",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Machine par helper, operator ya setter hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "44eb782703d052b5",
       "text": "Aap kaunsi turning machine chalate hain?",
       "producer": "prompt"
@@ -2290,6 +2300,11 @@
       "producer": "prompt"
     },
     {
+      "id": "5af007fd8a7ac12c",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Machine pe aap kya karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "5b20c7095b7f527a",
       "text": "Trade test pass hona certificate jitna hi mayne rakhta hai. Trade test diya hai?",
       "producer": "clarify"
@@ -2553,6 +2568,11 @@
       "id": "663469a2c470dc01",
       "text": "PVC aur GI ka kaam alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "663ca283af5b24aa",
+      "text": "Machine pe aap kya karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "663cd17d010f3799",
@@ -3045,6 +3065,11 @@
       "producer": "prompt"
     },
     {
+      "id": "7995badfedf8a4e3",
+      "text": "Machine par helper, operator ya setter hain?",
+      "producer": "retry"
+    },
+    {
       "id": "799df871fe3e85d4",
       "text": "Kya aap ghar jaakar service dete hain?",
       "producer": "prompt"
@@ -3290,6 +3315,11 @@
       "producer": "constant"
     },
     {
+      "id": "8386589d69f22bd2",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Junior programmer, programmer ya senior programmer hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "83b0043f182d752f",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "producer": "why"
@@ -3423,6 +3453,11 @@
       "id": "882ab4b0deb7bf49",
       "text": "Die ki kaunsi dikkat aap sudhaar lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "884cf6a5d8b9af99",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Programming me aap kya karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "8855f6d020667694",
@@ -3783,6 +3818,11 @@
       "id": "987415f0e1349e95",
       "text": "Bijli ke kaam me safety zaroori hai. Kya aapne safety training li hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "98c4da71ed0d7164",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "producer": "why"
     },
     {
       "id": "98dc165375a41667",
@@ -5217,6 +5257,11 @@
     {
       "id": "d2114dcd4804016c",
       "text": "Kya aap sinchai ka kaam jaante hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d300797f82db0de2",
+      "text": "Programming me aap kya karte hain?",
       "producer": "prompt"
     },
     {
