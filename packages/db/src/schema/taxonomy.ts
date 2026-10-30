@@ -77,6 +77,7 @@ import {
   integer,
   smallint,
   real,
+  boolean,
   timestamp,
   index,
   primaryKey,
@@ -125,6 +126,31 @@ export type WorkerProfileSkillSource =
 
 /** Self-reported depth. Deliberately coarse — a worker is not asked to self-grade finely. */
 export type WorkerSkillLevel = "beginner" | "intermediate" | "advanced";
+
+/**
+ * Middle-Way trade level (P1, additive). Per worker per trade, stored on the
+ * `worker_profile_skill` row whose skillId is the trade's `mskill_*`.
+ * NULL = not stated, never guessed. Closed per-trade ladders live in
+ * `docs/middle-way/LADDERS.md`; validation is app-level so new ladders never
+ * need a migration. Old `level` column is untouched.
+ */
+export type TradeLevel =
+  | "helper"
+  | "trainee"
+  | "operator"
+  | "draughtsman"
+  | "trainee_modeller"
+  | "cad_designer"
+  | "setter"
+  | "setter_programmer"
+  | "programmer"
+  | "junior_programmer"
+  | "senior_programmer"
+  | "senior_draughtsman"
+  | "senior_designer"
+  | "lead_checker"
+  | "design_engineer_lead"
+  | "supervisor";
 
 /** How a skill got onto a specific company's posting. */
 export type JobPostingSkillSource =
@@ -284,6 +310,17 @@ export const workerProfileSkills = pgTable(
      */
     monthsExperience: integer("months_experience"),
     level: text("level").$type<WorkerSkillLevel>(),
+    /**
+     * Middle-Way (P1): trade ladder rung, e.g. helper/operator/setter/
+     * setter_programmer/programmer/supervisor. NULL = not stated. Display-only:
+     * never read by match-engine reach/rank in v1.
+     */
+    tradeLevel: text("trade_level").$type<TradeLevel>(),
+    /**
+     * Middle-Way (P1): true once the separating question was answered
+     * (Setter and above only). Defaults false; NULL never occurs on new rows.
+     */
+    levelConfirmed: boolean("level_confirmed").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

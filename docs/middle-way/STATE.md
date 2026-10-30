@@ -21,8 +21,8 @@ Base: `origin/main 03a90966` | Scope v1: 4 trades (Turner, VMC, Grinding, CAM) |
 
 | Phase | Spec | Status | Commit | Test |
 |---|---|---|---|---|
-| P0 Baseline lock | inventory 4 packs/forms, snapshot tests | done | - | taxonomy corpus load OK, 4 packs parse OK |
-| P1 C1 level field | nullable, display-only, zero reach/rank change | todo | - | property test zero-diff |
+| P0 Baseline lock | inventory 4 packs/forms, snapshot tests | done | 9b5b7906 | taxonomy corpus load OK, 4 packs parse OK |
+| P1 C1 level field | nullable, display-only, zero reach/rank change | done | - | schema 27 pass, taxonomy 136 pass, match-engine 223 pass, no match reader |
 | P2 C3+C4 gates | level to all, `years OR level` | todo | - | §7 tests 1-2 |
 | P3 C2 8 slots | required + 14/20 stop rule | todo | - | §7 tests 3-4 |
 | P4 C5 aliases | §8 Hinglish for 4 trades | todo | - | §7 test 9 |
