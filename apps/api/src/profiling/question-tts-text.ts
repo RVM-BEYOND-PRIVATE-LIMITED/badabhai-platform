@@ -412,6 +412,16 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
     "पोस्ट-प्रोसेसर के साथ आप कितना काम करते हैं?",
   "Program release se pehle simulation kaise karte hain?":
     "प्रोग्राम रिलीज़ से पहले सिमुलेशन कैसे करते हैं?",
+  // --- Middle Way v2 (level question, all four machining packs) -------------------------
+  //
+  // ONE PROMPT PAIR, SHARED VERBATIM. Turner, VMC and grinding ask the level question in the
+  // same words, so one twin covers all three; CAM's desk ladder gets its own. Retries name the
+  // rungs because a bare "kya karte hain" re-ask is what the worker just failed to answer.
+  "Machine pe aap kya karte hain?": "मशीन पे आप क्या करते हैं?",
+  "Programming me aap kya karte hain?": "प्रोग्रामिंग में आप क्या करते हैं?",
+  "Machine par helper, operator ya setter hain?": "मशीन पर हेल्पर, ऑपरेटर या सेटर हैं?",
+  "Junior programmer, programmer ya senior programmer hain?":
+    "जूनियर प्रोग्रामर, प्रोग्रामर या सीनियर प्रोग्रामर हैं?",
   // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
   //
   // TWO PACKS, ONE BLOCK, BECAUSE THEY SHARE SIX OF THEIR SERVED STRINGS. `qp_draughting` is the
@@ -991,6 +1001,9 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "पोस्ट-प्रोसेसर ठीक करने वाले प्रोग्रामर कम मिलते हैं।",
   "Simulation se machine aur job ka nuksaan bachta hai.":
     "सिमुलेशन से मशीन और जॉब का नुक़सान बचता है।",
+  // --- Middle Way v2 (level why-text, shared by all four machining packs) ----------------
+  "Level ke hisaab se sahi sawaal poochhe jaate hain.":
+    "लेवल के हिसाब से सही सवाल पूछे जाते हैं।",
   // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
   //
   // THIRTEEN WHY-TEXTS FOR THE TWO PACKS TOGETHER. "Software ke hisaab se sahi kaam dikhaya jaata
