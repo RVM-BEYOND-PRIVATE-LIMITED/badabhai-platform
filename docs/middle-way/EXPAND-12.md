@@ -10,11 +10,13 @@ same branch/gate discipline as P1–P5 (`feat/mw-ex-*`, gates green, squash-merg
 
 ## 0. Preconditions (do once, before any trade)
 
-- **E0 — CAD Q3 second half.** `mskill_3d_designer` was never minted (grep: zero hits).
-  `mskill_designer` today = generic Designer. Per STATE Q3 (owner-approved): keep the
-  ID for 2D CAD Draughtsman (relabel only), mint `mskill_3d_designer`, relate both
-  ways, split `ATTRIBUTE_TO_MATCH_SKILLS` 2D→designer / 3D→new. Blocks
-  `cad_draughtsman` expansion AND the 3D trade (no role/pack exists yet).
+- **E0 — CAD Q3 second half.** ✅ DONE (`feat/mw-e0-3d-designer`): `mskill_3d_designer`
+  minted as an active match skill (mirrors `mskill_designer`); `mskill_designer`
+  relabeled to "2D CAD Draughtsman"; pair `["mskill_3d_designer","mskill_designer"]`
+  added (sorted first); `skill_3d_modeling` → `[mskill_3d_designer]`, everything
+  else unchanged (generic occupation, role/seed bridges). Divyanshu ran
+  `db:seed:match:vocabulary` on staging/prod (manual step, same pattern as P4).
+  Unblocks E3 + E17.
 - **E1 — Pack slot-2 option alignment (v1 GAP).** §8 slot-2 machine lists
   (turn-mill / live tool / C-axis / twin spindle / sliding head / swiss / VTL;
   VMC 4th-axis / rotary / 5-axis / HMC variants) have NO matching pack options

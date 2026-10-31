@@ -219,8 +219,25 @@ export const MATCH_SKILLS = [
     status: "active",
   },
   {
+    // Middle Way E0 (Q3, owner-approved 2026-10-30): the generic ID meant 2D+3D
+    // conflated. This row is now the 2D CAD Draughtsman (relabel only — the ID is
+    // permanent); 3D CAD Designer gets its own row directly below and the two are
+    // related both ways. Same bench: a design-desk posting names the same floor.
     skillId: "mskill_designer",
-    labelEn: "Designer",
+    labelEn: "2D CAD Draughtsman",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // The 3D modeller/designer: parts, assemblies and surfacing in SolidWorks/Creo/
+    // NX/CATIA, not 2D drafting. Related to the 2D draughtsman (same desk, either
+    // direction) but NOT merged: a posting for GA drawings must not reach a
+    // surfacing modeller on the strength of one shared word.
+    skillId: "mskill_3d_designer",
+    labelEn: "3D CAD Designer",
     labelHi: null,
     industryId: "ind_industrial_manufacturing",
     domainId: "cnc-programming",
@@ -408,6 +425,9 @@ export type MatchSkillRelationPair = readonly [MatchSkillId, MatchSkillId];
  * in `match-skills.test.ts`, not merely asserted here.
  */
 export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
+  // Middle Way E0 (Q3): 2D draughting and 3D design are one desk in both directions —
+  // shops move a man between the model and the drawing and back.
+  ["mskill_3d_designer", "mskill_designer"],
   // Welding family — MIG / TIG / Arc are mutually related (3 edges).
   ["mskill_arc_welder", "mskill_mig_welder"],
   ["mskill_arc_welder", "mskill_tig_welder"],
@@ -617,8 +637,12 @@ export const ATTRIBUTE_TO_MATCH_SKILLS: Record<string, readonly MatchSkillId[]> 
   skill_carpenter_occupation: ["mskill_carpenter"],
 
   // ---- Design ----
+  // Middle Way E0 (Q3, owner-approved): 2D drafting claims the draughtsman; 3D
+  // modelling claims the 3D designer. Split, not shared — a 3D modeller reaching
+  // a GA-drawing posting (and vice versa) on one shared word is exactly what the
+  // relabel exists to stop.
   skill_cad_2d_drafting: ["mskill_designer"],
-  skill_3d_modeling: ["mskill_designer"],
+  skill_3d_modeling: ["mskill_3d_designer"],
   skill_rendering_visualization: [],
   skill_designer_occupation: ["mskill_designer"],
 

@@ -154,10 +154,13 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
 
 describe("MATCH_SKILL_RELATION_PAIRS — the authored source of truth", () => {
   it("lists each UNDIRECTED pair exactly ONCE (the seeder rejects a duplicate)", () => {
-    const unordered = MATCH_SKILL_RELATION_PAIRS.map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`));
+    const unordered = MATCH_SKILL_RELATION_PAIRS.map(([a, b]) =>
+      a < b ? `${a}|${b}` : `${b}|${a}`,
+    );
     expect(new Set(unordered).size).toBe(MATCH_SKILL_RELATION_PAIRS.length);
-    // 18 before #2022; the owner's ruling minting eight form trades added four curated pairs.
-    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(22);
+    // 18 before #2022; the owner's ruling minting eight form trades added four curated pairs;
+    // Middle Way E0 (Q3) added the 2D/3D designer pair.
+    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(23);
   });
 
   it("is a TUPLE list, not an object list — the db seeder destructures [a, b]", () => {
@@ -194,7 +197,9 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
   it("IS SYMMETRIC — now a test of the DERIVATION, not of a curator's discipline", () => {
     for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
       for (const other of related) {
-        expect(RELATED_MATCH_SKILLS[other], `${other} must list ${skillId} back`).toContain(skillId);
+        expect(RELATED_MATCH_SKILLS[other], `${other} must list ${skillId} back`).toContain(
+          skillId,
+        );
       }
     }
   });
@@ -243,6 +248,32 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
     expect(RELATED_MATCH_SKILLS.mskill_carpenter).toEqual([]);
     expect(relatedMatchSkills("mskill_delivery_rider")).toEqual([]);
     expect(relatedMatchSkills("mskill_nope")).toEqual([]);
+  });
+
+  it("Middle Way E0 (Q3) — the designer split: 2D relabelled, 3D minted, related both ways", () => {
+    // The generic "Designer" label is gone: the id now names the 2D trade, and the
+    // 3D trade has its own id. Both directions of the new edge hold (derivation is
+    // symmetric — asserted structurally elsewhere — so one direction pins the pair).
+    expect(matchSkillLabel("mskill_designer")).toBe("2D CAD Draughtsman");
+    expect(matchSkillLabel("mskill_3d_designer")).toBe("3D CAD Designer");
+    expect(getMatchSkill("mskill_3d_designer")).toMatchObject({
+      industryId: "ind_industrial_manufacturing",
+      source: "rvm",
+      status: "active",
+    });
+    expect(RELATED_MATCH_SKILLS.mskill_3d_designer).toEqual(["mskill_designer"]);
+    expect(RELATED_MATCH_SKILLS.mskill_designer).toEqual([
+      "mskill_3d_designer",
+      "mskill_cam_programmer",
+      "mskill_interior_designer",
+    ]);
+    // The bridge split: 2D drafting still claims the draughtsman; 3D modelling now
+    // claims the 3D designer. The generic occupation stays on the 2D id (E0 scope:
+    // no reach change for existing rows — a generic "designer" could be either, and
+    // the conservative read is the trade with the live form).
+    expect(matchSkillsForAttribute("skill_cad_2d_drafting")).toEqual(["mskill_designer"]);
+    expect(matchSkillsForAttribute("skill_3d_modeling")).toEqual(["mskill_3d_designer"]);
+    expect(matchSkillsForAttribute("skill_designer_occupation")).toEqual(["mskill_designer"]);
   });
 
   it("welding is a mutually related family", () => {
@@ -373,10 +404,18 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
       "skill_non_destructive_testing_of_castings",
       "skill_sanitary_fixture_installation",
     ]);
-    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_sanitary_fixture_installation"]).toEqual(["mskill_plumber"]);
-    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_leak_repair_in_water_lines"]).toEqual(["mskill_plumber"]);
-    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_drain_cleaning_and_unclogging"]).toEqual(["mskill_plumber"]);
-    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_hardness_testing"]).toEqual(["mskill_quality_inspector"]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_sanitary_fixture_installation"]).toEqual([
+      "mskill_plumber",
+    ]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_leak_repair_in_water_lines"]).toEqual([
+      "mskill_plumber",
+    ]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_drain_cleaning_and_unclogging"]).toEqual([
+      "mskill_plumber",
+    ]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_hardness_testing"]).toEqual([
+      "mskill_quality_inspector",
+    ]);
     expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_non_destructive_testing_of_castings"]).toEqual([
       "mskill_quality_inspector",
     ]);
@@ -388,7 +427,7 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
     // The vocabulary DID grow later, for a different reason: #2022 (2026-10-06) minted one skill
     // per trade FORM that derived nothing. That ruling re-dispositioned no promotable skill (the
     // five-mapping pin above still holds), and no promotable skill reaches a #2022 skill.
-    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length);
+    expect(MATCH_SKILLS).toHaveLength(19 + MINTED_FOR_2022.length);
     for (const id of PROMOTABLE_SKILL_IDS) {
       for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
         expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);
