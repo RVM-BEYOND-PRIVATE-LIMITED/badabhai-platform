@@ -88,7 +88,14 @@ describe("JobPostingChatController — identity from the session, never the body
 
   it("publish pairs the URL session id with the SESSION payer", async () => {
     await d.ctrl.publish(PAYER_A, { id: SESSION }, {}, CTX);
-    expect(d.chat.publish).toHaveBeenCalledWith(PAYER_A.id, SESSION, CTX);
+    expect(d.chat.publish).toHaveBeenCalledWith(PAYER_A.id, SESSION, CTX, {});
+  });
+
+  it("publish forwards the optional display-only role_kind", async () => {
+    await d.ctrl.publish(PAYER_A, { id: SESSION }, { role_kind: "welder" }, CTX);
+    expect(d.chat.publish).toHaveBeenCalledWith(PAYER_A.id, SESSION, CTX, {
+      role_kind: "welder",
+    });
   });
 
   it("NO schema on this surface accepts a payer_id / org_label, so neither can be spoofed", () => {

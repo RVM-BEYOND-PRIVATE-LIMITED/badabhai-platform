@@ -722,12 +722,30 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     expect(d.pii.decrypt).toHaveBeenCalledTimes(1);
   });
 
-  it("never sends role_kind — the interview does not ask for a role, so the posting stores NULL (0131)", async () => {
-    // Owner ruling 2026-09-29: chat publish leaves `role_kind` NULL. The create DTO's field is
-    // optional with no default, so an absent key is what makes `createInScope` store NULL.
+  it("omits role_kind when the publish body carries none — the posting stores NULL (#2490)", async () => {
+    // The interview does not ask for a role, so an absent key is what makes
+    // `createInScope` store NULL / generic art, as before.
     await d.svc.publish(PAYER_A, SESSION, CTX);
     const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
     expect("role_kind" in dto).toBe(false);
+  });
+
+  it("carries role_kind end to end when the publish body carries it (#2490 parity)", async () => {
+    // Display-only: the same closed 21-value set the manual form validates, never a
+    // match input — it rides the create DTO straight to the stored column.
+    await d.svc.publish(PAYER_A, SESSION, CTX, { role_kind: "welder" });
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
+    expect(dto.role_kind).toBe("welder");
+  });
+
+  it("rejects an unknown role_kind and a null role_kind on the publish body (#2490)", async () => {
+    const { PublishJobPostingChatSchema } = await import("./job-posting-chat.dto");
+    expect(PublishJobPostingChatSchema.safeParse({ role_kind: "rocket_surgeon" }).success).toBe(
+      false,
+    );
+    expect(PublishJobPostingChatSchema.safeParse({ role_kind: null }).success).toBe(false);
+    expect(PublishJobPostingChatSchema.safeParse({ role_kind: "welder" }).success).toBe(true);
+    expect(PublishJobPostingChatSchema.safeParse({}).success).toBe(true);
   });
 
   it("does not report role_kind as an unset CARD field — it is display-only, not on the worker card", async () => {
