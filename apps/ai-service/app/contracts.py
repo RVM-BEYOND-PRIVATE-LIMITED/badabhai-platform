@@ -1545,6 +1545,8 @@ JobNeededBy = Literal["immediate", "soon", "flexible"]
 _JP_LABEL_MAX = 200
 _JP_DESCRIPTION_MAX = 2000
 _JP_CITY_MAX = 80
+# #2493 — the same COARSE area bucket the manual forms collect (areaSchema, cap 120).
+_JP_AREA_MAX = 120
 _JP_EXPERIENCE_MAX_YEARS = 60
 JobPostingSkillPhrase = Annotated[str, Field(min_length=1, max_length=80)]
 JobPostingExperienceYears = Annotated[int, Field(ge=0, le=_JP_EXPERIENCE_MAX_YEARS)]
@@ -1636,6 +1638,12 @@ class JobPostingDraft(BaseModel):
     # worker feed reads, taken from the payer's answer; it is never derived from a
     # stored `location_label` (poster free text the feed does not read).
     city: str | None = Field(default=None, max_length=_JP_CITY_MAX)
+    # #2493 — the COARSE area/locality bucket (e.g. "Chakan") the worker card renders
+    # beside the city. Capped like the manual forms' `areaSchema`, never an address.
+    # Usually closed by the location answer itself (the non-city part of "Pune,
+    # Chakan"), so it costs a question only when that answer named no area. Optional:
+    # absent stays None, exactly as today.
+    area: str | None = Field(default=None, max_length=_JP_AREA_MAX)
     pay_type: JobPayType | None = None
     # Years, 0..60. A "5+ years" answer has a min and no max, so either may be None alone.
     min_experience_years: JobPostingExperienceYears | None = None

@@ -29,6 +29,8 @@ const jobNeededBy = z.enum(["immediate", "soon", "flexible"]);
 const JP_LABEL_MAX = 200;
 const JP_DESCRIPTION_MAX = 2000;
 const JP_CITY_MAX = 80;
+/** #2493 — the same COARSE area bucket the manual forms collect (areaSchema, cap 120). */
+const JP_AREA_MAX = 120;
 const JP_EXPERIENCE_MAX_YEARS = 60;
 
 const experienceYears = z.number().int().nonnegative().max(JP_EXPERIENCE_MAX_YEARS);
@@ -106,6 +108,14 @@ export const JobPostingDraftSchema = z.object({
    * from a stored `location_label` (poster free text the feed does not read).
    */
   city: z.string().max(JP_CITY_MAX).nullable().default(null),
+  /**
+   * #2493 — the COARSE area/locality bucket (e.g. "Chakan") the worker card renders
+   * beside the city. Capped like the manual forms' `areaSchema`, never an address.
+   * Usually closed by the location answer itself (the non-city part of "Pune, Chakan"),
+   * so it costs a question only when that answer named no area. Optional: absent stays
+   * NULL, exactly as today.
+   */
+  area: z.string().max(JP_AREA_MAX).nullable().default(null),
   pay_type: jobPayType.nullable().default(null),
   /** Years, 0..60. A "5+ years" answer has a min and no max, so either may be null alone. */
   min_experience_years: experienceYears.nullable().default(null),
