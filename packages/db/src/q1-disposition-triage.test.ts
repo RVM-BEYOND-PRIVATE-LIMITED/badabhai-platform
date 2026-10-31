@@ -88,8 +88,9 @@ describe("the pack is structurally sound", () => {
     expect(counts.matched + counts.intentionallyUnmatched + counts.review).toBe(96);
   });
 
-  it("no unknown mskill_* can enter — every candidate is one of the existing 18", () => {
-    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022);
+  it("no unknown mskill_* can enter — every candidate is one of the existing 19", () => {
+    // +1: Middle Way E0 (Q3, owner-approved 2026-10-31) minted mskill_3d_designer.
+    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 1);
     expect(VALID_AT_Q1.size).toBe(Q1_ERA_MATCH_SKILLS);
     for (const r of Q1_TRIAGE) {
       for (const c of r.candidates) expect(VALID_AT_Q1, `${r.skillId} -> ${c}`).toContain(c);
@@ -262,7 +263,8 @@ describe("what was applied, and what was not", () => {
   it("the bridge grew by exactly the 96; the vocabulary and the corpus did not move", () => {
     expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS)).toHaveLength(145);
     // Q1 did not move the vocabulary; #2022 later appended eight (see Q1_ERA_MATCH_SKILLS).
-    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022);
+    // +1: Middle Way E0 minted mskill_3d_designer (same owner-ruling carve-out as #2022).
+    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 1);
     expect(SKILL_CORPUS).toHaveLength(49);
   });
 

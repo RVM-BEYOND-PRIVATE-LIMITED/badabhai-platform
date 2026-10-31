@@ -51,8 +51,14 @@ interface Artifact {
 const artifact = JSON.parse(
   readFileSync(
     join(
-      __dirname, "..", "..", "..",
-      "docs", "registers", "taxonomy-decisions", "q1-match-vocabulary-coverage.json",
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "docs",
+      "registers",
+      "taxonomy-decisions",
+      "q1-match-vocabulary-coverage.json",
     ),
     "utf8",
   ),
@@ -112,7 +118,9 @@ describe("a mapping must resolve to be a mapping", () => {
 
 describe("the refusal", () => {
   it("is null when everything is decided", () => {
-    expect(vocabularyTripwireError(vocabularyCoverage(["a"], { a: [] }, VALID), "s", "b")).toBeNull();
+    expect(
+      vocabularyTripwireError(vocabularyCoverage(["a"], { a: [] }, VALID), "s", "b"),
+    ).toBeNull();
   });
 
   it("names the blocking skills and both ways to resolve them", () => {
@@ -160,7 +168,11 @@ describe("the universe is the promotable batch, NOT SKILL_CORPUS", () => {
       ATTRIBUTE_TO_MATCH_SKILLS,
       valid,
     );
-    const rightUniverse = vocabularyCoverage(batchScopeSkillIds(BATCH), ATTRIBUTE_TO_MATCH_SKILLS, valid);
+    const rightUniverse = vocabularyCoverage(
+      batchScopeSkillIds(BATCH),
+      ATTRIBUTE_TO_MATCH_SKILLS,
+      valid,
+    );
 
     expect(wrongUniverse.total).toBe(49);
     expect(rightUniverse.total).toBe(96);
@@ -197,7 +209,9 @@ describe("current coverage, as committed", () => {
   it("passing means DECIDED, not mapped — 91 of the 96 still reach nothing", () => {
     // The gate's whole point is that these two are different. A PASS here must never be read
     // as "the 96 are matched"; it means somebody answered the question for each of them.
-    expect(artifact.counts["INTENTIONALLY_UNMATCHED"]).toBeGreaterThan((artifact.counts["MATCHED"] ?? 0) * 15);
+    expect(artifact.counts["INTENTIONALLY_UNMATCHED"]).toBeGreaterThan(
+      (artifact.counts["MATCHED"] ?? 0) * 15,
+    );
   });
 
   it("the tripwire reproduces from source — the artifact is not a stale hand-edit", () => {
@@ -255,7 +269,9 @@ describe("the tripwire itself still decides nothing", () => {
     // unmatched rather than earning new concepts; vocabulary expansion is a separate decision.
     // The artifact is the dated record (18). #2022 (owner ruling 2026-10-06) later APPENDED eight
     // skills for trade forms that derived nothing; no promotable skill maps to any of them.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8);
+    // Middle Way E0 (Q3, owner-approved 2026-10-31) minted ONE more — mskill_3d_designer,
+    // split off the generic designer — again as its own approved decision, not batch fit.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 1);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 

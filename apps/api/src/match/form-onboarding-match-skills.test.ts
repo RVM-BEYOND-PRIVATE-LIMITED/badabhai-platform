@@ -156,7 +156,10 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     ],
     qp_cnc_grinding: ["mskill_cnc_grinding_operator"],
     qp_cam_programming: ["mskill_cam_programmer", "mskill_cnc_programmer"],
-    qp_cad_drafting: ["mskill_designer"],
+    // Middle Way E0 (Q3): the CAD drafting pack's 3D-module chips now reach the 3D
+    // designer; 2D chips stay on the (relabeled) 2D ID. Reach widening, written
+    // here explicitly per this table's contract.
+    qp_cad_drafting: ["mskill_3d_designer", "mskill_designer"],
     qp_welding_trade: ["mskill_arc_welder", "mskill_mig_welder", "mskill_tig_welder"],
     qp_fitter: ["mskill_fitter"],
     qp_quality_inspection: ["mskill_quality_inspector"],
