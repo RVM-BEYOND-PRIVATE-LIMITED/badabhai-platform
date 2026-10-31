@@ -3259,6 +3259,63 @@ describe("the interview overlay (Phase C)", () => {
     expect(rawOf(profiles).location_preference.preferred_cities).toEqual(["Mumbai"]);
   });
 
+  it("drops a model-only salary that exactly matches another captured number", async () => {
+    // PRODUCTION INCIDENT 2026-10-31 (Rishab Das): the worker answered "500" to
+    // `commute_max_km` and the overlay filed it as `expected_salary` with no salary
+    // amount ever stated. Both the stored row and the résumé container must carry
+    // no amount — a missing salary is honest, a borrowed one prints ₹500/month on
+    // a sheet handed to employers.
+    const { proc, profiles } = make({
+      conversationState: {
+        answer_map: [
+          ...withMap().conversationState.answer_map,
+          record({
+            question_key: "commute_max_km",
+            target_field: "commute_max_km",
+            value_raw: "500",
+            value_normalized: 500,
+          }),
+        ],
+        occupation: PIN,
+      },
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ expected_salary: 500 }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).salary_expectation.amount_min).toBeNull();
+    expect(rawOf(profiles).resume_profile).toMatchObject({ expected_salary: null });
+  });
+
+  it("drops a model-only salary below the platform floor even with no collision", async () => {
+    // The second net, independent of misattribution: 500 fails the same range
+    // rule the parse path enforces (`salary_out_of_range`), so it can never win
+    // from the overlay either. The base map holds no 500 — this isolates range.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ expected_salary: 500 }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).salary_expectation.amount_min).toBeNull();
+    expect(rawOf(profiles).resume_profile).toMatchObject({ expected_salary: null });
+  });
+
+  it("keeps a range-valid model-only salary with no collision", async () => {
+    // The bound on the two tests above: genuine free-chat reads still land. 18000
+    // is in range and matches no other captured number, so owner precedence holds.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ expected_salary: 18000 }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).salary_expectation.amount_min).toBe(18000);
+    expect(rawOf(profiles).resume_profile).toMatchObject({ expected_salary: 18000 });
+  });
+
   it("stores the model's skill list verbatim rather than a union with the answer map", async () => {
     // WAS A UNION, which made `skill_labels` a superset in answer-map-first order — so it never
     // equalled the traced array even when every entry the model produced was present. Exact
