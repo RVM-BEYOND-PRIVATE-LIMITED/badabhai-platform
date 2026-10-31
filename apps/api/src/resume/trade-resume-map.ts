@@ -258,6 +258,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           conventional_lathe: "Conventional lathe",
           vtl: "VTL",
           sliding_head: "Sliding head (Swiss)",
+          // E1 — slot-2 machine options added to qp_cnc_turning@4. Values print
+          // verbatim; keys are the stored value_text.
+          turn_mill: "Turn-mill",
+          live_tool: "Live tool",
+          c_axis: "C-axis",
+          twin_spindle: "Twin spindle",
           spm: "SPM",
         },
       },
