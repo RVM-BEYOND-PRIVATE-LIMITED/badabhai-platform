@@ -36,7 +36,7 @@ const PACK_DIR = join(__dirname, "../../../../packages/db/data/question-packs/pa
 const ANSWER_TYPE_ALIASES: Readonly<Record<string, string>> = {
   city: "text",
   salary: "number",
-  duration: "number",
+  duration: "text",
 };
 
 /**

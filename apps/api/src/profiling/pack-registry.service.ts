@@ -465,6 +465,13 @@ export class PackRegistryService implements OnModuleInit {
  * `answer_type` is a client rendering hint: what the answer actually becomes is decided by
  * `target_field`, which selects the normalizer in `answer-capture.ts`. Nothing is lost.
  *
+ * `duration` maps to `text` (GENERAL keyboard), not `number`: the only duration question in the
+ * corpus is the total-experience question ("Is kaam mein aapko kitne saal ho gaye?"), whose
+ * replies are words as often as digits ("paanch saal", "2 saal 6 mahine", "fresher"). A number
+ * keypad blocks exactly those replies (screenshot 2026-10-31). Bare digits still capture as
+ * years through the on-screen `readStatedTenureYears` fallback plus the #2384 lone-digit gate,
+ * so nothing that typed cleanly before is lost.
+ *
  * The alternative — widening `ANSWER_TYPES` — is a change to the Phase 0 frozen contract, which
  * is a joint PR mirrored in `contracts.py` and `oie.keys.json`. Logged as the narrower fix if the
  * two owners would rather the vocabularies simply agreed.
@@ -472,7 +479,7 @@ export class PackRegistryService implements OnModuleInit {
 const ANSWER_TYPE_ALIASES: Readonly<Record<string, string>> = {
   city: "text",
   salary: "number",
-  duration: "number",
+  duration: "text",
 };
 
 /**

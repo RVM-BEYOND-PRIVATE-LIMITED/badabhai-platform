@@ -158,11 +158,11 @@ describe("normalization runs at CAPTURE time, per target field", () => {
 });
 
 describe("#2384: the total-experience question, answered the way its keypad answers it", () => {
-  // As the registry serves it: the pack's `duration` reaches capture as `number`.
+  // As the registry serves it: the pack's `duration` reaches capture as `text` (GENERAL keyboard).
   const TENURE = item({
     question_key: "experience_years",
     target_field: "experience_years",
-    answer_type: "number",
+    answer_type: "text",
   });
 
   it("'0' is a fresher's answer, captured — not silence re-served three times", () => {
@@ -183,6 +183,27 @@ describe("#2384: the total-experience question, answered the way its keypad answ
     expect(
       only(captureAnswer("welding ka experience nahi, fitting ka 3 saal", TENURE)).valueNormalized,
     ).toBe(3);
+  });
+
+  it("reads months and days as fractional years, keeping {x} years and {y} months", () => {
+    expect(only(captureAnswer("2 saal 6 mahine", TENURE)).valueNormalized).toBe(2.5);
+    expect(only(captureAnswer("6 mahine", TENURE)).valueNormalized).toBe(0.5);
+    expect(only(captureAnswer("8 mahine ka experience", TENURE)).valueNormalized).toBeCloseTo(
+      0.67,
+      2,
+    );
+    expect(only(captureAnswer("10 din", TENURE)).valueNormalized).toBeCloseTo(0.03, 2);
+  });
+
+  it("rubbish is no answer (re-asked, then the engine moves on at max_asks)", () => {
+    expect(captureAnswer("bakwaas kar rahe ho", TENURE).values).toHaveLength(0);
+    expect(captureAnswer("asdfgh", TENURE).values).toHaveLength(0);
+  });
+
+  it("a side profiling question is not tenure — asked-back costs no ask", () => {
+    const capture = captureAnswer("sir job milegi kya?", TENURE);
+    expect(capture.values).toHaveLength(0);
+    expect(capture.turnClass).toBe("question_back");
   });
 
   it("the 0–60 bound still refuses an impossible figure, and re-asks", () => {
