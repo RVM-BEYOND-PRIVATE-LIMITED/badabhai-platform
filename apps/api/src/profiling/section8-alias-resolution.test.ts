@@ -30,8 +30,9 @@ import { routeToTradeForm, type TradeFormKind } from "./trade-form-router";
  * scope. The interview still completes for these workers: an unmatched answer is
  * re-asked with chips, never looped (DoD §7.4) and never guessed (spec §4).
  *
- * SCOPE: Turner (§8.1) + VMC (§8.2) — the v1 trades P4 loaded. Grinding/CAM have no
- * §8 sheets; their starters live in EXPAND-12 (E4/E5), not here.
+ * SCOPE: Turner (§8.1) + VMC (§8.2) — the v1 trades P4 loaded — plus Grinding
+ * (E4 starter table below). Grinding has no §8 sheet; its starter lives in EXPAND-12
+ * E4. CAM has no §8 sheet either; its starter lives in E5, not here.
  */
 
 function route(
@@ -184,11 +185,61 @@ describe("§8.2 VMC — trade routing (DoD §7.9, trade column)", () => {
   }
 });
 
+describe("E4 Grinding — trade routing (DoD §7.9, trade column)", () => {
+  const cases: ReadonlyArray<
+    readonly [string | null, string | null, string | null, TradeFormKind | null]
+  > = [
+    // Occupation-tier: route alone (E4 starter, Turner P4 mirror).
+    ["Manufacturing", "cnc grinding", null, "cnc_grinding"],
+    ["Manufacturing", "grinding wala", null, "cnc_grinding"],
+    ["Manufacturing", "ghisai wala", null, "cnc_grinding"],
+    ["Manufacturing", "grinding karta hoon", null, "cnc_grinding"],
+    ["Manufacturing", "ghisai karta hoon", null, "cnc_grinding"],
+    // Bare machine + family pin corroborates (E4 starter). Stronger still: every
+    // "X grinding" phrase carries the occupation word "grinding", so it routes on
+    // its OWN evidence with or without a pin — the same asymmetry Turner pins at
+    // §8.2 ("CNC turner" under a VMC pin still routes turner). No rival word, no veto.
+    ["Manufacturing", "surface grinding", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "cylindrical grinding", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "centreless grinding", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "internal grinding", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "surface grinding", null, "cnc_grinding"],
+    ["Manufacturing", "cylindrical grinding", null, "cnc_grinding"],
+    ["Manufacturing", "surface grinding", "fam_machining", "cnc_grinding"],
+    ["Manufacturing", "surface grinding", "fam_vmc_milling", "cnc_grinding"],
+    // Level signals corroborate the pin, never route alone (E4 starter).
+    ["Manufacturing", "setting karta hoon", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "job lagata hoon", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "machine chalata hoon", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "production karta hoon", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "running karta hoon", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "setter hoon", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "setting karta hoon", null, null],
+    // Not this trade: rival occupations route to their own form, even with a pin.
+    ["Manufacturing", "milling", null, "vmc_milling"],
+    ["Manufacturing", "milling", "fam_cnc_grinding", "vmc_milling"],
+    ["Manufacturing", "VMC", "fam_cnc_grinding", null],
+    ["Manufacturing", "turning karta hoon", "fam_cnc_grinding", "cnc_turner"],
+    // CAM's words belong to CAM.
+    ["Manufacturing", "Mastercam", null, "cam_programmer"],
+    ["Manufacturing", "Mastercam", "fam_cnc_grinding", "cam_programmer"],
+    // Controllers are capture vocabulary, not routing vocabulary: no form either way.
+    ["Manufacturing", "Fanuc", null, null],
+    ["Manufacturing", "Siemens", null, null],
+  ];
+  for (const [domain, role, family, expected] of cases) {
+    it(`${JSON.stringify(role)}${family ? ` + pin` : ""} → ${expected ?? "nothing"}`, () => {
+      expect(route(domain, role, family)).toBe(expected);
+    });
+  }
+});
+
 describe("§8 rung words resolve to the rung; signal phrases corroborate the trade, never self-resolve (DoD §7.9, level column)", () => {
   // Real level items straight off the v3 packs — no hand-written options, so a
   // pack edit that renames a chip breaks this before it breaks a worker.
   const turnerLevel = loadItem("qp_cnc_turning@3.json", "turning_level");
   const millingLevel = loadItem("qp_vmc_milling@3.json", "milling_level");
+  const grindingLevel = loadItem("qp_cnc_grinding@3.json", "grinding_level");
 
   const rungFor = (level: { options: PackOption[] }, text: string) =>
     matchOptions(level as never, text);
@@ -216,6 +267,26 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     ["Senior Programmer", "programmer"],
   ])("milling_level: %s → %s", (text, expected) => {
     expect(rungFor(millingLevel, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["Setter", "setter"],
+    ["setter hoon", "setter"],
+    ["Operator", "operator"],
+    ["operator hoon", "operator"],
+    ["Helper", "helper"],
+    ["Supervisor", "supervisor"],
+    ["Setter-cum-Programmer", "setter_programmer"],
+    // No programmer rung on the grinding ladder (LADDERS.md): "programmer" must
+    // NOT resolve to a rung here — a grinder claiming it keeps the chips.
+    ["Grinding setter", "setter"],
+  ])("grinding_level: %s → %s", (text, expected) => {
+    expect(rungFor(grindingLevel, text as string)).toEqual([expected]);
+  });
+
+  it("grinding_level: programmer claims no rung (no such rung on this ladder)", () => {
+    expect(rungFor(grindingLevel, "Programmer" as string)).toEqual([]);
+    expect(rungFor(grindingLevel, "programmer hoon" as string)).toEqual([]);
   });
 
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
@@ -246,6 +317,20 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(turnerLevel, text as string)).toEqual([]);
     expect(rungFor(millingLevel, text as string)).toEqual([]);
   });
+
+  // E4: the grinding starter's signal phrases corroborate the family pin (asserted
+  // in the E4 routing table above) and NEVER write a rung by themselves — same
+  // contract as P4, minus the programmer phrases this ladder has no rung for.
+  it.each([
+    "machine chalata hoon",
+    "production karta hoon",
+    "running karta hoon",
+    "setting karta hoon",
+    "job lagata hoon",
+    "सेटर",
+  ])("grinding level: %s → no self-resolved rung", (text) => {
+    expect(rungFor(grindingLevel, text as string)).toEqual([]);
+  });
 });
 
 describe("§8 machine/controller rows resolve at capture; unlisted spellings re-ask (DoD §7.9, machine/controller columns)", () => {
@@ -275,6 +360,12 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     // ("nahi pata" closes, never re-asks) — asserting the miss pins the division
     // of labour rather than a gap.
     ["qp_cnc_turning@3.json", "controller_brand", "Pata nahi", null],
+    // E4: grinding machine chips resolve verbatim (labels off the v3 pack).
+    ["qp_cnc_grinding@3.json", "grinding_machine", "Surface grinder", "surface"],
+    ["qp_cnc_grinding@3.json", "grinding_machine", "Cylindrical grinder", "cylindrical"],
+    ["qp_cnc_grinding@3.json", "grinding_machine", "Centreless grinder", "centreless"],
+    ["qp_cnc_grinding@3.json", "grinding_machine", "Internal grinder, ID", "internal"],
+    ["qp_cnc_grinding@3.json", "grinding_machine", "Tool aur cutter grinder", "tool_cutter"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {
@@ -284,6 +375,23 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     },
   );
 
+  // E4: the typed "X grinding" variants match NO "X grinder" chip label — the
+  // worker is re-asked with chips (bounded, fail-safe). Capture alignment for
+  // these is EXPAND-12 E1 pack work, not E4 scope. This block records the miss
+  // so a pack edit that starts matching them fails loudly here first.
+  it.each([
+    ["qp_cnc_grinding@3.json", "grinding_machine", "surface grinding", null],
+    ["qp_cnc_grinding@3.json", "grinding_machine", "cylindrical grinding", null],
+    ["qp_cnc_grinding@3.json", "grinding_machine", "centreless grinding", null],
+    ["qp_cnc_grinding@3.json", "grinding_machine", "internal grinding", null],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
   // GAP → EXPAND-12 E1/E2 (pack option alignment + controller spellings). These are
   // the typed variants the §8 tables list which match NO chip label: the worker is
   // re-asked with chips (bounded, fail-safe), so the interview completes — but the

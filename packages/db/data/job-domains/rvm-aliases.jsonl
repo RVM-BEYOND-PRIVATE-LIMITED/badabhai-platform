@@ -220,6 +220,17 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"ghisai","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"घिसाई","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"ग्राइंडिंग","lang":"hi"}
+# E4 MIDDLE-WAY EXPAND-12 (Grinding starter; Turner P4 mirror). Machine-variant
+# phrases only — particle-wrapped variants ("grinding wala") fold via
+# particles.json, and level signals ("setting karta hoon") are rung
+# corroboration in the role file, never occupation aliases. Bare "grinder" stays
+# out: it is also an angle-grinder hand in a fabrication shop.
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"cnc grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"surface grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"cylindrical grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"centreless grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"centerless grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"internal grinding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machine shop","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machinist","lang":"en"}
 
