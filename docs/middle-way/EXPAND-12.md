@@ -24,11 +24,14 @@ same branch/gate discipline as P1–P5 (`feat/mw-ex-*`, gates green, squash-merg
   closed). Resume map += 4 Turner values. Snapshot + served-text regen in-commit.
   PENDING MANUAL STEP: Divyanshu `db:seed:packs` on production (new versions exist
   in code only until then). TTS re-render rides #701.
-- **E2 — Controller spellings (v1 GAP).** Typed `Sinumerik`, `M70`, `Mazatrol`, `TNC`
-  match no controller chip (`Fanuc`/`Siemens`/`Mitsubishi`/`Haas`/`Mazak`/
-  `Heidenhain` only). Same treatment as E1: capture synonyms or new chips.
-  Needs owner/lexicon ratification for anything that looks like an alias
-  (TAX-0 gate d reasoning from P4 — see handover).
+- **E2 — Controller spellings ✅ CODE DONE (`feat/mw-e2-controller-spellings`, PR next).**
+  Three @5 packs: /-synonym labels on existing chips (Sinumerik→Siemens, M70→
+  Mitsubishi, Mazatrol→Mazak on Turner; +TNC→Heidenhain on VMC; Sinumerik+M70 on
+  Grinding) — owner-ratified product-line equivalences, no new values, snapshot
+  untouched, resume map untouched, handover routing-quiet unchanged. Deviation
+  from scoped placement: NO Mazatrol on VMC (that pack carries no Mazak chip;
+  adding one is unratified). PENDING MANUAL STEP: `db:seed:packs` on production
+  (rides the same run as E1's pending seed).
 
 ## 1. Grinding + CAM aliases (v1 remainder — do first)
 
