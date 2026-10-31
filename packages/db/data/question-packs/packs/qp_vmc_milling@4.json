@@ -9,7 +9,7 @@
   "version": 4,
   "family_id": "fam_vmc_milling",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v4 (Middle Way E1): VMC/HMC labels split to /-forms so the bare words capture; slot-2 axis features stay on axis_capability (no duplicate chips). Drafted for owner review (Prakash).",
   "items": [
     {

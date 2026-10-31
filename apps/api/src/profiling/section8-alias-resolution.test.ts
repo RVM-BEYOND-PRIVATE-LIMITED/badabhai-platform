@@ -423,18 +423,28 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
       "conventional_mill",
     ],
     ["qp_vmc_milling@4.json", "milling_machine", "Bed ya knee type mill", "bed_mill"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Fanuc", "fanuc"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Fanuc pe", "fanuc"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Siemens", "siemens"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Mitsubishi", "mitsubishi"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Haas", "haas"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Mazak", "mazak"],
-    ["qp_vmc_milling@4.json", "controller_brand", "Heidenhain", "heidenhain"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Fanuc", "fanuc"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Fanuc pe", "fanuc"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Siemens", "siemens"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Siemens / Sinumerik", "siemens"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Sinumerik", "siemens"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Mitsubishi", "mitsubishi"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Mitsubishi / M70", "mitsubishi"],
+    ["qp_cnc_turning@5.json", "controller_brand", "M70", "mitsubishi"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Haas", "haas"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Mazak", "mazak"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Mazak / Mazatrol", "mazak"],
+    ["qp_cnc_turning@5.json", "controller_brand", "Mazatrol", "mazak"],
+    ["qp_vmc_milling@5.json", "controller_brand", "Heidenhain", "heidenhain"],
+    ["qp_vmc_milling@5.json", "controller_brand", "Heidenhain / TNC", "heidenhain"],
+    ["qp_vmc_milling@5.json", "controller_brand", "TNC", "heidenhain"],
     // "Pata nahi" is a DECLINE, not a capture: the negation mask blanks "nahi"
     // before option matching runs, so no needle lands. DoD §7.3 owns this path
     // ("nahi pata" closes, never re-asks) — asserting the miss pins the division
     // of labour rather than a gap.
-    ["qp_cnc_turning@4.json", "controller_brand", "Pata nahi", null],
+    ["qp_cnc_turning@5.json", "controller_brand", "Pata nahi", null],
+    ["qp_cnc_grinding@5.json", "controller_brand", "Sinumerik", "siemens"],
+    ["qp_cnc_grinding@5.json", "controller_brand", "M70", "mitsubishi"],
     // E1 (@4 grinding-first relabels): the typed "X grinding" variants now hit.
     ["qp_cnc_grinding@4.json", "grinding_machine", "Surface grinding / surface grinder", "surface"],
     [
@@ -469,24 +479,21 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     },
   );
 
-  // E1 CLOSED the Turner slot-2 GAP (@4 chips) and the VMC bare-word GAP
-  // (@4 /-relabels). What remains re-asks with chips: the VMC slot-2 FEATURES
-  // (axis questions already capture 4/5-axis + rotary — see axis_capability),
-  // the rival word VMC on the Turner question, and the E2 controller spellings.
+  // E1 CLOSED the Turner slot-2 GAP (@4 chips), the VMC bare-word GAP (@4
+  // /-relabels), and E2 CLOSES the controller GAP (@5 synonyms). What remains
+  // re-asks with chips: the VMC slot-2 FEATURES (axis questions already capture
+  // 4/5-axis + rotary — see axis_capability) and the rival word VMC on the
+  // Turner question.
   it.each([
-    ["qp_cnc_turning@4.json", "turning_machine", "VMC"],
-    ["qp_vmc_milling@4.json", "milling_machine", "horizontal"],
-    ["qp_vmc_milling@4.json", "milling_machine", "4th axis"],
-    ["qp_vmc_milling@4.json", "milling_machine", "rotary table"],
-    ["qp_vmc_milling@4.json", "milling_machine", "indexer"],
-    ["qp_vmc_milling@4.json", "milling_machine", "5 axis"],
-    ["qp_vmc_milling@4.json", "milling_machine", "trunnion"],
-    ["qp_vmc_milling@4.json", "milling_machine", "dmg"],
-    ["qp_vmc_milling@4.json", "milling_machine", "milling machine"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Sinumerik"],
-    ["qp_cnc_turning@4.json", "controller_brand", "M70"],
-    ["qp_cnc_turning@4.json", "controller_brand", "Mazatrol"],
-    ["qp_vmc_milling@4.json", "controller_brand", "TNC"],
+    ["qp_cnc_turning@5.json", "turning_machine", "VMC"],
+    ["qp_vmc_milling@5.json", "milling_machine", "horizontal"],
+    ["qp_vmc_milling@5.json", "milling_machine", "4th axis"],
+    ["qp_vmc_milling@5.json", "milling_machine", "rotary table"],
+    ["qp_vmc_milling@5.json", "milling_machine", "indexer"],
+    ["qp_vmc_milling@5.json", "milling_machine", "5 axis"],
+    ["qp_vmc_milling@5.json", "milling_machine", "trunnion"],
+    ["qp_vmc_milling@5.json", "milling_machine", "dmg"],
+    ["qp_vmc_milling@5.json", "milling_machine", "milling machine"],
   ] as ReadonlyArray<readonly [string, string, string]>)(
     "%s %s: %s → re-ask (no chip label matches)",
     (packFile, questionKey, text) => {

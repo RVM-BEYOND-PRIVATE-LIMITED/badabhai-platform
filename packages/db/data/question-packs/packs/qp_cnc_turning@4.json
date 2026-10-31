@@ -7,7 +7,7 @@
   "version": 4,
   "family_id": "fam_cnc_turning",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v4 (Middle Way E1): slot-2 machine options added (turn-mill, live tool, C-axis, twin spindle); VTL and Swiss labels split to /-forms so the bare words capture. Drafted for owner review (Prakash).",
   "items": [
     {
