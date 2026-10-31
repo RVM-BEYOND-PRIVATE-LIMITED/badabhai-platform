@@ -81,7 +81,20 @@ export const CAM_PROGRAMMER = {
       "सीएनसी प्रोग्रामर",
     ],
     machineTerms: ["toolpath", "tool path", "post processor"],
-    levelTerms: ["junior programmer", "programmer", "senior programmer", "प्रोग्रामर"],
+    levelTerms: [
+      "junior programmer",
+      "programmer",
+      "senior programmer",
+      "प्रोग्रामर",
+      // E5 MIDDLE-WAY EXPAND-12 (Turner P4 mirror, adapted: this ladder's rungs
+      // are named in full). Level-tier: corroborate a family pin, never route
+      // alone, never veto. "programmer hoon" resolves via the chip label too —
+      // the term below is what lets it corroborate at the router.
+      "junior programmer hoon",
+      "programmer hoon",
+      "senior programmer hoon",
+      "toolpath banata hoon",
+    ],
   },
   /**
    * THE FRESHER BLOCK IS NOT OPTIONAL FOR THIS PACK, and leaving it out is the §11 #1 failure

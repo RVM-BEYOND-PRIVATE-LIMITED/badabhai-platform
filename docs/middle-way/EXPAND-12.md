@@ -14,8 +14,7 @@ same branch/gate discipline as P1–P5 (`feat/mw-ex-*`, gates green, squash-merg
   `mskill_3d_designer` minted as an active match skill; `mskill_designer` relabeled
   to "2D CAD Draughtsman"; pair added (sorted first); `skill_3d_modeling` →
   `[mskill_3d_designer]`; everything else unchanged (generic occupation, role/seed
-  bridges). PENDING MANUAL STEP: Divyanshu to run `db:seed:match:vocabulary` on
-  staging + prod (same pattern as P4) — until then the new id exists in code only.
+  bridges). ✅ SEEDED on production (`db:seed:match:vocabulary`, verify PASS).
   Unblocks E3 + E17.
 - **E1 — Pack slot-2 option alignment (v1 GAP).** §8 slot-2 machine lists
   (turn-mill / live tool / C-axis / twin spindle / sliding head / swiss / VTL;
@@ -40,14 +39,18 @@ setter_programmer, supervisor` — NO `programmer` rung (wheels are dressed, not
   cylindrical/surface/centreless/internal variants; 6 rvm-aliases rows on the
   grinding domain. Measured in review: "X grinding" phrases route alone (carry
   the occupation word); typed variants re-ask with chips (E1 pack work, pinned
-  as GAP). PENDING MANUAL STEP: Divyanshu `db:seed:domains` → normalize →
-  verify on staging + prod (new alias rows exist in code only until then).
-- **E5 — CAM starter (no §8 sheet; role file + pack are the source).**
-  Ladder is Junior/Programmer/Senior (`junior_programmer, programmer,
+  as GAP). ✅ SEEDED on production (`db:seed:domains` + normalize +
+  `db:verify:domains` all PASS, 527/527 curated rvm aliases).
+- **E5 — CAM starter ✅ CODE DONE (`feat/mw-e5-cam-aliases`, PR next).** Ladder is
+  Junior/Programmer/Senior (`junior_programmer, programmer,
 senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
-  phrases; software rows (Mastercam/PowerMill/NX/CATIA/Creo) already route —
-  extend the §8.4 software/work-area mapping (SolidWorks/Creo/NX/CATIA/Inventor/
-  Fusion 360/Solid Edge; sheet-metal/plastic/fixture work areas).
+  phrases (junior/programmer/senior hoon + toolpath banata hoon); 2 rvm-aliases
+  rows on the CAM domain (`toolpath`, `tool path` — the latter pre-empts a cart
+  misroute, same mechanism as `post processor`). Measured in review:
+  NX/CATIA/Creo/Inventor/Fusion/Solid Edge (+2-token forms) resolve nowhere and
+  stay OUT (bare forms swallow live skeletons; needs ratified surface — future
+  E-item). No work-area aliases (generic words, rival trades). PENDING MANUAL
+  STEP: Divyanshu `db:seed:domains` → normalize → verify on production.
 
 ## 2. The 12 trades (one PR each, in this order — machining-adjacent first)
 

@@ -31,8 +31,8 @@ import { routeToTradeForm, type TradeFormKind } from "./trade-form-router";
  * re-asked with chips, never looped (DoD §7.4) and never guessed (spec §4).
  *
  * SCOPE: Turner (§8.1) + VMC (§8.2) — the v1 trades P4 loaded — plus Grinding
- * (E4 starter table below). Grinding has no §8 sheet; its starter lives in EXPAND-12
- * E4. CAM has no §8 sheet either; its starter lives in E5, not here.
+ * (E4 starter table below) and CAM (E5 starter table below). Neither has a §8
+ * sheet; their starters live in EXPAND-12 E4/E5.
  */
 
 function route(
@@ -234,12 +234,50 @@ describe("E4 Grinding — trade routing (DoD §7.9, trade column)", () => {
   }
 });
 
+describe("E5 CAM — trade routing (DoD §7.9, trade column)", () => {
+  const cases: ReadonlyArray<
+    readonly [string | null, string | null, string | null, TradeFormKind | null]
+  > = [
+    // Occupation-tier: route alone (shipped Batch 1 rows, re-pinned here as the
+    // E5 baseline the new rows must not move).
+    ["Manufacturing", "Mastercam", null, "cam_programmer"],
+    ["Manufacturing", "PowerMill", null, "cam_programmer"],
+    ["Manufacturing", "cam programmer", null, "cam_programmer"],
+    ["Manufacturing", "part programming", null, "cam_programmer"],
+    // E5 machine-tier: the toolpath pair corroborates the pin, never routes alone.
+    ["Manufacturing", "toolpath", "fam_cam_programming", "cam_programmer"],
+    ["Manufacturing", "tool path", "fam_cam_programming", "cam_programmer"],
+    ["Manufacturing", "toolpath", null, null],
+    ["Manufacturing", "tool path", null, null],
+    // E5 level signals corroborate the pin, never route alone.
+    ["Manufacturing", "programmer hoon", "fam_cam_programming", "cam_programmer"],
+    ["Manufacturing", "senior programmer hoon", "fam_cam_programming", "cam_programmer"],
+    ["Manufacturing", "toolpath banata hoon", "fam_cam_programming", "cam_programmer"],
+    ["Manufacturing", "programmer hoon", null, null],
+    ["Manufacturing", "toolpath banata hoon", null, null],
+    // Not this desk: machine trades route to their own forms, even with a CAM pin.
+    ["Manufacturing", "milling", null, "vmc_milling"],
+    ["Manufacturing", "milling", "fam_cam_programming", "vmc_milling"],
+    ["Manufacturing", "turning karta hoon", "fam_cam_programming", "cnc_turner"],
+    // Bare software rivals stay out (E5 Q&A): NX/CATIA/Creo resolve nowhere.
+    ["Manufacturing", "nx", null, null],
+    ["Manufacturing", "catia", null, null],
+    ["Manufacturing", "creo", null, null],
+  ];
+  for (const [domain, role, family, expected] of cases) {
+    it(`${JSON.stringify(role)}${family ? ` + pin` : ""} → ${expected ?? "nothing"}`, () => {
+      expect(route(domain, role, family)).toBe(expected);
+    });
+  }
+});
+
 describe("§8 rung words resolve to the rung; signal phrases corroborate the trade, never self-resolve (DoD §7.9, level column)", () => {
   // Real level items straight off the v3 packs — no hand-written options, so a
   // pack edit that renames a chip breaks this before it breaks a worker.
   const turnerLevel = loadItem("qp_cnc_turning@3.json", "turning_level");
   const millingLevel = loadItem("qp_vmc_milling@3.json", "milling_level");
   const grindingLevel = loadItem("qp_cnc_grinding@3.json", "grinding_level");
+  const camLevel = loadItem("qp_cam_programming@3.json", "cam_level");
 
   const rungFor = (level: { options: PackOption[] }, text: string) =>
     matchOptions(level as never, text);
@@ -289,6 +327,18 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(grindingLevel, "programmer hoon" as string)).toEqual([]);
   });
 
+  it.each([
+    ["Junior Programmer", "junior_programmer"],
+    ["junior programmer hoon", "junior_programmer"],
+    ["Programmer", "programmer"],
+    ["programmer hoon", "programmer"],
+    ["Senior Programmer", "senior_programmer"],
+    ["senior programmer hoon", "senior_programmer"],
+    ["CAM programmer", "programmer"],
+  ])("cam_level: %s → %s", (text, expected) => {
+    expect(rungFor(camLevel, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -331,6 +381,15 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
   ])("grinding level: %s → no self-resolved rung", (text) => {
     expect(rungFor(grindingLevel, text as string)).toEqual([]);
   });
+
+  // E5: the CAM starter's signal phrases corroborate the family pin (asserted in
+  // the E5 routing table above) and NEVER write a rung by themselves.
+  it.each(["toolpath banata hoon", "प्रोग्रामर"])(
+    "cam level: %s → no self-resolved rung",
+    (text) => {
+      expect(rungFor(camLevel, text as string)).toEqual([]);
+    },
+  );
 });
 
 describe("§8 machine/controller rows resolve at capture; unlisted spellings re-ask (DoD §7.9, machine/controller columns)", () => {
