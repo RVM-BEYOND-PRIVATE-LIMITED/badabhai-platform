@@ -1141,7 +1141,14 @@ def test_city_is_asked_only_when_the_location_answer_named_none():
 def test_the_pay_answer_can_close_pay_type_without_asking_it():
     state = JobPostingChatState(
         answered_topics=["role_title", "location_label", "city", "area", "vacancy", "skills"],
-        asked_question_ids=["role_title", "location_label", "vacancy", "skills", "area", "pay_range"],
+        asked_question_ids=[
+            "role_title",
+            "location_label",
+            "vacancy",
+            "skills",
+            "area",
+            "pay_range",
+        ],
         ask_counts={
             "role_title": 1,
             "location_label": 1,
@@ -1160,7 +1167,14 @@ def test_the_pay_answer_can_close_pay_type_without_asking_it():
 def _at_the_pay_question() -> JobPostingChatState:
     return JobPostingChatState(
         answered_topics=["role_title", "location_label", "city", "area", "vacancy", "skills"],
-        asked_question_ids=["role_title", "location_label", "vacancy", "skills", "area", "pay_range"],
+        asked_question_ids=[
+            "role_title",
+            "location_label",
+            "vacancy",
+            "skills",
+            "area",
+            "pay_range",
+        ],
         ask_counts={
             "role_title": 1,
             "location_label": 1,
