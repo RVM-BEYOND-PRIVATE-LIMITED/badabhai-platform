@@ -787,6 +787,15 @@
 # on Mail Carriers after the first draft of this block shipped.
 {"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"post processor","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"post processing","lang":"en"}
+# E5 MIDDLE-WAY EXPAND-12 (CAM starter, owner-scoped). The toolpath is the desk
+# programmer's own word the way G-code is the MDI programmer's: a worker who
+# types it has named this trade's work surface. The 2-token "tool path" reached
+# CART before this row (same pre-emption mechanism as "post processor" above),
+# so the exact row takes it back. NX/CATIA/Creo/Inventor/Fusion/Solid Edge stay
+# OUT (E5 Q&A): bare forms swallow live skeletons, 2-token forms are not worker
+# phrasing, and the suite holds the line until a ratified surface exists.
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"toolpath","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"tool path","lang":"en"}
 # G CODE IS THE MDI PROGRAMMER's OWN WORD, and the surface this code was deliberately scoped
 # to include — the man editing the program at the controller rather than at a workstation. It
 # was reaching the golf caddie before this tranche and the DRAWING OFFICE after it, because

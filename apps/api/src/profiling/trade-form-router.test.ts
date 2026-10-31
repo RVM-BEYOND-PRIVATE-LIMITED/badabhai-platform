@@ -225,6 +225,31 @@ describe("routeToTradeForm", () => {
       });
     });
 
+    describe("routes a CAM programmer — E5 MIDDLE-WAY starter", () => {
+      // Shipped Batch 1 occupation rows route alone; the E5 toolpath pair and
+      // rung phrases corroborate the pin, never route alone.
+      const cams: readonly (readonly [string, string | null, string | null])[] = [
+        ["Manufacturing", "Mastercam", null],
+        ["Manufacturing", "cam programmer", null],
+        ["Manufacturing", "toolpath", "fam_cam_programming"],
+        ["Manufacturing", "tool path", "fam_cam_programming"],
+        ["Manufacturing", "programmer hoon", "fam_cam_programming"],
+        ["Manufacturing", "senior programmer hoon", "fam_cam_programming"],
+        ["Manufacturing", "toolpath banata hoon", "fam_cam_programming"],
+      ];
+      for (const [domain, role, family] of cams) {
+        it(`${JSON.stringify({ domain, role, family })}`, () => {
+          expect(route(domain, role, family)).toBe("cam_programmer");
+        });
+      }
+
+      it("E5 machine and rung phrases reach nothing unpinned", () => {
+        for (const words of ["toolpath", "tool path", "programmer hoon", "toolpath banata hoon"]) {
+          expect(route("Manufacturing", words, null), words).toBeNull();
+        }
+      });
+    });
+
     it("does not let the turner form claim a miller, in either direction", () => {
       // The symmetry is the point. Turner vetoes milling's vocabulary and milling vetoes
       // turning's, both DERIVED from the shared `machining` cluster rather than hand-listed — so

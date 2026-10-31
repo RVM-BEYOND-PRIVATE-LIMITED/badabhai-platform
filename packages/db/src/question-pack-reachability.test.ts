@@ -196,6 +196,11 @@ const CAM_PHRASES = [
   "कैम प्रोग्रामर",
   "सीएनसी प्रोग्रामर",
   "जी कोड",
+  // E5 MIDDLE-WAY EXPAND-12 (CAM starter, owner-scoped). The toolpath pair joins
+  // the G-code rows as words that were reaching the WRONG trade, not merely
+  // missing: "tool path" resolved to cart before its exact row.
+  "toolpath",
+  "tool path",
 ] as const;
 
 /**
@@ -499,10 +504,10 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
 
   it("CHARACTERIZES which part-programming phrases reach programming depth today", () => {
     const routing = Object.fromEntries(CAM_PHRASES.map((p) => [p, familyFor(p)]));
-    // Read this as a report. All fifteen reach the pack, and every one of them is NEW — before
-    // this batch the entire list was NO MATCH except "cnc programmer", which is the published NCO
-    // title on 7223.6003 and therefore already an alias of it; retrieval reached the code and
-    // `fam_machining` answered at unit level with six generic machining questions.
+    // Read this as a report. Seventeen reach the pack — the fifteen shipped rows plus
+    // the two E5 toolpath rows. "tool path" is the fourth ACTIVELY-WRONG fix after
+    // "post processor" / "post processing" / "g code": it resolved to cart, and the
+    // exact row takes it back by the same L0-beats-L1 mechanism documented above.
     //
     // THREE WERE ACTIVELY WRONG rather than merely missing, and each names its own mechanism.
     // "post processor" and "post processing": as a single token, "post" folds to the skeleton
@@ -528,6 +533,8 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
       "कैम प्रोग्रामर": "fam_cam_programming",
       "सीएनसी प्रोग्रामर": "fam_cam_programming",
       "जी कोड": "fam_cam_programming",
+      toolpath: "fam_cam_programming",
+      "tool path": "fam_cam_programming",
     });
   });
 
