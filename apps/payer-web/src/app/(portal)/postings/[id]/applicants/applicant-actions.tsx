@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import type { FacelessApplicant } from "../../../../../lib/contracts";
+import type { FacelessApplicant, TradeLevelBadgeWire } from "../../../../../lib/contracts";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
@@ -210,6 +210,24 @@ function feedRows(feed: FeedProps): FeedRow[] {
     context: posting.id,
     key: rowKey(false, posting.id, applicant.workerId),
   }));
+}
+
+/**
+ * The ONE rung to print on this card (Middle Way P5) — display only, never a rank input.
+ *
+ * `tradeLevels` carries every trade the worker stated a rung for. The card shows the rung
+ * for the trade IT is showing, not all of them: `matchedSkillLabel` is the skill this
+ * posting matched him on (E18), and `tradeLabel` is the legacy card's trade. With several
+ * rungs and no match on the shown trade, print none — a rung for a different trade would
+ * misstate him. An absent/empty list is no badge, never a placeholder.
+ */
+function levelBadgeFor(a: FacelessApplicant): TradeLevelBadgeWire | null {
+  const levels = a.tradeLevels;
+  if (levels === undefined || levels.length === 0) return null;
+  if (levels.length === 1) return levels[0]!;
+  const trade = a.matchedSkillLabel ?? a.tradeLabel;
+  if (trade === undefined) return null;
+  return levels.find((level) => level.skillLabel === trade) ?? null;
 }
 
 interface RowState {
@@ -657,6 +675,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
             // dialog for ITS posting.
             const unlockError = board || confirmedUnlock[r.key] ? row.unlockError : null;
             const tags = a.skills && a.skills.length > 0 ? a.skills : a.signals;
+            const levelBadge = levelBadgeFor(a);
             // The visible line that says why Unlock is disabled (a real zero balance). Keyed by
             // position, not the worker id, so no full id lands in a DOM attribute.
             const unlockHintId = `applicant-${i}-unlock-hint`;
@@ -705,6 +724,14 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                               : "Related skill"}
                           </Badge>
                         )}
+                        {/* Middle Way P5 — the rung he stated for THIS card's trade, printed
+                            verbatim. Display only: no rung never becomes a placeholder, and
+                            nothing here re-sorts or filters the list. */}
+                        {levelBadge ? (
+                          <Badge tone="neutral" variant="outline" className="applicant__level">
+                            {levelBadge.tradeLevelLabel}
+                          </Badge>
+                        ) : null}
                         {a.skillMonths !== undefined && a.skillMonths > 0 ? (
                           <span className="bb-mono applicant__months">
                             {monthsLabel(a.skillMonths)}

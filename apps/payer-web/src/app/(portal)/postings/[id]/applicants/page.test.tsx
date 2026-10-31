@@ -87,6 +87,15 @@ const A: FacelessApplicant = {
   matchTier: 1,
   effectiveTier: 1,
   skillMonths: 48,
+  tradeLevels: [
+    {
+      skillId: "mskill_cnc_turner",
+      skillLabel: "CNC Turner",
+      tradeLevel: "setter",
+      tradeLevelLabel: "Setter",
+      levelConfirmed: true,
+    },
+  ],
 };
 const B: FacelessApplicant = {
   workerId: "b2c3d4e5-0000-4000-8000-000000000002",
@@ -147,6 +156,13 @@ describe("applicants page — FACELESS rendered markup", () => {
     // itself is not secret from this payer: it rides the RSC payload to the unlock action.)
     const visible = textOf(out);
     for (const a of FEED.applicants) expect(visible).not.toContain(a.workerId);
+  });
+
+  it("prints the candidate's stated level beside his tier (Middle Way P5)", async () => {
+    const out = await html();
+    expect(out).toContain("Setter");
+    // B (legacy, no rungs) must not print a placeholder where there is no rung.
+    expect(out.match(/>Setter</g)).toHaveLength(1);
   });
 
   it("carries no phone/email-shaped run anywhere and no identity vocabulary in the list", async () => {

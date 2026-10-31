@@ -82,6 +82,15 @@ const COMPANY_ROW = {
   lastWorkedAt: "2026-09-01T00:00:00.000Z",
   matchedSkillLabel: "VMC operation",
   engineVersion: "v1.3",
+  tradeLevels: [
+    {
+      skillId: "mskill_vmc_operator",
+      skillLabel: "VMC Operator",
+      tradeLevel: "setter",
+      tradeLevelLabel: "Setter",
+      levelConfirmed: true,
+    },
+  ],
   posting: { id: P1, title: "CNC Turner", kind: "company_posting" },
 };
 
@@ -115,6 +124,15 @@ describe("getCandidateInbox — both row kinds, mapped like the per-posting feed
           matchedSkillLabel: "VMC operation",
           skillMonths: 48,
           industryMonths: 60,
+          tradeLevels: [
+            {
+              skillId: "mskill_vmc_operator",
+              skillLabel: "VMC Operator",
+              tradeLevel: "setter",
+              tradeLevelLabel: "Setter",
+              levelConfirmed: true,
+            },
+          ],
           posting: { id: P1, title: "CNC Turner", kind: "company_posting" },
         },
       ],

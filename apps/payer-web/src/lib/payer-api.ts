@@ -285,6 +285,9 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
     matchedSkillLabel: a.matchedSkillLabel ?? undefined,
     skillMonths: a.skillMonths ?? undefined,
     industryMonths: a.industryMonths ?? undefined,
+    // Middle Way P5 — display-only rungs, carried verbatim. Absent on an old backend (and
+    // on the legacy weighted row), where the card prints no badge; never a placeholder.
+    ...(a.tradeLevels !== undefined ? { tradeLevels: a.tradeLevels } : {}),
     ...savedStage(a),
   };
 }
