@@ -77,8 +77,13 @@ entries. Every other field's "ref" is null. Never invent a key or a ref.
 
 VALUES:
 - Write what the worker said, lightly tidied. Numbers as digits ("paanch saal" -> "5"). A \
-"duration" is the number of years in digits. A "boolean" is "true" or "false". A "city" is the \
-city's name.
+"duration" is the number of years in digits, months and days converted to fractional years \
+("2 saal 6 mahine" -> "2.5", "8 mahine" -> "0.67", "10 din" -> "0.03", "3 years" -> "3"). A \
+"boolean" is "true" or "false". A "city" is the city's name.
+- On the experience question ("kitne saal ho gaye") a reply is one of three things: the tenure \
+itself (years, months or days, in Hinglish, English or digits) which FILLS experience_years; \
+another profiling fact or question, which is a "statement" or "chat" like anywhere else; or \
+rubbish with no meaning, which is "unclear".
 - A "single_select" value is EXACTLY one of that field's options. A "multi_select" value is one \
 or more of its options joined with ", ". A value that matches no option is left out.
 - Write in Latin letters (Hinglish or English), even when the message is in Devanagari. Write \

@@ -23,7 +23,6 @@ import {
   parseAffirmation,
   parseAvailability,
   parseCommuteKm,
-  parseExperienceYears,
   parseRelocationWillingness,
   parseTrainingYear,
   type UtteranceClass,
@@ -31,6 +30,7 @@ import {
 
 import { isCredentialYear } from "../profiles/credential-year";
 import type { AnswerMap, CapturedValue } from "./answer-map";
+import { parseExperienceTotal } from "./experience-total";
 import { withinExperienceYearsRange } from "./parse-gates";
 import { bareNumberSpan, isLoneDigit, readStatedTenureYears } from "./stated-tenure";
 
@@ -96,7 +96,7 @@ export function mayCommit(
  */
 const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> = {
   current_city: (text) => canonicalCity(text)?.value ?? null,
-  experience_years: (text) => parseExperienceYears(text)?.value ?? null,
+  experience_years: (text) => parseExperienceTotal(text)?.value ?? null,
   salary_expected: (text) => detectSalaries(text).expected?.value ?? null,
   salary_current: (text) => detectSalaries(text).current?.value ?? null,
   availability: (text) => parseAvailability(text)?.value.availability ?? null,
@@ -731,10 +731,13 @@ export function captureAnswer(
   // #2384 — ONE DIGIT IS AN ANSWER TO A NUMBER QUESTION, not silence. The shared classifier calls
   // anything under two characters `empty` because it cannot see the question; this function can.
   // "0" to "kitne saal ho gaye?" was re-served as if the worker had typed nothing, three times on
-  // device. Number questions only: a lone digit to a free-text question stays `empty`, so it is
+  // device. Number questions only (plus `experience_years`, which serves a GENERAL keyboard but
+  // still answers bare digits as years): a lone digit to a free-text question stays `empty`, so it is
   // never stored verbatim as a trade or a name.
   const turnClass: UtteranceClass =
-    signal.cls === "empty" && askedItem?.answer_type === "number" && isLoneDigit(text)
+    signal.cls === "empty" &&
+    (askedItem?.answer_type === "number" || askedItem?.target_field === "experience_years") &&
+    isLoneDigit(text)
       ? "off_topic"
       : signal.cls;
 
@@ -833,7 +836,8 @@ function spanFor(item: QuestionPackItem, text: string): { start: number; end: nu
       return canonicalCity(text)?.span;
     case "experience_years":
       // A bare figure is read too (#2384), so it is not left over as unread residue.
-      return parseExperienceYears(text)?.span ?? bareNumberSpan(text);
+      // Months/days ("6 mahine", "10 din") are read by the total parser alongside years.
+      return parseExperienceTotal(text)?.span ?? bareNumberSpan(text);
     case "salary_expected":
       return detectSalaries(text).expected?.span;
     case "salary_current":

@@ -31,7 +31,7 @@ export const UNIVERSAL_PACK_FILE = "qp_universal@2";
 const ANSWER_TYPE_ALIASES: Readonly<Record<string, string>> = {
   city: "text",
   salary: "number",
-  duration: "number",
+  duration: "text",
 };
 
 interface CorpusOption {

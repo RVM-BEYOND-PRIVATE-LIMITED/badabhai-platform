@@ -4,8 +4,8 @@
  * The shared experience parser (`parseExperienceYears`, `@badabhai/profiling-lexicon`) reads a
  * NUMBER WITH ITS UNIT — "5 saal", "0 saal", "das years" — anywhere in a sentence, which is right
  * for a value mentioned in passing. It is wrong for the one question that already names the unit:
- * the app shows that question a number keypad, so the answers it actually receives are "0", "5" and
- * "12", and none of them carried a unit. Measured on device 2026-10-20: "0" was re-asked three
+ * that question serves a GENERAL keyboard, so the answers it actually receives include "0", "5"
+ * and "12" with no unit at all. Measured on device 2026-10-20: "0" was re-asked three
  * times, "5" loops the same way, and "10" was silently recorded unanswered.
  *
  * ON-SCREEN ONLY, and that is the safety of it. A bare number means years only next to the question
