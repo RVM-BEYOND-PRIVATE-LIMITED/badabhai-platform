@@ -98,6 +98,13 @@ describe("JobPostingChatController — identity from the session, never the body
     });
   });
 
+  it("publish forwards the optional area pick (#2493)", async () => {
+    await d.ctrl.publish(PAYER_A, { id: SESSION }, { area: "Bhosari" }, CTX);
+    expect(d.chat.publish).toHaveBeenCalledWith(PAYER_A.id, SESSION, CTX, {
+      area: "Bhosari",
+    });
+  });
+
   it("NO schema on this surface accepts a payer_id / org_label, so neither can be spoofed", () => {
     // A body-supplied owner is the defect XB-A exists to prevent; a body-supplied
     // org_label would let a payer post under someone else's employer name. Both are

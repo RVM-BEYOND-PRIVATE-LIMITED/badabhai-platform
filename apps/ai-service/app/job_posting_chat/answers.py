@@ -105,6 +105,9 @@ MAX_SKILLS = 10
 MAX_PHRASES = 10
 # The create DTO's `city` (trim, 1..80) and `experienceYearsSchema` (int 0..60).
 CITY_MAX = 80
+# #2493 — the create DTO's `area` (areaSchema, trim, 1..120): the COARSE locality
+# bucket, never an address.
+AREA_MAX = 120
 EXPERIENCE_MAX_YEARS = 60
 # The closed `jobs.pay_type` / `jobs.needed_by` sets, mirrored by the contract literals.
 PAY_TYPES: tuple[str, ...] = ("in_hand", "gross", "ctc")
@@ -1607,6 +1610,40 @@ def _parse_city(text: str) -> str | None:
     return _city_of_part(answer)
 
 
+# --- Area (#2493) ------------------------------------------------------------
+# The card's locality bucket beside the city ("Chakan" in "Pune, Chakan"). Free text,
+# capped like the create DTO's `area` — never an address, and never a gazetteer
+# lookup: localities have no closed vocabulary the way cities do.
+def _parse_area(text: str) -> str | None:
+    """The answer to the area question: the payer's own locality words, or nothing.
+
+    Attribution-only like the city parser (never read in passing — a cue-less
+    locality guess is how you put words in an employer's mouth). The label rules
+    still apply: chatter and sentences are not localities.
+    """
+    return _parse_label(text, None, allow_bare=True)
+
+
+def _area_from_location(location: str) -> str | None:
+    """The NON-CITY remainder of a location answer that named exactly one city.
+
+    "Pune, Chakan" -> "Chakan"; "Pune" -> None; "Pune, Pune" -> None. A part that IS
+    a gazetteer city never counts, so the city cannot echo into the area slot. Runs
+    on the label the parser CHOSE (the same input the city derivation reads), so the
+    common one-line answer closes all three place fields at once.
+    """
+    areas: list[str] = []
+    for part in location.split(","):
+        if _city_of_part(part) is not None:
+            continue
+        cleaned = _clean_label(part, AREA_MAX)
+        if cleaned is not None:
+            areas.append(cleaned)
+    if not areas:
+        return None
+    return _clean_label(", ".join(areas), AREA_MAX)
+
+
 # --- Topic dispatch --------------------------------------------------------
 # Topics whose value must be PARSED to count as answered. A refusal ("no") on one of
 # these leaves it unanswered on purpose — see is_refusal.
@@ -1664,6 +1701,8 @@ def _parse_topic(
         return _parse_label(text, _LOCATION_CUE_RE, allow_bare=attributed)
     if topic_id == "city":
         return _parse_city(text) if attributed else None
+    if topic_id == "area":
+        return _parse_area(text) if attributed else None
     if topic_id == "vacancy":
         return _parse_vacancy(text, require_cue=not attributed)
     if topic_id == "pay_range":
@@ -1755,6 +1794,21 @@ def detect_answers(
         city = _one_city(location.split(","))
         if city is not None:
             found["city"] = city
+
+    # 1c. ...and the area too (#2493 — the NON-city remainder of that same answer:
+    #     "Pune, Chakan" closes all three place fields at once). Only when the city
+    #     derivation above accepted the answer: without exactly one gazetteer city the
+    #     remainder might BE the city under a name we do not know, and recording it as
+    #     the area would put words in the employer's mouth.
+    if (
+        last_asked == "location_label"
+        and isinstance(location, str)
+        and "city" in found
+        and "area" not in found
+    ):
+        area = _area_from_location(location)
+        if area is not None:
+            found["area"] = area
 
     # 2. The cue-gated cross-topic extractors. A pay TYPE read in passing must describe
     #    the band this same message recorded — never a bonus, an allowance or a figure

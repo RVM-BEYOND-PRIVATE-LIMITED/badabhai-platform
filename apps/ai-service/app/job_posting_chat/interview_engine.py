@@ -56,11 +56,17 @@ ESSENTIAL_TOPICS: tuple[str, ...] = ("role_title", "location_label", "city", "va
 # be ASKED for them — but forcing an answer would block a posting on a field the DTO
 # does not require. The ask is the obligation; the answer stays the payer's to give.
 #
+# `area` (#2493) is must-ask but never essential: the card reads better with a
+# locality, but absent stays NULL and never blocks the draft. In the common case it
+# costs no question at all — the location answer derives it — and only a city-only
+# location is followed up.
+#
 # `description` is last in the bank AND must-ask on purpose: making the final topic
 # must-ask means readiness cannot be reached until the bank drains, which is what
 # stops a fluent payer being wrapped up before the optional half is ever raised.
 MUST_ASK_TOPICS: tuple[str, ...] = (
     "skills",
+    "area",
     "pay_range",
     "pay_type",
     "experience",
@@ -93,7 +99,7 @@ MAX_ASKS_PER_TOPIC = 2
 # actually served, so it is clarify-immune by construction.
 #
 # Sized with real headroom over the bank's worst-case blind run: 4 essentials x
-# MAX_ASKS_PER_TOPIC (= 8) + 9 ask-once topics = 17. The test suite pins that budget
+# MAX_ASKS_PER_TOPIC (= 8) + 10 ask-once topics = 18. The test suite pins that budget
 # against this constant, so the zero-margin coupling cannot silently reappear if the
 # bank grows.
 MAX_ENGINE_ASKS = 22
@@ -539,6 +545,7 @@ def build_draft(
         requirements=_as_phrases(collected.get("requirements"), answers.MAX_PHRASES),
         description=_as_str(collected.get("description"), answers.DESCRIPTION_MAX),
         city=_as_str(collected.get("city"), answers.CITY_MAX),
+        area=_as_str(collected.get("area"), answers.AREA_MAX),
         pay_type=pay_type if pay_type in answers.PAY_TYPES else None,  # type: ignore[arg-type]
         min_experience_years=min_years,
         max_experience_years=max_years,
@@ -551,6 +558,7 @@ def build_draft(
         "skills": bool(draft.skills),
         "location_label": draft.location_label is not None,
         "city": draft.city is not None,
+        "area": draft.area is not None,
         "vacancy": draft.vacancy_band is not None,
         "pay_range": draft.pay_min is not None,
         "pay_type": draft.pay_type is not None,

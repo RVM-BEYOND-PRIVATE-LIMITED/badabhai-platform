@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { MESSAGE_DIRECTIONS, MESSAGE_TYPES } from "@badabhai/types";
 import { uuidSchema, nonEmptyMessageSchema, safeTextSchema } from "@badabhai/validators";
-import { roleKindSchema } from "../../common/job-content.schemas";
+import { areaSchema, roleKindSchema } from "../../common/job-content.schemas";
 import { JobPostingDraftSchema } from "@badabhai/ai-contracts";
 
 /**
@@ -162,15 +162,23 @@ export const JobPostingChatMessagesResponseSchema = z.object({
 export type JobPostingChatMessagesResponse = z.infer<typeof JobPostingChatMessagesResponseSchema>;
 
 /**
- * `POST /payer/job-posting-chat/sessions/:id/publish` — optional display-only role.
+ * `POST /payer/job-posting-chat/sessions/:id/publish` — the publish-step picks.
  *
  * `role_kind` is the closed 21-value set (`roleKindSchema`, same as the manual
  * create). Display / classification only, never a match input. Optional: absent
- * stores NULL / generic art, as before. A `null` body value is a 400 like every
- * other content field; unset goes through the posting PATCH `clear`.
+ * stores NULL / generic art, as before.
+ *
+ * `area` (#2493) is the COARSE locality bucket (`areaSchema`, same as the manual
+ * create), never an address. The interview usually fills it from the location
+ * answer; the client sends it here when the payer picks or corrects it at publish,
+ * and the body wins over the draft. Absent (both) stores NULL, as before.
+ *
+ * A `null` body value is a 400 like every other content field; unset goes through
+ * the posting PATCH `clear`.
  */
 export const PublishJobPostingChatSchema = z.object({
   role_kind: roleKindSchema.optional(),
+  area: areaSchema.optional(),
 });
 export type PublishJobPostingChatDto = z.infer<typeof PublishJobPostingChatSchema>;
 
@@ -215,6 +223,7 @@ export type UnmappedDraftField = (typeof UNMAPPED_DRAFT_FIELDS)[number];
  */
 export const WORKER_CARD_FIELDS = [
   "city",
+  "area",
   "pay_min",
   "pay_max",
   "pay_type",
