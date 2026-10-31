@@ -9,7 +9,7 @@
   "version": 3,
   "family_id": "fam_vmc_milling",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v3 (Middle Way C2): machine, level and controller are required slots. Drafted for owner review (Prakash).",
   "items": [
     {

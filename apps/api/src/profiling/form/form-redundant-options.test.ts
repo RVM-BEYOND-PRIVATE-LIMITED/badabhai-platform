@@ -120,9 +120,11 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_cnc_grinding:grinding_machine",
       "qp_cnc_grinding@2:grinding_machine",
       "qp_cnc_grinding@3:grinding_machine",
+      "qp_cnc_grinding@4:grinding_machine",
       "qp_cnc_turning:turning_machine",
       "qp_cnc_turning@2:turning_machine",
       "qp_cnc_turning@3:turning_machine",
+      "qp_cnc_turning@4:turning_machine",
       "qp_draughting:cad_software",
       "qp_draughting:draughting_field",
       "qp_fitting:fitting_type",
@@ -131,6 +133,7 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_vmc_milling:milling_machine",
       "qp_vmc_milling@2:milling_machine",
       "qp_vmc_milling@3:milling_machine",
+      "qp_vmc_milling@4:milling_machine",
       "qp_welding:welding_process",
     ]);
   }, 30_000);

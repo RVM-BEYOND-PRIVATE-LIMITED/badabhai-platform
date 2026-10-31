@@ -16,13 +16,14 @@ same branch/gate discipline as P1–P5 (`feat/mw-ex-*`, gates green, squash-merg
   `[mskill_3d_designer]`; everything else unchanged (generic occupation, role/seed
   bridges). ✅ SEEDED on production (`db:seed:match:vocabulary`, verify PASS).
   Unblocks E3 + E17.
-- **E1 — Pack slot-2 option alignment (v1 GAP).** §8 slot-2 machine lists
-  (turn-mill / live tool / C-axis / twin spindle / sliding head / swiss / VTL;
-  VMC 4th-axis / rotary / 5-axis / HMC variants) have NO matching pack options
-  (`turning_machine`, `milling_machine` carry only the generic types). Typed
-  variants re-ask with chips today (pinned in `section8-alias-resolution.test.ts`).
-  Decide per trade: add options (pack version bump + seed + snapshot regen + TTS
-  re-render, §8.4) or keep chips-only. Do Turner+VMC first — the DoD table names them.
+- **E1 — Pack slot-2 option alignment ✅ CODE DONE (`feat/mw-e1-pack-options`, PR next).**
+  Three @4 packs: Turner += turn-mill/live-tool/C-axis/twin-spindle chips + VTL/
+  Swiss /-relabels; VMC = HMC+VMC /-relabels ONLY (deviation from scope: no new
+  axis chips — `axis_capability` already captures 4-axis/rotary/5-axis, a second
+  chip would duplicate semantics); Grinding = 4 grinding-first relabels (E4 GAP
+  closed). Resume map += 4 Turner values. Snapshot + served-text regen in-commit.
+  PENDING MANUAL STEP: Divyanshu `db:seed:packs` on production (new versions exist
+  in code only until then). TTS re-render rides #701.
 - **E2 — Controller spellings (v1 GAP).** Typed `Sinumerik`, `M70`, `Mazatrol`, `TNC`
   match no controller chip (`Fanuc`/`Siemens`/`Mitsubishi`/`Haas`/`Mazak`/
   `Heidenhain` only). Same treatment as E1: capture synonyms or new chips.

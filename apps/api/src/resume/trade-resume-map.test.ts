@@ -5,7 +5,7 @@
  * hands to an employer, not the happy path: a raw slug, a non-answer printed as an answer, a claim
  * the worker never made, or a row order that changes between two renders of the same profile.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -24,10 +24,48 @@ interface Pack {
 function packJson(packId: string): Pack {
   return JSON.parse(
     readFileSync(
-      join(__dirname, `../../../../packages/db/data/question-packs/packs/${packId}.json`),
+      join(
+        __dirname,
+        `../../../../packages/db/data/question-packs/packs/${activePackFile(packId)}.json`,
+      ),
       "utf8",
     ),
   ) as Pack;
+}
+
+/**
+ * The newest published version file — what the runtime registry serves new
+ * sessions. Base files are v1-frozen (P2/P3 precedent: level questions live in
+ * @2+ only), so a map checked against the base would fail on any value minted
+ * after v1. E1 hit exactly that: the Turner slot-2 values exist in @4 alone.
+ */
+function activePackFile(packId: string): string {
+  const ledger = readFileSync(
+    join(__dirname, "../../../../packages/db/data/question-packs/_published-versions.jsonl"),
+    "utf8",
+  );
+  let best: string | null = null;
+  let bestVersion = -1;
+  for (const line of ledger.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(`${packId}@`)) continue;
+    const version = Number.parseInt(trimmed.slice(packId.length + 1), 10);
+    if (Number.isInteger(version) && version > bestVersion) {
+      bestVersion = version;
+      best = trimmed;
+    }
+  }
+  // v1 lives as the undecorated base file for packs that predate versioning
+  // (the ledger still records them as @1) — fall back when no @N file exists.
+  if (
+    best === null ||
+    !existsSync(
+      join(__dirname, "../../../../packages/db/data/question-packs/packs", `${best}.json`),
+    )
+  ) {
+    return packId;
+  }
+  return best;
 }
 
 const map = tradeResumeMapFor("qp_cnc_turning");

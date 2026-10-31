@@ -55,9 +55,11 @@ qp_cleaning_helpers@2
 qp_cnc_grinding@1
 qp_cnc_grinding@2
 qp_cnc_grinding@3
+qp_cnc_grinding@4
 qp_cnc_turning@1
 qp_cnc_turning@2
 qp_cnc_turning@3
+qp_cnc_turning@4
 qp_cobbler@1
 qp_concrete@1
 qp_construction_helper@1
@@ -183,6 +185,7 @@ qp_universal@8
 qp_vmc_milling@1
 qp_vmc_milling@2
 qp_vmc_milling@3
+qp_vmc_milling@4
 qp_waiter@1
 qp_waiter@2
 qp_waste@1
