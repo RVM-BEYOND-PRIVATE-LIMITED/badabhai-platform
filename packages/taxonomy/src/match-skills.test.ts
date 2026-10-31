@@ -81,7 +81,10 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
   });
 
   it("#2022: the eight minted trades are appended, manufacturing, and follow the conventions", () => {
-    expect(MATCH_SKILLS.slice(-MINTED_FOR_2022.length).map((s) => s.skillId)).toEqual([
+    // Positional, not from-the-end: Middle Way E0 appended one more skill after them.
+    // The rule is unchanged — each mint lands AFTER everything that exists, so an old
+    // index never changes meaning.
+    expect(MATCH_SKILLS.slice(18, 18 + MINTED_FOR_2022.length).map((s) => s.skillId)).toEqual([
       ...MINTED_FOR_2022,
     ]);
     for (const id of MINTED_FOR_2022) {
@@ -90,6 +93,11 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
     }
     expect(matchSkillLabel("mskill_tool_die_maker")).toBe("Tool & Die Maker");
     expect(matchSkillLabel("mskill_painter_coater")).toBe("Painter / Powder Coater");
+    // E0 appended after them — still last, still manufacturing, same id shape.
+    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_3d_designer");
+    expect(matchSkillIndustry("mskill_3d_designer"), "mskill_3d_designer").toBe(
+      "ind_industrial_manufacturing",
+    );
     // Pack-only: no role and no corpus attribute bridges to them yet.
     const bridged = new Set<string>([
       ...Object.values(ROLE_TO_MATCH_SKILL),
@@ -424,10 +432,12 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
   it("the vocabulary was NOT expanded to make the batch fit", () => {
     // The owner ruled that skills with no legitimate existing mskill stay unmatched rather
     // than earning a new concept. 62 of the 96 are in families with no mskill at all.
-    // The vocabulary DID grow later, for a different reason: #2022 (2026-10-06) minted one skill
-    // per trade FORM that derived nothing. That ruling re-dispositioned no promotable skill (the
-    // five-mapping pin above still holds), and no promotable skill reaches a #2022 skill.
-    expect(MATCH_SKILLS).toHaveLength(19 + MINTED_FOR_2022.length);
+    // The vocabulary DID grow later, twice, each for its own owner-ruled reason: #2022
+    // (2026-10-06) minted one skill per trade FORM that derived nothing, and Middle Way
+    // E0 (Q3, 2026-10-31) split the 3D designer off the generic designer. Neither
+    // ruling re-dispositioned any promotable skill (the five-mapping pin above still
+    // holds), and no promotable skill reaches a #2022 skill.
+    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 1);
     for (const id of PROMOTABLE_SKILL_IDS) {
       for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
         expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);

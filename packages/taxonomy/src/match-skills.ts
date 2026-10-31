@@ -219,25 +219,13 @@ export const MATCH_SKILLS = [
     status: "active",
   },
   {
-    // Middle Way E0 (Q3, owner-approved 2026-10-30): the generic ID meant 2D+3D
+    // Middle Way E0 (Q3, owner-approved 2026-10-31): the generic ID meant 2D+3D
     // conflated. This row is now the 2D CAD Draughtsman (relabel only — the ID is
-    // permanent); 3D CAD Designer gets its own row directly below and the two are
-    // related both ways. Same bench: a design-desk posting names the same floor.
+    // permanent); the 3D CAD Designer is APPENDED at the end of this list (like
+    // #2022) so every earlier id keeps its position. Same bench: a design-desk
+    // posting names the same floor.
     skillId: "mskill_designer",
     labelEn: "2D CAD Draughtsman",
-    labelHi: null,
-    industryId: "ind_industrial_manufacturing",
-    domainId: "cnc-programming",
-    source: "rvm",
-    status: "active",
-  },
-  {
-    // The 3D modeller/designer: parts, assemblies and surfacing in SolidWorks/Creo/
-    // NX/CATIA, not 2D drafting. Related to the 2D draughtsman (same desk, either
-    // direction) but NOT merged: a posting for GA drawings must not reach a
-    // surfacing modeller on the strength of one shared word.
-    skillId: "mskill_3d_designer",
-    labelEn: "3D CAD Designer",
     labelHi: null,
     industryId: "ind_industrial_manufacturing",
     domainId: "cnc-programming",
@@ -363,6 +351,23 @@ export const MATCH_SKILLS = [
     labelHi: null,
     industryId: "ind_industrial_manufacturing",
     domainId: "fitting-assembly",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // Middle Way E0 (Q3, owner-approved 2026-10-30): the generic Designer ID meant
+    // 2D+3D conflated. The `mskill_designer` row now names the 2D draughtsman; this
+    // APPENDED row is the 3D CAD Designer — parts, assemblies and surfacing in SolidWorks/Creo/
+    // NX/CATIA, not 2D drafting. Appended (like #2022) so every earlier id keeps
+    // its position, including the Q1-era first-18 slice the audit tests pin.
+    // Related to the 2D draughtsman (same desk, either direction) but NOT merged:
+    // a posting for GA drawings must not reach a surfacing modeller on the
+    // strength of one shared word.
+    skillId: "mskill_3d_designer",
+    labelEn: "3D CAD Designer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
     source: "rvm",
     status: "active",
   },

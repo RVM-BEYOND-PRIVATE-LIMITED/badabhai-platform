@@ -46,15 +46,15 @@ describe("the demand surface is closed, and that is the whole argument", () => {
     expect(Object.keys(TRADE_TO_MATCH_SKILL).sort()).toEqual([...TRADE_KEYS].sort());
   });
 
-  it("15 trades reach 7 match skills, leaving 11 no job can ever require", () => {
+  it("15 trades reach 7 match skills, leaving 11 no job can ever require (plus E0)", () => {
     // Through TRADE_TO_MATCH_SKILL (the one-time seed-job conversion). The eight #2022 skills are
     // postable directly by an employer, but no TRADE_KEY routes to one, so they join the
     // unreachable set from this bridge's point of view: 11 at audit time, + 8.
     const reachable = demandReachableMatchSkills();
     expect(TRADE_KEYS).toHaveLength(15);
     expect(reachable.size).toBe(7);
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022);
-    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022);
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 1); // E0
+    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022 + 1); // E0, unrouted like #2022
   });
 
   it("the unreachable eleven include the whole welding and plumbing vocabulary", () => {
@@ -172,10 +172,11 @@ describe("the measured answer", () => {
 });
 
 describe("nothing was invented", () => {
-  it("MATCH_SKILLS is still 18 and no mskill_* was added", () => {
+  it("MATCH_SKILLS grew only by owner ruling (E0), not by the pipeline", () => {
     // By THIS audit. The artifact is the dated record and still says 18; #2022 appended eight
     // afterwards by owner ruling, which is the only reason the live count moved.
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022);
+    // E0 (Q3) added the 3D designer afterwards, same owner-ruling carve-out as #2022.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 1);
     expect(art.match_skills_defined).toBe(AUDIT_ERA_MATCH_SKILLS);
   });
 

@@ -10,12 +10,12 @@ same branch/gate discipline as P1–P5 (`feat/mw-ex-*`, gates green, squash-merg
 
 ## 0. Preconditions (do once, before any trade)
 
-- **E0 — CAD Q3 second half.** ✅ DONE (`feat/mw-e0-3d-designer`): `mskill_3d_designer`
-  minted as an active match skill (mirrors `mskill_designer`); `mskill_designer`
-  relabeled to "2D CAD Draughtsman"; pair `["mskill_3d_designer","mskill_designer"]`
-  added (sorted first); `skill_3d_modeling` → `[mskill_3d_designer]`, everything
-  else unchanged (generic occupation, role/seed bridges). Divyanshu ran
-  `db:seed:match:vocabulary` on staging/prod (manual step, same pattern as P4).
+- **E0 — CAD Q3 second half.** ✅ CODE DONE (`feat/mw-e0-3d-designer`, PR #2485):
+  `mskill_3d_designer` minted as an active match skill; `mskill_designer` relabeled
+  to "2D CAD Draughtsman"; pair added (sorted first); `skill_3d_modeling` →
+  `[mskill_3d_designer]`; everything else unchanged (generic occupation, role/seed
+  bridges). PENDING MANUAL STEP: Divyanshu to run `db:seed:match:vocabulary` on
+  staging + prod (same pattern as P4) — until then the new id exists in code only.
   Unblocks E3 + E17.
 - **E1 — Pack slot-2 option alignment (v1 GAP).** §8 slot-2 machine lists
   (turn-mill / live tool / C-axis / twin spindle / sliding head / swiss / VTL;
