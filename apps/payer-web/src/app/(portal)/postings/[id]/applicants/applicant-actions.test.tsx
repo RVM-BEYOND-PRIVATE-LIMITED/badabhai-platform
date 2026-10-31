@@ -866,6 +866,75 @@ describe("ApplicantActions — Matching V1 tier badge (ADR-0036 moment ⑥ / E18
   });
 });
 
+describe("ApplicantActions — Middle Way P5 level badge (display only)", () => {
+  const v1 = (over: Partial<FacelessApplicant>): FacelessApplicant => ({
+    workerId: WORKER,
+    rank: 1,
+    score: 0,
+    hot: false,
+    signals: [],
+    matchTier: 1,
+    effectiveTier: 1,
+    skillMonths: 48,
+    ...over,
+  });
+  const rung = (
+    skillId: string,
+    skillLabel: string,
+    tradeLevelLabel: string,
+  ): NonNullable<FacelessApplicant["tradeLevels"]>[number] => ({
+    skillId,
+    skillLabel,
+    tradeLevel: tradeLevelLabel.toLowerCase(),
+    tradeLevelLabel,
+    levelConfirmed: true,
+  });
+  const levelBadges = (a: FacelessApplicant) =>
+    elements(render({ applicants: [a] })).filter((e) => hasClass(e, "applicant__level"));
+
+  it("prints the stated rung beside the tier badge, as a neutral outline label", () => {
+    const badges = levelBadges(
+      v1({ matchedSkillLabel: "VMC Operator", tradeLevels: [rung("mskill_vmc_operator", "VMC Operator", "Setter")] }),
+    );
+    expect(badges).toHaveLength(1);
+    expect(textOf(badges[0]!.props.children as ReactNode)).toBe("Setter");
+    expect(badges[0]!.props.tone).toBe("neutral");
+    expect(badges[0]!.props.variant).toBe("outline");
+  });
+
+  it("absent or empty tradeLevels prints NO badge — never a placeholder", () => {
+    expect(levelBadges(v1({}))).toHaveLength(0);
+    expect(levelBadges(v1({ tradeLevels: [] }))).toHaveLength(0);
+  });
+
+  it("with several rungs, prefers the one for the trade the card shows", () => {
+    const badges = levelBadges(
+      v1({
+        matchedSkillLabel: "VMC Operator",
+        tradeLevels: [
+          rung("mskill_cnc_turner", "CNC Turner", "Helper"),
+          rung("mskill_vmc_operator", "VMC Operator", "Setter"),
+        ],
+      }),
+    );
+    expect(badges).toHaveLength(1);
+    expect(textOf(badges[0]!.props.children as ReactNode)).toBe("Setter");
+  });
+
+  it("with several rungs and no rung for the shown trade, prints none (no wrong-trade claim)", () => {
+    const badges = levelBadges(
+      v1({
+        matchedSkillLabel: "VMC Operator",
+        tradeLevels: [
+          rung("mskill_cnc_turner", "CNC Turner", "Helper"),
+          rung("mskill_cam_programmer", "CAM Programmer", "Programmer"),
+        ],
+      }),
+    );
+    expect(badges).toHaveLength(0);
+  });
+});
+
 /* ── W2-B layout: one toolbar of secondary actions + ONE focal spend band per card ───────── */
 
 type El = ReactElement<Record<string, unknown> & { children?: ReactNode }>;

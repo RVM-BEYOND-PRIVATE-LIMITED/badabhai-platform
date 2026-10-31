@@ -478,6 +478,20 @@ export type MatchSelectionInput = z.infer<typeof matchSelectionInputSchema>;
 /* ── Applicant feed (FACELESS, banded) ──────────────────────────────────────── */
 
 /**
+ * Middle Way P5 — one stated rung on the candidate's card. OPTIONAL so a backend
+ * that predates P5 still parses: absent reads as "no rung stated", exactly like an
+ * empty array. Both labels are resolved server-side; the card only prints one.
+ */
+export const tradeLevelBadgeWireSchema = z.object({
+  skillId: z.string(),
+  skillLabel: z.string().nullable(),
+  tradeLevel: z.string(),
+  tradeLevelLabel: z.string(),
+  levelConfirmed: z.boolean(),
+});
+export type TradeLevelBadgeWire = z.infer<typeof tradeLevelBadgeWireSchema>;
+
+/**
  * One faceless applicant on a posting. NO name/phone/employer/raw-PII — only the
  * opaque worker_id + banded, post-masking signals the API authorizes (XB-C: no
  * existence/consent oracle leaks here either).
@@ -520,6 +534,12 @@ export const facelessApplicantSchema = z.object({
   matchedSkillLabel: z.string().optional(),
   skillMonths: z.number().int().optional(),
   industryMonths: z.number().int().optional(),
+  /**
+   * Middle Way P5 — the rungs he stated, one per trade skill. DISPLAY ONLY: the card prints
+   * the rung for the trade it is showing, never all of them, and nothing here feeds rank.
+   * Optional because a backend that predates P5 (or the legacy weighted row) sends none.
+   */
+  tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
 
   /**
    * The applicant's SAVED place on the payer's New / Shortlist / Passed board for this posting
@@ -1002,20 +1022,6 @@ export const reachApplicantWireSchema = z.object({
  * tier-1 ordering. `effectiveTier` is what he was ORDERED by, so the list's order is
  * explainable from the row rather than only reproducible by re-running the rule.
  */
-/**
- * Middle Way P5 — one stated rung on the candidate's card. OPTIONAL so a backend
- * that predates P5 still parses: absent reads as "no rung stated", exactly like an
- * empty array.
- */
-export const tradeLevelBadgeWireSchema = z.object({
-  skillId: z.string(),
-  skillLabel: z.string().nullable(),
-  tradeLevel: z.string(),
-  tradeLevelLabel: z.string(),
-  levelConfirmed: z.boolean(),
-});
-export type TradeLevelBadgeWire = z.infer<typeof tradeLevelBadgeWireSchema>;
-
 export const matchCandidateWireSchema = z.object({
   workerId: z.string().uuid(),
   applicationId: z.string().uuid(),

@@ -193,6 +193,15 @@ describe("GET /payer/reach/jobs/:id/applicants — BOTH server shapes parse (mom
     lastWorkedAt: null,
     matchedSkillLabel: "VMC operating",
     engineVersion: "v1.0",
+    tradeLevels: [
+      {
+        skillId: "mskill_vmc_operator",
+        skillLabel: "VMC Operator",
+        tradeLevel: "setter",
+        tradeLevelLabel: "Setter",
+        levelConfirmed: true,
+      },
+    ],
   };
   const LEGACY_ROW = {
     workerId: "44444444-4444-4444-8444-444444444444",
@@ -216,11 +225,32 @@ describe("GET /payer/reach/jobs/:id/applicants — BOTH server shapes parse (mom
     expect(a.effectiveTier).toBe(1);
     expect(a.matchedSkillLabel).toBe("VMC operating");
     expect(a.skillMonths).toBe(48);
+    // Middle Way P5 — the rungs ride through verbatim for the card to print one.
+    expect(a.tradeLevels).toEqual([
+      {
+        skillId: "mskill_vmc_operator",
+        skillLabel: "VMC Operator",
+        tradeLevel: "setter",
+        tradeLevelLabel: "Setter",
+        levelConfirmed: true,
+      },
+    ]);
     // V1 has no score and no hot flag. They are STRUCTURAL placeholders, pinned so the
     // card cannot render a fabricated number as if it meant something.
     expect(a.score).toBe(0);
     expect(a.hot).toBe(false);
     expect(a.signals).toEqual([]);
+  });
+
+  it("parses a V1 row from an OLD backend with no tradeLevels (the field is optional)", async () => {
+    const { tradeLevels: _rungs, ...oldBackendRow } = V1_ROW;
+    void _rungs;
+    fetchMock.mockResolvedValue(jsonResponse({ jobId: POSTING_ID, applicants: [oldBackendRow] }));
+    const { getApplicantFeed } = await import("./payer-api");
+    const a = (await getApplicantFeed(POSTING_ID))!.applicants[0]!;
+    expect(a.matchTier).toBe(2);
+    // Absent reads as "no rung stated" — the card prints no badge, never a placeholder.
+    expect(a.tradeLevels).toBeUndefined();
   });
 
   it("still parses the LEGACY weighted row (the flag is reversible at any moment)", async () => {
