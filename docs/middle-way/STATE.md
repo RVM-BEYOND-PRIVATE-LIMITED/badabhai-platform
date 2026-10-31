@@ -19,22 +19,23 @@ Base: `origin/main 03a90966` | Scope v1: 4 trades (Turner, VMC, Grinding, CAM) |
 
 ## Phases
 
-| Phase | Spec | Status | Commit | Test |
-|---|---|---|---|---|
-| P0 Baseline lock | inventory 4 packs/forms, snapshot tests | done | 9b5b7906 | taxonomy corpus load OK, 4 packs parse OK |
-| P1 C1 level field | nullable, display-only, zero reach/rank change | done | - | schema 27 pass, taxonomy 136 pass, match-engine 223 pass, no match reader |
-| P2 C3+C4 gates | level to all, `years OR level` | done | - | corpus 169 packs valid; db pack 180+72 pass; api proof/parity/budget/registry 900+ pass; goldens regen; ai parity 17 pass |
-| P3a C2 required + close | v3 mandatory flags, required_complete + Bas-ho-gaya copy | done | - | corpus 173 packs valid; db 180+72 pass; api engine/proof/parity/budget/TTS/registry 1000+ pass; goldens regen; ai parity 17 pass |
-| P3b stop rule | 14-turn focus, 20-turn cap, one optional offer + end | done | - | engine 48 pass; offer module+flow 12 pass; envelope round-trip 50 pass; orchestrator 133 pass; TTS/golden/ai parity green; budget unchanged (39/9) |
-| P4 C5 aliases | §8 Hinglish Turner+VMC (Grinding/CAM→P6) | done | - | router 82 pass; role registry/scope/invariants/parity/handover/identify 414 pass; db corpus+reachability 233 pass; typecheck+eslint clean |
-| P5 C6+display | crosswalk, headline `Trade · Years · Tools · Level`, badge, unlock hook ₹40 live | done | - | taxonomy crosswalk 9 pass; headline/verdict/glance 151+637 pass; persist hook 212 pass; badge DTO+wire 245+38 pass; unlock hook tier logged, debit still 1cr; typecheck+eslint clean |
-| P6 DoD+handover | 10 tests, expand plan 12, Claude Code pack | todo | - | §7 tests 1-10 |
+| Phase                   | Spec                                                                             | Status | Commit   | Test                                                                                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| P0 Baseline lock        | inventory 4 packs/forms, snapshot tests                                          | done   | 9b5b7906 | taxonomy corpus load OK, 4 packs parse OK                                                                                                                                            |
+| P1 C1 level field       | nullable, display-only, zero reach/rank change                                   | done   | -        | schema 27 pass, taxonomy 136 pass, match-engine 223 pass, no match reader                                                                                                            |
+| P2 C3+C4 gates          | level to all, `years OR level`                                                   | done   | -        | corpus 169 packs valid; db pack 180+72 pass; api proof/parity/budget/registry 900+ pass; goldens regen; ai parity 17 pass                                                            |
+| P3a C2 required + close | v3 mandatory flags, required_complete + Bas-ho-gaya copy                         | done   | -        | corpus 173 packs valid; db 180+72 pass; api engine/proof/parity/budget/TTS/registry 1000+ pass; goldens regen; ai parity 17 pass                                                     |
+| P3b stop rule           | 14-turn focus, 20-turn cap, one optional offer + end                             | done   | -        | engine 48 pass; offer module+flow 12 pass; envelope round-trip 50 pass; orchestrator 133 pass; TTS/golden/ai parity green; budget unchanged (39/9)                                   |
+| P4 C5 aliases           | §8 Hinglish Turner+VMC (Grinding/CAM→P6)                                         | done   | -        | router 82 pass; role registry/scope/invariants/parity/handover/identify 414 pass; db corpus+reachability 233 pass; typecheck+eslint clean                                            |
+| P5 C6+display           | crosswalk, headline `Trade · Years · Tools · Level`, badge, unlock hook ₹40 live | done   | -        | taxonomy crosswalk 9 pass; headline/verdict/glance 151+637 pass; persist hook 212 pass; badge DTO+wire 245+38 pass; unlock hook tier logged, debit still 1cr; typecheck+eslint clean |
+| P6 DoD+handover         | 10 tests, expand plan 12, Claude Code pack                                       | done   | -        | rank/visibility guards (match-feed+candidates), §8 table 123 pass, key snapshot (mutation-verified), EXPAND-12, HANDOVER.md                                                          |
 
 Rules: additive-only, no key rename, level never affects visibility/ranking, one branch per phase `mw/pN-*`.
 
 ## P0 Inventory (origin/main)
 
 Packs (all v1):
+
 - `qp_cnc_turning` (18 items): mand only `turning_experience` (easy). Gates: setting/tolerance/sector at `turning_experience>=2`, programming/advanced/quality/troubleshoot at `>=5`, fresher 3 at `<=0`. No level Q, no machine/controller mandatory.
 - `qp_vmc_milling` (18 items): mand only `milling_experience` (easy). Same gate shape on `milling_experience` (2/5/0).
 - `qp_cnc_grinding` (18 items): mand only `grinding_experience` (easy). Gates on `grinding_experience` (2/5/0). Ladder stops at Setter-cum-Programmer (no Programmer rung).

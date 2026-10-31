@@ -217,8 +217,20 @@ describe("listFeed — the company NAME is not in the projection (ADR-0036's ope
 
   it("maps role_kind off the row verbatim (the service gates it)", async () => {
     const { repo } = makeDb([
-      { job_posting_id: POSTING, payer_key: "p", match_tier: 1, published_at: null, role_kind: "fitter" },
-      { job_posting_id: WORKER, payer_key: "p", match_tier: 1, published_at: null, role_kind: null },
+      {
+        job_posting_id: POSTING,
+        payer_key: "p",
+        match_tier: 1,
+        published_at: null,
+        role_kind: "fitter",
+      },
+      {
+        job_posting_id: WORKER,
+        payer_key: "p",
+        match_tier: 1,
+        published_at: null,
+        role_kind: null,
+      },
     ]);
     const rows = await repo.listFeed(WORKER, 10, {});
     expect(rows.map((r) => r.roleKind)).toEqual(["fitter", null]);
@@ -469,6 +481,34 @@ describe("listCandidates — the ORDER BY *is* the ratified rank key (ADR-0036 �
     expect(orderByOf(statements[0]!.sql)).not.toContain("matched_skill_id");
   });
 
+  it("does NOT let the Middle-Way rung into the ORDER BY either (DoD §7.8)", async () => {
+    // P5 added a live `trade_levels` lookup beside the E18 badge. Same contract:
+    // display-only, never a rank input. If `trade_level` ever entered the sort, a
+    // worker stating (or correcting) his rung would reorder a paid list — E16/Policy 7
+    // breakage with a Middle-Way cause. (The inbox window is pinned beside its own
+    // rank-key spelling below.)
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500);
+    const order = orderByOf(statements[0]!.sql);
+    expect(order).not.toContain("trade_level");
+    expect(order).not.toContain("level_confirmed");
+  });
+
+  it("reads rungs through a correlated subquery — a rungless worker is still listed (DoD §7.7)", async () => {
+    // A JOIN to worker_profile_skill would drop every applicant whose rung was never
+    // stated (or whose profile predates P1) — visibility gated on a display field.
+    // The subquery shape below returns one row per applicant regardless: COALESCE to
+    // '[]' when the inner query finds nothing, correlated on the OUTER alias so it
+    // cannot fan out rows either. Exactly one mention of the table: the subquery's
+    // own inner join. A second, top-level JOIN would be the visibility-breaking shape.
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500);
+    const sql: string = statements[0]!.sql;
+    expect(sql).toContain("COALESCE");
+    expect(sql).toContain("a.worker_id");
+    expect(sql.split("worker_profile_skill").length - 1).toBe(1);
+  });
+
   it("never lists a pending-deletion applicant — ADR-0031 (b) membership, not a rank key", async () => {
     const { repo, statements } = makeDb();
     await repo.listCandidates(POSTING, 36, 500);
@@ -509,7 +549,9 @@ describe("listCandidates — row mapping", () => {
   });
 
   it("maps the frozen snapshot through WITHOUT coercing a null to a number", async () => {
-    const { repo } = makeDb([raw({ match_tier: null, skill_months: null, industry_months: null, engine_version: null })]);
+    const { repo } = makeDb([
+      raw({ match_tier: null, skill_months: null, industry_months: null, engine_version: null }),
+    ]);
     const [row] = await repo.listCandidates(POSTING, 36, 500);
     // "No decision was ranked" and "ranked at zero months" are different facts, and the
     // service's `effectiveTier` relies on the difference to refuse to promote an
@@ -523,7 +565,9 @@ describe("listCandidates — row mapping", () => {
   });
 
   it("renders last_worked_at as a bare YYYY-MM-DD from either a Date or a string", async () => {
-    const { repo: fromDate } = makeDb([raw({ last_worked_at: new Date("2024-03-01T00:00:00.000Z") })]);
+    const { repo: fromDate } = makeDb([
+      raw({ last_worked_at: new Date("2024-03-01T00:00:00.000Z") }),
+    ]);
     expect((await fromDate.listCandidates(POSTING, 36, 500))[0]!.lastWorkedAt).toBe("2024-03-01");
 
     const { repo: fromString } = makeDb([raw({ last_worked_at: "2024-03-01T00:00:00.000Z" })]);
@@ -571,7 +615,9 @@ describe("listFeed — ADR-0050 §4.4 read fences for an agency TWIN", () => {
     await repo.listFeed(WORKER, 10, {});
     const { sql } = statements[0]!;
     // LEFT join gated on sync_source: a native posting or a D4 conversion is untouched.
-    expect(sql).toContain("LEFT JOIN jobs src ON jp.sync_source IS NOT NULL AND src.id = jp.source_job_id");
+    expect(sql).toContain(
+      "LEFT JOIN jobs src ON jp.sync_source IS NOT NULL AND src.id = jp.source_job_id",
+    );
     // Source status always wins — a stale open twin of a closed agency job is not served.
     expect(sql).toContain("AND (jp.sync_source IS NULL OR src.status = 'open')");
     // The posting-side gate is unchanged.
@@ -654,6 +700,29 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
     expect(sql.slice(inner, sql.indexOf(") r"))).not.toContain("a.id = ANY");
     expect(params).toContainEqual([POSTING]);
     expect(params).toContainEqual([APP]);
+  });
+
+  it("does NOT let the Middle-Way rung into the window ORDER BY either (DoD §7.8)", async () => {
+    // The inbox window must spell the rank key text-identically (pinned two tests
+    // above) — so the no-rung-in-sort contract holds here by the same argument.
+    // Asserted directly anyway: a shared helper could drift one call site.
+    const { repo, statements } = makeDb();
+    await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 36);
+    const windowOrder = windowOrderOf(statements[0]!.sql);
+    expect(windowOrder).not.toContain("trade_level");
+    expect(windowOrder).not.toContain("level_confirmed");
+  });
+
+  it("reads rungs through the same correlated subquery — outer alias r (DoD §7.7)", async () => {
+    // Mirrors the listCandidates pin two describes up: COALESCE, correlated on the
+    // outer row (`r.worker_id` here — the window's `a` is not in scope outside it),
+    // exactly one mention of the table.
+    const { repo, statements } = makeDb();
+    await repo.listRankedCandidatesByApplication(PAYER_KEY, [POSTING], [APP], 36);
+    const sql: string = statements[0]!.sql;
+    expect(sql).toContain("COALESCE");
+    expect(sql).toContain("r.worker_id");
+    expect(sql.split("worker_profile_skill").length - 1).toBe(1);
   });
 
   it("reads nothing for an empty page", async () => {
