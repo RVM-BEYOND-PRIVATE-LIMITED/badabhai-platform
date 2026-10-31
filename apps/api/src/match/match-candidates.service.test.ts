@@ -122,9 +122,7 @@ describe("MatchCandidatesService — tier-with-floor at the boundary (owner ruli
   it("carries the stated rungs with both labels resolved (Middle Way P5 badge)", async () => {
     const { svc } = setup([
       candidate("a", {
-        tradeLevels: [
-          { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
-        ],
+        tradeLevels: [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true }],
       }),
     ]);
     const out = await svc.listForPosting(JOB);
@@ -176,10 +174,7 @@ describe("MatchCandidatesService — the ORDER is the SQL's; this service only n
     // Deliberately upside down: a 6-month tier-1 man ahead of a 120-month tier-1 man.
     // The service must NOT 'fix' this — a second sort here would be a third
     // implementation of the rank rule, and the one nobody tests against the index.
-    const rows = [
-      candidate("low", { skillMonths: 6 }),
-      candidate("high", { skillMonths: 120 }),
-    ];
+    const rows = [candidate("low", { skillMonths: 6 }), candidate("high", { skillMonths: 120 })];
     const { svc } = setup(rows);
     const out = await svc.listForPosting(JOB);
 
@@ -352,5 +347,97 @@ describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's 
     expect((await svc.rowsForOwnedApplications(PAYER_KEY, [])).size).toBe(0);
     expect(config.get).not.toHaveBeenCalled();
     expect(repo.listRankedCandidatesByApplication).not.toHaveBeenCalled();
+  });
+});
+
+describe("MatchCandidatesService — Middle Way P6: a rung changes nothing but the badge (DoD §7.7/§7.8)", () => {
+  // The level lives ONLY in `tradeLevels`. `toRankInputs` cannot see it (RankInputs has
+  // no such field — a new match input would be a type error, not a silent widening), the
+  // service never re-sorts, and the DTO copies every frozen field verbatim. So the same
+  // applicants with different rungs MUST come back in the same order with the same labels —
+  // visibility and rank exactly as before the worker stated a level.
+  const fleet = () => [
+    candidate("a", { matchTier: 2, skillMonths: 12 }),
+    candidate("b", { matchTier: 1, skillMonths: 60 }),
+    candidate("c", { matchTier: 2, skillMonths: 120 }),
+  ];
+  const withLevels = (rows: CandidateRow[], tradeLevels: CandidateRow["tradeLevels"]) =>
+    rows.map((r) => ({ ...r, tradeLevels }));
+
+  it("same order, same tiers, same labels — null rung vs stated rungs", async () => {
+    const base = fleet();
+    const levelled = withLevels(fleet(), [
+      { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    const { svc: svcNull } = setup(base);
+    const { svc: svcLevel } = setup(levelled);
+    const [plain, badged] = await Promise.all([
+      svcNull.listForPosting(JOB),
+      svcLevel.listForPosting(JOB),
+    ]);
+
+    // Same applicants, same order — the badge is display, never rank.
+    expect(badged.applicants.map((a) => a.applicationId)).toEqual(
+      plain.applicants.map((a) => a.applicationId),
+    );
+    // Every frozen label identical; ONLY the badge differs.
+    for (const [p, b] of plain.applicants.map((a, i) => [a, badged.applicants[i]!] as const)) {
+      expect({ ...b, tradeLevels: [] }).toStrictEqual({ ...p, tradeLevels: [] });
+    }
+    expect(badged.applicants.map((a) => a.tradeLevels)).toEqual([
+      [
+        {
+          skillId: "mskill_cnc_turner",
+          skillLabel: "CNC Turner",
+          tradeLevel: "setter",
+          tradeLevelLabel: "Setter",
+          levelConfirmed: true,
+        },
+      ],
+      [
+        {
+          skillId: "mskill_cnc_turner",
+          skillLabel: "CNC Turner",
+          tradeLevel: "setter",
+          tradeLevelLabel: "Setter",
+          levelConfirmed: true,
+        },
+      ],
+      [
+        {
+          skillId: "mskill_cnc_turner",
+          skillLabel: "CNC Turner",
+          tradeLevel: "setter",
+          tradeLevelLabel: "Setter",
+          levelConfirmed: true,
+        },
+      ],
+    ]);
+    // A null rung is still listed — `tradeLevels: []`, never a dropped row.
+    expect(plain.applicants.map((a) => a.tradeLevels)).toEqual([[], [], []]);
+  });
+
+  it("changing ONLY the rung (operator → programmer → supervisor) never moves anyone", async () => {
+    const rungs = ["operator", "programmer", "supervisor", "helper", "setter_programmer"];
+    const runs = await Promise.all(
+      rungs.map((tradeLevel) => {
+        const { svc } = setup(
+          withLevels(fleet(), [
+            { skillId: "mskill_vmc_operator", tradeLevel, levelConfirmed: true },
+          ]),
+        );
+        return svc.listForPosting(JOB);
+      }),
+    );
+    // Strip the badge before comparing: the assertion IS that everything else is identical.
+    const withoutBadge = (a: (typeof runs)[number]["applicants"][number]) => {
+      const { tradeLevels: _badge, ...rest } = a;
+      void _badge;
+      return rest;
+    };
+    const first = runs[0]!.applicants.map(withoutBadge);
+    for (const run of runs.slice(1)) {
+      expect(run.applicants.map(withoutBadge)).toStrictEqual(first);
+    }
   });
 });
