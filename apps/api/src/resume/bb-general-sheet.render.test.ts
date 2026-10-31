@@ -268,6 +268,15 @@ describe("a worker outside the 21 roles renders the general sheet", () => {
     }
   });
 
+  it("prints the subhead (city · availability · salary) in the masthead when present", () => {
+    // The Rishab Das header showed no availability: bb_general carried no subhead
+    // slot at all. The slot collapses when empty, so only the positive direction
+    // is pinned here — absence is the template-collapse test's job.
+    const persona = PERSONAS.find((p) => p.name === "chat-no-pack")!;
+    const html = render(persona, "worker");
+    expect(html).toMatch(/<div class="subhead">[^<]*available immediately[^<]*<\/div>/);
+  });
+
   it("prints the masthead, the headline and the owner's five sections from existing slots", () => {
     const html = render(PERSONAS[0]!, "worker");
     expect(html).toContain("Ramesh Kumar Yadav</h1>");
@@ -436,14 +445,16 @@ const escapeHtml = (s: string) =>
 describe("the general road's sheet (ADR-0045 Phase 5)", () => {
   const DATED = ROAD_PERSONAS.filter((p) => p.employments.every((e) => e.durationStated));
 
-  it("prints the brief ONCE, directly under the headline, on both copies", () => {
+  it("prints the brief ONCE, under the headline block, on both copies", () => {
     for (const p of ROAD_PERSONAS) {
       for (const audience of ["worker", "employer"] as const) {
         const html = renderRoad(p, audience);
         const brief = escapeHtml(p.expectedBrief!);
+        // The subhead (city · availability · salary) may sit between headline and
+        // brief — it collapses when empty, so assert order, not adjacency.
         expect(html, `${p.name}/${audience}`).toMatch(
           new RegExp(
-            `<div class="headline">[^<]+</div>\\s*<div class="brief">${brief.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</div>`,
+            `<div class="headline">[^<]+</div>\\s*(<div class="subhead">[^<]*</div>\\s*)?<div class="brief">${brief.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</div>`,
           ),
         );
         expect(html.split(brief), `${p.name}/${audience}: printed more than once`).toHaveLength(2);
