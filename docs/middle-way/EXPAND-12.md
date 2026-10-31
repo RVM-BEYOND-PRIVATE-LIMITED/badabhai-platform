@@ -32,12 +32,16 @@ same branch/gate discipline as P1–P5 (`feat/mw-ex-*`, gates green, squash-merg
 
 ## 1. Grinding + CAM aliases (v1 remainder — do first)
 
-- **E4 — Grinding starter (no §8 sheet; LADDERS.md §Grinding is the source).**
+- **E4 — Grinding starter ✅ CODE DONE (`feat/mw-e4-grinding-aliases`, PR next).**
   Ladder stops at setter-cum-Programmer: `helper, operator, setter,
 setter_programmer, supervisor` — NO `programmer` rung (wheels are dressed, not
-  programmed). Role `levelTerms` += rung phrases; machine terms for
-  cylindrical/surface/centreless/internal variants; rvm-aliases rows on the
-  grinding domain + `db:seed:domains` by Divyanshu. Mirror P4's Turner/VMC shape.
+  programmed; pinned: "Programmer" claims no rung). Role `levelTerms` += rung
+  phrases (Turner P4 mirror, minus programmer phrases); machine terms for
+  cylindrical/surface/centreless/internal variants; 6 rvm-aliases rows on the
+  grinding domain. Measured in review: "X grinding" phrases route alone (carry
+  the occupation word); typed variants re-ask with chips (E1 pack work, pinned
+  as GAP). PENDING MANUAL STEP: Divyanshu `db:seed:domains` → normalize →
+  verify on staging + prod (new alias rows exist in code only until then).
 - **E5 — CAM starter (no §8 sheet; role file + pack are the source).**
   Ladder is Junior/Programmer/Senior (`junior_programmer, programmer,
 senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung

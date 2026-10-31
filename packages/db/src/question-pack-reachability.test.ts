@@ -143,7 +143,22 @@ const TURNING_PHRASES = [
  * alias — it is also what an angle-grinder hand in a fabrication shop calls himself, and hanging
  * it here would route a weld-dresser into questions about work-head alignment and Ra 0.4.
  */
-const GRINDING_PHRASES = ["grinding machine", "ghisai", "घिसाई", "ग्राइंडिंग"] as const;
+const GRINDING_PHRASES = [
+  "grinding machine",
+  "ghisai",
+  "घिसाई",
+  "ग्राइंडिंग",
+  // E4 MIDDLE-WAY EXPAND-12 (Grinding starter; Turner P4 mirror). Machine-variant
+  // phrases authored as aliases on jd_nco_7223_2200 in this tranche. Bare "grinder"
+  // stays out (fab-shop angle-grinder collision); "grinding wala" folds via
+  // particles.json and routes through the role's occupation terms, not retrieval.
+  "cnc grinding",
+  "surface grinding",
+  "cylindrical grinding",
+  "centreless grinding",
+  "centerless grinding",
+  "internal grinding",
+] as const;
 
 /**
  * The PART-PROGRAMMING vocabulary — Batch 1, and the first list in this file that is entirely the
@@ -386,19 +401,26 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
 
   it("CHARACTERIZES which grinding phrases reach grinding depth today", () => {
     const routing = Object.fromEntries(GRINDING_PHRASES.map((p) => [p, familyFor(p)]));
-    // Read this as a report. All four reach the pack, and that is the WHOLE reach — a grinder
-    // who types only "grinder" or "surface grinding" still has to be recognised by the
-    // interview, because neither phrase is an alias anywhere in the corpus.
+    // Read this as a report. All ten reach the pack — the four shipped rows plus
+    // the six E4 machine-variant rows. A grinder who types only "grinder" still
+    // has to be recognised by the interview, because that phrase is an alias
+    // nowhere in the corpus (fab-shop angle-grinder collision, pinned above).
     expect(routing).toEqual({
       "grinding machine": "fam_cnc_grinding",
       ghisai: "fam_cnc_grinding",
       घिसाई: "fam_cnc_grinding",
       ग्राइंडिंग: "fam_cnc_grinding",
+      "cnc grinding": "fam_cnc_grinding",
+      "surface grinding": "fam_cnc_grinding",
+      "cylindrical grinding": "fam_cnc_grinding",
+      "centreless grinding": "fam_cnc_grinding",
+      "centerless grinding": "fam_cnc_grinding",
+      "internal grinding": "fam_cnc_grinding",
     });
   });
 
   it("P4 MIDDLE-WAY §8 STARTER — the new Turner/VMC rows reach the right families", () => {
-    // Turner + VMC only (Grinding/CAM move in P6). Each row below is an alias added
+    // Turner + VMC only (Grinding moved in E4, CAM moves in E5). Each row below is an alias added
     // in this tranche; the second half re-runs the shipped rows to prove the tranche
     // moved nothing it did not add.
     const routing = Object.fromEntries(

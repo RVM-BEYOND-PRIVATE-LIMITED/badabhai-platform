@@ -34,15 +34,54 @@ export const CNC_GRINDING = {
   levelLadder: ["Operator", "Setter", "Setter-cum-Programmer"],
   tenureQuestionKey: "grinding_experience",
   detection: {
-    occupationTerms: ["grinding", "grinder", "ग्राइंडिंग", "ghisai"],
+    occupationTerms: [
+      "grinding",
+      "grinder",
+      "ग्राइंडिंग",
+      "ghisai",
+      // E4 MIDDLE-WAY EXPAND-12 (Turner P4 mirror). Occupation-tier: a worker who
+      // says one has claimed the trade. "cnc grinding" is the trade named whole
+      // (cf. "cnc kharad"); the wala/karta-hoon phrases are unambiguous enough to
+      // route alone (cf. "lathe wala", "turning karta hoon"). Bare "grinder" stays
+      // as it was: detection only, retrieval-quiet (fab-shop angle-grinder risk).
+      "cnc grinding",
+      "grinding wala",
+      "ghisai wala",
+      "grinding karta hoon",
+      "ghisai karta hoon",
+    ],
     machineTerms: [
       "cylindrical grinder",
       "surface grinder",
       "centreless grinder",
       "centerless grinder",
       "internal grinder",
+      // E4 (Turner P4 slot-2 mirror). Machine-tier: corroborate a family pin.
+      // Measured: the "X grinding" forms ALSO route alone, because they carry the
+      // occupation word "grinding" — the same asymmetry Turner pins for "CNC turner"
+      // under a VMC pin. No rival word, no veto, so the stronger claim is correct.
+      "cylindrical grinding",
+      "surface grinding",
+      "centreless grinding",
+      "centerless grinding",
+      "internal grinding",
     ],
-    levelTerms: ["setter", "setter cum programmer", "operator", "सेटर"],
+    levelTerms: [
+      "setter",
+      "setter cum programmer",
+      "operator",
+      "सेटर",
+      // E4 (Turner P4 §8.1 mirror, minus the programmer rung — this ladder stops
+      // at setter-cum-programmer, so no program-writing phrases). Level-tier:
+      // corroborate a family pin, never route alone, never veto. Full phrases,
+      // not stems — "setting" alone would claim too much.
+      "machine chalata hoon",
+      "production karta hoon",
+      "running karta hoon",
+      "setting karta hoon",
+      "job lagata hoon",
+      "setter hoon",
+    ],
   },
   fresher: {
     workshopMachines: {

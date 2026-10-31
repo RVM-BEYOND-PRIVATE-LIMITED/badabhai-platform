@@ -182,6 +182,49 @@ describe("routeToTradeForm", () => {
       expect(route("CNC Machining", "milling aur grinding", null)).toBeNull();
     });
 
+    describe("routes a grinder — E4 MIDDLE-WAY starter (Turner P4 mirror)", () => {
+      const grinders: readonly (readonly [string, string | null, string | null])[] = [
+        // E4 occupation-tier phrases route alone.
+        ["Manufacturing", "cnc grinding", null],
+        ["Manufacturing", "grinding wala", null],
+        ["Manufacturing", "ghisai wala", null],
+        ["Manufacturing", "grinding karta hoon", null],
+        ["Manufacturing", "ghisai karta hoon", null],
+        // Bare "grinder" routed alone before E4 (detection term); retrieval stays
+        // quiet for it (fab-shop angle-grinder risk) — the form, not the family.
+        ["Manufacturing", "grinder", null],
+        // E4 occupation-tier phrases route alone (each carries the trade word).
+        ["Manufacturing", "surface grinding", "fam_cnc_grinding"],
+        ["Manufacturing", "cylindrical grinding", "fam_cnc_grinding"],
+        ["Manufacturing", "centreless grinding", "fam_cnc_grinding"],
+        ["Manufacturing", "internal grinding", "fam_cnc_grinding"],
+        ["Manufacturing", "surface grinding", null],
+        ["Manufacturing", "cylindrical grinding", null],
+        ["Manufacturing", "surface grinding", "fam_machining"],
+        ["Manufacturing", "surface grinding", "fam_vmc_milling"],
+        // E4 rung phrases corroborate the pin, never route alone.
+        ["Manufacturing", "setting karta hoon", "fam_cnc_grinding"],
+        ["Manufacturing", "job lagata hoon", "fam_cnc_grinding"],
+        ["Manufacturing", "machine chalata hoon", "fam_cnc_grinding"],
+        ["Manufacturing", "setter hoon", "fam_cnc_grinding"],
+      ];
+      for (const [domain, role, family] of grinders) {
+        it(`${JSON.stringify({ domain, role, family })}`, () => {
+          expect(route(domain, role, family)).toBe("cnc_grinding");
+        });
+      }
+
+      it("E4 rung phrases reach nothing unpinned", () => {
+        for (const words of [
+          "setting karta hoon",
+          "job lagata hoon",
+          "machine chalata hoon",
+        ]) {
+          expect(route("Manufacturing", words, null), words).toBeNull();
+        }
+      });
+    });
+
     it("does not let the turner form claim a miller, in either direction", () => {
       // The symmetry is the point. Turner vetoes milling's vocabulary and milling vetoes
       // turning's, both DERIVED from the shared `machining` cluster rather than hand-listed — so
