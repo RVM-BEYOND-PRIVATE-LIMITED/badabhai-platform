@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, isNull, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   type Database,
@@ -56,11 +56,14 @@ export class PayerOrgsRepository {
 
   /**
    * Ensure the payer's solo org + owner membership exist; return the resolved org. Idempotent:
-   * both inserts ON CONFLICT DO NOTHING on the unique keys (`payer_orgs_root_payer_id_uq`,
-   * `payer_members_org_email_uq`), so a payer that already has an org (backfilled or a prior
-   * ensure) is untouched. Returns null only if the payer row itself is missing (never expected
-   * on the authenticated paths). The org name + member email are copied from the payer row
-   * (ciphertext), so no plaintext PII passes through here.
+   * the org insert is ON CONFLICT DO NOTHING on `payer_orgs_root_payer_id_uq`, and the owner
+   * member insert on `payer_members_org_email_uq` — so a payer that already has an org
+   * (backfilled or a prior ensure) is untouched. A phone-only founder (#2497) has no
+   * email to key on: their owner row carries NULL email columns and is instead
+   * check-and-inserted under the phone-hash advisory lock. Returns null only if the
+   * payer row itself is missing (never expected on the authenticated paths) or is
+   * contactless (unreachable — signup requires a contact). The org name + member email
+   * are copied from the payer row (ciphertext), so no plaintext PII passes through here.
    */
   async ensureSoloOrg(payerId: string): Promise<ResolvedOrg | null> {
     const [payer] = await this.db.select().from(payers).where(eq(payers.id, payerId)).limit(1);
@@ -79,22 +82,60 @@ export class PayerOrgsRepository {
       .limit(1);
     if (!org) return null; // unreachable (just inserted-or-existing), but fail-safe
 
-    // 2) The founding owner member (idempotent on (org_id, email_hash)). Email mirrors the
-    //    payer's own encrypted login email; already 'accepted' (they founded the org).
-    await this.db
-      .insert(payerMembers)
-      .values({
-        orgId: org.id,
-        memberPayerId: payerId,
-        emailEnc: payer.emailEnc,
-        emailHash: payer.emailHash,
-        orgRole: "owner",
-        status: "active",
-        acceptedAt: new Date(),
-      })
-      .onConflictDoNothing({ target: [payerMembers.orgId, payerMembers.emailHash] });
+    // 2) The founding owner member. Email members stay idempotent on
+    //    (org_id, email_hash) — the payer's own encrypted login email; already
+    //    'accepted' (they founded the org).
+    if (payer.emailEnc !== null && payer.emailHash !== null) {
+      await this.db
+        .insert(payerMembers)
+        .values({
+          orgId: org.id,
+          memberPayerId: payerId,
+          emailEnc: payer.emailEnc,
+          emailHash: payer.emailHash,
+          orgRole: "owner",
+          status: "active",
+          acceptedAt: new Date(),
+        })
+        .onConflictDoNothing({ target: [payerMembers.orgId, payerMembers.emailHash] });
 
-    return { orgId: org.id, orgRole: "owner" };
+      return { orgId: org.id, orgRole: "owner" };
+    }
+
+    // #2497 — a phone-only founder has NO email, so the (org_id, email_hash) key cannot
+    // make this idempotent (NULLs never conflict). The owner row carries NULL email
+    // columns and is keyed by member_payer_id instead: check-then-insert inside the
+    // phone-hash advisory lock (the SAME lock key `createOrGet` serializes phone
+    // signups on), so concurrent ensures for one account queue up and the second sees
+    // the first's row. Fail-safe null (unreachable — DTOs + createOrGet require a
+    // contact, and a contactless row has no login at all).
+    if (!payer.phoneHash) return null;
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${payer.phoneHash}, 0))`);
+      const [existing] = await tx
+        .select({ id: payerMembers.id })
+        .from(payerMembers)
+        .where(
+          and(
+            eq(payerMembers.orgId, org.id),
+            eq(payerMembers.memberPayerId, payerId),
+            eq(payerMembers.status, "active"),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        await tx.insert(payerMembers).values({
+          orgId: org.id,
+          memberPayerId: payerId,
+          emailEnc: null,
+          emailHash: null,
+          orgRole: "owner",
+          status: "active",
+          acceptedAt: new Date(),
+        });
+      }
+      return { orgId: org.id, orgRole: "owner" };
+    });
   }
 
   /** Run `work` inside ONE transaction (the invite and accept paths' atomic boundary, R65). */

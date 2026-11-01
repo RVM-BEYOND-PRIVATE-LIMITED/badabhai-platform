@@ -968,6 +968,13 @@
       "when": 1793342267126,
       "tag": "0137_worker_trade_level",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1793452574775,
+      "tag": "0138_payer_password_auth",
+      "breakpoints": true
     }
   ]
 }

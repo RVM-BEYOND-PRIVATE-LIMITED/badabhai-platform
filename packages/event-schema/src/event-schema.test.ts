@@ -1456,6 +1456,13 @@ describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method e
     }
   });
 
+  it("validates payer.session_started with method password (#2497 — same event as the OTP login)", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.session_started", { payer_id: UUID_A, method: "password" }),
+    );
+    expect(result.success).toBe(true);
+  });
+
   it("validates payer.account_updated with KEYS-ONLY changed_fields and no value fields", () => {
     const result = validateEvent(
       payerAuthEvent("payer.account_updated", {

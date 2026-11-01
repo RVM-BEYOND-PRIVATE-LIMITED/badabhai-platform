@@ -15,6 +15,8 @@ function makeCtrl() {
     signup: vi.fn(async () => ({ status: "code_sent", resend_in_seconds: 30 })),
     requestLogin: vi.fn(async () => ({ status: "code_sent", resend_in_seconds: 30 })),
     verifyLogin: vi.fn(async () => ({ access_token: "t", token_type: "Bearer" })),
+    setPassword: vi.fn(async () => undefined),
+    loginWithPassword: vi.fn(async () => ({ access_token: "t", token_type: "Bearer" })),
     refresh: vi.fn(async () => ({ access_token: "f", token_type: "Bearer", expires_in_seconds: 1 })),
     logout: vi.fn(async () => undefined),
   };
@@ -30,11 +32,12 @@ describe("PayerAuthController — XB-H per-IP rate limit on the public endpoints
     d = makeCtrl();
   });
 
-  it("signup / login-request / login-verify each enforce the per-IP cap BEFORE delegating", async () => {
+  it("signup / login-request / login-verify / login-password each enforce the per-IP cap BEFORE delegating", async () => {
     await d.ctrl.signup({ role: "employer", email: "a@b.com", org_name: "X" } as never, req, CTX);
     await d.ctrl.requestLogin({ email: "a@b.com" } as never, req, CTX);
     await d.ctrl.verifyLogin({ email: "a@b.com", code: "123456" } as never, req, CTX);
-    expect(d.ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(3);
+    await d.ctrl.loginWithPassword({ identifier: "a@b.com", password: "x".repeat(9) + "1a" } as never, req, CTX);
+    expect(d.ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(4);
     expect(d.ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("payer_auth", "203.0.113.7", 20);
   });
 
@@ -51,5 +54,19 @@ describe("PayerAuthController — XB-H per-IP rate limit on the public endpoints
     expect(d.auth.refresh).toHaveBeenCalledWith(PAYER.id, PAYER.sid);
     await d.ctrl.logout(PAYER);
     expect(d.auth.logout).toHaveBeenCalledWith(PAYER.sid);
+  });
+
+  it("password/set delegates the GUARD payer id + the raw password (service hashes)", async () => {
+    // 204: the controller returns nothing — success is the set itself.
+    await expect(
+      d.ctrl.setPassword(PAYER, { password: "CorrectHorse9" } as never),
+    ).resolves.toBeUndefined();
+    expect(d.auth.setPassword).toHaveBeenCalledWith(PAYER.id, "CorrectHorse9");
+  });
+
+  it("login/password delegates identifier + password and skips nothing (public + IP-capped)", async () => {
+    await d.ctrl.loginWithPassword({ identifier: "Acme Works", password: "CorrectHorse9" } as never, req, CTX);
+    expect(d.auth.loginWithPassword).toHaveBeenCalledWith("Acme Works", "CorrectHorse9", CTX);
+    expect(d.ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("payer_auth", "203.0.113.7", 20);
   });
 });

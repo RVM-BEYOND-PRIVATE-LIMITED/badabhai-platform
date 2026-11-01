@@ -1155,6 +1155,14 @@ export const serverEnvSchema = z.object({
   // Per-IP hourly cap on the UNAUTHENTICATED payer auth endpoints (signup / login
   // request / verify) — an account-farming + credential-stuffing backstop (XB-H / XT2).
   PAYER_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // #2497 — per-ACCOUNT password-attempt throttle for POST /payer/login/password (the
+  // per-IP cap above is shared and coarse behind NAT). N failures inside the Redis TTL
+  // window lock the ACCOUNT (not the IP) for PAYER_PASSWORD_LOCKOUT_SECONDS; a success
+  // clears the counter. The locked-out response stays the neutral 401 (no lockout
+  // oracle, XB-H). Fail-closed (a Redis error rejects). Defaults are safe to run
+  // undeployed-env: no new secret, no box change.
+  PAYER_PASSWORD_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  PAYER_PASSWORD_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
   // GLOBAL daily send circuit-breaker for the payer EMAIL-OTP path (OTP-5 — the SPEND
   // ceiling; the payer analogue of OTP_GLOBAL_MAX_SENDS_PER_DAY). Bounds the TOTAL number
   // of REAL payer email sends platform-wide per UTC day, ABOVE the per-account cooldown/

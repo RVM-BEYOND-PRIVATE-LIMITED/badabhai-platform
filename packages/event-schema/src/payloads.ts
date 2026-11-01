@@ -2164,8 +2164,12 @@ export type PayerRoleEnum = z.infer<typeof PayerRoleEnum>;
  * The login mechanism a payer authenticated through (ADR-0019 B-R1). `email_otp` is
  * the alpha mock default; `whatsapp` rides the ADR-0020 mock provider; `supabase` is
  * the config-gated adapter (inert without keys). Enum-only → no PII.
+ *
+ * `password` (#2497) is the payer-chosen password verified server-side (scrypt +
+ * pepper, same KDF discipline as the worker PIN). It rides `payer.session_started`
+ * exactly like the OTP methods — there is no separate login event per mechanism.
  */
-export const PayerLoginMethodEnum = z.enum(["email_otp", "whatsapp", "supabase"]);
+export const PayerLoginMethodEnum = z.enum(["email_otp", "whatsapp", "supabase", "password"]);
 export type PayerLoginMethodEnum = z.infer<typeof PayerLoginMethodEnum>;
 
 /**
