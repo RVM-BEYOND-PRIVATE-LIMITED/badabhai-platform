@@ -109,6 +109,10 @@ describe("bb_general — collapse mechanics", () => {
       ["loc", "location_line"],
       ["wa", "whatsapp_line"],
       ["headline", "headline_line"],
+      // The verdict line's second line (city · availability · salary) — absent from
+      // this layout until the Rishab Das header showed availability nowhere. Same
+      // collapse contract as every line around it.
+      ["subhead", "subhead_line"],
       // ADR-0045 R6 — the general road's brief. Empty on every sheet off the road, so it must
       // collapse exactly like the lines around it or every other sheet gains a blank line.
       ["brief", "profile_brief"],
@@ -211,10 +215,10 @@ describe("bb_general — the owner's section structure", () => {
     // Headline under the name block, above every section.
     expect(body.indexOf("{{location_line}}")).toBeLessThan(body.indexOf("{{headline_line}}"));
     expect(body.indexOf("{{headline_line}}")).toBeLessThan(order[0]!);
-    // ADR-0045 R6 — the brief DIRECTLY under the headline (nothing between the two elements but
-    // whitespace), and above every section.
+    // ADR-0045 R6 — the brief under the headline (nothing between the three elements but
+    // whitespace), and above every section. Subhead sits between: headline, subhead, brief.
     expect(body).toMatch(
-      /<div class="headline">\{\{headline_line\}\}<\/div>\s*<div class="brief">\{\{profile_brief\}\}<\/div>/,
+      /<div class="headline">\{\{headline_line\}\}<\/div>\s*<div class="subhead">\{\{subhead_line\}\}<\/div>\s*<div class="brief">\{\{profile_brief\}\}<\/div>/,
     );
     expect(body.indexOf("{{profile_brief}}")).toBeLessThan(order[0]!);
   });
@@ -267,11 +271,16 @@ describe("bb_general — the owner's section structure", () => {
     expect(html.split('data-label="{{label}}"').length - 1).toBe(3);
   });
 
-  it("does not print the two bb_trade elements the format has no place for", () => {
-    // Both are duplicates on this page: the subhead restates city, availability and pay (all
-    // three are Availability & Terms rows), and the own-words quotes restate the Work History
-    // lines. The summary slot is the verdict line's facts again, not prose.
-    expect(body).not.toContain("{{subhead_line}}");
+  it("prints the subhead in the masthead (city · availability · salary)", () => {
+    // THIS ASSERTED THE OPPOSITE UNTIL 2026-10-31, and the reversal is an explicit
+    // owner decision (Divyanshu), not drift: a general-road header without availability
+    // is a poorer header than every bb_trade sheet through no fault of the worker's
+    // (production incident 2026-10-31 — the Rishab Das sheet showed no availability
+    // in its header while carrying it in Availability & Terms). The duplication argument
+    // below still stands for the own-words quotes and the summary prose, which stay out.
+    // The slot collapses when empty, so sheets with no city/availability/pay render
+    // byte-identically to before.
+    expect(body).toContain('<div class="subhead">{{subhead_line}}</div>');
     expect(body).not.toContain("{{#own_words}}");
     expect(body).not.toContain("{{summary}}");
   });

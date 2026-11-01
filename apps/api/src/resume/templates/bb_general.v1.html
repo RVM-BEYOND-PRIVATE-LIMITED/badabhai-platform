@@ -156,6 +156,12 @@
       /* The verdict line's first line: role · tenure · tools. */
       .headline { font-size: 10.5pt; font-weight: 700; margin-top: 2.2mm; }
       .headline:empty { display: none; }
+      /* The verdict line's second line: city · availability · salary. Same slot the
+         bb_trade masthead prints — this layout never carried it, so a general-road
+         header showed no availability even with the value present. Empty collapses
+         exactly like the lines around it. */
+      .subhead { font-size: 10pt; color: var(--muted); margin-top: 0.7mm; }
+      .subhead:empty { display: none; }
       /* The general road's brief (ADR-0045 R6): one or two lines under the headline, at body size.
          Long unbroken words wrap rather than run past the margin. Empty on every other sheet. */
       .brief { font-size: 10pt; color: var(--text); margin-top: 1.2mm; overflow-wrap: anywhere; }
@@ -294,6 +300,7 @@
     <div class="loc">{{location_line}}</div>
     <div class="wa">{{whatsapp_line}}</div>
     <div class="headline">{{headline_line}}</div>
+    <div class="subhead">{{subhead_line}}</div>
     <div class="brief">{{profile_brief}}</div>
 
     <!-- EVERY CONTAINER BELOW IS ONE LINE, flush against its regions. One stray space or
