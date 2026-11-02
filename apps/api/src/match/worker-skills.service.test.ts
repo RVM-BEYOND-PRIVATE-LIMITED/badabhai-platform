@@ -473,10 +473,11 @@ describe("WorkerSkillsService — declared SECONDARY occupations join the role b
   it("a worker with ONLY declared secondaries still derives them — the guard counts the declaration", async () => {
     // The rebuild is delete-then-insert: if declared occupations did not count as evidence, the
     // occupations page's own rebuild would delete the very rows it derived.
+    // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): role_welder derives the umbrella.
     const h = setup({ signals: undefined, secondaryRoleIds: ["role_welder"] });
     const res = await h.svc.rebuildForWorker(WORKER);
     expect(res?.skillCount).toBe(1);
-    expect(h.writtenSkills().map((r) => r.skillId)).toEqual(["mskill_mig_welder"]);
+    expect(h.writtenSkills().map((r) => r.skillId)).toEqual(["mskill_welder"]);
     expect(h.order).toContain("replace");
   });
 

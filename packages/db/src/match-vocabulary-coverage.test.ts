@@ -271,7 +271,9 @@ describe("the tripwire itself still decides nothing", () => {
     // skills for trade forms that derived nothing; no promotable skill maps to any of them.
     // Middle Way E0 (Q3, owner-approved 2026-10-31) minted ONE more — mskill_3d_designer,
     // split off the generic designer — again as its own approved decision, not batch fit.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 1);
+    // The CEO-pack reconcile (2026-11-02) minted TWO more — mskill_cad_designer_3d (the
+    // trade's permanent ID) and the mskill_welder umbrella — same carve-out, not batch fit.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 3);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 
