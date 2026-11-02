@@ -819,6 +819,29 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "superset); new builds on an unmigrated one are not, which is why this is " +
       "APPLY-BEFORE-DEPLOY",
   },
+  // 0138 (#2497, #2506): payer password-login columns. Unconditional — no flag — because
+  // `payers` is read through bare `select()` / `.returning()`, which name every model column.
+  // The four columns + two indexes ride in one transaction, so one column answers for all.
+  // APPLY-BEFORE-DEPLOY (migration header: "Manual apply ... BEFORE the build ... deploys").
+  // The migration file itself is FROZEN (ledger hash): it predates the registration, so the
+  // header names no schema-contract id — the registration lives here + in the 0138 pin test.
+  {
+    id: "0138-payers-password-hash",
+    migration: "0138_payer_password_auth",
+    kind: "column",
+    table: "payers",
+    object: "password_hash",
+    requiredBy:
+      "PayersRepository's bare `select()` / `.returning()` (findById, findByEmail, findByPhone, " +
+      "findByOrgName, update, setPassword, createOrGet paths) — every payer login (password AND " +
+      "OTP), signup, and guarded read. `password_set_at`, `password_pepper_version` and " +
+      "`org_name_lookup_hash` ride the same migration and fail together",
+    failureMode:
+      "every payer auth route 500s (column does not exist): POST /payer/login/password, POST " +
+      "/payer/login/request + /payer/login/verify, and signup — the #2506 outage. Old " +
+      "builds on a migrated database are fine (a superset); new builds on an unmigrated one " +
+      "are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
