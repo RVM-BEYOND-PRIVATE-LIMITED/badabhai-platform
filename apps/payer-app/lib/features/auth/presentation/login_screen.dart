@@ -3,9 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/payer_auth_api.dart';
 import '../../../core/auth/payer_token_store.dart';
-import '../../../core/data/models.dart' show PayerApiException;
 import '../../../core/di/locator.dart';
-import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -13,19 +11,15 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
+import 'signup_screen.dart';
+import 'widgets/auth_form_support.dart';
 
-/// Login — brand hero, a Company/Agency picker, an EMAIL field + "Get OTP" CTA
-/// (step 1), then a 6-digit code-entry step (step 2), and the DPDP trust line.
+/// Password sign-in + OTP fallback. The brand hero sits on top; below the form
+/// the payer can open the full sign-up flow.
 ///
-/// EMAIL + OTP (not phone): the real payer API authenticates on email. The picked
-/// role maps to the wire role at signup (`employer` | `agent`). On verify the
-/// bearer is stored in [PayerTokenStore] and the session is set from the server's
-/// [PayerLoginResult] (role is server-decided). In MOCK mode any email/code works
-/// and routes the same.
-///
-/// JUL31 kit: a deep-blue trust header carries the brand mark + headline, the
-/// form sits on canvas below, and the ONE haldi CTA per step is the Get-OTP /
-/// Verify button — blue for structure, haldi rationed to the action.
+/// The primary path is `identifier + password`, where the identifier is a work
+/// email, an E.164 phone, or the account's exact company/agency name. The OTP
+/// path stays reachable for accounts created before passwords existed.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -33,16 +27,17 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-enum _Step { details, code }
+enum _LoginStep { login, otpContact, otpCode }
 
 class _LoginScreenState extends State<LoginScreen> {
-  PayerRole _role = PayerRole.company;
-  _Step _step = _Step.details;
+  _LoginStep _step = _LoginStep.login;
   bool _busy = false;
+  bool _obscurePassword = true;
   String? _error;
 
-  final TextEditingController _org = TextEditingController();
-  final TextEditingController _email = TextEditingController();
+  final TextEditingController _identifier = TextEditingController();
+  final TextEditingController _password = TextEditingController();
+  final TextEditingController _otpContact = TextEditingController();
   final TextEditingController _code = TextEditingController();
 
   PayerAuthApi get _auth => locator<PayerAuthApi>();
@@ -50,23 +45,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _org.dispose();
-    _email.dispose();
+    _identifier.dispose();
+    _password.dispose();
+    _otpContact.dispose();
     _code.dispose();
     super.dispose();
   }
 
-  /// Step 1: signup-or-request the email OTP for the picked role, then advance to
-  /// the code step.
-  Future<void> _requestOtp() async {
-    final String org = _org.text.trim();
-    final String email = _email.text.trim();
-    if (org.isEmpty) {
-      setState(() => _error = 'Enter your company or agency name to continue.');
+  Future<void> _signIn() async {
+    final String identifier = normalizeIdentifier(_identifier.text);
+    final String password = _password.text;
+    if (identifier.isEmpty) {
+      setState(() => _error = 'Enter your email, phone or company name.');
       return;
     }
-    if (email.isEmpty) {
-      setState(() => _error = 'Enter your work email to get the code.');
+    if (password.isEmpty) {
+      setState(() => _error = 'Enter your password.');
       return;
     }
     setState(() {
@@ -74,56 +68,55 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final String role = wireRoleFor(_role);
-      // Mock mode remembers the picked role so verify echoes it back.
-      final PayerAuthApi auth = _auth;
-      if (auth is MockPayerAuthApi) auth.setRole(role);
-      // `signup` is create-or-get: it emits `payer.created` once for a NEW payer
-      // and, for BOTH new and existing accounts, issues the OTP to the stored
-      // contact (identical response either way — XB-H no-enumeration). It is the
-      // ONE and ONLY send. Do NOT also call `loginRequest` here: a second send
-      // lands inside the 30s resend cooldown and returns 429 ("Too many
-      // attempts"), which would block every sign-in. `org_name` (min 1) is
-      // required by the new-payer path and ignored (no overwrite) for existing.
-      await auth.signup(role: role, email: email, orgName: org);
+      final PayerLoginResult result = await _auth.loginWithPassword(
+        identifier: identifier,
+        password: password,
+      );
+      await _storeAndSignIn(result);
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _step = _Step.code;
+        _error = authErrorFor(e);
+      });
+    }
+  }
+
+  Future<void> _requestOtp() async {
+    final ContactParts? contact = parseContact(_otpContact.text);
+    if (contact == null) {
+      setState(() => _error = 'Enter a work email or a 10-digit phone number.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _auth.loginRequest(email: contact.email, phone: contact.phone);
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _step = _LoginStep.otpCode;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = _sendCodeError(e, 'send');
+        _error = authErrorFor(e, otp: true);
       });
     }
   }
 
-  /// A user-honest reason for a failed OTP send/verify. The old copy blamed the
-  /// NETWORK for every failure, which is wrong for a rate cap (429) or a server
-  /// error (5xx). A delivery failure never reaches here — the server neutralizes
-  /// it to a success (no email-enumeration) — so this fires only on a 429 cap, a
-  /// 5xx, a 400 (bad details), or no response at all (a real connectivity issue).
-  String _sendCodeError(Object e, String verb) {
-    if (e is PayerApiException) {
-      if (e.statusCode == 429) {
-        return 'Too many attempts. Please wait a minute and try again.';
-      }
-      if (e.statusCode >= 500) {
-        return "We couldn't $verb your code right now. Please try again in a moment.";
-      }
-      return "We couldn't $verb your code. Please check your details and try again.";
-    }
-    // Not an API response at all → a genuine connectivity problem.
-    return 'Could not reach the server. Check your connection and retry.';
-  }
-
-  /// Step 2: verify the code, store the bearer, set the session from the result.
-  Future<void> _verify() async {
+  Future<void> _verifyOtp() async {
     final String code = _code.text.trim();
     if (code.isEmpty) {
-      setState(() => _error = 'Enter the code we sent to your email.');
+      setState(() => _error = 'Enter the code we sent you.');
+      return;
+    }
+    final ContactParts? contact = parseContact(_otpContact.text);
+    if (contact == null) {
+      setState(() => _error = 'Go back and enter a valid email or phone.');
       return;
     }
     setState(() {
@@ -131,8 +124,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final PayerLoginResult result =
-          await _auth.loginVerify(email: _email.text.trim(), code: code);
+      final PayerLoginResult result = await _auth.loginVerify(
+        email: contact.email,
+        phone: contact.phone,
+        code: code,
+      );
       if (result.accessToken.isEmpty) {
         if (!mounted) return;
         setState(() {
@@ -141,24 +137,39 @@ class _LoginScreenState extends State<LoginScreen> {
         });
         return;
       }
-      await _tokens.save(
-        accessToken: result.accessToken,
-        payerId: result.payerId,
-        role: result.role,
-      );
-      if (!mounted) return;
-      await context.read<AppSessionCubit>().signInFromLogin(result);
+      await _storeAndSignIn(result);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = _sendCodeError(e, 'verify');
+        _error = authErrorFor(e, otp: true);
       });
     }
   }
 
-  void _editEmail() => setState(() {
-        _step = _Step.details;
+  Future<void> _storeAndSignIn(PayerLoginResult result) async {
+    await _tokens.save(
+      accessToken: result.accessToken,
+      payerId: result.payerId,
+      role: result.role,
+    );
+    if (!mounted) return;
+    await context.read<AppSessionCubit>().signInFromLogin(result);
+  }
+
+  void _openSignup() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const SignupScreen()),
+    );
+  }
+
+  void _openOtpLogin() => setState(() {
+        _step = _LoginStep.otpContact;
+        _error = null;
+      });
+
+  void _backToLogin() => setState(() {
+        _step = _LoginStep.login;
         _error = null;
         _code.clear();
       });
@@ -166,8 +177,6 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Deep-blue trust header + a canvas form below — the kit's two surfaces,
-      // separated by structure, never a shadow.
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -180,40 +189,30 @@ class _LoginScreenState extends State<LoginScreen> {
                 AppSpacing.gutter,
                 AppSpacing.s7,
               ),
-              // #1087 — cap the form column so it never spans an unreadable
-              // width on a tablet/foldable; the deep-blue header + canvas stay
-              // full-bleed, only the content is centred.
               child: Center(
                 child: ConstrainedBox(
-                  constraints:
-                      const BoxConstraints(maxWidth: AppSpacing.appMax),
+                  constraints: const BoxConstraints(maxWidth: AppSpacing.appMax),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      // #1078 — ease the phone→OTP step swap instead of a hard
-                      // cut. Each step is a keyed Column so the switcher animates
-                      // between them; the error + trust lines below stay put.
                       BbAnimatedSwitcher(
-                        child: _step == _Step.details
-                            ? Column(
-                                key: const ValueKey<_Step>(_Step.details),
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                mainAxisSize: MainAxisSize.min,
-                                children: _detailsStep(),
-                              )
-                            : Column(
-                                key: const ValueKey<_Step>(_Step.code),
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                mainAxisSize: MainAxisSize.min,
-                                children: _codeStep(),
-                              ),
+                        child: Column(
+                          key: ValueKey<_LoginStep>(_step),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: switch (_step) {
+                            _LoginStep.login => _loginStep(),
+                            _LoginStep.otpContact => _otpContactStep(),
+                            _LoginStep.otpCode => _otpCodeStep(),
+                          },
+                        ),
                       ),
                       if (_error != null) ...<Widget>[
                         const SizedBox(height: AppSpacing.s3),
-                        _ErrorLine(message: _error!),
+                        AuthErrorLine(message: _error!),
                       ],
                       const SizedBox(height: AppSpacing.s4),
-                      const _TrustLine(),
+                      const AuthTrustLine(),
                     ],
                   ),
                 ),
@@ -225,72 +224,119 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  List<Widget> _detailsStep() => <Widget>[
+  List<Widget> _loginStep() => <Widget>[
         Text(
-          'I am signing in as',
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
+          'Welcome back',
+          style: AppTypography.display(
+            size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: AppSpacing.s3),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: _RolePick(
-                pickKey: const Key('pick_company'),
-                icon: Icons.apartment,
-                title: 'Company',
-                subtitle: 'Hire for your plant',
-                selected: _role == PayerRole.company,
-                onTap: () => setState(() => _role = PayerRole.company),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: _RolePick(
-                pickKey: const Key('pick_agency'),
-                icon: Icons.groups,
-                title: 'Agency',
-                subtitle: 'Hire + earn on supply',
-                selected: _role == PayerRole.agency,
-                onTap: () => setState(() => _role = PayerRole.agency),
-              ),
-            ),
-          ],
+        const SizedBox(height: AppSpacing.s2),
+        Text(
+          'Sign in with your password.',
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: AppColors.textSecondary,
+          ),
         ),
         const SizedBox(height: AppSpacing.s5),
         BbField(
-          label: _role == PayerRole.agency ? 'Agency name' : 'Company name',
-          controller: _org,
-          fieldKey: const Key('org_field'),
-          icon: Icons.apartment,
-          keyboardType: TextInputType.text,
-          // The blank signup name field must never be pre-populated by the
-          // keyboard with an org name the user typed in a different app.
+          label: 'Email, phone or company name',
+          controller: _identifier,
+          fieldKey: const Key('login_identifier'),
+          icon: Icons.person_outline,
+          keyboardType: TextInputType.emailAddress,
           suppressSuggestions: true,
         ),
         const SizedBox(height: AppSpacing.s4),
         BbField(
-          label: 'Work email',
-          controller: _email,
-          fieldKey: const Key('email_field'),
+          label: 'Password',
+          controller: _password,
+          fieldKey: const Key('login_password'),
+          icon: Icons.lock_outline,
+          obscureText: _obscurePassword,
+          suppressSuggestions: true,
+          suffixIcon: AuthEyeToggle(
+            obscured: _obscurePassword,
+            onPressed: () =>
+                setState(() => _obscurePassword = !_obscurePassword),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        BbButton(
+          label: 'Sign in',
+          buttonKey: const Key('login_button'),
+          iconRight: Icons.arrow_forward,
+          block: true,
+          loading: _busy,
+          onPressed: _signIn,
+        ),
+        const SizedBox(height: AppSpacing.s4),
+        BbButton(
+          label: 'New user? Create account',
+          buttonKey: const Key('signup_open'),
+          variant: BbButtonVariant.secondary,
+          size: BbButtonSize.md,
+          block: true,
+          onPressed: _busy ? null : _openSignup,
+        ),
+        const SizedBox(height: AppSpacing.s1),
+        BbButton(
+          label: 'Login with OTP instead',
+          buttonKey: const Key('otp_login_open'),
+          variant: BbButtonVariant.ghost,
+          size: BbButtonSize.md,
+          block: true,
+          onPressed: _busy ? null : _openOtpLogin,
+        ),
+      ];
+
+  List<Widget> _otpContactStep() => <Widget>[
+        Text(
+          'Login with OTP',
+          style: AppTypography.display(
+            size: AppTypography.sizeLg,
+            weight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        Text(
+          'We will send a one-time code to your email or phone.',
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        BbField(
+          label: 'Work email or phone',
+          controller: _otpContact,
+          fieldKey: const Key('otp_contact_field'),
           icon: Icons.mail_outline,
           keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: AppSpacing.s5),
-        // The ONE haldi CTA on this step.
         BbButton(
           label: 'Get OTP',
-          buttonKey: const Key('get_otp'),
+          buttonKey: const Key('otp_get_code'),
           iconRight: Icons.arrow_forward,
           block: true,
           loading: _busy,
           onPressed: _requestOtp,
         ),
+        const SizedBox(height: AppSpacing.s1),
+        BbButton(
+          label: 'Back to password sign in',
+          buttonKey: const Key('otp_back'),
+          variant: BbButtonVariant.ghost,
+          size: BbButtonSize.md,
+          block: true,
+          onPressed: _busy ? null : _backToLogin,
+        ),
       ];
 
-  List<Widget> _codeStep() => <Widget>[
+  List<Widget> _otpCodeStep() => <Widget>[
         Text(
           'Enter the code',
           style: AppTypography.display(
@@ -300,7 +346,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         const SizedBox(height: AppSpacing.s2),
         Text(
-          'We sent a 6-digit code to ${_email.text.trim()}.',
+          'We sent a 6-digit code to ${_otpContact.text.trim()}.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
             color: AppColors.textSecondary,
@@ -310,39 +356,34 @@ class _LoginScreenState extends State<LoginScreen> {
         BbField(
           label: 'OTP code',
           controller: _code,
-          fieldKey: const Key('code_field'),
+          fieldKey: const Key('otp_code_field'),
           icon: Icons.lock_outline,
           keyboardType: TextInputType.number,
           mono: true,
-          // Keyboard one-time-code assist (best-effort). NOTE: the payer OTP
-          // arrives by EMAIL/WhatsApp, not SMS — so there is no SMS to auto-read;
-          // this only lets the OS keyboard suggest a detected code where it can.
           autofillHints: const <String>[AutofillHints.oneTimeCode],
         ),
         const SizedBox(height: AppSpacing.s5),
-        // The ONE haldi CTA on this step.
         BbButton(
           label: 'Verify & continue',
-          buttonKey: const Key('verify_otp'),
+          buttonKey: const Key('otp_verify'),
           iconRight: Icons.arrow_forward,
           block: true,
           loading: _busy,
-          onPressed: _verify,
+          onPressed: _verifyOtp,
         ),
-        const SizedBox(height: AppSpacing.s2),
+        const SizedBox(height: AppSpacing.s1),
         BbButton(
-          label: 'Change email',
-          buttonKey: const Key('change_email'),
+          label: 'Change email or phone',
+          buttonKey: const Key('otp_change_contact'),
           variant: BbButtonVariant.ghost,
           size: BbButtonSize.md,
           block: true,
-          onPressed: _busy ? null : _editEmail,
+          onPressed: _busy ? null : _openOtpLogin,
         ),
       ];
 }
 
-/// The deep-blue trust band: haldi brand mark, headline, and the value line —
-/// blue is the kit's structure/trust surface, so the sign-in opens on it.
+/// Blue band: haldi mark IN LINE with the headline (one horizontal row).
 class _BrandHeader extends StatelessWidget {
   const _BrandHeader();
 
@@ -356,15 +397,13 @@ class _BrandHeader extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
-            AppSpacing.s7,
+            AppSpacing.s5,
             AppSpacing.gutter,
-            AppSpacing.s7,
+            AppSpacing.s5,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              // Haldi brand mark — a brand moment, not a CTA. Text/icon on haldi
-              // is ALWAYS deep blue. Radius stays inside the kit's 12 cap.
               Container(
                 width: AppSpacing.brandMark,
                 height: AppSpacing.brandMark,
@@ -378,162 +417,15 @@ class _BrandHeader extends StatelessWidget {
                   size: 30,
                 ),
               ),
-              const SizedBox(height: AppSpacing.s5),
-              Text(
-                'Hire faster,\nbada bhai ke saath.',
-                style: AppTypography.display(
-                  size: AppTypography.size2xl,
-                  weight: FontWeight.w800,
-                  color: AppColors.onBlue,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              Text(
-                'Post a job, browse verified candidates, unlock contact for ₹40. '
-                'One login for companies and agencies.',
-                style: AppTypography.body(
-                  size: AppTypography.sizeSm,
-                  color: AppColors.onBlueMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The DPDP trust line — a green verified mark (semantic: verified) + the
-/// data-residency assurance.
-class _TrustLine extends StatelessWidget {
-  const _TrustLine();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        const Icon(Icons.verified_user, size: 16, color: AppColors.success),
-        const SizedBox(width: AppSpacing.s2),
-        Expanded(
-          child: Text(
-            'DPDP-compliant · data stored in India. '
-            'By continuing you agree to our terms.',
-            style: AppTypography.body(
-              size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A failure line — red only, states what happened (kit copy law).
-class _ErrorLine extends StatelessWidget {
-  const _ErrorLine({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s3,
-        vertical: AppSpacing.s3,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.dangerTint,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: AppColors.red100),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Icon(Icons.error_outline, size: 16, color: AppColors.danger),
-          const SizedBox(width: AppSpacing.s2),
-          Expanded(
-            child: Text(
-              message,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.danger,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A role tile — paper card, 1px hairline; selected reads in deep-blue structure
-/// (2px blue edge + haldi tint), never a shadow (kit: shadows banned).
-class _RolePick extends StatelessWidget {
-  const _RolePick({
-    required this.pickKey,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final Key pickKey;
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.brandTint : AppColors.surfaceCard,
-      borderRadius: BorderRadius.circular(AppRadii.md),
-      child: InkWell(
-        key: pickKey,
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        child: Container(
-          padding: const EdgeInsets.all(AppSpacing.s3),
-          constraints: const BoxConstraints(minHeight: 96),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(
-              color: selected ? AppColors.blue : AppColors.border,
-              width: selected ? 2 : 1,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Icon(icon, size: 24, color: AppColors.blue),
-                  const Spacer(),
-                  if (selected)
-                    const Icon(Icons.check_circle,
-                        size: 18, color: AppColors.blue),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s2),
-              Text(
-                title,
-                style: AppTypography.display(
-                  size: AppTypography.sizeBase,
-                  weight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: AppTypography.body(
-                  size: AppTypography.sizeXs,
-                  color: AppColors.textMuted,
+              const SizedBox(width: AppSpacing.s4),
+              Expanded(
+                child: Text(
+                  'Hire faster,\nbada bhai ke saath.',
+                  style: AppTypography.display(
+                    size: AppTypography.sizeXl,
+                    weight: FontWeight.w800,
+                    color: AppColors.onBlue,
+                  ),
                 ),
               ),
             ],

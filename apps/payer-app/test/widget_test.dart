@@ -7,6 +7,7 @@ import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/session/app_session_cubit.dart';
 
 /// Smoke test: the app boots to Login; picking Company vs Agency and getting OTP
 /// lands on Home with the shared nav; and a candidate card on Find shows the
@@ -31,15 +32,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  // Email + OTP login: pick a role, enter any email, get the code, enter any
-  // code, verify. In MOCK mode any email/code signs in.
-  Future<void> loginAs(WidgetTester tester, String pickKey) async {
+  // Sign up (role → company → contact → OTP → password) then land on Home.
+  // In MOCK mode any contact/code works; the account remembers the password.
+  Future<void> loginAs(WidgetTester tester, String pickKey,
+      {String contact = 'a@b.com'}) async {
+    await tester.tap(find.byKey(const Key('signup_open')));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byKey(Key(pickKey)));
     await tester.pump();
     // Org/company name is required by the backend signup schema; fill it so the
     // details step advances (MOCK accepts any value).
     await tester.enterText(find.byKey(const Key('org_field')), 'Acme Works');
-    await tester.enterText(find.byKey(const Key('email_field')), 'a@b.com');
+    await tester.enterText(find.byKey(const Key('contact_field')), contact);
     // The extra field can push the CTA below the fold — scroll it into view.
     await tester.ensureVisible(find.byKey(const Key('get_otp')));
     await tester.pump();
@@ -48,27 +53,93 @@ void main() {
     // never lets pumpAndSettle settle on its own).
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    // The details→code step now animates (BbAnimatedSwitcher, #1078). By here
-    // the signup future has resolved so the spinner is gone — advance past the
-    // ~220ms swap so the code step is fully laid out and hittable before we
-    // interact with it. Bounded (not pumpAndSettle) to keep the spinner-safety
-    // guarantee above.
+    // The details→code step animates (BbAnimatedSwitcher). Advance past the swap
+    // so the code step is laid out and hittable.
     await tester.pump(const Duration(milliseconds: 300));
     await tester.enterText(find.byKey(const Key('code_field')), '123456');
     await tester.tap(find.byKey(const Key('verify_otp')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Password step — set + confirm, then create the profile.
+    await tester.enterText(
+        find.byKey(const Key('signup_password')), 'Secret123');
+    await tester.enterText(
+        find.byKey(const Key('signup_confirm')), 'Secret123');
+    await tester.ensureVisible(find.byKey(const Key('create_profile')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('create_profile')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpAndSettle();
   }
 
-  testWidgets('boots to Login with the role picker', (WidgetTester tester) async {
+  testWidgets('boots to the password login (with sign-up and OTP fallback)',
+      (WidgetTester tester) async {
     await boot(tester);
 
     expect(find.text('Hire faster,\nbada bhai ke saath.'), findsOneWidget);
+    expect(find.byKey(const Key('login_identifier')), findsOneWidget);
+    expect(find.byKey(const Key('login_password')), findsOneWidget);
+    expect(find.byKey(const Key('login_button')), findsOneWidget);
+    expect(find.byKey(const Key('signup_open')), findsOneWidget);
+    expect(find.byKey(const Key('otp_login_open')), findsOneWidget);
+  });
+
+  testWidgets('sign-up shows the role picker and the OTP step',
+      (WidgetTester tester) async {
+    await boot(tester);
+    await tester.tap(find.byKey(const Key('signup_open')));
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const Key('pick_company')), findsOneWidget);
     expect(find.byKey(const Key('pick_agency')), findsOneWidget);
+    expect(find.byKey(const Key('org_field')), findsOneWidget);
+    expect(find.byKey(const Key('contact_field')), findsOneWidget);
     expect(find.byKey(const Key('get_otp')), findsOneWidget);
-    expect(find.byKey(const Key('email_field')), findsOneWidget);
+  });
+
+  testWidgets('sign up, sign out, then log in with company name + password',
+      (WidgetTester tester) async {
+    await boot(tester);
+    await loginAs(tester, 'pick_company');
+
+    // The account now exists in the MOCK auth seam; drop the session and sign in
+    // again with the exact company name + the password chosen at signup.
+    await GetIt.instance<AppSessionCubit>().signOut();
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+        find.byKey(const Key('login_identifier')), 'Acme Works');
+    await tester.enterText(
+        find.byKey(const Key('login_password')), 'Secret123');
+    await tester.tap(find.byKey(const Key('login_button')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Post a job'), findsWidgets);
+  });
+
+  testWidgets('a phone typed with spaces logs in after a phone signup',
+      (WidgetTester tester) async {
+    await boot(tester);
+    await loginAs(tester, 'pick_agency', contact: '89469 91002');
+
+    await GetIt.instance<AppSessionCubit>().signOut();
+    await tester.pumpAndSettle();
+
+    // The signup normalized this to +918946991002; the login normalizes the same
+    // way, so a loosely-typed number still matches.
+    await tester.enterText(
+        find.byKey(const Key('login_identifier')), '89469 91002');
+    await tester.enterText(
+        find.byKey(const Key('login_password')), 'Secret123');
+    await tester.tap(find.byKey(const Key('login_button')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Post a job'), findsWidgets);
   });
 
   testWidgets('Company login → Home shows the shared nav (Credits, no Earn)',
