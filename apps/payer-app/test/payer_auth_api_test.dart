@@ -112,6 +112,99 @@ void main() {
       expect(result.payerRole, PayerRole.agency);
     });
 
+    test('signup sends a phone-only contact when no email is given (#2497)',
+        () async {
+      final h = _harness((_) => http.Response('{}', 200));
+      await h.api.signup(
+        role: 'employer',
+        orgName: 'Acme',
+        phone: '+918946991002',
+      );
+
+      expect(jsonDecode(h.seen.single.body), <String, dynamic>{
+        'role': 'employer',
+        'org_name': 'Acme',
+        'phone': '+918946991002',
+      });
+    });
+
+    test('signup rejects an empty contact before touching the wire', () async {
+      final h = _harness((_) => http.Response('{}', 200));
+      await expectLater(
+        h.api.signup(role: 'employer', orgName: 'Acme'),
+        throwsArgumentError,
+      );
+      expect(h.seen, isEmpty);
+    });
+
+    test('setPassword uses the explicit verify token, not the stored one '
+        '(#2497)', () async {
+      final h = _harness((_) => http.Response(
+            '',
+            204,
+            // Even if the server offers a rolling token, this pre-session call
+            // must NOT persist one.
+            headers: <String, String>{'x-session-token': 'rolling-token'},
+          ));
+      await h.api.setPassword(
+        accessToken: 'verify-token',
+        password: 'Secret123',
+      );
+
+      final http.Request req = h.seen.single;
+      expect(req.url.path, '/payer/password/set');
+      expect(req.headers['authorization'], 'Bearer verify-token');
+      expect(jsonDecode(req.body), <String, dynamic>{'password': 'Secret123'});
+      // The session is NOT persisted by this call.
+      expect(h.tokens.hasSession, isFalse);
+    });
+
+    test('setPassword throws on a rejected password', () async {
+      final h = _harness((_) => http.Response('{}', 400));
+      await expectLater(
+        h.api.setPassword(accessToken: 'verify-token', password: 'short'),
+        throwsA(isA<PayerApiException>()),
+      );
+    });
+
+    test('loginWithPassword posts {identifier,password} to /payer/login/password',
+        () async {
+      final h = _harness(
+        (_) => http.Response(
+          jsonEncode(<String, dynamic>{
+            'access_token': 'tok-pw',
+            'payer_id': 'payer-7',
+            'role': 'employer',
+            'is_new_payer': false,
+          }),
+          200,
+        ),
+      );
+
+      final PayerLoginResult result = await h.api.loginWithPassword(
+        identifier: 'Acme Works',
+        password: 'Secret123',
+      );
+
+      final http.Request req = h.seen.single;
+      expect(req.url.path, '/payer/login/password');
+      expect(jsonDecode(req.body),
+          <String, dynamic>{'identifier': 'Acme Works', 'password': 'Secret123'});
+      expect(req.headers.containsKey('authorization'), isFalse);
+      expect(result.accessToken, 'tok-pw');
+      expect(result.payerRole, PayerRole.company);
+    });
+
+    test('a wrong password / unknown identifier surfaces as a neutral 401',
+        () async {
+      final h = _harness((_) => http.Response('{}', 401));
+      await expectLater(
+        h.api.loginWithPassword(identifier: 'a@b.com', password: 'nope'),
+        throwsA(isA<PayerApiException>()
+            .having((PayerApiException e) => e.statusCode, 'status', 401)),
+      );
+    });
+
     test('refresh attaches the bearer and returns the new token', () async {
       final h = _harness(
         (_) => http.Response(
@@ -174,6 +267,51 @@ void main() {
           await api.loginVerify(email: 'x@y.com', code: '000000');
       expect(result.accessToken, isNotEmpty);
       expect(result.payerRole, PayerRole.agency);
+    });
+
+    test('walks signup → password → login by email, phone or company name',
+        () async {
+      final MockPayerAuthApi api = MockPayerAuthApi();
+      await api.signup(
+        role: 'agent',
+        orgName: 'Apex Staffing',
+        phone: '+918946991002',
+      );
+      await api.setPassword(
+        accessToken: 'mock-payer-token',
+        password: 'Secret123',
+      );
+
+      for (final String identifier in <String>[
+        '+918946991002',
+        'apex staffing',
+        'APEX STAFFING',
+      ]) {
+        final PayerLoginResult result = await api.loginWithPassword(
+          identifier: identifier,
+          password: 'Secret123',
+        );
+        expect(result.payerRole, PayerRole.agency, reason: identifier);
+      }
+    });
+
+    test('the mock rejects a wrong password with a 401', () async {
+      final MockPayerAuthApi api = MockPayerAuthApi();
+      await api.signup(
+        role: 'employer',
+        orgName: 'Acme',
+        email: 'a@b.com',
+      );
+      await api.setPassword(
+        accessToken: 'mock-payer-token',
+        password: 'Secret123',
+      );
+
+      await expectLater(
+        api.loginWithPassword(identifier: 'a@b.com', password: 'wrong'),
+        throwsA(isA<PayerApiException>()
+            .having((PayerApiException e) => e.statusCode, 'status', 401)),
+      );
     });
   });
 }

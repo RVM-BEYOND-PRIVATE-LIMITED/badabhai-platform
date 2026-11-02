@@ -46,24 +46,46 @@ class PayerLoginResult extends Equatable {
 String wireRoleFor(PayerRole role) => role.isAgency ? 'agent' : 'employer';
 
 /// CONTRACT LAYER for `/payer/*` auth. Every request shape + route lives here so
-/// the wire contract is a single-file change. Email + OTP (NOT phone) per the
-/// verified API map.
+/// the wire contract is a single-file change.
+///
+/// A payer can sign up with an EMAIL or a PHONE (OTP to either), then set a
+/// password. Subsequent logins use `identifier + password`, where the identifier
+/// is an email, an E.164 phone, or the account's exact company/agency name.
+/// The older OTP-only login stays available for accounts without a password.
 abstract interface class PayerAuthApi {
-  /// `POST /payer/signup {role, email, org_name}` — registers a new payer. The
-  /// real backend then sends an OTP via `/payer/login/request`.
+  /// `POST /payer/signup {role, org_name, email? | phone?}` — create-or-get the
+  /// account and send a signup OTP to the supplied contact. At least one of
+  /// [email] / [phone] is required.
   Future<void> signup({
     required String role,
-    required String email,
     required String orgName,
+    String? email,
+    String? phone,
   });
 
-  /// `POST /payer/login/request {email}` — sends an email OTP.
-  Future<void> loginRequest({required String email});
+  /// `POST /payer/login/request {email? | phone?}` — sends a login OTP.
+  Future<void> loginRequest({String? email, String? phone});
 
-  /// `POST /payer/login/verify {email, code}` → [PayerLoginResult].
+  /// `POST /payer/login/verify {email? | phone?, code}` → [PayerLoginResult].
   Future<PayerLoginResult> loginVerify({
-    required String email,
+    String? email,
+    String? phone,
     required String code,
+  });
+
+  /// `POST /payer/password/set {password}` (bearer) — sets/replaces the payer's
+  /// password. Called with the OTP-verify token BEFORE the session is persisted,
+  /// so a payer who abandons the password step is not left signed in.
+  Future<void> setPassword({
+    required String accessToken,
+    required String password,
+  });
+
+  /// `POST /payer/login/password {identifier, password}` → [PayerLoginResult].
+  /// [identifier] is an email, an E.164 phone, or an exact company name.
+  Future<PayerLoginResult> loginWithPassword({
+    required String identifier,
+    required String password,
   });
 
   /// `POST /payer/refresh` (bearer) — mints a fresh access token. Returns the new
@@ -83,33 +105,44 @@ class HttpPayerAuthApi implements PayerAuthApi {
   @override
   Future<void> signup({
     required String role,
-    required String email,
     required String orgName,
+    String? email,
+    String? phone,
   }) async {
+    if ((email == null || email.isEmpty) && (phone == null || phone.isEmpty)) {
+      throw ArgumentError('signup needs an email or a phone');
+    }
     final PayerResponse res = await _http.send(
       PayerMethod.post,
       '/payer/signup',
       authed: false,
       body: <String, dynamic>{
         'role': role,
-        'email': email,
         'org_name': orgName,
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
       },
     );
     // A rejected signup (400 empty/oversize org_name, 429 IP cap, 5xx) must not
     // be swallowed as success — the caller would then wrongly proceed to request
-    // an OTP that never comes. Surface it. (An existing payer is a 200 via
+    // an OTP that never comes. (An existing payer is a 200 via
     // createOrGet, so this never blocks a returning login.)
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
   }
 
   @override
-  Future<void> loginRequest({required String email}) async {
+  Future<void> loginRequest({String? email, String? phone}) async {
+    if ((email == null || email.isEmpty) && (phone == null || phone.isEmpty)) {
+      throw ArgumentError('loginRequest needs an email or a phone');
+    }
     final PayerResponse res = await _http.send(
       PayerMethod.post,
       '/payer/login/request',
       authed: false,
-      body: <String, dynamic>{'email': email},
+      body: <String, dynamic>{
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+      },
     );
     // #347 — the SAME rule signup() above already enforces, applied to the leg
     // that actually sends the OTP. PayerHttp.send returns non-2xx instead of
@@ -122,14 +155,22 @@ class HttpPayerAuthApi implements PayerAuthApi {
 
   @override
   Future<PayerLoginResult> loginVerify({
-    required String email,
+    String? email,
+    String? phone,
     required String code,
   }) async {
+    if ((email == null || email.isEmpty) && (phone == null || phone.isEmpty)) {
+      throw ArgumentError('loginVerify needs an email or a phone');
+    }
     final PayerResponse res = await _http.send(
       PayerMethod.post,
       '/payer/login/verify',
       authed: false,
-      body: <String, dynamic>{'email': email, 'code': code},
+      body: <String, dynamic>{
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+        'code': code,
+      },
     );
     // #347 — deliberately NARROWER than a blanket !isSuccess guard. A wrong or
     // expired code is a 4xx VERDICT ON THE CODE, and the existing empty-
@@ -141,6 +182,39 @@ class HttpPayerAuthApi implements PayerAuthApi {
     if (res.statusCode == 429 || res.statusCode >= 500) {
       throw PayerApiException(res.statusCode);
     }
+    return PayerLoginResult.fromJson(res.body);
+  }
+
+  @override
+  Future<void> setPassword({
+    required String accessToken,
+    required String password,
+  }) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/password/set',
+      // The verify token from THIS signup, not the persisted store: the session
+      // is only saved once the password is set.
+      bearerOverride: accessToken,
+      body: <String, dynamic>{'password': password},
+    );
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+  }
+
+  @override
+  Future<PayerLoginResult> loginWithPassword({
+    required String identifier,
+    required String password,
+  }) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/login/password',
+      authed: false,
+      body: <String, dynamic>{'identifier': identifier, 'password': password},
+    );
+    // A wrong password / unknown identifier is a neutral 401; a 429 cap or 5xx
+    // must not be reported as "wrong password".
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
     return PayerLoginResult.fromJson(res.body);
   }
 
@@ -158,33 +232,79 @@ class HttpPayerAuthApi implements PayerAuthApi {
   }
 }
 
-/// Mock `/payer/*` auth — any email/code "works" and signs in. Used in MOCK mode
-/// so the whole login flow is walkable with no backend. Never touches the wire.
+/// Mock `/payer/*` auth — walkable with no backend.
+///
+/// It now remembers the account created by [signup] (role, org, contact,
+/// password) so the full signup → password → login flow works in MOCK mode, and
+/// a wrong password is a 401 like the real server. Any OTP code is accepted.
 class MockPayerAuthApi implements PayerAuthApi {
   MockPayerAuthApi();
 
   /// Remembers the role chosen at signup/request so verify can echo it back, the
   /// way the real server decides role from the registered payer.
   String _role = 'employer';
+  String? _email;
+  String? _phone;
+  String? _orgName;
+  String? _password;
 
   @override
   Future<void> signup({
     required String role,
-    required String email,
     required String orgName,
+    String? email,
+    String? phone,
   }) async {
     _role = role;
+    _orgName = orgName.trim();
+    _email = email?.trim();
+    _phone = phone?.trim();
   }
 
   @override
-  Future<void> loginRequest({required String email}) async {}
+  Future<void> loginRequest({String? email, String? phone}) async {
+    if (email != null && email.isNotEmpty) _email = email.trim();
+    if (phone != null && phone.isNotEmpty) _phone = phone.trim();
+  }
 
   @override
   Future<PayerLoginResult> loginVerify({
-    required String email,
+    String? email,
+    String? phone,
     required String code,
   }) async {
     // Any non-empty code is accepted in MOCK mode.
+    return PayerLoginResult(
+      accessToken: 'mock-payer-token',
+      payerId: 'mock-payer-id',
+      role: _role,
+      isNewPayer: false,
+    );
+  }
+
+  @override
+  Future<void> setPassword({
+    required String accessToken,
+    required String password,
+  }) async {
+    _password = password;
+  }
+
+  @override
+  Future<PayerLoginResult> loginWithPassword({
+    required String identifier,
+    required String password,
+  }) async {
+    // A stored password must match; an unknown identifier is the same neutral
+    // 401 the real route returns. The identifier may be the email, the phone,
+    // or the exact company name (case-insensitive), as on the wire.
+    final String id = identifier.trim().toLowerCase();
+    final bool matches = id == (_email?.toLowerCase() ?? '\u0000') ||
+        id == (_phone ?? '\u0000') ||
+        id == (_orgName?.toLowerCase() ?? '\u0000');
+    if (!matches || _password == null || password != _password) {
+      throw const PayerApiException(401);
+    }
     return PayerLoginResult(
       accessToken: 'mock-payer-token',
       payerId: 'mock-payer-id',

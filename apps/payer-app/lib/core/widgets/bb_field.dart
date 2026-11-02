@@ -36,6 +36,9 @@ class BbField extends StatelessWidget {
     this.suppressSuggestions = false,
     this.minLines,
     this.maxLines = 1,
+    this.obscureText = false,
+    this.suffixIcon,
+    this.onChanged,
   });
 
   final String? label;
@@ -77,6 +80,15 @@ class BbField extends StatelessWidget {
   final int? minLines;
   final int? maxLines;
 
+  /// Masks the value (passwords). Pair with [suffixIcon] for a show/hide toggle.
+  final bool obscureText;
+
+  /// Optional trailing control inside the field (e.g. the password eye).
+  final Widget? suffixIcon;
+
+  /// Fires on every edit (a controlled caller mirrors the value back).
+  final ValueChanged<String>? onChanged;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -100,6 +112,8 @@ class BbField extends StatelessWidget {
           keyboardType: keyboardType,
           minLines: minLines,
           maxLines: maxLines,
+          obscureText: obscureText,
+          onChanged: onChanged,
           autofillHints: autofillHints,
           inputFormatters: inputFormatters,
           // Identity fields turn all three OFF so the keyboard cannot resurface a
@@ -115,6 +129,7 @@ class BbField extends StatelessWidget {
             prefixIcon: icon == null
                 ? null
                 : Icon(icon, size: 20, color: AppColors.textMuted),
+            suffixIcon: suffixIcon,
             prefixText: prefixText,
             prefixStyle: prefixText == null
                 ? null
