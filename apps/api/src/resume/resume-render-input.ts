@@ -828,9 +828,9 @@ function buildUndegraded(
   // ONE TOTAL ON THIS BRANCH, READ BY THE VERDICT LINE, THE PROFILE HEADLINE, `experienceYears`
   // AND THE SUMMARY — four renderings of one fact, computed once so they cannot disagree.
   //
-  // ADR-0045 §4.2 — THE ROAD-SCOPED EXCEPTION TO "THE STATED FIGURE WINS". Everywhere else a
-  // worker's stated total outranks the sum of his jobs (`renderedTotalYears`, R8 §1, and the
-  // under-representation gate). On the general road the total is the sum of his DATED jobs and
+  // ADR-0045 §4.2 — THE ROAD-SCOPED EXCEPTION TO THE MAX RULE. Everywhere else the total
+  // is the larger of the stated figure and the summed history (`renderedTotalYears`, R8 §1 as
+  // revised 2026-11-02, and the under-representation gate). On the general road the total is the sum of his DATED jobs and
   // nothing else (R5): not the figure the profile froze at build time, not the chat opener's answer
   // and not a tier's stated years. No dated total means no figure — the headline then says
   // "Fresher" or "duration not stated", never a number the road forbids.
@@ -1728,7 +1728,7 @@ function resolveGeneralRoadFacts(input: {
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
- * THE TOTAL THAT PRINTS — the worker's OWN stated figure, never the sum beneath it.
+ * THE TOTAL THAT PRINTS — the larger of the stated figure and the summed history.
  * ══════════════════════════════════════════════════════════════════════════════════════
  *
  * WHAT WAS WRONG, MEASURED ON FIVE REAL EXTRACTIONS. The container path printed
@@ -1745,14 +1745,21 @@ function resolveGeneralRoadFacts(input: {
  * (`qp_universal@2`, answer type `duration`, RFS number) whose answer is the worker's own
  * sentence about his own career, and it was sitting on the draft unread.
  *
- * THE RULE: THE STATED FIGURE WINS OUTRIGHT, and the sum only fills its absence.
+ * THE RULE: THE LARGER OF THE TWO — AND WHY THIS REVERSED. Until 2026-11-02 the stated
+ * figure won outright (R8 §1): where the sum exceeded what he said, printing it resolved an
+ * ambiguity UPWARD, which §8.3 forbids ("a man under-described gets a trial and proves
+ * himself; a man over-described gets a trial and embarrasses everyone").
  *
- * NOT `Math.max` OF THE TWO, and that was the tempting version. Taking the larger would satisfy
- * "never below his stated figure" too, but where the sum exceeds what he said it would print a
- * tenure larger than the one he claimed — resolving a genuine ambiguity UPWARD, which is exactly
- * what §8.3's asymmetry rule forbids: "a man under-described gets a trial and proves himself; a
- * man over-described gets a trial and embarrasses everyone." Preferring the stated figure
- * satisfies the floor by construction, because the figure and the floor are the same number.
+ * Production 2026-11-02 proved the rule wrong in the common case (Rishab Das): the "stated
+ * figure" (`experience_years`, "Is kaam mein kitne saal") is scoped to THIS trade — 2.5
+ * years turning — while the header claims his CAREER total, which the work history sums to
+ * 3.0 (2.5 + a prior sequential 6-month stint). Printing 2.5 was not caution, it was a
+ * smaller falsehood: it dropped a real job. Owner decision (Divyanshu, 2026-11-02): max.
+ *
+ * THE COST, STATED PLAINLY because the §8.3 argument was real: overlapping jobs now add
+ * twice. Two concurrent 3-year stints print 6. Accepted because dated overlap detection
+ * does not exist on this road (container experiences carry durations, not dates) — when
+ * it does, it belongs here.
  *
  * "DURATION NOT STATED" SURVIVES, FOR THE CASE IT WAS WRITTEN FOR. A worker with neither a
  * stated total nor a datable job is a genuine unknown and §11 #3 requires the sheet to say so.
@@ -1769,8 +1776,12 @@ function resolveGeneralRoadFacts(input: {
  * answer, so the ruling above is exactly where it was.
  */
 export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
-  const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;
-  return usable ? stated : summed;
+  const usable = (value: number | null): value is number =>
+    typeof value === "number" && Number.isFinite(value) && value > 0;
+  if (usable(stated) && usable(summed)) return Math.max(stated, summed);
+  if (usable(stated)) return stated;
+  if (usable(summed)) return summed;
+  return null;
 }
 
 /**

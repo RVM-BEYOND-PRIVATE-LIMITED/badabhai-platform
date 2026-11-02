@@ -1308,7 +1308,7 @@ describe("Zone 5 on the résumé-container path (R5 §1.3)", () => {
  * years, the container path's summed headline read "duration not stated", "1 yr 8 mo",
  * "5 yrs 4 mo" and "9 yrs 11 mo". §5.1 ranks total experience third and the Verdict Line first.
  */
-describe("R8 §1 — total years prefers the mandatory ask over the sum beneath it", () => {
+describe("R8 §1 — total years takes the larger of the stated figure and the summed history", () => {
   const containerWith = (months: (number | null)[]) => ({
     role_label: "CNC Setter cum Operator",
     experiences: months.map((m, i) => ({
@@ -1376,10 +1376,13 @@ describe("R8 §1 — total years prefers the mandatory ask over the sum beneath 
     expect(input.headlineLine).toContain("duration not stated");
   });
 
-  it("does NOT let the sum raise a total above what the worker claimed", () => {
-    // §8.3's asymmetry rule cuts both ways. `Math.max` would satisfy the "never below" floor and
-    // print six years for a man who said five — resolving an ambiguity upward, which is the one
-    // direction the guideline forbids.
+  it("lets the sum raise the total above the stated trade tenure (2026-11-02 reversal)", () => {
+    // THIS ASSERTED THE OPPOSITE UNTIL 2026-11-02, and the reversal is an explicit owner
+    // decision (Divyanshu), not drift. Production case (Rishab Das): the "stated figure"
+    // (`experience_years`, "Is kaam mein kitne saal") is scoped to THIS trade — 2.5 years
+    // turning — while the header claims the CAREER total, which the history sums to 3.0.
+    // Printing 2.5 dropped a real sequential job. The accepted cost is stated on
+    // `renderedTotalYears`: overlapping jobs now add twice.
     const input = buildResumeRenderInput(
       { experience: { total_years: 5 }, resume_profile: containerWith([48, 24]) },
       "Ramesh Yadav",
@@ -1388,7 +1391,21 @@ describe("R8 §1 — total years prefers the mandatory ask over the sum beneath 
       false,
       "worker",
     );
-    expect(input.experienceYears).toBe(5);
+    expect(input.experienceYears).toBe(6);
+  });
+
+  it("adds a prior sequential stint to the trade tenure (Rishab Das shape)", () => {
+    // 2.5 years turning + a prior 6-month stint = 3 years career total.
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 2.5 }, resume_profile: containerWith([30, 6]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBe(3);
+    expect(input.headlineLine).toContain("3 yrs");
   });
 
   it("keeps the headline and the summary telling the SAME story", () => {
