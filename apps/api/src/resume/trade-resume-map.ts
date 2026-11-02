@@ -524,6 +524,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         },
         values: {
           vmc: "VMC",
+          // Track A #2 (@6): the sheet-2 machine variants.
+          fourth_axis: "VMC + 4th axis",
+          five_axis: "5-axis",
+          drill_tap: "Drill-tap centre",
+          double_column: "Double-column",
           hmc: "HMC",
           conventional_mill: "Conventional milling machine",
           bed_mill: "Bed / knee mill",
@@ -545,6 +550,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           // A MILLING CONTROLLER THE TURNER'S MAP DOES NOT CARRY. Heidenhain is ubiquitous on
           // machining centres and effectively absent from lathes.
           heidenhain: "Heidenhain",
+          // Track A #2 (@6): sheet-2 controller set.
+          fagor: "Fagor",
+          syntec: "Syntec",
         },
       },
       {
@@ -553,20 +561,24 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Materials",
         kind: "chips",
-        // EN8 AND EN31 ARE SEPARATE CHIPS HERE. The ratified sheet prints "EN8  EN31" as two
-        // values inside a four-value cap, and compressing them the way the turner's map does
-        // would silently spend one chip on two materials and print a fifth where four fit.
+        // UNIFIED TO THE TURNER SET (CEO Launch Plan Pack v1, Track A #2, sheet 2:
+        // "Material chips (as Turner)"). The EN8/EN31 split the ratified sheet
+        // printed is retired: the old en_eight/en_thirty_one answers drop off
+        // the sheet (recorded cost, same class as Turner's mazatrol value).
         //
         // DICTIONARY ORDER IS THE SHEET'S ORDER. Values render in the order this object lists
         // them (there is no usage data to rank by, and inventing one would be inventing a fact
         // about the worker), so the alloys lead — which is what the ratified sample prints.
         values: {
-          en_eight: "EN8",
-          en_thirty_one: "EN31",
           mild_steel: "MS",
+          alloy_steel: "EN8 / EN31",
           stainless: "Stainless steel",
           aluminium: "Aluminium",
+          brass: "Brass",
           cast_iron: "Cast iron",
+          // Track A #2 (@6) — Advanced Q11 per sheet 2.
+          titanium: "Titanium / Inconel",
+          plastic: "Plastics",
         },
       },
       {
@@ -592,9 +604,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           machine_vice: "Machine vice",
           fixture: "Fixture",
           clamp_kit: "Clamps / T-bolts",
-          rotary_table: "Rotary table / indexer",
+          // Track A #2 (@6): sheet-2 chip reads "Rotary table / 4th axis".
+          rotary_table: "Rotary table / 4th axis",
           angle_plate: "Angle plate",
           magnetic_chuck: "Magnetic chuck",
+          // Track A #2 (@6): sheet-2 workholding.
+          vacuum: "Vacuum",
+          pallet: "Pallet",
         },
       },
       {
@@ -647,6 +663,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.05": "±0.05 mm",
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm or finer",
+          // Track A #2 (@6) — Advanced Q11 per sheet 2.
+          "0.005": "±0.005 mm / H7",
         },
       },
       {
@@ -661,6 +679,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           boring_op: "Boring",
           pocket_milling: "Pocket milling",
           contour_milling: "Contour / profile milling",
+          // Track A #2 (@6) — Advanced Q9 per sheet 2.
+          thread_mill: "Thread mill",
+          three_d_surface: "3D surface",
+          engraving: "Engraving",
         },
       },
       {
@@ -701,6 +723,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           defence: "Defence / aerospace",
           pump_valve: "Pumps and valves",
           agri: "Agricultural equipment",
+          // Track A #2 (@6) — Advanced Q12 per sheet 2.
+          spm_parts: "SPM / machine parts",
+          electronics: "Electronics / EMS",
         },
       },
     ],

@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1260,
+  "clip_count": 1265,
   "producers": {
     "retry": 102,
-    "clarify": 454,
-    "prompt": 326,
+    "clarify": 456,
+    "prompt": 328,
     "constant": 97,
-    "why": 281
+    "why": 282
   },
   "clips": [
     {
@@ -438,6 +438,11 @@
       "id": "0ede99ff905f3502",
       "text": "Job ki tolerance lagbhag kitni rakhte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "0eed80457d2522a4",
+      "text": "Fixture aur zero khud lagane wale setter ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "0ef688690d809b6d",
@@ -2330,6 +2335,11 @@
       "producer": "clarify"
     },
     {
+      "id": "5b3504bef51a81d5",
+      "text": "Drawing se naya program khud banate ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "5b37d4e940722eca",
       "text": "Sheet metal, auto ya electrical, kis line ki tooling banayi?",
       "producer": "retry"
@@ -3895,6 +3905,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9a4717ba40bc6182",
+      "text": "Naya job aaye to fixture aur zero aap set karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "9a899d1a5e1abe5f",
       "text": "Machine ka naam employer poochte hain.",
       "producer": "why"
@@ -4418,6 +4433,11 @@
       "id": "aee18e366ee85019",
       "text": "Unchai wale kaam ka rate zyada hai.",
       "producer": "why"
+    },
+    {
+      "id": "aeef01f9de439e24",
+      "text": "Fixture aur zero khud lagane wale setter ko alag kaam milta hai. Naya job aaye to fixture aur zero aap set karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "af455221eda218e6",
@@ -6158,6 +6178,11 @@
       "id": "f9d1d8ac2be0a383",
       "text": "Dukan wale ko alag tarah ka kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "f9f2ce397133d5e2",
+      "text": "Drawing se program banane wale programmer ki alag maang hai. Drawing se naya program khud banate ho?",
+      "producer": "clarify"
     },
     {
       "id": "fa99caef44386028",

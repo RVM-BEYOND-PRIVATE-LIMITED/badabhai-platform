@@ -439,6 +439,13 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
     "ड्राइंग से नया प्रोग्राम ज़ीरो से बनाते हो?",
   "Kitne machine aur kitne log aapke under hain?":
     "कितने मशीन और कितने लोग आपके अंडर हैं?",
+  // --- qp_vmc_milling@6 (Track A #2) — the VMC separating-confirm prompts ----
+  // program_edit_confirm reuses the Turner prompt verbatim (twin above);
+  // team_confirm reuses its twin too. Only the setter + programmer wordings
+  // are VMC-specific.
+  "Naya job aaye to fixture aur zero aap set karte ho?":
+    "नया जॉब आये तो फिक्सचर और ज़ीरो आप सेट करते हो?",
+  "Drawing se naya program khud banate ho?": "ड्राइंग से नया प्रोग्राम खुद बनाते हो?",
   "Programming me aap kya karte hain?": "प्रोग्रामिंग में आप क्या करते हैं?",
   "Machine par helper, operator ya setter hain?": "मशीन पर हेल्पर, ऑपरेटर या सेटर हैं?",
   "Junior programmer, programmer ya senior programmer hain?":
@@ -980,6 +987,10 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "ड्राइंग से प्रोग्राम बनाने वाले प्रोग्रामर की अलग माँग है।",
   "Team sambhalne wale supervisor ko alag zimmedari milti hai.":
     "टीम सँभालने वाले सुपरवाइज़र को अलग ज़िम्मेदारी मिलती है।",
+  // --- qp_vmc_milling@6 (Track A #2) — the VMC setter-confirm why ----------
+  // program_write_confirm reuses the Turner why verbatim (above).
+  "Fixture aur zero khud lagane wale setter ko alag kaam milta hai.":
+    "फिक्सचर और ज़ीरो खुद लगाने वाले सेटर को अलग काम मिलता है।",
   // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
   //
   // NINE WHY-TEXTS. The tenth — "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain." — is

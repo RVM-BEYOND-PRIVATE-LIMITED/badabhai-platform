@@ -523,7 +523,10 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
     milling_machine: ["vmc", "spm"],
     axis_capability: ["three_axis", "four_axis"],
     controller_brand: ["fanuc", "siemens", "mitsubishi"],
-    material_worked: ["en_eight", "en_thirty_one", "mild_steel", "aluminium"],
+    // Track A #2 (@6): materials unified to the Turner set (CEO pack sheet 2)
+    // — the sample's EN8/EN31 split no longer exists on the pack, so the
+    // fixture answers the combined chip the sample's worker would tap today.
+    material_worked: ["alloy_steel", "mild_steel", "aluminium"],
     setting_operation: [
       "tool_offset",
       "work_offset",
@@ -585,7 +588,7 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
     const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
 
     expect(chips.get("Controllers")).toEqual(["Fanuc", "Siemens", "Mitsubishi"]);
-    expect(chips.get("Materials")).toEqual(["EN8", "EN31", "MS", "Aluminium"]);
+    expect(chips.get("Materials")).toEqual(["MS", "EN8 / EN31", "Aluminium"]);
     expect(ticks.get("Setting")).toEqual([
       "Tool offset",
       "Work offset",

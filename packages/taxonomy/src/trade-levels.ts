@@ -257,6 +257,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
     programmer: "program_write_confirm",
     supervisor: "team_confirm",
   },
+  // Track A #2 — the VMC/HMC confirms (CEO Launch Plan Pack v1, sheet 2).
+  qp_vmc_milling: {
+    setter: "milling_setting_confirm",
+    setter_programmer: "milling_program_edit_confirm",
+    programmer: "milling_program_write_confirm",
+    supervisor: "milling_team_confirm",
+  },
 };
 
 /**

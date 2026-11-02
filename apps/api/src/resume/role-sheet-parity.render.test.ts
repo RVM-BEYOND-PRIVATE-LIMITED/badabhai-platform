@@ -634,6 +634,16 @@ const REFERENCE: Readonly<Record<string, ReferenceSheet>> = {
     // `qp_vmc_milling` asks no table-size question.
     unaskable: ["Table & travel"],
     captureGaps: {
+      Materials: {
+        page: "EN8 · EN31 · MS · Aluminium",
+        rendered: "MS · Aluminium",
+        missing:
+          "Track A #2 (@6) unifies `material_worked` to the Turner set (CEO Launch Plan " +
+          "Pack v1, sheet 2: 'Material chips (as Turner)'). The pack offers ONE `alloy_steel` " +
+          "chip; the page's two split chips no longer exist, so stored en_eight/en_thirty_one " +
+          "answers drop off the row. A worker answering today taps the combined chip and " +
+          "prints 'MS · EN8 / EN31 · Aluminium'.",
+      },
       Machines: {
         page: "VMC · 3-axis · VMC · 4-axis · HMC · pallet changer · SPM",
         rendered: "VMC · 3-axis · VMC · 4-axis · HMC · SPM",

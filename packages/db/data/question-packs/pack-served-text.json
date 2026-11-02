@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 180,
+  "pack_count": 181,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -685,6 +685,10 @@
     "qp_vmc_milling@5": {
       "served_text_sha256": "8e2b1779093523f20d5a94dd10167bea49cec39a7ee72b0671a133411d959ed2",
       "served_text_count": 63
+    },
+    "qp_vmc_milling@6": {
+      "served_text_sha256": "530eb0ca75d3ffb9214ec27d5b952c5363dd8a23d0a9125e459981b6795e028f",
+      "served_text_count": 75
     },
     "qp_waiter@1": {
       "served_text_sha256": "6e2ae88dd556ad028a20ed297d423a78d011c1e4772cc6dd76072caf43566292",
