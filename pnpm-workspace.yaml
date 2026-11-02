@@ -242,17 +242,14 @@ overrides:
   #   vite              GHSA-587h-7wmj-h5pm (launch-editor `fs.existsSync()` check bypass on
   #                     Windows), patched at 7.3.7 (published 2026-10-06). Reached via vitest only:
   #                     test tooling, never shipped.
-  follow-redirects@<1.16.1: "^1.16.1"
+  # DEP-13 (2026-11-02). SUPERSEDES `<1.16.1: ^1.16.1` — instance seven of the
+  # version-keyed-snapshot failure the js-yaml note describes: GHSA-mrwp-f3q8-3g9p
+  # (HIGH, cross-realm sensitiveHeaders arrays) is patched at 1.16.2, and `^1.16.1`
+  # is satisfied by 1.16.1 itself, so pnpm never moved past it. Published 2026-10-25,
+  # clear of the 7-day minimumReleaseAge window on its own. Same live path as DEP-11
+  # (razorpay > axios, payment orders), so patched, not argued.
+  follow-redirects@<1.16.2: "^1.16.2"
   vite@>=7.0.0 <7.3.7: "^7.3.7"
-# DEP-12 (2026-10-24): body-parser@2.4.0 and multer@2.5.0 are the only fixes for
-# GHSA-27r3-jxmh-p828 and GHSA-q7qp-rjg7-q26m (both HIGH, request path). Both were
-# published 2026-10-22 and clear the 7-day window on their own at ~2026-10-29.
-# Pinned to the EXACT versions: any other version of these packages, and every
-# other package, still waits 7 days. DELETE THIS BLOCK on the next lockfile
-# change after 2026-10-29 — it is inert from then on.
-minimumReleaseAgeExclude:
-  - body-parser@2.4.0
-  - multer@2.5.0
 # Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on
