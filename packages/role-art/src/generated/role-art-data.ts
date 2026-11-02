@@ -44,6 +44,7 @@ export const ROLE_ART_KINDS = [
   "blow_moulding_operator",
   "rubber_moulding_operator",
   "plastic_process_technician",
+  "cad_designer_3d",
   "generic",
 ] as const;
 
@@ -1168,6 +1169,53 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         shapes: [
           { d: "M200 56L200 45", colour: "accent", opacity: 1, strokeWidth: 4 },
           { d: "M196.5 56A3.5 3.5 0 1 1 203.5 56A3.5 3.5 0 1 1 196.5 56Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+    ],
+  },
+  cad_designer_3d: {
+    loop: 3,
+    parts: [
+      {
+        name: "scene",
+        motion: null,
+        shapes: [
+          { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
+          { d: "M8 24A32 32 0 1 1 72 24A32 32 0 1 1 8 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+          { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "desk",
+        motion: null,
+        shapes: [
+          { d: "M152 70L260 70A2 2 0 0 1 262 72L262 76A2 2 0 0 1 260 78L152 78A2 2 0 0 1 150 76L150 72A2 2 0 0 1 152 70Z", colour: "surface", opacity: 1, strokeWidth: 0 },
+          { d: "M158 78L166 78L166 84L158 84Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M246 78L254 78L254 84L246 84Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M196 62L204 62L204 70L196 70Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "monitor",
+        motion: null,
+        shapes: [
+          { d: "M164 18L236 18A4 4 0 0 1 240 22L240 58A4 4 0 0 1 236 62L164 62A4 4 0 0 1 160 58L160 22A4 4 0 0 1 164 18Z", colour: "surface", opacity: 1, strokeWidth: 0 },
+          { d: "M180 52L180 28L204 28L204 52L180 52ZM190 46L190 22L214 22L214 46L190 46ZM180 28L190 22M204 28L214 22M180 52L190 46M204 52L214 46", colour: "primary", opacity: 0.8, strokeWidth: 4 },
+        ],
+      },
+      {
+        name: "figure",
+        motion: null,
+        shapes: [
+          { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "arm",
+        motion: { type: "nod", amp: -6, ox: 84, oy: 60, rate: 1, phase: 0 },
+        shapes: [
+          { d: "M84 60Q120 68 150 54", colour: "accent", opacity: 1, strokeWidth: 9 },
         ],
       },
     ],
