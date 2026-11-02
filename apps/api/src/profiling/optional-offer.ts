@@ -19,15 +19,15 @@ import { parseAffirmation } from "@badabhai/profiling-lexicon";
  *   answer spends the ask twice.
  */
 
-/** The bubble. Bas-ho-gaya first (the 8 are done), then the one offer. */
+/** The bubble. Bas-ho-gaya first (Easy Q1–Q5 are done), then the one offer. */
 export const OPTIONAL_OFFER_PROMPT_TEXT =
-  "Bas ho gaya. Resume ban raha hai. 2 minute aur dein? Resume aur strong banega.";
+  "Bas ho gaya. Resume ban raha hai. 3 sawaal aur? Resume aur strong banega.";
 
 /** The two chips. A binary question gets a binary affordance. */
 export const OPTIONAL_OFFER_OPTIONS = Object.freeze([
   Object.freeze({
     option_key: "optional_offer_yes",
-    label_text: "Haan, 2 minute aur",
+    label_text: "Haan, 3 sawaal aur",
     value: true,
     implies_skill_id: null,
     is_none_of_above: false,

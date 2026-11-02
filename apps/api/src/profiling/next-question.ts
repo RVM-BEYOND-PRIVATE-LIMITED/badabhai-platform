@@ -232,8 +232,20 @@ const UNIVERSAL_REQUIRED_KEYS = [
   "availability",
 ] as const;
 
+/**
+ * CEO Launch Plan Pack v1 (RULED 2026-11-02): Easy = Q1–Q5 closes the interview.
+ * Turner leads (Track A #1): trade + years + level from its pack, location +
+ * availability shared — machine, controller and salary move to Medium (asked, not
+ * required). Other packs keep the v1 8-required shape until their own retag PR.
+ */
+const EASY_REQUIRED_UNIVERSAL_KEYS: Readonly<Record<string, readonly string[]>> = {
+  qp_cnc_turning: ["primary_trade", "current_city", "availability"],
+};
+
 const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
-  qp_cnc_turning: ["turning_machine", "turning_experience", "turning_level", "controller_brand"],
+  // CEO Launch Pack v1 (RULED 2026-11-02): Turner Easy Q2–Q3. Machine/controller
+  // moved to Medium (Q6–Q7) — asked, never required.
+  qp_cnc_turning: ["turning_experience", "turning_level"],
   qp_vmc_milling: ["milling_machine", "milling_experience", "milling_level", "controller_brand"],
   qp_cnc_grinding: [
     "grinding_machine",
@@ -257,7 +269,8 @@ export function requiredSlotsSettled(
   if (occupationPackId === null) return false;
   const tradeKeys = TRADE_REQUIRED_KEYS[occupationPackId];
   if (tradeKeys === undefined) return false;
-  return [...UNIVERSAL_REQUIRED_KEYS, ...tradeKeys].every((key) => isSettled(answers, key));
+  const universalKeys = EASY_REQUIRED_UNIVERSAL_KEYS[occupationPackId] ?? UNIVERSAL_REQUIRED_KEYS;
+  return [...universalKeys, ...tradeKeys].every((key) => isSettled(answers, key));
 }
 
 /** True when the pack is one of the Middle-Way v2+ trades (P3b caps apply). */

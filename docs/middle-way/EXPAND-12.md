@@ -64,6 +64,16 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 
 ## 2. The 12 trades (one PR each, in this order — machining-adjacent first)
 
+> TRACK A #1 — TURNER RETAG ✅ CODE DONE (`feat/mw-turner-retag`, PR next).
+> `qp_cnc_turning@6`: Easy/Medium/Advanced tiers; 6-band experience; Helper/
+> Trainee chip; sheet-1 machine/controller sets (+spm/+conventional_lathe kept
+> history chips; Mazatrol its own value; +Fagor/Syntec); Advanced
+> operation/material/tolerance/industry rows; 4 separating confirm items wired
+> into `tradeLevelEntriesForPackAnswers` (self→true, other→false, absent→rung
+> rule). Engine: Turner Easy = Q1–Q5 close; offer copy "3 sawaal aur"; headline/
+> verdict level-second. Deviations in the @6 review_note. ✅ Seeds after merge
+> (`db:seed:packs` + verify by Divyanshu).
+
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | E6  | Conventional Machinist (`conventional_machinist`) | `qp_conventional_machining` v1 | `machining_level` (not mandatory)   | Shares `lathe`/`kharad` machine terms with Turner BY VALUE (do not break); `Turner` vs `Machinist` routing boundary is the P4 comment in `conventional-machinist.role.ts` |

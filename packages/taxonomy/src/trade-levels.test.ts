@@ -214,4 +214,56 @@ describe("trade-level crosswalk", () => {
       { skillId: "mskill_cnc_grinding_operator", tradeLevel: "operator", levelConfirmed: false },
     ]);
   });
+
+  it("lets the separating-confirm answer override the rung rule (CEO Launch Pack v1, Track A #1)", () => {
+    const turner = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_cnc_turning",
+        confirm === null
+          ? [{ attributeKey: "turning_level", value: level }]
+          : [
+              { attributeKey: "turning_level", value: level },
+              confirm,
+            ],
+      );
+    // No confirm answer: the rung rule stands (setter+ confirmed, operator not).
+    expect(turner("setter", null)).toEqual([
+      { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    expect(turner("operator", null)).toEqual([
+      { skillId: "mskill_cnc_turner", tradeLevel: "operator", levelConfirmed: false },
+    ]);
+    // "Khud karta hoon" confirms; "koi aur" disconfirms — even against the rung rule.
+    expect(turner("setter", { attributeKey: "setting_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    expect(turner("setter", { attributeKey: "setting_confirm", value: "other" })).toEqual([
+      { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: false },
+    ]);
+    expect(
+      turner("setter_programmer", { attributeKey: "program_edit_confirm", value: "other" }),
+    ).toEqual([
+      {
+        skillId: "mskill_cnc_turner",
+        tradeLevel: "setter_programmer",
+        levelConfirmed: false,
+      },
+    ]);
+    expect(turner("programmer", { attributeKey: "program_write_confirm", value: "self" })).toEqual(
+      [{ skillId: "mskill_cnc_turner", tradeLevel: "programmer", levelConfirmed: true }],
+    );
+    // A confirm answer for ANOTHER rung is not the worker's answer about his own —
+    // the rung rule stands.
+    expect(turner("setter", { attributeKey: "program_write_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    // The supervisor's free-text team count is an engagement, hence a confirm.
+    expect(turner("supervisor", { attributeKey: "team_confirm", value: "5 machine, 8 log" })).toEqual(
+      [{ skillId: "mskill_cnc_turner", tradeLevel: "supervisor", levelConfirmed: true }],
+    );
+    // A rung with no confirm item (operator) ignores stray confirm answers.
+    expect(turner("operator", { attributeKey: "setting_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_cnc_turner", tradeLevel: "operator", levelConfirmed: false },
+    ]);
+  });
 });

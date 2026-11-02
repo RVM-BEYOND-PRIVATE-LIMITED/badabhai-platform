@@ -127,6 +127,7 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_cnc_turning@3:turning_machine",
       "qp_cnc_turning@4:turning_machine",
       "qp_cnc_turning@5:turning_machine",
+      "qp_cnc_turning@6:turning_machine",
       "qp_draughting:cad_software",
       "qp_draughting:draughting_field",
       "qp_fitting:fitting_type",

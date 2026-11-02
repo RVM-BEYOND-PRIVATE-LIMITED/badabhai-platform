@@ -119,12 +119,18 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   //   troubleshooting     symptoms he has handled, with no corpus id to carry them
   // `edit_program` maps to the setter-level attribute (no reach); only `write_program` and `cam`
   // claim a programmer's chair. `haas`/`mazak`/`unknown_controller` have no corpus id.
+  // `turn_mill`/`live_tool`/`c_axis`/`twin_spindle` (E1 slot-2 chips) carry none either: they
+  // describe the machine's capability, not a distinct matchable skill, and the axis features
+  // already capture via `axis_capability` on VMC. `both_types` (Track A #1) is CNC + manual in
+  // one tap, so it carries exactly the manual lathe's set; `hard_turning` is turning work.
+  // `fagor`/`syntec` have no corpus id (same rule as `haas`/`mazak`).
   // `conventional_lathe` keeps its legacy CNC Turner reach (owner ruling, #2022 point 1) and also
   // carries the manual machinist's skill — the same set a centre lathe derives on the manual form.
   qp_cnc_turning: {
     turning_machine: {
       cnc_lathe: ["skill_turning"],
       conventional_lathe: MANUAL_LATHE,
+      both_types: MANUAL_LATHE,
       vtl: ["skill_turning"],
       sliding_head: ["skill_turning"],
       spm: ["skill_turning"],
@@ -133,6 +139,7 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       facing_od: ["skill_turning"],
       grooving: ["skill_turning"],
       knurling: ["skill_turning"],
+      hard_turning: ["skill_turning"],
       boring: ["skill_boring"],
       drilling: ["skill_drilling"],
       threading: ["skill_tapping_threading"],

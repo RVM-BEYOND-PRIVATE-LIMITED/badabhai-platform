@@ -227,13 +227,15 @@ describe("trade resume map — qp_cnc_turning", () => {
   });
 
   it("orders values by the DICTIONARY, so the same profile always renders identically", () => {
+    // Track A #1 (@6): Mazatrol is its own chip value; the E2 "mazak" value no
+    // longer exists on the pack, so the ordering case moves to it.
     const a = buildTradeCapabilityRows("qp_cnc_turning", {
-      controller_brand: ["mazak", "fanuc", "siemens"],
+      controller_brand: ["mazatrol", "fanuc", "siemens"],
     });
     const b = buildTradeCapabilityRows("qp_cnc_turning", {
-      controller_brand: ["siemens", "mazak", "fanuc"],
+      controller_brand: ["siemens", "mazatrol", "fanuc"],
     });
-    expect(a.chipRows[0]?.values).toEqual(["Fanuc", "Siemens", "Mazak"]);
+    expect(a.chipRows[0]?.values).toEqual(["Fanuc", "Siemens", "Mazatrol"]);
     expect(a).toEqual(b);
   });
 
