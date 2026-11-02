@@ -193,6 +193,11 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   qp_vmc_milling: {
     milling_machine: {
       vmc: ["skill_milling"],
+      // Track A #2 (@6): the sheet-2 machine variants are VMC claims too.
+      fourth_axis: ["skill_milling"],
+      five_axis: ["skill_milling"],
+      drill_tap: ["skill_milling"],
+      double_column: ["skill_milling"],
       hmc: ["role_hmc_operator"],
       conventional_mill: MANUAL_MILL,
       bed_mill: MANUAL_MILL,

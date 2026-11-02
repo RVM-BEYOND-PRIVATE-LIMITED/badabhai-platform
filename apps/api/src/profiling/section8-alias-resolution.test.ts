@@ -490,6 +490,11 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
   // live tool" chip keeps bare "live tool" capturing and the dropped c_axis
   // machine chip moves that word to the re-ask set (C-axis lives on the
   // advanced_capability row).
+  // TRACK A #2 (@6) LEAVES THE VMC GAP AS-IS: the "+"-joined "VMC + 4th
+  // axis" chip captures its full label, but bare "4th axis", "5 axis",
+  // "rotary table" and "indexer" still re-ask ("+"/"-" labels do not split
+  // the way "/" labels do - E1 mechanism), as do "horizontal", "trunnion",
+  // "dmg" and "milling machine".
   it.each([
     ["qp_cnc_turning@5.json", "turning_machine", "VMC"],
     ["qp_cnc_turning@6.json", "turning_machine", "VMC"],
@@ -502,6 +507,13 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_vmc_milling@5.json", "milling_machine", "trunnion"],
     ["qp_vmc_milling@5.json", "milling_machine", "dmg"],
     ["qp_vmc_milling@5.json", "milling_machine", "milling machine"],
+    ["qp_vmc_milling@6.json", "milling_machine", "horizontal"],
+    ["qp_vmc_milling@6.json", "milling_machine", "milling machine"],
+    ["qp_vmc_milling@6.json", "milling_machine", "dmg"],
+    ["qp_vmc_milling@6.json", "milling_machine", "4th axis"],
+    ["qp_vmc_milling@6.json", "milling_machine", "5 axis"],
+    ["qp_vmc_milling@6.json", "milling_machine", "indexer"],
+    ["qp_vmc_milling@6.json", "milling_machine", "trunnion"],
   ] as ReadonlyArray<readonly [string, string, string]>)(
     "%s %s: %s → re-ask (no chip label matches)",
     (packFile, questionKey, text) => {
@@ -548,6 +560,54 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_cnc_turning@6.json", "program_edit_confirm", "Edit hi karta hoon", "other"],
     ["qp_cnc_turning@6.json", "program_write_confirm", "Haan, khud banata hoon", "self"],
     ["qp_cnc_turning@6.json", "program_write_confirm", "Bana-banaya chalata hoon", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK A #2 (@6) — the retagged VMC/HMC set resolves at capture: the
+  // /-forms split the bare words (E1 mechanism, carried forward), the sheet-2
+  // machine variants capture their words, and the unified Advanced rows
+  // capture the Turner-shared vocabulary.
+  it.each([
+    // Machine (slot-2 set per sheet 2 + kept history chips).
+    ["qp_vmc_milling@6.json", "milling_machine", "VMC 3-axis", "vmc"],
+    ["qp_vmc_milling@6.json", "milling_machine", "VMC + 4th axis", "fourth_axis"],
+    ["qp_vmc_milling@6.json", "milling_machine", "5-axis", "five_axis"],
+    ["qp_vmc_milling@6.json", "milling_machine", "HMC / horizontal machining centre", "hmc"],
+    ["qp_vmc_milling@6.json", "milling_machine", "HMC", "hmc"],
+    ["qp_vmc_milling@6.json", "milling_machine", "Drill-tap centre", "drill_tap"],
+    ["qp_vmc_milling@6.json", "milling_machine", "Double-column / large bed", "double_column"],
+    ["qp_vmc_milling@6.json", "milling_machine", "Conventional milling machine", "conventional_mill"],
+    ["qp_vmc_milling@6.json", "milling_machine", "Bed ya knee type mill", "bed_mill"],
+    ["qp_vmc_milling@6.json", "milling_machine", "SPM machine", "spm"],
+    // Controller (+Fagor/Syntec).
+    ["qp_vmc_milling@6.json", "controller_brand", "Heidenhain / TNC", "heidenhain"],
+    ["qp_vmc_milling@6.json", "controller_brand", "Fagor", "fagor"],
+    ["qp_vmc_milling@6.json", "controller_brand", "Syntec", "syntec"],
+    ["qp_vmc_milling@6.json", "controller_brand", "Pata nahi", null],
+    // Operations (sheet 2 Q9 additions).
+    ["qp_vmc_milling@6.json", "milling_operation", "Thread mill", "thread_mill"],
+    ["qp_vmc_milling@6.json", "milling_operation", "3D surface", "three_d_surface"],
+    ["qp_vmc_milling@6.json", "milling_operation", "Engraving", "engraving"],
+    // Materials (unified to the Turner set).
+    ["qp_vmc_milling@6.json", "material_worked", "EN8, EN31 alloy steel", "alloy_steel"],
+    ["qp_vmc_milling@6.json", "material_worked", "Brass ya copper", "brass"],
+    ["qp_vmc_milling@6.json", "material_worked", "Titanium / Inconel", "titanium"],
+    ["qp_vmc_milling@6.json", "material_worked", "Plastics", "plastic"],
+    ["qp_vmc_milling@6.json", "tolerance_band", "0.005 mm / H7 tak", "0.005"],
+    // Industry (sheet 2 Q12 additions).
+    ["qp_vmc_milling@6.json", "sector_worked", "SPM / machine parts", "spm_parts"],
+    ["qp_vmc_milling@6.json", "sector_worked", "Electronics / EMS", "electronics"],
+    // Separating confirms (self/other VALUES resolve).
+    ["qp_vmc_milling@6.json", "milling_setting_confirm", "Khud karta hoon", "self"],
+    ["qp_vmc_milling@6.json", "milling_setting_confirm", "Koi aur karta hai", "other"],
+    ["qp_vmc_milling@6.json", "milling_program_write_confirm", "Haan, khud banata hoon", "self"],
+    ["qp_vmc_milling@6.json", "milling_program_write_confirm", "Bana-banaya chalata hoon", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

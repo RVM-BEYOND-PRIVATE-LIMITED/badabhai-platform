@@ -64,14 +64,16 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 
 ## 2. The 12 trades (one PR each, in this order — machining-adjacent first)
 
-> TRACK A #1 — TURNER RETAG ✅ CODE DONE (`feat/mw-turner-retag`, PR next).
-> `qp_cnc_turning@6`: Easy/Medium/Advanced tiers; 6-band experience; Helper/
-> Trainee chip; sheet-1 machine/controller sets (+spm/+conventional_lathe kept
-> history chips; Mazatrol its own value; +Fagor/Syntec); Advanced
-> operation/material/tolerance/industry rows; 4 separating confirm items wired
-> into `tradeLevelEntriesForPackAnswers` (self→true, other→false, absent→rung
-> rule). Engine: Turner Easy = Q1–Q5 close; offer copy "3 sawaal aur"; headline/
-> verdict level-second. Deviations in the @6 review_note. ✅ Seeds after merge
+> TRACK A #1 — TURNER RETAG ✅ CODE DONE (`feat/mw-turner-retag`, PR #2508, merged).
+> `qp_cnc_turning@6` live on production (seeded + verified post-merge).
+>
+> TRACK A #2 — VMC/HMC RETAG ✅ CODE DONE (`feat/mw-vmc-retag`, PR next).
+> `qp_vmc_milling@6`: Easy/Medium/Advanced tiers; 6-band experience; Helper/
+> Trainee chip; sheet-2 machine/controller sets (+conventional_mill/+bed_mill/
+> +spm kept history chips; +Fagor/Syntec); materials unified to Turner set;
+> tolerance +0.005/H7; industry +SPM/EMS; 4 separating confirm items wired
+> into `tradeLevelEntriesForPackAnswers`. Engine: VMC Easy = Q1–Q5 close (same
+> shape as Turner). Deviations in the @6 review_note. ✅ Seeds after merge
 > (`db:seed:packs` + verify by Divyanshu).
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |

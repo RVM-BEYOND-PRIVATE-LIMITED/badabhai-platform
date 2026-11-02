@@ -138,6 +138,7 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_vmc_milling@3:milling_machine",
       "qp_vmc_milling@4:milling_machine",
       "qp_vmc_milling@5:milling_machine",
+      "qp_vmc_milling@6:milling_machine",
       "qp_welding:welding_process",
     ]);
   }, 30_000);

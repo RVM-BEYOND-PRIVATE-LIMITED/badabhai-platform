@@ -9,7 +9,7 @@
   "version": 5,
   "family_id": "fam_vmc_milling",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v5 (Middle Way E2): controller capture synonyms added (Sinumerik, M70, Mazatrol, TNC) — owner-ratified product-line equivalences, no new values. Drafted for owner review (Prakash).",
   "items": [
     {

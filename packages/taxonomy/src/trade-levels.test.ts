@@ -266,4 +266,35 @@ describe("trade-level crosswalk", () => {
       { skillId: "mskill_cnc_turner", tradeLevel: "operator", levelConfirmed: false },
     ]);
   });
+
+  it("wires the VMC/HMC confirms the same way (CEO Launch Pack v1, Track A #2)", () => {
+    const vmc = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_vmc_milling",
+        confirm === null
+          ? [{ attributeKey: "milling_level", value: level }]
+          : [{ attributeKey: "milling_level", value: level }, confirm],
+      );
+    // No confirm answer: the rung rule stands.
+    expect(vmc("setter", null)).toEqual([
+      { skillId: "mskill_vmc_operator", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    // Self confirms, other disconfirms — per rung.
+    expect(vmc("setter", { attributeKey: "milling_setting_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_vmc_operator", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    expect(vmc("setter", { attributeKey: "milling_setting_confirm", value: "other" })).toEqual(
+      [{ skillId: "mskill_vmc_operator", tradeLevel: "setter", levelConfirmed: false }],
+    );
+    expect(
+      vmc("programmer", { attributeKey: "milling_program_write_confirm", value: "self" }),
+    ).toEqual([
+      { skillId: "mskill_vmc_operator", tradeLevel: "programmer", levelConfirmed: true },
+    ]);
+    expect(
+      vmc("supervisor", { attributeKey: "milling_team_confirm", value: "4 machine, 6 log" }),
+    ).toEqual([
+      { skillId: "mskill_vmc_operator", tradeLevel: "supervisor", levelConfirmed: true },
+    ]);
+  });
 });
