@@ -484,8 +484,16 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
   // re-asks with chips: the VMC slot-2 FEATURES (axis questions already capture
   // 4/5-axis + rotary — see axis_capability) and the rival word VMC on the
   // Turner question.
+  //
+  // TRACK A #1 (@6) NARROWS THE TURNER GAP FURTHER: the sheet-1 machine set
+  // keeps VMC a re-ask (still no VMC chip), while the merged "Turn-mill /
+  // live tool" chip keeps bare "live tool" capturing and the dropped c_axis
+  // machine chip moves that word to the re-ask set (C-axis lives on the
+  // advanced_capability row).
   it.each([
     ["qp_cnc_turning@5.json", "turning_machine", "VMC"],
+    ["qp_cnc_turning@6.json", "turning_machine", "VMC"],
+    ["qp_cnc_turning@6.json", "turning_machine", "C-axis"],
     ["qp_vmc_milling@5.json", "milling_machine", "horizontal"],
     ["qp_vmc_milling@5.json", "milling_machine", "4th axis"],
     ["qp_vmc_milling@5.json", "milling_machine", "rotary table"],
@@ -498,6 +506,54 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     "%s %s: %s → re-ask (no chip label matches)",
     (packFile, questionKey, text) => {
       expect(capturedOption(packFile, questionKey, text)).toEqual([]);
+    },
+  );
+
+  // TRACK A #1 (@6) — the retagged Turner set resolves at capture: the /-forms
+  // split the bare words (E1 mechanism, carried forward), the own-value
+  // Mazatrol chip captures the bare word (E2 synonym made a value), and the
+  // new Advanced rows capture their sheet-1 words.
+  it.each([
+    // Machine (slot-2 set per sheet 1 + kept history chips).
+    ["qp_cnc_turning@6.json", "turning_machine", "CNC lathe 2-axis", "cnc_lathe"],
+    ["qp_cnc_turning@6.json", "turning_machine", "Turn-mill / live tool", "turn_mill"],
+    ["qp_cnc_turning@6.json", "turning_machine", "live tool", "turn_mill"],
+    ["qp_cnc_turning@6.json", "turning_machine", "Twin spindle", "twin_spindle"],
+    ["qp_cnc_turning@6.json", "turning_machine", "twin spindle", "twin_spindle"],
+    ["qp_cnc_turning@6.json", "turning_machine", "Swiss / sliding head", "sliding_head"],
+    ["qp_cnc_turning@6.json", "turning_machine", "VTL / vertical lathe", "vtl"],
+    ["qp_cnc_turning@6.json", "turning_machine", "CNC + conventional dono", "both_types"],
+    ["qp_cnc_turning@6.json", "turning_machine", "Khraad ya conventional lathe", "conventional_lathe"],
+    ["qp_cnc_turning@6.json", "turning_machine", "SPM machine", "spm"],
+    // Controller (Mazatrol as its own value; Fagor/Syntec new).
+    ["qp_cnc_turning@6.json", "controller_brand", "Fanuc", "fanuc"],
+    ["qp_cnc_turning@6.json", "controller_brand", "Siemens / Sinumerik", "siemens"],
+    ["qp_cnc_turning@6.json", "controller_brand", "Mitsubishi / M70", "mitsubishi"],
+    ["qp_cnc_turning@6.json", "controller_brand", "Mazatrol", "mazatrol"],
+    ["qp_cnc_turning@6.json", "controller_brand", "Fagor", "fagor"],
+    ["qp_cnc_turning@6.json", "controller_brand", "Syntec", "syntec"],
+    ["qp_cnc_turning@6.json", "controller_brand", "Pata nahi", null],
+    // Advanced rows (sheet 1 Q9–Q12).
+    ["qp_cnc_turning@6.json", "turning_operation", "Hard turning", "hard_turning"],
+    ["qp_cnc_turning@6.json", "material_worked", "Titanium / Inconel", "titanium"],
+    ["qp_cnc_turning@6.json", "material_worked", "Plastics", "plastic"],
+    ["qp_cnc_turning@6.json", "tolerance_band", "0.005 mm / H7 tak", "0.005"],
+    ["qp_cnc_turning@6.json", "sector_worked", "Two-wheeler parts", "two_wheeler"],
+    ["qp_cnc_turning@6.json", "sector_worked", "Bearing ke parts", "bearings"],
+    ["qp_cnc_turning@6.json", "sector_worked", "Fastener", "fasteners"],
+    // Separating confirms (self/other VALUES resolve; option keys are chips).
+    ["qp_cnc_turning@6.json", "setting_confirm", "Khud karta hoon", "self"],
+    ["qp_cnc_turning@6.json", "setting_confirm", "Koi aur karta hai", "other"],
+    ["qp_cnc_turning@6.json", "program_edit_confirm", "Khud likhta hoon", "self"],
+    ["qp_cnc_turning@6.json", "program_edit_confirm", "Edit hi karta hoon", "other"],
+    ["qp_cnc_turning@6.json", "program_write_confirm", "Haan, khud banata hoon", "self"],
+    ["qp_cnc_turning@6.json", "program_write_confirm", "Bana-banaya chalata hoon", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
     },
   );
 });

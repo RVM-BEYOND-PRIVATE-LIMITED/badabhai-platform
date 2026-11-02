@@ -113,8 +113,9 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
   "Bas ho gaya. Resume ban raha hai.": "बस हो गया। रिज़्यूमे बन रहा है।",
 
   // optional-offer.ts — Middle-Way C2 stop rule (P3b): the one optional-depth offer.
-  "Bas ho gaya. Resume ban raha hai. 2 minute aur dein? Resume aur strong banega.":
-    "बस हो गया। रिज़्यूमे बन रहा है। 2 मिनट और दें? रिज़्यूमे और स्ट्रॉन्ग बनेगा।",
+  // CEO Launch Plan Pack v1 (RULED 2026-11-02): "3 sawaal aur" replaces "2 minute aur".
+  "Bas ho gaya. Resume ban raha hai. 3 sawaal aur? Resume aur strong banega.":
+    "बस हो गया। रिज़्यूमे बन रहा है। 3 सवाल और? रिज़्यूमे और स्ट्रॉन्ग बनेगा।",
 
   // next-question.ts — asked ABOUT the packs, so it lives in none of them.
   "Aap in mein se kaun sa kaam karte hain?": "आप इन में से कौन सा काम करते हैं?",
@@ -427,6 +428,17 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   // same words, so one twin covers all three; CAM's desk ladder gets its own. Retries name the
   // rungs because a bare "kya karte hain" re-ask is what the worker just failed to answer.
   "Machine pe aap kya karte hain?": "मशीन पे आप क्या करते हैं?",
+  // --- qp_cnc_turning@6 (Track A #1) — the four separating-confirm prompts ----
+  // Asked only at/above the confirmed rung (each gated on its own rung), so
+  // each twin is authored once here and never composed.
+  "Naya job aaye to setting aap karte ho ya koi aur?":
+    "नया जॉब आये तो सेटिंग आप करते हो या कोई और?",
+  "Program control pe khud likhte ho ya edit hi karte ho?":
+    "प्रोग्राम कंट्रोल पे खुद लिखते हो या एडिट ही करते हो?",
+  "Drawing se naya program zero se banate ho?":
+    "ड्राइंग से नया प्रोग्राम ज़ीरो से बनाते हो?",
+  "Kitne machine aur kitne log aapke under hain?":
+    "कितने मशीन और कितने लोग आपके अंडर हैं?",
   "Programming me aap kya karte hain?": "प्रोग्रामिंग में आप क्या करते हैं?",
   "Machine par helper, operator ya setter hain?": "मशीन पर हेल्पर, ऑपरेटर या सेटर हैं?",
   "Junior programmer, programmer ya senior programmer hain?":
@@ -959,6 +971,15 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "क्वालिटी का काम जानने वाले को सुपरवाइज़र बनाया जाता है।",
   "Problem theek karne wale operator ki demand zyada hai.":
     "प्रॉब्लम ठीक करने वाले ऑपरेटर की डिमांड ज़्यादा है।",
+  // --- qp_cnc_turning@6 (Track A #1) — the four separating-confirm whys -----
+  "Setting khud karne wale setter ko alag kaam milta hai.":
+    "सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
+  "Khud program likhne wale ko programmer ka kaam milta hai.":
+    "खुद प्रोग्राम लिखने वाले को प्रोग्रामर का काम मिलता है।",
+  "Drawing se program banane wale programmer ki alag maang hai.":
+    "ड्राइंग से प्रोग्राम बनाने वाले प्रोग्रामर की अलग माँग है।",
+  "Team sambhalne wale supervisor ko alag zimmedari milti hai.":
+    "टीम सँभालने वाले सुपरवाइज़र को अलग ज़िम्मेदारी मिलती है।",
   // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
   //
   // NINE WHY-TEXTS. The tenth — "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain." — is

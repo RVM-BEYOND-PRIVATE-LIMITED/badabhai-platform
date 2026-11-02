@@ -86,6 +86,10 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'coating_level': _level,
   'turning_level': _level, 'milling_level': _level, 'grinding_level': _level,
   'cam_level': _level,
+  // Track A #1 (qp_cnc_turning@6) — the separating confirms are level
+  // follow-ups, not craft: Experience, left out of Technical Skills.
+  'setting_confirm': _level, 'program_edit_confirm': _level,
+  'program_write_confirm': _level, 'team_confirm': _level,
   // Machines
   'turning_machine': _machines, 'milling_machine': _machines,
   'grinding_machine': _machines, 'machining_machine': _machines,

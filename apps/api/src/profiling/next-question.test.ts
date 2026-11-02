@@ -640,7 +640,7 @@ describe("reAsk — the question on screen again, as a counted ask (#2233)", () 
   });
 });
 
-describe("Middle-Way required close (P3a) — the 8 settled slots end the interview", () => {
+describe("Middle-Way required close (P3a) — the settled slots end the interview", () => {
   const TURNER_8 = [
     "primary_trade",
     "turning_machine",
@@ -649,6 +649,18 @@ describe("Middle-Way required close (P3a) — the 8 settled slots end the interv
     "controller_brand",
     "current_city",
     "salary_expected",
+    "availability",
+  ];
+
+  // CEO Launch Plan Pack v1 (RULED 2026-11-02, Track A #1): Turner Easy is
+  // Q1–Q5 — trade, years, level, location, availability. Machine, controller
+  // and salary moved to Medium: asked, never required. Other packs keep the
+  // v1 8-required shape until their own retag PR.
+  const TURNER_EASY_5 = [
+    "primary_trade",
+    "turning_experience",
+    "turning_level",
+    "current_city",
     "availability",
   ];
 
@@ -686,6 +698,43 @@ describe("Middle-Way required close (P3a) — the 8 settled slots end the interv
     );
     expect(decision.kind).toBe("close");
     expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Turner closes on its Easy 5 with machine, controller and salary still open (CEO pack v1)", () => {
+    const answers = settledAnswers(TURNER_EASY_5);
+    const decision = nextQuestion(state({ answers }), turnerPacks());
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("other packs still need all 8 — machine, controller and salary gate VMC", () => {
+    const vmc: EnginePacks = {
+      occupation: pack("qp_vmc_milling", []),
+      universal: pack("pk_universal", []),
+    };
+    const withoutMedium = settledAnswers([
+      "primary_trade",
+      "milling_experience",
+      "milling_level",
+      "current_city",
+      "availability",
+    ]);
+    expect(nextQuestion(state({ answers: withoutMedium }), vmc).completionReason).toBe(
+      "complete",
+    );
+    const full = settledAnswers([
+      "primary_trade",
+      "milling_machine",
+      "milling_experience",
+      "milling_level",
+      "controller_brand",
+      "current_city",
+      "salary_expected",
+      "availability",
+    ]);
+    expect(nextQuestion(state({ answers: full }), vmc).completionReason).toBe(
+      "required_complete",
+    );
   });
 
   it("a declined slot counts as settled — 'nahi pata' closes, never re-asks", () => {

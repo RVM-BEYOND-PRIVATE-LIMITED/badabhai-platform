@@ -30,7 +30,9 @@ export interface TradeFormCase {
 export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   {
     kind: "cnc_turner",
-    answers: { turning_experience: ["three_to_seven"], turning_machine: ["cnc_lathe"] },
+    // Track A #1 (@6): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
+    answers: { turning_experience: ["five_to_ten"], turning_machine: ["cnc_lathe"] },
     expected: ["mskill_cnc_turner"],
   },
   {

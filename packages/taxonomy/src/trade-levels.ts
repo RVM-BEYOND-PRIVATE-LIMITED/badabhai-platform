@@ -238,6 +238,28 @@ export interface TradeLevelEntry {
 }
 
 /**
+ * Separating-confirm items (CEO Launch Plan Pack v1, Track A #1): rung → the
+ * pack item that asks the separating question for it. Turner @6 ships four;
+ * later retags add their packs' rows here (VMC, CAM, ...), never a new
+ * mechanism.
+ *
+ * The answers are `self` (khud — confirms) or `other` (koi aur — disconfirms).
+ * Anything else stored under a confirm key (e.g. the supervisor's free-text
+ * team count) counts as an answer, hence confirmed: the worker engaged the
+ * separating question instead of skipping it.
+ */
+export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = {
+  qp_cnc_turning: {
+    setter: "setting_confirm",
+    setter_programmer: "program_edit_confirm",
+    programmer: "program_write_confirm",
+    supervisor: "team_confirm",
+  },
+};
+
+/**
  * The authored skill rows for one pack's projected answers (Middle Way P5 persist).
  *
  * AT MOST ONE ENTRY: v1 packs ask one level question each. Unknown packs, unstated
@@ -247,6 +269,11 @@ export interface TradeLevelEntry {
  *
  * `levelConfirmed` follows the P1 column contract (Setter and above only); the
  * trade skill comes from the pack, never from the worker's words.
+ *
+ * CEO Launch Pack v1 (Track A #1): a separating-confirm answer OVERRIDES the
+ * rung rule for the rung it asks about — `self` confirms, `other` disconfirms,
+ * no confirm answer falls back to the rung rule. The worker's own answer about
+ * his own rung outranks the ladder's presumption.
  */
 export function tradeLevelEntriesForPackAnswers(
   packId: string | null | undefined,
@@ -258,7 +285,31 @@ export function tradeLevelEntriesForPackAnswers(
   const raw = attributes.find((a) => a.attributeKey === entry.levelKey)?.value;
   const level = normalizeTradeLevelKey(singleText(raw));
   if (level === null) return [];
-  return [{ skillId: entry.skillId, tradeLevel: level, levelConfirmed: isLevelConfirmed(level) }];
+  return [{ skillId: entry.skillId, tradeLevel: level, levelConfirmed: isConfirmed(packId, level, attributes) }];
+}
+
+/**
+ * The `level_confirmed` bit for one stated rung: the separating-confirm answer
+ * wins when there is one, the rung rule otherwise.
+ */
+function isConfirmed(
+  packId: string,
+  level: TradeLevel,
+  attributes: readonly LevelAnswerInput[],
+): boolean {
+  const confirmKey = TRADE_LEVEL_CONFIRM_ITEMS[packId.split("@")[0]!]?.[level];
+  if (confirmKey !== undefined) {
+    const raw = attributes.find((a) => a.attributeKey === confirmKey)?.value;
+    const text = singleText(raw);
+    if (text !== null) {
+      if (text === "self") return true;
+      if (text === "other") return false;
+      // A non-chip answer (the supervisor's team count) is still an engagement
+      // with the separating question — confirmed, never guessed-against.
+      return true;
+    }
+  }
+  return isLevelConfirmed(level);
 }
 
 /** A single-select answer's text, or null when it is not one clean string. */

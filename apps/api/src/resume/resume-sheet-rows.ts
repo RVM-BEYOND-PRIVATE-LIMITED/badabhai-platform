@@ -65,10 +65,11 @@ export function buildVerdictLine(facts: {
   /**
    * The worker's RUNG on this trade's ladder ("Setter", "Senior Programmer") — Middle Way P5.
    *
-   * THE LAST SEGMENT, by owner ruling (P5 scoping): the sheet's own order is role first and
-   * modifiers after, and the rung modifies everything before it. A closed-vocabulary label
-   * from the C6 crosswalk, printed as-is — never a derivation. Absent for every worker who
-   * stated no rung, taking its separator with it like every absent segment here.
+   * THE SECOND SEGMENT (CEO Launch Plan Pack v1, RULED 2026-11-02 — overturns the P5
+   * level-last scoping, recorded here): every sheet prints `Trade · Level · Years`.
+   * A closed-vocabulary label from the C6 crosswalk, printed as-is — never a
+   * derivation. Absent for every worker who stated no rung, taking its separator
+   * with it like every absent segment here.
    */
   level?: string | null;
   /**
@@ -112,10 +113,10 @@ export function buildVerdictLine(facts: {
   return {
     headlineLine: joinSegments([
       role,
+      facts.level?.trim() || null,
       tenurePhrase(facts.years, facts.tenureLabel ?? null),
       toolsPhrase(facts.tools),
       axesPhrase(facts.axes ?? []),
-      facts.level?.trim() || null,
     ]),
     subheadLine: joinSegments([
       facts.city,

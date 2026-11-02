@@ -340,10 +340,10 @@ describe("the Verdict Line's facts (#1714)", () => {
     expect(out.verdictFacts.city).toBeNull();
   });
 
-  it("prints the rung LAST, and only when the worker stated one (Middle Way P5)", () => {
+  it("prints the rung SECOND, and only when the worker stated one (CEO Launch Pack v1)", () => {
     const out = buildVerdictLine({ ...FULL, level: "Setter" });
     expect(out.headlineLine).toBe(
-      "CNC Turner (Setter-cum-Operator) · 8 yrs · Fanuc, Siemens, Mitsubishi · Setter",
+      "CNC Turner (Setter-cum-Operator) · Setter · 8 yrs · Fanuc, Siemens, Mitsubishi",
     );
     expect(out.verdictFacts.level).toBe("Setter");
     // Absent rung takes its separator with it — every pre-P5 render is byte-identical.

@@ -261,10 +261,14 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           // E1 — slot-2 machine options added to qp_cnc_turning@4. Values print
           // verbatim; keys are the stored value_text.
           turn_mill: "Turn-mill",
-          live_tool: "Live tool",
-          c_axis: "C-axis",
+          // Track A #1 (@6): live_tool and c_axis machine chips merged away —
+          // the turn_mill chip now reads "Turn-mill / live tool" and C-axis
+          // lives on the advanced_capability row. Their old machine answers
+          // drop off the sheet (recorded cost of the sheet-1 machine set).
           twin_spindle: "Twin spindle",
           spm: "SPM",
+          // Track A #1 (@6): the CNC + conventional combo chip.
+          both_types: "CNC + conventional",
         },
       },
       {
@@ -279,7 +283,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           siemens: "Siemens",
           mitsubishi: "Mitsubishi",
           haas: "Haas",
-          mazak: "Mazak",
+          // Track A #1 (@6): Mazatrol is its own chip value (was the E2
+          // Mazak synonym; that value no longer exists on the pack, so the
+          // old "Mazak" answers drop off the sheet — recorded cost of a
+          // week-lived value).
+          mazatrol: "Mazatrol",
+          fagor: "Fagor",
+          syntec: "Syntec",
         },
       },
       {
@@ -295,6 +305,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           aluminium: "Aluminium",
           brass: "Brass",
           cast_iron: "Cast iron",
+          // Track A #1 (@6) — Advanced Q10 per sheet 1.
+          titanium: "Titanium / Inconel",
+          plastic: "Plastics",
         },
       },
       {
@@ -309,6 +322,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           grooving: "Grooving / parting",
           drilling: "Drilling / tapping",
           knurling: "Knurling / taper",
+          // Track A #1 (@6) — Advanced Q9 per sheet 1.
+          hard_turning: "Hard turning",
         },
       },
       {
@@ -409,6 +424,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.05": "±0.05 mm",
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm or finer",
+          // Track A #1 (@6) — Advanced Q11 per sheet 1. @6 retitled the 0.01
+          // chip ("0.01 mm ya usse kam"), so the finer row now reads past it.
+          "0.005": "±0.005 mm / H7",
         },
       },
       {
@@ -424,6 +442,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           oil_gas: "Oil and gas",
           defence: "Defence / aerospace",
           agri: "Agricultural equipment",
+          // Track A #1 (@6) — Advanced Q12 per sheet 1.
+          two_wheeler: "Two-wheeler",
+          bearings: "Bearings",
+          fasteners: "Fasteners",
         },
       },
       {
