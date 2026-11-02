@@ -719,6 +719,17 @@ services:
       # Still read by the D-3 `test_login_net` ceiling; no longer on the OTP path (see the knob's
       # note in server.ts). Declared so that one remaining call site is tunable too.
       OTP_MAX_SENDS_PER_IP_PER_HOUR: ${OTP_MAX_SENDS_PER_IP_PER_HOUR:-1000}
+      # #2509 — the per-IP hourly cap on the PUBLIC payer auth endpoints (signup /
+      # login request / verify). The same #1306 gap as everything else in this block:
+      # undeclared here, a box-level export reached no container and every environment
+      # silently ran the zod default (20). The default below MIRRORS that zod default, so
+      # declaring it changes NOTHING until somebody exports a value. On the shared payer
+      # test backend the whole team (plus diagnostics) arrives behind ONE egress IP, so
+      # 20/hour 429s testers until the top of the UTC hour — export 1000 there (the
+      # production `PAYER_AUTH_MAX_PER_IP_PER_HOUR` secret, or a box export) and redeploy.
+      # Still a cap, not an uncap: 1000/hour/IP bounds farming/stuffing while leaving QA
+      # headroom. KEEP IN SYNC with packages/config/src/server.ts (authoritative).
+      PAYER_AUTH_MAX_PER_IP_PER_HOUR: ${PAYER_AUTH_MAX_PER_IP_PER_HOUR:-20}
       # 0 DISABLES the post-deletion re-registration cool-down (ADR-0026 Phase 5). As of #1306 both
       # the WRITE (AccountDeletionService) and the READ (OtpService) honour it, so 0 is a true off
       # switch rather than "stop minting new tombstones". It does NOT clear keys already in Redis —

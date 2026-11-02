@@ -314,6 +314,15 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /PAYER_ORG_TENANCY_MODE:\s*\$\{\{\s*secrets\.PAYER_ORG_TENANCY_MODE\s*\}\}/,
       /envs:[^\n]*\bPAYER_ORG_TENANCY_MODE\b/,
     ],
+    // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
+    // secret in the confidentiality sense, but bridged through `secrets.*` like the other
+    // numbers so a deploy does not depend on the box's shell state; absent, compose holds
+    // it at the zod default (20) — byte-identical to today.
+    [
+      "PAYER_AUTH_MAX_PER_IP_PER_HOUR",
+      /PAYER_AUTH_MAX_PER_IP_PER_HOUR:\s*\$\{\{\s*secrets\.PAYER_AUTH_MAX_PER_IP_PER_HOUR\s*\}\}/,
+      /envs:[^\n]*\bPAYER_AUTH_MAX_PER_IP_PER_HOUR\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -396,6 +405,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
     ["PAYER_ORG_TENANCY_MODE", "off"],
+    // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
+    ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],
