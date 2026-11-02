@@ -1263,6 +1263,29 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           fusion: "Fusion 360",
           creo: "Creo / Pro-E",
           catia: "CATIA",
+          // Track A #5 (@2): sheet-5 software set.
+          autocad_mech: "AutoCAD Mechanical",
+          draftsight: "DraftSight",
+          zwcad: "ZWCAD",
+          bricscad: "BricsCAD",
+        },
+      },
+      {
+        from: "drawing_subject",
+        rank: 23,
+        maxValues: 4,
+        label: "Drawing subject",
+        kind: "chips",
+        // Track A #5 (@2): sheet-5 Q7. What the drawings are OF — distinct from
+        // the industry rows, which name where the worker learned or worked.
+        values: {
+          machine_parts: "Machine parts",
+          sheetmetal_fab: "Sheet metal / fabrication",
+          structural: "Structural",
+          conveyor_spm: "Conveyor / SPM",
+          elec_panel: "Electrical / panel",
+          piping: "Piping",
+          civil_arch: "Civil / architecture",
         },
       },
       {
@@ -1370,6 +1393,18 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           sample_part: "Measures a sample part and draws it",
           senior_model: "Works from a senior's 3D model or drawing",
           own_design: "Designs it independently",
+        },
+      },
+      {
+        from: "drawing_from_model",
+        rank: 47,
+        label: "3D to 2D",
+        kind: "fact",
+        // Track A #5 (@2): sheet-5 Q11. `no` ("Nahi") has no entry ON PURPOSE —
+        // the drawing_reading:"none" precedent: a negative claim belongs in
+        // matching data, not on the worker's own document.
+        values: {
+          yes: "Draws 2D from 3D models",
         },
       },
       {

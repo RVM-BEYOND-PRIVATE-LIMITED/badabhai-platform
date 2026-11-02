@@ -113,6 +113,8 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_cad_design_3d:design_software",
       "qp_cad_design_3d:design_work_area",
       "qp_cad_drafting:cad_software",
+      "qp_cad_drafting@2:cad_software",
+      "qp_cad_drafting@2:drawing_subject",
       "qp_cam_programming:cam_software",
       "qp_cam_programming:machine_programmed",
       "qp_cam_programming@2:cam_software",

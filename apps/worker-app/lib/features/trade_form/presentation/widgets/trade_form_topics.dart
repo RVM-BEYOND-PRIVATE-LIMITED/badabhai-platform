@@ -104,6 +104,10 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'design_depth': _operations, 'design_tolerance': _precision,
   'design_industry': _sector, 'design_senior_confirm': _level,
   'design_lead_confirm': _level, 'design_team_confirm': _level,
+  // Track A #5 (qp_cad_drafting@2) — the level question, the sheet-5 rows and
+  // the separating confirms, with their true categories.
+  'cad_level': _level, 'drawing_subject': _drawing, 'drawing_from_model': _software,
+  'cad_senior_confirm': _level, 'cad_lead_confirm': _level, 'cad_team_confirm': _level,
   // Machines
   'turning_machine': _machines, 'milling_machine': _machines,
   'grinding_machine': _machines, 'machining_machine': _machines,

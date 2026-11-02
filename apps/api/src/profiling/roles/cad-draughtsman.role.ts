@@ -60,7 +60,7 @@ export const CAD_DRAUGHTSMAN = {
   /** Both halves, exactly as the ratified sheet's headline prints them. */
   displayName: "CAD Designer / Draughtsman",
   offerName: "CAD draughtsman",
-  levelLadder: ["Draughtsman", "CAD Designer", "Design Engineer"],
+  levelLadder: ["Trainee", "Draughtsman", "Senior Draughtsman", "Lead", "Supervisor"],
   tenureQuestionKey: "drafting_experience",
   detection: {
     occupationTerms: [
@@ -93,7 +93,7 @@ export const CAD_DRAUGHTSMAN = {
      * never routes. `design engineer` is the top rung and equally shared, with electronics and
      * every other engineering discipline.
      */
-    levelTerms: ["draughtsman", "draughtsperson", "draftsman", "design engineer", "ड्राफ्ट्समैन"],
+    levelTerms: ["trainee", "draughtsman", "draughtsperson", "draftsman", "senior draughtsman", "design engineer", "lead", "design head", "ड्राफ्ट्समैन"],
     /**
      * THE OTHER DRAUGHTING LINES, and this is the second kind of extra conflict the field
      * documents: a competing trade we do not model at all. `fam_draughting` catches them in

@@ -65,6 +65,12 @@ export interface TradeLevelPack {
   readonly skillId: string;
   /** The `worker_attributes` key holding the level answer (the pack's `target_field`). */
   readonly levelKey: string;
+  /**
+   * Per-trade display labels, when the trade's own words differ from the shared
+   * crosswalk (CEO Launch Plan Pack v1, Track A #5): the 2D sheet headlines
+   * "Senior Draughtsman", never "Senior Designer". Absent = shared labels.
+   */
+  readonly labels?: Readonly<Partial<Record<TradeLevel, string>>>;
 }
 
 export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
@@ -74,6 +80,19 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   qp_cam_programming: { skillId: "mskill_cam_programmer", levelKey: "cam_level" },
   // Track A #4 — the 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4).
   qp_cad_design_3d: { skillId: "mskill_cad_designer_3d", levelKey: "design_level" },
+  // Track A #5 — the 2D Draughtsman (CEO Launch Plan Pack v1, sheet 5). Labels
+  // are the trade's own words (sheet headline "Senior Draughtsman").
+  qp_cad_drafting: {
+    skillId: "mskill_designer",
+    levelKey: "cad_level",
+    labels: {
+      trainee: "Trainee",
+      designer: "Draughtsman",
+      senior_designer: "Senior Draughtsman",
+      lead: "Lead",
+      supervisor: "Head",
+    },
+  },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -216,11 +235,17 @@ function levelTier(level: TradeLevel): "higher" | "lower" {
  * The headline label for one pack's stored level answer, or null when the worker
  * stated no rung. Read by the Verdict Line and the profile headline — the same
  * closed vocabulary on both, so the sheet and the headline can never disagree.
+ *
+ * A pack with its own `labels` (2D Draughtsman today) prints the trade's own
+ * words; every other pack prints the shared crosswalk labels.
  */
 export function tradeLevelLabelFor(packId: string, rawValue: unknown): string | null {
   if (!(packId in TRADE_LEVEL_PACKS)) return null;
+  const entry = TRADE_LEVEL_PACKS[packId]!;
   const level = normalizeTradeLevelKey(rawValue);
   if (level === null) return null;
+  const own = entry.labels?.[level];
+  if (own !== undefined) return own;
   // `noUncheckedIndexedAccess` widens the lookup; the key is known-good, so a miss
   // is a type-system artefact rather than a second null path — still, never undefined.
   return TRADE_LEVEL_LABELS[level] ?? null;
@@ -280,6 +305,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
     senior_designer: "design_senior_confirm",
     lead: "design_lead_confirm",
     supervisor: "design_team_confirm",
+  },
+  // Track A #5 — the 2D draughtsman confirms (CEO Launch Plan Pack v1, sheet 5).
+  // Confirmed from `senior_designer`: senior_designer, lead, supervisor.
+  qp_cad_drafting: {
+    senior_designer: "cad_senior_confirm",
+    lead: "cad_lead_confirm",
+    supervisor: "cad_team_confirm",
   },
 };
 
