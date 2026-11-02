@@ -144,7 +144,10 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'cad_model_handling': _software, 'cam_software': _software,
   'simulation_work': _software, 'post_processor_work': _software,
   'programming_level': _software, 'programming_mode': _software,
-  'programming_work': _operations, 'part_types': _operations, 'extra_work': _operations,
+  // Track A #3 (qp_cam_programming@4): the sheet-3 Advanced rows describe
+  // the worker's craft, so they walk with Technical Skills (unlike the
+  // level-adjacent software keys above, which stay out of it).
+  'part_types': _operations, 'extra_work': _operations,
   // Welding / coating process
   'welding_process': _process, 'coating_process': _process,
   'surface_prep': _process, 'oven_schedule': _process,
