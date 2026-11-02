@@ -93,11 +93,14 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
     }
     expect(matchSkillLabel("mskill_tool_die_maker")).toBe("Tool & Die Maker");
     expect(matchSkillLabel("mskill_painter_coater")).toBe("Painter / Powder Coater");
-    // E0 appended after them — still last, still manufacturing, same id shape.
-    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_3d_designer");
-    expect(matchSkillIndustry("mskill_3d_designer"), "mskill_3d_designer").toBe(
-      "ind_industrial_manufacturing",
-    );
+    // E0 appended after them, then the CEO-pack reconcile (2026-11-02) appended two
+    // more — positional asserts, not from-the-end, so each mint's slot is pinned.
+    expect(MATCH_SKILLS[26]?.skillId).toBe("mskill_3d_designer");
+    expect(MATCH_SKILLS[27]?.skillId).toBe("mskill_cad_designer_3d");
+    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_welder");
+    for (const id of ["mskill_3d_designer", "mskill_cad_designer_3d", "mskill_welder"] as const) {
+      expect(matchSkillIndustry(id), id).toBe("ind_industrial_manufacturing");
+    }
     // Pack-only: no role and no corpus attribute bridges to them yet.
     const bridged = new Set<string>([
       ...Object.values(ROLE_TO_MATCH_SKILL),
@@ -167,8 +170,9 @@ describe("MATCH_SKILL_RELATION_PAIRS — the authored source of truth", () => {
     );
     expect(new Set(unordered).size).toBe(MATCH_SKILL_RELATION_PAIRS.length);
     // 18 before #2022; the owner's ruling minting eight form trades added four curated pairs;
-    // Middle Way E0 (Q3) added the 2D/3D designer pair.
-    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(23);
+    // Middle Way E0 (Q3) added the 2D/3D designer pair; the CEO-pack reconcile (2026-11-02)
+    // added the old/new-3D pair plus the three welder-umbrella edges.
+    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(27);
   });
 
   it("is a TUPLE list, not an object list — the db seeder destructures [a, b]", () => {
@@ -269,7 +273,17 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
       source: "rvm",
       status: "active",
     });
-    expect(RELATED_MATCH_SKILLS.mskill_3d_designer).toEqual(["mskill_designer"]);
+    expect(RELATED_MATCH_SKILLS.mskill_3d_designer).toEqual([
+      "mskill_cad_designer_3d",
+      "mskill_designer",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_cad_designer_3d).toEqual(["mskill_3d_designer"]);
+    expect(matchSkillLabel("mskill_cad_designer_3d")).toBe("3D CAD Designer");
+    expect(getMatchSkill("mskill_cad_designer_3d")).toMatchObject({
+      industryId: "ind_industrial_manufacturing",
+      source: "rvm",
+      status: "active",
+    });
     expect(RELATED_MATCH_SKILLS.mskill_designer).toEqual([
       "mskill_3d_designer",
       "mskill_cam_programmer",
@@ -284,19 +298,31 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
     expect(matchSkillsForAttribute("skill_designer_occupation")).toEqual(["mskill_designer"]);
   });
 
-  it("welding is a mutually related family", () => {
+  it("welding is a mutually related family under one umbrella trade", () => {
+    // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): the three process IDs keep
+    // their edges and each gains the umbrella; new assignments go to `mskill_welder`.
     expect(RELATED_MATCH_SKILLS.mskill_mig_welder).toEqual([
       "mskill_arc_welder",
       "mskill_tig_welder",
+      "mskill_welder",
     ]);
     expect(RELATED_MATCH_SKILLS.mskill_tig_welder).toEqual([
       "mskill_arc_welder",
       "mskill_mig_welder",
+      "mskill_welder",
     ]);
     expect(RELATED_MATCH_SKILLS.mskill_arc_welder).toEqual([
       "mskill_mig_welder",
       "mskill_tig_welder",
+      "mskill_welder",
     ]);
+    expect(RELATED_MATCH_SKILLS.mskill_welder).toEqual([
+      "mskill_arc_welder",
+      "mskill_mig_welder",
+      "mskill_tig_welder",
+    ]);
+    // The generic occupation names the umbrella (reach-neutral: same family both ways).
+    expect(matchSkillsForAttribute("skill_welder_occupation")).toEqual(["mskill_welder"]);
   });
 
   it("#2022: the minted trades carry exactly the curated, conservative relations", () => {
@@ -362,7 +388,10 @@ describe("bridge — ROLE_TO_MATCH_SKILL", () => {
 
   it("pins the ruled 1:1 mappings", () => {
     expect(matchSkillForRole("role_cnc_turner_operator")).toBe("mskill_cnc_turner");
-    expect(matchSkillForRole("role_welder")).toBe("mskill_mig_welder");
+    // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): one welder trade — the role
+    // names the umbrella (was: MIG default). Reach-neutral: the umbrella and MIG
+    // reach the same family both ways.
+    expect(matchSkillForRole("role_welder")).toBe("mskill_welder");
     expect(matchSkillForRole("role_cnc_operator")).toBe("mskill_cnc_operator_general");
     expect(matchSkillForRole("role_interior_designer")).toBe("mskill_interior_designer");
   });
@@ -432,12 +461,13 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
   it("the vocabulary was NOT expanded to make the batch fit", () => {
     // The owner ruled that skills with no legitimate existing mskill stay unmatched rather
     // than earning a new concept. 62 of the 96 are in families with no mskill at all.
-    // The vocabulary DID grow later, twice, each for its own owner-ruled reason: #2022
-    // (2026-10-06) minted one skill per trade FORM that derived nothing, and Middle Way
-    // E0 (Q3, 2026-10-31) split the 3D designer off the generic designer. Neither
-    // ruling re-dispositioned any promotable skill (the five-mapping pin above still
+    // The vocabulary DID grow later, three times, each for its own owner-ruled reason:
+    // #2022 (2026-10-06) minted one skill per trade FORM that derived nothing; Middle Way
+    // E0 (Q3, 2026-10-31) split the 3D designer off the generic designer; and the CEO-pack
+    // reconcile (2026-11-02) minted the permanent 3D ID plus the welder umbrella. No ruling
+    // re-dispositioned any promotable skill (the five-mapping pin above still
     // holds), and no promotable skill reaches a #2022 skill.
-    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 1);
+    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 3);
     for (const id of PROMOTABLE_SKILL_IDS) {
       for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
         expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);

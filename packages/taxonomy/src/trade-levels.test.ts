@@ -41,6 +41,11 @@ describe("trade-level crosswalk", () => {
     expect(normalizeTradeLevelKey("setter_programmer")).toBe("setter_programmer");
     expect(normalizeTradeLevelKey("Setter-cum-Programmer")).toBe("setter_programmer");
     expect(normalizeTradeLevelKey("  OPERATOR ")).toBe("operator");
+    // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): bare "junior" is a trainee
+    // claim (no ladder carries junior_programmer anymore); bare "senior" IS a union
+    // member and the union check runs first, so it names the new shared rung.
+    expect(normalizeTradeLevelKey("junior")).toBe("trainee");
+    expect(normalizeTradeLevelKey("senior")).toBe("senior");
   });
 
   it("returns null instead of guessing", () => {
@@ -51,22 +56,38 @@ describe("trade-level crosswalk", () => {
   });
 
   it("confirms Setter and above only, per ladder", () => {
-    for (const rung of ["helper", "trainee", "operator", "junior_programmer"] as const) {
+    for (const rung of [
+      "helper",
+      "trainee",
+      "operator",
+      "junior_programmer",
+      "technician",
+      "inspector",
+      "designer",
+    ] as const) {
       expect(isLevelConfirmed(rung), rung).toBe(false);
     }
-    for (
-      const rung of [
-        "setter",
-        "setter_programmer",
-        "programmer",
-        "senior_programmer",
-        "supervisor",
-        "senior_draughtsman",
-        "senior_designer",
-        "lead_checker",
-        "design_engineer_lead",
-      ] as const
-    ) {
+    for (const rung of [
+      "setter",
+      "setter_programmer",
+      "programmer",
+      "senior_programmer",
+      "supervisor",
+      "senior_draughtsman",
+      "senior_designer",
+      "lead_checker",
+      "design_engineer_lead",
+      // CEO Launch Pack v1 (RULED 2026-11-02, reconciled) — one separating rung
+      // per sheet: skilled ladders from `skilled`, technician ladders from
+      // `senior_technician`, QC from `senior_inspector`; `senior`/`lead` confirm
+      // everywhere they appear.
+      "skilled",
+      "senior",
+      "senior_technician",
+      "senior_inspector",
+      "qc_engineer",
+      "lead",
+    ] as const) {
       expect(isLevelConfirmed(rung), rung).toBe(true);
     }
     expect(isLevelConfirmed(null)).toBe(false);
@@ -74,22 +95,32 @@ describe("trade-level crosswalk", () => {
 
   it("prices null and the floor Lower, Setter and above Higher", () => {
     expect(priceTierForTradeLevel(null)).toBe("lower");
-    for (
-      const rung of [
-        "helper",
-        "operator",
-        "trainee",
-        "draughtsman",
-        "trainee_modeller",
-        "cad_designer",
-        "junior_programmer",
-      ] as const
-    ) {
+    for (const rung of [
+      "helper",
+      "operator",
+      "trainee",
+      "draughtsman",
+      "trainee_modeller",
+      "cad_designer",
+      "junior_programmer",
+      "technician",
+      "inspector",
+      "designer",
+    ] as const) {
       expect(priceTierForTradeLevel(rung), rung).toBe("lower");
     }
-    for (
-      const rung of ["setter", "setter_programmer", "programmer", "supervisor"] as const
-    ) {
+    for (const rung of [
+      "setter",
+      "setter_programmer",
+      "programmer",
+      "supervisor",
+      "skilled",
+      "senior",
+      "senior_technician",
+      "senior_inspector",
+      "qc_engineer",
+      "lead",
+    ] as const) {
       expect(priceTierForTradeLevel(rung), rung).toBe("higher");
     }
   });
@@ -107,21 +138,30 @@ describe("trade-level crosswalk", () => {
     expect(tradeLevelLabelFor("qp_cnc_turning", "setter_cum_programmer")).toBe(
       "Setter-cum-Programmer",
     );
-    expect(tradeLevelLabelFor("qp_cnc_turning", "setter_programmer")).toBe(
-      "Setter-cum-Programmer",
-    );
-    expect(tradeLevelLabelFor("qp_cam_programming", "senior_programmer")).toBe(
-      "Senior Programmer",
-    );
+    expect(tradeLevelLabelFor("qp_cnc_turning", "setter_programmer")).toBe("Setter-cum-Programmer");
+    expect(tradeLevelLabelFor("qp_cam_programming", "senior_programmer")).toBe("Senior Programmer");
     expect(tradeLevelLabelFor("qp_cnc_turning", null)).toBeNull();
     expect(tradeLevelLabelFor("qp_cnc_turning", "boss")).toBeNull();
     expect(tradeLevelLabelFor("qp_welding", "setter")).toBeNull();
+    // CEO shared vocabulary (RULED 2026-11-02, reconciled) — display labels for
+    // the new rungs, pinned so a headline can never print a raw key.
+    expect(tradeLevelLabelFor("qp_cnc_turning", "skilled")).toBe("Skilled");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "senior")).toBe("Senior");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "technician")).toBe("Technician");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "senior_technician")).toBe("Senior Technician");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "inspector")).toBe("Inspector");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "senior_inspector")).toBe("Senior Inspector");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "qc_engineer")).toBe("QC Engineer");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "designer")).toBe("Designer");
+    expect(tradeLevelLabelFor("qp_cnc_turning", "lead")).toBe("Lead");
   });
 
   it("emits the authored skill row for a pack's level answer, and nothing else", () => {
     // Turner setter: trade skill + confirmed.
     expect(
-      tradeLevelEntriesForPackAnswers("qp_cnc_turning", [{ attributeKey: "turning_level", value: "setter" }]),
+      tradeLevelEntriesForPackAnswers("qp_cnc_turning", [
+        { attributeKey: "turning_level", value: "setter" },
+      ]),
     ).toEqual([{ skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true }]);
     // The pack's own option-key spelling lands canonically.
     expect(
@@ -133,23 +173,43 @@ describe("trade-level crosswalk", () => {
     ]);
     // Helper writes the rung but does not confirm it.
     expect(
-      tradeLevelEntriesForPackAnswers("qp_vmc_milling", [{ attributeKey: "milling_level", value: "helper" }]),
+      tradeLevelEntriesForPackAnswers("qp_vmc_milling", [
+        { attributeKey: "milling_level", value: "helper" },
+      ]),
     ).toEqual([{ skillId: "mskill_vmc_operator", tradeLevel: "helper", levelConfirmed: false }]);
     // CAM junior: written, unconfirmed; senior: written, confirmed.
     expect(
-      tradeLevelEntriesForPackAnswers("qp_cam_programming", [{ attributeKey: "cam_level", value: "junior_programmer" }]),
+      tradeLevelEntriesForPackAnswers("qp_cam_programming", [
+        { attributeKey: "cam_level", value: "junior_programmer" },
+      ]),
     ).toEqual([
       { skillId: "mskill_cam_programmer", tradeLevel: "junior_programmer", levelConfirmed: false },
     ]);
     // Unknown pack, unstated rung, unmapped spelling, wrong key: no row.
-    expect(tradeLevelEntriesForPackAnswers("qp_welding", [{ attributeKey: "welding_level", value: "setter" }])).toEqual([]);
+    expect(
+      tradeLevelEntriesForPackAnswers("qp_welding", [
+        { attributeKey: "welding_level", value: "setter" },
+      ]),
+    ).toEqual([]);
     expect(tradeLevelEntriesForPackAnswers("qp_cnc_turning", [])).toEqual([]);
-    expect(tradeLevelEntriesForPackAnswers("qp_cnc_turning", [{ attributeKey: "turning_level", value: "boss" }])).toEqual([]);
-    expect(tradeLevelEntriesForPackAnswers("qp_cnc_turning", [{ attributeKey: "turning_machine", value: "setter" }])).toEqual([]);
-    expect(tradeLevelEntriesForPackAnswers(null, [{ attributeKey: "turning_level", value: "setter" }])).toEqual([]);
+    expect(
+      tradeLevelEntriesForPackAnswers("qp_cnc_turning", [
+        { attributeKey: "turning_level", value: "boss" },
+      ]),
+    ).toEqual([]);
+    expect(
+      tradeLevelEntriesForPackAnswers("qp_cnc_turning", [
+        { attributeKey: "turning_machine", value: "setter" },
+      ]),
+    ).toEqual([]);
+    expect(
+      tradeLevelEntriesForPackAnswers(null, [{ attributeKey: "turning_level", value: "setter" }]),
+    ).toEqual([]);
     // Versioned pack ids resolve to the same crosswalk.
     expect(
-      tradeLevelEntriesForPackAnswers("qp_cnc_grinding@3", [{ attributeKey: "grinding_level", value: "operator" }]),
+      tradeLevelEntriesForPackAnswers("qp_cnc_grinding@3", [
+        { attributeKey: "grinding_level", value: "operator" },
+      ]),
     ).toEqual([
       { skillId: "mskill_cnc_grinding_operator", tradeLevel: "operator", levelConfirmed: false },
     ]);

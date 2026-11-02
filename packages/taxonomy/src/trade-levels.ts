@@ -23,7 +23,20 @@ export type TradeLevel =
   | "senior_designer"
   | "lead_checker"
   | "design_engineer_lead"
-  | "supervisor";
+  | "supervisor"
+  // CEO Launch Pack v1 (RULED 2026-11-02, reconciled) — the shared rung vocabulary.
+  // `helper`, `junior_programmer` and the CAD keys above stay for history (stored rows
+  // keep rendering); new packs use these. "Do not invent new keys" — these are the
+  // CEO's, not ours.
+  | "skilled"
+  | "senior"
+  | "technician"
+  | "senior_technician"
+  | "inspector"
+  | "senior_inspector"
+  | "qc_engineer"
+  | "designer"
+  | "lead";
 
 /**
  * C6 CROSSWALK — pack level answers → trade skill + `trade_level` (Middle Way P5).
@@ -66,14 +79,21 @@ const LEVEL_KEY_ALIASES: Readonly<Record<string, TradeLevel>> = {
   setter_cum_programmer: "setter_programmer",
   settercumprogrammer: "setter_programmer",
   "setter-cum-programmer": "setter_programmer",
-  junior: "junior_programmer",
-  senior: "senior_programmer",
+  // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): bare "junior" is a trainee
+  // claim now (no ladder carries `junior_programmer` anymore; that key stays for
+  // history). Bare "senior" needs no alias: it IS a union member and the union
+  // check runs first — the old `senior → senior_programmer` row is deleted, not
+  // left to mislead.
+  junior: "trainee",
 };
 
 /** A stored level answer → its `TradeLevel`, or null when it names no rung. */
 export function normalizeTradeLevelKey(raw: unknown): TradeLevel | null {
   if (typeof raw !== "string") return null;
-  const folded = raw.trim().toLowerCase().replace(/[\s_]+/g, "_");
+  const folded = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "_");
   if ((Object.keys(TRADE_LEVEL_LABELS) as string[]).includes(folded)) {
     return folded as TradeLevel;
   }
@@ -99,6 +119,17 @@ export const TRADE_LEVEL_LABELS: Readonly<Record<TradeLevel, string>> = {
   lead_checker: "Lead Checker",
   design_engineer_lead: "Design Engineer Lead",
   supervisor: "Supervisor",
+  // CEO shared vocabulary — display labels from the trade sheets (chip-adjacent,
+  // not chip text: chips vary by trade, keys do not).
+  skilled: "Skilled",
+  senior: "Senior",
+  technician: "Technician",
+  senior_technician: "Senior Technician",
+  inspector: "Inspector",
+  senior_inspector: "Senior Inspector",
+  qc_engineer: "QC Engineer",
+  designer: "Designer",
+  lead: "Lead",
 };
 
 /**
@@ -107,6 +138,12 @@ export const TRADE_LEVEL_LABELS: Readonly<Record<TradeLevel, string>> = {
  * PER LADDER, stated once. Turner/VMC: setter and up. Grinding stops at
  * setter-cum-programmer (no programmer rung exists). CAM: programmer and up —
  * a junior is still proving out. CAD ladders: senior/lead rungs only.
+ *
+ * CEO Launch Pack v1 (RULED 2026-11-02, reconciled) — one separating rung per
+ * sheet: skilled-ladder trades confirm from `skilled`; technician ladders from
+ * `senior_technician`; QC from `senior_inspector`; design ladders from
+ * `senior_designer`; `lead` and `senior` confirm everywhere they appear (all
+ * Higher). Supervisor confirms in every trade (Q4).
  */
 const CONFIRMED_RUNGS: ReadonlySet<string> = new Set([
   "setter",
@@ -118,6 +155,12 @@ const CONFIRMED_RUNGS: ReadonlySet<string> = new Set([
   "senior_designer",
   "lead_checker",
   "design_engineer_lead",
+  "skilled",
+  "senior",
+  "senior_technician",
+  "senior_inspector",
+  "qc_engineer",
+  "lead",
 ]);
 
 /** True once the separating question was answered (Setter and above only). */
@@ -148,6 +191,8 @@ export function priceTierForLevels(levels: readonly (TradeLevel | null)[]): "hig
 }
 
 function levelTier(level: TradeLevel): "higher" | "lower" {
+  // CEO Launch Pack v1 (RULED 2026-11-02, reconciled) — per-sheet tiers. Lower: the
+  // trainee/operator/designer rungs. Everything else Higher.
   switch (level) {
     case "helper":
     case "trainee":
@@ -156,6 +201,9 @@ function levelTier(level: TradeLevel): "higher" | "lower" {
     case "trainee_modeller":
     case "cad_designer":
     case "junior_programmer":
+    case "technician":
+    case "inspector":
+    case "designer":
       return "lower";
     default:
       return "higher";

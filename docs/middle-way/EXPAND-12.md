@@ -1,5 +1,11 @@
 # Middle Way — EXPAND plan (P6): Grinding/CAM aliases + 12 remaining live trades
 
+> SUPERSEDED FOR ORDER (2026-11-02): the CEO Launch Plan Pack v1 replaces the
+> E6–E17 queue below with its §4 build order (Track A retag first, then Track B).
+> The per-trade recipe (§3) and the DONE records (E0–E2, E4, E5) stand; E-items
+> below are kept as history. Reconciliation of the pack's ID/key conflicts rides
+> `feat/mw-reconcile-pack-v1`.
+
 v1 shipped C1–C6 on 4 trades (Turner, VMC, Grinding, CAM). Turner + VMC are fully
 loaded (P2 gates, P3 required+stop, P4 §8 aliases, P5 display+price hook).
 Grinding/CAM miss their P4 alias starter; the other 12 live trades miss everything
@@ -22,16 +28,16 @@ same branch/gate discipline as P1–P5 (`feat/mw-ex-*`, gates green, squash-merg
   axis chips — `axis_capability` already captures 4-axis/rotary/5-axis, a second
   chip would duplicate semantics); Grinding = 4 grinding-first relabels (E4 GAP
   closed). Resume map += 4 Turner values. Snapshot + served-text regen in-commit.
-  PENDING MANUAL STEP: Divyanshu `db:seed:packs` on production (new versions exist
-  in code only until then). TTS re-render rides #701.
+  ✅ SEEDED on production (`db:seed:packs`, verify PASS). TTS re-render rides #701.
 - **E2 — Controller spellings ✅ CODE DONE (`feat/mw-e2-controller-spellings`, PR next).**
   Three @5 packs: /-synonym labels on existing chips (Sinumerik→Siemens, M70→
   Mitsubishi, Mazatrol→Mazak on Turner; +TNC→Heidenhain on VMC; Sinumerik+M70 on
   Grinding) — owner-ratified product-line equivalences, no new values, snapshot
   untouched, resume map untouched, handover routing-quiet unchanged. Deviation
   from scoped placement: NO Mazatrol on VMC (that pack carries no Mazak chip;
-  adding one is unratified). PENDING MANUAL STEP: `db:seed:packs` on production
-  (rides the same run as E1's pending seed).
+  adding one is unratified). ✅ SEEDED on production (`db:seed:packs`, verify PASS).
+  FOLLOW-UP (CEO pack, 2026-11-02): Mazatrol becomes its own chip value in the
+  Track A Turner retag — the E2 synonym is intentionally short-lived.
 
 ## 1. Grinding + CAM aliases (v1 remainder — do first)
 
@@ -53,8 +59,8 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
   misroute, same mechanism as `post processor`). Measured in review:
   NX/CATIA/Creo/Inventor/Fusion/Solid Edge (+2-token forms) resolve nowhere and
   stay OUT (bare forms swallow live skeletons; needs ratified surface — future
-  E-item). No work-area aliases (generic words, rival trades). PENDING MANUAL
-  STEP: Divyanshu `db:seed:domains` → normalize → verify on production.
+  E-item). No work-area aliases (generic words, rival trades). ✅ SEEDED on
+  production (`db:seed:domains` + normalize + `db:verify:domains` all PASS).
 
 ## 2. The 12 trades (one PR each, in this order — machining-adjacent first)
 
